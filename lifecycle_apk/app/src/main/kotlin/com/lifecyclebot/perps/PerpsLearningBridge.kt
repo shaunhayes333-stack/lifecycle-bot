@@ -808,24 +808,22 @@ object PerpsLearningBridge {
         return try {
             when (name) {
                 "MoonshotTraderAI" -> {
-                    val ai = com.lifecyclebot.v3.scoring.MoonshotTraderAI
-                    val winRate = ai.getWinRatePct()
-                    val direction = if (marketData.priceChange24hPct > 0) PerpsDirection.LONG else PerpsDirection.SHORT
-                    LayerSignal(direction, winRate.toDouble().coerceIn(0.0, 100.0), 40.0, 60.0, 70.0, 0.2)
+                    // V5.0.7403 — meme lane WR is not a perps direction model.
+                    // Keep the layer visible as risk/context only; no LONG/SHORT vote.
+                    val wr = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getWinRatePct().toDouble().coerceIn(0.0, 100.0)
+                    LayerSignal(null, wr, 45.0, 50.0, 70.0, 0.0)
                 }
                 
                 "ShitCoinTraderAI" -> {
-                    val ai = com.lifecyclebot.v3.scoring.ShitCoinTraderAI
-                    val winRate = ai.getWinRatePct()
-                    val direction = if (marketData.priceChange24hPct > 0) PerpsDirection.LONG else PerpsDirection.SHORT
-                    LayerSignal(direction, winRate.toDouble().coerceIn(0.0, 100.0), 60.0, 70.0, 50.0, 0.1)
+                    val wr = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getWinRatePct().toDouble().coerceIn(0.0, 100.0)
+                    LayerSignal(null, wr, 65.0, 45.0, 50.0, 0.0)
                 }
                 
                 "BlueChipTraderAI" -> {
-                    val ai = com.lifecyclebot.v3.scoring.BlueChipTraderAI
-                    val winRate = ai.getWinRatePct()
-                    val direction = if (marketData.getTrend() == "BULLISH") PerpsDirection.LONG else PerpsDirection.SHORT
-                    LayerSignal(direction, winRate.toDouble().coerceIn(0.0, 100.0), 30.0, 50.0, 80.0, 0.0)
+                    // Asset-quality skill can shape risk/liquidity, not fabricate
+                    // SHORT when the perps trend is merely NEUTRAL.
+                    val wr = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getWinRatePct().toDouble().coerceIn(0.0, 100.0)
+                    LayerSignal(null, wr, 30.0, 50.0, 80.0, 0.0)
                 }
                 
                 "QualityTraderAI" -> {
@@ -835,9 +833,10 @@ object PerpsLearningBridge {
                 }
                 
                 "ProjectSniperAI" -> {
-                    val ai = com.lifecyclebot.v3.scoring.ProjectSniperAI
-                    val winRate = ai.getWinRatePct()
-                    LayerSignal(PerpsDirection.LONG, winRate.toDouble().coerceIn(0.0, 100.0), 70.0, 90.0, 40.0, 0.3)
+                    // V5.0.7403 — the meme sniper being LONG-biased does not mean
+                    // every perp should receive a permanent LONG vote.
+                    val wr = com.lifecyclebot.v3.scoring.ProjectSniperAI.getWinRatePct().toDouble().coerceIn(0.0, 100.0)
+                    LayerSignal(null, wr, 70.0, 55.0, 40.0, 0.0)
                 }
                 
                 "VolatilityRegimeAI" -> {
@@ -847,10 +846,19 @@ object PerpsLearningBridge {
                 }
                 
                 "CollectiveIntelligenceAI" -> {
-                    // Query collective for consensus
-                    val direction = if (marketData.getLongShortRatio() > 1.0) PerpsDirection.LONG else PerpsDirection.SHORT
-                    val confidence = (50 + abs(marketData.getLongShortRatio() - 1.0) * 30).coerceIn(0.0, 100.0)
-                    LayerSignal(direction, confidence, 40.0, 60.0, 70.0, 0.1)
+                    // V5.0.7403 — long/short ratio is positioning/crowding, not
+                    // a popularity poll. Meaningful crowded longs support a SHORT
+                    // squeeze/flush thesis; crowded shorts support LONG. Neutral
+                    // positioning produces no directional vote.
+                    val ratio = marketData.getLongShortRatio()
+                    val direction = when {
+                        ratio >= 1.20 -> PerpsDirection.SHORT
+                        ratio <= 0.80 -> PerpsDirection.LONG
+                        else -> null
+                    }
+                    val confidence = if (direction == null) 45.0
+                        else (55 + abs(ratio - 1.0) * 25).coerceIn(55.0, 80.0)
+                    LayerSignal(direction, confidence, 40.0, 55.0, 70.0, 0.0)
                 }
                 
                 "FearGreedAI" -> {
