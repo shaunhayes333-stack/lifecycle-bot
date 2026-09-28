@@ -1,3 +1,13 @@
+## [5.0.7400] - 2026-09-28 — REMOVE THE NEW CHOKES; RESTORE CRYPTO HANDOFF
+
+- Reverted the 7399 PROJECT_SNIPER S0-10 hard FDG cohort floor. Negative-EV cohort evidence is no longer allowed to become an admission kill switch; the pre-existing fluid floor, learned sizing, tactic pivot and lane-expectancy dampers remain the quality controls.
+- Reverted 7399 ranked-out Crypto terminalization. Missing one top-25 window no longer retires a Crypto candidate; ranked-out rows return to shared-intelligence progress so they can be reconsidered as rank/price changes.
+- Removed Crypto's raw pre-canonical 0.01 SOL hard return. CanonicalSizingBridge6532 now owns promotion/clamp/refusal of learned dust sizes.
+- Moved Crypto exposure and cross-trader wallet checks after CanonicalSizingBridge6532 so those guards evaluate the sealed executable size instead of a preliminary learned estimate.
+- Crypto learned discipline (defensive pause, lane timeout, scanner-bridge toxicity) is now shaping/advisory in LIVE rather than a pre-canonical hard veto. Rug blacklist, real route proof, canonical FDG, wallet capacity, execution and finality remain hard safety authorities.
+- Corrected 7399 regression expectations and added Aate7400CryptoThroughputRecoveryTest.
+- Production version authorities bumped to 5.0.7400.
+
 ## [5.0.7399] - 2026-09-28 — THROUGHPUT WITHOUT FUNDING THE BLEEDERS
 
 - SmartSizerV3 no longer double-reserves a one-slot live wallet. The execution reserve is removed before sizing, so a wallet with exactly one routable slot may use the remaining tradeable SOL up to the DEX minimum instead of being refused by a second 60% share cap.
