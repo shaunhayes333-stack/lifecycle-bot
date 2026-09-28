@@ -232,7 +232,8 @@ object ToolkitSignalSheet {
         val volatility = ts.volatility ?: 0.0
         val momentum = ts.momentum ?: 0.0
         val copyHint = toolHints.any { it.contains("COPY") || it.contains("SMART") || it.contains("WHALE") }
-        val socialHint = toolHints.any { it.contains("NARRATIVE") || it.contains("SOCIAL") || it.contains("SENTIMENT") } || src.contains("TREND")
+        // V5.0.7403 — TRENDING is lagging visibility, not social ignition evidence.
+        val socialHint = toolHints.any { it.contains("NARRATIVE") || it.contains("SOCIAL") || it.contains("SENTIMENT") }
         val mevRisk = toolHints.any { it.contains("MEV") || it.contains("JITO") } || (upperWicks >= 2 && sellPressure > 58.0)
         val arbHint = toolHints.any { it.contains("ARB") || it.contains("FLOW") || it.contains("VENUE") }
 
@@ -342,10 +343,20 @@ object ToolkitSignalSheet {
             reasons = listOf("move12=${move12.toInt()}%", "higherLows=$higherLows", "volIgn=${"%.1f".format(volIgnition)}x", "nearHigh=$nearHigh")
         ))
 
-        // Pullback reclaim: prior dump/pullback, stabilization, wicks bought.
+        // Pullback reclaim: depth has a SWEET SPOT. A deeper crash is not a
+        // better dip. Require visible reclaim/stabilisation before rewarding depth.
+        val reclaimDepthScore7403 = when {
+            pullbackFromHigh in 10.0..35.0 -> 24.0
+            pullbackFromHigh > 35.0 && pullbackFromHigh <= 50.0 -> 12.0
+            pullbackFromHigh > 50.0 -> 0.0
+            else -> 0.0
+        }
+        val reclaimConfirmed7403 = wickBought >= 2 && bp >= 52.0 && move5 >= 0.0
         add(Candidate(
             setup = Setup.CHART_PULLBACK_RECLAIM,
-            score = (pullbackFromHigh * 0.9).coerceIn(0.0, 30.0) + (if (wickBought >= 2) 18.0 else 0.0) + (if (bp >= 48.0) 10.0 else 0.0) + (if (move5 > -4.0) 10.0 else 0.0),
+            score = if (!reclaimConfirmed7403) 0.0 else
+                reclaimDepthScore7403 + 18.0 + ((bp - 50.0) * 0.6).coerceIn(0.0, 18.0) +
+                    move5.coerceIn(0.0, 12.0),
             chart = "pullback_reclaim",
             entry = "dip_reclaim_confirmation",
             exit = "reclaim_scalp_or_swing",
@@ -368,15 +379,16 @@ object ToolkitSignalSheet {
             hold = 2.10,
             size = 0.96,
             tp = 1.22,
-            lanes = setOf("QUALITY", "BLUECHIP", "MOONSHOT"),
+            lanes = setOf("QUALITY", "BLUECHIP"),
             tools = setOf("MAINSTREAM_CRYPTO", "WHALE", "QUALITY_DEPTH", "SWING"),
             reasons = listOf("mainstream=$mainstream", "liq=${liq.toInt()}", "mcap=${mcap.toInt()}", "type=$tt")
         ))
 
-        // Exhaustion quick flip: upper wicks + hot recent move = bank quickly, don't diamond-hand.
+        // Exhaustion is exit/risk evidence, not a reason to open a new long.
+        // Keep the setup visible to routing, but give it no bullish desk score.
         add(Candidate(
             setup = Setup.EXHAUSTION_QUICK_FLIP,
-            score = if (upperWicks >= 2 && move5 > 20.0) 55.0 + (move5 * 0.25).coerceAtMost(20.0) else 0.0,
+            score = 0.0,
             chart = "exhaustion_upper_wick",
             entry = "late_momentum_scalp_only",
             exit = "fast_bank_tight_trail",
@@ -415,7 +427,9 @@ object ToolkitSignalSheet {
         // Smart-wallet/copy follow: use existing whale/copy hints as style votes, never a separate executor.
         add(Candidate(
             setup = Setup.SMART_WALLET_COPY_FOLLOW,
-            score = (if (copyHint || tt == ModeRouter.TradeType.COPY_TRADE || tt == ModeRouter.TradeType.WHALE_ACCUMULATION) 45.0 else 0.0) + conf * 0.20 + if (liq >= 5_000.0) 8.0 else 0.0,
+            score = (if (tt == ModeRouter.TradeType.COPY_TRADE || tt == ModeRouter.TradeType.WHALE_ACCUMULATION) 45.0 else 0.0) +
+                (if ((tt == ModeRouter.TradeType.COPY_TRADE || tt == ModeRouter.TradeType.WHALE_ACCUMULATION) && copyHint) 8.0 else 0.0) +
+                conf * 0.12 + if (liq >= 5_000.0) 6.0 else 0.0,
             chart = "smart_wallet_follow",
             entry = "copy_follow_confirmed_flow",
             exit = "leader_like_partial_then_trail",
@@ -430,9 +444,11 @@ object ToolkitSignalSheet {
         // Narrative/social ignition: already has sentiment/narrative systems; route as a bounded style.
         add(Candidate(
             setup = Setup.NARRATIVE_SOCIAL_IGNITION,
-            score = if (launch7402?.tooLateForSnipe == true && ageMin <= 10.0) 0.0 else
-                (if (socialHint || tt == ModeRouter.TradeType.SENTIMENT_IGNITION) 38.0 else 0.0) +
-                    sentimentScore.coerceAtLeast(0.0) * 0.35 + (bp - 50.0).coerceAtLeast(0.0) * 0.5,
+            score = if (launch7402?.tooLateForSnipe == true && ageMin <= 10.0) 0.0 else {
+                val sentimentConfirmed7403 = tt == ModeRouter.TradeType.SENTIMENT_IGNITION || (socialHint && sentimentScore > 10.0)
+                if (!sentimentConfirmed7403) 0.0 else 32.0 + sentimentScore.coerceAtLeast(0.0) * 0.30 +
+                    (bp - 50.0).coerceAtLeast(0.0) * 0.4
+            },
             chart = "narrative_social_ignition",
             entry = "narrative_momentum_confirm",
             exit = "narrative_fade_quick_trail",
@@ -459,10 +475,14 @@ object ToolkitSignalSheet {
             reasons = listOf("liq=${liq.toInt()}", "mcap=${mcap.toInt()}", "sell=${sellPressure.toInt()}")
         ))
 
-        // Panic reversion / recovery: route dumps that stabilize into reclaim tooling.
+        // Panic reversion / recovery requires a RECLAIM. One wick while still
+        // falling is not a bounce, and >55% collapse is catastrophe territory.
+        val panicReclaim7403 = pullbackFromHigh in 25.0..55.0 && wickBought >= 2 &&
+            move5 > 1.0 && bp >= 52.0 && sellPressure < 52.0
         add(Candidate(
             setup = if (laneHints.contains("DIP_HUNTER")) Setup.REENTRY_RECOVERY else Setup.PANIC_REVERSION_BOUNCE,
-            score = (if (pullbackFromHigh >= 28.0 && wickBought >= 1) 35.0 else 0.0) + (if (move5 > -8.0) 10.0 else 0.0) + (if (bp >= 45.0) 8.0 else 0.0),
+            score = if (!panicReclaim7403) 0.0 else
+                38.0 + move5.coerceIn(0.0, 12.0) + ((bp - 50.0) * 0.5).coerceIn(0.0, 15.0),
             chart = "panic_reversion_bounce",
             entry = "panic_reclaim_probe",
             exit = "bounce_bank_or_recovery_trail",
@@ -489,10 +509,12 @@ object ToolkitSignalSheet {
             reasons = listOf("arbHint=$arbHint", "mom=${momentum.toInt()}", "volIgn=${"%.1f".format(volIgnition)}x")
         ))
 
-        // MEV protected entry / defensive probe: marks hostile microstructure and keeps sizing conservative.
+        // MEV / hostile microstructure is risk metadata, never bullish alpha.
+        // A defensive-probe label must not win a real-money entry election merely
+        // because sell pressure and volatility are high.
         add(Candidate(
             setup = if (mevRisk) Setup.MEV_PROTECTED_ENTRY else Setup.REGIME_DEFENSIVE_PROBE,
-            score = (if (mevRisk) 40.0 else 0.0) + (if (volatility > 55.0) 10.0 else 0.0) + (if (sellPressure > 60.0) 10.0 else 0.0),
+            score = 0.0,
             chart = "mev_or_hostile_microstructure",
             entry = "protected_probe_only",
             exit = "tight_invalidated_exit",
