@@ -42,6 +42,31 @@ object WhaleDetector {
     private val recentLargeBuys = mutableMapOf<String, MutableList<LargeBuy>>()
     private val walletBuyCount  = mutableMapOf<String, MutableMap<String, Int>>()
 
+    // V5.0.7401 — launch ignition tape. The old recordTrade returned before
+    // recording sells and buys <0.5 SOL, so the "pre-parabola" system could
+    // not see the actual first-minute order flow. Keep a tiny 90-second tape
+    // of every normalized PumpPortal/Helius trade.
+    data class LaunchTrade(
+        val ts: Long,
+        val wallet: String,
+        val sol: Double,
+        val isBuy: Boolean,
+    )
+    data class LaunchFlow(
+        val buyTx60s: Int,
+        val sellTx60s: Int,
+        val buySol60s: Double,
+        val sellSol60s: Double,
+        val distinctBuyers60s: Int,
+        val devBuyTx60s: Int,
+        val devSellTx60s: Int,
+        val buyTx15s: Int,
+        val buyTxPrev15s: Int,
+        val accelerationRising: Boolean,
+        val buySharePct: Double,
+    )
+    private val launchTrades7401 = java.util.concurrent.ConcurrentHashMap<String, java.util.ArrayDeque<LaunchTrade>>()
+
     data class LargeBuy(
         val ts: Long,
         val walletAddress: String,
@@ -54,8 +79,16 @@ object WhaleDetector {
      * Called by DataOrchestrator on every swap event.
      */
     fun recordTrade(mint: String, wallet: String, solAmount: Double, isBuy: Boolean) {
-        if (!isBuy || solAmount < MIN_SIGNIFICANT_SOL) return
         val now = System.currentTimeMillis()
+        if (mint.isNotBlank() && solAmount.isFinite() && solAmount > 0.0) {
+            val q = launchTrades7401.getOrPut(mint) { java.util.ArrayDeque() }
+            synchronized(q) {
+                q.addLast(LaunchTrade(now, wallet, solAmount, isBuy))
+                while (q.isNotEmpty() && now - q.first().ts > 90_000L) q.removeFirst()
+                while (q.size > 512) q.removeFirst()
+            }
+        }
+        if (!isBuy || solAmount < MIN_SIGNIFICANT_SOL) return
 
         // Track wallet buy frequency
         val walletMap = walletBuyCount.getOrPut(mint) { mutableMapOf() }
@@ -145,8 +178,39 @@ object WhaleDetector {
         )
     }
 
+    fun launchFlow7401(mint: String, devWallet: String? = null, nowMs: Long = System.currentTimeMillis()): LaunchFlow {
+        val q = launchTrades7401[mint]
+        val rows = if (q == null) emptyList() else synchronized(q) {
+            while (q.isNotEmpty() && nowMs - q.first().ts > 90_000L) q.removeFirst()
+            q.toList()
+        }
+        val r60 = rows.filter { nowMs - it.ts <= 60_000L }
+        val r15 = rows.filter { nowMs - it.ts <= 15_000L }
+        val prev15 = rows.filter { nowMs - it.ts in 15_001L..30_000L }
+        val buys = r60.filter { it.isBuy }
+        val sells = r60.filterNot { it.isBuy }
+        val buySol = buys.sumOf { it.sol }
+        val sellSol = sells.sumOf { it.sol }
+        val totalSol = buySol + sellSol
+        val dev = devWallet?.takeIf { it.isNotBlank() }
+        return LaunchFlow(
+            buyTx60s = buys.size,
+            sellTx60s = sells.size,
+            buySol60s = buySol,
+            sellSol60s = sellSol,
+            distinctBuyers60s = buys.map { it.wallet }.filter { it.isNotBlank() }.toSet().size,
+            devBuyTx60s = if (dev == null) 0 else buys.count { it.wallet == dev },
+            devSellTx60s = if (dev == null) 0 else sells.count { it.wallet == dev },
+            buyTx15s = r15.count { it.isBuy },
+            buyTxPrev15s = prev15.count { it.isBuy },
+            accelerationRising = r15.count { it.isBuy } >= 3 && r15.count { it.isBuy } > prev15.count { it.isBuy },
+            buySharePct = if (totalSol > 0.0) buySol / totalSol * 100.0 else 50.0,
+        )
+    }
+
     fun clearToken(mint: String) {
         recentLargeBuys.remove(mint)
         walletBuyCount.remove(mint)
+        launchTrades7401.remove(mint)
     }
 }
