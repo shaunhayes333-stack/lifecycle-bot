@@ -4659,7 +4659,11 @@ object FinalDecisionGate {
 
         if (combinedSizeMultiplier < 1.0 && blockReason == null) {
             val originalSize = finalSize
-            finalSize = (finalSize * combinedSizeMultiplier).coerceAtLeast(0.02)
+            // V5.0.7403 — preserve the true shaped intent. Local floors here
+            // turned an evidence collapse into a legal order before the canonical
+            // resolver could inspect per-mint conviction. Minimum executable
+            // policy belongs exclusively to OrderSizeResolver6441.
+            finalSize = (finalSize * combinedSizeMultiplier).coerceAtLeast(0.0)
             checks.add(GateCheck("bootstrap_size_cut", true, "Size cut for probe: ${originalSize.format(4)} × ${combinedSizeMultiplier.format(2)} = ${finalSize.format(4)}"))
             tags.add("bootstrap_size_reduced")
         }
@@ -4667,7 +4671,7 @@ object FinalDecisionGate {
         // V5.9.10: Symbolic size bias — emotional state + edge strength shape sizing
         if (blockReason == null && kotlin.math.abs(symSizeAdj - 1.0) > 0.05) {
             val originalSize = finalSize
-            finalSize = (finalSize * symSizeAdj).coerceAtLeast(0.003)
+            finalSize = (finalSize * symSizeAdj).coerceAtLeast(0.0)
             checks.add(GateCheck("symbolic_size_bias", true,
                 "Symbolic size ${originalSize.format(4)} × ${symSizeAdj.format(2)} = ${finalSize.format(4)} (mood=$symMood)"))
             tags.add("symbolic_sized")
@@ -4720,19 +4724,19 @@ object FinalDecisionGate {
                 val priorSize6026 = finalSize
                 blockReason = null
                 blockLevel = null
-                finalSize = (finalSize * fdgBrainChain6026.sizeMultiplier).coerceAtLeast(0.01)
+                finalSize = (finalSize * fdgBrainChain6026.sizeMultiplier).coerceAtLeast(0.0)
                 tags.add("fdg_brain_softened_block")
                 tags.add("softened:${priorBlock6026.take(32)}")
                 checks.add(GateCheck("fdg_brain_soften", true, "softened $priorBlock6026 via agreeability chain; size ${priorSize6026.format(3)}→${finalSize.format(3)}"))
                 try { PipelineHealthCollector.labelInc("FDG_BRAIN_SOFTENED_BLOCK_6026") } catch (_: Throwable) {}
             } else if (blockReason == null && fdgBrainChain6026.verdict == FdgBrainChain.Verdict.CONFLICTED) {
                 val priorSize6026 = finalSize
-                finalSize = (finalSize * fdgBrainChain6026.sizeMultiplier).coerceAtLeast(0.01)
+                finalSize = (finalSize * fdgBrainChain6026.sizeMultiplier).coerceAtLeast(0.0)
                 tags.add("fdg_brain_conflict_sized")
                 checks.add(GateCheck("fdg_brain_size", true, "conflicted chain size ${priorSize6026.format(3)}→${finalSize.format(3)} target=${fdgBrainChain6026.targetMode}"))
             } else if (blockReason == null && fdgBrainChain6026.verdict == FdgBrainChain.Verdict.ALIGNED && kotlin.math.abs(fdgBrainChain6026.compoundingMultiplier - 1.0) > 0.01) {
                 val priorSize6027 = finalSize
-                finalSize = (finalSize * fdgBrainChain6026.compoundingMultiplier).coerceAtLeast(0.01)
+                finalSize = (finalSize * fdgBrainChain6026.compoundingMultiplier).coerceAtLeast(0.0)
                 tags.add("fdg_brain_target:${fdgBrainChain6026.targetMode}")
                 checks.add(GateCheck("fdg_brain_compounding", true, "${fdgBrainChain6026.targetMode} compound ${priorSize6027.format(3)}→${finalSize.format(3)} mult=${fdgBrainChain6026.compoundingMultiplier.format(2)}"))
                 try { PipelineHealthCollector.labelInc("FDG_BRAIN_COMPOUNDING_TARGET_6027_${fdgBrainChain6026.targetMode}") } catch (_: Throwable) {}
