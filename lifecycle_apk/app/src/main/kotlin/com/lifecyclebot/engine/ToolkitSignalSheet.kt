@@ -419,7 +419,7 @@ object ToolkitSignalSheet {
             hold = 0.75,
             size = 0.78,
             tp = 0.92,
-            lanes = setOf("EXPRESS", "SHITCOIN", "MANIPULATED", "CASHGEN"),
+            lanes = setOf("EXPRESS", "SHITCOIN"),
             tools = setOf("VOLUME_IGNITION", "ORDER_FLOW", "SCALP", "DEGEN_EXIT"),
             reasons = listOf("volIgn=${"%.1f".format(volIgnition)}x", "bp=${bp.toInt()}", "move5=${move5.toInt()}%")
         ))
@@ -504,7 +504,7 @@ object ToolkitSignalSheet {
             hold = 0.55,
             size = 0.60,
             tp = 0.78,
-            lanes = setOf("EXPRESS", "SHITCOIN", "TREASURY", "CASHGEN"),
+            lanes = setOf("EXPRESS", "SHITCOIN"),
             tools = setOf("ARB", "FLOW_IMBALANCE", "VENUE_LAG", "ORDER_FLOW"),
             reasons = listOf("arbHint=$arbHint", "mom=${momentum.toInt()}", "volIgn=${"%.1f".format(volIgnition)}x")
         ))
