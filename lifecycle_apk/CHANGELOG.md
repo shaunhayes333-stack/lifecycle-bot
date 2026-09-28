@@ -1,3 +1,14 @@
+## [5.0.7399] - 2026-09-28 — THROUGHPUT WITHOUT FUNDING THE BLEEDERS
+
+- SmartSizerV3 no longer double-reserves a one-slot live wallet. The execution reserve is removed before sizing, so a wallet with exactly one routable slot may use the remaining tradeable SOL up to the DEX minimum instead of being refused by a second 60% share cap.
+- PROJECT_SNIPER's live S0-10 bucket is shaped at the cohort boundary when live LosingPatternMemory proves it dangerous. Specialist-score rescue cannot bypass that negative cohort; 10% deterministic exploration remains for regime-change detection. Other sniper bands and all other lanes are unchanged.
+- PriceResolverFallback is cache-first on the held-position path and bounded to a 2.5s total enrichment budget with 1.2s calls, preventing serial keyless-provider waits from parking the 1 Hz exit/risk loop for tens of seconds.
+- CryptoAltTrader terminalizes ranked-out dynamic candidates for the current evaluation generation instead of leaving them in SHARED_INTELLIGENCE_BACKLOG_COALESCED until stale expiry. They remain discoverable on later scans.
+- LIVE acceptance treats only PAPER ledger/journal conservation deltas as diagnostic; structural execution failures (phantom sizing, intent/finality cardinality, missing exit evaluation, etc.) remain hard acceptance failures.
+- RunnerCompoundingLadder status now prints separate LIVE and PAPER bankroll/recommendation observations so a paper query cannot masquerade as the live sizing base.
+- Production version authorities bumped to 5.0.7399.
+- Added Aate7399ThroughputQualityAndLatencyTest.
+
 ## [5.0.7398] - 2026-09-28 — GOVERNOR SHAPES; TREASURY ACCOUNTING COMPARES LIKE-FOR-LIKE
 
 - LaneEntryContract6342 no longer turns confidence-governor HOLD or GovernorRecovery6388 BLOCKED_INFRASTRUCTURE/EXIT_ONLY into a universal live-buy veto. Those states are telemetry/sizing/selectivity inputs; concrete wallet, route, quantity, signing and finality authorities remain the hard execution guards.
