@@ -233,6 +233,28 @@ object CryptoAltTrader {
     private val isEnabled        = AtomicBoolean(true)
     private val preferLeverage   = AtomicBoolean(false)  // V5.9.3: mirrors UI SPOT/LEVERAGE toggle
     private val isPaperMode      = AtomicBoolean(true)
+
+    /**
+     * V5.0.7425 — ECONOMIC MODE AUTHORITY.
+     * CryptoAlt keeps a local mode mirror for UI/persistence, but economic
+     * candidates must read RuntimeModeAuthority at submit/dispatch time.
+     */
+    private fun authoritativePaperMode7425(): Boolean {
+        val authoritative = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() }
+            catch (_: Throwable) { isPaperMode.get() }
+        val local = isPaperMode.get()
+        if (local != authoritative) {
+            isPaperMode.set(authoritative)
+            try {
+                PipelineHealthCollector.labelInc("CRYPTO_MODE_MIRROR_HEALED_7425")
+                ForensicLogger.lifecycle(
+                    "CRYPTO_MODE_MIRROR_HEALED_7425",
+                    "local=" + (if (local) "PAPER" else "LIVE") + " authority=" + (if (authoritative) "PAPER" else "LIVE") + " action=runtime_authority_wins",
+                )
+            } catch (_: Throwable) {}
+        }
+        return authoritative
+    }
     private val scanCount        = AtomicInteger(0)
     private val totalTrades      = AtomicInteger(0)
     private val winningTrades    = AtomicInteger(0)
@@ -3276,7 +3298,7 @@ object CryptoAltTrader {
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = candidate.assetKey, symbol = mktSym,
                 assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
-                mode = if (isPaperMode.get()) "PAPER" else "LIVE",
+                mode = if (authoritativePaperMode7425()) "PAPER" else "LIVE",
                 direction = signal.direction.name, requestedVenue = candidate.venue,
                 adapter = candidate.executionAdapter, source = candidate.universe,
                 specialist = "CRYPTO", score = candidate.score.toDouble(), confidence = 1.0,
@@ -3286,7 +3308,7 @@ object CryptoAltTrader {
                     "deskLane7391" to CryptoLaneDesk7391.laneFromReasons(signal.reasons).ifBlank { "NONE" },
                 ),
                 requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
-                routeAvailable = isPaperMode.get() || candidate.executionAdapter != "NONE",
+                routeAvailable = authoritativePaperMode7425() || candidate.executionAdapter != "NONE",
                 hardSafetyReasons = candidate.hardNoReasons, candidateVersion = candidate.candidateVersion,
                 diagnosticSignal = candidate.preFdgVerdict.name,
             )
@@ -3392,7 +3414,7 @@ object CryptoAltTrader {
         // live fires a Jupiter swap at the EXACT same canonicalFinalSize6570 so sizing
         // learnt in paper carries 1:1 into live. If the live swap fails
         // we roll back: the position is not created and we return.
-        if (isPaperMode.get()) {
+        if (authoritativePaperMode7425()) {
             // V5.0.6578 §P1-1 — PAPER PATH DISPATCH PARITY.
             // Operator forensic (6573): CryptoAlt intent=3 dispatch=0 open=0
             // unexplained=3. The paper branch previously never called
@@ -5064,7 +5086,7 @@ object CryptoAltTrader {
     }
 
     fun getBalance()          : Double = getEffectiveBalance()
-    fun getEffectiveBalance() : Double = if (isPaperMode.get())
+    fun getEffectiveBalance() : Double = if (authoritativePaperMode7425())
         try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.availableCashSol() }
             catch (_: Throwable) { com.lifecyclebot.engine.BotService.status.paperWalletSol }
         else liveWalletSol7211()
@@ -5109,7 +5131,7 @@ object CryptoAltTrader {
      * and closed trade history. Open positions have closeTime == null; closed have closeTime set.
      */
     private fun activeModePositions7256(values: Collection<AltPosition>): List<AltPosition> {
-        val paper = isPaperMode.get()
+        val paper = authoritativePaperMode7425()
         return values.filter { it.isPaper == paper }
     }
     fun getAllPositions()      : List<AltPosition> { syncCanonicalCryptoPositions7255(); return activeModePositions7256(positions.values) + closedPositions.toList() }

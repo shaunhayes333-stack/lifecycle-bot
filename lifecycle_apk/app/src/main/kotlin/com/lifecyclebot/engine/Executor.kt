@@ -27208,16 +27208,27 @@ class Executor(
             // profit-take/trail sells defer. A lock older than the stale TTL also punches
             // through so nothing is trapped on a dead basis indefinitely.
             val rLock = reason.uppercase()
+            // V5.0.7425 — a profit-lock/trailing/giveback exit is protective,
+            // not a discretionary take-profit. If the wallet quantity + live mark
+            // are already usable, RecoveryLock basis hydration must not hold an
+            // observed winner through its giveback window for up to ten minutes.
+            // Plain TAKE_PROFIT remains discretionary and still waits.
             val isRiskExit = rLock.contains("HARD_FLOOR") || rLock.contains("STOP_LOSS") ||
                 rLock.contains("STOP") || rLock.contains("STRICT_SL") || rLock.contains("CATASTROPHE") ||
                 rLock.contains("RUG") || rLock.contains("DRAIN") || rLock.contains("SHUTDOWN") ||
-                rLock.contains("MANUAL") || rLock.contains("EMERGENCY") || rLock.contains("LIQUIDATE")
+                rLock.contains("MANUAL") || rLock.contains("EMERGENCY") || rLock.contains("LIQUIDATE") ||
+                rLock.contains("PROFIT_LOCK") || rLock.contains("TRAIL") || rLock.contains("GIVEBACK")
             val lockAgeMs = com.lifecyclebot.engine.sell.RecoveryLockTracker.lockAgeMs(ts.mint)
             val staleLock = lockAgeMs > 600_000L  // 10 min — basis clearly not loading
             if (isRiskExit || staleLock) {
                 try { com.lifecyclebot.engine.sell.RecoveryLockTracker.forceUnlock(ts.mint) } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("RECOVERY_LOCK_PUNCH_THROUGH",
-                    "mint=${ts.mint.take(12)} reason=$reason risk=$isRiskExit staleMs=$lockAgeMs") } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle("RECOVERY_LOCK_PUNCH_THROUGH",
+                        "mint=${ts.mint.take(12)} reason=$reason risk=$isRiskExit staleMs=$lockAgeMs")
+                    if (rLock.contains("PROFIT_LOCK") || rLock.contains("TRAIL") || rLock.contains("GIVEBACK")) {
+                        PipelineHealthCollector.labelInc("RECOVERY_LOCK_PROTECTIVE_EXIT_PUNCH_THROUGH_7425")
+                    }
+                } catch (_: Throwable) {}
                 // fall through to the normal sell path — risk exit proceeds NOW.
             } else {
                 onLog("🔒 SELL DEFERRED: ${ts.symbol} — RECOVERY_POSITION_LOCKED (profit-take only).", tradeId.mint)

@@ -288,8 +288,17 @@ object ManipulatedTraderAI {
         if (ageMinutes > maxAge) return noEnter("TOKEN_TOO_OLD_${ageMinutes.toInt()}m>${maxAge.toInt()}m")
 
         // V5.6.8: REMOVED rugcheck block — Manipulated layer INTENTIONALLY trades risky tokens
-        // The whole point is to ride manipulator pumps that other layers reject
-        // TradeAuthorizer.ExecutionBook.MANIPULATED bypasses rugcheck checks
+        // The whole point is to ride manipulator pumps that other layers reject.
+        // V5.0.7425: risky is NOT the same as manipulated. Source+young-age alone
+        // can score 20 points and used to admit ordinary fresh tokens into the
+        // danger lane without any actual manipulation evidence.
+        val knownManipulation7425 =
+            bundlePct >= 40.0 ||
+            (buyPressurePct >= 70.0 && momentum >= 10.0)
+        if (!knownManipulation7425) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIPULATED_NO_KNOWN_DANGER_PROOF_7425") } catch (_: Throwable) {}
+            return noEnter("NO_KNOWN_MANIPULATION_EVIDENCE_7425")
+        }
 
         // Calculate manipulation score
         var score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)

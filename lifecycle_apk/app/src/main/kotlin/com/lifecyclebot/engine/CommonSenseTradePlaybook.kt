@@ -153,6 +153,17 @@ object CommonSenseTradePlaybook {
         if (snap.hardSafetyBlocked || snap.holderHardRisk) {
             return deny("TRUE_HARD_SAFETY_OR_HOLDER_RISK", "hardSafety=${snap.hardSafetyBlocked} holderHard=${snap.holderHardRisk} safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
         }
+        // V5.0.7425 — lifecycle danger is not a normal-lane dip signal.
+        // POST_PUMP_EXHAUSTION / free-fall / breakdown may only be considered
+        // by the explicitly MANIPULATED desk. DIP_HUNTER/QUALITY must wait for
+        // the stage router's reclaim confirmation instead of catching the knife.
+        if (!snap.lane.equals("MANIPULATED", true) &&
+            (snap.tradeType == "POST_PUMP_EXHAUSTION" || snap.dangerousStructure)) {
+            return deny(
+                "LIFECYCLE_DANGER_NON_MANIPULATED_7425",
+                "lane=${snap.lane} tradeType=${snap.tradeType} dangerous=${snap.dangerousStructure}",
+            )
+        }
         if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) {
             if (tradeableSetup && snap.score >= fluidScore6020(55.0)) {
                 return allowShaped(

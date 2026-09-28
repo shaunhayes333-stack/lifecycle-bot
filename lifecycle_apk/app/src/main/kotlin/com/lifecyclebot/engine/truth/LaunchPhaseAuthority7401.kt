@@ -26,6 +26,9 @@ object LaunchPhaseAuthority7401 {
     private data class PhaseEmit7408(val phase: Phase, val atMs: Long)
     private val cache7408 = java.util.concurrent.ConcurrentHashMap<String, Cached7408>()
     private val phaseEmit7408 = java.util.concurrent.ConcurrentHashMap<String, PhaseEmit7408>()
+    // V5.0.7425 — session high-water survives local history-window churn. A
+    // watchlist/history refresh must not erase the fact that a token already pumped.
+    private val observedPeak7425 = java.util.concurrent.ConcurrentHashMap<String, Double>()
     private const val SNAPSHOT_TTL_MS_7408 = 750L
     private const val SAME_PHASE_EMIT_MS_7408 = 5_000L
 
@@ -95,8 +98,16 @@ object LaunchPhaseAuthority7401 {
             catch (_: Throwable) { emptyList() }
         val current = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: prices.lastOrNull() ?: 0.0
         val recentPeak = prices.takeLast(16).maxOrNull()?.takeIf { it > 0.0 } ?: current
-        val peakPos = if (recentPeak > 0.0 && current > 0.0) (current / recentPeak).coerceIn(0.0, 2.0) else 1.0
+        val sessionPeak7425 = if (mintKey7408.isNotBlank() && current > 0.0) {
+            observedPeak7425.merge(mintKey7408, maxOf(recentPeak, current)) { a, b -> maxOf(a, b) } ?: maxOf(recentPeak, current)
+        } else maxOf(recentPeak, current)
+        val effectivePeak7425 = maxOf(recentPeak, sessionPeak7425)
+        val peakPos = if (effectivePeak7425 > 0.0 && current > 0.0) (current / effectivePeak7425).coerceIn(0.0, 2.0) else 1.0
         val multiple = createMultiple(ts)
+        val acute5m7425 = ts.lastPriceChange5m.takeIf { it.isFinite() } ?: 0.0
+        val acuteCascade7425 = acute5m7425 <= -18.0
+        val pumpedThenReversed7425 = ts.lastPriceChange1h >= 80.0 && acute5m7425 <= -8.0
+        val observedPeakBreak7425 = prices.size >= 4 && peakPos < 0.78
 
         val sellDominant = flow.sellTx60s >= 3 &&
             (flow.buySharePct < 45.0 || flow.sellTx60s > flow.buyTx60s)
@@ -127,7 +138,12 @@ object LaunchPhaseAuthority7401 {
             (multiple == null || multiple < 1.5)
 
         val phase = when {
-            devDump || (alreadyExpanded && (sellDominant || rolledOver)) ||
+            // V5.0.7425 — direction outranks youth. A token down sharply in the
+            // current 5m window, or materially below an already observed peak,
+            // cannot be called EXPANDING merely because createMultiple is absent
+            // or the bot noticed it less than three minutes ago.
+            devDump || acuteCascade7425 || pumpedThenReversed7425 || observedPeakBreak7425 ||
+                (alreadyExpanded && (sellDominant || rolledOver)) ||
                 (lateByAge && (sellDominant || rolledOver)) -> Phase.POST_PUMP_FADE
             ignitionEvidence -> Phase.IGNITION
             earlyInterest -> Phase.PRE_IGNITION
@@ -144,6 +160,9 @@ object LaunchPhaseAuthority7401 {
             append(" devB/S=").append(flow.devBuyTx60s).append('/').append(flow.devSellTx60s)
             append(" accel=").append(flow.accelerationRising)
             append(" peakPos=").append("%.2f".format(peakPos))
+            append(" chg5m=").append("%.1f".format(acute5m7425))
+            append(" chg1h=").append("%.1f".format(ts.lastPriceChange1h))
+            append(" acuteFade=").append(acuteCascade7425 || pumpedThenReversed7425 || observedPeakBreak7425)
         }
         val out7408 = Snapshot(
             phase, age, multiple, flow.buySharePct, flow.buyTx60s, flow.sellTx60s,
@@ -161,6 +180,9 @@ object LaunchPhaseAuthority7401 {
                 val cutoff7408 = nowMs - 60_000L
                 try { cache7408.entries.removeIf { it.value.atMs < cutoff7408 } } catch (_: Throwable) {}
                 try { phaseEmit7408.entries.removeIf { it.value.atMs < cutoff7408 } } catch (_: Throwable) {}
+                // Keep peak memory only while the mint remains recently observed.
+                val liveKeys7425 = cache7408.keys
+                try { observedPeak7425.keys.removeIf { it !in liveKeys7425 } } catch (_: Throwable) {}
             }
         } else {
             try { PipelineHealthCollector.labelInc("LAUNCH_PHASE_7401_${phase.name}") } catch (_: Throwable) {}

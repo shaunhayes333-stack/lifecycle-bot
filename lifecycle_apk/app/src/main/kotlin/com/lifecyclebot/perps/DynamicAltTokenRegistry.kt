@@ -232,6 +232,7 @@ object DynamicAltTokenRegistry {
     private val evaluationCoalesced6615 = AtomicLong(0L)
     private val evaluationSuperseded6615 = AtomicLong(0L)
     private val evaluationStaleDropped6615 = AtomicLong(0L)
+    private val evaluationRetryableReleased7425 = AtomicLong(0L)
     // V5.0.6580 §P0-f — bounded evidence deadline. First-seen timestamp per
     // (identity, state-key) so a second stamp of the same non-terminal state
     // more than EVIDENCE_TTL_MS_6580 later reaps into STALE_EXPIRED_6580_<state>.
@@ -863,6 +864,7 @@ object DynamicAltTokenRegistry {
         if (!removed) return false
         evaluationInflightStartedAt6692.remove(identity)
         evaluationProgressStamp6580.keys.removeIf { it.startsWith(identity + EVAL_PROGRESS_SEPARATOR_6692) }
+        evaluationRetryableReleased7425.incrementAndGet()
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_RETRYABLE_RELEASE_7418")
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -877,6 +879,16 @@ object DynamicAltTokenRegistry {
         val s = state.uppercase()
         return s.contains("CRYPTO_BRAIN_OBSERVE_7244") ||
             s.contains("CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244") ||
+            s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
+            s.contains("PRICE_UNAVAILABLE")
+    }
+
+    /** End-of-pass passive states may release immediately. OBSERVE is deliberately
+     * excluded because CryptoAlt stamps it before specialist evaluation completes. */
+    private fun releaseAtPassBoundary7425(state: String): Boolean {
+        val s = state.uppercase()
+        return s.contains("CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244") ||
+            s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
             s.contains("PRICE_UNAVAILABLE")
     }
 
@@ -929,6 +941,15 @@ object DynamicAltTokenRegistry {
                 "identity=${tok.canonicalIdentity6544} symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} state=$key terminal=false coalesced=true")
             else com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_PROGRESS_COALESCED_6615")
         } catch (_: Throwable) {}
+        // V5.0.7425 — passive observation/backlog states have completed this
+        // evaluation pass. Release the exact generation immediately so the next
+        // materially changed observation can be reconsidered without waiting for
+        // the adaptive stale lease. This is not a terminal trade outcome.
+        if (releaseAtPassBoundary7425(key)) {
+            if (releaseEvaluationForRetry7418(tok, key)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_RETRYABLE_PROGRESS_RELEASED_7425") } catch (_: Throwable) {}
+            }
+        }
         // V5.0.6580 §P0-f — BOUNDED EVIDENCE DEADLINE.
         // Operator directive (6578 forensic): 159/200 crypto evaluations never
         // terminalize because SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE and
@@ -939,20 +960,25 @@ object DynamicAltTokenRegistry {
         // disposition so operator's 'no permanent missing bucket' invariant
         // holds. Discovery breadth is not reduced — the token remains in the
         // registry, just with an explicit terminal disposition.
-        try {
-            val progressKey6580 = "${tok.canonicalIdentity6544}$EVAL_PROGRESS_SEPARATOR_6692$key"
-            val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
-            if (firstSeenAt != null) {
-                val age = System.currentTimeMillis() - firstSeenAt
-                val ttl6632 = adaptiveEvidenceTtlMs6632()
-                if (age > ttl6632) {
-                    evaluationProgressStamp6580.remove(progressKey6580)
-                    markEvaluationDisposition6567(tok, "STALE_EXPIRED_6580_$key")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_6580")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_ADAPTIVE_6632")
+        // OBSERVE is still an active evaluation state: keep a stale-reaper
+        // stamp for it. Only states that already released at the pass boundary
+        // skip the per-identity deadline stamp.
+        if (!releaseAtPassBoundary7425(key)) {
+            try {
+                val progressKey6580 = "${tok.canonicalIdentity6544}$EVAL_PROGRESS_SEPARATOR_6692$key"
+                val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
+                if (firstSeenAt != null) {
+                    val age = System.currentTimeMillis() - firstSeenAt
+                    val ttl6632 = adaptiveEvidenceTtlMs6632()
+                    if (age > ttl6632) {
+                        evaluationProgressStamp6580.remove(progressKey6580)
+                        markEvaluationDisposition6567(tok, "STALE_EXPIRED_6580_$key")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_6580")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_ADAPTIVE_6632")
+                    }
                 }
-            }
-        } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+        }
         // V5.0.6587 §P0-4 — GLOBAL STALE SWEEP.
         // Operator forensic (6580 → 6586): 438 tokens stuck at
         // SPECIALIST_SILENCE_SHARED_EVIDENCE + SHARED_INTELLIGENCE_BACKLOG_
@@ -1109,9 +1135,12 @@ object DynamicAltTokenRegistry {
             } catch (_: Throwable) {}
             append("static-vs-dynamic evaluation share=").append(staticEvaluated6544.get()).append('/').append(dynamicEvaluated6544.get()).append('\n')
             val terminal6567 = evaluationDisposition6567.values.sumOf { it.get() }
-            append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())
+            val retryReleased7425 = evaluationRetryableReleased7425.get()
+            append("evaluation outcomes=startEvents:").append(evaluationStarted6567.get())
                 .append(" terminal:").append(terminal6567)
-                .append(" missing:").append((evaluationStarted6567.get() - terminal6567).coerceAtLeast(0L)).append('\n')
+                .append(" retryReleased:").append(retryReleased7425)
+                .append(" inflight:").append(evaluationInflight6615.size)
+                .append(" read=retryReleased_is_nonterminal_completed_pass_not_missing").append('\n')
             val oldestInflightAge6615 = evaluationInflightStartedAt6692.values
                 .minOrNull()?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: 0L
             append("evaluation ownership queueSize=0 uniqueCandidateCount=").append(registry.size)

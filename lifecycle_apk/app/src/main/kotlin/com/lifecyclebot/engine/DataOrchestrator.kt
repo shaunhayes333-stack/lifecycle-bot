@@ -593,6 +593,10 @@ class DataOrchestrator(
                 ts.lastBuyPressurePct = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
                 // V5.9.827 — wire previously-dropped distribution + hourly signals
                 ts.lastSellPressurePct = if (txns5m > 0) (sells5m.toDouble() / txns5m) * 100 else 50.0
+                // V5.0.7425 — do not throw away the short-horizon direction.
+                // Lifecycle routing needs this exact feed to distinguish ignition
+                // from a token already cascading after its pump.
+                ts.lastPriceChange5m = priceChange5m
                 ts.lastPriceChange1h = priceChange1h
                 
                 // Update volume scores in meta (copy with new values)
