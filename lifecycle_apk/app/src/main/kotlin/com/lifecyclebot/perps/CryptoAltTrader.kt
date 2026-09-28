@@ -1559,9 +1559,14 @@ object CryptoAltTrader {
             uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
                 val observedTok6569 = observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-                // Compatibility counter only: one per terminalized material generation.
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE") } catch (_: Throwable) {}
-                DynamicAltTokenRegistry.markEvaluationProgress6570(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED")
+                // V5.0.7399 — ranked-out rows are terminal for THIS evaluation
+                // generation, not an inflight backlog. Leaving them as progress
+                // caused 40+ minute "oldestQueueAge" and thousands of stale-expiry
+                // rows even though the bounded top set was being processed normally.
+                // They remain discoverable and can start a fresh generation on a
+                // later scan when their rank improves.
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_RANKED_OUT_WINDOW_7399") } catch (_: Throwable) {}
+                DynamicAltTokenRegistry.markEvaluationDisposition6567(observedTok6569, "RANKED_OUT_THIS_WINDOW_7399")
             }
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
                 if (activeModePositions7256(positions.values).size >= MAX_POSITIONS) {
