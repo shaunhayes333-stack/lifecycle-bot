@@ -148,6 +148,29 @@ object HeldPositionPivotArbiter {
                 return PivotResult(false, current, current, bestScore, incumbentScore, "runner_lane_kept_7369")
             }
 
+            // V5.0.7403 — NO THESIS LAUNDERING.
+            // A losing/failed fast thesis may tighten or become a recovery/quick-cut
+            // style, but it may NOT upgrade itself into a more patient runner just
+            // because a historical model likes that lane. Only a position already
+            // proving itself may graduate into MOONSHOT/STANDARD patience.
+            val patientTarget7403 = bestLane == "MOONSHOT" || bestLane == "STANDARD"
+            val launch7403 = try {
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)
+            } catch (_: Throwable) { null }
+            val runnerEarned7403 =
+                pnlPct >= 8.0 &&
+                drawFromPeak <= 8.0 &&
+                launch7403?.tooLateForSnipe != true &&
+                momentum?.name !in setOf("WEAK", "DISTRIBUTION")
+            if (patientTarget7403 && !runnerEarned7403) {
+                try { PipelineHealthCollector.labelInc("HELD_PIVOT_PATIENCE_NOT_EARNED_7403") } catch (_: Throwable) {}
+                return PivotResult(false, current, current, bestScore, incumbentScore, "patience_not_earned_7403")
+            }
+            if (pnlPct < -5.0 && bestLane !in setOf("MICRO_CAP", "REVIVAL")) {
+                try { PipelineHealthCollector.labelInc("HELD_PIVOT_LOSER_CANNOT_EXTEND_THESIS_7403") } catch (_: Throwable) {}
+                return PivotResult(false, current, current, bestScore, incumbentScore, "loser_cannot_extend_thesis_7403")
+            }
+
             // ── PIVOT. Soft-shape: only changes the live exit style. ──
             ts.position.tradingMode = bestLane
             ts.position.tradingModeEmoji = emojiFor(bestLane)
