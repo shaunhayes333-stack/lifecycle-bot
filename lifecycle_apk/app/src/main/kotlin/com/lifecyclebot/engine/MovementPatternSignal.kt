@@ -63,8 +63,16 @@ object MovementPatternSignal {
         val wickBought = hist.takeLast(4).count { c -> c.lowUsd > 0.0 && c.priceUsd > c.lowUsd * 1.02 }
         val buyPressure = ts.lastBuyPressurePct.takeIf { it.isFinite() } ?: 50.0
         val sellPressure = ts.lastSellPressurePct.takeIf { it.isFinite() } ?: 50.0
+        val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
 
         return when {
+            // V5.0.7402 — on young launch assets, the causal launch tape outranks
+            // candle-confirmation "volume ignition". Once the impulse has rolled
+            // over, classify exhaustion/freefall rather than invent a new ignition.
+            launch7402?.tooLateForSnipe == true && pullbackFromHigh >= 12.0 -> Signal(
+                "EXHAUSTION_CHASE", 90.0, 0.45, 0.60, "post_pump_no_new_ignition",
+                "launchFade=true pullback=${pullbackFromHigh.toInt()} bp=${buyPressure.toInt()} sell=${sellPressure.toInt()}"
+            )
             upperWicks >= 2 && move3 > 18.0 && sellPressure >= 55.0 -> Signal(
                 "EXHAUSTION_CHASE", 82.0, 0.52, 0.65, "late_entry_scalp_only",
                 "upperWicks=$upperWicks move3=${move3.toInt()} sell=${sellPressure.toInt()}"
@@ -85,7 +93,8 @@ object MovementPatternSignal {
                 "FREEFALL_NO_RECLAIM", 78.0, 0.45, 0.85, "do_not_size_up_until_reclaim",
                 "move15=${move15.toInt()} bp=${buyPressure.toInt()} wickBought=$wickBought"
             )
-            !volumeLowData && move3 > 12.0 && volIgnition >= 1.35 && buyPressure >= 55.0 -> Signal(
+            !volumeLowData && move3 > 12.0 && volIgnition >= 1.35 && buyPressure >= 55.0 &&
+                launch7402?.tooLateForSnipe != true -> Signal(
                 "VOLUME_IGNITION", 74.0, 1.10, 1.20, "fast_confirm_then_runner_tail",
                 "move3=${move3.toInt()} vol=${"%.1f".format(volIgnition)}x bp=${buyPressure.toInt()}"
             )
