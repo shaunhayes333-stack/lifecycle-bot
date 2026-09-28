@@ -395,6 +395,29 @@ object V3Adapter {
             extras["suppressionReason"] = null
         }
 
+        // V5.0.7403 — mint-local recovery contract. A token that already
+        // failed a thesis may re-enter only after ReentryRecoveryMode proves a
+        // real reclaim. This is not a lane-wide gate.
+        try {
+            val recoveryCandidate7403 = com.lifecyclebot.engine.ReentryRecoveryMode.isRecoveryCandidate(ts.mint)
+            extras["recoveryCandidate7403"] = recoveryCandidate7403
+            if (recoveryCandidate7403) {
+                val recovery7403 = com.lifecyclebot.engine.ReentryRecoveryMode.evaluateRecovery(ts)
+                extras["recoveryCanReenter7403"] = recovery7403.canReenter
+                extras["recoveryScore7403"] = recovery7403.recoveryScore
+                extras["recoverySizeMult7403"] = recovery7403.sizeMultiplier
+                extras["recoveryReason7403"] = recovery7403.reason
+            } else {
+                extras["recoveryCanReenter7403"] = false
+                extras["recoveryScore7403"] = 0.0
+                extras["recoverySizeMult7403"] = 0.0
+                extras["recoveryReason7403"] = "NOT_RECOVERY_CANDIDATE"
+            }
+        } catch (_: Throwable) {
+            extras["recoveryCandidate7403"] = false
+            extras["recoveryCanReenter7403"] = false
+        }
+
         // V5.9.202: Wire copytrade layer to DistributionFadeAvoider suppression data
         // copyTradeStale = token has been seen & invalidated before (stale pattern)
         // copyTradeCrowded = token is currently under copy-trade suppression
