@@ -88,6 +88,7 @@ object CanonicalRiskClock6454 {
     fun start(riskTick: (positionId: String, mint: String) -> Unit) {
         riskTickRef.set(riskTick)
         if (!running.compareAndSet(false, true)) return
+        try { HeldHotMarkAuthority7419.start() } catch (_: Throwable) {}
         val job = scope.launch {
             try {
                 ForensicLogger.lifecycle("CANONICAL_RISK_CLOCK_STARTED_6454", "tickMs=$TICK_MS")
@@ -206,6 +207,7 @@ object CanonicalRiskClock6454 {
     fun stop() {
         if (!running.compareAndSet(true, false)) return
         try { currentJob.get()?.cancel() } catch (_: Throwable) {}
+        try { HeldHotMarkAuthority7419.stop() } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("CANONICAL_RISK_CLOCK_STOPPED_6454") } catch (_: Throwable) {}
     }
 
