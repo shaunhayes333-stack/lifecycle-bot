@@ -950,20 +950,22 @@ object DynamicAltTokenRegistry {
         // disposition so operator's 'no permanent missing bucket' invariant
         // holds. Discovery breadth is not reduced — the token remains in the
         // registry, just with an explicit terminal disposition.
-        try {
-            val progressKey6580 = "${tok.canonicalIdentity6544}$EVAL_PROGRESS_SEPARATOR_6692$key"
-            val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
-            if (firstSeenAt != null) {
-                val age = System.currentTimeMillis() - firstSeenAt
-                val ttl6632 = adaptiveEvidenceTtlMs6632()
-                if (age > ttl6632) {
-                    evaluationProgressStamp6580.remove(progressKey6580)
-                    markEvaluationDisposition6567(tok, "STALE_EXPIRED_6580_$key")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_6580")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_ADAPTIVE_6632")
+        if (!isRetryableProgress7418(key)) {
+            try {
+                val progressKey6580 = "${tok.canonicalIdentity6544}$EVAL_PROGRESS_SEPARATOR_6692$key"
+                val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
+                if (firstSeenAt != null) {
+                    val age = System.currentTimeMillis() - firstSeenAt
+                    val ttl6632 = adaptiveEvidenceTtlMs6632()
+                    if (age > ttl6632) {
+                        evaluationProgressStamp6580.remove(progressKey6580)
+                        markEvaluationDisposition6567(tok, "STALE_EXPIRED_6580_$key")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_6580")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_ADAPTIVE_6632")
+                    }
                 }
-            }
-        } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+        }
         // V5.0.6587 §P0-4 — GLOBAL STALE SWEEP.
         // Operator forensic (6580 → 6586): 438 tokens stuck at
         // SPECIALIST_SILENCE_SHARED_EVIDENCE + SHARED_INTELLIGENCE_BACKLOG_
