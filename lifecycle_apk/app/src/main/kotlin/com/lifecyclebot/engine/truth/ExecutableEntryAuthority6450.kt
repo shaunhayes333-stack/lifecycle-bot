@@ -321,8 +321,20 @@ object ExecutableEntryAuthority6450 {
         val learned = try {
             LearnedAdmissionAuthority6846.evaluate(inputs)
         } catch (_: Throwable) {
-            try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_FAIL_OPEN_7263") } catch (_: Throwable) {}
-            null
+            gates.incrementAndGet()
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_HIGH_EV_AUTHORITY_UNAVAILABLE_7426")
+                ForensicLogger.lifecycle(
+                    "CANONICAL_HIGH_EV_AUTHORITY_UNAVAILABLE_7426",
+                    "mode=" + currentMode() + " lane=" + normalizedLane(inputs.lane) + " mint=" + inputs.mint.take(10) + " action=shadow_replay_lab_only",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LEARNED_NEGATIVE_6846,
+                0.0,
+                "learned_authority_unavailable_7426:shadow_replay_lab_only",
+            )
         }
         return when (learned?.verdict) {
             LearnedAdmissionAuthority6846.Verdict.DENY -> {
@@ -338,19 +350,23 @@ object ExecutableEntryAuthority6450 {
                 )
             }
             LearnedAdmissionAuthority6846.Verdict.PROBE_ONLY -> {
-                // V5.0.7263 — executable in both modes at the authority's
-                // probe size (7139 quarter). This verdict is now reserved
-                // for cohorts with EVIDENCE of negative expectancy.
+                // V5.0.7426 — canonical PAPER and LIVE are deployment-quality
+                // books. Exploration does not spend canonical capital.
                 gates.incrementAndGet()
                 probes.incrementAndGet()
+                denies.incrementAndGet()
                 try {
                     PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_LEARNED_6846")
-                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_EXECUTABLE_7263")
+                    PipelineHealthCollector.labelInc("CANONICAL_HIGH_EV_PROBE_SHADOW_ONLY_7426")
+                    ForensicLogger.lifecycle(
+                        "CANONICAL_HIGH_EV_PROBE_SHADOW_ONLY_7426",
+                        "mode=" + currentMode() + " lane=" + normalizedLane(inputs.lane) + " mint=" + inputs.mint.take(10) + " category=" + learned.denyCategory,
+                    )
                 } catch (_: Throwable) {}
                 Decision(
-                    Verdict.ALLOW_PROBE,
-                    learned.recommendedSizeSol,
-                    "learned6846_probe:${learned.denyCategory}",
+                    Verdict.DENY_LEARNED_NEGATIVE_6846,
+                    0.0,
+                    "learned6846_probe_shadow_only_7426:" + learned.denyCategory,
                 )
             }
             else -> {
