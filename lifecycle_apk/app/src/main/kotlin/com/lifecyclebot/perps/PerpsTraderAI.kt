@@ -486,9 +486,10 @@ object PerpsTraderAI {
                     reasons.add("📉 Bearish trend: ${marketData.priceChange24hPct.fmt(1)}%")
                 }
                 else -> {
-                    // Neutral - use funding rate
-                    direction = if (marketData.isFundingFavorableLong()) PerpsDirection.LONG else PerpsDirection.SHORT
-                    reasons.add("➡️ Neutral trend - using funding bias")
+                    // V5.0.7403 — funding is carry/crowding context, not enough
+                    // to invent direction in a neutral market when PerpsStrategy
+                    // itself found no setup.
+                    return noTradeSignal(market, "NEUTRAL_NO_PERPS_STRATEGY_EDGE", reasons)
                 }
             }
         }
@@ -528,8 +529,8 @@ object PerpsTraderAI {
         
         // Volatility check
         if (marketData.isVolatile()) {
-            score += 5
-            reasons.add("⚡ High volatility - increased opportunity")
+            confidence -= 5
+            reasons.add("⚡ High volatility - leverage/execution risk")
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -541,9 +542,9 @@ object PerpsTraderAI {
         
         // Calculate optimal leverage based on confidence and streak
         val streakBonus = when {
-            currentStreak.get() >= 5 -> 2.0   // Hot streak - can be more aggressive
-            currentStreak.get() >= 3 -> 1.0
-            currentStreak.get() <= -3 -> -2.0  // Cold streak - reduce leverage
+            // V5.0.7403 — recent wins do not make the next trade safer.
+            // Keep downside adaptation, remove hot-hand leverage escalation.
+            currentStreak.get() <= -3 -> -2.0
             else -> 0.0
         }
         
