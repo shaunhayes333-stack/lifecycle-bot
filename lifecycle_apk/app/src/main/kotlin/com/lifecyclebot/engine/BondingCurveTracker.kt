@@ -77,13 +77,26 @@ object BondingCurveTracker {
     fun evaluate(ts: TokenState): CurveState {
         val mcap = ts.lastMcap.takeIf { it > 0 } ?: 0.0
 
-        // Try to estimate SOL raised from liquidity data
-        // Dexscreener returns liquidity.usd — on Pump.fun this is roughly
-        // 2x the SOL raised (both sides of bonding curve)
-        val liquidityUsd = ts.history.lastOrNull()?.vol ?: 0.0  // approximation
-        val estimatedSolRaised = if (mcap > 0 && currentSolUsd > 0)
-            (mcap / currentSolUsd).coerceAtMost(GRADUATION_SOL_RAISED + 10.0)
-        else -1.0
+        // V5.0.7402 — CURVE STATE MUST COME FROM THE CURVE.
+        // The old code called mcap/SOLUSD "SOL raised". A price pump therefore
+        // manufactured PRE_GRAD/GRADUATING state after the move — exactly the
+        // backwards timing the launch audit is removing. TokenMap already carries
+        // the pump.fun real SOL reserve when route/curve hydration has it.
+        val realReserve7402 = ts.tokenMap.realSolReserves
+            ?.takeIf { it.isFinite() && it > 0.0 }
+        val liquidityReserve7402 = ts.tokenMap.liquiditySol
+            ?.takeIf { it.isFinite() && it > 0.0 }
+        val estimatedSolRaised = when {
+            realReserve7402 != null -> realReserve7402
+            // liquiditySol is a weaker route observation, but still closer to
+            // actual curve depth than price-derived market cap.
+            liquidityReserve7402 != null && ts.tokenMap.pumpFunExecutable -> liquidityReserve7402
+            mcap > 0 && currentSolUsd > 0 -> {
+                try { PipelineHealthCollector.labelInc("BONDING_CURVE_MCAP_FALLBACK_7402") } catch (_: Throwable) {}
+                (mcap / currentSolUsd).coerceAtMost(GRADUATION_SOL_RAISED + 10.0)
+            }
+            else -> -1.0
+        }
 
         val gradMcap = graduationMcapUsd
         if (gradMcap <= 0) {
