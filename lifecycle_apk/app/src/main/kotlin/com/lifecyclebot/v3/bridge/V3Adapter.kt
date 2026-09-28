@@ -117,7 +117,12 @@ object V3Adapter {
     fun toCandidate(ts: TokenState): CandidateSnapshot {
         val now = System.currentTimeMillis()
         val discoveredAt = ts.addedToWatchlistAt.takeIf { it > 0L } ?: now
-        val ageMinutes = ((now - discoveredAt).coerceAtLeast(0L)) / 60_000.0
+        // V5.0.7401 — V3 used watchlist age, so a token discovered after its
+        // pump received the same "fresh launch" bonus as a true new create.
+        val trueAgeMs7401 = try {
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts, now)
+        } catch (_: Throwable) { (now - discoveredAt).coerceAtLeast(0L) }
+        val ageMinutes = trueAgeMs7401 / 60_000.0
 
         val safety = ts.safety
         val meta = ts.meta
@@ -351,6 +356,22 @@ object V3Adapter {
 
         extras["phase"] = ts.phase
         extras["price"] = ts.lastPrice.coerceAtLeast(0.0)
+
+        // V5.0.7401 — causal launch timing reaches V3 before chart confirmation.
+        try {
+            val launch = com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)
+            extras["launchPhase7401"] = launch.phase.name
+            extras["launchIgnition7401"] = launch.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION
+            extras["launchPreIgnition7401"] = launch.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION
+            extras["launchExpanding7401"] = launch.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING
+            extras["launchPostPumpFade7401"] = launch.tooLateForSnipe
+            extras["launchBuyShare7401"] = launch.buySharePct
+            extras["launchBuyerBreadth7401"] = launch.distinctBuyers60s
+            extras["launchDevBuy7401"] = launch.devBuyTx60s > 0
+            extras["launchDevSell7401"] = launch.devSellTx60s > 0
+            extras["launchAcceleration7401"] = launch.accelerationRising
+            extras["launchCreateMultiple7401"] = launch.createMultiple ?: 0.0
+        } catch (_: Throwable) {}
 
         // V5.9.202: Wire memory layer to TokenWinMemory instead of hardcoded 0
         extras["memoryScore"] = try {
