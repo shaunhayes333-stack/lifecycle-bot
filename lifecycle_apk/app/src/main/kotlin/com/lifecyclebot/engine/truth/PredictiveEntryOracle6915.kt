@@ -1036,7 +1036,7 @@ object PredictiveEntryOracle6915 {
         var brainAdjust6917 = 0.0
         var creatorRugAdjust7329 = 0.0
         try {
-            val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator)
+            val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator, edgePhase, emaFan)
             for (r in reads) {
                 if (r.label.startsWith("creatorRugs(")) creatorRugAdjust7329 += r.deltaPct
                 else brainAdjust6917 += r.deltaPct
