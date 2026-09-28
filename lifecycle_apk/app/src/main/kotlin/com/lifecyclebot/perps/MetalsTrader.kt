@@ -443,55 +443,24 @@ object MetalsTrader {
         val direction = setup.direction
         layerVotes["MetalsStrategy"] = direction
         
-        // 1. Momentum analysis
-        when {
-            abs(change) > 2.0 -> {
-                score += 20
-                confidence += 15
-                reasons.add("🔥 Strong move: ${if (change > 0) "+" else ""}${"%.1f".format(change)}%")
+        // 1. Momentum analysis — V5.0.7403 directionally honest.
+        val momentumDirection7403 = if (change >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT
+        val momentumAligned7403 = momentumDirection7403 == direction
+        if (momentumAligned7403) {
+            when {
+                abs(change) > 2.0 -> { score += 15; confidence += 10; reasons.add("🔥 Trend-aligned move " + "%.1f".format(change) + "%") }
+                abs(change) > 1.0 -> { score += 8; confidence += 6; reasons.add("📈 Trend-aligned move " + "%.1f".format(change) + "%") }
             }
-            abs(change) > 1.0 -> {
-                score += 10
-                confidence += 10
-                reasons.add("📈 Good move: ${if (change > 0) "+" else ""}${"%.1f".format(change)}%")
-            }
+            if (abs(change) > 1.0) layerVotes["Momentum"] = direction
+        } else {
+            if (abs(change) > 2.0) score -= 5
+            reasons.add("↩️ Counter-trend metals setup: momentum is not confirmation")
         }
-        layerVotes["Momentum"] = direction
-        
-        // 2. Metal-specific boosts
-        when {
-            market.isPreciousMetal -> {
-                score += 10
-                confidence += 10
-                reasons.add("💎 Precious metal - safe haven")
-            }
-            market.isIndustrialMetal -> {
-                score += 5
-                reasons.add("🔩 Industrial metal")
-            }
-        }
-        
-        // 3. Special metals
-        when (market) {
-            PerpsMarket.XAU -> {
-                score += 5
-                reasons.add("🥇 GOLD - King of metals")
-            }
-            PerpsMarket.XAG -> {
-                score += 5
-                reasons.add("🥈 SILVER - Industrial + store of value")
-            }
-            PerpsMarket.LITHIUM -> {
-                score += 10
-                reasons.add("🔋 LITHIUM - EV battery demand")
-            }
-            PerpsMarket.URANIUM -> {
-                score += 10
-                reasons.add("☢️ URANIUM - Nuclear renaissance")
-            }
-            else -> {}
-        }
-        
+
+        // 2-3. V5.0.7403 — metal identity is context, not directional alpha.
+        if (market.isPreciousMetal) confidence += 8
+        else if (market.isIndustrialMetal) confidence += 3
+
         // 4. Technical analysis via PerpsAdvancedAI (FULL AI INTEGRATION)
         try {
             // V5.9.172 — seed history from real 24h OHLC so RSI/MACD aren't stuck at 50.
@@ -526,8 +495,10 @@ object MetalsTrader {
                     "MILD" -> 10
                     else -> 0
                 }
-                reasons.add("📊 Volume ${volume.spikeStrength}")
-                layerVotes["Volume"] = direction
+                reasons.add("📊 Volume ${volume.spikeStrength} (activity, not direction)")
+                if (momentumAligned7403 || layerVotes["Technical"] == direction) {
+                    layerVotes["VolumeConfirm"] = direction
+                }
             }
         } catch (_: Exception) {}
         
