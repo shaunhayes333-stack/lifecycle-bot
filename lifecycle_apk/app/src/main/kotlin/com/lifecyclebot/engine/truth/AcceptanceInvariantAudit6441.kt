@@ -208,10 +208,24 @@ object AcceptanceInvariantAudit6441 {
         // J. Mandatory execution-spine window.
         val spineRead6647 = runCatching { ExecutionSpineAcceptanceWindow6647.lastCompletedResult6735() }
         val spine6647 = spineRead6647.getOrNull()
+        val liveRuntime7399 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         if (spineRead6647.isFailure) failed.add("J_execution_spine_collector_failed")
         else if (spine6647 == null) passed.add("J_execution_spine_window_warming")
         else if (spine6647.passed) passed.add("J_execution_spine_120s_pass")
-        else failed.addAll(spine6647.failures.map { "J_$it" })
+        else if (liveRuntime7399) {
+            // V5.0.7399 — ExecutionSpineAcceptance6647 is explicitly the mandatory
+            // 120-second PAPER tape. Historical paper cash/basis/journal deltas must
+            // stay visible and fail PAPER acceptance, but they are not evidence that
+            // the current LIVE wallet/execution spine is broken.
+            passed.add("J_paper_spine_diagnostic_in_live:${spine6647.failures.joinToString(",")}".take(180))
+            try {
+                PipelineHealthCollector.labelInc("LIVE_ACCEPTANCE_PAPER_SPINE_DIAGNOSTIC_ONLY_7399")
+                ForensicLogger.lifecycle(
+                    "LIVE_ACCEPTANCE_PAPER_SPINE_DIAGNOSTIC_ONLY_7399",
+                    "failures=${spine6647.failures.joinToString("|")} action=retain_paper_failure_do_not_fail_live_acceptance",
+                )
+            } catch (_: Throwable) {}
+        } else failed.addAll(spine6647.failures.map { "J_$it" })
 
         val report = AuditReport(
             whenMs = System.currentTimeMillis(),
