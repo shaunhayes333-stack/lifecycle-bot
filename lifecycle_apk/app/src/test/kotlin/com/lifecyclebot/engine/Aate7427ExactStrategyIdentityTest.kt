@@ -48,6 +48,18 @@ class Aate7427ExactStrategyIdentityTest {
         assertFalse(outcomeRegion.contains("StrategyVariantStore.activeFor("))
     }
 
+    @Test fun tradingMemoryPatternReadUsesExactCachedContext() {
+        val oracle = File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
+        val inputs = File("src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionInputs6909.kt").readText()
+        val open = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(oracle.contains("TradingMemory\n                    .getPatternWinRate(ph, ema, src)"))
+        assertTrue(oracle.contains("TRADING_MEMORY_PATTERN_READ_7427"))
+        assertTrue(oracle.contains("emaFan: String = \"\""))
+        assertTrue(inputs.contains("emaFanHint: String = \"\""))
+        assertTrue(inputs.contains("emaFan = emaFanHint"))
+        assertTrue(open.contains("emaFanHint = oracleToken7260?.meta?.emafanAlignment.orEmpty()"))
+    }
+
     @Test fun causalReportNamesExactStrategyIdentity() {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryStrategySnapshot6450.kt").readText()
         assertTrue(s.contains("type=${x.groupingBy{it.tradeType}"))
