@@ -1526,10 +1526,20 @@ object FinalDecisionGate {
         } catch (_: Throwable) { 1.0 }
         val lowWrBypass = false  // V5.9.809: revoked (was: systemWrForBypass < 0.30)
 
-        val canBypassConfidenceFloors = isBootstrapPhase ||
-            (isPaperMode && totalTradesForBypass < 500) ||  // V5.0.4021: cold-start bypass is paper-only; live adapts from trade 1
-            antiChokeRelaxing ||
-            adaptiveRelaxationActive ||
+        // V5.0.7403 — anti-choke is a throughput tool, not permission to
+        // turn weak LIVE evidence into a real-money trade. PAPER may explore
+        // broadly. LIVE relaxation may bypass confidence only for a lane whose
+        // same-mode terminal expectancy is already positive.
+        val liveLanePositive7403 = if (!isPaperMode) try {
+            val laneU = specialistLane?.trim()?.uppercase().orEmpty()
+                .ifBlank { tradingModeTag?.name?.trim()?.uppercase().orEmpty() }
+            com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+                .firstOrNull { it.lane.equals(laneU, true) }
+                ?.let { it.sample >= 10 && it.evPct > 0.0 } == true
+        } catch (_: Throwable) { false } else false
+        val canBypassConfidenceFloors =
+            (isPaperMode && (isBootstrapPhase || totalTradesForBypass < 500 || antiChokeRelaxing || adaptiveRelaxationActive)) ||
+            (!isPaperMode && liveLanePositive7403 && (antiChokeRelaxing || adaptiveRelaxationActive)) ||
             lowWrBypass
         // V5.9.683-FIX + V5.9.721: surface bypass state so operator can audit 22%-floor trips
         ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 paperBootstrap=$isBootstrapPhase liveAdaptiveFromTrade1=${!isPaperMode} antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")
@@ -1546,10 +1556,15 @@ object FinalDecisionGate {
                 mcap = ts.lastMcap,
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 holderGrowthPct = run {
-                    // V5.9: estimate from token age vs holder count
-                    val hc = (ts.history.lastOrNull()?.holderCount ?: 0).toDouble().coerceAtLeast(1.0)
-                    val ageH = ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0).coerceAtLeast(0.01)
-                    ((hc / ageH) / 100.0).coerceIn(0.0, 100.0)
+                    // V5.0.7403 — holder count divided by watchlist age was not
+                    // growth and massively inflated newly-discovered late pumps.
+                    val direct = ts.holderGrowthRate
+                    if (direct.isFinite()) direct.coerceIn(-100.0, 500.0) else {
+                        val hs = ts.history.takeLast(12).map { it.holderCount }.filter { it > 0 }
+                        if (hs.size >= 2 && hs.first() > 0)
+                            ((hs.last() - hs.first()).toDouble() / hs.first().toDouble() * 100.0).coerceIn(-100.0, 500.0)
+                        else 0.0
+                    }
                 },
                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 50,
                 mintRevoked = ts.safety.mintAuthorityDisabled ?: false,
@@ -1557,7 +1572,9 @@ object FinalDecisionGate {
                 topHolderPct = ts.safety.topHolderPct.takeIf { it >= 0 } ?: (ts.topHolderPct ?: 0.0),
                 rsi = ts.meta.rsi,
                 emaAlignment = ts.meta.emafanAlignment,
-                tokenAgeMinutes = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000L,
+                tokenAgeMinutes = try {
+                    (com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) / 60_000L).coerceAtLeast(0L)
+                } catch (_: Throwable) { Long.MAX_VALUE / 60_000L },
             )
         } catch (_: Exception) {
             null
