@@ -205,7 +205,9 @@ object FinalExecutionPermit {
         }
         val currentVersion6513 = LaneExecutionCoordinator.candidateVersionFor(mint)
         if (executionTicket6494.primaryLane != executionTicket6494.lane ||
-            executionTicket6494.fdgVerdict !in setOf("BUY", "PROBE_ONLY") ||
+            !(executionTicket6494.fdgVerdict == "BUY" ||
+                (executionTicket6494.mode.equals("PAPER", true) &&
+                    executionTicket6494.fdgVerdict == "PROBE_ONLY")) ||
             executionTicket6494.authoritativeSignal != "BUY" ||
             executionTicket6494.candidateVersion != currentVersion6513) {
             try {
