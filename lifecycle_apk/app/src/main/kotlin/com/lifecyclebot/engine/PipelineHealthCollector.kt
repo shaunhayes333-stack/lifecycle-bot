@@ -2286,8 +2286,15 @@ object PipelineHealthCollector {
                     "ORACLE_EDGE_PROOF_SCORED_7263",
                     "ORACLE_EDGE_PROVEN_7263",
                     "ORACLE_EDGE_DEMOTED_7263",
-                    "EXECUTABLE_ENTRY_PROBE_EXECUTABLE_7263",
-                    "EXECUTABLE_ENTRY_ORACLE_ERROR_FAIL_OPEN_7263",
+                    // V5.0.7426 — canonical PAPER/LIVE spend only on an
+                    // explicit positive predictive verdict. Exploration and
+                    // authority failures are shadow/replay/LAB only.
+                    "CANONICAL_HIGH_EV_ORACLE_ADMIT_7426",
+                    "CANONICAL_HIGH_EV_SHADOW_ONLY_7426",
+                    "CANONICAL_HIGH_EV_SHADOW_ONLY_7426_REFUSE",
+                    "CANONICAL_HIGH_EV_SHADOW_ONLY_7426_MISSING",
+                    "CANONICAL_HIGH_EV_PROBE_SHADOW_ONLY_7426",
+                    "CANONICAL_HIGH_EV_AUTHORITY_UNAVAILABLE_7426",
                     "BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263",
                     "BRAIN_CONSENSUS_UNAVAILABLE_FAIL_OPEN_7263",
                     "CROSS_ASSET_ORACLE_ADVISORY_PASS_7263",
