@@ -518,7 +518,7 @@ object LiveProbabilityEngine {
             // draining the wallet.
             val divergenceClampedMult = try {
                 val liveSnap = laneMetric
-                val paperFromLifetime = lifetimeMetric6267
+                val paperFromLifetime = paperColdStart7403
                 if (liveSnap != null && paperFromLifetime != null &&
                     liveSnap.trades >= 5 && paperFromLifetime.trades >= 20) {
                     val liveWr = liveSnap.winRatePct
