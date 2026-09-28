@@ -81,15 +81,19 @@ object LaunchPhaseAuthority7401 {
         val rolledOver = peakPos < 0.80
         val lateByAge = age > 180_000L
 
+        val creatorKnown = !dev.isNullOrBlank()
+        // Dev participation is additive evidence, not a prerequisite. The
+        // create socket can be ahead of wallet-enriched trade callbacks; lack
+        // of a dev trade sample must not make us wait until the pump is obvious.
         val ignitionEvidence =
             age <= 90_000L &&
             !devDump &&
-            flow.devBuyTx60s > 0 &&
             flow.buyTx60s >= 3 &&
             flow.distinctBuyers60s >= 2 &&
             flow.buySharePct >= 60.0 &&
             flow.accelerationRising &&
-            (multiple == null || multiple < 1.8)
+            (multiple == null || multiple < 1.8) &&
+            (creatorKnown || flow.distinctBuyers60s >= 4)
 
         val earlyInterest =
             age <= 120_000L &&
