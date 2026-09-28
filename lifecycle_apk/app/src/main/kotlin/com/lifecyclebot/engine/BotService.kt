@@ -21550,6 +21550,22 @@ if (hotExitHandledSweep) {
                                 staleMarkRefreshCooldown6721[p.mint] = now
                                 try {
                                     com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(p.mint, now)
+                                    // V5.0.7410 — HELD escalation belongs to the
+                                    // held/exit worker, not discovery. Promotion
+                                    // can only reuse an observation already in the
+                                    // mark registry; when that observation is stale
+                                    // also launch the independent repair cascade and
+                                    // an executable Jupiter quote. Both authorities
+                                    // are internally debounced and async.
+                                    try {
+                                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(
+                                            p.mint, "HELD_STALE_MARK_ESCALATION_7410",
+                                        )
+                                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestExecutableQuote7301(
+                                            p.mint, p.quantityScale,
+                                        )
+                                        PipelineHealthCollector.labelInc("HELD_STALE_MARK_ESCALATED_7410")
+                                    } catch (_: Throwable) {}
                                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STALE_MARK_REFRESH_TRIGGERED_6721")
                                     refreshed6902++
                                 } catch (t: Throwable) {
