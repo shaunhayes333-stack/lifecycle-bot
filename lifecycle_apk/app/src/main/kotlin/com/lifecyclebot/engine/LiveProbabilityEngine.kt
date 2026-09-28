@@ -331,47 +331,32 @@ object LiveProbabilityEngine {
             // capital-allocation bug: outlier winners may justify tiny probes and
             // runner patience, but they must not authorize larger entries until
             // live hit-rate is at least bootstrap-healthy.
+            // V5.0.7403 — live and model probability must disagree honestly.
+            // The old maxOf(pWin, lanePWin) cherry-picked whichever was more
+            // optimistic. Once real lane closes exist, realised hit rate gets
+            // the majority vote; the model remains a bounded forward input.
+            val effectiveHitP7403 = when {
+                laneMetric != null && laneSamples >= 8L -> (lanePWin * 0.65 + pWin * 0.35).coerceIn(0.02, 0.98)
+                laneMetric != null && laneSamples >= 3L -> (lanePWin * 0.50 + pWin * 0.50).coerceIn(0.02, 0.98)
+                else -> pWin
+            }
             val lowHitRateCap = when {
-                maxOf(pWin, lanePWin) < 0.28 -> 0.42
-                maxOf(pWin, lanePWin) < 0.35 -> 0.68
-                maxOf(pWin, lanePWin) < 0.42 -> 0.92
+                effectiveHitP7403 < 0.28 -> 0.42
+                effectiveHitP7403 < 0.35 -> 0.68
+                effectiveHitP7403 < 0.42 -> 0.92
                 else -> 1.60
             }
-            // V5.0.4596 — QUALITY VOLUME BOOST (operator directive:
-            // "we need to increase quality volume ... entry sizes are still
-            // stupidly small"). The rigid lowHitRateCap creates a death
-            // spiral: bad trades → low lane WR → cap clamps at 0.42x →
-            // every subsequent trade is tiny → hard to recover expectancy
-            // even on genuine high-quality tokens. This quality-boost
-            // fluidly multiplies the cap using AGI-produced forward signals
-            // (composite score, ForwardOutcomeModel pWin, forward pRug)
-            // so premium tokens still get executable sizes even when the
-            // lane sample is polluted. Low-quality tokens still get tiny
-            // sizes as intended. Aligns with fluid-gates doctrine — not
-            // purely result-based, respects forward-looking AGI signals.
-            val qualityBoost = run {
-                var boost = 1.0
-                boost *= when {
-                    score >= 85 -> 1.35   // premium composite score
-                    score >= 70 -> 1.15
-                    score >= 55 -> 1.00
-                    else        -> 0.75   // low quality shrinks
-                }
-                boost *= when {
-                    fwd.pWin >= 0.60 -> 1.20   // strong forward pWin
-                    fwd.pWin >= 0.50 -> 1.05
-                    fwd.pWin >= 0.40 -> 1.00
-                    else             -> 0.90
-                }
-                boost *= when {
-                    fwd.pRug <= 0.15 -> 1.10   // clean rug forecast
-                    fwd.pRug <= 0.30 -> 1.00
-                    fwd.pRug >= 0.50 -> 0.70   // heavy rug risk shrinks
-                    else             -> 0.90
-                }
-                boost.coerceIn(0.50, 1.80)
+
+            // Candidate quality gets one independent vote. Forward pWin already
+            // contributes to probabilityEdge and pRug is subtracted below; using
+            // both again here double-counted the same model evidence.
+            val qualityBoost = when {
+                score >= 85 -> 1.25
+                score >= 70 -> 1.12
+                score >= 55 -> 1.00
+                else        -> 0.78
             }
-            val qualityAwareCap = (lowHitRateCap * qualityBoost).coerceIn(0.35, 2.00)
+            val qualityAwareCap = (lowHitRateCap * qualityBoost).coerceIn(0.35, 1.75)
             try {
                 if (qualityBoost >= 1.20 || qualityBoost <= 0.75) {
                     // V5.0.6358 — rate-limit the disk emit per (lane, score band).
@@ -384,8 +369,8 @@ object LiveProbabilityEngine {
                     PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_QUALITY_BOOST_4596_${lane.uppercase()}")
                 }
             } catch (_: Throwable) {}
-            val pnlEdge = if (maxOf(pWin, lanePWin) >= 0.35) (eBase / 140.0).coerceIn(-0.35, 0.35) else (eBase / 220.0).coerceIn(-0.25, 0.10)
-            val solEdge = if (maxOf(pWin, lanePWin) >= 0.35) (laneSol / 0.55).coerceIn(-0.30, 0.28) else (laneSol / 0.85).coerceIn(-0.25, 0.08)
+            val pnlEdge = if (effectiveHitP7403 >= 0.35) (eBase / 140.0).coerceIn(-0.35, 0.35) else (eBase / 220.0).coerceIn(-0.25, 0.10)
+            val solEdge = if (effectiveHitP7403 >= 0.35) (laneSol / 0.55).coerceIn(-0.30, 0.28) else (laneSol / 0.85).coerceIn(-0.25, 0.08)
             val rugPenalty = fwd.pRug.coerceIn(0.0, 0.80) * 0.75
             val uncertaintyPenalty = (fwd.dispersion / 180.0).coerceIn(0.0, 0.22)
             val rawMult = (1.0 + probabilityEdge + pnlEdge + solEdge - rugPenalty - uncertaintyPenalty)
