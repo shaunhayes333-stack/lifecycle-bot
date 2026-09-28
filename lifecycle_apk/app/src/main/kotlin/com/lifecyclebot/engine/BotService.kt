@@ -24218,20 +24218,27 @@ if (hotExitHandledSweep) {
                         )
                     } catch (_: Throwable) { null }
                     val stateLabel = hydrationState?.state?.name ?: "UNKNOWN"
+                    val hardUnavailable7408 =
+                        hydrationState?.state == com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_HARD_UNAVAILABLE
+                    val intakeRouteReason7408 = when (hydrationState?.state) {
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_SOURCE_NATIVE ->
+                            "PAIR_SOURCE_NATIVE_PRICE_PENDING"
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.ROUTE_CONFIRMED_WITHOUT_PAIR ->
+                            "ROUTE_CONFIRMED_PRICE_PENDING"
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_PENDING_HYDRATION ->
+                            "PAIR_PENDING_HYDRATION"
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_HARD_UNAVAILABLE ->
+                            "PAIR_HARD_UNAVAILABLE"
+                        else -> if (hydrationPending7147) "PAIR_PENDING_HYDRATION" else "PAIR_STATE_UNKNOWN"
+                    }
                     ForensicLogger.gate(
                         ForensicLogger.PHASE.INTAKE,
                         ts.symbol,
                         allow = false,
-                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oraclePending=$hydrationPending7147 hydrationState=$stateLabel",
+                        reason = "$intakeRouteReason7408 src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oraclePending=$hydrationPending7147 hydrationState=$stateLabel",
                     )
-                    // V5.0.7147 — split the counter so the two cases stop
-                    // sharing one number. Awaiting an answer is not the same
-                    // event as having no route to an answer.
                     try {
-                        PipelineHealthCollector.labelInc(
-                            if (hydrationPending7147) "INTAKE_AWAITING_HYDRATION_7147"
-                            else "INTAKE_NO_PAIR_NO_FALLBACK_7147",
-                        )
+                        PipelineHealthCollector.labelInc("INTAKE_$intakeRouteReason7408")
                     } catch (_: Throwable) {}
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
@@ -24246,7 +24253,10 @@ if (hotExitHandledSweep) {
                         val entry = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
                         val ageMs = entry?.addedAt?.let { System.currentTimeMillis() - it } ?: 0L
                         val processCount = entry?.processCount ?: 0
-                        val agedNoPair = processCount >= 4 && ageMs > 120_000L
+                        // V5.0.7408 — age alone cannot convert a known native
+                        // route or an in-progress hydration into "no route".
+                        // Only canonical PAIR_HARD_UNAVAILABLE is demotable.
+                        val agedNoPair = hardUnavailable7408 && processCount >= 4 && ageMs > 120_000L
                         // V5.0.6277 — HIGH-LIQ NO-PAIR EXTENDED HYDRATION.
                         // Op-report V5.0.6275 showed 100 INTAKE/NO_PAIR_NO_FALLBACK
                         // blocks — most were fresh pump.fun / new Raydium pools

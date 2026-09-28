@@ -90,6 +90,9 @@ object TokenMetricsAuthority7069 {
      * called and gets DURABILITY as an upgrade, not as a precondition.
      */
     private val supplyByMint = ConcurrentHashMap<String, Double>()
+    // V5.0.7408 — missing supply is a STATE, not a new event on every lane read.
+    private val noSupplyEmitAt7408 = ConcurrentHashMap<String, Long>()
+    private const val NO_SUPPLY_EMIT_INTERVAL_MS_7408 = 10_000L
 
     /**
      * Durable store, installed once from a context-bearing caller. When absent
@@ -290,7 +293,11 @@ object TokenMetricsAuthority7069 {
         // has already asked chain state for the real one.
         if (storedSupply <= 0.0) {
             unverifiable.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("TOKEN_METRICS_UNVERIFIABLE_NO_ONCHAIN_SUPPLY_7075") } catch (_: Throwable) {}
+            val priorEmit7408 = noSupplyEmitAt7408[mint] ?: 0L
+            if (now7268 - priorEmit7408 >= NO_SUPPLY_EMIT_INTERVAL_MS_7408) {
+                noSupplyEmitAt7408[mint] = now7268
+                try { PipelineHealthCollector.labelInc("TOKEN_METRICS_UNVERIFIABLE_NO_ONCHAIN_SUPPLY_7075") } catch (_: Throwable) {}
+            }
             return Metrics7069(price, mcap, 0.0, repaired = false, verifiable = false)
         }
 
