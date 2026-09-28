@@ -60,4 +60,12 @@ class Aate7402DirectionalityAuditTest {
         val cyclic = src("CyclicTradeEngine.kt")
         assertTrue(cyclic.contains("LaunchPhaseAuthority7401.trueAgeMs(ts)"))
     }
+    @Test
+    fun bonding_curve_stage_is_reserve_first() {
+        val curve = src("BondingCurveTracker.kt")
+        assertTrue(curve.contains("ts.tokenMap.realSolReserves"))
+        assertTrue(curve.contains("BONDING_CURVE_MCAP_FALLBACK_7402"))
+        assertTrue(curve.indexOf("realReserve7402 != null") < curve.indexOf("mcap > 0 && currentSolUsd > 0"))
+    }
+
 }
