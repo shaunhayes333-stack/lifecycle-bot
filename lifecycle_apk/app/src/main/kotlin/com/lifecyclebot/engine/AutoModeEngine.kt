@@ -219,21 +219,16 @@ class AutoModeEngine(
         val cbLossThreshold = 3
         if (cb?.consecutiveLosses ?: 0 >= cbLossThreshold) return BotMode.DEFENSIVE
 
-        // SNIPE — fresh token
-        // V5.9.340: When history is empty, the token was JUST added by the
-        // scanner and the price poll hasn't populated yet. Previously we fell
-        // through to RANGE (Long.MAX_VALUE age) which mis-classified launches
-        // as "established". Prefer addedToWatchlistAt as the true wall-clock
-        // age of the token in our universe, falling back to first history ts.
-        val hist       = ts.history.toList()
-        val nowMs      = System.currentTimeMillis()
-        val tokenAgeMs = when {
-            ts.addedToWatchlistAt > 0L -> nowMs - ts.addedToWatchlistAt
-            hist.isNotEmpty()          -> nowMs - hist.first().ts
-            else                       -> 0L  // unknown age → treat as fresh, not ancient
-        }
-        val ageMins    = tokenAgeMs / 60_000.0
-        if (ageMins <= 15.0) return BotMode.SNIPE
+        // SNIPE — true launch phase only.
+        // V5.0.7402: watchlist age and unknown age are not market age.
+        val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        val ageMins = try {
+            (launch7402?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts)) / 60_000.0
+        } catch (_: Throwable) { 999.0 }
+        val snipePhase7402 = launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION ||
+            launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION ||
+            launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING
+        if (snipePhase7402 && ageMins <= 3.0 && launch7402?.tooLateForSnipe != true) return BotMode.SNIPE
 
         // AGGRESSIVE — multiple strong signals aligned
         val isAggressive = (whaleScore >= 70) ||
