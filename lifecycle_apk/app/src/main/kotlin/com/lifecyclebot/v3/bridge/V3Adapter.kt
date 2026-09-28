@@ -149,7 +149,7 @@ object V3Adapter {
             // Outer-ring arb models treat these fields as observed USD volume.
             // Use provider token-map volume only; unknown stays zero/neutral.
             volume1mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 }?.div(4.0) ?: 0.0,
-            volume5mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            volume5mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
             holders = holders,
             topHolderPct = topHolderPct,
             bundledPct = bundledPct,
