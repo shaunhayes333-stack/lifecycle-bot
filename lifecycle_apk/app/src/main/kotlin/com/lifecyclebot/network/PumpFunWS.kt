@@ -68,8 +68,21 @@ object PumpFunWS {
     // V5.0.7284 — the data key the socket connected with; blank = no trade stream.
     @Volatile private var apiKey7284: String = ""
     private val tradeSubscribeSkippedNoKey7284 = AtomicLong(0L)
+    private const val LIFECYCLE_MAX_7420 = 96
+    private const val LIFECYCLE_TTL_MS_7420 = 15L * 60_000L
+    private val lifecycleMints7420 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val subRequested7420 = AtomicLong(0L)
+    private val subOk7420 = AtomicLong(0L)
+    private val subFail7420 = AtomicLong(0L)
+    private val eventBuy7420 = AtomicLong(0L)
+    private val eventSell7420 = AtomicLong(0L)
+    private val unsub7420 = AtomicLong(0L)
 
     private fun tradeStreamKeyed7284(): Boolean = apiKey7284.isNotBlank()
+    fun lifecycleStreamCapable7420(): Boolean = tradeStreamKeyed7284()
+    fun lifecycleSubscribedMints7420(): Int = lifecycleMints7420.size
+    fun lifecycleEvents7420(): Long = eventBuy7420.get() + eventSell7420.get()
+    fun lifecycleSubscriptionFailures7420(): Long = subFail7420.get()
 
     // V5.0.7286 — 5.0.7284: keyed, 30 subscribe frames sent, 53 message
     // frames, one error frame, zero trade frames, and the only text kept was
@@ -96,7 +109,9 @@ object PumpFunWS {
         val recent = synchronized(recentUntyped7286) { recentUntyped7286.toList() }
         return "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
             "tradeStream=${if (tradeStreamKeyed7284()) "KEYED" else "NO_KEY_LAUNCHES_ONLY"} " +
-            "tradeSubscribedMints=${tradeSubscriptions7278.size} subscribeSkippedNoKey=${tradeSubscribeSkippedNoKey7284.get()} " +
+            "PUMP_LIFECYCLE_STREAM_CAPABLE=${lifecycleStreamCapable7420()} " +
+            "tradeSubscribedMints=${tradeSubscriptions7278.size} lifecycleMints=${lifecycleMints7420.size} " +
+            "subscriptionFailures=${subFail7420.get()} subscribeSkippedNoKey=${tradeSubscribeSkippedNoKey7284.get()} " +
             "untypedFrames=${untypedFrames7280.get()} " +
             "lastUntyped=${lastUntypedFrame7280.ifBlank { "-" }} " +
             "lastError7286=${lastErrorFrame7286.ifBlank { "-" }} " +
@@ -105,6 +120,47 @@ object PumpFunWS {
 
     fun setOnTrade7278(cb: (mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit) {
         onTradeCb = cb
+    }
+
+    private fun registerFreshLifecycle7420(mint: String) {
+        if (mint.isBlank()) return
+        val now = System.currentTimeMillis()
+        val expired = lifecycleMints7420.entries.filter { now - it.value > LIFECYCLE_TTL_MS_7420 }.map { it.key }
+        if (expired.isNotEmpty()) {
+            lifecycleMints7420.keys.removeAll(expired.toSet())
+            tradeSubscriptions7278.removeAll(expired.toSet())
+            if (tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(expired)).toString())
+            unsub7420.addAndGet(expired.size.toLong())
+            try { repeat(expired.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } } catch (_: Throwable) {}
+        }
+        if (lifecycleMints7420.size >= LIFECYCLE_MAX_7420 && mint !in lifecycleMints7420) {
+            val oldest = lifecycleMints7420.entries.minByOrNull { it.value }?.key
+            if (oldest != null) {
+                lifecycleMints7420.remove(oldest)
+                tradeSubscriptions7278.remove(oldest)
+                if (tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray().put(oldest)).toString())
+                unsub7420.incrementAndGet()
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } catch (_: Throwable) {}
+            }
+        }
+        lifecycleMints7420[mint] = now
+        subRequested7420.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUB_REQUESTED") } catch (_: Throwable) {}
+        if (!tradeStreamKeyed7284()) {
+            subFail7420.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUB_FAIL") } catch (_: Throwable) {}
+            return
+        }
+        if (tradeSubscriptions7278.add(mint)) {
+            val sent = ws?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray().put(mint)).toString()) == true
+            if (sent) {
+                subOk7420.incrementAndGet()
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUB_OK") } catch (_: Throwable) {}
+            } else {
+                subFail7420.incrementAndGet()
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUB_FAIL") } catch (_: Throwable) {}
+            }
+        }
     }
 
     /**
@@ -238,7 +294,16 @@ object PumpFunWS {
                         if (!vSol.isFinite() || !vTok.isFinite() || vSol <= 0.0 || vTok <= 0.0) return
                         val priceSol = vSol / vTok
                         if (!priceSol.isFinite() || priceSol <= 0.0) return
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_EVENT_7278") } catch (_: Throwable) {}
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_EVENT_7278")
+                            if (txType == "buy") {
+                                eventBuy7420.incrementAndGet()
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_EVENT_BUY")
+                            } else {
+                                eventSell7420.incrementAndGet()
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_EVENT_SELL")
+                            }
+                        } catch (_: Throwable) {}
                         onTradeCb?.invoke(mint, priceSol, mcapSol, txType == "buy")
                     }
                     txType == "create" || j.has("name") && j.has("symbol") && j.has("mint") -> {
@@ -282,6 +347,7 @@ object PumpFunWS {
                             try { PumpCurveKeys7269.rememberCreate7280(mint, priceSol0, System.currentTimeMillis()) } catch (_: Throwable) {}
                         }
                         if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
+                        registerFreshLifecycle7420(mint)
                         onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
                         if (priceSol0.isFinite() && priceSol0 > 0.0) {
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
