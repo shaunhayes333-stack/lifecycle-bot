@@ -494,32 +494,42 @@ object PerpsTraderAI {
             }
         }
         
-        // Funding rate bonus
+        // Funding rate bonus — only when legacy fallback owns direction.
+        // PerpsStrategy already consumes funding/OI/LSR; do not pay the same
+        // microstructure evidence twice and then lever the doubled confidence.
         val fundingFavorable = when (direction) {
             PerpsDirection.LONG -> marketData.isFundingFavorableLong()
             PerpsDirection.SHORT -> marketData.isFundingFavorableShort()
         }
-        if (fundingFavorable) {
-            score += 10
-            confidence += 5
-            reasons.add("💰 Funding rate favorable: ${(marketData.fundingRate * 100).fmt(4)}%")
+        if (fundingFavorable && perpsStrategySetup == null) {
+            score += 8
+            confidence += 4
+            reasons.add("💰 Funding supports fallback direction")
+        } else if (fundingFavorable) {
+            reasons.add("💰 Funding already priced into PerpsStrategy")
         }
-        
-        // Open interest analysis
+
+        // Open-interest crowding — likewise only a separate vote on fallback.
         val lsRatio = marketData.getLongShortRatio()
-        val oiScore = when {
+        val oiScore = if (perpsStrategySetup != null) {
+            if ((direction == PerpsDirection.LONG && lsRatio < 0.8) ||
+                (direction == PerpsDirection.SHORT && lsRatio > 1.2)) {
+                reasons.add("🎯 OI crowding already priced into PerpsStrategy")
+            }
+            0
+        } else when {
             direction == PerpsDirection.LONG && lsRatio < 0.8 -> {
                 reasons.add("🐻 Crowded shorts - potential squeeze")
-                15
+                10
             }
             direction == PerpsDirection.SHORT && lsRatio > 1.2 -> {
                 reasons.add("🐂 Crowded longs - potential flush")
-                15
+                10
             }
             else -> 0
         }
         score += oiScore
-        
+
         // Volume analysis
         if (marketData.volume24h > 0) {
             score += 5
