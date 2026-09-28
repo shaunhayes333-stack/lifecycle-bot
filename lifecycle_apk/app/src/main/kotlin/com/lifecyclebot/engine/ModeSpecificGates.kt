@@ -53,7 +53,7 @@ object ModeSpecificGates {
         val exitScoreMultiplier: Double = 1.0,       // Multiplier for exit thresholds
         val confidenceMultiplier: Double = 1.0,      // Multiplier for confidence requirements
         val positionSizeMultiplier: Double = 1.0,    // Multiplier for position sizing
-        val stopLossMultiplier: Double = 1.0,        // Multiplier for stop loss (higher = tighter)
+        val stopLossMultiplier: Double = 1.0,        // ExitManager: stopPct=base*mult; >1 = wider, <1 = tighter
         val trailingStopMultiplier: Double = 1.0,    // Multiplier for trailing stop
         val minHoldMultiplier: Double = 1.0,         // Multiplier for minimum hold time
         val maxHoldMultiplier: Double = 1.0,         // Multiplier for maximum hold time
@@ -77,11 +77,11 @@ object ModeSpecificGates {
                     exitScoreMultiplier = 1.3,        // Higher bar for exit (let winners run)
                     confidenceMultiplier = 0.9,       // Slightly lower confidence ok
                     positionSizeMultiplier = 0.7,     // Smaller positions (higher risk)
-                    stopLossMultiplier = 0.8,         // Wider stops (expect volatility)
+                    stopLossMultiplier = 0.8,         // tighter hard invalidation despite volatile runner target
                     trailingStopMultiplier = 0.7,     // Wider trailing (let it run)
                     minHoldMultiplier = 0.5,          // Quick exits ok
                     maxHoldMultiplier = 3.0,          // Hold longer for moon
-                    rugcheckMultiplier = 0.9,         // Slightly more lenient
+                    rugcheckMultiplier = 1.05,        // V5.0.7403: high-risk timing does not weaken rug/concentration proof
                     liquidityMultiplier = 0.8,        // Accept lower liquidity
                 )
                 
@@ -90,11 +90,11 @@ object ModeSpecificGates {
                     exitScoreMultiplier = 0.9,        // Quick exits
                     confidenceMultiplier = 0.8,       // Lower confidence ok
                     positionSizeMultiplier = 0.5,     // Small positions (very high risk)
-                    stopLossMultiplier = 0.7,         // Wide stops initially
+                    stopLossMultiplier = 0.7,         // tight hard invalidation; trailing can breathe once profitable
                     trailingStopMultiplier = 1.2,     // Tight trailing once profitable
                     minHoldMultiplier = 0.3,          // Very quick exits ok
                     maxHoldMultiplier = 0.5,          // Don't hold long
-                    rugcheckMultiplier = 0.7,         // More lenient (risky tokens)
+                    rugcheckMultiplier = 1.10,        // V5.0.7403: fast entry, not blind safety
                     liquidityMultiplier = 0.6,        // Accept lower liquidity
                 )
                 
@@ -103,7 +103,7 @@ object ModeSpecificGates {
                     exitScoreMultiplier = 0.8,        // Lower bar for exit (preserve gains)
                     confidenceMultiplier = 1.2,       // Higher confidence required
                     positionSizeMultiplier = 1.5,     // Larger positions (lower risk)
-                    stopLossMultiplier = 1.3,         // Tighter stops
+                    stopLossMultiplier = 1.3,         // wider structural stop for lower-risk established asset
                     trailingStopMultiplier = 1.2,     // Tighter trailing
                     minHoldMultiplier = 2.0,          // Hold longer
                     maxHoldMultiplier = 5.0,          // Much longer holds
@@ -133,7 +133,7 @@ object ModeSpecificGates {
                     trailingStopMultiplier = 0.85,    // Wider trailing
                     minHoldMultiplier = 0.7,
                     maxHoldMultiplier = 1.5,
-                    rugcheckMultiplier = 0.9,
+                    rugcheckMultiplier = 1.05,
                     liquidityMultiplier = 0.9,
                 )
                 
@@ -146,7 +146,7 @@ object ModeSpecificGates {
                     trailingStopMultiplier = 1.1,     // Slightly tight trailing
                     minHoldMultiplier = 0.5,          // Quick exits
                     maxHoldMultiplier = 0.7,
-                    rugcheckMultiplier = 0.8,
+                    rugcheckMultiplier = 1.10,
                     liquidityMultiplier = 0.7,
                 )
                 
@@ -181,11 +181,11 @@ object ModeSpecificGates {
                     exitScoreMultiplier = 1.1,
                     confidenceMultiplier = 0.85,
                     positionSizeMultiplier = 0.4,     // Very small positions
-                    stopLossMultiplier = 0.7,         // Wide stops (volatile)
+                    stopLossMultiplier = 0.7,         // tighter hard invalidation for volatile micro-cap
                     trailingStopMultiplier = 0.8,
                     minHoldMultiplier = 0.5,
                     maxHoldMultiplier = 1.0,
-                    rugcheckMultiplier = 0.7,         // More lenient (risky)
+                    rugcheckMultiplier = 1.15,        // V5.0.7403: micro-cap concentration must be stricter
                     liquidityMultiplier = 0.5,        // Accept low liquidity
                 )
                 
@@ -224,7 +224,7 @@ object ModeSpecificGates {
                     trailingStopMultiplier = 0.70,
                     minHoldMultiplier = 0.30,
                     maxHoldMultiplier = 0.60,
-                    rugcheckMultiplier = 0.65,        // lenient — shitcoins ARE risky
+                    rugcheckMultiplier = 1.10,        // V5.0.7403: risky means smaller/faster, not weaker safety
                     liquidityMultiplier = 0.50,       // accept thin liquidity
                 )
 
@@ -238,7 +238,7 @@ object ModeSpecificGates {
                     trailingStopMultiplier = 0.70,
                     minHoldMultiplier = 0.30,
                     maxHoldMultiplier = 0.50,
-                    rugcheckMultiplier = 0.50,        // MANIPULATED book bypasses rugcheck
+                    rugcheckMultiplier = 1.20,        // V5.0.7403: manipulated is the MOST concentration-sensitive lane
                     liquidityMultiplier = 0.45,
                 )
 
