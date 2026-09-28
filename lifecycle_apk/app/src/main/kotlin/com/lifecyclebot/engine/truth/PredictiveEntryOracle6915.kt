@@ -284,6 +284,8 @@ object PredictiveEntryOracle6915 {
         sourceFamily: String,
         liquidityUsd: Double,
         creator: String,
+        phase: String,
+        emaFan: String,
     ): List<BrainRead> {
         val out = mutableListOf<BrainRead>()
 
@@ -317,6 +319,31 @@ object PredictiveEntryOracle6915 {
             val e = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getLayerExpectancyPct(lane)
             if (e.isFinite() && kotlin.math.abs(e) >= 0.5) {
                 out += BrainRead("harvard(E=${"%+.1f".format(e)}%)", (e / 100.0 * 10.0).coerceIn(-12.0, 12.0))
+            }
+        } catch (_: Throwable) {}
+
+        // V5.0.7427 — pattern-memory read. This function existed with zero
+        // production callers, but admission already has the exact phase, EMA
+        // fan and source needed to query it without any I/O. Treat it as a
+        // bounded prior only; 0.50/default is neutral and cannot veto.
+        try {
+            val ph = phase.trim()
+            val ema = emaFan.trim()
+            val src = sourceFamily.trim()
+            if (ph.isNotBlank() && ema.isNotBlank() && src.isNotBlank() &&
+                !ema.equals("UNKNOWN", true)) {
+                val wr = com.lifecyclebot.engine.TradingMemory
+                    .getPatternWinRate(ph, ema, src)
+                    .coerceIn(0.0, 1.0)
+                val d = ((wr - 0.5) * 12.0).coerceIn(-6.0, 6.0)
+                if (kotlin.math.abs(d) >= 0.5) {
+                    out += BrainRead(
+                        "patternMemory(phase=" + ph.take(12) + ",ema=" + ema.take(12) +
+                            ",wr=" + "%.2f".format(wr) + ")",
+                        d,
+                    )
+                    try { PipelineHealthCollector.labelInc("TRADING_MEMORY_PATTERN_READ_7427") } catch (_: Throwable) {}
+                }
             }
         } catch (_: Throwable) {}
 
@@ -671,6 +698,7 @@ object PredictiveEntryOracle6915 {
         // when a matching quality/phase cell existed.
         quality: String = "",
         edgePhase: String = "",
+        emaFan: String = "",
         candidateConfidence: Double = 0.50,
     ): Forecast {
         evaluations.incrementAndGet()
@@ -858,7 +886,7 @@ object PredictiveEntryOracle6915 {
 
             var brainDelta7261 = 0.0
             try {
-                val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator)
+                val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator, edgePhase, emaFan)
                 brainDelta7261 = reads.sumOf { it.deltaPct }
                     .coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, BRAIN_NETWORK_CAP_PCT_6917)
                 if (reads.isNotEmpty()) {
