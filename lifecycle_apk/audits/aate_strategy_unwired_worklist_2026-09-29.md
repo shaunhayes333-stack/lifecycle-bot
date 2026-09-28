@@ -22,6 +22,7 @@ Do not wire every module directly into FDG. Decision inputs must converge throug
 - [x] `StrategyHypothesisEngine` stamps the exact `StrategyVariantStore` variant used at entry and credits that exact ID at close.
 - [x] `MemeCausalLearning6568` reports exact trade type / setup / style / variant alongside lane and tactic.
 - [x] Regression coverage added in `Aate7427ExactStrategyIdentityTest`.
+- [x] `TradingMemory.getPatternWinRate` wired as bounded exact-context predictive evidence (`TRADING_MEMORY_PATTERN_READ_7427`).
 - [ ] Next: expand hypothesis contexts from coarse `lane|scoreBand|regime` toward hierarchical exact-strategy context without sparse-cell deadlock.
 - [ ] Next: consume exact style/setup outcome statistics in entry selection and strategy promotion.
 
@@ -31,10 +32,10 @@ Do not wire every module directly into FDG. Decision inputs must converge throug
 - `MomentumPredictorAI.getStrongMomentumTokens` — **CLOSED_LOOP / LEDGER STALE**: current source has a production caller in `LaneHunter7297`; the unwired ledger needs reclassification rather than another wire.
 - `MomentumPredictorAI.getMomentumScore` — **CLOSED_LOOP** into `PredictiveEntryOracle6915`.
 - `MomentumPredictorAI.getEntryScoreAdjustment` — **CLOSED_LOOP** into `LifecycleStrategy`.
-- `TradingMemory.getPatternWinRate` — **UNWIRED, CANDIDATE**: local/cache-safe, but requires exact phase + EMA + source identity; wire only after those fields are sealed rather than calling with UNKNOWN.
-- `EducationSubLayerAI.getEdgeLedger` — **BACKGROUND/REPORT CANDIDATE**: aggregate ranking/sorting over learned maps; useful for strategy selection/research, not per-candidate hot-path invocation.
+- `TradingMemory.getPatternWinRate` — **CLOSED_LOOP (7427)**: exact phase + EMA + source are now carried into `PredictiveEntryOracle6915`; the read is a bounded local prior and never a standalone veto.
+- `EducationSubLayerAI.getEdgeLedger` — **BACKGROUND/REPORT CANDIDATE**: aggregate ranking/sorting over learned maps; useful for periodic strategy selection/research, explicitly not per-candidate hot-path invocation.
 - `CollectiveLearning.getNetworkBoostForMint` — **BACKGROUND-ONLY CANDIDATE**: suspend + database I/O; must be prefetched/cached before admission, never awaited on the scanner/FDG hot path.
-- `HistoricalChartScanner.getBestModeForConditions` — **UNWIRED, NEEDS COST/INPUT AUDIT** before any production use.
+- `HistoricalChartScanner.getBestModeForConditions` — **ALIAS/COARSE WRAPPER**: local and cheap, but it discards gain-stage/context already available in `getHistoricalRecommendation`; use the richer recommendation if this family is wired, not this wrapper.
 
 ## Priority findings from the strategy audit
 
