@@ -8,7 +8,11 @@ import java.util.concurrent.ConcurrentHashMap
 /** V5.0.4287 — diagnostic source-family opportunity scorecard. No source block authority. */
 object SourceFamilyOpportunityScorecard {
     data class Stat(var discovered: Int = 0, var admitted: Int = 0, var opened: Int = 0, var closed: Int = 0, var wins: Int = 0, var pnlSol: Double = 0.0, var costSol: Double = 0.0, var holdMin: Double = 0.0, var rugOverlay: Int = 0)
-    private val stats = ConcurrentHashMap<String, Stat>()
+    private val stats = ConcurrentHashMap<String, Stat>() // legacy pooled/reporting
+    // V5.0.7403 — decision-facing source truth is mode-specific. Historical
+    // pooled rows remain for reports, but cannot authorize LIVE entries.
+    private val liveStats7403 = ConcurrentHashMap<String, Stat>()
+    private val paperStats7403 = ConcurrentHashMap<String, Stat>()
     private const val MAX_FAMILIES = 48
 
     /**
@@ -34,15 +38,16 @@ object SourceFamilyOpportunityScorecard {
         val meanPnlPct: Double,
     )
 
-    fun expectancyFor6915(source: String): Expectancy6915? {
+    fun expectancyFor6915(source: String, liveMode7403: Boolean? = null): Expectancy6915? {
         val key = source.trim().uppercase()
         if (key.isEmpty()) return null
-        // Exact family first; otherwise the best substring match, because
-        // intake sources arrive as comma-joined composites
-        // ("PUMP_FUN_NEW,SCANNER_DIRECT,REGISTRY_DUPLICATE_HYDRATE") while the
-        // scorecard is keyed on the family.
-        val s = stats[key]
-            ?: stats.entries.firstOrNull { (k, _) -> k.isNotEmpty() && key.contains(k) }?.value
+        val store = when (liveMode7403) {
+            true -> liveStats7403
+            false -> paperStats7403
+            null -> stats
+        }
+        val s = store[key]
+            ?: store.entries.firstOrNull { (k, _) -> k.isNotEmpty() && key.contains(k) }?.value
             ?: return null
         if (s.closed <= 0) return null
         val meanPct = if (s.costSol > 0.0) (s.pnlSol / s.costSol) * 100.0 else 0.0
@@ -60,12 +65,32 @@ object SourceFamilyOpportunityScorecard {
     fun recordDiscovered(source: String, hasRugOverlay: Boolean = false) = update(source) { discovered++; if (hasRugOverlay) this.rugOverlay++ }
     fun recordAdmitted(source: String, hasRugOverlay: Boolean = false) = update(source) { admitted++; if (hasRugOverlay) this.rugOverlay++ }
     fun recordOpened(source: String) = update(source) { opened++ }
-    fun recordClosed(source: String, trade: Trade) = update(source) {
-        closed++
-        if ((trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol) > 0.0) wins++
-        pnlSol += (trade.netPnlSol.takeIf { it.isFinite() && it != 0.0 } ?: trade.pnlSol).takeIf { it.isFinite() } ?: 0.0
-        costSol += trade.feeSol.takeIf { it.isFinite() } ?: 0.0
-        holdMin += ((trade.ts - trade.entryTsMs).coerceAtLeast(0L).toDouble() / 60_000.0).coerceAtMost(24.0 * 60.0)
+    fun recordClosed(source: String, trade: Trade) {
+        val pnl7403 = (trade.netPnlSol.takeIf { it.isFinite() && it != 0.0 } ?: trade.pnlSol)
+            .takeIf { it.isFinite() } ?: 0.0
+        // V5.0.7403 — cost means deployed basis, NOT fees. Using feeSol as
+        // denominator inflated a normal return into hundreds/thousands of %
+        // and poisoned source-family edge in the oracle/admission stack.
+        val basis7403 = when {
+            trade.entryCostSol.isFinite() && trade.entryCostSol > 0.0 -> trade.entryCostSol
+            trade.soldCostBasisSol.isFinite() && trade.soldCostBasisSol > 0.0 -> trade.soldCostBasisSol
+            trade.preCostSol.isFinite() && trade.preCostSol > 0.0 -> trade.preCostSol
+            trade.sol.isFinite() && trade.sol > 0.0 -> trade.sol
+            else -> 0.0
+        }
+        fun apply7403(target: ConcurrentHashMap<String, Stat>) {
+            updateInto7403(target, source) {
+                closed++
+                if (pnl7403 > 0.0) wins++
+                pnlSol += pnl7403
+                costSol += basis7403
+                holdMin += ((trade.ts - trade.entryTsMs).coerceAtLeast(0L).toDouble() / 60_000.0)
+                    .coerceAtMost(24.0 * 60.0)
+            }
+        }
+        apply7403(stats)
+        if (trade.mode.equals("live", true)) apply7403(liveStats7403)
+        else if (trade.mode.equals("paper", true)) apply7403(paperStats7403)
     }
 
     fun snapshot(): String = stats.entries.sortedByDescending { it.value.closed + it.value.opened }.take(12).joinToString(" | ") { (k, s) ->
@@ -88,13 +113,16 @@ object SourceFamilyOpportunityScorecard {
         if (raw.isNullOrBlank()) return
         try { val a = JSONArray(raw); stats.clear(); for (i in 0 until a.length().coerceAtMost(MAX_FAMILIES)) { val o = a.optJSONObject(i) ?: continue; val k = o.optString("k"); if (k.isNotBlank()) stats[k] = Stat(o.optInt("d"), o.optInt("a"), o.optInt("o"), o.optInt("c"), o.optInt("w"), o.optDouble("p"), o.optDouble("cost"), o.optDouble("h"), o.optInt("r")) } } catch (_: Throwable) {}
     }
-    fun reset() { stats.clear() }
+    fun reset() { stats.clear(); liveStats7403.clear(); paperStats7403.clear() }
 
-    private fun update(source: String, block: Stat.() -> Unit) {
+    private fun update(source: String, block: Stat.() -> Unit) =
+        updateInto7403(stats, source, block)
+
+    private fun updateInto7403(target: ConcurrentHashMap<String, Stat>, source: String, block: Stat.() -> Unit) {
         val key = family(source)
-        val s = stats.getOrPut(key) { Stat() }
+        val s = target.getOrPut(key) { Stat() }
         synchronized(s) { s.block() }
-        if (stats.size > MAX_FAMILIES) stats.keys.take(stats.size - MAX_FAMILIES).forEach { stats.remove(it) }
+        if (target.size > MAX_FAMILIES) target.keys.take(target.size - MAX_FAMILIES).forEach { target.remove(it) }
     }
     private fun family(source: String): String = when {
         source.contains("pump", true) -> "PUMP_FAMILY"
