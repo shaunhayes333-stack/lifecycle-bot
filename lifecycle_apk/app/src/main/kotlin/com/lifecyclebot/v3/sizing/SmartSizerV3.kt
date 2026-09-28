@@ -125,7 +125,12 @@ class SmartSizerV3(
                     kotlin.math.max(LIVE_FLOOR_MAX_WALLET_SHARE_7127, 1.0 / capacity),
                 )
             } else if (capacity == 1) {
-                SINGLE_ROUTABLE_POSITION_SHARE_7255
+                // V5.0.7399 — reserve is already removed before this function.
+                // Applying another 60% cap to the remaining tradeable balance
+                // created an impossible band (e.g. routableMin 0.042 > cap 0.026).
+                // One-slot wallets may use the tradeable balance up to the DEX
+                // routable minimum; the untouchable SOL reserve remains outside it.
+                SINGLE_ROUTABLE_POSITION_SHARE_7399
             } else LIVE_FLOOR_MAX_WALLET_SHARE_7127
             val safeShareCap = tradeable * shareGuard
             return RoutablePreflight7224(
@@ -134,7 +139,7 @@ class SmartSizerV3(
                 capacity = capacity,
                 shareGuard = shareGuard,
                 safeShareCapSol = safeShareCap,
-                minViableTradeableSol = routableMin / SINGLE_ROUTABLE_POSITION_SHARE_7255,
+                minViableTradeableSol = routableMin / SINGLE_ROUTABLE_POSITION_SHARE_7399,
                 wouldRefuse = routableMin > safeShareCap,
             )
         }
@@ -196,6 +201,10 @@ class SmartSizerV3(
          * prerequisite from turning a healthy small wallet into a permanent
          * no-trade account while still rejecting an all-in order. */
         private const val SINGLE_ROUTABLE_POSITION_SHARE_7255 = 0.60
+
+        /** V5.0.7399 — when only one routable slot exists, tradeableSol has
+         * already had the execution reserve removed. Do not reserve it twice. */
+        private const val SINGLE_ROUTABLE_POSITION_SHARE_7399 = 1.00
     }
 
     /**
@@ -443,7 +452,7 @@ class SmartSizerV3(
                 kotlin.math.max(LIVE_FLOOR_MAX_WALLET_SHARE_7127, 1.0 / routableCapacity7218),
             )
         } else if (routableCapacity7218 == 1) {
-            SINGLE_ROUTABLE_POSITION_SHARE_7255
+            SINGLE_ROUTABLE_POSITION_SHARE_7399
         } else {
             LIVE_FLOOR_MAX_WALLET_SHARE_7127
         }
@@ -471,7 +480,7 @@ class SmartSizerV3(
                     // would clear it is a dead end, and this one fired 1050
                     // times.
                     val minViableWalletSol7218 =
-                        routableMinSol7127 / SINGLE_ROUTABLE_POSITION_SHARE_7255
+                        routableMinSol7127 / SINGLE_ROUTABLE_POSITION_SHARE_7399
                     com.lifecyclebot.engine.PipelineHealthCollector
                         .labelInc("LIVE_FLOOR_WALLET_BELOW_ROUTABLE_CAPACITY_7218")
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -480,7 +489,7 @@ class SmartSizerV3(
                             "routableCapacity7218=$routableCapacity7218 shareGuard7218=${"%.3f".format(shareGuard7218)} safeShareCap=${"%.4f".format(safeShareCap7142)} " +
                             "minViableWalletSol7218=${"%.4f".format(minViableWalletSol7218)} minViableWalletUsd7218=${"%.2f".format(minViableWalletSol7218 * solUsd7127)} " +
                             "shortfallSol7218=${"%.4f".format((minViableWalletSol7218 - tradeable).coerceAtLeast(0.0))} " +
-                            "note=wallet_cannot_carry_one_routable_position_under_${(SINGLE_ROUTABLE_POSITION_SHARE_7255 * 100).toInt()}pct_spendable_guard"
+                            "note=wallet_cannot_carry_one_routable_position_after_execution_reserve_7399"
                     )
                 } catch (_: Throwable) {}
                 return SizeResult(sizeSol = 0.0)
