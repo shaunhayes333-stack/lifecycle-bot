@@ -33,6 +33,31 @@ The current entry snapshot preserves lane + coarse tactic but not the exact stra
 
 Carry the same identity through `CanonicalFinalizedTradeBus6464.Envelope` and all canonical learning consumers.
 
+### P0 — Confirmed live tactic-attribution defect
+
+The live entry reducer currently writes:
+
+`entryTactic = liveDeskHypothesis6599?.entryStyle ?: TacticSwitcher.currentTactic(...).name`
+
+A Toolkit desk `entryStyle` is a free-form execution string such as
+`degen_snipe_fast_confirm`, `breakout_confirmation`,
+`dip_reclaim_confirmation`, etc. It is **not** a
+`TacticSwitcher.Tactic` enum value.
+
+`TacticSwitcher.onCanonicalTradeClosed6486` parses `entryTactic` by enum
+name. When parsing fails it emits `TACTIC_ENTRY_ATTRIBUTION_INVALID_6568`
+and falls back to `onTradeClosed(lane, band, pnl)`, crediting the currently
+active coarse tactic instead of the actual entry strategy.
+
+Repair requirement:
+
+- keep `entryTactic` strictly the elected coarse tactic enum;
+- add separate immutable fields for `entryTradeType`, `entrySetup`,
+  `entryStyle`, `entryEntryStyle`, `entryExitStyle`,
+  `entryStrategyVariantId`, and related strategy identity;
+- never overload one field with two different namespaces;
+- terminal learners must use sealed entry identity, not current tactic state.
+
 ### P0 — Stop strategy-credit collapse
 
 Current examples:
