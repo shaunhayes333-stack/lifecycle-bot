@@ -33,6 +33,13 @@ object OracleTradeHistory7287 {
 
     @Volatile private var byLane: Map<String, Stat> = emptyMap()
     @Volatile private var global: Stat = Stat(0, 0.0, 0.0)
+    // V5.0.7402 — mode-specific truth. Pooled history remains available as
+    // prior/reporting, but it must not replace a LIVE lane estimate after the
+    // wallet has produced real live outcomes.
+    @Volatile private var byLaneLive7402: Map<String, Stat> = emptyMap()
+    @Volatile private var byLanePaper7402: Map<String, Stat> = emptyMap()
+    @Volatile private var globalLive7402: Stat = Stat(0, 0.0, 0.0)
+    @Volatile private var globalPaper7402: Stat = Stat(0, 0.0, 0.0)
     // V5.0.7307 — terminal LIVE closes per lane, so a paper-seeded caution
     // can hand authority to live once live has a view of its own.
     @Volatile private var liveClosesByLane: Map<String, Int> = emptyMap()
@@ -59,21 +66,40 @@ object OracleTradeHistory7287 {
         val rows = try {
             com.lifecyclebot.engine.TradeHistoryStore.getRecentCleanStrategyTerminalTrades(MAX_ROWS)
         } catch (_: Throwable) { return }
-        val acc = HashMap<String, DoubleArray>() // [n, sum, wins]
+        val acc = HashMap<String, DoubleArray>() // pooled [n, sum, wins]
         val all = DoubleArray(3)
+        val liveAcc7402 = HashMap<String, DoubleArray>()
+        val paperAcc7402 = HashMap<String, DoubleArray>()
+        val allLive7402 = DoubleArray(3)
+        val allPaper7402 = DoubleArray(3)
         val live7307 = HashMap<String, Int>()
         for (t in rows) {
             if (!t.side.equals("SELL", ignoreCase = true)) continue
             val r = netPct(t) ?: continue
             val lane = t.tradingMode.trim().uppercase().ifBlank { "UNKNOWN" }
-            if (t.mode.equals("live", ignoreCase = true)) live7307[lane] = (live7307[lane] ?: 0) + 1
+            val isLive7402 = t.mode.equals("live", ignoreCase = true)
+            if (isLive7402) live7307[lane] = (live7307[lane] ?: 0) + 1
             val a = acc.getOrPut(lane) { DoubleArray(3) }
             a[0] += 1.0; a[1] += r; if (r > 0.0) a[2] += 1.0
             all[0] += 1.0; all[1] += r; if (r > 0.0) all[2] += 1.0
+
+            val modeAcc = if (isLive7402) liveAcc7402 else paperAcc7402
+            val modeAll = if (isLive7402) allLive7402 else allPaper7402
+            val ma = modeAcc.getOrPut(lane) { DoubleArray(3) }
+            ma[0] += 1.0; ma[1] += r; if (r > 0.0) ma[2] += 1.0
+            modeAll[0] += 1.0; modeAll[1] += r; if (r > 0.0) modeAll[2] += 1.0
         }
         liveClosesByLane = live7307
-        byLane = acc.mapValues { (_, a) -> Stat(a[0].toInt(), a[1] / a[0], a[2] / a[0]) }
-        global = if (all[0] > 0.0) Stat(all[0].toInt(), all[1] / all[0], all[2] / all[0]) else Stat(0, 0.0, 0.0)
+        fun reduce7402(src: Map<String, DoubleArray>): Map<String, Stat> =
+            src.mapValues { (_, a) -> Stat(a[0].toInt(), a[1] / a[0], a[2] / a[0]) }
+        fun reduceAll7402(a: DoubleArray): Stat =
+            if (a[0] > 0.0) Stat(a[0].toInt(), a[1] / a[0], a[2] / a[0]) else Stat(0, 0.0, 0.0)
+        byLane = reduce7402(acc)
+        global = reduceAll7402(all)
+        byLaneLive7402 = reduce7402(liveAcc7402)
+        byLanePaper7402 = reduce7402(paperAcc7402)
+        globalLive7402 = reduceAll7402(allLive7402)
+        globalPaper7402 = reduceAll7402(allPaper7402)
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ORACLE_HISTORY_REFRESHED_7287")
         } catch (_: Throwable) {}
@@ -82,6 +108,18 @@ object OracleTradeHistory7287 {
     fun lane(lane: String, nowMs: Long = System.currentTimeMillis()): Stat? {
         refreshIfDue(nowMs)
         return byLane[lane.trim().uppercase()]?.takeIf { it.n > 0 }
+    }
+
+    fun laneForMode7402(lane: String, live: Boolean, nowMs: Long = System.currentTimeMillis()): Stat? {
+        refreshIfDue(nowMs)
+        val map = if (live) byLaneLive7402 else byLanePaper7402
+        return map[lane.trim().uppercase()]?.takeIf { it.n > 0 }
+    }
+
+    fun bookForMode7402(live: Boolean, nowMs: Long = System.currentTimeMillis()): Stat? {
+        refreshIfDue(nowMs)
+        val s = if (live) globalLive7402 else globalPaper7402
+        return s.takeIf { it.n > 0 }
     }
 
     /** V5.0.7307 — terminal LIVE closes this lane has booked (journal, all sessions). */
@@ -97,6 +135,8 @@ object OracleTradeHistory7287 {
 
     fun statusLine(): String {
         val g = global
-        return "historyCloses=${g.n} bookE=${"%+.1f".format(g.meanNetPct)}% bookWR=${"%.0f".format(g.winRate * 100.0)}% lanes=${byLane.size}"
+        return "historyCloses=${g.n} bookE=${"%+.1f".format(g.meanNetPct)}% bookWR=${"%.0f".format(g.winRate * 100.0)}% lanes=${byLane.size} " +
+            "live[n=${globalLive7402.n},E=${"%+.1f".format(globalLive7402.meanNetPct)}%,wr=${"%.0f".format(globalLive7402.winRate * 100.0)}%] " +
+            "paper[n=${globalPaper7402.n},E=${"%+.1f".format(globalPaper7402.meanNetPct)}%]"
     }
 }
