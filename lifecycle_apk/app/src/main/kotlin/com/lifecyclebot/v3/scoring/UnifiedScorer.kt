@@ -371,9 +371,15 @@ class UnifiedScorer(
                 candidate.extraBoolean("launchPostPumpFade7401") ->
                     ScoreComponent(name = "fresh_launch_bonus", value = -25,
                         reason = "📉 POST_PUMP_FADE — launch impulse already spent")
-                candidate.extraBoolean("launchIgnition7401") ->
-                    ScoreComponent(name = "fresh_launch_bonus", value = 30,
-                        reason = "🔥 IGNITION — rising first-minute buys + breadth before expansion")
+                candidate.extraBoolean("launchIgnition7401") -> {
+                    val bundle = candidate.bundledPct ?: 0.0
+                    val bundleNudge = if (bundle in 1.0..15.0) 5 else 0
+                    val devNudge = if (candidate.extraBoolean("launchDevBuy7401")) 5 else 0
+                    ScoreComponent(name = "fresh_launch_bonus", value = 30 + bundleNudge + devNudge,
+                        reason = "🔥 IGNITION — first-minute acceleration+breadth" +
+                            (if (devNudge > 0) "+dev" else "") +
+                            (if (bundleNudge > 0) "+boundedBundle" else ""))
+                }
                 candidate.extraBoolean("launchPreIgnition7401") ->
                     ScoreComponent(name = "fresh_launch_bonus", value = 20,
                         reason = "⚡ PRE_IGNITION — true early launch flow")
