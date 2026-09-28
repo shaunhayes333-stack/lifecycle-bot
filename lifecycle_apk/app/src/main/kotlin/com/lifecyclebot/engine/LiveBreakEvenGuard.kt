@@ -44,17 +44,18 @@ object LiveBreakEvenGuard {
                 maxOf(m.pfExpectancyPp, m.meanPnlPct, m.avgWinPct * (m.winRatePct / 100.0)).coerceAtMost(60.0)
             else 0.0
         } catch (_: Throwable) { 0.0 }
-        val liveTerminalEdge = try {
+        val liveRows7403 = try {
             val aliases = aliasesFor(canon)
-            val rows = TradeHistoryStore.getRecentValidClosedTrades(limit = 1_500, includePartials = false)
+            TradeHistoryStore.getRecentValidClosedTrades(limit = 1_500, includePartials = false)
                 .filter { it.side.equals("SELL", true) }
-                .filter { it.mode.equals("live", true) || it.tradingMode.equals("live", true) || !it.mode.equals("paper", true) }
+                // V5.0.7403 — blank/legacy/unknown is not LIVE. The old
+                // "!paper" clause admitted unscoped historical rows as live edge.
+                .filter { it.mode.equals("live", true) || it.tradingMode.equals("live", true) }
                 .filter { aliases.contains(BleederMemoryRouter.canon(it.tradingMode.ifBlank { it.reason })) }
-                // V5.0.7346 — rows arrive newest-first; takeLast kept the OLDEST 150
-                // (the RegimeDetector defect fixed in 7333). The edge is the recent one.
                 .take(150)
-            edgeFromRows(rows, minRows = 5, minWr = 45.0, minNetSol = 0.0, cap = 140.0)
-        } catch (_: Throwable) { 0.0 }
+        } catch (_: Throwable) { emptyList() }
+        val liveTerminalEdge = edgeFromRows(liveRows7403, minRows = 5, minWr = 45.0, minNetSol = 0.0, cap = 140.0)
+
         val paperAdvisoryEdge = try {
             val aliases = aliasesFor(canon)
             val rows = TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
@@ -70,13 +71,27 @@ object LiveBreakEvenGuard {
         // if live is positive, paper may add a capped boost. This prevents stale
         // paper/outlier winners from authorizing live entries against a toxic live
         // bucket while preserving the useful winner base.
-        return if (liveTerminalEdge > 0.0) {
-            maxOf(scorePrior, leaderboardEdge, liveTerminalEdge + (paperAdvisoryEdge * 0.35)).coerceIn(0.0, 180.0)
-        } else {
-            // V5.0.3986 — correspondence rebase. With clean live safety proof,
-            // paper winners must be allowed to bootstrap executable live samples;
-            // otherwise dirty early live losses self-starve the edge loop forever.
-            maxOf(scorePrior, minOf(leaderboardEdge, 35.0), minOf(paperAdvisoryEdge, 28.0)).coerceIn(0.0, 60.0)
+        return when {
+            liveTerminalEdge > 0.0 -> {
+                // Once LIVE proves positive edge, paper may contribute only a
+                // bounded prior; live remains the authority.
+                maxOf(scorePrior, leaderboardEdge, liveTerminalEdge + (paperAdvisoryEdge * 0.20))
+                    .coerceIn(0.0, 180.0)
+            }
+            liveRows7403.isNotEmpty() -> {
+                // V5.0.7403 — real-money evidence exists and is not positive.
+                // Do not let paper resurrect an edge that LIVE has failed to
+                // demonstrate. Score prior remains candidate-local evidence,
+                // but historical paper and pooled leaderboard cannot clear cost.
+                try { PipelineHealthCollector.labelInc("LIVE_EDGE_PAPER_BOOTSTRAP_ENDED_7403") } catch (_: Throwable) {}
+                scorePrior.coerceIn(0.0, 30.0)
+            }
+            else -> {
+                // True cold start only: paper can seed the first live samples.
+                try { PipelineHealthCollector.labelInc("LIVE_EDGE_PAPER_COLDSTART_PRIOR_7403") } catch (_: Throwable) {}
+                maxOf(scorePrior, minOf(leaderboardEdge, 20.0), minOf(paperAdvisoryEdge, 15.0))
+                    .coerceIn(0.0, 45.0)
+            }
         }
     }
 
