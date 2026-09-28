@@ -129,21 +129,24 @@ class DataOrchestrator(
      */
     fun onTokenAdded(mint: String, symbol: String) {
         scope.launch {
-            // 1. Seed candle history from Birdeye
-            seedCandleHistory(mint, symbol)
-
-            // 2. Subscribe to real-time trades
+            // V5.0.7401 — LIVE FIRST, HISTORY SECOND.
+            // The old order awaited candle enrichment before Pump/Helius
+            // subscriptions. On a new launch those first seconds contain the
+            // dev/bundle/buyer-acceleration signal; missing them turns an early
+            // detector into a post-pump chart follower.
             pumpWs?.subscribeToken(mint)
             heliusWs?.subscribeToken(mint)
-            
-            // 3. V5.6: Subscribe to DexScreener real-time prices
-            // Get pair address from token state
+
             val ts = status.tokens[mint]
             if (ts != null && ts.pairAddress.isNotBlank()) {
                 dexWs?.subscribeToken(mint, ts.pairAddress)
             }
+            try { PipelineHealthCollector.labelInc("LAUNCH_LIVE_STREAMS_ARMED_BEFORE_HISTORY_7401") } catch (_: Throwable) {}
+            onLog("$symbol: live streams armed before history seed", mint)
 
-            onLog("$symbol: data sources connected (Pump+Helius+Dex WS)", mint)
+            // Historical enrichment is confirmation. It must never delay the
+            // first-minute launch tape.
+            seedCandleHistory(mint, symbol)
         }
     }
 
