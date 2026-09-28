@@ -187,12 +187,20 @@ object LayerVoteSampler {
     }
 
     private fun voteFearGreed(ts: TokenState): Pair<Boolean, Double>? {
-        // Contrarian. Vote bullish when buy pressure is LOW (fear) and
-        // bearish when buy pressure is EXTREME (greed).
         val buyP = ts.lastBuyPressurePct
+        val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        // V5.0.7402 — contrarian fear is valid only after launch discovery has
+        // matured into a reclaim/range context. On a launch, low buy pressure is
+        // lack of ignition, not a bullish bargain.
         return when {
-            buyP < 35 -> Pair(true, 0.6)      // contrarian long
-            buyP > 85 -> Pair(false, 0.55)    // contrarian short (greed top)
+            launch?.tooLateForSnipe == true -> Pair(false, 0.75)
+            launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION && buyP >= 60 ->
+                Pair(true, 0.75)
+            launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION && buyP < 35 ->
+                Pair(false, 0.55)
+            launch?.ageMs != null && launch.ageMs <= 180_000L -> null
+            buyP < 35 -> Pair(true, 0.6)
+            buyP > 85 -> Pair(false, 0.55)
             else -> null
         }
     }
@@ -268,12 +276,25 @@ object LayerVoteSampler {
     }
 
     private fun voteDipHunter(ts: TokenState): Pair<Boolean, Double>? {
-        // Votes bullish on oversold (negative momentum + holders still growing).
         val m = ts.momentum ?: 0.0
         val hg = ts.holderGrowthRate
+        val bp = ts.lastBuyPressurePct
+        val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        if (launch?.ageMs != null && launch.ageMs <= 180_000L && !launch.tooLateForSnipe) return null
+
+        // V5.0.7402 — negative momentum is not a dip signal by itself. Require
+        // a visible reclaim, matching DipHunterAI's production doctrine.
+        val px = try { ts.history.toList().takeLast(8).map { it.priceUsd }.filter { it.isFinite() && it > 0.0 } }
+            catch (_: Throwable) { emptyList() }
+        val bounce = if (px.size >= 4) {
+            val lowIdx = px.indices.minByOrNull { px[it] } ?: -1
+            val low = px.minOrNull() ?: 0.0
+            lowIdx >= 0 && lowIdx < px.lastIndex - 1 && low > 0.0 &&
+                px.last() >= low * 1.02 && bp >= 50.0
+        } else false
         return when {
-            m < -1.0 && hg > 0 -> Pair(true, 0.65)   // dip with support
-            m > 2.0 -> null                          // already running, abstain
+            launch?.tooLateForSnipe == true && !bounce -> Pair(false, 0.7)
+            m < -1.0 && hg > 0 && bounce -> Pair(true, 0.65)
             else -> null
         }
     }
@@ -335,13 +356,19 @@ object LayerVoteSampler {
     }
 
     private fun voteMoonshot(ts: TokenState): Pair<Boolean, Double>? {
-        // Votes bullish on micro-mcap + holder growth (moonshot profile).
         val mcap = ts.lastMcap
         val hg = ts.holderGrowthRate
         if (mcap <= 0) return null
+        val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
         return when {
+            launch?.tooLateForSnipe == true -> Pair(false, 0.8)
+            launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION &&
+                mcap < 500_000 && (hg > 0.0 || launch.distinctBuyers60s >= 3) -> Pair(true, 0.82)
+            launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING &&
+                mcap < 500_000 && hg > 5.0 && launch.buySharePct >= 55.0 -> Pair(true, 0.65)
+            launch?.ageMs != null && launch.ageMs <= 180_000L -> null
             mcap < 500_000 && hg > 5.0 -> Pair(true, 0.75)
-            mcap > 10_000_000 -> Pair(false, 0.4)      // too big for moonshot
+            mcap > 10_000_000 -> Pair(false, 0.4)
             else -> null
         }
     }
@@ -382,18 +409,19 @@ object LayerVoteSampler {
     }
 
     private fun voteProjectSniper(ts: TokenState): Pair<Boolean, Double>? {
-        // Source-based: new-launch sources (PUMP_FUN_NEW, RAYDIUM_NEW) bullish
-        // if entry score also supports it.
-        val src = ts.source.uppercase()
-        val isNew = "NEW" in src || "PUMP_FUN" in src || "RAYDIUM" in src
+        val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
         return when {
-            isNew && ts.entryScore >= 55 -> Pair(true, 0.7)
-            isNew && ts.entryScore < 30 -> Pair(false, 0.55)
+            launch?.tooLateForSnipe == true -> Pair(false, 0.9)
+            launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION ->
+                Pair(true, 0.9)
+            launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION &&
+                (launch.accelerationRising || launch.devBuyTx60s > 0) -> Pair(true, 0.78)
+            launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING &&
+                launch.buySharePct >= 60.0 && launch.currentVsRecentPeak >= 0.88 -> Pair(true, 0.55)
+            launch?.ageMs != null && launch.ageMs <= 180_000L -> null
             else -> null
         }
     }
-
-    // ── Helpers ─────────────────────────────────────────────────────────────
 
     private fun safeVote(
         layerName: String,
