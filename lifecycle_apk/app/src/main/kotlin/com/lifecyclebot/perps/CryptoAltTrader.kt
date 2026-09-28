@@ -1015,8 +1015,18 @@ object CryptoAltTrader {
         val brainScoreAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.scoreAdjustment() } catch (_: Throwable) { 0 }
         val brainConfAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.confidenceModifier() } catch (_: Throwable) { 0 }
 
-        val momentum = (change24hPct.coerceIn(-20.0, 20.0) * 0.70).toInt()
-        val flow = ((buyPressurePct - 50.0).coerceIn(-25.0, 25.0) * 0.32).toInt()
+        // V5.0.7403 — 24h change is context, not a prediction. Reward a
+        // moderate trend, penalise exhaustion, and let actual buy/sell flow carry
+        // more weight. The old linear formula made +20% already printed = +14 score.
+        val momentum = when {
+            change24hPct in 1.0..8.0 -> (change24hPct * 0.65).toInt().coerceAtMost(5)
+            change24hPct > 25.0 -> -10
+            change24hPct > 12.0 -> -4
+            change24hPct < -12.0 -> -10
+            change24hPct < -5.0 -> -5
+            else -> 0
+        }
+        val flow = ((buyPressurePct - 50.0).coerceIn(-30.0, 30.0) * 0.48).toInt()
         val liquidity = when {
             liquidityUsd >= 5_000_000.0 -> 10
             liquidityUsd >= 1_000_000.0 -> 8
@@ -1032,12 +1042,15 @@ object CryptoAltTrader {
             volume24hUsd > 0.0 -> 1
             else -> -5
         }
-        val discovery = (if (tok.isTrending) 6 else 0) + (if (tok.isBoosted) 3 else 0)
+        val discovery = (if (tok.isTrending) 2 else 0) + (if (tok.isBoosted) 1 else 0)
         val score = (48 + momentum + flow + liquidity + activity + discovery + brainScoreAdj).coerceIn(0, 100)
         val confidence = (42 +
-            kotlin.math.abs(change24hPct).coerceIn(0.0, 15.0).toInt() +
-            kotlin.math.abs(buyPressurePct - 50.0).coerceIn(0.0, 20.0).toInt() / 2 +
-            (if (liquidityUsd > 0.0) 6 else 0) + brainConfAdj
+            // Confidence comes from evidence quality, not how far price already moved.
+            kotlin.math.abs(buyPressurePct - 50.0).coerceIn(0.0, 30.0).toInt() / 2 +
+            (if (liquidityUsd >= 50_000.0) 6 else if (liquidityUsd > 0.0) 2 else 0) +
+            (if (volume24hUsd >= 250_000.0) 4 else 0) +
+            (if (change24hPct > 25.0 || change24hPct < -12.0) -8 else 0) +
+            brainConfAdj
         ).coerceIn(0, 100)
 
         val maturityScoreFloor7312 = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Throwable) { 50 }
@@ -1053,8 +1066,12 @@ object CryptoAltTrader {
         recordCryptoScore7312(score, confidence)
         val scoreFloor = cryptoFloor7312(maturityScoreFloor7312, recentCryptoScores7312, 48)
         val confFloor = cryptoFloor7312(maturityConfFloor7312, recentCryptoConfs7312, 42)
-        val longEvidence = change24hPct >= 0.50 || buyPressurePct >= 56.0 ||
-            (tok.isTrending && change24hPct > -1.0) || (tok.isBoosted && buyPressurePct >= 52.0)
+        val notExtended7403 = change24hPct <= 20.0 && change24hPct >= -8.0
+        val longEvidence = notExtended7403 && (
+            buyPressurePct >= 56.0 ||
+            (change24hPct in 0.5..8.0 && buyPressurePct >= 52.0) ||
+            (tok.isTrending && buyPressurePct >= 58.0)
+        )
         val shadowOnlyLive = try {
             !isPaperMode.get() && com.lifecyclebot.perps.crypto.brain.CryptoBrain.shouldShadowOnly(tier, score)
         } catch (_: Throwable) { false }
