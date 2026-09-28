@@ -55,12 +55,12 @@ object FdgBrainChain {
         if (laneSig >= raw + 8.0 && laneSig >= 35.0) agree += "lane_consensus:${laneSig.toInt()}gt_raw:${raw.toInt()}"
         else if (raw < 20.0 && laneSig < 25.0) disagree += "raw_and_lane_weak:${raw.toInt()}/${laneSig.toInt()}"
 
-        when (policyAuthority) {
-            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> agree += "policy_authoritative"
-            UnifiedPolicyHead.AuthorityTier.LEARNED -> agree += "policy_learned"
-            UnifiedPolicyHead.AuthorityTier.ADVISORY -> agree += "policy_advisory"
-            UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> agree += "policy_bootstrap_trade1"
-        }
+        // V5.0.7403 — authority tier is metadata, not directional evidence.
+        // AUTHORITATIVE means trust the model opinion; it does not mean bullish.
+        val policyMature7403 = policyAuthority in setOf(
+            UnifiedPolicyHead.AuthorityTier.LEARNED,
+            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE,
+        )
 
         if (metaCogMult >= 1.02) agree += "metacog_trust:${"%.2f".format(metaCogMult)}"
         else if (metaCogMult <= 0.96) disagree += "metacog_damp:${"%.2f".format(metaCogMult)}"
@@ -72,35 +72,36 @@ object FdgBrainChain {
             }
         }
 
-        val cleanPositive = cleanTrades < 5 || cleanPnlSol >= 0.0 || profitFactor >= 1.0 || cleanWinRate >= 35.0
-        if (cleanPositive) agree += "clean_perf_ok:n=$cleanTrades wr=${cleanWinRate.toInt()} pnl=${"%.4f".format(cleanPnlSol)}"
-        else disagree += "clean_perf_bad:n=$cleanTrades wr=${cleanWinRate.toInt()} pnl=${"%.4f".format(cleanPnlSol)}"
+        // V5.0.7403 — absence of evidence is neutral, not bullish.
+        val cleanEvidence7403 = cleanTrades >= 5
+        val cleanPositive = cleanEvidence7403 && cleanPnlSol > 0.0 && profitFactor >= 1.0
+        val cleanNegative = cleanEvidence7403 && cleanPnlSol < 0.0 && profitFactor < 1.0 && cleanWinRate < 35.0
+        if (cleanPositive) agree += "clean_perf_positive"
+        else if (cleanNegative) disagree += "clean_perf_bad"
 
-        if (commonSenseBlocked) {
-            // Common sense is a mechanic/advisor unless it is backed by hard safety.
-            // It should shape caution, not blind-obstruct an aligned chain.
-            disagree += "common_sense:${commonSenseReason?.take(60) ?: "blocked"}"
-        } else {
-            agree += "common_sense_clear"
+        // Current FDG caller does not wire CommonSense here, so no free "clear" vote.
+        if (commonSenseBlocked) disagree += "common_sense_blocked"
+
+        // Anti-choke is throughput state, never directional alpha.
+        if (antiChokeSoftening) {
+            try { PipelineHealthCollector.labelInc("FDG_BRAIN_ANTICHOKE_NONVOTING_7403") } catch (_: Throwable) {}
         }
-
-        if (antiChokeSoftening) agree += "antichoke_softening"
 
         val agreeVotes = agree.size
         val disagreeVotes = disagree.size
         val score = (agreeVotes.toDouble() - disagreeVotes.toDouble()) / (agreeVotes + disagreeVotes).coerceAtLeast(1).toDouble()
         val aligned = agreeVotes >= 3 && score >= 0.20
-        val blocking = disagreeVotes >= 4 && score <= -0.35 && !antiChokeSoftening
+        val blocking = disagreeVotes >= 4 && score <= -0.35
         val verdict = when {
             blocking -> Verdict.BLOCKING
             aligned -> Verdict.ALIGNED
             else -> Verdict.CONFLICTED
         }
-        val soften = antiChokeSoftening || (verdict == Verdict.ALIGNED && disagreeVotes <= 2)
+        val soften = verdict == Verdict.ALIGNED && disagreeVotes <= 2
         val targetMode = when {
             verdict == Verdict.BLOCKING -> "PROTECT"
             verdict == Verdict.CONFLICTED -> "LEARN_SMALL"
-            cleanPositive && laneSig >= 55.0 && policyAuthority in setOf(UnifiedPolicyHead.AuthorityTier.LEARNED, UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) -> "COMPOUND"
+            cleanPositive && laneSig >= 55.0 && policyMature7403 -> "COMPOUND"
             cleanPositive && laneSig >= 45.0 -> "QUALITY_VOLUME"
             antiChokeSoftening -> "VOLUME_RECOVERY"
             else -> "NORMAL"
@@ -108,7 +109,7 @@ object FdgBrainChain {
         val compounding = when (targetMode) {
             "COMPOUND" -> if (profitFactor >= 1.15 || cleanPnlSol > 0.0 || cleanWinRate >= 50.0) 1.14 else 1.08
             "QUALITY_VOLUME" -> 1.07
-            "VOLUME_RECOVERY" -> 1.04
+            "VOLUME_RECOVERY" -> 1.0
             "LEARN_SMALL" -> 0.92
             "PROTECT" -> 0.70
             else -> 1.0
