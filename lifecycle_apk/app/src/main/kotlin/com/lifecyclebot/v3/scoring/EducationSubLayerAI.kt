@@ -497,6 +497,8 @@ object EducationSubLayerAI {
         val candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot? = null,
     )
     private val pendingEntryScores = ConcurrentHashMap<String, EntryScoreSnapshot>()
+    // V5.0.7403 — causal context frozen alongside the score snapshot.
+    private val pendingEntryMarketRegime7403 = ConcurrentHashMap<String, String>()
     private const val REAL_ACCURACY_NEUTRAL_THRESHOLD = 0  // V5.9.344: 2→0. Even ±1 counts as a directional vote so layers converge off the 50% Bayesian prior instead of plateauing red.
     private const val REAL_ACCURACY_EXPIRY_MS = 24 * 60 * 60 * 1000L  // purge after 24h
 
@@ -541,6 +543,9 @@ object EducationSubLayerAI {
             return
         }
         pendingEntryScores[mint] = EntryScoreSnapshot(map, candidate = candidate)
+        try {
+            pendingEntryMarketRegime7403[mint] = MarketRegimeAI.getCurrentRegime().name
+        } catch (_: Throwable) {}
     }
 
     /** V5.9.140 — public wrapper so UnifiedScorer can normalise without making
@@ -988,7 +993,9 @@ object EducationSubLayerAI {
         
         // TimeOptimizationAI
         try {
-            TimeOptimizationAI.recordOutcome(outcome.pnlPct)
+            if (outcome.entryTimeMs > 0L) {
+                TimeOptimizationAI.recordOutcome(outcome.pnlPct, outcome.entryTimeMs)
+            }
             markLayerOutcome("TimeOptimizationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("TimeOptAI: ${e.message}") }
@@ -1009,7 +1016,8 @@ object EducationSubLayerAI {
         
         // MarketRegimeAI
         try {
-            MarketRegimeAI.recordTradeOutcome(outcome.pnlPct)
+            val entryRegime7403 = pendingEntryMarketRegime7403.remove(outcome.mint)
+            MarketRegimeAI.recordTradeOutcome(outcome.pnlPct, entryRegime7403)
             markLayerOutcome("MarketRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("RegimeAI: ${e.message}") }
