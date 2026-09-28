@@ -22,7 +22,7 @@ class Aate7402DirectionalityAuditTest {
 
     @Test
     fun specialist_voters_do_not_call_launch_fear_or_fade_bullish() {
-        val votes = src("../learning/LayerVoteSampler.kt")
+        val votes = src("learning/LayerVoteSampler.kt")
         assertTrue(votes.contains("launch?.tooLateForSnipe == true -> Pair(false"))
         assertTrue(votes.contains("Phase.IGNITION"))
         assertTrue(votes.contains("NO_BOUNCE") || votes.contains("val bounce"))
