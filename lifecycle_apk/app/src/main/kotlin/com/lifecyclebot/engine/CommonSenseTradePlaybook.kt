@@ -122,7 +122,14 @@ object CommonSenseTradePlaybook {
         }
 
         val setupKnown = snap.tradeType != "NO_STRUCTURE"
-        val tradeableSetup = setupKnown && snap.liquidityUsd >= 500.0 && snap.routeKnown && snap.tokenMapComplete
+        // V5.0.7403 — a label is not proof. Only a setup with an actual
+        // logical zone, known invalidation and acceptable R:R may soften
+        // provider-blind uncertainty.
+        val structureProven7403 = setupKnown && snap.logicalBuyZone &&
+            snap.invalidationKnown && snap.riskRewardAcceptable && !snap.dangerousStructure
+        val tradeableSetup = structureProven7403 && snap.liquidityUsd >= 500.0 &&
+            snap.routeKnown && snap.tokenMapComplete
+
         // V5.0.6020 — fluid score doctrine. Score floors are scaffolding:
         // soft while the lane is bootstrapping, tighter during advisory calibration,
         // then fade out as UnifiedPolicyHead becomes LEARNED/AUTHORITATIVE.
@@ -144,7 +151,7 @@ object CommonSenseTradePlaybook {
             return deny("TRUE_HARD_SAFETY_OR_HOLDER_RISK", "hardSafety=${snap.hardSafetyBlocked} holderHard=${snap.holderHardRisk} safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
         }
         if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) {
-            if (tradeableSetup || snap.score >= fluidScore6020(55.0)) {
+            if (tradeableSetup && snap.score >= fluidScore6020(55.0)) {
                 return allowShaped(
                     "SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT",
                     0.50,
@@ -158,16 +165,20 @@ object CommonSenseTradePlaybook {
             if (goodLaneVolume6020 && liquidExecutable && !snap.dangerousStructure && snap.score >= fluidScore6020(48.0)) {
                 return allowShaped("GOOD_LANE_NO_STRUCTURE_VOLUME_PIVOT_6020", 0.65, "lane=${snap.lane} agiAuth=${agiAuthority6020.name} logicalBuyZone=false tradeType=${snap.tradeType} action=lane_local_reclaim_liquidity_volume")
             }
-            if (tradeableSetup || snap.score >= fluidScore6020(58.0)) return allowShaped("AMBIGUOUS_BUY_ZONE_PIVOT", 0.35, "logicalBuyZone=false tradeType=${snap.tradeType} agiAuth=${agiAuthority6020.name}")
+            if (tradeableSetup) return allowShaped("AMBIGUOUS_BUY_ZONE_PIVOT", 0.35, "logicalBuyZone=false tradeType=${snap.tradeType} agiAuth=${agiAuthority6020.name}")
             return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType} agiAuth=${agiAuthority6020.name}")
         }
         if (!snap.invalidationKnown) {
-            if (tradeableSetup) return allowShaped("INFER_INVALIDATION_FROM_SETUP", 0.50, "invalidation=setup_floor_or_recent_low tradeType=${snap.tradeType}")
-            return deny("NO_CLEAR_INVALIDATION", "tradeType=${snap.tradeType}")
+            val earlyLaunchImplicit7403 = snap.tradeType == "NEW_TOKEN_EARLY_LIFECYCLE" &&
+                !snap.dangerousStructure && snap.logicalBuyZone
+            if (earlyLaunchImplicit7403) {
+                return allowShaped("EARLY_LAUNCH_IMPLICIT_INVALIDATION_7403", 0.50,
+                    "invalidation=launch_flow_failure_or_recent_low tradeType=" + snap.tradeType)
+            }
+            return deny("NO_CLEAR_INVALIDATION", "tradeType=" + snap.tradeType)
         }
         if (!snap.riskRewardAcceptable) {
-            if (tradeableSetup || snap.score >= fluidScore6020(50.0)) return allowShaped("RISK_REWARD_REDUCED_SIZE", 0.35, "score=${snap.score} liq=${snap.liquidityUsd} agiAuth=${agiAuthority6020.name}")
-            return deny("RISK_REWARD_POOR", "score=${snap.score} liq=${snap.liquidityUsd}")
+            return deny("RISK_REWARD_POOR", "score=" + snap.score + " liq=" + snap.liquidityUsd)
         }
 
         try {
@@ -319,7 +330,6 @@ object CommonSenseTradePlaybook {
         text.contains("NARRATIVE") || text.contains("SECTOR") -> "NARRATIVE_ROTATION"
         (text.contains("WHALE_ACCUMULATION") || text.contains("SMART_WALLET_ACCUMULATION")) && !text.contains("SELLING") -> "WHALE_ACCUMULATION_FOLLOW"
         text.contains("MOMENTUM") || text.contains("DEGEN_MICRO_SNIPE") -> "MOMENTUM_SCALP"
-        score >= 68.0 && liq >= 5_000.0 -> "MOMENTUM_SCALP"
         else -> "NO_STRUCTURE"
     }
 
