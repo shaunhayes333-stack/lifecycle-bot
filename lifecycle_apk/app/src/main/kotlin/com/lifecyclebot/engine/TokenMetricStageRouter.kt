@@ -42,7 +42,11 @@ object TokenMetricStageRouter {
     fun snapshot(ts: TokenState): Snapshot = try {
         val hist = ts.history.toList().filter { it.priceUsd > 0.0 }
         val now = System.currentTimeMillis()
-        val ageMin = ((now - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0)
+        // V5.0.7401 — token age is launch age, not "time since AATE noticed it".
+        // A trending token discovered after its pump used to reset to age=0 and
+        // was routed back into PROJECT_SNIPER as FRESH_LAUNCH.
+        val launch7401 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts, now) } catch (_: Throwable) { null }
+        val ageMin = ((launch7401?.ageMs ?: (now - ts.addedToWatchlistAt).coerceAtLeast(0L)) / 60_000.0).coerceAtLeast(0.0)
         val prices = hist.map { it.priceUsd }
         val current = (prices.lastOrNull() ?: ts.lastPrice).takeIf { it > 0.0 } ?: 0.0
         val local = prices.takeLast(24).ifEmpty { prices }
@@ -84,11 +88,23 @@ object TokenMetricStageRouter {
         // to fast-cycle meme lanes (SHITCOIN / PROJECT_SNIPER / EXPRESS /
         // MOONSHOT). Never routes to BLUECHIP/QUALITY/TREASURY which need
         // real price history to size correctly.
-        val freshLaunch = !baseStart && !midAccum && !markup &&
-            ageMin <= 5.0 && (hist.size < 5 || currentVsPeak >= 0.92) &&
-            liq >= 800.0 && sp <= 70.0
+        // V5.0.7401 — a fresh launch must still be in the launch/ignition phase.
+        // "Young on our watchlist" is not enough, and an already-expanded/fading
+        // token is explicitly not fresh even if it is only minutes old.
+        val lifecycleEarly7401 = launch7401?.phase in setOf(
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION,
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING,
+        )
+        val lifecycleFade7401 = launch7401?.tooLateForSnipe == true
+        val freshLaunch = !baseStart && !midAccum && !markup && !lifecycleFade7401 &&
+            ageMin <= 3.0 && lifecycleEarly7401 &&
+            (hist.size < 5 || currentVsPeak >= 0.88) &&
+            liq >= 800.0 && sp <= 65.0
         val stage = when {
             rugProne -> Stage.RUG_PRONE
+            lifecycleFade7401 && dd >= 18.0 -> Stage.DUMPING
+            lifecycleFade7401 -> Stage.PEAK_EXHAUSTION
             peakExhaustion -> Stage.PEAK_EXHAUSTION
             dumping -> Stage.DUMPING
             baseStart -> Stage.BASE_START
@@ -186,7 +202,7 @@ object TokenMetricStageRouter {
         Stage.RUG_PRONE -> "rugProne=$rug topHeavy/liquidityAir/thinRunup"
         Stage.PEAK_EXHAUSTION -> "peakExhaustion=$peak nearHigh+extended+sellPressure"
         Stage.DUMPING -> "dumping=$dump drawdown+weakBP"
-        Stage.FRESH_LAUNCH -> "freshLaunch=$fresh ageBelow3m+noHistoryYet+minSurvivableLiq"
+        Stage.FRESH_LAUNCH -> "freshLaunch=$fresh trueLaunchAge+ignitionOrExpansion+notPostPumpFade"
         Stage.BASE_START -> "baseStart=$base early+notExtended+buyPressure"
         Stage.MID_ACCUMULATION -> "midAccum=$mid pullbackBand+liq+controlledSP"
         Stage.CONTROLLED_MARKUP -> "markup=$markup controlledRunup+bp+liq"
