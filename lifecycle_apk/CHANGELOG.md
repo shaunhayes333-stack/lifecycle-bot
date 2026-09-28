@@ -1,3 +1,16 @@
+## [5.0.7401] - 2026-09-28 — BUY THE IGNITION, NOT THE FADE
+
+- Fixed launch-age inversion: TokenMetricStageRouter and V3Adapter now use the PumpPortal create timestamp (or earliest real history) instead of resetting token age when AATE first notices a token. A post-pump token discovered from trending/Raydium can no longer become a fake age=0 FRESH_LAUNCH.
+- Added LaunchPhaseAuthority7401: PRE_IGNITION / IGNITION / EXPANDING / POST_PUMP_FADE / MATURE_OR_UNKNOWN from true create age, create-price multiple, first-minute buy/sell flow, buyer breadth, dev activity, acceleration and recent-peak position.
+- POST_PUMP_FADE is routed to PEAK_EXHAUSTION/DUMPING and cannot be owned as a fresh PROJECT_SNIPER launch.
+- WhaleDetector now retains a bounded 90-second tape of every normalized buy and sell before the >0.5 SOL whale filter. This exposes first-minute buyer breadth, net buy share, dev buys/sells and 15-second buy-rate acceleration.
+- V3 now receives the launch lifecycle as explicit candidate features. The old unconditional +15 watchlist-age fresh bonus is replaced by causal timing: IGNITION +30 (with bounded bundle/dev evidence nudges), PRE_IGNITION +20, EXPANDING +6, POST_PUMP_FADE -25, unresolved first-minute timing +5.
+- DataOrchestrator arms Pump and Helius live trade subscriptions before candle-history enrichment. Historical HTTP work can no longer make the bot miss the first seconds of a launch.
+- PumpFunWS persists creator identity directly from the create frame before adaptive throttling, so dev activity can contribute to ignition without waiting for slower enrichment.
+- ModeSpecificScanners was also corrected for true launch phase, but the production fix is in TokenMetricStageRouter/V3 because scanFreshLaunch is currently listed as unwired by the repository census.
+- Added Aate7401LaunchTimingDirectionTest.
+- Production version authorities bumped to 5.0.7401.
+
 ## [5.0.7400] - 2026-09-28 — REMOVE THE NEW CHOKES; RESTORE CRYPTO HANDOFF
 
 - Reverted the 7399 PROJECT_SNIPER S0-10 hard FDG cohort floor. Negative-EV cohort evidence is no longer allowed to become an admission kill switch; the pre-existing fluid floor, learned sizing, tactic pivot and lane-expectancy dampers remain the quality controls.
