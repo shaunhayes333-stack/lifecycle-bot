@@ -1115,20 +1115,37 @@ object FinalDecisionGate {
         val cleanPerfSupportsFluid6025 = cleanStats6025 == null || cleanStats6025.totalTrades < 5 ||
             cleanStats6025.totalPnlSol >= 0.0 || cleanStats6025.profitFactor >= 1.0 || cleanStats6025.winRate >= 35.0
         val laneScoreDelta6025 = laneConsensusScore6025 - rawCandidateGateScore6025
+        // V5.0.7403 — consensus must be two-way. The old max(raw, consensus)
+        // made learning structurally bullish: it could rescue a weak raw score but
+        // could never penalise an overconfident raw candidate. Blend with bounded
+        // influence so mature evidence can move the score BOTH directions without
+        // allowing one model to zero or moonshot the candidate.
+        fun boundedBlend7403(weight: Double, maxDelta: Double): Double {
+            val blended = rawCandidateGateScore6025 * (1.0 - weight) + laneConsensusScore6025 * weight
+            return blended.coerceIn(
+                (rawCandidateGateScore6025 - maxDelta).coerceAtLeast(0.0),
+                (rawCandidateGateScore6025 + maxDelta).coerceAtMost(100.0),
+            )
+        }
         val consensusGateScore6025 = when (policyAuthority6025) {
-            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> maxOf(rawCandidateGateScore6025, laneConsensusScore6025)
-            UnifiedPolicyHead.AuthorityTier.LEARNED -> maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.98)
-            UnifiedPolicyHead.AuthorityTier.ADVISORY -> if (cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.94) else rawCandidateGateScore6025
-            UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> if ((cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) && laneScoreDelta6025 >= 8.0) maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.90) else rawCandidateGateScore6025
+            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> boundedBlend7403(0.55, 20.0)
+            UnifiedPolicyHead.AuthorityTier.LEARNED -> boundedBlend7403(0.35, 14.0)
+            UnifiedPolicyHead.AuthorityTier.ADVISORY ->
+                if (cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) boundedBlend7403(0.20, 8.0)
+                else rawCandidateGateScore6025
+            UnifiedPolicyHead.AuthorityTier.BOOTSTRAP ->
+                if ((cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) && kotlin.math.abs(laneScoreDelta6025) >= 8.0)
+                    boundedBlend7403(0.10, 5.0)
+                else rawCandidateGateScore6025
         }.coerceIn(0.0, 100.0)
         val effectiveGateScore6025 = consensusGateScore6025
-        if (effectiveGateScore6025 > rawCandidateGateScore6025 + 0.5) {
+        if (kotlin.math.abs(effectiveGateScore6025 - rawCandidateGateScore6025) > 0.5) {
             try {
                 PipelineHealthCollector.labelInc("FDG_EFFECTIVE_GATE_SCORE_6025")
                 PipelineHealthCollector.labelInc("FDG_EFFECTIVE_GATE_SCORE_${policyAuthority6025.name}")
                 ForensicLogger.lifecycle(
                     "FDG_EFFECTIVE_GATE_SCORE_6025",
-                    "lane=$laneName candidate=${rawCandidateGateScore6025.toInt()} lane=${laneConsensusScore6025.toInt()} effective=${effectiveGateScore6025.toInt()} auth=${policyAuthority6025.name} metaCog=${"%.2f".format(metaCogMult6025)} cleanN=${cleanStats6025?.totalTrades ?: -1} cleanPnl=${"%.4f".format(cleanStats6025?.totalPnlSol ?: 0.0)} action=score_gates_use_consensus_from_trade1",
+                    "lane=$laneName candidate=${rawCandidateGateScore6025.toInt()} lane=${laneConsensusScore6025.toInt()} effective=${effectiveGateScore6025.toInt()} auth=${policyAuthority6025.name} metaCog=${"%.2f".format(metaCogMult6025)} cleanN=${cleanStats6025?.totalTrades ?: -1} cleanPnl=${"%.4f".format(cleanStats6025?.totalPnlSol ?: 0.0)} action=score_gates_use_two_way_consensus_7403",
                 )
             } catch (_: Throwable) {}
         }
