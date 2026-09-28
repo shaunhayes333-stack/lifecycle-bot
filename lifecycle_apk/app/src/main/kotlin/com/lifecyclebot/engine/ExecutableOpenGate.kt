@@ -3322,6 +3322,7 @@ object ExecutableOpenGate {
                 sourceFamilyHint = source,
                 qualityHint = oracleToken7260?.meta?.setupQuality.orEmpty(),
                 edgePhaseHint = oracleToken7260?.phase.orEmpty(),
+                emaFanHint = oracleToken7260?.meta?.emafanAlignment.orEmpty(),
                 candidateConfidenceHint =
                     ((oracleToken7260?.lastV3Confidence ?: 50).coerceIn(0, 100) / 100.0),
             ).also {
