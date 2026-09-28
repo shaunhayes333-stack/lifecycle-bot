@@ -99,6 +99,20 @@ object ScannerSourceBrain {
     fun shouldSkipIntake(source: String): Boolean {
         return try {
             val key = normalise(source)
+            // V5.0.7403 — do not amputate the leading sensor because the OLD
+            // decision stack traded its candidates badly. Pump create/new-token
+            // feeds are the only sources that can supply birth-time/ignition
+            // evidence before DEX/trending confirmation exists. Their learned
+            // history may still damp priority/size via intakeMultiplier(), but
+            // it may not delete 75-96% of the observations at intake.
+            val leadingBirthSource7403 =
+                key.contains("PUMP_PORTAL_WS") ||
+                key == "PUMP_PORTAL" ||
+                key.contains("PUMP_FUN_NEW")
+            if (leadingBirthSource7403) {
+                try { PipelineHealthCollector.labelInc("LEADING_SOURCE_BLACKOUT_BYPASSED_7403") } catch (_: Throwable) {}
+                return false
+            }
             val s = stats[key] ?: return false
             val n = s.samples()
             if (n < 30) return false
