@@ -362,25 +362,35 @@ class UnifiedScorer(
                 ScoreComponent(name = "behavior", value = 0, reason = "NO_DATA")
             }
 
-            // V5.9.343 — FRESH-TOKEN PROVISIONAL BONUS
-            // Fresh tokens (just discovered, low hist) score 0-5 on every
-            // layer because momentum/volume/liquidity return ~0 on empty
-            // history. They sit in WAIT forever with X:43/X:73 rejection
-            // counts. This bonus lets the launch-window signal carry
-            // weight during the SNIPE window (≤15 minutes old per
-            // AutoModeEngine's SNIPE classifier).
-            val isFreshLaunch = candidate.ageMinutes <= 3.0
-            val freshBonus = if (isFreshLaunch) {
-                ScoreComponent(name = "fresh_launch_bonus", value = 15,
-                    reason = "🚀 Fresh launch grace (+15) | age=${"%.1f".format(candidate.ageMinutes)}m")
-            } else null
-
+            // V5.0.7401 — timing direction comes from the create/trade tape,
+            // not from watchlist recency or already-printed momentum. This lets
+            // causal ignition evidence clear the data-poor launch window and
+            // removes the old +15 reward from post-pump tokens first noticed late.
+            val launchPhase7401 = candidate.extraString("launchPhase7401")
+            val launchTimingComponent7401: ScoreComponent? = when {
+                candidate.extraBoolean("launchPostPumpFade7401") ->
+                    ScoreComponent(name = "fresh_launch_bonus", value = -25,
+                        reason = "📉 POST_PUMP_FADE — launch impulse already spent")
+                candidate.extraBoolean("launchIgnition7401") ->
+                    ScoreComponent(name = "fresh_launch_bonus", value = 30,
+                        reason = "🔥 IGNITION — rising first-minute buys + breadth before expansion")
+                candidate.extraBoolean("launchPreIgnition7401") ->
+                    ScoreComponent(name = "fresh_launch_bonus", value = 20,
+                        reason = "⚡ PRE_IGNITION — true early launch flow")
+                candidate.extraBoolean("launchExpanding7401") ->
+                    ScoreComponent(name = "fresh_launch_bonus", value = 6,
+                        reason = "🚀 EXPANDING — move underway, timing edge reduced")
+                candidate.ageMinutes <= 1.0 && launchPhase7401.isBlank() ->
+                    ScoreComponent(name = "fresh_launch_bonus", value = 5,
+                        reason = "launch timing unresolved — minimal grace only")
+                else -> null
+            }
             // Final card — no MuteBoost gate, no approvalMemory, no CrossTalk penalty
             // V5.9.344: sum is built from the weight-adjusted 20-layer components
             // so accuracy-weighted scoring flows through to finalCard.total.
             val finalCard = ScoreCard(
-                listOfNotNull(freshBonus).let { bonus ->
-                    weightedComponents + metaComponent + behaviorComponent + bonus
+                listOfNotNull(launchTimingComponent7401).let { timing ->
+                    weightedComponents + metaComponent + behaviorComponent + timing
                 }
             )
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("CLASSIC", candidate, finalCard.components) } catch (_: Exception) {}
