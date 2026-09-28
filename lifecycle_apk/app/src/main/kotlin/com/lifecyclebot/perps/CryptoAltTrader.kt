@@ -3005,35 +3005,10 @@ object CryptoAltTrader {
         // V5.9.5 FIX: Sanity-check entry price vs last cached price.
         // Bad data (decimal shift, wrong feed ID, stale fallback) causes fake 1000x PnL.
 
-        // V5.9.5: Dynamic exposure cap — never exceed 80% of balance at risk.
-        // Naturally allows more concurrent positions as wallet grows.
-        var totalRisk = activeModePositions7256(positions.values).sumOf { it.sizeSol }
-        // V5.0.7288 — `balance` is FREE cash, and the SOL already in these
-        // positions has left it, so `balance * 0.80` counted crypto's own
-        // holdings twice and the ceiling fell as the rest of the book filled.
-        // On 5.0.7287 cash was 1.06 SOL with 1.35 SOL in crypto: ceiling 0.85,
-        // 48 entries refused. The cap is 80% of what crypto can reach: its
-        // own committed SOL plus the free cash.
-        val maxRisk = (balance + totalRisk) * 0.80
-        if (signal.isDynamic && totalRisk + sizeSol > maxRisk) {
-            if (rotateWeakPaperExposure7244(signal.score)) {
-                totalRisk = activeModePositions7256(positions.values).sumOf { it.sizeSol }
-            }
-        }
-        if (totalRisk + sizeSol > maxRisk) {
-            terminalDisposition6613("PRE_SUBMIT_EXPOSURE_CAP", "PRE_SUBMIT")
-            ErrorLogger.info(TAG, "🛑 Exposure cap: " + "%.2f".format(totalRisk) +
-                "◎ at risk / " + "%.2f".format(maxRisk) + "◎ max — skipping " + mktSym)
-            return
-        }
-        // V5.9.9: Cross-trader wallet exposure check
-        if (!isPaperMode.get()) {
-            val walletBal = try { WalletManager.getWallet()?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
-            if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", sizeSol, walletBal)) {
-                terminalDisposition6613("PRE_SUBMIT_LIVE_WALLET_LOCK", "PRE_SUBMIT")
-                return
-            }
-        }
+        // V5.0.7400 — portfolio/exposure checks moved AFTER canonical sizing.
+        // Raw learned size is advisory; CanonicalSizingBridge6532 produces the
+        // sealed executable notional. Pre-authority portfolio checks on raw size
+        // were starving Crypto at candidate->submit.
         val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
         if (signal.price <= 0.0) {
             terminalDisposition6613("PRE_SUBMIT_PRICE_ZERO", "PRE_SUBMIT")
@@ -3151,6 +3126,29 @@ object CryptoAltTrader {
             return
         }
         val finalSize = altSizingRes.finalSizeSol
+
+        // V5.0.7400 — now enforce exposure/cross-trader capital on the SEALED size.
+        // These remain real portfolio guards; only their authority ordering changed.
+        var totalRisk7400 = activeModePositions7256(positions.values).sumOf { it.sizeSol }
+        val maxRisk7400 = (balance + totalRisk7400) * 0.80
+        if (signal.isDynamic && totalRisk7400 + finalSize > maxRisk7400) {
+            if (rotateWeakPaperExposure7244(signal.score)) {
+                totalRisk7400 = activeModePositions7256(positions.values).sumOf { it.sizeSol }
+            }
+        }
+        if (totalRisk7400 + finalSize > maxRisk7400) {
+            terminalDisposition6613("POST_SIZE_EXPOSURE_CAP_7400", "PRE_SUBMIT")
+            try { PipelineHealthCollector.labelInc("CRYPTO_POST_SIZE_EXPOSURE_CAP_7400") } catch (_: Throwable) {}
+            return
+        }
+        if (!isPaperMode.get()) {
+            val walletBal7400 = try { WalletManager.getWallet()?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+            if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", finalSize, walletBal7400)) {
+                terminalDisposition6613("POST_SIZE_LIVE_WALLET_LOCK_7400", "PRE_SUBMIT")
+                try { PipelineHealthCollector.labelInc("CRYPTO_POST_SIZE_LIVE_WALLET_LOCK_7400") } catch (_: Throwable) {}
+                return
+            }
+        }
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095")
             ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")
