@@ -910,32 +910,10 @@ object FinalDecisionGate {
         val canonicalFloor7266 = floor7266?.floor ?: 30.0
         val waitFloor7266 = floor7266?.waitFloor ?: 55.0
 
-        // V5.0.7399 — QUALITY RECOVERY WITHOUT THROUGHPUT COLLAPSE.
-        // The current live evidence is concentrated, not global:
-        // PROJECT_SNIPER|S0-10 is a mature negative bucket while the scanner,
-        // other lanes and higher sniper bands still produce candidates. Do not
-        // tighten the whole bot. Raise only this proven-loss bucket out of funded
-        // execution, while a deterministic 10% observation slice remains eligible
-        // so regime changes can be detected. Refused rows still flow to shadow /
-        // no-trade observation and other lane hypotheses remain untouched.
-        val sniperLowDanger7399 = if (!config.paperMode && floorLane7266 == "PROJECT_SNIPER") {
-            try {
-                com.lifecyclebot.engine.LosingPatternMemory.liveStats("PROJECT_SNIPER", 5).isDangerous
-            } catch (_: Throwable) { false }
-        } else false
-        val sniperLowExplore7399 = sniperLowDanger7399 &&
-            (((ts.mint.hashCode() and 0x7fffffff) % 100) < 10)
-        val qualityFloor7399 = if (sniperLowDanger7399 && !sniperLowExplore7399)
-            maxOf(canonicalFloor7266, 11.0)
-        else canonicalFloor7266
-        if (sniperLowDanger7399) {
-            try {
-                PipelineHealthCollector.labelInc(
-                    if (sniperLowExplore7399) "SNIPER_S0_10_LIVE_EXPLORATION_7399"
-                    else "SNIPER_S0_10_NEG_EV_FLOOR_7399"
-                )
-            } catch (_: Throwable) {}
-        }
+        // V5.0.7400 — 7399 incorrectly turned negative-cohort learning into an
+        // FDG admission floor. That made score-floor refusal the dominant choke.
+        // Cohort quality stays a sizing/tactic input only; canonical admission
+        // returns to the pre-7399 fluid floor authority.
         // V5.0.7292 §A SPECIALIST IS JUDGED ON ITS OWN SCORE.
         //
         // Operator: "there's lanes and traders, specialist traders that have
@@ -953,11 +931,8 @@ object FinalDecisionGate {
         // paper + live closes) shows ≥20 closes with positive mean net return.
         // The floors themselves, hard safety and every later gate are unchanged;
         // trunk callers with no specialist lane are unchanged.
-        val sniperLowRescueAllowed7399 =
-            !sniperLowDanger7399 || sniperLowExplore7399 || canonicalV3Score7243 > 10.0
         val laneScoreClears7307 = specialistLane != null &&
-            sniperLowRescueAllowed7399 &&
-            laneEvidenceScore7243 >= qualityFloor7399 &&
+            laneEvidenceScore7243 >= canonicalFloor7266 &&
             laneEvidenceScore7243 > canonicalV3Score7243
         // V5.0.7307 — proven by its journal OR by its fee-net shadow record
         // (LaneShadowProof7307), so a lane refused here can still earn live.
@@ -978,7 +953,7 @@ object FinalDecisionGate {
         // hold ONE live position at a time (spaced 5 min) so it earns real
         // closes. Shadow proof keeps accruing for every other refusal.
         val exploration7308 = !config.paperMode && laneScoreClears7307 && !laneProvenForLive7307 &&
-            canonicalV3Score7243 < qualityFloor7399 &&
+            canonicalV3Score7243 < canonicalFloor7266 &&
             (try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.explorationSlotFreeNow(laneProven7308) } catch (_: Throwable) { false } ||
                 try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.runnerSlotFreeNow(floorLane7266) } catch (_: Throwable) { false })
         val laneOwnScoreAdmitted7292 = laneScoreClears7307 && (laneProvenForLive7307 || exploration7308)
@@ -1009,7 +984,7 @@ object FinalDecisionGate {
                 PipelineHealthCollector.labelInc("FDG_SPECIALIST_OWN_SCORE_ADMITTED_7292_$floorLane7266")
             } catch (_: Throwable) {}
         }
-        val belowCanonicalFloor7243 = effectiveEntryScore7292 < qualityFloor7399
+        val belowCanonicalFloor7243 = effectiveEntryScore7292 < canonicalFloor7266
         val weakWaitPromotion7243 =
             baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && effectiveEntryScore7292 < waitFloor7266
         if (belowCanonicalFloor7243 || weakWaitPromotion7243) {
@@ -1025,7 +1000,7 @@ object FinalDecisionGate {
                     "mint=${ts.mint.take(10)} sym=${ts.symbol} mode=${mode.name} " +
                         "baseSignal=$baseEntrySignal7243 entryScore=${"%.1f".format(candidate.entryScore)} " +
                         "laneScore=${"%.1f".format(laneScore)} canonicalScore=${"%.1f".format(canonicalV3Score7243)} " +
-                        "fluidFloor7266=${"%.1f".format(canonicalFloor7266)} qualityFloor7399=${"%.1f".format(qualityFloor7399)} fluidWait7266=${"%.1f".format(waitFloor7266)} " +
+                        "fluidFloor7266=${"%.1f".format(canonicalFloor7266)} fluidWait7266=${"%.1f".format(waitFloor7266)} " +
                         "matureBelow30=$matureBelow7243 matureWaitBelow55=$matureWaitBelow7243 " +
                         "resolution=${floor7266?.compact ?: "unavailable"} " +
                         "action=shadow_or_reject_no_economic_position",
@@ -1046,7 +1021,7 @@ object FinalDecisionGate {
                 symbol = ts.symbol,
                 approvalReason = "canonical entry selectivity refused weak/WAIT promotion",
                 gateChecks = listOf(
-                    GateCheck("canonicalV3Score7243", !belowCanonicalFloor7243, "need>=${"%.0f".format(qualityFloor7399)} (fluid/cohort-shaped; mature 30)"),
+                    GateCheck("canonicalV3Score7243", !belowCanonicalFloor7243, "need>=${"%.0f".format(canonicalFloor7266)} (fluid; mature 30)"),
                     GateCheck("waitPromotion7243", !weakWaitPromotion7243, "WAIT needs canonical V3>=${"%.0f".format(waitFloor7266)} (fluid; mature 55)"),
                 ),
             )
