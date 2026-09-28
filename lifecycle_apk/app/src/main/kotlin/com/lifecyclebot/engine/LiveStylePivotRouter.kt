@@ -122,7 +122,7 @@ object LiveStylePivotRouter {
         fun liveBootstrapGreen(): Boolean = try {
             val rows = TradeHistoryStore.getRecentValidClosedTrades(limit = 250, includePartials = false)
                 .filter { it.side.equals("SELL", true) }
-                .filter { it.mode.equals("live", true) || it.tradingMode.equals("live", true) || !it.mode.equals("paper", true) }
+                .filter { it.mode.equals("live", true) || it.tradingMode.equals("live", true) }
                 .take(80) // V5.0.7346 — rows are newest-first; takeLast kept the oldest 80
             val decisive = rows.filter { it.pnlPct >= 0.5 || it.pnlPct <= -2.0 }
             val wr = if (decisive.isNotEmpty()) decisive.count { it.pnlPct >= 0.5 } * 100.0 / decisive.size else 0.0
@@ -181,7 +181,8 @@ object LiveStylePivotRouter {
         // this router re-evaluates when route, volume, reclaim, or smart-wallet proof arrives.
         try {
             val regimeNow = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
-            val ageMinutes = ((System.currentTimeMillis() - ts.addedToWatchlistAt).coerceAtLeast(0L) / 60_000.0)
+            val launch7403 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+            val ageMinutes = try { (launch7403?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts)) / 60_000.0 } catch (_: Throwable) { 999.0 }
             val sourceBrainMult = try { ScannerSourceBrain.intakeMultiplier(ts.source) } catch (_: Throwable) { 1.0 }
             val sourceCleanWrOk = try {
                 val src = ts.source.uppercase()
@@ -197,7 +198,7 @@ object LiveStylePivotRouter {
             val pressureOk = ts.lastBuyPressurePct >= 55.0 || ((ts.history.lastOrNull()?.buyRatio ?: 0.0) * 100.0) >= 55.0
             val sourceOk = sourceBrainMult >= 0.75 || sourceCleanWrOk
             val noHardSafety = rugProof && try { ts.safety.hardBlockReasons.isEmpty() && !ts.safety.isBlocked } catch (_: Throwable) { true }
-            val dumpFresh = ageMinutes <= 15.0 && regimeNow.equals("DUMP", true)
+            val dumpFresh = ageMinutes <= 3.0 && launch7403?.tooLateForSnipe != true && regimeNow.equals("DUMP", true)
             val hasDumpProof = routeTrusted && microLiqOk && exitCapacityOk && momentumOk && volumeOk && pressureOk && noHardSafety && sourceOk
             if (dumpFresh && !hasDumpProof) {
                 decision = "DEFER"
@@ -218,14 +219,16 @@ object LiveStylePivotRouter {
 
         when (lane) {
             "EXPRESS" -> {
-                if (bleeder.provenBleeder || bleeder.n50 == 0 || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) {
+                if (bleeder.provenBleeder || (bleeder.n50 >= 5 && (bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0))) {
                     val target = bestQualityLane()
                     if (target.isNotBlank()) promoteQuality(target, target, 0.85, "EXPRESS_BLEEDER_INNER_LANE_PIVOT")
                     else defer("EXPRESS_BLEEDER_AWAIT_QUALITY_PROOF")
                 }
             }
             "CYCLIC" -> {
-                val trendVolumeConfirms = ts.meta.momScore >= 55.0 && (ts.history.lastOrNull()?.vol ?: ts.meta.volScore) > 0.0
+                val movement7403 = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
+                val trendVolumeConfirms = movement7403?.pattern in setOf("PULLBACK_RECLAIM", "ACCUMULATION_COMPRESSION") &&
+                    ts.lastBuyPressurePct >= 50.0 && ts.lastSellPressurePct <= 52.0
                 if (bleeder.provenBleeder || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) {
                     val target = bestQualityLane()
                     if (trendVolumeConfirms && highQualityProof) promoteQuality("PULLBACK_RECLAIM", "PULLBACK_RECLAIM", 0.85, "CYCLIC_PULLBACK_RECLAIM_INNER_LANE_PIVOT")
@@ -280,8 +283,10 @@ object LiveStylePivotRouter {
                 } else if (score >= 61.0 && routeTrusted && basisTrusted) { mult = maxOf(mult, 1.0); reasons += "MOONSHOT_NATIVE_CONFIRMED" }
             }
             "QUALITY" -> {
+                val qualityStructure7403 = liq >= 7_500.0 && (holderProof || ts.lastMcap >= 75_000.0)
                 if (score < 50.0) defer("QUALITY_LOW_SCORE_LIVE_DEFER")
-                else if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 0.85); reasons += "QUALITY_SCORE50_PLUS_LANE_LOCAL_PROMOTED" }
+                else if (!qualityStructure7403) defer("QUALITY_AWAIT_DEPTH_OR_HOLDER_STRUCTURE_7403")
+                else if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 0.85); reasons += "QUALITY_STRUCTURE_CONFIRMED_7403" }
             }
             // V5.0.4118 — MISSING LANE PIVOTS. Operator: "all lanes return to
             // trader and pivot correctly into the right strategies." STANDARD,
@@ -300,31 +305,66 @@ object LiveStylePivotRouter {
                 }
             }
             "MANIPULATED" -> {
-                // MANIPULATED pivots into VOLUME_IGNITION_SCALP or NARRATIVE_SOCIAL
-                // when proof confirms; size-shapes when bleeder, but never killed.
-                if (bleeder.provenBleeder || bleeder.wr50 < 25.0) {
-                    val target = bestQualityLane()
-                    if (target.isNotBlank() && highQualityProof) promoteQuality(target, target, 0.75, "MANIPULATED_BLEEDER_INNER_LANE_PIVOT")
-                    else { mult = minOf(mult, 0.55); reasons += "MANIPULATED_BLEEDER_SIZE_SHAPED_NATIVE" }
-                } else if (routeTrusted && basisTrusted && rugProof && liq >= 2_000.0) {
-                    mult = maxOf(mult, 0.85); reasons += "MANIPULATED_NATIVE_VOLUME_IGNITION_CONFIRMED"
-                } else if (!routeTrusted || liq < 2_000.0) {
-                    mult = minOf(mult, 0.50); reasons += "MANIPULATED_THIN_DEPTH_SIZE_SHAPED"
+                // V5.0.7403 — manipulation lane needs manipulation evidence.
+                // Route/basis/rug cleanliness only says "tradeable", not "manipulation".
+                val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+                val toolProof = try {
+                    ts.toolAffinity.any {
+                        val u = it.uppercase()
+                        u.contains("MANIP") || u.contains("BUNDLE") || u.contains("DEV")
+                    }
+                } catch (_: Throwable) { false }
+                val boundedBundle = try { ts.safety.firstBlockSupplyPct in 1.0..15.0 } catch (_: Throwable) { false }
+                val causalManip = launch != null && !launch.tooLateForSnipe &&
+                    (launch.devBuyTx60s > 0 || boundedBundle) &&
+                    (launch.accelerationRising || launch.buySharePct >= 58.0)
+                val manipProof7403 = toolProof || causalManip
+                if (!manipProof7403) {
+                    defer("MANIPULATED_AWAIT_CAUSAL_MANIPULATION_PROOF_7403")
+                } else if (bleeder.provenBleeder || (bleeder.n50 >= 5 && bleeder.wr50 < 25.0)) {
+                    mult = minOf(mult, 0.55)
+                    finalStyle = "MANIPULATED_CAUSAL_RETRAIN"
+                    reasons += "MANIPULATED_BLEEDER_CAUSAL_RETRAIN_7403"
+                } else if (routeTrusted && basisTrusted && rugProof && liq >= 2_000.0 &&
+                    ts.lastBuyPressurePct >= 55.0 && ts.lastSellPressurePct < 50.0) {
+                    mult = maxOf(mult, 0.85)
+                    finalStyle = "MANIPULATED_CAUSAL_IGNITION"
+                    reasons += "MANIPULATED_CAUSAL_IGNITION_CONFIRMED_7403"
+                } else {
+                    mult = minOf(mult, 0.50)
+                    reasons += "MANIPULATED_PROOF_PRESENT_BUT_FLOW_WEAK_7403"
                 }
             }
             "DIP_HUNTER" -> {
-                // DIP_HUNTER pivots into PULLBACK_RECLAIM or PANIC_REVERSION
-                // when trend/volume confirms; size-shapes when bleeder.
-                val trendVolumeConfirms = ts.meta.momScore >= 45.0
-                if (bleeder.provenBleeder || bleeder.wr50 < 25.0) {
-                    if (trendVolumeConfirms && highQualityProof) promoteQuality("PULLBACK_RECLAIM", "PULLBACK_RECLAIM", 0.80, "DIP_HUNTER_BLEEDER_PULLBACK_RECLAIM_PROMOTION")
-                    else { mult = minOf(mult, 0.55); reasons += "DIP_HUNTER_BLEEDER_SIZE_SHAPED_NATIVE" }
-                } else if (routeTrusted && basisTrusted && rugProof) {
-                    if (trendVolumeConfirms && liq >= 3_000.0) { mult = maxOf(mult, 0.90); reasons += "DIP_HUNTER_PULLBACK_RECLAIM_CONFIRMED" }
-                    else { mult = maxOf(mult, 0.75); reasons += "DIP_HUNTER_NATIVE_CONFIRMED" }
+                // V5.0.7403 — momentum is not a reclaim. Require price-structure
+                // evidence before a falling asset can receive live dip exposure.
+                val movement7403 = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
+                val reclaim7403 = movement7403?.pattern == "PULLBACK_RECLAIM" ||
+                    (try {
+                        val prices = ts.history.toList().takeLast(6).map { it.priceUsd }.filter { it.isFinite() && it > 0.0 }
+                        if (prices.size < 4) false else {
+                            val low = prices.minOrNull() ?: 0.0
+                            low > 0.0 && prices.last() >= low * 1.03 &&
+                                ts.lastBuyPressurePct >= 52.0 && ts.lastSellPressurePct < 50.0
+                        }
+                    } catch (_: Throwable) { false })
+                if (!reclaim7403) {
+                    defer("DIP_HUNTER_AWAIT_ACTUAL_RECLAIM_7403")
+                } else if (bleeder.provenBleeder || (bleeder.n50 >= 5 && bleeder.wr50 < 25.0)) {
+                    if (highQualityProof) promoteQuality("PULLBACK_RECLAIM", "PULLBACK_RECLAIM", 0.70, "DIP_HUNTER_RECLAIM_RETRAIN_7403")
+                    else { mult = minOf(mult, 0.50); reasons += "DIP_HUNTER_BLEEDER_RECLAIM_SIZE_SHAPED_7403" }
+                } else if (routeTrusted && basisTrusted && rugProof && liq >= 3_000.0) {
+                    mult = maxOf(mult, 0.85)
+                    finalStyle = "DIP_HUNTER_RECLAIM_CONFIRMED"
+                    reasons += "DIP_HUNTER_ACTUAL_RECLAIM_CONFIRMED_7403"
                 }
             }
-            "BLUECHIP" -> { if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_LANE_LOCAL_PROMOTED" } }
+            "BLUECHIP" -> {
+                val blueStructure7403 = (ts.lastMcap >= 1_000_000.0 || liq >= 50_000.0) && liq >= 20_000.0 && highQualityProof
+                if (routeTrusted && basisTrusted && rugProof && blueStructure7403) {
+                    mult = maxOf(mult, 1.0); reasons += "BLUECHIP_STRUCTURE_DEPTH_CONFIRMED_7403"
+                } else defer("BLUECHIP_AWAIT_LARGECAP_DEPTH_STRUCTURE_7403")
+            }
             "PRESALE_SNIPE", "PROJECT_SNIPER" -> {
                 val ps = BleederMemoryRouter.statsFor("PRESALE_SNIPE")
                 val presaleBleeding = ps.n20 >= 3 && (ps.wr20 <= 0.0 || ps.ev20Pct < 0.0 || ps.netPnl50Sol <= 0.0)
@@ -332,7 +372,14 @@ object LiveStylePivotRouter {
                 else if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof) { finalLane = lane; finalStyle = laneLocalStyleFrom("PRESALE_SNIPE"); mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_LANE_LOCAL_PROMOTED" }
                 else defer("PRESALE_AWAIT_MIN_DEPTH_AND_PROOF")
             }
-            "TREASURY", "CASHGEN" -> { if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof && score >= 40.0) { finalLane = lane; finalStyle = "TREASURY_CASHGEN"; mult = maxOf(mult, 1.0); reasons += "TREASURY_CASHGEN_LANE_LOCAL_PROMOTED" } else defer("TREASURY_CASHGEN_AWAIT_DEPTH_SCORE_PROOF") }
+            "TREASURY", "CASHGEN" -> {
+                val movement7403 = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
+                val conservativeStructure7403 = movement7403?.pattern in setOf("PULLBACK_RECLAIM", "ACCUMULATION_COMPRESSION") ||
+                    (liq >= 25_000.0 && ts.lastSellPressurePct <= 50.0 && ts.lastBuyPressurePct >= 50.0)
+                if (routeTrusted && liq >= 7_500.0 && basisTrusted && rugProof && score >= 40.0 && conservativeStructure7403) {
+                    finalLane = lane; finalStyle = "TREASURY_CASHGEN"; mult = maxOf(mult, 0.85); reasons += "TREASURY_CASHGEN_CONSERVATIVE_STRUCTURE_7403"
+                } else defer("TREASURY_CASHGEN_AWAIT_CONSERVATIVE_STRUCTURE_7403")
+            }
             "WALLET_RECOVERED" -> { if (!basisTrusted) defer("WALLET_RECOVERED_REQUIRES_TRUSTED_BASIS") else reasons += "WALLET_RECOVERED_TRUSTED_BASIS" }
         }
 
