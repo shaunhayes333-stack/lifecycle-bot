@@ -13,6 +13,29 @@ The work is split into two coupled backlogs:
 
 Do not wire every module directly into FDG. Decision inputs must converge through bounded canonical evidence surfaces so hot-path latency and duplicated authority do not grow.
 
+## V5.0.7427 completed — exact strategy identity / causal credit
+
+- [x] `entryTactic` is again strictly the coarse `TacticSwitcher.Tactic` namespace; Toolkit free-form entry styles no longer overwrite it.
+- [x] `EntryStrategySnapshot6450` persists `entryTradeType`, `entrySetup`, `entryStyle`, `entryEntryStyle`, `entryExitStyle`, and `entryStrategyVariantId`.
+- [x] PAPER and LIVE policy snapshots derive the same canonical `ModeRouter → ToolkitSignalSheet → AgenticStyleRouter` identity before the execution adapter split.
+- [x] `CanonicalFinalizedTradeBus6464.Envelope` carries exact strategy identity to terminal learning.
+- [x] `StrategyHypothesisEngine` stamps the exact `StrategyVariantStore` variant used at entry and credits that exact ID at close.
+- [x] `MemeCausalLearning6568` reports exact trade type / setup / style / variant alongside lane and tactic.
+- [x] Regression coverage added in `Aate7427ExactStrategyIdentityTest`.
+- [ ] Next: expand hypothesis contexts from coarse `lane|scoreBand|regime` toward hierarchical exact-strategy context without sparse-cell deadlock.
+- [ ] Next: consume exact style/setup outcome statistics in entry selection and strategy promotion.
+
+### First A_PREDICT classifications
+
+- `SourceTimingRegistry.isLateSignal` — **ALIAS_REDUNDANT**: wraps `getSourceTimingPenalty`; the latter is already consumed by `ScoreCard`. Do not add a second late-signal penalty.
+- `MomentumPredictorAI.getStrongMomentumTokens` — **CLOSED_LOOP / LEDGER STALE**: current source has a production caller in `LaneHunter7297`; the unwired ledger needs reclassification rather than another wire.
+- `MomentumPredictorAI.getMomentumScore` — **CLOSED_LOOP** into `PredictiveEntryOracle6915`.
+- `MomentumPredictorAI.getEntryScoreAdjustment` — **CLOSED_LOOP** into `LifecycleStrategy`.
+- `TradingMemory.getPatternWinRate` — **UNWIRED, CANDIDATE**: local/cache-safe, but requires exact phase + EMA + source identity; wire only after those fields are sealed rather than calling with UNKNOWN.
+- `EducationSubLayerAI.getEdgeLedger` — **BACKGROUND/REPORT CANDIDATE**: aggregate ranking/sorting over learned maps; useful for strategy selection/research, not per-candidate hot-path invocation.
+- `CollectiveLearning.getNetworkBoostForMint` — **BACKGROUND-ONLY CANDIDATE**: suspend + database I/O; must be prefetched/cached before admission, never awaited on the scanner/FDG hot path.
+- `HistoricalChartScanner.getBestModeForConditions` — **UNWIRED, NEEDS COST/INPUT AUDIT** before any production use.
+
 ## Priority findings from the strategy audit
 
 ### P0 — Preserve exact strategy identity through the full trade lifecycle
