@@ -65,12 +65,27 @@ object ReentryRecoveryMode {
      * Record a stop-loss or distribution failure for potential recovery.
      */
     fun recordFailure(ts: TokenState, reason: String) {
-        val tracker = ReentryTracker(
-            mint = ts.mint,
-            originalFailTime = System.currentTimeMillis(),
-            originalFailReason = reason,
-            originalFailPrice = ts.history.lastOrNull()?.priceUsd ?: 0.0,
-        )
+        val now7403 = System.currentTimeMillis()
+        val failPx7403 = ts.history.lastOrNull()?.priceUsd ?: ts.lastPrice
+        val prior7403 = reentryHistory[ts.mint]
+        // V5.0.7403 — do not reset the retry counter when the recovery itself
+        // fails. The old code recreated the tracker with attempts=0, so the
+        // documented "ONE reentry" rule could repeat forever.
+        val tracker = if (prior7403 != null) {
+            prior7403.copy(
+                originalFailTime = now7403,
+                originalFailReason = reason,
+                originalFailPrice = failPx7403,
+                lastReentrySuccess = false,
+            )
+        } else {
+            ReentryTracker(
+                mint = ts.mint,
+                originalFailTime = now7403,
+                originalFailReason = reason,
+                originalFailPrice = failPx7403,
+            )
+        }
         reentryHistory[ts.mint] = tracker
         
         // Also notify DistributionFadeAvoider
