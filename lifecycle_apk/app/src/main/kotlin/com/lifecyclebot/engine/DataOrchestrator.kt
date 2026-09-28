@@ -669,6 +669,23 @@ class DataOrchestrator(
             synchronized(ts.history) {
                 ts.history.addLast(candle)
                 if (ts.history.size > 300) ts.history.removeFirst()
+                // V5.0.7402 — MomentumPredictorAI had many live consumers but
+                // zero production writers. Feed it from the same normalized
+                // 8-second trade candle so acceleration/coiling/accumulation
+                // becomes real evidence instead of permanent NEUTRAL.
+                try {
+                    val txN7402 = pending.buys + pending.sells
+                    val bp7402 = if (txN7402 > 0) pending.buys.toDouble() / txN7402.toDouble() * 100.0 else 50.0
+                    MomentumPredictorAI.recordPricePoint(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        price = close,
+                        volume = pending.buyVol + pending.sellVol,
+                        buyPressure = bp7402,
+                        txCount = txN7402,
+                    )
+                    PipelineHealthCollector.labelInc("MOMENTUM_PREDICTOR_LIVE_POINT_7402")
+                } catch (_: Throwable) {}
                 // V5.0.6852 §SILENT_DEFAULTS_FED_THE_WHOLE_BOOK — TokenState.volatility and
                 // TokenState.momentum had ZERO writers tree-wide while carrying 39 and
                 // several readers respectively, every one of them a fallback:
