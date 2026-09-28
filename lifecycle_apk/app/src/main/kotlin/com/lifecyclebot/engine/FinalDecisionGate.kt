@@ -1384,19 +1384,30 @@ object FinalDecisionGate {
         }
 
         if (candidate.aiConfidence <= 0.0) {
-            // V5.0.3950 — ZERO-CONF SOURCE ALIGNMENT.
-            // Runtime 3949 still showed FDG/LOW_CONFIDENCE_0% even after the
-            // low-confidence block below was converted to live micro-probes. This
-            // early return bypassed that new doctrine. A 0% confidence candidate
-            // with route/liquidity/safety still gets shaped to a tiny live probe;
-            // malformed/mechanical failures are blocked by the real safety/route
-            // gates downstream, not by this confidence shortcut.
+            // V5.0.7403 — zero confidence is unresolved/no positive confidence,
+            // not a paid exploration signal. On a small wallet, a "micro probe"
+            // can be promoted to the routable minimum and become a normal-sized
+            // real trade. LIVE defers and re-evaluates; PAPER/shadow may learn.
             if (mode == TradeMode.LIVE) {
-                tags.add("live_zero_conf_micro_probe")
-                checks.add(GateCheck("confidence", true, "conf=0% → LIVE micro-probe sizing, not hard block"))
-                ErrorLogger.info("FDG", "🔬 ZERO_CONF_MICRO_PROBE (LIVE): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} conf=0%")
+                try { PipelineHealthCollector.labelInc("FDG_ZERO_CONFIDENCE_LIVE_DEFER_7403") } catch (_: Throwable) {}
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "ZERO_CONFIDENCE_LIVE_DEFER_7403",
+                    blockLevel = BlockLevel.CONFIDENCE,
+                    sizeSol = 0.0,
+                    tags = tags + listOf("zero_conf_live_defer", "retry_on_fresh_evidence"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "LIVE confidence unresolved at 0%; defer until evidence refreshes",
+                    gateChecks = checks + GateCheck("confidence", false, "conf=0% → no paid live probe"),
+                )
             } else {
-                ErrorLogger.info("FDG", "ℹ️ ZERO_CONF_PASSTHRU (PAPER): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} → continue with min-size for learning")
+                ErrorLogger.info("FDG", "ℹ️ ZERO_CONF_PASSTHRU (PAPER): ${ts.symbol} → learn in paper/shadow")
                 tags.add("zero_conf_paper_learn")
             }
         }
