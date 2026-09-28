@@ -26,6 +26,7 @@ object TokenMergeQueue {
 
     // Discoveries inside this window are considered the same opportunity
     private const val MERGE_WINDOW_MS = 5_000L
+    private const val TRUE_LAUNCH_MERGE_WINDOW_MS_7403 = 1_000L
 
     // How often queue processing is allowed to run
     private const val PROCESS_INTERVAL_MS = 2_000L
@@ -248,7 +249,15 @@ object TokenMergeQueue {
         var scanned = 0
         for ((_, entry) in pendingDiscoveries) {
             if (scanned++ >= maxScan.coerceAtLeast(1)) break
-            if (now - entry.firstSeenAt >= MERGE_WINDOW_MS) readyEntries6877.add(entry)
+            val leadingCreate7403 = entry.firstScanner.uppercase() in
+                setOf("PUMP_PORTAL", "PUMP_PORTAL_WS", "PUMP_FUN_NEW") &&
+                try {
+                    val born = com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(entry.mint)
+                    born != null && born > 0L && now - born <= 15_000L
+                } catch (_: Throwable) { false }
+            val requiredWait7403 = if (leadingCreate7403)
+                TRUE_LAUNCH_MERGE_WINDOW_MS_7403 else MERGE_WINDOW_MS
+            if (now - entry.firstSeenAt >= requiredWait7403) readyEntries6877.add(entry)
         }
         fun agePressure6877(e: MergeEntry): Int {
             val waited = now - e.firstSeenAt
