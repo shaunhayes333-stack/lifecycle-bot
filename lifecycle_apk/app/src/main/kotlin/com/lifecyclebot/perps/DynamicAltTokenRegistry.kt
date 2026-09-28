@@ -879,6 +879,16 @@ object DynamicAltTokenRegistry {
         val s = state.uppercase()
         return s.contains("CRYPTO_BRAIN_OBSERVE_7244") ||
             s.contains("CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244") ||
+            s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
+            s.contains("PRICE_UNAVAILABLE")
+    }
+
+    /** End-of-pass passive states may release immediately. OBSERVE is deliberately
+     * excluded because CryptoAlt stamps it before specialist evaluation completes. */
+    private fun releaseAtPassBoundary7425(state: String): Boolean {
+        val s = state.uppercase()
+        return s.contains("CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244") ||
+            s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
             s.contains("PRICE_UNAVAILABLE")
     }
 
@@ -935,7 +945,7 @@ object DynamicAltTokenRegistry {
         // evaluation pass. Release the exact generation immediately so the next
         // materially changed observation can be reconsidered without waiting for
         // the adaptive stale lease. This is not a terminal trade outcome.
-        if (isRetryableProgress7418(key)) {
+        if (releaseAtPassBoundary7425(key)) {
             if (releaseEvaluationForRetry7418(tok, key)) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_RETRYABLE_PROGRESS_RELEASED_7425") } catch (_: Throwable) {}
             }
