@@ -2523,6 +2523,26 @@ object TradeHistoryStore {
         }
         val posted6653 = handler6653.post {
             try {
+                // V5.0.7407 — fail closed BEFORE SQLite durability. The old
+                // witness stamped JOURNAL only after the row was durable, so a
+                // missing ledger mutation became permanent corruption and was
+                // merely diagnosed 60s later as JOURNAL_ONLY_6632.
+                val atomicKey7407 = trade.economicEventId.ifBlank { trade.operationId }
+                val atomicPaperEvent7407 = trade.mode.equals("paper", true) &&
+                    atomicKey7407.isNotBlank() &&
+                    trade.side.uppercase() in setOf("BUY", "SELL", "PARTIAL_SELL", "QTY_RECONCILE")
+                if (atomicPaperEvent7407 &&
+                    !com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.hasLedgerStamp7407(atomicKey7407)
+                ) {
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_JOURNAL_BLOCKED_WITHOUT_LEDGER_7407")
+                        ForensicLogger.lifecycle(
+                            "PAPER_JOURNAL_BLOCKED_WITHOUT_LEDGER_7407",
+                            "key=${atomicKey7407.take(48)} mint=${trade.mint.take(10)} side=${trade.side} action=prevent_journal_only_half_commit",
+                        )
+                    } catch (_: Throwable) {}
+                    return@post
+                }
                 val cv = tradeToContentValues(trade)
                 val rowId = db?.insertWithOnConflict(
                     TradeDbHelper.TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE) ?: -1L
