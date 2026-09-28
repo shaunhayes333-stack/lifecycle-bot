@@ -467,30 +467,29 @@ object CommoditiesTrader {
         // Add trade type indicator
         reasons.add("${tradeType.emoji} ${tradeType.name}")
         
-        // 1. Momentum analysis
-        when {
-            abs(change) > 3.0 -> {
-                score += 20
-                confidence += 15
-                reasons.add("🔥 Strong move: ${if (change > 0) "+" else ""}${"%.1f".format(change)}%")
+        // 1. Momentum analysis — V5.0.7403 directionally honest.
+        val momentumDirection7403 = if (change >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT
+        val momentumAligned7403 = momentumDirection7403 == direction
+        if (momentumAligned7403) {
+            when {
+                abs(change) > 3.0 -> { score += 15; confidence += 10; reasons.add("🔥 Trend-aligned move " + "%.1f".format(change) + "%") }
+                abs(change) > 1.5 -> { score += 8; confidence += 6; reasons.add("📈 Trend-aligned move " + "%.1f".format(change) + "%") }
             }
-            abs(change) > 1.5 -> {
-                score += 10
-                confidence += 10
-                reasons.add("📈 Good move: ${if (change > 0) "+" else ""}${"%.1f".format(change)}%")
-            }
+            if (abs(change) > 1.5) layerVotes["Momentum"] = direction
+        } else {
+            if (abs(change) > 3.0) score -= 5
+            reasons.add("↩️ Counter-trend commodity setup: momentum is not confirmation")
         }
-        layerVotes["Momentum"] = direction
-        
+
         // 2. Sector-specific boosts
         when {
             market.isEnergyCommodity -> {
-                score += 5
-                reasons.add("⛽ Energy sector")
+                confidence += 3
+                reasons.add("⛽ Energy sector (context only)")
             }
             market.isAgriCommodity -> {
-                score += 5
-                reasons.add("🌾 Agricultural")
+                confidence += 3
+                reasons.add("🌾 Agricultural (context only)")
             }
         }
         
@@ -529,8 +528,10 @@ object CommoditiesTrader {
                     "MILD" -> 10
                     else -> 0
                 }
-                reasons.add("📊 Volume ${volume.spikeStrength}")
-                layerVotes["Volume"] = direction
+                reasons.add("📊 Volume ${volume.spikeStrength} (activity, not direction)")
+                if (momentumAligned7403 || layerVotes["Technical"] == direction) {
+                    layerVotes["VolumeConfirm"] = direction
+                }
             }
         } catch (_: Exception) {}
         
