@@ -213,18 +213,29 @@ object AcceptanceInvariantAudit6441 {
         else if (spine6647 == null) passed.add("J_execution_spine_window_warming")
         else if (spine6647.passed) passed.add("J_execution_spine_120s_pass")
         else if (liveRuntime7399) {
-            // V5.0.7399 — ExecutionSpineAcceptance6647 is explicitly the mandatory
-            // 120-second PAPER tape. Historical paper cash/basis/journal deltas must
-            // stay visible and fail PAPER acceptance, but they are not evidence that
-            // the current LIVE wallet/execution spine is broken.
-            passed.add("J_paper_spine_diagnostic_in_live:${spine6647.failures.joinToString(",")}".take(180))
-            try {
-                PipelineHealthCollector.labelInc("LIVE_ACCEPTANCE_PAPER_SPINE_DIAGNOSTIC_ONLY_7399")
-                ForensicLogger.lifecycle(
-                    "LIVE_ACCEPTANCE_PAPER_SPINE_DIAGNOSTIC_ONLY_7399",
-                    "failures=${spine6647.failures.joinToString("|")} action=retain_paper_failure_do_not_fail_live_acceptance",
-                )
-            } catch (_: Throwable) {}
+            // V5.0.7399 — the conservation deltas in this witness come from
+            // ForensicReconciliation6635's PAPER ledger/journal comparison.
+            // Keep those paper-economic failures visible but do not let them
+            // poison LIVE acceptance. Every structural execution invariant
+            // (phantom size, intent/finality cardinality, exit coverage, etc.)
+            // remains a hard acceptance failure in LIVE.
+            val paperEconomic7399 = setOf(
+                "CASH_DELTA", "BASIS_DELTA", "REALIZED_DELTA", "QUANTITY_DELTA",
+                "HERO_JOURNAL_PARITY_FAIL",
+            )
+            val structural7399 = spine6647.failures.filterNot { it in paperEconomic7399 }
+            val paperOnly7399 = spine6647.failures.filter { it in paperEconomic7399 }
+            if (paperOnly7399.isNotEmpty()) {
+                passed.add("J_paper_economics_diagnostic_in_live:${paperOnly7399.joinToString(",")}".take(180))
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_ACCEPTANCE_PAPER_SPINE_DIAGNOSTIC_ONLY_7399")
+                    ForensicLogger.lifecycle(
+                        "LIVE_ACCEPTANCE_PAPER_SPINE_DIAGNOSTIC_ONLY_7399",
+                        "paperFailures=${paperOnly7399.joinToString("|")} structuralFailures=${structural7399.joinToString("|")} action=paper_economics_stay_visible_structural_failures_still_fail_live",
+                    )
+                } catch (_: Throwable) {}
+            }
+            failed.addAll(structural7399.map { "J_$it" })
         } else failed.addAll(spine6647.failures.map { "J_$it" })
 
         val report = AuditReport(
