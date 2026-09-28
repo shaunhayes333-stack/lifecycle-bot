@@ -1608,14 +1608,15 @@ object CryptoAltTrader {
                 val terminalTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                 try {
-                    // V5.0.6581 §P0-3 — CANDIDATE STAMP.
-                    // Operator forensic (6580): CryptoAlt 55 actionable
-                    // signals → 0 candidates → 0 canonical submissions.
-                    // The producer never stamped CANDIDATE at the actionable
-                    // → executeSignal handoff. Executor still runs, but
-                    // the funnel loses the transition. Fixed: stamp
-                    // CANDIDATE just before executeSignal so the funnel
-                    // shows candidate == actionable_after_dedup.
+                    // V5.0.7398 — this comment promised a producer CANDIDATE stamp,
+                    // but the call was absent. That made live diagnostics report
+                    // actionableSignal>0 with candidateCreated=0 even while
+                    // executeSignal was being invoked. Stamp the actual bounded,
+                    // deduped handoff here; canonical SUBMIT is stamped only when
+                    // CanonicalEntryAuthority6551.submit is reached below.
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+                        com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
+                    )
                     executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
                 } catch (e: CancellationException) {
                     throw e
@@ -3193,6 +3194,9 @@ object CryptoAltTrader {
                 com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
             )
         } catch (_: Throwable) {}
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "SUBMIT"
+        )
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = candidate.assetKey, symbol = mktSym,
