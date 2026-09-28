@@ -135,29 +135,39 @@ class CopyTradeEngine(
         isBuy: Boolean,
     ) {
         if (!isBuy) return
-        val tracked = wallets[buyerWallet] ?: return
-        if (!tracked.isActive || tracked.isPaused) return
-
-        // Deduplicate: same mint+wallet within 30s = ignore
+        SmartMoneyBridgeHealth7422.detected()
+        val tracked = wallets[buyerWallet]
+        if (tracked == null || !tracked.isActive || tracked.isPaused) {
+            SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.INSUFFICIENT_EVIDENCE)
+            return
+        }
         val now = System.currentTimeMillis()
         val isDupe = recentSignals.any { s ->
-            s.mint == mint && s.trackedWallet == buyerWallet &&
-            now - s.ts < 30_000L
+            s.mint == mint && s.trackedWallet == buyerWallet && now - s.ts < 30_000L
         }
-        if (isDupe) return
-
-        // Only copy meaningful buys (ignore dust)
-        if (solAmount < 0.01) return
-
+        if (isDupe) {
+            SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.DUPLICATE)
+            return
+        }
+        if (mint.isBlank() || mint.length < 30 || !solAmount.isFinite()) {
+            SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.ROUTE_UNAVAILABLE)
+            return
+        }
+        if (solAmount < 0.01) {
+            SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.INSUFFICIENT_EVIDENCE)
+            return
+        }
         val signal = CopySignal(mint, buyerWallet, tracked.label, solAmount, now)
         recentSignals.addFirst(signal)
         if (recentSignals.size > 20) recentSignals.removeLast()
-
-        onLog("📋 Copy signal: ${tracked.label} (${tracked.shortAddr}) bought ${"%.3f".format(solAmount)}◎ of ${mint.take(8)}…")
-        onCopySignal(mint, buyerWallet, solAmount)
-
-        // Update last seen
-        wallets[buyerWallet] = tracked.copy(lastSeenMs = now)
+        try {
+            onLog("📋 Copy signal: ${tracked.label} (${tracked.shortAddr}) bought ${"%.3f".format(solAmount)}◎ of ${mint.take(8)}…")
+            onCopySignal(mint, buyerWallet, solAmount)
+            SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.CANDIDATE_CREATED)
+            wallets[buyerWallet] = tracked.copy(lastSeenMs = now)
+        } catch (_: Throwable) {
+            SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.ROUTE_UNAVAILABLE)
+        }
     }
 
     // ── discover top wallets from on-chain leaderboards ───────────────

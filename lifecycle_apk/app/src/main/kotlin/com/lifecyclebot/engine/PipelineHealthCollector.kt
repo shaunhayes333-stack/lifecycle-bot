@@ -3045,6 +3045,17 @@ object PipelineHealthCollector {
             ).append(" subscriptionFailures=").append(
                 try { com.lifecyclebot.network.PumpFunWS.lifecycleSubscriptionFailures7420() } catch (_: Throwable) { 0L }
             ).append("\n")
+            sb.append("  Smart Money (§7422): detected=").append(
+                try { SmartMoneyBridgeHealth7422.detectedCount() } catch (_: Throwable) { 0L }
+            ).append(" candidatesCreated=").append(
+                try { SmartMoneyBridgeHealth7422.candidatesCreated() } catch (_: Throwable) { 0L }
+            ).append(" contributorsAttached=").append(
+                try { SmartMoneyBridgeHealth7422.contributorsAttached() } catch (_: Throwable) { 0L }
+            ).append(" rejected=").append(
+                try { SmartMoneyBridgeHealth7422.rejected() } catch (_: Throwable) { 0L }
+            ).append(" unexplained=").append(
+                try { SmartMoneyBridgeHealth7422.unexplained() } catch (_: Throwable) { 0L }
+            ).append("\n")
             sb.append("  On-chain supply   (§7075): ").append(
                 com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.status()
             ).append("\n")
