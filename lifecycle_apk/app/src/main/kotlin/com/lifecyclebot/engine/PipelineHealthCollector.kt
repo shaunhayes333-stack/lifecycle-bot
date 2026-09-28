@@ -2740,7 +2740,8 @@ object PipelineHealthCollector {
             ).append("\n")
             sb.append("  Reward purity gate (§6441):   ").append(
                 com.lifecyclebot.engine.truth.RewardPurityGate6441.statusLine()
-            ).append("\n")            sb.append("  Finalized ID reconcile (§7423): ").append(
+            ).append("\n")
+            sb.append("  Finalized ID reconcile (§7423): ").append(
                 try { com.lifecyclebot.engine.truth.FinalizedLearningReconciler7423.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             sb.append("  Mark trust (§7424): identityMismatch=").append(labelCountSnapshot("MARK_IDENTITY_MISMATCH"))
