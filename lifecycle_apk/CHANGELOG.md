@@ -1,3 +1,12 @@
+## [5.0.7398] - 2026-09-28 — GOVERNOR SHAPES; TREASURY ACCOUNTING COMPARES LIKE-FOR-LIKE
+
+- LaneEntryContract6342 no longer turns confidence-governor HOLD or GovernorRecovery6388 BLOCKED_INFRASTRUCTURE/EXIT_ONLY into a universal live-buy veto. Those states are telemetry/sizing/selectivity inputs; concrete wallet, route, quantity, signing and finality authorities remain the hard execution guards.
+- FirstTradeReadiness6348 and LivePreflight7222 now report governor HOLD as shaping-only instead of claiming every live buy will be refused.
+- AcceptanceInvariantAuthority6501 now includes PaperCapitalAuthority6577 treasurySol7294 in reported paper equity. 5.0.7397's 6.9574 SOL ECONOMIC_TRUTH_DIVERGENCE was exactly the owned treasury balance omitted from the left side of the equation.
+- PipelineHealthCollector's AUTHORITATIVE LIVE-OPEN POSITIONS count is now mode-scoped; it no longer labels paper opens as live opens.
+- CryptoAltTrader restores the missing CRYPTO_ALT producer CANDIDATE stamp at the bounded DynScan handoff and SUBMIT stamp at CanonicalEntryAuthority6551, so Crypto Universe liveness no longer reports actionable signals with zero candidates by construction.
+- Added Aate7398GovernorAccountingAndCryptoCoverageTest regression tape.
+
 # AATE Changelog
 
 All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
