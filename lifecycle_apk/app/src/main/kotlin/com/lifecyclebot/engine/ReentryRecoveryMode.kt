@@ -27,14 +27,15 @@ object ReentryRecoveryMode {
     // Track reentry attempts per token
     private val reentryHistory = ConcurrentHashMap<String, ReentryTracker>()
     
-    // V4.1: Balanced reentry parameters (user feedback: 10min was too strict)
-    private const val TRACKER_TTL_MS = 1800_000L              // 30 minutes
-    private const val BASE_COOLDOWN_MS = 120_000L             // 2 minutes base cooldown
-    private const val ADDITIONAL_COOLDOWN_PER_ATTEMPT = 60_000L   // +1 min per failed attempt
-    private const val MAX_REENTRY_ATTEMPTS = 2                // Allow 2 attempts
-    private const val MIN_RECOVERY_SCORE = 65.0               // 65% score required
-    private const val MAX_LOSS_SINCE_FAILURE_PCT = 25.0       // Block if dropped >25% since failure
-    private const val REENTRY_PENALTY_PER_ATTEMPT = 5.0       // -5 score penalty per attempt
+    // V5.0.7403 — restore the recovery doctrine the header already documents.
+    // Recovery is a second-chance setup, not revenge trading.
+    private const val TRACKER_TTL_MS = 1_800_000L             // 30 minutes
+    private const val BASE_COOLDOWN_MS = 300_000L             // 5 minutes
+    private const val ADDITIONAL_COOLDOWN_PER_ATTEMPT = 0L    // only one attempt exists
+    private const val MAX_REENTRY_ATTEMPTS = 1                // one second chance, period
+    private const val MIN_RECOVERY_SCORE = 80.0               // strong recovery proof required
+    private const val MAX_LOSS_SINCE_FAILURE_PCT = 20.0       // further collapse = dead thesis
+    private const val REENTRY_PENALTY_PER_ATTEMPT = 10.0
     
     data class ReentryTracker(
         val mint: String,
@@ -213,7 +214,7 @@ object ReentryRecoveryMode {
         // CHECK 6: Better liquidity (V4.1: Increased to $5000)
         // ─────────────────────────────────────────────────────────────────
         val currentLiq = ts.lastLiquidityUsd
-        if (currentLiq > 2000) {
+        if (currentLiq > 5_000.0) {
             met.add("✅ Liquidity: \$${currentLiq.toInt()}")
             score += 15.0
         } else {
@@ -237,15 +238,13 @@ object ReentryRecoveryMode {
         
         // Size multiplier decreases with each attempt
         val sizeMultiplier = when (tracker.reentryAttempts) {
-            0 -> 0.5   // First reentry: 50% of normal size
-            1 -> 0.3   // Second reentry: 30% of normal size
+            0 -> 0.40  // one recovery attempt: max 40% of normal size
             else -> 0.0
         }
         
         // Tighter timeout for recovery trades
         val maxHoldMins = when (tracker.reentryAttempts) {
-            0 -> 40    // First reentry: 40 min max
-            1 -> 25    // Second reentry: 25 min max
+            0 -> 30    // recovery either works promptly or the thesis is wrong
             else -> 0
         }
         
