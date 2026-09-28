@@ -57,10 +57,12 @@ object SecondScorer {
         }
         comp["holders"] = holderScore
 
-        // Pool age score (older = safer): 0 → 20.
-        // addedToWatchlistAt is the bot's first-sighting timestamp; close
-        // enough to "pool age" without us reaching into chain data.
-        val ageMin = ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000L).coerceAtLeast(0)
+        // V5.0.7402 — use market age, not AATE first-sighting age.
+        // The older-is-safer concept is valid for this secondary risk scorer;
+        // the old timestamp was not.
+        val ageMin = try {
+            (com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) / 60_000L).coerceAtLeast(0L)
+        } catch (_: Throwable) { 999L }
         val ageScore = when {
             ageMin < 1     -> 0
             ageMin < 5     -> 5
