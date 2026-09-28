@@ -662,6 +662,13 @@ object ModeRouter {
     private fun detectSentimentIgnition(ts: TokenState, hist: List<Candle>): SubScore {
         var score = 0.0
         val reasons = mutableListOf<String>()
+        val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        // V5.0.7402 — social/trending confirmation after the launch impulse is
+        // not "ignition". It is post-event attention and must not reactivate the
+        // pump-sniper archetype.
+        if (launch7402?.tooLateForSnipe == true) {
+            return SubScore(-40.0, listOf("SENTIMENT_REJECT: post-pump fade"))
+        }
         
         // Check for profile/social presence (use name and symbol presence as proxy)
         if (ts.name.isNotEmpty() && ts.symbol.isNotEmpty() && ts.name != ts.symbol) {
