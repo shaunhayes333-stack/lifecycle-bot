@@ -110,9 +110,11 @@ object StrategyHypothesisEngine {
     private val stopBaseline = ConcurrentHashMap<String, Double>()
     private val active = ConcurrentHashMap<String, Hypothesis>()
     private val pending = ConcurrentHashMap<String, Pair<String, Boolean>>()  // mint -> (context, isVariant)
+    // V5.0.7427 — exact StrategyVariantStore identity applied at ENTRY.
+    private val pendingStrategyVariant7427 = ConcurrentHashMap<String, String>()
 
     /** V5.9.1353 — TRUE RESET: drop baselines, active hypotheses + pending. */
-    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear(); settledOnceGuard6747.clear() }
+    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear(); pendingStrategyVariant7427.clear(); settledOnceGuard6747.clear() }
     @Volatile private var promotions = 0L
     @Volatile private var outcomeUpdates6512 = 0L
     fun outcomeUpdateCount6512(): Long = outcomeUpdates6512
@@ -219,15 +221,25 @@ object StrategyHypothesisEngine {
             val strategyVariantBias4342 = try {
                 val v = com.lifecyclebot.engine.learning.StrategyVariantStore.activeFor(lane)
                 if (v != null) {
-                    try { PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_SIZE_BIAS_4342|${lane.uppercase()}") } catch (_: Throwable) {}
+                    pendingStrategyVariant7427[mint] = v.id
+                    try {
+                        PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_SIZE_BIAS_4342|" + lane.uppercase())
+                        PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_STAMPED_7427")
+                    } catch (_: Throwable) {}
                     when {
                         v.state == com.lifecyclebot.engine.learning.StrategyVariantStore.State.PROMOTED -> 1.04
                         v.expectancy() > 2.0 -> 1.03
                         v.expectancy() < -5.0 && v.samples.get() >= 10 -> 0.96
                         else -> 1.0
                     }
-                } else 1.0
-            } catch (_: Throwable) { 1.0 }
+                } else {
+                    pendingStrategyVariant7427.remove(mint)
+                    1.0
+                }
+            } catch (_: Throwable) {
+                pendingStrategyVariant7427.remove(mint)
+                1.0
+            }
             (bias * reviewedLabBias * strategyVariantBias4342).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
         } catch (_: Throwable) { 1.0 }
     }
@@ -290,6 +302,9 @@ object StrategyHypothesisEngine {
     // the guard fires only on true second-settle attempts.
     private val settledOnceGuard6747 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /** Exact StrategyVariantStore variant that influenced this mint at entry. */
+    fun pendingStrategyVariantId7427(mint: String): String = pendingStrategyVariant7427[mint].orEmpty()
+
     /** Feed settled PnL → accrue to the assigned arm, evaluate, maybe promote/retire. */
     fun recordOutcome(mint: String, pnlPct: Double) {
         try {
@@ -309,9 +324,15 @@ object StrategyHypothesisEngine {
             if (variant) h.variant.update(pnl) else h.control.update(pnl)
             try {
                 val laneForVariant4342 = ctx.substringBefore("|").uppercase()
-                com.lifecyclebot.engine.learning.StrategyVariantStore.activeFor(laneForVariant4342)?.let { activeVariant4342 ->
-                    com.lifecyclebot.engine.learning.StrategyVariantStore.recordOutcome(activeVariant4342.id, pnl > 0.0, pnl < 0.0, pnl)
-                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_OUTCOME_4342|$laneForVariant4342")
+                val stampedVariantId7427 = pendingStrategyVariant7427.remove(mint)
+                if (!stampedVariantId7427.isNullOrBlank()) {
+                    com.lifecyclebot.engine.learning.StrategyVariantStore.recordOutcome(
+                        stampedVariantId7427, pnl > 0.0, pnl < 0.0, pnl,
+                    )
+                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_OUTCOME_7427")
+                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_OUTCOME_4342|" + laneForVariant4342)
+                } else {
+                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_OUTCOME_MISSING_7427")
                 }
             } catch (_: Throwable) {}
             maybeResolve(ctx, h)
