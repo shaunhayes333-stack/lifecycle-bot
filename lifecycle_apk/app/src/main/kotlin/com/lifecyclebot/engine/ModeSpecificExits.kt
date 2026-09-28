@@ -569,11 +569,15 @@ object ModeSpecificExits {
         // ═══════════════════════════════════════════════════════════════════
         
         // Calculate accumulation band (same logic as entry)
-        val accumulationFloor = if (prices.size >= 5) {
+        // V5.0.7403 — an invalidation floor may tighten as structure
+        // improves, but it must never walk DOWN with a losing position.
+        // The old rolling last-8 calculation let a continuing dump continuously
+        // lower its own "accumulation floor", laundering thesis failure.
+        val entryFloor7403 = ts.position.entryPrice * 0.82
+        val liveStructureFloor7403 = if (prices.size >= 5) {
             prices.takeLast(8).sorted().take(3).average()
-        } else {
-            ts.position.entryPrice * 0.82  // Fallback to -18%
-        }
+        } else entryFloor7403
+        val accumulationFloor = maxOf(entryFloor7403, liveStructureFloor7403)
         
         // BAND BREAK: Exit if price closes below accumulation floor
         val bandBreakPct = if (accumulationFloor > 0 && ts.position.entryPrice > 0) {
@@ -773,12 +777,13 @@ object ModeSpecificExits {
         
         val holdTimeMins = holdTimeMs / 60_000.0
         
-        // Stop loss (wider for event volatility)
-        if (pnlPct < -20) {
+        // V5.0.7403 — graduation gets some event-volatility room, but not
+        // a 20% bag-hold allowance once the event thesis is failing.
+        if (pnlPct < -15) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "GRADUATION: Stop -20%",
+                reason = "GRADUATION: Event thesis failed -15%",
                 urgency = ExitUrgency.IMMEDIATE,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -942,12 +947,13 @@ object ModeSpecificExits {
         val holdTimeMins = holdTimeMs / 60_000.0
         val hist = ts.history.toList()
         
-        // Stop loss
-        if (pnlPct < -20) {
+        // V5.0.7403 — sentiment is a fast catalyst thesis. Giving it a
+        // wider hard loss budget than a mature breakout is backwards.
+        if (pnlPct < -12) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "SENTIMENT: Stop -20%",
+                reason = "SENTIMENT: Thesis failed -12%",
                 urgency = ExitUrgency.IMMEDIATE,
                 adjustedStop = null,
                 adjustedTarget = null,
