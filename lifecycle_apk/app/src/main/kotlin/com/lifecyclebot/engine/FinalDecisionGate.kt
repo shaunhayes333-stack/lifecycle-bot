@@ -58,7 +58,12 @@ object FinalDecisionGate {
             }
         }
 
-        fun canExecute(): Boolean = shouldTrade && (blockReason == null || blockReason == "PROBE_ONLY")
+        // V5.0.7403 — PROBE_ONLY is executable learning in PAPER only.
+        // LIVE routes have a real minimum notional, so "dust probe" can become
+        // normal-sized paid tuition. Real money requires a canonical BUY.
+        fun canExecute(): Boolean = shouldTrade && (
+            blockReason == null || (blockReason == "PROBE_ONLY" && mode == TradeMode.PAPER)
+        )
         fun isBenchmarkQuality(): Boolean = approvalClass in listOf(ApprovalClass.LIVE, ApprovalClass.PAPER_BENCHMARK)
         fun isExploration(): Boolean = approvalClass == ApprovalClass.PAPER_EXPLORATION
 
