@@ -112,13 +112,18 @@ object ToolkitSignalSheet {
 
     fun fallbackSheet(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val tt = classification?.tradeType ?: ModeRouter.TradeType.UNKNOWN
+        val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
         val weakRegime = try {
             val r = RegimeDetector.current()
             r.regime == RegimeDetector.Regime.DUMP || (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
         } catch (_: Throwable) { false }
         val setup = when (tt) {
             ModeRouter.TradeType.BREAKOUT_CONTINUATION, ModeRouter.TradeType.GRADUATION -> if (weakRegime) Setup.LIQUIDITY_DEPTH_QUALITY else Setup.CHART_BREAKOUT
-            ModeRouter.TradeType.FRESH_LAUNCH -> if (weakRegime) Setup.REGIME_DEFENSIVE_PROBE else Setup.DEGEN_MICRO_SNIPE
+            ModeRouter.TradeType.FRESH_LAUNCH -> when {
+                launch7402?.tooLateForSnipe == true -> Setup.EXHAUSTION_QUICK_FLIP
+                weakRegime -> Setup.REGIME_DEFENSIVE_PROBE
+                else -> Setup.DEGEN_MICRO_SNIPE
+            }
             ModeRouter.TradeType.REVERSAL_RECLAIM -> Setup.CHART_PULLBACK_RECLAIM
             ModeRouter.TradeType.WHALE_ACCUMULATION -> Setup.WHALE_ACCUMULATION_HOLD
             ModeRouter.TradeType.TREND_PULLBACK -> Setup.MAINSTREAM_CRYPTO_SWING
