@@ -1112,7 +1112,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             // V5.0.7403 — meme maturity/timing is not stock evidence.
             // Keep stock confidence asset-local; cross-market macro belongs in
             // CrossMarketRegimeAI rather than a generic meme confidence boost.
-
+        } catch (_: Exception) {}
+        // V5.0.7404 — the V5.0.7403 edit above deleted this try block's own
+        // closing brace/catch along with the meme-boost code it removed,
+        // leaving "6. Fluid Learning confidence boost" permanently unclosed.
+        // Every brace-depth-sensitive scan/compile downstream of this file
+        // (CI's kotlin_local_function_modifiers gate first, kotlinc itself
+        // next) was one scope level too deep for the rest of analyzeStock()
+        // and everything declared after it in this object. Restored.
         
         // 7. Pattern memory check
         try {
