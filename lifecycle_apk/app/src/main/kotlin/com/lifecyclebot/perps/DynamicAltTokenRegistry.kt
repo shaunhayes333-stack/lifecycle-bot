@@ -850,6 +850,36 @@ object DynamicAltTokenRegistry {
         return true
     }
 
+    /**
+     * V5.0.7418 — retryable evidence misses release ownership without declaring
+     * the generation completed. PRICE_UNAVAILABLE and passive OBSERVE/NO_ACTIONABLE
+     * are measurements, not terminal trading outcomes.
+     */
+    fun releaseEvaluationForRetry7418(tok: DynToken?, reason: String): Boolean {
+        if (tok == null) return false
+        val identity = tok.canonicalIdentity6544
+        val generation = evaluationGeneration6615(tok)
+        val removed = evaluationInflight6615.remove(identity, generation)
+        if (!removed) return false
+        evaluationInflightStartedAt6692.remove(identity)
+        evaluationProgressStamp6580.keys.removeIf { it.startsWith(identity + EVAL_PROGRESS_SEPARATOR_6692) }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_RETRYABLE_RELEASE_7418")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "CRYPTO_EVAL_RETRYABLE_RELEASE_7418",
+                "identity=$identity generation=${generation.hashCode()} reason=${reason.take(72)} action=lease_released_generation_not_completed",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun isRetryableProgress7418(state: String): Boolean {
+        val s = state.uppercase()
+        return s.contains("CRYPTO_BRAIN_OBSERVE_7244") ||
+            s.contains("CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244") ||
+            s.contains("PRICE_UNAVAILABLE")
+    }
+
     fun markEvaluationStarted6567(tok: DynToken): Boolean {
         val identity = tok.canonicalIdentity6544
         val generation = evaluationGeneration6615(tok)
@@ -949,11 +979,17 @@ object DynamicAltTokenRegistry {
                             val state6587 = entry.key.substring(split + EVAL_PROGRESS_SEPARATOR_6692.length)
                             val activeGeneration6692 = evaluationInflight6615[identity6587]
                             if (activeGeneration6692 != null) {
-                                expireInflightGeneration6692(
-                                    identity6587,
-                                    activeGeneration6692,
-                                    "STALE_EXPIRED_6587_$state6587",
-                                )
+                                if (isRetryableProgress7418(state6587)) {
+                                    evaluationInflight6615.remove(identity6587, activeGeneration6692)
+                                    evaluationInflightStartedAt6692.remove(identity6587)
+                                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_SOFT_LEASE_EXPIRED_7418") } catch (_: Throwable) {}
+                                } else {
+                                    expireInflightGeneration6692(
+                                        identity6587,
+                                        activeGeneration6692,
+                                        "STALE_EXPIRED_6587_$state6587",
+                                    )
+                                }
                             }
                         }
                         iter.remove()

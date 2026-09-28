@@ -441,8 +441,24 @@ object SpecialistCausalFunnel6625 {
         val rec = records.computeIfAbsent(ks) { Record(key) }
         var inferredTicket6688 = false
         var inferredExec6688 = false
+        var inferredIntent7418 = false
         synchronized(rec) {
             val now = System.currentTimeMillis()
+            // V5.0.7418 — if the SAME immutable causal record already has
+            // DISCOVER + FDG_ALLOW + MARK_READY + SIZED_EXECUTABLE and then
+            // reaches TICKET/EXEC/OPEN, a missing INTENT stamp is telemetry loss,
+            // not a missing economic intent. Backfill only under that complete proof.
+            val hasFdgAllow7418 = "FDG_ALLOW" in rec.outcomes || "FDG" in rec.outcomes
+            val hasMark7418 = "MARK_READY" in rec.outcomes || "MARK" in rec.outcomes
+            val hasSize7418 = "SIZED_EXECUTABLE" in rec.outcomes || "SIZE" in rec.outcomes
+            if ((stage == Stage.TICKET || stage == Stage.EXEC || stage == Stage.OPEN) &&
+                Stage.INTENT !in rec.stages && Stage.DISCOVER in rec.stages &&
+                hasFdgAllow7418 && hasMark7418 && hasSize7418
+            ) {
+                rec.stages[Stage.INTENT] = now
+                rec.outcomes += "INTENT_INFERRED_FROM_EXECUTABLE_LINEAGE_7418"
+                inferredIntent7418 = true
+            }
             // V5.0.6688 — downstream economic facts are stronger than an omitted
             // telemetry callback. EXEC can only be reached after ticket publication,
             // and OPEN can only be reached after execution. Backfill those missing
@@ -465,6 +481,7 @@ object SpecialistCausalFunnel6625 {
             PipelineHealthCollector.labelInc("CAUSAL_FUNNEL_STAGE_${stage.name}_${key.lane}_6625")
             if (inferredTicket6688) PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_TICKET_WITNESS_BACKFILLED_6688")
             if (inferredExec6688) PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_EXEC_WITNESS_BACKFILLED_6688")
+            if (inferredIntent7418) PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_INTENT_WITNESS_BACKFILLED_7418")
         } catch (_: Throwable) {}
     }
     fun stageCounts6625(lane: String): Map<Stage, Int> {

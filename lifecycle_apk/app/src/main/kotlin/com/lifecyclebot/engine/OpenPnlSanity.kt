@@ -214,6 +214,10 @@ object OpenPnlSanity {
                 saneReplacement7301 != null -> {
                     currentPriceEffective7236 = saneReplacement7301
                     try {
+                        val repairedSource7418 = if (execSane7301) "JUPITER_EXECUTABLE_QUOTE_7301" else repairAuth7301.getRepairedSource(mint)
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(
+                            mint, saneReplacement7301, repairedSource7418,
+                        )
                         PipelineHealthCollector.labelInc(if (execSane7301) "OPEN_PNL_ABSURD_GAIN_REPAIRED_BY_EXECUTABLE_QUOTE_7301" else "OPEN_PNL_ABSURD_GAIN_REPAIRED_7298")
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
                             "OPEN_PNL_ABSURD_GAIN_REPAIRED_7298",

@@ -229,6 +229,31 @@ object CanonicalPriceMarkRegistry6522 {
     }
 
 
+    /**
+     * V5.0.7418 — persist a sane repair into EXIT_ECONOMIC only.
+     * This does not authorize a new entry and cannot overwrite an executable
+     * entry quote. It stops every consumer from repeatedly repairing the same
+     * already-proven bad raw mark.
+     */
+    fun publishRepairedExitEconomic7418(mint: String, priceUsd: Double, source: String): Boolean {
+        if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0) return false
+        val repaired = CanonicalPriceMark6522(
+            mint = mint,
+            pairId = "REPAIR:$mint",
+            baseMint = mint,
+            quoteMint = "USD",
+            source = source.ifBlank { "REPAIRED_EXIT_7418" },
+            timestampMs = System.currentTimeMillis(),
+            priceUsd = PriceUsd(java.math.BigDecimal.valueOf(priceUsd)),
+            liquidityUsd = null,
+            purpose = CanonicalMarkPurpose6570.EXIT_ECONOMIC,
+            identityProof6613 = "REPAIRED_EXIT_ECONOMIC_7418",
+        )
+        val ok = publish(repaired)
+        if (ok) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_REPAIRED_EXIT_MARK_PUBLISHED_7418") } catch (_: Throwable) {}
+        return ok
+    }
+
     data class PromotionResult6613(
         val mark: CanonicalPriceMark6522?, val reason: String,
         val source: String = "", val price: Double = 0.0, val ageMs: Long = -1L,

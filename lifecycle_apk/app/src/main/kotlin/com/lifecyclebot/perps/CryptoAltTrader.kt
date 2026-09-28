@@ -1144,7 +1144,8 @@ object CryptoAltTrader {
                     }
                     if (priceNow <= 0.0) {
                         if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
-                        DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "PRICE_UNAVAILABLE")
+                        DynamicAltTokenRegistry.releaseEvaluationForRetry7418(tok, "PRICE_UNAVAILABLE")
+                        try { PipelineHealthCollector.labelInc("CRYPTO_PRICE_UNAVAILABLE_RETRY_7418") } catch (_: Throwable) {}
                         continue
                     }
                 }
