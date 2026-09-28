@@ -6,6 +6,7 @@ package com.lifecyclebot.v3.scanner
 enum class SourceType {
     DEX_BOOSTED,
     RAYDIUM_NEW_POOL,
+    PUMP_FUN_NEW,
     PUMP_FUN_GRADUATE,
     DEX_TRENDING
 }
