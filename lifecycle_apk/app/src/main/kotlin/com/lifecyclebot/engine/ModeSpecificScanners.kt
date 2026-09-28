@@ -119,22 +119,35 @@ object ModeSpecificScanners {
     fun scanFreshLaunch(ts: TokenState): ScanResult? {
         val now = System.currentTimeMillis()
         val hist = ts.history.toList()
-        
-        // Calculate token age from history (first candle timestamp)
-        val tokenAgeMins = if (hist.isNotEmpty()) {
-            (now - hist.first().ts) / 60_000.0
-        } else 999.0
-        
-        // Must be fresh
-        if (tokenAgeMins > 15) return null
+        // V5.0.7401 — use actual create/history origin and explicit launch phase.
+        // A token first discovered after a pump no longer becomes "0 min old".
+        val launch7401 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts, now) } catch (_: Throwable) { null }
+        val tokenAgeMins = ((launch7401?.ageMs ?: Long.MAX_VALUE) / 60_000.0)
+        if (launch7401 == null || tokenAgeMins > 3.0 || launch7401.tooLateForSnipe) return null
         
         var score = 0.0
         val signals = mutableListOf<String>()
         
-        // Age bonus (fresher = higher score)
-        val ageFactor = (15.0 - tokenAgeMins) / 15.0
-        score += ageFactor * 30
-        signals.add("Age: ${tokenAgeMins.toInt()}min")
+        // Predictive launch evidence is rewarded BEFORE price expansion.
+        val ageFactor = ((3.0 - tokenAgeMins) / 3.0).coerceIn(0.0, 1.0)
+        score += ageFactor * 20
+        signals.add("True age: ${"%.1f".format(tokenAgeMins)}m")
+        when (launch7401.phase) {
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION -> {
+                score += 35.0; signals.add("IGNITION: dev+flow+curve acceleration")
+            }
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION -> {
+                score += 25.0; signals.add("PRE_IGNITION: early orderflow")
+            }
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING -> {
+                score += 8.0; signals.add("EXPANDING: reduced timing edge")
+            }
+            else -> return null
+        }
+        if (launch7401.devBuyTx60s > 0) { score += 12.0; signals.add("Dev buy present") }
+        if (launch7401.accelerationRising) { score += 12.0; signals.add("Buy acceleration rising") }
+        if (launch7401.distinctBuyers60s >= 3) { score += 8.0; signals.add("Buyer breadth ${launch7401.distinctBuyers60s}") }
+        if (launch7401.buySharePct >= 65.0) { score += 8.0; signals.add("Flow ${launch7401.buySharePct.toInt()}% buy") }
         
         // Liquidity floor - FLUID
         val minLiq = getMinLiquidityThreshold()
