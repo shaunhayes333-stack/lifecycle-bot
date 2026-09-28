@@ -39,6 +39,32 @@ class Aate7425LiveRuntimeCorrectnessTest {
         assertFalse(block.contains("rLock.contains(\"TAKE_PROFIT\")"))
     }
 
+    @Test fun lifecycleDirectionCannotResetIntoFreshLaunchAfterPumpFade() {
+        val model = File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        val orchestrator = File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        val launch = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchPhaseAuthority7401.kt").readText()
+        val stage = File("src/main/kotlin/com/lifecyclebot/engine/TokenMetricStageRouter.kt").readText()
+        assertTrue(model.contains("lastPriceChange5m"))
+        assertTrue(orchestrator.contains("ts.lastPriceChange5m = priceChange5m"))
+        assertTrue(launch.contains("acuteCascade7425"))
+        assertTrue(launch.contains("observedPeakBreak7425"))
+        assertTrue(launch.contains("Phase.POST_PUMP_FADE"))
+        assertTrue(stage.contains("pumpThenFade7425"))
+        assertTrue(stage.contains("acute5m7425 <= -18.0"))
+        assertTrue(stage.contains("reclaimConfirmed7425"))
+    }
+
+    @Test fun dangerLifecycleRequiresManipulatedProofOrConfirmedReclaim() {
+        val common = File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
+        val manip = File("src/main/kotlin/com/lifecyclebot/v3/scoring/ManipulatedTraderAI.kt").readText()
+        assertTrue(common.contains("LIFECYCLE_DANGER_NON_MANIPULATED_7425"))
+        assertTrue(common.contains("!snap.lane.equals(\"MANIPULATED\", true)"))
+        assertTrue(manip.contains("knownManipulation7425"))
+        assertTrue(manip.contains("NO_KNOWN_MANIPULATION_EVIDENCE_7425"))
+        assertTrue(manip.contains("bundlePct >= 40.0"))
+        assertTrue(manip.contains("buyPressurePct >= 70.0 && momentum >= 10.0"))
+    }
+
     @Test fun healthReportNeverCallsLandedLiveTradingFullyBlocked() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(src.contains("FDG_EXEC_TELEMETRY_POPULATION_MISMATCH_7425"))
