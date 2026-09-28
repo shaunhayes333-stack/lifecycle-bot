@@ -13879,9 +13879,10 @@ class BotService : Service() {
                 PipelineHealthCollector.labelInc("MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604_$l")
                 ForensicLogger.lifecycle(
                     "MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604",
-                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} action=shape_specialist_tactic_and_size_no_lane_disable",
+                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} action=terminal_specialist_election_block_7406",
                 )
             } catch (_: Throwable) {}
+            return false
         }
         val lanePWinBelowGate6604 = if (!memeSpecialistLane6604 || !specialistEvaluationAllowed6600) false else try {
             // V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS (operator REPAIR L).
@@ -13919,9 +13920,10 @@ class BotService : Service() {
                     "MEME_SPECIALIST_PWIN_GATE_6604",
                     "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} floor=${"%.2f".format(SPECIALIST_MIN_PWIN_6604)} " +
                         "ownTier=${com.lifecyclebot.engine.UnifiedPolicyHead.laneOwnHeadAuthority6605(l).name} " +
-                        "action=shape_specialist_tactic_and_size_no_lane_disable",
+                        "action=terminal_specialist_election_block_7406",
                 )
             } catch (_: Throwable) {}
+            return false
         }
         if (l == "PROJECT_SNIPER") {
             val sniperSetup6599 = designatedDeskHypothesis6599?.setup
@@ -21548,6 +21550,22 @@ if (hotExitHandledSweep) {
                                 staleMarkRefreshCooldown6721[p.mint] = now
                                 try {
                                     com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(p.mint, now)
+                                    // V5.0.7410 — HELD escalation belongs to the
+                                    // held/exit worker, not discovery. Promotion
+                                    // can only reuse an observation already in the
+                                    // mark registry; when that observation is stale
+                                    // also launch the independent repair cascade and
+                                    // an executable Jupiter quote. Both authorities
+                                    // are internally debounced and async.
+                                    try {
+                                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(
+                                            p.mint, "HELD_STALE_MARK_ESCALATION_7410",
+                                        )
+                                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestExecutableQuote7301(
+                                            p.mint, p.quantityScale,
+                                        )
+                                        PipelineHealthCollector.labelInc("HELD_STALE_MARK_ESCALATED_7410")
+                                    } catch (_: Throwable) {}
                                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STALE_MARK_REFRESH_TRIGGERED_6721")
                                     refreshed6902++
                                 } catch (t: Throwable) {
@@ -24216,20 +24234,27 @@ if (hotExitHandledSweep) {
                         )
                     } catch (_: Throwable) { null }
                     val stateLabel = hydrationState?.state?.name ?: "UNKNOWN"
+                    val hardUnavailable7408 =
+                        hydrationState?.state == com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_HARD_UNAVAILABLE
+                    val intakeRouteReason7408 = when (hydrationState?.state) {
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_SOURCE_NATIVE ->
+                            "PAIR_SOURCE_NATIVE_PRICE_PENDING"
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.ROUTE_CONFIRMED_WITHOUT_PAIR ->
+                            "ROUTE_CONFIRMED_PRICE_PENDING"
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_PENDING_HYDRATION ->
+                            "PAIR_PENDING_HYDRATION"
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_HARD_UNAVAILABLE ->
+                            "PAIR_HARD_UNAVAILABLE"
+                        else -> if (hydrationPending7147) "PAIR_PENDING_HYDRATION" else "PAIR_STATE_UNKNOWN"
+                    }
                     ForensicLogger.gate(
                         ForensicLogger.PHASE.INTAKE,
                         ts.symbol,
                         allow = false,
-                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oraclePending=$hydrationPending7147 hydrationState=$stateLabel",
+                        reason = "$intakeRouteReason7408 src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oraclePending=$hydrationPending7147 hydrationState=$stateLabel",
                     )
-                    // V5.0.7147 — split the counter so the two cases stop
-                    // sharing one number. Awaiting an answer is not the same
-                    // event as having no route to an answer.
                     try {
-                        PipelineHealthCollector.labelInc(
-                            if (hydrationPending7147) "INTAKE_AWAITING_HYDRATION_7147"
-                            else "INTAKE_NO_PAIR_NO_FALLBACK_7147",
-                        )
+                        PipelineHealthCollector.labelInc("INTAKE_$intakeRouteReason7408")
                     } catch (_: Throwable) {}
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
@@ -24244,7 +24269,10 @@ if (hotExitHandledSweep) {
                         val entry = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
                         val ageMs = entry?.addedAt?.let { System.currentTimeMillis() - it } ?: 0L
                         val processCount = entry?.processCount ?: 0
-                        val agedNoPair = processCount >= 4 && ageMs > 120_000L
+                        // V5.0.7408 — age alone cannot convert a known native
+                        // route or an in-progress hydration into "no route".
+                        // Only canonical PAIR_HARD_UNAVAILABLE is demotable.
+                        val agedNoPair = hardUnavailable7408 && processCount >= 4 && ageMs > 120_000L
                         // V5.0.6277 — HIGH-LIQ NO-PAIR EXTENDED HYDRATION.
                         // Op-report V5.0.6275 showed 100 INTAKE/NO_PAIR_NO_FALLBACK
                         // blocks — most were fresh pump.fun / new Raydium pools
@@ -29442,6 +29470,28 @@ if (hotExitHandledSweep) {
                         // candidate still walks the identical authorize →
                         // shitCoinBuy path, and S26+ is untouched. No other
                         // lane reaches this code.
+                        val sniperOracle7406 = try {
+                            com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.evaluate(
+                                lane = "PROJECT_SNIPER",
+                                score = _sniperScore,
+                                sourceFamily = ts.source,
+                                regime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                            )
+                        } catch (_: Throwable) { null }
+                        val sniperOracleRefused7406 =
+                            sniperOracle7406?.verdict == com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.Verdict.REFUSE
+                        if (sniperOracleRefused7406) {
+                            try {
+                                PipelineHealthCollector.labelInc("SNIPER_ORACLE_REFUSE_BINDING_7406")
+                                ForensicLogger.lifecycle(
+                                    "SNIPER_ORACLE_REFUSE_BINDING_7406",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} score=$_sniperScore action=terminal_no_resurrection",
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         val sniperShaping7054 = try {
                             com.lifecyclebot.engine.truth.SniperLowScoreShaper7054.shape(
                                 ts = ts, lane = "PROJECT_SNIPER", score = _sniperScore,
@@ -29450,27 +29500,28 @@ if (hotExitHandledSweep) {
                             )
                         } catch (_: Throwable) { null }
                         val sniperSizeBefore7054 = assessment.positionSizeSol
-                        val sniperSizedSol7054 = if (sniperShaping7054 != null) {
-                            val shapedSol = (sniperSizeBefore7054 * sniperShaping7054.sizeMult)
-                                // Never cap to dust: the resolver's own
-                                // executable minimum remains the floor, so a
-                                // shaped entry is a smaller trade, not a
-                                // rejected one.
-                                .coerceAtLeast(
-                                    try { com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() }
-                                    catch (_: Throwable) { 0.01 }
-                                )
-                            try {
-                                com.lifecyclebot.engine.truth.SniperLowScoreShaper7054.emit(
-                                    ts, sniperShaping7054, sniperSizeBefore7054, shapedSol,
-                                    try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
-                                    ts.source,
-                                )
-                            } catch (_: Throwable) {}
-                            shapedSol
-                        } else sniperSizeBefore7054
+                        val sniperSizedSol7054 = when {
+                            sniperOracleRefused7406 -> 0.0
+                            !sniperSizeBefore7054.isFinite() || sniperSizeBefore7054 <= 0.0 -> 0.0
+                            sniperShaping7054 != null -> {
+                                val shapedSol = (sniperSizeBefore7054 * sniperShaping7054.sizeMult)
+                                    .coerceAtLeast(
+                                        try { com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() }
+                                        catch (_: Throwable) { 0.01 }
+                                    )
+                                try {
+                                    com.lifecyclebot.engine.truth.SniperLowScoreShaper7054.emit(
+                                        ts, sniperShaping7054, sniperSizeBefore7054, shapedSol,
+                                        try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                                        ts.source,
+                                    )
+                                } catch (_: Throwable) {}
+                                shapedSol
+                            }
+                            else -> sniperSizeBefore7054
+                        }
 
-                        if (assessment.shouldEngage && !_sniperBlocked6072) {
+                        if (assessment.shouldEngage && !_sniperBlocked6072 && !sniperOracleRefused7406 && sniperSizedSol7054 > 0.0) {
                             // V5.0.6842 §SNIPER_CAUSAL_IDENTITY_FRAGMENTED — the standalone
                             // sniper path left authorize()'s attemptId at its "" default, so
                             // TradeAuthorizer minted a 3-part "mint:candidateVersion:LANE"

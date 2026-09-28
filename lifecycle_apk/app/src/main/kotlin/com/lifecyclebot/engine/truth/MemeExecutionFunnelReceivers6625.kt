@@ -635,6 +635,8 @@ object SpecialistRuntimeRegistry6647 {
         @Volatile var job: kotlinx.coroutines.Job? = null,
     )
     private val states = ConcurrentHashMap<String, State>()
+    private val coalescedEmitAt7411 = ConcurrentHashMap<String, AtomicLong>()
+    private const val COALESCED_EMIT_INTERVAL_MS_7411 = 10_000L
     private fun state(lane: String) = states.computeIfAbsent(lane.uppercase()) { State() }
     fun offer(lane: String, stage: String, eventId: String) {
         if (eventId.isBlank()) return
@@ -642,7 +644,14 @@ object SpecialistRuntimeRegistry6647 {
         val now = System.currentTimeMillis()
         val previous = s.latestTraffic.getAndSet(Traffic(stage, eventId, now))
         s.trafficAt.set(now)
-        if (previous != null) try { PipelineHealthCollector.labelInc("SPECIALIST_RUNTIME_SAMPLE_COALESCED_6653") } catch (_: Throwable) {}
+        if (previous != null) {
+            val laneKey7411 = lane.uppercase()
+            val last = coalescedEmitAt7411.computeIfAbsent(laneKey7411) { AtomicLong(0L) }
+            val prior = last.get()
+            if (now - prior >= COALESCED_EMIT_INTERVAL_MS_7411 && last.compareAndSet(prior, now)) {
+                try { PipelineHealthCollector.labelInc("SPECIALIST_RUNTIME_SAMPLE_COALESCED_6653") } catch (_: Throwable) {}
+            }
+        }
     }
     fun register(lane: String, owner: String, job: kotlinx.coroutines.Job) { state(lane).apply { this.owner = owner; this.job = job; heartbeat.set(System.currentTimeMillis()) } }
     fun heartbeat(lane: String) { state(lane).heartbeat.set(System.currentTimeMillis()) }

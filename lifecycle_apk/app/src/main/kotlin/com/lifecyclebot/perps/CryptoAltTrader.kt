@@ -257,6 +257,7 @@ object CryptoAltTrader {
     private val heldMarkRefreshAt7251 = ConcurrentHashMap<String, Long>()
     private val heldMarkRefreshInFlight7251 = ConcurrentHashMap.newKeySet<String>()
     private val heldMarkLogAt7251 = ConcurrentHashMap<String, Long>()
+    private val heldRefreshCoalescedEmitAt7413 = ConcurrentHashMap<String, Long>()
 
     internal fun canonicalCryptoLane7251(isDynamic: Boolean, isSpot: Boolean): String = when {
         !isSpot -> "CRYPTO_LEV"
@@ -270,7 +271,11 @@ object CryptoAltTrader {
         val now = System.currentTimeMillis()
         val last = heldMarkRefreshAt7251[clean] ?: 0L
         if (now - last < HELD_MARK_REFRESH_COOLDOWN_MS_7251 || !heldMarkRefreshInFlight7251.add(clean)) {
-            try { PipelineHealthCollector.labelInc("CRYPTO_HELD_MARK_REFRESH_COALESCED_7251") } catch (_: Throwable) {}
+            val prior7413 = heldRefreshCoalescedEmitAt7413[clean] ?: 0L
+            if (now - prior7413 >= HELD_MARK_REFRESH_COOLDOWN_MS_7251) {
+                heldRefreshCoalescedEmitAt7413[clean] = now
+                try { PipelineHealthCollector.labelInc("CRYPTO_HELD_MARK_REFRESH_COALESCED_7251") } catch (_: Throwable) {}
+            }
             return DynamicAltTokenRegistry.heldMarkSnapshot7251(clean)
         }
         heldMarkRefreshAt7251[clean] = now
@@ -3928,7 +3933,9 @@ object CryptoAltTrader {
                     val exactIdentity7251 = heldMark7251.canonicalIdentity.equals(positionKey, true)
                     if (!heldMark7251.freshObservation || !exactIdentity7251 ||
                         !refreshedPrice.isFinite() || refreshedPrice <= 0.0) {
-                        try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_STALE_OR_MISSING_6654") } catch (_: Throwable) {}
+                        // V5.0.7413 — holdUntrustedDynamicPosition7245 already
+                        // emits the canonical stale-held state at a 15s cadence.
+                        // Do not emit a second per-tick stale label here.
                         holdUntrustedDynamicPosition7245(position, "MARK_STALE_OR_MISSING")
                         continue
                     }

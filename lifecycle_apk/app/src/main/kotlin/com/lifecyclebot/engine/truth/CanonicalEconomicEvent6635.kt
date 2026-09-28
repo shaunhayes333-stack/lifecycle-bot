@@ -112,6 +112,11 @@ object CanonicalEconomicEvent6635 {
     private val committed = AtomicLong(0L)
     private val pending = AtomicLong(0L)
     private val stuck = AtomicLong(0L)
+    // V5.0.7412 — duplicates are still counted exactly, but duplicate receipts
+    // are hot idempotent reads and must not emit two health labels every time.
+    private val duplicateStoreCommits7412 = AtomicLong(0L)
+    private val duplicateEmitAt7412 = ConcurrentHashMap<String, Long>()
+    private const val DUPLICATE_EMIT_INTERVAL_MS_7412 = 10_000L
 
     /** Register against the same event monitor as the final commit. Listener
      * registration cannot race removal of a detached queue. Callbacks run only
@@ -212,10 +217,17 @@ object CanonicalEconomicEvent6635 {
             duplicate to if (duplicate) null else finalizeIfComplete6635(state)
         }
         if (already) {
-            try {
-                PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_DUP_COMMIT_6635")
-                PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_DUP_COMMIT_${store.name}_6635")
-            } catch (_: Throwable) {}
+            duplicateStoreCommits7412.incrementAndGet()
+            val emitKey7412 = economicEventId + "|" + store.name
+            val now7412 = System.currentTimeMillis()
+            val prior7412 = duplicateEmitAt7412[emitKey7412] ?: 0L
+            if (now7412 - prior7412 >= DUPLICATE_EMIT_INTERVAL_MS_7412) {
+                duplicateEmitAt7412[emitKey7412] = now7412
+                try {
+                    PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_DUP_COMMIT_6635")
+                    PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_DUP_COMMIT_${store.name}_6635")
+                } catch (_: Throwable) {}
+            }
             return false
         }
         try {
@@ -308,6 +320,7 @@ object CanonicalEconomicEvent6635 {
             append("missingJournal=$missingJournal missingLedger=$missingLedger ")
             append("journalOnlyCommits=$journalOnly ledgerOnlyCommits=$ledgerOnly ")
             append("duplicateJournal=$duplicateJournal ")
+            append("duplicateStoreCommits=${duplicateStoreCommits7412.get()} ")
             append("eventParity=$eventParity status=$status")
         }
     }
@@ -360,10 +373,10 @@ object CanonicalEconomicEvent6635 {
 
     fun statusLine6635(): String =
         "opened=${opened.get()} committed=${committed.get()} pending=${pending.get()} " +
-            "stuck=${stuck.get()} inRing=${events.size}"
+            "stuck=${stuck.get()} dupStore=${duplicateStoreCommits7412.get()} inRing=${events.size}"
 
     internal fun resetForTest() {
-        events.clear(); positionIndex.clear(); byMint.clear()
-        opened.set(0L); committed.set(0L); pending.set(0L); stuck.set(0L)
+        events.clear(); positionIndex.clear(); byMint.clear(); duplicateEmitAt7412.clear()
+        opened.set(0L); committed.set(0L); pending.set(0L); stuck.set(0L); duplicateStoreCommits7412.set(0L)
     }
 }

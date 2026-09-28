@@ -280,7 +280,7 @@ object CanonicalCapitalAuthority6450 {
                             "rawMark=${"%.6f".format(fresh)} ratio=${"%.1f".format(fresh / costBasis6604)}x " +
                             "corroboration=${if (quoteEvaluated7098) "REFUTED" else "UNEVALUATED_NO_QUOTE"} " +
                             "markSource=${if (quoteEvaluated7098) "quote_provider_7060" else "whole_mint_markProvider"} " +
-                            "action=treat_as_fallback_mark",
+                            "action=invalid_mark_hold_at_cost_exclude_pnl_learning_7406",
                     )
                 } catch (_: Throwable) {}
                 fallbackMarkMints6492++

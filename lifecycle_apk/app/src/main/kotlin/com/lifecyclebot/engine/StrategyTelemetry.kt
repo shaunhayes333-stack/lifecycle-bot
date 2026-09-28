@@ -160,6 +160,16 @@ object StrategyTelemetry {
     // Per-key ConcurrentHashMap gives every distinct caller its own
     // 10-second TTL so a hot per-tick loop can hit its own slot.
     private val leaderboardCacheMap: java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<StrategyMetric>>> = java.util.concurrent.ConcurrentHashMap()
+    // V5.0.7411 — a cache hit is a read, not a fresh market event.
+    // Preserve cache behavior but emit proof-of-reuse at most once per key/cadence.
+    private val cacheHitEmitAt7411 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val CACHE_HIT_EMIT_INTERVAL_MS_7411 = 10_000L
+    private fun emitCacheHit7411(key: String, label: String, now: Long = System.currentTimeMillis()) {
+        val prior = cacheHitEmitAt7411[key] ?: 0L
+        if (now - prior < CACHE_HIT_EMIT_INTERVAL_MS_7411) return
+        cacheHitEmitAt7411[key] = now
+        try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
+    }
     @Volatile private var leaderboardCache: List<StrategyMetric> = emptyList()
     @Volatile private var leaderboardCacheMs: Long = 0L
     @Volatile private var leaderboardCacheKey: String = ""
@@ -174,7 +184,7 @@ object StrategyTelemetry {
         val key = "${environment ?: ""}|$includePartials|$limit"
         val entry = leaderboardCacheMap[key]
         if (entry != null && (now - entry.first) < LEADERBOARD_TTL_MS) {
-            try { PipelineHealthCollector.labelInc("STRATEGY_LEADERBOARD_CACHE_HIT_6327") } catch (_: Throwable) {}
+            emitCacheHit7411("leaderboard:$key", "STRATEGY_LEADERBOARD_CACHE_HIT_6327", now)
             return entry.second
         }
         val fresh = computeLeaderboardUncached(environment, includePartials, limit)
@@ -344,7 +354,7 @@ object StrategyTelemetry {
         // Per-limit cache hit — TTL fresh AND stored under the same limit.
         val entry = cleanLiveLeaderboardCacheMap[limit]
         if (entry != null && (now - entry.first) < CLEAN_LIVE_LEADERBOARD_TTL_MS) {
-            try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327") } catch (_: Throwable) {}
+            emitCacheHit7411("live:$limit:exact", "STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327", now)
             return entry.second
         }
         // Cross-limit reuse: a fresh larger-limit entry can satisfy a smaller
@@ -353,7 +363,7 @@ object StrategyTelemetry {
             it.key >= limit && (now - it.value.first) < CLEAN_LIVE_LEADERBOARD_TTL_MS
         }?.value
         if (larger != null) {
-            try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327") } catch (_: Throwable) {}
+            emitCacheHit7411("live:$limit:larger", "STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327", now)
             return larger.second
         }
         // V5.0.6875 — this path fetches SELL+PARTIAL_SELL rows on purpose: it is the
@@ -449,7 +459,7 @@ object StrategyTelemetry {
         val rev7346 = try { TradeHistoryStore.journalRevision7343() } catch (_: Throwable) { -1L }
         val hit7346 = paperBoardCache7346[limit]
         if (hit7346 != null && rev7346 >= 0L && hit7346.rev == rev7346 && now7346 - hit7346.stampMs < PAPER_BOARD_MAX_AGE_MS_7346) {
-            try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_PAPER_BOARD_REUSED_7346") } catch (_: Throwable) {}
+            emitCacheHit7411("paper:$limit", "STRATEGY_CLEAN_PAPER_BOARD_REUSED_7346", now7346)
             return hit7346.board
         }
         val board7346 = computeCleanPaperTerminalLeaderboardUncached7346(limit)
