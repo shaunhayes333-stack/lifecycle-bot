@@ -1000,71 +1000,53 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         var score = 50
         var confidence = 50
         
-        // 1. Price momentum analysis
+        // 1. Price direction / extension — V5.0.7403.
+        // Direction may follow the 24h move, but larger extension is not
+        // automatically more edge. Extreme extension is FOMO risk unless
+        // structure/technicals later confirm continuation.
         val change = data.priceChange24hPct
         val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
-        
+        val range = (data.high24h - data.low24h).takeIf { it.isFinite() && it > 0.0 }
+        val rangePos7403 = if (range != null) ((data.price - data.low24h) / range).coerceIn(0.0, 1.0) else 0.5
+        val extended7403 =
+            (direction == PerpsDirection.LONG && rangePos7403 >= 0.90 && change > 4.0) ||
+            (direction == PerpsDirection.SHORT && rangePos7403 <= 0.10 && change < -4.0)
         when {
-            abs(change) > 5.0 -> {
-                score += 20
-                confidence += 15
-                reasons.add("🚀 Strong move: ${if (change > 0) "+" else ""}${"%.1f".format(change)}%")
+            extended7403 -> {
+                score -= 5
+                reasons.add("⚠️ 24h move extended at range extreme — continuation must re-prove")
             }
-            abs(change) > 2.0 -> {
-                score += 10
-                confidence += 10
-                reasons.add("📈 Good move: ${if (change > 0) "+" else ""}${"%.1f".format(change)}%")
+            abs(change) in 2.0..5.0 -> {
+                score += 8
+                confidence += 6
+                reasons.add("📈 Controlled directional move " + "%.1f".format(change) + "%")
+                layerVotes["Momentum"] = direction
             }
             abs(change) > 1.0 -> {
-                score += 5
-                reasons.add("📊 Mild move: ${if (change > 0) "+" else ""}${"%.1f".format(change)}%")
+                score += 4
+                reasons.add("📊 Mild directional move " + "%.1f".format(change) + "%")
+                layerVotes["Momentum"] = direction
             }
         }
-        layerVotes["Momentum"] = direction
-        
-        // 2. Market cap / sector analysis
+
+        // 2. Asset identity is execution context, not alpha.
         when (market) {
+            PerpsMarket.AAPL, PerpsMarket.MSFT, PerpsMarket.GOOGL, PerpsMarket.AMZN,
             PerpsMarket.NVDA -> {
-                score += 10
-                confidence += 10
-                reasons.add("🔥 AI sector leader")
+                confidence += 8
+                reasons.add("💎 Large liquid name (execution confidence)")
             }
-            PerpsMarket.TSLA -> {
-                score += 5
-                reasons.add("⚡ High volatility play")
+            PerpsMarket.TSLA, PerpsMarket.COIN -> {
+                confidence += 2
+                reasons.add("⚡ High-beta name (context, no directional bonus)")
             }
-            PerpsMarket.AAPL, PerpsMarket.MSFT, PerpsMarket.GOOGL, PerpsMarket.AMZN -> {
-                confidence += 10
-                reasons.add("💎 Blue chip stability")
-            }
-            PerpsMarket.COIN -> {
-                score += 5
-                reasons.add("🪙 Crypto proxy")
-            }
-            // V5.7.8: Crypto perps bonuses — these are high-liquidity 24/7 markets
-            PerpsMarket.SOL -> {
-                score += 15
-                confidence += 15
-                reasons.add("◎ SOL native — highest liquidity perp")
-            }
-            PerpsMarket.BTC -> {
-                score += 10
-                confidence += 15
-                reasons.add("₿ BTC king — market leader")
-            }
-            PerpsMarket.ETH -> {
-                score += 10
-                confidence += 10
-                reasons.add("⟠ ETH — DeFi backbone")
-            }
-            PerpsMarket.BNB, PerpsMarket.XRP -> {
-                score += 5
-                confidence += 10
-                reasons.add("🔷 Major alt — high volume")
+            PerpsMarket.SOL, PerpsMarket.BTC, PerpsMarket.ETH, PerpsMarket.BNB, PerpsMarket.XRP -> {
+                confidence += 5
+                reasons.add("🔷 Liquid crypto-linked asset (context only)")
             }
             else -> {}
         }
-        
+
         // 3. Technical analysis via PerpsAdvancedAI
         try {
             // V5.9.172 — seed history from real 24h OHLC so RSI/MACD aren't stuck at 50.
@@ -1099,8 +1081,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     "MILD" -> 10
                     else -> 0
                 }
-                reasons.add("📊 Volume ${volume.spikeStrength}")
-                layerVotes["Volume"] = direction
+                reasons.add("📊 Volume ${volume.spikeStrength} (activity, not direction)")
+                if (layerVotes["Momentum"] == direction || layerVotes["Technical"] == direction) {
+                    layerVotes["VolumeConfirm"] = direction
+                }
             }
         } catch (_: Exception) {}
         
@@ -1125,13 +1109,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 reasons.add("📚 Learning: ${progress.toInt()}%")
             }
             
-            // V5.7.7: Cross-learning boost from Meme mode
-            val crossBoost = FluidLearningAI.getCrossLearnedConfidence(confidence.toDouble()) - confidence
-            if (crossBoost > 0) {
-                confidence += crossBoost.toInt()
-                reasons.add("🔗 Meme boost: +${crossBoost.toInt()}")
-            }
-        } catch (_: Exception) {}
+            // V5.0.7403 — meme maturity/timing is not stock evidence.
+            // Keep stock confidence asset-local; cross-market macro belongs in
+            // CrossMarketRegimeAI rather than a generic meme confidence boost.
+
         
         // 7. Pattern memory check
         try {
