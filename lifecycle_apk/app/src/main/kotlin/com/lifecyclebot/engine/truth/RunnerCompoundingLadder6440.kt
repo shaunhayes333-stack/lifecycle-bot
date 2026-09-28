@@ -64,6 +64,12 @@ object RunnerCompoundingLadder6440 {
     private val queryCount = AtomicLong(0L)
     private val lastRecommendation = AtomicReference<Double>(0.02)
     private val lastWalletObserved = AtomicReference<Double>(0.0)
+    // V5.0.7399 — status must not make the last PAPER sizing query look like
+    // the LIVE bankroll. Keep per-mode observations alongside the aggregate.
+    private val lastLiveWalletObserved7399 = AtomicReference<Double>(0.0)
+    private val lastPaperWalletObserved7399 = AtomicReference<Double>(0.0)
+    private val lastLiveRecommendation7399 = AtomicReference<Double>(0.0)
+    private val lastPaperRecommendation7399 = AtomicReference<Double>(0.0)
 
     /**
      * Return the ladder-recommended per-trade SOL size for the current
@@ -77,6 +83,15 @@ object RunnerCompoundingLadder6440 {
             else -> LADDER.firstOrNull { walletSol <= it.first }?.second ?: TERMINAL_SIZE_SOL
         }
         lastRecommendation.set(size)
+        try {
+            if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                lastPaperWalletObserved7399.set(walletSol)
+                lastPaperRecommendation7399.set(size)
+            } else {
+                lastLiveWalletObserved7399.set(walletSol)
+                lastLiveRecommendation7399.set(size)
+            }
+        } catch (_: Throwable) {}
         return size
     }
 
@@ -147,6 +162,8 @@ object RunnerCompoundingLadder6440 {
         val q = queryCount.get()
         val wallet = lastWalletObserved.get()
         val rec = lastRecommendation.get()
-        return "queries=$q lastWalletSol=${"%.3f".format(wallet)} recommendedSizeSol=${"%.3f".format(rec)}"
+        return "queries=$q lastWalletSol=${"%.3f".format(wallet)} recommendedSizeSol=${"%.3f".format(rec)} " +
+            "live[wallet=${"%.3f".format(lastLiveWalletObserved7399.get())},rec=${"%.3f".format(lastLiveRecommendation7399.get())}] " +
+            "paper[wallet=${"%.3f".format(lastPaperWalletObserved7399.get())},rec=${"%.3f".format(lastPaperRecommendation7399.get())}]"
     }
 }
