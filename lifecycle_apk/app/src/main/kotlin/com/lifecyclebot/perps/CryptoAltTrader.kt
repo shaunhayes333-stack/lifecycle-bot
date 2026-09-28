@@ -2011,20 +2011,32 @@ object CryptoAltTrader {
         // aware direction. If the strategy stands down (spot + bearish, or no
         // edge), we skip analysis entirely. The strategy's direction overrides
         // the legacy technical fallback below.
-        val altStrategyMode = com.lifecyclebot.perps.strategy.CryptoAltStrategy.Mode.PERPS_BIDIRECTIONAL
+        // V5.0.7403 — capability parity. With no real perp venue, both
+        // PAPER and LIVE must learn the executable SPOT shape; otherwise the
+        // strategy generates SHORT/leveraged winners that can never exist live.
+        val altStrategyMode = if (LEVERAGE_VENUE_AVAILABLE_7183)
+            com.lifecyclebot.perps.strategy.CryptoAltStrategy.Mode.PERPS_BIDIRECTIONAL
+        else
+            com.lifecyclebot.perps.strategy.CryptoAltStrategy.Mode.SPOT_LONG_ONLY
         val altRsi: Double? = try {
             PerpsAdvancedAI.seedHistoryFromOHLC(market, data.price, data.high24h, data.low24h, data.volume24h)
             PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
             PerpsAdvancedAI.analyzeTechnicals(market).rsi
         } catch (_: Exception) { null }
+        val btcMove7403 = try {
+            PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.BTC)?.priceChange24hPct
+                ?.takeIf { it.isFinite() } ?: PerpsMarketDataFetcher.getMarketData(PerpsMarket.BTC).priceChange24hPct
+        } catch (_: Throwable) { 0.0 }
         val altSetup = try {
             com.lifecyclebot.perps.strategy.CryptoAltStrategy.decide(
                 symbol = market.symbol,
                 priceChange24hPct = change,
                 mode = altStrategyMode,
                 volatility24h = kotlin.math.abs(change),
+                // Dominance feed is not available in this path; leave it neutral.
+                // BTC price direction IS available and must not be hardcoded away.
                 btcDominanceChange7d = 0.0,
-                btcPriceChange24h = 0.0,
+                btcPriceChange24h = btcMove7403,
                 rsi = altRsi,
             )
         } catch (_: Exception) { null }
@@ -2039,13 +2051,19 @@ object CryptoAltTrader {
                 val tech = PerpsAdvancedAI.analyzeTechnicals(market)
                 // RSI<40 → strong SHORT signal; RSI>60 → strong LONG signal; else use price
                 when {
-                    tech.rsi < 35.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BEARISH -> PerpsDirection.SHORT
-                    tech.rsi < 35.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BEARISH_CROSS -> PerpsDirection.SHORT
-                    tech.rsi > 65.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BULLISH -> PerpsDirection.LONG
-                    tech.rsi > 65.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BULLISH_CROSS -> PerpsDirection.LONG
-                    tech.isOversold  -> PerpsDirection.LONG
-                    tech.isOverbought -> PerpsDirection.SHORT
-                    else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+                    // V5.0.7403 — extremes are exhaustion/reversal zones, not
+                    // permission to chase the strongest lagging confirmation.
+                    tech.isOversold -> PerpsDirection.LONG
+                    tech.isOverbought && LEVERAGE_VENUE_AVAILABLE_7183 -> PerpsDirection.SHORT
+                    tech.isOverbought -> PerpsDirection.LONG  // spot cannot short; later score veto may stand down
+                    tech.rsi in 45.0..65.0 &&
+                        tech.macdSignal in setOf(PerpsAdvancedAI.MacdSignal.BULLISH, PerpsAdvancedAI.MacdSignal.BULLISH_CROSS) ->
+                        PerpsDirection.LONG
+                    LEVERAGE_VENUE_AVAILABLE_7183 && tech.rsi in 35.0..55.0 &&
+                        tech.macdSignal in setOf(PerpsAdvancedAI.MacdSignal.BEARISH, PerpsAdvancedAI.MacdSignal.BEARISH_CROSS) ->
+                        PerpsDirection.SHORT
+                    else -> if (!LEVERAGE_VENUE_AVAILABLE_7183) PerpsDirection.LONG
+                        else if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
                 }
             } catch (_: Exception) { if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT }
         }
