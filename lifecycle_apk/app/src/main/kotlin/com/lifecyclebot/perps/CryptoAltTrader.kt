@@ -1960,7 +1960,7 @@ object CryptoAltTrader {
             }
 
             try {
-                CrossMarketRegimeAI.updateMarketState(signal.market.symbol, signal.price, signal.price * 0.01)
+                CrossMarketRegimeAI.updateMarketState(signal.market.symbol, signal.price, signal.priceChange24h)
                 val gated = CrossTalkFusionEngine.computeGatedScore(
                     baseScore          = signal.score.toDouble(),
                     strategy           = "CryptoAltAI",
@@ -2084,7 +2084,12 @@ object CryptoAltTrader {
                 }
             } catch (_: Exception) { if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT }
         }
-        // V5.9.381 — CryptoAltStrategy direction wins when it has conviction
+        // V5.0.7403 — a strategy stand-down is a real no-trade. The old
+        // fallback resurrected the exact setup CryptoAltStrategy rejected.
+        if (altSetup == null && !LEVERAGE_VENUE_AVAILABLE_7183) {
+            try { PipelineHealthCollector.labelInc("CRYPTO_STRATEGY_STANDDOWN_HONORED_7403") } catch (_: Throwable) {}
+            return null
+        }
         val direction = altSetup?.direction ?: technicalDirection
         if (altSetup != null) {
             score += (altSetup.conviction - 40).coerceAtLeast(0)
@@ -2093,12 +2098,25 @@ object CryptoAltTrader {
             layerVotes["CryptoAltStrategy"] = direction
         }
 
-        // ── Layer 1: Price Momentum ───────────────────────────────────────────
+        // ── Layer 1: Price displacement / continuation quality ───────────────
+        // V5.0.7403 — 24h displacement is context, not automatic alpha.
+        // Reward moderate continuation; penalise already-exhausted extremes.
         when {
-            abs(change) > 8.0 -> { score += 22; confidence += 18; reasons.add("🚀 Strong surge: ${if (change>0)"+" else ""}${"%.1f".format(change)}%") }
-            abs(change) > 5.0 -> { score += 16; confidence += 12; reasons.add("📈 Good move: ${if (change>0)"+" else ""}${"%.1f".format(change)}%") }
-            abs(change) > 2.5 -> { score += 10; confidence +=  8; reasons.add("📊 Mild move: ${if (change>0)"+" else ""}${"%.1f".format(change)}%") }
-            abs(change) > 1.0 -> { score +=  5;                   reasons.add("📉 Small move: ${if (change>0)"+" else ""}${"%.1f".format(change)}%") }
+            direction == PerpsDirection.LONG && change in 1.0..8.0 -> {
+                score += 8; confidence += 5; reasons.add("constructive_24h_long")
+            }
+            direction == PerpsDirection.LONG && change > 20.0 -> {
+                score -= 14; confidence -= 10; reasons.add("long_overextended_24h")
+            }
+            direction == PerpsDirection.LONG && change < -8.0 -> {
+                score -= 10; confidence -= 8; reasons.add("falling_requires_reclaim")
+            }
+            direction == PerpsDirection.SHORT && change in -8.0..-1.0 -> {
+                score += 8; confidence += 5; reasons.add("constructive_24h_short")
+            }
+            direction == PerpsDirection.SHORT && change < -20.0 -> {
+                score -= 14; confidence -= 10; reasons.add("short_overextended_24h")
+            }
         }
         layerVotes["Momentum"] = direction
 
