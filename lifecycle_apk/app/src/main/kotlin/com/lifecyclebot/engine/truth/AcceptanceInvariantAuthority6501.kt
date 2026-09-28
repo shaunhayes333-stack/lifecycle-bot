@@ -67,7 +67,13 @@ object AcceptanceInvariantAuthority6501 {
         val cash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
         val snap = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         val openMv = snap?.openMarketValueSol ?: 0.0
-        val reported = cash + openMv
+        // V5.0.7398 — PaperCapitalAuthority6577 total equity includes the owned
+        // paper treasury (§7294). The old invariant compared cash+openMV against
+        // cash+openMV+treasury, so every non-zero treasury balance was reported as
+        // ECONOMIC_TRUTH_DIVERGENCE_6501. In the 5.0.7397 run the false delta was
+        // exactly 6.9574 SOL, equal to treasurySol. Compare like-for-like.
+        val treasury7398 = try { PaperCapitalAuthority6577.treasurySol7294() } catch (_: Throwable) { 0.0 }
+        val reported = cash + openMv + treasury7398
         // Canonical reconstructed equity — from the same snapshot to
         // avoid mid-check drift. If snap is null we fall back to
         // reported so the invariant does not falsely trip.
@@ -90,7 +96,7 @@ object AcceptanceInvariantAuthority6501 {
             try {
                 ForensicLogger.lifecycle(
                     "ECONOMIC_TRUTH_DIVERGENCE_6501",
-                    "reported(${"%.4f".format(cash)}+${"%.4f".format(openMv)}=${"%.4f".format(reported)}) " +
+                    "reported(cash=${"%.4f".format(cash)}+open=${"%.4f".format(openMv)}+treasury=${"%.4f".format(treasury7398)}=${"%.4f".format(reported)}) " +
                         "canonical(${"%.4f".format(canonical)}) equityΔ=${"%.4f".format(equityDelta)} " +
                         "canonicalRealized=${"%.4f".format(canonicalRealized)} " +
                         (if (journalRealizedSol != null) "journalRealized=${"%.4f".format(journalRealizedSol)} realizedΔ=${"%.4f".format(realizedDelta)} " else "") +
