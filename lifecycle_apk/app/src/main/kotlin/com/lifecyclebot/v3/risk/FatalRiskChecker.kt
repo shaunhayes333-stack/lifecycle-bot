@@ -169,6 +169,16 @@ class FatalRiskChecker(
             // Ignore if DistributionFadeAvoider not available
         }
         
+        // V5.0.7403 — thesis-local recovery proof. This is intentionally
+        // narrow: it blocks only a mint with a recorded prior failure and only
+        // until its dedicated recovery model sees cooldown + reclaim + sustained
+        // flow + liquidity. It cannot choke unrelated candidates or a lane.
+        if (candidate.extraBoolean("recoveryCandidate7403") &&
+            !candidate.extraBoolean("recoveryCanReenter7403")) {
+            val why7403 = candidate.extraString("recoveryReason7403").ifBlank { "NOT_REPROVEN" }
+            return FatalRiskResult(true, "RECOVERY_NOT_REPROVEN_7403_$why7403")
+        }
+
         // Liquidity collapsed = can't exit
         if (candidate.liquidityUsd <= 250.0) {
             return FatalRiskResult(true, "LIQUIDITY_COLLAPSED")
