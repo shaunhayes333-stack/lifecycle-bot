@@ -5623,6 +5623,13 @@ object FinalDecisionGate {
                     // gates remain upstream and unchanged.
                     laneRiskCapSol = maxOf(sizingCash6653 * 0.12, paperMinimum6653),
                     laneMinExecutableSol = paperMinimum6653,
+                    // V5.0.7403 — forward asset identity into the canonical
+                    // resolver. Without mint, EntryConvictionRegistry6909 is
+                    // invisible here and an evidence-collapsed size can be
+                    // promoted back to the executable minimum as if the shrink
+                    // came from capacity. This is the final FDG sizing call, so
+                    // it must see the same conviction as every other sizing path.
+                    mint = ts.mint,
                     // V5.0.6651 — telemetry identity only: SIZE must join
                     // the same candidate record as intent/FDG/mark.
                     // Stamp SIZE only at executable handoff, after the causal
