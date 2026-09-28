@@ -99,10 +99,17 @@ object SniperLowScoreShaper7054 {
             if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd >= 5_000.0) { n++; reasons += "liq" }
         } catch (_: Throwable) {}
 
-        // 3. Source freshness — the candidate is inside its own launch window.
+        // 3. Launch timing evidence — true ignition/early expansion only.
+        // Watchlist recency is not launch freshness.
         try {
-            val ageMin = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-            if (ageMin in 0.0..15.0) { n++; reasons += "fresh" }
+            val lp = com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)
+            if (!lp.tooLateForSnipe && lp.ageMs <= 180_000L &&
+                lp.phase in setOf(
+                    com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION,
+                    com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
+                    com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING,
+                )
+            ) { n++; reasons += "trueLaunchEarly" }
         } catch (_: Throwable) {}
 
         // 4 + 5. Predictive oracle ADMIT, and positive forward EV. Two separate
