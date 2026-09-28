@@ -190,7 +190,8 @@ object ToolkitSignalSheet {
         val vols = hist.filter { !it.synthetic }.map { it.vol }.filter { it.isFinite() && it > 0.0 }
         val realVolumeLowData = vols.size < 8
         val last = prices.lastOrNull() ?: ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-        val ageMin = try { ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0) } catch (_: Throwable) { 999.0 }
+        val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        val ageMin = try { (launch7402?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts)) / 60_000.0 } catch (_: Throwable) { 999.0 }
         val src = ts.source.uppercase()
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
         val mcap = ts.lastMcap.takeIf { it.isFinite() } ?: 0.0
@@ -246,7 +247,7 @@ object ToolkitSignalSheet {
                     // V5.0.7389 — never derive a liquidity/accumulation setup from low-data (volume-less) movement input.
                     "ACCUMULATION_COMPRESSION" -> if (realVolumeLowData) Setup.NONE else Setup.LIQUIDITY_DEPTH_QUALITY
                     "EXHAUSTION_CHASE" -> Setup.EXHAUSTION_QUICK_FLIP
-                    "VOLUME_IGNITION" -> Setup.VOLUME_IGNITION_SCALP
+                    "VOLUME_IGNITION" -> if (launch7402?.tooLateForSnipe == true) Setup.EXHAUSTION_QUICK_FLIP else Setup.VOLUME_IGNITION_SCALP
                     "FREEFALL_NO_RECLAIM" -> Setup.REGIME_DEFENSIVE_PROBE
                     else -> Setup.NONE
                 },
@@ -262,7 +263,9 @@ object ToolkitSignalSheet {
                     "PULLBACK_RECLAIM" -> setOf("DIP_HUNTER", "QUALITY", "CYCLIC", "CASHGEN")
                     "ACCUMULATION_COMPRESSION" -> setOf("QUALITY", "BLUECHIP", "CYCLIC")
                     "EXHAUSTION_CHASE" -> setOf("EXPRESS", "MANIPULATED", "SHITCOIN")
-                    "VOLUME_IGNITION" -> setOf("EXPRESS", "SHITCOIN", "MOONSHOT")
+                    "VOLUME_IGNITION" -> if (launch7402?.tooLateForSnipe == true)
+                        setOf("EXPRESS", "MANIPULATED", "SHITCOIN")
+                    else setOf("EXPRESS", "SHITCOIN", "MOONSHOT")
                     else -> setOf("SHITCOIN")
                 },
                 tools = setOf("SMART_CHART", "PATTERN_CLASSIFIER", "MFE_TRAIL", "MOVEMENT_PATTERN"),
