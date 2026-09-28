@@ -33,11 +33,13 @@ The current entry snapshot preserves lane + coarse tactic but not the exact stra
 
 Carry the same identity through `CanonicalFinalizedTradeBus6464.Envelope` and all canonical learning consumers.
 
-### P0 — Confirmed live tactic-attribution defect
+### P0 — Confirmed PAPER + LIVE tactic-attribution defect
 
-The live entry reducer currently writes:
+Both canonical meme entry reducers currently write the Toolkit desk's free-form `entryStyle` into the field named `entryTactic` whenever a desk hypothesis exists. The LIVE reducer currently writes:
 
 `entryTactic = liveDeskHypothesis6599?.entryStyle ?: TacticSwitcher.currentTactic(...).name`
+
+The PAPER reducer has the same shape: `entryTactic = entryDeskHypothesis6599?.entryStyle ?: TacticSwitcher.currentTactic(...).name`.
 
 A Toolkit desk `entryStyle` is a free-form execution string such as
 `degen_snipe_fast_confirm`, `breakout_confirmation`,
@@ -57,6 +59,17 @@ Repair requirement:
   `entryStrategyVariantId`, and related strategy identity;
 - never overload one field with two different namespaces;
 - terminal learners must use sealed entry identity, not current tactic state.
+
+### P0 — PAPER/LIVE style identity is not currently symmetric
+
+The policy snapshot is built differently by mode:
+
+- PAPER calls `buildTradePolicySnapshot(... style = finalMode ...)`, which normally records the lane/mode name as `style`.
+- LIVE calls `buildTradePolicySnapshot(... style = routedStyleTag ...)`, which can carry the actual routed style.
+
+Therefore PAPER and LIVE can make the same economic decision while recording different strategy identities. That prevents a clean proof that LIVE executed the exact strategy PAPER rehearsed.
+
+Repair requirement: derive one immutable canonical strategy identity **before** the mode split and pass the same identity object into PAPER and LIVE adapters.
 
 ### P0 — Stop strategy-credit collapse
 
