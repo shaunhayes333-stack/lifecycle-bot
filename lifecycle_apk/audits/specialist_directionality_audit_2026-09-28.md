@@ -22,6 +22,7 @@ Audit the live entry stack for "thinking backwards": rewarding evidence that app
 | SniperLowScoreShaper7054 | Freshness evidence used watchlist age | Uses true lifecycle |
 | CyclicTradeEngine | Fallback age used watchlist time | Uses true market age |
 | MomentumPredictorAI | Many readers, zero live writers | Real normalized 8s trade candles now feed recordPricePoint |
+| BondingCurveTracker | Called market-cap/SOL-price \"SOL raised\", so a price pump could manufacture PRE_GRAD state | Real SOL reserves first; liquidity-SOL second; market-cap estimate explicit fallback only |
 | PredictiveEntryOracle6915 | Larger pooled paper+live journal could overwrite collapsing LIVE lane/book truth | LIVE uses live-only journal lane/book; pooled score prior skipped after live evidence; paper WR bootstrap-only |
 
 ## Specialists intentionally reactive — not converted into launch predictors
