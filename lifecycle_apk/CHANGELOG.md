@@ -1,3 +1,17 @@
+## [5.0.7402] - 2026-09-28 — SPECIALISTS THINK IN MARKET TIME, NOT AFTER-THE-FACT CONFIRMATION
+
+- Completed a wired specialist/tool/strategy directionality audit. Full audit: `audits/specialist_directionality_audit_2026-09-28.md`.
+- ModeRouter, AgenticStyleRouter, ToolkitSignalSheet, AutoModeEngine, SecondScorer, SniperLowScoreShaper and Cyclic fallbacks now use LaunchPhaseAuthority7401 true market age rather than watchlist/first-seen age.
+- FRESH_LAUNCH, MICRO_SNIPE, volume ignition and social ignition are lifecycle directional. POST_PUMP_FADE cannot change costumes into a fresh/sniper/ignition setup; it routes toward exhaustion/defensive treatment.
+- LayerVoteSampler now context-bounds its previously backwards votes: launch fear is not a bargain, Dip Hunter needs an actual reclaim, Project Sniper follows ignition rather than source labels, and Moonshot treats post-pump fade as bearish.
+- MovementPatternSignal no longer creates a new VOLUME_IGNITION from a young token whose launch impulse already rolled over.
+- MomentumPredictorAI had many live readers but no production writer. DataOrchestrator now feeds it normalized 8-second live trade candles, activating volume acceleration/coiling/accumulation evidence without any new provider call or gate.
+- PredictiveEntryOracle live truth is mode-correct. OracleTradeHistory7287 now maintains LIVE and PAPER lane/book statistics separately. LIVE journal history can no longer be overwritten by a larger pooled paper+live history; pooled ScoreExpectancy cell evidence and paper WR become bootstrap priors only until live has terminal evidence.
+- Deliberately reactive specialists remain reactive where that is their job: Express/chase, Dip Hunter/reclaim, Quality/established, BlueChip/structure, Cyclic/rotation, Treasury/CashGen/cashflow. They were not converted into first-minute snipers.
+- Audit found several predictive-looking mechanisms that are not currently end-to-end live authorities: EarlyEntryScout6390/EarlyLaunchBypass6394/6396/SmartMoneyFeed6394 are test-only in the source census; SmartMoneyDiscovery7277.start and InsiderCopyEngine.copyBuyFromSmartMoney7277 have no production caller found. They are documented, but are not counted as live predictive edge until wired through the canonical candidate→safety→V3→FDG path.
+- Added Aate7402DirectionalityAuditTest.
+- Production version authorities bumped to 5.0.7402.
+
 ## [5.0.7401] - 2026-09-28 — BUY THE IGNITION, NOT THE FADE
 
 - Fixed launch-age inversion: TokenMetricStageRouter and V3Adapter now use the PumpPortal create timestamp (or earliest real history) instead of resetting token age when AATE first notices a token. A post-pump token discovered from trending/Raydium can no longer become a fake age=0 FRESH_LAUNCH.
