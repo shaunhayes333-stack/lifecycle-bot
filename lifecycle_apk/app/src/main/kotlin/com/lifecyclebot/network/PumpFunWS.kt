@@ -247,6 +247,14 @@ object PumpFunWS {
                         val name = j.optString("name", "?")
                         val marketCapSol = j.optDouble("marketCapSol", 0.0)
                         if (mint.isBlank()) return
+                        // V5.0.7401 — creator identity is launch timing evidence.
+                        // Persist it on the fastest create socket BEFORE any
+                        // adaptive create throttle or downstream enrichment.
+                        try {
+                            com.lifecyclebot.engine.OperatorRegistry.set(
+                                mint, j.optString("traderPublicKey", "")
+                            )
+                        } catch (_: Throwable) {}
                         // V5.0.7269 — the curve address rides in this payload; keep
                         // it so the mark fan-out can read the curve from chain state
                         // when no aggregator lists the mint. Recorded before the
