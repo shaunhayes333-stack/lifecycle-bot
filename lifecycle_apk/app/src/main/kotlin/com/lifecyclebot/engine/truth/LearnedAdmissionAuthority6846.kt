@@ -273,6 +273,26 @@ object LearnedAdmissionAuthority6846 {
         // §1 — UnifiedPolicyHead HARD_BLOCK is absolute (per directive).
         if (inputs.policyHardBlock) return deny("POLICY_HARD_BLOCK", inputs, "policyHead=HARD_BLOCK")
 
+        // V5.0.7426 — CANONICAL PAPER IS A DEPLOYMENT-QUALITY BOOK.
+        // Paper and live answer the same economic question. Exploration stays
+        // in shadow/replay/LAB; canonical capital requires an explicit positive
+        // predictive verdict so paper performance is a meaningful live rehearsal.
+        if (inputs.oracleVerdict6915 != PredictiveEntryOracle6915.Verdict.ADMIT) {
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_HIGH_EV_SHADOW_ONLY_7426")
+                PipelineHealthCollector.labelInc("CANONICAL_HIGH_EV_SHADOW_ONLY_7426_" + (inputs.oracleVerdict6915?.name ?: "MISSING"))
+            } catch (_: Throwable) {}
+            return deny(
+                "CANONICAL_HIGH_EV_ORACLE_NOT_ADMIT_7426",
+                inputs,
+                "oracle=" + (inputs.oracleVerdict6915?.name ?: "MISSING") +
+                    " expectedPnl=" + "%.4f".format(inputs.expectedPnl) +
+                    " pWin=" + "%.3f".format(inputs.livePWin) +
+                    " action=shadow_replay_lab_only",
+            )
+        }
+        try { PipelineHealthCollector.labelInc("CANONICAL_HIGH_EV_ORACLE_ADMIT_7426") } catch (_: Throwable) {}
+
         val oracleBinding7287 = oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN && !try {
             PredictiveEntryOracle6915.isDegenerateNow7120()
         } catch (_: Throwable) { false }
