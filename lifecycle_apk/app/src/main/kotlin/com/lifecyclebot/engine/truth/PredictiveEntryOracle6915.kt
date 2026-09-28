@@ -991,7 +991,10 @@ object PredictiveEntryOracle6915 {
         } catch (_: Throwable) {}
         try {
             val src = com.lifecyclebot.engine.SourceFamilyOpportunityScorecard
-                .expectancyFor6915(sourceFamily)
+                .expectancyFor6915(
+                    sourceFamily,
+                    liveMode7403 = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
+                )
             if (src != null && src.closed >= 3) {
                 val d = (src.meanPnlPct / 100.0 * 8.0).coerceIn(-10.0, 10.0)
                 adjust += d
