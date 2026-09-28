@@ -65,6 +65,14 @@ object EntryStrategySnapshot6450 {
         val forwardPWin: Double = 0.5,
         val sizingMultipliers: String = "",
         val authorizationReason: String = "",
+        // V5.0.7427 — exact strategy identity. These namespaces are deliberately
+        // separate; entryTactic remains only TacticSwitcher.Tactic.
+        val entryTradeType: String = "",
+        val entrySetup: String = "",
+        val entryStyle: String = "",
+        val entryEntryStyle: String = "",
+        val entryExitStyle: String = "",
+        val entryStrategyVariantId: String = "",
         val assetClassTag: String = AssetClass.SOLANA_TOKEN.tag,
     )
 
@@ -119,7 +127,14 @@ object EntryStrategySnapshot6450 {
                 .put("holders", snap.entryHolderConcentrationPct).put("rug", snap.entryRugEvidence)
                 .put("ageMs", snap.entryTokenAgeMs).put("priceUsd", snap.entryPriceUsd)
                 .put("forwardPWin", snap.forwardPWin).put("sizeMults", snap.sizingMultipliers)
-                .put("authorization", snap.authorizationReason).put("assetClass", snap.assetClassTag)
+                .put("authorization", snap.authorizationReason)
+                .put("tradeType7427", snap.entryTradeType)
+                .put("setup7427", snap.entrySetup)
+                .put("style7427", snap.entryStyle)
+                .put("entryStyle7427", snap.entryEntryStyle)
+                .put("exitStyle7427", snap.entryExitStyle)
+                .put("variant7427", snap.entryStrategyVariantId)
+                .put("assetClass", snap.assetClassTag)
             LearningPersistence.save(persistenceKey6567(snap.positionId), j.toString())
         } catch (_: Throwable) {}
     }
@@ -145,7 +160,11 @@ object EntryStrategySnapshot6450 {
             entryHolderConcentrationPct = j.optDouble("holders", 0.0), entryRugEvidence = j.optString("rug", ""),
             entryTokenAgeMs = j.optLong("ageMs", 0L), entryPriceUsd = j.optDouble("priceUsd", 0.0),
             forwardPWin = j.optDouble("forwardPWin", 0.5), sizingMultipliers = j.optString("sizeMults", ""),
-            authorizationReason = j.optString("authorization", ""), assetClassTag = j.optString("assetClass", AssetClass.SOLANA_TOKEN.tag),
+            authorizationReason = j.optString("authorization", ""),
+            entryTradeType = j.optString("tradeType7427", ""), entrySetup = j.optString("setup7427", ""),
+            entryStyle = j.optString("style7427", ""), entryEntryStyle = j.optString("entryStyle7427", ""),
+            entryExitStyle = j.optString("exitStyle7427", ""), entryStrategyVariantId = j.optString("variant7427", ""),
+            assetClassTag = j.optString("assetClass", AssetClass.SOLANA_TOKEN.tag),
         ).also { snapshots.putIfAbsent(positionId, it) }
     } catch (_: Throwable) { null }
     }
