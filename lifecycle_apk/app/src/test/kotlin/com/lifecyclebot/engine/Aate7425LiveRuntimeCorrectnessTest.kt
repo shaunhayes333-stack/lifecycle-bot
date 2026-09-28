@@ -18,8 +18,11 @@ class Aate7425LiveRuntimeCorrectnessTest {
     @Test fun retryableCryptoObservationReleasesLeaseWithoutFakeTerminal() {
         val src = File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
         val progress = src.substringAfter("fun markEvaluationProgress6570").substringBefore("fun markEvaluationDisposition6567")
+        assertTrue(progress.contains("releaseAtPassBoundary7425(key)"))
         assertTrue(progress.contains("releaseEvaluationForRetry7418(tok, key)"))
         assertTrue(progress.contains("CRYPTO_EVAL_RETRYABLE_PROGRESS_RELEASED_7425"))
+        assertTrue(src.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))
+        assertTrue(src.contains("OBSERVE is deliberately"))
         assertTrue(src.contains("retryReleased_is_nonterminal_completed_pass_not_missing"))
         assertFalse(progress.contains("markEvaluationDisposition6567(tok, key)"))
     }
