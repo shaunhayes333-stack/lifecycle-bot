@@ -124,9 +124,7 @@ object LivePreflight7222 {
         checks += check("GOVERNOR") {
             when {
                 govName == "UNKNOWN" -> Check("GOVERNOR", Verdict.UNKNOWN, "state unreadable")
-                govName != "HOLD" -> Check("GOVERNOR", Verdict.PASS, "state=$govName")
-                recov?.allowBuys == true -> Check("GOVERNOR", Verdict.PASS, "state=HOLD but recovery=$recovState allowBuys=true → probation-sized entries only (§6388/§7214)")
-                else -> Check("GOVERNOR", Verdict.REFUSE, "state=HOLD recovery=$recovState allowBuys=false → LaneEntryContract6342 blocks every live BUY")
+                else -> Check("GOVERNOR", Verdict.PASS, "state=$govName recovery=$recovState shapingOnly=true (§7398); hard execution safety is checked by wallet/route/finality authorities")
             }
         }
         checks += check("RECOVERY_MACHINE") {
