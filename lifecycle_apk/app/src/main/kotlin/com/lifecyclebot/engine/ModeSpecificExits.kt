@@ -277,12 +277,14 @@ object ModeSpecificExits {
         // V5.2: Get AI-learned timeout (fallback to 15 min for fresh launches)
         val aiTimeout = getAIOptimalTimeout(ts, ModeRouter.TradeType.FRESH_LAUNCH, fallbackMinutes = 15)
         
-        // IMMEDIATE EXIT: Stop loss hit
-        if (pnlPct < -25) {
+        // V5.0.7403 — an ignition thesis must fail faster than a mature
+        // breakout. The old -25% stop and -20% trail gave the least-proven
+        // setup the widest downside room in the deck.
+        if (pnlPct < -12) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "FRESH_LAUNCH: Stop loss -25%",
+                reason = "FRESH_LAUNCH: Ignition failed -12%",
                 urgency = ExitUrgency.IMMEDIATE,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -301,6 +303,25 @@ object ModeSpecificExits {
             )
         }
         
+        // V5.0.7403 — failure-to-ignite. A sniper entry that is still
+        // materially underwater after the first 90 seconds with weak live flow
+        // has falsified the thesis; waiting for a 15-minute timeout is backwards.
+        if (holdTimeMins >= 1.5 && pnlPct < -5.0) {
+            val launch7403 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+            if (launch7403?.tooLateForSnipe == true ||
+                (launch7403 != null && launch7403.buySharePct < 48.0 && !launch7403.accelerationRising)
+            ) {
+                return ExitRecommendation(
+                    shouldExit = true,
+                    exitPct = 100.0,
+                    reason = "FRESH_LAUNCH: failure_to_ignite",
+                    urgency = ExitUrgency.URGENT,
+                    adjustedStop = null,
+                    adjustedTarget = null,
+                )
+            }
+        }
+
         // V5.2: AI-ADAPTIVE TIMEOUT - Fresh launches use dynamic learned timeout
         if (aiTimeoutHardFloorExit(ts, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
@@ -344,7 +365,7 @@ object ModeSpecificExits {
             exitPct = 0.0,
             reason = "FRESH_LAUNCH: Hold (${pnlPct.toInt()}%)",
             urgency = ExitUrgency.TRAIL,
-            adjustedStop = ts.position.entryPrice * 0.80,  // Trail at -20%
+            adjustedStop = ts.position.entryPrice * 0.90,  // V5.0.7403 launch invalidation trail -10%
             adjustedTarget = null,
         )
     }
