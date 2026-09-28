@@ -1559,14 +1559,12 @@ object CryptoAltTrader {
             uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
                 val observedTok6569 = observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-                // V5.0.7399 — ranked-out rows are terminal for THIS evaluation
-                // generation, not an inflight backlog. Leaving them as progress
-                // caused 40+ minute "oldestQueueAge" and thousands of stale-expiry
-                // rows even though the bounded top set was being processed normally.
-                // They remain discoverable and can start a fresh generation on a
-                // later scan when their rank improves.
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_RANKED_OUT_WINDOW_7399") } catch (_: Throwable) {}
-                DynamicAltTokenRegistry.markEvaluationDisposition6567(observedTok6569, "RANKED_OUT_THIS_WINDOW_7399")
+                // V5.0.7400 — ranked-out is NOT terminal. 7399 violated the
+                // existing 6695 contract and retired candidates merely because
+                // they missed one bounded top-25 window. Preserve them as shared
+                // intelligence so they can be reconsidered as rank/price changes.
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_RANKED_OUT_RETAINED_7400") } catch (_: Throwable) {}
+                DynamicAltTokenRegistry.markEvaluationProgress6570(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED")
             }
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
                 if (activeModePositions7256(positions.values).size >= MAX_POSITIONS) {
@@ -2993,10 +2991,14 @@ object CryptoAltTrader {
         sizeSol *= cryptoBrainSize7244
         try { PipelineHealthCollector.labelInc("CRYPTO_BRAIN_SIZE_APPLIED_7244") } catch (_: Throwable) {}
 
+        // V5.0.7400 — do not kill Crypto before canonical sizing.
+        // The downstream requestedFinalSize already applies the anti-dust floor
+        // and CanonicalSizingBridge6532 owns executable-minimum affordability.
+        // Returning here converted learned size dampers into candidate->submit=0
+        // starvation. Keep the raw learned size and let the canonical resolver
+        // promote/clamp/refuse with one authoritative reason.
         if (sizeSol < 0.01) {
-            terminalDisposition6613("PRE_SUBMIT_SIZE_BELOW_FLOOR", "PRE_SUBMIT")
-            ErrorLogger.warn(TAG, "Insufficient balance for ${mktSym} (${sizeSol} SOL)")
-            return
+            try { PipelineHealthCollector.labelInc("CRYPTO_PRECANONICAL_DUST_DEFERRED_TO_SIZER_7400") } catch (_: Throwable) {}
         }
 
 
