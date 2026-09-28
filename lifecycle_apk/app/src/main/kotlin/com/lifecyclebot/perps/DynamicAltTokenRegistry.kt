@@ -232,6 +232,7 @@ object DynamicAltTokenRegistry {
     private val evaluationCoalesced6615 = AtomicLong(0L)
     private val evaluationSuperseded6615 = AtomicLong(0L)
     private val evaluationStaleDropped6615 = AtomicLong(0L)
+    private val evaluationRetryableReleased7425 = AtomicLong(0L)
     // V5.0.6580 §P0-f — bounded evidence deadline. First-seen timestamp per
     // (identity, state-key) so a second stamp of the same non-terminal state
     // more than EVIDENCE_TTL_MS_6580 later reaps into STALE_EXPIRED_6580_<state>.
@@ -863,6 +864,7 @@ object DynamicAltTokenRegistry {
         if (!removed) return false
         evaluationInflightStartedAt6692.remove(identity)
         evaluationProgressStamp6580.keys.removeIf { it.startsWith(identity + EVAL_PROGRESS_SEPARATOR_6692) }
+        evaluationRetryableReleased7425.incrementAndGet()
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_RETRYABLE_RELEASE_7418")
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -929,6 +931,15 @@ object DynamicAltTokenRegistry {
                 "identity=${tok.canonicalIdentity6544} symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} state=$key terminal=false coalesced=true")
             else com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_PROGRESS_COALESCED_6615")
         } catch (_: Throwable) {}
+        // V5.0.7425 — passive observation/backlog states have completed this
+        // evaluation pass. Release the exact generation immediately so the next
+        // materially changed observation can be reconsidered without waiting for
+        // the adaptive stale lease. This is not a terminal trade outcome.
+        if (isRetryableProgress7418(key)) {
+            if (releaseEvaluationForRetry7418(tok, key)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_RETRYABLE_PROGRESS_RELEASED_7425") } catch (_: Throwable) {}
+            }
+        }
         // V5.0.6580 §P0-f — BOUNDED EVIDENCE DEADLINE.
         // Operator directive (6578 forensic): 159/200 crypto evaluations never
         // terminalize because SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE and
@@ -1109,9 +1120,12 @@ object DynamicAltTokenRegistry {
             } catch (_: Throwable) {}
             append("static-vs-dynamic evaluation share=").append(staticEvaluated6544.get()).append('/').append(dynamicEvaluated6544.get()).append('\n')
             val terminal6567 = evaluationDisposition6567.values.sumOf { it.get() }
-            append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())
+            val retryReleased7425 = evaluationRetryableReleased7425.get()
+            append("evaluation outcomes=startEvents:").append(evaluationStarted6567.get())
                 .append(" terminal:").append(terminal6567)
-                .append(" missing:").append((evaluationStarted6567.get() - terminal6567).coerceAtLeast(0L)).append('\n')
+                .append(" retryReleased:").append(retryReleased7425)
+                .append(" inflight:").append(evaluationInflight6615.size)
+                .append(" read=retryReleased_is_nonterminal_completed_pass_not_missing").append('\n')
             val oldestInflightAge6615 = evaluationInflightStartedAt6692.values
                 .minOrNull()?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: 0L
             append("evaluation ownership queueSize=0 uniqueCandidateCount=").append(registry.size)
