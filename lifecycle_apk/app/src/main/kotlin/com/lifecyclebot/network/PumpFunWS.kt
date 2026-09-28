@@ -133,7 +133,7 @@ object PumpFunWS {
             unsub7420.addAndGet(expired.size.toLong())
             try { repeat(expired.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } } catch (_: Throwable) {}
         }
-        if (lifecycleMints7420.size >= LIFECYCLE_MAX_7420 && mint !in lifecycleMints7420) {
+        if (lifecycleMints7420.size >= LIFECYCLE_MAX_7420 && !lifecycleMints7420.containsKey(mint)) {
             val oldest = lifecycleMints7420.entries.minByOrNull { it.value }?.key
             if (oldest != null) {
                 lifecycleMints7420.remove(oldest)
