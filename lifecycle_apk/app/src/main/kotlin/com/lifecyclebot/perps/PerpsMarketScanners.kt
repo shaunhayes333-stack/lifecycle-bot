@@ -195,39 +195,42 @@ object PerpsMarketScanners {
         var score = 50
         var confidence = 50
         
-        // Trend strength
+        // Trend strength — V5.0.7403: trend is evidence, extension is not
+        // monotonically better. Huge 24h displacement gets less incremental
+        // credit because late continuation risk rises.
         when {
             abs(change24h) > 10 -> {
-                score += 30
-                confidence += 20
-                reasoning.add("📈 STRONG trend: ${change24h.fmt(1)}%")
+                score += 8
+                confidence += 5
+                reasoning.add("⚠️ Extended 24h trend: " + change24h.fmt(1) + "%")
             }
             abs(change24h) > 5 -> {
-                score += 20
-                confidence += 10
-                reasoning.add("📈 Moderate trend: ${change24h.fmt(1)}%")
+                score += 15
+                confidence += 8
+                reasoning.add("📈 Strong but controlled trend: " + change24h.fmt(1) + "%")
             }
             else -> {
-                score += 10
-                reasoning.add("📈 Weak trend: ${change24h.fmt(1)}%")
+                score += 8
+                reasoning.add("📈 Developing trend: " + change24h.fmt(1) + "%")
             }
         }
-        
-        // Open Interest alignment
-        val oiAligned = (direction == PerpsDirection.LONG && lsRatio < 1.0) ||
-                        (direction == PerpsDirection.SHORT && lsRatio > 1.0)
+
+        // Contrarian OI is a squeeze/flush SETUP, not free confirmation.
+        // Require meaningful crowd skew; neutral ~1.0 is not evidence.
+        val oiAligned = (direction == PerpsDirection.LONG && lsRatio in 0.20..0.80) ||
+                        (direction == PerpsDirection.SHORT && lsRatio in 1.20..5.00)
         if (oiAligned) {
-            score += 15
-            confidence += 10
-            reasoning.add("🎯 Contrarian OI setup")
+            score += 8
+            confidence += 5
+            reasoning.add("🎯 Crowding supports squeeze/flush thesis")
         }
-        
-        // Volume confirmation
+
+        // High raw 24h volume improves execution confidence, not direction.
         if (solData.volume24h > 100_000_000) {
-            score += 10
-            reasoning.add("📊 High volume: \$${(solData.volume24h/1_000_000).toInt()}M")
+            confidence += 5
+            reasoning.add("📊 Deep activity: $" + (solData.volume24h/1_000_000).toInt() + "M")
         }
-        
+
         // Leverage recommendation based on confidence
         val leverage = when {
             confidence >= 80 -> if (isPaperMode) 10.0 else 5.0
@@ -305,31 +308,50 @@ object PerpsMarketScanners {
         }
         
         val direction = if (nearLow) PerpsDirection.LONG else PerpsDirection.SHORT
-        var score = 60
-        var confidence = 55
-        
-        if (nearLow) {
-            reasoning.add("🎯 Near day low - potential bounce")
-            if (solData.isFundingFavorableLong()) {
-                score += 15
-                confidence += 10
-                reasoning.add("💰 Funding favors longs")
-            }
-        } else {
-            reasoning.add("🎯 Near day high - potential reversal")
-            if (solData.isFundingFavorableShort()) {
-                score += 15
-                confidence += 10
-                reasoning.add("💰 Funding favors shorts")
-            }
+        var score = 50
+        var confidence = 45
+
+        val tech7403 = try {
+            PerpsAdvancedAI.seedHistoryFromOHLC(
+                PerpsMarket.SOL, solData.price, solData.high24h, solData.low24h, solData.volume24h
+            )
+            PerpsAdvancedAI.recordPrice(PerpsMarket.SOL, solData.price, solData.volume24h)
+            PerpsAdvancedAI.analyzeTechnicals(PerpsMarket.SOL)
+        } catch (_: Throwable) { null }
+
+        val technicalReversal7403 = when (direction) {
+            PerpsDirection.LONG -> tech7403?.let { it.recommendation == PerpsDirection.LONG || it.isOversold } == true
+            PerpsDirection.SHORT -> tech7403?.let { it.recommendation == PerpsDirection.SHORT || it.isOverbought } == true
         }
-        
-        // Volatility check
+        val fundingConfirms7403 = when (direction) {
+            PerpsDirection.LONG -> solData.isFundingFavorableLong()
+            PerpsDirection.SHORT -> solData.isFundingFavorableShort()
+        }
+
+        if (!technicalReversal7403 && !fundingConfirms7403) {
+            return listOf(ScanResult(
+                scanner = ScannerType.SOL_SNIPER,
+                market = PerpsMarket.SOL,
+                signal = null,
+                priority = 1,
+                reasoning = listOf("At day extreme but no reversal confirmation — avoid falling knife/breakout fade"),
+            ))
+        }
+
+        reasoning.add(if (nearLow) "🎯 Near day low with reversal proof" else "🎯 Near day high with reversal proof")
+        if (technicalReversal7403) {
+            score += 15; confidence += 12
+            reasoning.add("📊 Technical reversal confirms")
+        }
+        if (fundingConfirms7403) {
+            score += 8; confidence += 6
+            reasoning.add("💰 Funding supports contrarian setup")
+        }
         if (solData.isVolatile()) {
-            score += 10
-            reasoning.add("⚡ High volatility environment")
+            confidence -= 5
+            reasoning.add("⚡ High volatility = execution risk, not alpha")
         }
-        
+
         // Sniper = aggressive leverage, tight stops
         val leverage = if (isPaperMode) 10.0 else 5.0
         
