@@ -2560,38 +2560,22 @@ object FinalDecisionGate {
             val hasProviderRouteTruth = routeTruth.hasRoute && routeTruth.source in setOf("HELIUS", "JUPITER", "DEX", "POOL", "PUMP")
             val hasAnyRoute = hasPair || hasPool || hasPumpBondingRoute || hasJupiterRoute || hasProviderRouteTruth
             if (!hasAnyRoute) {
-                try { PipelineHealthCollector.labelInc("FDG_SKIPPED_ROUTE_UNKNOWN_PRECHECK") } catch (_: Throwable) {}
-                // V5.0.4130 — PATTERN GOLDEN GOOSE OVERRIDE on TOKEN_MAP_INCOMPLETE.
-                // The operational report shows 9 of 11 FDG verdicts hard-blocked
-                // here. For tokens that match a GOLD/WINNER pattern, give the
-                // executor's fallback routing (Jupiter Ultra / PumpSwap / Raydium
-                // probe) a chance — gold-pattern tokens historically convert at
-                // 50-82% WR and many lose route data only transiently between
-                // launch and DexScreener indexing. CATASTROPHIC/TOXIC still hard-block.
-                val gooseVerdictFdg = try {
-                    com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
-                } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
-                val goldenRouteOverride = gooseVerdictFdg == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
-                                          gooseVerdictFdg == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
-                if (goldenRouteOverride) {
-                    checks.add(GateCheck(
-                        "token_map_goose_override", true,
-                        "noRoute_advisory verdict=${gooseVerdictFdg.name} pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute}"
-                    ))
-                    tags.add("token_map_goose_override")
-                    try {
-                        com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "FLUID_EXECUTE_FLOOR")
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_TOKEN_MAP_GOOSE_OVERRIDE_${gooseVerdictFdg.name}")
-                    } catch (_: Throwable) {}
-                } else {
-                    blockReason = "WATCH_PROBATION_ROUTE_UNKNOWN"
-                    blockLevel = BlockLevel.CONFIDENCE
-                    checks.add(GateCheck(
-                        "route_truth_precheck", false,
-                        "watch_probation noRoute pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute} jupiter=${hasJupiterRoute} hydrated=${routeTruth.source}:${routeTruth.reason} routeStatus=${tm.routeStatus}"
-                    ))
-                    tags.add("watch_probation_route_unknown")
-                }
+                // V5.0.7403 — ALPHA CANNOT CREATE A ROUTE.
+                // PatternGoldenGoose used to override this mechanical fact and
+                // pay the executor to discover whether the token was sellable.
+                // RouteTruthHydrator + pair/pool/Pump/Jupiter checks have already
+                // run here. Keep the candidate hot and retry on hydration; do
+                // not spend live SOL until a real route exists.
+                try {
+                    PipelineHealthCollector.labelInc("FDG_ROUTE_UNKNOWN_NO_ALPHA_OVERRIDE_7403")
+                } catch (_: Throwable) {}
+                blockReason = "WATCH_PROBATION_ROUTE_UNKNOWN"
+                blockLevel = BlockLevel.CONFIDENCE
+                checks.add(GateCheck(
+                    "route_truth_precheck", false,
+                    "watch_probation no executable route yet; retry after route hydration"
+                ))
+                tags.add("watch_probation_route_unknown")
             }
         }
 
