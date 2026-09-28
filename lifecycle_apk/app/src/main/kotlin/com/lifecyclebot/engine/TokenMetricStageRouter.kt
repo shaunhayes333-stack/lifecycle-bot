@@ -70,9 +70,13 @@ object TokenMetricStageRouter {
         // established asset.
         val valuationAir = mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
         val rugProne = topHeavy || (valuationAir && (sp >= 55.0 || bp < 52.0)) || (liqThin && runup >= 80.0)
-        val peakExhaustion = currentVsPeak >= 0.88 && runup >= 70.0 && (sp >= 52.0 || bp < 52.0 || ts.lastPriceChange1h >= 80.0)
-        val dumping = dd >= 24.0 && (bp < 52.0 || sp >= 55.0)
-        val baseStart = ageMin <= 12.0 && runup <= 45.0 && dd <= 18.0 && bp >= 54.0 && sp <= 50.0 && liq >= 3_000.0
+        val acute5m7425 = ts.lastPriceChange5m.takeIf { it.isFinite() } ?: 0.0
+        val pumpThenFade7425 = ts.lastPriceChange1h >= 80.0 && acute5m7425 <= -8.0
+        val peakExhaustion = (currentVsPeak >= 0.88 && runup >= 70.0 &&
+            (sp >= 52.0 || bp < 52.0 || ts.lastPriceChange1h >= 80.0)) || pumpThenFade7425
+        val dumping = acute5m7425 <= -18.0 || (dd >= 24.0 && (bp < 52.0 || sp >= 55.0))
+        val baseStart = ageMin <= 12.0 && runup <= 45.0 && dd <= 18.0 && bp >= 54.0 && sp <= 50.0 &&
+            acute5m7425 > -8.0 && liq >= 3_000.0
         val midAccum = currentVsPeak in 0.45..0.82 && dd in 8.0..35.0 && bp >= 50.0 && sp <= 54.0 && liq >= 8_000.0
         val markup = currentVsPeak in 0.68..0.92 && runup in 25.0..120.0 && bp >= 55.0 && sp <= 50.0 && liq >= 6_000.0
         // V5.0.4076 — FRESH_LAUNCH stage. Operator P0: bot starves on
@@ -98,9 +102,10 @@ object TokenMetricStageRouter {
         )
         val lifecycleFade7401 = launch7401?.tooLateForSnipe == true
         val freshLaunch = !baseStart && !midAccum && !markup && !lifecycleFade7401 &&
+            !dumping && !pumpThenFade7425 &&
             ageMin <= 3.0 && lifecycleEarly7401 &&
             (hist.size < 5 || currentVsPeak >= 0.88) &&
-            liq >= 800.0 && sp <= 65.0
+            liq >= 800.0 && sp <= 65.0 && acute5m7425 > -12.0
         val stage = when {
             rugProne -> Stage.RUG_PRONE
             lifecycleFade7401 && dd >= 18.0 -> Stage.DUMPING
@@ -183,6 +188,15 @@ object TokenMetricStageRouter {
     fun laneFit(ts: TokenState, laneRaw: String): LaneFit {
         val lane = laneRaw.uppercase()
         val s = snapshot(ts)
+        // V5.0.7425 — DIP_HUNTER is a reclaim desk, not a falling-knife desk.
+        // A post-pump/dumping token needs an actual turn in the local tape before
+        // any non-MANIPULATED lane can convert the observation into live capital.
+        val recent7425 = try { ts.history.toList().map { it.priceUsd }.filter { it.isFinite() && it > 0.0 }.takeLast(5) } catch (_: Throwable) { emptyList() }
+        val reclaimConfirmed7425 = recent7425.size >= 3 &&
+            recent7425.last() > recent7425.minOrNull()!! * 1.06 &&
+            recent7425.takeLast(3).zipWithNext().all { (a, b) -> b >= a * 0.985 } &&
+            ts.lastPriceChange5m > 0.0 &&
+            s.buyPressurePct >= 56.0 && s.sellPressurePct <= 50.0
         // V5.0.4091 — established-token lane-fit override mirrors the primary
         // routing override above. Without this, the primary picks BLUECHIP but
         // the per-stage laneFit allowlist rejects it (e.g. CONTROLLED_MARKUP
@@ -198,8 +212,10 @@ object TokenMetricStageRouter {
         }
         val allowed = when (s.stage) {
             Stage.RUG_PRONE -> false
-            Stage.PEAK_EXHAUSTION -> lane in setOf("DIP_HUNTER", "QUALITY") && s.drawdownFromPeakPct >= 12.0 && s.buyPressurePct >= 54.0
-            Stage.DUMPING -> lane == "DIP_HUNTER" && s.drawdownFromPeakPct >= 25.0 && s.buyPressurePct >= 55.0
+            Stage.PEAK_EXHAUSTION -> reclaimConfirmed7425 &&
+                lane in setOf("DIP_HUNTER", "QUALITY") && s.drawdownFromPeakPct >= 12.0
+            Stage.DUMPING -> reclaimConfirmed7425 &&
+                lane == "DIP_HUNTER" && s.drawdownFromPeakPct >= 25.0
             Stage.FRESH_LAUNCH -> lane in setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MOONSHOT", "STANDARD", "CORE", "V3")
             Stage.BASE_START -> lane in setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "STANDARD", "CORE", "V3")
             Stage.MID_ACCUMULATION -> lane in setOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
@@ -212,7 +228,7 @@ object TokenMetricStageRouter {
     fun reasonFor(stage: Stage, rug: Boolean, peak: Boolean, dump: Boolean, base: Boolean, mid: Boolean, markup: Boolean, fresh: Boolean = false): String = when (stage) {
         Stage.RUG_PRONE -> "rugProne=$rug topHeavy/liquidityAir/thinRunup"
         Stage.PEAK_EXHAUSTION -> "peakExhaustion=$peak nearHigh+extended+sellPressure"
-        Stage.DUMPING -> "dumping=$dump drawdown+weakBP"
+        Stage.DUMPING -> "dumping=$dump drawdown_or_acute5m_cascade_reclaim_required"
         Stage.FRESH_LAUNCH -> "freshLaunch=$fresh trueLaunchAge+ignitionOrExpansion+notPostPumpFade"
         Stage.BASE_START -> "baseStart=$base early+notExtended+buyPressure"
         Stage.MID_ACCUMULATION -> "midAccum=$mid pullbackBand+liq+controlledSP"
