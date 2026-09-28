@@ -51,6 +51,7 @@ interface ScoringModule {
 fun sourceScore(source: SourceType): ScoreComponent = when (source) {
     SourceType.DEX_BOOSTED -> ScoreComponent("source", 4, "Boosted visibility")
     SourceType.RAYDIUM_NEW_POOL -> ScoreComponent("source", 7, "Fresh pool discovery")
+    SourceType.PUMP_FUN_NEW -> ScoreComponent("source", 8, "Pump create / first-minute discovery")
     SourceType.PUMP_FUN_GRADUATE -> ScoreComponent("source", 5, "Pump graduate candidate")
     SourceType.DEX_TRENDING -> ScoreComponent("source", 3, "Trending visibility")
 }
@@ -65,6 +66,7 @@ fun sourceScoreWithTiming(source: SourceType, mint: String): ScoreComponent {
     val baseScore = when (source) {
         SourceType.DEX_BOOSTED -> 4
         SourceType.RAYDIUM_NEW_POOL -> 7
+        SourceType.PUMP_FUN_NEW -> 8
         SourceType.PUMP_FUN_GRADUATE -> 5
         SourceType.DEX_TRENDING -> 3
     }
