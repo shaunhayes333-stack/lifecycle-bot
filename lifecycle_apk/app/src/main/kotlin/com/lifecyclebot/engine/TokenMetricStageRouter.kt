@@ -154,11 +154,22 @@ object TokenMetricStageRouter {
             return if (s.drawdownFromPeakPct >= 15.0 && s.buyPressurePct >= 50.0) "DIP_HUNTER" else "BLUECHIP"
         }
         return when (s.stage) {
-            Stage.FRESH_LAUNCH -> when {
-                s.liquidityUsd >= 5_000.0 && s.buyPressurePct >= 56.0 -> "MOONSHOT"
-                s.liquidityUsd >= 2_500.0 -> "PROJECT_SNIPER"
-                s.liquidityUsd >= 1_500.0 -> "EXPRESS"
-                else -> "SHITCOIN"
+            Stage.FRESH_LAUNCH -> {
+                // V5.0.7401 — ownership follows launch timing, not chart maturity.
+                // IGNITION belongs to the sniper/runner desks before the crowd;
+                // once it is merely EXPANDING, prefer MOONSHOT only when demand
+                // is still strong. POST_PUMP_FADE never reaches FRESH_LAUNCH.
+                val lp = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+                when {
+                    lp?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION -> "PROJECT_SNIPER"
+                    lp?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION &&
+                        s.liquidityUsd >= 1_500.0 -> "PROJECT_SNIPER"
+                    lp?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING &&
+                        s.liquidityUsd >= 5_000.0 && s.buyPressurePct >= 56.0 -> "MOONSHOT"
+                    s.liquidityUsd >= 2_500.0 -> "PROJECT_SNIPER"
+                    s.liquidityUsd >= 1_500.0 -> "EXPRESS"
+                    else -> "SHITCOIN"
+                }
             }
             Stage.BASE_START -> if (s.liquidityUsd >= 8_000.0 && s.buyPressurePct >= 58.0) "PROJECT_SNIPER" else "SHITCOIN"
             Stage.MID_ACCUMULATION -> if (s.liquidityUsd >= 20_000.0) "BLUECHIP" else "QUALITY"
