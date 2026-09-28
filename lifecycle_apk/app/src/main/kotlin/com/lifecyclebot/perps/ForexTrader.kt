@@ -479,63 +479,45 @@ object ForexTrader {
             "TP=${setup.tpPips.toInt()}p SL=${setup.slPips.toInt()}p lev=${"%.1f".format(setup.leverage)}x")
         layerVotes["ForexStrategy"] = direction
         
-        // 1. Momentum analysis (forex moves less, so lower thresholds)
-        when {
-            abs(change) > 1.0 -> {
-                score += 25
-                confidence += 20
-                reasons.add("🔥 Strong forex move: ${if (change > 0) "+" else ""}${"%.2f".format(change)}%")
+        // 1. Momentum analysis — V5.0.7403 directionally honest.
+        val momentumDirection7403 = if (change >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT
+        val momentumAligned7403 = momentumDirection7403 == direction
+        if (momentumAligned7403) {
+            when {
+                abs(change) > 1.0 -> { score += 18; confidence += 12; reasons.add("🔥 Trend-aligned forex move " + "%.2f".format(change) + "%") }
+                abs(change) > 0.5 -> { score += 10; confidence += 7; reasons.add("📈 Trend-aligned move " + "%.2f".format(change) + "%") }
+                abs(change) > 0.2 -> { score += 4; reasons.add("📊 Mild aligned move " + "%.2f".format(change) + "%") }
             }
-            abs(change) > 0.5 -> {
-                score += 15
-                confidence += 10
-                reasons.add("📈 Good forex move: ${if (change > 0) "+" else ""}${"%.2f".format(change)}%")
-            }
-            abs(change) > 0.2 -> {
-                score += 5
-                reasons.add("📊 Mild forex move: ${if (change > 0) "+" else ""}${"%.2f".format(change)}%")
-            }
+            if (abs(change) > 0.2) layerVotes["Momentum"] = direction
+        } else {
+            if (abs(change) > 1.0) score -= 5
+            reasons.add("↩️ Counter-trend setup: momentum opposes entry")
         }
-        layerVotes["Momentum"] = direction
-        
+
         // 2. Major pair boost (more liquid, safer)
         val majorPairs = listOf("EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD")
         if (market.symbol in majorPairs) {
-            score += 10
             confidence += 10
-            reasons.add("💎 Major pair - high liquidity")
+            reasons.add("💎 Major pair - high liquidity (execution confidence)")
         }
         
         // 3. Cross pair analysis
         val crossPairs = listOf("EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY", "CHFJPY")
         if (market.symbol in crossPairs) {
-            score += 5
-            reasons.add("🔀 Cross pair")
+            confidence += 3
+            reasons.add("🔀 Cross pair (context only)")
         }
         
         // 4. Emerging market pairs (higher volatility, higher risk/reward)
         val emPairs = listOf("USDMXN", "USDBRL", "USDINR", "USDCNY", "USDZAR", "USDTRY", "USDRUB", "USDSGD", "USDHKD", "USDKRW")
         if (market.symbol in emPairs) {
-            score += 5
-            reasons.add("🌍 EM pair - high volatility")
+            confidence -= 5
+            reasons.add("🌍 EM pair - volatility/liquidity risk")
         }
         
-        // 5. Special pair boosts
-        when (market.symbol) {
-            "EURUSD" -> {
-                score += 5
-                reasons.add("🇪🇺 EUR/USD - Most traded pair")
-            }
-            "USDJPY" -> {
-                score += 5
-                reasons.add("🇯🇵 USD/JPY - Carry trade favorite")
-            }
-            "GBPJPY" -> {
-                score += 5
-                reasons.add("🇬🇧 GBP/JPY - Dragon/Widow maker")
-            }
-        }
-        
+        // 5. V5.0.7403 — pair identity/fame is not directional alpha.
+        // Liquidity characteristics are already represented in confidence.
+
         // 6. Technical analysis via PerpsAdvancedAI (FULL AI INTEGRATION)
         try {
             // V5.9.172 — seed history from real 24h OHLC so RSI/MACD aren't stuck at 50.
@@ -570,8 +552,10 @@ object ForexTrader {
                     "MILD" -> 10
                     else -> 0
                 }
-                reasons.add("📊 Volume ${volume.spikeStrength}")
-                layerVotes["Volume"] = direction
+                reasons.add("📊 Volume ${volume.spikeStrength} (activity, not direction)")
+                if (momentumAligned7403 || layerVotes["Technical"] == direction) {
+                    layerVotes["VolumeConfirm"] = direction
+                }
             }
         } catch (_: Exception) {}
         
