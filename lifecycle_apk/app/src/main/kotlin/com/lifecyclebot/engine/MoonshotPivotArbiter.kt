@@ -68,7 +68,16 @@ object MoonshotPivotArbiter {
         val momentum = try { ts.meta.momScore } catch (_: Throwable) { 0.0 }
         val volume = try { ts.meta.volScore } catch (_: Throwable) { 0.0 }
         val exitCapacityUsd = liquidityUsd
-        val reclaimProof = routeProof && basisTrusted && rugProof && (holderProof || momentum >= 6.0 || volume >= 6.0 || buyPressure >= 55.0)
+        val launch7403 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        val movement7403 = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
+        val runnerProof7403 = (launch7403 != null && !launch7403.tooLateForSnipe &&
+            launch7403.phase in setOf(
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING
+            ) && launch7403.buySharePct >= 55.0) ||
+            movement7403?.pattern == "BREAKOUT_CONTINUATION"
+        val reclaimProof = routeProof && basisTrusted && rugProof &&
+            movement7403?.pattern == "PULLBACK_RECLAIM" && buyPressure >= 50.0
         val goldenGoose = try { PatternGoldenGoose.edge(ts.name, ts.symbol).verdict == TokenWinMemory.Verdict.GOLD } catch (_: Throwable) { false }
 
         val reasons = mutableListOf<String>()
@@ -84,14 +93,14 @@ object MoonshotPivotArbiter {
             return Decision(PivotMode.WATCH_PROBATION, "MOONSHOT", "WATCH_PROBATION", null, false, reasons, cleanWr, cleanPnl)
         }
 
-        if (dangerBucket && !(goldenGoose && routeProof && reclaimProof)) {
-            emit("MOONSHOT_DANGER_BUCKET_PIVOT")
-            emit("MOONSHOT_PIVOT_MICRO")
-            reasons += "MOONSHOT_DANGER_BUCKET_PIVOT"
-            return Decision(PivotMode.MOONSHOT_MICRO_RETRAIN, "MOONSHOT", "DEFENSIVE_PROBE", microCap(plannedSizeSol), true, reasons, cleanWr, cleanPnl)
+        if (dangerBucket && !(goldenGoose && routeProof && (runnerProof7403 || reclaimProof))) {
+            emit("MOONSHOT_DANGER_BUCKET_WATCH_7403")
+            reasons += "MOONSHOT_DANGER_BUCKET_REQUIRES_RUNNER_OR_RECLAIM_PROOF_7403"
+            return Decision(PivotMode.WATCH_PROBATION, "MOONSHOT", "WATCH_PROBATION", null, false, reasons, cleanWr, cleanPnl)
         }
 
-        val normalAllowed = cleanWr >= 35.0 && cleanPnl >= 0.0 && pWin >= 0.35 && routeProof && exitCapacityUsd >= 5_000.0 && (!dump || reclaimProof)
+        val normalAllowed = cleanWr >= 35.0 && cleanPnl >= 0.0 && pWin >= 0.35 &&
+            routeProof && exitCapacityUsd >= 5_000.0 && runnerProof7403 && (!dump || reclaimProof)
         if (normalAllowed) {
             emit("MOONSHOT_PIVOT_NORMAL")
             reasons += "MOONSHOT_PIVOT_NORMAL"
@@ -104,15 +113,20 @@ object MoonshotPivotArbiter {
             return Decision(PivotMode.WATCH_PROBATION, "MOONSHOT", "WATCH_PROBATION", null, false, reasons, cleanWr, cleanPnl)
         }
 
-        if (liquidityUsd < 5_000.0 || buyPressure < 45.0) {
-            emit("MOONSHOT_RECLASSIFIED_SHITCOIN")
-            reasons += "MOONSHOT_RECLASSIFIED_SHITCOIN"
-            return Decision(PivotMode.SHITCOIN_MICRO_RECLASSIFIED, "SHITCOIN", "SHITCOIN_MICRO_RECLASSIFIED", microCap(plannedSizeSol), true, reasons, cleanWr, cleanPnl)
+        if (liquidityUsd < 5_000.0 || buyPressure < 45.0 || !runnerProof7403) {
+            emit("MOONSHOT_WEAK_CONTEXT_WATCH_7403")
+            reasons += "MOONSHOT_FAILED_THESIS_STAYS_MOONSHOT_7403"
+            return Decision(PivotMode.WATCH_PROBATION, "MOONSHOT", "WATCH_PROBATION", null, false, reasons, cleanWr, cleanPnl)
         }
 
-        emit("MOONSHOT_PIVOT_MICRO")
-        reasons += "MOONSHOT_MICRO_RETRAIN"
-        return Decision(PivotMode.MOONSHOT_MICRO_RETRAIN, "MOONSHOT", "MOONSHOT_MICRO_RETRAIN", microCap(plannedSizeSol), true, reasons, cleanWr, cleanPnl)
+        if (runnerProof7403 || reclaimProof) {
+            emit("MOONSHOT_PIVOT_MICRO")
+            reasons += "MOONSHOT_MICRO_RETRAIN_WITH_LIVE_STRUCTURE_7403"
+            return Decision(PivotMode.MOONSHOT_MICRO_RETRAIN, "MOONSHOT", "MOONSHOT_MICRO_RETRAIN", microCap(plannedSizeSol), true, reasons, cleanWr, cleanPnl)
+        }
+        emit("MOONSHOT_WATCH_NO_STRUCTURE_7403")
+        reasons += "MOONSHOT_AWAIT_RUNNER_STRUCTURE_7403"
+        return Decision(PivotMode.WATCH_PROBATION, "MOONSHOT", "WATCH_PROBATION", null, false, reasons, cleanWr, cleanPnl)
     }
 
     private fun pass(lane: String): Decision = Decision(PivotMode.NORMAL_MOONSHOT, lane, lane, null, true, emptyList(), 100.0, 0.0)
