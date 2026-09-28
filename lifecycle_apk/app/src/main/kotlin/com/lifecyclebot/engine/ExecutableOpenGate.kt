@@ -211,12 +211,17 @@ object ExecutableOpenGate {
     /** V5.0.6509 — finalized decision tuple; raw scanner signal is diagnostic only. */
     internal fun canonicalExecutableIntent6509(
         fdgCan: Boolean?, preFdgVerdict: String, hardNoReasons: List<String>,
-    ): Boolean = fdgCan == true && hardNoReasons.isEmpty() &&
-        (preFdgVerdict.equals("BUY", true) || preFdgVerdict.equals("PROBE_ONLY", true))
+    ): Boolean {
+        val paper7403 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        return fdgCan == true && hardNoReasons.isEmpty() &&
+            (preFdgVerdict.equals("BUY", true) ||
+                (paper7403 && preFdgVerdict.equals("PROBE_ONLY", true)))
+    }
 
     internal fun mutableSignalCanVeto6519(intent: ExecutionIntent?, signal: String): Boolean {
         val immutableExecutable6533 = intent?.fdgAllowed == true && intent.hardNoReasons.isEmpty() &&
-            intent.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
+            (intent.fdgVerdict.equals("BUY", true) ||
+                (intent.mode.equals("PAPER", true) && intent.fdgVerdict.equals("PROBE_ONLY", true)))
         return !signal.equals("BUY", true) && !signal.equals("EXECUTE", true) && !immutableExecutable6533
     }
 
@@ -241,7 +246,9 @@ object ExecutableOpenGate {
 
     private fun validSealedDecision6613(intent: ExecutionIntent): Boolean {
         val final = intent.finalDecision6613.name
-        return final in setOf("BUY", "PROBE_ONLY") &&
+        val verdictExecutable7403 = final == "BUY" ||
+            (intent.mode.equals("PAPER", true) && final == "PROBE_ONLY")
+        return verdictExecutable7403 &&
             intent.fdgAllowed && intent.fdgVerdict.uppercase() == final &&
             intent.authoritativeSignal.uppercase() == "BUY" &&
             intent.decisionAuthorityId6613.isNotBlank() && intent.fdgDecisionId6613.isNotBlank() &&
