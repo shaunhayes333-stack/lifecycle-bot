@@ -357,8 +357,10 @@ object TradeAuthorizer {
         // V5.8: In paper mode, bypass hard rug block — consistent with DistFade and RugPreFilter.
         // Fresh launches often get RC_SCORE=1 before any analysis exists, blocking all learning data.
         // Paper trades with bad rug scores still train the model on outcomes (good learning signal).
-        // V5.6.8: MANIPULATED book ALWAYS bypasses rugcheck — it trades intentionally risky tokens
-        val bypassRugcheck = requestedBook == ExecutionBook.MANIPULATED
+        // V5.0.7403 — MANIPULATED may accept volatility/manipulation risk, but
+        // it may not bypass a CONFIRMED rug. Strategy risk is not security bypass.
+        // Paper still learns from bad outcomes; LIVE RC<=0 stays hard safety.
+        val bypassRugcheck = false
 
         // V5.9.105: LIVE SAFETY CIRCUIT BREAKER — refuse live trades when the
         // wallet is below the startup floor OR session drawdown halt fired.
@@ -385,7 +387,7 @@ object TradeAuthorizer {
                 // confirmed-rug RC=0 hard-blocks live; RC≥1 falls through to
                 // GATE 3 (liquidity) and downstream FDG/sub-trader checks.
                 if (isPaperMode || bypassRugcheck) {
-                    val bypassReason = if (bypassRugcheck) "MANIPULATED LAYER" else "PAPER LEARNING"
+                    val bypassReason = "PAPER LEARNING"
                     ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore — allowing entry")
                     // fall through to GATE 3+
                 } else {
@@ -405,7 +407,7 @@ object TradeAuthorizer {
                 // directive "rc 1 and $2000", RC 1-5 now allowed live too;
                 // FDG/safety-checker/liquidity gate handle residual risk.
                 if (isPaperMode || bypassRugcheck) {
-                    val bypassReason = if (bypassRugcheck) "MANIPULATED LAYER" else "PAPER LEARNING"
+                    val bypassReason = "PAPER LEARNING"
                     ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore (1-5) — allowing entry")
                 } else {
                     ErrorLogger.info(TAG, "🟢 LIVE-RC-LOW $symbol: RC_SCORE_$rugcheckScore (1-5) — allowed per operator floor; FDG/liq still gate")
