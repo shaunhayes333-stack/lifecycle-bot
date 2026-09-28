@@ -65,6 +65,15 @@ class Aate7399ThroughputQualityAndLatencyTest {
     }
 
     @Test
+    fun actual_keyless_batch_client_is_bounded_7400() {
+        val s = src("network/KeylessPriceSources6996.kt")
+        assertTrue(s.contains("callTimeout(1_200, TimeUnit.MILLISECONDS)"))
+        assertTrue(s.contains("connectTimeout(800, TimeUnit.MILLISECONDS)"))
+        assertTrue(s.contains("readTimeout(1_000, TimeUnit.MILLISECONDS)"))
+        assertTrue(s.contains("writeTimeout(1_000, TimeUnit.MILLISECONDS)"))
+    }
+
+    @Test
     fun runner_compounding_status_separates_live_and_paper() {
         val s = src("engine/truth/RunnerCompoundingLadder6440.kt")
         assertTrue(s.contains("lastLiveWalletObserved7399"))
