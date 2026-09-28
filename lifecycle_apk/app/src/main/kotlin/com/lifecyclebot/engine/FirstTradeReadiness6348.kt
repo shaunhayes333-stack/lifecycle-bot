@@ -76,13 +76,16 @@ object FirstTradeReadiness6348 {
     fun assess(): Assessment {
         val pillars = mutableListOf<Pillar>()
 
-        // Pillar 1 (highest priority) — governor not HOLD.
+        // V5.0.7398 — governor state is shaping telemetry, not a live-entry veto.
+        // Preserve the historical pillar key for dashboard compatibility, but HOLD is
+        // now READY as long as the governor can be read. Concrete wallet/finality
+        // readiness is represented by the other safety authorities.
         val govName = try { LiveEntrySafetyHold.currentGovernorState().name } catch (_: Throwable) { "UNKNOWN" }
         pillars += Pillar(
             name = "GOVERNOR_NOT_HOLD",
             priority = 1,
-            ok = govName != "HOLD",
-            detail = "state=$govName",
+            ok = govName != "UNKNOWN",
+            detail = "state=$govName shapingOnly=true §7398",
         )
 
         // Pillar 2 (V5.0.6351: ADVISORY) — at least one LIVE_READY candidate.
