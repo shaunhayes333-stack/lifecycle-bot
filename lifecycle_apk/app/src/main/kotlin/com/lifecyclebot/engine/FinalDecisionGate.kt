@@ -3136,58 +3136,35 @@ object FinalDecisionGate {
         }
 
         if (blockReason == null && earlySnipeEnabled && !config.paperMode) {
-            val tokenAgeMinutes = if (ts.history.isNotEmpty()) {
-                val firstCandleTime = ts.history.minOfOrNull { it.ts } ?: System.currentTimeMillis()
-                (System.currentTimeMillis() - firstCandleTime) / 60_000.0
-            } else 0.0
-
+            // V5.0.7403 — EARLY_SNIPE is evidence, never a second FDG.
+            // The old branch used first-candle age and RETURNED an approved
+            // LIVE trade before edge veto, consensus, policy synthesis and
+            // canonical sizing. It could therefore recreate both the launch-age
+            // inversion and the minimum-size resurrection outside the main spine.
+            val lp7403 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
             val initialScore = effectiveGateScore6025
             val liquidity = ts.lastLiquidityUsd
             val buyPressure = ts.meta.pressScore
-
-            val isYoungToken = tokenAgeMinutes <= earlySnipeMaxAgeMinutes
-            val hasHighScore = initialScore >= earlySnipeMinScore
-            val hasMinLiquidity = liquidity >= earlySnipeMinLiquidity
-            val hasPositiveBuyPressure = buyPressure >= 50.0
-            val qualifiesForSnipe = isYoungToken && hasHighScore && hasMinLiquidity && hasPositiveBuyPressure
+            val trueEarly7403 = lp7403 != null && !lp7403.tooLateForSnipe &&
+                lp7403.ageMs <= (earlySnipeMaxAgeMinutes * 60_000.0).toLong() &&
+                lp7403.phase in setOf(
+                    com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION,
+                    com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
+                )
+            val qualifiesForSnipe = trueEarly7403 && initialScore >= earlySnipeMinScore &&
+                liquidity >= earlySnipeMinLiquidity && buyPressure >= 50.0
 
             if (qualifiesForSnipe) {
-                checks.add(
-                    GateCheck(
-                        "early_snipe",
-                        true,
-                        "SNIPE: age=${tokenAgeMinutes.toInt()}min score=${initialScore.toInt()} liq=\$${liquidity.toInt()} buy%=${buyPressure.toInt()}"
-                    )
-                )
-                tags.add("early_snipe")
-
-                ErrorLogger.info(
-                    "FDG",
-                    "🎯 EARLY_SNIPE: ${ts.symbol} | age=${tokenAgeMinutes.toInt()}min score=${initialScore.toInt()} liq=\$${liquidity.toInt()} buy%=${buyPressure.toInt()}% → FAST APPROVE"
-                )
-
-                return FinalDecision(
-                    shouldTrade = true,
-                    mode = mode,
-                    approvalClass = ApprovalClass.LIVE,
-                    quality = "SNIPE",
-                    confidence = 50.0,
-                    edge = EdgeVerdict.STRONG,
-                    blockReason = null,
-                    blockLevel = null,
-                    sizeSol = (proposedSizeSol * 0.5).coerceAtLeast(0.003),
-                    tags = tags + "fast_track",
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "EARLY_SNIPE: age=${tokenAgeMinutes.toInt()}min score=${initialScore.toInt()} liq=\$${liquidity.toInt()}",
-                    gateChecks = checks
-                )
-            } else if (isYoungToken && initialScore >= 50.0) {
-                val reasons = mutableListOf<String>()
-                if (!hasHighScore) reasons.add("score=${initialScore.toInt()}<$earlySnipeMinScore")
-                if (!hasMinLiquidity) reasons.add("liq=\$${liquidity.toInt()}<\$${earlySnipeMinLiquidity.toInt()}")
-                if (!hasPositiveBuyPressure) reasons.add("buy%=${buyPressure.toInt()}<50")
-                checks.add(GateCheck("early_snipe", false, "SNIPE_MISS: age=${tokenAgeMinutes.toInt()}min ${reasons.joinToString(" ")}"))
+                checks.add(GateCheck("early_snipe", true,
+                    "TRUE_SNIPE phase=${lp7403?.phase} ageMs=${lp7403?.ageMs} score=${initialScore.toInt()} liq=$${liquidity.toInt()} buy%=${buyPressure.toInt()}"))
+                tags.add("early_snipe_evidence_7403")
+                // Small nudge only. The candidate must still survive every
+                // downstream authority and the canonical resolver.
+                sizeMultiplier *= 1.05
+                try { PipelineHealthCollector.labelInc("EARLY_SNIPE_EVIDENCE_NO_BYPASS_7403") } catch (_: Throwable) {}
+            } else if (lp7403?.ageMs != null && lp7403.ageMs <= (earlySnipeMaxAgeMinutes * 60_000.0).toLong() && initialScore >= 50.0) {
+                checks.add(GateCheck("early_snipe", false,
+                    "SNIPE_MISS phase=${lp7403.phase} fade=${lp7403.tooLateForSnipe} score=${initialScore.toInt()} liq=$${liquidity.toInt()} buy%=${buyPressure.toInt()}"))
             }
         }
 
