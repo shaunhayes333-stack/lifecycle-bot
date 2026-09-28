@@ -34,7 +34,8 @@ object ExecutionDecisionSnapshot6510 {
     // returned again.
     private val byMint7346 = ConcurrentHashMap<String, MutableSet<String>>()
     @Volatile private var indexedGeneration7346 = Long.MIN_VALUE
-    private val EXECUTABLE_VERDICTS_7346 = setOf("BUY", "PROBE_ONLY")
+    private fun executableVerdict7403(verdict: String, mode: String): Boolean =
+        verdict == "BUY" || (verdict == "PROBE_ONLY" && mode.equals("PAPER", true))
 
     private fun mintKey7346(generation: Long, mode: String, mint: String): String =
         "$generation:${mode.uppercase()}:${mint.trim()}"
@@ -67,7 +68,7 @@ object ExecutionDecisionSnapshot6510 {
         val generation = BotRuntimeController.currentGeneration()
         return bucket7346(mint, mode).asSequence()
             .filter { it.runtimeGeneration == generation && it.mode.equals(mode, true) && it.mint == mint && it.candidateVersion == candidateVersion }
-            .filter { it.verdict in EXECUTABLE_VERDICTS_7346 && it.authoritativeSignal == "BUY" }
+            .filter { executableVerdict7403(it.verdict, it.mode) && it.authoritativeSignal == "BUY" }
             .maxByOrNull { it.authorityVersion }
     }
 
@@ -81,7 +82,7 @@ object ExecutionDecisionSnapshot6510 {
         val generation = BotRuntimeController.currentGeneration()
         return bucket7346(mint, mode).asSequence()
             .filter { it.runtimeGeneration == generation && it.mode.equals(mode, true) && it.mint == mint }
-            .filter { it.verdict in EXECUTABLE_VERDICTS_7346 && it.authoritativeSignal == "BUY" }
+            .filter { executableVerdict7403(it.verdict, it.mode) && it.authoritativeSignal == "BUY" }
             .filter { it.generatedAtMs > 0L && nowMs - it.generatedAtMs in 0L..maxAgeMs }
             .maxWithOrNull(compareBy<ExecutionDecisionSnapshot> { it.generatedAtMs }.thenBy { it.authorityVersion })
     }
@@ -93,9 +94,10 @@ object ExecutionDecisionSnapshot6510 {
         val generation = BotRuntimeController.currentGeneration()
         val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
         val old = byAuthorityKey[key(mint, currentVersion, currentLane, generation, mode)] ?: return null
-        val executable = old.verdict in setOf("BUY", "PROBE_ONLY") && old.executionLane.equals(currentLane, true)
+        val executable = executableVerdict7403(old.verdict, old.mode) &&
+            old.executionLane.equals(currentLane, true)
         if (!executable) return null
-        if (currentVerdict !in setOf("BUY", "PROBE_ONLY")) {
+        if (!(currentVerdict == "BUY" || (currentVerdict == "PROBE_ONLY" && mode.equals("PAPER", true)))) {
             try {
                 ForensicLogger.lifecycle("EXEC_DECISION_RAW_VERDICT_DIAGNOSTIC_6512", "mint=${mint.take(10)} version=$currentVersion sealedVerdict=${old.verdict} mutableVerdict=$currentVerdict lane=${old.executionLane} action=continue_sealed_authority")
                 PipelineHealthCollector.labelInc("EXEC_DECISION_RAW_VERDICT_DIAGNOSTIC_6512")
