@@ -2702,30 +2702,24 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════════════
         val currentRsi = ts.meta.rsi
         val rsiLenient = ModeLeniency.useLenientGates(config.paperMode)
-        // V5.0.4595 — RSI RELAX FOR PROVEN WINNERS (operator P0 "open the valve").
-        // STANDARD (66% WR, +0.078 SOL) and MOONSHOT (56% WR, +0.072 SOL) are
-        // the two profitable lanes. Hard-blocking them on RSI>90 was cutting
-        // ~7 trades/session while catastrophic-lane bleeders had already
-        // been paused. Rule: if lane is in {STANDARD, MOONSHOT} AND its
-        // live sample WR is >= 50% over >= 5 confirmed closes, downgrade
-        // the RSI>90 block to a penalty tag so the trade proceeds (with
-        // FDG downstream size shaping still applied).
-        val provenWinnerRsiBypass4595 = try {
-            val laneU = tradingModeTag?.name?.uppercase() ?: ""
-            val liveWinner4595 = if (laneU == "STANDARD" || laneU == "MOONSHOT") {
-                val snap = LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == laneU }
-                snap != null && snap.sample >= 5 && snap.wrPct >= 50.0
-            } else false
-            // V5.0.7380 — or the lane's learned score band proves it (paper + live).
-            // The live-only snapshot above needs live closes a new wallet does not
-            // have, so the live RSI>90 hard block fired on proven runner lanes
-            // (RSI_OVERBOUGHT 63 in 6h on 5.0.7368) where paper takes the trade.
-            liveWinner4595 || com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378(
-                specialistLane?.takeIf { it.isNotBlank() } ?: laneU,
-            )
+        // V5.0.7403 — RSI>90 is a CURRENT-TIMING question, not a lane-history
+        // privilege. A lane that won last week does not make an overextended
+        // token safe today. Preserve throughput for genuine first-minute
+        // ignition and mature structural continuation, but never for a launch
+        // that has already rolled into POST_PUMP_FADE.
+        val rsiCurrentStructureBypass7403 = try {
+            val lp = com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)
+            val tt = try { ModeRouter.classify(ts).tradeType } catch (_: Throwable) { ModeRouter.TradeType.UNKNOWN }
+            val genuineIgnition = !lp.tooLateForSnipe &&
+                lp.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION &&
+                lp.accelerationRising && lp.buySharePct >= 58.0 && lp.currentVsRecentPeak >= 0.90
+            val matureStructure = lp.ageMs >= 15L * 60_000L && !lp.tooLateForSnipe &&
+                tt in setOf(ModeRouter.TradeType.BREAKOUT_CONTINUATION, ModeRouter.TradeType.TREND_PULLBACK)
+            genuineIgnition || matureStructure
         } catch (_: Throwable) { false }
+
         if (blockReason == null && currentRsi > 90.0) {
-            if (!config.paperMode && !rsiLenient && !provenWinnerRsiBypass4595) {
+            if (!config.paperMode && !rsiLenient && !rsiCurrentStructureBypass7403) {
                 // STRICT LIVE ONLY: Hard block RSI > 90
                 // V5.9.291: Proven-edge live uses paper behaviour (penalty + tiny size, not block)
                 blockReason = "RSI_OVERBOUGHT_${currentRsi.toInt()}"
@@ -2735,13 +2729,13 @@ object FinalDecisionGate {
                 ErrorLogger.warn("FDG", "🚫 RSI HARD BLOCK: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | EXTREME OVERBOUGHT → BLOCK")
             } else {
                 // PAPER, PROVEN-EDGE LIVE, or V5.0.4595 PROVEN-WINNER-LANE: Allow with severe penalty and tiny size for learning
-                checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 90 → LEARNING with penalty (provenWinnerBypass=$provenWinnerRsiBypass4595)"))
-                tags.add(if (provenWinnerRsiBypass4595) "rsi_overbought_winner_bypass_4595" else "rsi_overbought_learn")
-                if (provenWinnerRsiBypass4595) {
-                    try { PipelineHealthCollector.labelInc("RSI_WINNER_BYPASS_4595_${tradingModeTag?.name?.uppercase() ?: "UNK"}") } catch (_: Throwable) {}
-                    ErrorLogger.info("FDG", "🟢 RSI WINNER BYPASS: ${ts.symbol} | RSI=${currentRsi.toInt()} lane=${tradingModeTag?.name} — proven >=50%WR/>=5n, allowing with penalty")
+                checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 90 → current-structure exception=$rsiCurrentStructureBypass7403"))
+                tags.add(if (rsiCurrentStructureBypass7403) "rsi_current_structure_exception_7403" else "rsi_overbought_learn")
+                if (rsiCurrentStructureBypass7403) {
+                    try { PipelineHealthCollector.labelInc("RSI_CURRENT_STRUCTURE_EXCEPTION_7403") } catch (_: Throwable) {}
+                    ErrorLogger.info("FDG", "🟢 RSI STRUCTURE EXCEPTION: ${ts.symbol} | RSI=${currentRsi.toInt()} current ignition/structure verified; size remains heavily shaped")
                 } else {
-                    ErrorLogger.info("FDG", "🎓 RSI LEARN: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | severe penalty for learning")
+                    ErrorLogger.info("FDG", "🎓 RSI LEARN: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | severe penalty for paper learning")
                 }
             }
         } else if (blockReason == null && currentRsi > 85.0) {
@@ -2780,9 +2774,11 @@ object FinalDecisionGate {
 
         // V5.6.9 FIX: Apply RSI penalties to soft score and size
         val rsiPenalty = when {
-            currentRsi > 90.0 && config.paperMode -> {
-                sizeMultiplier *= 0.15  // Only 15% size for extreme overbought paper trades
-                35  // Heavy penalty
+            currentRsi > 90.0 -> {
+                // Paper explores at 15%; a live exception is still an exception,
+                // so cap it harder than the ordinary RSI>85 branch.
+                sizeMultiplier *= if (config.paperMode) 0.15 else 0.30
+                35
             }
             currentRsi > 85.0 -> {
                 sizeMultiplier *= 0.5  // 50% size for high RSI
