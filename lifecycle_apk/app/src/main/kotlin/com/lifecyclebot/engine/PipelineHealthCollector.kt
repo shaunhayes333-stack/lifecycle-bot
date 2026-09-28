@@ -3541,8 +3541,19 @@ object PipelineHealthCollector {
         sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}  EXEC_PAPER_PARTIAL_OK=${execPaperPartialOk.get()}\n")
         sb.append("    PAPER_JOURNAL_ROWS=$paperJournalRows  PAPER_QUARANTINED_ROWS=$paperQuarantinedRows\n")
         if (modeSnapshot == "LIVE" && fdgLiveBlock.get() > 0 && fdgLiveAllow.get() == 0L) {
-            sb.append("  ⚠ LIVE mode but FDG_LIVE_ALLOW=0 — live trading is fully blocked.\n")
-            sb.append("    Check block-reason histogram below for the gate that\'s vetoing.\n")
+            val landedLiveBuys7425 = execLiveBuyOk.get()
+            val liveExecAttempts7425 = execLiveAttempt.get()
+            if (landedLiveBuys7425 > 0L) {
+                sb.append("  ⚠ FDG_LIVE_ALLOW=0 but EXEC_LIVE_BUY_OK=$landedLiveBuys7425 — telemetry populations do not reconcile; LIVE is NOT fully blocked.\n")
+                sb.append("    Audit FDG decision attribution / recovered-confirmation joins before treating FDG=0 as an execution veto.\n")
+                try { labelInc("FDG_EXEC_TELEMETRY_POPULATION_MISMATCH_7425") } catch (_: Throwable) {}
+            } else if (liveExecAttempts7425 > 0L) {
+                sb.append("  ⚠ FDG_LIVE_ALLOW=0 while EXEC_LIVE_ATTEMPT=$liveExecAttempts7425 — downstream execution activity exists; audit causal attribution before declaring a block.\n")
+                try { labelInc("FDG_EXEC_TELEMETRY_POPULATION_MISMATCH_7425") } catch (_: Throwable) {}
+            } else {
+                sb.append("  ⚠ LIVE mode with FDG_LIVE_ALLOW=0 and no live execution attempts — entries are currently blocked upstream.\n")
+                sb.append("    Check block-reason histogram below for the gate that is vetoing.\n")
+            }
         }
         if (modeSnapshot == "PAPER" && fdgLiveAllow.get() > 0) {
             sb.append("  ⚠ Mode=PAPER but live FDG passes recorded — historical from a prior live session.\n")
