@@ -953,7 +953,10 @@ object FinalDecisionGate {
         // paper + live closes) shows ≥20 closes with positive mean net return.
         // The floors themselves, hard safety and every later gate are unchanged;
         // trunk callers with no specialist lane are unchanged.
+        val sniperLowRescueAllowed7399 =
+            !sniperLowDanger7399 || sniperLowExplore7399 || canonicalV3Score7243 > 10.0
         val laneScoreClears7307 = specialistLane != null &&
+            sniperLowRescueAllowed7399 &&
             laneEvidenceScore7243 >= qualityFloor7399 &&
             laneEvidenceScore7243 > canonicalV3Score7243
         // V5.0.7307 — proven by its journal OR by its fee-net shadow record
