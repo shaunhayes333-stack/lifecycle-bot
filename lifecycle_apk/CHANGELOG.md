@@ -6,6 +6,8 @@
 - Moved Crypto exposure and cross-trader wallet checks after CanonicalSizingBridge6532 so those guards evaluate the sealed executable size instead of a preliminary learned estimate.
 - Crypto learned discipline (defensive pause, lane timeout, scanner-bridge toxicity) is now shaping/advisory in LIVE rather than a pre-canonical hard veto. Rug blacklist, real route proof, canonical FDG, wallet capacity, execution and finality remain hard safety authorities.
 - Corrected 7399 regression expectations and added Aate7400CryptoThroughputRecoveryTest.
+- The actual held-position keyless batch client (`KeylessPriceSources6996`) is now bounded to 1.2 s call / 0.8 s connect / 1.0 s read+write. 7399 bounded `PriceResolverFallback`, but the 37.9 s `keyless_batch` stall came from this separate batch client.
+- Trade-quality correction is explicitly non-gating: existing `SniperLowScoreShaper7054`, `LaneEdgeConcentrator6334`, tactic rotation and expectancy dampers keep shaping size/tactic/priority; 7400 does not add a new lane-disable or score-floor veto.
 - Production version authorities bumped to 5.0.7400.
 
 ## [5.0.7399] - 2026-09-28 — THROUGHPUT WITHOUT FUNDING THE BLEEDERS
