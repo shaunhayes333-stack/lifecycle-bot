@@ -159,10 +159,12 @@ object ModeRouter {
         val hist = ts.history.toList()
         val now = System.currentTimeMillis()
         
-        // Calculate token age from history (first candle timestamp)
-        val tokenAgeMins = if (hist.isNotEmpty()) {
-            (now - hist.first().ts) / 60_000.0
-        } else 999.0
+        // V5.0.7402 — one launch-time authority everywhere. Candle history can
+        // start when AATE discovers a token, so first-candle age is not birth age.
+        val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts, now) } catch (_: Throwable) { null }
+        val tokenAgeMins = try {
+            (launch7402?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts, now)) / 60_000.0
+        } catch (_: Throwable) { 999.0 }
 
         val sourceTags = buildString {
             append(ts.source.uppercase())
@@ -181,25 +183,31 @@ object ModeRouter {
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // FRESH LAUNCH DETECTION
+        // FRESH LAUNCH DETECTION — true phase, not candle/watchlist recency.
         // ─────────────────────────────────────────────────────────────────
-        if (tokenAgeMins <= 15.0) {
-            scores[TradeType.FRESH_LAUNCH] = scores[TradeType.FRESH_LAUNCH]!! + 50.0
-            signals.add("FRESH: age=${tokenAgeMins.toInt()}min")
-            
-            // Bonus for good early structure
-            if (ts.lastLiquidityUsd > 3000) {
-                scores[TradeType.FRESH_LAUNCH] = scores[TradeType.FRESH_LAUNCH]!! + 15.0
-                signals.add("FRESH: good liq $${ts.lastLiquidityUsd.toInt()}")
+        val trueFresh7402 = launch7402?.phase in setOf(
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION,
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING,
+        ) && launch7402?.tooLateForSnipe != true && tokenAgeMins <= 3.0
+        if (trueFresh7402) {
+            scores[TradeType.FRESH_LAUNCH] = scores[TradeType.FRESH_LAUNCH]!! + when (launch7402?.phase) {
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION -> 70.0
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION -> 60.0
+                else -> 42.0
             }
-            
-            // Check early buy pressure
-            val lastCandle = hist.lastOrNull()
-            if (lastCandle != null && lastCandle.buyRatio > 0.55) {
+            signals.add("FRESH_TRUE: phase=${launch7402?.phase} age=${"%.1f".format(tokenAgeMins)}m")
+            if (ts.lastLiquidityUsd > 3000) {
                 scores[TradeType.FRESH_LAUNCH] = scores[TradeType.FRESH_LAUNCH]!! + 10.0
             }
+            if ((launch7402?.buySharePct ?: 50.0) >= 60.0) {
+                scores[TradeType.FRESH_LAUNCH] = scores[TradeType.FRESH_LAUNCH]!! + 10.0
+            }
+        } else if (launch7402?.tooLateForSnipe == true) {
+            scores[TradeType.FRESH_LAUNCH] = -50.0
+            signals.add("FRESH_REJECT_POST_PUMP_FADE")
         }
-        
+
         // ─────────────────────────────────────────────────────────────────
         // BREAKOUT CONTINUATION DETECTION
         // ─────────────────────────────────────────────────────────────────
@@ -270,11 +278,11 @@ object ModeRouter {
         val sortedScores = scores.values.sortedDescending()
         val secondBest = if (sortedScores.size > 1) sortedScores[1] else 0.0
         val confidence = when {
-            bestScore <= 20 -> 10.0  // Very weak signal
-            bestScore - secondBest > 20 -> 90.0  // Clear winner
-            bestScore - secondBest > 25 -> 70.0  // Good separation
-            bestScore - secondBest > 5 -> 50.0   // Moderate
-            else -> 30.0  // Ambiguous
+            bestScore <= 20 -> 10.0
+            bestScore - secondBest > 25 -> 90.0
+            bestScore - secondBest > 20 -> 70.0
+            bestScore - secondBest > 5 -> 50.0
+            else -> 30.0
         }
         
         return Classification(
