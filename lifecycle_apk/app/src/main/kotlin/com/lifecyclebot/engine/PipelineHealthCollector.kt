@@ -2295,6 +2295,11 @@ object PipelineHealthCollector {
                     "CANONICAL_HIGH_EV_SHADOW_ONLY_7426_MISSING",
                     "CANONICAL_HIGH_EV_PROBE_SHADOW_ONLY_7426",
                     "CANONICAL_HIGH_EV_AUTHORITY_UNAVAILABLE_7426",
+                    // V5.0.7427 — exact strategy identity / credit integrity.
+                    "STRATEGY_VARIANT_EXACT_STAMPED_7427",
+                    "STRATEGY_VARIANT_EXACT_OUTCOME_7427",
+                    "STRATEGY_VARIANT_EXACT_OUTCOME_MISSING_7427",
+                    "TACTIC_ENTRY_ATTRIBUTION_INVALID_6568",
                     "BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263",
                     "BRAIN_CONSENSUS_UNAVAILABLE_FAIL_OPEN_7263",
                     "CROSS_ASSET_ORACLE_ADVISORY_PASS_7263",
