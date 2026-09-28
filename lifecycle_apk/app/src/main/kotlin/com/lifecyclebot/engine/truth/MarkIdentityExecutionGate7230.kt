@@ -65,9 +65,7 @@ object MarkIdentityExecutionGate7230 {
     )
     private val suppressedByMint7243 = ConcurrentHashMap<String, ActiveSuppression7243>()
     private val lastSuppressionEvent7250 = ConcurrentHashMap<String, ActiveSuppression7243>()
-    private val usableEmitAt7414 = ConcurrentHashMap<String, Long>()
     private const val REPEAT_EVENT_WINDOW_MS_7250 = 5_000L
-    private const val USABLE_EMIT_INTERVAL_MS_7414 = 10_000L
 
     /** Returns true only when authority changed; repeated polling stays safe
      * but does not flood the forensic ring with the same transition. */
@@ -179,13 +177,7 @@ object MarkIdentityExecutionGate7230 {
 
         executionAllowed.incrementAndGet()
         if (mint.isNotBlank()) suppressedByMint7243.remove(mint)
-        val usableKey7414 = mint + "|" + poolOrVenueKey
-        val now7414 = System.currentTimeMillis()
-        val prior7414 = usableEmitAt7414[usableKey7414] ?: 0L
-        if (now7414 - prior7414 >= USABLE_EMIT_INTERVAL_MS_7414) {
-            usableEmitAt7414[usableKey7414] = now7414
-            try { PipelineHealthCollector.labelInc("MARK_IDENTITY_USABLE_7230") } catch (_: Throwable) {}
-        }
+        try { PipelineHealthCollector.labelInc("MARK_IDENTITY_USABLE_7230") } catch (_: Throwable) {}
         return MarkDecision(Verdict.USABLE, "clean_corroborated", poolOrVenueKey)
     }
 
@@ -218,6 +210,5 @@ object MarkIdentityExecutionGate7230 {
         repeatedSuppressionCoalesced7250.set(0L)
         suppressedByMint7243.clear()
         lastSuppressionEvent7250.clear()
-        usableEmitAt7414.clear()
     }
 }

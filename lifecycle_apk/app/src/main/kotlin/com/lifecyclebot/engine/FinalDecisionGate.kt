@@ -803,21 +803,6 @@ object FinalDecisionGate {
         // was permanently 0 because no call site emitted the phase
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
-        // V5.0.7410 — immutable verdict reuse BEFORE fanout accounting.
-        // The cache existed already, but was consulted after allowFdgEval().
-        // Identical repeated calls therefore spent the lane's two-slot budget
-        // and could receive FDG_FANOUT_CAP despite a valid cached verdict.
-        val fdgSide7410 = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
-        val fdgCacheLane7410 =
-            (specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
-                ?: tradingModeTag?.name ?: "STANDARD") +
-            (fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { ":$it" } ?: "")
-        val fdgCacheKey = fdgCacheKey(ts, candidate, fdgCacheLane7410, fdgSide7410, laneScore)
-        cachedFdgVerdict(fdgCacheKey)?.let {
-            try { PipelineHealthCollector.labelInc("FDG_PRE_FANOUT_CACHE_HIT_7410") } catch (_: Throwable) {}
-            return it
-        }
-
         // V5.0.7232 §FDG_FANOUT_CAP — operator 7227 diagnosis:
         //   laneEval/intake = 29.51,  FDG/intake = 10.86.
         //   Authority invariants clean (EXECUTABLE_FANOUT_PER_CANDIDATE
@@ -1101,7 +1086,9 @@ object FinalDecisionGate {
                     .currentElection6600(ts.mint)?.primaryLane?.uppercase()?.takeIf { it.isNotBlank() }
             } catch (_: Throwable) { null }
             ?: laneName
-        val fdgSide = fdgSide7410
+        val fdgSide = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
+        val fdgCacheKey = fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore)
+        cachedFdgVerdict(fdgCacheKey)?.let { return it }
 
         if (mode == TradeMode.LIVE && !KeyValidator.isLive("helius")) {
             // V5.0.3861 — Helius is one RPC/proof provider, not global trading authority.

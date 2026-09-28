@@ -18,17 +18,6 @@ import com.lifecyclebot.network.PumpCurveKeys7269
  * and scanners so an old/fading launch is not handed to PROJECT_SNIPER.
  */
 object LaunchPhaseAuthority7401 {
-    // V5.0.7408 — lane/tool fan-out was recalculating the same launch truth
-    // hundreds of times per bot cycle. Cache only across the current observation
-    // burst; 750ms is short enough for launch trading while collapsing duplicate
-    // reads from V3/specialists/tools.
-    private data class Cached7408(val atMs: Long, val snapshot: Snapshot)
-    private data class PhaseEmit7408(val phase: Phase, val atMs: Long)
-    private val cache7408 = java.util.concurrent.ConcurrentHashMap<String, Cached7408>()
-    private val phaseEmit7408 = java.util.concurrent.ConcurrentHashMap<String, PhaseEmit7408>()
-    private const val SNAPSHOT_TTL_MS_7408 = 750L
-    private const val SAME_PHASE_EMIT_MS_7408 = 5_000L
-
     enum class Phase {
         PRE_IGNITION,
         IGNITION,
@@ -79,13 +68,6 @@ object LaunchPhaseAuthority7401 {
     }
 
     fun snapshot(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Snapshot {
-        val mintKey7408 = ts.mint
-        if (mintKey7408.isNotBlank()) {
-            val cached7408 = cache7408[mintKey7408]
-            if (cached7408 != null && nowMs - cached7408.atMs in 0L..SNAPSHOT_TTL_MS_7408) {
-                return cached7408.snapshot
-            }
-        }
         val age = trueAgeMs(ts, nowMs)
         val dev = try { OperatorRegistry.getDevWallet(ts.mint) } catch (_: Throwable) { null }
         val flow = try { WhaleDetector.launchFlow7401(ts.mint, dev, nowMs) }
@@ -145,26 +127,11 @@ object LaunchPhaseAuthority7401 {
             append(" accel=").append(flow.accelerationRising)
             append(" peakPos=").append("%.2f".format(peakPos))
         }
-        val out7408 = Snapshot(
+        try { PipelineHealthCollector.labelInc("LAUNCH_PHASE_7401_${phase.name}") } catch (_: Throwable) {}
+        return Snapshot(
             phase, age, multiple, flow.buySharePct, flow.buyTx60s, flow.sellTx60s,
             flow.distinctBuyers60s, flow.devBuyTx60s, flow.devSellTx60s,
             flow.accelerationRising, peakPos, reason,
         )
-        if (mintKey7408.isNotBlank()) {
-            cache7408[mintKey7408] = Cached7408(nowMs, out7408)
-            val prior7408 = phaseEmit7408[mintKey7408]
-            if (prior7408 == null || prior7408.phase != phase || nowMs - prior7408.atMs >= SAME_PHASE_EMIT_MS_7408) {
-                phaseEmit7408[mintKey7408] = PhaseEmit7408(phase, nowMs)
-                try { PipelineHealthCollector.labelInc("LAUNCH_PHASE_7401_${phase.name}") } catch (_: Throwable) {}
-            }
-            if (cache7408.size > 20_000) {
-                val cutoff7408 = nowMs - 60_000L
-                try { cache7408.entries.removeIf { it.value.atMs < cutoff7408 } } catch (_: Throwable) {}
-                try { phaseEmit7408.entries.removeIf { it.value.atMs < cutoff7408 } } catch (_: Throwable) {}
-            }
-        } else {
-            try { PipelineHealthCollector.labelInc("LAUNCH_PHASE_7401_${phase.name}") } catch (_: Throwable) {}
-        }
-        return out7408
     }
 }

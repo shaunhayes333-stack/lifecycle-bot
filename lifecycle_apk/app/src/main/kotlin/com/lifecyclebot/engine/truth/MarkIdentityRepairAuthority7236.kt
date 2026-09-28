@@ -54,11 +54,6 @@ object MarkIdentityRepairAuthority7236 {
 
     private val cache = ConcurrentHashMap<String, Repaired>()
     private val lastAttempt = ConcurrentHashMap<String, Long>()
-    // V5.0.7409 — cache hits/stale reads are hot consumer reads, not market
-    // events. Keep exact atomic counters, but coalesce pipeline labels per mint.
-    private val cacheHitEmitAt7409 = ConcurrentHashMap<String, Long>()
-    private val cacheStaleEmitAt7409 = ConcurrentHashMap<String, Long>()
-    private const val CACHE_READ_EMIT_INTERVAL_MS_7409 = 10_000L
 
     private val repairAttempts = AtomicLong(0L)
     private val repairSucceeded = AtomicLong(0L)
@@ -219,21 +214,11 @@ object MarkIdentityRepairAuthority7236 {
         val age = (System.currentTimeMillis() - entry.tsMs).coerceAtLeast(0L)
         if (age > REPAIR_FRESH_MS) {
             cacheMissesStale.incrementAndGet()
-            val now7409 = System.currentTimeMillis()
-            val prior7409 = cacheStaleEmitAt7409[mint] ?: 0L
-            if (now7409 - prior7409 >= CACHE_READ_EMIT_INTERVAL_MS_7409) {
-                cacheStaleEmitAt7409[mint] = now7409
-                try { PipelineHealthCollector.labelInc("MARK_REPAIR_CACHE_STALE_7236") } catch (_: Throwable) {}
-            }
+            try { PipelineHealthCollector.labelInc("MARK_REPAIR_CACHE_STALE_7236") } catch (_: Throwable) {}
             return null
         }
         cacheHits.incrementAndGet()
-        val now7409 = System.currentTimeMillis()
-        val prior7409 = cacheHitEmitAt7409[mint] ?: 0L
-        if (now7409 - prior7409 >= CACHE_READ_EMIT_INTERVAL_MS_7409) {
-            cacheHitEmitAt7409[mint] = now7409
-            try { PipelineHealthCollector.labelInc("MARK_REPAIR_CACHE_HIT_7236") } catch (_: Throwable) {}
-        }
+        try { PipelineHealthCollector.labelInc("MARK_REPAIR_CACHE_HIT_7236") } catch (_: Throwable) {}
         return entry.priceUsd
     }
 
@@ -276,7 +261,6 @@ object MarkIdentityRepairAuthority7236 {
 
     internal fun clearForTest() {
         cache.clear(); lastAttempt.clear()
-        cacheHitEmitAt7409.clear(); cacheStaleEmitAt7409.clear()
         repairAttempts.set(0L); repairSucceeded.set(0L); repairFailed.set(0L)
         cacheHits.set(0L); cacheMissesStale.set(0L)
     }

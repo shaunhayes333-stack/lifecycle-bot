@@ -518,17 +518,10 @@ object JournalEconomicReplay6619 {
                     val soldDisplay = t.soldQtyToken.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                     val nextBasis = lot.basisSol - basis
                     val nextRaw = if (soldRaw > java.math.BigInteger.ZERO) lot.rawQty - soldRaw else lot.rawQty
-                    val nextDisplayRaw7407 = if (soldDisplay > 0.0) lot.displayQty - soldDisplay else lot.displayQty
-                    // V5.0.7407 — canonical raw quantity outranks the lossy display
-                    // double. A rounded soldQtyToken may exceed displayQty by dust
-                    // while canonicalConsumedRaw is exact; rejecting the SELL here
-                    // applied the BUY debit but skipped the SELL credit.
-                    val hasCanonicalRaw7407 = soldRaw > java.math.BigInteger.ZERO && lot.rawQty > java.math.BigInteger.ZERO
-                    val displayNegativeAuthoritative7407 = !hasCanonicalRaw7407 && nextDisplayRaw7407 < -1e-9
-                    if (nextBasis < -1e-9 || nextRaw < java.math.BigInteger.ZERO || displayNegativeAuthoritative7407) {
+                    val nextDisplay = if (soldDisplay > 0.0) lot.displayQty - soldDisplay else lot.displayQty
+                    if (nextBasis < -1e-9 || nextRaw < java.math.BigInteger.ZERO || nextDisplay < -1e-9) {
                         reject(t, eventId, "NEGATIVE_REMAINING_LOT"); continue
                     }
-                    val nextDisplay = if (hasCanonicalRaw7407) nextDisplayRaw7407.coerceAtLeast(0.0) else nextDisplayRaw7407
                     // V5.0.6868 §A_REPLAY_MUST_NOT_APPLY_A_DEBIT_AND_REFUSE_ITS_CREDIT —
                     // this used to `reject(...); continue` on TERMINAL_SELL_INCOMPLETE_LOT,
                     // i.e. when a terminal SELL left residual basis or raw quantity on the

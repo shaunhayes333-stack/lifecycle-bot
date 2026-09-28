@@ -162,7 +162,6 @@ object LiveProbabilityEngine {
                 .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
         } catch (_: Throwable) { null }
         val liveCloses7403 = liveMetric7403?.trades ?: 0
-        val liveRuntime7408 = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
         val paperColdStartWinner7403 = if (liveCloses7403 == 0) try {
             val paper = StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 2_500)
                 .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
@@ -267,26 +266,17 @@ object LiveProbabilityEngine {
                     .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
             } catch (_: Throwable) { null } else null
 
-            // V5.0.7408 — PAPER is a bounded prior for LIVE, never synthetic
-            // live evidence. Shrink it strongly toward neutral until the wallet
-            // produces its own closes. Paper mode still consumes paper normally.
-            val paperRawP7408 = paperColdStart7403?.winRatePct?.coerceIn(0.0, 100.0)?.div(100.0) ?: 0.5
-            val paperPriorP7408 = 0.5 + (paperRawP7408 - 0.5) * 0.25
-            val paperPriorE7408 = (paperColdStart7403?.meanPnlPct ?: 0.0).coerceIn(-40.0, 40.0) * 0.25
             val laneSamples = (laneMetric?.trades?.toLong() ?: 0L).let { liveN ->
-                if (liveN > 0L) liveN
-                else if (liveRuntime7408) (paperColdStart7403?.trades?.toLong()?.coerceAtMost(8L) ?: 0L)
-                else (paperColdStart7403?.trades?.toLong()?.coerceAtMost(40L) ?: 0L)
+                if (liveN > 0L) liveN else (paperColdStart7403?.trades?.toLong()?.coerceAtMost(40L) ?: 0L)
             }
             val lanePWin = when {
                 laneMetric != null && (laneMetric.wins + laneMetric.losses) > 0 ->
                     laneMetric.winRatePct.coerceIn(0.0, 100.0) / 100.0
                 paperColdStart7403 != null && (paperColdStart7403.wins + paperColdStart7403.losses) > 0 ->
-                    if (liveRuntime7408) paperPriorP7408 else paperRawP7408
+                    paperColdStart7403.winRatePct.coerceIn(0.0, 100.0) / 100.0
                 else -> 0.5
             }
-            val laneE = laneMetric?.meanPnlPct
-                ?: if (liveRuntime7408) paperPriorE7408 else (paperColdStart7403?.meanPnlPct ?: 0.0)
+            val laneE = laneMetric?.meanPnlPct ?: paperColdStart7403?.meanPnlPct ?: 0.0
             val laneSol = laneMetric?.totalSolPnl ?: 0.0
             try {
                 if (laneMetric != null && laneMetric.trades > 0) {
@@ -491,7 +481,7 @@ object LiveProbabilityEngine {
             // Skipped if raw-reality clamp is active (recent catastrophe overrides
             // historical proof — reality first). Never re-boosts above the
             // downstream 1.80x cap in the qualityAwareCap coerceIn.
-            val clampedMult = if (!liveRuntime7408 && paperColdStartWinner7403 && clampedMultPre6267 > 0.30) {
+            val clampedMult = if (paperColdStartWinner7403 && clampedMultPre6267 > 0.30) {
                 val boosted = (clampedMultPre6267 * 1.25).coerceIn(0.10, 1.80)
                 try {
                     ForensicLogger.lifecycle(
