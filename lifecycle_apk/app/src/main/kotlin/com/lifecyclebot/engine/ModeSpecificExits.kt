@@ -722,13 +722,16 @@ object ModeSpecificExits {
             )
         }
         
-        // MOMENTUM FADE: If buy pressure drops significantly, leader may be exiting
+        // V5.0.7403 — leader-flow invalidation is thesis invalidation,
+        // not a profit-taking rule. The old pnl>10 guard cut winners while
+        // holding the exact losing copy trades where the leader likely sold on us.
         val lastCandle = hist.lastOrNull()
-        if (pnlPct > 10 && lastCandle != null && lastCandle.buyRatio < 0.35) {
+        if (lastCandle != null && lastCandle.buyRatio < 0.35 && holdTimeMins >= 1.0) {
+            val exitPct7403 = if (pnlPct > 10.0) 60.0 else 100.0
             return ExitRecommendation(
                 shouldExit = true,
-                exitPct = 60.0,
-                reason = "COPY_TRADE: Leader likely exiting (buy% dropping)",
+                exitPct = exitPct7403,
+                reason = "COPY_TRADE: Leader flow invalidated (pnl=${pnlPct.toInt()}%, exit ${exitPct7403.toInt()}%)",
                 urgency = ExitUrgency.URGENT,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -951,13 +954,16 @@ object ModeSpecificExits {
             )
         }
         
-        // Sentiment fading (buy ratio dropping)
+        // V5.0.7403 — narrative fade invalidates a sentiment thesis
+        // regardless of whether P&L happens to be green. The old pnl>0 gate
+        // monetised winners but bag-held losers after the catalyst disappeared.
         val lastCandle = hist.lastOrNull()
-        if (lastCandle != null && lastCandle.buyRatio < 0.40 && pnlPct > 0) {
+        if (lastCandle != null && lastCandle.buyRatio < 0.40 && holdTimeMins >= 1.0) {
+            val exitPct7403 = if (pnlPct > 5.0) 70.0 else 100.0
             return ExitRecommendation(
                 shouldExit = true,
-                exitPct = 70.0,
-                reason = "SENTIMENT: Narrative fading",
+                exitPct = exitPct7403,
+                reason = "SENTIMENT: Narrative faded (pnl=${pnlPct.toInt()}%, exit ${exitPct7403.toInt()}%)",
                 urgency = ExitUrgency.URGENT,
                 adjustedStop = null,
                 adjustedTarget = null,
