@@ -14879,7 +14879,14 @@ class Executor(
         extra: String = "",
     ): String {
         val safeLane = normalizeExecutionLane(lane).ifBlank { "STANDARD" }
-        val safeStyle = style.ifBlank { safeLane }
+        // V5.0.7427 — one canonical strategy identity for PAPER and LIVE.
+        // Do not let each execution adapter invent its own style namespace.
+        val strategyClass7427 = try { ModeRouter.classify(ts) } catch (_: Throwable) { null }
+        val strategyDecision7427 = try {
+            strategyClass7427?.let { AgenticStyleRouter.decide(ts, it, safeLane) }
+        } catch (_: Throwable) { null }
+        val strategySheet7427 = strategyDecision7427?.toolkit
+        val safeStyle = strategyDecision7427?.style?.name ?: style.ifBlank { safeLane }
         val scannerSource = ts.source.ifBlank { ts.tokenMap.sourceScanner.ifBlank { "UNKNOWN" } }
         val source = ts.lastPriceSource.ifBlank { scannerSource }
         val mult = if (plannedSol > 0.0) (finalSol / plannedSol).coerceIn(0.0, 50.0) else 1.0
@@ -14898,6 +14905,10 @@ class Executor(
             "mode=$mode",
             "lane=$safeLane",
             "style=$safeStyle",
+            "tradeType7427=${strategyClass7427?.tradeType?.name ?: "UNKNOWN"}",
+            "setup7427=${strategySheet7427?.setup?.name ?: "NONE"}",
+            "entryStyle7427=${strategySheet7427?.entryStyle?.replace(";", "_")?.take(80) ?: ""}",
+            "exitStyle7427=${strategySheet7427?.exitStyle?.replace(";", "_")?.take(80) ?: ""}",
             "entryTactic=$electedTactic6568",
             "tacticVersion=6568",
             "brainConsensus=$brainVerdict6568",
@@ -16894,7 +16905,11 @@ class Executor(
                     mint = tradeId.mint,
                     entryLane = entryLane6450,
                     entryStrategyPid = "",
-                    entryTactic = entryDeskHypothesis6599?.entryStyle ?: try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
+                    // V5.0.7427 — entryTactic is ONLY the TacticSwitcher enum.
+                    // Toolkit free-form entryStyle has its own field below.
+                    entryTactic = policyField6568(paperPolicySnapshot, "entryTactic").ifBlank {
+                        try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+                    },
                     entryRiskProfile = entryDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
                     entryExitProfile = entryDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(),
                     entrySource = identity?.source.orEmpty(),
@@ -16921,6 +16936,12 @@ class Executor(
                     forwardPWin = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
                     sizingMultipliers = paperPolicySnapshot.substringAfter("sizeMult=", "").take(240),
                     authorizationReason = policyField6568(paperPolicySnapshot, "reasons"),
+                    entryTradeType = policyField6568(paperPolicySnapshot, "tradeType7427"),
+                    entrySetup = policyField6568(paperPolicySnapshot, "setup7427"),
+                    entryStyle = policyField6568(paperPolicySnapshot, "style"),
+                    entryEntryStyle = entryDeskHypothesis6599?.entryStyle ?: policyField6568(paperPolicySnapshot, "entryStyle7427"),
+                    entryExitStyle = entryDeskHypothesis6599?.exitStyle ?: policyField6568(paperPolicySnapshot, "exitStyle7427"),
+                    entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.pendingStrategyVariantId7427(tradeId.mint),
                 )
             )
             com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
@@ -22101,7 +22122,9 @@ class Executor(
                     com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
-                            entryStrategyPid = "", entryTactic = liveDeskHypothesis6599?.entryStyle ?: try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
+                            entryStrategyPid = "", entryTactic = policyField6568(ts.position.entryPolicySnapshot, "entryTactic").ifBlank {
+                                try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+                            },
                             entryRiskProfile = liveDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
                             entryExitProfile = liveDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(), entrySource = ts.source,
                             entryScore = ts.position.entryScore.toInt(), entryLiquiditySol = 0.0,
@@ -22125,6 +22148,12 @@ class Executor(
                             forwardPWin = policyField6568(ts.position.entryPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
                             sizingMultipliers = ts.position.entryPolicySnapshot.substringAfter("sizeMult=", "").take(240),
                             authorizationReason = policyField6568(ts.position.entryPolicySnapshot, "reasons"),
+                            entryTradeType = policyField6568(ts.position.entryPolicySnapshot, "tradeType7427"),
+                            entrySetup = policyField6568(ts.position.entryPolicySnapshot, "setup7427"),
+                            entryStyle = policyField6568(ts.position.entryPolicySnapshot, "style"),
+                            entryEntryStyle = liveDeskHypothesis6599?.entryStyle ?: policyField6568(ts.position.entryPolicySnapshot, "entryStyle7427"),
+                            entryExitStyle = liveDeskHypothesis6599?.exitStyle ?: policyField6568(ts.position.entryPolicySnapshot, "exitStyle7427"),
+                            entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.pendingStrategyVariantId7427(verifyMint),
                         )
                     )
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
