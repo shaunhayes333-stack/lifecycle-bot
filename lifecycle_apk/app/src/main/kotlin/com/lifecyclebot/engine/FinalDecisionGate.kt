@@ -667,14 +667,16 @@ object FinalDecisionGate {
     fun isInDistributionCooldown(mint: String): Boolean {
         val exitTime = distributionCooldowns[mint] ?: return false
         val elapsed = System.currentTimeMillis() - exitTime
-        return elapsed < DISTRIBUTION_COOLDOWN_MS_PAPER
+        val cooldown = if (_isPaperModeForVeto) DISTRIBUTION_COOLDOWN_MS_PAPER else DISTRIBUTION_COOLDOWN_MS_LIVE
+        return elapsed < cooldown
     }
 
     fun getRemainingCooldownMinutes(mint: String): Int {
         val exitTime = distributionCooldowns[mint] ?: return 0
         val elapsed = System.currentTimeMillis() - exitTime
-        val remaining = DISTRIBUTION_COOLDOWN_MS_PAPER - elapsed
-        return if (remaining > 0) (remaining / 60000).toInt() else 0
+        val cooldown = if (_isPaperModeForVeto) DISTRIBUTION_COOLDOWN_MS_PAPER else DISTRIBUTION_COOLDOWN_MS_LIVE
+        val remaining = cooldown - elapsed
+        return if (remaining > 0) kotlin.math.ceil(remaining / 1000.0).toInt() else 0
     }
 
     data class EdgeVeto(
@@ -3085,15 +3087,15 @@ object FinalDecisionGate {
                     tags.add("distribution_cooldown_bypassed")
                 }
             } else {
-                val bypassCooldownForLive = ts.meta.pressScore >= 65.0
-                if (inCooldown && !bypassCooldownForLive) {
-                    blockReason = "DISTRIBUTION_COOLDOWN_${cooldownMinutes}min"
+                if (inCooldown) {
+                    // V5.0.7403 — raw buy pressure is not a new thesis after
+                    // distribution. Respect the brief live cooldown; dedicated
+                    // second-moon/reclaim logic may re-admit after it expires.
+                    blockReason = "DISTRIBUTION_COOLDOWN_${cooldownMinutes}s"
                     blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("distribution", false, "Recently exited distribution, cooldown=${cooldownMinutes}min remaining"))
+                    checks.add(GateCheck("distribution", false, "Recently exited distribution; ${cooldownMinutes}s cooldown remains"))
                     tags.add("distribution_cooldown")
-                } else if (inCooldown && bypassCooldownForLive) {
-                    checks.add(GateCheck("distribution", true, "LIVE: cooldown bypass (buy%=${ts.meta.pressScore.toInt()}%)"))
-                    tags.add("distribution_cooldown_bypassed")
+                    try { PipelineHealthCollector.labelInc("DISTRIBUTION_PRESSURE_REBUY_BYPASS_REMOVED_7403") } catch (_: Throwable) {}
                 }
             }
 
@@ -3177,22 +3179,19 @@ object FinalDecisionGate {
                     checks.add(GateCheck("edge_veto_sticky", true, "PAPER: veto bypassed for learning (original: ${activeVeto.reason})"))
                     tags.add("edge_veto_bypassed")
                 } else {
-                    val canBypassInLive = ts.meta.pressScore >= 60.0
-                    if (canBypassInLive) {
-                        checks.add(GateCheck("edge_veto_sticky", true, "LIVE: veto bypass (buy%=${ts.meta.pressScore.toInt()})"))
-                        tags.add("edge_veto_bypassed")
-                    } else {
-                        blockReason = "EDGE_VETO_ACTIVE"
-                        blockLevel = BlockLevel.EDGE
-                        checks.add(
-                            GateCheck(
-                                "edge_veto_sticky",
-                                false,
-                                "Vetoed ${remainingSec}s ago: ${activeVeto.reason} (quality=${activeVeto.quality})"
-                            )
+                    // V5.0.7403 — a five-second learned edge veto is already
+                    // extremely short. One hot buy-pressure print cannot erase it.
+                    blockReason = "EDGE_VETO_ACTIVE"
+                    blockLevel = BlockLevel.EDGE
+                    checks.add(
+                        GateCheck(
+                            "edge_veto_sticky",
+                            false,
+                            "Veto active ${remainingSec}s: ${activeVeto.reason} (quality=${activeVeto.quality})"
                         )
-                        tags.add("edge_veto_sticky")
-                    }
+                    )
+                    tags.add("edge_veto_sticky")
+                    try { PipelineHealthCollector.labelInc("EDGE_VETO_PRESSURE_BYPASS_REMOVED_7403") } catch (_: Throwable) {}
                 }
             } else {
                 checks.add(GateCheck("edge_veto_sticky", true, "No active veto"))
