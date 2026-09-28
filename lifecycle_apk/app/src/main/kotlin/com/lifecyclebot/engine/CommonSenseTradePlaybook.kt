@@ -140,7 +140,10 @@ object CommonSenseTradePlaybook {
             UnifiedPolicyHead.AuthorityTier.LEARNED -> (base - 12.0).coerceAtLeast(20.0)
             UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> (base - 20.0).coerceAtLeast(25.0)
         }
-        val goodLaneVolume6020 = snap.lane in setOf("STANDARD", "MOONSHOT", "BLUECHIP", "BLUE_CHIP", "QUALITY", "CASHGEN", "TREASURY")
+        // V5.0.7403 — lane identity is not setup proof. A "good" lane
+        // cannot manufacture a buy zone merely because it historically behaved well.
+        val structureBackedLane7403 = snap.brainSetup.isNotBlank() &&
+            snap.brainSetup !in setOf("REGIME_DEFENSIVE_PROBE", "MEV_PROTECTED_ENTRY", "NO_STRUCTURE")
         // V5.0.4585 — source choke fix. True hard safety still blocks, but
         // provider-blind safety/holder uncertainty no longer kills almost every
         // FDG-allowed lane after Executor starts. The 4584 report showed
@@ -162,12 +165,17 @@ object CommonSenseTradePlaybook {
         }
         if (!snap.logicalBuyZone) {
             val liquidExecutable = snap.liquidityUsd >= 1_500.0 && snap.routeKnown && snap.tokenMapComplete
-            if (goodLaneVolume6020 && liquidExecutable && !snap.dangerousStructure && snap.score >= fluidScore6020(48.0)) {
-                return allowShaped("GOOD_LANE_NO_STRUCTURE_VOLUME_PIVOT_6020", 0.65, "lane=${snap.lane} agiAuth=${agiAuthority6020.name} logicalBuyZone=false tradeType=${snap.tradeType} action=lane_local_reclaim_liquidity_volume")
+            if (structureBackedLane7403 && liquidExecutable && !snap.dangerousStructure &&
+                snap.score >= fluidScore6020(58.0)) {
+                return allowShaped(
+                    "STRUCTURE_UNCERTAIN_BUT_BRAIN_SETUP_PRESENT_7403",
+                    0.35,
+                    "lane=${snap.lane} setup=${snap.brainSetup} agiAuth=${agiAuthority6020.name} tradeType=${snap.tradeType}",
+                )
             }
-            if (tradeableSetup) return allowShaped("AMBIGUOUS_BUY_ZONE_PIVOT", 0.35, "logicalBuyZone=false tradeType=${snap.tradeType} agiAuth=${agiAuthority6020.name}")
-            return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType} agiAuth=${agiAuthority6020.name}")
+            return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType} lane=${snap.lane} setup=${snap.brainSetup} agiAuth=${agiAuthority6020.name}")
         }
+
         if (!snap.invalidationKnown) {
             val earlyLaunchImplicit7403 = snap.tradeType == "NEW_TOKEN_EARLY_LIFECYCLE" &&
                 !snap.dangerousStructure && snap.logicalBuyZone
