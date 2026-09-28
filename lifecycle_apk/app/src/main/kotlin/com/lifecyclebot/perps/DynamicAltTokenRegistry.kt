@@ -92,20 +92,22 @@ object DynamicAltTokenRegistry {
         val discoveryAgeHours6544: Double get() = when {
             pairCreatedAtMs > 0L -> ((System.currentTimeMillis() - pairCreatedAtMs).coerceAtLeast(0L) / 3_600_000.0)
             ageHours > 0.0 -> ageHours
-            !isStatic && (source.startsWith("dex_") || source.startsWith("gecko")) ->
-                ((System.currentTimeMillis() - firstSeenMs).coerceAtLeast(0L) / 3_600_000.0)
+            // V5.0.7403 — firstSeenMs is scanner recency, NOT asset age.
+            // Unknown market age stays unknown/established instead of becoming
+            // a fake fresh launch simply because AATE noticed it now.
             else -> Double.POSITIVE_INFINITY
         }
         val isFresh6544: Boolean get() = !isStatic && discoveryAgeHours6544 < 1.0
         val isProbation6544: Boolean get() = !isStatic && discoveryAgeHours6544 * 60.0 < FRESH_PROBATION_MINUTES_6544
         val opportunityScore6544: Int get() = (qualityScore + when {
-            isFresh6544 -> 35
-            isTrending -> 25
-            isBoosted -> 20
-            kotlin.math.abs(priceChange24h) >= 8.0 -> 15
+            isFresh6544 -> 30
+            isTrending -> 12   // scheduling interest, not proof of edge
+            isBoosted -> 6     // paid/boosted visibility is weak evidence
+            kotlin.math.abs(priceChange24h) in 3.0..12.0 -> 5
+            kotlin.math.abs(priceChange24h) > 30.0 -> -10 // already extended
             isStatic -> 5
             else -> 0
-        }).coerceIn(0, 135)
+        }).coerceIn(0, 120)
 
         val hasTrustedMarketCap6492: Boolean get() = mcap.isFinite() && mcap > 0.0 && mcapSource in setOf(
             "COINGECKO_MARKET_CAP", "DEXSCREENER_BASE_MINT_MARKET_CAP", "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP"
@@ -127,12 +129,14 @@ object DynamicAltTokenRegistry {
             if (liquidityUsd > 200_000)  s += 15
             if (volume24h > 100_000)     s += 20
             if (volume24h > 500_000)     s += 15
-            if (isTrending)              s += maxOf(0, 25 - trendingRank.coerceAtLeast(0) * 3)
-            if (isBoosted)               s += 10
-            if (buys24h > sells24h)      s += 10
+            if (isTrending)              s += maxOf(0, 12 - trendingRank.coerceAtLeast(0) * 2)
+            if (isBoosted)               s += 4
+            if (buys24h > sells24h)      s += 12
             if (ageHours > 24)           s += 5
-            if (priceChange24h > 10)     s += 10
-            if (priceChange24h > 30)     s += 10
+            // V5.0.7403 — extension is not quality. A +30% day is more
+            // likely to need structure/reclaim proof, not another +20 score.
+            if (priceChange24h in 2.0..10.0) s += 5
+            if (priceChange24h > 30.0)       s -= 10
             return s.coerceIn(0, 100)
         }
 
