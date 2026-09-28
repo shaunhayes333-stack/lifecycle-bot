@@ -23,6 +23,7 @@ class Aate7425LiveRuntimeCorrectnessTest {
         assertTrue(progress.contains("CRYPTO_EVAL_RETRYABLE_PROGRESS_RELEASED_7425"))
         assertTrue(src.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))
         assertTrue(src.contains("OBSERVE is deliberately"))
+        assertTrue(progress.contains("if (!releaseAtPassBoundary7425(key))"))
         assertTrue(src.contains("retryReleased_is_nonterminal_completed_pass_not_missing"))
         assertFalse(progress.contains("markEvaluationDisposition6567(tok, key)"))
     }
