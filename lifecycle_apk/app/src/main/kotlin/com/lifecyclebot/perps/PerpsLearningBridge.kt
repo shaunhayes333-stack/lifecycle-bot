@@ -215,7 +215,7 @@ object PerpsLearningBridge {
             trustWeight = 0.9,
             leverageInfluence = 0.5,  // Aggressive → higher leverage
             isDirectional = true,
-            applicableMarkets = setOf(PerpsMarket.SOL),
+            applicableMarkets = emptySet(),
         ),
         
         "ShitCoinTraderAI" to LayerPerpsConfig(
@@ -224,7 +224,7 @@ object PerpsLearningBridge {
             trustWeight = 0.7,
             leverageInfluence = 0.3,
             isDirectional = true,
-            applicableMarkets = setOf(PerpsMarket.SOL),
+            applicableMarkets = emptySet(),
         ),
         
         "ShitCoinExpress" to LayerPerpsConfig(
@@ -233,24 +233,24 @@ object PerpsLearningBridge {
             trustWeight = 0.6,
             leverageInfluence = 0.4,  // Fast plays → moderate leverage
             isDirectional = true,
-            applicableMarkets = setOf(PerpsMarket.SOL),
+            applicableMarkets = emptySet(),
         ),
         
         "BlueChipTraderAI" to LayerPerpsConfig(
             layerName = "BlueChipTraderAI",
-            contributions = setOf(PerpsContribution.DIRECTION, PerpsContribution.SIZING),
+            contributions = setOf(PerpsContribution.SIZING, PerpsContribution.RISK),
             trustWeight = 0.85,
-            leverageInfluence = -0.2,  // Quality → conservative leverage
-            isDirectional = true,
+            leverageInfluence = -0.2,
+            isDirectional = false,
             applicableMarkets = PerpsMarket.values().toSet(),  // All markets including stocks
         ),
         
         "QualityTraderAI" to LayerPerpsConfig(
             layerName = "QualityTraderAI",
-            contributions = setOf(PerpsContribution.DIRECTION, PerpsContribution.RISK),
+            contributions = setOf(PerpsContribution.RISK, PerpsContribution.SIZING),
             trustWeight = 0.8,
-            leverageInfluence = -0.3,  // Quality focus → lower leverage
-            isDirectional = true,
+            leverageInfluence = -0.3,
+            isDirectional = false,
             applicableMarkets = PerpsMarket.values().toSet(),
         ),
         
@@ -260,7 +260,7 @@ object PerpsLearningBridge {
             trustWeight = 0.75,
             leverageInfluence = 0.6,  // Launch snipes → higher leverage (quick plays)
             isDirectional = true,
-            applicableMarkets = setOf(PerpsMarket.SOL),
+            applicableMarkets = emptySet(),
         ),
         
         // ═══════════════════════════════════════════════════════════════════
