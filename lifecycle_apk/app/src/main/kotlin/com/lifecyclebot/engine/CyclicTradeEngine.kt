@@ -219,7 +219,8 @@ object CyclicTradeEngine {
             val safety = ts.safety
             val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
             val ageMin = safety.tokenAgeMinutes.takeIf { it >= 0.0 }
-                ?: ((System.currentTimeMillis() - ts.addedToWatchlistAt).coerceAtLeast(0L) / 60_000.0)
+                ?: try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) / 60_000.0 }
+                   catch (_: Throwable) { 999.0 }
             val hardText = buildString {
                 append(safety.summary).append(' ')
                 append(safety.nameFlag).append(' ')
