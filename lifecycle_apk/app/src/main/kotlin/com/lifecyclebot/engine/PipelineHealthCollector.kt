@@ -2740,7 +2740,16 @@ object PipelineHealthCollector {
             ).append("\n")
             sb.append("  Reward purity gate (§6441):   ").append(
                 com.lifecyclebot.engine.truth.RewardPurityGate6441.statusLine()
+            ).append("\n")            sb.append("  Finalized ID reconcile (§7423): ").append(
+                try { com.lifecyclebot.engine.truth.FinalizedLearningReconciler7423.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Mark trust (§7424): identityMismatch=").append(labelCountSnapshot("MARK_IDENTITY_MISMATCH"))
+                .append(" unitMismatch=").append(labelCountSnapshot("MARK_UNIT_MISMATCH"))
+                .append(" crossAssetRejected=").append(labelCountSnapshot("CROSS_ASSET_MARK_REJECTED"))
+                .append(" verifiedRepairs=").append(labelCountSnapshot("MARK_REPAIR_VERIFIED"))
+                .append(" unverifiedRepairs=").append(labelCountSnapshot("MARK_REPAIR_UNVERIFIED"))
+                .append(" learningExcluded=").append(labelCountSnapshot("LEARNING_EXCLUDED_UNTRUSTED_MARK"))
+                .append("\n")
             // V5.0.7032 — say out loud how much of the history the learners are
             // refusing and why. A quarantine nobody can see in the snapshot is
             // the same failure as the corruption it exists to contain.

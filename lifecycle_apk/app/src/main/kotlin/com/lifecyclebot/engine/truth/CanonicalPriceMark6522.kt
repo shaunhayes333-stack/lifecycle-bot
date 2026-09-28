@@ -15,6 +15,12 @@ data class CanonicalPriceMark6522(
     val liquidityUsd: java.math.BigDecimal?,
     val purpose: CanonicalMarkPurpose6570 = CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
     val identityProof6613: String = "",
+    // V5.0.7424 — immutable typed mark identity.
+    val chain7424: String = mint.substringBefore('|').takeIf { mint.contains('|') }.orEmpty().ifBlank { "solana" },
+    val canonicalAssetId7424: String = mint,
+    val priceUnits7424: String = "USD_PER_TOKEN",
+    val tokenDecimals7424: Int = -1,
+    val markVersion7424: Long = timestampMs,
 )
 
 object CanonicalPriceMarkRegistry6522 {
@@ -111,7 +117,22 @@ object CanonicalPriceMarkRegistry6522 {
     }
 
     fun publish(mark: CanonicalPriceMark6522): Boolean {
-        if (mark.mint.isBlank() || mark.baseMint != mark.mint) return false
+        if (mark.mint.isBlank() || mark.baseMint != mark.mint ||
+            mark.canonicalAssetId7424 != mark.mint
+        ) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_IDENTITY_MISMATCH")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_REJECTED")
+            } catch (_: Throwable) {}
+            return false
+        }
+        if (mark.priceUnits7424 != "USD_PER_TOKEN") {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_UNIT_MISMATCH")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_REJECTED")
+            } catch (_: Throwable) {}
+            return false
+        }
         if (mark.pairId.isBlank()) return false
         if (mark.quoteMint.isBlank() || mark.priceUsd.value.signum() <= 0 || mark.timestampMs <= 0L) return false
 
@@ -235,8 +256,21 @@ object CanonicalPriceMarkRegistry6522 {
      * entry quote. It stops every consumer from repeatedly repairing the same
      * already-proven bad raw mark.
      */
-    fun publishRepairedExitEconomic7418(mint: String, priceUsd: Double, source: String): Boolean {
+    fun publishRepairedExitEconomic7418(
+        mint: String,
+        priceUsd: Double,
+        source: String,
+        verifiedIdentity7424: Boolean = false,
+    ): Boolean {
         if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0) return false
+        if (!verifiedIdentity7424) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_REPAIR_UNVERIFIED")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_EXCLUDED_UNTRUSTED_MARK")
+            } catch (_: Throwable) {}
+            return false
+        }
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_REPAIR_VERIFIED") } catch (_: Throwable) {}
         val repaired = CanonicalPriceMark6522(
             mint = mint,
             pairId = "REPAIR:$mint",
@@ -247,7 +281,10 @@ object CanonicalPriceMarkRegistry6522 {
             priceUsd = PriceUsd(java.math.BigDecimal.valueOf(priceUsd)),
             liquidityUsd = null,
             purpose = CanonicalMarkPurpose6570.EXIT_ECONOMIC,
-            identityProof6613 = "REPAIRED_EXIT_ECONOMIC_7418",
+            identityProof6613 = "REPAIRED_AND_VERIFIED_7424",
+            canonicalAssetId7424 = mint,
+            priceUnits7424 = "USD_PER_TOKEN",
+            markVersion7424 = System.currentTimeMillis(),
         )
         val ok = publish(repaired)
         if (ok) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_REPAIRED_EXIT_MARK_PUBLISHED_7418") } catch (_: Throwable) {}

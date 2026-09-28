@@ -141,7 +141,13 @@ object HeldHotMarkAuthority7419 {
                 try { PipelineHealthCollector.labelInc("HELD_HOT_MARK_UNCHANGED") } catch (_: Throwable) {}
                 continue
             }
-            val publishOk = try { CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(p.mint, px, source) } catch (_: Throwable) { false }
+            val verified7424 = source.startsWith("LOCKED_VENUE_") ||
+                source == "HELD_HOT_CRYPTO_REGISTRY_7419"
+            val publishOk = try {
+                CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(
+                    p.mint, px, source, verifiedIdentity7424 = verified7424,
+                )
+            } catch (_: Throwable) { false }
             if (publishOk) {
                 try {
                     synchronized(BotService.status.tokens) {
