@@ -117,21 +117,26 @@ object CanonicalPriceMarkRegistry6522 {
     }
 
     fun publish(mark: CanonicalPriceMark6522): Boolean {
-        if (mark.mint.isBlank() || mark.baseMint != mark.mint ||
-            mark.canonicalAssetId7424 != mark.mint
-        ) {
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_IDENTITY_MISMATCH")
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_REJECTED")
-            } catch (_: Throwable) {}
-            return false
-        }
-        if (mark.priceUnits7424 != "USD_PER_TOKEN") {
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_UNIT_MISMATCH")
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_REJECTED")
-            } catch (_: Throwable) {}
-            return false
+        when (MarkIdentityAudit7425.validate(mark)) {
+            MarkIdentityAudit7425.Verdict.IDENTITY_MISMATCH -> {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_IDENTITY_MISMATCH")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_REJECTED")
+                } catch (_: Throwable) {}
+                return false
+            }
+            MarkIdentityAudit7425.Verdict.UNIT_MISMATCH -> {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_UNIT_MISMATCH")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_REJECTED")
+                } catch (_: Throwable) {}
+                return false
+            }
+            MarkIdentityAudit7425.Verdict.UNTRUSTED -> {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_REJECTED") } catch (_: Throwable) {}
+                return false
+            }
+            MarkIdentityAudit7425.Verdict.VALID -> Unit
         }
         if (mark.pairId.isBlank()) return false
         if (mark.quoteMint.isBlank() || mark.priceUsd.value.signum() <= 0 || mark.timestampMs <= 0L) return false
