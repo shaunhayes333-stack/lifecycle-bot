@@ -442,19 +442,22 @@ object EntryIntelligence {
             }
             ErrorLogger.info(TAG, "✅ WIN learned: hour=$hour pattern=$pattern hold=$holdBucket buy%=${conditions.buyPressure.toInt()}")
         } else if (isLoss) {
-            // Losing trade - move away from these conditions
+            // V5.0.7403 — losses must move positive feature weights AWAY
+            // from the losing condition. The old branch increased momentumWeight
+            // and rsiWeight on high-momentum / overbought losses, so the next
+            // FOMO setup scored higher because the previous FOMO setup lost.
             if (conditions.buyPressure < weights.optimalBuyPressureMin) {
                 weights.optimalBuyPressureMin = (weights.optimalBuyPressureMin + 1.0).coerceAtMost(60.0)
             }
-            if (conditions.momentum > 40) {
-                weights.momentumWeight = (weights.momentumWeight * 1.05).coerceAtMost(1.5)
+            if (conditions.momentum > 40.0) {
+                val fastLoss = holdBucket == "SCALP_0_5M" || holdBucket == "FAST_5_15M"
+                val shrink = if (fastLoss) 0.90 else 0.95
+                weights.momentumWeight = (weights.momentumWeight * shrink).coerceAtLeast(0.5)
+                try { PipelineHealthCollector.labelInc("ENTRY_AI_FOMO_LOSS_DEWEIGHTED_7403") } catch (_: Throwable) {}
             }
-            if (conditions.rsi > 75) {
-                weights.rsiWeight = (weights.rsiWeight * 1.05).coerceAtMost(1.5)
-            }
-            
-            if ((holdBucket == "SCALP_0_5M" || holdBucket == "FAST_5_15M") && conditions.momentum > 40.0) {
-                weights.momentumWeight = (weights.momentumWeight * 0.98).coerceAtLeast(0.5)
+            if (conditions.rsi > 75.0) {
+                weights.rsiWeight = (weights.rsiWeight * 0.94).coerceAtLeast(0.5)
+                try { PipelineHealthCollector.labelInc("ENTRY_AI_OVERBOUGHT_LOSS_DEWEIGHTED_7403") } catch (_: Throwable) {}
             }
             ErrorLogger.info(TAG, "❌ LOSS learned: hour=$hour pattern=$pattern hold=$holdBucket rsi=${conditions.rsi.toInt()}")
         }
