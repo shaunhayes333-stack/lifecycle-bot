@@ -131,37 +131,55 @@ object BrainConsensusGate {
         val provenDead = isProvenDead(lane, v3)
         if (provenDead) objections += "PROVEN_DEAD_CONTEXT=$lane|${LosingPatternMemory.scoreBand(v3)}"
 
-        val fwdMatureNegative = fwdN >= MIN_MATURE_SAMPLES_6782 && fwdP < REJECT_PWIN_6782 && fwdE < 0.0
-        val liveMatureNegative = liveN >= MIN_MATURE_SAMPLES_6782 && liveP < REJECT_PWIN_6782 && liveE < 0.0
-        val dualNegative = fwdMatureNegative && liveMatureNegative
-        val catastrophicForecast =
-            (fwdN >= MIN_STRONG_SAMPLES_6782 && fwdP < CATASTROPHIC_PWIN_6782 && fwdE <= STRONG_NEGATIVE_E_6782) ||
-            (liveN >= MIN_STRONG_SAMPLES_6782 && liveP < CATASTROPHIC_PWIN_6782 && liveE <= STRONG_NEGATIVE_E_6782)
+        // V5.0.7403 — ForwardOutcomeModel is already an input to
+        // LiveProbabilityEngine, so fwd+live is NOT independent confirmation.
+        // Use realised LIVE terminal history as the independent leg instead.
+        val fwdMatureNegative = fwdN >= MIN_MATURE_SAMPLES_6782 &&
+            fwdP < REJECT_PWIN_6782 && fwdE < 0.0
+        val liveMatureNegative = liveN >= MIN_MATURE_SAMPLES_6782 &&
+            liveP < REJECT_PWIN_6782 && liveE < 0.0
+        val realisedLive7403 = try {
+            com.lifecyclebot.engine.truth.OracleTradeHistory7287
+                .laneForMode7402(lane, true)
+        } catch (_: Throwable) { null }
+        val realisedMatureNegative7403 = realisedLive7403?.let { h ->
+            h.n >= MIN_MATURE_SAMPLES_6782 &&
+                h.winRate < REJECT_PWIN_6782 &&
+                h.meanNetPct < 0.0
+        } == true
+        val independentNegative7403 = liveMatureNegative && realisedMatureNegative7403
 
-        // Existing dual-brain veto from AutonomousMetaPolicy remains useful, but
-        // 6782 removes its old 1-in-25 canonical escape hatch as an authority
-        // principle: fresh evidence belongs in shadow/replay, not a known grave.
+        // A single fused forecast must be exceptionally bad before it can hard
+        // veto by itself. The raw forward model remains diagnostic, not a second
+        // copy of the same vote.
+        val catastrophicForecast =
+            liveN >= MIN_STRONG_SAMPLES_6782 &&
+                liveP < CATASTROPHIC_PWIN_6782 &&
+                liveE <= STRONG_NEGATIVE_E_6782
+
         val metaDualVeto = try {
-            AutonomousMetaPolicy.shouldVeto(lane, v3, regime, fwdP, fwdE, fwdN)
+            AutonomousMetaPolicy.shouldVeto(lane, v3, regime, liveP, liveE, liveN)
         } catch (_: Throwable) { false }
 
-        val metaStrongNegative = metaConv <= 0.70 && (fwdMatureNegative || liveMatureNegative)
-        if (fwdMatureNegative) objections += "FORWARD_NEGATIVE=pWin=${"%.2f".format(fwdP)} E=${"%+.1f".format(fwdE)} n=$fwdN"
-        if (liveMatureNegative) objections += "LIVE_PROB_NEGATIVE=pWin=${"%.2f".format(liveP)} E=${"%+.1f".format(liveE)} n=$liveN"
-        if (metaStrongNegative) objections += "META_POLICY_NEGATIVE=conv=${"%.2f".format(metaConv)}"
+        val metaStrongNegative = metaConv <= 0.70 && liveMatureNegative
+        if (fwdMatureNegative) objections += "FORWARD_COMPONENT_NEGATIVE=pWin=" +
+            "%.2f".format(fwdP) + " E=" + "%+.1f".format(fwdE) + " n=" + fwdN
+        if (liveMatureNegative) objections += "FUSED_LIVE_NEGATIVE=pWin=" +
+            "%.2f".format(liveP) + " E=" + "%+.1f".format(liveE) + " n=" + liveN
+        if (realisedMatureNegative7403) objections += "REALISED_LIVE_NEGATIVE=n=" +
+            (realisedLive7403?.n ?: 0) + " WR=" +
+            "%.2f".format(realisedLive7403?.winRate ?: 0.0) + " E=" +
+            "%+.1f".format(realisedLive7403?.meanNetPct ?: 0.0)
+        if (metaStrongNegative) objections += "META_POLICY_NEGATIVE=conv=" + "%.2f".format(metaConv)
 
-        // Binding authority rules:
-        //  1) statistically proven grave => no canonical entry;
-        //  2) learned toxic lane => no canonical entry;
-        //  3) independent predictive models agree the context loses => no entry;
-        //  4) catastrophic forward forecast => no entry;
-        //  5) meta-policy + one mature predictive brain strongly disagree => no entry.
-        val hardBlock = provenDead || toxicLane || dualNegative || catastrophicForecast || metaDualVeto || metaStrongNegative
+        // Hard authority now requires genuinely independent evidence.
+        val hardBlock = provenDead || toxicLane || independentNegative7403 ||
+            catastrophicForecast || metaDualVeto || metaStrongNegative
 
-        // A single mature negative model, losing-pattern danger, scorer dispute or
-        // sentience/regime objection remains a SOFT_BLOCK. It is visible to FDG
-        // shaping while avoiding a single-model monopoly over uncertain contexts.
-        val predictiveAuthority = (fwdN >= MIN_MATURE_SAMPLES_6782 || liveN >= MIN_MATURE_SAMPLES_6782)
+        val predictiveAuthority =
+            liveN >= MIN_MATURE_SAMPLES_6782 ||
+                (realisedLive7403?.n ?: 0) >= MIN_MATURE_SAMPLES_6782
+
         val verdict = when {
             hardBlock -> Verdict.HARD_BLOCK
             objections.isNotEmpty() -> Verdict.SOFT_BLOCK
@@ -172,7 +190,7 @@ object BrainConsensusGate {
             PipelineHealthCollector.labelInc("AATE_COGNITIVE_AUTHORITY_EVAL_6782")
             if (hardBlock) PipelineHealthCollector.labelInc("AATE_COGNITIVE_HARD_VETO_6782")
             else if (verdict == Verdict.SOFT_BLOCK) PipelineHealthCollector.labelInc("AATE_COGNITIVE_SOFT_SHAPE_6782")
-            if (dualNegative) PipelineHealthCollector.labelInc("AATE_DUAL_PREDICTOR_NEGATIVE_6782")
+            if (independentNegative7403) PipelineHealthCollector.labelInc("AATE_INDEPENDENT_LIVE_NEGATIVE_7403")
             if (toxicLane) PipelineHealthCollector.labelInc("AATE_LEARNED_TOXIC_VETO_6782")
         } catch (_: Throwable) {}
 
