@@ -289,16 +289,20 @@ object TimeOptimizationAI {
      * Record trade outcome for time learning.
      * Scratch trades are ignored.
      */
-    fun recordOutcome(pnlPct: Double) {
+    fun recordOutcome(pnlPct: Double, entryTimestampMs: Long = System.currentTimeMillis()) {
         if (!isWin(pnlPct) && !isLoss(pnlPct)) {
             return
         }
-
-        val cal = Calendar.getInstance(UTC)
+        // V5.0.7403 — time learning is ENTRY-time learning. The old method
+        // sampled Calendar.now() at close and taught the exit hour as the
+        // profitable/dangerous entry hour.
+        if (entryTimestampMs <= 0L) return
+        val cal = Calendar.getInstance(UTC).apply { timeInMillis = entryTimestampMs }
         val record = TradeTimeRecord(
             hourUtc = cal.get(Calendar.HOUR_OF_DAY),
             dayOfWeek = cal.get(Calendar.DAY_OF_WEEK),
-            pnlPct = pnlPct
+            pnlPct = pnlPct,
+            timestamp = entryTimestampMs
         )
         tradeRecords.addLast(record)
 
