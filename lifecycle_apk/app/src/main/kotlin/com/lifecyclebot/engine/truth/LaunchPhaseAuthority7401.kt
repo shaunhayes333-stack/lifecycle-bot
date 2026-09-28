@@ -52,14 +52,20 @@ object LaunchPhaseAuthority7401 {
         return (nowMs - origin).coerceAtLeast(0L)
     }
 
-    private fun createMultiple(ts: TokenState): Double? = try {
-        val createSol = PumpCurveKeys7269.createPriceSol7280(ts.mint) ?: return null
-        val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-        val px = ts.lastPrice
-        if (!createSol.isFinite() || createSol <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0 ||
-            !px.isFinite() || px <= 0.0) null
-        else EconomicUnitInvariant7061.usdToSol(px, solUsd) / createSol
-    } catch (_: Throwable) { null }
+    // V5.0.7402 — CI's kotlin_expression_body_return gate (and the real
+    // Kotlin compiler behind it) rejects a bare `return` inside an
+    // expression-body function's `= try { ... }`. Converted to block body;
+    // logic/behavior unchanged from the 7401 version.
+    private fun createMultiple(ts: TokenState): Double? {
+        return try {
+            val createSol = PumpCurveKeys7269.createPriceSol7280(ts.mint) ?: return null
+            val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val px = ts.lastPrice
+            if (!createSol.isFinite() || createSol <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0 ||
+                !px.isFinite() || px <= 0.0) null
+            else EconomicUnitInvariant7061.usdToSol(px, solUsd) / createSol
+        } catch (_: Throwable) { null }
+    }
 
     fun snapshot(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Snapshot {
         val age = trueAgeMs(ts, nowMs)
