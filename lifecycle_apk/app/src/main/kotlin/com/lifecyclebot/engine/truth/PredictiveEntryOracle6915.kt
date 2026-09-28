@@ -540,14 +540,18 @@ object PredictiveEntryOracle6915 {
     ): List<BrainRead> {
         val out = mutableListOf<BrainRead>()
 
-        // Paper win rate, the sibling of the already-wired liveWinRatePct.
-        // Paper is where nearly all the evidence is, so this is the larger
-        // sample; it is weighted lower because paper fills are frictionless.
+        // V5.0.7402 — PAPER WR is a bootstrap prior, not a live override.
+        // Once LIVE has real terminal evidence, using paper WR to lift the same
+        // live admission is precisely the backwards transfer seen in 7400.
         try {
-            val pw = com.lifecyclebot.engine.PatternClassifier.paperWinRate()
-            if (pw.isFinite() && pw > 0.0) {
-                out += BrainRead("paperWR(${"%.0f".format(pw)}%)",
-                    ((pw - 40.0) / 100.0 * 6.0).coerceIn(-5.0, 5.0))
+            val liveMode7402 = com.lifecyclebot.engine.RuntimeModeAuthority.isLive()
+            val liveBookN7402 = OracleTradeHistory7287.bookForMode7402(true)?.n ?: 0
+            if (!liveMode7402 || liveBookN7402 == 0) {
+                val pw = com.lifecyclebot.engine.PatternClassifier.paperWinRate()
+                if (pw.isFinite() && pw > 0.0) {
+                    out += BrainRead(if (liveMode7402) "paperWRBootstrap(${"%.0f".format(pw)}%)" else "paperWR(${"%.0f".format(pw)}%)",
+                        ((pw - 40.0) / 100.0 * 6.0).coerceIn(-5.0, 5.0))
+                }
             }
         } catch (_: Throwable) {}
 
@@ -683,11 +687,22 @@ object PredictiveEntryOracle6915 {
         var cellPWin = -1.0
         var cellN = 0.0
         try {
-            val raw = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketRawMean6715(laneKey, s)
-            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples(laneKey, s).toDouble()
-            if (raw != null && raw.isFinite() && n > 0.0) {
-                cellMean += raw * n; cellN += n
-                contributions += "cellScoreExp(n=${n.toInt()},E=${"%+.1f".format(raw)})"
+            // V5.0.7402 — ScoreExpectancyTracker persists a paper+live pooled
+            // bucket. Once LIVE has its own terminal view, that pooled bucket
+            // must not override current live timing/economics. Keep it only as
+            // bootstrap prior before this lane has any real live closes.
+            val liveMode7402 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+            val liveLaneN7402 = if (liveMode7402) OracleTradeHistory7287.liveCloses(laneKey) else 0
+            if (!liveMode7402 || liveLaneN7402 == 0) {
+                val raw = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketRawMean6715(laneKey, s)
+                val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples(laneKey, s).toDouble()
+                if (raw != null && raw.isFinite() && n > 0.0) {
+                    cellMean += raw * n; cellN += n
+                    contributions += (if (liveMode7402) "cellScoreExpBOOTSTRAP" else "cellScoreExp") +
+                        "(n=${n.toInt()},E=${"%+.1f".format(raw)})"
+                }
+            } else {
+                contributions += "cellScoreExpPOOLED_SKIPPED_LIVE(nLive=$liveLaneN7402)"
             }
         } catch (_: Throwable) {}
         try {
