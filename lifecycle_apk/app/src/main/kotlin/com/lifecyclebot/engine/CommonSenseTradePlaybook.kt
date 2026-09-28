@@ -131,7 +131,7 @@ object CommonSenseTradePlaybook {
             UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (base - 18.0).coerceAtLeast(25.0)
             UnifiedPolicyHead.AuthorityTier.ADVISORY -> (base + 4.0).coerceAtMost(72.0)
             UnifiedPolicyHead.AuthorityTier.LEARNED -> (base - 12.0).coerceAtLeast(20.0)
-            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> 0.0
+            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> (base - 20.0).coerceAtLeast(25.0)
         }
         val goodLaneVolume6020 = snap.lane in setOf("STANDARD", "MOONSHOT", "BLUECHIP", "BLUE_CHIP", "QUALITY", "CASHGEN", "TREASURY")
         // V5.0.4585 — source choke fix. True hard safety still blocks, but
@@ -238,10 +238,37 @@ object CommonSenseTradePlaybook {
             edgeText6021,
             "POLICY_$policyAuth6021",
         ).joinToString(" ").uppercase(Locale.US).replace('-', '_')
+
+        // V5.0.7403 — do not let lane/source identity manufacture its own proof.
+        // DIP_HUNTER is not evidence of a reclaim; PUMP_FUN is not evidence that
+        // the token is still early; SMART/WHALE text is not proof of accumulation.
+        val structureText7403 = listOf(
+            ts.phase,
+            ts.signal,
+            try { ts.meta.emafanAlignment } catch (_: Throwable) { "" },
+            toolkit6021?.setup?.name ?: "",
+            toolkit6021?.chartPattern ?: "",
+            toolkit6021?.entryStyle ?: "",
+            toolkit6021?.compactReason ?: "",
+            researchText6021,
+            edgeText6021,
+        ).joinToString(" ").uppercase(Locale.US).replace('-', '_')
+        val launch7403 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
         val brainConfidence6021 = maxOf(score, toolkit6021?.confidence ?: 0.0).coerceIn(0.0, 100.0)
-        val tradeType = classifyTradeType(text, brainConfidence6021, liq)
-        val lateChase = text.contains("OVEREXTENDED") || text.contains("VERTICAL") || text.contains("CHASE") || text.contains("FREE_FALL") || text.contains("FREEFALL")
-        val breakdown = text.contains("BREAKDOWN") && !text.contains("FAILED_BREAKDOWN") && !text.contains("RECLAIM")
+        val tradeType = when {
+            launch7403?.tooLateForSnipe == true -> "POST_PUMP_EXHAUSTION"
+            launch7403?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION ||
+                launch7403?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION ->
+                "NEW_TOKEN_EARLY_LIFECYCLE"
+            else -> classifyTradeType(structureText7403, brainConfidence6021, liq)
+        }
+        val lateChase = launch7403?.tooLateForSnipe == true ||
+            structureText7403.contains("OVEREXTENDED") || structureText7403.contains("VERTICAL") ||
+            structureText7403.contains("CHASE") || structureText7403.contains("FREE_FALL") ||
+            structureText7403.contains("FREEFALL")
+        val breakdown = structureText7403.contains("BREAKDOWN") &&
+            !structureText7403.contains("FAILED_BREAKDOWN") &&
+            !structureText7403.contains("RECLAIM")
         val logicalBuyZone = tradeType != "NO_STRUCTURE" && !lateChase && !breakdown
         val invalidationKnown = logicalBuyZone && (text.contains("SUPPORT") || text.contains("VWAP") || text.contains("EMA") || text.contains("RETEST") || text.contains("RANGE") || text.contains("SWEEP") || text.contains("RECLAIM") || text.contains("HIGHER_LOW") || tradeType in setOf("NEW_TOKEN_EARLY_LIFECYCLE", "MOMENTUM_SCALP", "ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "NARRATIVE_ROTATION", "WHALE_ACCUMULATION_FOLLOW"))
         val riskRewardAcceptable = when {
@@ -249,8 +276,9 @@ object CommonSenseTradePlaybook {
             lateChase || breakdown -> false
             tradeType == "MOMENTUM_SCALP" -> score >= 58.0 && liq >= 1_500.0
             tradeType == "NEW_TOKEN_EARLY_LIFECYCLE" -> score >= 52.0 && liq >= 1_500.0
-            tradeType in setOf("ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_BUY", "VWAP_RECLAIM", "EMA_RECLAIM", "HIGHER_LOW_CONTINUATION") -> score >= 38.0 || liq >= 1_500.0
-            else -> score >= 42.0 || liq >= 2_500.0
+            tradeType in setOf("ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_BUY", "VWAP_RECLAIM", "EMA_RECLAIM", "HIGHER_LOW_CONTINUATION") -> score >= 38.0 && liq >= 1_000.0
+            tradeType == "POST_PUMP_EXHAUSTION" -> false
+            else -> score >= 42.0 && liq >= 1_000.0
         }
         val reasons = mutableListOf<String>()
         if (priceKnown) reasons += "price_known" else reasons += "price_unknown"
@@ -277,7 +305,7 @@ object CommonSenseTradePlaybook {
     }
 
     private fun classifyTradeType(text: String, score: Double, liq: Double): String = when {
-        text.contains("PULLBACK") || text.contains("DIP_HUNTER") -> "PULLBACK_BUY"
+        text.contains("PULLBACK_RECLAIM") || (text.contains("PULLBACK") && text.contains("RECLAIM")) -> "PULLBACK_BUY"
         text.contains("BREAKOUT") && text.contains("RETEST") -> "BREAKOUT_RETEST"
         text.contains("RANGE_LOW") || (text.contains("RANGE") && text.contains("SUPPORT")) -> "RANGE_LOW_BUY"
         text.contains("SWEEP") && text.contains("RECLAIM") -> "LIQUIDITY_SWEEP_REVERSAL"
@@ -289,8 +317,7 @@ object CommonSenseTradePlaybook {
         text.contains("FAILED_BREAKDOWN") -> "FAILED_BREAKDOWN_REVERSAL"
         text.contains("LIQUIDITY_DEPTH_QUALITY") -> "LIQUIDITY_DEPTH_QUALITY"
         text.contains("NARRATIVE") || text.contains("SECTOR") -> "NARRATIVE_ROTATION"
-        text.contains("WHALE") || text.contains("SMART_WALLET") -> "WHALE_ACCUMULATION_FOLLOW"
-        text.contains("FRESH_POOL") || text.contains("PUMP_FUN") || text.contains("RAYDIUM_NEW_POOL") -> "NEW_TOKEN_EARLY_LIFECYCLE"
+        (text.contains("WHALE_ACCUMULATION") || text.contains("SMART_WALLET_ACCUMULATION")) && !text.contains("SELLING") -> "WHALE_ACCUMULATION_FOLLOW"
         text.contains("MOMENTUM") || text.contains("DEGEN_MICRO_SNIPE") -> "MOMENTUM_SCALP"
         score >= 68.0 && liq >= 5_000.0 -> "MOMENTUM_SCALP"
         else -> "NO_STRUCTURE"
