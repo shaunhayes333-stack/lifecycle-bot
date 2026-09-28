@@ -220,7 +220,10 @@ object LearnedAdmissionInputs6909 {
         // the scorecard had no accessor.
         val srcExp6915 = try {
             com.lifecyclebot.engine.SourceFamilyOpportunityScorecard
-                .expectancyFor6915(sourceFamilyHint)
+                .expectancyFor6915(
+                    sourceFamilyHint,
+                    liveMode7403 = !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),
+                )
         } catch (_: Throwable) { null }
         val oracle6915 = try {
             PredictiveEntryOracle6915.evaluate(
