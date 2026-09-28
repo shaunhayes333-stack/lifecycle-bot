@@ -577,6 +577,7 @@ data class TokenState(
     // WS lambda for months despite being emitted on every DexScreener tick. Surfaced
     // here so distribution detection and hourly trend bias finally have real data.
     var lastSellPressurePct: Double = 50.0,  // sells5m / txns5m * 100 — distribution sense
+    var lastPriceChange5m: Double = 0.0,     // V5.0.7425 acute lifecycle direction — catches pump->fade before local history resets
     var lastPriceChange1h: Double = 0.0,     // 1h price drift % — hourly trend bias
     var topHolderPct: Double? = null,        // Top holder concentration
     var momentum: Double? = null,            // Price momentum
