@@ -86,6 +86,7 @@ object LearnedAdmissionInputs6909 {
         // bootstrap cell, even when FDG had already produced these fields.
         qualityHint: String = "",
         edgePhaseHint: String = "",
+        emaFanHint: String = "",
         candidateConfidenceHint: Double = 0.50,
     ): LearnedAdmissionAuthority6846.Inputs {
         assembled.incrementAndGet()
@@ -241,6 +242,7 @@ object LearnedAdmissionInputs6909 {
                 creator = creatorHint6917,
                 quality = qualityHint,
                 edgePhase = edgePhaseHint,
+                emaFan = emaFanHint,
                 candidateConfidence = candidateConfidenceHint,
             )
         } catch (_: Throwable) { null }
@@ -356,12 +358,13 @@ object LearnedAdmissionInputs6909 {
         sourceFamilyHint: String = "",
         qualityHint: String = "",
         edgePhaseHint: String = "",
+        emaFanHint: String = "",
         candidateConfidenceHint: Double = 0.50,
     ): ExecutableEntryAuthority6450.Decision {
         return try {
             val inputs = build(
                 lane, mint, requestedSizeSol, entryScore, minExecutableSol, probeSizeSol,
-                sourceFamilyHint, qualityHint, edgePhaseHint, candidateConfidenceHint,
+                sourceFamilyHint, qualityHint, edgePhaseHint, emaFanHint, candidateConfidenceHint,
             )
             val decision = ExecutableEntryAuthority6450.gate(inputs)
             if (decision.verdict != ExecutableEntryAuthority6450.Verdict.ALLOW) {
