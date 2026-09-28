@@ -27,14 +27,12 @@ class Aate7399ThroughputQualityAndLatencyTest {
     }
 
     @Test
-    fun sniper_negative_low_band_is_shaped_without_global_lane_shutdown() {
+    fun sniper_quality_learning_must_not_become_a_hard_fdg_choke() {
         val s = src("engine/FinalDecisionGate.kt")
-        assertTrue(s.contains("LosingPatternMemory.liveStats(\"PROJECT_SNIPER\", 5).isDangerous"))
-        assertTrue(s.contains("SNIPER_S0_10_NEG_EV_FLOOR_7399"))
-        assertTrue(s.contains("SNIPER_S0_10_LIVE_EXPLORATION_7399"))
-        assertTrue(s.contains("sniperLowRescueAllowed7399"))
-        assertTrue(s.contains("canonicalV3Score7243 > 10.0"))
-        assertFalse(s.contains("RUNTIME_OVERLAY_LANE_DISABLED_PROJECT_SNIPER_7399"))
+        assertTrue(s.contains("V5.0.7400"))
+        assertFalse(s.contains("SNIPER_S0_10_NEG_EV_FLOOR_7399"))
+        assertFalse(s.contains("sniperLowRescueAllowed7399"))
+        assertTrue(s.contains("laneEvidenceScore7243 >= canonicalFloor7266"))
     }
 
     @Test
@@ -48,14 +46,13 @@ class Aate7399ThroughputQualityAndLatencyTest {
     }
 
     @Test
-    fun crypto_ranked_out_rows_are_terminal_not_a_fake_backlog() {
+    fun crypto_ranked_out_rows_remain_reconsiderable_shared_intelligence() {
         val s = src("perps/CryptoAltTrader.kt")
-        assertTrue(s.contains("RANKED_OUT_THIS_WINDOW_7399"))
-        assertTrue(s.contains("CRYPTO_RANKED_OUT_WINDOW_7399"))
-        val rankedBlock = s.substringAfter("V5.0.7399 — ranked-out rows are terminal")
+        assertTrue(s.contains("CRYPTO_RANKED_OUT_RETAINED_7400"))
+        val rankedBlock = s.substringAfter("V5.0.7400 — ranked-out is NOT terminal")
             .substringBefore("for ((signalIndex6567")
-        assertTrue(rankedBlock.contains("markEvaluationDisposition6567"))
-        assertFalse(rankedBlock.contains("markEvaluationProgress6570"))
+        assertTrue(rankedBlock.contains("markEvaluationProgress6570"))
+        assertFalse(rankedBlock.contains("RANKED_OUT_THIS_WINDOW_7399"))
     }
 
     @Test
