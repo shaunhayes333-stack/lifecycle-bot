@@ -5,6 +5,7 @@ import com.lifecyclebot.engine.HealthAwareHttp
 import com.lifecyclebot.engine.PipelineHealthCollector
 import okhttp3.Request
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 /**
  * V5.0.6996 — keyless batch mark sources, so the stack is never price-dry.
@@ -53,7 +54,18 @@ object KeylessPriceSources6996 {
     /** DefiLlama batches comfortably; keep well inside URL length limits. */
     private const val LLAMA_CHUNK = 40
 
-    private val http = SharedHttpClient.builder().build()
+    // V5.0.7400 — this batch source runs inside the held-position mark loop.
+    // The shared client can wait tens of seconds on HTTP/2 response headers;
+    // the 7399 PriceResolverFallback timeout did not cover this separate batch
+    // path, which is why keyless_batch still stalled for ~38 s. Bound the actual
+    // batch client. fillMissing has at most two serial sources, so worst-case
+    // network residence is now ~2.4 s instead of tens of seconds.
+    private val http = SharedHttpClient.builder()
+        .callTimeout(1_200, TimeUnit.MILLISECONDS)
+        .connectTimeout(800, TimeUnit.MILLISECONDS)
+        .readTimeout(1_000, TimeUnit.MILLISECONDS)
+        .writeTimeout(1_000, TimeUnit.MILLISECONDS)
+        .build()
 
     /**
      * Batch USD marks from DefiLlama. Keyless.
