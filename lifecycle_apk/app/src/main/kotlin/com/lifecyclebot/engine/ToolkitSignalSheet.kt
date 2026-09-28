@@ -283,7 +283,9 @@ object ToolkitSignalSheet {
         // Diamond hands / runner: strong structure, high confidence, near highs, not a scalp.
         add(Candidate(
             setup = Setup.DIAMOND_HANDS_RUNNER,
-            score = (if (nearHigh) 18.0 else 0.0) + (move12.coerceAtLeast(0.0) * 0.45).coerceAtMost(28.0) + conf * 0.25 + (if (liq >= 8_000.0) 10.0 else 0.0) + (if (higherLows >= 3) 10.0 else 0.0),
+            score = if (launch7402?.tooLateForSnipe == true && ageMin <= 10.0) 0.0 else
+                (if (nearHigh) 18.0 else 0.0) + (move12.coerceAtLeast(0.0) * 0.45).coerceAtMost(28.0) +
+                    conf * 0.25 + (if (liq >= 8_000.0) 10.0 else 0.0) + (if (higherLows >= 3) 10.0 else 0.0),
             chart = "runner_near_high",
             entry = "breakout_retest_or_strength_add",
             exit = "diamond_hands_high_water_trail",
@@ -299,7 +301,19 @@ object ToolkitSignalSheet {
         val pumpLike = src.contains("PUMP") || src.contains("NEW_POOL") || src.contains("RAYDIUM_NEW")
         add(Candidate(
             setup = if (src.contains("GRADUATE") || tt == ModeRouter.TradeType.GRADUATION) Setup.PUMP_GRADUATION_SNIPE else Setup.DEGEN_MICRO_SNIPE,
-            score = (if (pumpLike && ageMin <= 8.0) 38.0 else 0.0) + (bp - 50.0).coerceAtLeast(0.0) * 0.8 + v3.coerceAtLeast(0.0) * 0.18 + if (liq in 1_000.0..25_000.0) 12.0 else 0.0,
+            score = when {
+                launch7402?.tooLateForSnipe == true -> 0.0
+                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION ->
+                    52.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.6 +
+                        v3.coerceAtLeast(0.0) * 0.12 + if (liq in 1_000.0..25_000.0) 10.0 else 0.0
+                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION ->
+                    44.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.5 +
+                        v3.coerceAtLeast(0.0) * 0.10 + if (liq in 1_000.0..25_000.0) 10.0 else 0.0
+                pumpLike && ageMin <= 3.0 ->
+                    24.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.5 +
+                        v3.coerceAtLeast(0.0) * 0.10 + if (liq in 1_000.0..25_000.0) 8.0 else 0.0
+                else -> 0.0
+            },
             chart = "fresh_pool_momentum",
             entry = "degen_snipe_fast_confirm",
             exit = "quick_flip_then_runner_tail",
@@ -314,7 +328,9 @@ object ToolkitSignalSheet {
         // Chart breakout: prior impulse + higher lows + volume ignition.
         add(Candidate(
             setup = Setup.CHART_BREAKOUT,
-            score = (if (move12 > 18.0) 18.0 else 0.0) + (if (higherLows >= 3) 18.0 else 0.0) + ((volIgnition - 1.0) * 18.0).coerceIn(0.0, 24.0) + (if (nearHigh) 12.0 else 0.0) + conf * 0.18,
+            score = if (launch7402?.tooLateForSnipe == true && ageMin <= 10.0) 0.0 else
+                (if (move12 > 18.0) 18.0 else 0.0) + (if (higherLows >= 3) 18.0 else 0.0) +
+                    ((volIgnition - 1.0) * 18.0).coerceIn(0.0, 24.0) + (if (nearHigh) 12.0 else 0.0) + conf * 0.18,
             chart = "breakout_continuation",
             entry = "breakout_confirmation",
             exit = "runner_trail_partial_delayed",
@@ -375,7 +391,16 @@ object ToolkitSignalSheet {
         // Volume ignition scalp: flow is waking up but not structurally diamond-hands yet.
         add(Candidate(
             setup = Setup.VOLUME_IGNITION_SCALP,
-            score = ((volIgnition - 1.0) * 24.0).coerceIn(0.0, 45.0) + (bp - 50.0).coerceAtLeast(0.0) * 0.7 + if (move5 > 5.0) 10.0 else 0.0,
+            score = when {
+                launch7402?.tooLateForSnipe == true -> 0.0
+                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION ->
+                    45.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.5
+                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION ->
+                    32.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.4
+                ageMin > 3.0 -> 0.0
+                else -> ((volIgnition - 1.0) * 18.0).coerceIn(0.0, 28.0) +
+                    (bp - 50.0).coerceAtLeast(0.0) * 0.5
+            },
             chart = "volume_ignition",
             entry = "ignition_scalp",
             exit = "bank_first_strength_then_tail",
@@ -405,7 +430,9 @@ object ToolkitSignalSheet {
         // Narrative/social ignition: already has sentiment/narrative systems; route as a bounded style.
         add(Candidate(
             setup = Setup.NARRATIVE_SOCIAL_IGNITION,
-            score = (if (socialHint || tt == ModeRouter.TradeType.SENTIMENT_IGNITION) 38.0 else 0.0) + sentimentScore.coerceAtLeast(0.0) * 0.35 + (bp - 50.0).coerceAtLeast(0.0) * 0.5,
+            score = if (launch7402?.tooLateForSnipe == true && ageMin <= 10.0) 0.0 else
+                (if (socialHint || tt == ModeRouter.TradeType.SENTIMENT_IGNITION) 38.0 else 0.0) +
+                    sentimentScore.coerceAtLeast(0.0) * 0.35 + (bp - 50.0).coerceAtLeast(0.0) * 0.5,
             chart = "narrative_social_ignition",
             entry = "narrative_momentum_confirm",
             exit = "narrative_fade_quick_trail",
