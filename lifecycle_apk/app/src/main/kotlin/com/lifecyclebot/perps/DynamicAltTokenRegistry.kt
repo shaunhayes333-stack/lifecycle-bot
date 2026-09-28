@@ -960,7 +960,10 @@ object DynamicAltTokenRegistry {
         // disposition so operator's 'no permanent missing bucket' invariant
         // holds. Discovery breadth is not reduced — the token remains in the
         // registry, just with an explicit terminal disposition.
-        if (!isRetryableProgress7418(key)) {
+        // OBSERVE is still an active evaluation state: keep a stale-reaper
+        // stamp for it. Only states that already released at the pass boundary
+        // skip the per-identity deadline stamp.
+        if (!releaseAtPassBoundary7425(key)) {
             try {
                 val progressKey6580 = "${tok.canonicalIdentity6544}$EVAL_PROGRESS_SEPARATOR_6692$key"
                 val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
