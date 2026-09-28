@@ -142,19 +142,15 @@ object RuntimeTune6833 {
      */
     fun laneCapacityMultiplier(laneName: String): Double {
         val key = laneName.trim().uppercase()
-        return when (key) {
-            "QUALITY" -> 1.125
-            "CORE" -> 1.10
-            "PROJECT_SNIPER", "PROJECT-SNIPER" -> 1.10
-            "MOONSHOT" -> 0.67
-            else -> 1.0
-        }.also { m ->
-            if (kotlin.math.abs(m - 1.0) > 1e-6) {
-                try {
-                    PipelineHealthCollector.labelInc("LANE_CAPACITY_REDIST_6833_${key.take(24)}")
-                } catch (_: Throwable) {}
-            }
-        }
+        // V5.0.7403 — retire the February static favourite-lane map.
+        // Current LIVE expectancy already shapes priority/capital through
+        // LaneExpectancyDamper, LaneExecutionCoordinator and LaneCapitalFairness.
+        // Applying a second fixed +10% to PROJECT_SNIPER/CORE/QUALITY and -33%
+        // to MOONSHOT made stale operator priors fight current real-money truth.
+        try {
+            PipelineHealthCollector.labelInc("LANE_CAPACITY_STATIC_BIAS_RETIRED_7403_" + key.take(24))
+        } catch (_: Throwable) {}
+        return 1.0
     }
 
     // ── §4 HIGH_EDGE COMPOSITE (used by InventoryPressureGovernor6829
