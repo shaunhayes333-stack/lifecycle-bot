@@ -945,7 +945,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             try {
                 // Feed regime data
                 com.lifecyclebot.v4.meta.CrossMarketRegimeAI.updateMarketState(
-                    signal.market.symbol, signal.price, signal.price * 0.01) // Approximate change
+                    signal.market.symbol, signal.price, signal.priceChange24h) // V5.0.7403: actual return, not price level
                 
                 // Check V4 gated score
                 val gated = com.lifecyclebot.v4.meta.CrossTalkFusionEngine.computeGatedScore(
