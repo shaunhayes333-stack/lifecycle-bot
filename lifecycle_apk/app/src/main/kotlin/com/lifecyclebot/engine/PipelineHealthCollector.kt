@@ -3036,6 +3036,15 @@ object PipelineHealthCollector {
             sb.append("  PumpPortal WS     (§7280): ").append(
                 try { com.lifecyclebot.network.PumpFunWS.status7280() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Pump lifecycle (§7420): capability=").append(
+                try { com.lifecyclebot.network.PumpFunWS.lifecycleStreamCapable7420() } catch (_: Throwable) { false }
+            ).append(" subscribedMints=").append(
+                try { com.lifecyclebot.network.PumpFunWS.lifecycleSubscribedMints7420() } catch (_: Throwable) { 0 }
+            ).append(" events=").append(
+                try { com.lifecyclebot.network.PumpFunWS.lifecycleEvents7420() } catch (_: Throwable) { 0L }
+            ).append(" subscriptionFailures=").append(
+                try { com.lifecyclebot.network.PumpFunWS.lifecycleSubscriptionFailures7420() } catch (_: Throwable) { 0L }
+            ).append("\n")
             sb.append("  On-chain supply   (§7075): ").append(
                 com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.status()
             ).append("\n")
