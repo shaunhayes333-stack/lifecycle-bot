@@ -33,9 +33,15 @@ object PriceResolverFallback {
     /** Last successful price + ts, keyed by mint. Survives until process death. */
     private data class Cached(val priceUsd: Double, val source: String, val tsMs: Long)
     private val cache = ConcurrentHashMap<String, Cached>()
+    // V5.0.7399 — this resolver is called from the 1 Hz held-position path.
+    // A six-provider serial fallback with 4 s calls can park the exit loop for
+    // tens of seconds. Keep each best-effort enrichment bounded; cached marks
+    // below bridge ordinary provider jitter without weakening exit freshness.
     private val httpClient = SharedHttpClient.builder()
-        .callTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(1200, TimeUnit.MILLISECONDS)
         .build()
+    private const val HOT_CACHE_MS_7399 = 5_000L
+    private const val RESOLVE_BUDGET_MS_7399 = 2_500L
 
     /** V5.0.6894 — one instance so DexscreenerApi's 45s pairCache actually
      *  survives between resolves. See the note at the DexScreener step. */
@@ -133,6 +139,17 @@ object PriceResolverFallback {
     fun resolve(mint: String, solUsdHint: Double): Resolved? {
         if (mint.isBlank()) return null
 
+        // V5.0.7399 — hot-loop cache first. A mark refreshed within five seconds
+        // is already much fresher than the risk clock's stale threshold; re-querying
+        // six HTTP providers every 1 Hz tick only adds latency and rate pressure.
+        val resolveStarted7399 = System.currentTimeMillis()
+        cache[mint]?.let { c ->
+            if (c.priceUsd > 0.0 && resolveStarted7399 - c.tsMs <= HOT_CACHE_MS_7399) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PRICE_FALLBACK_HOT_CACHE_7399") } catch (_: Throwable) {}
+                return Resolved(c.priceUsd, Source.CACHED)
+            }
+        }
+
         // V5.0.6914 — six keyless sources, tried in descending measured health.
         // The DexScreener step keeps the V5.0.6894 shared instance so its 45s
         // pairCache survives between resolves (a fresh instance per call threw
@@ -162,6 +179,10 @@ object PriceResolverFallback {
         ).sortedByDescending { healthScore6914(it.host) }
 
         for (c in candidates6914) {
+            if (System.currentTimeMillis() - resolveStarted7399 >= RESOLVE_BUDGET_MS_7399) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PRICE_FALLBACK_BUDGET_YIELD_7399") } catch (_: Throwable) {}
+                break
+            }
             try {
                 val price = c.fetch()
                 if (price > 0.0 && price.isFinite()) {
