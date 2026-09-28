@@ -145,8 +145,11 @@ object V3Adapter {
             liquidityUsd = liquidityUsd,
             marketCapUsd = marketCapUsd,
             buyPressurePct = buyPressurePct,
-            volume1mUsd = meta.volScore * (liquidityUsd / 100.0).coerceAtLeast(50.0),  // V5.9.187d: real vol proxy (was 0.0 — killed hasMomentumOrVolume)
-            volume5mUsd = meta.volScore * (liquidityUsd / 100.0).coerceAtLeast(50.0) * 3.0,  // V5.9.187d: real vol proxy (was 0.0)
+            // V5.0.7403 — never convert a score back into fake market data.
+            // Outer-ring arb models treat these fields as observed USD volume.
+            // Use provider token-map volume only; unknown stays zero/neutral.
+            volume1mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 }?.div(4.0) ?: 0.0,
+            volume5mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
             holders = holders,
             topHolderPct = topHolderPct,
             bundledPct = bundledPct,
