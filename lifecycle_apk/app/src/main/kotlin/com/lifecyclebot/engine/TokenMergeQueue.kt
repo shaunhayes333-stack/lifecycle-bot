@@ -166,6 +166,7 @@ object TokenMergeQueue {
             }
 
             existing.confidence = calculateMergedConfidence(
+                mint = mint,
                 scanners = existing.scanners,
                 bestScanner = existing.bestScanner,
                 liquidityUsd = existing.liquidityUsd
@@ -178,6 +179,7 @@ object TokenMergeQueue {
             )
         } else {
             val initialConfidence = calculateMergedConfidence(
+                mint = mint,
                 scanners = setOf(scanner),
                 bestScanner = scanner,
                 liquidityUsd = liquidityUsd
@@ -326,6 +328,7 @@ object TokenMergeQueue {
      * - Multi source = strong confirmation boost
      */
     private fun calculateMergedConfidence(
+        mint: String,
         scanners: Set<String>,
         bestScanner: String,
         liquidityUsd: Double,
@@ -347,16 +350,25 @@ object TokenMergeQueue {
             else -> MULTI_SOURCE_BOOST + 15
         }
 
-        val fastTrackBonus = if (
-            scanners.size == 1 &&
-            (
-                bestScanner == "INSIDER_SHARK" ||
-                (bestScanner in setOf("DEX_BOOSTED", "DEX_TRENDING", "V3_PREMIUM", "WHALE_COPY") && liquidityUsd >= HIGH_QUALITY_SINGLE_LIQUIDITY)
-            )
-        ) {
-            HIGH_QUALITY_SINGLE_BONUS
-        } else {
-            0
+        val trueLaunch7403 = try {
+            val born = com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint)
+            born != null && born > 0L && System.currentTimeMillis() - born <= 15_000L
+        } catch (_: Throwable) { false }
+        val leadingSource7403 = bestScanner.uppercase() in
+            setOf("PUMP_PORTAL", "PUMP_PORTAL_WS", "PUMP_FUN_NEW")
+        val laggingMarketSource7403 = bestScanner.uppercase() in
+            setOf("DEX_BOOSTED", "DEX_TRENDING", "V3_PREMIUM", "WHALE_COPY")
+
+        val fastTrackBonus = when {
+            scanners.size != 1 -> 0
+            bestScanner == "INSIDER_SHARK" -> HIGH_QUALITY_SINGLE_BONUS
+            leadingSource7403 && trueLaunch7403 -> 22
+            laggingMarketSource7403 && !trueLaunch7403 &&
+                liquidityUsd >= HIGH_QUALITY_SINGLE_LIQUIDITY -> HIGH_QUALITY_SINGLE_BONUS
+            else -> 0
+        }
+        if (leadingSource7403 && trueLaunch7403 && scanners.size == 1) {
+            try { PipelineHealthCollector.labelInc("MERGE_TRUE_LAUNCH_FASTTRACK_7403") } catch (_: Throwable) {}
         }
 
         return (baseConfidence + singleSourceBonus + multiSourceBonus + fastTrackBonus)
