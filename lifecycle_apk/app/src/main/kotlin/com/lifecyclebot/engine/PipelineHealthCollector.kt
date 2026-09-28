@@ -2510,7 +2510,7 @@ object PipelineHealthCollector {
             // below as internal-invariant snapshots, not competing counts.
             try {
                 val liveOpen6588 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-                    .openPositions().size
+                    .openPositions().count { it.mode.equals("live", ignoreCase = true) }
                 sb.append("  ✅ AUTHORITATIVE LIVE-OPEN POSITIONS: $liveOpen6588 " +
                     "(source: CanonicalPositionAuthority6441.openPositions())\n")
                 sb.append("     NOTE — the sub-ledger status lines below (§H, §6454, §6459)\n")
