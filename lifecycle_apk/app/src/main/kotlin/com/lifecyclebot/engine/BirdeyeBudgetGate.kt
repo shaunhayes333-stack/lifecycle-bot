@@ -68,6 +68,8 @@ object BirdeyeBudgetGate {
     @Volatile private var dailyCap: Long = DEFAULT_DAILY_CAP
 
     @Volatile private var lastScannerLaneTickMs = 0L
+    private val lastAuthTerminalTelemetryMs7406 = java.util.concurrent.atomic.AtomicLong(0L)
+    private const val AUTH_TERMINAL_TELEMETRY_INTERVAL_MS_7406 = 60_000L
     private const val SCANNER_THROTTLED_INTERVAL_MS = 300_000L  // 5 minutes
 
     fun setDailyCap(cap: Long) {
@@ -149,10 +151,16 @@ object BirdeyeBudgetGate {
             )
         } catch (_: Throwable) { false }
         if (authTerminal7172) {
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelInc("BIRDEYE_BUDGET_REFUSED_AUTH_TERMINAL_7172")
-            } catch (_: Throwable) {}
+            val now7406 = System.currentTimeMillis()
+            val prev7406 = lastAuthTerminalTelemetryMs7406.get()
+            if (now7406 - prev7406 >= AUTH_TERMINAL_TELEMETRY_INTERVAL_MS_7406 &&
+                lastAuthTerminalTelemetryMs7406.compareAndSet(prev7406, now7406)
+            ) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("BIRDEYE_BUDGET_REFUSED_AUTH_TERMINAL_7172")
+                } catch (_: Throwable) {}
+            }
             return false
         }
         return try { com.lifecyclebot.engine.KeyValidator.isLive("birdeye") } catch (_: Throwable) { true }
