@@ -314,6 +314,7 @@ object StrategyHypothesisEngine {
             if (!settledOnceGuard6747.add(mint)) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_OUTCOME_DEDUPED_PER_CANDIDATE_6747") } catch (_: Throwable) {}
                 pending.remove(mint)
+                pendingStrategyVariant7427.remove(mint)
                 return
             }
             val a = pending.remove(mint) ?: return
@@ -529,6 +530,11 @@ object StrategyHypothesisEngine {
     fun importState(json: String) {
         try {
             if (json.isBlank() || json == "{}") return
+            // In-flight entry attribution is session-local and must never be
+            // restored onto a different runtime generation.
+            pending.clear()
+            pendingStrategyVariant7427.clear()
+            settledOnceGuard6747.clear()
             val o = JSONObject(json)
             promotions = o.optLong("promotions", 0L); retirements = o.optLong("retirements", 0L)
             o.optJSONObject("baseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); baseline[k] = b.optDouble(k, 1.0) } }
