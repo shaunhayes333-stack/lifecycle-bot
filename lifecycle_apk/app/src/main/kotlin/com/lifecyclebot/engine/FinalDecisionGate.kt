@@ -765,28 +765,6 @@ object FinalDecisionGate {
     }
 
 
-    /**
-     * V5.0.7417 — pre-fanout cache lookup extracted from evaluate().
-     *
-     * IMPORTANT: use the exact legacy cache key that the normal tail writes.
-     * This keeps semantics identical while allowing duplicate calls to return
-     * before spending IntakeFanoutGovernor budget. Keeping these locals out of
-     * evaluate() avoids the ART verifier/register-pressure regression in 7410.
-     */
-    private fun preFanoutCachedVerdict7417(
-        ts: TokenState,
-        candidate: CandidateDecision,
-        tradingModeTag: ModeSpecificGates.TradingModeTag?,
-        laneScore: Double,
-    ): FinalDecision? {
-        val lane = tradingModeTag?.name ?: "STANDARD"
-        val side = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
-        val key = fdgCacheKey(ts, candidate, lane, side, laneScore)
-        val cached = cachedFdgVerdict(key) ?: return null
-        try { PipelineHealthCollector.labelInc("FDG_PRE_FANOUT_CACHE_HIT_7417") } catch (_: Throwable) {}
-        return cached
-    }
-
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -825,11 +803,6 @@ object FinalDecisionGate {
         // was permanently 0 because no call site emitted the phase
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
-        // V5.0.7417 — same pre-fanout reuse as 7410, but the work lives
-        // outside this giant method. 7410 added several locals/branches here and
-        // Android ART rejected evaluate() at runtime with VerifyError.
-        preFanoutCachedVerdict7417(ts, candidate, tradingModeTag, laneScore)?.let { return it }
-
         // V5.0.7232 §FDG_FANOUT_CAP — operator 7227 diagnosis:
         //   laneEval/intake = 29.51,  FDG/intake = 10.86.
         //   Authority invariants clean (EXECUTABLE_FANOUT_PER_CANDIDATE
