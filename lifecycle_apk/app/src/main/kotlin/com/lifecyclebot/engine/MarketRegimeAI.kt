@@ -324,11 +324,15 @@ object MarketRegimeAI {
     /**
      * Record trade outcome for regime learning.
      */
-    fun recordTradeOutcome(pnlPct: Double) {
-        regimeTradeOutcomes.getOrPut(currentRegime) { mutableListOf() }.add(pnlPct)
-        
-        // Keep only last 100 trades per regime
-        regimeTradeOutcomes[currentRegime]?.let { outcomes ->
+    fun recordTradeOutcome(pnlPct: Double, entryRegimeName: String? = null) {
+        // V5.0.7403 — grade the regime that authorized the ENTRY, not whatever
+        // regime happens to exist when the position closes.
+        val target = entryRegimeName?.let {
+            try { Regime.valueOf(it) } catch (_: Throwable) { null }
+        } ?: currentRegime
+        regimeTradeOutcomes.getOrPut(target) { mutableListOf() }.add(pnlPct)
+
+        regimeTradeOutcomes[target]?.let { outcomes ->
             while (outcomes.size > 100) outcomes.removeAt(0)
         }
     }
