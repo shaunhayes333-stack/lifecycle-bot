@@ -745,22 +745,28 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
 
-        // V5.0.7287 — the journal is the evidence. Where the full terminal
-        // history holds more closes for this lane (or the book) than the
-        // session learner does, it replaces that level. See
-        // OracleTradeHistory7287.
+        // V5.0.7402 — journal history must match the execution mode.
+        // 7287 pooled paper+live and replaced LIVE lane/global estimates whenever
+        // the pooled journal had more rows. That let paper history overwhelm an
+        // actively losing live book. Paper remains a prior in its own mode; LIVE
+        // admission reads LIVE terminal history only.
         try {
-            OracleTradeHistory7287.lane(laneKey)?.let { h ->
+            val liveMode7402 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+            OracleTradeHistory7287.laneForMode7402(laneKey, liveMode7402)?.let { h ->
                 if (h.n.toDouble() > (lane1?.n ?: 0.0)) {
-                    lane1 = Level("laneHist", h.meanNetPct, h.winRate.coerceIn(0.0, 1.0), h.n.toDouble())
-                    contributions += "laneHist(n=${h.n},E=${"%+.1f".format(h.meanNetPct)},WR=${"%.0f".format(h.winRate * 100.0)}%)"
+                    lane1 = Level(if (liveMode7402) "laneHistLive" else "laneHistPaper",
+                        h.meanNetPct, h.winRate.coerceIn(0.0, 1.0), h.n.toDouble())
+                    contributions += (if (liveMode7402) "laneHistLIVE" else "laneHistPAPER") +
+                        "(n=${h.n},E=${"%+.1f".format(h.meanNetPct)},WR=${"%.0f".format(h.winRate * 100.0)}%)"
                     historyReads7287.incrementAndGet()
                 }
             }
-            OracleTradeHistory7287.book()?.let { h ->
+            OracleTradeHistory7287.bookForMode7402(liveMode7402)?.let { h ->
                 if (h.n.toDouble() > (globalLevel?.n ?: 0.0)) {
-                    globalLevel = Level("global", h.meanNetPct, h.winRate.coerceIn(0.0, 1.0), h.n.toDouble())
-                    contributions += "bookHist(n=${h.n},E=${"%+.1f".format(h.meanNetPct)})"
+                    globalLevel = Level(if (liveMode7402) "globalLive" else "globalPaper",
+                        h.meanNetPct, h.winRate.coerceIn(0.0, 1.0), h.n.toDouble())
+                    contributions += (if (liveMode7402) "bookHistLIVE" else "bookHistPAPER") +
+                        "(n=${h.n},E=${"%+.1f".format(h.meanNetPct)})"
                 }
             }
         } catch (_: Throwable) {}
