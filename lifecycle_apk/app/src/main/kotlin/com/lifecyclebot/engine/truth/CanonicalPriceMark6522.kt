@@ -426,6 +426,61 @@ object CanonicalPriceMarkRegistry6522 {
         return promoteObservationToExecutable6613(mint, nowMs)
     }
 
+    /**
+     * V5.0.7465 — one mode-aware entry-mark authority for FDG intent sealing,
+     * paper execution and ticket revalidation.
+     *
+     * LIVE: strict EXECUTABLE_ENTRY_QUOTE only.
+     * PAPER: prefer strict; otherwise allow the already-authorized fresh
+     * OBSERVATION_SCORING mark. This preserves the 6579 paper doctrine without
+     * widening LIVE or fabricating liquidity/route proof.
+     */
+    data class EntryMarkResolution7465(
+        val mark: CanonicalPriceMark6522?,
+        val kind: String,
+        val promotionReason: String,
+    ) {
+        val strict: Boolean get() = mark?.purpose == CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE
+    }
+
+    fun resolveEntryMarkForMode7465(
+        mint: String,
+        paperMode: Boolean,
+        nowMs: Long = System.currentTimeMillis(),
+    ): EntryMarkResolution7465 {
+        val promoted = try { promoteObservationToExecutable6613(mint, nowMs) } catch (_: Throwable) {
+            PromotionResult6613(null, "PROMOTION_EXCEPTION_7465", identity = mint)
+        }
+        val strict = promoted.mark?.takeIf {
+            it.purpose == CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE
+        } ?: getFresh6734(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
+        if (strict != null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_MARK_MODE_RESOLVER_STRICT_7465") } catch (_: Throwable) {}
+            return EntryMarkResolution7465(strict, "STRICT_EXECUTABLE", promoted.reason)
+        }
+        if (paperMode) {
+            val observation = getFresh6734(mint, CanonicalMarkPurpose6570.OBSERVATION_SCORING, nowMs)
+            if (observation != null) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_MARK_MODE_RESOLVER_PAPER_OBSERVATION_7465") } catch (_: Throwable) {}
+                return EntryMarkResolution7465(observation, "PAPER_OBSERVATION", promoted.reason)
+            }
+        }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                if (paperMode) "ENTRY_MARK_MODE_RESOLVER_PAPER_MISSING_7465"
+                else "ENTRY_MARK_MODE_RESOLVER_LIVE_STRICT_MISSING_7465"
+            )
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                "ENTRY_MARK_MODE_RESOLVER_MISSING_REASON_7465_" + promoted.reason.take(48)
+            )
+        } catch (_: Throwable) {}
+        return EntryMarkResolution7465(
+            null,
+            if (paperMode) "PAPER_NO_MARK" else "LIVE_NO_EXECUTABLE_MARK",
+            promoted.reason,
+        )
+    }
+
     /** V5.0.6614 — materialize a current executable mark directly from the
      * existing canonical TokenMap when route, pair/pool, price and liquidity are
      * already proven. No scanner replay and no secondary-provider wait. */

@@ -591,13 +591,11 @@ object ExecutableOpenGate {
         val sealedSize = try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(intent.mint) } catch (_: Throwable) { null }
         val size = sealedSize?.takeIf { it.isFinite() && it > 0.0 } ?: intent.resolvedSize.takeIf { it.isFinite() && it > 0.0 }
         val refreshedMark6614 = if (!intent.requiresSolanaTokenMap) null else try {
-            val promoted = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(intent.mint)
-            promoted.mark ?: com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
-                intent.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
-            ) ?: if (intent.mode.equals("PAPER", true))
-                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
-                    intent.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
-                ) else null
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                .resolveEntryMarkForMode7465(
+                    intent.mint,
+                    paperMode = intent.mode.equals("PAPER", true),
+                ).mark
         } catch (_: Throwable) { null }
         val markCurrent = !intent.requiresSolanaTokenMap || (refreshedMark6614 != null &&
             System.currentTimeMillis() - refreshedMark6614.timestampMs in -5_000L..120_000L &&
@@ -1885,11 +1883,15 @@ object ExecutableOpenGate {
                     // entered. The mark is decoration on the intent (provenance for
                     // the entry quote); it is not the authority, and losing it must
                     // never cost us the authority. Resolve it defensively first.
-                    val entryMark7096 = try {
-                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
-                            mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+                    val entryMarkResolution7465 = try {
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                            .resolveEntryMarkForMode7465(mint, paperMode = paperRuntime)
+                    } catch (_: Throwable) {
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.EntryMarkResolution7465(
+                            null, "RESOLUTION_EXCEPTION_7465", "EXCEPTION",
                         )
-                    } catch (_: Throwable) { null }
+                    }
+                    val entryMark7096 = entryMarkResolution7465.mark
                     var intentPublished7096 = false
                     try {
                         publishFdgIntent6519(
@@ -1920,6 +1922,9 @@ object ExecutableOpenGate {
                                 // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive TTL on fresh ticket seal.
                                 com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
                             else LIVE_EXECUTION_TICKET_TTL_MS,
+                            executableMarkSource6613 = entryMark7096?.source ?: "",
+                            executableMarkTimestampMs6613 = entryMark7096?.timestampMs ?: 0L,
+                            executableMarkPriceUsd6613 = entryMark7096?.priceUsd?.value?.toDouble() ?: 0.0,
                             markId6614 = entryMark7096?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: "",
                             markVersion6614 = entryMark7096?.timestampMs ?: 0L,
                             markTimestampMs6614 = entryMark7096?.timestampMs ?: 0L,

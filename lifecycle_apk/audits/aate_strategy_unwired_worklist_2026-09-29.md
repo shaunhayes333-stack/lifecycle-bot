@@ -715,3 +715,17 @@ Baseline 5.0.7456 showed PROJECT_SNIPER / DIP_HUNTER / CASHGEN / CYCLIC reaching
 - [x] Existing 7418 same-record executable-lineage rule remains the only INTENT backfill path.
 - [x] Missing affinity proof remains visible via `SPECIALIST_AFFINITY_LINEAGE_NO_PROOF_7464_<LANE>`.
 - [ ] Runtime acceptance: fresh post-7464 PROJECT_SNIPER/DIP_HUNTER/CASHGEN/CYCLIC raw and validated downstream counts converge without increasing cross-lane rewrites.
+
+
+## V5.0.7465 — P0-2 canonical mark -> entry continuity (runtime proof pending)
+
+5.0.7456 baseline: `missingExecutableMarkWithValidSource=164`, `EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=164`, broken/suppressed marks=277.
+
+- [x] Added one mode-aware entry-mark resolver in `CanonicalPriceMarkRegistry6522`.
+- [x] LIVE remains strict: no OBSERVATION_SCORING fallback can authorize a live entry.
+- [x] PAPER preserves the established 6579 doctrine: strict executable mark preferred, otherwise fresh authoritative observation mark.
+- [x] Fresh FDG intent sealing, PAPER execution, and expired-ticket resealing now consume the same mark-selection authority.
+- [x] Fresh intents now seal mark source/timestamp/price as well as mark id/version; mark provenance is no longer empty decoration.
+- [x] `missingExecutableMarkWithValidSource` now means fresh named price evidence actually existed, rather than any stale/nonzero cache value.
+- [x] Missing marks remain a hard refusal; no synthetic price/liquidity/route proof is created.
+- [ ] Runtime acceptance: valid-source missing mark count materially below 164 and remaining refusals carry `ENTRY_MARK_MODE_RESOLVER_MISSING_REASON_7465_*`.

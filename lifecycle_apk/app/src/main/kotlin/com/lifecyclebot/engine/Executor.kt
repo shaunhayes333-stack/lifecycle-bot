@@ -15572,17 +15572,21 @@ class Executor(
             PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
             ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")
         } catch (_: Throwable) {}
-        val strictMark6575 = try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
-                ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+        val paperEntryMark7465 = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                .resolveEntryMarkForMode7465(ts.mint, paperMode = true, nowMs = now6616)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.EntryMarkResolution7465(
+                null, "RESOLUTION_EXCEPTION_7465", "EXCEPTION",
             )
-        } catch (_: Throwable) { null }
-        val observationMark6579 = try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
-                ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
-            )
-        } catch (_: Throwable) { null }
-        val paperMarkOk6579 = strictMark6575 != null || observationMark6579 != null
+        }
+        val strictMark6575 = paperEntryMark7465.mark?.takeIf {
+            it.purpose == com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE
+        }
+        val observationMark6579 = paperEntryMark7465.mark?.takeIf {
+            it.purpose == com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING
+        }
+        val paperMarkOk6579 = paperEntryMark7465.mark != null
         // V5.0.6886 §THE_STAMPS_DISAGREED_ABOUT_WHICH_TRADE_THIS_IS.
         //
         // These desk stamps used executionAttemptId6514, which paperBuy mints
@@ -15613,8 +15617,14 @@ class Executor(
         if (!paperMarkOk6579) {
             try {
                 ToolkitSignalSheet.recordDeskStage(layerTag, "MARK_REJECT", causalAttempt6886)
-                val validSource6600 = (ts.tokenMap.priceUsd ?: 0.0) > 0.0 || (ts.lastPrice > 0.0 && ts.lastLiquidityUsd > 0.0)
-                if (validSource6600) ToolkitSignalSheet.recordCausalIssue6600("missingExecutableMarkWithValidSource", layerTag, "mint=${ts.mint.take(10)}")
+                val validSource6600 = sourceEvidence6734.any { e ->
+                    e.timestampMs > 0L && e.source.isNotBlank() && e.priceUsd.isFinite() && e.priceUsd > 0.0
+                }
+                if (validSource6600) ToolkitSignalSheet.recordCausalIssue6600(
+                    "missingExecutableMarkWithValidSource",
+                    layerTag,
+                    "mint=${ts.mint.take(10)} reason=${paperEntryMark7465.promotionReason} kind=${paperEntryMark7465.kind}",
+                )
             } catch (_: Throwable) {}
             try {
                 PipelineHealthCollector.labelInc("EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613")
