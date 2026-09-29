@@ -71,6 +71,7 @@ object ExactStrategyPerformance7429 {
     private val playbookCells7431 = ConcurrentHashMap<String, Cell>()
 
     private val restored7431 = AtomicBoolean(false)
+    private val legacyUnstampedSkipped7432 = AtomicLong(0L)
     private const val PLAYBOOK_INDEX_KEY_7431 = "exact_strategy_playbook_index_7431"
     private fun playbookStorageKey7431(key: String) = "exact_strategy_playbook_7431_" + key
 
@@ -85,6 +86,14 @@ object ExactStrategyPerformance7429 {
                 val rowRaw = LearningPersistence.load(playbookStorageKey7431(k)) ?: continue
                 val j = JSONObject(rowRaw)
                 val parts = k.split('|')
+                // V5.0.7432 — pre-7427 rows never had exact tradeType/setup/style
+                // identity. They remain valid lane/tactic history, but are not an
+                // exact playbook and must never seed current exact-strategy EV.
+                if (parts.any { it.startsWith("UNSTAMPED_") }) {
+                    legacyUnstampedSkipped7432.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_LEGACY_UNSTAMPED_SKIPPED_7432") } catch (_: Throwable) {}
+                    continue
+                }
                 val cell = Cell(
                     mode = parts.getOrElse(0) { "UNKNOWN" },
                     lane = parts.getOrElse(1) { "UNKNOWN" },
@@ -163,6 +172,24 @@ object ExactStrategyPerformance7429 {
         ensureRestored7431()
         if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return false
 
+        // V5.0.7432 — exact-strategy learning starts only once immutable
+        // identity exists. Historical/pre-7427 closes still flow to the lane,
+        // tactic, policy and general performance learners, but cannot be
+        // represented truthfully as one exact playbook.
+        val exactStamped7432 =
+            env.entryTradeType.isNotBlank() &&
+            env.entrySetup.isNotBlank() &&
+            env.entryStyle.isNotBlank() &&
+            env.entryTactic.isNotBlank()
+        if (!exactStamped7432) {
+            legacyUnstampedSkipped7432.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXACT_STRATEGY_LEGACY_UNSTAMPED_SKIPPED_7432")
+                PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429")
+            } catch (_: Throwable) {}
+            return true
+        }
+
         val k = key(env)
         var cell = cells[k]
         if (cell == null) {
@@ -225,11 +252,7 @@ object ExactStrategyPerformance7429 {
         try {
             PipelineHealthCollector.labelInc("EXACT_STRATEGY_OUTCOME_7429")
             PipelineHealthCollector.labelInc("EXACT_STRATEGY_OUTCOME_7429_" + cell.lane.take(24))
-            if (env.entryTradeType.isBlank() || env.entrySetup.isBlank() || env.entryStyle.isBlank()) {
-                PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429")
-            } else {
-                PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_COMPLETE_7429")
-            }
+            PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_COMPLETE_7429")
         } catch (_: Throwable) {}
         return true
     }
@@ -347,7 +370,7 @@ object ExactStrategyPerformance7429 {
             "${it.mode}/${it.lane}/${it.tradeType}/${it.setup}/${it.style}/${it.tactic}" +
                 "[n=${it.n} wr=${"%.0f".format(it.winRatePct)}% ev=${"%+.1f".format(it.meanPnlPct)}% pnl=${"%+.3f".format(it.pnlSol)}]"
         }
-        return "keys=${rows.size} outcomes=$total complete=$complete/$total top=$top"
+        return "keys=${rows.size} outcomes=$total complete=$complete/$total legacyUnstampedSkipped=${legacyUnstampedSkipped7432.get()} top=$top"
     }
 
     internal fun clearForTest7429() { cells.clear(); playbookCells7431.clear(); restored7431.set(true) }
