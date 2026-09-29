@@ -359,7 +359,14 @@ object FinalizedBusConsumerBridge6465 {
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToStrategyHypothesis(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(env.mint, env.realizedReturnPct)
+        // V5.0.7429 — terminal credit follows the exact strategy/variant that
+        // was sealed to the position at entry. The legacy mint-only path can
+        // be overwritten by later fanout evaluations of the same mint and
+        // therefore cannot be canonical learning authority.
+        com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcomeForPosition7428(
+            env.positionId,
+            env.realizedReturnPct,
+        )
         true
     } catch (t: Throwable) { threw7154(t) }
 
