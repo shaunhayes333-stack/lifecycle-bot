@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -18,8 +19,8 @@ class Aate7429ExactStrategyPerformanceTest {
     @Test fun canonicalBusRegistersExactStrategyConsumer() {
         val bus = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
         val bridge = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
-        assertTrue(bus.contains(""ExactStrategyPerformance7429""))
-        assertTrue(bridge.contains(""ExactStrategyPerformance7429" -> deliverToExactStrategyPerformance7429(env)"))
+        assertTrue(bus.contains("\"ExactStrategyPerformance7429\""))
+        assertTrue(bridge.contains("\"ExactStrategyPerformance7429\" -> deliverToExactStrategyPerformance7429(env)"))
         assertTrue(bridge.contains("ExactStrategyPerformance7429.record(env)"))
     }
 
@@ -27,10 +28,12 @@ class Aate7429ExactStrategyPerformanceTest {
         val bridge = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
         val start = bridge.indexOf("private fun deliverToStrategyHypothesis")
         val end = bridge.indexOf("private fun deliverToExactStrategyPerformance7429", start)
+        assertTrue(start >= 0)
+        assertTrue(end > start)
         val block = bridge.substring(start, end)
         assertTrue(block.contains("recordOutcomeForPosition7428"))
         assertTrue(block.contains("env.positionId"))
-        assertTrue(!block.contains("recordOutcome(env.mint"))
+        assertFalse(block.contains("recordOutcome(env.mint"))
     }
 
     @Test fun pipelinePrintsExactStrategyScoreboard() {
@@ -39,11 +42,11 @@ class Aate7429ExactStrategyPerformanceTest {
         assertTrue(health.contains("ExactStrategyPerformance7429.statusLine()"))
     }
 
-    @Test fun lateSourceTimingFeedsPredictiveAdmission() {
+    @Test fun sourceTimingIsNotDoubleCountedInOracle() {
         val oracle = File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
-        assertTrue(oracle.contains("SourceTimingRegistry.isLateSignal(mint)"))
-        assertTrue(oracle.contains("SOURCE_TIMING_LATE_SIGNAL_READ_7429"))
-        assertTrue(oracle.contains("BrainRead(\"lateDiscoverySource\", -9.0)"))
+        val scoreCard = File("src/main/kotlin/com/lifecyclebot/v3/scoring/ScoreCard.kt").readText()
+        assertTrue(scoreCard.contains("SourceTimingRegistry.getSourceTimingPenalty"))
+        assertFalse(oracle.contains("SourceTimingRegistry.isLateSignal(mint)"))
+        assertFalse(oracle.contains("BrainRead(\"lateDiscoverySource\""))
     }
-
 }
