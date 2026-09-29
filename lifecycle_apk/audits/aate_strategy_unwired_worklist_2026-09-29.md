@@ -512,3 +512,11 @@ The exact-strategy table showed `complete=1/507`; the 506 incomplete rows are pr
 - [x] Learned TP/hold/partial shaping is advisory only; hard stop loss and AEM critical safety remain unconditional.
 - [x] `SmartExitOptimizer.getExitPressure` classified **ALIAS_REDUNDANT_FOR_MEME_HOLD**: it simply invokes `SymbolicExitReasoner.assess`, while the canonical meme hold/exit stack already evaluates symbolic/AEM evidence. Do not add a second hot-path symbolic pass just to clear the unwired ledger.
 - [x] Runtime proof counters: `HOLD_PARAMS_CANONICAL_READ_7455`, `HOLD_EXIT_TUNER_CONSUMED_7455` (+ mode suffix).
+
+## V5.0.7457 — canonical partial lifecycle projection
+
+- [x] `PositionStateLedger6454.onPartial()` moved from dead API to a causal consumer at `CanonicalPositionAuthority6441.partialSell()`.
+- [x] Partial lifecycle projection runs only after the canonical mutation has committed `PARTIALLY_CLOSED`.
+- [x] An unregistered LIVE ledger row may seed to PARTIAL only when the canonical row proves `PARTIALLY_CLOSED` with remaining quantity.
+- [x] CLOSING/CLOSED ledger states are never overwritten by a partial callback.
+- [x] Runtime proof counters: `POSITION_STATE_PARTIAL_PROJECTED_7457`, `POSITION_STATE_PARTIAL_APPLIED_7457`, `POSITION_STATE_PARTIAL_REFUSED_NO_CANONICAL_PROOF_7457`, `POSITION_STATE_PARTIAL_REFUSED_STATE_7457`.

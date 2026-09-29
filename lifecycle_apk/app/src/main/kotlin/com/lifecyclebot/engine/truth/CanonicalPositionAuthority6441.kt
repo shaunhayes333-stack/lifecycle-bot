@@ -725,6 +725,18 @@ object CanonicalPositionAuthority6441 {
                     else "CANONICAL_POSITION_PARTIAL_6441",
                 )
             } catch (_: Throwable) {}
+
+            // V5.0.7457 — project partial lifecycle at the causal mutation.
+            // Prior state only caught up when a later reconciliation rebuilt
+            // PositionStateLedger6454 from canonical positions. That left a
+            // window where canonical said PARTIALLY_CLOSED but terminal-sell
+            // CAS still believed OPEN/UNKNOWN.
+            if (newLifecycle == Lifecycle.PARTIALLY_CLOSED) {
+                try {
+                    PositionStateLedger6454.onPartial(positionId)
+                    PipelineHealthCollector.labelInc("POSITION_STATE_PARTIAL_PROJECTED_7457")
+                } catch (_: Throwable) {}
+            }
             // V5.0.6634 §UNLOCK_ON_TERMINAL_CLOSE — release the locked
             //   entry snapshot when the position reaches a terminal
             //   CLOSED state so the ring buffer stays clean and a

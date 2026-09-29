@@ -180,13 +180,44 @@ object PositionStateLedger6454 {
         } catch (_: Throwable) {}
     }
 
-    /** Called on any partial sell that leaves >0 remaining. */
+    /**
+     * Called after the canonical position authority has committed a partial
+     * sell that leaves quantity open.
+     *
+     * V5.0.7457 — this used to update only an already-registered OPEN/PARTIAL
+     * row. LIVE can legitimately be absent from this projection until a
+     * periodic sync, so canonical partial truth could be PARTIALLY_CLOSED while
+     * this ledger remained UNKNOWN. Seed PARTIAL only when the canonical row
+     * itself proves same positionId + PARTIALLY_CLOSED + remaining quantity.
+     * Never invent lifecycle from a caller assertion.
+     */
     fun onPartial(positionId: String) {
         if (positionId.isBlank()) return
+        val canonical = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
+        val canonicallyPartial = canonical != null &&
+            canonical.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED &&
+            canonical.remainingQtyRaw > java.math.BigInteger.ZERO
+        if (!canonicallyPartial) {
+            try { PipelineHealthCollector.labelInc("POSITION_STATE_PARTIAL_REFUSED_NO_CANONICAL_PROOF_7457") } catch (_: Throwable) {}
+            return
+        }
+
         val prior = states[positionId]
-        if (prior == Lifecycle.OPEN || prior == Lifecycle.PARTIAL) {
-            states[positionId] = Lifecycle.PARTIAL
-            closingSinceMs6702.remove(positionId)
+        when (prior) {
+            Lifecycle.OPEN, Lifecycle.PARTIAL, null -> {
+                states[positionId] = Lifecycle.PARTIAL
+                closingSinceMs6702.remove(positionId)
+                try { PipelineHealthCollector.labelInc("POSITION_STATE_PARTIAL_APPLIED_7457") } catch (_: Throwable) {}
+            }
+            Lifecycle.CLOSING, Lifecycle.CLOSED, Lifecycle.UNKNOWN -> {
+                try {
+                    PipelineHealthCollector.labelInc("POSITION_STATE_PARTIAL_REFUSED_STATE_7457")
+                    ForensicLogger.lifecycle(
+                        "POSITION_STATE_PARTIAL_REFUSED_STATE_7457",
+                        "positionId=${positionId.take(18)} prior=$prior canonical=${canonical.lifecycle} remaining=${canonical.remainingQtyRaw}",
+                    )
+                } catch (_: Throwable) {}
+            }
         }
     }
 
