@@ -32,9 +32,10 @@ class Aate7431SmartMoneyLaunchEvidenceTest {
 
     @Test fun fdgConsumesClusterThroughCanonicalDecisionPath() {
         val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(fdg.contains("EarlyLaunchBypass6396.evaluateForLiveBuy("))
+        assertTrue(fdg.contains("EarlyLaunchBypass6396.evaluateForCanonicalEntry("))
         val bypass = File("src/main/kotlin/com/lifecyclebot/engine/truth/EarlyLaunchBypass6396.kt").readText()
         assertTrue(bypass.contains("SmartMoneyFeed6394.smartMoneyBuysLast60s(mint)"))
+        assertTrue(bypass.contains("SMART_MONEY_EARLY_REDUCED_SIZE_7431"))
         assertTrue(bypass.contains("whaleBuys < 2"))
     }
 
@@ -45,4 +46,17 @@ class Aate7431SmartMoneyLaunchEvidenceTest {
         assertTrue(bot.contains("copyTradeEngine.onSwapDetected("))
         assertTrue(bot.contains("HeliusPushSwapParser7277.detectBuys("))
     }
+    @Test fun paperAndLiveShareCanonicalEdgeDecision() {
+        val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val start = fdg.indexOf("if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP)")
+        val end = fdg.indexOf("var narrativeAdjustment", start)
+        assertTrue(start >= 0 && end > start)
+        val edge = fdg.substring(start, end)
+        assertTrue(edge.contains("canonical PAPER/LIVE edge parity"))
+        assertTrue(edge.contains("SMART_MONEY_EARLY_ENTRY_REDUCED_SIZE_7431"))
+        assertFalse(edge.contains("PAPER BOOTSTRAP PROBE"))
+        assertFalse(edge.contains("edge_veto_softened_paper"))
+        assertFalse(edge.contains("if (config.paperMode)"))
+    }
+
 }
