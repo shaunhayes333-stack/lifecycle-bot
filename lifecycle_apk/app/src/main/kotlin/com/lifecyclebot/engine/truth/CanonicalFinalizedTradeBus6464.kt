@@ -331,6 +331,13 @@ object CanonicalFinalizedTradeBus6464 {
      */
     fun canonicalPositionIds7018(): Set<String> =
         canonicalSeen.values.mapNotNullTo(HashSet()) { it.positionId.ifBlank { null } }
+
+    /** V5.0.7433 — lower bound of surviving finalized-bus history.
+     * A canonical CLOSED mutation strictly older than this cannot have been
+     * produced by the currently-retained bus lineage and must not be called a
+     * current BUS_PUBLISH_FAILED row. */
+    fun earliestCanonicalAtMs7433(): Long? =
+        canonicalSeen.values.asSequence().map { it.atMs }.filter { it > 0L }.minOrNull()
     fun consumerUnique(name: String): Int = canonicalSeen.keys.count {
         consumerAcks[name]?.contains(it) == true && !isExcluded(name, it)
     }
