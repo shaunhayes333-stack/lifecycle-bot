@@ -16,6 +16,18 @@ class Aate7431ExactStrategyEvAdmissionTest {
         assertTrue(src.contains("PAPER_SEED"))
     }
 
+    @Test fun exactStrategyEvSurvivesRestartAndAdmissionLookupIsConstantTime() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExactStrategyPerformance7429.kt").readText()
+        assertTrue(src.contains("PLAYBOOK_INDEX_KEY_7431"))
+        assertTrue(src.contains("ensureRestored7431()"))
+        assertTrue(src.contains("persistPlaybook7431("))
+        assertTrue(src.contains("playbookCells7431[k] ?: return null"))
+        val aggregateStart = src.indexOf("private fun aggregate7431(")
+        val evidenceStart = src.indexOf("fun evidenceFor7431(", aggregateStart)
+        val block = src.substring(aggregateStart, evidenceStart)
+        assertFalse(block.contains("snapshots().filter"))
+    }
+
     @Test fun predictiveOracleUsesExactStrategyAsShrinkageEvidenceNotStandaloneGate() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
         assertTrue(src.contains("ExactStrategyPerformance7429.evidenceFor7431("))
