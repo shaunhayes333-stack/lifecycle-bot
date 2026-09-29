@@ -31341,6 +31341,29 @@ if (hotExitHandledSweep) {
         // V5.0: TRADE AUTHORIZER - Check BEFORE any execution
         // This is the unified gate that prevents post-execution gating drift
         // ═══════════════════════════════════════════════════════════════════
+        // V5.0.7467 P0-4 — carry the exact primary/CORE FDG intent into
+        // TradeAuthorizer. The old path generated a fresh attempt inside
+        // authorize(), while the already-sealed FDG intent was looked up later.
+        // That split BUY_INTENT/OWNER from MARK/SIZE/TICKET and made CORE look
+        // SIZING_CHOKED even when a valid intent existed.
+        val primaryCandidateVersion7467 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
+            .takeIf { it > 0L } ?: 1L
+        val primarySealedIntent7467 = try {
+            ExecutableOpenGate.activeExecutionIntent6519(
+                if (cfg.paperMode) "PAPER" else "LIVE",
+                identity.mint,
+                primaryCandidateVersion7467,
+            )?.takeIf { intent ->
+                val sealedLane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent.canonicalLane)
+                val primaryLane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(cyclePrimaryLane)
+                sealedLane == primaryLane
+            }
+        } catch (_: Throwable) { null }
+        if (primarySealedIntent7467 == null) {
+            try { PipelineHealthCollector.labelInc("PRIMARY_SPINE_SEALED_INTENT_MISSING_OR_MISMATCH_7467_${cyclePrimaryLane.uppercase()}") } catch (_: Throwable) {}
+        } else {
+            try { PipelineHealthCollector.labelInc("PRIMARY_SPINE_SEALED_INTENT_REUSED_7467_${cyclePrimaryLane.uppercase()}") } catch (_: Throwable) {}
+        }
         val authResult = TradeAuthorizer.authorize(
             mint = mint,
             symbol = identity.symbol,
@@ -31353,14 +31376,16 @@ if (hotExitHandledSweep) {
             liquidity = ts.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(mint),
             preResolvedSizeSol = actualInitialSizeForAuth6649,
+            attemptId = primarySealedIntent7467?.attemptId.orEmpty(),
         )
         
         ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
 
         // V5.0.6614 — every counted specialist BUY intent receives one
         // same-identity FDG terminal outcome before any SHADOW/REJECT return.
-        val candidateVersion6614 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
-            .takeIf { it > 0L } ?: 1L
+        val candidateVersion6614 = authResult.candidateVersion6494.takeIf { it > 0L }
+            ?: primarySealedIntent7467?.candidateVersion?.takeIf { it > 0L }
+            ?: primaryCandidateVersion7467
         val specialistCausalId6614 = authResult.attemptId.ifBlank {
             // V5.0.6673 §SPECIALIST_CAUSAL_ID_CANONICAL_FORMAT (Fire C).
             // Previously the fallback emitted 3-part "gen:ver:lane" which the
@@ -31422,13 +31447,35 @@ if (hotExitHandledSweep) {
         //   recordDeskStage (lane|stage|eventId) dedupe still enforces one
         //   stamp per intent so a subsequent retrieve is a no-op.
         val ticketStampIntent6658 = specialistIntent6614
-        if (ticketStampIntent6658 != null) try {
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "POOL", ticketStampIntent6658.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "BUY_INTENT", ticketStampIntent6658.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", ticketStampIntent6658.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "SIZED_EXECUTABLE", ticketStampIntent6658.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "TICKET", ticketStampIntent6658.attemptId)
+        // V5.0.7467 — never fabricate post-FDG stages from object existence.
+        // TradeAuthorizer.isExecutable means executable-open finality, minimum
+        // notional and ownership checks actually passed. The sealed intent must
+        // also carry a real mark and positive size before those stages are written.
+        val postAuthIntent7467 = ticketStampIntent6658?.takeIf {
+            authResult.isExecutable() &&
+                authResult.attemptId.isNotBlank() &&
+                it.attemptId == authResult.attemptId &&
+                it.resolvedSize.isFinite() && it.resolvedSize > 0.0 &&
+                it.executableMarkTimestampMs6613 > 0L &&
+                it.executableMarkPriceUsd6613.isFinite() && it.executableMarkPriceUsd6613 > 0.0
+        }
+        if (postAuthIntent7467 != null) try {
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "POOL", postAuthIntent7467.attemptId)
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "BUY_INTENT", postAuthIntent7467.attemptId)
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", postAuthIntent7467.attemptId)
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "SIZED_EXECUTABLE", postAuthIntent7467.attemptId)
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "TICKET", postAuthIntent7467.attemptId)
+            PipelineHealthCollector.labelInc("PRIMARY_SPINE_POST_AUTH_CAUSAL_HANDOFF_7467_${cyclePrimaryLane.uppercase()}")
         } catch (_: Throwable) {}
+        if (authResult.isExecutable() && ticketStampIntent6658 != null && postAuthIntent7467 == null) {
+            try {
+                PipelineHealthCollector.labelInc("PRIMARY_SPINE_POST_AUTH_PROOF_INCOMPLETE_7467_${cyclePrimaryLane.uppercase()}")
+                ForensicLogger.lifecycle(
+                    "PRIMARY_SPINE_POST_AUTH_PROOF_INCOMPLETE_7467",
+                    "lane=$cyclePrimaryLane mint=${identity.mint.take(10)} authAttempt=${authResult.attemptId.take(32)} intentAttempt=${ticketStampIntent6658.attemptId.take(32)} size=${ticketStampIntent6658.resolvedSize} markTs=${ticketStampIntent6658.executableMarkTimestampMs6613} markPx=${ticketStampIntent6658.executableMarkPriceUsd6613}",
+                )
+            } catch (_: Throwable) {}
+        }
         val specialistFdgAllowed6614 = specialistIntent6614?.fdgAllowed == true || fdgDecision.canExecute()
         try {
             ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, if (specialistFdgAllowed6614) "FDG_ALLOW" else "FDG_BLOCK", specialistCausalId6614)

@@ -741,3 +741,16 @@ Baseline 5.0.7456 showed PROJECT_SNIPER / DIP_HUNTER / CASHGEN / CYCLIC reaching
 - [x] Missing sealed intent remains observable via `BLUECHIP_SEALED_INTENT_MISSING_BEFORE_AUTH_7466`; the code does not fabricate one.
 - [x] Successful same-attempt continuity is measured by `BLUECHIP_SEALED_INTENT_REUSED_FOR_AUTH_7466` and `BLUECHIP_POST_AUTH_CAUSAL_HANDOFF_7466`.
 - [ ] Runtime acceptance: fresh BLUECHIP mark-ready attempts either reach sized/ticket or terminate with a named authorization/finality reason; no silent mark->size disappearance.
+
+
+## V5.0.7467 — P0-4 CORE / primary-spine causal sizing continuity (runtime proof pending)
+
+5.0.7456 baseline: CORE candidate=380 qualified=380 ownerSelected=18 buyIntent=41 fdg=22 mark=1, sized/ticket/exec all zero with shared capital available.
+
+- [x] Generic primary/CORE spine now reuses a lane-matched immutable FDG intent attemptId when entering `TradeAuthorizer`.
+- [x] A sealed intent from another specialist lane is never reused for CORE or another primary lane.
+- [x] MARK_READY / SIZED_EXECUTABLE / TICKET are no longer backfilled merely because an `ExecutionIntent` object exists.
+- [x] Post-FDG stages require executable authorization, the exact same attemptId, positive sealed size, and sealed mark provenance.
+- [x] Contributor lanes remain contributors; no new economic execution path or duplicate mint/version execution was added.
+- [x] No CORE score floor, sizing formula, or allocation target changed.
+- [ ] Runtime acceptance: CORE mark-ready attempts either reach canonical size/ticket on the same attempt or terminate with a named auth/finality/proof reason.
