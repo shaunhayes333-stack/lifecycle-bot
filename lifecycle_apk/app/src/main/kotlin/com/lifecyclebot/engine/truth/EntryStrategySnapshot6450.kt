@@ -340,6 +340,7 @@ object MemeCausalLearning6568 {
         lane: String,
         strategyIdentity: String,
     ): Double {
+        try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_CONSULTED_7432") } catch (_: Throwable) {}
         val p = strategyIdentity.split('>').map { it.trim() }
         val s = exactStrategyStats7430(
             lane = lane,
@@ -347,8 +348,14 @@ object MemeCausalLearning6568 {
             setup = p.getOrNull(1).orEmpty(),
             style = p.getOrNull(2).orEmpty(),
             tactic = p.getOrNull(3).orEmpty(),
-        ) ?: return 1.0
-        if (s.sample < 5) return 1.0
+        ) ?: run {
+            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_NO_EVIDENCE_7432") } catch (_: Throwable) {}
+            return 1.0
+        }
+        if (s.sample < 5) {
+            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_IMMATURE_7432") } catch (_: Throwable) {}
+            return 1.0
+        }
         val mult = when {
             s.sample >= 12 && s.meanPnlPct >= 10.0 && s.profitFactor >= 1.30 -> 1.08
             s.meanPnlPct > 0.0 && s.profitFactor >= 1.05 -> 1.03
@@ -360,6 +367,7 @@ object MemeCausalLearning6568 {
             PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_READ_7430")
             if (mult > 1.0) PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_POSITIVE_7430")
             if (mult < 1.0) PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_NEGATIVE_7430")
+            if (mult == 1.0) PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_NEUTRAL_7432")
         } catch (_: Throwable) {}
         return mult
     }
