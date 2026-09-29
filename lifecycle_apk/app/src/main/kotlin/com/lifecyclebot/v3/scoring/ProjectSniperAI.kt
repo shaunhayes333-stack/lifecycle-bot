@@ -439,16 +439,16 @@ object ProjectSniperAI {
         // ── V5.9.1302 — SNIPER self-awareness: damp size in its OWN proven
         // danger buckets. ProjectSniperAI previously sized blind to its per-score
         // record (the BotService danger check was telemetry-only and never reduced
-        // size). Now it consults the SAME "PRESALE_SNIPE" bucket it is tracked under
+        // size). Now it consults the SAME "PROJECT_SNIPER" bucket it is tracked under
         // and self-throttles size — soft, fail-open, no veto. A matured net-losing
         // bucket halves size; an expectancy-reject flag applies a deeper 0.4x probe.
         // Empty/young buckets (which return false) leave size untouched, so bootstrap
         // throughput is preserved. This is the fluid self-adjustment the doctrine wants.
         var sniperSelfDamp = 1.0
         try {
-            val danger = com.lifecyclebot.engine.LosingPatternMemory.stats("PRESALE_SNIPE", confidence)
+            val danger = com.lifecyclebot.engine.LosingPatternMemory.stats("PROJECT_SNIPER", confidence)
             if (danger.isDangerous && danger.meanPnl < 0.0) sniperSelfDamp = 0.5
-            if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("PRESALE_SNIPE", confidence)) {
+            if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("PROJECT_SNIPER", confidence)) {
                 sniperSelfDamp = minOf(sniperSelfDamp, 0.4)
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
@@ -480,9 +480,9 @@ object ProjectSniperAI {
 
         // V5.9.1305 — calibration-aware shrink (composes with the 1302 self-damp).
         // 1302 damps on loss-COUNT danger buckets + reject flag; this trims on the
-        // band's mean RETURN. Keyed on the SAME PRESALE_SNIPE bucket. Soft, fail-open.
+        // band's mean RETURN. Keyed on the SAME PROJECT_SNIPER bucket. Soft, fail-open.
         try {
-            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("PRESALE_SNIPE", confidence)
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("PROJECT_SNIPER", confidence)
             if (calMult < 1.0) {
                 positionSol *= calMult
                 ErrorLogger.info(TAG, "🎯✨ SNIPER CALIBRATION_SHRINK ${ts.symbol} | band=S$confidence size×$calMult (net-negative band)")
@@ -631,7 +631,7 @@ object ProjectSniperAI {
         
         // V5.9.1380 — closed-loop tuner scales the whole sniper TP ladder by the
         // learnt SNIPER multiplier (banks sooner / lets run based on realized edge).
-        val _snipTpMult = com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("SNIPER")
+        val _snipTpMult = com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("PROJECT_SNIPER")
         val tp3 = TAKE_PROFIT_3_PCT * _snipTpMult
         val tp2 = TAKE_PROFIT_2_PCT * _snipTpMult
         val tp1 = TAKE_PROFIT_1_PCT * _snipTpMult

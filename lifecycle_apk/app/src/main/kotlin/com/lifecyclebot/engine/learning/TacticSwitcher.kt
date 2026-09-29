@@ -154,6 +154,9 @@ object TacticSwitcher {
     )
 
     private val cells = ConcurrentHashMap<String, Cell>()
+    // V5.0.7439 — quiet persisted poison buckets must still self-pivot.
+    // Sweep on a bounded terminal cadence rather than adding bot-loop work.
+    private val memorySweepCloseCadence7439 = AtomicLong(0L)
     private data class HistoricalTacticOutcome6486(
         val trades: AtomicInteger = AtomicInteger(0),
         val wins: AtomicInteger = AtomicInteger(0),
@@ -297,6 +300,12 @@ object TacticSwitcher {
             pnlPct, "TacticSwitcher.onTradeClosed/$lane/$scoreBand", emit = true,
         )
         if (!pnlVerdict6495.ok) return
+        if (memorySweepCloseCadence7439.incrementAndGet() % 16L == 0L) {
+            try {
+                sweepAllBuckets()
+                PipelineHealthCollector.labelInc("TACTIC_MEMORY_SWEEP_7439")
+            } catch (_: Throwable) {}
+        }
         // V5.0.6747 §BLEEDER_LANE_PROBATION — feed the per-lane WR
         // window from the same authoritative sink the tactic tuner
         // uses so both authorities see the same terminal outcomes.

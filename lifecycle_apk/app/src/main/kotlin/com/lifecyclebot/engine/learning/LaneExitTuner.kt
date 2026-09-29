@@ -138,41 +138,18 @@ object LaneExitTuner {
     private val replayBiasInFlight = AtomicBoolean(false)
 
     private fun canon(lane: String): String {
-        val u = lane.uppercase()
-        return when {
-            u.contains("MOONSHOT")                          -> "MOONSHOT"
-            u.contains("MANIPUL")                           -> "MANIPULATED"
-            u.contains("EXPRESS")                            -> "EXPRESS"
-            u.contains("SHITCOIN")                           -> "SHITCOIN"
-            u.contains("CYCLIC")                             -> "CYCLIC"
-            u.contains("TREASURY") || u.contains("CASH")    -> "TREASURY"
-            u.contains("PRESALE") || u.contains("SNIPER")   -> "PRESALE_SNIPE"
-            u.contains("QUALITY")                            -> "QUALITY"
-            u.contains("BLUE")                               -> "BLUECHIP"
-            u.contains("DIP")                                -> "DIP_HUNTER"
-            // V5.0.7167 §STANDARD WAS A JUNK DRAWER WEARING A LANE'S NAME.
-            //
-            // Operator's 5.0.7166:
-            //
-            //   STANDARD  tpMult=0.80  slMult=0.70  lifetime=1376
-            //
-            // 1,376 closes, and the bot barely trades a lane called STANDARD —
-            // the funnel reports it as shadow/read-only, 404 evaluations and
-            // zero executions. So almost none of those closes are STANDARD's.
-            // They are every lane name this `when` failed to match, swept into
-            // the default arm: CORE, CRYPTO_LEV, CRYPTO_SPOT, UNRESOLVED_OWNER
-            // _6741, WALLET_RECOVERED. That last one closes at μ=-91.1% on
-            // 0 wins from 9, because it is inventory the bot never bought and
-            // has no real basis for.
-            //
-            // Then CORE asks getTpMult("CORE"), lands in the same bucket, and
-            // is told to bank sooner and stop tighter because a wallet-recovery
-            // write-off was averaged into its window. Unmatched names now keep
-            // their own identity instead of inheriting a stranger's shape; a
-            // lane with too few closes of its own reads neutral, which is the
-            // honest answer.
-            else -> u.filter { it.isLetterOrDigit() || it == '_' }.take(24).ifBlank { "STANDARD" }
+        // V5.0.7439 — one lane identity authority. The previous substring
+        // switch collapsed PROJECT_SNIPER/PRESALE into PRESALE_SNIPE and
+        // CASHGEN into TREASURY, contradicting CanonicalLaneIdentity6506 and
+        // contaminating independent exit learning.
+        val canonical = try {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+        } catch (_: Throwable) {
+            lane.trim().uppercase()
         }
+        return canonical.filter { it.isLetterOrDigit() || it == '_' }
+            .take(24)
+            .ifBlank { "STANDARD" }
     }
 
     /**

@@ -551,14 +551,39 @@ object ToolkitSignalSheet {
                 tpMult = c.tp.coerceIn(0.60, 1.70), reason = c.reasons.take(4).joinToString(";"),
             )
         }
-        // CORE is the ensemble coordinator over real qualified desks, never an
-        // independent duplicate scanner or position owner.
-        deskHypotheses.values.maxByOrNull { it.conviction }?.let { strongest ->
-            deskHypotheses["CORE"] = strongest.copy(
+        // V5.0.7439 — CORE is the executable ensemble/fallback desk, not a
+        // mirror of whichever specialist happens to lead. It owns only the
+        // ambiguous multi-fit case: 2+ real specialist hypotheses >=45, no
+        // specialist at >=75, and no clear >10-point leader (or leader <65).
+        // This matches CryptoLaneDesk7391 and preserves STANDARD/V3_CORE as
+        // observer-only lanes.
+        val coreRanked7439 = deskHypotheses.values
+            .filter { !it.lane.equals("CORE", true) }
+            .sortedByDescending { it.conviction }
+        val coreStrongest7439 = coreRanked7439.firstOrNull()
+        val coreSecond7439 = coreRanked7439.getOrNull(1)
+        val coreVoters7439 = coreRanked7439.filter { it.conviction >= 45.0 }
+        val coreFit7439 = coreStrongest7439 != null && coreSecond7439 != null &&
+            coreVoters7439.size >= 2 &&
+            coreStrongest7439.conviction < 75.0 &&
+            (coreStrongest7439.conviction - coreSecond7439.conviction <= 10.0 ||
+                coreStrongest7439.conviction < 65.0) &&
+            LaneEntryContract6342.isLaneIdentityEligible7252(ts, "CORE")
+        if (coreFit7439) {
+            val strongest = coreStrongest7439!!
+            val runnerUp = coreSecond7439!!
+            deskHypotheses["CORE"] = DeskHypothesis(
                 lane = "CORE",
-                entryStyle = "aggregate_${strongest.entryStyle}",
-                exitStyle = "aggregate_${strongest.exitStyle}",
-                reason = "ensemble=${deskHypotheses.keys.joinToString("+")};leader=${strongest.lane};${strongest.reason}",
+                setup = strongest.setup,
+                conviction = coreVoters7439.map { it.conviction }.average().coerceIn(0.0, 100.0),
+                entryStyle = "ensemble_${strongest.entryStyle}",
+                exitStyle = "ensemble_${strongest.exitStyle}",
+                holdMult = coreVoters7439.map { it.holdMult }.average().coerceIn(0.30, 3.50),
+                sizeMult = coreVoters7439.map { it.sizeMult }.average().coerceIn(0.30, 1.15),
+                tpMult = coreVoters7439.map { it.tpMult }.average().coerceIn(0.60, 1.70),
+                reason = "ensemble_voters=${coreVoters7439.joinToString("+") { it.lane }};" +
+                    "leader=${strongest.lane}:${strongest.conviction.toInt()};" +
+                    "runner_up=${runnerUp.lane}:${runnerUp.conviction.toInt()}",
             )
         }
         // V5.0.7346 — depends only on ts.mint; was re-resolved per hypothesis.

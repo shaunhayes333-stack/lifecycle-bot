@@ -788,7 +788,8 @@ object EducationSubLayerAI {
         }
         val src = outcome.traderSource.uppercase()
         val selfLayer = when (src) {
-            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "ShitCoinTraderAI"
+            "SHITCOIN"                                         -> "ShitCoinTraderAI"
+            "SHITCOIN_EXPRESS", "SHITCOINEXPRESS", "EXPRESS" -> "ShitCoinExpress"
             "QUALITY"                                         -> "QualityTraderAI"
             "BLUECHIP", "BLUE_CHIP"                           -> "BlueChipTraderAI"
             "MOONSHOT"                                        -> "MoonshotTraderAI"
