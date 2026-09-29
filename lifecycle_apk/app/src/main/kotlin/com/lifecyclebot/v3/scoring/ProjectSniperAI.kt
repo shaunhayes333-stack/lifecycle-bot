@@ -2,6 +2,7 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
