@@ -97,6 +97,19 @@ Do not wire every module directly into FDG. Decision inputs must converge throug
 - `TradeLessonRecorder.getWinRateForLane` — **INTERNAL_ANALYTICS_HELPER**. The lesson corpus and StrategyTrust/CrossTalk paths already consume trade lessons; this generic map accessor is not itself a missing strategy.
 - `BlueChipTraderAI.getStockTrustScore` — **ASSET-SPECIFIC PARTIAL**. It is trained by stock/perps learning but not relevant to meme admission; audit with tokenized-stock strategy, not the meme hot path.
 
+## V5.0.7431 progress — early-pump smart-money chain corrected
+
+- [x] `SmartMoneyDiscovery7277.start()` reclassified **CLOSED_LOOP / STALE_AUDIT**: current `BotService` starts it under the Helius push stack and updates `HeliusEnhancedWS` as wallets are promoted.
+- [x] `InsiderCopyEngine.copyBuyFromSmartMoney7277()` reclassified **CLOSED_LOOP / STALE_AUDIT**: current copy-signal callback routes it into the canonical candidate/fast-lane path.
+- [x] Helius tracked-wallet BUY → `CopyTradeEngine.onSwapDetected` is production wired.
+- [x] Real validated copy BUY events now write `SmartMoneyFeed6394.onWhaleBuy`; its previous production-writer gap is closed.
+- [x] `SmartMoneyFeed6394.smartMoneyBuysLast60s` now counts **distinct wallets**, not raw transactions. One whale buying twice cannot impersonate a 2-wallet cluster.
+- [x] `EarlyLaunchBypass6396` is a real FDG consumer in current source; the September directionality audit entry saying it was unwired is stale.
+- [ ] Review/rename `EarlyLaunchBypass6396` semantics against the new canonical no-exploration-PROBE doctrine. Smart-money early entry may remain reduced-size risk shaping, but it must not be an unrelated exploration escape hatch.
+- [ ] PAPER/LIVE parity defect: FDG PAPER edge handling still has separate `PAPER BOOTSTRAP PROBE` and soft-bypass behavior while LIVE uses different evidence. Converge to one canonical pre-execution edge decision.
+- [ ] `EarlyEntryScout6390.evaluate()` remains unconsumed. Wire only if its distinct-buyer/flow/authority inputs can be sourced from existing canonical caches without adding hot-path I/O.
+- [ ] `ModeSpecificScanners.scanFreshLaunch()` remains legacy/unwired; do not resurrect if PumpPortal/ModeRouter/LaunchPhase already cover the same source/setup.
+
 ## Priority findings from the strategy audit
 
 ### P0 — Preserve exact strategy identity through the full trade lifecycle
