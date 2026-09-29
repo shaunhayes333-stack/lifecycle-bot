@@ -847,3 +847,13 @@ Runtime evidence from 5.0.7466: 4,595 intake events / 639 unique symbols, PROBAT
 - [x] A duplicate callback that adds no information no longer re-runs addToWatchlist freshness mutation or LIVE_READY hydration enqueue.
 - [x] No scanner source, lane, specialist, learning path, safety gate, score floor, or sizing authority is removed.
 - [x] New evidence remains additive and immediately visible; only no-change repetition is coalesced.
+
+
+## V5.0.7476 — additive unchanged-intelligence reuse
+
+- [x] ToolkitSignalSheet no longer rebuilds every 2.5s solely because time passed.
+- [x] Unchanged fingerprints may reuse the last full multi-desk sheet for 15s.
+- [x] Any real fingerprint change still schedules an immediate refresh.
+- [x] Timestamp-only quote updates no longer invalidate the sheet; price movement is represented by scale-independent 10bp log buckets.
+- [x] History growth, V3 score/confidence, buy/sell pressure, liquidity, mcap, source, trade type and classification confidence remain fingerprint inputs.
+- [x] No specialist hypotheses, lanes, tools, scores, execution paths or learning outputs are removed.

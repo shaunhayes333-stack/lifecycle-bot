@@ -26,6 +26,10 @@ import kotlin.math.abs
  */
 object ToolkitSignalSheet {
     private const val CACHE_TTL_MS = 2_500L
+    // V5.0.7476 — unchanged analytical evidence does not need to rebuild the
+    // whole multi-desk sheet every 2.5s. Real fingerprint changes still refresh
+    // immediately; this only extends reuse when the inputs are identical.
+    private const val UNCHANGED_CACHE_TTL_MS_7476 = 15_000L
     private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int)
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
@@ -105,7 +109,15 @@ object ToolkitSignalSheet {
         val now = System.currentTimeMillis()
         val fp = fingerprint(ts, classification)
         val existing = cache[ts.mint]
-        if (existing != null && existing.fingerprint == fp && now - existing.tsMs <= CACHE_TTL_MS) return existing.sheet
+        if (existing != null) {
+            val age7476 = now - existing.tsMs
+            if (existing.fingerprint == fp && age7476 <= UNCHANGED_CACHE_TTL_MS_7476) {
+                if (age7476 > CACHE_TTL_MS) {
+                    try { PipelineHealthCollector.labelInc("TOOLKIT_UNCHANGED_SHEET_REUSED_7476") } catch (_: Throwable) {}
+                }
+                return existing.sheet
+            }
+        }
         refreshAsync(ts, classification, fp)
         return existing?.sheet ?: fallbackSheet(ts, classification)
     }
@@ -173,10 +185,22 @@ object ToolkitSignalSheet {
         }
     }
 
+    private fun meaningfulPriceBucket7476(price: Double): Long {
+        if (!price.isFinite() || price <= 0.0) return 0L
+        // Log-space 10bp buckets are scale independent: a sub-cent meme and a
+        // $200 asset invalidate on the same relative move. This preserves fast
+        // reaction to actual movement without treating a timestamp-only update
+        // as new information.
+        return try { (kotlin.math.ln(price) * 10_000.0).toLong() } catch (_: Throwable) { price.toBits() }
+    }
+
     private fun fingerprint(ts: TokenState, classification: ModeRouter.Classification?): Int = listOf(
         ts.mint,
-        ts.lastPriceUpdate,
+        // V5.0.7476 — lastPriceUpdate is a clock tick, not analytical evidence.
+        // Keeping it here invalidated the full sheet on every quote timestamp
+        // even when price/history/flow/liquidity had not changed.
         ts.history.size,
+        meaningfulPriceBucket7476(ts.lastPrice),
         ts.lastV3Score,
         ts.lastV3Confidence,
         ts.lastBuyPressurePct.toInt(),
