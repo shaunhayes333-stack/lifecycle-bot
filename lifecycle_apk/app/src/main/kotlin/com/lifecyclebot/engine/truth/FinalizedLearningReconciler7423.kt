@@ -13,20 +13,28 @@ object FinalizedLearningReconciler7423 {
         return try {
             val closed = CanonicalPositionAuthority6441.closedPositions()
             val publishedIds = CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
+            val earliestBusAt7433 = CanonicalFinalizedTradeBus6464.earliestCanonicalAtMs7433()
             val missing = closed.asSequence()
                 .filter { it.positionId !in publishedIds }
                 .map { p ->
                     val src = p.entryPriceSource.uppercase()
                     val q = p.quarantineReason.uppercase()
+                    val predatesSurvivingBus7433 =
+                        earliestBusAt7433 != null &&
+                        p.lastMutationMs > 0L &&
+                        p.lastMutationMs < earliestBusAt7433
                     val reason = when {
                         q.isNotBlank() || q.contains("ECONOMIC") || src.contains("QUARANTIN") -> Reason.ECONOMICS_QUARANTINED
-                        src.contains("LEGACY_REPLAY") || src.contains("REPLAY_CARRY") -> Reason.LEGACY_REPLAY
+                        src.contains("LEGACY_REPLAY") || src.contains("REPLAY_CARRY") || predatesSurvivingBus7433 -> Reason.LEGACY_REPLAY
                         src.contains("DUPLICATE") || q.contains("DUPLICATE") -> Reason.DUPLICATE
                         !p.entryCostSol.isFinite() || p.entryCostSol <= 0.0 || p.entryPriceUsd < 0.0 || src.contains("INVARIANT_BROKEN") -> Reason.CORRUPT_ENTRY
                         p.positionId.isNotBlank() -> Reason.BUS_PUBLISH_FAILED
                         else -> Reason.UNKNOWN
                     }
-                    Missing(p.positionId, reason, "mint=${p.mint.take(12)} lane=${p.lane} src=${p.entryPriceSource.take(48)} quarantine=${p.quarantineReason.take(48)}")
+                    val epochDetail7433 = if (predatesSurvivingBus7433)
+                        " preBus=true closeAt=" + p.lastMutationMs + " busStarts=" + earliestBusAt7433
+                    else ""
+                    Missing(p.positionId, reason, "mint=${p.mint.take(12)} lane=${p.lane} src=${p.entryPriceSource.take(48)} quarantine=${p.quarantineReason.take(48)}$epochDetail7433")
                 }.toList()
             Snapshot(closed.size, publishedIds.size, missing)
         } catch (t: Throwable) {
