@@ -472,3 +472,33 @@ For LIVE, prove the same decision reached execution unchanged except for venue/f
 - Shadow/LAB exploration stays separate from deployment-quality PAPER.
 - Every retained high-value tool has a real consumer and a runtime proof counter.
 - Dead/duplicate surfaces are retired or explicitly documented instead of inflating the apparent strategy count.
+
+
+## 7431 runtime evidence / 7432 follow-up
+
+7431 confirmed the new strategy-identity path is live for fresh trades:
+
+- `HYPOTHESIS_DECISION_STAMPED_7428=545`
+- `HYPOTHESIS_POSITION_BOUND_7428=2`
+- `HYPOTHESIS_POSITION_OUTCOME_7428=1`
+- `STRATEGY_VARIANT_EXACT_STAMPED_7428=2`
+- `STRATEGY_VARIANT_EXACT_OUTCOME_7428=1`
+- `TACTIC_ENTRY_ATTRIBUTION_INVALID_6568=0`
+
+The exact-strategy table showed `complete=1/507`; the 506 incomplete rows are predominantly historical terminals created before exact strategy fields existed. They remain useful only at coarser lane/tactic levels and must not be fabricated into exact identities.
+
+7432 diagnostic correctness work:
+
+- [x] Finalized-learning reconciliation distinguishes a durable full-terminal `BUS_PUBLISH_FAILED` from `HISTORICAL_NO_DURABLE_FINALITY`.
+- [x] No historical terminal is replayed or assigned invented economics.
+- [x] TradingMemory telemetry separates `CONSULTED`, `NEUTRAL`, and actual contributed reads.
+- [x] TradingCopilot telemetry separates `CONSULTED`, `NEUTRAL`, and actual contributed reads.
+- [x] Exact-strategy EV prior telemetry reports `CONSULTED`, `NO_EVIDENCE`, `IMMATURE`, `NEUTRAL`, positive and negative states.
+- [x] `SourceTimingRegistry.isLateSignal` remains deliberately unwired as an alias; `ScoreCard` already consumes the underlying source-timing penalty and a second vote would double-count the same fact.
+
+7431 also confirmed:
+- executable-mark choke repaired: `EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=0`;
+- held live mark freshness healthy: stale/noMark = 0/0;
+- fast-lane saturation reduced to 12/195 (~6%);
+- current finalized consumer delivery has zero refusals;
+- current exact strategy binding is position-based rather than mint-current.
