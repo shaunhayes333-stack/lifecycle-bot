@@ -340,6 +340,15 @@ Source: current `ci/UNWIRED_LEDGER.tsv`.
 54. `TreasuryOpportunityEngine.getPendingOpportunities` — `engine/TreasuryOpportunityEngine.kt`
 
 
+## Completed in 5.0.7429
+
+- [x] Exact strategy identity survives canonical entry snapshot → finalized bus.
+- [x] StrategyHypothesisEngine terminal credit is position-bound, not mint-current.
+- [x] Exact `StrategyVariantStore` ID is stamped to the opened position and terminal credit follows that stamped ID.
+- [x] Added `ExactStrategyPerformance7429` scoreboard keyed by mode/lane/tradeType/setup/style/tactic/variant.
+- [x] Added runtime complete-vs-incomplete attribution counters so missing strategy identity is visible.
+- [x] Wired `SourceTimingRegistry.isLateSignal` into predictive admission as bounded negative evidence for late/trending-only discovery.
+
 ## Execution order
 
 ### Phase 1 — causal identity and attribution
