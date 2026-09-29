@@ -1067,3 +1067,12 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] Open-position lifecycle/quantity visibility semantics remain identical.
 - [x] Closed-position membership and lifecycle sum invariant remain identical.
 - [x] Existing strict valuation surface remains independent and unchanged.
+
+
+## V5.0.7497 — finalized-bus canonical projection cache
+
+- [x] canonicalPositionIds7018 and earliestCanonicalAtMs7433 share one projection keyed to unique canonical bus revision.
+- [x] Duplicate bus redispatches do not invalidate the projection.
+- [x] A unique canonical publish invalidates immediately via canonicalRevision7493.
+- [x] A publish racing projection construction prevents that projection from being cached.
+- [x] Bus publication, delivery, retry, ACK and exclusion behavior are unchanged.

@@ -343,15 +343,36 @@ object CanonicalFinalizedTradeBus6464 {
      * the bus — so the same one trade has been un-findable for the whole
      * session. Envelope has carried positionId since 6464; nothing exposed it.
      */
-    fun canonicalPositionIds7018(): Set<String> =
-        canonicalSeen.values.mapNotNullTo(HashSet()) { it.positionId.ifBlank { null } }
+    private data class CanonicalProjectionCache7497(
+        val revision: Long,
+        val positionIds: Set<String>,
+        val earliestAtMs: Long?,
+    )
+    private val canonicalProjectionCache7497 =
+        java.util.concurrent.atomic.AtomicReference<CanonicalProjectionCache7497?>(null)
 
-    /** V5.0.7433 — lower bound of surviving finalized-bus history.
-     * A canonical CLOSED mutation strictly older than this cannot have been
-     * produced by the currently-retained bus lineage and must not be called a
-     * current BUS_PUBLISH_FAILED row. */
-    fun earliestCanonicalAtMs7433(): Long? =
-        canonicalSeen.values.asSequence().map { it.atMs }.filter { it > 0L }.minOrNull()
+    private fun canonicalProjection7497(): CanonicalProjectionCache7497 {
+        val revision7497 = canonicalRevision7493.get()
+        canonicalProjectionCache7497.get()?.let { c ->
+            if (c.revision == revision7497) {
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CANONICAL_PROJECTION_REUSED_7497") } catch (_: Throwable) {}
+                return c
+            }
+        }
+        val values7497 = canonicalSeen.values.toList()
+        val built7497 = CanonicalProjectionCache7497(
+            revision = revision7497,
+            positionIds = values7497.mapNotNullTo(HashSet()) { it.positionId.ifBlank { null } },
+            earliestAtMs = values7497.asSequence().map { it.atMs }.filter { it > 0L }.minOrNull(),
+        )
+        if (canonicalRevision7493.get() == revision7497) canonicalProjectionCache7497.set(built7497)
+        return built7497
+    }
+
+    fun canonicalPositionIds7018(): Set<String> = canonicalProjection7497().positionIds
+
+    /** V5.0.7433 — lower bound of surviving finalized-bus history. */
+    fun earliestCanonicalAtMs7433(): Long? = canonicalProjection7497().earliestAtMs
     fun consumerUnique(name: String): Int = canonicalSeen.keys.count {
         consumerAcks[name]?.contains(it) == true && !isExcluded(name, it)
     }
@@ -417,7 +438,7 @@ object CanonicalFinalizedTradeBus6464 {
     internal fun resetForTest() {
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
         publishes.set(0L); duplicates.set(0L); canonicalRevision7493.set(0L)
-        consumerParityRevision7494.set(0L); parityCache7494.set(null)
+        consumerParityRevision7494.set(0L); parityCache7494.set(null); canonicalProjectionCache7497.set(null)
         retryRunning6486.set(false); deliveryInFlight6734.clear()
     }
 }
