@@ -124,6 +124,7 @@ object FinalizedBusConsumerBridge6465 {
             "EVEstimator"         -> deliverToEvEstimator(env)
             "AatePolicyReward"    -> deliverToAatePolicyReward(env)
             "StrategyHypothesisEngine" -> deliverToStrategyHypothesis(env)
+            "ExactStrategyPerformance7429" -> deliverToExactStrategyPerformance7429(env)
             "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
             "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)
             "UnifiedExitPolicyHead" -> deliverToUnifiedExitPolicyHead6696(env)
@@ -369,6 +370,11 @@ object FinalizedBusConsumerBridge6465 {
         )
         true
     } catch (t: Throwable) { threw7154(t) }
+
+    private fun deliverToExactStrategyPerformance7429(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        ExactStrategyPerformance7429.record(env)
+    } catch (t: Throwable) { threw7154(t) }
+
 
     private fun deliverToMemeCausalLearning6568(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val memeLane = CausalFeedbackAuthority6715.isMemeOwnerLane(env.lane) ||
