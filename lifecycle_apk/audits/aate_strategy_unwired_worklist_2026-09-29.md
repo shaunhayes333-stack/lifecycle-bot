@@ -1044,3 +1044,16 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] Duplicate/no-op ACK and exclusion calls do not force a full parity rebuild.
 - [x] A concurrent canonical/consumer mutation prevents a computed parity snapshot from being cached.
 - [x] Delivery, retry, ACK persistence, exclusion persistence and consumer semantics are unchanged.
+
+
+## V5.0.7495 — canonical position mutation-revision completeness
+
+Audit found canonical position mutations that changed the authoritative map without advancing mutationCount7387, invalidating exact revision caches.
+
+- [x] abortEntry6485 advances canonical mutation revision after removing a pending position.
+- [x] quarantine advances revision after lifecycle/quarantine mutation.
+- [x] rebuildPaperFromEvents6486 advances revision once after its atomic full paper-position reconstruction.
+- [x] cancelStalePendingEntries6461 advances revision for every actual pending→quarantined mutation.
+- [x] purgeZeroQtyLifecycleOpens6752 advances revision when at least one lifecycle is stamped CLOSED.
+- [x] Existing open/promote/add/sell/recovery mutation bumps remain unchanged.
+- [x] No economic calculation, lifecycle decision, quarantine rule, refund, replay rule or position content changed.

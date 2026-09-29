@@ -756,8 +756,12 @@ object CanonicalPositionAuthority6441 {
             val pos = positions[positionId] ?: return false
             if (pos.lifecycle == Lifecycle.CLOSED || pos.lifecycle == Lifecycle.PARTIALLY_CLOSED) return false
             positions.remove(positionId)
+            muts.incrementAndGet()
             if (refundPaperFacade) paperCashSol.getAndUpdate { it + pos.entryCostSol + pos.feesSol }
-            try { PipelineHealthCollector.labelInc("CANONICAL_ENTRY_ABORTED_6485") } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_ENTRY_ABORTED_6485")
+                PipelineHealthCollector.labelInc("CANONICAL_REVISION_BUMP_ABORT_7495")
+            } catch (_: Throwable) {}
             return true
         } finally { lock.unlock() }
     }
@@ -772,7 +776,9 @@ object CanonicalPositionAuthority6441 {
                 lastMutationMs = System.currentTimeMillis(),
             )
             quarantines.incrementAndGet()
+            muts.incrementAndGet()
             try {
+                PipelineHealthCollector.labelInc("CANONICAL_REVISION_BUMP_QUARANTINE_7495")
                 ForensicLogger.lifecycle(
                     "CANONICAL_POSITION_QUARANTINED_6441",
                     "positionId=$positionId reason=${reason.take(60)}",
@@ -1446,7 +1452,11 @@ object CanonicalPositionAuthority6441 {
             try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpen6519) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("POSITION_STATE_PROJECTED_FROM_CANONICAL_6492") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("SELL_QTY_BOUNDARY_PROJECTED_FROM_CANONICAL_6498") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_POSITIONS_REBUILT_6486") } catch (_: Throwable) {}
+            muts.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_PAPER_POSITIONS_REBUILT_6486")
+                PipelineHealthCollector.labelInc("CANONICAL_REVISION_BUMP_REBUILD_7495")
+            } catch (_: Throwable) {}
             return positions.values.count { it.mode == "paper" && it.lifecycle != Lifecycle.CLOSED }
         } finally { lock.unlock() }
     }
@@ -1667,6 +1677,8 @@ object CanonicalPositionAuthority6441 {
                 )
                 cancelledIds += cur.positionId
                 quarantines.incrementAndGet()
+                muts.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("CANONICAL_REVISION_BUMP_PENDING_CANCEL_7495") } catch (_: Throwable) {}
             } finally { lock.unlock() }
         }
         return cancelledIds
@@ -1733,6 +1745,12 @@ object CanonicalPositionAuthority6441 {
                 purged++
             }
         } finally { lock.unlock() }
+        if (purged > 0) {
+            muts.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_REVISION_BUMP_ZERO_QTY_PURGE_7495")
+            } catch (_: Throwable) {}
+        }
         if (purged > 0) try {
             PipelineHealthCollector.labelInc("CANONICAL_ZERO_QTY_LIFECYCLE_PURGE_6752")
             ForensicLogger.lifecycle(
