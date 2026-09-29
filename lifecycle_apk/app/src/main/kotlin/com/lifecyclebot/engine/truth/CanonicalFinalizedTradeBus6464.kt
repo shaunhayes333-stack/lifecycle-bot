@@ -82,6 +82,10 @@ object CanonicalFinalizedTradeBus6464 {
     private val exclusionReasons = ConcurrentHashMap<String, String>() // consumer|tradeId -> reason
     private val publishes = AtomicLong(0L)
     private val duplicates = AtomicLong(0L)
+    // V5.0.7493 — monotonic revision of UNIQUE canonical bus population.
+    private val canonicalRevision7493 = AtomicLong(0L)
+
+    fun canonicalRevision7493(): Long = canonicalRevision7493.get()
     private val retryRunning6486 = AtomicBoolean(false)
 
     private val CANONICAL_CONSUMERS_6485 = listOf(
@@ -169,6 +173,7 @@ object CanonicalFinalizedTradeBus6464 {
             } catch (_: Throwable) {}
             return false
         }
+        canonicalRevision7493.incrementAndGet()
         try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_6464") } catch (_: Throwable) {}
         // V5.0.7232 §SELL_OK_TRUTH — record the unique finality at the
         //   canonical publish point. Redispatch handled in the prev != null
@@ -387,6 +392,7 @@ object CanonicalFinalizedTradeBus6464 {
 
     internal fun resetForTest() {
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
-        publishes.set(0L); duplicates.set(0L); retryRunning6486.set(false); deliveryInFlight6734.clear()
+        publishes.set(0L); duplicates.set(0L); canonicalRevision7493.set(0L)
+        retryRunning6486.set(false); deliveryInFlight6734.clear()
     }
 }

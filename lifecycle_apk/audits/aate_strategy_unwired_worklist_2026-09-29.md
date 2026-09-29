@@ -1025,3 +1025,13 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] Registry rows, evaluation state, routeability, pricing and trading consumers remain live and unchanged.
 - [x] Expensive per-report list copy, chain grouping, cohort counting and label-prefix sorting are skipped on repeated report reads inside the memo window.
 - [x] Memo applies only to diagnostics/report presentation; it has zero admission or execution authority.
+
+
+## V5.0.7493 — exact finalized-reconciliation revision cache
+
+- [x] CanonicalFinalizedTradeBus exposes a monotonic revision that increments only on unique canonical publish.
+- [x] FinalizedLearningReconciler diagnostic snapshot is cached by canonical-position mutation + economic-event version + unique bus revision.
+- [x] Duplicate bus redispatch does not invalidate the diagnostic snapshot.
+- [x] A source mutation racing snapshot construction prevents that snapshot from being cached.
+- [x] repairDurableBusPublishFailures7459 remains fully live and unchanged.
+- [x] No learning, repair, exclusion or publication semantics are changed.

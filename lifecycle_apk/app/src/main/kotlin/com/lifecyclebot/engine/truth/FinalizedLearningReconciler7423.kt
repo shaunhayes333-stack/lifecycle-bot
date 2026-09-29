@@ -24,8 +24,24 @@ object FinalizedLearningReconciler7423 {
         val explicitExcluded: Int get() = missing.count { it.reason in setOf(Reason.ECONOMICS_QUARANTINED, Reason.LEGACY_REPLAY, Reason.DUPLICATE, Reason.CORRUPT_ENTRY) }
     }
 
+    private data class SnapshotCache7493(val key: String, val value: Snapshot)
+    private val snapshotCache7493 =
+        java.util.concurrent.atomic.AtomicReference<SnapshotCache7493?>(null)
+
+    private fun revisionKey7493(): String =
+        CanonicalPositionAuthority6441.mutationCount7387().toString() + "|" +
+            EconomicEventSchema6464.version().toString() + "|" +
+            CanonicalFinalizedTradeBus6464.canonicalRevision7493().toString()
+
     fun snapshot(): Snapshot {
-        return try {
+        val key7493 = try { revisionKey7493() } catch (_: Throwable) { "" }
+        snapshotCache7493.get()?.let { cached ->
+            if (key7493.isNotBlank() && cached.key == key7493) {
+                try { PipelineHealthCollector.labelInc("FINALIZED_RECONCILE_SNAPSHOT_REUSED_7493") } catch (_: Throwable) {}
+                return cached.value
+            }
+        }
+        val rebuilt7493 = try {
             val closed = CanonicalPositionAuthority6441.closedPositions()
             val publishedIds = CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
             val earliestBusAt7433 = CanonicalFinalizedTradeBus6464.earliestCanonicalAtMs7433()
@@ -69,6 +85,11 @@ object FinalizedLearningReconciler7423 {
         } catch (t: Throwable) {
             Snapshot(0, 0, listOf(Missing("", Reason.UNKNOWN, "reconcile_throw=${t.javaClass.simpleName}")))
         }
+        if (key7493.isNotBlank()) {
+            val after7493 = try { revisionKey7493() } catch (_: Throwable) { "" }
+            if (after7493 == key7493) snapshotCache7493.set(SnapshotCache7493(key7493, rebuilt7493))
+        }
+        return rebuilt7493
     }
 
     /**
