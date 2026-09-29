@@ -236,6 +236,16 @@ wait_log_marker_any() {
     echo "::error::$label timed out waiting for proof $markers"
     adb logcat -d -v time > "$WS/logcat_full.txt" || true
     adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
+    # Preserve the last reached bootstrap stage in a check-run annotation.
+    # Artifacts and job logs may be inaccessible to remote diagnosis, but this
+    # fail-closed stage witness identifies the real startup blocker without
+    # counting a partial bootstrap as a passing execution window.
+    local canonical_stage service_stage canonical_failed service_failed
+    canonical_stage=$(grep 'CANONICAL_BOOTSTRAP_READY_6515' "$WS/logcat_full.txt" | tail -1 | cut -c1-180 || true)
+    canonical_failed=$(grep 'CANONICAL_BOOTSTRAP_FAILED_6515' "$WS/logcat_full.txt" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
+    service_stage=$(grep 'SERVICE_BOOTSTRAP_PHASE_6516' "$WS/logcat_full.txt" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)
+    service_failed=$(grep 'SERVICE_BOOTSTRAP_FAILED_6516' "$WS/logcat_full.txt" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
+    echo "::error title=BOOTSTRAP_STAGE_7435::canonicalReady=$([[ -n "$canonical_stage" ]] && echo yes || echo no) canonicalFailure=${canonical_failed:-none} lastServicePhase=${service_stage:-none} serviceFailure=${service_failed:-none}"
     return 1
 }
 
