@@ -60,6 +60,12 @@ object ExactStrategyPerformance7429 {
     }
 
     private val cells = ConcurrentHashMap<String, Cell>()
+    // V5.0.7431 — O(1) admission index. Exact terminal rows still retain
+    // variant identity in [cells], while this sibling aggregates across variant
+    // IDs for the underlying playbook. Updated only on terminal close; admission
+    // never scans the full strategy scoreboard.
+    private val playbookCells7431 = ConcurrentHashMap<String, Cell>()
+
 
     private fun norm(raw: String, fallback: String): String =
         raw.trim().uppercase().replace('|', '_').take(48).ifBlank { fallback }
@@ -74,6 +80,22 @@ object ExactStrategyPerformance7429 {
         val variant = norm(env.entryStrategyVariantId, "BASE")
         return listOf(mode, lane, type, setup, style, tactic, variant).joinToString("|")
     }
+
+    private fun playbookKey7431(
+        mode: String,
+        lane: String,
+        tradeType: String,
+        setup: String,
+        style: String,
+        tactic: String,
+    ): String = listOf(
+        norm(mode, "UNKNOWN"),
+        norm(lane, "UNKNOWN"),
+        norm(tradeType, "UNSTAMPED_TYPE"),
+        norm(setup, "UNSTAMPED_SETUP"),
+        norm(style, "UNSTAMPED_STYLE"),
+        norm(tactic, "UNSTAMPED_TACTIC"),
+    ).joinToString("|")
 
     fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.terminal || !env.learningEligible || env.positionId.isBlank()) return false
@@ -107,6 +129,34 @@ object ExactStrategyPerformance7429 {
         cell.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
         cell.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
         cell.holdMs.addAndGet(env.holdingTimeMs.coerceAtLeast(0L))
+
+        // Maintain the variant-agnostic playbook aggregate for constant-time
+        // predictive reads. It intentionally mirrors only terminal economics.
+        try {
+            val pk7431 = playbookKey7431(
+                env.mode, env.lane, env.entryTradeType, env.entrySetup, env.entryStyle, env.entryTactic,
+            )
+            val parts7431 = pk7431.split('|')
+            val pc7431 = playbookCells7431.computeIfAbsent(pk7431) {
+                Cell(
+                    mode = parts7431.getOrElse(0) { "UNKNOWN" },
+                    lane = parts7431.getOrElse(1) { "UNKNOWN" },
+                    tradeType = parts7431.getOrElse(2) { "UNSTAMPED_TYPE" },
+                    setup = parts7431.getOrElse(3) { "UNSTAMPED_SETUP" },
+                    style = parts7431.getOrElse(4) { "UNSTAMPED_STYLE" },
+                    tactic = parts7431.getOrElse(5) { "UNSTAMPED_TACTIC" },
+                    variantId = "ALL_VARIANTS",
+                )
+            }
+            pc7431.n.incrementAndGet()
+            if (env.realizedReturnPct > 0.0) pc7431.wins.incrementAndGet()
+            else if (env.realizedReturnPct < 0.0) pc7431.losses.incrementAndGet()
+            pc7431.pnlPctX1000.addAndGet((env.realizedReturnPct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
+            pc7431.pnlSolLamports.addAndGet((env.realizedPnlSol * 1_000_000_000.0).toLong())
+            pc7431.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
+            pc7431.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
+            pc7431.holdMs.addAndGet(env.holdingTimeMs.coerceAtLeast(0L))
+        } catch (_: Throwable) {}
 
         try {
             PipelineHealthCollector.labelInc("EXACT_STRATEGY_OUTCOME_7429")
@@ -153,24 +203,18 @@ object ExactStrategyPerformance7429 {
         style: String,
         tactic: String,
     ): Evidence7431? {
-        val m = norm(mode, "UNKNOWN")
-        val l = norm(lane, "UNKNOWN")
-        val tt = norm(tradeType, "UNSTAMPED_TYPE")
-        val se = norm(setup, "UNSTAMPED_SETUP")
-        val st = norm(style, "UNSTAMPED_STYLE")
-        val ta = norm(tactic, "UNSTAMPED_TACTIC")
-        val rows = snapshots().filter {
-            it.mode == m && it.lane == l && it.tradeType == tt &&
-                it.setup == se && it.style == st && it.tactic == ta
-        }
-        if (rows.isEmpty()) return null
-        val n = rows.sumOf { it.n }
+        val k = playbookKey7431(mode, lane, tradeType, setup, style, tactic)
+        val row = playbookCells7431[k] ?: return null
+        val n = row.n.get()
         if (n <= 0L) return null
-        val wins = rows.sumOf { it.wins }
-        val losses = rows.sumOf { it.losses }
-        val mean = rows.sumOf { it.meanPnlPct * it.n } / n.toDouble()
+        val wins = row.wins.get()
+        val losses = row.losses.get()
+        val mean = row.pnlPctX1000.get().toDouble() / 1000.0 / n.toDouble()
         val wr = if (wins + losses > 0L) wins * 100.0 / (wins + losses).toDouble() else 0.0
-        return Evidence7431(m, l, tt, se, st, ta, n, wins, losses, mean, wr, "EXACT")
+        return Evidence7431(
+            row.mode, row.lane, row.tradeType, row.setup, row.style, row.tactic,
+            n, wins, losses, mean, wr, "EXACT",
+        )
     }
 
     fun evidenceFor7431(
@@ -241,5 +285,5 @@ object ExactStrategyPerformance7429 {
         return "keys=${rows.size} outcomes=$total complete=$complete/$total top=$top"
     }
 
-    internal fun clearForTest7429() = cells.clear()
+    internal fun clearForTest7429() { cells.clear(); playbookCells7431.clear() }
 }
