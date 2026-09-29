@@ -1,8 +1,12 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.LearningPersistence
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * V5.0.7429 — exact strategy performance ledger.
@@ -66,6 +70,63 @@ object ExactStrategyPerformance7429 {
     // never scans the full strategy scoreboard.
     private val playbookCells7431 = ConcurrentHashMap<String, Cell>()
 
+    private val restored7431 = AtomicBoolean(false)
+    private const val PLAYBOOK_INDEX_KEY_7431 = "exact_strategy_playbook_index_7431"
+    private fun playbookStorageKey7431(key: String) = "exact_strategy_playbook_7431_" + key
+
+    private fun ensureRestored7431() {
+        if (!restored7431.compareAndSet(false, true)) return
+        try {
+            val raw = LearningPersistence.load(PLAYBOOK_INDEX_KEY_7431) ?: return
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val k = arr.optString(i, "")
+                if (k.isBlank()) continue
+                val rowRaw = LearningPersistence.load(playbookStorageKey7431(k)) ?: continue
+                val j = JSONObject(rowRaw)
+                val parts = k.split('|')
+                val cell = Cell(
+                    mode = parts.getOrElse(0) { "UNKNOWN" },
+                    lane = parts.getOrElse(1) { "UNKNOWN" },
+                    tradeType = parts.getOrElse(2) { "UNSTAMPED_TYPE" },
+                    setup = parts.getOrElse(3) { "UNSTAMPED_SETUP" },
+                    style = parts.getOrElse(4) { "UNSTAMPED_STYLE" },
+                    tactic = parts.getOrElse(5) { "UNSTAMPED_TACTIC" },
+                    variantId = "ALL_VARIANTS",
+                )
+                cell.n.set(j.optLong("n", 0L))
+                cell.wins.set(j.optLong("w", 0L))
+                cell.losses.set(j.optLong("l", 0L))
+                cell.pnlPctX1000.set(j.optLong("p", 0L))
+                cell.pnlSolLamports.set(j.optLong("sol", 0L))
+                cell.mfePctX1000.set(j.optLong("mfe", 0L))
+                cell.maePctX1000.set(j.optLong("mae", 0L))
+                cell.holdMs.set(j.optLong("hold", 0L))
+                if (cell.n.get() > 0L) playbookCells7431[k] = cell
+            }
+            if (playbookCells7431.isNotEmpty()) {
+                try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_RESTORED_7431") } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun persistPlaybook7431(key: String, cell: Cell, newKey: Boolean) {
+        try {
+            val j = JSONObject()
+                .put("n", cell.n.get()).put("w", cell.wins.get()).put("l", cell.losses.get())
+                .put("p", cell.pnlPctX1000.get()).put("sol", cell.pnlSolLamports.get())
+                .put("mfe", cell.mfePctX1000.get()).put("mae", cell.maePctX1000.get())
+                .put("hold", cell.holdMs.get())
+            LearningPersistence.save(playbookStorageKey7431(key), j.toString())
+            if (newKey) {
+                LearningPersistence.save(
+                    PLAYBOOK_INDEX_KEY_7431,
+                    JSONArray(playbookCells7431.keys.sorted()).toString(),
+                )
+            }
+        } catch (_: Throwable) {}
+    }
+
 
     private fun norm(raw: String, fallback: String): String =
         raw.trim().uppercase().replace('|', '_').take(48).ifBlank { fallback }
@@ -99,6 +160,7 @@ object ExactStrategyPerformance7429 {
 
     fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.terminal || !env.learningEligible || env.positionId.isBlank()) return false
+        ensureRestored7431()
         if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return false
 
         val k = key(env)
@@ -137,6 +199,7 @@ object ExactStrategyPerformance7429 {
                 env.mode, env.lane, env.entryTradeType, env.entrySetup, env.entryStyle, env.entryTactic,
             )
             val parts7431 = pk7431.split('|')
+            val wasNew7431 = !playbookCells7431.containsKey(pk7431)
             val pc7431 = playbookCells7431.computeIfAbsent(pk7431) {
                 Cell(
                     mode = parts7431.getOrElse(0) { "UNKNOWN" },
@@ -156,6 +219,7 @@ object ExactStrategyPerformance7429 {
             pc7431.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
             pc7431.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
             pc7431.holdMs.addAndGet(env.holdingTimeMs.coerceAtLeast(0L))
+            persistPlaybook7431(pk7431, pc7431, wasNew7431)
         } catch (_: Throwable) {}
 
         try {
@@ -225,6 +289,7 @@ object ExactStrategyPerformance7429 {
         style: String,
         tactic: String,
     ): Evidence7431? {
+        ensureRestored7431()
         if (lane.isBlank() || tradeType.isBlank() || setup.isBlank() || style.isBlank() || tactic.isBlank()) return null
         if (liveMode) {
             val live = aggregate7431("LIVE", lane, tradeType, setup, style, tactic)
@@ -285,5 +350,5 @@ object ExactStrategyPerformance7429 {
         return "keys=${rows.size} outcomes=$total complete=$complete/$total top=$top"
     }
 
-    internal fun clearForTest7429() { cells.clear(); playbookCells7431.clear() }
+    internal fun clearForTest7429() { cells.clear(); playbookCells7431.clear(); restored7431.set(true) }
 }
