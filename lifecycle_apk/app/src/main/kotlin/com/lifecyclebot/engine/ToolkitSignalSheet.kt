@@ -34,7 +34,41 @@ object ToolkitSignalSheet {
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val deskStageCounts6599 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
-    private val deskStageOnce6599 = ConcurrentHashMap.newKeySet<String>()
+    // V5.0.7481 — this is telemetry idempotency, not trading authority.
+    // Keep a bounded timestamped cache aligned with the causal-funnel horizon
+    // instead of an unbounded lifetime set.
+    private val deskStageOnce7481 = ConcurrentHashMap<String, Long>()
+    private const val DESK_STAGE_TTL_MS_7481 = 1_800_000L
+    private const val DESK_STAGE_SOFT_CAP_7481 = 48_000
+    private val deskStagePruneAt7481 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private fun firstDeskStage7481(key: String): Boolean {
+        val now = System.currentTimeMillis()
+        val prior = deskStageOnce7481.putIfAbsent(key, now)
+        if (prior != null && now - prior <= DESK_STAGE_TTL_MS_7481) return false
+        if (prior != null) {
+            // Expired telemetry identity: atomically refresh it. The canonical
+            // causal/ticket/execution authorities still own economic idempotency.
+            if (!deskStageOnce7481.replace(key, prior, now)) return false
+        }
+        if (deskStageOnce7481.size > DESK_STAGE_SOFT_CAP_7481 &&
+            now - deskStagePruneAt7481.get() > 60_000L &&
+            deskStagePruneAt7481.compareAndSet(deskStagePruneAt7481.get(), now)
+        ) {
+            val cutoff = now - DESK_STAGE_TTL_MS_7481
+            deskStageOnce7481.entries.removeIf { it.value < cutoff }
+            if (deskStageOnce7481.size > DESK_STAGE_SOFT_CAP_7481) {
+                val overflow = deskStageOnce7481.size - DESK_STAGE_SOFT_CAP_7481
+                deskStageOnce7481.entries
+                    .sortedBy { it.value }
+                    .take(overflow)
+                    .forEach { deskStageOnce7481.remove(it.key, it.value) }
+            }
+            try { PipelineHealthCollector.labelInc("DESK_STAGE_DEDUPE_CACHE_PRUNED_7481") } catch (_: Throwable) {}
+        }
+        return true
+    }
+
     private val configuredMemeDesks6599 = listOf(
         "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE", "MOONSHOT",
         "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
@@ -824,7 +858,7 @@ object ToolkitSignalSheet {
         // means the stamp was made and dropped; offered == 0 means no producer
         // ran. Those two need different fixes and were indistinguishable.
         try { PipelineHealthCollector.labelInc("DESK_STAGE_OFFERED_7214_$st") } catch (_: Throwable) {}
-        if (!deskStageOnce6599.add("$l|$st|$eventId")) {
+        if (!firstDeskStage7481("$l|$st|$eventId")) {
             try { PipelineHealthCollector.labelInc("DESK_STAGE_DEDUPED_7214_$st") } catch (_: Throwable) {}
             return
         }
@@ -861,7 +895,7 @@ object ToolkitSignalSheet {
      *
      * V5.0.6626 §RUNTIME_LOOP_UNCHOKE §3 — 500ms per-key debounce.
      * Even though recordDeskStage already dedupes on (lane|stage|eventId)
-     * via `deskStageOnce6599`, the fan-out itself walks five receivers
+     * via `deskStageOnce7481`, the fan-out itself walks five receivers
      * per call. Under a hot burst that dedupe cache can be reset or
      * skipped by a caller passing an empty eventId; the debounce here
      * guarantees the receivers themselves see at most one fan-out per

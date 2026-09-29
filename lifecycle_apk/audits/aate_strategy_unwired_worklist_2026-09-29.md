@@ -903,3 +903,13 @@ Runtime evidence from 5.0.7466: causal records=8075 and every specialist report 
 - [x] TTL and over-cap eviction remove records from both canonical map and secondary index.
 - [x] The index is diagnostic/read acceleration only; it has no admission/execution authority.
 - [x] No specialist lane, causal predecessor, outcome, or forensic acceptance check is removed.
+
+
+## V5.0.7481 — bounded specialist stage telemetry idempotency
+
+- [x] Replaced unbounded deskStageOnce6599 lifetime set with timestamped deskStageOnce7481 cache.
+- [x] Duplicate stage telemetry remains suppressed for the full 30-minute causal diagnostic horizon.
+- [x] Cache prunes expired keys and binds to a 48,000-key soft cap.
+- [x] Underlying SpecialistCausalFunnel, execution tickets, canonical intents, same-mint authority and economic idempotency remain unchanged.
+- [x] Expiry can only permit a diagnostic stage to be observed again after the causal horizon; it cannot create an economic action.
+- [x] Offered/deduped stage counters remain intact.
