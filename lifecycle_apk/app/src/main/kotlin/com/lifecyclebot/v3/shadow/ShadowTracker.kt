@@ -28,7 +28,14 @@ data class ShadowSnapshot(
     val startScore: Int,
     val startConfidence: Int,
     val reasonTracked: String,
-    val capturedAtMs: Long
+    val capturedAtMs: Long,
+    // V5.0.7452 — causal markout state. Mutable because the same tracked
+    // decision is marked forward at fixed horizons without creating new rows.
+    val markoutsPct7452: MutableMap<Int, Double> = java.util.concurrent.ConcurrentHashMap(),
+    var peakPnlPct7452: Double = 0.0,
+    var troughPnlPct7452: Double = 0.0,
+    var firstStopHitAtMs7452: Long = 0L,
+    var firstTpHitAtMs7452: Long = 0L,
 )
 
 /**
@@ -79,6 +86,64 @@ class ShadowTracker {
         )
     }
     
+    companion object {
+        private val HORIZONS_SEC_7452 = intArrayOf(2, 5, 10, 15, 30, 60, 120, 300, 600)
+        private const val SIM_STOP_PCT_7452 = -15.0
+        private const val SIM_TP_PCT_7452 = 30.0
+    }
+
+    data class MarkoutUpdate7452(
+        val newlyRecorded: Map<Int, Double>,
+        val firstHit: String?,
+    )
+
+    /**
+     * Mark a tracked rejection using a price the normal V3 pipeline already
+     * has. No provider call is made here.
+     */
+    fun observePrice7452(
+        mint: String,
+        currentPrice: Double,
+        nowMs: Long = System.currentTimeMillis(),
+    ): MarkoutUpdate7452? {
+        if (!currentPrice.isFinite() || currentPrice <= 0.0) return null
+        val s = tracked[mint] ?: return null
+        val start = s.startPrice ?: return null
+        if (!start.isFinite() || start <= 0.0) return null
+        val pnl = ((currentPrice - start) / start) * 100.0
+        val ageMs = (nowMs - s.capturedAtMs).coerceAtLeast(0L)
+        s.peakPnlPct7452 = maxOf(s.peakPnlPct7452, pnl)
+        s.troughPnlPct7452 = minOf(s.troughPnlPct7452, pnl)
+        if (pnl <= SIM_STOP_PCT_7452 && s.firstStopHitAtMs7452 <= 0L) s.firstStopHitAtMs7452 = nowMs
+        if (pnl >= SIM_TP_PCT_7452 && s.firstTpHitAtMs7452 <= 0L) s.firstTpHitAtMs7452 = nowMs
+
+        val added = linkedMapOf<Int, Double>()
+        for (sec in HORIZONS_SEC_7452) {
+            if (ageMs >= sec * 1000L && !s.markoutsPct7452.containsKey(sec)) {
+                s.markoutsPct7452[sec] = pnl
+                added[sec] = pnl
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_MARKOUT_RECORDED_7452_${sec}S")
+                } catch (_: Throwable) {}
+            }
+        }
+        val firstHit = firstHit7452(s)
+        return MarkoutUpdate7452(added, firstHit)
+    }
+
+    private fun firstHit7452(s: ShadowSnapshot): String? = when {
+        s.firstStopHitAtMs7452 > 0L && s.firstTpHitAtMs7452 > 0L ->
+            if (s.firstStopHitAtMs7452 < s.firstTpHitAtMs7452) "STOP_FIRST" else "TP_FIRST"
+        s.firstStopHitAtMs7452 > 0L -> "STOP_FIRST"
+        s.firstTpHitAtMs7452 > 0L -> "TP_FIRST"
+        else -> null
+    }
+
+    fun firstHitOutcome7452(mint: String): String? = tracked[mint]?.let { firstHit7452(it) }
+
+    fun markoutPct7452(mint: String, horizonSec: Int): Double? =
+        tracked[mint]?.markoutsPct7452?.get(horizonSec)
+
     /**
      * Check if a token is being tracked
      */

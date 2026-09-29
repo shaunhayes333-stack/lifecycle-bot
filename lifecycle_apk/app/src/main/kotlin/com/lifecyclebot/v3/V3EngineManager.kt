@@ -426,6 +426,16 @@ object V3EngineManager {
 
             val candidate = V3Adapter.toCandidate(ts)
 
+            // V5.0.7452 — every current observation also advances the real
+            // production shadow markout book. This is cache/current-state only;
+            // it does not perform another provider request.
+            try {
+                orchestrator?.getShadowTracker()?.observePrice7452(
+                    ts.mint,
+                    ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: ts.ref,
+                )
+            } catch (_: Throwable) {}
+
             // V5.0.7303 §THE_RESERVE_7255_MISSED.
             // 7255 made LiveSpendReserveAuthority7255.RESERVE_SOL (0.012) the one
             // live reserve "for every live sizing authority"; this reader kept the
@@ -720,21 +730,37 @@ object V3EngineManager {
                         } catch (_: Throwable) { 0.0 }
 
                         if (cur <= 0.0) continue  // can't judge yet
+                        shadow.observePrice7452(m, cur, nowMs)
                         val pnlVsStart = ((cur - startPrice) / startPrice) * 100.0
+                        val firstHit7452 = shadow.firstHitOutcome7452(m)
+                        val mark10m7452 = shadow.markoutPct7452(m, 600) ?: pnlVsStart
 
                         when {
-                            pnlVsStart >= 20.0 -> {
+                            firstHit7452 == "TP_FIRST" -> {
+                                learningStore?.recordShadowBlock(wouldHaveWon = true)
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHADOW_TP_FIRST_MISSED_WIN_7452") } catch (_: Throwable) {}
+                                shadow.untrack(m)
+                                resolved++
+                            }
+                            firstHit7452 == "STOP_FIRST" -> {
+                                learningStore?.recordShadowBlock(wouldHaveWon = false)
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHADOW_STOP_FIRST_CORRECT_BLOCK_7452") } catch (_: Throwable) {}
+                                shadow.untrack(m)
+                                resolved++
+                            }
+                            mark10m7452 >= 10.0 -> {
                                 learningStore?.recordShadowBlock(wouldHaveWon = true)
                                 shadow.untrack(m)
                                 resolved++
                             }
-                            pnlVsStart <= -10.0 -> {
+                            mark10m7452 <= -5.0 -> {
                                 learningStore?.recordShadowBlock(wouldHaveWon = false)
                                 shadow.untrack(m)
                                 resolved++
                             }
                             else -> {
-                                // still in limbo — leave tracked, retry next call
+                                // neutral 10m markout remains tracked until GC;
+                                // do not manufacture a binary outcome.
                             }
                         }
                     }
