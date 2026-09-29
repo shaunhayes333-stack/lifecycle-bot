@@ -8423,8 +8423,35 @@ class BotService : Service() {
     }
 
     fun stopBot(source: String = "direct_call_unknown") {
-        val liquidateOnStop = source == "ui_stop_button" || source == "halt_reset" || source == "operator_manual_stop"
-        val stopAllowed = liquidateOnStop || source == "config_restart"
+        // V5.0.7433 — stopping PAPER runtime is not an economic SELL.
+        //
+        // 5.0.7431 forensic: a normal Stop button produced 138 terminal
+        // `bot_shutdown` sells, then canonical reconstruction reopened the same
+        // inventory (POSITION_CLOSE_LEDGER_CANONICAL_REOPEN_6699=136). That
+        // poisoned journal/accounting/learning and manufactured closed trades
+        // without a trading decision.
+        //
+        // PAPER positions are simulated economic state and must survive runtime
+        // stop/restart exactly like any other canonical state. LIVE preserves
+        // the existing operator-stop liquidation/sweep behaviour because leaving
+        // real wallet holdings unmanaged on an explicit stop is a different
+        // safety contract. Config restart remains soft-preserve in both modes.
+        val paperModeAtStop7433 = try {
+            ConfigStore.load(applicationContext).paperMode
+        } catch (_: Throwable) { false }
+        val explicitLiquidationSource7433 =
+            source == "ui_stop_button" || source == "halt_reset" || source == "operator_manual_stop"
+        val liquidateOnStop = explicitLiquidationSource7433 && !paperModeAtStop7433
+        val stopAllowed = explicitLiquidationSource7433 || source == "config_restart"
+        if (paperModeAtStop7433 && explicitLiquidationSource7433) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_RUNTIME_STOP_PRESERVED_POSITIONS_7433")
+                ForensicLogger.lifecycle(
+                    "PAPER_RUNTIME_STOP_PRESERVED_POSITIONS_7433",
+                    "source=$source openPositions=${try { CanonicalPositionAuthority6441.openPositions().count { it.mode.equals("paper", true) } } catch (_: Throwable) { -1 }} action=stop_runtime_without_economic_close",
+                )
+            } catch (_: Throwable) {}
+        }
         if (!stopAllowed) {
             ErrorLogger.error("BotService", "🚫 stopBot rejected: unapproved source=$source — runtime must stay running")
             try { ForensicLogger.lifecycle("STOPBOT_REJECTED", "source=$source reason=unapproved_stop_source") } catch (_: Throwable) {}
