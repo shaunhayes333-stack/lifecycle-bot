@@ -68,6 +68,11 @@ object PumpFunWS {
     // V5.0.7284 — the data key the socket connected with; blank = no trade stream.
     @Volatile private var apiKey7284: String = ""
     private val tradeSubscribeSkippedNoKey7284 = AtomicLong(0L)
+    // V5.0.7485 — unsupported subscription demand is state, not an event every
+    // supervisor tick. Track wanted mints while trade-stream capability is
+    // unavailable so repeated syncs do not re-expand the same work/counters.
+    private val unsupportedTradeDemand7485 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val unsupportedTradeDemandCoalesced7485 = AtomicLong(0L)
     private val tradeAuthDenied7432 = AtomicBoolean(false)
     private val createStreamObserved7432 = AtomicBoolean(false)
     private val migrationStreamObserved7432 = AtomicBoolean(false)
@@ -129,6 +134,7 @@ object PumpFunWS {
             "TOKEN_TRADE_STREAM_AVAILABLE=${tokenTradeStreamActive7432()} ACCOUNT_TRADE_STREAM_AVAILABLE=false " +
             "PUMP_TOKEN_TRADE_FALLBACK_ACTIVE=${tradeAuthDenied7432.get() && rpcFallbackObserved7432.get()} " +
             "tradeSubscribedMints=${tradeSubscriptions7278.size} lifecycleMints=${lifecycleMints7420.size} " +
+            "unsupportedDemand7485=${unsupportedTradeDemand7485.size} coalescedDemand7485=${unsupportedTradeDemandCoalesced7485.get()} " +
             "subscriptionFailures=${subFail7420.get()} subscribeSkippedNoKey=${tradeSubscribeSkippedNoKey7284.get()} " +
             "untypedFrames=${untypedFrames7280.get()} " +
             "lastUntyped=${lastUntypedFrame7280.ifBlank { "-" }} " +
@@ -186,21 +192,35 @@ object PumpFunWS {
      */
     fun syncTradeSubscriptions7278(mints: Set<String>) {
         val wanted = mints.filter { it.isNotBlank() }.toSet()
-        val add = wanted - tradeSubscriptions7278
-        val drop = tradeSubscriptions7278 - wanted
-        if (add.isEmpty() && drop.isEmpty()) return
-        // V5.0.7284 — without a key the server refuses the method; the frame
-        // is not sent, the refusal is not collected, and the count says how
-        // many held curves would have been streamed had a key been present.
+
+        // V5.0.7485 — when token-trade capability is unavailable there is no
+        // executable subscription set to diff against. Maintain the desired
+        // unsupported set directly: count newly wanted mints once, remove
+        // demand that is no longer held, and return before frame construction.
         if (!tradeStreamKeyed7284()) {
-            if (add.isNotEmpty()) {
-                tradeSubscribeSkippedNoKey7284.addAndGet(add.size.toLong())
+            var newlyWanted7485 = 0
+            for (mint in wanted) {
+                if (unsupportedTradeDemand7485.add(mint)) newlyWanted7485++
+                else unsupportedTradeDemandCoalesced7485.incrementAndGet()
+            }
+            unsupportedTradeDemand7485.removeIf { it !in wanted }
+            if (newlyWanted7485 > 0) {
+                tradeSubscribeSkippedNoKey7284.addAndGet(newlyWanted7485.toLong())
                 try {
-                    repeat(add.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284") }
+                    repeat(newlyWanted7485) {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284")
+                    }
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUPPORTED_DEMAND_NEW_7485")
                 } catch (_: Throwable) {}
             }
             return
         }
+
+        // Capability became available: the real subscription set takes over.
+        unsupportedTradeDemand7485.clear()
+        val add = wanted - tradeSubscriptions7278
+        val drop = tradeSubscriptions7278 - wanted
+        if (add.isEmpty() && drop.isEmpty()) return
         val sock = ws
         if (add.isNotEmpty()) {
             tradeSubscriptions7278.addAll(add)
@@ -236,6 +256,7 @@ object PumpFunWS {
         if (this.apiKey7284 != apiKey7284.trim()) {
             tradeAuthDenied7432.set(false)
             rpcFallbackObserved7432.set(false)
+            unsupportedTradeDemand7485.clear()
         }
         this.apiKey7284 = apiKey7284.trim()
         tokenTradeStreamObserved7432.set(false)

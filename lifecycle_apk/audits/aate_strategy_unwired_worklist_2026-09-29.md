@@ -944,3 +944,15 @@ Runtime evidence from 5.0.7466: OHLCV fetches=12518, poolResolves=11237, served=
 - [x] The first request in every provider-eligible interval still traverses DexPaprika/Gecko resolution exactly as before.
 - [x] Same-key map is bounded to 8000 entries and prunes against existing cache horizons.
 - [x] No OHLCV provider, timeframe, strategy consumer, pattern engine or fallback is disabled.
+
+
+## V5.0.7485 — additive unsupported Pump trade-demand coalescing
+
+Runtime evidence from 5.0.7466: PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284 exceeded 23k while token trade stream was already AUTH_DENIED.
+
+- [x] Unsupported token-trade subscription demand is tracked as a current mint set instead of re-counted every sync tick.
+- [x] Newly wanted held mints are still counted once and remain visible in status.
+- [x] Removed held mints are removed from unsupported demand immediately.
+- [x] If a valid/changed key restores capability, unsupported demand clears and the normal real subscription diff resumes.
+- [x] Pump create stream, migration stream, curve RPC fallback and mark fallback are unchanged.
+- [x] No provider or price source is disabled.
