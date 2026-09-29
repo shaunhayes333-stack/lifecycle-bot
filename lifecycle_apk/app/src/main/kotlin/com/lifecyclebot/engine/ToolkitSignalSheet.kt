@@ -551,6 +551,56 @@ object ToolkitSignalSheet {
                 tpMult = c.tp.coerceIn(0.60, 1.70), reason = c.reasons.take(4).joinToString(";"),
             )
         }
+        // V5.0.7448 — LaneHunter claims finally affect ownership.
+        // A claim is NOT qualification: it can only promote an already-built
+        // hypothesis for the claimed specialist, after that specialist's own
+        // setup logic produced a >=25 causal score. FDG/safety/sizing remain
+        // downstream authorities. This repairs the 7438 contradiction where
+        // DIP_HUNTER/CASHGEN hunted and claimed rows but had zero ownership.
+        val huntClaim7448 = try {
+            com.lifecyclebot.engine.market.LaneHunter7297.claimFor(
+                ts.mint,
+                maxOf(ts.lastMcap, ts.lastFdv).takeIf { it.isFinite() } ?: 0.0,
+            )
+        } catch (_: Throwable) { null }
+        if (!huntClaim7448.isNullOrBlank()) {
+            val claimLane7448 = huntClaim7448.uppercase()
+                .replace("BLUE_CHIP", "BLUECHIP")
+                .replace("SHITCOIN_EXPRESS", "EXPRESS")
+            val claimed7448 = deskHypotheses[claimLane7448]
+            val eligible7448 = try {
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, claimLane7448)
+            } catch (_: Throwable) { false }
+            if (claimed7448 != null && eligible7448) {
+                val otherBest7448 = deskHypotheses.values
+                    .filter { !it.lane.equals(claimLane7448, true) && !it.lane.equals("CORE", true) }
+                    .maxOfOrNull { it.conviction } ?: 0.0
+                // Claim decides ownership among QUALIFIED specialists. +11
+                // makes the claimed specialist a clear leader for the same
+                // >10-point ambiguity rule CORE uses, without changing the
+                // specialist's own setup/size/exit policy.
+                val ownershipConviction7448 = maxOf(
+                    claimed7448.conviction,
+                    (otherBest7448 + 11.0).coerceAtMost(100.0),
+                ).coerceIn(0.0, 100.0)
+                deskHypotheses[claimLane7448] = claimed7448.copy(
+                    conviction = ownershipConviction7448,
+                    reason = claimed7448.reason + ";huntClaim7448=$claimLane7448",
+                )
+                try {
+                    PipelineHealthCollector.labelInc("LANE_HUNT_CLAIM_CONSUMED_7448_$claimLane7448")
+                } catch (_: Throwable) {}
+            } else {
+                try {
+                    PipelineHealthCollector.labelInc(
+                        if (claimed7448 == null)
+                            "LANE_HUNT_CLAIM_NO_HYPOTHESIS_7448_$claimLane7448"
+                        else
+                            "LANE_HUNT_CLAIM_INELIGIBLE_7448_$claimLane7448"
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
         // V5.0.7439 — CORE is the executable ensemble/fallback desk, not a
         // mirror of whichever specialist happens to lead. It owns only the
         // ambiguous multi-fit case: 2+ real specialist hypotheses >=45, no
