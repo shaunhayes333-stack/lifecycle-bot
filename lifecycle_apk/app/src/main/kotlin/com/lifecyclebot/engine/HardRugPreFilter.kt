@@ -190,10 +190,16 @@ object HardRugPreFilter {
         val hist = ts.history.toList()
         val now = System.currentTimeMillis()
         
-        // Calculate token age
-        val tokenAgeMins = if (hist.isNotEmpty()) {
-            (now - hist.first().ts) / 60_000.0
-        } else 0.0
+        // Real market age; local candle history is observation history only.
+        val tokenAgeMins = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now)
+        if (tokenAgeMins == null) {
+            try { PipelineHealthCollector.labelInc("RUG_PREFILTER_BIRTH_HYDRATING_7441") } catch (_: Throwable) {}
+            return PreFilterResult(
+                pass = true,
+                reason = "BIRTH_METADATA_HYDRATING_7441",
+                severity = FilterSeverity.SOFT_FAIL,
+            )
+        }
         
         // ─────────────────────────────────────────────────────────────────
         // CHECK 1: Zero or critically low liquidity (FLUID thresholds)

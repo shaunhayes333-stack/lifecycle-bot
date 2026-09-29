@@ -119,7 +119,8 @@ object V3Adapter {
         val discoveredAt = ts.addedToWatchlistAt.takeIf { it > 0L } ?: now
         // V5.0.7440 — discoveredAt remains process-observation metadata only.
         val trueAgeMs7401 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts, now)
-        val ageMinutes = trueAgeMs7401?.div(60_000.0) ?: Double.NaN
+            ?: throw IllegalStateException("BIRTH_METADATA_HYDRATING_7441")
+        val ageMinutes = trueAgeMs7401 / 60_000.0
 
         val safety = ts.safety
         val meta = ts.meta

@@ -42,6 +42,7 @@ object CanonicalTokenBirthTime7440 {
 
         val resolved = candidates.minByOrNull { it.birthMs }
         if (resolved == null) {
+            try { TokenBirthHydrator7441.request(m) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
             return null
         }

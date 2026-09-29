@@ -315,23 +315,14 @@ object CanonicalFeaturesBuilder {
     private fun estimateTokenAgeAtEntryMs(ts: TokenState): Long {
         return try {
             val entryAt = ts.position.entryTime.takeIf { it > 0L } ?: System.currentTimeMillis()
-            val now = System.currentTimeMillis()
-            // V5.0.7385 — poolAgeMs was never written; read the recorded creation time.
-            val poolAgeNow = ts.tokenMap.poolAgeMs?.takeIf { it > 0L }
-                ?: com.lifecyclebot.engine.truth.PoolCreationTime7385.createdAtMs(ts.mint)
-                    ?.let { (now - it).takeIf { age -> age > 0L } }
-            when {
-                poolAgeNow != null -> {
-                    val createdAt = now - poolAgeNow
-                    (entryAt - createdAt).coerceAtLeast(0L)
-                }
-                ts.addedToWatchlistAt > 0L -> (entryAt - ts.addedToWatchlistAt).coerceAtLeast(0L)
-                else -> 0L
-            }
-        } catch (_: Throwable) { 0L }
+            val birth = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolve(ts.mint, entryAt)
+                ?: return -1L
+            (entryAt - birth.birthMs).coerceAtLeast(0L)
+        } catch (_: Throwable) { -1L }
     }
 
     private fun ageBucket(ageMins: Double): String = when {
+        !ageMins.isFinite() || ageMins < 0.0 -> "BIRTH_METADATA_HYDRATING"
         ageMins < 2.0 -> "UNDER_2M"
         ageMins < 10.0 -> "UNDER_10M"
         ageMins < 60.0 -> "UNDER_1H"

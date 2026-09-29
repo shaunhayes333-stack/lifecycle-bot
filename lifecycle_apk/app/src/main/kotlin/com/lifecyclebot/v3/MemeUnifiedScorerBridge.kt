@@ -71,9 +71,18 @@ object MemeUnifiedScorerBridge {
         // 2) Synthetic CandidateSnapshot with permissive memetoken floors
         //    (liq ≥ $2K, mcap ≥ $20K, age ≥ 5min per user 3a).
         val nowMs = System.currentTimeMillis()
-        val realAgeMin = if (ts.addedToWatchlistAt > 0L) {
-            (nowMs - ts.addedToWatchlistAt) / 60_000.0
-        } else 60.0
+        val realAgeMin = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs)
+            ?: return MemeVerdict(
+                techScore = techScore,
+                v3Score = 0,
+                blendedScore = techScore,
+                trustMultiplier = 1.0,
+                techFloor = 30,
+                blendedFloor = 25,
+                shouldEnter = false,
+                topReasons = listOf("birth_metadata_hydrating_7441"),
+                rejectReason = "birth_metadata_hydrating_7441",
+            )
         val syntheticAgeMin = realAgeMin.coerceAtLeast(5.0)
         val histLast = ts.history.lastOrNull()
         val holders = (histLast?.holderCount ?: 0).takeIf { it > 0 } ?: 50

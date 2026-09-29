@@ -101,8 +101,7 @@ class LifecycleStrategy(
             return StrategyResult("thin_market", "WAIT", 0.0, 0.0, StrategyMeta())
         }
 
-        val tokenAgeMs   = System.currentTimeMillis() - (hist.first().ts)
-        val tokenAgeMins = tokenAgeMs / 60_000.0
+        val tokenAgeMins = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)
 
         // ── Timeframe scaling ──────────────────────────────────────────
         // tfScale = minutes per candle. All minute-based thresholds
@@ -115,8 +114,8 @@ class LifecycleStrategy(
         // timeframe is detected, force RANGE_TRADE regardless of age.
         val tfScale = ts.candleTimeframeMinutes.toDouble().coerceAtLeast(1.0)
         val mode    = when {
-            tfScale == 1.0 && tokenAgeMins <= 15.0 -> TradingMode.LAUNCH_SNIPE
-            else                                    -> TradingMode.RANGE_TRADE
+            tfScale == 1.0 && tokenAgeMins != null && tokenAgeMins <= 15.0 -> TradingMode.LAUNCH_SNIPE
+            else -> TradingMode.RANGE_TRADE
         }
 
         val prices = hist.map { it.ref }
@@ -172,7 +171,7 @@ class LifecycleStrategy(
         val mtf15m     = mtfTrend(ts.history15m)
 
         val (phase, pm) = when (mode) {
-            TradingMode.LAUNCH_SNIPE -> detectLaunchPhase(hist, prices, tokenAgeMins)
+            TradingMode.LAUNCH_SNIPE -> detectLaunchPhase(hist, prices, requireNotNull(tokenAgeMins))
             TradingMode.RANGE_TRADE  -> detectRangePhase(hist, prices)
         }
 
@@ -823,8 +822,7 @@ class LifecycleStrategy(
                 }
                 
                 // ADAPTIVE LEARNING: Feature-weighted scoring (only after 40+ trades)
-                if (tradeCount >= 40) {
-                    val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                if (tradeCount >= 40 && tokenAgeMins != null) {
                     val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
                         mcapUsd = ts.lastMcap,
                         tokenAgeMinutes = tokenAgeMins,
@@ -849,6 +847,8 @@ class LifecycleStrategy(
                     }
                     val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
                     entryScore = blendedScore.coerceIn(0.0, 100.0)
+                } else if (tradeCount >= 40) {
+                    try { PipelineHealthCollector.labelInc("ADAPTIVE_AGE_DEFERRED_7441") } catch (_: Throwable) {}
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════

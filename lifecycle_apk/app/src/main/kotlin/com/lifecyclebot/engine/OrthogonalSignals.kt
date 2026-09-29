@@ -380,18 +380,23 @@ object OrthogonalSignals {
         }
         
         // 2. VOLUME_FLOW - calculated from token state
-        val volumeAnomaly = calculateVolumeAnomaly(
-            volume24h = ts.history.lastOrNull()?.volume24h ?: 0.0,
-            marketCap = ts.history.lastOrNull()?.marketCap ?: 0.0,
-            ageMinutes = ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000).toInt(),
-        )
-        signals[SignalCategory.VOLUME_FLOW] = OrthogonalSignal(
-            category = SignalCategory.VOLUME_FLOW,
-            name = "VolumeAnomaly",
-            score = (volumeAnomaly - 50) * 2,
-            confidence = 65.0,
-            rawValue = volumeAnomaly,
-        )
+        val ageMinutes7441 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)?.toInt()
+        if (ageMinutes7441 != null) {
+            val volumeAnomaly = calculateVolumeAnomaly(
+                volume24h = ts.history.lastOrNull()?.volume24h ?: 0.0,
+                marketCap = ts.history.lastOrNull()?.marketCap ?: 0.0,
+                ageMinutes = ageMinutes7441,
+            )
+            signals[SignalCategory.VOLUME_FLOW] = OrthogonalSignal(
+                category = SignalCategory.VOLUME_FLOW,
+                name = "VolumeAnomaly",
+                score = (volumeAnomaly - 50) * 2,
+                confidence = 65.0,
+                rawValue = volumeAnomaly,
+            )
+        } else {
+            try { PipelineHealthCollector.labelInc("ORTHOGONAL_AGE_DEFERRED_7441") } catch (_: Throwable) {}
+        }
         
         // 3. LIQUIDITY - from LiquidityDepthAI
         liquidityScore?.let {
