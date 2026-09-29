@@ -5230,7 +5230,31 @@ object FinalDecisionGate {
                         // trades control vs variant by mint, measures real PnL per arm, and
                         // promotes winners / retires losers with a Welch t-stat. Bounded
                         // soft nudge [0.85,1.20]; never touches the -15% hard floor. Stamped.
-                        val hypoBias = StrategyHypothesisEngine.getSizeBias(mpLane, effectiveGateScore6025.toInt(), mpRegime, ts.mint)
+                        // V5.0.7430 — bind the hypothesis to the exact playbook
+                        // FDG is authorising, not merely lane|band|regime. This is
+                        // read from the same candidate TokenState at decision time;
+                        // execution later binds this mint/version/lane stamp to the
+                        // canonical position, so terminal credit cannot drift.
+                        val exactStrategyIdentity7430 = try {
+                            val cls7430 = ModeRouter.classify(ts)
+                            val style7430 = AgenticStyleRouter.decide(ts, cls7430, mpLane)
+                            listOf(
+                                cls7430.tradeType.name,
+                                style7430.toolkit.setup.name,
+                                style7430.style.name,
+                                style7430.tactic.name,
+                            ).joinToString(">")
+                        } catch (_: Throwable) { "" }
+                        if (exactStrategyIdentity7430.isNotBlank()) try {
+                            PipelineHealthCollector.labelInc("FDG_EXACT_STRATEGY_IDENTITY_7430")
+                        } catch (_: Throwable) {}
+                        val hypoBias = StrategyHypothesisEngine.getSizeBias(
+                            mpLane,
+                            effectiveGateScore6025.toInt(),
+                            mpRegime,
+                            ts.mint,
+                            exactStrategyIdentity7430,
+                        )
                         if (hypoBias != 1.0) {
                             val before = finalSize
                             finalSize = (finalSize * hypoBias).coerceAtLeast(0.01)
