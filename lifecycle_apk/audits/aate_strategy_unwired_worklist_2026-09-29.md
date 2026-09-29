@@ -536,3 +536,170 @@ The exact-strategy table showed `complete=1/507`; the 506 incomplete rows are pr
 - [x] SHITCOIN handoff choke evaluation runs only on real SIZE/TICKET/EXEC stage transitions and remains advisory.
 - [x] No scoring, sizing, ticket creation, or execution policy changed.
 - [x] Runtime proof: `RuntimeTune6833.statusLine6833()` now reflects real stage counts and can emit `SHITCOIN_HANDOFF_STALLED_6833` from actual production evidence.
+
+
+# P0 runtime-derived repair batch queue — baseline 5.0.7456
+
+Reference snapshot:
+- Build/tag: `5.0.7456`
+- Uptime: 471s
+- Canonical open: 65 PAPER / 0 LIVE
+- Held supervisor: held=65 fresh=63 staleRefresh=0 missing=0 discoveryResident=0
+- Paper capital conservation: OK, delta ~= 0
+- Canonical/registry parity: 68/68, qtyMismatch=0
+- Avg/max bot-loop cycle: 6566ms / 38723ms
+- Acceptance audit: failures=9
+- Finalized-learning gap: closed=1430 published=1084 missing=373 BUS_PUBLISH_FAILED
+
+These are P0 correctness/causality repairs. Do not treat them as threshold tuning and do not disable LIVE to hide them.
+
+## P0-0 — restore a green installable build before further functional batches
+- [ ] 5.0.7456 remains the last confirmed green baseline.
+- [ ] Do not stack new functional audit changes on a red head.
+- [ ] For every red build: pull the exact CI failure, repair that blocker in one coherent recovery batch, and re-run until green.
+- [ ] No dead-code exemptions or failure masking when the new declaration can be wired, made private, or removed.
+
+## P0-1 — specialist causal predecessor / identity repair
+Baseline evidence:
+- PROJECT_SNIPER: discovered=0/qualified=0 but rawSized=5 rawTicket=4 rawExec=4 rawOpen=4; phantomMissing=NO_DISCOVER=5,NO_INTENT=5.
+- DIP_HUNTER: discovered=0/qualified=0 but rawSized=2 rawTicket=1 rawExec=1 rawOpen=1; phantomMissing=NO_DISCOVER=2,NO_INTENT=2.
+- CASHGEN: discovered=0/qualified=0 but rawSized=2 rawTicket=1 rawExec=1 rawOpen=1; phantomMissing=NO_DISCOVER=2,NO_INTENT=2.
+- CYCLIC: rawSized=1 rawTicket=1 rawExec=1 rawOpen=1 while validated downstream counts are zero; suppressedStages=SIZE,TICKET,EXEC,OPEN.
+- Funnel suppression counter: `FUNNEL_STAGE_COUNT_SUPPRESSED_7214=18`.
+Required repair:
+- [ ] Preserve the same immutable candidate/attempt identity from discovery -> qualification -> owner selection -> intent -> FDG -> mark -> size -> ticket -> exec -> open.
+- [ ] Never backfill a predecessor from a later stage unless same-record proof is complete.
+- [ ] Raw stage counts and validated counts must converge for fresh post-fix attempts.
+- [ ] Keep `PROJECT_SNIPER_NON_SNIPER_ADMISSION=0`.
+
+## P0-2 — executable mark -> sizing continuity
+Baseline evidence:
+- `missingExecutableMarkWithValidSource=164`.
+- `EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=164`.
+- MARK health: broken=277, suppressed=277.
+- Valid source/no executable mark telemetry: 194.
+Required repair:
+- [ ] Trace exact source-valid -> canonical mark -> mark identity -> sizing edge.
+- [ ] A valid source must end in either MARK_READY or an explicit terminal MARK_REJECT reason.
+- [ ] No candidate may reach executable sizing without an immutable canonical mark.
+- [ ] Eliminate phantom size records caused by missing mark predecessors.
+
+## P0-3 — BLUECHIP sizing-path break
+Baseline evidence:
+- candidateN=1208 qualifiedN=1208 ownerSelectedN=16 buyIntentN=18 fdgN=78 markN=7.
+- sizedN=0 ticketN=0 execN=0 positionOpenedN=0.
+- Capital is available: sharedCash=59.4863, enforcedHeadroom=true, capitalStarved=false.
+Required repair:
+- [ ] Trace BLUECHIP mark -> canonical sizing bridge -> sealed size -> ticket.
+- [ ] Identify exact suppressor rather than loosening score/floor policy.
+- [ ] Prove one causal post-fix BLUECHIP attempt can either size or terminate with a named reason.
+
+## P0-4 — CORE ensemble sizing continuity
+Baseline evidence:
+- candidateN=380 qualifiedN=380 ownerSelectedN=18 buyIntentN=41 fdgN=22 markN=1.
+- sizedN=0 ticketN=0 execN=0.
+- status=SIZING_CHOKED with shared capital available.
+Required repair:
+- [ ] Preserve CORE as ensemble/coordinator for opportunities not cleanly owned by a specialist.
+- [ ] Trace owner-selected/intent/FDG/mark -> size without collapsing CORE into a generic tag.
+- [ ] Ensure contributors can influence but cannot create duplicate economic execution.
+
+## P0-5 — EXPRESS ownership / intent continuity
+Baseline evidence:
+- candidateN=322 qualifiedN=322 fdgN=53.
+- ownerSelectedN=0 buyIntentN=0 markN=0 sizedN=0 ticketN=0 execN=0.
+- status=INTENT_CHOKED.
+Required repair:
+- [ ] Find why EXPRESS can reach FDG accounting with no owner/intent lineage.
+- [ ] EXPRESS remains the intentionally reactive chase/scalp desk; do not convert it into launch/sniper ownership.
+- [ ] Require same-lane owner/intent proof before executable downstream stages.
+
+## P0-6 — Crypto Universe discovery -> CryptoBrain -> V3/FDG handoff
+Baseline evidence:
+- unique chain+token identities=4591.
+- fresh pools discovered=23; fresh reaching CryptoBrain=33; fresh reaching V3/FDG=0.
+- live-routable candidates=28.
+- terminal reasons: `CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244=1067` / 1110 terminal.
+- Cross-asset producer liveness: only CRYPTO_ALT started; STOCK/FOREX/COMMODITY/METAL/PERPS all zero.
+Required repair:
+- [ ] Audit CryptoBrain actionable-signal logic and handoff contract before changing thresholds.
+- [ ] Preserve static-vs-dynamic candidate identity.
+- [ ] Prove fresh/routable candidates can reach canonical V3/FDG when strategy evidence is actionable.
+- [ ] Restore configured non-crypto cross-asset producer liveness where the product configuration expects those traders to run.
+
+## P0-7 — finalized-learning population completeness
+Baseline evidence:
+- canonical closed=1430.
+- finalized published=1084.
+- missing=373, all classified `BUS_PUBLISH_FAILED`.
+- acceptance failure includes reward population mismatch.
+Required repair:
+- [ ] Repair only provable durable finalized-bus publication gaps.
+- [ ] Require CLOSED canonical position + durable full SELL + immutable entry identity + trustworthy economics.
+- [ ] Never synthesize economics for historical rows lacking durable proof.
+- [ ] Fresh terminal close must publish once and reach all intended consumers once.
+
+## P0-8 — strategy / hypothesis attribution completeness
+Baseline evidence:
+- `HYPOTHESIS_POSITION_BOUND_7428=2`, bind missing=20.
+- hypothesis outcomes=0, outcome missing=22.
+- exact strategy complete=13/13 for fresh complete rows but legacy incomplete=9.
+- `TACTIC_ENTRY_ATTRIBUTION_INVALID_6568=9`.
+- UnifiedPolicy pendingPositions=671.
+Required repair:
+- [ ] Exact entry identity must bind at open and survive to terminal outcome.
+- [ ] Invalid/legacy tactic identity remains forensic-only; never credit current close-time tactic.
+- [ ] Reduce bind/outcome misses for fresh post-fix positions to zero.
+- [ ] Keep restored/replayed/administrative rows out of strategy learning.
+
+## P0-9 — provider/data-waste reduction
+Baseline evidence:
+- token metric observations=50936, supplyCaptured=169, identityBroken=1475, unverifiable=25552.
+- token birth resolved: TOKEN_META_CREATION=24075, FIRST_POOL_CREATION=13460.
+- `TOKEN_METRICS_UNVERIFIABLE_CAP_STALE_7268=4926+`.
+- keyless OHLCV fetches=969 served=0; localSkips=945.
+- Pump token-trade subscription skipped no key >7k.
+- dead/degraded providers include Birdeye auth failure, Dexpaprika disabled, GeckoTerminal poor health, several LLM endpoints terminal/quota-limited.
+Required repair:
+- [ ] Remove repeated known-dead provider work from hot paths.
+- [ ] Coalesce repeated token birth/metric hydration by canonical identity and freshness epoch.
+- [ ] Cache negative/no-capability results with bounded TTL.
+- [ ] Keep provider degradation fail-open where safe, but never retry dead capabilities every candidate/cycle.
+
+## P0-10 — bot-loop / worker latency and exit-service stability
+Baseline evidence:
+- bot-loop avg=6566ms, max=38723ms; cycles >30s observed.
+- supervisor workerTimeout=36, expiredLeases=9.
+- risk-clock budget overruns=34.
+- exit coordinator stale resets=2.
+- main-thread ANR hints=0, stall=0%; therefore primary fault is pipeline/worker/provider workload, not UI ANR.
+Required repair:
+- [ ] Attribute >5s cycle time by phase and provider/worker wait.
+- [ ] Keep UI/report and learner maintenance off the trading hot path.
+- [ ] Bound provider calls and fanout per cycle.
+- [ ] Eliminate stale coordinator resets and worker timeout storms without weakening exit safety.
+
+## P0-11 — preserve good 7456 invariants while repairing
+Must remain true:
+- [ ] held supervisor `discoveryResident=0`.
+- [ ] held missing=0 and staleRefresh approximately 0 in steady state.
+- [ ] canonical/registry parity exact.
+- [ ] quantity mismatch=0 and oversell prevented.
+- [ ] paper capital conservation delta approximately 0.
+- [ ] LIVE remains enabled/capable; do not convert architecture faults into global HOLD/WAIT.
+- [ ] no duplicate canonical execution per mint/version.
+- [ ] no owner-lane rewrite after selection.
+- [ ] no cross-lane execution rewrite.
+
+## P0 acceptance bar against 5.0.7456
+A repair series is not complete until a fresh runtime snapshot shows:
+- build green and installable;
+- causal funnel raw/validated stage counts no longer hiding real opens behind missing predecessors;
+- valid-source missing executable mark materially reduced from 164 with named terminal outcomes for the remainder;
+- BLUECHIP/CORE no longer silently die between mark and size;
+- EXPRESS either creates same-lane intent or terminates before FDG/execution accounting;
+- fresh Crypto Universe candidates can reach V3/FDG when actionable;
+- durable finalized-bus gaps trend toward zero without synthetic history;
+- fresh strategy identity bind/outcome misses trend to zero;
+- cycle latency and worker timeout/stale-reset counts materially improve;
+- all preserved invariants above remain intact.
