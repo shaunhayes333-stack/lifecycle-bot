@@ -2052,6 +2052,47 @@ class BotService : Service() {
                     // during launch and which the splash cannot reach.
                     try { BootstrapProgress7031.note(phase) } catch (_: Throwable) {}
                 }
+
+                // V5.0.7447 — one optional trader must never wedge the whole
+                // service bootstrap. 7438 reached MODEL_AND_LAYER_STATE_READY
+                // then sat there for the entire smoke window, so every producer
+                // below reported started=0 even though their start code existed.
+                // Bound each synchronous init/start unit independently and name
+                // the exact offender in bootstrap telemetry.
+                val traderStep7447: suspend (String, Long, () -> Unit) -> Boolean = { name, timeoutMs, block ->
+                    val key = name.uppercase().replace(Regex("[^A-Z0-9_]+"), "_")
+                    bootstrapPhase6516("TRADER_${key}_STARTING")
+                    try {
+                        withTimeout(timeoutMs) {
+                            runInterruptible(kotlinx.coroutines.Dispatchers.IO) { block() }
+                        }
+                        bootstrapPhase6516("TRADER_${key}_READY")
+                        try { PipelineHealthCollector.labelInc("TRADER_BOOTSTRAP_READY_7447_$key") } catch (_: Throwable) {}
+                        true
+                    } catch (t: kotlinx.coroutines.TimeoutCancellationException) {
+                        bootstrapPhase6516("TRADER_${key}_TIMEOUT")
+                        try {
+                            PipelineHealthCollector.labelInc("TRADER_BOOTSTRAP_TIMEOUT_7447_$key")
+                            ForensicLogger.lifecycle(
+                                "TRADER_BOOTSTRAP_TIMEOUT_7447",
+                                "trader=$key timeoutMs=$timeoutMs action=continue_other_traders",
+                            )
+                        } catch (_: Throwable) {}
+                        false
+                    } catch (c: kotlinx.coroutines.CancellationException) {
+                        throw c
+                    } catch (t: Throwable) {
+                        bootstrapPhase6516("TRADER_${key}_FAILED")
+                        try {
+                            PipelineHealthCollector.labelInc("TRADER_BOOTSTRAP_FAILED_7447_$key")
+                            ForensicLogger.lifecycle(
+                                "TRADER_BOOTSTRAP_FAILED_7447",
+                                "trader=$key type=${t.javaClass.simpleName} msg=${t.message?.take(100)} action=continue_other_traders",
+                            )
+                        } catch (_: Throwable) {}
+                        false
+                    }
+                }
                 try {
                     canonicalBootstrapJob6515?.join()
                     check(canonicalBootstrapReady6515 && canonicalBootstrapSucceeded6515) {
@@ -2845,7 +2886,9 @@ class BotService : Service() {
                 ErrorLogger.warn("BotService", "PerpsTraderAI setLiveMode error: ${e.message}")
             }
             try {
-                com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                check(traderStep7447("PERPS", 12_000L) {
+                    com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                }) { "PERPS_START_NOT_READY_7447" }
                 ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
                 // V5.0.6538 §SOL_PERPS_PHASE_1_ONLINE — operator directive:
                 // "kick off Phase 1: enable SOL perps/leverage in paper mode
@@ -2893,9 +2936,11 @@ class BotService : Service() {
         // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
         if (plan6526.stocksEffective) {
             try {
-                com.lifecyclebot.perps.TokenizedStockTrader.init()
-                com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
-                com.lifecyclebot.perps.TokenizedStockTrader.start()
+                check(traderStep7447("STOCK", 12_000L) {
+                    com.lifecyclebot.perps.TokenizedStockTrader.init()
+                    com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
+                    com.lifecyclebot.perps.TokenizedStockTrader.start()
+                }) { "STOCK_START_NOT_READY_7447" }
                 ErrorLogger.info("BotService", "📈 TRADER_GATE MARKETS/STOCKS enabled=true started=true")
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
@@ -2910,9 +2955,11 @@ class BotService : Service() {
         // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
         if (plan6526.commoditiesEffective) {
             try {
-                com.lifecyclebot.perps.CommoditiesTrader.initialize()
-                com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
-                com.lifecyclebot.perps.CommoditiesTrader.start()
+                check(traderStep7447("COMMODITY", 12_000L) {
+                    com.lifecyclebot.perps.CommoditiesTrader.initialize()
+                    com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
+                    com.lifecyclebot.perps.CommoditiesTrader.start()
+                }) { "COMMODITY_START_NOT_READY_7447" }
                 ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
@@ -2922,9 +2969,11 @@ class BotService : Service() {
         // V5.7.6: Start MetalsTrader - Precious & Industrial metals
         if (plan6526.metalsEffective) {
             try {
-                com.lifecyclebot.perps.MetalsTrader.initialize(applicationContext)
-                com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
-                com.lifecyclebot.perps.MetalsTrader.start()
+                check(traderStep7447("METAL", 12_000L) {
+                    com.lifecyclebot.perps.MetalsTrader.initialize(applicationContext)
+                    com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
+                    com.lifecyclebot.perps.MetalsTrader.start()
+                }) { "METAL_START_NOT_READY_7447" }
                 ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
@@ -2934,9 +2983,11 @@ class BotService : Service() {
         // V5.7.6: Start ForexTrader - Currency pairs
         if (plan6526.forexEffective) {
             try {
-                com.lifecyclebot.perps.ForexTrader.initialize(applicationContext)
-                com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
-                com.lifecyclebot.perps.ForexTrader.start()
+                check(traderStep7447("FOREX", 12_000L) {
+                    com.lifecyclebot.perps.ForexTrader.initialize(applicationContext)
+                    com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
+                    com.lifecyclebot.perps.ForexTrader.start()
+                }) { "FOREX_START_NOT_READY_7447" }
                 ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
@@ -2950,7 +3001,9 @@ class BotService : Service() {
         // unconditionally and contributing to ANR churn.
         if (marketsLaneOn) {
             try {
-                com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
+                check(traderStep7447("PERPS_REPLAY", 8_000L) {
+                    com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
+                }) { "PERPS_REPLAY_START_NOT_READY_7447" }
                 ErrorLogger.info("BotService", "🎬 TRADER_GATE PERPS_AUTO_REPLAY enabled=true started=true")
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
@@ -2962,7 +3015,9 @@ class BotService : Service() {
 
         // V5.7.4: Start Learning Insights Panel for continuous analysis
         try {
-            com.lifecyclebot.perps.PerpsLearningInsightsPanel.start()
+            check(traderStep7447("PERPS_INSIGHTS", 8_000L) {
+                com.lifecyclebot.perps.PerpsLearningInsightsPanel.start()
+            }) { "PERPS_INSIGHTS_START_NOT_READY_7447" }
             ErrorLogger.info("BotService", "🧠 PerpsLearningInsightsPanel STARTED - Continuous Analysis Mode ACTIVE")
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
@@ -2979,8 +3034,10 @@ class BotService : Service() {
         // meme-lane fanout. Matches the V5.0.3744 escape inside
         // CryptoAltTrader.runtimeDisabledReason.
         try {
-            com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
-            com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
+            check(traderStep7447("CRYPTO_ALT_INIT", 12_000L) {
+                com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+                com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
+            }) { "CRYPTO_ALT_INIT_NOT_READY_7447" }
             // V5.0.6015 — startup should follow the same isolated crypto-sidecar
             // doctrine as EnabledTraderAuthority publishing: MEME can run crypto
             // universe without enabling stocks/forex/perps/markets fanout.
@@ -2992,7 +3049,9 @@ class BotService : Service() {
             val cryptoUniverseOn = cryptoPlan6526.cryptoUniverseOn
             com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn)
             if (cryptoUniverseOn) {
-                com.lifecyclebot.perps.CryptoAltTrader.start()
+                check(traderStep7447("CRYPTO_ALT_START", 12_000L) {
+                    com.lifecyclebot.perps.CryptoAltTrader.start()
+                }) { "CRYPTO_ALT_START_NOT_READY_7447" }
                 ErrorLogger.info("BotService", "🪙 TRADER_GATE CRYPTO_ALT enabled=true started=true (explicitMode=${!isMarketsLaneEnabled(cfg)})")
             } else {
                 // Make sure any stale instance from a prior run is stopped.
