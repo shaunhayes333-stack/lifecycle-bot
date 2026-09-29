@@ -283,6 +283,9 @@ object PredictiveEntryOracle6915 {
         symbol: String,
         sourceFamily: String,
         liquidityUsd: Double,
+        volumeUsd: Double,
+        tokenAgeMinutes: Int,
+        hasGraduated: Boolean,
         creator: String,
         phase: String,
         emaFan: String,
@@ -343,6 +346,53 @@ object PredictiveEntryOracle6915 {
                         d,
                     )
                     try { PipelineHealthCollector.labelInc("TRADING_MEMORY_PATTERN_READ_7427") } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // V5.0.7430 — historical setup recommendation. This learner already
+        // stores win/loss pattern history keyed by liquidity/volume/gain stage;
+        // its recommendation API had no production consumer. Only use it when
+        // real volume exists and the learned sample is non-trivial. It remains
+        // a bounded prior inside the existing brain-network cap.
+        try {
+            if (liquidityUsd > 0.0 && volumeUsd > 0.0) {
+                val h = com.lifecyclebot.engine.HistoricalChartScanner
+                    .getHistoricalRecommendation(liquidityUsd, volumeUsd, 0.0)
+                if (h.sampleSize >= 5) {
+                    val edge = (h.confidence - 0.50) * 14.0
+                    val payoff = ((h.expectedGainPct + h.expectedLossPct) / 100.0 * 4.0)
+                        .coerceIn(-3.0, 3.0)
+                    val d = (edge + payoff).coerceIn(-6.0, 6.0)
+                    if (kotlin.math.abs(d) >= 0.5) {
+                        out += BrainRead(
+                            "histSetup(n=" + h.sampleSize + ",wr=" +
+                                "%.0f".format(h.confidence * 100.0) + "%,mode=" +
+                                h.recommendedMode.take(16) + ")",
+                            d,
+                        )
+                        try { PipelineHealthCollector.labelInc("HISTORICAL_SETUP_PREDICTIVE_READ_7430") } catch (_: Throwable) {}
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // V5.0.7430 — orthogonal contract-age prior. This is explicitly a risk/
+        // timing feature, not direction, so its influence is deliberately small.
+        // The launch-age authority supplies true age; graduation is read from the
+        // canonical token map rather than guessed from the discovery source.
+        try {
+            if (tokenAgeMinutes >= 0) {
+                val ageScore = com.lifecyclebot.engine.OrthogonalSignals
+                    .calculateAgePatternScore(tokenAgeMinutes, hasGraduated)
+                val d = ((ageScore - 50.0) / 50.0 * 3.0).coerceIn(-3.0, 3.0)
+                if (kotlin.math.abs(d) >= 0.4) {
+                    out += BrainRead(
+                        "agePattern(age=" + tokenAgeMinutes + "m,grad=" + hasGraduated +
+                            ",score=" + "%.0f".format(ageScore) + ")",
+                        d,
+                    )
+                    try { PipelineHealthCollector.labelInc("ORTHOGONAL_AGE_PATTERN_READ_7430") } catch (_: Throwable) {}
                 }
             }
         } catch (_: Throwable) {}
@@ -713,6 +763,9 @@ object PredictiveEntryOracle6915 {
         mint: String = "",
         symbol: String = "",
         liquidityUsd: Double = 0.0,
+        volumeUsd: Double = 0.0,
+        tokenAgeMinutes: Int = -1,
+        hasGraduated: Boolean = false,
         creator: String = "",
         // V5.0.7260 — the exact candidate signature. Earlier callers passed
         // blanks, forcing ForwardOutcomeModel.forecast() to bootstrap even
@@ -907,7 +960,7 @@ object PredictiveEntryOracle6915 {
 
             var brainDelta7261 = 0.0
             try {
-                val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator, edgePhase, emaFan)
+                val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan)
                 brainDelta7261 = reads.sumOf { it.deltaPct }
                     .coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, BRAIN_NETWORK_CAP_PCT_6917)
                 if (reads.isNotEmpty()) {
@@ -1057,7 +1110,7 @@ object PredictiveEntryOracle6915 {
         var brainAdjust6917 = 0.0
         var creatorRugAdjust7329 = 0.0
         try {
-            val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator, edgePhase, emaFan)
+            val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan)
             for (r in reads) {
                 if (r.label.startsWith("creatorRugs(")) creatorRugAdjust7329 += r.deltaPct
                 else brainAdjust6917 += r.deltaPct
