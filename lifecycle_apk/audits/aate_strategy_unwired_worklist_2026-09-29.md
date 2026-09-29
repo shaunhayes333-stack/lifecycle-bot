@@ -968,3 +968,12 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] The successful refresh timestamps at actual completion, not pre-refresh start.
 - [x] In-flight ownership is released in finally on both success and failure.
 - [x] All symbolic channels, live gates, sizing reads, mood/edge state and persistence remain enabled.
+
+
+## V5.0.7487 — additive canonical active-projection revision cache
+
+- [x] All-mode active mint projection is cached against CanonicalPositionAuthority mutationCount.
+- [x] Any canonical position mutation invalidates the cached revision automatically.
+- [x] Mode-local readers filter the already aggregated active rows rather than rescanning historical positions.
+- [x] A mutation racing a rebuild prevents that rebuild from being cached.
+- [x] Position authority, lot aggregation, quantity, cost basis, asset class and mode+mint identity semantics are unchanged.

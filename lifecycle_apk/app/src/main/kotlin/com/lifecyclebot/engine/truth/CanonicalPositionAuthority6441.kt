@@ -1583,36 +1583,63 @@ object CanonicalPositionAuthority6441 {
         val costBasisPerEntryUsd: Double = 0.0,
     )
 
+    private data class ActiveProjectionCache7487(
+        val mutationRevision: Long,
+        val rows: List<ActiveMintProjection6489>,
+    )
+    private val activeProjectionCache7487 =
+        java.util.concurrent.atomic.AtomicReference<ActiveProjectionCache7487?>(null)
+
     fun activeMintProjections6489(): List<ActiveMintProjection6489> = activeMintProjections6490()
 
-    /** V5.0.6490 — one inventory identity is mode + mint, never bare mint. */
-    fun activeMintProjections6490(mode: String? = null): List<ActiveMintProjection6489> = openPositions()
-        .filter { it.remainingQtyRaw > BigInteger.ZERO && (mode == null || it.mode.equals(mode, true)) }
-        .groupBy { "${it.mode.lowercase()}|${it.mint}" }
-        .map { (_, lots) ->
-            val representative = lots.maxByOrNull { it.lastMutationMs } ?: lots.first()
-            ActiveMintProjection6489(
-                mint = representative.mint,
-                symbol = representative.symbol,
-                lane = representative.lane,
-                primaryMode = representative.mode,
-                modes = lots.map { it.mode.lowercase() }.toSet(),
-                openedAtMs = lots.minOf { it.openedAtMs },
-                remainingQtyRaw = lots.fold(BigInteger.ZERO) { acc, p -> acc + p.remainingQtyRaw },
-                remainingCostBasisSol = lots.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) },
-                lotCount = lots.size,
-                // V5.0.7060 — lots of one mint share a decimals scale by
-                // definition; the representative's is the mint's.
-                quantityScale = representative.quantityScale.coerceIn(0, 18),
-                assetClass = representative.assetClass,
-                costBasisPerEntryUsd = lots.sumOf { p ->
-                    val remainingCost = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0)
-                    if (p.entryPriceUsd.isFinite() && p.entryPriceUsd > 0.0)
-                        remainingCost / p.entryPriceUsd
-                    else 0.0
-                },
-            )
+    /**
+     * V5.0.7487 — cache the pure mode+mint projection against the canonical
+     * position authority's monotonic mutation revision.
+     */
+    fun activeMintProjections6490(mode: String? = null): List<ActiveMintProjection6489> {
+        val revision7487 = muts.get()
+        val cached7487 = activeProjectionCache7487.get()
+        val allRows7487 = if (cached7487 != null && cached7487.mutationRevision == revision7487) {
+            try { PipelineHealthCollector.labelInc("ACTIVE_MINT_PROJECTION_CACHE_HIT_7487") } catch (_: Throwable) {}
+            cached7487.rows
+        } else {
+            val rebuilt7487 = openPositions()
+                .filter { it.remainingQtyRaw > BigInteger.ZERO }
+                .groupBy { "${it.mode.lowercase()}|${it.mint}" }
+                .map { (_, lots) ->
+                    val representative = lots.maxByOrNull { it.lastMutationMs } ?: lots.first()
+                    ActiveMintProjection6489(
+                        mint = representative.mint,
+                        symbol = representative.symbol,
+                        lane = representative.lane,
+                        primaryMode = representative.mode,
+                        modes = lots.map { it.mode.lowercase() }.toSet(),
+                        openedAtMs = lots.minOf { it.openedAtMs },
+                        remainingQtyRaw = lots.fold(BigInteger.ZERO) { acc, p -> acc + p.remainingQtyRaw },
+                        remainingCostBasisSol = lots.sumOf {
+                            (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0)
+                        },
+                        lotCount = lots.size,
+                        quantityScale = representative.quantityScale.coerceIn(0, 18),
+                        assetClass = representative.assetClass,
+                        costBasisPerEntryUsd = lots.sumOf { p ->
+                            val remainingCost = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0)
+                            if (p.entryPriceUsd.isFinite() && p.entryPriceUsd > 0.0)
+                                remainingCost / p.entryPriceUsd
+                            else 0.0
+                        },
+                    )
+                }
+            if (muts.get() == revision7487) {
+                activeProjectionCache7487.set(ActiveProjectionCache7487(revision7487, rebuilt7487))
+                try { PipelineHealthCollector.labelInc("ACTIVE_MINT_PROJECTION_CACHE_REBUILD_7487") } catch (_: Throwable) {}
+            }
+            rebuilt7487
         }
+        val requestedMode7487 = mode?.trim()?.lowercase()
+        return if (requestedMode7487 == null) allRows7487
+        else allRows7487.filter { it.primaryMode.equals(requestedMode7487, true) }
+    }
 
     /**
      * V5.0.6461 §P0-#2 — cancel PENDING_ENTRY rows older than ttlMs.
