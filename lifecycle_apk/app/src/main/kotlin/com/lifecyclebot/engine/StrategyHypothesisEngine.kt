@@ -157,20 +157,33 @@ object StrategyHypothesisEngine {
         return if (exact.isBlank()) parent else "$parent|X=$exact"
     }
 
-    private fun seedExactFromParent7430(parentCtx: String, exactCtx: String) {
+    private fun seedExactFromParent7430(
+        parentCtx: String,
+        exactCtx: String,
+        lane: String,
+        strategyIdentity: String,
+    ) {
         if (parentCtx == exactCtx) return
         var seeded = false
         if (!baseline.containsKey(exactCtx)) {
-            baseline[parentCtx]?.let {
-                baseline.putIfAbsent(exactCtx, it)
+            val parentBase = baseline[parentCtx] ?: 1.0
+            val exactEvPrior = try {
+                com.lifecyclebot.engine.truth.MemeCausalLearning6568
+                    .exactStrategyPriorMultiplier7430(lane, strategyIdentity)
+            } catch (_: Throwable) { 1.0 }
+            val seededBase = (parentBase * exactEvPrior).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
+            if (baseline.putIfAbsent(exactCtx, seededBase) == null) {
                 seeded = true
+                try {
+                    PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_EV_PRIOR_SEEDED_7430")
+                    if (exactEvPrior > 1.0) PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_EV_PRIOR_POSITIVE_7430")
+                    if (exactEvPrior < 1.0) PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_EV_PRIOR_NEGATIVE_7430")
+                } catch (_: Throwable) {}
             }
         }
         if (!stopBaseline.containsKey(exactCtx)) {
-            stopBaseline[parentCtx]?.let {
-                stopBaseline.putIfAbsent(exactCtx, it)
-                seeded = true
-            }
+            val parentStop = stopBaseline[parentCtx] ?: 1.0
+            if (stopBaseline.putIfAbsent(exactCtx, parentStop) == null) seeded = true
         }
         if (seeded) try {
             PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_PARENT_BASELINE_SEEDED_7430")
@@ -258,7 +271,7 @@ object StrategyHypothesisEngine {
         return try {
             val parentCtx7430 = ctxKey(lane, score, regime)
             val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
-            seedExactFromParent7430(parentCtx7430, ctx)
+            seedExactFromParent7430(parentCtx7430, ctx, lane, strategyIdentity)
             if (ctx != parentCtx7430) try {
                 PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_CONTEXT_STAMPED_7430")
             } catch (_: Throwable) {}
