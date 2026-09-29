@@ -8423,8 +8423,25 @@ class BotService : Service() {
     }
 
     fun stopBot(source: String = "direct_call_unknown") {
-        val liquidateOnStop = source == "ui_stop_button" || source == "halt_reset" || source == "operator_manual_stop"
-        val stopAllowed = liquidateOnStop || source == "config_restart"
+        // V5.0.7433 — runtime lifecycle is not an economic PAPER exit.
+        // 7431 proved a stop/restart could write ~138 bot_shutdown SELLs, then
+        // canonical reconstruction reopened the same inventory. That poisoned
+        // journal/finalized learning and manufactured ledger divergence.
+        //
+        // PAPER positions are simulated canonical inventory and survive every
+        // service/config/manual stop. They close only through trading exit
+        // authority (SL/TP/trail/manual economic close), never because Android
+        // stopped a service. LIVE keeps the explicit operator-stop liquidation
+        // behaviour so a confirmed Stop button can still sweep real holdings.
+        val paperRuntime7433 = try {
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        } catch (_: Throwable) {
+            try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
+        }
+        val explicitLiquidationStop7433 =
+            source == "ui_stop_button" || source == "halt_reset" || source == "operator_manual_stop"
+        val liquidateOnStop = explicitLiquidationStop7433 && !paperRuntime7433
+        val stopAllowed = explicitLiquidationStop7433 || source == "config_restart"
         if (!stopAllowed) {
             ErrorLogger.error("BotService", "🚫 stopBot rejected: unapproved source=$source — runtime must stay running")
             try { ForensicLogger.lifecycle("STOPBOT_REJECTED", "source=$source reason=unapproved_stop_source") } catch (_: Throwable) {}
@@ -8440,28 +8457,7 @@ class BotService : Service() {
             return
         }
         val softStopPreservePositions = !liquidateOnStop
-        // V5.0.7433 — PAPER positions are simulated economic inventory, not
-        // disposable runtime cache. Stopping/restarting the service must never
-        // manufacture terminal SELL outcomes for them. Explicit Stop still
-        // stops the runtime and arms the manual-stop latch; it simply preserves
-        // the canonical paper book for the next Start.
-        val paperModeAtStop7433 = try {
-            RuntimeModeAuthority.isPaper()
-        } catch (_: Throwable) {
-            try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
-        }
-        val preserveEconomicPositions7433 = softStopPreservePositions || paperModeAtStop7433
-        val economicLiquidationOnStop7433 = liquidateOnStop && !paperModeAtStop7433
-        if (paperModeAtStop7433 && liquidateOnStop) {
-            try {
-                PipelineHealthCollector.labelInc("PAPER_RUNTIME_STOP_PRESERVED_POSITIONS_7433")
-                ForensicLogger.lifecycle(
-                    "PAPER_RUNTIME_STOP_PRESERVED_POSITIONS_7433",
-                    "source=$source openPositions=${try { CanonicalPositionAuthority6441.openPositions().count { it.mode.equals("paper", true) } } catch (_: Throwable) { -1 }} action=stop_runtime_without_economic_close",
-                )
-            } catch (_: Throwable) {}
-        }
-        isShuttingDown = economicLiquidationOnStop7433
+        isShuttingDown = liquidateOnStop  // V5.9.1078: only liquidation stops use fast-close shutdown paths
         // Capture immutable ownership before teardown starts.  Every cancellation
         // in this stop must target this Job, never whatever a later start/rescue
         // may install in the shared field.
@@ -8615,19 +8611,19 @@ class BotService : Service() {
         // The paper wallet inflation guard is also removed — the SmartSizer
         // already caps balance to a sane value each cycle.
         
-        if (preserveEconomicPositions7433) {
+        if (softStopPreservePositions) {
             val preservedOpenCount = try { status.tokens.values.count { it.position.isOpen } } catch (_: Throwable) { -1 }
             try {
                 ForensicLogger.lifecycle(
                     "STOP_SOFT_PRESERVE_POSITIONS",
-                    "source=$source paper=$paperModeAtStop7433 openPositions=$preservedOpenCount mapSize=${status.tokens.size} action=no_liquidation_no_clear",
+                    "source=$source openPositions=$preservedOpenCount mapSize=${status.tokens.size} action=no_liquidation_no_clear",
                 )
             } catch (_: Throwable) {}
-            addLog("↻ Stop/restart: preserving economic positions (source=$source paper=$paperModeAtStop7433)")
+            addLog("↻ Soft stop/restart: preserving open positions (source=$source)")
         }
 
-        if (economicLiquidationOnStop7433) {
-        // IMPORTANT: Close LIVE open positions BEFORE an explicit liquidation stop.
+        if (liquidateOnStop) {
+        // IMPORTANT: Close all open positions BEFORE stopping.
         // V5.9.1078 — liquidation is no longer unconditional. Only confirmed
         // operator STOP/halt reset may close positions with bot_shutdown.
         // Internal/config/lifecycle stops preserve positions and skip this block.
@@ -9181,24 +9177,15 @@ class BotService : Service() {
         // to restart no matter how many times the user tapped Start.
         //
         // V5.9.5: Close all Markets positions then stop all traders when main bot stops
-        if (!preserveEconomicPositions7433) {
-            try {
-                com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions()
-                com.lifecyclebot.perps.CommoditiesTrader.closeAllPositions()
-                com.lifecyclebot.perps.MetalsTrader.closeAllPositions()
-                com.lifecyclebot.perps.ForexTrader.closeAllPositions()
-                com.lifecyclebot.perps.CryptoAltTrader.closeAllPositions()
-                kotlinx.coroutines.runBlocking { com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions() }
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "Error closing markets positions: ${e.message}", e)
-            }
-        } else {
-            try {
-                ForensicLogger.lifecycle(
-                    "STOP_CROSS_ASSET_POSITIONS_PRESERVED_7433",
-                    "source=$source paper=$paperModeAtStop7433 action=stop_workers_keep_positions",
-                )
-            } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions()
+            com.lifecyclebot.perps.CommoditiesTrader.closeAllPositions()
+            com.lifecyclebot.perps.MetalsTrader.closeAllPositions()
+            com.lifecyclebot.perps.ForexTrader.closeAllPositions()
+            com.lifecyclebot.perps.CryptoAltTrader.closeAllPositions()
+            kotlinx.coroutines.runBlocking { com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions() }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Error closing markets positions: ${e.message}", e)
         }
         try {
             com.lifecyclebot.perps.TokenizedStockTrader.stop()
@@ -9272,13 +9259,13 @@ class BotService : Service() {
         try { wifiLock6032?.let { if (it.isHeld) it.release() } } catch (_: Throwable) {}
         wifiLock6032 = null
         
-        addLog(if (preserveEconomicPositions7433) "Bot stopped. Positions preserved. Wallet remains connected." else "Bot stopped. Live positions closed. Wallet remains connected.")
+        addLog("Bot stopped. All positions closed. Wallet remains connected.")
         
         // Show Toast on UI thread for immediate feedback
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             android.widget.Toast.makeText(
                 applicationContext,
-                if (preserveEconomicPositions7433) "🛑 Bot Stopped\nPositions preserved" else "🛑 Bot Stopped\nLive positions closed",
+                "🛑 Bot Stopped\nAll positions closed",
                 android.widget.Toast.LENGTH_LONG
             ).show()
         }
@@ -9286,7 +9273,7 @@ class BotService : Service() {
         // Send Telegram notification for bot stop
         sendTradeNotif(
             "🛑 Bot Stopped",
-            if (preserveEconomicPositions7433) "Positions preserved. Wallet remains connected." else "Live positions closed. Wallet remains connected.",
+            "All positions closed. Wallet remains connected.",
             NotificationHistory.NotifEntry.NotifType.INFO
         )
         } finally {
@@ -26351,22 +26338,31 @@ if (hotExitHandledSweep) {
                     // verdict so the executor sees V3's decision, not a
                     // stale prior-tick record.
                     // V5.0.7389 — no V3 BUY stamp on a QUALITY/BLUECHIP-owned lane (its evaluator decides).
-                    // V5.0.7433 — V3 Execute is an upstream opinion until the
-                    // real FDG evaluates current token-map/safety evidence. Do not
-                    // pre-write a synthetic FDG BUY here. That old write could seal
-                    // an immutable BUY with hardNo=[], then same-version precedence
-                    // prevented the real FDG's LIQUIDITY_UNKNOWN HARD_NO from
-                    // revoking it. Preserve V3 visibility only; the real FDG below
-                    // is the sole writer of executable authority.
-                    try {
-                        ExecutableOpenGate.recordV3(
-                            ts.mint, ts.symbol, "EXECUTE",
-                            fatalReason = null,
-                            decisionBand = "EXECUTE",
+                    if (!(cyclePrimaryLane.uppercase() in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP") && LaneEntryContract6342.specialistCanBuy7389(ts, cyclePrimaryLane))) try {
+                        ExecutableOpenGate.recordFdg(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            lane = cyclePrimaryLane.uppercase(),
+                            canExecute = true,
+                            reason = "V3_EXECUTE_HANDOFF_6534",
+                            signal = "BUY",
                             rugScore = ts.safety.rugcheckScore,
                             safetyTier = "V3",
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            hardNoReasons = emptyList(),
+                            preFdgVerdict = "BUY",
+                            // V5.0.6620 §9 — canonical candidateVersion
+                            //   authority. Was `System.currentTimeMillis()`
+                            //   raw wall-clock; that created a second
+                            //   version authority that never matched the
+                            //   executor's LaneExecutionCoordinator bucket.
+                            candidateVersion = try {
+                                com.lifecyclebot.engine.LaneExecutionCoordinator
+                                    .candidateVersionFor(ts.mint)
+                            } catch (_: Throwable) { 0L },
                         )
-                        PipelineHealthCollector.labelInc("V3_EXECUTABLE_TRUNK_HANDOFF_DEFERRED_TO_FDG_7433")
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620") } catch (_: Throwable) {}
+                        PipelineHealthCollector.labelInc("V3_EXECUTABLE_TRUNK_HANDOFF_6534")
                     } catch (_: Throwable) {}
                     // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
                     try {
