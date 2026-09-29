@@ -1135,3 +1135,12 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] Current runtime-generation snapshots are never pruned by this path.
 - [x] Mint/version/lane authority semantics are unchanged.
 - [x] Runtime restart no longer requires a new decision record before old-generation memory is released.
+
+
+## V5.0.7505 — bounded stale canonical TokenMap cache
+
+- [x] canonicalResultByMint6492 gains pressure-based pruning only after 12,000 cached mints.
+- [x] Only rows older than 24 hours are eligible for retirement.
+- [x] Canonical held-position mints, current hydration target, and inflight hydration mints are protected.
+- [x] Route TTL, route classification, executable proof and provider fallback are unchanged.
+- [x] A pruned discovery mint simply rehydrates normally if rediscovered later.

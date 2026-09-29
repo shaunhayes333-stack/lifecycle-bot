@@ -38,12 +38,46 @@ object TokenMapAuthority {
     private const val PENDING_RESULT_RETRY_MS_6492 = 2_000L
     private val activeHydrationByMint = ConcurrentHashMap<String, Long>()
     private val canonicalResultByMint6492 = ConcurrentHashMap<String, CanonicalTokenMap>()
+    // V5.0.7505 — executable routes expire in 90s; historical discovery maps
+    // must not live forever. Prune only very old NON-HELD rows under pressure.
+    private const val TOKEN_MAP_CACHE_STALE_MS_7505 = 24L * 60L * 60_000L
+    private const val TOKEN_MAP_CACHE_SOFT_CAP_7505 = 12_000
+    private val tokenMapCachePruned7505 = AtomicLong(0L)
     private val tokenMapStartUnique = AtomicLong(0L)
     private val tokenMapJoinExisting = AtomicLong(0L)
     private val tokenMapComplete = AtomicLong(0L)
     private val tokenMapFailed = AtomicLong(0L)
     private val tokenMapRetry = AtomicLong(0L)
     private val tokenMapActivePeak = AtomicLong(0L)
+
+    private fun pruneStaleCache7505(now: Long, keepMint: String) {
+        if (canonicalResultByMint6492.size <= TOKEN_MAP_CACHE_SOFT_CAP_7505) return
+        val held7505 = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .mapTo(HashSet()) { it.mint }
+        } catch (_: Throwable) { emptySet<String>() }
+        val cutoff7505 = now - TOKEN_MAP_CACHE_STALE_MS_7505
+        var removed7505 = 0L
+        canonicalResultByMint6492.entries.removeIf { e ->
+            val drop = e.key != keepMint &&
+                e.key !in held7505 &&
+                e.value.updatedAtMs > 0L &&
+                e.value.updatedAtMs < cutoff7505 &&
+                e.key !in activeHydrationByMint
+            if (drop) removed7505++
+            drop
+        }
+        if (removed7505 > 0) {
+            tokenMapCachePruned7505.addAndGet(removed7505)
+            try {
+                PipelineHealthCollector.labelInc("TOKEN_MAP_STALE_CACHE_PRUNED_7505")
+                ForensicLogger.lifecycle(
+                    "TOKEN_MAP_STALE_CACHE_PRUNED_7505",
+                    "removed=$removed7505 remaining=${canonicalResultByMint6492.size} heldProtected=${held7505.size}",
+                )
+            } catch (_: Throwable) {}
+        }
+    }
 
     private fun updateActivePeak() {
         val live = activeHydrationByMint.size.toLong()
@@ -137,6 +171,7 @@ object TokenMapAuthority {
 
         val target = resolveCanonicalTarget(ts, tm)
         tm.canonicalTargetMint = target
+        pruneStaleCache7505(now, target)
         val cached6492 = canonicalResultByMint6492[target]
         if (cached6492 != null) {
             val pending = cached6492.routeStatus in setOf("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", "ROUTE_STALE_RECHECK", "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER")
