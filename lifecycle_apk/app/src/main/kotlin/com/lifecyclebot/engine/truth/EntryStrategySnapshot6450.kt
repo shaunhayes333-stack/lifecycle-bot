@@ -233,7 +233,16 @@ object EntryStrategySnapshot6450 {
 
 /** V5.0.6568 — eligible canonical MEME closes joined to immutable entry snapshots. */
 object MemeCausalLearning6568 {
-    private data class Row(val lane:String,val tactic:String,val tradeType:String,val setup:String,val style:String,val variantId:String,val win:Boolean,val score:Double,val liq:Double,val age:Double,val velocity:Double,val pressure:Double,val policy:Double,val fwd:Double,val holders:Double,val hold:Double,val mae:Double,val mfe:Double,val source:String)
+    private data class Row(val lane:String,val tactic:String,val tradeType:String,val setup:String,val style:String,val variantId:String,val win:Boolean,val pnlPct:Double,val score:Double,val liq:Double,val age:Double,val velocity:Double,val pressure:Double,val policy:Double,val fwd:Double,val holders:Double,val hold:Double,val mae:Double,val mfe:Double,val source:String)
+
+    data class ExactStrategyStats7430(
+        val sample: Int,
+        val wins: Int,
+        val meanPnlPct: Double,
+        val profitFactor: Double,
+    ) {
+        val winRatePct: Double get() = if (sample > 0) wins * 100.0 / sample else 0.0
+    }
     private val rows = java.util.ArrayDeque<Row>(101)
     private val lock = Any()
     private const val KEY = "meme_causal_learning_6568"
@@ -271,7 +280,7 @@ object MemeCausalLearning6568 {
             return false
         }
         val row = Row(snap.entryLane, snap.entryTactic, snap.entryTradeType, snap.entrySetup, snap.entryStyle, snap.entryStrategyVariantId,
-            env.realizedReturnPct > 0.5, snap.entryScore.toDouble(), snap.entryLiquidityUsd,
+            env.realizedReturnPct > 0.5, env.realizedReturnPct, snap.entryScore.toDouble(), snap.entryLiquidityUsd,
             snap.entryTokenAgeMs.toDouble(), snap.entryVolumeVelocity, snap.entryBuyPressurePct - snap.entrySellPressurePct,
             snap.policyProbability, snap.forwardPWin, snap.entryHolderConcentrationPct, env.holdingTimeMs / 60000.0,
             env.maePct.takeIf { it != 0.0 } ?: minOf(0.0, env.realizedReturnPct),
@@ -292,6 +301,69 @@ object MemeCausalLearning6568 {
         try { ForensicLogger.lifecycle("MEME_WINNER_LOSER_CAUSAL_REPORT_6568", "WINNERS ${side(w)} | LOSERS ${side(l)}"); PipelineHealthCollector.labelInc("MEME_WINNER_LOSER_CAUSAL_REPORT_6568") } catch (_:Throwable) {}
     }
 
+    /**
+     * V5.0.7430 — exact playbook evidence from canonical terminal outcomes.
+     * Used as a bounded prior when an exact hypothesis context is first seen;
+     * it is not a veto and it is not re-applied on every evaluation.
+     */
+    fun exactStrategyStats7430(
+        lane: String,
+        tradeType: String,
+        setup: String,
+        style: String,
+        tactic: String,
+    ): ExactStrategyStats7430? {
+        ensureRestored()
+        return synchronized(lock) {
+            val exact = rows.filter {
+                it.lane.equals(lane, true) &&
+                    (tradeType.isBlank() || it.tradeType.equals(tradeType, true)) &&
+                    (setup.isBlank() || it.setup.equals(setup, true)) &&
+                    (style.isBlank() || it.style.equals(style, true)) &&
+                    (tactic.isBlank() || it.tactic.equals(tactic, true)) &&
+                    it.pnlPct.isFinite()
+            }
+            if (exact.isEmpty()) return@synchronized null
+            val wins = exact.count { it.pnlPct > 0.5 }
+            val grossWin = exact.filter { it.pnlPct > 0.0 }.sumOf { it.pnlPct }
+            val grossLoss = exact.filter { it.pnlPct < 0.0 }.sumOf { kotlin.math.abs(it.pnlPct) }
+            ExactStrategyStats7430(
+                sample = exact.size,
+                wins = wins,
+                meanPnlPct = exact.sumOf { it.pnlPct } / exact.size,
+                profitFactor = if (grossLoss > 1e-9) grossWin / grossLoss else if (grossWin > 0.0) 9.99 else 0.0,
+            )
+        }
+    }
+
+    fun exactStrategyPriorMultiplier7430(
+        lane: String,
+        strategyIdentity: String,
+    ): Double {
+        val p = strategyIdentity.split('>').map { it.trim() }
+        val s = exactStrategyStats7430(
+            lane = lane,
+            tradeType = p.getOrNull(0).orEmpty(),
+            setup = p.getOrNull(1).orEmpty(),
+            style = p.getOrNull(2).orEmpty(),
+            tactic = p.getOrNull(3).orEmpty(),
+        ) ?: return 1.0
+        if (s.sample < 5) return 1.0
+        val mult = when {
+            s.sample >= 12 && s.meanPnlPct >= 10.0 && s.profitFactor >= 1.30 -> 1.08
+            s.meanPnlPct > 0.0 && s.profitFactor >= 1.05 -> 1.03
+            s.meanPnlPct <= -10.0 && s.profitFactor < 0.80 -> 0.85
+            s.meanPnlPct < 0.0 && s.profitFactor < 1.0 -> 0.93
+            else -> 1.0
+        }
+        try {
+            PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_READ_7430")
+            if (mult > 1.0) PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_POSITIVE_7430")
+            if (mult < 1.0) PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PRIOR_NEGATIVE_7430")
+        } catch (_: Throwable) {}
+        return mult
+    }
+
     /** Shaping only: discovery/execution remain active and size never reaches zero. */
     fun sizeMultiplier(lane:String,tactic:String): Double { ensureRestored(); return synchronized(lock) {
         if (rows.size < 20) return@synchronized 1.0
@@ -305,8 +377,8 @@ object MemeCausalLearning6568 {
         if (cohort.size>=5 && cohortWr>=wr+0.15) 0.70 else 0.20
     } }
 
-    private fun persist() { try { val a=org.json.JSONArray(); rows.forEach{r->a.put(org.json.JSONObject().put("lane",r.lane).put("tactic",r.tactic).put("tradeType",r.tradeType).put("setup",r.setup).put("style",r.style).put("variantId",r.variantId).put("win",r.win).put("score",r.score).put("liq",r.liq).put("age",r.age).put("velocity",r.velocity).put("pressure",r.pressure).put("policy",r.policy).put("fwd",r.fwd).put("holders",r.holders).put("hold",r.hold).put("mae",r.mae).put("mfe",r.mfe).put("source",r.source))}; LearningPersistence.save(KEY,a.toString()) } catch (_:Throwable) {} }
-    fun restore() { try { val a=org.json.JSONArray(LearningPersistence.load(KEY)?:return); synchronized(lock){ rows.clear(); for(i in 0 until a.length()){val j=a.getJSONObject(i); rows.addLast(Row(j.optString("lane"),j.optString("tactic"),j.optString("tradeType"),j.optString("setup"),j.optString("style"),j.optString("variantId"),j.optBoolean("win"),j.optDouble("score"),j.optDouble("liq"),j.optDouble("age"),j.optDouble("velocity"),j.optDouble("pressure"),j.optDouble("policy",.5),j.optDouble("fwd",.5),j.optDouble("holders"),j.optDouble("hold"),j.optDouble("mae"),j.optDouble("mfe"),j.optString("source")))}} } catch (_:Throwable) {} }
+    private fun persist() { try { val a=org.json.JSONArray(); rows.forEach{r->a.put(org.json.JSONObject().put("lane",r.lane).put("tactic",r.tactic).put("tradeType",r.tradeType).put("setup",r.setup).put("style",r.style).put("variantId",r.variantId).put("win",r.win).put("pnl",r.pnlPct).put("score",r.score).put("liq",r.liq).put("age",r.age).put("velocity",r.velocity).put("pressure",r.pressure).put("policy",r.policy).put("fwd",r.fwd).put("holders",r.holders).put("hold",r.hold).put("mae",r.mae).put("mfe",r.mfe).put("source",r.source))}; LearningPersistence.save(KEY,a.toString()) } catch (_:Throwable) {} }
+    fun restore() { try { val a=org.json.JSONArray(LearningPersistence.load(KEY)?:return); synchronized(lock){ rows.clear(); for(i in 0 until a.length()){val j=a.getJSONObject(i); rows.addLast(Row(j.optString("lane"),j.optString("tactic"),j.optString("tradeType"),j.optString("setup"),j.optString("style"),j.optString("variantId"),j.optBoolean("win"),j.optDouble("pnl", Double.NaN),j.optDouble("score"),j.optDouble("liq"),j.optDouble("age"),j.optDouble("velocity"),j.optDouble("pressure"),j.optDouble("policy",.5),j.optDouble("fwd",.5),j.optDouble("holders"),j.optDouble("hold"),j.optDouble("mae"),j.optDouble("mfe"),j.optString("source")))}} } catch (_:Throwable) {} }
     internal fun rowCountForTest() = synchronized(lock) { rows.size }
     internal fun resetForTest(){ synchronized(lock){rows.clear()}; restored.set(true) }
 }
