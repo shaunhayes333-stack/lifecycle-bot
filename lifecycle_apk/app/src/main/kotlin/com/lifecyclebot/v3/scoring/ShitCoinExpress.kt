@@ -343,13 +343,25 @@ object ShitCoinExpress {
         // into a 50-55 dead band: momentum stayed 0 -> NO_MOMENTUM skip ->
         // Express went dead quiet. Synthesise from >=50 so the WS-default tokens
         // get a minimal momentum read (max(fluidMinMomentum) keeps it honest).
-        val effectiveMomentum = if (momentum <= 0.0 && buyPressurePct >= 50.0) {
-            (buyPressurePct - 49.0).coerceAtLeast(fluidMinMomentum)
-        } else momentum
+        // V5.0.7449 — neutral 50% pressure is not momentum. The old proxy
+        // manufactured a positive read from the PumpPortal default and admitted
+        // tokens with no observed directional evidence. Proxy only when flow is
+        // genuinely strong AND volume is accelerating.
+        val flowIgnitionProxy7449 = momentum <= 0.0 &&
+            buyPressurePct >= maxOf(58.0, fluidMinBuyPressure + 8.0) &&
+            volumeChange >= 1.5
+        val effectiveMomentum = if (flowIgnitionProxy7449) fluidMinMomentum else momentum
 
-        // CRITICAL: Must already be pumping (fluid gate)
         if (effectiveMomentum < fluidMinMomentum) {
-            return noRide("NO_MOMENTUM: ${effectiveMomentum.fmt(1)}% < ${fluidMinMomentum.fmt(1)}% (learning=${(learningProgress*100).toInt()}%)")
+            return noRide("NO_CONTINUATION: ${effectiveMomentum.fmt(1)}% < ${fluidMinMomentum.fmt(1)}% (learning=${(learningProgress*100).toInt()}%)")
+        }
+
+        // Express is an early continuation desk, not a parabolic-top buyer.
+        // Keep very extended prints out even if social/trending visibility is hot.
+        val chaseExtended7449 = priceChange5Min > 20.0 || effectiveMomentum > 30.0
+        if (chaseExtended7449) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_CHASE_REJECTED_7449") } catch (_: Throwable) {}
+            return noRide("CHASE_EXTENDED: mom=${effectiveMomentum.fmt(1)}% chg5m=${priceChange5Min.fmt(1)}%")
         }
         
         // CRITICAL: Must have strong buy pressure (fluid gate)
@@ -364,54 +376,48 @@ object ShitCoinExpress {
         var expressScore = 0
         var estimatedGain = MIN_TAKE_PROFIT_PCT
         
-        // Momentum score (0-30)
+        // V5.0.7449 — score remaining continuation quality, not raw heat.
+        // Sweet spots peak BEFORE parabolic extension; extreme values decay.
         val momentumScore = when {
-            momentum >= 20 -> 30   // PARABOLIC!
-            momentum >= 15 -> 25
-            momentum >= 10 -> 20
-            momentum >= 7 -> 15
-            momentum >= 5 -> 10
+            effectiveMomentum in 7.0..15.0 -> 25
+            effectiveMomentum in 4.0..<7.0 -> 20
+            effectiveMomentum in 15.0..22.0 -> 14
+            effectiveMomentum in fluidMinMomentum..<4.0 -> 12
+            effectiveMomentum > 22.0 -> 5
             else -> 0
         }
         expressScore += momentumScore
         
-        // Buy pressure score (0-25)
         val buyScore = when {
-            buyPressurePct >= 80 -> 25  // Insane buying
-            buyPressurePct >= 75 -> 22
-            buyPressurePct >= 70 -> 18
-            buyPressurePct >= 65 -> 14
-            buyPressurePct >= 60 -> 10
+            buyPressurePct in 62.0..75.0 -> 22
+            buyPressurePct in 56.0..<62.0 -> 16
+            buyPressurePct > 75.0 -> 16
+            buyPressurePct >= fluidMinBuyPressure -> 8
             else -> 0
         }
         expressScore += buyScore
         
-        // Volume surge score (0-20)
         val volumeScore = when {
-            volumeChange >= 5.0 -> 20   // 5x volume = FOMO
-            volumeChange >= 3.0 -> 16
-            volumeChange >= 2.0 -> 12
-            volumeChange >= 1.5 -> 8
-            volumeChange >= 1.0 -> 5
+            volumeChange in 1.5..3.5 -> 18
+            volumeChange in 1.1..<1.5 -> 10
+            volumeChange > 3.5 -> 10   // useful, but often already visible/FOMO
             else -> 0
         }
         expressScore += volumeScore
         
-        // 5-minute price change score (0-15)
         val priceScore = when {
-            priceChange5Min >= 15 -> 15  // Already up 15% in 5 min!
-            priceChange5Min >= 10 -> 12
-            priceChange5Min >= 7 -> 10
-            priceChange5Min >= 5 -> 7
-            priceChange5Min >= 3 -> 5
+            priceChange5Min in 2.0..8.0 -> 20
+            priceChange5Min in 0.5..<2.0 -> 12
+            priceChange5Min in 8.0..12.0 -> 14
+            priceChange5Min in 12.0..20.0 -> 5
             else -> 0
         }
         expressScore += priceScore
         
-        // Trending/Boosted bonus (0-10)
+        // Trending/boosted are lagging visibility, weak evidence only.
         var trendScore = 0
-        if (isTrending) trendScore += 5
-        if (isBoosted) trendScore += 5
+        if (isTrending) trendScore += 2
+        if (isBoosted) trendScore += 1
         expressScore += trendScore
         
         // Age bonus - Sweet spot is 5-60 mins (0-60)
@@ -432,7 +438,7 @@ object ShitCoinExpress {
         } catch (_: Exception) { 1.0 }
         
         // Calculate confidence
-        val confidence = ((expressScore / 110.0) * 100 * metaTrustMult).toInt().coerceIn(0, 100)
+        val confidence = ((expressScore / 95.0) * 100 * metaTrustMult).toInt().coerceIn(0, 100)
         
         // ═══════════════════════════════════════════════════════════════════
         // ═══════════════════════════════════════════════════════════════════
@@ -526,11 +532,16 @@ object ShitCoinExpress {
         // ═══════════════════════════════════════════════════════════════════
         
         val rideType = when {
-            expressScore >= 25 && momentum >= 15 && buyPressurePct >= 70 -> {
+            expressScore >= maxOf(minScore, 65) &&
+                effectiveMomentum in 5.0..18.0 &&
+                buyPressurePct >= 62.0 &&
+                priceChange5Min <= 12.0 -> {
                 estimatedGain = 100.0
                 RideType.MOONSHOT_EXPRESS
             }
-            expressScore >= 15 && momentum >= 10 -> {
+            expressScore >= maxOf(minScore, 45) &&
+                effectiveMomentum >= fluidMinMomentum &&
+                priceChange5Min <= 15.0 -> {
                 estimatedGain = 50.0
                 RideType.MOMENTUM_RIDE
             }
@@ -670,7 +681,7 @@ object ShitCoinExpress {
         ErrorLogger.info(TAG, "💩🚂 EXPRESS QUALIFIED: $symbol | " +
             "${rideType.emoji} ${rideType.name} | " +
             "score=$expressScore conf=$confidence% | " +
-            "mom=${momentum.fmt(1)}% buy=${buyPressurePct.toInt()}% | " +
+            "mom=${effectiveMomentum.fmt(1)}% buy=${buyPressurePct.toInt()}% chg5m=${priceChange5Min.fmt(1)}% | " +
             "size=${positionSol.fmt(4)} SOL | " +
             "target=${estimatedGain.toInt()}%")
         
@@ -678,7 +689,7 @@ object ShitCoinExpress {
             shouldRide = true,
             positionSizeSol = positionSol,
             confidence = confidence,
-            reason = "${rideType.emoji} mom=${momentum.toInt()}% buy=${buyPressurePct.toInt()}%",
+            reason = "${rideType.emoji} continuation mom=${effectiveMomentum.toInt()}% buy=${buyPressurePct.toInt()}% chg5m=${priceChange5Min.toInt()}%",
             rideType = rideType,
             estimatedGainPct = estimatedGain,
         )

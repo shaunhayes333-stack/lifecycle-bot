@@ -44,7 +44,7 @@ object ProjectSniperAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Target acquisition window
-    private const val MAX_TOKEN_AGE_SECONDS = 600      // V5.9.442: 180→600s — 3min window was too tight, user reports 0 missions
+    private const val MAX_TOKEN_AGE_SECONDS = 180      // V5.0.7449 — true sniper window; EXPANDING hands off to Moonshot/Express
     private const val MIN_TOKEN_AGE_SECONDS = 15       // V5.9.442: 30→15s — fresher launches OK with tighter TP
     private const val MIN_LIQUIDITY_USD = 2_000.0      // V5.9.442: 3k→2k
     private const val MAX_LIQUIDITY_USD = 250_000.0    // V5.9.442: 100k→250k — most sniper targets pass this now
@@ -52,7 +52,7 @@ object ProjectSniperAI {
     private const val MAX_MCAP_USD = 500_000.0         // V5.9.442: 200k→500k — catch later-stage snipes too
     private const val MIN_BUY_PRESSURE_PCT = 48.0      // V5.9.442: 52→48 — allow balanced books
     private const val MIN_PRICE_CHANGE_PCT = -5.0      // Can't be dumping hard
-    private const val MAX_PRICE_CHANGE_PCT = 80.0      // V5.9.442: 50→80 — catch stronger early runs
+    private const val MAX_PRICE_CHANGE_PCT = 35.0      // V5.0.7449 — do not reward/enter an already-consumed first impulse
     
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08         // Base snipe size
@@ -210,6 +210,22 @@ object ProjectSniperAI {
         val resolvedAgeMs7440 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts)
             ?: return noEngage("BIRTH_METADATA_HYDRATING_7440", 0, ThreatLevel.RED)
         val tokenAgeSecs = (resolvedAgeMs7440 / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val launch7449 = try {
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)
+        } catch (_: Throwable) { null }
+        if (launch7449 == null || !launch7449.birthResolved) {
+            return noEngage("BIRTH_METADATA_HYDRATING_7449", tokenAgeSecs, ThreatLevel.RED)
+        }
+        // PROJECT_SNIPER owns BEFORE the visible expansion. Once the token is
+        // EXPANDING, Moonshot/Express continuation desks own it. This stops the
+        // old 10-minute / +80% post-pump chase behaviour.
+        if (launch7449.phase !in setOf(
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION,
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
+            )) {
+            try { PipelineHealthCollector.labelInc("SNIPER_PHASE_HANDOFF_7449_${launch7449.phase.name}") } catch (_: Throwable) {}
+            return noEngage("PHASE_HANDOFF_${launch7449.phase.name}", tokenAgeSecs, ThreatLevel.YELLOW)
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // PRE-FLIGHT CHECKS
@@ -308,39 +324,58 @@ object ProjectSniperAI {
         // CONFIDENCE SCORING
         // ═══════════════════════════════════════════════════════════════════
         
-        var confidence = 50  // Base confidence
+        var confidence = 42  // V5.0.7449 — earn conviction from lead signals, not printed PnL.
         
-        // Age bonus (fresher = better)
-        confidence += when {
-            tokenAgeSecs < 60 -> 20   // Very fresh
-            tokenAgeSecs < 90 -> 15
-            tokenAgeSecs < 120 -> 10
-            else -> 5
-        }
-        
-        // Price action bonus
-        confidence += when {
-            priceChange > 20 -> 15    // Strong pump
-            priceChange > 10 -> 10
-            priceChange > 5 -> 5
-            priceChange > 0 -> 3
+        // Phase + age: the lane is strongest before the crowd sees expansion.
+        confidence += when (launch7449.phase) {
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION -> 20
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION -> 12
             else -> 0
         }
-        
-        // Buy pressure bonus
         confidence += when {
-            ts.lastBuyPressurePct >= 70 -> 15
-            ts.lastBuyPressurePct >= 60 -> 10
-            ts.lastBuyPressurePct >= 55 -> 5
+            tokenAgeSecs < 45 -> 10
+            tokenAgeSecs < 90 -> 7
+            tokenAgeSecs < 150 -> 3
             else -> 0
         }
-        
-        // Liquidity bonus (sweet spot)
+
+        // Causal launch-flow evidence.
         confidence += when {
-            ts.lastLiquidityUsd in 10_000.0..30_000.0 -> 10  // Ideal range
-            ts.lastLiquidityUsd in 5_000.0..50_000.0 -> 5
+            launch7449.distinctBuyers60s >= 5 -> 10
+            launch7449.distinctBuyers60s >= 3 -> 7
+            launch7449.distinctBuyers60s >= 2 -> 4
             else -> 0
         }
+        if (launch7449.accelerationRising) confidence += 10
+        confidence += when {
+            launch7449.buySharePct >= 70.0 -> 10
+            launch7449.buySharePct >= 60.0 -> 7
+            launch7449.buySharePct >= 55.0 -> 3
+            else -> 0
+        }
+
+        // Price is now only a chase guard / weak confirmation. A large printed
+        // move never increases sniper confidence.
+        confidence += when {
+            priceChange in 0.0..5.0 -> 4
+            priceChange in 5.0..10.0 -> 2
+            priceChange > 15.0 -> -8
+            else -> 0
+        }
+        launch7449.createMultiple?.let { mult ->
+            confidence += when {
+                mult in 1.02..1.35 -> 6
+                mult >= 1.60 -> -10
+                else -> 0
+            }
+        }
+        
+        confidence += when {
+            ts.lastLiquidityUsd in 5_000.0..30_000.0 -> 7
+            ts.lastLiquidityUsd in 2_000.0..50_000.0 -> 3
+            else -> 0
+        }
+        confidence = confidence.coerceIn(0, 100)
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Sniper lane).
@@ -359,11 +394,16 @@ object ProjectSniperAI {
                     tokenAgeSecs < 120 -> 10
                     else -> 5
                 },
-                "PRICE_ACTION" to when {
-                    priceChange > 20 -> 15
-                    priceChange > 10 -> 10
-                    priceChange > 5 -> 5
-                    priceChange > 0 -> 3
+                "LAUNCH_ACCELERATION" to if (launch7449.accelerationRising) 10 else 0,
+                "BUYER_BREADTH" to when {
+                    launch7449.distinctBuyers60s >= 5 -> 10
+                    launch7449.distinctBuyers60s >= 3 -> 7
+                    launch7449.distinctBuyers60s >= 2 -> 4
+                    else -> 0
+                },
+                "PRICE_NOT_EXTENDED" to when {
+                    priceChange in 0.0..5.0 -> 5
+                    priceChange in 5.0..10.0 -> 2
                     else -> 0
                 },
                 "BUY_PRESSURE" to when {
