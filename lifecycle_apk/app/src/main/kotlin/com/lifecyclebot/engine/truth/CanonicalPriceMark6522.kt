@@ -451,9 +451,50 @@ object CanonicalPriceMarkRegistry6522 {
         val promoted = try { promoteObservationToExecutable6613(mint, nowMs) } catch (_: Throwable) {
             PromotionResult6613(null, "PROMOTION_EXCEPTION_7465", identity = mint)
         }
-        val strict = promoted.mark?.takeIf {
+        var strict = promoted.mark?.takeIf {
             it.purpose == CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE
         } ?: getFresh6734(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
+
+        // V5.0.7471 — if canonical TokenMap already proves a fresh executable
+        // route + price + liquidity, materialise that exact proof through the
+        // existing mark integrity gate before declaring "no executable mark".
+        if (strict == null) {
+            val map7471 = try {
+                com.lifecyclebot.engine.TokenMapAuthority.cachedExecutableForEntry7471(mint)
+            } catch (_: Throwable) { null }
+            if (map7471 != null) {
+                val pair7471 = map7471.poolAddress.ifBlank {
+                    map7471.pairAddress.ifBlank { map7471.pumpFunBondingCurveAddress }
+                }
+                val source7471 = map7471.venue.takeIf { it.isNotBlank() && !it.equals("UNKNOWN", true) }
+                    ?: map7471.dexId.takeIf { it.isNotBlank() && !it.equals("UNKNOWN", true) }
+                    ?: map7471.sourceScanner
+                val materialized7471 = try {
+                    refreshFromExecutableTokenMap6614(
+                        mint = mint,
+                        pairOrPool = pair7471,
+                        quoteMint = map7471.quoteMint.ifBlank { "USD" },
+                        source = source7471.ifBlank { "TOKEN_MAP_EXECUTABLE_7471" },
+                        priceUsd = map7471.priceUsd ?: 0.0,
+                        liquidityUsd = map7471.liquidityUsd ?: 0.0,
+                        routeStatus = map7471.routeStatus,
+                        nowMs = nowMs,
+                        evidenceTimestampMs = map7471.updatedAtMs,
+                    )
+                } catch (_: Throwable) {
+                    PromotionResult6613(null, "TOKEN_MAP_MATERIALIZE_EXCEPTION_7471", identity = mint)
+                }
+                strict = materialized7471.mark?.takeIf {
+                    it.purpose == CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE
+                } ?: getFresh6734(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                        if (strict != null) "ENTRY_MARK_TOKEN_MAP_MATERIALIZED_7471"
+                        else "ENTRY_MARK_TOKEN_MAP_MATERIALIZE_REFUSED_7471_${materialized7471.reason.take(40)}"
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
         if (strict != null) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_MARK_MODE_RESOLVER_STRICT_7465") } catch (_: Throwable) {}
             return EntryMarkResolution7465(strict, "STRICT_EXECUTABLE", promoted.reason)

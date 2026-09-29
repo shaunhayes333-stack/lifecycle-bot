@@ -76,6 +76,22 @@ object TokenMapAuthority {
         return detached6492(snap)
     }
 
+    /** V5.0.7471 — strict shared entry-side view of canonical TokenMap proof. */
+    fun cachedExecutableForEntry7471(mint: String, maxAgeMs: Long = 90_000L): CanonicalTokenMap? {
+        val snap = cachedForExit6513(mint, maxAgeMs) ?: return null
+        if (snap.canonicalTargetMint.isNotBlank() && snap.canonicalTargetMint != mint) return null
+        if (snap.routeStatus !in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE")) return null
+        if (snap.expectedOutAmount <= 0.0) return null
+        val px = snap.priceUsd ?: return null
+        val liq = snap.liquidityUsd ?: return null
+        if (!px.isFinite() || px <= 0.0 || !liq.isFinite() || liq <= 0.0) return null
+        val venueIdentity = snap.poolAddress.ifBlank {
+            snap.pairAddress.ifBlank { snap.pumpFunBondingCurveAddress }
+        }
+        if (venueIdentity.isBlank()) return null
+        return snap
+    }
+
     fun isSourceLabel(value: String?): Boolean {
         val v = value?.trim()?.uppercase()?.replace('-', '_') ?: return false
         return v in SOURCE_LABELS

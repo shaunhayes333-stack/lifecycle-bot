@@ -878,7 +878,10 @@ object ToolkitSignalSheet {
             parts6647.size >= 2 && parts6647[1].toLongOrNull() != null -> parts6647[0]
             else -> ""
         }
-        val candidateVersion6647 = when {
+        // V5.0.7471 — downstream specialist stages must follow the immutable
+        // sealed execution intent, not whichever candidateVersion the callback
+        // happens to carry after scanner/election generation advances.
+        val parsedCandidateVersion7471 = when {
             canonicalAttempt6647 -> parts6647[5].toLongOrNull() ?: 0L
             positionEvent6647 -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625
                 .latestCandidateVersion6647(mint, lane)
@@ -886,6 +889,32 @@ object ToolkitSignalSheet {
             parts6647.size >= 2 -> parts6647[1].toLongOrNull() ?: 0L
             else -> 0L
         }
+        val resolvedMode7471 = when {
+            canonicalAttempt6647 -> parts6647[1].uppercase()
+            positionEvent6647 -> parts6647[0].uppercase()
+            else -> try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "PAPER" }
+        }
+        val sealedIntent7471 = if (mint.isNotBlank()) try {
+            val exact = if (parsedCandidateVersion7471 > 0L)
+                ExecutableOpenGate.activeExecutionIntent6519(resolvedMode7471, mint, parsedCandidateVersion7471)
+            else null
+            (exact ?: ExecutableOpenGate.activeExecutionIntent6519(resolvedMode7471, mint, 0L))
+                ?.takeIf { intent ->
+                    com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent.canonicalLane) ==
+                        com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+                }
+        } catch (_: Throwable) { null } else null
+        val candidateVersion6647 = sealedIntent7471?.candidateVersion ?: parsedCandidateVersion7471
+        if (sealedIntent7471 != null && parsedCandidateVersion7471 > 0L &&
+            sealedIntent7471.candidateVersion != parsedCandidateVersion7471
+        ) try {
+            PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_SEALED_VERSION_REBOUND_7471")
+            PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_SEALED_VERSION_REBOUND_7471_$lane")
+            ForensicLogger.lifecycle(
+                "SPECIALIST_CAUSAL_SEALED_VERSION_REBOUND_7471",
+                "mint=${mint.take(10)} lane=$lane mode=$resolvedMode7471 callbackVersion=$parsedCandidateVersion7471 sealedVersion=${sealedIntent7471.candidateVersion} action=bind_downstream_stage_to_immutable_intent",
+            )
+        } catch (_: Throwable) {}
         val priorCausalKey6647 = if (mint.isNotBlank())
             com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.latestKey6647(mint, lane)
         else null
@@ -959,11 +988,7 @@ object ToolkitSignalSheet {
         if (causalStage != null) {
             if (mint.isNotBlank() && candidateVersion6647 > 0L) {
                 val expectedIntentId6647 = "$mint:$candidateVersion6647:$lane"
-                val resolvedMode6858 = when {
-                    canonicalAttempt6647 -> parts6647[1].uppercase()
-                    positionEvent6647 -> parts6647[0].uppercase()
-                    else -> try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "PAPER" }
-                }
+                val resolvedMode6858 = resolvedMode7471
                 // V5.0.6858 §THE_CANONICAL_STAGES_ORPHANED_THEMSELVES — the reuse
                 // test used to carry `!canonicalAttempt6647`, so a stage arriving on
                 // a canonical attemptId was FORBIDDEN from joining the record its own

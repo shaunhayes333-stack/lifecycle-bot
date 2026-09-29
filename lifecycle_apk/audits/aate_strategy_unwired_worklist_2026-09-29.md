@@ -796,3 +796,15 @@ Confirmed defect: `StrategyHypothesisEngine.bindExecutedPosition7428()` had zero
 - [x] Invalid/legacy tactic identity remains forensic-only per 7456.
 - [x] No strategy thresholds, arm promotion rules, sizing, or execution policy changed.
 - [ ] Runtime acceptance: fresh opens materially increase `HYPOTHESIS_POSITION_BOUND_7428`; fresh terminal `HYPOTHESIS_POSITION_OUTCOME_MISSING_7428` trends to zero.
+
+
+## V5.0.7471 — shared specialist canonical handoff bundle (P0 cross-stack)
+
+- [x] All specialist downstream funnel stages prefer immutable sealed ExecutionIntent candidateVersion for the same mode+mint+canonical lane.
+- [x] Callback/current candidateVersion is fallback only before a sealed intent exists.
+- [x] No cross-lane intent reuse; canonical lane equality is required.
+- [x] TokenMapAuthority exposes strict cached executable entry proof requiring route, expectedOut, real price, real liquidity and concrete venue identity.
+- [x] CanonicalPriceMark entry resolution materialises that already-proven TokenMap evidence through existing integrity gates before declaring a mark missing.
+- [x] LIVE strictness unchanged; no observation-only/stale/pending/synthetic evidence is promoted.
+- [x] Shared scope: QUALITY/BLUECHIP/SHITCOIN/CYCLIC/EXPRESS/CORE/MOONSHOT/PROJECT_SNIPER/DIP_HUNTER/MANIPULATED/TREASURY/CASHGEN.
+- [x] No score floors, strategy thresholds, sizing multipliers, allocation targets or exit policy changed.
