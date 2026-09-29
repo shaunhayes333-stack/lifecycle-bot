@@ -1119,3 +1119,11 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] Inflight hydration state is never pruned.
 - [x] Successful birth hydration still clears progress/cooldown immediately as before.
 - [x] Rediscovered tokens after dormant retirement restart birth lookup from page one; no discovery source or route is disabled.
+
+
+## V5.0.7503 — TokenMergeQueue no-change repeat coalescing
+
+- [x] Same scanner + no stronger metrics + no new lane/tool affinity returns before confidence recompute and MERGED log emission.
+- [x] total discovery count and per-entry discoveryCount still observe every callback.
+- [x] New scanner evidence, new affinity, stronger mcap/liquidity/volume or better symbol still runs the full merge path immediately.
+- [x] Merge-window timing, confidence formula, age priority, ranked selection and emit caps are unchanged.

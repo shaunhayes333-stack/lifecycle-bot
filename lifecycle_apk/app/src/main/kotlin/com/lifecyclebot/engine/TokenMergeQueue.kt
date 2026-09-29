@@ -136,12 +136,26 @@ object TokenMergeQueue {
         val existing = pendingDiscoveries[mint]
 
         if (existing != null) {
-            // Merge into existing pending entry
-            existing.scanners.add(scanner)
+            // V5.0.7503 — distinguish evidence refresh from duplicate callback.
+            // The queue merge window is based on firstSeenAt, so an identical
+            // repeat does not need confidence recomputation or another MERGED log.
+            val scannerAdded7503 = existing.scanners.add(scanner)
+            val laneBefore7503 = existing.laneAffinity.size
+            val toolBefore7503 = existing.toolAffinity.size
             existing.laneAffinity.addAll(inferredLaneAffinity)
             existing.toolAffinity.addAll(inferredToolAffinity)
+            val affinityAdded7503 = existing.laneAffinity.size != laneBefore7503 ||
+                existing.toolAffinity.size != toolBefore7503
+            val metricsImproved7503 = marketCapUsd > existing.marketCapUsd ||
+                liquidityUsd > existing.liquidityUsd ||
+                volumeH1 > existing.volumeH1 ||
+                symbol.length > existing.symbol.length
             existing.lastSeenAt = now
             existing.discoveryCount++
+            if (!scannerAdded7503 && !affinityAdded7503 && !metricsImproved7503) {
+                try { PipelineHealthCollector.labelInc("MERGE_REPEAT_NO_NEW_EVIDENCE_COALESCED_7503") } catch (_: Throwable) {}
+                return
+            }
 
             val incomingScannerConf = scannerConfidence[scanner] ?: (scannerConfidence["UNKNOWN"] ?: 20)
             val currentBestConf = scannerConfidence[existing.bestScanner] ?: (scannerConfidence["UNKNOWN"] ?: 20)
