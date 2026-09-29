@@ -401,6 +401,35 @@ Source: current `ci/UNWIRED_LEDGER.tsv`.
 - [ ] `TradeDatabase.getSignalWinRate` overlaps source-performance evidence; classify per-key before adding to avoid correlated double-counting.
 - [ ] `ScoreDistributionHistogram6396.recommendAdaptiveBaseline` is threshold calibration, not candidate alpha; route to threshold authority rather than oracle.
 
+## 5.0.7431 runtime reclassification
+
+- [x] SourceTimingRegistry.isLateSignal — ALIAS_REDUNDANT. ScoreCard already consumes getSourceTimingPenalty; do not double-count.
+- [x] MomentumPredictorAI.getStrongMomentumTokens — CLOSED_LOOP / ledger stale; production caller exists in LaneHunter7297.
+- [x] TradingMemory.getPatternWinRate — PARTIAL_CLOSED_LOOP / cold evidence. Oracle caller exists; runtime useful reads=0.
+- [x] TradingCopilot.convictionBoost — PARTIAL_CLOSED_LOOP / neutral state. Oracle caller exists; runtime useful reads=0.
+- [x] HistoricalChartScanner coarse mode wrapper — ALIAS_COARSE; richer historical recommendation is consumed. Runtime predictive reads=337.
+- [x] OrthogonalSignals.calculateAgePatternScore — CLOSED_LOOP. Runtime reads=3508.
+- [x] Cross-asset symbol feed — CLOSED_LOOP input feed. Runtime reads=2539.
+
+Strategy identity runtime proof:
+- tactic attribution invalid=0
+- hypothesis decision stamped=545
+- hypothesis position bound=2, bind missing=0
+- position-bound outcome=1, missing=0
+- exact variant stamped=2, exact variant outcome=1
+- FDG exact strategy identity=13
+- exact hypothesis contexts=13
+
+Historical note: exact-strategy complete=1 and incomplete=506 is primarily pre-7427 historical data with no sealed tradeType/setup/style. Treat those rows as LEGACY_UNSTAMPED; never infer missing historical identity.
+
+Runtime correctness proof:
+- executable mark block=0
+- valid-source missing executable mark=0
+- held stale/missing=0
+- fast-lane saturation=12/195
+- owner-lane rewrites=0
+- sealed-intent provenance misses=0
+
 ## Execution order
 
 ### Phase 1 — causal identity and attribution
