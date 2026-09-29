@@ -147,9 +147,18 @@ object BundleDetector {
         val firstBlockTotalFlow = firstBlockWalletTotals.values.sum().coerceAtLeast(1.0)
         val firstBlockBuyers = firstBlockWalletTotals.size
 
-        // Heuristic "concentration %" of early flow, not literal token supply %
-        val firstBlockSupplyPct = 100.0
         val largestBundlePct = ((firstBlockWalletTotals.values.maxOrNull() ?: 0.0) / firstBlockTotalFlow * 100.0)
+            .coerceIn(0.0, 100.0)
+        // V5.0.7431 — this field was hardcoded to 100.0 for every token while
+        // being consumed downstream as "first-block concentration". Use the
+        // share of early flow held by the top three first-slot wallets: still a
+        // heuristic (not literal token supply), but now it measures the thing
+        // its name/consumers expect instead of manufacturing maximum risk.
+        val firstBlockSupplyPct = firstBlockWalletTotals.values
+            .sortedDescending()
+            .take(3)
+            .sum()
+            .let { it / firstBlockTotalFlow * 100.0 }
             .coerceIn(0.0, 100.0)
 
         val uniqueWalletsFirst10 = transactions.take(10).map { it.wallet }.distinct().size
@@ -175,12 +184,7 @@ object BundleDetector {
             sellHoldDurationsMin.average()
         } else 0.0
 
-        val concentrationTop3Pct = firstBlockWalletTotals.values
-            .sortedDescending()
-            .take(3)
-            .sum()
-            .let { it / firstBlockTotalFlow * 100.0 }
-            .coerceIn(0.0, 100.0)
+        val concentrationTop3Pct = firstBlockSupplyPct
 
         val rapidExitRatio = if (bundleWallets.isNotEmpty()) {
             bundledWalletsSold.toDouble() / bundleWallets.size.toDouble()
