@@ -3306,6 +3306,11 @@ object ExecutableOpenGate {
             cachedEntryDecision6909!!
         } else try {
             val oracleToken7260 = try { BotService.status.tokens[mint] } catch (_: Throwable) { null }
+            // V5.0.7431 — use the same canonical taxonomy the FDG uses so
+            // learned admission can read realised EV for this exact playbook.
+            // This is local/cached computation only; no provider I/O is added.
+            val exactClass7431 = try { oracleToken7260?.let { ModeRouter.classify(it) } } catch (_: Throwable) { null }
+            val exactStyle7431 = try { exactClass7431?.let { cls -> oracleToken7260?.let { AgenticStyleRouter.decide(it, cls, lane) } } } catch (_: Throwable) { null }
             com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.gate(
                 lane = lane,
                 mint = mint,
@@ -3323,6 +3328,10 @@ object ExecutableOpenGate {
                 qualityHint = oracleToken7260?.meta?.setupQuality.orEmpty(),
                 edgePhaseHint = oracleToken7260?.phase.orEmpty(),
                 emaFanHint = oracleToken7260?.meta?.emafanAlignment.orEmpty(),
+                tradeTypeHint = exactClass7431?.tradeType?.name.orEmpty(),
+                setupHint = exactStyle7431?.toolkit?.setup?.name.orEmpty(),
+                styleHint = exactStyle7431?.style?.name.orEmpty(),
+                tacticHint = exactStyle7431?.tactic?.name.orEmpty(),
                 candidateConfidenceHint =
                     ((oracleToken7260?.lastV3Confidence ?: 50).coerceIn(0, 100) / 100.0),
             ).also {
