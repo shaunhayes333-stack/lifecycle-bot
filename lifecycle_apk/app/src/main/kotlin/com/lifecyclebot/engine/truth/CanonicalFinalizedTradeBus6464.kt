@@ -86,7 +86,7 @@ object CanonicalFinalizedTradeBus6464 {
 
     private val CANONICAL_CONSUMERS_6485 = listOf(
         "RewardPurity", "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
-        "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "MemeCausalLearning6568",
+        "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "ExactStrategyPerformance7429", "MemeCausalLearning6568",
         "ForwardOutcomeModel", "UnifiedExitPolicyHead", "CausalFeedback6715", "Dashboard",
         // V5.0.7074 — operator/deployer reputation. See
         // FinalizedBusConsumerBridge6465.deliverToOperatorFingerprint7074.
