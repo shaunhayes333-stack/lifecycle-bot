@@ -125,6 +125,29 @@ object AateDecisionFabric6512 {
                 )
             } catch (_: Throwable) { false }
         }
+
+        // V5.0.7470 P0-8 — bind the exact hypothesis/variant at the SAME
+        // canonical OPEN boundary as UnifiedPolicy. The engine previously had
+        // no production caller for bindExecutedPosition7428(), so fresh opens
+        // could stamp hundreds of decision arms but terminal finality had no
+        // position-bound arm to credit. Use the immutable AATE envelope's
+        // candidateVersion + owner lane; never recompute current version/lane.
+        val hypothesisVariant7470 = try {
+            StrategyHypothesisEngine.bindExecutedPosition7428(
+                positionId = positionId,
+                mint = mint,
+                candidateVersion = e.context.candidateVersion,
+                lane = e.context.primaryStrategy,
+            )
+        } catch (_: Throwable) { "" }
+        try {
+            PipelineHealthCollector.labelInc(
+                if (hypothesisVariant7470.isNotBlank())
+                    "AATE_HYPOTHESIS_POSITION_BOUND_7470"
+                else "AATE_HYPOTHESIS_POSITION_BIND_NO_VARIANT_7470"
+            )
+        } catch (_: Throwable) {}
+
         byPosition[positionId] = e.copy(positionId = positionId)
         try { PipelineHealthCollector.labelInc("AATE_POSITION_ATTRIBUTION_LINKED_6512") } catch (_: Throwable) {}
         return true

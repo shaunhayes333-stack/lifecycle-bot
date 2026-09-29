@@ -781,3 +781,18 @@ Fault class: both lanes called `ExecutableOpenGate.recordFdg()` and then immedia
 - [x] PROJECT_SNIPER is not changed: its standalone path does not seal FDG first, so generating its own attempt remains correct.
 - [x] No entry thresholds, FDG decisions, paper-probe policy, position sizes, or LIVE safety rules changed.
 - [ ] Runtime acceptance: EXPRESS ownerSelected/buyIntent become non-zero on real executable candidates and SHITCOIN phantom split-stage counts fall without changing execution volume policy.
+
+
+## V5.0.7470 — grouped position-bound learner identity repair (P0-8)
+
+5.0.7456 baseline: `HYPOTHESIS_POSITION_BOUND_7428=2`, bind missing=20, hypothesis outcome missing=22, while UnifiedPolicy held 671 pending positions.
+
+Confirmed defect: `StrategyHypothesisEngine.bindExecutedPosition7428()` had zero production callers even though canonical terminal learning uses the position-bound outcome path.
+
+- [x] StrategyHypothesis/variant binding now occurs at the same canonical OPEN attribution boundary as UnifiedPolicy.
+- [x] Binding uses the immutable sealed AATE envelope's `candidateVersion` and `primaryStrategy`; no current-version/current-lane lookup is allowed.
+- [x] Non-winning fanout lanes still cannot steal terminal credit because only the canonical opened position reaches `attachPosition()`.
+- [x] Existing persisted hypothesis binding and terminal settle-once guards remain intact.
+- [x] Invalid/legacy tactic identity remains forensic-only per 7456.
+- [x] No strategy thresholds, arm promotion rules, sizing, or execution policy changed.
+- [ ] Runtime acceptance: fresh opens materially increase `HYPOTHESIS_POSITION_BOUND_7428`; fresh terminal `HYPOTHESIS_POSITION_OUTCOME_MISSING_7428` trends to zero.
