@@ -16941,7 +16941,7 @@ class Executor(
                     entryStyle = policyField6568(paperPolicySnapshot, "style"),
                     entryEntryStyle = entryDeskHypothesis6599?.entryStyle ?: policyField6568(paperPolicySnapshot, "entryStyle7427"),
                     entryExitStyle = entryDeskHypothesis6599?.exitStyle ?: policyField6568(paperPolicySnapshot, "exitStyle7427"),
-                    entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.pendingStrategyVariantId7427(tradeId.mint),
+                    entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pid6450, tradeId.mint, tradeId.fdgCandidateVersion, entryLane6450),
                 )
             )
             com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
@@ -22153,7 +22153,7 @@ class Executor(
                             entryStyle = policyField6568(ts.position.entryPolicySnapshot, "style"),
                             entryEntryStyle = liveDeskHypothesis6599?.entryStyle ?: policyField6568(ts.position.entryPolicySnapshot, "entryStyle7427"),
                             entryExitStyle = liveDeskHypothesis6599?.exitStyle ?: policyField6568(ts.position.entryPolicySnapshot, "exitStyle7427"),
-                            entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.pendingStrategyVariantId7427(verifyMint),
+                            entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pidLive6486, verifyMint, tradeId.fdgCandidateVersion, liveEntryLane6568),
                         )
                     )
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
