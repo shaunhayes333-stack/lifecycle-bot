@@ -826,3 +826,12 @@ Confirmed defect: `StrategyHypothesisEngine.bindExecutedPosition7428()` had zero
 - [x] No cash, quantity, journal or position mutation is replayed.
 - [x] Public duplicate semantics remain false; a recovery pass is not treated as a second terminal event.
 - [x] Existing 7459 bounded durable reconciler remains as historical fallback.
+
+
+## V5.0.7474 — additive exact-position paper open-cost parity
+
+- [x] Typed paper replay now retains remaining cost basis by immutable positionId in addition to existing per-mint aggregates.
+- [x] Current open-cost parity uses exact active positionIds when every current lot is represented in the typed event window.
+- [x] Re-entry into a previously closed mint can no longer inherit old per-mint carry basis into current-open parity.
+- [x] If exact position coverage is incomplete, the existing carry/mint reconciliation remains unchanged; no inferred allocation is created.
+- [x] Divergence guard thresholds are unchanged. The repair makes evidence converge rather than weakening the guard.

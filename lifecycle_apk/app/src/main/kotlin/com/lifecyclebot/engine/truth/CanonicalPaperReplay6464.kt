@@ -41,6 +41,10 @@ object CanonicalPaperReplay6464 {
         val equityShadowSol: Double,
         val perMintRemainingQty: Map<String, BigInteger>,
         val perMintRemainingCostSol: Map<String, Double>,
+        // V5.0.7474 — exact lot identity for active-open parity. Per-mint
+        // aggregates remain for legacy/carry diagnostics; current lots compare
+        // by immutable positionId when the event window contains their basis.
+        val perPositionRemainingCostSol7474: Map<String, Double> = emptyMap(),
         val buys: Int,
         val partialSells: Int,
         val fullSells: Int,
@@ -102,6 +106,7 @@ object CanonicalPaperReplay6464 {
         val seen = HashSet<String>()
         val perMintQty = HashMap<String, BigInteger>(carry6489.perMintQty)
         val perMintCost = HashMap<String, Double>(carry6489.perMintCostSol)
+        val perPositionCost7474 = HashMap<String, Double>()
 
         val positionQty6734 = HashMap<String, BigInteger>()
         val positionMint6734 = HashMap<String, String>()
@@ -156,6 +161,7 @@ object CanonicalPaperReplay6464 {
                     fees += e.entryFeesSol.coerceAtLeast(0.0)
                     perMintQty.merge(e.mint, e.filledQty) { a, b -> a + b }
                     perMintCost.merge(e.mint, e.executedCostSol) { a, b -> a + b }
+                    perPositionCost7474.merge(e.positionId, e.executedCostSol) { a, b -> a + b }
                     buys++
                 }
                 is EconomicEventSchema6464.Sell -> {
@@ -193,6 +199,10 @@ object CanonicalPaperReplay6464 {
                     fees += e.exitFeesSol
                     perMintQty.merge(e.mint, e.soldQty.negate()) { a, b -> (a + b).coerceAtLeast(BigInteger.ZERO) }
                     perMintCost.merge(e.mint, -e.allocatedCostBasisSol) { a, b -> (a + b).coerceAtLeast(0.0) }
+                    if (e.positionId.isNotBlank() && perPositionCost7474.containsKey(e.positionId)) {
+                        perPositionCost7474[e.positionId] =
+                            ((perPositionCost7474[e.positionId] ?: 0.0) - e.allocatedCostBasisSol).coerceAtLeast(0.0)
+                    }
                     if (e.partial) partials++ else fulls++
                 }
             }
@@ -222,6 +232,7 @@ object CanonicalPaperReplay6464 {
             realizedPnlSol = realized, feesSol = fees,
             equityShadowSol = cash + openCost,
             perMintRemainingQty = perMintQty, perMintRemainingCostSol = perMintCost,
+            perPositionRemainingCostSol7474 = perPositionCost7474,
             buys = buys, partialSells = partials, fullSells = fulls,
             duplicateDiscarded = dup, invalidRowsQuarantined = invalid,
             orphanOpenCostSol = orphanCost, orphanLotCount = orphanLots,
@@ -340,6 +351,44 @@ object CanonicalPaperReplay6464 {
             .sumOf { it.value.coerceAtLeast(0.0) }
         val ledgerOpenCostScoped6743 = canonicalLiveMints6743.values
             .sumOf { it.remainingCostBasisSol.coerceAtLeast(0.0) }
+
+        // V5.0.7474 — exact-position parity. A mint can be closed and later
+        // re-entered; the legacy perMint replay bucket can therefore retain
+        // historical/carry basis for the same mint while canonical inventory
+        // contains only the new position. When every CURRENT active position
+        // has typed-event basis in this replay window, compare by positionId.
+        // If even one current position predates the window, keep the existing
+        // mint/carry path rather than inventing an allocation.
+        val canonicalOpenPositions7474 = try {
+            CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mode.equals("paper", true) && it.remainingQtyRaw > BigInteger.ZERO }
+        } catch (_: Throwable) { emptyList() }
+        val exactPositionCoverage7474 = canonicalOpenPositions7474.isNotEmpty() &&
+            canonicalOpenPositions7474.all { snap.perPositionRemainingCostSol7474.containsKey(it.positionId) }
+        if (exactPositionCoverage7474) {
+            val replayExactOpen7474 = canonicalOpenPositions7474.sumOf {
+                (snap.perPositionRemainingCostSol7474[it.positionId] ?: 0.0).coerceAtLeast(0.0)
+            }
+            val canonicalExactOpen7474 = canonicalOpenPositions7474.sumOf {
+                (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0)
+            }
+            val ledgerAgreesExact7474 = ledgerOpen.isFinite() &&
+                kotlin.math.abs(canonicalExactOpen7474 - ledgerOpen) <= toleranceSol
+            if (ledgerAgreesExact7474) {
+                val exactDelta7474 = replayExactOpen7474 - canonicalExactOpen7474
+                if (kotlin.math.abs(exactDelta7474) < kotlin.math.abs(openDelta)) {
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_REPLAY_OPEN_COST_SCOPED_TO_POSITION_ID_7474")
+                        ForensicLogger.lifecycle(
+                            "PAPER_REPLAY_OPEN_COST_SCOPED_TO_POSITION_ID_7474",
+                            "rawOpenΔ=${"%.4f".format(openDelta)} exactOpenΔ=${"%.4f".format(exactDelta7474)} " +
+                                "positions=${canonicalOpenPositions7474.size} action=replace_mint_scope_with_exact_active_lots",
+                        )
+                    } catch (_: Throwable) {}
+                    openDelta = exactDelta7474
+                }
+            }
+        }
         // If the ledger reports the same open-cost we scope-computed
         // (the canonical projection agrees with the ledger authority),
         // the scoped delta IS the authoritative open-cost delta and the
