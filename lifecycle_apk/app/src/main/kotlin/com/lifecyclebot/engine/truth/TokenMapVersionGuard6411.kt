@@ -30,7 +30,7 @@ object TokenMapVersionGuard6411 {
     fun stamp7460(mint: String): Stamp =
         Stamp(mapCounter(mint).get(), laneCounter(mint).get())
 
-    fun currentMappingVersion(mint: String): Long = mapCounter(mint).get()
+    private fun currentMappingVersion(mint: String): Long = mapCounter(mint).get()
     fun currentLaneRoutingVersion(mint: String): Long = laneCounter(mint).get()
 
     // Compatibility/report-only aggregate accessors.
@@ -55,10 +55,6 @@ object TokenMapVersionGuard6411 {
         return next
     }
 
-    /** Bump when a token map is materially updated by an external authority. */
-    fun bumpMappingVersion(mint: String, reason: String) {
-        beginMappingGeneration7460(mint, reason)
-    }
 
     /** Bump when lane assignment materially changes. */
     fun bumpLaneRoutingVersion(mint: String, from: String, to: String) {
