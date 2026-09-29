@@ -138,6 +138,45 @@ object StrategyHypothesisEngine {
     private fun ctxKey(lane: String, score: Int, regime: String) =
         "${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
 
+    // V5.0.7430 — exact strategy identity is part of the experiment context.
+    // The previous lane|band|regime key blended materially different playbooks
+    // (e.g. DEGEN_MICRO_SNIPE and PUMP_GRADUATION_SNIPE) into one arm.
+    private fun exactIdentityKey7430(raw: String): String = raw
+        .trim()
+        .uppercase()
+        .replace(Regex("[^A-Z0-9_>:+.-]"), "_")
+        .split('>')
+        .filter { it.isNotBlank() }
+        .take(5)
+        .joinToString(">") { it.take(24) }
+        .take(112)
+
+    private fun ctxKey7430(lane: String, score: Int, regime: String, strategyIdentity: String): String {
+        val parent = ctxKey(lane, score, regime)
+        val exact = exactIdentityKey7430(strategyIdentity)
+        return if (exact.isBlank()) parent else "$parent|X=$exact"
+    }
+
+    private fun seedExactFromParent7430(parentCtx: String, exactCtx: String) {
+        if (parentCtx == exactCtx) return
+        var seeded = false
+        if (!baseline.containsKey(exactCtx)) {
+            baseline[parentCtx]?.let {
+                baseline.putIfAbsent(exactCtx, it)
+                seeded = true
+            }
+        }
+        if (!stopBaseline.containsKey(exactCtx)) {
+            stopBaseline[parentCtx]?.let {
+                stopBaseline.putIfAbsent(exactCtx, it)
+                seeded = true
+            }
+        }
+        if (seeded) try {
+            PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_PARENT_BASELINE_SEEDED_7430")
+        } catch (_: Throwable) {}
+    }
+
     private fun decisionKey7428(mint: String, candidateVersion: Long, lane: String): String =
         "${mint.trim()}|$candidateVersion|${lane.trim().uppercase()}"
 
@@ -209,9 +248,20 @@ object StrategyHypothesisEngine {
      * Returns the size bias to apply for this mint in this context, and stamps the
      * arm assignment so the settled outcome credits the right arm. Soft nudge.
      */
-    fun getSizeBias(lane: String, score: Int, regime: String, mint: String): Double {
+    fun getSizeBias(
+        lane: String,
+        score: Int,
+        regime: String,
+        mint: String,
+        strategyIdentity: String = "",
+    ): Double {
         return try {
-            val ctx = ctxKey(lane, score, regime)
+            val parentCtx7430 = ctxKey(lane, score, regime)
+            val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
+            seedExactFromParent7430(parentCtx7430, ctx)
+            if (ctx != parentCtx7430) try {
+                PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_CONTEXT_STAMPED_7430")
+            } catch (_: Throwable) {}
             if (suppressVariantForContext(lane, score, regime)) {
                 active.remove(ctx)
                 // V5.0.6258 — only wipe pending if it's for the ctx we're suppressing.
@@ -266,9 +316,15 @@ object StrategyHypothesisEngine {
      * after 1500+ closes: every close was crediting a different context than
      * the one stamped at entry, or the stamp got wiped by suppress.
      */
-    fun peekSizeBias(lane: String, score: Int, regime: String, mint: String): Double {
+    fun peekSizeBias(
+        lane: String,
+        score: Int,
+        regime: String,
+        mint: String,
+        strategyIdentity: String = "",
+    ): Double {
         return try {
-            val ctx = ctxKey(lane, score, regime)
+            val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
             val h = active[ctx] ?: return baseline[ctx] ?: 1.0
             val variant = isVariant(mint)
             val bias = if (variant) h.variantSizeBias else (baseline[ctx] ?: 1.0)
@@ -282,9 +338,17 @@ object StrategyHypothesisEngine {
      * mint is in the variant arm, else the promoted baseline (default 1.0 = no
      * change). Never mutates pending (getSizeBias owns the arm stamp); read-only.
      */
-    fun getStopBias(lane: String, score: Int, regime: String, mint: String): Double {
+    fun getStopBias(
+        lane: String,
+        score: Int,
+        regime: String,
+        mint: String,
+        strategyIdentity: String = "",
+    ): Double {
         return try {
-            val ctx = ctxKey(lane, score, regime)
+            val parentCtx7430 = ctxKey(lane, score, regime)
+            val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
+            seedExactFromParent7430(parentCtx7430, ctx)
             if (suppressVariantForContext(lane, score, regime)) {
                 active.remove(ctx)
                 pending.remove(mint)
@@ -633,7 +697,8 @@ object StrategyHypothesisEngine {
         return try {
             if (active.isEmpty() && baseline.isEmpty()) return ""
             val sb = StringBuilder("\n===== Strategy Hypothesis Engine (V5.9.1263, V5.0.6258 arm-credit fix) — self-directed A/B =====\n")
-            sb.append("  active=${active.size}  promotions=$promotions  retirements=$retirements  pending=${pending.size}\n")
+            val exactActive7430 = active.keys.count { it.contains("|X=") }
+            sb.append("  active=${active.size} exactStrategyContexts=$exactActive7430 promotions=$promotions  retirements=$retirements  pending=${pending.size} boundPending=${pendingByPosition7428.size}\n")
             active.entries.sortedByDescending { it.value.variant.n }.take(5).forEach { (k, h) ->
                 sb.append("  ⚗ $k  vBias=${"%.2f".format(h.variantSizeBias)} vStop×${"%.2f".format(h.variantStopMult)}  ctrl[n=${h.control.n} μ=${"%+.1f".format(h.control.mean)}%]  var[n=${h.variant.n} μ=${"%+.1f".format(h.variant.mean)}%]\n")
             }
