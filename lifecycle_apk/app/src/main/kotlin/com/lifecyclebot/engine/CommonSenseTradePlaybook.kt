@@ -51,6 +51,7 @@ object CommonSenseTradePlaybook {
         val brainConfidence: Double = 0.0,
         val brainContext: String = "",
         val capturedAtMs: Long = System.currentTimeMillis(),
+        val evidenceKey7432: String = "",
     )
 
     data class Verdict(
@@ -66,12 +67,28 @@ object CommonSenseTradePlaybook {
     private val cache = ConcurrentHashMap<String, Snapshot>()
     private const val CACHE_TTL_MS = 8_000L
 
+    // A mint is shared by specialist desks. Cached conclusions must never
+    // cross lane, generation, score, safety or price evidence boundaries.
+    private fun evidenceKey7432(ts: TokenState, lane: String, style: String, score: Double): String =
+        listOf(ts.mint, canon(lane), style, score,
+            LaneExecutionCoordinator.candidateVersionFor(ts.mint),
+            ts.lastPrice, ts.lastPriceUpdate, ts.lastPriceSource,
+            ts.lastLiquidityUsd, ts.phase, ts.signal, ts.source,
+            ts.lastSafetyCheck, ts.safety.checkedAt, ts.safety.tier,
+            ts.safety.isBlocked, ts.safety.hardBlockReasons,
+            ts.tokenMap.routeStatus, ts.tokenMap.hydrationComplete,
+            ts.tokenMap.expectedOutAmount).joinToString("|")
+
     fun warmAsync(ts: TokenState, lane: String, style: String, score: Double) {
         val mint = ts.mint
         if (mint.isBlank()) return
+        val key = evidenceKey7432(ts, lane, style, score)
         try {
             kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
-                try { cache[mint] = buildSnapshot(ts, lane, style, score) } catch (_: Throwable) {}
+                try {
+                    val built = buildSnapshot(ts, lane, style, score).copy(evidenceKey7432 = key)
+                    if (evidenceKey7432(ts, lane, style, score) == key) cache[mint] = built
+                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
     }
@@ -85,12 +102,56 @@ object CommonSenseTradePlaybook {
         routeTrustedFromStyle: Boolean,
     ): Verdict {
         val now = System.currentTimeMillis()
+        var key7432 = evidenceKey7432(ts, lane, style, score)
         val cached = cache[ts.mint]
-        val snap = if (cached != null && now - cached.capturedAtMs <= CACHE_TTL_MS) cached else buildSnapshot(ts, lane, style, score)
+        var snap = if (cached != null && cached.evidenceKey7432 == key7432 &&
+            now - cached.capturedAtMs in 0..CACHE_TTL_MS) cached
+            else buildSnapshot(ts, lane, style, score).copy(evidenceKey7432 = key7432)
+        if (evidenceKey7432(ts, lane, style, score) != key7432) {
+            key7432 = evidenceKey7432(ts, lane, style, score)
+            snap = buildSnapshot(ts, lane, style, score).copy(evidenceKey7432 = key7432)
+        }
+        if (evidenceKey7432(ts, lane, style, score) != key7432) {
+            // Mutable market/safety state changed twice during construction.
+            // Executor releases this attempt as a nonterminal evidence deferral.
+            try { PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_INPUT_STALE_7432") } catch (_: Throwable) {}
+            return Verdict(false, "EVIDENCE_CHANGED_DURING_PREBUY_7432", "dependency=market_or_safety_evidence_changed", snap.tradeType, snap.confidence, 0.0, snap)
+        }
+        if (cached != null && cached.evidenceKey7432 != key7432) try {
+            PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_INPUT_STALE_7432")
+            if (!cached.riskRewardAcceptable && snap.riskRewardAcceptable)
+                PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_RR_FALSE_BLOCK_PREVENTED_7432")
+            if (cached.dangerousStructure && !snap.dangerousStructure)
+                PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_LIFECYCLE_STALE_STATE_PREVENTED_7432")
+        } catch (_: Throwable) {}
         warmAsync(ts, lane, style, score)
+        if (snap.priceKnown && snap.liquidityKnown && snap.safetyKnown)
+            try { PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_INPUT_COMPLETE_7432") } catch (_: Throwable) {}
+        else try { PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_INPUT_MISSING_7432") } catch (_: Throwable) {}
 
         fun deny(reason: String, extra: String = ""): Verdict {
             val detail = (snap.reasons + extra).filter { it.isNotBlank() }.joinToString("|").take(240)
+            if (reason == "RISK_REWARD_POOR" || reason == "LIFECYCLE_DANGER_NON_MANIPULATED_7425") try {
+                val markAgeMs = if (ts.lastPriceUpdate > 0L) (now - ts.lastPriceUpdate).coerceAtLeast(0L) else -1L
+                ForensicLogger.lifecycle("COMMON_SENSE_PREBUY_CAUSAL_INPUT_7432",
+                    "mint=${snap.mint} lane=${snap.lane} style=${snap.style} reason=$reason " +
+                    "candidateVersion=${LaneExecutionCoordinator.candidateVersionFor(snap.mint)} " +
+                    "entryPrice=${ts.lastPrice} markSource=${ts.lastPriceSource} markAgeMs=$markAgeMs " +
+                    "liquidityUsd=${snap.liquidityUsd} marketCapUsd=${ts.lastMcap} " +
+                    "requestedSizeSol=executor_scope executableSizeSol=not_planned " +
+                    "expectedSlippage=not_measured feeEstimate=not_quoted " +
+                    "expectedUpside=not_calculated expectedDownside=not_calculated " +
+                    "predictedEV=not_calculated stopDistance=not_available targetDistance=not_available " +
+                    "rrMethod=score_liquidity_structure_heuristic rrAcceptable=${snap.riskRewardAcceptable} " +
+                    "lifecyclePhase=${ts.phase} lifecycleAgeMs=not_verified " +
+                    "sourceTimestamp=not_available signalTimestamp=not_available nowMs=$now " +
+                    "priceMovementSinceSignal=not_available score=${snap.score} " +
+                    "fdgSealedScore=executor_scope oracleState=not_attached " +
+                    "safetyKnown=${snap.safetyKnown} liquidityKnown=${snap.liquidityKnown} " +
+                    "priceKnown=${snap.priceKnown} tokenMapComplete=${snap.tokenMapComplete} " +
+                    "evidenceKey=${snap.evidenceKey7432.hashCode()}")
+                PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_RR_CALC_7432")
+            } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
                     "COMMON_SENSE_PREBUY_BLOCK_4573",

@@ -1,8 +1,8 @@
 package com.lifecyclebot.engine
 
 import java.io.File
-import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertTrue
 
 class Aate7255LiveEntryAndCryptoRecoveryTest {
     private fun source(path: String) = File("src/main/kotlin/$path").readText()

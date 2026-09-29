@@ -62,9 +62,9 @@ class Aate7427ExactStrategyIdentityTest {
 
     @Test fun causalReportNamesExactStrategyIdentity() {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryStrategySnapshot6450.kt").readText()
-        assertTrue(s.contains("type=${x.groupingBy{it.tradeType}"))
-        assertTrue(s.contains("setup=${x.groupingBy{it.setup}"))
-        assertTrue(s.contains("style=${x.groupingBy{it.style}"))
-        assertTrue(s.contains("variant=${x.groupingBy{it.variantId}"))
+        assertTrue(s.contains("type=\${x.groupingBy{it.tradeType}"))
+        assertTrue(s.contains("setup=\${x.groupingBy{it.setup}"))
+        assertTrue(s.contains("style=\${x.groupingBy{it.style}"))
+        assertTrue(s.contains("variant=\${x.groupingBy{it.variantId}"))
     }
 }

@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.engine.truth.SmartMoneyFeed6394
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.io.File
 

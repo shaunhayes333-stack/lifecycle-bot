@@ -19885,6 +19885,17 @@ class Executor(
                 basisTrusted = entryMarketSnapshot.valid,
                 routeTrustedFromStyle = liveEntryDecision.routeTrusted,
             )
+            if (commonSense.reason == "EVIDENCE_CHANGED_DURING_PREBUY_7432") {
+                liveBuyDeferred(ts, sol, commonSense.reason, commonSense.detail)
+                ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, commonSense.reason)
+                try {
+                    val deferredAttempt7432 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
+                        .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint).orEmpty() }
+                    ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7432, ts.mint, commonSense.reason)
+                } catch (_: Throwable) {}
+                buyTerminalRecorded = true
+                return false
+            }
             if (!commonSense.allowed) {
                 // V5.0.6026 — CommonSense is part of the FDG brain chain, not a
                 // blind executor-side obstructor. True hard safety/route/proof
@@ -19923,6 +19934,14 @@ class Executor(
                         PipelineHealthCollector.labelInc("FDG_BRAIN_COMMON_SENSE_SOFTEN_6026")
                     } catch (_: Throwable) {}
                 } else {
+                    if (commonSense.reason == "RISK_REWARD_POOR" || commonSense.reason == "LIFECYCLE_DANGER_NON_MANIPULATED_7425") try {
+                        ForensicLogger.lifecycle("COMMON_SENSE_PREBUY_EXECUTION_CONTEXT_7432",
+                            "attemptId=${execCtx.attemptId} mint=${ts.mint} lane=$routedLaneTag " +
+                            "strategy=$routedStyleTag observedCandidateVersion=${LaneExecutionCoordinator.candidateVersionFor(ts.mint)} " +
+                            "requestedSizeSol=$sol executorScore=$score fdgSealedScore=not_attached " +
+                            "entryMarketPrice=${entryMarketSnapshot.priceUsd} entryMarketValid=${entryMarketSnapshot.valid} " +
+                            "oracleState=not_attached brainVerdict=${commonSenseBrain6026?.verdict ?: "NA"}")
+                    } catch (_: Throwable) {}
                     liveStage("LIVE_BUY_ABORTED", "reason=COMMON_SENSE_PREBUY:${commonSense.reason} detail=${commonSense.detail.take(140)} chain=${commonSenseBrain6026?.verdict ?: "NA"} hard=$commonSenseHard6026")
                     emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail)
                     buyTerminalFail("BUY_TERMINAL_COMMON_SENSE:${commonSense.reason.take(48)}")

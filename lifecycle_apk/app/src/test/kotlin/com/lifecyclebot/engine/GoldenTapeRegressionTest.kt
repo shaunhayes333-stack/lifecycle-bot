@@ -11106,9 +11106,9 @@ class GoldenTapeRegressionTest {
         assertEquals("HORIZON", sp.exitReason(5.0, 5.0, 60 * 60_000L))
         assertTrue(sp.exitReason(500.0, 500.0, 1_000L) == null)
         val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287
-        assertTrue(sp.shadowProves(st.Stat(20, 0.5, 0.4)))
-        assertFalse(sp.shadowProves(st.Stat(19, 9.0, 0.6)))
-        assertFalse(sp.shadowProves(st.Stat(40, -0.1, 0.5)))
+        assertTrue(sp.shadowProves(com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(20, 0.5, 0.4)))
+        assertFalse(sp.shadowProves(com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(19, 9.0, 0.6)))
+        assertFalse(sp.shadowProves(com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(40, -0.1, 0.5)))
         assertFalse(sp.shadowProves(null))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("val laneOwnScoreAdmitted7292 = laneScoreClears7307 && laneProvenForLive7307"))
@@ -11234,7 +11234,7 @@ class GoldenTapeRegressionTest {
         assertTrue(ui.contains("ws.solBalance + (liveTokens7315?.first ?: 0.0)"))
         assertTrue(ui.contains("private fun liveHeldTokenValue7315(): Pair<Double, Int>"))
         assertTrue(ui.contains("now - t.lastSeenWalletMs > 10 * 60_000L"))
-        assertTrue(ui.contains("\"PAPER · CASH ${\"%.4f\".format(account7045.cashSol)} SOL\""))
+        assertTrue(ui.contains("PAPER · CASH " + '$' + "{\"%.4f\".format(account7045.cashSol)} SOL"))
     }
 
     @Test
@@ -11251,7 +11251,7 @@ class GoldenTapeRegressionTest {
         assertTrue(src.contains("ensureDestinationGas7316(wallet, chain, stored.ethereumAddress)"))
         assertTrue(src.contains("val status = orderStatus7316(position.reverseOrderId)"))
         assertFalse(src.contains("withTimeout(620_000L)"))
-        assertTrue(src.contains("\"$positionId:DLN_REVERSE:${position.reverseOrderId}\""))
+        assertTrue(src.contains("\"\$positionId:DLN_REVERSE:\${position.reverseOrderId}\""))
         assertTrue(src.contains("position.reverseTakeLamports.toBigDecimal().movePointLeft(9).toDouble()"))
         val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseConfig.kt").readText()
         assertTrue(cfg.contains("val cryptoUniverseAllowBridgeAdapters: Boolean = true,"))
@@ -11293,7 +11293,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7319_strategy_clean_cache_keeps_one_slot_per_input() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
         assertTrue(src.contains("private val cleanCache7319 = LinkedHashMap<String, CleanCacheEntry7319>()"))
-        assertTrue(src.contains("val key = \"${rawRows.size / 10}|${newestTs / 30_000}|$limit|$oldestTs7319\""))
+        assertTrue(src.contains("val key = \"\${rawRows.size / 10}|\${newestTs / 30_000}|\$limit|\$oldestTs7319\""))
         assertTrue(src.contains("if (cleanCache7319.size > 16)"))
         assertFalse(src.contains("@Volatile private var cleanCacheKey"))
     }
@@ -11332,7 +11332,7 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("it.mode.equals(mode, true) && it.mint == mint && ticketLive(it)"))
         assertTrue(gate.contains("!ticketLive(existing) -> intent.also { created6734 = true }"))
         assertTrue(gate.contains("activeExecutionIntents6519.entries.removeIf { it.value.attemptId == attemptId }"))
-        assertTrue(gate.contains("it.value == attemptId || it.value.startsWith(\"$attemptId:\")"))
+        assertTrue(gate.contains("it.value == attemptId || it.value.startsWith(\"\$attemptId:\")"))
         assertTrue(gate.contains("r.contains(\"ONE_EXECUTABLE_BUY_PER_MINT_VERSION\") -> 0L"))
         val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/IntakeFanoutGovernor6835.kt").readText()
         assertTrue(gov.contains("private fun refillMs7321(): Long"))
@@ -11703,7 +11703,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7349_a_real_runner_reaches_the_books_and_the_learners() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("if (!runnerBanked7349 && runnerLane7349 && (bothConfirm10x || bothConfirm6x)) {"))
-        assertTrue(ex.contains("reason = \"QUICK_RUNNER_MOONBAG_BANK_7349_${bestPnl.toInt()}PCT\","))
+        assertTrue(ex.contains("reason = \"QUICK_RUNNER_MOONBAG_BANK_7349_\${bestPnl.toInt()}PCT\","))
         assertFalse(ex.contains("        if (ts.position.isPaperPosition) return null\n        val mbKey7322"))
         assertTrue(ex.contains("if (moonbagWouldAct7349(ts, reason)) {"))
         assertFalse(ex.contains("pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271)"))
@@ -11805,7 +11805,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7356_deferred_live_buy_releases_its_mint_version_claim() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(gate.contains("fun releaseDeferredLiveClaim7356(attemptId: String, mint: String, reason: String)"))
-        assertTrue(gate.contains("executableBuyClaim6487.entries.removeIf { it.value == attemptId || it.value.startsWith(\"$attemptId:\") }"))
+        assertTrue(gate.contains("executableBuyClaim6487.entries.removeIf { it.value == attemptId || it.value.startsWith(\"\$attemptId:\") }"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7356, ts.mint, \"ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED\")"))
         assertTrue(ex.contains("ExecutableOpenGate.releaseDeferredLiveClaim7356(recoveredLiveAttemptId, ts.mint, \"MUTEX_BUSY_DEFERRED\")"))
@@ -11825,7 +11825,7 @@ class GoldenTapeRegressionTest {
         assertEquals(2, Regex("fanoutRole = \"V3_EXEC\"").findAll(bs).count())
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("fanoutRole: String = \"\","))
-        assertTrue(fdg.contains("(fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { \":$it\" } ?: \"\")"))
+        assertTrue(fdg.contains("(fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { \":\$it\" } ?: \"\")"))
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(phc.contains("reason.removePrefix(\"blocked: \").trimStart()"))
     }
@@ -11872,7 +11872,7 @@ class GoldenTapeRegressionTest {
         // Closes exactly what the journal holds open, credits the receipts' proceeds.
         assertTrue(r.contains("canonicalConsumedRaw = openRaw, remainingRawQty = java.math.BigInteger.ZERO,"))
         assertTrue(r.contains("tokenDecimals = scale, soldCostBasisSol = openBasis,"))
-        assertTrue(r.contains("economicEventId = \"REBUILT7360:${terminal.idempotencyKey}\""))
+        assertTrue(r.contains("economicEventId = \"REBUILT7360:\${terminal.idempotencyKey}\""))
         val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicAuthority6616.kt").readText()
         assertTrue(a.contains("if (replay == null || !replay.totalsComplete6899 || !globallyReconciled6647) {"))
         assertTrue(a.contains("if (!replay.totalsComplete6899 || !globallyReconciled6647) return"))
@@ -11918,7 +11918,7 @@ class GoldenTapeRegressionTest {
         // Wallet-matched: terminal only at dust, otherwise partial with the residual open.
         assertTrue(ex.contains("val terminal = walletRaw <= TERMINAL_DUST_RAW_7362"))
         assertTrue(ex.contains("side = if (terminal) \"SELL\" else \"PARTIAL_SELL\","))
-        assertTrue(ex.contains("economicEventId = \"LIVE_SELL_RESUME_7362:$sig\","))
+        assertTrue(ex.contains("economicEventId = \"LIVE_SELL_RESUME_7362:\$sig\","))
         // ALREADY_CLOSED with canonical still open resumes or quarantines, never invents a sale.
         assertTrue(ex.contains("try { onLiveClosedWithOpenCanonical7362(ts, wallet) } catch (_: Throwable) {}"))
         assertTrue(ex.contains("CanonicalPositionAuthority6441.quarantine(canon.positionId, \"LIVE_CLOSED_NO_SIG_FINALITY_7362\")"))
@@ -11978,7 +11978,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7367_orphan_refund_resized_to_current_lot() {
         val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
-        assertTrue(r.contains("val eventId = \"PAPER6619:ORPHAN_REFUND:$positionId:r$raw:b${(basis * 1e9).toLong()}\""))
+        assertTrue(r.contains("val eventId = \"PAPER6619:ORPHAN_REFUND:\$positionId:r\$raw:b\${(basis * 1e9).toLong()}\""))
         assertTrue(r.contains("partialSequence = nextSequence7367,"))
         assertTrue(r.contains("val journalSells = journalSells.filterNot { it.economicEventId.startsWith(\"PAPER6619:ORPHAN_REFUND:\") }"))
         assertTrue(r.contains("JOURNAL_OPEN_LOT_CANONICAL_NOT_CLOSED_7367_"))
@@ -12293,7 +12293,7 @@ class GoldenTapeRegressionTest {
         assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "PROJECT_SNIPER"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("SNIPER_TP_PARTIAL_7385"))
-        assertTrue(bot.contains("if (lossExit7385) \"SNIPER_${exitSignal.rank.name}\" else \"SNIPER_TRAIL_${exitSignal.rank.name}\""))
+        assertTrue(bot.contains("if (lossExit7385) \"SNIPER_\${exitSignal.rank.name}\" else \"SNIPER_TRAIL_\${exitSignal.rank.name}\""))
     }
 
 
@@ -12502,6 +12502,21 @@ class GoldenTapeRegressionTest {
         assertTrue(fdg.contains("FDG_INVENTORY_PRESSURE_FALSE_PAPER_CONTAMINATION_PREVENTED_7432"))
         assertTrue(size.contains("InventoryPressureGovernor6829.intakeMultiplier(if (paperMode) \"PAPER\" else \"LIVE\")"))
         assertTrue(exec.contains("InventoryPressureGovernor6829.pressureLevel(if (ts.position.isPaperPosition) \"PAPER\" else \"LIVE\")"))
+    }
+
+    @Test
+    fun V5_0_7432_prebuy_cache_is_generation_lane_and_evidence_local() {
+        val playbook = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(playbook.contains("LaneExecutionCoordinator.candidateVersionFor(ts.mint)"))
+        assertTrue(playbook.contains("cached.evidenceKey7432 == key7432"))
+        assertTrue(playbook.contains("ts.lastPriceUpdate, ts.lastPriceSource"))
+        assertTrue(playbook.contains("ts.lastSafetyCheck, ts.safety.checkedAt"))
+        assertTrue(playbook.contains("COMMON_SENSE_PREBUY_CAUSAL_INPUT_7432"))
+        assertTrue(playbook.contains("rrMethod=score_liquidity_structure_heuristic"))
+        assertTrue(executor.contains("ExecutionAttemptLease.releaseNonTerminal(buyLease.key, \"BUY\", ts.mint, ts.symbol, commonSense.reason)"))
+        assertTrue(executor.contains("ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7432, ts.mint, commonSense.reason)"))
+        assertTrue(executor.contains("COMMON_SENSE_PREBUY_EXECUTION_CONTEXT_7432"))
     }
 
 }

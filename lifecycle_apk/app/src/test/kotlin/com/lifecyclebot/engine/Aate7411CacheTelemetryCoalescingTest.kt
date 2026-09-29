@@ -10,8 +10,8 @@ class Aate7411CacheTelemetryCoalescingTest {
     @Test fun strategy_cache_hits_are_cadence_coalesced() {
         val s = src("engine/StrategyTelemetry.kt")
         assertTrue(s.contains("CACHE_HIT_EMIT_INTERVAL_MS_7411"))
-        assertTrue(s.contains("emitCacheHit7411(\"leaderboard:$key\""))
-        assertTrue(s.contains("emitCacheHit7411(\"paper:$limit\""))
+        assertTrue(s.contains("emitCacheHit7411(\"leaderboard:\$key\""))
+        assertTrue(s.contains("emitCacheHit7411(\"paper:\$limit\""))
         assertTrue(s.contains("STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327"))
     }
 
