@@ -52,6 +52,8 @@ object StrategyTruthLedger {
      */
     private val unreconciledVectors7171 = java.util.concurrent.CopyOnWriteArrayList<String>()
 
+    // Retained for source compatibility with older diagnostics; V5.0.7478
+    // exact journal-revision keys make wall-clock expiry unnecessary.
     private const val CLEAN_CACHE_TTL_MS: Long = 10_000L
     private val cleanCacheLock = Any()
     // V5.0.7319 — one slot per input, not one slot for everyone. Callers pass
@@ -128,11 +130,19 @@ object StrategyTruthLedger {
         // 10 rows OR 30s (whichever comes first) — well inside the tolerances
         // strategy learning already runs at (TRIAL_WINDOW=25, PERSIST=40).
         val now = System.currentTimeMillis()
-        val newestTs = rawRows.firstOrNull()?.ts ?: 0L
-        val oldestTs7319 = rawRows.lastOrNull()?.ts ?: 0L
-        val key = "${rawRows.size / 10}|${newestTs / 30_000}|$limit|$oldestTs7319"
+        // V5.0.7478 — cache by the journal's real monotonic revision, not a
+        // wall-clock bucket. Any new/edited journal row invalidates immediately;
+        // repeated readers of the same immutable corpus reuse one clean result.
+        val journalRevision7478 = try { TradeHistoryStore.journalRevision7343() } catch (_: Throwable) { -1L }
+        val first7478 = rawRows.firstOrNull()
+        val last7478 = rawRows.lastOrNull()
+        val endpointIdentity7478 = listOf(
+            first7478?.mode, first7478?.positionId, first7478?.sig, first7478?.ts,
+            last7478?.mode, last7478?.positionId, last7478?.sig, last7478?.ts,
+        ).hashCode()
+        val key = "$journalRevision7478|${rawRows.size}|$limit|$endpointIdentity7478"
         val cached = synchronized(cleanCacheLock) {
-            cleanCache7319[key]?.takeIf { now - it.stampMs < CLEAN_CACHE_TTL_MS }?.value
+            cleanCache7319[key]?.value
         }
         if (cached != null) {
             try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_CACHE_HIT_6358") } catch (_: Throwable) {}
@@ -565,7 +575,11 @@ object StrategyTruthLedger {
         val positionCost = runnerCost + l.costSol
         if (positionCost <= 0.0) return t
         val positionPnl = t.pnlSol + l.pnlSol
-        inc("STRATEGY_TERMINAL_FOLDED_PARTIALS_7333")
+        // V5.0.7478 — folding is deterministic analytics. Count the canonical
+        // terminal once, not once per reader/cache miss.
+        if (seenTerminalKeysLifetime.add("FOLDED:" + terminalKey(t))) {
+            inc("STRATEGY_TERMINAL_FOLDED_PARTIALS_7333")
+        }
         return t.copy(
             pnlSol = positionPnl,
             netPnlSol = positionPnl,

@@ -868,3 +868,15 @@ Runtime evidence from 5.0.7466: 4,595 intake events / 639 unique symbols, PROBAT
 - [x] Full forensic reconstruction reuses its previous result only when forensic-row revision + canonical mutation count are unchanged.
 - [x] Forensic row snapshots are not copied when reconstruction is provably unchanged.
 - [x] No audit, auto-heal, invariant, or reconciliation capability is removed.
+
+
+## V5.0.7478 — additive strategy-history revision cache
+
+Runtime evidence from 5.0.7466: STRATEGY_TERMINAL_FOLDED_PARTIALS_7333=154174 against roughly 2400 strategy rows.
+
+- [x] StrategyTruthLedger clean-cache identity is keyed to TradeHistoryStore.journalRevision7343 plus exact row-count/limit/endpoints.
+- [x] Any journal mutation invalidates immediately; unchanged historical corpora no longer expire merely because ten seconds passed.
+- [x] Different list windows remain separated by limit, exact size and endpoint identity.
+- [x] Folded-partial telemetry is lifetime-deduped by canonical terminal identity.
+- [x] Partial-leg economics, learner populations, strategy rows and strategy decisions are unchanged.
+- [x] Cache remains bounded to the existing 16 entries.
