@@ -553,10 +553,34 @@ object ExecutableOpenGate {
         return now - ticket.createdAtMs <= ttl
     }
 
-    private val resealedTickets6613 = ConcurrentHashMap.newKeySet<String>()
+    // V5.0.7488 — this is a reseal-attempt tombstone, not execution
+    // idempotency. Keep it long enough to cover the entire ticket/provenance
+    // horizon, then forget dead attempt IDs so the set cannot grow forever.
+    private val resealedTickets7488 = ConcurrentHashMap<String, Long>()
+    private const val RESEAL_GUARD_TTL_MS_7488 = 20L * 60_000L
+    private const val RESEAL_GUARD_SOFT_CAP_7488 = 12_000
+
+    private fun claimResealAttempt7488(attemptId: String, now: Long = System.currentTimeMillis()): Boolean {
+        val prior = resealedTickets7488.putIfAbsent(attemptId, now)
+        if (prior != null && now - prior <= RESEAL_GUARD_TTL_MS_7488) return false
+        if (prior != null && !resealedTickets7488.replace(attemptId, prior, now)) return false
+        if (resealedTickets7488.size > RESEAL_GUARD_SOFT_CAP_7488) {
+            val cutoff = now - RESEAL_GUARD_TTL_MS_7488
+            resealedTickets7488.entries.removeIf { it.value < cutoff }
+            if (resealedTickets7488.size > RESEAL_GUARD_SOFT_CAP_7488) {
+                val overflow = resealedTickets7488.size - RESEAL_GUARD_SOFT_CAP_7488
+                resealedTickets7488.entries
+                    .sortedBy { it.value }
+                    .take(overflow)
+                    .forEach { resealedTickets7488.remove(it.key, it.value) }
+            }
+            try { PipelineHealthCollector.labelInc("RESEAL_GUARD_PRUNED_7488") } catch (_: Throwable) {}
+        }
+        return true
+    }
 
     private fun revalidateAndResealExpired6613(intent: ExecutionIntent): ExecutionIntent? {
-        if (!resealedTickets6613.add(intent.attemptId)) return null
+        if (!claimResealAttempt7488(intent.attemptId)) return null
         // V5.0.6715 — time expiry can be refreshed; learning-state expiry cannot.
         // If a terminal/owner-learning revision changed after this ticket was sealed,
         // the candidate must re-enter FDG instead of being cosmetically resealed.
@@ -1278,6 +1302,7 @@ object ExecutableOpenGate {
         blockedCooldowns.clear()
         entryAuthority6487.clear()
         executableBuyClaim6487.clear()
+        resealedTickets7488.clear()
     }
 
     private fun cooldownMsFor(log: String, reason: String): Long {

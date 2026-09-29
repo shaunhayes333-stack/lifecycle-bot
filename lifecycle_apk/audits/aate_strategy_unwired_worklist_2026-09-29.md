@@ -977,3 +977,13 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] Mode-local readers filter the already aggregated active rows rather than rescanning historical positions.
 - [x] A mutation racing a rebuild prevents that rebuild from being cached.
 - [x] Position authority, lot aggregation, quantity, cost basis, asset class and mode+mint identity semantics are unchanged.
+
+
+## V5.0.7488 — bounded expired-ticket reseal tombstones
+
+- [x] Replaced lifetime resealedTickets6613 set with timestamped resealedTickets7488.
+- [x] Same attempt cannot reseal twice inside a 20-minute guard horizon.
+- [x] Guard prunes expired attempt IDs and is bounded to a 12,000-key soft cap.
+- [x] Ticket provenance, feedback epoch, canonical occupancy, sealed size and executable-mark checks are unchanged.
+- [x] Execution-ticket / same-mint / canonical-position idempotency authorities are unchanged.
+- [x] No ticket is made more executable by this change; only dead tombstone retention is reduced.
