@@ -2,6 +2,10 @@ package com.lifecyclebot.network
 
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.TokenMetaCache
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * V5.0.7392 — held positions are priced from the venue the token register
@@ -34,6 +38,42 @@ object LockedVenueMarks7392 {
     private const val CURVE_SOURCE = "LOCKED_VENUE_CURVE_7392"
     private const val POOL_SOURCE = "LOCKED_VENUE_POOL_7392"
 
+    // V5.0.7432 — the exit/held-mark path must never inherit a provider's
+    // multi-second socket timeout. 7392 is called from both the canonical
+    // fallback chain and HeldHotMarkAuthority; a blocking provider here used
+    // to park the owning coroutine in runBlocking/locked_venue and stop ALL
+    // held positions behind it from advancing. Keep at most two provider calls
+    // in flight, do not queue stale work, and return control to the caller on
+    // the deadline. A timed-out provider may finish later on its daemon thread,
+    // but it no longer owns the exit scheduler.
+    private const val PROVIDER_DEADLINE_MS_7432 = 600L
+    private val providerExecutor7432 = ThreadPoolExecutor(
+        2, 2, 0L, TimeUnit.MILLISECONDS, SynchronousQueue<Runnable>(),
+        { r -> Thread(r, "locked-venue-7432").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy(),
+    )
+
+    private fun <T> boundedProvider7432(label: String, block: () -> T): T? {
+        val future = try { providerExecutor7432.submit<T> { block() } } catch (_: Throwable) {
+            try { PipelineHealthCollector.labelInc("LOCKED_VENUE_PROVIDER_SATURATED_7432") } catch (_: Throwable) {}
+            return null
+        }
+        return try {
+            future.get(PROVIDER_DEADLINE_MS_7432, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            future.cancel(true)
+            try {
+                PipelineHealthCollector.labelInc("LOCKED_VENUE_PROVIDER_TIMEOUT_7432")
+                PipelineHealthCollector.labelInc("LOCKED_VENUE_PROVIDER_TIMEOUT_7432_" + label)
+            } catch (_: Throwable) {}
+            null
+        } catch (_: Throwable) {
+            future.cancel(true)
+            try { PipelineHealthCollector.labelInc("LOCKED_VENUE_PROVIDER_ERROR_7432_" + label) } catch (_: Throwable) {}
+            null
+        }
+    }
+
     private fun validPool(addr: String?): String? =
         addr?.trim()?.takeIf { it.length in 32..44 && it.none { c -> c == ':' || c == '|' || c == '/' } }
 
@@ -61,7 +101,9 @@ object LockedVenueMarks7392 {
                 )
         }
         if (curveMints.isNotEmpty()) {
-            val curve = try { ParallelMarkFanout7088.curvePrices7392(curveMints) } catch (_: Throwable) { emptyMap() }
+            val curve = boundedProvider7432("CURVE") {
+                ParallelMarkFanout7088.curvePrices7392(curveMints)
+            } ?: emptyMap()
             for ((m, px) in curve) if (px.isFinite() && px > 0.0) out[m] = Mark(px, CURVE_SOURCE)
         }
 
@@ -77,7 +119,9 @@ object LockedVenueMarks7392 {
         if (poolByMint.isNotEmpty()) {
             val mintByPool = poolByMint.entries.associate { (m, p) -> p to m }
             for (chunk in mintByPool.keys.toList().chunked(30)) {
-                val got = try { dex.pairPriceFetch7392(chunk) } catch (_: Throwable) { emptyMap() }
+                val got = boundedProvider7432("POOL") {
+                    dex.pairPriceFetch7392(chunk)
+                } ?: emptyMap()
                 for ((pool, basePx) in got) {
                     val mint = mintByPool[pool] ?: continue
                     // Identity lock: the pool's base token must be this mint.
