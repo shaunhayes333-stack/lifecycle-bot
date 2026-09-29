@@ -902,6 +902,41 @@ object FinalDecisionGate {
             (ts.lastV3Score?.toDouble() ?: candidate.entryScore).coerceIn(-100.0, 150.0)
         val laneEvidenceScore7243 = laneScore.coerceIn(-100.0, 150.0)
         val baseEntrySignal7243 = candidate.finalSignal.ifBlank { candidate.signal }.uppercase()
+
+        // V5.0.7433 — HARD_NO_BUY is terminal entry authority, not a weak WAIT
+        // that specialist score/lane rescue may promote. 7431 captured the
+        // impossible chain:
+        //   preFdg=HARD_NO_BUY hardNo=[LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP]
+        //   -> FDG_ALLOW -> EXEC_INTENT_CREATED fdg=BUY allowed=true
+        // A hard negative may remain visible to shadow/learning, but it may
+        // never become canonical economic authority.
+        if (baseEntrySignal7243 == "HARD_NO_BUY") {
+            val reason7433 = "PREFDG_HARD_NO_BUY_TERMINAL_7433"
+            try {
+                PipelineHealthCollector.labelInc(reason7433)
+                ForensicLogger.lifecycle(
+                    reason7433,
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} mode=${mode.name} " +
+                        "candidateSignal=${candidate.signal} finalSignal=${candidate.finalSignal} action=no_fdg_allow_no_exec_intent",
+                )
+            } catch (_: Throwable) {}
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.finalQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = reason7433,
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf(reason7433, "base:HARD_NO_BUY"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "pre-FDG HARD_NO_BUY is terminal entry authority",
+                gateChecks = listOf(GateCheck("preFdgHardNo7433", false, "HARD_NO_BUY cannot be promoted")),
+            )
+        }
         // V5.0.7266 — the boundary is resolved per lane by CanonicalEntryFloor7266
         // (governor minimum → learned score-bucket floor, by same-mode close
         // maturity, plus regime and damper deltas) instead of being the fixed
