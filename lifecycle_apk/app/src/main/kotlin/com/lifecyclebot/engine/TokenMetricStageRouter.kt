@@ -46,7 +46,7 @@ object TokenMetricStageRouter {
         // A trending token discovered after its pump used to reset to age=0 and
         // was routed back into PROJECT_SNIPER as FRESH_LAUNCH.
         val launch7401 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts, now) } catch (_: Throwable) { null }
-        val ageMin = ((launch7401?.ageMs ?: (now - ts.addedToWatchlistAt).coerceAtLeast(0L)) / 60_000.0).coerceAtLeast(0.0)
+        val ageMin = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
         val prices = hist.map { it.priceUsd }
         val current = (prices.lastOrNull() ?: ts.lastPrice).takeIf { it > 0.0 } ?: 0.0
         val local = prices.takeLast(24).ifEmpty { prices }

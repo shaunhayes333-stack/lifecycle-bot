@@ -38,6 +38,7 @@ object LaunchPhaseAuthority7401 {
         EXPANDING,
         POST_PUMP_FADE,
         MATURE_OR_UNKNOWN,
+        METADATA_HYDRATING,
     }
 
     data class Snapshot(
@@ -53,18 +54,19 @@ object LaunchPhaseAuthority7401 {
         val accelerationRising: Boolean,
         val currentVsRecentPeak: Double,
         val reason: String,
+        val birthResolved: Boolean = true,
+        val birthSource: String = "",
     ) {
         val early: Boolean get() = phase == Phase.PRE_IGNITION || phase == Phase.IGNITION
         val tooLateForSnipe: Boolean get() = phase == Phase.POST_PUMP_FADE
     }
 
-    fun trueAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long {
-        val create = try { PumpCurveKeys7269.createdAtMs7280(ts.mint) } catch (_: Throwable) { null }
-        val firstHistory = try { ts.history.firstOrNull()?.ts?.takeIf { it > 0L } } catch (_: Throwable) { null }
-        val fallback = ts.addedToWatchlistAt.takeIf { it > 0L }
-        val origin = create?.takeIf { it > 0L } ?: firstHistory ?: fallback ?: nowMs
-        return (nowMs - origin).coerceAtLeast(0L)
-    }
+    fun trueAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long =
+        CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) ?: Long.MAX_VALUE
+
+    fun resolvedAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =
+        CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs)
+
 
     // V5.0.7402 — CI's kotlin_expression_body_return gate (and the real
     // Kotlin compiler behind it) rejects a bare `return` inside an
@@ -89,7 +91,8 @@ object LaunchPhaseAuthority7401 {
                 return cached7408.snapshot
             }
         }
-        val age = trueAgeMs(ts, nowMs)
+        val birth7440 = CanonicalTokenBirthTime7440.resolve(ts.mint, nowMs)
+        val age = birth7440?.let { (nowMs - it.birthMs).coerceAtLeast(0L) } ?: Long.MAX_VALUE
         val dev = try { OperatorRegistry.getDevWallet(ts.mint) } catch (_: Throwable) { null }
         val flow = try { WhaleDetector.launchFlow7401(ts.mint, dev, nowMs) }
             catch (_: Throwable) { WhaleDetector.LaunchFlow(0,0,0.0,0.0,0,0,0,0,0,false,50.0) }
@@ -138,6 +141,7 @@ object LaunchPhaseAuthority7401 {
             (multiple == null || multiple < 1.5)
 
         val phase = when {
+            birth7440 == null -> Phase.METADATA_HYDRATING
             // V5.0.7425 — direction outranks youth. A token down sharply in the
             // current 5m window, or materially below an already observed peak,
             // cannot be called EXPANDING merely because createMultiple is absent
@@ -152,7 +156,8 @@ object LaunchPhaseAuthority7401 {
         }
 
         val reason = buildString {
-            append("ageMs=").append(age)
+            append("ageMs=").append(if (birth7440 != null) age else -1L)
+            append(" birth=").append(birth7440?.source?.name ?: "HYDRATING")
             append(" mult=").append(multiple?.let { "%.2f".format(it) } ?: "?")
             append(" flow=").append(flow.buyTx60s).append("B/").append(flow.sellTx60s).append("S")
             append(" buyShare=").append("%.0f".format(flow.buySharePct))
@@ -168,6 +173,8 @@ object LaunchPhaseAuthority7401 {
             phase, age, multiple, flow.buySharePct, flow.buyTx60s, flow.sellTx60s,
             flow.distinctBuyers60s, flow.devBuyTx60s, flow.devSellTx60s,
             flow.accelerationRising, peakPos, reason,
+            birthResolved = birth7440 != null,
+            birthSource = birth7440?.source?.name ?: "",
         )
         if (mintKey7408.isNotBlank()) {
             cache7408[mintKey7408] = Cached7408(nowMs, out7408)

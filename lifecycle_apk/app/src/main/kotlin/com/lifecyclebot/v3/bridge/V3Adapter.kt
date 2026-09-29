@@ -117,12 +117,9 @@ object V3Adapter {
     fun toCandidate(ts: TokenState): CandidateSnapshot {
         val now = System.currentTimeMillis()
         val discoveredAt = ts.addedToWatchlistAt.takeIf { it > 0L } ?: now
-        // V5.0.7401 — V3 used watchlist age, so a token discovered after its
-        // pump received the same "fresh launch" bonus as a true new create.
-        val trueAgeMs7401 = try {
-            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts, now)
-        } catch (_: Throwable) { (now - discoveredAt).coerceAtLeast(0L) }
-        val ageMinutes = trueAgeMs7401 / 60_000.0
+        // V5.0.7440 — discoveredAt remains process-observation metadata only.
+        val trueAgeMs7401 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts, now)
+        val ageMinutes = trueAgeMs7401?.div(60_000.0) ?: Double.NaN
 
         val safety = ts.safety
         val meta = ts.meta

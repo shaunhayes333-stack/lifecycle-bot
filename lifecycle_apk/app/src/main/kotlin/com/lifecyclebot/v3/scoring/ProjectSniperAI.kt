@@ -206,11 +206,10 @@ object ProjectSniperAI {
         currentPrice: Double,
     ): TargetAssessment {
         
-        // V5.0.7385 — age from the token's first pool (PoolCreationTime7385). Watchlist
-        // age made a long-graduated token that was merely first SEEN read as a launch.
-        // Watchlist age remains the fallback when no creation time is known yet.
-        val tokenAgeSecs = (com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(ts.mint)
-            ?: ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 1000)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        // V5.0.7440 — no observation-time fallback.
+        val resolvedAgeMs7440 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts)
+            ?: return noEngage("BIRTH_METADATA_HYDRATING_7440", 0, ThreatLevel.RED)
+        val tokenAgeSecs = (resolvedAgeMs7440 / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         
         // ═══════════════════════════════════════════════════════════════════
         // PRE-FLIGHT CHECKS

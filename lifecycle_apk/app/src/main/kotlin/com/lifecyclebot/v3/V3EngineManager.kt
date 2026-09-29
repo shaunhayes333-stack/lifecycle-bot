@@ -308,11 +308,11 @@ object V3EngineManager {
             val currentContext = context ?: return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
             val currentBotConfig = botConfig ?: return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
 
-            // V4.0 layer routing
-            val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0L) {
-                (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-            } else {
-                120.0
+            // V5.0.7440 — age-dependent routing waits for canonical birth.
+            val tokenAgeMinutes = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)
+            if (tokenAgeMinutes == null) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
+                return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
             }
             val tokenAgeHours = tokenAgeMinutes / 60.0
 

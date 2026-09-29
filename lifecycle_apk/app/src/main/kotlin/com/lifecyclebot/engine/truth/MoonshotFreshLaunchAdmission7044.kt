@@ -131,13 +131,8 @@ object MoonshotFreshLaunchAdmission7044 {
     // V5.0.7323 — age is the TOKEN's age when its create was observed (the
     // PumpPortal create frame), not how long the bot has watched it: a $2M
     // trending coin that just joined the watchlist is not a fresh launch.
-    private fun ageMinutes(ts: TokenState): Double = try {
-        val created = com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(ts.mint)
-        val from = if (created != null && created > 0L) created else ts.addedToWatchlistAt
-        ((System.currentTimeMillis() - from) / 60_000.0).coerceAtLeast(0.0)
-    } catch (_: Throwable) {
-        Double.MAX_VALUE
-    }
+    private fun ageMinutes(ts: TokenState): Double? =
+        try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts) } catch (_: Throwable) { null }
 
     /** V5.0.7323 — a pump.fun bonding-curve token whose create frame we saw. */
     private fun isObservedCurveToken(ts: TokenState): Boolean = try {
@@ -171,7 +166,8 @@ object MoonshotFreshLaunchAdmission7044 {
         fun no(reason: String) = Verdict(false, reason, mcap, liq, bp)
 
         if (tradeType != ModeRouter.TradeType.FRESH_LAUNCH) return no("NOT_FRESH_LAUNCH")
-        if (ageMinutes(ts) > FRESH_AGE_MAX_MIN) return no("AGE_PAST_FRESH_WINDOW")
+        val age7440 = ageMinutes(ts) ?: return no("BIRTH_METADATA_HYDRATING_7440")
+        if (age7440 > FRESH_AGE_MAX_MIN) return no("AGE_PAST_FRESH_WINDOW")
         // Data absence is its own answer. It is not evidence against the token.
         if (!mcap.isFinite() || mcap <= 0.0) return no("MCAP_UNKNOWN")
         // V5.0.7323 — a bonding curve has no pool liquidity figure (providers

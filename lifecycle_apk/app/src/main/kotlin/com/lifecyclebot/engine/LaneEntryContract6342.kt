@@ -103,8 +103,12 @@ object LaneEntryContract6342 {
     fun isSniperLaunch7393(ts: TokenState): Boolean {
         if (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) return false
         if (ts.lastMcap > SNIPER_LAUNCH_MAX_MCAP_USD_7393) return false
-        val age = try { com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(ts.mint) } catch (_: Throwable) { null }
-        return age == null || age <= SNIPER_LAUNCH_MAX_AGE_SECS_7393
+        val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts)?.div(1000L) } catch (_: Throwable) { null }
+        if (age == null) {
+            try { PipelineHealthCollector.labelInc("SNIPER_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
+            return false
+        }
+        return age <= SNIPER_LAUNCH_MAX_AGE_SECS_7393
     }
 
     /** Liquidity each lane's BotService proof (qualityLaneProofOk) requires. */

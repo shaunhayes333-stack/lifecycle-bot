@@ -196,7 +196,7 @@ object ToolkitSignalSheet {
         val realVolumeLowData = vols.size < 8
         val last = prices.lastOrNull() ?: ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
-        val ageMin = try { (launch7402?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts)) / 60_000.0 } catch (_: Throwable) { 999.0 }
+        val ageMin = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
         val src = ts.source.uppercase()
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
         val mcap = ts.lastMcap.takeIf { it.isFinite() } ?: 0.0
