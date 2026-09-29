@@ -729,3 +729,15 @@ Baseline 5.0.7456 showed PROJECT_SNIPER / DIP_HUNTER / CASHGEN / CYCLIC reaching
 - [x] `missingExecutableMarkWithValidSource` now means fresh named price evidence actually existed, rather than any stale/nonzero cache value.
 - [x] Missing marks remain a hard refusal; no synthetic price/liquidity/route proof is created.
 - [ ] Runtime acceptance: valid-source missing mark count materially below 164 and remaining refusals carry `ENTRY_MARK_MODE_RESOLVER_MISSING_REASON_7465_*`.
+
+
+## V5.0.7466 — P0-3 BLUECHIP sealed-attempt sizing continuity (runtime proof pending)
+
+5.0.7456 baseline: BLUECHIP candidate=1208 qualified=1208 ownerSelected=16 buyIntent=18 fdg=78 mark=7, but sized/ticket/exec/open all zero while shared capital had headroom.
+
+- [x] Dedicated BLUECHIP sub-trader now reuses the active immutable FDG intent attemptId when entering `TradeAuthorizer`.
+- [x] No BLUECHIP threshold, score floor, allocation target, or position size formula changed.
+- [x] MARK_READY / SIZED_EXECUTABLE / TICKET are recorded only after `TradeAuthorizer` returns executable, i.e. after executable-open finality and minimum-size checks have actually passed.
+- [x] Missing sealed intent remains observable via `BLUECHIP_SEALED_INTENT_MISSING_BEFORE_AUTH_7466`; the code does not fabricate one.
+- [x] Successful same-attempt continuity is measured by `BLUECHIP_SEALED_INTENT_REUSED_FOR_AUTH_7466` and `BLUECHIP_POST_AUTH_CAUSAL_HANDOFF_7466`.
+- [ ] Runtime acceptance: fresh BLUECHIP mark-ready attempts either reach sized/ticket or terminate with a named authorization/finality reason; no silent mark->size disappearance.

@@ -27613,6 +27613,24 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_caution"} | probe trade")
                                 RejectionTelemetry.record("BLUECHIP_FDG_PROBE", blueChipFdg?.blockReason ?: "fdg_caution")
                             }
+                            // V5.0.7466 P0-3 — BLUECHIP must carry the SAME immutable
+                            // FDG attempt into TradeAuthorizer. The dedicated sub-trader
+                            // previously passed a blank attemptId, so authorize() generated
+                            // a second execution attempt after FDG/mark had already been
+                            // sealed. That split BUY_INTENT/OWNER from MARK/SIZE/TICKET.
+                            val blueChipCandidateVersion7466 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+                            val blueChipSealedIntent7466 = try {
+                                ExecutableOpenGate.activeExecutionIntent6519(
+                                    if (cfg.paperMode) "PAPER" else "LIVE",
+                                    ts.mint,
+                                    blueChipCandidateVersion7466,
+                                )
+                            } catch (_: Throwable) { null }
+                            if (blueChipSealedIntent7466 == null) {
+                                try { PipelineHealthCollector.labelInc("BLUECHIP_SEALED_INTENT_MISSING_BEFORE_AUTH_7466") } catch (_: Throwable) {}
+                            } else {
+                                try { PipelineHealthCollector.labelInc("BLUECHIP_SEALED_INTENT_REUSED_FOR_AUTH_7466") } catch (_: Throwable) {}
+                            }
                             // V5.0.6494: one immutable election receipt from auth through permit.
                             val blueChipAuth6494 = TradeAuthorizer.authorize(
                                 mint = ts.mint, symbol = ts.symbol,
@@ -27622,7 +27640,19 @@ if (hotExitHandledSweep) {
                                 requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
                                 preResolvedSizeSol = bcSize7389,
+                                attemptId = blueChipSealedIntent7466?.attemptId.orEmpty(),
                             )
+                            // The authorizer has now passed the executable-open finality
+                            // gate. Record the proven downstream stages on the exact attempt
+                            // that will be handed to FinalExecutionPermit/Executor.
+                            if (blueChipAuth6494.isExecutable() && blueChipAuth6494.attemptId.isNotBlank()) {
+                                try {
+                                    ToolkitSignalSheet.recordDeskStage("BLUECHIP", "MARK_READY", blueChipAuth6494.attemptId)
+                                    ToolkitSignalSheet.recordDeskStage("BLUECHIP", "SIZED_EXECUTABLE", blueChipAuth6494.attemptId)
+                                    ToolkitSignalSheet.recordDeskStage("BLUECHIP", "TICKET", blueChipAuth6494.attemptId)
+                                    PipelineHealthCollector.labelInc("BLUECHIP_POST_AUTH_CAUSAL_HANDOFF_7466")
+                                } catch (_: Throwable) {}
+                            }
                             val canExecute = blueChipAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
