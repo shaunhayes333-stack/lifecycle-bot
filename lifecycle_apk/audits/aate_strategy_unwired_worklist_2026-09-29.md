@@ -1110,3 +1110,12 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] Same journal revision + canonical mutation revision + canonical cash cannot repeat the full quantity/set-diff pass.
 - [x] A real journal, canonical-position, or cash mutation still triggers the complete forensic reconciliation immediately.
 - [x] Replay arithmetic, tolerances, delta status and forensic failure rules are unchanged.
+
+
+## V5.0.7502 — dormant token-birth hydration state retirement
+
+- [x] Partial birth paging retains resumable progress for 24 hours.
+- [x] Dormant non-inflight progress/cooldown entries are retired when support maps exceed the 8,000-key soft cap.
+- [x] Inflight hydration state is never pruned.
+- [x] Successful birth hydration still clears progress/cooldown immediately as before.
+- [x] Rediscovered tokens after dormant retirement restart birth lookup from page one; no discovery source or route is disabled.

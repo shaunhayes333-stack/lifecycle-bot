@@ -20,8 +20,18 @@ object TokenBirthHydrator7441 {
     private const val RETRY_COOLDOWN_MS = 15_000L
     private const val NO_RPC_COOLDOWN_MS = 60_000L
 
-    private data class Progress(var before: String? = null, var oldestBlockMs: Long = Long.MAX_VALUE, var pages: Int = 0)
+    private data class Progress(
+        var before: String? = null,
+        var oldestBlockMs: Long = Long.MAX_VALUE,
+        var pages: Int = 0,
+        @Volatile var lastTouchedMs: Long = System.currentTimeMillis(),
+    )
     private val progress = ConcurrentHashMap<String, Progress>()
+    // V5.0.7502 — partial birth paging is useful resumable evidence, but a
+    // mint that has not been requested for a full day is dormant state, not
+    // live trading state. Retire dormant non-inflight progress and cooldown.
+    private const val DORMANT_PROGRESS_TTL_MS_7502 = 24L * 60L * 60_000L
+    private const val PROGRESS_SOFT_CAP_7502 = 8_000
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val cooldownUntil = ConcurrentHashMap<String, Long>()
 
@@ -37,6 +47,20 @@ object TokenBirthHydrator7441 {
         val m = mint.trim()
         if (m.length !in 32..44) return
         val now = System.currentTimeMillis()
+        if (progress.size > PROGRESS_SOFT_CAP_7502 || cooldownUntil.size > PROGRESS_SOFT_CAP_7502) {
+            val cutoff7502 = now - DORMANT_PROGRESS_TTL_MS_7502
+            val dormant7502 = progress.entries
+                .filter { it.value.lastTouchedMs < cutoff7502 && it.key !in inFlight }
+                .map { it.key }
+            dormant7502.forEach { key ->
+                progress.remove(key)
+                cooldownUntil.remove(key)
+            }
+            cooldownUntil.entries.removeIf { it.value < cutoff7502 && it.key !in inFlight && it.key !in progress }
+            if (dormant7502.isNotEmpty()) try {
+                PipelineHealthCollector.labelInc("TOKEN_BIRTH_DORMANT_STATE_PRUNED_7502")
+            } catch (_: Throwable) {}
+        }
         if ((cooldownUntil[m] ?: 0L) > now) return
         if (!inFlight.add(m)) return
         val launched = ChokeReliefBus.launch("TOKEN_BIRTH_HYDRATE_7441", m) {
@@ -54,6 +78,7 @@ object TokenBirthHydrator7441 {
         }
 
         val state = progress.computeIfAbsent(mint) { Progress() }
+        state.lastTouchedMs = System.currentTimeMillis()
         var anyRpcAnswered = false
         for (rpc in rpcCandidates) {
             var pagesThisAttempt = 0
@@ -62,6 +87,7 @@ object TokenBirthHydrator7441 {
                 anyRpcAnswered = true
                 pagesThisAttempt++
                 state.pages++
+                state.lastTouchedMs = System.currentTimeMillis()
                 if (page.length() == 0) {
                     publishIfComplete(mint, state)
                     return
