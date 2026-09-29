@@ -956,3 +956,15 @@ Runtime evidence from 5.0.7466: PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284 exceede
 - [x] If a valid/changed key restores capability, unsupported demand clears and the normal real subscription diff resumes.
 - [x] Pump create stream, migration stream, curve RPC fallback and mark fallback are unchanged.
 - [x] No provider or price source is disabled.
+
+
+## V5.0.7486 — additive SymbolicContext single-flight refresh
+
+Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while SymbolicContext.refresh could be entered concurrently before lastRefresh was updated.
+
+- [x] Full 24-channel SymbolicContext refresh is single-flight.
+- [x] Concurrent callers reuse the currently published symbolic snapshot and continue immediately.
+- [x] Existing 2-second freshness gate remains unchanged.
+- [x] The successful refresh timestamps at actual completion, not pre-refresh start.
+- [x] In-flight ownership is released in finally on both success and failure.
+- [x] All symbolic channels, live gates, sizing reads, mood/edge state and persistence remain enabled.

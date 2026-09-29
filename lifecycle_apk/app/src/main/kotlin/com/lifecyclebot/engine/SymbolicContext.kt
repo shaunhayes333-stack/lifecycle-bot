@@ -35,6 +35,10 @@ object SymbolicContext {
     // Live signal snapshot — refreshed every scan cycle
     @Volatile private var signals = mapOf<String, Double>()
     @Volatile private var lastRefresh = 0L
+    // V5.0.7486 — full symbolic recomputation is global shared state. The 2s
+    // age gate alone does not prevent concurrent callers entering while one
+    // slow 24-channel refresh is still in flight.
+    private val refreshInFlight7486 = java.util.concurrent.atomic.AtomicBoolean(false)
 
     // Derived composite scores
     @Volatile var overallRisk: Double = 0.3        // 0=safe, 1=danger
@@ -118,9 +122,13 @@ object SymbolicContext {
         // hangs after the paper-wallet inflation storm.
         val now = System.currentTimeMillis()
         if (now - lastRefresh < 2_000L) return
+        if (!refreshInFlight7486.compareAndSet(false, true)) {
+            try { PipelineHealthCollector.labelInc("SYMBOLIC_REFRESH_SINGLE_FLIGHT_REUSED_7486") } catch (_: Throwable) {}
+            return
+        }
         try {
             signals = SymbolicExitReasoner.getSignalSnapshot(symbol, mint)
-            lastRefresh = now
+            lastRefresh = System.currentTimeMillis()
 
             // Derive composite scores from raw signals
             val trustAvg = signals["StrategyTrust"] ?: 0.5
@@ -204,6 +212,8 @@ object SymbolicContext {
 
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Refresh error: ${e.message}")
+        } finally {
+            refreshInFlight7486.set(false)
         }
     }
 
