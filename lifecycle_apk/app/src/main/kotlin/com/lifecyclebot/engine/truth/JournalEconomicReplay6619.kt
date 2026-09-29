@@ -104,6 +104,9 @@ object JournalEconomicReplay6619 {
     // rows must not be. Key by immutable replay identity so one old row cannot
     // create a new counter/log event every 5 seconds forever.
     private val reportedReplaySupersessions6699 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    // V5.0.7482 — aggregate forensic summaries are state snapshots, not events.
+    private val terminalResidualSummarySig7482 = AtomicReference("")
+    private val skippedEconomicsSummarySig7482 = AtomicReference("")
     private val quarantineScopeSignature7251 = AtomicReference("")
     private val lastReplayKey7343 = AtomicReference("")
     private val replayMemoHits7343 = java.util.concurrent.atomic.AtomicLong(0L)
@@ -246,9 +249,10 @@ object JournalEconomicReplay6619 {
         // default; the 6868 residual path applies both legs first and passes
         // skipped = false.
         var skippedEvents6899 = 0
-        fun reject(t: com.lifecyclebot.data.Trade, eventId: String, reason: String, skipped: Boolean = true) {
+        fun reject(t: com.lifecyclebot.data.Trade, eventId: String, reason: String, skipped: Boolean = true): Boolean {
             val identity = "$eventId:$reason"
             failures += identity
+            val firstReport7482 = reportedInvariantFailures6653.add(identity)
             if (skipped) {
                 skippedEvents6899 += 1
                 // V5.0.7078 — a skipped SELL is a credit this replay declined
@@ -277,7 +281,7 @@ object JournalEconomicReplay6619 {
             try {
                 LearningQuarantineGate6470.quarantinePositionId("EVENT:$eventId", reason)
                 if (t.positionId.isNotBlank()) LearningQuarantineGate6470.quarantinePositionId(t.positionId, "EVENT:$eventId:$reason")
-                if (reportedInvariantFailures6653.add(identity)) {
+                if (firstReport7482) {
                     PipelineHealthCollector.labelInc("JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647")
                     ForensicLogger.lifecycle(
                         "JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647",
@@ -285,6 +289,7 @@ object JournalEconomicReplay6619 {
                     )
                 }
             } catch (_: Throwable) {}
+            return firstReport7482
         }
 
         // V5.0.7085 §MY OWN INSTRUMENT HAD A BLIND SPOT WHERE THE MONEY WENT.
@@ -558,15 +563,15 @@ object JournalEconomicReplay6619 {
                     if (terminalResidual6868) {
                         // V5.0.6899 — both legs ARE applied below and the
                         // residual is written off, so the totals stay whole.
-                        reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT", skipped = false)
+                        val firstResidual7482 = reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT", skipped = false)
                         residualBasisWrittenOff6868 += nextBasis.coerceAtLeast(0.0)
                         residualLotCount6868 += 1
-                        try {
+                        if (firstResidual7482) try {
                             ForensicLogger.lifecycle(
                                 "JOURNAL_TERMINAL_SELL_RESIDUAL_WRITTEN_OFF_6868",
                                 "economicEventId=$eventId positionId=${t.positionId} residualBasisSol=${"%.6f".format(nextBasis)} " +
                                     "residualRaw=$nextRaw gross=${"%.6f".format(gross)} basis=${"%.6f".format(basis)} " +
-                                    "action=apply_both_legs_and_close_lot",
+                                    "action=apply_both_legs_and_close_lot firstSeen=true",
                             )
                             PipelineHealthCollector.labelInc("JOURNAL_TERMINAL_SELL_RESIDUAL_WRITTEN_OFF_6868")
                         } catch (_: Throwable) {}
@@ -607,11 +612,12 @@ object JournalEconomicReplay6619 {
         // what the operator saw instead was an unexplained multi-SOL split between
         // the ledger and the journal.
         if (residualLotCount6868 > 0) {
-            try {
+            val residualSig7482 = "$residualLotCount6868|${"%.9f".format(residualBasisWrittenOff6868)}"
+            if (terminalResidualSummarySig7482.getAndSet(residualSig7482) != residualSig7482) try {
                 ForensicLogger.lifecycle(
                     "JOURNAL_TERMINAL_RESIDUAL_SUMMARY_6868",
                     "lots=$residualLotCount6868 residualBasisSol=${"%.6f".format(residualBasisWrittenOff6868)} " +
-                        "note=terminal_sells_left_basis_on_lot_applied_and_written_off",
+                        "note=terminal_sells_left_basis_on_lot_applied_and_written_off summaryChanged=true",
                 )
                 PipelineHealthCollector.labelInc("JOURNAL_TERMINAL_RESIDUAL_LOTS_6868")
             } catch (_: Throwable) {}
@@ -627,6 +633,15 @@ object JournalEconomicReplay6619 {
         // refusals and not a missing 7.3 SOL.
         if (skippedCashByReason7078.isNotEmpty()) {
             try {
+                val skippedSig7482 = skippedCashByReason7078.entries
+                    .sortedBy { it.key }
+                    .joinToString("|") { (reason, cashSol) ->
+                        reason + ":" + (skippedCountByReason7078[reason] ?: 0) + ":" +
+                            "%.9f".format(cashSol) + ":" +
+                            "%.9f".format(skippedRealizedByReason7078[reason] ?: 0.0)
+                    }
+                val skippedSummaryChanged7482 =
+                    skippedEconomicsSummarySig7482.getAndSet(skippedSig7482) != skippedSig7482
                 val detail7078 = skippedCashByReason7078.entries
                     .sortedByDescending { kotlin.math.abs(it.value) }
                     .take(6)
@@ -635,7 +650,9 @@ object JournalEconomicReplay6619 {
                             "cash=${"%.6f".format(cashSol)} " +
                             "realized=${"%.6f".format(skippedRealizedByReason7078[reason] ?: 0.0)}]"
                     }
-                PipelineHealthCollector.labelInc("JOURNAL_SKIPPED_ECONOMICS_NAMED_7078")
+                if (skippedSummaryChanged7482) {
+                    PipelineHealthCollector.labelInc("JOURNAL_SKIPPED_ECONOMICS_NAMED_7078")
+                }
                 // V5.0.7085 — split the two populations, because they answer
                 // different questions and summing them hides both.
                 //   PRE_ACCOUNTING_*  rows excluded before the walk ever saw
@@ -648,7 +665,7 @@ object JournalEconomicReplay6619 {
                 val inBodyCash7085 = skippedCashByReason7078.entries
                     .filterNot { it.key.startsWith("PRE_ACCOUNTING_") }
                     .sumOf { it.value }
-                ForensicLogger.lifecycle(
+                if (skippedSummaryChanged7482) ForensicLogger.lifecycle(
                     "JOURNAL_SKIPPED_ECONOMICS_NAMED_7078",
                     "skippedEvents=$skippedEvents6899 " +
                         "skippedCashTotal=${"%.6f".format(skippedCashByReason7078.values.sum())} " +

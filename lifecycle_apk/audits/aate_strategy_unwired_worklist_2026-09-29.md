@@ -913,3 +913,14 @@ Runtime evidence from 5.0.7466: causal records=8075 and every specialist report 
 - [x] Underlying SpecialistCausalFunnel, execution tickets, canonical intents, same-mint authority and economic idempotency remain unchanged.
 - [x] Expiry can only permit a diagnostic stage to be observed again after the causal horizon; it cannot create an economic action.
 - [x] Offered/deduped stage counters remain intact.
+
+
+## V5.0.7482 — additive journal historical-anomaly telemetry dedupe
+
+- [x] Replay arithmetic remains full and unchanged on every real journal revision.
+- [x] Immutable terminal residual event log/counter emits only on first observation of that event+reason.
+- [x] Residual basis/count still participates in every ReplayResult; only duplicate telemetry is suppressed.
+- [x] Terminal residual aggregate summary emits again whenever count or basis changes.
+- [x] Skipped-economics aggregate forensic summary emits only when its by-reason content changes.
+- [x] Learning quarantine and invariant failure identity remain unchanged.
+- [x] No journal rows, accounting legs, failure checks or reconciliation outputs are removed.
