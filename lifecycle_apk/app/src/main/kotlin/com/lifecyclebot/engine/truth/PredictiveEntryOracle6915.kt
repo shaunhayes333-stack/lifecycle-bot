@@ -419,6 +419,19 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
 
+        // V5.0.7429 — source-timing lateness is lifecycle evidence.
+        // SourceTimingRegistry already tracks which feed saw a mint first. A token
+        // discovered only after it reaches trending/social surfaces is exactly the
+        // "buying after the pump" failure class. Keep this bounded and non-vetoing:
+        // strong independent evidence can still overcome it, while the oracle sees
+        // that discovery timing itself is adverse.
+        try {
+            if (mint.isNotBlank() && com.lifecyclebot.v3.arb.SourceTimingRegistry.isLateSignal(mint)) {
+                out += BrainRead("lateDiscoverySource", -9.0)
+                try { PipelineHealthCollector.labelInc("SOURCE_TIMING_LATE_SIGNAL_READ_7429") } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+
         // Momentum predictor.
         try {
             if (mint.isNotBlank()) {
