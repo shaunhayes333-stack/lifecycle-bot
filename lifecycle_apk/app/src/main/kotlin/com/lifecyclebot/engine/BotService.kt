@@ -17052,8 +17052,10 @@ class BotService : Service() {
                     var fErr: String? = null
                     try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.beforeAttempt() } catch (_: Throwable) {}
                     try {
-                        val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
-                        com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
+                        val rowRevision7477 = com.lifecyclebot.engine.truth.ForensicRowMirror6442.revision7477()
+                        com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstructIfChanged7477(
+                            rowRevision7477,
+                        ) { com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot() }
                     } catch (t: Throwable) { fSuccess = false; fErr = t.message }
                     try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.afterAttempt(fSuccess, System.currentTimeMillis() - t0f, fErr) } catch (_: Throwable) {}
                 }
@@ -18776,10 +18778,8 @@ class BotService : Service() {
                         // V5.0.6487 — replay is diagnostic-only after one-time
                         // migration; it may never overwrite authoritative ledger state.
                         com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.compareToLedger(startCap6464)
-                        // Registry is a projection; rebuild only after the
-                        // canonical capital pass has completed, never from UI
-                        // or legacy journal rows.
-                        try { com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.rebuildFromCanonical6475() } catch (_: Throwable) {}
+                        // V5.0.7477 — audit first. Divergence-driven auto-heal
+                        // remains owned by PositionRegistryParityAudit6464.
                         com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.audit()
                         // V5.0.6467 §P0 (item 9) — parallel replay from SAME canonical
                         // economic event stream that reports FIRST divergent event id.

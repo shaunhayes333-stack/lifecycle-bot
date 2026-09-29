@@ -857,3 +857,14 @@ Runtime evidence from 5.0.7466: 4,595 intake events / 639 unique symbols, PROBAT
 - [x] Timestamp-only quote updates no longer invalidate the sheet; price movement is represented by scale-independent 10bp log buckets.
 - [x] History growth, V3 score/confidence, buy/sell pressure, liquidity, mcap, source, trade type and classification confidence remain fingerprint inputs.
 - [x] No specialist hypotheses, lanes, tools, scores, execution paths or learning outputs are removed.
+
+
+## V5.0.7477 — additive revision-gated maintenance
+
+- [x] Position-registry parity reuses its exact previous result when canonical mutation count + registry authority epoch are unchanged.
+- [x] Real canonical or registry mutation invalidates reuse immediately.
+- [x] Scheduled parity no longer unconditionally rebuilds the legacy registry before auditing it.
+- [x] Existing divergence-streak auto-heal remains intact.
+- [x] Full forensic reconstruction reuses its previous result only when forensic-row revision + canonical mutation count are unchanged.
+- [x] Forensic row snapshots are not copied when reconstruction is provably unchanged.
+- [x] No audit, auto-heal, invariant, or reconciliation capability is removed.

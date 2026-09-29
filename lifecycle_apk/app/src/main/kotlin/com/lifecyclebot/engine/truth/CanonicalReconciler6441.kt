@@ -63,6 +63,8 @@ object CanonicalReconciler6441 {
     private val mismatchesEver = AtomicLong(0L)
     private val lastQuickReport = AtomicReference<QuickReport?>(null)
     private val lastFullReport = AtomicReference<FullReport?>(null)
+    private val lastFullInputKey7477 = AtomicReference("")
+    private val fullReused7477 = AtomicLong(0L)
 
     fun quickCheck(): QuickReport {
         quickCount.incrementAndGet()
@@ -111,6 +113,22 @@ object CanonicalReconciler6441 {
             try { CanonicalLedgerParityHold6387.onCleanCycle() } catch (_: Throwable) {}
         }
         return rep
+    }
+
+    fun fullReconstructIfChanged7477(
+        rowRevision: Long,
+        eventsProvider: () -> List<ForensicExecutionRow6441>,
+    ): FullReport {
+        val key = rowRevision.toString() + "|" + CanonicalPositionAuthority6441.mutationCount7387()
+        val prior = lastFullReport.get()
+        if (prior != null && lastFullInputKey7477.get() == key) {
+            fullReused7477.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("RECONCILER_FULL_UNCHANGED_REUSED_7477") } catch (_: Throwable) {}
+            return prior
+        }
+        val report = fullReconstruct(eventsProvider())
+        lastFullInputKey7477.set(key)
+        return report
     }
 
     /**
@@ -180,7 +198,7 @@ object CanonicalReconciler6441 {
         val lastF = lastFullMs.get()
         val ageQ = if (lastQ <= 0L) -1L else (System.currentTimeMillis() - lastQ) / 1000L
         val ageF = if (lastF <= 0L) -1L else (System.currentTimeMillis() - lastF) / 1000L
-        return "quick=$q lastQuickAgeSec=$ageQ full=$f lastFullAgeSec=$ageF mismatchesEver=${mismatchesEver.get()} " +
+        return "quick=$q lastQuickAgeSec=$ageQ full=$f reused=${fullReused7477.get()} lastFullAgeSec=$ageF mismatchesEver=${mismatchesEver.get()} " +
             "expectedCadenceMs=$EXPECTED_CADENCE_MS"
     }
 }

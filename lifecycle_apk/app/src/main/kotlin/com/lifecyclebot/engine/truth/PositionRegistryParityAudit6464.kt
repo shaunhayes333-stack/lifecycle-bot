@@ -46,6 +46,8 @@ object PositionRegistryParityAudit6464 {
 
     private val lastSnapshot = AtomicReference<Snapshot?>(null)
     private val audits = AtomicLong(0L)
+    private val reusedUnchanged7477 = AtomicLong(0L)
+    private val lastInputRevision7477 = AtomicReference("")
     private val divergences = AtomicLong(0L)
     // V5.0.6465 §P0-#3 REGISTRY AUTO-HEAL — after N consecutive
     // divergent audits, rebuild EmergentGuardrails from canonical
@@ -55,6 +57,18 @@ object PositionRegistryParityAudit6464 {
     private val autoHeals = AtomicLong(0L)
 
     fun audit(): Snapshot {
+        val inputRevision7477 = try {
+            CanonicalPositionAuthority6441.mutationCount7387().toString() + "|" +
+                AuthoritySnapshotVersion6464.snapshotVersion().toString()
+        } catch (_: Throwable) { "" }
+        val prior7477 = lastSnapshot.get()
+        if (prior7477 != null && inputRevision7477.isNotBlank() &&
+            lastInputRevision7477.get() == inputRevision7477
+        ) {
+            reusedUnchanged7477.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("POSITION_PARITY_UNCHANGED_REUSED_7477") } catch (_: Throwable) {}
+            return prior7477
+        }
         audits.incrementAndGet()
         val canonicalOpens = try {
             CanonicalPositionAuthority6441.openPositions()
@@ -110,6 +124,7 @@ object PositionRegistryParityAudit6464 {
             costBasisMismatch = costBasisMismatch.take(20),
         )
         lastSnapshot.set(snap)
+        if (inputRevision7477.isNotBlank()) lastInputRevision7477.set(inputRevision7477)
         val diverged = snap.missingFromCanonical.isNotEmpty() || snap.missingFromRegistry.isNotEmpty() ||
                        snap.stateMismatch.isNotEmpty() || snap.qtyMismatch.isNotEmpty() ||
                        snap.costBasisMismatch.isNotEmpty()
@@ -202,7 +217,7 @@ object PositionRegistryParityAudit6464 {
         return sb.toString()
     }
 
-    fun statusLine(): String = "audits=${audits.get()} divergences=${divergences.get()} " +
+    fun statusLine(): String = "audits=${audits.get()} reused=${reusedUnchanged7477.get()} divergences=${divergences.get()} " +
         "consecutiveDivergences=${consecutiveDivergences.get()} autoHeals=${autoHeals.get()}"
 
     /** V5.0.6466 — accessor for AdvisorIntegrityHold6466. */
@@ -210,7 +225,7 @@ object PositionRegistryParityAudit6464 {
 
     internal fun resetForTest() {
         lastSnapshot.set(null)
-        audits.set(0L); divergences.set(0L)
+        audits.set(0L); reusedUnchanged7477.set(0L); lastInputRevision7477.set(""); divergences.set(0L)
         consecutiveDivergences.set(0L); autoHeals.set(0L)
     }
 }

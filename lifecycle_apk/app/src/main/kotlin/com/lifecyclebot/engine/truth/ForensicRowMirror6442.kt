@@ -110,6 +110,8 @@ object ForensicRowMirror6442 {
      */
     fun snapshot(): List<ForensicExecutionRow6441> = ArrayList(rows)
 
+    fun revision7477(): Long = acceptedCount.get()
+
     fun statusLine(): String =
         "buffered=${rows.size} accepted=${acceptedCount.get()} rejected=${rejectedCount.get()}"
 }
