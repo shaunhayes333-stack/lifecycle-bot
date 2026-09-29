@@ -42,8 +42,13 @@ jobs:
           # Only the checked-in production version is authority. Commit titles
           # mentioning a staged repair must never relabel an unchanged APK.
           VERSION_NAME="$(tr -d '[:space:]' < ../AATE_VERSION)"
+          NESTED_VERSION="$(tr -d '[:space:]' < AATE_VERSION)"
           if [[ ! "$VERSION_NAME" =~ ^5[.]0[.]([0-9]+)$ ]]; then
             echo "::error::Invalid production AATE_VERSION: $VERSION_NAME"
+            exit 1
+          fi
+          if [[ "$NESTED_VERSION" != "$VERSION_NAME" ]]; then
+            echo "::error::AATE version authority drift: root=$VERSION_NAME lifecycle_apk=$NESTED_VERSION"
             exit 1
           fi
           BUILD_NUMBER="${BASH_REMATCH[1]}"
