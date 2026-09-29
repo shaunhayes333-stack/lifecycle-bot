@@ -312,6 +312,7 @@ object UniversalBridgeEngine {
         targetMint: String,
         sizeUsd: Double,
         sourceMint: String? = null,
+        prevalidatedQuote7444: com.lifecyclebot.network.SwapQuote? = null,
     ): BridgeResult = withContext(Dispatchers.IO) {
 
         // Step 1: scan wallet to find best source
@@ -390,7 +391,13 @@ object UniversalBridgeEngine {
         }
         val sourceAmount = sizeUsd / sourcePrice
         val sourceDecimals = TOKEN_DECIMALS[src] ?: 9
-        val sourceAmountRaw: Long = if (src == SOL_MINT) {
+        // V5.0.7444 — if the caller already proved a binding quote for this
+        // exact route, preserve its exact inAmount. Recomputing from USD/SOL
+        // and then requesting a second quote created a route-proof/build race.
+        val proven7444 = prevalidatedQuote7444?.takeIf {
+            it.inputMint == src && it.outputMint == targetMint && it.inAmount > 0L
+        }
+        val sourceAmountRaw: Long = proven7444?.inAmount ?: if (src == SOL_MINT) {
             (sourceAmount * 1_000_000_000L).toLong()
         } else {
             (sourceAmount * Math.pow(10.0, sourceDecimals.toDouble())).toLong()
@@ -417,6 +424,7 @@ object UniversalBridgeEngine {
             outputMint  = targetMint,        // ← SINGLE atomic call to the real target
             amountRaw   = sourceAmountRaw,
             slippageBps = 200,
+            prevalidatedQuote7444 = proven7444,
         ) ?: run {
             bridgesFailed.incrementAndGet()
             com.lifecyclebot.engine.execution.ExecutionStatusRegistry.stamp(
@@ -648,6 +656,7 @@ object UniversalBridgeEngine {
         outputMint: String,
         amountRaw: Long,
         slippageBps: Int,
+        prevalidatedQuote7444: com.lifecyclebot.network.SwapQuote? = null,
     ): String? = withContext(Dispatchers.IO) {
         // V5.0.7326 — the crypto / markets swap now runs the meme pipeline:
         // execution scope (our own backoff can't refuse it), a BINDING quote
@@ -655,47 +664,66 @@ object UniversalBridgeEngine {
         // tried — 7241), and a Helius Sender envelope on the built tx
         // (senderCompatible), instead of a non-binding Ultra quote re-ordered
         // at build time and sent with no Sender, no Jito.
-        com.lifecyclebot.network.ExitHttpScope7314.run { try {
-            val quote = jupiter.getQuoteWithTaker(
-                inputMint  = inputMint,
-                outputMint = outputMint,
-                amountRaw  = amountRaw,
-                slippageBps= slippageBps,
-                taker      = wallet.publicKeyB58,
-            )
-            if (quote.outAmount <= 0) {
-                ErrorLogger.warn(TAG, "Quote returned 0 output for ${mintLabel(inputMint)} → ${mintLabel(outputMint)}")
-                return@withContext null
+        com.lifecyclebot.network.ExitHttpScope7314.run {
+            var supplied7444 = prevalidatedQuote7444?.takeIf {
+                it.inputMint == inputMint && it.outputMint == outputMint &&
+                    it.inAmount == amountRaw && it.outAmount > 0L
             }
-            if (quote.priceImpactPct > 5.0) {
-                ErrorLogger.warn(TAG, "Price impact too high: ${quote.priceImpactPct}% > 5%")
-                return@withContext null
-            }
+            for (attempt7444 in 0..1) {
+                try {
+                    val quote = supplied7444 ?: jupiter.getQuoteWithTaker(
+                        inputMint  = inputMint,
+                        outputMint = outputMint,
+                        amountRaw  = amountRaw,
+                        slippageBps= slippageBps,
+                        taker      = wallet.publicKeyB58,
+                    )
+                    if (quote.outAmount <= 0) {
+                        ErrorLogger.warn(TAG, "Quote returned 0 output for ${mintLabel(inputMint)} → ${mintLabel(outputMint)}")
+                        return@withContext null
+                    }
+                    if (quote.priceImpactPct > 5.0) {
+                        ErrorLogger.warn(TAG, "Price impact too high: ${quote.priceImpactPct}% > 5%")
+                        return@withContext null
+                    }
+                    if (supplied7444 != null) {
+                        try { PipelineHealthCollector.labelInc("CRYPTO_PROVEN_QUOTE_REUSED_7444") } catch (_: Throwable) {}
+                    }
 
-            val txResult = jupiter.buildSwapTx(quote, wallet.publicKeyB58, senderTipLamports = SENDER_TIP_LAMPORTS_7326)
-            if (txResult.txBase64.isEmpty()) {
-                ErrorLogger.warn(TAG, "Empty swap tx for bridge")
-                return@withContext null
-            }
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                    if (txResult.senderCompatible) "BRIDGE_SWAP_SENDER_ENVELOPE_7326" else "BRIDGE_SWAP_NO_SENDER_ENVELOPE_7326",
-                )
-            } catch (_: Throwable) {}
+                    val txResult = jupiter.buildSwapTx(quote, wallet.publicKeyB58, senderTipLamports = SENDER_TIP_LAMPORTS_7326)
+                    if (txResult.txBase64.isEmpty()) {
+                        ErrorLogger.warn(TAG, "Empty swap tx for bridge")
+                        return@withContext null
+                    }
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (txResult.senderCompatible) "BRIDGE_SWAP_SENDER_ENVELOPE_7326" else "BRIDGE_SWAP_NO_SENDER_ENVELOPE_7326",
+                        )
+                    } catch (_: Throwable) {}
 
-            wallet.signSendAndConfirm(
-                txBase64      = txResult.txBase64,
-                useJito       = false,
-                jitoTipLamports = 0,
-                ultraRequestId  = if (quote.isUltra) txResult.requestId else null,
-                jupiterApiKey   = "",
-                isRfqRoute      = txResult.isRfqRoute,
-                senderCompatible = txResult.senderCompatible,
-            )
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Jupiter bridge swap error: ${e.message}", e)
+                    return@withContext wallet.signSendAndConfirm(
+                        txBase64 = txResult.txBase64,
+                        useJito = false,
+                        jitoTipLamports = 0,
+                        ultraRequestId = if (quote.isUltra) txResult.requestId else null,
+                        jupiterApiKey = "",
+                        isRfqRoute = txResult.isRfqRoute,
+                        senderCompatible = txResult.senderCompatible,
+                    )
+                } catch (e: Exception) {
+                    if (attempt7444 == 0 && e.message?.contains("422") == true) {
+                        // Binding tx went stale. Drop the supplied quote and retry
+                        // once from a fresh quote, matching MarketsLiveExecutor.
+                        supplied7444 = null
+                        try { PipelineHealthCollector.labelInc("CRYPTO_PROVEN_QUOTE_STALE_REQUOTE_7444") } catch (_: Throwable) {}
+                        continue
+                    }
+                    ErrorLogger.error(TAG, "Jupiter bridge swap error: ${e.message}", e)
+                    return@withContext null
+                }
+            }
             null
-        } }
+        }
     }
 
     /** V5.0.7326 — Sender tip for bridge swaps (same 200k floor the meme path uses). */

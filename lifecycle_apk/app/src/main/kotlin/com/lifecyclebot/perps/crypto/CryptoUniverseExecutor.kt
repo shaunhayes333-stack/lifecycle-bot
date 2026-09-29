@@ -277,7 +277,13 @@ object CryptoUniverseExecutor {
             // V5.0.7326 — fund from SOL, the currency sizing, floors and the
             // route proof are all in (USDC/USDT dust above $1 used to be chosen
             // first and produce partial fills booked at the full SOL cost).
-            UniversalBridgeEngine.prepareCapital(wallet, targetMint = mint, sizeUsd = sizeUsd, sourceMint = UniversalBridgeEngine.SOL_MINT)
+            UniversalBridgeEngine.prepareCapital(
+                wallet = wallet,
+                targetMint = mint,
+                sizeUsd = sizeUsd,
+                sourceMint = UniversalBridgeEngine.SOL_MINT,
+                prevalidatedQuote7444 = routeQuote,
+            )
         } catch (ce: CancellationException) {
             CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "cancelled: ${ce.message}")
             throw ce
