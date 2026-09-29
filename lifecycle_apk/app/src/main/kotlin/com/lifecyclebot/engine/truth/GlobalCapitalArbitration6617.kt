@@ -44,6 +44,19 @@ object GlobalCapitalArbitration6617 {
     private val laneLocalBypassAttempts = ConcurrentHashMap<String, AtomicLong>()
     private val totalRequests = AtomicLong(0L)
 
+    // V5.0.7458 — specialist proposal continuity. Multiple desks may propose
+    // the same mint independently, so the key is mint+lane, never mint alone.
+    data class SpecialistProposal7458(
+        val lane: String,
+        val specialistId: String,
+        val mint: String,
+        val proposedSol: Double,
+        val recordedAtMs: Long,
+    )
+    private val specialistProposals7458 = ConcurrentHashMap<String, SpecialistProposal7458>()
+    private fun specialistKey7458(lane: String, mint: String): String =
+        "${lane.trim().uppercase()}|${mint.trim()}"
+
     /**
      * Every lane's getBalance()/getEffectiveBalance() calls this instead
      * of returning a private wallet field. Paper mode always returns
@@ -81,13 +94,72 @@ object GlobalCapitalArbitration6617 {
         mint: String,
         proposedSol: Double,
     ) {
+        val laneKey = lane.trim().uppercase()
+        val mintKey = mint.trim()
+        if (laneKey.isBlank() || mintKey.isBlank() || !proposedSol.isFinite() || proposedSol < 0.0) {
+            try { PipelineHealthCollector.labelInc("SPECIALIST_PROPOSAL_INVALID_7458") } catch (_: Throwable) {}
+            return
+        }
+        specialistProposals7458[specialistKey7458(laneKey, mintKey)] = SpecialistProposal7458(
+            lane = laneKey,
+            specialistId = specialistId.ifBlank { laneKey },
+            mint = mintKey,
+            proposedSol = proposedSol,
+            recordedAtMs = System.currentTimeMillis(),
+        )
+        // Bound stale proposal memory; the proposal is only useful around the
+        // current candidate generation and never becomes economic authority.
+        if (specialistProposals7458.size > 12_000) {
+            val cutoff = System.currentTimeMillis() - 30L * 60_000L
+            specialistProposals7458.entries.removeIf { it.value.recordedAtMs < cutoff }
+        }
         try {
-            PipelineHealthCollector.labelInc("SPECIALIST_PROPOSAL_${lane.uppercase()}_6617")
+            PipelineHealthCollector.labelInc("SPECIALIST_PROPOSAL_${laneKey}_6617")
+            PipelineHealthCollector.labelInc("SPECIALIST_PROPOSAL_RECORDED_7458")
             if (specialistId.isNotBlank()) {
                 PipelineHealthCollector.labelInc("SPECIALIST_PROPOSAL_ID_${specialistId.uppercase()}_6617")
             }
         } catch (_: Throwable) {}
     }
+
+    /**
+     * Verify that the same specialist lane reaching canonical entry had a
+     * sizing proposal for this asset. Observation-only: absence/mismatch is
+     * forensic evidence, not a new trading gate.
+     */
+    fun verifySpecialistProposal7458(
+        lane: String,
+        specialistId: String,
+        mint: String,
+        dispatchedSol: Double,
+    ): Boolean {
+        val laneKey = lane.trim().uppercase()
+        val mintKey = mint.trim()
+        val p = specialistProposals7458[specialistKey7458(laneKey, mintKey)]
+        if (p == null) {
+            try {
+                PipelineHealthCollector.labelInc("SPECIALIST_PROPOSAL_MISSING_AT_DISPATCH_7458")
+                PipelineHealthCollector.labelInc("SPECIALIST_PROPOSAL_MISSING_AT_DISPATCH_7458_$laneKey")
+            } catch (_: Throwable) {}
+            return false
+        }
+        val sameSpecialist = specialistId.isBlank() || p.specialistId.equals(specialistId, true)
+        val saneSize = dispatchedSol.isFinite() && dispatchedSol >= 0.0
+        val ok = sameSpecialist && saneSize
+        try {
+            PipelineHealthCollector.labelInc(if (ok) "SPECIALIST_PROPOSAL_DISPATCH_MATCH_7458" else "SPECIALIST_PROPOSAL_DISPATCH_MISMATCH_7458")
+            if (!ok) {
+                ForensicLogger.lifecycle(
+                    "SPECIALIST_PROPOSAL_DISPATCH_MISMATCH_7458",
+                    "mint=${mintKey.take(12)} proposalLane=${p.lane} proposalSpecialist=${p.specialistId} dispatchLane=$laneKey dispatchSpecialist=$specialistId proposed=${p.proposedSol} dispatched=$dispatchedSol",
+                )
+            }
+        } catch (_: Throwable) {}
+        return ok
+    }
+
+    fun proposalFor7458(lane: String, mint: String): SpecialistProposal7458? =
+        specialistProposals7458[specialistKey7458(lane, mint)]
 
     /**
      * Any lane call site that must legacy-fallback to a private wallet
@@ -119,6 +191,6 @@ object GlobalCapitalArbitration6617 {
     }
 
     internal fun resetForTest() {
-        requests.clear(); laneLocalBypassAttempts.clear(); totalRequests.set(0L)
+        requests.clear(); laneLocalBypassAttempts.clear(); specialistProposals7458.clear(); totalRequests.set(0L)
     }
 }

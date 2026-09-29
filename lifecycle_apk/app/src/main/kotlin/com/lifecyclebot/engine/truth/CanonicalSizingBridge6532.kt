@@ -181,6 +181,19 @@ object CanonicalSizingBridge6532 {
             // min-promotion refusal therefore never fired once.
             mint = canonicalAssetId,
         )
+        // V5.0.7458 — bind the specialist capital proposal to the same
+        // canonical asset + lane that produced this resolution. Multiple
+        // specialist desks may legitimately propose the same mint.
+        if (assetClass == AssetClass.SOLANA_TOKEN && canonicalAssetId.isNotBlank()) {
+            try {
+                GlobalCapitalArbitration6617.recordSpecialistProposal6617(
+                    lane = laneName,
+                    specialistId = laneName,
+                    mint = canonicalAssetId,
+                    proposedSol = res.finalSizeSol,
+                )
+            } catch (_: Throwable) {}
+        }
         try {
             PipelineHealthCollector.labelInc(
                 "CANONICAL_SIZING_BRIDGE_6532|CLASS=${assetClass.tag}|LANE=$laneName|EXEC=${res.executable}"

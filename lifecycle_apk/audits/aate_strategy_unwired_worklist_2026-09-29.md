@@ -520,3 +520,11 @@ The exact-strategy table showed `complete=1/507`; the 506 incomplete rows are pr
 - [x] An unregistered LIVE ledger row may seed to PARTIAL only when the canonical row proves `PARTIALLY_CLOSED` with remaining quantity.
 - [x] CLOSING/CLOSED ledger states are never overwritten by a partial callback.
 - [x] Runtime proof counters: `POSITION_STATE_PARTIAL_PROJECTED_7457`, `POSITION_STATE_PARTIAL_APPLIED_7457`, `POSITION_STATE_PARTIAL_REFUSED_NO_CANONICAL_PROOF_7457`, `POSITION_STATE_PARTIAL_REFUSED_STATE_7457`.
+
+## V5.0.7458 — specialist capital proposal continuity
+
+- [x] `GlobalCapitalArbitration6617.recordSpecialistProposal6617()` moved from dead/test-only API into the canonical SOLANA specialist sizing bridge.
+- [x] Proposals are keyed by `mint + lane`, so multiple specialist desks can independently propose the same token without overwriting each other.
+- [x] `CanonicalEntryAuthority6551.submit()` verifies that the specialist lane being sealed into the execution intent has a proposal for that same asset.
+- [x] Verification is telemetry-only to expose silent lane swaps without creating a new throughput choke during convergence.
+- [x] Runtime proof: `SPECIALIST_PROPOSAL_RECORDED_7458`, `SPECIALIST_PROPOSAL_DISPATCH_MATCH_7458`, `SPECIALIST_PROPOSAL_MISSING_AT_DISPATCH_7458`, `SPECIALIST_PROPOSAL_DISPATCH_MISMATCH_7458`.

@@ -334,6 +334,22 @@ object CanonicalEntryAuthority6551 {
         if (!sizing.executable) return blocked(candidate, venue, "SIZE_NOT_EXECUTABLE:${sizing.reason}")
         CanonicalEntryAuthority6540.markSizedFor6551(candidate.assetClass, candidate.symbol)
 
+        // V5.0.7458 — continuity proof between specialist sizing and the
+        // canonical lane that is about to be sealed into the execution intent.
+        // Telemetry only: this must surface a silent lane swap without creating
+        // a new throughput choke while legacy paths are still being converged.
+        if (candidate.assetClass == AssetClass.SOLANA_TOKEN) {
+            val dispatchLane7458 = candidate.specialist.ifBlank { candidate.assetClass.tag }
+            try {
+                GlobalCapitalArbitration6617.verifySpecialistProposal7458(
+                    lane = dispatchLane7458,
+                    specialistId = dispatchLane7458,
+                    mint = candidate.assetId,
+                    dispatchedSol = sizing.finalSizeSol,
+                )
+            } catch (_: Throwable) {}
+        }
+
         val verdict = if (shaping.probe) "PROBE_ONLY" else "BUY"
         val sealedDecision6613 = ExecutionDecisionSnapshot6510.record(
             ExecutionDecisionSnapshot(
