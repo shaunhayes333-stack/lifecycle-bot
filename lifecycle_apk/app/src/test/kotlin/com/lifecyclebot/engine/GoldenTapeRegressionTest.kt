@@ -12574,4 +12574,16 @@ class GoldenTapeRegressionTest {
         assertFalse(executor.contains("val walletSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }"))
     }
 
+    @Test
+    fun V5_0_7436_signed_crypto_pending_blocks_resubmission_after_intent_expiry() {
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val start = alt.indexOf("private suspend fun executeLiveTradeAtSize(")
+        val guard = alt.indexOf("CRYPTO_PRIOR_SIGNED_BUY_RECONCILE_BEFORE_RETRY_7436", start)
+        val send = alt.indexOf("CryptoUniverseExecutor.executeLiveTrade(", start)
+        assertTrue(guard in (start + 1) until send)
+        assertTrue(alt.substring(start, send).contains("priorSigned7436.buySignature.isNullOrBlank()"))
+        assertTrue(alt.substring(start, send).contains("PRIOR_SIGNED_BUY_PENDING_WALLET_PROOF"))
+        assertTrue(alt.contains("HostWalletTokenTracker.recordBuyPending("))
+    }
+
 }

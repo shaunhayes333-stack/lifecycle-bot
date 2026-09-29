@@ -3722,6 +3722,29 @@ object CryptoAltTrader {
     ): LiveCryptoOpenResult7434 {
         // V5.0.7318 — null = opened; otherwise the exact reason it was not.
         return try {
+            // A prior signed transaction with unresolved owner-token proof is
+            // already wallet liability, even if canonical OPEN has no quantity
+            // yet. The tracker persists this signature across process restarts;
+            // the 10-minute entry-intent lease alone cannot prevent a second
+            // spend after expiry. Wait for explicit wallet reconciliation.
+            val pendingMint7436 = signal.dynMint?.takeIf { it.isNotBlank() }
+                ?: if (signal.market != PerpsMarket.DYN) try {
+                    com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(signal.marketSymbol)
+                } catch (_: Throwable) { null } else null
+            val priorSigned7436 = if (signal.dynChainId.isNullOrBlank() || signal.dynChainId.equals("solana", true))
+                pendingMint7436?.let { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(it) }
+            else null
+            if (priorSigned7436 != null && !priorSigned7436.buySignature.isNullOrBlank() &&
+                priorSigned7436.status in setOf(
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.BUY_PENDING,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CONFIRMED_PENDING_BALANCE,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.BUY_CONFIRMED,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.HELD_IN_WALLET,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.OPEN_TRACKING,
+                )) {
+                try { PipelineHealthCollector.labelInc("CRYPTO_PRIOR_SIGNED_BUY_RECONCILE_BEFORE_RETRY_7436") } catch (_: Throwable) {}
+                return LiveCryptoOpenResult7434.Failed("PRIOR_SIGNED_BUY_PENDING_WALLET_PROOF")
+            }
             val wallet = WalletManager.getWallet()
                 ?: run { ErrorLogger.warn(TAG, "No wallet — cannot execute LIVE alt trade"); return LiveCryptoOpenResult7434.Failed("NO_WALLET") }
 
