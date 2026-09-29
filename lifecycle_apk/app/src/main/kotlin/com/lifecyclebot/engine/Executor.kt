@@ -9431,7 +9431,7 @@ class Executor(
             if (p7388.peakGainPct >= PeakDrawdownLock.ARM_THRESHOLD_PCT || p7388.partialSoldPct > 0.0 ||
                 p7388.capitalRecovered || p7388.profitLocked || p7388.isHouseMoney) return@run
             val pressure7388 = try {
-                com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.pressureLevel() >=
+                com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.pressureLevel(if (ts.position.isPaperPosition) "PAPER" else "LIVE") >=
                     com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.Pressure.HIGH
             } catch (_: Throwable) { false }
             // V5.0.7392 — one window for every lane. Runner lanes waited 30 min

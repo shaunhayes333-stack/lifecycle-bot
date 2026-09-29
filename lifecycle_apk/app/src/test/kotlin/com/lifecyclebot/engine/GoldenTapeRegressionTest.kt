@@ -12487,4 +12487,21 @@ class GoldenTapeRegressionTest {
         val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
         assertTrue(fan.contains("JupiterApi(\"\", observationOnly7397 = true)"))
     }
+    @Test
+    fun V5_0_7432_live_inventory_pressure_cannot_consume_paper_union() {
+        val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/InventoryPressureGovernor6829.kt").readText()
+        val canonical = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val size = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(gov.contains("open.count { it.mode.equals(m, true) }"))
+        assertTrue(gov.contains("require(m == \"LIVE\" || m == \"PAPER\")"))
+        assertFalse(canonical.contains("InventoryPressureGovernor6829.setOpenPositions(n)"))
+        assertTrue(fdg.contains("InventoryPressureGovernor6829.blockNewIntake(mode.name)"))
+        assertTrue(fdg.contains("InventoryPressureGovernor6829.scoreFloorDelta(mode.name)"))
+        assertTrue(fdg.contains("FDG_INVENTORY_PRESSURE_FALSE_PAPER_CONTAMINATION_PREVENTED_7432"))
+        assertTrue(size.contains("InventoryPressureGovernor6829.intakeMultiplier(if (paperMode) \"PAPER\" else \"LIVE\")"))
+        assertTrue(exec.contains("InventoryPressureGovernor6829.pressureLevel(if (ts.position.isPaperPosition) \"PAPER\" else \"LIVE\")"))
+    }
+
 }

@@ -889,10 +889,8 @@ object CanonicalPositionAuthority6441 {
             .toSet()
     fun openCount(): Int {
         val n = openPositions().size
-        // V5.0.6829 §INVENTORY_PRESSURE — feed the governor on every read
-        //   of the canonical open count so intake gates always see fresh
-        //   pressure telemetry. Fail-silent.
-        try { InventoryPressureGovernor6829.setOpenPositions(n) } catch (_: Throwable) {}
+        // V5.0.7432: this is an all-mode forensic count, not an admission
+        // pressure feed. LIVE/PAPER pressure reads canonical mode-local lots.
         return n
     }
     /** V5.0.6743 — dedicated counter for the strict valuation surface. */
@@ -1624,7 +1622,9 @@ object CanonicalPositionAuthority6441 {
         val cash = paperCashSol.get()
         val classification = classifyLifecycles()
         val breakdown = classification.byLifecycle.entries.joinToString(",") { "${it.key}=${it.value}" }
-        return "positions=${positions.size} open=$open closed=$closed paperCashSol=${"%.5f".format(cash)} " +
+        val liveOpen = openPositions().count { it.mode.equals("LIVE", true) }
+        val paperOpen = openPositions().count { it.mode.equals("PAPER", true) }
+        return "positions=${positions.size} allModeForensicOpen=$open liveCanonicalOpen=$liveOpen paperCanonicalOpen=$paperOpen closed=$closed paperCashSol=${"%.5f".format(cash)} " +
             "muts=${muts.get()} dups=${duplicates.get()} invViol=${invariantViolations.get()} quarantines=${quarantines.get()} " +
             "sumCheck(total=${classification.total} classified=${classification.byLifecycle.values.sum()} " +
             "unaccounted=${classification.unaccounted} $breakdown)"

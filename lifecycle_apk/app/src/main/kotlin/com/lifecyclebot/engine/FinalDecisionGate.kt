@@ -1788,9 +1788,11 @@ object FinalDecisionGate {
                 com.lifecyclebot.engine.truth.SelectionQualityAuthority6829
                     .scoreFloorDelta(laneKeyForFloor6830)
             } catch (_: Throwable) { 0.0 }
-            val pressureDelta6830 = try {
-                com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.scoreFloorDelta()
-            } catch (_: Throwable) { 0.0 }
+            val pressureDelta6830 =
+                com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.scoreFloorDelta(mode.name)
+            if (mode == TradeMode.LIVE) try {
+                PipelineHealthCollector.labelInc("FDG_INVENTORY_PRESSURE_EVAL_7432")
+            } catch (_: Throwable) {}
             // V5.0.6838 §LEARNED_EXPECTANCY_MUST_GATE_ADMISSION — third term: the
             // lane's own realised terminal expectancy. LaneExpectancyDamper had only
             // a sizeMultiplier() API, so its conclusion could shrink a ticket but
@@ -1841,7 +1843,7 @@ object FinalDecisionGate {
                     "heat=${"%.2f".format(com.lifecyclebot.v4.meta.PortfolioHeatAI.getPortfolioHeat())} " +
                     "laneMult=${"%.2f".format(com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneKeyForFloor6830))} " +
                     "wr=${"%.1f".format(com.lifecyclebot.engine.truth.SelectionQualityAuthority6829.rollingWr(laneKeyForFloor6830))} " +
-                    "open=${com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions()}"
+                    "open=${com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions(mode.name)}"
                 blockLevel = BlockLevel.CONFIDENCE
                 tags.add("selection_quality_floor_6830")
                 checks.add(GateCheck("selection_quality_floor_6830", false,
@@ -1858,12 +1860,26 @@ object FinalDecisionGate {
             //   Recoverable: this is CONFIDENCE-level, so as soon as
             //   positions start closing the block clears automatically.
             if (blockReason == null) {
-                val hardBlock6830 = try {
-                    com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.blockNewIntake()
-                } catch (_: Throwable) { false }
+                val liveOpen7432 = com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions(mode.name)
+                val hardBlock6830 =
+                    com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.blockNewIntake(mode.name)
+                if (mode == TradeMode.LIVE && liveOpen7432 == 0) try {
+                    val paperOpen7432 = com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions("PAPER")
+                    if (paperOpen7432 > 0) PipelineHealthCollector.labelInc("FDG_INVENTORY_PRESSURE_FALSE_PAPER_CONTAMINATION_PREVENTED_7432")
+                } catch (_: Throwable) {}
                 if (hardBlock6830 && !canBypassConfidenceFloors) {
+                    if (mode == TradeMode.LIVE) try {
+                        PipelineHealthCollector.labelInc("FDG_INVENTORY_PRESSURE_TRUE_BLOCK_7432")
+                        val paperOpen7432 = com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions("PAPER")
+                        ForensicLogger.lifecycle("FDG_INVENTORY_PRESSURE_TRUE_BLOCK_7432",
+                            "canonicalLiveOpen=$liveOpen7432 canonicalPaperOpen=$paperOpen7432 " +
+                            "allModeOpen=${liveOpen7432 + paperOpen7432} consumerName=FinalDecisionGate " +
+                            "consumerObservedOpen=$liveOpen7432 authoritySource=CanonicalPositionAuthority/LIVE " +
+                            "candidateRequestedSol=$proposedSizeSol candidateExecutableSol=not_sized_yet " +
+                            "livePending=unavailable liveClosing=unavailable liveWalletSol=unavailable liveExposureSol=unavailable")
+                    } catch (_: Throwable) {}
                     blockReason = "INVENTORY_PRESSURE_CRITICAL_6830 " +
-                        "open=${com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions()} " +
+                        "mode=${mode.name} canonicalOpen=$liveOpen7432 " +
                         "pressure=CRITICAL action=defer_new_intake_until_exit_recycles"
                     blockLevel = BlockLevel.CONFIDENCE
                     tags.add("inventory_pressure_critical_6830")

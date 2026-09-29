@@ -2,7 +2,6 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -14,11 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
  *    imbalance — gross execution rate excessive yet individual candidates
  *    throttled because inventory isn't recycling fast enough."
  *
- * DESIGN — read the current open-position count and expose a
- * PRESSURE_LEVEL that consumers use to tighten intake, without
- * hard-choking any single lane.
- *   • setOpenPositions(n) called from the position authority on any
- *     open/close event.
+ * DESIGN — read canonical mode-local open positions at each pressure
+ * decision. Forensic all-mode counts must never become LIVE pressure.
  *   • pressureLevel(): 0..3 (NONE / MILD / HIGH / CRITICAL)
  *   • intakeMultiplier(): size damper 1.0 down to 0.20 as pressure rises
  *   • scoreFloorDelta(): +0 / +3 / +7 / +12 as pressure rises
@@ -45,20 +41,30 @@ object InventoryPressureGovernor6829 {
 
     enum class Pressure { NONE, MILD, HIGH, CRITICAL, EXCEPTIONAL_6833 }
 
-    private val openPositions = AtomicInteger(0)
-    private val updates = AtomicLong(0L)
     private val queries = AtomicLong(0L)
 
-    fun setOpenPositions(n: Int) {
-        openPositions.set(n.coerceAtLeast(0))
-        updates.incrementAndGet()
+    // V5.0.7432: pressure is admission authority, never a cached all-mode
+    // projection. A status-line read of the forensic union must not change it.
+    fun openPositions(mode: String): Int {
+        val m = mode.trim().uppercase()
+        require(m == "LIVE" || m == "PAPER") { "INVENTORY_MODE_REQUIRED_7432 mode=$mode" }
+        val open = CanonicalPositionAuthority6441.openPositions()
+        val n = open.count { it.mode.equals(m, true) }
+        queries.incrementAndGet()
+        if (m == "LIVE") try {
+            PipelineHealthCollector.labelInc("LIVE_INVENTORY_AUTH_READ_7432")
+            PipelineHealthCollector.labelInc("LIVE_INVENTORY_PRESSURE_SOURCE_7432")
+            if (open.size > n) {
+                PipelineHealthCollector.labelInc("LIVE_INVENTORY_PAPER_ROWS_EXCLUDED_7432")
+                PipelineHealthCollector.labelInc("LIVE_INVENTORY_ALLMODE_AUTHORITY_REFUSED_7432")
+                PipelineHealthCollector.labelInc("LIVE_INVENTORY_AUTH_DIVERGENCE_7432")
+            }
+        } catch (_: Throwable) {}
+        return n
     }
 
-    fun openPositions(): Int = openPositions.get()
-
-    fun pressureLevel(): Pressure {
-        queries.incrementAndGet()
-        val n = openPositions.get()
+    fun pressureLevel(mode: String): Pressure {
+        val n = openPositions(mode)
         return when {
             n >= EXCEPT_OPEN_6833 -> Pressure.EXCEPTIONAL_6833
             n >= CRIT_OPEN -> Pressure.CRITICAL
@@ -68,8 +74,8 @@ object InventoryPressureGovernor6829 {
         }
     }
 
-    fun intakeMultiplier(): Double {
-        val p = pressureLevel()
+    fun intakeMultiplier(mode: String): Double {
+        val p = pressureLevel(mode)
         return when (p) {
             Pressure.NONE -> 1.0
             Pressure.MILD -> 0.75              // 35: begin throttle
@@ -86,8 +92,8 @@ object InventoryPressureGovernor6829 {
         }
     }
 
-    fun scoreFloorDelta(): Double {
-        val p = pressureLevel()
+    fun scoreFloorDelta(mode: String): Double {
+        val p = pressureLevel(mode)
         return when (p) {
             Pressure.NONE -> 0.0
             Pressure.MILD -> 3.0
@@ -97,8 +103,8 @@ object InventoryPressureGovernor6829 {
         }
     }
 
-    fun blockNewIntake(): Boolean {
-        val p = pressureLevel()
+    fun blockNewIntake(mode: String): Boolean {
+        val p = pressureLevel(mode)
         // V5.0.6833 §STAIRCASE — hard block only lifted to EXCEPTIONAL
         // tier (>=70 opens). CRITICAL (>=55) is HIGH_EDGE-only, so it
         // remains an admission filter, not an intake block. The
@@ -111,7 +117,7 @@ object InventoryPressureGovernor6829 {
                 PipelineHealthCollector.labelInc("INVENTORY_PRESSURE_INTAKE_BLOCKED_6829")
                 ForensicLogger.lifecycle(
                     "INVENTORY_PRESSURE_INTAKE_BLOCKED_6829",
-                    "openPositions=${openPositions.get()} threshold=$EXCEPT_OPEN_6833 " +
+                    "mode=$mode openPositions=${openPositions(mode)} threshold=$EXCEPT_OPEN_6833 " +
                         "action=defer_new_intake_until_exit_recycles_capital",
                 )
             } catch (_: Throwable) {}
@@ -121,12 +127,9 @@ object InventoryPressureGovernor6829 {
     }
 
     fun statusLine(): String =
-        "openPositions=${openPositions.get()} pressure=${pressureLevel()} " +
-            "intakeMult=${"%.2f".format(intakeMultiplier())} " +
-            "scoreFloorDelta=${"%.1f".format(scoreFloorDelta())} " +
-            "updates=${updates.get()} queries=${queries.get()}"
+        "liveCanonicalOpen=${openPositions("LIVE")} paperCanonicalOpen=${openPositions("PAPER")} " +
+            "livePressure=${pressureLevel("LIVE")} paperPressure=${pressureLevel("PAPER")} " +
+            "queries=${queries.get()}"
 
-    internal fun clearForTest() {
-        openPositions.set(0); updates.set(0L); queries.set(0L)
-    }
+    internal fun clearForTest() { queries.set(0L) }
 }

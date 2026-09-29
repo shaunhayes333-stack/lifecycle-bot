@@ -282,12 +282,12 @@ object OrderSizeResolver6441 {
             com.lifecyclebot.engine.AdaptiveLaneReproof6684.sizeMultiplierForLane(laneName)
         } catch (_: Throwable) { 1.0 }
         // V5.0.6830 §INVENTORY_PRESSURE_DAMPER — operator directive: consume
-        //   InventoryPressureGovernor6829.intakeMultiplier() so 25+/40+/55+
+        //   InventoryPressureGovernor6829.intakeMultiplier(if (paperMode) "PAPER" else "LIVE") so 25+/40+/55+
         //   open positions actually shrink new intake sizes (1.00/0.75/0.50/
         //   0.20). At the base NONE pressure the multiplier is 1.0 and this
         //   term is neutral.
         val pressureMult6830 = try {
-            com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.intakeMultiplier()
+            com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.intakeMultiplier(if (paperMode) "PAPER" else "LIVE")
         } catch (_: Throwable) { 1.0 }
         // V5.0.6833 §EDGE_CAPACITY_REDISTRIBUTION — per-lane multiplier that
         // shifts capital toward QUALITY/CORE/PROJECT_SNIPER while keeping
