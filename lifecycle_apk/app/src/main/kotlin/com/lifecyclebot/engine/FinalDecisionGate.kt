@@ -3296,7 +3296,7 @@ object FinalDecisionGate {
             val decentScore7431 = effectiveGateScore6025 >= minScore7431
 
             val early7431 = try {
-                com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.evaluateForLiveBuy(
+                com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.evaluateForCanonicalEntry(
                     mint = ts.mint, liveScore = effectiveGateScore6025,
                     liquidityUsd = ts.lastLiquidityUsd, sameMintAlreadyOpen = false,
                     reentryLockout = false,
@@ -3304,8 +3304,7 @@ object FinalDecisionGate {
             } catch (_: Throwable) {
                 com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.Decision(false, 0.0, "BYPASS_EVAL_FAILED")
             }
-            val smartMoneyEarly7431 = early7431.allow &&
-                early7431.reason.contains("EARLY_LAUNCH_MICRO_PROBE")
+            val smartMoneyEarly7431 = early7431.allow
 
             if (strongBuyers7431 || goodLiquidity7431 || decentScore7431 || smartMoneyEarly7431) {
                 val why7431 = when {
