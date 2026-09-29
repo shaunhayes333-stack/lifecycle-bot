@@ -159,6 +159,15 @@ class CopyTradeEngine(
         }
         val signal = CopySignal(mint, buyerWallet, tracked.label, solAmount, now)
         recentSignals.addFirst(signal)
+        // V5.0.7431 — feed the canonical early-launch smart-money evidence
+        // sink from the real tracked-wallet BUY event. Previously the sink had
+        // test-only writers, so EarlyLaunchBypass6396 could never observe the
+        // 2+ wallet cluster it was built to use. Evidence only: execution still
+        // goes through the normal candidate -> safety -> V3 -> FDG spine.
+        try {
+            com.lifecyclebot.engine.truth.SmartMoneyFeed6394.onWhaleBuy(mint, buyerWallet, now)
+            PipelineHealthCollector.labelInc("SMART_MONEY_FEED_BUY_WRITTEN_7431")
+        } catch (_: Throwable) {}
         if (recentSignals.size > 20) recentSignals.removeLast()
         try {
             onLog("📋 Copy signal: ${tracked.label} (${tracked.shortAddr}) bought ${"%.3f".format(solAmount)}◎ of ${mint.take(8)}…")
