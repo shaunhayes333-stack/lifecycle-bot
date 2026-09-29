@@ -12549,4 +12549,17 @@ class GoldenTapeRegressionTest {
         assertFalse(a.contains("EXEC_FAILED:" + '$' + "{outcome.reason.take(120)}"))
     }
 
+    @Test
+    fun V5_0_7434_crypto_signed_pending_never_promotes_to_open_or_zero_balance_refusal() {
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(alt.contains("private sealed class LiveCryptoOpenResult7434"))
+        assertTrue(alt.contains("LiveCryptoOpenResult7434.Pending(outcome.txSig, outcome.mint, outcome.proofState)"))
+        val pending = alt.indexOf("if (liveResult7434 is LiveCryptoOpenResult7434.Pending)")
+        val confirmed = alt.indexOf("CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)", pending)
+        assertTrue(pending > 0 && confirmed > pending)
+        assertTrue(alt.substring(pending, confirmed).contains("return // Canonical dispatch remains pending, never an OPEN claim."))
+        assertTrue(alt.contains("CRYPTO_WALLET_BALANCE_UNAVAILABLE_7434"))
+        assertFalse(alt.contains("val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }"))
+    }
+
 }

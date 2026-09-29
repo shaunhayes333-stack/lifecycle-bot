@@ -3542,7 +3542,7 @@ object CryptoAltTrader {
             // because MarketsLiveExecutor only returns success after the
             // target mint actually arrived on-chain).
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
-            val liveFail7318 = try {
+            val liveResult7434 = try {
                 executeLiveTradeAtSize(position.id, signal, isSpot, canonicalFinalSize6570)
             } catch (t: Throwable) {
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(
@@ -3553,6 +3553,22 @@ object CryptoAltTrader {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 return
             }
+            if (liveResult7434 is LiveCryptoOpenResult7434.Pending) {
+                // Do not markConfirmed, create a synthetic CryptoAlt position, or
+                // learn from a signature without confirmed target-token quantity.
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_SIGNED_VERIFY_PENDING_NO_OPEN_7434")
+                    ForensicLogger.lifecycle("CRYPTO_SIGNED_VERIFY_PENDING_NO_OPEN_7434",
+                        "positionId=${position.id} attemptId=${canonicalCryptoIntent6565.attemptId} " +
+                        "mint=${liveResult7434.mint} txSig=${liveResult7434.signature} proof=${liveResult7434.proofState}")
+                    com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(
+                        liveResult7434.mint, liveResult7434.signature)
+                    com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(
+                        WalletManager.getWallet(), "CRYPTO_SIGNED_VERIFY_PENDING_7434")
+                } catch (_: Throwable) {}
+                return // Canonical dispatch remains pending, never an OPEN claim.
+            }
+            val liveFail7318 = (liveResult7434 as? LiveCryptoOpenResult7434.Failed)?.reason
             if (liveFail7318 != null) {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded: $liveFail7318")
                 // V5.0.7318 — the funnel read dispatch=33 open=0 with every
@@ -3688,24 +3704,39 @@ object CryptoAltTrader {
      * swap succeeded AND the post-swap phantom verification confirmed
      * the target mint arrived on-chain.
      */
+    // Signed-but-unverified is not OPEN and not a failed order. Keep three
+    // distinct outcomes until the canonical wallet and lot authority agree.
+    private sealed class LiveCryptoOpenResult7434 {
+        data object Opened : LiveCryptoOpenResult7434()
+        data class Pending(val signature: String, val mint: String, val proofState: String) : LiveCryptoOpenResult7434()
+        data class Failed(val reason: String) : LiveCryptoOpenResult7434()
+    }
+
     private suspend fun executeLiveTradeAtSize(
         positionId: String,
         signal: AltSignal,
         isSpot: Boolean,
         sizeSol: Double,
-    ): String? {
+    ): LiveCryptoOpenResult7434 {
         // V5.0.7318 — null = opened; otherwise the exact reason it was not.
         return try {
             val wallet = WalletManager.getWallet()
-                ?: run { ErrorLogger.warn(TAG, "No wallet — cannot execute LIVE alt trade"); return "NO_WALLET" }
+                ?: run { ErrorLogger.warn(TAG, "No wallet — cannot execute LIVE alt trade"); return LiveCryptoOpenResult7434.Failed("NO_WALLET") }
 
-            val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+            val balance = try { wallet.getSolBalance() } catch (e: Exception) {
+                try { PipelineHealthCollector.labelInc("CRYPTO_WALLET_BALANCE_UNAVAILABLE_7434") } catch (_: Throwable) {}
+                return LiveCryptoOpenResult7434.Failed("WALLET_BALANCE_UNAVAILABLE:${e.javaClass.simpleName}")
+            }
+            if (!balance.isFinite() || balance < 0.0) {
+                try { PipelineHealthCollector.labelInc("CRYPTO_WALLET_BALANCE_UNAVAILABLE_7434") } catch (_: Throwable) {}
+                return LiveCryptoOpenResult7434.Failed("WALLET_BALANCE_UNAVAILABLE:INVALID_NUMBER")
+            }
             if (balance > 0) updateLiveBalance(balance)
             val floor = 0.01
             if (balance < floor || sizeSol < floor) {
                 ErrorLogger.warn(TAG, "🪙 ⛔ Live floor: bal=${"%.4f".format(balance)} size=${"%.4f".format(sizeSol)} — skip ${signal.market.symbol}")
                 LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FLOOR_SKIPPED)
-                return if (balance < floor) "WALLET_BELOW_FLOOR" else "SIZE_BELOW_FLOOR"
+                return LiveCryptoOpenResult7434.Failed(if (balance < floor) "WALLET_BELOW_FLOOR" else "SIZE_BELOW_FLOOR")
             }
 
             ErrorLogger.info(
@@ -3740,7 +3771,7 @@ object CryptoAltTrader {
                     } catch (_: Throwable) {}
                     ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.marketSymbol} tx=${outcome.txSig ?: "ok"}")
                     try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
-                    null
+                    LiveCryptoOpenResult7434.Opened
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.VerifyPending -> {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TERMINAL_7432_VERIFY_PENDING") } catch (_: Throwable) {}
@@ -3749,7 +3780,7 @@ object CryptoAltTrader {
                     // not a failure and not eligible for duplicate resubmission.
                     ErrorLogger.info(TAG,
                         "🪙 VERIFY PENDING: ${signal.marketSymbol} tx=${outcome.txSig.take(16)} proof=${outcome.proofState}")
-                    null
+                    LiveCryptoOpenResult7434.Pending(outcome.txSig, outcome.mint, outcome.proofState)
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.RouteDeferred -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.ROUTE_DEFERRED)
@@ -3762,7 +3793,7 @@ object CryptoAltTrader {
                     ErrorLogger.info(TAG,
                         "🪙 ROUTE DEFERRED: ${signal.marketSymbol} → ${outcome.resolution.route} " +
                         "[${outcome.resolution.diagCode}] ${outcome.resolution.humanMessage}")
-                    "ROUTE_DEFERRED_${outcome.resolution.diagCode}:${outcome.resolution.humanMessage.take(100)}"
+                    LiveCryptoOpenResult7434.Failed("ROUTE_DEFERRED_${outcome.resolution.diagCode}:${outcome.resolution.humanMessage.take(100)}")
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.ExecFailed -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FAILED)
@@ -3777,7 +3808,7 @@ object CryptoAltTrader {
                     } catch (_: Throwable) {}
                     ErrorLogger.warn(TAG,
                         "🪙 Live exec FAILED for ${signal.marketSymbol}: ${outcome.code7432}/${outcome.stage7432} ${outcome.reason}")
-                    "${outcome.code7432}:${outcome.stage7432}:${outcome.reason.take(120)}"
+                    LiveCryptoOpenResult7434.Failed("${outcome.code7432}:${outcome.stage7432}:${outcome.reason.take(120)}")
                 }
             }
         } catch (e: Exception) {
@@ -3789,7 +3820,7 @@ object CryptoAltTrader {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_DISPATCH_TERMINAL_7432",
                     "positionId=$positionId stage=CRYPTO_ALT code=UNKNOWN_EXCEPTION exceptionClass=${e.javaClass.simpleName} detail=${e.message?.take(180)}")
             } catch (_: Throwable) {}
-            "UNKNOWN_EXCEPTION:CRYPTO_ALT:${e.javaClass.simpleName}"
+            LiveCryptoOpenResult7434.Failed("UNKNOWN_EXCEPTION:CRYPTO_ALT:${e.javaClass.simpleName}")
         }
     }
 
