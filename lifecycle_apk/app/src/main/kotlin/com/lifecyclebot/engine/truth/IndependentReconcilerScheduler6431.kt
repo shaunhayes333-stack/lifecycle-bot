@@ -70,6 +70,16 @@ object IndependentReconcilerScheduler6431 {
                 try {
                     fullReconcileCallback()
                 } catch (_: Throwable) {}
+                // V5.0.7459 — bounded finality projection repair belongs on
+                // the independent reconciliation clock, never the bot loop.
+                try {
+                    val n7459 = FinalizedLearningReconciler7423
+                        .repairDurableBusPublishFailures7459(limit = 8)
+                    if (n7459 > 0) {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("FINALIZED_BUS_REPAIR_BATCH_7459")
+                    }
+                } catch (_: Throwable) {}
                 delay(FULL_CADENCE_MS)
             }
         }

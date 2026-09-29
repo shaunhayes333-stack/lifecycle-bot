@@ -83,6 +83,14 @@ object CanonicalFinalityPersistence6486 {
             ?.map { it.key.removePrefix(prefix) }?.toSet() ?: emptySet()
     }
 
+    /** V5.0.7459 — exact durable rich finality lookup for repairing only the
+     * missing 6450→6464 projection. No synthesis occurs here. */
+    fun durableEventForPosition7459(positionId: String): CanonicalTradeFinalizedBus6450.Event? {
+        if (positionId.isBlank()) return null
+        val raw = prefs?.getString(PREFIX + positionId, null) ?: return null
+        return decode(raw)
+    }
+
     private fun encode(e: CanonicalTradeFinalizedBus6450.Event): String = JSONObject().apply {
         put("positionId", e.positionId); put("mint", e.mint); put("outcome", e.outcome.name)
         put("netRealizedPnlSol", e.netRealizedPnlSol); put("grossRealizedPnlSol", e.grossRealizedPnlSol)
