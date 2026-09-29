@@ -74,6 +74,29 @@ Do not wire every module directly into FDG. Decision inputs must converge throug
 - `TradingCopilot.convictionBoost` — **PARTIAL/OVERLAP_REVIEW**; Copilot sizing/confidence state already exists, so this isolated positive boost must not be stacked until its overlap is proven non-duplicative.
 - `OrthogonalSignals.calculateAgePatternScore` — **OVERLAP_REVIEW**; launch age is already canonical under `LaunchPhaseAuthority7401`, so a second independent age score risks double-counting.
 
+## V5.0.7431 completed — exact playbook EV closes the selection loop
+
+- [x] `ExactStrategyPerformance7429` maintains a variant-agnostic exact-playbook EV index keyed by mode/lane/tradeType/setup/style/tactic.
+- [x] Admission lookup is O(1); no strategy-table scan, DB read, provider call, or LLM call is added to the hot path.
+- [x] Exact playbook evidence is sample-gated (PAPER n>=3, LIVE n>=3; LIVE PAPER-seed n>=5).
+- [x] LIVE prefers its own exact playbook outcomes; PAPER seed is capped to a small effective sample so simulated history cannot overwhelm real-money evidence.
+- [x] Exact playbook EV participates as a hierarchical `PredictiveEntryOracle6915.Level`, not as a new hard gate.
+- [x] `ExecutableOpenGate` carries the same canonical ModeRouter/Toolkit/AgenticStyle taxonomy into learned admission.
+- [x] Exact playbook EV index persists across process restarts, allowing deployment-quality PAPER evidence to survive into a later LIVE run.
+- [x] Duplicate SourceTiming oracle vote removed: timing remains represented once through ScoreCard's production timing-aware source score.
+- [x] Regression coverage: `Aate7431ExactStrategyEvAdmissionTest`.
+
+### Additional A_PREDICT classifications
+
+- `BotBrain.getBlendedWinRate` — **UNWIRED_INSTANCE_API / DESIGN_REVIEW**. `BotBrain` is an instantiated engine; there is no canonical singleton read for the static oracle. Do not create a second brain instance just to consume this accessor.
+- `CoinGeckoTrending.getSolanaEcosystemMomentum` — **BACKGROUND_CACHE_REQUIRED**. Calling it can refresh CoinGecko over HTTP; never invoke it synchronously from admission.
+- `CrossAssetLeadLagAI.getRotationProbability` — **ALIAS_REDUNDANT_FOR_MEME_ENTRY**. Lead/lag already reaches the meme stack through CrossTalk/SymbolicContext and is consumed in exit reasoning; adding this accessor to the oracle would double-count the same rotation state.
+- `EdgeOptimizer.calculateWeightedScores` — **LEGACY/OVERLAP_REVIEW**. It is a second weighted entry/exit score formulation beside the canonical V3/UnifiedScorer/FDG stack. Do not wire it as an additional score until one authority is selected.
+- `SymbolicContext.getAllSignals` — **UTILITY_ALIAS**. Individual symbolic signals and composite risk/confidence/health/edge are already consumed; the bulk-map getter is not an independent intelligence source.
+- `QuantMetrics.calculateWinRateStats` — **REPORT/ANALYTICS API**. The same locked calculation is already consumed by `generateReport`; not an entry-time primitive.
+- `TradeLessonRecorder.getWinRateForLane` — **INTERNAL_ANALYTICS_HELPER**. The lesson corpus and StrategyTrust/CrossTalk paths already consume trade lessons; this generic map accessor is not itself a missing strategy.
+- `BlueChipTraderAI.getStockTrustScore` — **ASSET-SPECIFIC PARTIAL**. It is trained by stock/perps learning but not relevant to meme admission; audit with tokenized-stock strategy, not the meme hot path.
+
 ## Priority findings from the strategy audit
 
 ### P0 — Preserve exact strategy identity through the full trade lifecycle
