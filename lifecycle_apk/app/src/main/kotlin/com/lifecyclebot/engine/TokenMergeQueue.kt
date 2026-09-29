@@ -128,6 +128,7 @@ object TokenMergeQueue {
         toolAffinity: Set<String> = emptySet(),
     ) {
         val now = System.currentTimeMillis()
+        try { com.lifecyclebot.engine.truth.AlphaLatencyTruth7451.markIntake(mint, now) } catch (_: Throwable) {}
         val inferredLaneAffinity = (laneAffinity + inferLaneAffinity(scanner, marketCapUsd, liquidityUsd)).map { it.uppercase() }.toSet()
         val inferredToolAffinity = (toolAffinity + inferToolAffinity(scanner, marketCapUsd, liquidityUsd)).map { it.uppercase() }.toSet()
         totalDiscoveries.incrementAndGet()

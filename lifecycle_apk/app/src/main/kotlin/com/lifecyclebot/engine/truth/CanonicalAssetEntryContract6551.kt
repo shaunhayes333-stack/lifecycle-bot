@@ -91,6 +91,7 @@ object CanonicalEntryAuthority6551 {
 
     fun submit(candidate: CanonicalAssetEntryCandidate6551): CanonicalAssetEntryResult6551 {
         expirePending6554()
+        try { AlphaLatencyTruth7451.markSubmit(candidate.assetId) } catch (_: Throwable) {}
         val venue = candidate.requestedVenue.ifBlank { candidate.assetClass.tag }
         CanonicalEntryAuthority6540.markCandidateFor6551(candidate.assetClass, candidate.symbol, venue)
         CanonicalEntryAuthority6540.markSubmitFor6551(candidate.assetClass, candidate.symbol, candidate.source)
@@ -411,6 +412,7 @@ object CanonicalEntryAuthority6551 {
         pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}")
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_CONFIRMED_RELEASE") } catch (_: Throwable) {}
         dispatchedAttempts6569.remove(intent.attemptId)
+        try { AlphaLatencyTruth7451.markConfirmed(intent.mint) } catch (_: Throwable) {}
         CanonicalEntryAuthority6540.markOpenConfirmedFor6551(intentAssetClass6569(intent), intent.symbol, positionId)
     }
 

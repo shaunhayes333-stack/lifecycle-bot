@@ -803,6 +803,7 @@ object FinalDecisionGate {
         // was permanently 0 because no call site emitted the phase
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.AlphaLatencyTruth7451.markFdg(ts.mint) } catch (_: Throwable) {}
         // V5.0.7232 §FDG_FANOUT_CAP — operator 7227 diagnosis:
         //   laneEval/intake = 29.51,  FDG/intake = 10.86.
         //   Authority invariants clean (EXECUTABLE_FANOUT_PER_CANDIDATE

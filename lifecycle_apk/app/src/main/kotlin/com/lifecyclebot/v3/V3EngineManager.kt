@@ -472,11 +472,28 @@ object V3EngineManager {
             )
 
 
+            val opsNow7451 = System.currentTimeMillis()
+            val measuredLatency7451 = try {
+                com.lifecyclebot.engine.truth.AlphaLatencyTruth7451.operationalLatencyMs(
+                    ts.mint, ts.lastPriceUpdate, opsNow7451,
+                )
+            } catch (_: Throwable) {
+                if (ts.lastPriceUpdate > 0L) (opsNow7451 - ts.lastPriceUpdate).coerceAtLeast(0L) else 10_000L
+            }
+            val feedHealthy7451 = try {
+                com.lifecyclebot.engine.truth.AlphaLatencyTruth7451.feedHealthy(ts.lastPriceUpdate, opsNow7451)
+            } catch (_: Throwable) { false }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (feedHealthy7451) "V3_FEED_FRESH_7451" else "V3_FEED_STALE_7451"
+                )
+            } catch (_: Throwable) {}
+
             val opsMetrics = OpsMetrics(
                 apiHealthy = !isAIDegraded,
-                feedsHealthy = true,
+                feedsHealthy = feedHealthy7451,
                 walletHealthy = walletSol > 0.0 || currentBotConfig.paperMode,
-                latencyMs = 100
+                latencyMs = measuredLatency7451,
             )
 
             val localOrchestrator = orchestrator ?: return V3Decision.notReady("V3 orchestrator missing")
