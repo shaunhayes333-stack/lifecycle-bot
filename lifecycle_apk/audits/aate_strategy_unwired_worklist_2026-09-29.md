@@ -924,3 +924,12 @@ Runtime evidence from 5.0.7466: causal records=8075 and every specialist report 
 - [x] Skipped-economics aggregate forensic summary emits only when its by-reason content changes.
 - [x] Learning quarantine and invariant failure identity remain unchanged.
 - [x] No journal rows, accounting legs, failure checks or reconciliation outputs are removed.
+
+
+## V5.0.7483 — additive TokenMeta report revision cache
+
+- [x] TokenMeta completeness scan is cached by monotonic metadata revision.
+- [x] Creation, warm-start hydration, pair-address first capture, decimals first capture, first interaction, prune and soft eviction invalidate it.
+- [x] Price/mcap/liquidity ticks do not force an O(all rows) completeness recount.
+- [x] Read hits, read misses, total writes and dirty queue size remain live every report.
+- [x] Hot cache values, SQLite persistence and provider behavior are unchanged.

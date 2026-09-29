@@ -88,6 +88,22 @@ class TokenMetaCache private constructor(ctx: Context) :
     private val totalReadMisses = AtomicLong(0L)
     private val totalWrites = AtomicLong(0L)
 
+    // V5.0.7483 — completeness counts are expensive O(liveRows) report data.
+    // Cache them by metadata revision; hot counters remain live.
+    private val metaCompletenessRevision7483 = AtomicLong(0L)
+    private data class Completeness7483(
+        val revision: Long,
+        val liveRows: Int,
+        val decimalsKnown: Int,
+        val interactedRows: Int,
+        val pairAddressKnown: Int,
+    )
+    private val completenessCache7483 = java.util.concurrent.atomic.AtomicReference<Completeness7483?>(null)
+
+    private fun bumpCompletenessRevision7483() {
+        metaCompletenessRevision7483.incrementAndGet()
+    }
+
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         try { db.enableWriteAheadLogging() } catch (_: Throwable) {}
@@ -282,6 +298,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                     hydrated++
                 }
             }
+            if (hydrated > 0) bumpCompletenessRevision7483()
             ErrorLogger.info(TAG, "warmStart hydrated $hydrated rows from disk")
         } catch (t: Throwable) {
             ErrorLogger.warn(TAG, "warmStart failed: ${t.message}")
@@ -330,11 +347,19 @@ class TokenMetaCache private constructor(ctx: Context) :
         val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
         if (key.isEmpty()) return
         val now = System.currentTimeMillis()
-        val e = live.computeIfAbsent(key) { Entry(mint = key, firstSeenMs = now) }
+        var created7483 = false
+        val e = live.computeIfAbsent(key) {
+            created7483 = true
+            Entry(mint = key, firstSeenMs = now)
+        }
         var changed = false
+        var completenessChanged7483 = created7483
         if (symbol != null && symbol.isNotBlank() && symbol != e.symbol) { e.symbol = symbol; changed = true }
         if (name != null && name.isNotBlank() && name != e.name) { e.name = name; changed = true }
-        if (pairAddress != null && pairAddress.isNotBlank() && pairAddress != e.pairAddress) { e.pairAddress = pairAddress; changed = true }
+        if (pairAddress != null && pairAddress.isNotBlank() && pairAddress != e.pairAddress) {
+            if (e.pairAddress.isBlank()) completenessChanged7483 = true
+            e.pairAddress = pairAddress; changed = true
+        }
         if (pairUrl != null && pairUrl.isNotBlank() && pairUrl != e.pairUrl) { e.pairUrl = pairUrl; changed = true }
         if (logoUrl != null && logoUrl.isNotBlank() && logoUrl != e.logoUrl) { e.logoUrl = logoUrl; changed = true }
         if (lastPriceSource != null && lastPriceSource.isNotBlank() && lastPriceSource != e.lastPriceSource) { e.lastPriceSource = lastPriceSource; changed = true }
@@ -357,13 +382,17 @@ class TokenMetaCache private constructor(ctx: Context) :
                     ErrorLogger.warn(TAG, "decimals conflict mint=${key.take(10)} archived=${e.decimals} offered=$decimals (keeping archived)")
                 } catch (_: Throwable) {}
             } else {
-                e.decimals = decimals; changed = true
+                e.decimals = decimals; changed = true; completenessChanged7483 = true
             }
         }
-        if (interacted) { e.lastInteractedMs = now; changed = true }
+        if (interacted) {
+            if (e.lastInteractedMs <= 0L) completenessChanged7483 = true
+            e.lastInteractedMs = now; changed = true
+        }
         e.lastSeenMs = now
         e.hitCount += 1L
         if (changed || (e.hitCount % FLUSH_EVERY_N_HITS == 0L)) dirty.add(key)
+        if (completenessChanged7483) bumpCompletenessRevision7483()
     }
 
     /**
@@ -380,7 +409,12 @@ class TokenMetaCache private constructor(ctx: Context) :
         if (key.isEmpty()) return
         if (!supplyTokens.isFinite() || supplyTokens < 1.0) return
         val now = System.currentTimeMillis()
-        val e = live.computeIfAbsent(key) { Entry(mint = key, firstSeenMs = now) }
+        var createdSupplyRow7483 = false
+        val e = live.computeIfAbsent(key) {
+            createdSupplyRow7483 = true
+            Entry(mint = key, firstSeenMs = now)
+        }
+        if (createdSupplyRow7483) bumpCompletenessRevision7483()
         val archived = e.supplyTokens
         if (archived.isFinite() && archived >= 1.0) {
             // Same-supply re-observation is the normal case and is silent.
@@ -530,7 +564,10 @@ class TokenMetaCache private constructor(ctx: Context) :
             val drops = live.keys.filter { it !in keep }
             for (m in drops) { live.remove(m); dirty.remove(m); removed++ }
         }
-        if (removed > 0) ErrorLogger.info(TAG, "pruneStale removed $removed rows")
+        if (removed > 0) {
+            bumpCompletenessRevision7483()
+            ErrorLogger.info(TAG, "pruneStale removed $removed rows")
+        }
         return removed
     }
 
@@ -597,6 +634,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                 ErrorLogger.warn(TAG, "evictColdSoft db delete failed: ${t.message}")
             }
         }
+        bumpCompletenessRevision7483()
         ErrorLogger.info(TAG, "evictColdSoft removed ${victims.size} cold rows (live=${live.size} softMax=$softMax)")
         return victims.size
     }
@@ -620,24 +658,38 @@ class TokenMetaCache private constructor(ctx: Context) :
         val hits = totalReadHits.get()
         val misses = totalReadMisses.get()
         val denom = (hits + misses).coerceAtLeast(1L)
-        var decimalsKnown = 0
-        var interactedRows = 0
-        var pairKnown = 0
-        for (e in live.values) {
-            if (e.decimals >= 0) decimalsKnown++
-            if (e.lastInteractedMs > 0L) interactedRows++
-            if (e.pairAddress.isNotBlank()) pairKnown++
+        val revision7483 = metaCompletenessRevision7483.get()
+        var c7483 = completenessCache7483.get()
+        if (c7483 == null || c7483.revision != revision7483) {
+            var decimalsKnown7483 = 0
+            var interactedRows7483 = 0
+            var pairKnown7483 = 0
+            for (e in live.values) {
+                if (e.decimals >= 0) decimalsKnown7483++
+                if (e.lastInteractedMs > 0L) interactedRows7483++
+                if (e.pairAddress.isNotBlank()) pairKnown7483++
+            }
+            c7483 = Completeness7483(
+                revision = revision7483,
+                liveRows = live.size,
+                decimalsKnown = decimalsKnown7483,
+                interactedRows = interactedRows7483,
+                pairAddressKnown = pairKnown7483,
+            )
+            completenessCache7483.set(c7483)
+        } else {
+            try { PipelineHealthCollector.labelInc("TOKEN_META_COMPLETENESS_SNAPSHOT_REUSED_7483") } catch (_: Throwable) {}
         }
         return Snapshot(
-            liveRows = live.size,
+            liveRows = c7483.liveRows,
             dirtyRows = dirty.size,
             totalReadHits = hits,
             totalReadMisses = misses,
             totalWrites = totalWrites.get(),
             hitRatePct = hits * 100.0 / denom,
-            decimalsKnown = decimalsKnown,
-            interactedRows = interactedRows,
-            pairAddressKnown = pairKnown,
+            decimalsKnown = c7483.decimalsKnown,
+            interactedRows = c7483.interactedRows,
+            pairAddressKnown = c7483.pairAddressKnown,
         )
     }
 
