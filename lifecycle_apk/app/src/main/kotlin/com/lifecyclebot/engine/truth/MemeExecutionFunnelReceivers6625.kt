@@ -315,7 +315,31 @@ object SpecialistCausalFunnel6625 {
         val outcomes: MutableSet<String> = mutableSetOf(),
     )
     private val records = ConcurrentHashMap<String, Record>()
+    // V5.0.7480 — secondary read index only. Canonical causal records remain
+    // exactly the same; lane reports/lookups no longer scan every other lane.
+    private val recordKeysByLane7480 = ConcurrentHashMap<String, MutableSet<String>>()
     private val rejectedBlankIds = AtomicLong(0L)
+
+    private fun getOrCreateRecord7480(key: CausalKey): Record {
+        val ks = keyString(key)
+        val rec = getOrCreateRecord7480(key)
+        recordKeysByLane7480.computeIfAbsent(key.lane.uppercase()) {
+            ConcurrentHashMap.newKeySet<String>()
+        }.add(ks)
+        return rec
+    }
+
+    private fun deindexRecord7480(ks: String, rec: Record) {
+        val laneKey = rec.key.lane.uppercase()
+        val keys = recordKeysByLane7480[laneKey] ?: return
+        keys.remove(ks)
+        if (keys.isEmpty()) recordKeysByLane7480.remove(laneKey, keys)
+    }
+
+    private fun laneRecords7480(lane: String): Sequence<Record> {
+        val keys = recordKeysByLane7480[lane.uppercase()] ?: return emptySequence()
+        return keys.asSequence().mapNotNull { records[it] }
+    }
 
     // V5.0.6899 §THE_CAUSAL_FUNNEL_NEVER_FORGOT_ANYTHING.
     //
@@ -362,8 +386,10 @@ object SpecialistCausalFunnel6625 {
                 // A record with no stage timestamp at all is malformed; treat
                 // it as evictable rather than immortal.
                 if (newest <= 0L || nowMs - newest > RECORD_TTL_MS_6899) {
-                    it.remove()
-                    removed++
+                    if (records.remove(e.key, e.value)) {
+                        deindexRecord7480(e.key, e.value)
+                        removed++
+                    }
                 }
             }
             // V5.0.7099 §THE_SOFT_CAP_NEVER_CAPPED_ANYTHING.
@@ -393,7 +419,13 @@ object SpecialistCausalFunnel6625 {
                     .sortedBy { it.second }
                     .take(overflow)
                 var overflowRemoved = 0L
-                for ((k, _) in oldestFirst) if (records.remove(k) != null) overflowRemoved++
+                for ((k, _) in oldestFirst) {
+                    val removedRec7480 = records.remove(k)
+                    if (removedRec7480 != null) {
+                        deindexRecord7480(k, removedRec7480)
+                        overflowRemoved++
+                    }
+                }
                 if (overflowRemoved > 0L) {
                     removed += overflowRemoved
                     try {
@@ -454,7 +486,7 @@ object SpecialistCausalFunnel6625 {
             return false
         }
 
-        val rec = records.computeIfAbsent(keyString(key)) { Record(key) }
+        val rec = getOrCreateRecord7480(key)
         var discoverAdded = false
         var qualifyAdded = false
         synchronized(rec) {
@@ -538,8 +570,7 @@ object SpecialistCausalFunnel6625 {
     }
     fun stageCounts6625(lane: String): Map<Stage, Int> {
         val result = mutableMapOf<Stage, Int>()
-        for (r in records.values) {
-            if (r.key.lane != lane) continue
+        for (r in laneRecords7480(lane)) {
             synchronized(r) {
                 for (s in r.stages.keys) result[s] = (result[s] ?: 0) + 1
             }
@@ -598,8 +629,7 @@ object SpecialistCausalFunnel6625 {
         val phantomMissing6883 = mutableMapOf<String, Int>()
         val rawCounts7086 = mutableMapOf<Stage, Int>()
         var phantomSample6883 = ""
-        for (r in records.values) {
-            if (!r.key.lane.equals(lane, true)) continue
+        for (r in laneRecords7480(lane)) {
             synchronized(r) {
                 r.outcomes.forEach { outcome -> outcomes[outcome] = (outcomes[outcome] ?: 0) + 1 }
                 val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
@@ -643,21 +673,18 @@ object SpecialistCausalFunnel6625 {
 
     /** Resolve position/finality telemetry back to the newest keyed record
      * for the same mint and lane without inventing a new aggregate identity. */
-    fun latestCandidateVersion6647(mint: String, lane: String): Long? = records.values
-        .asSequence()
-        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+    fun latestCandidateVersion6647(mint: String, lane: String): Long? = laneRecords7480(lane)
+        .filter { it.key.mint == mint }
         .maxByOrNull { record -> synchronized(record) { record.stages.values.maxOrNull() ?: 0L } }
         ?.key?.intentId?.split(':')?.getOrNull(1)?.toLongOrNull()
-    fun latestKey6647(mint: String, lane: String): CausalKey? = records.values
-        .asSequence()
-        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+    fun latestKey6647(mint: String, lane: String): CausalKey? = laneRecords7480(lane)
+        .filter { it.key.mint == mint }
         .maxByOrNull { record -> synchronized(record) { record.stages.values.maxOrNull() ?: 0L } }
         ?.key
 
     /** V5.0.6713 — exact OPEN causal record awaiting canonical terminal finality. */
-    fun latestUnfinalizedOpenKey6713(mint: String, lane: String): CausalKey? = records.values
-        .asSequence()
-        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+    fun latestUnfinalizedOpenKey6713(mint: String, lane: String): CausalKey? = laneRecords7480(lane)
+        .filter { it.key.mint == mint }
         .filter { record -> synchronized(record) {
             Stage.OPEN in record.stages && Stage.FINALIZE !in record.stages
         } }
@@ -665,9 +692,8 @@ object SpecialistCausalFunnel6625 {
         ?.key
 
     /** V5.0.6713 — finalized causal record awaiting a real learner ACK. */
-    fun latestFinalizedUnlearnedKey6713(mint: String, lane: String): CausalKey? = records.values
-        .asSequence()
-        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+    fun latestFinalizedUnlearnedKey6713(mint: String, lane: String): CausalKey? = laneRecords7480(lane)
+        .filter { it.key.mint == mint }
         .filter { record -> synchronized(record) {
             Stage.FINALIZE in record.stages && Stage.LEARN !in record.stages
         } }
@@ -675,8 +701,12 @@ object SpecialistCausalFunnel6625 {
         ?.key
 
     fun statusLine(): String =
-        "records=${records.size} evicted6899=${evicted6899.get()} softCap=$RECORD_SOFT_CAP_6899"
-    internal fun resetForTest() { records.clear(); rejectedBlankIds.set(0L) }
+        "records=${records.size} indexedLanes=${recordKeysByLane7480.size} evicted6899=${evicted6899.get()} softCap=$RECORD_SOFT_CAP_6899"
+    internal fun resetForTest() {
+        records.clear()
+        recordKeysByLane7480.clear()
+        rejectedBlankIds.set(0L)
+    }
 }
 
 /** Actual worker/heartbeat/queue ownership for each enabled specialist. */

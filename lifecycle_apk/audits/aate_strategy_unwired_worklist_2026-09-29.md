@@ -890,3 +890,16 @@ Runtime evidence from 5.0.7466: STRATEGY_TERMINAL_FOLDED_PARTIALS_7333=154174 ag
 - [x] When a repeated row becomes emit-eligible again, one FORENSIC_REPEAT_SUMMARY_7479 row reports the suppressed repeat count before the fresh row.
 - [x] Coalescer is bounded to 4096 exact fingerprints and self-prunes.
 - [x] EXEC, gate, decision, phase and snapshot logging paths are unchanged.
+
+
+## V5.0.7480 — additive specialist causal-funnel lane index
+
+Runtime evidence from 5.0.7466: causal records=8075 and every specialist report scanned records.values independently.
+
+- [x] Canonical causal records and all DISCOVER→LEARN stages remain unchanged.
+- [x] A secondary lane→record-key index is populated whenever a causal record exists.
+- [x] laneSnapshot6647 and stageCounts6625 visit only records for the requested lane.
+- [x] latest candidate/key/open/finalized lane lookups use the same lane index.
+- [x] TTL and over-cap eviction remove records from both canonical map and secondary index.
+- [x] The index is diagnostic/read acceleration only; it has no admission/execution authority.
+- [x] No specialist lane, causal predecessor, outcome, or forensic acceptance check is removed.
