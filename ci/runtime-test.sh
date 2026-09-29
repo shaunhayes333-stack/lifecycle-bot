@@ -60,7 +60,8 @@ if ! ./gradlew --version --no-daemon; then
   GRADLE_CMD="gradle"
   gradle --version
 fi
-PRODUCTION_VERSION="$(tr -d '[:space:]' < ../AATE_VERSION)"
+# V5.0.7453 — same single authority as Gradle/build.yml.
+PRODUCTION_VERSION="$(tr -d '[:space:]' < AATE_VERSION)"
 [[ "$PRODUCTION_VERSION" =~ ^5[.]0[.]([0-9]+)$ ]] || { echo "Invalid source version"; exit 1; }
 $GRADLE_CMD assembleDebug --no-daemon --stacktrace -PbuildNumber="${BASH_REMATCH[1]}" -PaateVersionName="$PRODUCTION_VERSION"
 APK="$(find app/build/outputs/apk/debug -name '*.apk' | head -1)"
