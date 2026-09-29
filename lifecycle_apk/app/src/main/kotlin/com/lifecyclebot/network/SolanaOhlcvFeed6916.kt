@@ -180,6 +180,13 @@ object SolanaOhlcvFeed6916 {
     private val poolResolves = AtomicLong(0L)
     private val barsDelivered = AtomicLong(0L)
     private val rowsRejected = AtomicLong(0L)
+    // V5.0.7484 — coalesce identical OHLCV demand inside the provider's own
+    // minimum request interval. This is work suppression, not data suppression:
+    // the next provider-eligible request still traverses the complete stack.
+    private val sameKeyLastAttempt7484 = ConcurrentHashMap<String, Long>()
+    private val sameKeyCoalesced7484 = AtomicLong(0L)
+    private const val SAME_KEY_COALESCE_MS_7484 = 2_500L
+    private const val SAME_KEY_MAX_7484 = 8_000
 
     /**
      * GeckoTerminal expresses timeframes as a base unit plus an aggregate, not
@@ -317,6 +324,21 @@ object SolanaOhlcvFeed6916 {
         negativeCache[mint]?.let {
             if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return emptyList() }
             negativeCache.remove(mint)
+        }
+
+        // V5.0.7484 — if another lane requested this exact OHLCV key inside
+        // the existing 2.5s provider budget window, a second provider request
+        // cannot legally be made yet. Avoid repeating pool/fallback work.
+        val priorSameKey7484 = sameKeyLastAttempt7484.put(key, now)
+        if (priorSameKey7484 != null && now - priorSameKey7484 < SAME_KEY_COALESCE_MS_7484) {
+            sameKeyCoalesced7484.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("OHLCV_SAME_KEY_WINDOW_COALESCED_7484") } catch (_: Throwable) {}
+            return emptyList()
+        }
+        if (sameKeyLastAttempt7484.size > SAME_KEY_MAX_7484) {
+            val cutoff7484 = now - maxOf(CACHE_TTL_MS, NEGATIVE_TTL_MS)
+            sameKeyLastAttempt7484.entries.removeIf { it.value < cutoff7484 }
+            if (sameKeyLastAttempt7484.size > SAME_KEY_MAX_7484) sameKeyLastAttempt7484.clear()
         }
         fetches.incrementAndGet()
         // V5.0.6982 §WE_WROTE_DOWN_OUR_OWN_SILENCE_AS_THE_TOKEN_HAVING_NO_CHART.
@@ -604,6 +626,7 @@ object SolanaOhlcvFeed6916 {
             "cached=${cache.size} keyless=true host=$HOST " +
             "rateLimited6944=${rateLimited.get()} cooldownSkips6944=${cooldownSkips.get()} " +
             "negativeHits6944=${negativeHits.get()} negCached6944=${negativeCache.size} " +
+            "sameKeyCoalesced7484=${sameKeyCoalesced7484.get()} " +
             "localSkips6982=${localSkips6982.get()} " +
             "minIntervalMs=$MIN_INTERVAL_MS " +
             "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size} " +
@@ -615,6 +638,7 @@ object SolanaOhlcvFeed6916 {
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
         negativeCache.clear(); lastCallAtMs.set(0L); cooldownUntilMs.set(0L)
         consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L); localSkips6982.set(0L)
+        sameKeyLastAttempt7484.clear(); sameKeyCoalesced7484.set(0L)
         paprikaTerminalDisabled7446.set(false); paprikaTerminalCode7446 = 0
         paprikaLastCode7295 = 0; paprikaCooldownUntilMs7293.set(0L); paprikaLastCallMs7293.set(0L)
     }

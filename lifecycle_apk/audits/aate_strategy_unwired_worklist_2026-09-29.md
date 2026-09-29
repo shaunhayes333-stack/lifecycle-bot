@@ -933,3 +933,14 @@ Runtime evidence from 5.0.7466: causal records=8075 and every specialist report 
 - [x] Price/mcap/liquidity ticks do not force an O(all rows) completeness recount.
 - [x] Read hits, read misses, total writes and dirty queue size remain live every report.
 - [x] Hot cache values, SQLite persistence and provider behavior are unchanged.
+
+
+## V5.0.7484 — additive same-key OHLCV request coalescing
+
+Runtime evidence from 5.0.7466: OHLCV fetches=12518, poolResolves=11237, served=0, localSkips=12396.
+
+- [x] Identical mint/timeframe/limit requests inside the existing 2.5s provider minimum interval are coalesced before pool/provider fallback work.
+- [x] Positive candle cache and confirmed-negative cache remain higher-priority and unchanged.
+- [x] The first request in every provider-eligible interval still traverses DexPaprika/Gecko resolution exactly as before.
+- [x] Same-key map is bounded to 8000 entries and prunes against existing cache horizons.
+- [x] No OHLCV provider, timeframe, strategy consumer, pattern engine or fallback is disabled.
