@@ -38,4 +38,12 @@ class Aate7429ExactStrategyPerformanceTest {
         assertTrue(health.contains("Exact strategy (§7429)"))
         assertTrue(health.contains("ExactStrategyPerformance7429.statusLine()"))
     }
+
+    @Test fun lateSourceTimingFeedsPredictiveAdmission() {
+        val oracle = File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
+        assertTrue(oracle.contains("SourceTimingRegistry.isLateSignal(mint)"))
+        assertTrue(oracle.contains("SOURCE_TIMING_LATE_SIGNAL_READ_7429"))
+        assertTrue(oracle.contains("BrainRead(\"lateDiscoverySource\", -9.0)"))
+    }
+
 }
