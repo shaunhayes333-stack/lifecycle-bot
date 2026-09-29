@@ -261,6 +261,40 @@ object DynamicAltTokenRegistry {
         val computed = if (avg > 0L) 4L * avg else ADAPTIVE_TTL_CEIL_MS_6632
         return computed.coerceIn(ADAPTIVE_TTL_FLOOR_MS_6632, ADAPTIVE_TTL_CEIL_MS_6632)
     }
+    // V5.0.7432 — a silent evaluation must not require another callback to
+    // release its ownership lease. Pre-7432, the adaptive TTL was only checked
+    // when the same identity started again or when some progress event happened.
+    // A one-shot worker that disappeared after START therefore remained in
+    // evaluationInflight forever (runtime: startEvents=1 terminal=0 inflight=1,
+    // oldestQueueAgeMs ~80s with a 40s healthy-loop TTL).
+    //
+    // This is a lease repair only: the token remains in the registry, the
+    // generation is NOT marked completed, and the next pass may evaluate it
+    // again. No discovery rows, learning outcomes or positions are deleted.
+    private fun reapSilentInflightLeases7432(nowMs: Long = System.currentTimeMillis()): Int {
+        val ttl = adaptiveEvidenceTtlMs6632()
+        var reaped = 0
+        for ((identity, generation) in evaluationInflight6615.entries.toList()) {
+            val born = evaluationInflightStartedAt6692[identity] ?: continue
+            if (nowMs - born <= ttl) continue
+            if (!evaluationInflight6615.remove(identity, generation)) continue
+            evaluationInflightStartedAt6692.remove(identity, born)
+            evaluationProgressStamp6580.keys.removeIf {
+                it.startsWith(identity + EVAL_PROGRESS_SEPARATOR_6692)
+            }
+            evaluationRetryableReleased7425.incrementAndGet()
+            reaped++
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_SILENT_LEASE_REAPED_7432")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CRYPTO_EVAL_SILENT_LEASE_REAPED_7432",
+                    "identity=$identity generation=${generation.hashCode()} ageMs=${nowMs - born} ttlMs=$ttl action=release_for_retry_not_complete",
+                )
+            } catch (_: Throwable) {}
+        }
+        return reaped
+    }
+
     private val EVIDENCE_TTL_MS_6580: Long = 5L * 60L * 1000L  // legacy fallback (unused post-6632)
     // V5.0.6587 §P0-4 — global sweep bookkeeping. Reaper runs at most once
     // per SWEEP_INTERVAL_MS regardless of how many progress stamps arrive.
@@ -608,6 +642,9 @@ object DynamicAltTokenRegistry {
 
     suspend fun runDiscoveryCycle(forceAll6544: Boolean = false) {
         val now = System.currentTimeMillis()
+        // V5.0.7432 — discovery cadence is the independent lease watchdog.
+        // It runs even when the stuck evaluation emits no further progress.
+        reapSilentInflightLeases7432(now)
         val freshDue = forceAll6544 || now - lastFreshDiscovery6544.get() >= FRESH_DISCOVERY_MS_6544
         val activeDue = forceAll6544 || now - lastActiveDiscovery6544.get() >= ACTIVE_DISCOVERY_MS_6544
         val establishedDue = forceAll6544 || now - lastEstablishedDiscovery6544.get() >= ESTABLISHED_DISCOVERY_MS_6544
@@ -893,6 +930,9 @@ object DynamicAltTokenRegistry {
     }
 
     fun markEvaluationStarted6567(tok: DynToken): Boolean {
+        // Also reap unrelated silent owners whenever any evaluation makes
+        // progress; discovery remains the primary watchdog.
+        reapSilentInflightLeases7432()
         val identity = tok.canonicalIdentity6544
         val generation = evaluationGeneration6615(tok)
         val now6692 = System.currentTimeMillis()
