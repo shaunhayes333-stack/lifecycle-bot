@@ -120,6 +120,89 @@ object ExactStrategyPerformance7429 {
         return true
     }
 
+    /**
+     * V5.0.7431 — bounded exact-playbook evidence for predictive admission.
+     *
+     * Variant ID is deliberately excluded from the lookup: the strategy
+     * variant is a parameter experiment inside the playbook, while this read
+     * answers whether the underlying tradeType/setup/style/tactic has earned
+     * positive expectancy. LIVE prefers its own outcomes; until it has enough,
+     * PAPER may seed the same playbook because canonical PAPER is the
+     * deployment-quality rehearsal book.
+     */
+    data class Evidence7431(
+        val mode: String,
+        val lane: String,
+        val tradeType: String,
+        val setup: String,
+        val style: String,
+        val tactic: String,
+        val n: Long,
+        val wins: Long,
+        val losses: Long,
+        val meanPnlPct: Double,
+        val winRatePct: Double,
+        val source: String,
+    )
+
+    private fun aggregate7431(
+        mode: String,
+        lane: String,
+        tradeType: String,
+        setup: String,
+        style: String,
+        tactic: String,
+    ): Evidence7431? {
+        val m = norm(mode, "UNKNOWN")
+        val l = norm(lane, "UNKNOWN")
+        val tt = norm(tradeType, "UNSTAMPED_TYPE")
+        val se = norm(setup, "UNSTAMPED_SETUP")
+        val st = norm(style, "UNSTAMPED_STYLE")
+        val ta = norm(tactic, "UNSTAMPED_TACTIC")
+        val rows = snapshots().filter {
+            it.mode == m && it.lane == l && it.tradeType == tt &&
+                it.setup == se && it.style == st && it.tactic == ta
+        }
+        if (rows.isEmpty()) return null
+        val n = rows.sumOf { it.n }
+        if (n <= 0L) return null
+        val wins = rows.sumOf { it.wins }
+        val losses = rows.sumOf { it.losses }
+        val mean = rows.sumOf { it.meanPnlPct * it.n } / n.toDouble()
+        val wr = if (wins + losses > 0L) wins * 100.0 / (wins + losses).toDouble() else 0.0
+        return Evidence7431(m, l, tt, se, st, ta, n, wins, losses, mean, wr, "EXACT")
+    }
+
+    fun evidenceFor7431(
+        liveMode: Boolean,
+        lane: String,
+        tradeType: String,
+        setup: String,
+        style: String,
+        tactic: String,
+    ): Evidence7431? {
+        if (lane.isBlank() || tradeType.isBlank() || setup.isBlank() || style.isBlank() || tactic.isBlank()) return null
+        if (liveMode) {
+            val live = aggregate7431("LIVE", lane, tradeType, setup, style, tactic)
+            if (live != null && live.n >= 3L) {
+                try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_LIVE_READ_7431") } catch (_: Throwable) {}
+                return live.copy(source = "LIVE_EXACT")
+            }
+            val paper = aggregate7431("PAPER", lane, tradeType, setup, style, tactic)
+            if (paper != null && paper.n >= 5L) {
+                try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PAPER_SEED_READ_7431") } catch (_: Throwable) {}
+                return paper.copy(source = "PAPER_SEED")
+            }
+            return null
+        }
+        val paper = aggregate7431("PAPER", lane, tradeType, setup, style, tactic)
+        if (paper != null && paper.n >= 3L) {
+            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PAPER_READ_7431") } catch (_: Throwable) {}
+            return paper.copy(source = "PAPER_EXACT")
+        }
+        return null
+    }
+
     fun snapshots(): List<Snapshot> = cells.entries.map { (k, c) ->
         val n = c.n.get().coerceAtLeast(1L)
         Snapshot(
