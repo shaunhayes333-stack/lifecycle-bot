@@ -858,7 +858,39 @@ object CanonicalPositionAuthority6441 {
      * opt into the strict surface) and the 6743 truth-visibility
      * defect is corrected (exit callers see all funded lots).
      */
-    fun openPositions(): List<Position> = positions.values.filter { isOpenLifecycleWithQty6743(it) }
+    private data class PositionViewCache7496(
+        val revision: Long,
+        val open: List<Position>,
+        val closed: List<Position>,
+        val classification: LifecycleClassification,
+    )
+    private val positionViewCache7496 =
+        java.util.concurrent.atomic.AtomicReference<PositionViewCache7496?>(null)
+
+    private fun positionViews7496(): PositionViewCache7496 {
+        val revision7496 = muts.get()
+        positionViewCache7496.get()?.let { c ->
+            if (c.revision == revision7496) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_VIEWS_REUSED_7496") } catch (_: Throwable) {}
+                return c
+            }
+        }
+        val snapshot7496 = positions.values.toList()
+        val open7496 = snapshot7496.filter { isOpenLifecycleWithQty6743(it) }
+        val closed7496 = snapshot7496.filter { it.lifecycle == Lifecycle.CLOSED }
+        val counts7496 = Lifecycle.values().associateWith { life -> snapshot7496.count { it.lifecycle == life } }
+        val classified7496 = counts7496.values.sum()
+        val classification7496 = LifecycleClassification(
+            total = snapshot7496.size,
+            byLifecycle = counts7496,
+            unaccounted = snapshot7496.size - classified7496,
+        )
+        val built7496 = PositionViewCache7496(revision7496, open7496, closed7496, classification7496)
+        if (muts.get() == revision7496) positionViewCache7496.set(built7496)
+        return built7496
+    }
+
+    fun openPositions(): List<Position> = positionViews7496().open
 
     /**
      * V5.0.6743 — strict valuation surface. Applies the full
@@ -883,7 +915,7 @@ object CanonicalPositionAuthority6441 {
         return p.remainingQtyRaw.signum() > 0
     }
 
-    fun closedPositions(): List<Position> = positions.values.filter { it.lifecycle == Lifecycle.CLOSED }
+    fun closedPositions(): List<Position> = positionViews7496().closed
 
     /**
      * V5.0.7018 — position ids this authority has QUARANTINED.
@@ -1695,20 +1727,18 @@ object CanonicalPositionAuthority6441 {
     data class LifecycleClassification(val total: Int, val byLifecycle: Map<Lifecycle, Int>, val unaccounted: Int)
 
     fun classifyLifecycles(): LifecycleClassification {
-        val snapshot = positions.values.toList()
-        val counts = Lifecycle.values().associateWith { life -> snapshot.count { it.lifecycle == life } }
-        val classified = counts.values.sum()
-        val unaccounted = snapshot.size - classified
-        if (unaccounted != 0) {
+        val classification = positionViews7496().classification
+        if (classification.unaccounted != 0) {
             try {
                 ForensicLogger.lifecycle(
                     "POSITION_STATE_SUM_VIOLATION_6456",
-                    "total=${snapshot.size} classified=$classified unaccounted=$unaccounted breakdown=${counts.entries.joinToString(",") { "${it.key}=${it.value}" }}",
+                    "total=${classification.total} classified=${classification.byLifecycle.values.sum()} " +
+                        "unaccounted=${classification.unaccounted} breakdown=${classification.byLifecycle.entries.joinToString(",") { "${it.key}=${it.value}" }}",
                 )
                 PipelineHealthCollector.labelInc("POSITION_STATE_SUM_VIOLATION_6456")
             } catch (_: Throwable) {}
         }
-        return LifecycleClassification(total = snapshot.size, byLifecycle = counts, unaccounted = unaccounted)
+        return classification
     }
 
     /**
@@ -1768,6 +1798,8 @@ object CanonicalPositionAuthority6441 {
             LockedEntryMetrics6634.resetForTest()
             paperCashSol.set(0.0); paperCashInitialisedMs.set(0L); liveCashObservedSol.set(0.0)
             muts.set(0L); duplicates.set(0L); invariantViolations.set(0L); quarantines.set(0L)
+            positionViewCache7496.set(null)
+            activeProjectionCache7487.set(null)
         } finally { lock.unlock() }
     }
 

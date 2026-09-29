@@ -1057,3 +1057,13 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] purgeZeroQtyLifecycleOpens6752 advances revision when at least one lifecycle is stamped CLOSED.
 - [x] Existing open/promote/add/sell/recovery mutation bumps remain unchanged.
 - [x] No economic calculation, lifecycle decision, quarantine rule, refund, replay rule or position content changed.
+
+
+## V5.0.7496 — exact canonical position-view revision cache
+
+- [x] openPositions, closedPositions and lifecycle classification share one snapshot keyed to canonical mutation revision.
+- [x] A real canonical mutation invalidates the view immediately through mutationCount7387.
+- [x] A mutation racing view construction prevents that view from being published for reuse.
+- [x] Open-position lifecycle/quantity visibility semantics remain identical.
+- [x] Closed-position membership and lifecycle sum invariant remain identical.
+- [x] Existing strict valuation surface remains independent and unchanged.
