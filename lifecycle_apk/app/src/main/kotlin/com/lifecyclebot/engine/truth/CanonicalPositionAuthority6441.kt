@@ -1443,6 +1443,104 @@ object CanonicalPositionAuthority6441 {
         it.lifecycle == Lifecycle.PENDING_ENTRY
     }
 
+    /** V5.0.7454 — wallet recovery may inspect quarantined LIVE rows but may
+     * never mutate them directly. This read surface is deliberately narrow. */
+    fun quarantinedLivePositions7454(mint: String? = null): List<Position> =
+        positions.values.filter {
+            it.lifecycle == Lifecycle.QUARANTINED &&
+                it.mode.equals("live", true) &&
+                (mint == null || it.mint.equals(mint, true))
+        }
+
+    /**
+     * V5.0.7454 — recover a wallet-proven bot position that was quarantined
+     * only because entry proof timed out or a repairable basis/quantity check
+     * failed. Frozen accounts, replay/unit quarantines, and any position with
+     * realised sell economics are never eligible.
+     */
+    fun recoverQuarantinedLivePosition7454(
+        positionId: String,
+        actualQtyRaw: BigInteger,
+        actualEntryCostSol: Double,
+        tokenDecimals: Int,
+        quantityScale: Int = tokenDecimals,
+        actualEntryPriceUsd: Double,
+        actualEntryPriceSource: String,
+        recoveredLane: String,
+        recoveredAssetClass: AssetClass,
+        actualEntryPoolAddress: String = "",
+        actualEntryDex: String = "",
+    ): MutateResult {
+        lock.lock()
+        try {
+            val prev = positions[positionId] ?: return MutateResult.UNKNOWN_POSITION
+            if (prev.lifecycle != Lifecycle.QUARANTINED || !prev.mode.equals("live", true)) {
+                return MutateResult.LIFECYCLE_FORBIDDEN
+            }
+            val recoverableReason = prev.quarantineReason == "PENDING_ENTRY_TTL_CANCELLED_6461" ||
+                prev.quarantineReason == "EXIT_ELIGIBILITY_6570:INVALID_ENTRY_BASIS" ||
+                prev.quarantineReason == "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY"
+            if (!recoverableReason) return MutateResult.LIFECYCLE_FORBIDDEN
+
+            if (prev.soldCostBasisSol > 1e-12 || prev.realizedProceedsSol > 1e-12 ||
+                prev.realizedPnlSol != 0.0) {
+                return MutateResult.LIFECYCLE_FORBIDDEN
+            }
+            if (actualQtyRaw <= BigInteger.ZERO ||
+                !actualEntryCostSol.isFinite() || actualEntryCostSol <= 0.0 ||
+                !actualEntryPriceUsd.isFinite() || actualEntryPriceUsd <= 0.0 ||
+                tokenDecimals !in 0..18 || quantityScale !in 0..18 ||
+                recoveredAssetClass == AssetClass.UNKNOWN
+            ) {
+                invariantViolations.incrementAndGet()
+                return MutateResult.INVARIANT_VIOLATION
+            }
+            val competingOpen = positions.values.any {
+                it.positionId != positionId &&
+                    it.mode.equals("live", true) &&
+                    it.mint.equals(prev.mint, true) &&
+                    it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) &&
+                    it.remainingQtyRaw > BigInteger.ZERO
+            }
+            if (competingOpen) return MutateResult.DUPLICATE
+
+            val now = System.currentTimeMillis()
+            val recovered = prev.copy(
+                lane = recoveredLane.ifBlank { prev.lane },
+                entryCostSol = actualEntryCostSol,
+                remainingQtyRaw = actualQtyRaw,
+                originalQtyRaw = actualQtyRaw,
+                soldCostBasisSol = 0.0,
+                realizedPnlSol = 0.0,
+                realizedProceedsSol = 0.0,
+                tokenDecimals = tokenDecimals,
+                quantityScale = quantityScale,
+                lifecycle = Lifecycle.OPEN,
+                lastMutationMs = now,
+                quarantineReason = "",
+                entryPriceUsd = actualEntryPriceUsd,
+                entryPriceSource = actualEntryPriceSource.ifBlank { "WALLET_RECOVERY_7454" },
+                entryPoolAddress = actualEntryPoolAddress.ifBlank { prev.entryPoolAddress },
+                entryDex = actualEntryDex.ifBlank { prev.entryDex },
+                assetClass = recoveredAssetClass,
+            )
+            positions[positionId] = recovered
+            try { lockEntryMetricsAtOpen6636(recovered) } catch (_: Throwable) {}
+            try { PositionStateLedger6454.onEntry(positionId) } catch (_: Throwable) {}
+            try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(openPositions()) } catch (_: Throwable) {}
+            muts.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_QUARANTINED_LIVE_RECOVERED_7454")
+                ForensicLogger.lifecycle(
+                    "CANONICAL_QUARANTINED_LIVE_RECOVERED_7454",
+                    "positionId=$positionId mint=${prev.mint.take(12)} reason=${prev.quarantineReason} " +
+                        "qtyRaw=$actualQtyRaw cost=$actualEntryCostSol entryUsd=$actualEntryPriceUsd lane=${recovered.lane}",
+                )
+            } catch (_: Throwable) {}
+            return MutateResult.APPLIED
+        } finally { lock.unlock() }
+    }
+
 
     /**
      * V5.0.6489 — funded active projection by canonical mint identity.

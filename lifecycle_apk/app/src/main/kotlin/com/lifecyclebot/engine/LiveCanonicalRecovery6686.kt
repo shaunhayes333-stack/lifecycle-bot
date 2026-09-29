@@ -178,6 +178,62 @@ object LiveCanonicalRecovery6686 {
             val positionId = runtimePos?.positionId?.takeIf { it.isNotBlank() }
                 ?: "LIVE_RECOVERED_6686:${mint.take(16)}:$safeIdentity"
 
+            // V5.0.7454 — a stale live reservation may already have been
+            // quarantined by the pending-entry TTL before wallet reconciliation
+            // obtains quantity proof. The wallet + durable basis now lets the
+            // canonical authority recover that SAME positionId; never create a
+            // sibling row beside it.
+            val quarantinedSameMint7454 = try {
+                CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint)
+                    .maxByOrNull { it.lastMutationMs }
+            } catch (_: Throwable) { null }
+            if (quarantinedSameMint7454 != null) {
+                val recoveredClass7454 = com.lifecyclebot.engine.truth.AssetClass.fromLane(basis.lane)
+                    .takeUnless { it == com.lifecyclebot.engine.truth.AssetClass.UNKNOWN }
+                    ?: quarantinedSameMint7454.assetClass
+                val recovered7454 = try {
+                    CanonicalPositionAuthority6441.recoverQuarantinedLivePosition7454(
+                        positionId = quarantinedSameMint7454.positionId,
+                        actualQtyRaw = amount.raw,
+                        actualEntryCostSol = basis.entryCostSol,
+                        tokenDecimals = amount.decimals,
+                        quantityScale = amount.decimals,
+                        actualEntryPriceUsd = basis.entryPriceUsd,
+                        actualEntryPriceSource = basis.source,
+                        recoveredLane = basis.lane,
+                        recoveredAssetClass = recoveredClass7454,
+                        actualEntryPoolAddress = basis.pool,
+                        actualEntryDex = basis.dex,
+                    )
+                } catch (_: Throwable) {
+                    CanonicalPositionAuthority6441.MutateResult.INVARIANT_VIOLATION
+                }
+                if (recovered7454 == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
+                    existingLive.add(mint)
+                    repaired++
+                    rehydrateRecoveredStub7370(status, mint, amount, basis)
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_QUARANTINED_POSITION_RECOVERED_7454")
+                        ForensicLogger.lifecycle(
+                            "LIVE_QUARANTINED_POSITION_RECOVERED_7454",
+                            "mint=${mint.take(12)} pid=${quarantinedSameMint7454.positionId.take(28)} " +
+                                "oldReason=${quarantinedSameMint7454.quarantineReason} raw=${amount.raw} " +
+                                "basis=${basis.source} action=canonical_open_and_held_supervisor",
+                        )
+                    } catch (_: Throwable) {}
+                } else {
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_QUARANTINED_POSITION_RECOVERY_REFUSED_7454_$recovered7454")
+                        ForensicLogger.lifecycle(
+                            "LIVE_QUARANTINED_POSITION_RECOVERY_REFUSED_7454",
+                            "mint=${mint.take(12)} pid=${quarantinedSameMint7454.positionId.take(28)} " +
+                                "oldReason=${quarantinedSameMint7454.quarantineReason} result=$recovered7454",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                continue
+            }
+
             // V5.0.7133 — THE FAILED BUY'S OWN RESERVATION WAS BLOCKING ITS
             // RECOVERY, AND THE BLOCK WAS SILENT.
             //
