@@ -1628,18 +1628,37 @@ object CryptoAltTrader {
                     com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "ACTIONABLE_SIGNAL")
                 }
                 if (dynExecutableSignals.size == executableSignalCountBefore6567) {
-                    // V5.0.7244 — CryptoBrain was already consulted above.
-                    // Specialist silence is observation only, never a fabricated executable score.
-                    // V5.0.7443 — NO_ACTIONABLE is terminal for this exact
-                    // immutable market-data generation. A changed price/flow/
-                    // liquidity generation automatically reopens evaluation.
-                    DynamicAltTokenRegistry.markEvaluationDisposition6567(
-                        refreshed, "CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244",
-                    )
-                    try {
-                        PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_OBSERVATION_ONLY_7244")
-                        PipelineHealthCollector.labelInc("CRYPTO_NO_ACTION_GENERATION_COMPLETED_7443")
-                    } catch (_: Throwable) {}
+                    // V5.0.7472 — do not terminally retire a FRESH candidate before
+                    // the existing tactic machinery has enough local observations to
+                    // judge pullback/breakout/reversion structure. CryptoLaneDesk7391
+                    // requires four samples for those shapes; a terminal NO_ACTIONABLE
+                    // on samples 1..3 made fresh discovery disappear before the desk
+                    // could become informative. Release only the evaluation lease and
+                    // let the next scan observation advance the same candidate.
+                    val freshTapeSamples7472 = try {
+                        CryptoLaneDesk7391.prices(deskIdentity7391).size
+                    } catch (_: Throwable) { 0 }
+                    if (refreshed.isFresh6544 && freshTapeSamples7472 < 4) {
+                        DynamicAltTokenRegistry.releaseEvaluationForRetry7418(
+                            refreshed, "CRYPTO_FRESH_TAPE_WARMUP_7472",
+                        )
+                        try {
+                            PipelineHealthCollector.labelInc("CRYPTO_FRESH_TAPE_WARMUP_7472")
+                            PipelineHealthCollector.labelInc("CRYPTO_FRESH_TAPE_WARMUP_SAMPLE_${freshTapeSamples7472}_7472")
+                        } catch (_: Throwable) {}
+                    } else {
+                        // V5.0.7244 — CryptoBrain was already consulted above.
+                        // Specialist silence is observation only, never a fabricated executable score.
+                        // V5.0.7443 — once evidence is mature, NO_ACTIONABLE is terminal
+                        // for this exact immutable market-data generation.
+                        DynamicAltTokenRegistry.markEvaluationDisposition6567(
+                            refreshed, "CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244",
+                        )
+                        try {
+                            PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_OBSERVATION_ONLY_7244")
+                            PipelineHealthCollector.labelInc("CRYPTO_NO_ACTION_GENERATION_COMPLETED_7443")
+                        } catch (_: Throwable) {}
+                    }
                 }
 
             } catch (e: CancellationException) { throw e }

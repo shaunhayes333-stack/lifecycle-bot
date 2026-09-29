@@ -808,3 +808,12 @@ Confirmed defect: `StrategyHypothesisEngine.bindExecutedPosition7428()` had zero
 - [x] LIVE strictness unchanged; no observation-only/stale/pending/synthetic evidence is promoted.
 - [x] Shared scope: QUALITY/BLUECHIP/SHITCOIN/CYCLIC/EXPRESS/CORE/MOONSHOT/PROJECT_SNIPER/DIP_HUNTER/MANIPULATED/TREASURY/CASHGEN.
 - [x] No score floors, strategy thresholds, sizing multipliers, allocation targets or exit policy changed.
+
+
+## V5.0.7472 — Crypto Universe fresh-evidence warmup handoff (P0-6)
+
+- [x] Fresh Crypto Universe candidates are no longer terminally classified NO_ACTIONABLE while the existing local tactic tape has fewer than four observations.
+- [x] Samples 1..3 release the evaluation lease as CRYPTO_FRESH_TAPE_WARMUP_7472 so the next scan can add evidence.
+- [x] At four or more observations the existing CryptoBrain/specialist decision remains authoritative; no score/confidence floor is lowered.
+- [x] No synthetic BUY/PROBE signal is created and no route/sizing/live-safety rule is bypassed.
+- [x] Runtime acceptance: fresh reaching V3/FDG becomes non-zero when existing specialist/brain evidence actually produces actionable candidates; warmup counters explain candidates still accumulating tape.
