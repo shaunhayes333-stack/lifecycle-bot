@@ -1212,7 +1212,16 @@ object CryptoAltTrader {
                 try {
                     val btcPrice = PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.BTC)?.price ?: 0.0
                     CryptoAltScannerAI.recordPrice(tok.mint, price, btcPrice)
-                    CrossAssetLeadLagAI.recordReturn(tok.mint, change)
+                    // V5.0.7431 — CrossAssetLeadLagAI is symbol/sector keyed
+                    // (BTC→SOL, SOL→MEME_SECTOR, etc.). Feeding a contract mint
+                    // here created return histories no known pair could ever
+                    // consume. Preserve mint identity for the crypto scanner and
+                    // regime model, but feed lead/lag the market symbol it expects.
+                    val leadLagSymbol7431 = refreshed.symbol.trim().uppercase()
+                    if (leadLagSymbol7431.isNotBlank()) {
+                        CrossAssetLeadLagAI.recordReturn(leadLagSymbol7431, change)
+                        try { PipelineHealthCollector.labelInc("CROSS_ASSET_SYMBOL_FEED_7431") } catch (_: Throwable) {}
+                    }
                     CrossMarketRegimeAI.updateMarketState(tok.mint, price, change, vol)
                 } catch (_: Exception) {}
 
