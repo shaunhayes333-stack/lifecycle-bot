@@ -40,8 +40,24 @@ object ExecutionDecisionSnapshot6510 {
     private fun mintKey7346(generation: Long, mode: String, mint: String): String =
         "$generation:${mode.uppercase()}:${mint.trim()}"
 
+    private fun cleanupGeneration7504(current: Long = BotRuntimeController.currentGeneration()) {
+        if (current == indexedGeneration7346) return
+        synchronized(this) {
+            if (current == indexedGeneration7346) return
+            indexedGeneration7346 = current
+            val before7504 = byAuthorityKey.size
+            byAuthorityKey.entries.removeIf { it.value.runtimeGeneration < current }
+            byMint7346.keys.removeIf { (it.substringBefore(':').toLongOrNull() ?: current) < current }
+            if (byAuthorityKey.size < before7504) try {
+                PipelineHealthCollector.labelInc("EXEC_DECISION_OLD_GENERATION_PRUNED_7504")
+            } catch (_: Throwable) {}
+        }
+    }
+
     private fun bucket7346(mint: String, mode: String): List<ExecutionDecisionSnapshot> {
-        val keys = byMint7346[mintKey7346(BotRuntimeController.currentGeneration(), mode, mint)] ?: return emptyList()
+        val generation7504 = BotRuntimeController.currentGeneration()
+        cleanupGeneration7504(generation7504)
+        val keys = byMint7346[mintKey7346(generation7504, mode, mint)] ?: return emptyList()
         return keys.mapNotNull { byAuthorityKey[it] }
     }
 
@@ -55,12 +71,7 @@ object ExecutionDecisionSnapshot6510 {
         byMint7346.computeIfAbsent(mintKey7346(sealed.runtimeGeneration, sealed.mode, sealed.mint)) {
             ConcurrentHashMap.newKeySet()
         }.add(k)
-        val current7346 = BotRuntimeController.currentGeneration()
-        if (current7346 != indexedGeneration7346) {
-            indexedGeneration7346 = current7346
-            byAuthorityKey.entries.removeIf { it.value.runtimeGeneration < current7346 }
-            byMint7346.keys.removeIf { (it.substringBefore(':').toLongOrNull() ?: current7346) < current7346 }
-        }
+        cleanupGeneration7504(BotRuntimeController.currentGeneration())
         return sealed
     }
 
@@ -87,8 +98,11 @@ object ExecutionDecisionSnapshot6510 {
             .maxWithOrNull(compareBy<ExecutionDecisionSnapshot> { it.generatedAtMs }.thenBy { it.authorityVersion })
     }
 
-    fun get(mint: String, candidateVersion: Long, executionLane: String): ExecutionDecisionSnapshot? =
-        byAuthorityKey[key(mint, candidateVersion, executionLane, BotRuntimeController.currentGeneration(), if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE")]
+    fun get(mint: String, candidateVersion: Long, executionLane: String): ExecutionDecisionSnapshot? {
+        val generation7504 = BotRuntimeController.currentGeneration()
+        cleanupGeneration7504(generation7504)
+        return byAuthorityKey[key(mint, candidateVersion, executionLane, generation7504, if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE")]
+    }
 
     fun consume(mint: String, currentVersion: Long, currentVerdict: String, currentLane: String): ExecutionDecisionSnapshot? {
         val generation = BotRuntimeController.currentGeneration()

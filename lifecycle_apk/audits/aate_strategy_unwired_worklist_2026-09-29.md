@@ -1127,3 +1127,11 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] total discovery count and per-entry discoveryCount still observe every callback.
 - [x] New scanner evidence, new affinity, stronger mcap/liquidity/volume or better symbol still runs the full merge path immediately.
 - [x] Merge-window timing, confidence formula, age priority, ranked selection and emit caps are unchanged.
+
+
+## V5.0.7504 — lazy old-runtime decision snapshot retirement
+
+- [x] ExecutionDecisionSnapshot now retires older runtime generations on reads as well as writes.
+- [x] Current runtime-generation snapshots are never pruned by this path.
+- [x] Mint/version/lane authority semantics are unchanged.
+- [x] Runtime restart no longer requires a new decision record before old-generation memory is released.
