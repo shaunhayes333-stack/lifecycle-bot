@@ -1035,3 +1035,12 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] A source mutation racing snapshot construction prevents that snapshot from being cached.
 - [x] repairDurableBusPublishFailures7459 remains fully live and unchanged.
 - [x] No learning, repair, exclusion or publication semantics are changed.
+
+
+## V5.0.7494 — exact finalized-bus parity revision cache
+
+- [x] Finalized bus parity report now has a consumer-state revision for ACK/exclusion changes.
+- [x] Parity cache keys on unique canonical publish revision + consumer parity revision.
+- [x] Duplicate/no-op ACK and exclusion calls do not force a full parity rebuild.
+- [x] A concurrent canonical/consumer mutation prevents a computed parity snapshot from being cached.
+- [x] Delivery, retry, ACK persistence, exclusion persistence and consumer semantics are unchanged.

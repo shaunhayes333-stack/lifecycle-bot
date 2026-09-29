@@ -84,6 +84,8 @@ object CanonicalFinalizedTradeBus6464 {
     private val duplicates = AtomicLong(0L)
     // V5.0.7493 — monotonic revision of UNIQUE canonical bus population.
     private val canonicalRevision7493 = AtomicLong(0L)
+    // V5.0.7494 — ACK/exclusion population revision for exact parity caching.
+    private val consumerParityRevision7494 = AtomicLong(0L)
 
     fun canonicalRevision7493(): Long = canonicalRevision7493.get()
     private val retryRunning6486 = AtomicBoolean(false)
@@ -100,10 +102,15 @@ object CanonicalFinalizedTradeBus6464 {
 
     /** Consumers register once at startup. Registration is idempotent. */
     fun registerConsumer(name: String) {
+        val beforeAck7494 = consumerAcks[name]?.size ?: -1
+        val beforeEx7494 = consumerExcluded[name]?.size ?: -1
         val acks = consumerAcks.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
         consumerExcluded.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
             .addAll(CanonicalFinalityPersistence6486.excludedIds6734(name))
         acks.addAll(CanonicalFinalityPersistence6486.ackedIds6486(name).filterNot { isExcluded(name, it) })
+        if (beforeAck7494 != acks.size || beforeEx7494 != (consumerExcluded[name]?.size ?: 0)) {
+            consumerParityRevision7494.incrementAndGet()
+        }
     }
 
     /** Mark a canonical event as intentionally excluded for one consumer.
@@ -112,9 +119,10 @@ object CanonicalFinalizedTradeBus6464 {
     fun exclude(consumer: String, tradeId: String, reason: String) {
         if (consumer.isBlank() || tradeId.isBlank()) return
         registerConsumer(consumer)
-        consumerExcluded[consumer]?.add(tradeId)
-        consumerAcks[consumer]?.remove(tradeId)
+        val addedEx7494 = consumerExcluded[consumer]?.add(tradeId) == true
+        val removedAck7494 = consumerAcks[consumer]?.remove(tradeId) == true
         exclusionReasons["$consumer|$tradeId"] = reason
+        if (addedEx7494 || removedAck7494) consumerParityRevision7494.incrementAndGet()
         CanonicalFinalityPersistence6486.recordExclusion6734(consumer, tradeId, reason)
         try {
             PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_EXCLUDED_${consumer}_6697".take(60))
@@ -307,9 +315,10 @@ object CanonicalFinalizedTradeBus6464 {
     fun ack(consumer: String, tradeId: String) {
         if (tradeId.isBlank()) return
         registerConsumer(consumer)
-        consumerExcluded[consumer]?.remove(tradeId)
+        val removedEx7494 = consumerExcluded[consumer]?.remove(tradeId) == true
         exclusionReasons.remove("$consumer|$tradeId")
-        consumerAcks[consumer]?.add(tradeId)
+        val addedAck7494 = consumerAcks[consumer]?.add(tradeId) == true
+        if (removedEx7494 || addedAck7494) consumerParityRevision7494.incrementAndGet()
         CanonicalFinalityPersistence6486.recordAck6486(consumer, tradeId)
     }
 
@@ -356,7 +365,18 @@ object CanonicalFinalizedTradeBus6464 {
         val zeroConsumers: List<String>,
     )
 
+    private data class ParityCache7494(val canonicalRevision: Long, val consumerRevision: Long, val value: Parity)
+    private val parityCache7494 = java.util.concurrent.atomic.AtomicReference<ParityCache7494?>(null)
+
     fun parity(): Parity {
+        val canonicalRev7494 = canonicalRevision7493.get()
+        val consumerRev7494 = consumerParityRevision7494.get()
+        parityCache7494.get()?.let { c ->
+            if (c.canonicalRevision == canonicalRev7494 && c.consumerRevision == consumerRev7494) {
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PARITY_REUSED_7494") } catch (_: Throwable) {}
+                return c.value
+            }
+        }
         val perConsumer = consumerAcks.keys.associateWith(::consumerUnique)
         val excludedCounts = consumerExcluded.keys.associateWith(::consumerExcludedUnique)
         val missing = consumerAcks.mapValues { (name, acks) ->
@@ -373,13 +393,17 @@ object CanonicalFinalizedTradeBus6464 {
                 PipelineHealthCollector.labelInc("FINALIZED_BUS_ZERO_CONSUMERS_6464")
             } catch (_: Throwable) {}
         }
-        return Parity(
+        val built7494 = Parity(
             canonicalUnique = canonicalSeen.size,
             perConsumer = perConsumer,
             excludedByConsumer = excludedCounts,
             missingByConsumer = missing,
             zeroConsumers = zeros,
         )
+        if (canonicalRevision7493.get() == canonicalRev7494 &&
+            consumerParityRevision7494.get() == consumerRev7494
+        ) parityCache7494.set(ParityCache7494(canonicalRev7494, consumerRev7494, built7494))
+        return built7494
     }
 
     fun statusLine(): String {
@@ -393,6 +417,7 @@ object CanonicalFinalizedTradeBus6464 {
     internal fun resetForTest() {
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
         publishes.set(0L); duplicates.set(0L); canonicalRevision7493.set(0L)
+        consumerParityRevision7494.set(0L); parityCache7494.set(null)
         retryRunning6486.set(false); deliveryInFlight6734.clear()
     }
 }
