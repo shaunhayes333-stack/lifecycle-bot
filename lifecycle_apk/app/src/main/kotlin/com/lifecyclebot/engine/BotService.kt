@@ -15308,23 +15308,45 @@ class BotService : Service() {
         if (prevAt != null && (nowMs - prevAt) < intakeDedupTtlMs) {
             val lanes6566 = inferIntakeLaneAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
             val tools6566 = inferIntakeToolAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
-            GlobalTradeRegistry.mergeAffinity(mint, lanes6566, tools6566)
+            val registryBefore7475 = GlobalTradeRegistry.getEntry(mint)
+            val affinityChanged7475 = GlobalTradeRegistry.mergeAffinity(mint, lanes6566, tools6566)
+            val registryEvidenceImproved7475 = registryBefore7475 != null && (
+                liquidityUsd > registryBefore7475.initialLiquidityUsd ||
+                    confidence > registryBefore7475.initialConfidence
+            )
             val promoted6566 = if (newSourceEvidence6566) {
                 try { GlobalTradeRegistry.updateProbationScanner(mint, source) } catch (_: Throwable) { false }
             } else false
+            var tokenEvidenceImproved7475 = false
             try {
                 synchronized(status.tokens) {
                     status.tokens[mint]?.let { existing ->
-                        if (liquidityUsd > existing.lastLiquidityUsd) existing.lastLiquidityUsd = liquidityUsd
-                        if (trustedMarketCapUsd6492 > existing.lastMcap) existing.lastMcap = trustedMarketCapUsd6492
+                        if (liquidityUsd > existing.lastLiquidityUsd) {
+                            existing.lastLiquidityUsd = liquidityUsd
+                            tokenEvidenceImproved7475 = true
+                        }
+                        if (trustedMarketCapUsd6492 > existing.lastMcap) {
+                            existing.lastMcap = trustedMarketCapUsd6492
+                            tokenEvidenceImproved7475 = true
+                        }
+                        val laneBefore7475 = existing.laneAffinity.size
+                        val toolBefore7475 = existing.toolAffinity.size
                         existing.laneAffinity.addAll(lanes6566)
                         existing.toolAffinity.addAll(tools6566)
-                        existing.source = (existing.source.split(',').filter { it.isNotBlank() } + incomingSources6566).distinct().joinToString(",")
+                        if (existing.laneAffinity.size != laneBefore7475 || existing.toolAffinity.size != toolBefore7475) {
+                            tokenEvidenceImproved7475 = true
+                        }
+                        if (newSourceEvidence6566) {
+                            existing.source = (existing.source.split(',').filter { it.isNotBlank() } + incomingSources6566)
+                                .distinct().joinToString(",")
+                        }
                     }
                 }
             } catch (_: Throwable) {}
-            val hot6566 = GlobalTradeRegistry.getEntry(mint) != null
-            if (hot6566) {
+            val meaningfulRefresh7475 = newSourceEvidence6566 || affinityChanged7475 ||
+                registryEvidenceImproved7475 || tokenEvidenceImproved7475 || promoted6566
+            val hot6566 = registryBefore7475 != null
+            if (hot6566 && meaningfulRefresh7475) {
                 GlobalTradeRegistry.addToWatchlist(
                     mint, symbol.ifBlank { mint.take(6) }, source,
                     incomingSources6566.joinToString(","), trustedMarketCapUsd6492,
@@ -15335,6 +15357,8 @@ class BotService : Service() {
                     laneRequested = lanes6566.firstOrNull() ?: "STANDARD",
                     note = "MEME_DEDUPE_REFRESH_6566",
                 )
+            } else if (hot6566 && !meaningfulRefresh7475) {
+                try { PipelineHealthCollector.labelInc("INTAKE_REPEAT_NO_NEW_EVIDENCE_COALESCED_7475") } catch (_: Throwable) {}
             }
             val cnt = (intakeDedupCount[mint] ?: 0) + 1
             intakeDedupCount[mint] = cnt

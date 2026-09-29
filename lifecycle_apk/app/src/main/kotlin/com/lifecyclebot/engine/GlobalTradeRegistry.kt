@@ -636,15 +636,26 @@ object GlobalTradeRegistry {
         // Check if already in probation - update with additional scanner
         val existingProbation = probation[mint]
         if (existingProbation != null) {
-            existingProbation.additionalScanners.add(addedBy)
-            existingProbation.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
-            existingProbation.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
-            PipelineTracer.registryDuplicate(symbol, mint, "PROBATION")
-            // Check if this promotes it
-            if (existingProbation.additionalScanners.size >= 1) {
-                return promoteFromProbation(mint, "MULTI_SCANNER_CONFIRM")
+            // V5.0.7475 — only DISTINCT source evidence may count as a
+            // multi-scanner confirmation. Repeated callbacks from the source
+            // that created probation are refreshes, not independent proof.
+            val priorSources7475 = (existingProbation.source + "," + existingProbation.addedBy)
+                .split(',').map { it.trim().uppercase() }.filter { it.isNotBlank() }.toSet()
+            val incomingSource7475 = addedBy.trim().uppercase()
+            val distinctSource7475 = incomingSource7475.isNotBlank() && incomingSource7475 !in priorSources7475 &&
+                existingProbation.additionalScanners.add(incomingSource7475)
+            for (lane in laneAffinity) existingProbation.laneAffinity.add(lane.uppercase())
+            for (tool in toolAffinity) existingProbation.toolAffinity.add(tool.uppercase())
+            if (liquidityUsd > existingProbation.initialLiquidity) {
+                existingProbation.currentPrice = if (price > 0.0) price else existingProbation.currentPrice
             }
-            return AddResult(false, "ALREADY_IN_PROBATION", probation = true)
+            PipelineTracer.registryDuplicate(symbol, mint, "PROBATION")
+            if (distinctSource7475) {
+                try { PipelineHealthCollector.labelInc("PROBATION_DISTINCT_SOURCE_CONFIRM_7475") } catch (_: Throwable) {}
+                return promoteFromProbation(mint, "MULTI_SCANNER_CONFIRM:$incomingSource7475")
+            }
+            try { PipelineHealthCollector.labelInc("PROBATION_SAME_SOURCE_REFRESH_COALESCED_7475") } catch (_: Throwable) {}
+            return AddResult(false, "ALREADY_IN_PROBATION_SAME_SOURCE", probation = true)
         }
 
         // V5.9.626 — rejection memory cannot block protected intake.
@@ -1323,10 +1334,23 @@ object GlobalTradeRegistry {
 
     fun getToolAffinity(mint: String): Set<String> = watchlist[mint]?.toolAffinity?.toSet() ?: emptySet()
 
-    fun mergeAffinity(mint: String, lanes: Set<String> = emptySet(), tools: Set<String> = emptySet()) {
-        val e = watchlist[mint] ?: return
-        e.laneAffinity.addAll(lanes.map { it.uppercase() })
-        e.toolAffinity.addAll(tools.map { it.uppercase() })
+    /**
+     * V5.0.7475 — additive affinity merge with change detection.
+     * Preserve every new lane/tool signal, but make a no-change repeat O(new
+     * items) without allocating uppercase lists or forcing downstream refresh.
+     */
+    fun mergeAffinity(mint: String, lanes: Set<String> = emptySet(), tools: Set<String> = emptySet()): Boolean {
+        val e = watchlist[mint] ?: return false
+        var changed = false
+        for (lane in lanes) {
+            val k = lane.uppercase()
+            if (k.isNotBlank() && e.laneAffinity.add(k)) changed = true
+        }
+        for (tool in tools) {
+            val k = tool.uppercase()
+            if (k.isNotBlank() && e.toolAffinity.add(k)) changed = true
+        }
+        return changed
     }
 
     fun getWatchlist(): List<String> {

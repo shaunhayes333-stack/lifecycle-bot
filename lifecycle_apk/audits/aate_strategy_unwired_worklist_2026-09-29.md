@@ -835,3 +835,15 @@ Confirmed defect: `StrategyHypothesisEngine.bindExecutedPosition7428()` had zero
 - [x] Re-entry into a previously closed mint can no longer inherit old per-mint carry basis into current-open parity.
 - [x] If exact position coverage is incomplete, the existing carry/mint reconciliation remains unchanged; no inferred allocation is created.
 - [x] Divergence guard thresholds are unchanged. The repair makes evidence converge rather than weakening the guard.
+
+
+## V5.0.7475 — additive intake/evidence fanout compression
+
+Runtime evidence from 5.0.7466: 4,595 intake events / 639 unique symbols, PROBATION=3,377, WATCHLIST_AFFINITY=4,499, 6,984 shadow lane evaluations, max bot-loop 137s with wedge in GlobalTradeRegistry.mergeAffinity.
+
+- [x] Affinity merge now returns whether genuinely new lane/tool evidence was added and avoids temporary uppercase collections.
+- [x] Same-source probation repeats no longer masquerade as multi-scanner confirmation; only distinct source evidence promotes.
+- [x] Per-mint dedupe refresh still propagates higher liquidity, higher mcap, confidence, new source, and new lane/tool evidence.
+- [x] A duplicate callback that adds no information no longer re-runs addToWatchlist freshness mutation or LIVE_READY hydration enqueue.
+- [x] No scanner source, lane, specialist, learning path, safety gate, score floor, or sizing authority is removed.
+- [x] New evidence remains additive and immediately visible; only no-change repetition is coalesced.
