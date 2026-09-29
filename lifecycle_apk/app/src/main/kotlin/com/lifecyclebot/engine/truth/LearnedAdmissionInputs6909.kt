@@ -179,6 +179,24 @@ object LearnedAdmissionInputs6909 {
         } catch (_: Throwable) { null }
         val symbolHint6917 = try { tsForBrains6917?.symbol.orEmpty() } catch (_: Throwable) { "" }
         val liquidityUsdHint6917 = try { tsForBrains6917?.lastLiquidityUsd ?: 0.0 } catch (_: Throwable) { 0.0 }
+        // V5.0.7430 — real candidate context for previously-unwired
+        // historical/orthogonal predictors. Never synthesize missing values.
+        val volumeUsdHint7430 = try {
+            tsForBrains6917?.tokenMap?.volume1hUsd
+                ?.takeIf { it.isFinite() && it > 0.0 }
+                ?: tsForBrains6917?.history?.lastOrNull()
+                    ?.takeIf { !it.synthetic && it.vol > 0.0 }?.vol
+                ?: 0.0
+        } catch (_: Throwable) { 0.0 }
+        val tokenAgeMinutes7430 = try {
+            tsForBrains6917?.let {
+                (com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(it) / 60_000L)
+                    .coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+            } ?: -1
+        } catch (_: Throwable) { -1 }
+        val graduated7430 = try {
+            tsForBrains6917?.tokenMap?.migratedOrGraduated == true
+        } catch (_: Throwable) { false }
         // V5.0.7070 — THE CREATOR DEFENCE WAS STARVED AT BOTH ENDS.
         //
         // PredictiveEntryOracle6915 scales a penalty by creator rug count and
@@ -239,6 +257,9 @@ object LearnedAdmissionInputs6909 {
                 mint = mint,
                 symbol = symbolHint6917,
                 liquidityUsd = liquidityUsdHint6917,
+                volumeUsd = volumeUsdHint7430,
+                tokenAgeMinutes = tokenAgeMinutes7430,
+                hasGraduated = graduated7430,
                 creator = creatorHint6917,
                 quality = qualityHint,
                 edgePhase = edgePhaseHint,
