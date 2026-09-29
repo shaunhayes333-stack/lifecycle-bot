@@ -3325,6 +3325,12 @@ object PipelineHealthCollector {
             try { sb.append("  " + StrategyTruthLedger.auditLine() + "\n") } catch (_: Throwable) {}
             // V5.9.1273 — show the live lane-size damper state next to expectancy.
             try { sb.append("  " + LaneExpectancyDamper.statusLine() + "\n") } catch (_: Throwable) {}
+            // V5.0.7429 — exact playbook attribution, not just lane averages.
+            try {
+                sb.append("  Exact strategy (§7429):    ")
+                    .append(com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.statusLine())
+                    .append('\n')
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {
             // telemetry is non-essential; never let it break the dump
         }
