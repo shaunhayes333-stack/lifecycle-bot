@@ -151,6 +151,17 @@ object TokenMapAuthority {
             tokenMapRetry.incrementAndGet()
             try { PipelineHealthCollector.labelInc("TOKEN_MAP_RETRY") } catch (_: Throwable) {}
         }
+        // V5.0.7460 — this owner gets a per-mint generation only after
+        // winning/replacing the hydration lease. A stale prior owner finishing
+        // later cannot overwrite the shared canonical result.
+        val mapGeneration7460 = com.lifecyclebot.engine.truth.TokenMapVersionGuard6411
+            .beginMappingGeneration7460(
+                target,
+                if (activePrev == null) "TOKEN_MAP_OWNER_START" else "TOKEN_MAP_STALE_OWNER_REPLACED",
+            )
+        val laneGeneration7460 = com.lifecyclebot.engine.truth.TokenMapVersionGuard6411
+            .currentLaneRoutingVersion(target)
+
         updateActivePeak()
         tokenMapStartUnique.incrementAndGet()
         try { PipelineHealthCollector.labelInc("TOKEN_MAP_START_UNIQUE") } catch (_: Throwable) {}
@@ -163,6 +174,27 @@ object TokenMapAuthority {
             tm.hydrationFailureReasons.addOnce("SOURCE_IDENTITY_BAD:source_label_as_identity")
         } else classifyRoute(tm, ts)
         tm.updatedAtMs = now
+        val versionAccepted7460 = com.lifecyclebot.engine.truth.TokenMapVersionGuard6411.guardMetricWrite(
+            mint = target,
+            stage = "TOKEN_MAP_COMMIT_7460",
+            mappingVer = mapGeneration7460,
+            laneVer = laneGeneration7460,
+        )
+        if (!versionAccepted7460) {
+            activeHydrationByMint.remove(target, now)
+            try {
+                PipelineHealthCollector.labelInc("TOKEN_MAP_SHARED_COMMIT_STALE_DROPPED_7460")
+                ForensicLogger.lifecycle(
+                    "TOKEN_MAP_SHARED_COMMIT_STALE_DROPPED_7460",
+                    "mint=${target.take(10)} generation=$mapGeneration7460 route=${tm.routeStatus}",
+                )
+            } catch (_: Throwable) {}
+            val newer = canonicalResultByMint6492[target]
+            return if (newer != null) installShared6492(ts, newer) else tm.also {
+                it.routeStatus = "ROUTE_STALE_RECHECK"
+                it.hydrationComplete = false
+            }
+        }
         canonicalResultByMint6492[target] = detached6492(tm)
 
         try {
