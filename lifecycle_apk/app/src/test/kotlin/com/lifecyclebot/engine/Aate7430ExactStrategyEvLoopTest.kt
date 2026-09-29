@@ -16,6 +16,13 @@ class Aate7430ExactStrategyEvLoopTest {
         assertTrue(s.contains("HYPOTHESIS_EXACT_PARENT_BASELINE_SEEDED_7430"))
     }
 
+    @Test fun sizeAndStopBiasSeedWithTheFullExactIdentity() {
+        val s = File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
+        val call = "seedExactFromParent7430(parentCtx7430, ctx, lane, strategyIdentity)"
+        assertTrue("size and stop paths must pass lane and exact identity", s.split(call).size - 1 == 2)
+        assertFalse("two-argument call will fail release compilation", s.contains("seedExactFromParent7430(parentCtx7430, ctx)"))
+    }
+
     @Test fun fdgStampsExactIdentityIntoHypothesisDecision() {
         val f = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(f.contains("exactStrategyIdentity7430"))

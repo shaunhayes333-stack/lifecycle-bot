@@ -361,7 +361,7 @@ object StrategyHypothesisEngine {
         return try {
             val parentCtx7430 = ctxKey(lane, score, regime)
             val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
-            seedExactFromParent7430(parentCtx7430, ctx)
+            seedExactFromParent7430(parentCtx7430, ctx, lane, strategyIdentity)
             if (suppressVariantForContext(lane, score, regime)) {
                 active.remove(ctx)
                 pending.remove(mint)
