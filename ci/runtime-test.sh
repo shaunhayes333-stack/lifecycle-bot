@@ -7,6 +7,32 @@ set -euo pipefail
 CAPTURE_SECONDS="${CAPTURE_SECONDS:-180}"
 WS="${GITHUB_WORKSPACE:-$(pwd)}"
 
+# A subprocess can fail before a wait helper emits its timeout summary. The
+# EXIT witness always reports the last observed startup stage on a red smoke
+# step, without making partial startup count as a passing execution window.
+runtime_failure_witness_7437() {
+    local result=$?
+    if [ "$result" -ne 0 ]; then
+        python3 - "$WS/logcat_full.txt" <<'PYWITNESS'
+import pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(errors="replace") if path.exists() else ""
+def seen(marker): return marker in text
+def last(pattern):
+    matches = re.findall(pattern, text)
+    return matches[-1] if matches else "none"
+print("::error::BOOTSTRAP_WITNESS_7437 "
+      f"canonicalReady={seen('CANONICAL_BOOTSTRAP_READY_6515')} "
+      f"canonicalFailure={last(r'CANONICAL_BOOTSTRAP_FAILED_6515.*?type=([A-Za-z0-9_]+)')} "
+      f"lastServicePhase={last(r'SERVICE_BOOTSTRAP_PHASE_6516.*?phase=([A-Z0-9_]+)')} "
+      f"serviceFailure={last(r'SERVICE_BOOTSTRAP_FAILED_6516.*?type=([A-Za-z0-9_]+)')} "
+      f"processDeath={seen('Process: com.lifecyclebot.aate')} "
+      f"uiStart={seen('UI_START_DISPATCHED_6517')}")
+PYWITNESS
+    fi
+}
+trap runtime_failure_witness_7437 EXIT
+
 python3 -m unittest discover -s "$WS/ci" -p "test_runtime_liveness.py" -v
 
 cd lifecycle_apk
