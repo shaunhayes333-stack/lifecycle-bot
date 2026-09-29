@@ -1001,6 +1001,17 @@ object ToolkitSignalSheet {
                         mint = mint, lane = lane, authorityVersion = 6551L,
                         intentId = expectedIntentId6647,
                     )
+                // V5.0.7464 — a specialist may be elected after the initial
+                // Toolkit hypothesis pass. When scanner/intake provenance
+                // already proves this mint belonged to this lane, recover only
+                // DISCOVER/QUALIFY on the SAME immutable key before stamping
+                // the real downstream stage. No affinity proof => no backfill.
+                if (causalStage.ordinal >= com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OWNER.ordinal) {
+                    try {
+                        com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625
+                            .ensureAffinityLineage7464(key, causalStage)
+                    } catch (_: Throwable) {}
+                }
                 com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage, stage)
             } else {
                 try { PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647") } catch (_: Throwable) {}

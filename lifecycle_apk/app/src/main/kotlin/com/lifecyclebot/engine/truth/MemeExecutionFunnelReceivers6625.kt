@@ -425,6 +425,58 @@ object SpecialistCausalFunnel6625 {
     private fun keyString(k: CausalKey): String =
         "${k.runId}|${k.mode}|${k.mint}|${k.lane}|${k.authorityVersion}|${k.intentId}"
 
+    /**
+     * V5.0.7464 — recover only provenance-proven early lineage.
+     *
+     * Some specialists are elected after the initial Toolkit hypothesis pass.
+     * Their scanner/intake lane affinity already exists in GlobalTradeRegistry,
+     * but the causal funnel previously started at MARK/SIZE and therefore
+     * rejected real TICKET/EXEC/OPEN stages as NO_DISCOVER/NO_INTENT.
+     *
+     * This is NOT generic predecessor fabrication:
+     *   - DISCOVER is added only when the registry proves this exact mint had
+     *     this exact specialist lane affinity at intake.
+     *   - QUALIFY is added only because the caller is already at OWNER or a
+     *     later executable stage for that same immutable causal key.
+     *   - INTENT/FDG/MARK/SIZE are never invented here.
+     */
+    fun ensureAffinityLineage7464(key: CausalKey, downstreamStage: Stage): Boolean {
+        if (key.mint.isBlank() || key.lane.isBlank()) return false
+        if (downstreamStage.ordinal < Stage.OWNER.ordinal) return false
+        val laneKey = key.lane.uppercase()
+        val affinity = try {
+            com.lifecyclebot.engine.GlobalTradeRegistry.getLaneAffinity(key.mint)
+                .map { it.uppercase() }
+                .toSet()
+        } catch (_: Throwable) { emptySet() }
+        if (laneKey !in affinity) {
+            try { PipelineHealthCollector.labelInc("SPECIALIST_AFFINITY_LINEAGE_NO_PROOF_7464_$laneKey") } catch (_: Throwable) {}
+            return false
+        }
+
+        val rec = records.computeIfAbsent(keyString(key)) { Record(key) }
+        var discoverAdded = false
+        var qualifyAdded = false
+        synchronized(rec) {
+            val now = System.currentTimeMillis()
+            if (Stage.DISCOVER !in rec.stages) {
+                rec.stages[Stage.DISCOVER] = now
+                rec.outcomes += "DISCOVER_FROM_REGISTRY_AFFINITY_7464"
+                discoverAdded = true
+            }
+            if (Stage.QUALIFY !in rec.stages) {
+                rec.stages[Stage.QUALIFY] = now
+                rec.outcomes += "QUALIFY_PROVEN_BY_DOWNSTREAM_AUTHORITY_7464"
+                qualifyAdded = true
+            }
+        }
+        try {
+            if (discoverAdded) PipelineHealthCollector.labelInc("SPECIALIST_DISCOVER_AFFINITY_RECOVERED_7464_$laneKey")
+            if (qualifyAdded) PipelineHealthCollector.labelInc("SPECIALIST_QUALIFY_AUTHORITY_RECOVERED_7464_$laneKey")
+        } catch (_: Throwable) {}
+        return discoverAdded || qualifyAdded
+    }
+
     fun stamp6625(key: CausalKey, stage: Stage, outcome: String = stage.name) {
         if (key.intentId.isBlank() || key.mint.isBlank() || key.lane.isBlank()) {
             rejectedBlankIds.incrementAndGet()

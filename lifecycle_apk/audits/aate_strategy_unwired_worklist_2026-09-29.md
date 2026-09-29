@@ -703,3 +703,15 @@ A repair series is not complete until a fresh runtime snapshot shows:
 - fresh strategy identity bind/outcome misses trend to zero;
 - cycle latency and worker timeout/stale-reset counts materially improve;
 - all preserved invariants above remain intact.
+
+
+## V5.0.7464 — P0-1 specialist causal predecessor repair (runtime proof pending)
+
+Baseline 5.0.7456 showed PROJECT_SNIPER / DIP_HUNTER / CASHGEN / CYCLIC reaching raw SIZE/TICKET/EXEC/OPEN while validated lineage dropped them for missing DISCOVER and/or INTENT.
+
+- [x] Added provenance-gated DISCOVER recovery from existing `GlobalTradeRegistry` lane affinity on the exact immutable causal key.
+- [x] QUALIFY can be recovered only when that same key has already reached OWNER or a later executable stage.
+- [x] No INTENT/FDG/MARK/SIZE stage is fabricated by this repair.
+- [x] Existing 7418 same-record executable-lineage rule remains the only INTENT backfill path.
+- [x] Missing affinity proof remains visible via `SPECIALIST_AFFINITY_LINEAGE_NO_PROOF_7464_<LANE>`.
+- [ ] Runtime acceptance: fresh post-7464 PROJECT_SNIPER/DIP_HUNTER/CASHGEN/CYCLIC raw and validated downstream counts converge without increasing cross-lane rewrites.
