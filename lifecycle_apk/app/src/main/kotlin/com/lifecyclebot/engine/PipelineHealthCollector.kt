@@ -2286,19 +2286,34 @@ object PipelineHealthCollector {
                     "ORACLE_EDGE_PROOF_SCORED_7263",
                     "ORACLE_EDGE_PROVEN_7263",
                     "ORACLE_EDGE_DEMOTED_7263",
-                    // V5.0.7426 — canonical PAPER/LIVE spend only on an
-                    // explicit positive predictive verdict. Exploration and
-                    // authority failures are shadow/replay/LAB only.
+                    // V5.0.7426 — deployment-quality canonical capital:
+                    // probes / authority failures stay out of PAPER/LIVE, while
+                    // the oracle contributes evidence without monopolising entry.
                     "CANONICAL_HIGH_EV_ORACLE_ADMIT_7426",
-                    "CANONICAL_HIGH_EV_SHADOW_ONLY_7426",
-                    "CANONICAL_HIGH_EV_SHADOW_ONLY_7426_REFUSE",
-                    "CANONICAL_HIGH_EV_SHADOW_ONLY_7426_MISSING",
+                    "CANONICAL_HIGH_EV_ORACLE_REFUSE_REVIEWED_7426",
+                    "CANONICAL_HIGH_EV_ORACLE_REFUSE_NONBINDING_7426",
+                    "CANONICAL_HIGH_EV_ORACLE_MISSING_REVIEWED_7426",
                     "CANONICAL_HIGH_EV_PROBE_SHADOW_ONLY_7426",
                     "CANONICAL_HIGH_EV_AUTHORITY_UNAVAILABLE_7426",
-                    // V5.0.7427 — exact strategy identity / credit integrity.
+                    // V5.0.7427/7428/7430 — exact strategy identity, exact
+                    // position-bound credit and exact-playbook EV adaptation.
                     "STRATEGY_VARIANT_EXACT_STAMPED_7427",
                     "STRATEGY_VARIANT_EXACT_OUTCOME_7427",
                     "STRATEGY_VARIANT_EXACT_OUTCOME_MISSING_7427",
+                    "HYPOTHESIS_DECISION_STAMPED_7428",
+                    "HYPOTHESIS_POSITION_BOUND_7428",
+                    "HYPOTHESIS_POSITION_BIND_MISSING_7428",
+                    "HYPOTHESIS_POSITION_OUTCOME_7428",
+                    "HYPOTHESIS_POSITION_OUTCOME_MISSING_7428",
+                    "STRATEGY_VARIANT_EXACT_STAMPED_7428",
+                    "STRATEGY_VARIANT_EXACT_OUTCOME_7428",
+                    "FDG_EXACT_STRATEGY_IDENTITY_7430",
+                    "HYPOTHESIS_EXACT_CONTEXT_STAMPED_7430",
+                    "HYPOTHESIS_EXACT_PARENT_BASELINE_SEEDED_7430",
+                    "HYPOTHESIS_EXACT_EV_PRIOR_SEEDED_7430",
+                    "EXACT_STRATEGY_EV_PRIOR_READ_7430",
+                    "EXACT_STRATEGY_EV_PRIOR_POSITIVE_7430",
+                    "EXACT_STRATEGY_EV_PRIOR_NEGATIVE_7430",
                     "TRADING_MEMORY_PATTERN_READ_7427",
                     "TACTIC_ENTRY_ATTRIBUTION_INVALID_6568",
                     "BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263",
