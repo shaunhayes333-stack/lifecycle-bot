@@ -1017,3 +1017,11 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] Held crypto identities are still never evicted and therefore retain all held-position supervision state.
 - [x] A token rediscovered after the 7-day stale horizon is eligible for fresh evaluation instead of inheriting an ancient completed generation.
 - [x] No active evaluation, held position, discovery source or terminal learning event is removed early.
+
+
+## V5.0.7492 — Crypto Universe discovery-report memo
+
+- [x] discoveryReport6544 text generation is memoized for 5 seconds.
+- [x] Registry rows, evaluation state, routeability, pricing and trading consumers remain live and unchanged.
+- [x] Expensive per-report list copy, chain grouping, cohort counting and label-prefix sorting are skipped on repeated report reads inside the memo window.
+- [x] Memo applies only to diagnostics/report presentation; it has zero admission or execution authority.

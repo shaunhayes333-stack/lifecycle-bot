@@ -1156,13 +1156,24 @@ object DynamicAltTokenRegistry {
         if (liveRoutable) liveRoutable6544.incrementAndGet()
         if (paperOnlyNoRoute) paperOnlyNoRoute6544.incrementAndGet()
     }
+    private data class DiscoveryReportMemo7492(val atMs: Long, val text: String)
+    @Volatile private var discoveryReportMemo7492: DiscoveryReportMemo7492? = null
+    private const val DISCOVERY_REPORT_TTL_MS_7492 = 5_000L
+
     fun discoveryReport6544(): String {
+        val now7492 = System.currentTimeMillis()
+        discoveryReportMemo7492?.let { memo ->
+            if (now7492 - memo.atMs < DISCOVERY_REPORT_TTL_MS_7492) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISCOVERY_REPORT_REUSED_7492") } catch (_: Throwable) {}
+                return memo.text
+            }
+        }
         val rows = registry.values.toList()
         val byChain = rows.groupingBy { it.chainId.ifBlank { "unknown" } }.eachCount().toList().sortedByDescending { it.second }
         val lt5 = rows.count { !it.isStatic && it.discoveryAgeHours6544 < (5.0 / 60.0) }
         val lt15 = rows.count { !it.isStatic && it.discoveryAgeHours6544 < (15.0 / 60.0) }
         val lt1h = rows.count { !it.isStatic && it.discoveryAgeHours6544 < 1.0 }
-        return buildString {
+        val report7492 = buildString {
             append("networks observed=").append(networksObserved6544.sorted().joinToString(",")).append('\n')
             append("DEXes observed=").append(dexesObserved6544.sorted().joinToString(",")).append('\n')
             append("fresh pools discovered=").append(freshPoolsDiscovered6544.get()).append('\n')
@@ -1238,6 +1249,8 @@ object DynamicAltTokenRegistry {
             append("evaluation terminal reasons=").append(evaluationDisposition6567.entries
                 .sortedByDescending { it.value.get() }.joinToString { "${it.key}:${it.value.get()}" })
         }
+        discoveryReportMemo7492 = DiscoveryReportMemo7492(now7492, report7492)
+        return report7492
     }
 
     /** Update live price for a static token (called from PerpsMarketDataFetcher callback) */
