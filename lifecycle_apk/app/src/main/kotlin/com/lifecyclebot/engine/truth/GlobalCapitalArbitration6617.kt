@@ -158,8 +158,6 @@ object GlobalCapitalArbitration6617 {
         return ok
     }
 
-    fun proposalFor7458(lane: String, mint: String): SpecialistProposal7458? =
-        specialistProposals7458[specialistKey7458(lane, mint)]
 
     /**
      * Any lane call site that must legacy-fallback to a private wallet
