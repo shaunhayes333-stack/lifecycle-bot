@@ -987,3 +987,12 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] Ticket provenance, feedback epoch, canonical occupancy, sealed size and executable-mark checks are unchanged.
 - [x] Execution-ticket / same-mint / canonical-position idempotency authorities are unchanged.
 - [x] No ticket is made more executable by this change; only dead tombstone retention is reduced.
+
+
+## V5.0.7489 — release finalized-consumer pending identities at terminal exclusion
+
+- [x] exactEventPendingLogged6699 remains active during the 120s exact-proof grace window.
+- [x] Once CanonicalFinalizedTradeBus marks a consumer/trade terminally EXCLUDED as unprovable, its pending-log identity is removed immediately.
+- [x] Exact proof success still removes the pending identity as before.
+- [x] Consumer delivery, exclusion reason, learning eligibility and canonical ACK semantics are unchanged.
+- [x] No learning consumer or retry opportunity is removed; only terminally dead retry-log state is released.

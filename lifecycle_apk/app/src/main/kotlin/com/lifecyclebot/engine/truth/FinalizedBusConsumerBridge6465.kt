@@ -75,13 +75,17 @@ object FinalizedBusConsumerBridge6465 {
                             "UNPROVABLE_EXACT_TERMINAL_ECONOMICS_6699",
                         )
                         excluded.incrementAndGet()
-                        if (exactEventPendingLogged6699.add(pendingKey6699)) {
-                            PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNPROVABLE_EXCLUDED_6699")
-                            ForensicLogger.lifecycle(
-                                "FINALIZED_CONSUMER_UNPROVABLE_EXCLUDED_6699",
-                                "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} ageMs=$ageMs6699 action=terminal_exclusion_no_retry_storm",
-                            )
-                        }
+                        // V5.0.7489 — exclusion is terminal on the canonical bus,
+                        // so this pending-log identity is no longer needed after
+                        // the exclusion is recorded. Keep the key only during the
+                        // grace/retry window where exact proof can still arrive.
+                        exactEventPendingLogged6699.remove(pendingKey6699)
+                        PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNPROVABLE_EXCLUDED_6699")
+                        PipelineHealthCollector.labelInc("FINALIZED_PENDING_IDENTITY_RELEASED_7489")
+                        ForensicLogger.lifecycle(
+                            "FINALIZED_CONSUMER_UNPROVABLE_EXCLUDED_6699",
+                            "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} ageMs=$ageMs6699 action=terminal_exclusion_release_pending_identity",
+                        )
                     } catch (_: Throwable) {}
                     return false
                 }
