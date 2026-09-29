@@ -2318,6 +2318,7 @@ object PipelineHealthCollector {
                     "TRADING_COPILOT_PREDICTIVE_READ_7430",
                     "HISTORICAL_SETUP_PREDICTIVE_READ_7430",
                     "ORTHOGONAL_AGE_PATTERN_READ_7430",
+                    "CROSS_ASSET_SYMBOL_FEED_7431",
                     "SOURCE_TIMING_LATE_SIGNAL_READ_7429",
                     "EXACT_STRATEGY_OUTCOME_7429",
                     "EXACT_STRATEGY_ATTRIBUTION_COMPLETE_7429",
