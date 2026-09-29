@@ -520,7 +520,11 @@ object EconomicEventSchema6464 {
         }
     } catch (_: Throwable) { null }
 
-    private data class SnapshotCache7499(val version: Long, val rows: List<Event>)
+    private data class SnapshotCache7499(
+        val version: Long,
+        val rows: List<Event>,
+        val fullTerminalByPosition7500: Map<String, List<Sell>>,
+    )
     private val snapshotCache7499 =
         java.util.concurrent.atomic.AtomicReference<SnapshotCache7499?>(null)
 
@@ -534,11 +538,30 @@ object EconomicEventSchema6464 {
         }
         val rows7499 = events.toList()
         if (eventVersion.get() == version7499) {
-            snapshotCache7499.set(SnapshotCache7499(version7499, rows7499))
+            val fullTerminal7500 = rows7499.asSequence()
+                .filterIsInstance<Sell>()
+                .filter { !it.partial && it.positionId.isNotBlank() }
+                .groupBy { it.positionId }
+            snapshotCache7499.set(SnapshotCache7499(version7499, rows7499, fullTerminal7500))
         }
         return rows7499
     }
     fun version(): Long = eventVersion.get()
+
+    /** V5.0.7500 — exact full-terminal SELL index, version-aligned with snapshot(). */
+    fun fullTerminalSellsByPosition7500(): Map<String, List<Sell>> {
+        snapshot()
+        val v = eventVersion.get()
+        val cached = snapshotCache7499.get()
+        if (cached != null && cached.version == v) return cached.fullTerminalByPosition7500
+        // A racing append prevented cache publication; build a one-shot view.
+        return events.toList().asSequence()
+            .filterIsInstance<Sell>()
+            .filter { !it.partial && it.positionId.isNotBlank() }
+            .groupBy { it.positionId }
+    }
+
+    fun fullTerminalPositionIds7500(): Set<String> = fullTerminalSellsByPosition7500().keys
 
     fun statusLine(): String =
         "events=${eventCount.get()} buys=${recordedBuys.get()} sells=${recordedSells.get()} " +

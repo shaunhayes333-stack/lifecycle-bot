@@ -51,11 +51,7 @@ object FinalizedLearningReconciler7423 {
             // the same canonical positionId. Otherwise it is a historical
             // finality gap that cannot be safely replayed without inventing PnL.
             val fullTerminalByPosition7432 = try {
-                EconomicEventSchema6464.snapshot().asSequence()
-                    .filterIsInstance<EconomicEventSchema6464.Sell>()
-                    .filter { !it.partial && it.positionId.isNotBlank() }
-                    .map { it.positionId }
-                    .toHashSet()
+                EconomicEventSchema6464.fullTerminalPositionIds7500()
             } catch (_: Throwable) { emptySet<String>() }
 
             val missing = closed.asSequence()
@@ -110,10 +106,7 @@ object FinalizedLearningReconciler7423 {
         if (limit <= 0) return 0
         val published = CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
         val sells = try {
-            EconomicEventSchema6464.snapshot().asSequence()
-                .filterIsInstance<EconomicEventSchema6464.Sell>()
-                .filter { !it.partial && it.positionId.isNotBlank() }
-                .groupBy { it.positionId }
+            EconomicEventSchema6464.fullTerminalSellsByPosition7500()
         } catch (_: Throwable) { emptyMap<String, List<EconomicEventSchema6464.Sell>>() }
 
         var repaired = 0

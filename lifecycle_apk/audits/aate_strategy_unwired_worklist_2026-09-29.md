@@ -1093,3 +1093,12 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] Any appended/evicted event or replay-carry version change invalidates the cached version.
 - [x] An event mutation racing list construction prevents that list from being cached.
 - [x] Event retention CAP, durable keys, replay carry, arithmetic and persistence are unchanged.
+
+
+## V5.0.7500 — version-cached durable terminal-sell index
+
+- [x] EconomicEventSchema snapshot cache now derives full terminal SELLs by canonical positionId once per event version.
+- [x] Finalized reconciliation consumes the cached terminal position-id set instead of refiltering the event corpus.
+- [x] Durable bus repair consumes the same cached per-position SELL groups.
+- [x] Racing event mutation falls back to a one-shot derived view and never caches against the wrong version.
+- [x] SELL selection, latest-event choice, repair proof requirements and event persistence are unchanged.
