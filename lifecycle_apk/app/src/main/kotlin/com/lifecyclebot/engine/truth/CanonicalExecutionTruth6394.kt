@@ -353,10 +353,22 @@ object SmartMoneyFeed6394 {
         }
     }
 
-    /** Directive: smartMoneyBuysLast60s for the scout. */
+    /**
+     * V5.0.7431 — count DISTINCT smart-money wallets, not raw buy events.
+     *
+     * The early-launch thesis is coordinated independent wallet activity.
+     * Counting transactions let one tracked wallet buy twice and impersonate
+     * the intended 2-wallet cluster, which is neither coordination nor
+     * independent corroboration.
+     */
     fun smartMoneyBuysLast60s(mint: String, nowMs: Long = System.currentTimeMillis()): Int {
         val cutoff = nowMs - 60_000L
-        return recentBuys.count { it.mint == mint && it.timestampMs >= cutoff }
+        return recentBuys.asSequence()
+            .filter { it.mint == mint && it.timestampMs >= cutoff }
+            .map { it.wallet }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .count()
     }
     fun knownWhaleCount(): Int = whaleWallets.size
     internal fun clearForTest() { recentBuys.clear(); whaleWallets.clear() }
