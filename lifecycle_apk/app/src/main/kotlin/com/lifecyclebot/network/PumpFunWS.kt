@@ -68,6 +68,20 @@ object PumpFunWS {
     // V5.0.7284 — the data key the socket connected with; blank = no trade stream.
     @Volatile private var apiKey7284: String = ""
     private val tradeSubscribeSkippedNoKey7284 = AtomicLong(0L)
+    private val tradeAuthDenied7432 = AtomicBoolean(false)
+    private val createStreamObserved7432 = AtomicBoolean(false)
+    private val migrationStreamObserved7432 = AtomicBoolean(false)
+    private val tokenTradeStreamObserved7432 = AtomicBoolean(false)
+    private val rpcFallbackObserved7432 = AtomicBoolean(false)
+    fun tokenTradeAuthDenied7432(): Boolean = tradeAuthDenied7432.get()
+    fun observeRpcFallback7432() { if (tradeAuthDenied7432.get()) rpcFallbackObserved7432.set(true) }
+    fun tokenTradeStreamActive7432(): Boolean = running.get() && ws != null &&
+        !tradeAuthDenied7432.get() && tokenTradeStreamObserved7432.get()
+    internal fun isTradeAuthRefusal7432(message: String): Boolean {
+        val e = message.lowercase()
+        return (e.contains("subscribetokentrade") || e.contains("subscribeaccounttrade")) &&
+            (e.contains("api key") || e.contains("funded") || e.contains("only available"))
+    }
     private const val LIFECYCLE_MAX_7420 = 96
     private const val LIFECYCLE_TTL_MS_7420 = 15L * 60_000L
     private val lifecycleMints7420 = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -78,8 +92,8 @@ object PumpFunWS {
     private val eventSell7420 = AtomicLong(0L)
     private val unsub7420 = AtomicLong(0L)
 
-    private fun tradeStreamKeyed7284(): Boolean = apiKey7284.isNotBlank()
-    fun lifecycleStreamCapable7420(): Boolean = tradeStreamKeyed7284()
+    private fun tradeStreamKeyed7284(): Boolean = apiKey7284.isNotBlank() && !tradeAuthDenied7432.get()
+    fun lifecycleStreamCapable7420(): Boolean = tokenTradeStreamActive7432()
     fun lifecycleSubscribedMints7420(): Int = lifecycleMints7420.size
     fun lifecycleEvents7420(): Long = eventBuy7420.get() + eventSell7420.get()
     fun lifecycleSubscriptionFailures7420(): Long = subFail7420.get()
@@ -108,8 +122,12 @@ object PumpFunWS {
     fun status7280(): String {
         val recent = synchronized(recentUntyped7286) { recentUntyped7286.toList() }
         return "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
-            "tradeStream=${if (tradeStreamKeyed7284()) "KEYED" else "NO_KEY_LAUNCHES_ONLY"} " +
+            "tradeStream=${if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
             "PUMP_LIFECYCLE_STREAM_CAPABLE=${lifecycleStreamCapable7420()} " +
+            "CREATE_STREAM_AVAILABLE=${running.get() && ws != null && createStreamObserved7432.get()} " +
+            "MIGRATION_STREAM_AVAILABLE=${running.get() && ws != null && migrationStreamObserved7432.get()} " +
+            "TOKEN_TRADE_STREAM_AVAILABLE=${tokenTradeStreamActive7432()} ACCOUNT_TRADE_STREAM_AVAILABLE=false " +
+            "PUMP_TOKEN_TRADE_FALLBACK_ACTIVE=${tradeAuthDenied7432.get() && rpcFallbackObserved7432.get()} " +
             "tradeSubscribedMints=${tradeSubscriptions7278.size} lifecycleMints=${lifecycleMints7420.size} " +
             "subscriptionFailures=${subFail7420.get()} subscribeSkippedNoKey=${tradeSubscribeSkippedNoKey7284.get()} " +
             "untypedFrames=${untypedFrames7280.get()} " +
@@ -147,8 +165,7 @@ object PumpFunWS {
         subRequested7420.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUB_REQUESTED") } catch (_: Throwable) {}
         if (!tradeStreamKeyed7284()) {
-            subFail7420.incrementAndGet()
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUB_FAIL") } catch (_: Throwable) {}
+            tradeSubscribeSkippedNoKey7284.incrementAndGet()
             return
         }
         if (tradeSubscriptions7278.add(mint)) {
@@ -216,7 +233,14 @@ object PumpFunWS {
         }
         onNewTokenCb = onNewToken
         onMigrationCb = onMigration
+        if (this.apiKey7284 != apiKey7284.trim()) {
+            tradeAuthDenied7432.set(false)
+            rpcFallbackObserved7432.set(false)
+        }
         this.apiKey7284 = apiKey7284.trim()
+        tokenTradeStreamObserved7432.set(false)
+        createStreamObserved7432.set(false)
+        migrationStreamObserved7432.set(false)
         ErrorLogger.info(TAG, "trade stream ${if (tradeStreamKeyed7284()) "KEYED" else "NO_KEY — launches only (Settings > PumpPortal data key)"}")
         client = OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)
@@ -246,6 +270,7 @@ object PumpFunWS {
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             reconnectAttempt.set(0)
+            tokenTradeStreamObserved7432.set(false)
             ErrorLogger.info(TAG, "✅ connected — subscribing to subscribeNewToken + subscribeMigration (free)")
             webSocket.send(JSONObject().put("method", "subscribeNewToken").toString())
             webSocket.send(JSONObject().put("method", "subscribeMigration").toString())
@@ -260,6 +285,21 @@ object PumpFunWS {
             try {
                 val j = JSONObject(text)
                 val txType = j.optString("txType", "")
+                // A socket write is not a subscription acceptance. An auth/funding
+                // refusal disables keyed methods for this credential state, while
+                // free create/migration and the independent RPC curve ladder remain.
+                val error7432 = listOf(j.optString("message"), j.optString("error"),
+                    j.optString("errors")).joinToString(" ").lowercase()
+                if (!tradeAuthDenied7432.get() && isTradeAuthRefusal7432(error7432)) {
+                    tradeAuthDenied7432.set(true)
+                    tokenTradeStreamObserved7432.set(false)
+                    tradeSubscriptions7278.clear()
+                    subFail7420.incrementAndGet()
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_STREAM_UNAVAILABLE_AUTH_7432")
+                        ErrorLogger.warn(TAG, "token trade subscription unavailable for current key; RPC curve ladder remains independent")
+                    } catch (_: Throwable) {}
+                }
                 // V5.0.7279 — every frame is counted by its own type, so a stream
                 // that delivers no buy/sell frames is distinguishable from one
                 // whose frames arrive under a name this parser does not read.
@@ -294,7 +334,10 @@ object PumpFunWS {
                         if (!vSol.isFinite() || !vTok.isFinite() || vSol <= 0.0 || vTok <= 0.0) return
                         val priceSol = vSol / vTok
                         if (!priceSol.isFinite() || priceSol <= 0.0) return
+                        if (!tradeAuthDenied7432.get()) tokenTradeStreamObserved7432.set(true)
                         try {
+                            if (tokenTradeStreamActive7432())
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_STREAM_ACTIVE_7432")
                             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_EVENT_7278")
                             if (txType == "buy") {
                                 eventBuy7420.incrementAndGet()
@@ -347,7 +390,9 @@ object PumpFunWS {
                             try { PumpCurveKeys7269.rememberCreate7280(mint, priceSol0, System.currentTimeMillis()) } catch (_: Throwable) {}
                         }
                         if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
+                        createStreamObserved7432.set(true)
                         registerFreshLifecycle7420(mint)
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_STREAM_ACTIVE_7432") } catch (_: Throwable) {}
                         onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
                         if (priceSol0.isFinite() && priceSol0 > 0.0) {
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
@@ -358,6 +403,8 @@ object PumpFunWS {
                         val mint = j.optString("mint", j.optString("address", ""))
                         if (mint.isBlank()) return
                         com.lifecyclebot.engine.PumpPortalThrottle.allowMigrate()
+                        migrationStreamObserved7432.set(true)
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_MIGRATION_STREAM_ACTIVE_7432") } catch (_: Throwable) {}
                         onMigrationCb?.invoke(mint)
                     }
                 }
@@ -367,16 +414,19 @@ object PumpFunWS {
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            if (ws === webSocket) { ws = null; tokenTradeStreamObserved7432.set(false) }
             ErrorLogger.info(TAG, "closing code=$code reason=$reason")
             webSocket.close(1000, null)
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            if (ws === webSocket) { ws = null; tokenTradeStreamObserved7432.set(false) }
             ErrorLogger.warn(TAG, "❌ failure: ${t.message?.take(100)} — will reconnect")
             scheduleReconnect()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            if (ws === webSocket) { ws = null; tokenTradeStreamObserved7432.set(false) }
             ErrorLogger.info(TAG, "closed code=$code")
             if (running.get()) scheduleReconnect()
         }

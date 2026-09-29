@@ -764,6 +764,10 @@ object ParallelMarkFanout7088 {
         }
         if (out.isNotEmpty()) {
             try { PipelineHealthCollector.labelInc("KEYLESS_MARK_PUMP_CURVE_RPC_7269") } catch (_: Throwable) {}
+            if (PumpFunWS.tokenTradeAuthDenied7432()) try {
+                PumpFunWS.observeRpcFallback7432()
+                PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_FALLBACK_ACTIVE_7432")
+            } catch (_: Throwable) {}
         }
         if (skippedComplete > 0) {
             try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_COMPLETE_SKIPPED_7269") } catch (_: Throwable) {}

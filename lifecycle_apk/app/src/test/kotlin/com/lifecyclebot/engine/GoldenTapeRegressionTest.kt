@@ -12519,4 +12519,19 @@ class GoldenTapeRegressionTest {
         assertTrue(executor.contains("COMMON_SENSE_PREBUY_EXECUTION_CONTEXT_7432"))
     }
 
+    @Test
+    fun V5_0_7432_pump_trade_capability_requires_observed_frames_and_rpc_fallback_proof() {
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val rpc = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        assertTrue(ws.contains("fun lifecycleStreamCapable7420(): Boolean = tokenTradeStreamActive7432()"))
+        assertTrue(ws.contains("isTradeAuthRefusal7432(error7432)"))
+        assertTrue(ws.contains("TOKEN_TRADE_STREAM_AVAILABLE="))
+        assertTrue(ws.contains("ACCOUNT_TRADE_STREAM_AVAILABLE=false"))
+        assertTrue(rpc.contains("PumpFunWS.observeRpcFallback7432()"))
+        assertTrue(com.lifecyclebot.network.PumpFunWS.isTradeAuthRefusal7432(
+            "subscribeTokenTrade / subscribeAccountTrade require an API key funded with >=0.02 SOL"))
+        assertFalse(com.lifecyclebot.network.PumpFunWS.isTradeAuthRefusal7432("connection closed temporarily"))
+        assertFalse(com.lifecyclebot.network.PumpFunWS.lifecycleStreamCapable7420())
+    }
+
 }
