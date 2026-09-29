@@ -1007,3 +1007,13 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] Held-token preservation and discovery TTLs are unchanged.
 - [x] Symbol ambiguity remains fail-closed for execution; no symbol-to-mint guessing was added.
 - [x] No discovery source, chain, DEX or crypto strategy is removed.
+
+
+## V5.0.7491 — Crypto Universe evaluation-state retirement on identity eviction
+
+- [x] Genuine stale-token eviction now retires evaluationInflight / inflight-start / completed state for that canonical identity.
+- [x] Terminal-generation and progress-generation keys for the evicted identity are removed.
+- [x] Evidence-deadline progress stamps for the evicted identity are removed.
+- [x] Held crypto identities are still never evicted and therefore retain all held-position supervision state.
+- [x] A token rediscovered after the 7-day stale horizon is eligible for fresh evaluation instead of inheriting an ancient completed generation.
+- [x] No active evaluation, held position, discovery source or terminal learning event is removed early.

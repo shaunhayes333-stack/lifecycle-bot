@@ -215,6 +215,25 @@ object DynamicAltTokenRegistry {
         }
     }
 
+    // V5.0.7491 — evaluation generations are subordinate to a canonical
+    // registry identity. Once a non-held identity has aged out of the 7-day
+    // universe, its completed/progress/lease bookkeeping must age out too.
+    private fun releaseEvaluationIdentity7491(identity: String) {
+        if (identity.isBlank()) return
+        evaluationInflight6615.remove(identity)
+        evaluationInflightStartedAt6692.remove(identity)
+        evaluationCompleted6615.remove(identity)
+        evaluationTerminalKeys6615.removeIf { it.startsWith(identity + "|") }
+        evaluationProgressKeys6615.removeIf { it.startsWith(identity + "|") }
+        evaluationProgressStamp6580.keys.removeIf {
+            it.startsWith(identity + EVAL_PROGRESS_SEPARATOR_6692)
+        }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("CRYPTO_EVALUATION_IDENTITY_RETIRED_7491")
+        } catch (_: Throwable) {}
+    }
+
     private val lastDiscoveryCycle = AtomicLong(0L)
     private val lastFreshDiscovery6544 = AtomicLong(0L)
     private val lastActiveDiscovery6544 = AtomicLong(0L)
@@ -727,6 +746,7 @@ object DynamicAltTokenRegistry {
             if (drop) {
                 evicted++
                 deindexSymbol7490(tok.symbol, tok.canonicalIdentity6544)
+                releaseEvaluationIdentity7491(tok.canonicalIdentity6544)
                 // V5.0.6547 §P1-3 — expose fresh-drop attrition. If a
                 // fresh discovery is evicted before hitting the brain,
                 // it likely didn't finish enrichment in time. Counter
