@@ -102,6 +102,20 @@ object ForensicLogger {
     private val drainScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
     private const val BATCH_MAX_DRAIN = 128
 
+    // V5.0.7479 — disk/logcat output coalescing only. PipelineHealthCollector
+    // and canonical-event bridging still receive every lifecycle occurrence.
+    private data class ExactRepeat7479(
+        val eventHash: Int,
+        val fieldsHash: Int,
+        val eventLen: Int,
+        val fieldsLen: Int,
+        @Volatile var lastEmitMs: Long,
+        val suppressed: AtomicLong = AtomicLong(0L),
+    )
+    private val exactLifecycleRepeats7479 = ConcurrentHashMap<Long, ExactRepeat7479>()
+    private const val EXACT_REPEAT_WINDOW_MS_7479 = 5_000L
+    private const val EXACT_REPEAT_MAX_7479 = 4_096
+
     /** Master switch. Default: ON. Operator requested maximum visibility. */
     @Volatile var enabled: Boolean = true
 
@@ -190,6 +204,50 @@ object ForensicLogger {
         return m.take(n)
     }
 
+    /**
+     * V5.0.7479 — exact duplicate lifecycle output coalescer.
+     * Frequency counters and canonical event bridging remain uncoalesced.
+     */
+    private fun shouldEmitExactLifecycle7479(event: String, fields: String): Pair<Boolean, Long> {
+        return try {
+            val eh = event.hashCode()
+            val fh = fields.hashCode()
+            val key = (eh.toLong() shl 32) xor (fh.toLong() and 0xffffffffL)
+            val now = System.currentTimeMillis()
+            val prev = exactLifecycleRepeats7479[key]
+            val exact = prev != null &&
+                prev.eventHash == eh && prev.fieldsHash == fh &&
+                prev.eventLen == event.length && prev.fieldsLen == fields.length
+            if (exact && now - prev!!.lastEmitMs < EXACT_REPEAT_WINDOW_MS_7479) {
+                prev.suppressed.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FORENSIC_EXACT_REPEAT_COALESCED_7479") } catch (_: Throwable) {}
+                false to 0L
+            } else {
+                val repeats = if (exact) prev!!.suppressed.getAndSet(0L) else 0L
+                exactLifecycleRepeats7479[key] = ExactRepeat7479(
+                    eventHash = eh,
+                    fieldsHash = fh,
+                    eventLen = event.length,
+                    fieldsLen = fields.length,
+                    lastEmitMs = now,
+                )
+                if (exactLifecycleRepeats7479.size > EXACT_REPEAT_MAX_7479) {
+                    val cutoff = now - EXACT_REPEAT_WINDOW_MS_7479 * 2
+                    val it = exactLifecycleRepeats7479.entries.iterator()
+                    while (it.hasNext()) {
+                        if (it.next().value.lastEmitMs < cutoff) it.remove()
+                    }
+                    if (exactLifecycleRepeats7479.size > EXACT_REPEAT_MAX_7479) {
+                        exactLifecycleRepeats7479.clear()
+                    }
+                }
+                true to repeats
+            }
+        } catch (_: Throwable) {
+            true to 0L
+        }
+    }
+
     fun lifecycle(event: String, fields: String) {
         if (!enabled) return
         // V5.0.6368 — hook into REJECTED_FATAL_V3 to populate the zero-liq
@@ -206,8 +264,19 @@ object ForensicLogger {
                 if (sym.isNotBlank()) quarantineSymbol(sym)
             }
         }
-        val n = seq.incrementAndGet()
-        emitAsync(PHASE.LIFECYCLE, "🧬[LIFECYCLE] #$n $event  $fields")
+        val emitDecision7479 = shouldEmitExactLifecycle7479(event, fields)
+        if (emitDecision7479.first) {
+            if (emitDecision7479.second > 0L) {
+                val summarySeq7479 = seq.incrementAndGet()
+                emitAsync(
+                    PHASE.LIFECYCLE,
+                    "🧬[LIFECYCLE] #$summarySeq7479 FORENSIC_REPEAT_SUMMARY_7479 event=$event repeats=${emitDecision7479.second}",
+                )
+            }
+            val n = seq.incrementAndGet()
+            emitAsync(PHASE.LIFECYCLE, "🧬[LIFECYCLE] #$n $event  $fields")
+        }
+        // Frequency truth is never coalesced.
         try { PipelineHealthCollector.onLifecycle(event, fields) } catch (_: Throwable) {}
         // V5.0.6405 §7/§14 — CANONICAL EVENT STREAM BRIDGE.
         // Every legacy lifecycle tag is routed through the journal

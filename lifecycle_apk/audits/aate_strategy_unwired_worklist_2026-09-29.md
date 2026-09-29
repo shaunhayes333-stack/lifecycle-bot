@@ -880,3 +880,13 @@ Runtime evidence from 5.0.7466: STRATEGY_TERMINAL_FOLDED_PARTIALS_7333=154174 ag
 - [x] Folded-partial telemetry is lifetime-deduped by canonical terminal identity.
 - [x] Partial-leg economics, learner populations, strategy rows and strategy decisions are unchanged.
 - [x] Cache remains bounded to the existing 16 entries.
+
+
+## V5.0.7479 — additive exact forensic-repeat coalescing
+
+- [x] Exact repeated lifecycle text inside a 5s window is coalesced before disk/logcat queueing.
+- [x] PipelineHealthCollector.onLifecycle still receives every occurrence, so counts/frequency remain exact.
+- [x] Canonical-event bridge still evaluates every lifecycle occurrence; no execution/economic event is removed.
+- [x] When a repeated row becomes emit-eligible again, one FORENSIC_REPEAT_SUMMARY_7479 row reports the suppressed repeat count before the fresh row.
+- [x] Coalescer is bounded to 4096 exact fingerprints and self-prunes.
+- [x] EXEC, gate, decision, phase and snapshot logging paths are unchanged.
