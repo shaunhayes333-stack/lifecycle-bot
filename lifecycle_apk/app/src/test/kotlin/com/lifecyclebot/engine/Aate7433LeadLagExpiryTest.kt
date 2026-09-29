@@ -11,5 +11,7 @@ class Aate7433LeadLagExpiryTest {
         assertTrue(models.contains("val createdAtMs: Long = System.currentTimeMillis()"))
         assertTrue(leadLag.contains("now - entry.value.createdAtMs > ttlMs"))
         assertTrue(leadLag.contains("CROSS_ASSET_STALE_LINK_EXPIRED_7433"))
+        assertTrue(leadLag.contains("activeLinks.remove(entry.key, entry.value)"))
+        assertTrue(leadLag.contains("labelInc(\"CROSS_ASSET_STALE_LINK_EXPIRED_7433\")"))
     }
 }

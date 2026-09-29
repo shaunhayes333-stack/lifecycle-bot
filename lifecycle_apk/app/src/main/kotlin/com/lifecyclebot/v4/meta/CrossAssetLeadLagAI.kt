@@ -135,20 +135,16 @@ object CrossAssetLeadLagAI {
         // The old expression evaluated now - System.currentTimeMillis(), which is
         // ~0 forever, so stale lead/lag rotations never left activeLinks.
         val now = System.currentTimeMillis()
-        val expired7433 = activeLinks.entries.count { entry ->
+        // Remove only the value observed in this pass. A fresh signal may replace
+        // the same key concurrently, and must not be deleted as an expired link.
+        activeLinks.entries.forEach { entry ->
             val pair = knownPairs[entry.key]
             val ttlMs = ((pair?.typicalDelaySec ?: entry.value.expectedDelaySec).coerceAtLeast(1) * 2_000L)
-            now - entry.value.createdAtMs > ttlMs
-        }
-        if (expired7433 > 0) {
-            activeLinks.entries.removeAll { entry ->
-                val pair = knownPairs[entry.key]
-                val ttlMs = ((pair?.typicalDelaySec ?: entry.value.expectedDelaySec).coerceAtLeast(1) * 2_000L)
-                now - entry.value.createdAtMs > ttlMs
+            if (now - entry.value.createdAtMs > ttlMs && activeLinks.remove(entry.key, entry.value)) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_STALE_LINK_EXPIRED_7433")
+                } catch (_: Throwable) {}
             }
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_STALE_LINK_EXPIRED_7433", expired7433.toLong())
-            } catch (_: Throwable) {}
         }
 
         return newLinks
