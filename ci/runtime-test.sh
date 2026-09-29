@@ -16,7 +16,8 @@ runtime_failure_witness_7437() {
         python3 - "$WS/logcat_full.txt" <<'PYWITNESS'
 import pathlib, re, sys
 path = pathlib.Path(sys.argv[1])
-text = path.read_text(errors="replace") if path.exists() else ""
+stage_path = path.with_name("bootstrap_stage_witness.log")
+text = (stage_path.read_text(errors="replace") if stage_path.exists() else "") + "\n" + (path.read_text(errors="replace") if path.exists() else "")
 def seen(marker): return marker in text
 def last(pattern):
     matches = re.findall(pattern, text)
@@ -255,6 +256,11 @@ wait_log_marker_any() {
     local deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
         adb logcat -d -v time > "$WS/runtime_marker_probe.txt" || return 1
+        # The Android ring buffer may evict the earliest startup line during the
+        # 360-second persisted-history acceptance. Preserve only phase evidence
+        # from every poll before another read can overwrite it.
+        grep -E 'SERVICE_ONCREATE_PHASE_7438|CANONICAL_BOOTSTRAP_PHASE_7438|CANONICAL_BOOTSTRAP_(READY|FAILED)_6515|SERVICE_BOOTSTRAP_(PHASE|READY|FAILED)_6516|UI_START_DISPATCHED_6517|Process: com.lifecyclebot.aate|ANR in com.lifecyclebot.aate' \
+            "$WS/runtime_marker_probe.txt" | tail -n 60 >> "$WS/bootstrap_stage_witness.log" || true
         if python3 "$WS/ci/runtime_liveness.py" has-marker "$WS/runtime_marker_probe.txt" "$markers"; then
             echo "$label proof reached: $markers"
             return 0
@@ -269,11 +275,16 @@ wait_log_marker_any() {
     # fail-closed stage witness identifies the real startup blocker without
     # counting a partial bootstrap as a passing execution window.
     local canonical_stage service_stage canonical_failed service_failed
-    canonical_stage=$(grep 'CANONICAL_BOOTSTRAP_READY_6515' "$WS/logcat_full.txt" | tail -1 | cut -c1-180 || true)
-    canonical_failed=$(grep 'CANONICAL_BOOTSTRAP_FAILED_6515' "$WS/logcat_full.txt" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
-    service_stage=$(grep 'SERVICE_BOOTSTRAP_PHASE_6516' "$WS/logcat_full.txt" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)
-    service_failed=$(grep 'SERVICE_BOOTSTRAP_FAILED_6516' "$WS/logcat_full.txt" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
-    echo "::error title=BOOTSTRAP_STAGE_7435::canonicalReady=$([[ -n "$canonical_stage" ]] && echo yes || echo no) canonicalFailure=${canonical_failed:-none} lastServicePhase=${service_stage:-none} serviceFailure=${service_failed:-none}"
+    local stage_history="$WS/bootstrap_stage_witness.log"
+    [ -s "$stage_history" ] || stage_history="$WS/logcat_full.txt"
+    canonical_stage=$(grep 'CANONICAL_BOOTSTRAP_READY_6515' "$stage_history" | tail -1 | cut -c1-180 || true)
+    canonical_failed=$(grep 'CANONICAL_BOOTSTRAP_FAILED_6515' "$stage_history" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
+    service_stage=$(grep 'SERVICE_BOOTSTRAP_PHASE_6516' "$stage_history" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)
+    service_failed=$(grep 'SERVICE_BOOTSTRAP_FAILED_6516' "$stage_history" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
+    local canonical_phase oncreate_phase
+    canonical_phase=$(grep 'CANONICAL_BOOTSTRAP_PHASE_7438' "$stage_history" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)
+    oncreate_phase=$(grep 'SERVICE_ONCREATE_PHASE_7438' "$stage_history" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)
+    echo "::error title=BOOTSTRAP_STAGE_7435::canonicalReady=$([[ -n "$canonical_stage" ]] && echo yes || echo no) canonicalPhase=${canonical_phase:-none} onCreatePhase=${oncreate_phase:-none} canonicalFailure=${canonical_failed:-none} lastServicePhase=${service_stage:-none} serviceFailure=${service_failed:-none}"
     return 1
 }
 
