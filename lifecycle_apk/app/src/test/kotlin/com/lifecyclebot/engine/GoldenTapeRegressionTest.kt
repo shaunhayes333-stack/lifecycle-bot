@@ -12586,4 +12586,19 @@ class GoldenTapeRegressionTest {
         assertTrue(alt.contains("HostWalletTokenTracker.recordBuyPending("))
     }
 
+    @Test
+    fun V5_0_7438_bootstrap_phase_witnesses_preserve_first_foreground_and_canonical_barrier() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val script = java.io.File("../../ci/runtime-test.sh").readText()
+        val first = bot.indexOf("SERVICE_ONCREATE_PHASE_7438 phase=FOREGROUND_READY")
+        val canonical = bot.indexOf("CANONICAL_BOOTSTRAP_PHASE_7438 phase=\$phase")
+        val barrier = bot.indexOf("canonicalBootstrapJob6515?.join()")
+        assertTrue(first > bot.indexOf("startForeground(NOTIF_ID, buildRunningNotif())"))
+        assertTrue(canonical > first && barrier > canonical)
+        assertTrue(bot.contains("markCanonical7438(\"EVENT_REPLAY_START\")"))
+        assertTrue(bot.contains("markCanonical7438(\"POSITION_REBUILD_DONE\")"))
+        assertTrue(bot.contains("markCanonical7438(\"INVENTORY_REPAIR_DONE\")"))
+        assertTrue(script.contains("trap runtime_failure_witness_7437 EXIT") && script.contains("canonicalPhase="))
+    }
+
 }

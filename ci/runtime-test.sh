@@ -23,6 +23,8 @@ def last(pattern):
     return matches[-1] if matches else "none"
 print("::error::BOOTSTRAP_WITNESS_7437 "
       f"canonicalReady={seen('CANONICAL_BOOTSTRAP_READY_6515')} "
+      f"canonicalPhase={last(r'CANONICAL_BOOTSTRAP_PHASE_7438 phase=([A-Z0-9_]+)')} "
+      f"onCreatePhase={last(r'SERVICE_ONCREATE_PHASE_7438 phase=([A-Z0-9_]+)')} "
       f"canonicalFailure={last(r'CANONICAL_BOOTSTRAP_FAILED_6515.*?type=([A-Za-z0-9_]+)')} "
       f"lastServicePhase={last(r'SERVICE_BOOTSTRAP_PHASE_6516.*?phase=([A-Z0-9_]+)')} "
       f"serviceFailure={last(r'SERVICE_BOOTSTRAP_FAILED_6516.*?type=([A-Za-z0-9_]+)')} "

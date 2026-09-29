@@ -1908,6 +1908,7 @@ class BotService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=ENTERED")
         instance = this
         // A service object reaching onCreate is the fresh owner requested by the
         // post-stop dispatcher.  It is now safe for ACTION_START to proceed.
@@ -1919,12 +1920,14 @@ class BotService : Service() {
         createChannels()
         startForeground(NOTIF_ID, buildRunningNotif())
         serviceForegroundActive6487 = true
+        android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=FOREGROUND_READY")
         ensureRuntimeWakeLock6031("onCreate_after_startForeground")
         ensureRuntimeWifiLock6032("onCreate_after_startForeground")
 
         try {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
+            android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=LOGGER_READY")
             // V5.0.6515 — P0 STARTUP ANR REPAIR. This durable replay previously
             // called SharedPreferences.all and rebuilt up to 8,192 economic events,
             // positions, lots, duplicate refunds, and projections synchronously in
@@ -1938,11 +1941,17 @@ class BotService : Service() {
             val canonicalCtx6515 = applicationContext
             canonicalBootstrapJob6515 = scope.launch(kotlinx.coroutines.CoroutineName("canonical-bootstrap-6515")) {
                 val started6515 = android.os.SystemClock.elapsedRealtime()
+                val markCanonical7438: (String) -> Unit = { phase ->
+                    android.util.Log.i("AATE_BOOTSTRAP", "CANONICAL_BOOTSTRAP_PHASE_7438 phase=$phase elapsedMs=${android.os.SystemClock.elapsedRealtime() - started6515}")
+                }
+                markCanonical7438("JOB_ENTERED")
                 try {
                     val startCap6432 = try {
                         com.lifecyclebot.data.ConfigStore.load(canonicalCtx6515).paperSimulatedBalance
                     } catch (_: Throwable) { 11.76 }
+                    markCanonical7438("EVENT_REPLAY_START")
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.init6486(canonicalCtx6515)
+                    markCanonical7438("EVENT_REPLAY_DONE")
                     val durableEconomicEvents6486 = com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
                     // V5.0.7387 — a paper<->live switch recreates the service in the SAME
                     // process, where the canonical position and lot authorities (process
@@ -1950,12 +1959,16 @@ class BotService : Service() {
                     // process has not built them yet or the durable event count moved.
                     val eventsN7387 = durableEconomicEvents6486.size
                     if (CanonicalRebuildMemo7387.builtForEvents != eventsN7387) {
+                        markCanonical7438("POSITION_REBUILD_START")
                         com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                        markCanonical7438("POSITION_REBUILD_DONE")
                         com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                        markCanonical7438("LOT_REBUILD_DONE")
                         CanonicalRebuildMemo7387.builtForEvents = eventsN7387
                     } else {
                         try { PipelineHealthCollector.labelInc("CANONICAL_REBUILD_SKIPPED_SAME_PROCESS_7387") } catch (_: Throwable) {}
                     }
+                    markCanonical7438("LEDGER_RESTORE_START")
                     val ledgerRestored6487 = com.lifecyclebot.engine.truth.PaperAccountLedger6430
                         .initPersistent6487(canonicalCtx6515, startCap6432)
                     if (!ledgerRestored6487) {
@@ -1964,7 +1977,9 @@ class BotService : Service() {
                         if (!migrated6487) com.lifecyclebot.engine.truth.PaperAccountLedger6430.persistCurrent6487()
                     }
                     try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
+                    markCanonical7438("INVENTORY_REPAIR_START")
                     val inventoryRepair6490 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refundDuplicateActiveMintLots6490()
+                    markCanonical7438("INVENTORY_REPAIR_DONE")
                     val repairedPaperPositions6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().filter { it.mode == "paper" }
                     // V5.0.7246 — restart/recovery positions are already canonical
                     // OPEN before any fresh-open hook can fire. Reconcile them out
@@ -1985,6 +2000,7 @@ class BotService : Service() {
                         com.lifecyclebot.engine.truth.ForensicReconciliation6635
                             .reconcile6635()
                     }
+                    markCanonical7438("DONE")
                     canonicalBootstrapSucceeded6515 = true
                     try {
                         ForensicLogger.lifecycle("CANONICAL_BOOTSTRAP_READY_6515", "events=${durableEconomicEvents6486.size} positions=${repairedPaperPositions6490.size} duplicateMints=${inventoryRepair6490.duplicateMints} durMs=${android.os.SystemClock.elapsedRealtime() - started6515} thread=${Thread.currentThread().name}")
@@ -1992,6 +2008,7 @@ class BotService : Service() {
                     } catch (_: Throwable) {}
                 } catch (t: Throwable) {
                     canonicalBootstrapSucceeded6515 = false
+                    android.util.Log.e("AATE_BOOTSTRAP", "CANONICAL_BOOTSTRAP_FAILED_6515 type=${t.javaClass.simpleName} phase=UNKNOWN", t)
                     ErrorLogger.crash("BotService", "CANONICAL_BOOTSTRAP_FAILED_6515: ${t.javaClass.simpleName}: ${t.message}", t)
                     try {
                         ForensicLogger.lifecycle("CANONICAL_BOOTSTRAP_FAILED_6515", "type=${t.javaClass.simpleName} msg=${t.message?.take(120)} durMs=${android.os.SystemClock.elapsedRealtime() - started6515}")
@@ -2001,6 +2018,7 @@ class BotService : Service() {
                     canonicalBootstrapReady6515 = true
                 }
             }
+            android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=CANONICAL_JOB_SUBMITTED")
             // V5.9.666 — install Choreographer-based ANR / long-frame
             // detector so the in-app Pipeline Health panel captures
             // every main-thread stutter with elapsed delta. onCreate
@@ -2019,6 +2037,7 @@ class BotService : Service() {
             serviceBootstrapReady6516 = false
             serviceBootstrapSucceeded6516 = false
             serviceBootstrapJob6516 = scope.launch(kotlinx.coroutines.CoroutineName("service-bootstrap-6516")) {
+                android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=SERVICE_JOB_ENTERED")
                 val serviceStarted6516 = android.os.SystemClock.elapsedRealtime()
                 val bootstrapPhase6516: (String) -> Unit = { phase ->
                     try {
