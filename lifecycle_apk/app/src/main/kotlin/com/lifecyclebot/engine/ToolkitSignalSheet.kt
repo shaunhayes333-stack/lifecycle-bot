@@ -812,6 +812,21 @@ object ToolkitSignalSheet {
         // counters (P5 SPECIALIST_CAUSAL_FUNNEL invariant) and no callsite
         // can be forgotten. See MemeExecutionFunnelReceivers6625.kt.
         try { fanOutToReceivers6625(l, st, eventId) } catch (_: Throwable) {}
+
+        // V5.0.7459 — revive RuntimeTune6833 §7 from the SAME deduped causal
+        // stage stream. These counters existed for SHITCOIN sized→ticket→exec
+        // choke diagnosis but had zero production callers, so their status
+        // line could never carry trustworthy runtime evidence.
+        try {
+            when (st) {
+                "SIZED_EXECUTABLE" -> com.lifecyclebot.engine.truth.RuntimeTune6833.recordSized6833(l)
+                "TICKET" -> com.lifecyclebot.engine.truth.RuntimeTune6833.recordTicket6833(l)
+                "EXEC" -> com.lifecyclebot.engine.truth.RuntimeTune6833.recordExec6833(l)
+            }
+            if (l == "SHITCOIN" && st in setOf("SIZED_EXECUTABLE", "TICKET", "EXEC")) {
+                com.lifecyclebot.engine.truth.RuntimeTune6833.evaluateHandoffChoke6833()
+            }
+        } catch (_: Throwable) {}
     }
 
     /**

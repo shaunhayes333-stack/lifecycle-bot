@@ -528,3 +528,11 @@ The exact-strategy table showed `complete=1/507`; the 506 incomplete rows are pr
 - [x] `CanonicalEntryAuthority6551.submit()` verifies that the specialist lane being sealed into the execution intent has a proposal for that same asset.
 - [x] Verification is telemetry-only to expose silent lane swaps without creating a new throughput choke during convergence.
 - [x] Runtime proof: `SPECIALIST_PROPOSAL_RECORDED_7458`, `SPECIALIST_PROPOSAL_DISPATCH_MATCH_7458`, `SPECIALIST_PROPOSAL_MISSING_AT_DISPATCH_7458`, `SPECIALIST_PROPOSAL_DISPATCH_MISMATCH_7458`.
+
+## V5.0.7459 — real specialist sized→ticket→exec handoff telemetry
+
+- [x] `RuntimeTune6833.recordSized6833`, `recordTicket6833`, and `recordExec6833` moved from zero-caller helpers into the deduped `ToolkitSignalSheet.recordDeskStage` authority.
+- [x] The counters now consume the same causal stage stream as `SpecialistCausalFunnel6625`, avoiding a parallel observer or duplicate execution path.
+- [x] SHITCOIN handoff choke evaluation runs only on real SIZE/TICKET/EXEC stage transitions and remains advisory.
+- [x] No scoring, sizing, ticket creation, or execution policy changed.
+- [x] Runtime proof: `RuntimeTune6833.statusLine6833()` now reflects real stage counts and can emit `SHITCOIN_HANDOFF_STALLED_6833` from actual production evidence.
