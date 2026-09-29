@@ -1076,3 +1076,12 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] A unique canonical publish invalidates immediately via canonicalRevision7493.
 - [x] A publish racing projection construction prevents that projection from being cached.
 - [x] Bus publication, delivery, retry, ACK and exclusion behavior are unchanged.
+
+
+## V5.0.7498 — canonical quarantine/pending read projection reuse
+
+- [x] The 7496 canonical revision snapshot now carries pending entries and quarantined position IDs by mode.
+- [x] quarantinedPositionIds6635 no longer rescans all historical positions.
+- [x] pendingEntryPositions6461 reuses the exact mutation-revision snapshot.
+- [x] Mode-specific quarantine identity semantics remain case-insensitive and unchanged.
+- [x] Mutation rules, quarantine decisions and stale-pending cancellation remain unchanged.

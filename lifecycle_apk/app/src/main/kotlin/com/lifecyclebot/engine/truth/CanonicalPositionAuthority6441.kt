@@ -862,6 +862,8 @@ object CanonicalPositionAuthority6441 {
         val revision: Long,
         val open: List<Position>,
         val closed: List<Position>,
+        val pending: List<Position>,
+        val quarantinedIdsByMode: Map<String, Set<String>>,
         val classification: LifecycleClassification,
     )
     private val positionViewCache7496 =
@@ -878,6 +880,14 @@ object CanonicalPositionAuthority6441 {
         val snapshot7496 = positions.values.toList()
         val open7496 = snapshot7496.filter { isOpenLifecycleWithQty6743(it) }
         val closed7496 = snapshot7496.filter { it.lifecycle == Lifecycle.CLOSED }
+        val pending7498 = snapshot7496.filter { it.lifecycle == Lifecycle.PENDING_ENTRY }
+        val quarantined7498 = snapshot7496.filter { it.lifecycle == Lifecycle.QUARANTINED }
+        val quarantinedIdsByMode7498 = buildMap<String, Set<String>> {
+            put("*", quarantined7498.mapTo(HashSet()) { it.positionId })
+            quarantined7498.groupBy { it.mode.lowercase() }.forEach { (modeKey, rows) ->
+                put(modeKey, rows.mapTo(HashSet()) { it.positionId })
+            }
+        }
         val counts7496 = Lifecycle.values().associateWith { life -> snapshot7496.count { it.lifecycle == life } }
         val classified7496 = counts7496.values.sum()
         val classification7496 = LifecycleClassification(
@@ -885,7 +895,9 @@ object CanonicalPositionAuthority6441 {
             byLifecycle = counts7496,
             unaccounted = snapshot7496.size - classified7496,
         )
-        val built7496 = PositionViewCache7496(revision7496, open7496, closed7496, classification7496)
+        val built7496 = PositionViewCache7496(
+            revision7496, open7496, closed7496, pending7498, quarantinedIdsByMode7498, classification7496
+        )
         if (muts.get() == revision7496) positionViewCache7496.set(built7496)
         return built7496
     }
@@ -931,12 +943,11 @@ object CanonicalPositionAuthority6441 {
      * The operator's 5.0.7012 snapshot is exactly this: journalOnly=17,
      * canonicalOnly=0, and sumCheck QUARANTINED=17. Same seventeen.
      */
-    fun quarantinedPositionIds6635(mode: String? = null): Set<String> =
-        positions.values.asSequence()
-            .filter { it.lifecycle == Lifecycle.QUARANTINED }
-            .filter { mode == null || it.mode.equals(mode, true) }
-            .map { it.positionId }
-            .toSet()
+    fun quarantinedPositionIds6635(mode: String? = null): Set<String> {
+        val views = positionViews7496()
+        val key = mode?.trim()?.lowercase() ?: "*"
+        return views.quarantinedIdsByMode[key] ?: emptySet()
+    }
     fun openCount(): Int {
         val n = openPositions().size
         // V5.0.7432: this is an all-mode forensic count, not an admission
@@ -1493,9 +1504,7 @@ object CanonicalPositionAuthority6441 {
         } finally { lock.unlock() }
     }
 
-    fun pendingEntryPositions6461(): List<Position> = positions.values.filter {
-        it.lifecycle == Lifecycle.PENDING_ENTRY
-    }
+    fun pendingEntryPositions6461(): List<Position> = positionViews7496().pending
 
     /** V5.0.7454 — wallet recovery may inspect quarantined LIVE rows but may
      * never mutate them directly. This read surface is deliberately narrow. */
