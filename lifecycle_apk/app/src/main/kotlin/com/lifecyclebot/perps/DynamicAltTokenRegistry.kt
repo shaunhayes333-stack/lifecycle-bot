@@ -915,7 +915,6 @@ object DynamicAltTokenRegistry {
     private fun isRetryableProgress7418(state: String): Boolean {
         val s = state.uppercase()
         return s.contains("CRYPTO_BRAIN_OBSERVE_7244") ||
-            s.contains("CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244") ||
             s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
             s.contains("PRICE_UNAVAILABLE")
     }
@@ -924,8 +923,7 @@ object DynamicAltTokenRegistry {
      * excluded because CryptoAlt stamps it before specialist evaluation completes. */
     private fun releaseAtPassBoundary7425(state: String): Boolean {
         val s = state.uppercase()
-        return s.contains("CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244") ||
-            s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
+        return s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
             s.contains("PRICE_UNAVAILABLE")
     }
 

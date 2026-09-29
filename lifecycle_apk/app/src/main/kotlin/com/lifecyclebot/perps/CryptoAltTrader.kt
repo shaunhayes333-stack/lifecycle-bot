@@ -1094,18 +1094,62 @@ object CryptoAltTrader {
         val scoreFloor = cryptoFloor7312(maturityScoreFloor7312, recentCryptoScores7312, 48)
         val confFloor = cryptoFloor7312(maturityConfFloor7312, recentCryptoConfs7312, 42)
         val notExtended7403 = change24hPct <= 20.0 && change24hPct >= -8.0
-        val longEvidence = notExtended7403 && (
+        val momentumEvidence7443 = notExtended7403 && (
             buyPressurePct >= 56.0 ||
             (change24hPct in 0.5..8.0 && buyPressurePct >= 52.0) ||
             (tok.isTrending && buyPressurePct >= 58.0)
         )
+
+        // V5.0.7443 — CryptoTacticSwitcher now changes entry SHAPE, not just
+        // telemetry. Use the local 20s CryptoLaneDesk tape for short-horizon
+        // structure; never manufacture a tactic from repeated 24h snapshots.
+        val tactic7443 = try {
+            com.lifecyclebot.perps.crypto.brain.CryptoBrain.activeTactic(tier, score)
+        } catch (_: Throwable) {
+            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MOMENTUM
+        }
+        val px7443 = try {
+            CryptoLaneDesk7391.prices(tok.canonicalIdentity6544).filter { it.isFinite() && it > 0.0 }.takeLast(8)
+        } catch (_: Throwable) { emptyList() }
+        val cur7443 = px7443.lastOrNull() ?: tok.price.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val prior7443 = px7443.dropLast(1)
+        val priorHigh7443 = prior7443.maxOrNull() ?: cur7443
+        val priorLow7443 = prior7443.minOrNull() ?: cur7443
+        val pullbackPct7443 = if (priorHigh7443 > 0.0 && cur7443 > 0.0)
+            ((priorHigh7443 - cur7443) / priorHigh7443 * 100.0).coerceAtLeast(0.0) else 0.0
+        val reboundPct7443 = if (priorLow7443 > 0.0 && cur7443 > 0.0)
+            ((cur7443 - priorLow7443) / priorLow7443 * 100.0).coerceAtLeast(0.0) else 0.0
+        val pullbackEvidence7443 = px7443.size >= 4 &&
+            pullbackPct7443 in 2.0..12.0 && reboundPct7443 >= 1.0 &&
+            buyPressurePct >= 52.0 && notExtended7403
+        val breakoutEvidence7443 = px7443.size >= 4 && priorHigh7443 > 0.0 &&
+            cur7443 >= priorHigh7443 * 1.005 && buyPressurePct >= 54.0 && notExtended7403
+        val meanRevertEvidence7443 = px7443.size >= 4 &&
+            pullbackPct7443 in 4.0..18.0 && reboundPct7443 >= 2.0 &&
+            buyPressurePct >= 50.0 && change24hPct < 12.0
+        val tacticEvidence7443 = when (tactic7443) {
+            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MOMENTUM ->
+                momentumEvidence7443
+            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.PULLBACK ->
+                pullbackEvidence7443
+            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.BREAKOUT ->
+                breakoutEvidence7443
+            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MEAN_REVERT ->
+                meanRevertEvidence7443
+            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.LAB_PROPOSED ->
+                pullbackEvidence7443 || breakoutEvidence7443 || meanRevertEvidence7443
+        }
+        try { PipelineHealthCollector.labelInc("CRYPTO_TACTIC_CONSUMED_7443_${tactic7443.name}") } catch (_: Throwable) {}
+
         val shadowOnlyLive = try {
             !isPaperMode.get() && com.lifecyclebot.perps.crypto.brain.CryptoBrain.shouldShadowOnly(tier, score)
         } catch (_: Throwable) { false }
-        val actionableLong = longEvidence && score >= scoreFloor && confidence >= confFloor && !shadowOnlyLive
+        val actionableLong = tacticEvidence7443 && score >= scoreFloor && confidence >= confFloor && !shadowOnlyLive
         val reason = "CRYPTO_BRAIN_NATIVE_7244 tier=" + tier + " score=" + score + "/" + confidence +
-            " floor=" + scoreFloor + "/" + confFloor + " chg=" + change24hPct +
-            " bp=" + buyPressurePct + " liq=" + liquidityUsd.toLong() + " vol=" + volume24hUsd.toLong()
+            " floor=" + scoreFloor + "/" + confFloor + " tactic=" + tactic7443.name +
+            " pullback=" + "%.2f".format(pullbackPct7443) + " rebound=" + "%.2f".format(reboundPct7443) +
+            " chg=" + change24hPct + " bp=" + buyPressurePct +
+            " liq=" + liquidityUsd.toLong() + " vol=" + volume24hUsd.toLong()
         return DynamicCryptoDecision7244(score, confidence, tier, actionableLong, shadowOnlyLive, reason)
     }
     private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
@@ -1586,10 +1630,16 @@ object CryptoAltTrader {
                 if (dynExecutableSignals.size == executableSignalCountBefore6567) {
                     // V5.0.7244 — CryptoBrain was already consulted above.
                     // Specialist silence is observation only, never a fabricated executable score.
-                    DynamicAltTokenRegistry.markEvaluationProgress6570(
+                    // V5.0.7443 — NO_ACTIONABLE is terminal for this exact
+                    // immutable market-data generation. A changed price/flow/
+                    // liquidity generation automatically reopens evaluation.
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(
                         refreshed, "CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244",
                     )
-                    try { PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_OBSERVATION_ONLY_7244") } catch (_: Throwable) {}
+                    try {
+                        PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_OBSERVATION_ONLY_7244")
+                        PipelineHealthCollector.labelInc("CRYPTO_NO_ACTION_GENERATION_COMPLETED_7443")
+                    } catch (_: Throwable) {}
                 }
 
             } catch (e: CancellationException) { throw e }
