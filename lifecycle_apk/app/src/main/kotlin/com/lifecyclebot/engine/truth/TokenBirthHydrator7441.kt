@@ -4,7 +4,7 @@ import com.lifecyclebot.engine.ChokeReliefBus
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.RuntimeProviderAuthority6685
 import com.lifecyclebot.engine.TokenMetaCache
-import com.lifecyclebot.network.HealthAwareHttp
+import com.lifecyclebot.engine.HealthAwareHttp
 import com.lifecyclebot.network.SharedHttpClient
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
