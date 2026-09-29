@@ -338,6 +338,7 @@ object PredictiveEntryOracle6915 {
                 val wr = com.lifecyclebot.engine.TradingMemory
                     .getPatternWinRate(ph, ema, src)
                     .coerceIn(0.0, 1.0)
+                try { PipelineHealthCollector.labelInc("TRADING_MEMORY_PATTERN_CONSULTED_7432") } catch (_: Throwable) {}
                 val d = ((wr - 0.5) * 12.0).coerceIn(-6.0, 6.0)
                 if (kotlin.math.abs(d) >= 0.5) {
                     out += BrainRead(
@@ -346,6 +347,8 @@ object PredictiveEntryOracle6915 {
                         d,
                     )
                     try { PipelineHealthCollector.labelInc("TRADING_MEMORY_PATTERN_READ_7427") } catch (_: Throwable) {}
+                } else {
+                    try { PipelineHealthCollector.labelInc("TRADING_MEMORY_PATTERN_NEUTRAL_7432") } catch (_: Throwable) {}
                 }
             }
         } catch (_: Throwable) {}
@@ -664,6 +667,7 @@ object PredictiveEntryOracle6915 {
         try {
             val boost = com.lifecyclebot.engine.TradingCopilot.convictionBoost()
             val sizeMood = com.lifecyclebot.engine.TradingCopilot.sizingMultiplier()
+            try { PipelineHealthCollector.labelInc("TRADING_COPILOT_PREDICTIVE_CONSULTED_7432") } catch (_: Throwable) {}
             val d = (boost * 10.0 + (sizeMood - 1.0) * 4.0).coerceIn(-4.0, 6.0)
             if (kotlin.math.abs(d) >= 0.25) {
                 out += BrainRead(
@@ -671,6 +675,8 @@ object PredictiveEntryOracle6915 {
                     d,
                 )
                 try { PipelineHealthCollector.labelInc("TRADING_COPILOT_PREDICTIVE_READ_7430") } catch (_: Throwable) {}
+            } else {
+                try { PipelineHealthCollector.labelInc("TRADING_COPILOT_PREDICTIVE_NEUTRAL_7432") } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
 
