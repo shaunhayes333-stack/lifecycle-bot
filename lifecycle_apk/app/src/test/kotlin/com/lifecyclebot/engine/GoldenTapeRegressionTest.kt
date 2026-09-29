@@ -12558,6 +12558,7 @@ class GoldenTapeRegressionTest {
         val confirmed = alt.indexOf("CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)", pending)
         assertTrue(pending > 0 && confirmed > pending)
         assertTrue(alt.substring(pending, confirmed).contains("return // Canonical dispatch remains pending, never an OPEN claim."))
+        assertTrue(alt.contains("HostWalletTokenTracker.recordBuyPending("))
         assertTrue(alt.contains("CRYPTO_WALLET_BALANCE_UNAVAILABLE_7434"))
         assertFalse(alt.contains("val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }"))
     }

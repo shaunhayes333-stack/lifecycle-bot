@@ -3563,6 +3563,8 @@ object CryptoAltTrader {
                         "mint=${liveResult7434.mint} txSig=${liveResult7434.signature} proof=${liveResult7434.proofState}")
                     com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(
                         liveResult7434.mint, liveResult7434.signature)
+                    com.lifecyclebot.engine.HostWalletTokenTracker.recordBuyPending(
+                        liveResult7434.mint, mktSym, liveResult7434.signature)
                     com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(
                         WalletManager.getWallet(), "CRYPTO_SIGNED_VERIFY_PENDING_7434")
                 } catch (_: Throwable) {}
