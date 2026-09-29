@@ -32,6 +32,8 @@ object CrossAssetLeadLagAI {
 
     // Price histories per symbol (1-minute returns)
     private val returnHistory = ConcurrentHashMap<String, MutableList<TimedReturn>>()
+    private data class PriceSample7441(val price: Double, val timestamp: Long)
+    private val priceSamples7441 = ConcurrentHashMap<String, PriceSample7441>()
 
     // Known lead-lag pairs (learned + hardcoded)
     private val knownPairs = ConcurrentHashMap<String, LeadLagPair>()
@@ -80,10 +82,34 @@ object CrossAssetLeadLagAI {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun recordReturn(symbol: String, returnPct: Double) {
+        if (!returnPct.isFinite()) return
         val history = returnHistory.getOrPut(symbol) { mutableListOf() }
         synchronized(history) {
             history.add(TimedReturn(returnPct, System.currentTimeMillis()))
             if (history.size > PRICE_HISTORY_SIZE) history.removeAt(0)
+        }
+    }
+
+    /**
+     * V5.0.7441 — feed prices, not rolling 24h change snapshots.
+     * Emits one actual ~1 minute interval return. Too-fast observations wait;
+     * very stale gaps reset the baseline rather than masquerading as 1m beta.
+     */
+    fun recordPrice7441(symbol: String, price: Double, nowMs: Long = System.currentTimeMillis()) {
+        if (symbol.isBlank() || !price.isFinite() || price <= 0.0) return
+        val prior = priceSamples7441.putIfAbsent(symbol, PriceSample7441(price, nowMs))
+        if (prior == null) return
+        val dt = nowMs - prior.timestamp
+        if (dt < 45_000L) return
+        if (dt > 180_000L) {
+            priceSamples7441[symbol] = PriceSample7441(price, nowMs)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEAD_LAG_STALE_PRICE_BASELINE_RESET_7441") } catch (_: Throwable) {}
+            return
+        }
+        if (priceSamples7441.replace(symbol, prior, PriceSample7441(price, nowMs))) {
+            val ret = ((price / prior.price) - 1.0) * 100.0
+            recordReturn(symbol, ret)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEAD_LAG_INTERVAL_RETURN_7441") } catch (_: Throwable) {}
         }
     }
 
@@ -220,6 +246,7 @@ object CrossAssetLeadLagAI {
 
     fun clear() {
         returnHistory.clear()
+        priceSamples7441.clear()
         activeLinks.clear()
     }
 }

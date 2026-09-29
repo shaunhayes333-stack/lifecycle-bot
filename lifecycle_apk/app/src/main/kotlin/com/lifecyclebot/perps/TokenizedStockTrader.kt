@@ -786,7 +786,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 
                 // V5.7.8: Feed V4 LeadLag + Regime with every price update
                 try {
-                    com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.recordReturn(market.symbol, data.priceChange24hPct)
+                    com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.recordPrice7441(market.symbol, data.price)
                     com.lifecyclebot.v4.meta.CrossMarketRegimeAI.updateMarketState(market.symbol, data.price, data.priceChange24hPct, data.volume24h)
                 } catch (_: Exception) {}
                 

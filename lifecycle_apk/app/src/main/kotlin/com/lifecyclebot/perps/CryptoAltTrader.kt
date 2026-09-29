@@ -1830,7 +1830,7 @@ object CryptoAltTrader {
 
                 // Feed V4 meta layers
                 try {
-                    CrossAssetLeadLagAI.recordReturn(market.symbol, data.priceChange24hPct)
+                    CrossAssetLeadLagAI.recordPrice7441(market.symbol, data.price)
                     CrossMarketRegimeAI.updateMarketState(market.symbol, data.price, data.priceChange24hPct, data.volume24h)
                 } catch (_: Exception) {}
 

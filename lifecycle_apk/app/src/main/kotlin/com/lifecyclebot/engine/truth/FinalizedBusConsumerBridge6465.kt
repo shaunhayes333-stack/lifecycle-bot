@@ -351,7 +351,10 @@ object FinalizedBusConsumerBridge6465 {
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        // V5.0.7441 — EVEstimator is a legacy alias of ForwardOutcomeModel.
+        // Keep the bus consumer name for parity/backward compatibility, but do
+        // not mutate the same learner twice for one terminal.
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EV_ESTIMATOR_ALIAS_ACK_ONLY_7441") } catch (_: Throwable) {}
         true
     } catch (t: Throwable) { threw7154(t) }
 
@@ -480,6 +483,8 @@ object FinalizedBusConsumerBridge6465 {
     // check above succeeds and retries until durability is visible.
     private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        // Close the prediction-quality loop from the same canonical terminal.
+        com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(env.mint, env.realizedReturnPct)
         true
     } catch (t: Throwable) { threw7154(t) }
 

@@ -110,6 +110,17 @@ object MomentumPredictorAI {
     
     // Token momentum tracking
     private val tokenMomentum = ConcurrentHashMap<String, TokenMomentum>()
+
+    // V5.0.7441 — immutable decision-time prediction snapshot. Terminal
+    // grading must never read the later/current momentum state.
+    private data class EntryPrediction7441(
+        val prediction: MomentumPrediction,
+        val hasVolumeAcceleration: Boolean,
+        val hasCoilingPattern: Boolean,
+        val hasAccumulation: Boolean,
+        val hasMomentumBreakout: Boolean,
+    )
+    private val entryPredictions7441 = ConcurrentHashMap<String, EntryPrediction7441>()
     
     // Learning weights
     private data class Weights(
@@ -272,6 +283,19 @@ object MomentumPredictorAI {
     fun getPrediction(mint: String): MomentumPrediction {
         return tokenMomentum[mint]?.prediction ?: MomentumPrediction.NEUTRAL
     }
+
+    /** Freeze the prediction/features that actually existed at entry decision time. */
+    fun stampEntryPrediction7441(mint: String) {
+        val m = tokenMomentum[mint] ?: return
+        entryPredictions7441[mint] = EntryPrediction7441(
+            prediction = m.prediction,
+            hasVolumeAcceleration = m.hasVolumeAcceleration,
+            hasCoilingPattern = m.hasCoilingPattern,
+            hasAccumulation = m.hasAccumulation,
+            hasMomentumBreakout = m.hasMomentumBreakout,
+        )
+        try { PipelineHealthCollector.labelInc("MOMENTUM_ENTRY_PREDICTION_STAMPED_7441") } catch (_: Throwable) {}
+    }
     
     /**
      * Get entry score bonus/penalty based on momentum.
@@ -350,31 +374,33 @@ object MomentumPredictorAI {
      */
     fun recordOutcome(mint: String, pnlPct: Double, peakPnlPct: Double) {
         val momentum = tokenMomentum[mint] ?: return
-        
+        val entry = entryPredictions7441.remove(mint)
+        if (entry == null) {
+            try { PipelineHealthCollector.labelInc("MOMENTUM_OUTCOME_MISSING_ENTRY_PREDICTION_7441") } catch (_: Throwable) {}
+            return
+        }
+
         weights.totalPredictions++
-        
-        val wasCorrect = when (momentum.prediction) {
-            MomentumPrediction.STRONG_PUMP -> peakPnlPct >= 100  // Expected 2x+
-            MomentumPrediction.PUMP_BUILDING -> peakPnlPct >= 50  // Expected 50%+
-            MomentumPrediction.NEUTRAL -> pnlPct >= -10 && pnlPct <= 50  // Expected sideways
-            MomentumPrediction.WEAK -> pnlPct < 20  // Expected no pump
-            MomentumPrediction.DISTRIBUTION -> pnlPct < 0  // Expected dump
+
+        val wasCorrect = when (entry.prediction) {
+            MomentumPrediction.STRONG_PUMP -> peakPnlPct >= 100
+            MomentumPrediction.PUMP_BUILDING -> peakPnlPct >= 50
+            MomentumPrediction.NEUTRAL -> pnlPct >= -10 && pnlPct <= 50
+            MomentumPrediction.WEAK -> pnlPct < 20
+            MomentumPrediction.DISTRIBUTION -> pnlPct < 0
         }
-        
-        if (wasCorrect) {
-            weights.correctPredictions++
-        }
-        
-        // Adjust weights based on what worked
+
+        if (wasCorrect) weights.correctPredictions++
+
         val adjustment = if (wasCorrect) 0.01 else -0.01
-        
-        if (momentum.hasVolumeAcceleration && peakPnlPct > 50) {
+
+        if (entry.hasVolumeAcceleration && peakPnlPct > 50) {
             weights.volumeAccelWeight = (weights.volumeAccelWeight + adjustment).coerceIn(0.1, 0.5)
         }
-        if (momentum.hasCoilingPattern && peakPnlPct > 100) {
+        if (entry.hasCoilingPattern && peakPnlPct > 100) {
             weights.coilingWeight = (weights.coilingWeight + adjustment).coerceIn(0.1, 0.5)
         }
-        if (momentum.hasAccumulation && pnlPct > 0) {
+        if (entry.hasAccumulation && pnlPct > 0) {
             weights.accumulationWeight = (weights.accumulationWeight + adjustment).coerceIn(0.1, 0.5)
         }
         
@@ -387,7 +413,7 @@ object MomentumPredictorAI {
         weights.buyPressureWeight /= total
         
         ErrorLogger.debug(TAG, "📊 Outcome recorded: ${momentum.symbol} ${if (wasCorrect) "✓" else "✗"} | " +
-            "pnl=${pnlPct.toInt()}% peak=${peakPnlPct.toInt()}% | pred=${momentum.prediction.label}")
+            "pnl=${pnlPct.toInt()}% peak=${peakPnlPct.toInt()}% | pred=${entry.prediction.label}")
     }
     
     /**
@@ -428,6 +454,7 @@ object MomentumPredictorAI {
      */
     fun clear() {
         tokenMomentum.clear()
+        entryPredictions7441.clear()
     }
     
     fun saveToJson(): JSONObject {

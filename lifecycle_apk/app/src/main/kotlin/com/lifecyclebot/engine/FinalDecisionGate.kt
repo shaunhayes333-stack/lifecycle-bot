@@ -5177,6 +5177,7 @@ object FinalDecisionGate {
                         ForwardOutcomeModel.stamp(ts.mint, mpLane, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
                         // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
                         try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, mpLane, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
 
                         // V5.9.1358 — DUAL-BRAIN VETO → SIZE-SHAPE (operator mandate:
                         // never refuse/disable a context, learn the right way to trade it
