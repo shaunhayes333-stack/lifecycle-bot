@@ -996,3 +996,14 @@ Runtime evidence from 5.0.7466: symbolic_context_refresh reached 28.7s while Sym
 - [x] Exact proof success still removes the pending identity as before.
 - [x] Consumer delivery, exclusion reason, learning eligibility and canonical ACK semantics are unchanged.
 - [x] No learning consumer or retry opportunity is removed; only terminally dead retry-log state is released.
+
+
+## V5.0.7490 — Crypto Universe canonical identity/index convergence
+
+- [x] Stale dynamic-token eviction now removes the evicted canonical key from symbolCandidates6493 and symbolIndex.
+- [x] Remaining same-symbol candidates can become the display preference without changing execution identity.
+- [x] Disk restore now stores rows under restoredKey6544 (canonical chain+token identity), not bare mint.
+- [x] Symbol indexing on restore uses the same canonical key.
+- [x] Held-token preservation and discovery TTLs are unchanged.
+- [x] Symbol ambiguity remains fail-closed for execution; no symbol-to-mint guessing was added.
+- [x] No discovery source, chain, DEX or crypto strategy is removed.

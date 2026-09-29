@@ -193,6 +193,28 @@ object DynamicAltTokenRegistry {
         symbolIndex.putIfAbsent(sym, canonicalKey)
     }
 
+    // V5.0.7490 — secondary indexes must shrink with the canonical registry.
+    // Symbol maps are display/metadata helpers only; they must never retain
+    // evicted canonical identities forever.
+    private fun deindexSymbol7490(symbol: String, canonicalKey: String) {
+        val sym = symbol.trim().uppercase()
+        if (sym.isBlank() || canonicalKey.isBlank()) return
+        val candidates = symbolCandidates6493[sym]
+        if (candidates != null) {
+            candidates.remove(canonicalKey)
+            if (candidates.isEmpty()) {
+                symbolCandidates6493.remove(sym, candidates)
+                symbolIndex.remove(sym, canonicalKey)
+            } else if (symbolIndex[sym] == canonicalKey) {
+                val replacement = candidates.firstOrNull { registry.containsKey(it) }
+                if (replacement != null) symbolIndex[sym] = replacement
+                else symbolIndex.remove(sym, canonicalKey)
+            }
+        } else {
+            symbolIndex.remove(sym, canonicalKey)
+        }
+    }
+
     private val lastDiscoveryCycle = AtomicLong(0L)
     private val lastFreshDiscovery6544 = AtomicLong(0L)
     private val lastActiveDiscovery6544 = AtomicLong(0L)
@@ -601,9 +623,11 @@ object DynamicAltTokenRegistry {
                     sector         = o.optString("sector", ""),
                     lastUpdatedMs  = o.optLong("lastUpdatedMs", System.currentTimeMillis()),
                 )
-                // V5.0.6493 — restore by canonical mint only; ticker never joins rows.
-                registry[mint] = tok
-                if (tok.symbol.isNotBlank()) indexSymbol6493(tok.symbol, mint)
+                // V5.0.7490 — restore under the same canonical chain+token
+                // identity used by discovery/upsert. Bare mint keys created a
+                // second row for the same asset after the next live refresh.
+                registry[restoredKey6544] = tok
+                if (tok.symbol.isNotBlank()) indexSymbol6493(tok.symbol, restoredKey6544)
                 loaded++
             }
             ErrorLogger.info(TAG, "📂 Restored $loaded tokens from disk")
@@ -702,6 +726,7 @@ object DynamicAltTokenRegistry {
             val drop = tok.lastUpdatedMs < if (placeholder) placeholderStaleTs else realStaleTs
             if (drop) {
                 evicted++
+                deindexSymbol7490(tok.symbol, tok.canonicalIdentity6544)
                 // V5.0.6547 §P1-3 — expose fresh-drop attrition. If a
                 // fresh discovery is evicted before hitting the brain,
                 // it likely didn't finish enrichment in time. Counter
