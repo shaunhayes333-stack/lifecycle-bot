@@ -26,7 +26,9 @@ object EarlyLaunchBypass6396 {
     const val PROBE_ZONE_MAX: Double = STANDARD_LIVE_SCORE_FLOOR - 0.001
 
     /** Micro-probe size multiplier — mirrors the 6394 setting. */
-    const val PROBE_SIZE_MULTIPLIER: Double = 0.30
+    const val EARLY_RISK_SIZE_MULTIPLIER: Double = 0.30
+    @Deprecated("V5.0.7431: use EARLY_RISK_SIZE_MULTIPLIER; this is risk shaping, not exploration")
+    const val PROBE_SIZE_MULTIPLIER: Double = EARLY_RISK_SIZE_MULTIPLIER
 
     val earlyLaunchProbesAuthorized = AtomicLong(0L)
 
@@ -36,7 +38,7 @@ object EarlyLaunchBypass6396 {
      * V5.0.6396 live-buy entry point. Derives scout tier from
      * SmartMoneyFeed6394 (≥2 whale buys in 60s == HIGH_CONVICTION_EARLY).
      */
-    fun evaluateForLiveBuy(
+    fun evaluateForCanonicalEntry(
         mint: String,
         liveScore: Double,
         liquidityUsd: Double,
@@ -58,9 +60,21 @@ object EarlyLaunchBypass6396 {
         if (liquidityUsd < 3_000.0)
             return Decision(false, 0.0, "LIQ_BELOW_EXECUTABLE_6396")
         earlyLaunchProbesAuthorized.incrementAndGet()
-        return Decision(true, PROBE_SIZE_MULTIPLIER,
-            "EARLY_LAUNCH_MICRO_PROBE_6396 whales=$whaleBuys liq=${liquidityUsd.toInt()}")
+        return Decision(true, EARLY_RISK_SIZE_MULTIPLIER,
+            "SMART_MONEY_EARLY_REDUCED_SIZE_7431 wallets=$whaleBuys liq=${liquidityUsd.toInt()}")
     }
+
+    /** Compatibility entry point for pre-7431 callers/tests. */
+    @Deprecated("V5.0.7431: PAPER/LIVE share evaluateForCanonicalEntry")
+    fun evaluateForLiveBuy(
+        mint: String,
+        liveScore: Double,
+        liquidityUsd: Double,
+        sameMintAlreadyOpen: Boolean,
+        reentryLockout: Boolean,
+    ): Decision = evaluateForCanonicalEntry(
+        mint, liveScore, liquidityUsd, sameMintAlreadyOpen, reentryLockout,
+    )
 
     internal fun clearForTest() { earlyLaunchProbesAuthorized.set(0L) }
 }
