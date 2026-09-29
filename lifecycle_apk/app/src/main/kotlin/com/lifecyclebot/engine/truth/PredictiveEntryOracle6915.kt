@@ -773,6 +773,12 @@ object PredictiveEntryOracle6915 {
         quality: String = "",
         edgePhase: String = "",
         emaFan: String = "",
+        // V5.0.7431 — exact strategy identity already elected by the canonical
+        // ModeRouter/Toolkit/AgenticStyle stack. These are evidence keys, not new gates.
+        tradeType: String = "",
+        setup: String = "",
+        style: String = "",
+        tactic: String = "",
         candidateConfidence: Double = 0.50,
     ): Forecast {
         evaluations.incrementAndGet()
@@ -839,6 +845,35 @@ object PredictiveEntryOracle6915 {
             Level("cell", cellMean / cellN, cellPWin, cellN)
         } else null
 
+        // V5.0.7431 — exact playbook realised EV. This is measured terminal
+        // evidence, so it participates as a shrinkage level rather than as an
+        // independent veto. Sparse exact strategies stay silent until they have
+        // enough closes. In LIVE, deployment-quality PAPER may seed the exact
+        // playbook with capped effective weight until LIVE has its own sample.
+        var exactStrategyLevel7431: Level? = null
+        try {
+            val live7431 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+            val ex = ExactStrategyPerformance7429.evidenceFor7431(
+                liveMode = live7431,
+                lane = laneKey,
+                tradeType = tradeType,
+                setup = setup,
+                style = style,
+                tactic = tactic,
+            )
+            if (ex != null) {
+                val effectiveN = if (ex.source == "PAPER_SEED") minOf(ex.n, 6L) else ex.n
+                exactStrategyLevel7431 = Level(
+                    "exactStrategy:" + ex.source,
+                    ex.meanPnlPct.coerceIn(-100.0, 500.0),
+                    (ex.winRatePct / 100.0).coerceIn(0.0, 1.0),
+                    effectiveN.toDouble(),
+                )
+                contributions += "exactStrategy(" + ex.source + ",n=" + ex.n + ",E=" + "%+.1f".format(ex.meanPnlPct) + ",WR=" + "%.0f".format(ex.winRatePct) + "%)"
+                try { PipelineHealthCollector.labelInc("PREDICTIVE_EXACT_STRATEGY_EV_READ_7431") } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+
         // ── LEVEL: LANE ─────────────────────────────────────────────────────
         var lane1: Level? = null
         var globalLevel: Level? = null
@@ -889,7 +924,7 @@ object PredictiveEntryOracle6915 {
         } catch (_: Throwable) {}
 
         // ── SHRINKAGE BLEND ─────────────────────────────────────────────────
-        val levels = listOfNotNull(cell, lane1, globalLevel).filter { it.weight > 0.0 }
+        val levels = listOfNotNull(exactStrategyLevel7431, cell, lane1, globalLevel).filter { it.weight > 0.0 }
         if (levels.isEmpty()) {
             globalOnly.incrementAndGet()
             // V5.0.7261 — 7260 returned here before any current-candidate
