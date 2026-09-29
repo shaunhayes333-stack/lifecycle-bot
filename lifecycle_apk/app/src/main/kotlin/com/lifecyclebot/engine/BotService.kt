@@ -13760,6 +13760,44 @@ class BotService : Service() {
         } catch (_: Throwable) { "SHITCOIN" }
     }
 
+    /**
+     * V5.0.7468 — shared sealed-attempt reuse for dedicated meme specialists.
+     *
+     * These lanes already run ExecutableOpenGate.recordFdg(...) before
+     * TradeAuthorizer. Omitting attemptId at authorization created a second
+     * causal record after FDG/mark sealing. Reuse only when BOTH candidate
+     * version and canonical lane match; otherwise return blank and leave the
+     * mismatch visible to the existing authorizer/funnel diagnostics.
+     */
+    private fun sealedSpecialistAttempt7468(mint: String, lane: String, paper: Boolean): String {
+        if (mint.isBlank() || lane.isBlank()) return ""
+        val version = try { LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { 0L }
+        if (version <= 0L) return ""
+        val canonicalLane = try {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+        } catch (_: Throwable) { lane.uppercase() }
+        val intent = try {
+            ExecutableOpenGate.activeExecutionIntent6519(
+                if (paper) "PAPER" else "LIVE",
+                mint,
+                version,
+            )
+        } catch (_: Throwable) { null }
+        val sealedLane = try {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent?.canonicalLane.orEmpty())
+        } catch (_: Throwable) { intent?.canonicalLane.orEmpty().uppercase() }
+        val attempt = intent?.attemptId?.takeIf { it.isNotBlank() && sealedLane == canonicalLane }.orEmpty()
+        try {
+            PipelineHealthCollector.labelInc(
+                if (attempt.isNotBlank())
+                    "SPECIALIST_SEALED_ATTEMPT_REUSED_7468_${canonicalLane}"
+                else
+                    "SPECIALIST_SEALED_ATTEMPT_MISSING_OR_MISMATCH_7468_${canonicalLane}"
+            )
+        } catch (_: Throwable) {}
+        return attempt
+    }
+
     private fun executionBookForLane6494(lane: String): TradeAuthorizer.ExecutionBook = when (RuntimeConfigOverlay.normalizeLane(lane)) {
         "CORE" -> TradeAuthorizer.ExecutionBook.CORE
         "TREASURY" -> TradeAuthorizer.ExecutionBook.TREASURY
@@ -27039,6 +27077,7 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = adjustedSize,
+                                attemptId = sealedSpecialistAttempt7468(ts.mint, "TREASURY", cfg.paperMode),
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -27360,6 +27399,7 @@ if (hotExitHandledSweep) {
                                 requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
                                 preResolvedSizeSol = qualitySize7389,
+                                attemptId = sealedSpecialistAttempt7468(ts.mint, "QUALITY", cfg.paperMode),
                             )
                             val canExecute = qualityAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -28050,6 +28090,7 @@ if (hotExitHandledSweep) {
                                     rugcheckScore = ts.safety.rugcheckScore,
                                     liquidity = ts.lastLiquidityUsd,
                                     preResolvedSizeSol = msEffectiveSize,
+                                    attemptId = sealedSpecialistAttempt7468(ts.mint, "MOONSHOT", cfg.paperMode),
                                 )
                                 
                                 if (!authResult.isExecutable()) {
@@ -29038,6 +29079,7 @@ if (hotExitHandledSweep) {
                             liquidity = ts.lastLiquidityUsd,
                             isBanned = BannedTokens.isBanned(ts.mint),
                             preResolvedSizeSol = manipSignal.positionSizeSol,
+                            attemptId = sealedSpecialistAttempt7468(ts.mint, "MANIPULATED", cfg.paperMode),
                         )
 
                         if (!manipAuthResult.isExecutable()) {
@@ -29952,6 +29994,7 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = dipSignal.positionSizeSol,
+                                attemptId = sealedSpecialistAttempt7468(ts.mint, "DIP_HUNTER", cfg.paperMode),
                             )
                             
                             if (!authResult.isExecutable()) {

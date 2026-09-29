@@ -754,3 +754,18 @@ Baseline 5.0.7456 showed PROJECT_SNIPER / DIP_HUNTER / CASHGEN / CYCLIC reaching
 - [x] Contributor lanes remain contributors; no new economic execution path or duplicate mint/version execution was added.
 - [x] No CORE score floor, sizing formula, or allocation target changed.
 - [ ] Runtime acceptance: CORE mark-ready attempts either reach canonical size/ticket on the same attempt or terminate with a named auth/finality/proof reason.
+
+
+## V5.0.7468 — grouped specialist split-attempt repair (P0 causal identity)
+
+Shared fault class confirmed in 5 dedicated meme specialists: TREASURY, QUALITY, MOONSHOT, MANIPULATED, DIP_HUNTER ran FDG first, then entered `TradeAuthorizer.authorize()` without the sealed attemptId, creating a second causal record.
+
+- [x] Added one shared `sealedSpecialistAttempt7468()` helper.
+- [x] Reuse requires exact candidate-version + canonical-lane match.
+- [x] TREASURY / QUALITY / MOONSHOT / MANIPULATED / DIP_HUNTER now carry the already-sealed FDG attempt into authorization.
+- [x] Missing/mismatched sealed intent is observable and fail-visible; no intent is fabricated.
+- [x] SHITCOIN / EXPRESS / PROJECT_SNIPER already carried explicit attempts and were not changed.
+- [x] BLUECHIP remains on its stricter 7466 lane-specific repair.
+- [x] Early direct CORE/V3 authorization is intentionally excluded: it authorizes before sealing FDG and is a different ordering defect.
+- [x] No lane thresholds, scores, position sizes, capital allocation, or LIVE safety rules changed.
+- [ ] Runtime acceptance: fresh validated BUY_INTENT/OWNER/FDG/MARK/SIZE/TICKET chains stop splitting across attempt IDs for these five lanes.
