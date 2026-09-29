@@ -91,7 +91,7 @@ object CryptoUniverseExecutor {
             )
             return@runAwaited Outcome.RouteDeferred(r)
         }
-        val walletSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
+        val walletSol = try { wallet.getSolBalance() } catch (_: Throwable) { Double.NaN }
         val resolution = CryptoUniverseRouteResolver.resolve(
             market, walletSol, sizeSol, assetSymbol6493 = symbol, targetMint6493 = targetMint6493, targetChainId6544 = targetChainId6544,
         )

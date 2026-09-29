@@ -68,6 +68,14 @@ object CryptoUniverseRouteResolver {
                 executable = true)
         }
 
+        // Unknown RPC wallet state is not a proven empty wallet. Fail closed
+        // with its own retryable infrastructure reason, not INSUFFICIENT_SOL.
+        if (!walletSolBalance.isFinite() || walletSolBalance < 0.0) {
+            return Resolution(sym, CryptoExecutionRoute.NO_ROUTE_AVAILABLE, null,
+                CryptoUniverseDiagCodes.ROUTE_WALLET_BALANCE_UNAVAILABLE_7434,
+                "Wallet SOL balance unavailable; refresh authoritative wallet proof before live routing.",
+                executable = false)
+        }
         // Insufficient SOL — surface immediately (operator spec).
         // 0.01 SOL floor matches CryptoAltTrader.executeLiveTrade().
         if (walletSolBalance < 0.01 || sizeSol < 0.01) {

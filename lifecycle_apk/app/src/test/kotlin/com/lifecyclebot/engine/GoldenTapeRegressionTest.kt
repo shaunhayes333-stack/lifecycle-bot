@@ -12562,4 +12562,15 @@ class GoldenTapeRegressionTest {
         assertFalse(alt.contains("val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }"))
     }
 
+    @Test
+    fun V5_0_7434_crypto_wallet_rpc_failure_is_not_recorded_as_insufficient_sol() {
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseRouteResolver.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        val codes = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoExecutionRoute.kt").readText()
+        assertTrue(resolver.indexOf("!walletSolBalance.isFinite()") in 1 until resolver.indexOf("walletSolBalance < 0.01"))
+        assertTrue(codes.contains("CRYPTO_ROUTE_WALLET_BALANCE_UNAVAILABLE_7434"))
+        assertTrue(executor.contains("catch (_: Throwable) { Double.NaN }"))
+        assertFalse(executor.contains("val walletSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }"))
+    }
+
 }
