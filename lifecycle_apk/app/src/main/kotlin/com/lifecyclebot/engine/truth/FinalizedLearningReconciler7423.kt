@@ -1,5 +1,8 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
+
 /** ID-based CLOSED -> FINALIZED reconciliation.
  * V5.0.7459 also repairs the narrow case where exact durable finality/economics
  * exist but the 6464 fanout projection is missing. */
@@ -105,7 +108,8 @@ object FinalizedLearningReconciler7423 {
             ) continue
 
             val sell = sells[p.positionId]?.maxByOrNull { it.atMs } ?: continue
-            val entry = EntryStrategySnapshot6450.snapshot(p.positionId) ?: run {
+            val entry = EntryStrategySnapshot6450.snapshot(p.positionId)
+            if (entry == null) {
                 try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_ENTRY_SNAPSHOT_MISSING_7459") } catch (_: Throwable) {}
                 continue
             }
