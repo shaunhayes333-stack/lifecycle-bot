@@ -108,7 +108,11 @@ data class LeadLagLink(
     val correlation: Double,            // Strength of relationship (0.0 to 1.0)
     val expectedDelaySec: Int,          // Expected lag in seconds
     val rotationProbability: Double,    // Probability of rotation occurring (0.0 to 1.0)
-    val direction: String               // "SAME" or "INVERSE"
+    val direction: String,              // "SAME" or "INVERSE"
+    // V5.0.7433 — immutable signal birth time. CrossAssetLeadLagAI previously
+    // subtracted System.currentTimeMillis() from itself during cleanup, so stale
+    // links never expired and could bias entries/exits indefinitely.
+    val createdAtMs: Long = System.currentTimeMillis(),
 )
 
 data class MarketCap(
