@@ -1436,8 +1436,32 @@ object ExecutableOpenGate {
             tokenMapHydrationComplete, tokenMapExpectedOut, tokenMapProviderAttempts, requiresSolanaTokenMap,
             allowTrunkExecutionHandoff6533,
             resolvedSizeSol6558)
-        if (!canExecute) return null
         val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+
+        // V5.0.7433 — the post-record canonical state is authoritative for
+        // generated hard-no reasons (token-map pending/true-zero, RC=0, etc).
+        // A previously sealed same-version BUY must be revoked immediately;
+        // otherwise recordFdgAndGetIntent could simply retrieve that stale
+        // intent even though recordFdg just resolved HARD_NO_BUY.
+        val postFdg7433 = states[mint]
+        val hardNoAfterRecord7433 = postFdg7433?.candidateVersion == candidateVersion &&
+            (postFdg7433.preFdgVerdict.equals("HARD_NO_BUY", true) ||
+                postFdg7433.hardNoReasons.isNotEmpty())
+        if (hardNoAfterRecord7433) {
+            activeExecutionIntents6519.remove(intentKey6519(mode, mint, candidateVersion))?.let { stale ->
+                executionTickets.remove(stale.attemptId, stale)
+                allowedAttempts.entries.removeIf { it.value.first == stale.attemptId }
+            }
+            try {
+                PipelineHealthCollector.labelInc("HARD_NO_REVOKED_SEALED_BUY_7433")
+                ForensicLogger.lifecycle(
+                    "HARD_NO_REVOKED_SEALED_BUY_7433",
+                    "mint=${mint.take(10)} lane=${canonicalLane(lane)} version=$candidateVersion hardNo=${postFdg7433?.hardNoReasons?.joinToString("|").orEmpty()} action=no_exec_intent",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        if (!canExecute) return null
         // The recordFdg compatibility block also projects optional policy and
         // identity telemetry. None of those secondary stores may erase the
         // mandatory immutable intent if they throw under runtime contention.
@@ -1624,12 +1648,22 @@ object ExecutableOpenGate {
             // that stale WATCH and dropped the token. Rank verdicts and only let a
             // verdict overwrite when it is >= the stored one (within the same version);
             // a newer candidateVersion always wins (genuinely fresh evaluation).
+            // V5.0.7433 — HARD_NO is factual impossibility/safety authority,
+            // not a weaker opinion than BUY. Pre-7433 a same-version synthetic
+            // BUY could outrank a later LIQUIDITY_UNKNOWN/TRUE_ZERO hard-no and
+            // survive into an immutable execution intent.
             fun rank(v: String?): Int = when (v?.uppercase()) {
-                "BUY" -> 3; "PROBE_ONLY" -> 2; "WATCH", "PROBE" -> 1
-                "NO_BUY" -> 0; "HARD_NO_BUY" -> 0; else -> 1
+                "HARD_NO_BUY" -> 4
+                "BUY" -> 3
+                "PROBE_ONLY" -> 2
+                "WATCH", "PROBE" -> 1
+                "NO_BUY" -> 0
+                else -> 1
             }
             val sameVersion = old != null && old.candidateVersion == candidateVersion
-            val keepOld = sameVersion && rank(old?.preFdgVerdict) >= rank(finalVerdict)
+            val keepOld = sameVersion &&
+                !finalVerdict.equals("HARD_NO_BUY", true) &&
+                rank(old?.preFdgVerdict) >= rank(finalVerdict)
             val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
             val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
             // V5.0.6910 §LANE_OWNERSHIP_IS_NOT_THE_VERDICT.
