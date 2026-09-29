@@ -128,7 +128,8 @@ object CanonicalTradeFinalizedBus6450 {
         if (event.positionId.isBlank()) return false
         try { CanonicalRewardBootstrap6453.ensureBootstrapped() } catch (_: Throwable) {}
         val prior = finalized.putIfAbsent(event.positionId, event.settledAtMs)
-        if (prior != null) {
+        val richDuplicate7473 = prior != null
+        if (richDuplicate7473) {
             duplicates.incrementAndGet()
             try {
                 ForensicLogger.lifecycle(
@@ -136,8 +137,11 @@ object CanonicalTradeFinalizedBus6450 {
                     "positionId=${event.positionId.take(12)} priorAtMs=$prior newAtMs=${event.settledAtMs}",
                 )
                 PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZE_DUPLICATE_6450")
+                PipelineHealthCollector.labelInc("CANONICAL_FINALITY_DUPLICATE_REDRIVE_7473")
             } catch (_: Throwable) {}
-            return false
+            // Keep rich persistence/subscribers exactly-once, but continue into
+            // the canonical 6464 projection below in case the first projection
+            // failed after the rich finalization had already been claimed.
         }
         val economicInvalid6495 = economicInvalidReason6495(event)
         if (economicInvalid6495 != null) {
@@ -177,7 +181,7 @@ object CanonicalTradeFinalizedBus6450 {
         // event is not `published`, is not persisted for replay, and is not
         // handed to any 6450 subscriber. Only the 6464 parity fanout below runs
         // for it, and there it lands excluded.
-        if (economicInvalid6495 == null) {
+        if (economicInvalid6495 == null && !richDuplicate7473) {
             published.incrementAndGet()
             CanonicalFinalityPersistence6486.record(event)
             val quarantined6485 = try {
@@ -337,7 +341,7 @@ object CanonicalTradeFinalizedBus6450 {
                 PipelineHealthCollector.labelInc("CANONICAL_FINALITY_FANOUT_FAILED_6486")
             } catch (_: Throwable) {}
         }
-        return true
+        return !richDuplicate7473
     }
 
     fun statusLine(): String = "subs=${subscribers.size} published=${published.get()} " +

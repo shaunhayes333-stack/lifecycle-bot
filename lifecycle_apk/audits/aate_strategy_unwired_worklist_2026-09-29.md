@@ -817,3 +817,12 @@ Confirmed defect: `StrategyHypothesisEngine.bindExecutedPosition7428()` had zero
 - [x] At four or more observations the existing CryptoBrain/specialist decision remains authoritative; no score/confidence floor is lowered.
 - [x] No synthetic BUY/PROBE signal is created and no route/sizing/live-safety rule is bypassed.
 - [x] Runtime acceptance: fresh reaching V3/FDG becomes non-zero when existing specialist/brain evidence actually produces actionable candidates; warmup counters explain candidates still accumulating tape.
+
+
+## V5.0.7473 — additive canonical finalized-learning projection recovery
+
+- [x] Rich terminal persistence/subscribers remain exactly-once.
+- [x] Duplicate terminal callbacks can re-drive only the missing canonical 6464 learning projection.
+- [x] No cash, quantity, journal or position mutation is replayed.
+- [x] Public duplicate semantics remain false; a recovery pass is not treated as a second terminal event.
+- [x] Existing 7459 bounded durable reconciler remains as historical fallback.
