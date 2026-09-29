@@ -325,6 +325,32 @@ object MathematicalEdgeEngine {
             try { PipelineHealthCollector.labelInc("MATHEDGE_TERMINAL_DROPPED_PARTIAL_6501") } catch (_: Throwable) {}
             return false
         }
+
+        // V5.0.7456 — restored/replayed/administrative rows are forensic
+        // evidence, not observations of a strategy AATE actually chose from
+        // a clean entry. Keep them out of terminal cohorts and every learner
+        // downstream of MathematicalEdge, even if an upstream legacy caller
+        // accidentally marks them trainable.
+        val provenance7456 = "$stage|$source|$reason".uppercase()
+        val forensicOnly7456 = listOf(
+            "RESTORED",
+            "REPLAY",
+            "REBUILT_FROM_RECEIPT",
+            "CARRY_USD_BASIS",
+            "UNOBSERVED_FILL",
+            "SYNTHETIC_CLOSE",
+            "ORPHAN",
+            "PHANTOM",
+            "ADMINISTRATIVE",
+            "UNRESOLVED_BASIS",
+        ).firstOrNull { provenance7456.contains(it) }
+        if (forensicOnly7456 != null) {
+            try {
+                PipelineHealthCollector.labelInc("MATHEDGE_TERMINAL_FORENSIC_ONLY_7456")
+                PipelineHealthCollector.labelInc("MATHEDGE_TERMINAL_FORENSIC_ONLY_7456_$forensicOnly7456")
+            } catch (_: Throwable) {}
+            return false
+        }
         if (mint.isNotBlank()) {
             val invariantBroken = try { com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(mint) } catch (_: Throwable) { false }
             val historicalQuarantined = try { com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint) } catch (_: Throwable) { false }

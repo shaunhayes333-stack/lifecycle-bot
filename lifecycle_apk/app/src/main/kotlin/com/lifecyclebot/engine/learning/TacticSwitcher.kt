@@ -276,8 +276,14 @@ object TacticSwitcher {
         val entered = entryTactic.trim().uppercase()
         val elected = Tactic.values().firstOrNull { it.name == entered }
         if (elected == null) {
-            try { PipelineHealthCollector.labelInc("TACTIC_ENTRY_ATTRIBUTION_INVALID_6568") } catch (_: Throwable) {}
-            onTradeClosed(lane, scoreBand, pnlPct)
+            // V5.0.7456 — an invalid/legacy entry tactic cannot be credited
+            // to whichever tactic is active at close time. That rewrites the
+            // causal entry identity and can rotate a tactic that never opened
+            // the position. Preserve forensic visibility only.
+            try {
+                PipelineHealthCollector.labelInc("TACTIC_ENTRY_ATTRIBUTION_INVALID_6568")
+                PipelineHealthCollector.labelInc("TACTIC_INVALID_ENTRY_FORENSIC_ONLY_7456")
+            } catch (_: Throwable) {}
             return
         }
         val histKey = "${key(lane, scoreBand)}|${elected.name}"
