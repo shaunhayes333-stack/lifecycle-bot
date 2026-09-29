@@ -502,3 +502,13 @@ The exact-strategy table showed `complete=1/507`; the 506 incomplete rows are pr
 - fast-lane saturation reduced to 12/195 (~6%);
 - current finalized consumer delivery has zero refusals;
 - current exact strategy binding is position-based rather than mint-current.
+
+
+## V5.0.7455 — held-management causal loop
+
+- [x] `HoldingLogicLayer.evaluatePosition` now consumes `getHoldParams` as the single mode-parameter read surface.
+- [x] `LiveStrategyTuner.tpMultiplier`, `holdMultiplier`, and `partialTriggerMultiplier` are consumed through one cached adjustment in canonical held-position management.
+- [x] The learned hold multiplier reaches both the legacy max-hold clock and the earlier FluidLearning max-hold clock, so the fluid branch can no longer make learned hold policy inert.
+- [x] Learned TP/hold/partial shaping is advisory only; hard stop loss and AEM critical safety remain unconditional.
+- [x] `SmartExitOptimizer.getExitPressure` classified **ALIAS_REDUNDANT_FOR_MEME_HOLD**: it simply invokes `SymbolicExitReasoner.assess`, while the canonical meme hold/exit stack already evaluates symbolic/AEM evidence. Do not add a second hot-path symbolic pass just to clear the unwired ledger.
+- [x] Runtime proof counters: `HOLD_PARAMS_CANONICAL_READ_7455`, `HOLD_EXIT_TUNER_CONSUMED_7455` (+ mode suffix).

@@ -165,7 +165,11 @@ object HoldingLogicLayer {
         try {
             try {
             val mode = position.tradingMode
-            val params = MODE_PARAMS[mode] ?: MODE_PARAMS["STANDARD"]!!
+            // V5.0.7455 — one canonical mode-parameter read. The public accessor
+            // was previously dead while this hot path reached around it into the
+            // backing map, leaving two apparent authorities for the same policy.
+            val params = getHoldParams(mode)
+            try { PipelineHealthCollector.labelInc("HOLD_PARAMS_CANONICAL_READ_7455") } catch (_: Throwable) {}
             
             val holdTimeMs = System.currentTimeMillis() - position.entryTime
             val holdTimeMinutes = holdTimeMs / (60 * 1000)
@@ -183,9 +187,30 @@ object HoldingLogicLayer {
             )
             val baseMaxHoldMs6684 = labExit6684?.maxHoldMins?.coerceIn(15, 480)?.toLong()?.times(60_000L)
                 ?: params.maxHoldTimeMs
-            val targetProfit6091 = baseTarget6684 * ssiExitPatience6091
+
+            // V5.0.7455 — close the terminal-learning → held-management loop.
+            // LiveStrategyTuner already reads clean same-mode terminal truth
+            // (PAPER book while rehearsing, LIVE book with real money). Its TP,
+            // hold and partial multipliers were computed and displayed but never
+            // reached HoldingLogicLayer, so a lane could learn that winners need
+            // more room yet continue managing every position with static values.
+            //
+            // This remains SOFT management only. Hard stop loss and AEM critical
+            // exits below are not multiplied, bypassed or delayed by this tuner.
+            val exitTune7455 = try { LiveStrategyTuner.adjustment(mode) } catch (_: Throwable) { null }
+            val tpMult7455 = (exitTune7455?.tpMult ?: 1.0).coerceIn(0.75, 1.75)
+            val holdMult7455 = (exitTune7455?.holdMult ?: 1.0).coerceIn(0.70, 3.20)
+            val partialMult7455 = (exitTune7455?.partialTriggerMult ?: 1.0).coerceIn(0.70, 3.80)
+            if (exitTune7455 != null && !exitTune7455.isNeutral) {
+                try {
+                    PipelineHealthCollector.labelInc("HOLD_EXIT_TUNER_CONSUMED_7455")
+                    PipelineHealthCollector.labelInc("HOLD_EXIT_TUNER_CONSUMED_7455_${mode.uppercase().take(24)}")
+                } catch (_: Throwable) {}
+            }
+
+            val targetProfit6091 = baseTarget6684 * ssiExitPatience6091 * tpMult7455
             val trailingStopPct6091 = params.trailingStopPct * ssiExitPatience6091
-            val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091).toLong()
+            val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091 * holdMult7455).toLong()
                 .coerceAtLeast(baseMaxHoldMs6684 / 2L)
             
             // ─────────────────────────────────────────────────────────────────
@@ -200,6 +225,11 @@ object HoldingLogicLayer {
                 com.lifecyclebot.engine.SymbolicContext.getHoldPatience()
             } catch (_: Exception) { 1.0 }
             val fluidMaxHold = (rawFluidMaxHold * patience).coerceIn(rawFluidMaxHold * 0.5, rawFluidMaxHold * 1.5)
+            // Apply the same learned hold policy to the fluid clock. Without
+            // this, the earlier fluid max-hold branch always fired first and
+            // made LiveStrategyTuner.holdMult causally inert.
+            val tunedFluidMaxHold7455 = (fluidMaxHold * holdMult7455)
+                .coerceAtLeast(fluidMinHold + 1.0)
             val holdTimeUrgency = FluidLearningAI.getHoldTimeUrgency(layer, holdTimeMinutes.toDouble())
             
             // ─────────────────────────────────────────────────────────────────
@@ -361,10 +391,10 @@ object HoldingLogicLayer {
             }
 
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
-            if (holdTimeMinutes > fluidMaxHold) {
+            if (holdTimeMinutes > tunedFluidMaxHold7455) {
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
-                    reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${fluidMaxHold.toInt()}min [$layer]",
+                    reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer] tune×${"%.2f".format(holdMult7455)}",
                     confidence = 75.0 + (holdTimeUrgency * 20.0),
                     urgency = Urgency.HIGH,
                 )
@@ -454,11 +484,11 @@ object HoldingLogicLayer {
             
             if (!isTooEarly) {
                 for (rawScaleOutLevel in params.scaleOutAt) {
-                    val scaleOutLevel = rawScaleOutLevel * ssiExitPatience6091
+                    val scaleOutLevel = rawScaleOutLevel * ssiExitPatience6091 * partialMult7455
                     if (currentPnlPct >= scaleOutLevel && position.partialSoldPct < rawScaleOutLevel) {
                         return HoldEvaluation(
                             action = HoldAction.SCALE_OUT,
-                            reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}% ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
+                            reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}% ssiPatience=${"%.2f".format(ssiExitPatience6091)} partialTune×${"%.2f".format(partialMult7455)}",
                             confidence = 40.0,
                             urgency = Urgency.NORMAL,
                         )
@@ -472,7 +502,7 @@ object HoldingLogicLayer {
             
             val diamondHands6091 = position.tradingMode.equals("DIAMOND_HANDS", true) || position.isLongHold
             val canAddMore = isPaperMode || !position.isFullyBuilt || diamondHands6091
-            if (canAddMore && currentPnlPct > 3.0 && currentPnlPct < params.targetProfitPct * 0.45) {
+            if (canAddMore && currentPnlPct > 3.0 && currentPnlPct < targetProfit6091 * 0.45) {
                 // V5.0.6091 — AGI/SSI add-to-winner authority: token is profitable and
                 // conviction/momentum is building, including whale/holder-growth runners.
                 val whaleBid6091 = ts.meta.whaleSummary.isNotBlank() || ts.meta.velocityScore >= 70.0
