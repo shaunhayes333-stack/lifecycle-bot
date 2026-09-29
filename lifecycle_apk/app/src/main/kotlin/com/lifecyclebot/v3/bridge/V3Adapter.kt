@@ -368,6 +368,10 @@ object V3Adapter {
             extras["launchPostPumpFade7401"] = launch.tooLateForSnipe
             extras["launchBuyShare7401"] = launch.buySharePct
             extras["launchBuyerBreadth7401"] = launch.distinctBuyers60s
+            extras["launchLargestBuyerSharePct7450"] = launch.largestBuyerSharePct60s
+            extras["launchTop3BuyerSharePct7450"] = launch.top3BuyerSharePct60s
+            extras["launchRepeatBuyerWallets7450"] = launch.repeatBuyerWallets60s
+            extras["launchSmartMoneyBuyers7450"] = launch.smartMoneyBuyers60s
             extras["launchDevBuy7401"] = launch.devBuyTx60s > 0
             extras["launchDevSell7401"] = launch.devSellTx60s > 0
             extras["launchAcceleration7401"] = launch.accelerationRising

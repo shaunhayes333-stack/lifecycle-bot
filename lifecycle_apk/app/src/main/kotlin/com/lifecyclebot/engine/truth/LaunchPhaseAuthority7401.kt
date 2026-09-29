@@ -52,6 +52,10 @@ object LaunchPhaseAuthority7401 {
         val devBuyTx60s: Int,
         val devSellTx60s: Int,
         val accelerationRising: Boolean,
+        val largestBuyerSharePct60s: Double = 0.0,
+        val top3BuyerSharePct60s: Double = 0.0,
+        val repeatBuyerWallets60s: Int = 0,
+        val smartMoneyBuyers60s: Int = 0,
         val currentVsRecentPeak: Double,
         val reason: String,
         val birthResolved: Boolean = true,
@@ -96,6 +100,9 @@ object LaunchPhaseAuthority7401 {
         val dev = try { OperatorRegistry.getDevWallet(ts.mint) } catch (_: Throwable) { null }
         val flow = try { WhaleDetector.launchFlow7401(ts.mint, dev, nowMs) }
             catch (_: Throwable) { WhaleDetector.LaunchFlow(0,0,0.0,0.0,0,0,0,0,0,false,50.0) }
+        val smartMoney7450 = try {
+            SmartMoneyFeed6394.smartMoneyBuysLast60s(ts.mint, nowMs)
+        } catch (_: Throwable) { 0 }
 
         val prices = try { ts.history.toList().map { it.priceUsd }.filter { it.isFinite() && it > 0.0 } }
             catch (_: Throwable) { emptyList() }
@@ -123,6 +130,15 @@ object LaunchPhaseAuthority7401 {
         // Dev participation is additive evidence, not a prerequisite. The
         // create socket can be ahead of wallet-enriched trade callbacks; lack
         // of a dev trade sample must not make us wait until the pump is obvious.
+        val broadOrganic7450 =
+            flow.distinctBuyers60s >= 3 &&
+            flow.largestBuyerSharePct60s <= 65.0
+        val coordinatedIgnition7450 =
+            flow.largestBuyerSharePct60s >= 40.0 ||
+            flow.repeatBuyerWallets60s >= 2 ||
+            flow.devBuyTx60s > 0 ||
+            smartMoney7450 >= 2
+
         val ignitionEvidence =
             age <= 90_000L &&
             !devDump &&
@@ -131,7 +147,7 @@ object LaunchPhaseAuthority7401 {
             flow.buySharePct >= 60.0 &&
             flow.accelerationRising &&
             (multiple == null || multiple < 1.8) &&
-            (creatorKnown || flow.distinctBuyers60s >= 4)
+            (creatorKnown || broadOrganic7450 || coordinatedIgnition7450)
 
         val earlyInterest =
             age <= 120_000L &&
@@ -164,6 +180,10 @@ object LaunchPhaseAuthority7401 {
             append(" buyers=").append(flow.distinctBuyers60s)
             append(" devB/S=").append(flow.devBuyTx60s).append('/').append(flow.devSellTx60s)
             append(" accel=").append(flow.accelerationRising)
+            append(" largestBuyer=").append("%.0f".format(flow.largestBuyerSharePct60s))
+            append(" top3=").append("%.0f".format(flow.top3BuyerSharePct60s))
+            append(" repeatWallets=").append(flow.repeatBuyerWallets60s)
+            append(" smartMoney=").append(smartMoney7450)
             append(" peakPos=").append("%.2f".format(peakPos))
             append(" chg5m=").append("%.1f".format(acute5m7425))
             append(" chg1h=").append("%.1f".format(ts.lastPriceChange1h))
@@ -172,7 +192,10 @@ object LaunchPhaseAuthority7401 {
         val out7408 = Snapshot(
             phase, age, multiple, flow.buySharePct, flow.buyTx60s, flow.sellTx60s,
             flow.distinctBuyers60s, flow.devBuyTx60s, flow.devSellTx60s,
-            flow.accelerationRising, peakPos, reason,
+            flow.accelerationRising,
+            flow.largestBuyerSharePct60s, flow.top3BuyerSharePct60s,
+            flow.repeatBuyerWallets60s, smartMoney7450,
+            peakPos, reason,
             birthResolved = birth7440 != null,
             birthSource = birth7440?.source?.name ?: "",
         )

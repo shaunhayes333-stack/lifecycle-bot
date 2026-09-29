@@ -298,32 +298,120 @@ object ToolkitSignalSheet {
             reasons = listOf("nearHigh=$nearHigh", "move12=${move12.toInt()}%", "higherLows=$higherLows", "conf=${conf.toInt()}")
         ))
 
-        // Degen micro-snipe: very fresh, pump/new-pool source, low/medium liquidity, high buy pressure/score.
+        // V5.0.7450 — PRE-PARABOLA LAUNCH TAPE.
+        // Organic ignition and coordinated/dev-led ignition are different
+        // market theses and now generate different specialist hypotheses.
         val pumpLike = src.contains("PUMP") || src.contains("NEW_POOL") || src.contains("RAYDIUM_NEW")
+        val launchEarly7450 = launch7402 != null &&
+            launch7402.birthResolved &&
+            !launch7402.tooLateForSnipe &&
+            launch7402.phase in setOf(
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION,
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
+            )
+        val organicIgnition7450 = launchEarly7450 &&
+            launch7402!!.distinctBuyers60s >= 3 &&
+            launch7402.largestBuyerSharePct60s <= 65.0 &&
+            launch7402.devSellTx60s == 0 &&
+            launch7402.buySharePct >= 55.0
+        val coordinatedIgnition7450 = launchEarly7450 &&
+            launch7402!!.devSellTx60s == 0 &&
+            (
+                launch7402.largestBuyerSharePct60s >= 40.0 ||
+                launch7402.repeatBuyerWallets60s >= 2 ||
+                launch7402.devBuyTx60s > 0 ||
+                launch7402.smartMoneyBuyers60s >= 2
+            )
+
         add(Candidate(
-            setup = if (src.contains("GRADUATE") || tt == ModeRouter.TradeType.GRADUATION) Setup.PUMP_GRADUATION_SNIPE else Setup.DEGEN_MICRO_SNIPE,
+            setup = if (src.contains("GRADUATE") || tt == ModeRouter.TradeType.GRADUATION)
+                Setup.PUMP_GRADUATION_SNIPE else Setup.DEGEN_MICRO_SNIPE,
+            score = when {
+                !organicIgnition7450 -> 0.0
+                launch7402!!.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION ->
+                    54.0 +
+                        launch7402.distinctBuyers60s.coerceAtMost(8) * 3.0 +
+                        launch7402.smartMoneyBuyers60s.coerceAtMost(3) * 5.0 +
+                        (if (launch7402.accelerationRising) 8.0 else 0.0) +
+                        (if (liq in 1_000.0..25_000.0) 8.0 else 0.0)
+                else ->
+                    42.0 +
+                        launch7402!!.distinctBuyers60s.coerceAtMost(8) * 2.5 +
+                        launch7402.smartMoneyBuyers60s.coerceAtMost(3) * 4.0 +
+                        (if (launch7402.accelerationRising) 6.0 else 0.0)
+            },
+            chart = "launch_tape_organic_ignition",
+            entry = "pre_parabola_broad_flow",
+            exit = "quick_flip_then_runner_tail",
+            hold = 0.55,
+            size = 0.62,
+            tp = 0.90,
+            lanes = setOf("PROJECT_SNIPER", "MOONSHOT", "SHITCOIN"),
+            tools = setOf("LAUNCH_TAPE", "BUYER_BREADTH", "SMART_MONEY", "PUMP_FUN", "SNIPE_AGE_GATE"),
+            reasons = listOf(
+                "phase=${launch7402?.phase}",
+                "buyers=${launch7402?.distinctBuyers60s}",
+                "largestBuyer=${launch7402?.largestBuyerSharePct60s?.toInt()}%",
+                "smart=${launch7402?.smartMoneyBuyers60s}",
+                "accel=${launch7402?.accelerationRising}",
+            )
+        ))
+
+        add(Candidate(
+            setup = Setup.EXHAUSTION_QUICK_FLIP,
+            score = when {
+                !coordinatedIgnition7450 -> 0.0
+                launch7402!!.largestBuyerSharePct60s >= 75.0 && launch7402.smartMoneyBuyers60s == 0 ->
+                    42.0
+                else ->
+                    50.0 +
+                        launch7402.repeatBuyerWallets60s.coerceAtMost(4) * 5.0 +
+                        launch7402.smartMoneyBuyers60s.coerceAtMost(3) * 6.0 +
+                        (if (launch7402.devBuyTx60s > 0) 7.0 else 0.0) +
+                        (if (launch7402.accelerationRising) 8.0 else 0.0)
+            },
+            chart = "launch_tape_coordinated_ignition",
+            entry = "coordination_before_visible_expansion",
+            exit = "tight_manipulation_trail",
+            hold = 0.42,
+            size = 0.48,
+            tp = 0.78,
+            lanes = setOf("MANIPULATED", "PROJECT_SNIPER"),
+            tools = setOf("LAUNCH_TAPE", "WALLET_CONCENTRATION", "DEV_FLOW", "SMART_MONEY", "MEV_AWARE"),
+            reasons = listOf(
+                "largestBuyer=${launch7402?.largestBuyerSharePct60s?.toInt()}%",
+                "top3=${launch7402?.top3BuyerSharePct60s?.toInt()}%",
+                "repeatWallets=${launch7402?.repeatBuyerWallets60s}",
+                "devB/S=${launch7402?.devBuyTx60s}/${launch7402?.devSellTx60s}",
+                "smart=${launch7402?.smartMoneyBuyers60s}",
+            )
+        ))
+
+        // Source/age alone can keep the candidate visible while the event tape
+        // warms, but can no longer outrank real launch-flow hypotheses.
+        add(Candidate(
+            setup = if (src.contains("GRADUATE") || tt == ModeRouter.TradeType.GRADUATION)
+                Setup.PUMP_GRADUATION_SNIPE else Setup.DEGEN_MICRO_SNIPE,
             score = when {
                 launch7402?.tooLateForSnipe == true -> 0.0
-                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION ->
-                    52.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.6 +
-                        v3.coerceAtLeast(0.0) * 0.12 + if (liq in 1_000.0..25_000.0) 10.0 else 0.0
-                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION ->
-                    44.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.5 +
-                        v3.coerceAtLeast(0.0) * 0.10 + if (liq in 1_000.0..25_000.0) 10.0 else 0.0
-                pumpLike && ageMin <= 3.0 ->
-                    24.0 + (bp - 50.0).coerceAtLeast(0.0) * 0.5 +
-                        v3.coerceAtLeast(0.0) * 0.10 + if (liq in 1_000.0..25_000.0) 8.0 else 0.0
+                launchEarly7450 && (organicIgnition7450 || coordinatedIgnition7450) -> 0.0
+                pumpLike && ageMin.isFinite() && ageMin <= 3.0 ->
+                    18.0 + (if (liq in 1_000.0..25_000.0) 6.0 else 0.0)
                 else -> 0.0
             },
-            chart = "fresh_pool_momentum",
-            entry = "degen_snipe_fast_confirm",
-            exit = "quick_flip_then_runner_tail",
-            hold = 0.45,
-            size = 0.55,
-            tp = 0.82,
-            lanes = setOf("PROJECT_SNIPER", "SHITCOIN", "EXPRESS"),
-            tools = setOf("DEGEN_ENTRY", "MICRO_SNIPE", "PUMP_FUN", "SNIPE_AGE_GATE"),
-            reasons = listOf("src=$src", "age=${ageMin.toInt()}m", "bp=${bp.toInt()}", "liq=${liq.toInt()}")
+            chart = "fresh_source_waiting_for_tape",
+            entry = "low_conviction_metadata_only",
+            exit = "default_until_flow_arrives",
+            hold = 0.35,
+            size = 0.35,
+            tp = 0.75,
+            lanes = setOf("PROJECT_SNIPER", "SHITCOIN"),
+            tools = setOf("PUMP_FUN", "SNIPE_AGE_GATE"),
+            reasons = listOf(
+                "src=$src",
+                "age=${if (ageMin.isFinite()) ageMin.toInt() else -1}m",
+                "tape=not_yet_causal"
+            )
         ))
 
         // Chart breakout: prior impulse + higher lows + volume ignition.

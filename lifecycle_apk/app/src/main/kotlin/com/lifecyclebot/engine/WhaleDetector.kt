@@ -64,6 +64,11 @@ object WhaleDetector {
         val buyTxPrev15s: Int,
         val accelerationRising: Boolean,
         val buySharePct: Double,
+        // V5.0.7450 — first-minute wallet-flow structure. These are
+        // coordination metrics, not same-slot/Jito bundle claims.
+        val largestBuyerSharePct60s: Double = 0.0,
+        val top3BuyerSharePct60s: Double = 0.0,
+        val repeatBuyerWallets60s: Int = 0,
     )
     private val launchTrades7401 = java.util.concurrent.ConcurrentHashMap<String, java.util.ArrayDeque<LaunchTrade>>()
 
@@ -193,6 +198,21 @@ object WhaleDetector {
         val sellSol = sells.sumOf { it.sol }
         val totalSol = buySol + sellSol
         val dev = devWallet?.takeIf { it.isNotBlank() }
+        val walletBuySol7450 = buys.asSequence()
+            .filter { it.wallet.isNotBlank() }
+            .groupBy { it.wallet }
+            .mapValues { (_, rows) -> rows.sumOf { it.sol } }
+        val rankedWalletSol7450 = walletBuySol7450.values.sortedDescending()
+        val largestBuyerShare7450 = if (buySol > 0.0)
+            ((rankedWalletSol7450.firstOrNull() ?: 0.0) / buySol * 100.0).coerceIn(0.0, 100.0)
+        else 0.0
+        val top3BuyerShare7450 = if (buySol > 0.0)
+            (rankedWalletSol7450.take(3).sum() / buySol * 100.0).coerceIn(0.0, 100.0)
+        else 0.0
+        val repeatBuyerWallets7450 = buys.asSequence()
+            .filter { it.wallet.isNotBlank() }
+            .groupingBy { it.wallet }.eachCount().values.count { it >= 2 }
+
         return LaunchFlow(
             buyTx60s = buys.size,
             sellTx60s = sells.size,
@@ -205,6 +225,9 @@ object WhaleDetector {
             buyTxPrev15s = prev15.count { it.isBuy },
             accelerationRising = r15.count { it.isBuy } >= 3 && r15.count { it.isBuy } > prev15.count { it.isBuy },
             buySharePct = if (totalSol > 0.0) buySol / totalSol * 100.0 else 50.0,
+            largestBuyerSharePct60s = largestBuyerShare7450,
+            top3BuyerSharePct60s = top3BuyerShare7450,
+            repeatBuyerWallets60s = repeatBuyerWallets7450,
         )
     }
 
