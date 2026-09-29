@@ -930,58 +930,28 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             }
         }
 
-        // ── 9. Bundle detection
-        var bundleRisk = "UNKNOWN"
-        var bundleType = "NONE"
-        var bundleRecommendation = "UNKNOWN"
-        var bundleReason = ""
-        var firstBlockSupplyPct = -1.0
-        var firstBlockBuyers = -1
-
-        if (topHolderPct > 0) {
-            val quickRisk = BundleDetector.quickRiskCheck(
-                firstBlockBuyers = 5,
-                firstBlockSupplyPct = topHolderPct,
-                topHolderPct = topHolderPct,
-            )
-
-            bundleRisk = quickRisk.name
-            bundleType = when {
-                topHolderPct > 60 -> "DEV_BUNDLE"
-                topHolderPct > 40 -> "MIXED"
-                else -> "NONE"
-            }
-
-            when (quickRisk) {
-                BundleDetector.BundleRisk.HIGH -> {
-                    if (isPaperMode) {
-                        soft.add("Bundle risk HIGH: ${topHolderPct.toInt()}% concentrated" to 35)
-                        penalty += 35
-                    } else {
-                        soft.add("Bundle risk HIGH: ${topHolderPct.toInt()}% concentrated - monitor closely" to 40)
-                        penalty += 40
-                    }
-                    bundleRecommendation = "CAUTION"
-                    bundleReason = "High concentration (${topHolderPct.toInt()}%) - could be rug or pump"
-                }
-                BundleDetector.BundleRisk.MEDIUM -> {
-                    soft.add("Bundle risk MEDIUM: ${topHolderPct.toInt()}% concentrated" to 15)
-                    penalty += 15
-                    bundleRecommendation = "CAUTION"
-                    bundleReason = "Moderate concentration - watch for sells"
-                }
-                BundleDetector.BundleRisk.LOW -> {
-                    bundleRecommendation = "SAFE"
-                    bundleReason = "No dangerous bundle patterns"
-                }
-                else -> {
-                    bundleRecommendation = "UNKNOWN"
-                    bundleReason = "Could not analyze bundles"
-                }
-            }
-
-            firstBlockSupplyPct = topHolderPct
-        }
+        // ── 9. Bundle evidence
+        // V5.0.7431 — holder concentration is NOT first-block bundle evidence.
+        //
+        // The old code passed topHolderPct into BundleDetector.quickRiskCheck as
+        // firstBlockSupplyPct, hardcoded firstBlockBuyers=5, then wrote the same
+        // topHolderPct back to SafetyReport.firstBlockSupplyPct. That made one
+        // holder metric masquerade as DEV_BUNDLE/MIXED evidence and be consumed
+        // again by V3, style routing and canonical learning.
+        //
+        // Until a real first-block BundleDetector analysis is supplied by a
+        // background producer, bundle fields stay UNKNOWN. Holder concentration
+        // remains represented once through topHolderPct and its existing safety
+        // penalties.
+        val bundleRisk = "UNKNOWN"
+        val bundleType = "NONE"
+        val bundleRecommendation = "UNKNOWN"
+        val bundleReason = "No canonical first-block bundle observation available"
+        val firstBlockSupplyPct = -1.0
+        val firstBlockBuyers = -1
+        try {
+            PipelineHealthCollector.labelInc("BUNDLE_EVIDENCE_UNOBSERVED_7431")
+        } catch (_: Throwable) {}
 
         val tier = when {
             hard.isNotEmpty() -> SafetyTier.HARD_BLOCK
