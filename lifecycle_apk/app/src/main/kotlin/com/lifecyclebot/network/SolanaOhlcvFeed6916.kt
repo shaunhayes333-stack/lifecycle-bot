@@ -10,6 +10,7 @@ import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * V5.0.6916 §THE_PATTERN_STACK_WAS_STARVED_BY_ONE_DEAD_KEY.
@@ -469,9 +470,18 @@ object SolanaOhlcvFeed6916 {
 
     /** V5.0.7295 — last HTTP status from DexPaprika (0 = none / gated). */
     @Volatile private var paprikaLastCode7295 = 0
+    // V5.0.7446 — 401/402/403 are not transient OHLCV failures. 7438 showed
+    // DexPaprika at 0% while the app kept paying calls. Latch for this process;
+    // app restart/provider credential change naturally gives it another probe.
+    private val paprikaTerminalDisabled7446 = AtomicBoolean(false)
+    @Volatile private var paprikaTerminalCode7446 = 0
 
     private fun paprikaGet7293(url: String): String? {
         paprikaLastCode7295 = 0
+        if (paprikaTerminalDisabled7446.get()) {
+            try { PipelineHealthCollector.labelInc("DEXPAPRIKA_TERMINAL_SKIP_7446") } catch (_: Throwable) {}
+            return null
+        }
         val now = System.currentTimeMillis()
         if (now < paprikaCooldownUntilMs7293.get()) return null
         val prev = paprikaLastCallMs7293.get()
@@ -485,7 +495,20 @@ object SolanaOhlcvFeed6916 {
                 // no way to tell a wrong path (400) from an unindexed pool (404)
                 // from a rate limit (429). Every non-2xx is named by code.
                 if (!resp.isSuccessful) try { PipelineHealthCollector.labelInc("DEXPAPRIKA_HTTP_${resp.code}_7295") } catch (_: Throwable) {}
-                if (resp.code == 429 || resp.code >= 500) paprikaCooldownUntilMs7293.set(System.currentTimeMillis() + COOLDOWN_MS)
+                if (resp.code in setOf(401, 402, 403)) {
+                    paprikaTerminalCode7446 = resp.code
+                    if (paprikaTerminalDisabled7446.compareAndSet(false, true)) {
+                        try {
+                            PipelineHealthCollector.labelInc("DEXPAPRIKA_TERMINAL_DISABLE_7446_${resp.code}")
+                            ForensicLogger.lifecycle(
+                                "DEXPAPRIKA_TERMINAL_DISABLE_7446",
+                                "http=${resp.code} action=session_disable reason=auth_or_paid_endpoint",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                } else if (resp.code == 429 || resp.code >= 500) {
+                    paprikaCooldownUntilMs7293.set(System.currentTimeMillis() + COOLDOWN_MS)
+                }
                 if (!resp.isSuccessful) null else resp.body?.string()
             }
         } catch (e: Throwable) {
@@ -583,7 +606,8 @@ object SolanaOhlcvFeed6916 {
             "negativeHits6944=${negativeHits.get()} negCached6944=${negativeCache.size} " +
             "localSkips6982=${localSkips6982.get()} " +
             "minIntervalMs=$MIN_INTERVAL_MS " +
-            "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size}"
+            "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size} " +
+            "terminalDisabled=${paprikaTerminalDisabled7446.get()} terminalCode=$paprikaTerminalCode7446"
 
     internal fun resetForTest() {
         cache.clear(); poolCache.clear()
@@ -591,5 +615,7 @@ object SolanaOhlcvFeed6916 {
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
         negativeCache.clear(); lastCallAtMs.set(0L); cooldownUntilMs.set(0L)
         consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L); localSkips6982.set(0L)
+        paprikaTerminalDisabled7446.set(false); paprikaTerminalCode7446 = 0
+        paprikaLastCode7295 = 0; paprikaCooldownUntilMs7293.set(0L); paprikaLastCallMs7293.set(0L)
     }
 }

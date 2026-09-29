@@ -4298,6 +4298,24 @@ class SolanaMarketScanner(
     }
 
     private suspend fun emitWithRugcheck(token: ScannedToken) {
+        // V5.0.7446 — dedupe BEFORE the 2s RugCheck/enrichment boundary.
+        // The old queue merge happened after this cost had already been paid.
+        // Same mint + same source family within one 5s discovery epoch is one
+        // observation. Independent source families still pass and corroborate.
+        val enrich7446 = try {
+            com.lifecyclebot.engine.truth.ScannerCanonicalDedupe6411.shouldEnrich(
+                mint = token.mint,
+                pool = token.dexId,
+                source = token.source.name,
+            )
+        } catch (_: Throwable) { true }
+        if (!enrich7446) {
+            try {
+                PipelineHealthCollector.labelInc("SCANNER_PRE_RUGCHECK_DEDUPE_7446")
+            } catch (_: Throwable) {}
+            return
+        }
+
         val passed = try {
             withContext(Dispatchers.IO) {
                 try {

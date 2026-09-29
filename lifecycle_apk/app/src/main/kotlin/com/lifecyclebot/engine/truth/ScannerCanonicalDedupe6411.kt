@@ -62,7 +62,10 @@ object ScannerCanonicalDedupe6411 {
 
     private fun canonicalKey(mint: String, pool: String, source: String): String {
         val bucket = System.currentTimeMillis() / EPOCH_BUCKET_MS
-        return "${mint.take(24)}|${pool.take(24)}|${sourceFamily(source)}|$bucket"
+        // V5.0.7446 — identity is full mint/pool, never a truncated prefix.
+        // Source-family normalization still collapses redundant callbacks while
+        // preserving independent Pump/Raydium/DEX/Helius corroboration.
+        return "${mint.trim()}|${pool.trim()}|${sourceFamily(source)}|$bucket"
     }
 
     /**
@@ -76,11 +79,19 @@ object ScannerCanonicalDedupe6411 {
         // Housekeeping: cap growth by evicting the oldest record when needed.
         if (records.size > CAP) {
             val threshold = now - TTL_MS
-            val it = records.entries.iterator()
-            while (it.hasNext()) {
-                val e = it.next()
-                if (e.value.firstSeenAtMs < threshold) it.remove()
-                if (records.size <= CAP - 64) break
+            val expired = records.entries.iterator()
+            while (expired.hasNext()) {
+                val e = expired.next()
+                if (e.value.lastSeenAtMs.get() < threshold) expired.remove()
+            }
+            // V5.0.7446 — TTL cleanup alone did not enforce the advertised
+            // bound during a firehose. Trim oldest records if still over cap.
+            if (records.size > CAP) {
+                records.entries
+                    .sortedBy { it.value.lastSeenAtMs.get() }
+                    .take((records.size - (CAP - 64)).coerceAtLeast(0))
+                    .forEach { records.remove(it.key, it.value) }
+                try { PipelineHealthCollector.labelInc("SCANNER_DEDUPE_CAP_TRIM_7446") } catch (_: Throwable) {}
             }
         }
         val key = canonicalKey(mint, pool, source)
