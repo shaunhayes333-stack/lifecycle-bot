@@ -238,7 +238,7 @@ class LifecycleStrategy(
 
         var exitScore = calcExitScore(
             ts, phase, mode, volScore, pressScore, momScore,
-            exhaust, txnDrop, tokenAgeMins, stochRsi, volDiv, athProx, emafan, tfScale)
+            exhaust, txnDrop, tokenAgeMins ?: Double.POSITIVE_INFINITY, stochRsi, volDiv, athProx, emafan, tfScale)
 
         // MTF exit suppression — 5m bull fan suppresses 1m wobble exits (MOONDO fix)
         if (ts.position.isOpen && mtf5m == MtfTrend.BULL) {
@@ -886,7 +886,7 @@ class LifecycleStrategy(
 
         var signal = decideSignal(
             ts, hist, prices, phase, mode,
-            entryScore, exitScore, exhaust, pm, tokenAgeMins, emafan, volDiv, whale, curve,
+            entryScore, exitScore, exhaust, pm, tokenAgeMins ?: Double.POSITIVE_INFINITY, emafan, volDiv, whale, curve,
             modeConf, volScore, pressScore)
         
         // ═══════════════════════════════════════════════════════════════════
