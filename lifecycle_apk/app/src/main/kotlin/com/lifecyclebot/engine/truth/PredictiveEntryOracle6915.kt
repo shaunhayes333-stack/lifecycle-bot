@@ -607,6 +607,23 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
 
+        // V5.0.7430 — TradingCopilot is fed by settled trade outcomes but
+        // none of its decision helpers had a production consumer. Read its
+        // current coaching state as bounded market-level evidence. This cannot
+        // veto a candidate and remains inside the existing brain-network cap.
+        try {
+            val boost = com.lifecyclebot.engine.TradingCopilot.convictionBoost()
+            val sizeMood = com.lifecyclebot.engine.TradingCopilot.sizingMultiplier()
+            val d = (boost * 10.0 + (sizeMood - 1.0) * 4.0).coerceIn(-4.0, 6.0)
+            if (kotlin.math.abs(d) >= 0.25) {
+                out += BrainRead(
+                    "copilot(boost=" + "%.2f".format(boost) + ",size=" + "%.2f".format(sizeMood) + ")",
+                    d,
+                )
+                try { PipelineHealthCollector.labelInc("TRADING_COPILOT_PREDICTIVE_READ_7430") } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+
         // Has this lane's signal ever actually predicted anything?
         try {
             if (!com.lifecyclebot.engine.SignalQualityTracker.isPredictive(lane)) {
