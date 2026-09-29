@@ -1085,3 +1085,11 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] pendingEntryPositions6461 reuses the exact mutation-revision snapshot.
 - [x] Mode-specific quarantine identity semantics remain case-insensitive and unchanged.
 - [x] Mutation rules, quarantine decisions and stale-pending cancellation remain unchanged.
+
+
+## V5.0.7499 — exact durable-economic-event snapshot cache
+
+- [x] EconomicEventSchema6464.snapshot reuses an immutable event list keyed to eventVersion.
+- [x] Any appended/evicted event or replay-carry version change invalidates the cached version.
+- [x] An event mutation racing list construction prevents that list from being cached.
+- [x] Event retention CAP, durable keys, replay carry, arithmetic and persistence are unchanged.

@@ -520,7 +520,24 @@ object EconomicEventSchema6464 {
         }
     } catch (_: Throwable) { null }
 
-    fun snapshot(): List<Event> = events.toList()
+    private data class SnapshotCache7499(val version: Long, val rows: List<Event>)
+    private val snapshotCache7499 =
+        java.util.concurrent.atomic.AtomicReference<SnapshotCache7499?>(null)
+
+    fun snapshot(): List<Event> {
+        val version7499 = eventVersion.get()
+        snapshotCache7499.get()?.let { c ->
+            if (c.version == version7499) {
+                try { PipelineHealthCollector.labelInc("ECONOMIC_EVENT_SNAPSHOT_REUSED_7499") } catch (_: Throwable) {}
+                return c.rows
+            }
+        }
+        val rows7499 = events.toList()
+        if (eventVersion.get() == version7499) {
+            snapshotCache7499.set(SnapshotCache7499(version7499, rows7499))
+        }
+        return rows7499
+    }
     fun version(): Long = eventVersion.get()
 
     fun statusLine(): String =
@@ -532,6 +549,6 @@ object EconomicEventSchema6464 {
         eventKeys.clear()
         eventCount.set(0)
         recordedBuys.set(0L); recordedSells.set(0L); recordedPartials.set(0L)
-        arithDivergences.set(0L); eventVersion.set(0L); replayCarry6489 = ReplayCarry6489()
+        arithDivergences.set(0L); eventVersion.set(0L); replayCarry6489 = ReplayCarry6489(); snapshotCache7499.set(null)
     }
 }
