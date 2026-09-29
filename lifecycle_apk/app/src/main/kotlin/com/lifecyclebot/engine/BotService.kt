@@ -8446,7 +8446,7 @@ class BotService : Service() {
         // stops the runtime and arms the manual-stop latch; it simply preserves
         // the canonical paper book for the next Start.
         val paperModeAtStop7433 = try {
-            com.lifecyclebot.engine.truth.RuntimeModeAuthority.isPaper()
+            RuntimeModeAuthority.isPaper()
         } catch (_: Throwable) {
             try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
         }
