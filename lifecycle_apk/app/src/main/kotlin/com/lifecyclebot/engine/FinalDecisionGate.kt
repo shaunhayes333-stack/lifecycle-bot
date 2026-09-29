@@ -3286,84 +3286,53 @@ object FinalDecisionGate {
         }
 
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
-            if (config.paperMode) {
-                val edgePhaseStr = candidate.edgeQuality.uppercase()
-                val isDistribution = edgePhaseStr.contains("DIST") || edgePhaseStr.contains("SKIP")
+            // V5.0.7431 — canonical PAPER/LIVE edge parity. PAPER is the
+            // deployment-quality rehearsal book, not a separate probe path.
+            val minPressure7431 = currentAdjusted.edgeMinBuyPressure
+            val minLiquidity7431 = currentAdjusted.edgeMinLiquidity
+            val minScore7431 = currentAdjusted.edgeMinScore
+            val strongBuyers7431 = ts.meta.pressScore >= minPressure7431
+            val goodLiquidity7431 = ts.lastLiquidityUsd >= minLiquidity7431
+            val decentScore7431 = effectiveGateScore6025 >= minScore7431
 
-                if (isDistribution && !isBootstrapPhase) {
-                    blockReason = "EDGE_DISTRIBUTION_PAPER"
-                    blockLevel = BlockLevel.EDGE
-                    checks.add(GateCheck("edge", false, "PAPER: DISTRIBUTION detected (edge=${candidate.edgeQuality}) - not learning from dumps"))
-                    tags.add("edge_distribution_blocked")
-                } else if (isDistribution && isBootstrapPhase) {
-                    softPenaltyScore += 15
-                    sizeMultiplier *= 0.25
-                    isProbeCandidate = true
-                    checks.add(GateCheck("edge", true, "PAPER BOOTSTRAP PROBE: DISTRIBUTION (edge=${candidate.edgeQuality}) → -15pts, size×0.25"))
-                    tags.add("edge_distribution_probe")
+            val early7431 = try {
+                com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.evaluateForLiveBuy(
+                    mint = ts.mint, liveScore = effectiveGateScore6025,
+                    liquidityUsd = ts.lastLiquidityUsd, sameMintAlreadyOpen = false,
+                    reentryLockout = false,
+                )
+            } catch (_: Throwable) {
+                com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.Decision(false, 0.0, "BYPASS_EVAL_FAILED")
+            }
+            val smartMoneyEarly7431 = early7431.allow &&
+                early7431.reason.contains("EARLY_LAUNCH_MICRO_PROBE")
+
+            if (strongBuyers7431 || goodLiquidity7431 || decentScore7431 || smartMoneyEarly7431) {
+                val why7431 = when {
+                    smartMoneyEarly7431 -> "smart_money_early score=${effectiveGateScore6025.toInt()} size×${"%.2f".format(early7431.sizeMultiplier)}"
+                    strongBuyers7431 -> "buy%=${ts.meta.pressScore.toInt()}>=${minPressure7431.toInt()}"
+                    decentScore7431 -> "score=${effectiveGateScore6025.toInt()}>=${minScore7431.toInt()}"
+                    else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=${minLiquidity7431.toInt()}"
+                }
+                if (smartMoneyEarly7431) {
+                    sizeMultiplier *= early7431.sizeMultiplier
+                    checks.add(GateCheck("edge", true, "CANONICAL SMART-MONEY EARLY ENTRY: $why7431"))
+                    tags.add("smart_money_early_reduced_size_7431")
+                    try { PipelineHealthCollector.labelInc("SMART_MONEY_EARLY_ENTRY_REDUCED_SIZE_7431") } catch (_: Throwable) {}
                 } else {
-                    softPenaltyScore += 5
-                    checks.add(GateCheck("edge", true, "PAPER: edge veto soft-bypassed (edge=${candidate.edgeQuality}) → -5pts"))
-                    tags.add("edge_veto_softened_paper")
+                    checks.add(GateCheck("edge", true, "CANONICAL edge evidence override ($why7431)"))
+                    tags.add("canonical_edge_evidence_override_7431")
                 }
             } else {
-                val liveMinBuyPressure = currentAdjusted.edgeMinBuyPressure
-                val liveMinLiquidity = currentAdjusted.edgeMinLiquidity
-                val liveMinEntryScore = currentAdjusted.edgeMinScore
-
-                val hasStrongBuyers = ts.meta.pressScore >= liveMinBuyPressure
-                val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
-                val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore
-
-                // V5.0.6396 — EARLY LAUNCH BYPASS (rescaled). The 6394
-                // bypass targeted the obsolete 0..100 anchor band 40..54.
-                // On the canonical 0..30 scale the probe zone is
-                // [ABSOLUTE_MIN=12, BASELINE=15). When SmartMoneyFeed6394
-                // has seen ≥2 whale buys in 60s the trade enters as a
-                // 0.30× micro-probe. Hard safety remains upstream — this
-                // is score-only.
-                val earlyLaunchDecision = try {
-                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.evaluateForLiveBuy(
-                        mint = ts.mint,
-                        liveScore = effectiveGateScore6025,
-                        liquidityUsd = ts.lastLiquidityUsd,
-                        sameMintAlreadyOpen = false,
-                        reentryLockout = false,
-                    )
-                } catch (_: Throwable) {
-                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.Decision(false, 0.0, "BYPASS_EVAL_FAILED")
-                }
-                val earlyLaunchAllow = earlyLaunchDecision.allow &&
-                    earlyLaunchDecision.reason.contains("EARLY_LAUNCH_MICRO_PROBE")
-
-                if (hasStrongBuyers || hasGoodLiquidity || hasDecentScore || earlyLaunchAllow) {
-                    val reason = when {
-                        earlyLaunchAllow -> "early_launch score=${effectiveGateScore6025.toInt()} probe×${"%.2f".format(earlyLaunchDecision.sizeMultiplier)}"
-                        hasStrongBuyers -> "buy%=${ts.meta.pressScore.toInt()}>=${liveMinBuyPressure.toInt()}"
-                        hasDecentScore -> "score=${effectiveGateScore6025.toInt()}>=${liveMinEntryScore.toInt()} raw=${candidate.entryScore.toInt()} lane=${laneConsensusScore6025.toInt()}"
-                        else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=${liveMinLiquidity.toInt()}"
-                    }
-                    if (earlyLaunchAllow) {
-                        sizeMultiplier *= earlyLaunchDecision.sizeMultiplier
-                        checks.add(GateCheck("edge", true, "LIVE EARLY LAUNCH MICRO-PROBE: $reason [${currentAdjusted.learningPhase}]"))
-                        tags.add("early_launch_micro_probe_6394")
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394") } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=${effectiveGateScore6025.toInt()} mult=${earlyLaunchDecision.sizeMultiplier} reason=${earlyLaunchDecision.reason}") } catch (_: Throwable) {}
-                    } else {
-                        checks.add(GateCheck("edge", true, "LIVE: edge override ($reason) [${currentAdjusted.learningPhase}]"))
-                        tags.add("live_edge_override")
-                    }
-                } else {
-                    val missingReasons = mutableListOf<String>()
-                    if (!hasStrongBuyers) missingReasons.add("buy%=${ts.meta.pressScore.toInt()}<${liveMinBuyPressure.toInt()}")
-                    if (!hasGoodLiquidity) missingReasons.add("liq=$${ts.lastLiquidityUsd.toInt()}<${liveMinLiquidity.toInt()}")
-                    if (!hasDecentScore) missingReasons.add("score=${effectiveGateScore6025.toInt()}<${liveMinEntryScore.toInt()} raw=${candidate.entryScore.toInt()} lane=${laneConsensusScore6025.toInt()}")
-
-                    blockReason = "EDGE_VETO_${candidate.edgeQuality}"
-                    blockLevel = BlockLevel.EDGE
-                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} | no override: ${missingReasons.joinToString(", ")} [${currentAdjusted.learningPhase}]"))
-                    tags.add("edge_skip")
-                }
+                val missing7431 = mutableListOf<String>()
+                if (!strongBuyers7431) missing7431.add("buy_pressure")
+                if (!goodLiquidity7431) missing7431.add("liquidity")
+                if (!decentScore7431) missing7431.add("score")
+                blockReason = "EDGE_VETO_${candidate.edgeQuality}"
+                blockLevel = BlockLevel.EDGE
+                checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} | missing=${missing7431.joinToString(",")}"))
+                tags.add("edge_skip")
+                try { PipelineHealthCollector.labelInc("CANONICAL_EDGE_PARITY_BLOCK_7431") } catch (_: Throwable) {}
             }
         } else if (blockReason == null) {
             checks.add(GateCheck("edge", true, null))
