@@ -28736,9 +28736,18 @@ if (hotExitHandledSweep) {
 
                             // V5.0.7389 — lane-owned causal attemptId (mirrors PROJECT_SNIPER 6842)
                             // so INTENT/MARK/SIZE/TICKET join on one CausalKey for SHITCOIN.
-                            val shitCoinAttemptId7389 = try {
-                                ExecutableOpenGate.nextAttemptId(ts.mint, "SHITCOIN")
-                            } catch (_: Throwable) { "" }
+                            val shitCoinAttemptId7389 = sealedSpecialistAttempt7468(
+                                ts.mint, "SHITCOIN", cfg.paperMode,
+                            ).ifBlank {
+                                try { ExecutableOpenGate.nextAttemptId(ts.mint, "SHITCOIN") } catch (_: Throwable) { "" }
+                            }
+                            try {
+                                PipelineHealthCollector.labelInc(
+                                    if (shitCoinAttemptId7389.isNotBlank())
+                                        "SHITCOIN_AUTH_ATTEMPT_BOUND_7469"
+                                    else "SHITCOIN_AUTH_ATTEMPT_MISSING_7469"
+                                )
+                            } catch (_: Throwable) {}
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -29401,9 +29410,18 @@ if (hotExitHandledSweep) {
                                 ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             // V5.0.7389 — lane-owned causal attemptId (mirrors PROJECT_SNIPER 6842).
-                            val expressAttemptId7389 = try {
-                                ExecutableOpenGate.nextAttemptId(ts.mint, "EXPRESS")
-                            } catch (_: Throwable) { "" }
+                            val expressAttemptId7389 = sealedSpecialistAttempt7468(
+                                ts.mint, "EXPRESS", cfg.paperMode,
+                            ).ifBlank {
+                                try { ExecutableOpenGate.nextAttemptId(ts.mint, "EXPRESS") } catch (_: Throwable) { "" }
+                            }
+                            try {
+                                PipelineHealthCollector.labelInc(
+                                    if (expressAttemptId7389.isNotBlank())
+                                        "EXPRESS_AUTH_ATTEMPT_BOUND_7469"
+                                    else "EXPRESS_AUTH_ATTEMPT_MISSING_7469"
+                                )
+                            } catch (_: Throwable) {}
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,

@@ -769,3 +769,15 @@ Shared fault class confirmed in 5 dedicated meme specialists: TREASURY, QUALITY,
 - [x] Early direct CORE/V3 authorization is intentionally excluded: it authorizes before sealing FDG and is a different ordering defect.
 - [x] No lane thresholds, scores, position sizes, capital allocation, or LIVE safety rules changed.
 - [ ] Runtime acceptance: fresh validated BUY_INTENT/OWNER/FDG/MARK/SIZE/TICKET chains stop splitting across attempt IDs for these five lanes.
+
+
+## V5.0.7469 — grouped post-FDG fresh-attempt repair (EXPRESS + SHITCOIN)
+
+Fault class: both lanes called `ExecutableOpenGate.recordFdg()` and then immediately generated a brand-new `nextAttemptId()` before authorization. That defeats the sealed FDG causal identity even though an explicit attemptId parameter is present.
+
+- [x] EXPRESS now reuses the lane/version-matched sealed FDG attempt when available.
+- [x] SHITCOIN now reuses the lane/version-matched sealed FDG attempt when available.
+- [x] If no executable sealed intent exists, both lanes retain the prior fresh-attempt fallback. This preserves paper bootstrap/probe paths that intentionally continue after a non-executable FDG opinion.
+- [x] PROJECT_SNIPER is not changed: its standalone path does not seal FDG first, so generating its own attempt remains correct.
+- [x] No entry thresholds, FDG decisions, paper-probe policy, position sizes, or LIVE safety rules changed.
+- [ ] Runtime acceptance: EXPRESS ownerSelected/buyIntent become non-zero on real executable candidates and SHITCOIN phantom split-stage counts fall without changing execution volume policy.
