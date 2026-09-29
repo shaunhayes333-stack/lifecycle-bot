@@ -1102,3 +1102,11 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] Durable bus repair consumes the same cached per-position SELL groups.
 - [x] Racing event mutation falls back to a one-shot derived view and never caches against the wrong version.
 - [x] SELL selection, latest-event choice, repair proof requirements and event persistence are unchanged.
+
+
+## V5.0.7501 — exact precomputed forensic-reconcile reuse
+
+- [x] ForensicReconciliation unchanged-state key now applies to both self-replay and caller-precomputed replay paths.
+- [x] Same journal revision + canonical mutation revision + canonical cash cannot repeat the full quantity/set-diff pass.
+- [x] A real journal, canonical-position, or cash mutation still triggers the complete forensic reconciliation immediately.
+- [x] Replay arithmetic, tolerances, delta status and forensic failure rules are unchanged.

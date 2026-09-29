@@ -77,20 +77,23 @@ object ForensicReconciliation6635 {
     private val lastKey7387 = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
     fun reconcile6635(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult? = null) {
-        // V5.0.7387 — nothing moved since the last pass: same journal revision, same
-        // canonical mutation count, same cash. Re-running only re-scanned ~1,300
-        // positions and re-emitted identical FORENSIC_* counters (171 per session,
-        // many of them while the bot waited to start).
-        if (precomputedReplay6699 == null) {
-            val key7387 = try {
-                "${com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()}|" +
-                    "${CanonicalPositionAuthority6441.mutationCount7387()}|" +
-                    "${"%.9f".format(PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294())}"
-            } catch (_: Throwable) { null }
-            if (key7387 != null && key7387 == lastKey7387.getAndSet(key7387)) {
-                try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_SKIPPED_UNCHANGED_7387") } catch (_: Throwable) {}
-                return
-            }
+        // V5.0.7501 — the unchanged-state guard applies regardless of whether
+        // the caller supplied a precomputed journal replay. Precomputed replay
+        // avoids replay cost, but previously still repeated the full canonical
+        // quantity/set diff and identical forensic emission for the same state.
+        val key7387 = try {
+            "${com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()}|" +
+                "${CanonicalPositionAuthority6441.mutationCount7387()}|" +
+                "${"%.9f".format(PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294())}"
+        } catch (_: Throwable) { null }
+        if (key7387 != null && key7387 == lastKey7387.getAndSet(key7387)) {
+            try {
+                PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_SKIPPED_UNCHANGED_7387")
+                if (precomputedReplay6699 != null) {
+                    PipelineHealthCollector.labelInc("FORENSIC_PRECOMPUTED_RECONCILE_REUSED_7501")
+                }
+            } catch (_: Throwable) {}
+            return
         }
         checks.incrementAndGet()
         // V5.0.7294 — the journal has no treasury transfers, so its cash is
@@ -429,6 +432,6 @@ object ForensicReconciliation6635 {
         lastOpenCostLedger.set(0.0); lastOpenCostJournal.set(0.0); lastOpenCostDelta.set(0.0)
         lastQuantityDeltaRaw.set(java.math.BigInteger.ZERO)
         checks.set(0L); failedChecks.set(0L)
-        lastReconciledStatus.set("UNKNOWN")
+        lastReconciledStatus.set("UNKNOWN"); lastKey7387.set(null)
     }
 }
