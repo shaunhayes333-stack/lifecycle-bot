@@ -64,6 +64,9 @@ object CryptoUniverseExecutor {
         data class ExecFailed(
             val resolution: CryptoUniverseRouteResolver.Resolution,
             val reason: String,
+            val stage7432: String,
+            val code7432: String,
+            val exceptionClass7432: String = "",
         ) : Outcome()
     }
 
@@ -143,10 +146,10 @@ object CryptoUniverseExecutor {
                     ) Outcome.Executed(
                         bridge.sourceSignature, bridge.destinationToken, bridge.receivedRaw,
                         bridge.decimals, "DLN_${bridge.destinationTx}_FULFILLED_BALANCE_CONFIRMED",
-                    ) else Outcome.ExecFailed(resolution, "Canonical bridge open rejected: $mutation")
+                    ) else Outcome.ExecFailed(resolution, "Canonical bridge open rejected: $mutation", "CANONICAL_OPEN", "FINALITY_FAILED")
                 }
                 is CryptoBridgeAdapter.Execution.Rejected ->
-                    Outcome.ExecFailed(resolution, "${bridge.code}:${bridge.reason}")
+                    Outcome.ExecFailed(resolution, "${bridge.code}:${bridge.reason}", "BRIDGE", "BUILD_FAILED")
             }
         }
 
@@ -283,7 +286,7 @@ object CryptoUniverseExecutor {
             CryptoUniverseForensics.logExecutionFailure(symbol, mint, CryptoUniverseDiagCodes.TX_BUILD_FAILED, t.message ?: "tx build threw", sizeSol)
             CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "${t.javaClass.simpleName}: ${t.message}")
             CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "tx chain threw before confirmed signature")
-            return@runAwaited Outcome.ExecFailed(resolution, t.message ?: "tx build threw")
+            return@runAwaited Outcome.ExecFailed(resolution, t.message ?: "tx build threw", "CAPITAL_PREPARE", "UNKNOWN_EXCEPTION", t.javaClass.simpleName)
         }
 
         val sig = bridge.swapTxSig?.trim().orEmpty()
@@ -308,7 +311,7 @@ object CryptoUniverseExecutor {
             CryptoUniverseForensics.logExecutionFailure(symbol, mint, CryptoUniverseDiagCodes.TX_BUILD_FAILED, reason, sizeSol)
             CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, mint, mint, bridge.sourceMint, bridge.targetMint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig.takeIf { it.isNotBlank() }, job.id, reason)
             CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, mint, mint, bridge.sourceMint, bridge.targetMint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig.takeIf { it.isNotBlank() }, job.id, "no confirmed non-empty signature")
-            return@runAwaited Outcome.ExecFailed(resolution, reason)
+            return@runAwaited Outcome.ExecFailed(resolution, reason, "CAPITAL_PREPARE", "BUILD_FAILED")
         }
 
         CryptoUniverseForensics.logPhase("CU_TX_BUILD_OK", symbol, mint, mint, bridge.sourceMint, bridge.targetMint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "tx built/sent by bridge")
@@ -363,7 +366,16 @@ object CryptoUniverseExecutor {
         )
         if (mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED &&
             mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
-            return@runAwaited Outcome.ExecFailed(resolution, "Canonical live open rejected: $mutation")
+            // Signature and token delta were already proven. A failed ledger
+            // mutation must not invite a second buy, nor claim an OPEN lot.
+            try { com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(mint, sig) } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_OPEN_REJECTED_PENDING_RECONCILE_7432")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_CANONICAL_OPEN_REJECTED_PENDING_RECONCILE_7432",
+                    "positionId=$positionId mint=$mint txSig=$sig mutation=$mutation stage=CANONICAL_OPEN proof=${bridge.proofState}")
+            } catch (_: Throwable) {}
+            return@runAwaited Outcome.VerifyPending(sig, mint, resolution,
+                "CANONICAL_OPEN_REJECTED_PENDING_RECONCILE_7432:$mutation")
         }
         try { TokenLifecycleTracker.onTokenLanded(mint, bridge.targetAmountUi) } catch (_: Throwable) {}
         try { HostWalletTokenTracker.recordBuyPending(mint, symbol, sig) } catch (_: Throwable) {}

@@ -12534,4 +12534,19 @@ class GoldenTapeRegressionTest {
         assertFalse(com.lifecyclebot.network.PumpFunWS.lifecycleStreamCapable7420())
     }
 
+    @Test
+    fun V5_0_7432_crypto_dispatch_failure_is_stage_specific_and_confirmed_spend_not_retried() {
+        val u = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        val a = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(u.contains("val stage7432: String"))
+        assertTrue(u.contains("val code7432: String"))
+        assertTrue(u.contains("val exceptionClass7432: String"))
+        assertTrue(u.contains("Outcome.ExecFailed(resolution, reason, \"CAPITAL_PREPARE\", \"BUILD_FAILED\")"))
+        assertTrue(u.contains("Outcome.VerifyPending(sig, mint, resolution,"))
+        assertTrue(u.contains("CRYPTO_CANONICAL_OPEN_REJECTED_PENDING_RECONCILE_7432"))
+        assertTrue(a.contains("CRYPTO_DISPATCH_FAILURE_BY_STAGE_7432_"))
+        assertTrue(a.contains("CRYPTO_DISPATCH_TERMINAL_7432_UNKNOWN_EXCEPTION"))
+        assertFalse(a.contains("EXEC_FAILED:" + '$' + "{outcome.reason.take(120)}"))
+    }
+
 }

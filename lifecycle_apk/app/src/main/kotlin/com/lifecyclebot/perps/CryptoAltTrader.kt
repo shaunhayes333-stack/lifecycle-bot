@@ -3734,11 +3734,16 @@ object CryptoAltTrader {
             when (outcome) {
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.Executed -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.EXECUTED)
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TERMINAL_7432_EXECUTED")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TO_OPEN_7432")
+                    } catch (_: Throwable) {}
                     ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.marketSymbol} tx=${outcome.txSig ?: "ok"}")
                     try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
                     null
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.VerifyPending -> {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TERMINAL_7432_VERIFY_PENDING") } catch (_: Throwable) {}
                     // Signature is chain-confirmed; TX_PARSE_META / owner delta owns
                     // promotion to FINAL_TOKEN_VERIFIED. Treat as accepted pending work,
                     // not a failure and not eligible for duplicate resubmission.
@@ -3748,6 +3753,12 @@ object CryptoAltTrader {
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.RouteDeferred -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.ROUTE_DEFERRED)
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TERMINAL_7432_ROUTE_DEFERRED")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_DISPATCH_TERMINAL_7432",
+                            "positionId=$positionId chain=${signal.dynChainId} mint=${signal.dynMint} stage=ROUTE " +
+                            "code=${outcome.resolution.diagCode} detail=${outcome.resolution.humanMessage.take(180)}")
+                    } catch (_: Throwable) {}
                     ErrorLogger.info(TAG,
                         "🪙 ROUTE DEFERRED: ${signal.marketSymbol} → ${outcome.resolution.route} " +
                         "[${outcome.resolution.diagCode}] ${outcome.resolution.humanMessage}")
@@ -3755,15 +3766,30 @@ object CryptoAltTrader {
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.ExecFailed -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FAILED)
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TERMINAL_7432_${outcome.code7432}")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_FAILURE_BY_STAGE_7432_${outcome.stage7432}")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_DISPATCH_TERMINAL_7432",
+                            "positionId=$positionId chain=${signal.dynChainId} mint=${signal.dynMint} " +
+                            "stage=${outcome.stage7432} code=${outcome.code7432} " +
+                            "exceptionClass=${outcome.exceptionClass7432.ifBlank { "none" }} " +
+                            "detail=${outcome.reason.take(220)}")
+                    } catch (_: Throwable) {}
                     ErrorLogger.warn(TAG,
-                        "🪙 Live exec FAILED for ${signal.marketSymbol}: ${outcome.reason}")
-                    "EXEC_FAILED:${outcome.reason.take(120)}"
+                        "🪙 Live exec FAILED for ${signal.marketSymbol}: ${outcome.code7432}/${outcome.stage7432} ${outcome.reason}")
+                    "${outcome.code7432}:${outcome.stage7432}:${outcome.reason.take(120)}"
                 }
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             ErrorLogger.error(TAG, "🪙 Live trade exception: ${e.message}", e)
-            "EXCEPTION:${e.javaClass.simpleName}"
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TERMINAL_7432_UNKNOWN_EXCEPTION")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_FAILURE_BY_STAGE_7432_CRYPTO_ALT")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_DISPATCH_TERMINAL_7432",
+                    "positionId=$positionId stage=CRYPTO_ALT code=UNKNOWN_EXCEPTION exceptionClass=${e.javaClass.simpleName} detail=${e.message?.take(180)}")
+            } catch (_: Throwable) {}
+            "UNKNOWN_EXCEPTION:CRYPTO_ALT:${e.javaClass.simpleName}"
         }
     }
 
