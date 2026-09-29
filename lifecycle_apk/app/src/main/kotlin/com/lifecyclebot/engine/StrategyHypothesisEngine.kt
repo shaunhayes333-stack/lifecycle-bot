@@ -109,12 +109,22 @@ object StrategyHypothesisEngine {
     // V5.9.1286 — promoted stop-width multiplier per context (starts 1.0)
     private val stopBaseline = ConcurrentHashMap<String, Double>()
     private val active = ConcurrentHashMap<String, Hypothesis>()
-    private val pending = ConcurrentHashMap<String, Pair<String, Boolean>>()  // mint -> (context, isVariant)
-    // V5.0.7427 — exact StrategyVariantStore identity applied at ENTRY.
-    private val pendingStrategyVariant7427 = ConcurrentHashMap<String, String>()
+    // Legacy mint-only attribution retained for compatibility/tests only.
+    private val pending = ConcurrentHashMap<String, Pair<String, Boolean>>()
+    // V5.0.7428 — FDG fanout-safe attribution. Every lane can evaluate the
+    // same mint/version; only the lane that actually opens is later bound to
+    // a canonical positionId and allowed to receive the terminal outcome.
+    private data class AppliedDecision7428(
+        val context: String,
+        val isVariantArm: Boolean,
+        val strategyVariantId: String,
+    )
+    private val pendingByDecision7428 = ConcurrentHashMap<String, AppliedDecision7428>()
+    private val pendingByPosition7428 = ConcurrentHashMap<String, AppliedDecision7428>()
+    private val settledPositions7428 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /** V5.9.1353 — TRUE RESET: drop baselines, active hypotheses + pending. */
-    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear(); pendingStrategyVariant7427.clear(); settledOnceGuard6747.clear() }
+    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear(); pendingByDecision7428.clear(); pendingByPosition7428.clear(); settledPositions7428.clear(); settledOnceGuard6747.clear() }
     @Volatile private var promotions = 0L
     @Volatile private var outcomeUpdates6512 = 0L
     fun outcomeUpdateCount6512(): Long = outcomeUpdates6512
@@ -127,6 +137,9 @@ object StrategyHypothesisEngine {
     }
     private fun ctxKey(lane: String, score: Int, regime: String) =
         "${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
+
+    private fun decisionKey7428(mint: String, candidateVersion: Long, lane: String): String =
+        "${mint.trim()}|$candidateVersion|${lane.trim().uppercase()}"
 
     private fun suppressVariantForContext(lane: String, score: Int, regime: String): Boolean {
         val l = lane.uppercase()
@@ -218,13 +231,13 @@ object StrategyHypothesisEngine {
             if (reviewedLabBias != 1.0) {
                 try { PipelineHealthCollector.labelInc("ASYNC_STRATEGY_LAB_REVIEWED_SIZE_BIAS_4245") } catch (_: Throwable) {}
             }
+            var exactVariantId7428 = ""
             val strategyVariantBias4342 = try {
                 val v = com.lifecyclebot.engine.learning.StrategyVariantStore.activeFor(lane)
                 if (v != null) {
-                    pendingStrategyVariant7427[mint] = v.id
+                    exactVariantId7428 = v.id
                     try {
                         PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_SIZE_BIAS_4342|" + lane.uppercase())
-                        PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_STAMPED_7427")
                     } catch (_: Throwable) {}
                     when {
                         v.state == com.lifecyclebot.engine.learning.StrategyVariantStore.State.PROMOTED -> 1.04
@@ -232,14 +245,14 @@ object StrategyHypothesisEngine {
                         v.expectancy() < -5.0 && v.samples.get() >= 10 -> 0.96
                         else -> 1.0
                     }
-                } else {
-                    pendingStrategyVariant7427.remove(mint)
-                    1.0
-                }
-            } catch (_: Throwable) {
-                pendingStrategyVariant7427.remove(mint)
-                1.0
-            }
+                } else 1.0
+            } catch (_: Throwable) { 1.0 }
+            try {
+                val cv7428 = LaneExecutionCoordinator.candidateVersionFor(mint)
+                pendingByDecision7428[decisionKey7428(mint, cv7428, lane)] =
+                    AppliedDecision7428(ctx, variant, exactVariantId7428)
+                PipelineHealthCollector.labelInc("HYPOTHESIS_DECISION_STAMPED_7428")
+            } catch (_: Throwable) {}
             (bias * reviewedLabBias * strategyVariantBias4342).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
         } catch (_: Throwable) { 1.0 }
     }
@@ -302,8 +315,69 @@ object StrategyHypothesisEngine {
     // the guard fires only on true second-settle attempts.
     private val settledOnceGuard6747 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
-    /** Exact StrategyVariantStore variant that influenced this mint at entry. */
-    fun pendingStrategyVariantId7427(mint: String): String = pendingStrategyVariant7427[mint].orEmpty()
+    /**
+     * V5.0.7428 — bind the exact FDG lane/version decision to the position that
+     * actually opened. Non-winning fanout lanes never reach this boundary and
+     * therefore can never steal terminal credit.
+     */
+    fun bindExecutedPosition7428(
+        positionId: String,
+        mint: String,
+        candidateVersion: Long,
+        lane: String,
+    ): String {
+        if (positionId.isBlank() || mint.isBlank()) return ""
+        return try {
+            val applied = pendingByDecision7428.remove(decisionKey7428(mint, candidateVersion, lane))
+            if (applied == null) {
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_MISSING_7428")
+                ""
+            } else {
+                pendingByPosition7428[positionId] = applied
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BOUND_7428")
+                if (applied.strategyVariantId.isNotBlank()) {
+                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_STAMPED_7428")
+                }
+                applied.strategyVariantId
+            }
+        } catch (_: Throwable) { "" }
+    }
+
+    /** Settle only the hypothesis/variant that was bound to this position. */
+    fun recordOutcomeForPosition7428(positionId: String, pnlPct: Double) {
+        if (positionId.isBlank()) return
+        try {
+            if (!settledPositions7428.add(positionId)) {
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_DEDUPED_7428")
+                return
+            }
+            val applied = pendingByPosition7428.remove(positionId)
+            if (applied == null) {
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_MISSING_7428")
+                return
+            }
+            val h = active[applied.context]
+            if (h == null) {
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_CONTEXT_MISSING_7428")
+                return
+            }
+            val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
+            outcomeUpdates6512 += 1L
+            if (applied.isVariantArm) h.variant.update(pnl) else h.control.update(pnl)
+            if (applied.strategyVariantId.isNotBlank()) {
+                try {
+                    com.lifecyclebot.engine.learning.StrategyVariantStore.recordOutcome(
+                        applied.strategyVariantId, pnl > 0.0, pnl < 0.0, pnl,
+                    )
+                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_OUTCOME_7428")
+                } catch (_: Throwable) {}
+            }
+            maybeResolve(applied.context, h)
+            if (((h.control.n + h.variant.n) % 3L) == 0L) appContext?.let { save(it) }
+            if ((promotions + retirements) % 5L == 0L) appContext?.let { save(it) }
+            PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_7428")
+        } catch (_: Throwable) {}
+    }
 
     /** Feed settled PnL → accrue to the assigned arm, evaluate, maybe promote/retire. */
     fun recordOutcome(mint: String, pnlPct: Double) {
@@ -314,7 +388,6 @@ object StrategyHypothesisEngine {
             if (!settledOnceGuard6747.add(mint)) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_OUTCOME_DEDUPED_PER_CANDIDATE_6747") } catch (_: Throwable) {}
                 pending.remove(mint)
-                pendingStrategyVariant7427.remove(mint)
                 return
             }
             val a = pending.remove(mint) ?: return
@@ -323,19 +396,10 @@ object StrategyHypothesisEngine {
             outcomeUpdates6512 += 1L
             val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
             if (variant) h.variant.update(pnl) else h.control.update(pnl)
-            try {
-                val laneForVariant4342 = ctx.substringBefore("|").uppercase()
-                val stampedVariantId7427 = pendingStrategyVariant7427.remove(mint)
-                if (!stampedVariantId7427.isNullOrBlank()) {
-                    com.lifecyclebot.engine.learning.StrategyVariantStore.recordOutcome(
-                        stampedVariantId7427, pnl > 0.0, pnl < 0.0, pnl,
-                    )
-                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_OUTCOME_7427")
-                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_OUTCOME_4342|" + laneForVariant4342)
-                } else {
-                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_OUTCOME_MISSING_7427")
-                }
-            } catch (_: Throwable) {}
+            // Legacy mint-only outcome path intentionally does not credit
+            // StrategyVariantStore; canonical bus uses position-bound 7428.
+            try { PipelineHealthCollector.labelInc("HYPOTHESIS_LEGACY_MINT_OUTCOME_7428") } catch (_: Throwable) {}
+
             maybeResolve(ctx, h)
             // V5.0.6264 — persist active arms on every close. Prior impl only
             // saved when promotions/retirements % 5 == 0, so most recordOutcome
@@ -533,7 +597,9 @@ object StrategyHypothesisEngine {
             // In-flight entry attribution is session-local and must never be
             // restored onto a different runtime generation.
             pending.clear()
-            pendingStrategyVariant7427.clear()
+            pendingByDecision7428.clear()
+            pendingByPosition7428.clear()
+            settledPositions7428.clear()
             settledOnceGuard6747.clear()
             val o = JSONObject(json)
             promotions = o.optLong("promotions", 0L); retirements = o.optLong("retirements", 0L)
