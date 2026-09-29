@@ -194,10 +194,10 @@ object PositionStateLedger6454 {
     fun onPartial(positionId: String) {
         if (positionId.isBlank()) return
         val canonical = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
-        val canonicallyPartial = canonical != null &&
-            canonical.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED &&
-            canonical.remainingQtyRaw > java.math.BigInteger.ZERO
-        if (!canonicallyPartial) {
+        if (canonical == null ||
+            canonical.lifecycle != CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED ||
+            canonical.remainingQtyRaw <= java.math.BigInteger.ZERO
+        ) {
             try { PipelineHealthCollector.labelInc("POSITION_STATE_PARTIAL_REFUSED_NO_CANONICAL_PROOF_7457") } catch (_: Throwable) {}
             return
         }
