@@ -238,9 +238,11 @@ object AateDecisionFabric6512 {
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
         try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
         if (AutonomousMetaPolicy.totalUpdateCount6512() > metaBefore) updated += "AutonomousMetaPolicy"
-        val hypoBefore = StrategyHypothesisEngine.outcomeUpdateCount6512()
-        try { StrategyHypothesisEngine.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
-        if (StrategyHypothesisEngine.outcomeUpdateCount6512() > hypoBefore) updated += "StrategyHypothesisEngine"
+        // V5.0.7445 — StrategyHypothesis terminal credit is position-bound
+        // exclusively via FinalizedBusConsumerBridge6465. Mint-only credit can
+        // be overwritten by later fanout on the same mint and double/mis-credit
+        // the exact experiment.
+        try { PipelineHealthCollector.labelInc("HYPOTHESIS_LEGACY_MINT_TERMINAL_SKIPPED_7445") } catch (_: Throwable) {}
 
         // V5.0.6707 — SOURCE REPAIR, NOT A NEW POLICY LAYER.
         // Executor owns the canonical terminal close now, so the old assumption

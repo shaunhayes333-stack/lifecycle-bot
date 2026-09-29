@@ -411,7 +411,11 @@ object StrategyHypothesisEngine {
                 ""
             } else {
                 pendingByPosition7428[positionId] = applied
+                // V5.0.7445 — the real position survives process death, so its
+                // exact experiment identity must survive with it.
+                appContext?.let { save(it) }
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BOUND_7428")
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_PERSISTED_7445")
                 if (applied.strategyVariantId.isNotBlank()) {
                     PipelineHealthCollector.labelInc("STRATEGY_VARIANT_EXACT_STAMPED_7428")
                 }
@@ -450,6 +454,9 @@ object StrategyHypothesisEngine {
                 } catch (_: Throwable) {}
             }
             maybeResolve(applied.context, h)
+            // Persist removal as well; a settled position must not be restored
+            // as pending after the next restart.
+            appContext?.let { save(it) }
             if (((h.control.n + h.variant.n) % 3L) == 0L) appContext?.let { save(it) }
             if ((promotions + retirements) % 5L == 0L) appContext?.let { save(it) }
             PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_7428")
@@ -665,14 +672,28 @@ object StrategyHypothesisEngine {
                 ac.put(ctx, o)
             }
             put("active", ac)
+
+            // V5.0.7445 — persist only position-bound entry attribution.
+            // Decision-level fanout remains session-local because only the
+            // winning executed position has durable economic identity.
+            val bp7445 = JSONObject()
+            pendingByPosition7428.forEach { (positionId, applied) ->
+                val p = JSONObject()
+                p.put("ctx", applied.context)
+                p.put("var", applied.isVariantArm)
+                p.put("variantId", applied.strategyVariantId)
+                bp7445.put(positionId, p)
+            }
+            put("boundPositions7445", bp7445)
         }.toString()
     } catch (_: Throwable) { "{}" }
 
     fun importState(json: String) {
         try {
             if (json.isBlank() || json == "{}") return
-            // In-flight entry attribution is session-local and must never be
-            // restored onto a different runtime generation.
+            // Decision-level fanout is session-local. Position-bound
+            // attribution is durable because canonical positions survive a
+            // runtime restart and must settle the exact experiment that opened.
             pending.clear()
             pendingByDecision7428.clear()
             pendingByPosition7428.clear()
@@ -696,6 +717,23 @@ object StrategyHypothesisEngine {
                     h.variant.mean = a.optDouble("vsM", 0.0)
                     h.variant.m2 = a.optDouble("vsM2", 0.0)
                     active[ctx] = h
+                }
+            }
+            o.optJSONObject("boundPositions7445")?.let { bp ->
+                val ks = bp.keys()
+                while (ks.hasNext()) {
+                    val positionId = ks.next()
+                    val p = bp.optJSONObject(positionId) ?: continue
+                    val ctx = p.optString("ctx", "")
+                    if (ctx.isBlank()) continue
+                    pendingByPosition7428[positionId] = AppliedDecision7428(
+                        context = ctx,
+                        isVariantArm = p.optBoolean("var", false),
+                        strategyVariantId = p.optString("variantId", ""),
+                    )
+                }
+                if (pendingByPosition7428.isNotEmpty()) {
+                    try { PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_RESTORED_7445") } catch (_: Throwable) {}
                 }
             }
         } catch (_: Throwable) {}
