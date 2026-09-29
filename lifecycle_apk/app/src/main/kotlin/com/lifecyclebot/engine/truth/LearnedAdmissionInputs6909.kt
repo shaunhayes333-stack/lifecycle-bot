@@ -87,6 +87,10 @@ object LearnedAdmissionInputs6909 {
         qualityHint: String = "",
         edgePhaseHint: String = "",
         emaFanHint: String = "",
+        tradeTypeHint: String = "",
+        setupHint: String = "",
+        styleHint: String = "",
+        tacticHint: String = "",
         candidateConfidenceHint: Double = 0.50,
     ): LearnedAdmissionAuthority6846.Inputs {
         assembled.incrementAndGet()
@@ -264,6 +268,10 @@ object LearnedAdmissionInputs6909 {
                 quality = qualityHint,
                 edgePhase = edgePhaseHint,
                 emaFan = emaFanHint,
+                tradeType = tradeTypeHint,
+                setup = setupHint,
+                style = styleHint,
+                tactic = tacticHint,
                 candidateConfidence = candidateConfidenceHint,
             )
         } catch (_: Throwable) { null }
@@ -380,12 +388,17 @@ object LearnedAdmissionInputs6909 {
         qualityHint: String = "",
         edgePhaseHint: String = "",
         emaFanHint: String = "",
+        tradeTypeHint: String = "",
+        setupHint: String = "",
+        styleHint: String = "",
+        tacticHint: String = "",
         candidateConfidenceHint: Double = 0.50,
     ): ExecutableEntryAuthority6450.Decision {
         return try {
             val inputs = build(
                 lane, mint, requestedSizeSol, entryScore, minExecutableSol, probeSizeSol,
-                sourceFamilyHint, qualityHint, edgePhaseHint, emaFanHint, candidateConfidenceHint,
+                sourceFamilyHint, qualityHint, edgePhaseHint, emaFanHint,
+                tradeTypeHint, setupHint, styleHint, tacticHint, candidateConfidenceHint,
             )
             val decision = ExecutableEntryAuthority6450.gate(inputs)
             if (decision.verdict != ExecutableEntryAuthority6450.Verdict.ALLOW) {
