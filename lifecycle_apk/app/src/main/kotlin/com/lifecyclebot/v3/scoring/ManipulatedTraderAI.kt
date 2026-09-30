@@ -272,8 +272,11 @@ object ManipulatedTraderAI {
             shouldEnter = false, positionSizeSol = 0.0, manipScore = 0, reason = reason
         )
 
-        // Already in a position on this token
-        if (activePositions.containsKey(mint)) return noEnter("ALREADY_POSITIONED")
+        // V5.0.7552 — local position projection cannot veto native strategy
+        // grading; canonical occupancy remains the execution authority.
+        if (activePositions.containsKey(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIP_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
 
         // Market cap filter
         if (marketCapUsd < MIN_MARKET_CAP_USD) return noEnter("MCAP_TOO_LOW")

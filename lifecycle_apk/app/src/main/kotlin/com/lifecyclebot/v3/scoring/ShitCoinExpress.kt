@@ -290,16 +290,16 @@ object ShitCoinExpress {
             ErrorLogger.warn(TAG, "💩🚂 EXPRESS_DAILY_LOSS_RECOVERY_PROBE_4223: pnl=${dailyPnl.fmt(2)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(2)}◎ — size×0.35")
         }
         
-        // Max concurrent rides
-        if (activeRides.size >= MAX_CONCURRENT_RIDES) {
-            return noRide("MAX_RIDES: ${activeRides.size}/$MAX_CONCURRENT_RIDES")
-        }
+        // V5.0.7552 — activeRides is exit/UI projection state only.
+        // Canonical occupancy and execution slot authorities own open eligibility.
+        if (activeRides.size >= MAX_CONCURRENT_RIDES) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_LOCAL_CAP_OBSERVED_7552")
+        } catch (_: Throwable) {}
+        if (activeRides.containsKey(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
         
-        // Already on this ride?
-        if (activeRides.containsKey(mint)) {
-            return noRide("ALREADY_RIDING")
-        }
-        
+
         // Recently tried this token?
         val lastRide = recentRides[mint]
         if (lastRide != null && System.currentTimeMillis() - lastRide < 30 * 60 * 1000) {

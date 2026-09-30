@@ -239,17 +239,17 @@ object QualityTraderAI {
         isMeme: Boolean = false,
     ): QualitySignal {
         
-        // Check if already have position
-        if (activePositions.containsKey(mint)) {
-            return QualitySignal(false, reason = "Already have position")
-        }
+        // V5.0.7552 — local trader maps are projections for exits/UI, not
+        // entry authority. CanonicalPositionAuthority/HeldPositionSupervisor own
+        // duplicate occupancy and global slot limits. Observe drift, never veto score.
+        if (activePositions.containsKey(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("QUALITY_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
+        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("QUALITY_LOCAL_CAP_OBSERVED_7552")
+        } catch (_: Throwable) {}
         
-        // Check max positions — V5.9.193: bypassed during bootstrap for data gathering
-        val qtBootstrap = FluidLearningAI.getLearningProgress() < 0.40
-        if (!qtBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
-            return QualitySignal(false, reason = "Max positions reached (${MAX_CONCURRENT_POSITIONS})")
-        }
-        
+
         // ═══════════════════════════════════════════════════════════════════
         // QUALITY FILTERS - This is NOT a meme coin layer
         // ═══════════════════════════════════════════════════════════════════

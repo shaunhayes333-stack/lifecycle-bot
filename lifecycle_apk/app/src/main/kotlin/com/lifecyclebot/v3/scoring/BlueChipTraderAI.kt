@@ -680,35 +680,16 @@ object BlueChipTraderAI {
             )
         }
         
-        // 3. MAX POSITIONS CHECK — V5.9.193: bypassed during bootstrap for data gathering
-        val bcBootstrap = FluidLearningAI.getLearningProgress() < 0.40
-        if (!bcBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
-            return BlueChipSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = 0,
-                reason = "MAX_POSITIONS: ${activePositions.size}/$MAX_CONCURRENT_POSITIONS",
-                mode = mode,
-                isPaperMode = isPaperMode
-            )
-        }
+        // V5.0.7552 — local BlueChip position maps are projection state.
+        // Canonical occupancy/slot authority decides whether execution may open.
+        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BLUECHIP_LOCAL_CAP_OBSERVED_7552")
+        } catch (_: Throwable) {}
+        if (hasPosition(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BLUECHIP_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
         
-        // 4. ALREADY HAVE POSITION
-        if (hasPosition(mint)) {
-            return BlueChipSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = 0,
-                reason = "ALREADY_POSITIONED",
-                mode = mode,
-                isPaperMode = isPaperMode
-            )
-        }
-        
+
         // ═══════════════════════════════════════════════════════════════════
         // BLUE CHIP SCORING - Quality-focused
         // ═══════════════════════════════════════════════════════════════════

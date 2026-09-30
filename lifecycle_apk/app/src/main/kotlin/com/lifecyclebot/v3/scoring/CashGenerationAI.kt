@@ -763,9 +763,10 @@ object CashGenerationAI {
         if (momentum < -5) {
             rejectionReasons.add("momentum=${"%.1f".format(momentum)}<-5")
         }
-        if (activePositions.containsKey(mint)) {
-            rejectionReasons.add("already_in_position")
-        }
+        // V5.0.7552 — local CashGen map is projection state, not admission truth.
+        if (activePositions.containsKey(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CASHGEN_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
 
         val lastExitTime = recentExits[mint] ?: 0L
         val timeSinceExit = System.currentTimeMillis() - lastExitTime
@@ -774,11 +775,11 @@ object CashGenerationAI {
             rejectionReasons.add("reentry_cooldown (${remaining}s)")
         }
 
-        // V5.9.193: bypassed during bootstrap for data gathering
-        val cashBootstrap = FluidLearningAI.getLearningProgress() < 0.40
-        if (!cashBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
-            rejectionReasons.add("max_positions_reached ($MAX_CONCURRENT_POSITIONS)")
-        }
+        // V5.0.7552 — per-lane local count is telemetry only; shared canonical
+        // capital/slot authorities decide whether another position may open.
+        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CASHGEN_LOCAL_CAP_OBSERVED_7552")
+        } catch (_: Throwable) {}
 
         // V5.9.1217 — widen Treasury bleed guard from S0-10 to any proven
         // TREASURY death bucket, but keep it lane-local and evidence-aware.

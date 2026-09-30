@@ -1341,3 +1341,17 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] Unresolved RugCheck maps to score 1, the codebase's documented PENDING value, so Moonshot does not misclassify missing evidence as confirmed weak safety.
 - [x] Confirmed rug scores and resolved holder concentration remain untouched.
 - [x] No hard safety rule, lane threshold, or execution authority is weakened.
+
+
+## V5.0.7553 — canonicalize native specialist occupancy authority
+
+- [x] QUALITY local position/cap state is telemetry only during native entry evaluation.
+- [x] BLUECHIP local position/cap state is telemetry only during native entry evaluation.
+- [x] SHITCOIN local position/cap state is telemetry only during native entry evaluation.
+- [x] EXPRESS local ride/cap state is telemetry only during native entry evaluation.
+- [x] PROJECT_SNIPER local mission/cap state is telemetry only during native entry evaluation.
+- [x] DIP_HUNTER local dip/cap state is telemetry only during native entry evaluation.
+- [x] MANIPULATED local position state is telemetry only during native entry evaluation.
+- [x] CASHGEN local position/cap state is telemetry only during native entry evaluation.
+- [x] CanonicalPositionAuthority / HeldPositionSupervisor / execution slot authorities remain the sole duplicate and capacity truth.
+- [x] Local maps remain intact for exits, PnL, UI projection, partials and lifecycle bookkeeping.

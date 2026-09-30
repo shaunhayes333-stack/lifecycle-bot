@@ -246,16 +246,16 @@ object ProjectSniperAI {
             ErrorLogger.warn(TAG, "🎯 SNIPER_DAILY_LOSS_RECOVERY_PROBE_4222: pnl=${dailyPnl.fmt(2)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(2)}◎ — size×0.35")
         }
         
-        // Max concurrent
-        if (activeMissions.size >= MAX_CONCURRENT_MISSIONS) {
-            return noEngage("MAX_MISSIONS: ${activeMissions.size}/$MAX_CONCURRENT_MISSIONS active", tokenAgeSecs)
-        }
+        // V5.0.7552 — mission maps are lifecycle projections, not entry
+        // authority. Canonical held/slot authorities decide duplicate/open capacity.
+        if (activeMissions.size >= MAX_CONCURRENT_MISSIONS) try {
+            PipelineHealthCollector.labelInc("SNIPER_LOCAL_CAP_OBSERVED_7552")
+        } catch (_: Throwable) {}
+        if (activeMissions.containsKey(ts.mint)) try {
+            PipelineHealthCollector.labelInc("SNIPER_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
         
-        // Already engaged?
-        if (activeMissions.containsKey(ts.mint)) {
-            return noEngage("ALREADY_ENGAGED", tokenAgeSecs)
-        }
-        
+
         // Recently targeted?
         val lastTarget = recentTargets[ts.mint]
         if (lastTarget != null && System.currentTimeMillis() - lastTarget < 30 * 60 * 1000) {

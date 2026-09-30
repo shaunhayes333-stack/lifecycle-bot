@@ -277,18 +277,17 @@ object DipHunterAI {
         // BASIC FILTERS
         // ═══════════════════════════════════════════════════════════════════
         
-        // Max concurrent dips. Paper gets high-throughput learning slots;
-        // live keeps the tiny safety cap.
-        val maxConcurrentDips = if (isPaperMode) PAPER_MAX_CONCURRENT_DIPS else MAX_CONCURRENT_DIPS
-        if (activeDips.size >= maxConcurrentDips) {
-            return noDip("MAX_DIPS: ${activeDips.size}/$maxConcurrentDips")
-        }
+        // V5.0.7552 — activeDips is an exit/lifecycle projection. Canonical
+        // occupancy and slot authorities own open eligibility for every lane.
+        val maxConcurrentDips = MAX_CONCURRENT_DIPS
+        if (activeDips.size >= maxConcurrentDips) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DIP_LOCAL_CAP_OBSERVED_7552")
+        } catch (_: Throwable) {}
+        if (activeDips.containsKey(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DIP_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
         
-        // Already have this dip
-        if (activeDips.containsKey(mint)) {
-            return noDip("ALREADY_HOLDING")
-        }
-        
+
         // Recently dip-bought
         val lastDip = recentDips[mint]
         val redipCooldown = RE_DIP_COOLDOWN_MS

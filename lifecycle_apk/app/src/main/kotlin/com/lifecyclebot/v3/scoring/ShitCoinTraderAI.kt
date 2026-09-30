@@ -892,17 +892,16 @@ object ShitCoinTraderAI {
             return rejectSignal("LIQ_TOO_LOW: \$${liquidityUsd.toInt()} < \$${minLiq.toInt()}", mode, launchPlatform)
         }
         
-        // 3. MAX POSITIONS CHECK — V5.9.193: bypassed during bootstrap for data gathering
-        val scBootstrap = FluidLearningAI.getLearningProgress() < 0.40
-        if (!scBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
-            return rejectSignal("MAX_POSITIONS: ${activePositions.size}/$MAX_CONCURRENT_POSITIONS", mode, launchPlatform)
-        }
+        // V5.0.7552 — local ShitCoin maps are not admission authority.
+        // Canonical occupancy/slot gates remain the single execution truth.
+        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHITCOIN_LOCAL_CAP_OBSERVED_7552")
+        } catch (_: Throwable) {}
+        if (hasPosition(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHITCOIN_LOCAL_OCCUPANCY_OBSERVED_7552")
+        } catch (_: Throwable) {}
         
-        // 4. ALREADY HAVE POSITION
-        if (hasPosition(mint)) {
-            return rejectSignal("ALREADY_POSITIONED", mode, launchPlatform)
-        }
-        
+
         // 5. KNOWN RUGGER CHECK
         if (devWallet != null && ruggedDevs.containsKey(devWallet)) {
             return rejectSignal("KNOWN_RUGGER: ${devWallet.take(8)}...", mode, launchPlatform)
