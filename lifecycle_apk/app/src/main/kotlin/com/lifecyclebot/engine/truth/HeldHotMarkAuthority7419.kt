@@ -210,13 +210,29 @@ object HeldHotMarkAuthority7419 {
                 continue
             }
 
+            // V5.0.7539 — preserve the proof produced by ParallelMarkFanout7088.
+            // A corroborated fanout is >=2 independent feeds agreeing (or
+            // authoritative curve state). 7419 previously renamed that result
+            // and then discarded the proof, so the exit registry rejected it.
+            // Single-source fanout stays non-authoritative.
             val verified7424 = source.startsWith("LOCKED_VENUE_") ||
-                source == "HELD_HOT_CRYPTO_REGISTRY_7419"
+                source == "HELD_HOT_CRYPTO_REGISTRY_7419" ||
+                source == "HELD_HOT_FANOUT_CORROBORATED_7419"
             val publishOk = try {
                 CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(
                     p.mint, px, source, verifiedIdentity7424 = verified7424,
                 )
             } catch (_: Throwable) { false }
+            try {
+                when {
+                    publishOk && source == "HELD_HOT_FANOUT_CORROBORATED_7419" ->
+                        PipelineHealthCollector.labelInc("HELD_HOT_CORROBORATED_FANOUT_PUBLISHED_7539")
+                    !publishOk && source == "HELD_HOT_SINGLE_SOURCE_7419" ->
+                        PipelineHealthCollector.labelInc("HELD_HOT_SINGLE_SOURCE_NOT_PROMOTED_7539")
+                    !publishOk && px > 0.0 ->
+                        PipelineHealthCollector.labelInc("HELD_HOT_VALID_PRICE_PUBLISH_REFUSED_7539")
+                }
+            } catch (_: Throwable) {}
 
             if (publishOk) {
                 try {
