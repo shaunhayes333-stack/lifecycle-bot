@@ -1278,3 +1278,17 @@ Runtime evidence from 5.0.7501: PAPER_GHOST_PURGE_REFUSED_CANONICAL_OPEN_7351=11
 - [x] True non-canonical/no-BUY ghosts still follow the existing purge path.
 - [x] No canonical position can be made purgeable by this change.
 - [x] Removes repeated refusal logging and stale-journal work against known-good canonical inventory.
+
+
+## V5.0.7547 — native specialist decision correctness
+
+Audit continuation after 7542 made all native specialist opinions authoritative.
+
+- [x] TREASURY can no longer qualify from the neutral/default TokenMeta baseline merely because TreasuryBrain starts at score 50.
+- [x] TREASURY proves momentum, buy-pressure, continuation and liquid-pond evidence before its score can become an executable native hypothesis.
+- [x] Exhaustion/spike state is both penalized and excluded from setup confirmation; the scalp brain no longer treats a top signal as a probe.
+- [x] CYCLIC negative-expectancy / losing-pattern memory now soft-shapes the existing score floor instead of permanently tombstoning that score band.
+- [x] CYCLIC retains sellability, blacklist, position, fresh-price, cold-ring, loss-streak and downstream FDG/safety authorities unchanged.
+- [x] SpecialistBrainBridge cache identity now includes the momentum, volatility, holder, Treasury-meta, safety/bundle, sentiment, tool-affinity and venue evidence consumed by native brains.
+- [x] A fast evidence change can therefore invalidate an authoritative native ALLOW/VETO without waiting only for cache TTL expiry.
+- [x] No scanner source, specialist lane, native brain, learning path or execution safety authority was removed.

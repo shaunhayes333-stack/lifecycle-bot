@@ -65,7 +65,25 @@ object SpecialistBrainBridge7542 {
         try{CashGenerationAI.setTradingMode(paper)}catch(_:Throwable){}
     }
 
-    private fun fp(ts:TokenState,paper:Boolean)=listOf(ts.mint,paper,ts.history.size,if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),ts.lastBuyPressurePct.toInt(),ts.lastSellPressurePct.toInt(),ts.lastPriceChange5m.toInt(),ts.lastV3Score,ts.lastV3Confidence,ts.safety.checkedAt,ts.source,ts.tokenMap.migratedOrGraduated).hashCode()
+    // V5.0.7547 — cache identity must cover the evidence the now-authoritative
+    // native brains actually consume. The old fingerprint omitted momentum,
+    // volatility, holder/bundle state and Treasury meta fields, allowing a
+    // 2.5-second stale ALLOW/VETO to survive a fast lifecycle change.
+    private fun fp(ts:TokenState,paper:Boolean)=listOf(
+        ts.mint,paper,ts.history.size,
+        if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,
+        ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),
+        ts.lastBuyPressurePct.toInt(),ts.lastSellPressurePct.toInt(),ts.lastPriceChange5m.toInt(),
+        ts.lastV3Score,ts.lastV3Confidence,
+        ts.momentum,ts.volatility,ts.topHolderPct,ts.peakHolderCount,
+        ts.meta.momScore.toInt(),ts.meta.pressScore.toInt(),ts.meta.velocityScore.toInt(),
+        ts.meta.emafanAlignment,ts.meta.exhaustion,ts.meta.spikeDetected,ts.meta.curveProgress.toInt(),
+        ts.safety.checkedAt,ts.safety.rugcheckScore,ts.safety.firstBlockSupplyPct.toInt(),
+        ts.safety.isBlocked,ts.safety.hardBlockReasons.hashCode(),ts.safety.bundleReason,
+        ts.sentiment.score.toInt(),ts.toolAffinity.hashCode(),
+        ts.source,ts.lastPriceSource,ts.lastPriceDex,
+        ts.tokenMap.creatorOrDevWallet,ts.tokenMap.migratedOrGraduated
+    ).hashCode()
 
     fun evaluate(ts:TokenState):Snapshot{
         val paper=try{BotRuntimeController.snapshot().paperMode}catch(_:Throwable){true};ensureInitialized(paper)

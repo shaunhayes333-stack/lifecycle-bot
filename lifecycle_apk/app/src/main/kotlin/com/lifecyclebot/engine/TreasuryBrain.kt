@@ -31,7 +31,7 @@ import com.lifecyclebot.data.TokenState
  */
 object TreasuryBrain {
 
-    const val VERSION = "V5.0.4599_TREASURY_BRAIN"
+    const val VERSION = "V5.0.7547_TREASURY_BRAIN"
 
     data class ScalpVerdict(
         val score: Double,
@@ -95,15 +95,41 @@ object TreasuryBrain {
 
         score = score.coerceIn(0.0, 100.0)
 
-        val (category, sizeMult) = when {
+        // V5.0.7547 — TreasuryBrain used to start at score=50 and a completely
+        // neutral/default TokenMeta therefore became PROBE_SCALP. That was safe
+        // only while TreasuryBrain was called behind TreasuryScannerFeed. Since
+        // 7542 the native brain is authoritative from the common specialist
+        // bridge, so it must prove its own scalp setup before it can own a token.
+        // Keep score as the ranker; require distinct positive setup evidence.
+        val momentumConfirmed7547 =
+            mom >= 60.0 || ts.lastPriceChange5m >= 1.5
+        val pressureConfirmed7547 =
+            press >= 55.0 || ts.lastBuyPressurePct >= 55.0
+        val continuationConfirmed7547 =
+            vel > 0.0 ||
+                ts.meta.emafanAlignment == "BULL_FAN" ||
+                ts.meta.emafanAlignment == "BULL_FLAT"
+        val liquidityConfirmed7547 = ts.lastLiquidityUsd >= 10_000.0
+        val setupConfirmed7547 =
+            momentumConfirmed7547 &&
+                pressureConfirmed7547 &&
+                continuationConfirmed7547 &&
+                liquidityConfirmed7547 &&
+                !ts.meta.exhaustion &&
+                !ts.meta.spikeDetected
+
+        val (category, sizeMult) = if (!setupConfirmed7547) {
+            reasons += "NO_CONFIRMED_SCALP_SETUP_7547"
+            "SKIP" to 0.15
+        } else when {
             score >= 80.0 -> "PREMIUM_SCALP" to 1.35
             score >= 65.0 -> "STANDARD_SCALP" to 1.00
             score >= 50.0 -> "PROBE_SCALP" to 0.55
-            else          -> "SKIP" to 0.15  // tiny learning probe, not zero
+            else          -> "SKIP" to 0.15
         }
 
         return ScalpVerdict(score, category, sizeMult, reasons.toList())
     }
 
-    fun statusLine(): String = "$VERSION — scalp-setup brain: 5m+15m momentum × buy pressure × liq depth × whipsaw penalty"
+    fun statusLine(): String = "$VERSION — scalp-setup brain: confirmed momentum × buy pressure × continuation × liq depth × anti-exhaustion"
 }

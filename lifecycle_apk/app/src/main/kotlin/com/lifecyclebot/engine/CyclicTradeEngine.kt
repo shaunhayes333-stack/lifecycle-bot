@@ -200,8 +200,18 @@ object CyclicTradeEngine {
         if(consecutiveLosses>0)floor+=(consecutiveLosses*5).coerceAtMost(15)
         try{floor=(floor+com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod()).coerceIn(25.0,90.0)}catch(_:Throwable){}
         val badExp=try{ScoreExpectancyTracker.shouldReject("CYCLIC",score)}catch(_:Throwable){false};val danger=try{val d=LosingPatternMemory.stats("CYCLIC",score);d.isDangerous&&d.meanPnl<0.0}catch(_:Throwable){false}
-        if(badExp||danger)return CandidateOpinion7542(false,score,conf,"CYCLIC_NEGATIVE_EXPECTANCY_MEMORY")
-        val ok=score.toDouble()>=floor;return CandidateOpinion7542(ok,score,conf,if (ok) "CYCLIC_NATIVE_SCORE_${score}_FLOOR_${floor.toInt()}" else "CYCLIC_SCORE_BELOW_FLOOR_${score}_LT_${floor.toInt()}")
+        // V5.0.7547 — learned negative memory is evidence, not a permanent
+        // admission tombstone. A hard return here made the affected score band
+        // unable to collect new CYCLIC outcomes and therefore unable to recover.
+        // Shape the same entry floor in the same 5-point units already used by
+        // loss-streak caution; sufficiently strong fresh evidence can still pass.
+        if(badExp)floor+=5.0
+        if(danger)floor+=5.0
+        floor=floor.coerceAtMost(90.0)
+        if(badExp||danger)try{PipelineHealthCollector.labelInc("CYCLIC_NEGATIVE_EXPECTANCY_SOFT_SHAPE_7547")}catch(_:Throwable){}
+        val ok=score.toDouble()>=floor
+        val memoryTag=if(badExp||danger)"_MEMORY_SHAPED" else ""
+        return CandidateOpinion7542(ok,score,conf,if (ok) "CYCLIC_NATIVE_SCORE_${score}_FLOOR_${floor.toInt()}$memoryTag" else "CYCLIC_SCORE_BELOW_FLOOR_${score}_LT_${floor.toInt()}$memoryTag")
     }
 
     private data class CyclicPriceVerdict(
