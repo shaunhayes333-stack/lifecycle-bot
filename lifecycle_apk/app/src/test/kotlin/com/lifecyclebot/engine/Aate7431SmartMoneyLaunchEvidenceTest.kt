@@ -54,10 +54,12 @@ class Aate7431SmartMoneyLaunchEvidenceTest {
         assertTrue(start >= 0 && end > start)
         val edge = fdg.substring(start, end)
         assertTrue(edge.contains("canonical PAPER/LIVE edge parity"))
-        assertTrue(edge.contains("SMART_MONEY_EARLY_ENTRY_REDUCED_SIZE_7431"))
+        assertTrue(edge.contains("SMART_MONEY_EARLY_RISK_SHAPE_7549"))
         assertFalse(edge.contains("PAPER BOOTSTRAP PROBE"))
         assertFalse(edge.contains("edge_veto_softened_paper"))
         assertFalse(edge.contains("if (config.paperMode)"))
+        assertTrue(edge.contains("val canonicalEdgeEvidence7549 = strongBuyers7431 || goodLiquidity7431 || decentScore7431"))
+        assertFalse(edge.contains("|| smartMoneyEarly7431"))
     }
 
 }

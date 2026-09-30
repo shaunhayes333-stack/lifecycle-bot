@@ -3342,19 +3342,22 @@ object FinalDecisionGate {
                 com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.Decision(false, 0.0, "BYPASS_EVAL_FAILED")
             }
             val smartMoneyEarly7431 = early7431.allow
+            val canonicalEdgeEvidence7549 = strongBuyers7431 || goodLiquidity7431 || decentScore7431
 
-            if (strongBuyers7431 || goodLiquidity7431 || decentScore7431 || smartMoneyEarly7431) {
+            // V5.0.7549 — smart-money launch evidence is no longer an admission
+            // escape hatch. It may shape an already-admitted early candidate,
+            // but cannot by itself convert EDGE_SKIP into funded PAPER/LIVE capital.
+            if (canonicalEdgeEvidence7549) {
                 val why7431 = when {
-                    smartMoneyEarly7431 -> "smart_money_early score=${effectiveGateScore6025.toInt()} size×${"%.2f".format(early7431.sizeMultiplier)}"
                     strongBuyers7431 -> "buy%=${ts.meta.pressScore.toInt()}>=${minPressure7431.toInt()}"
                     decentScore7431 -> "score=${effectiveGateScore6025.toInt()}>=${minScore7431.toInt()}"
-                    else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=${minLiquidity7431.toInt()}"
+                    else -> "liq=${ts.lastLiquidityUsd.toInt()}>=${minLiquidity7431.toInt()}"
                 }
                 if (smartMoneyEarly7431) {
                     sizeMultiplier *= early7431.sizeMultiplier
-                    checks.add(GateCheck("edge", true, "CANONICAL SMART-MONEY EARLY ENTRY: $why7431"))
-                    tags.add("smart_money_early_reduced_size_7431")
-                    try { PipelineHealthCollector.labelInc("SMART_MONEY_EARLY_ENTRY_REDUCED_SIZE_7431") } catch (_: Throwable) {}
+                    checks.add(GateCheck("edge", true, "CANONICAL edge + smart-money risk shape: $why7431"))
+                    tags.add("smart_money_early_risk_shape_7549")
+                    try { PipelineHealthCollector.labelInc("SMART_MONEY_EARLY_RISK_SHAPE_7549") } catch (_: Throwable) {}
                 } else {
                     checks.add(GateCheck("edge", true, "CANONICAL edge evidence override ($why7431)"))
                     tags.add("canonical_edge_evidence_override_7431")

@@ -3,16 +3,16 @@ package com.lifecyclebot.engine.truth
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.0.6396 — EARLY LAUNCH BYPASS (rescaled to the canonical 0..30 scale).
+ * V5.0.6396 — EARLY LAUNCH RISK SHAPE (rescaled to the canonical 0..30 scale).
  *
  * Successor to EarlyLaunchBypass6394 (which was calibrated to the obsolete
  * 0..100 anchor). On the current effective-score scale a token scoring
  * 12..14 sits below BASELINE=15 but above ABSOLUTE_MIN=12; when
  * SmartMoneyFeed6394 has observed ≥2 whale buys on the mint in the last 60s
- * the trade enters as a 0.30× micro-probe.
+ * the evidence contributes a 0.30× early-risk shape only after canonical edge admission.
  *
- * All hard safety gates (mint/freeze auth, LP, rug, holders) must have
- * already passed upstream — this is score-only bypass.
+ * All hard safety gates must already have passed. This object is evidence/risk shaping only;
+ * callers MUST NOT use allow to rescue a candidate that canonical edge admission rejected.
  */
 object EarlyLaunchBypass6396 {
 
@@ -21,11 +21,11 @@ object EarlyLaunchBypass6396 {
     const val ABSOLUTE_MIN_SCORE: Double = LiveEntryThresholdAuthority6396.ABSOLUTE_MIN.toDouble()
     /** Standard live score floor for probe-zone gating. */
     const val STANDARD_LIVE_SCORE_FLOOR: Double = LiveEntryThresholdAuthority6396.BASELINE.toDouble()
-    /** Micro-probe zone: score band where scout can override the floor. */
+    /** Legacy below-floor observation band. It no longer authorizes admission. */
     const val PROBE_ZONE_MIN: Double = ABSOLUTE_MIN_SCORE
     const val PROBE_ZONE_MAX: Double = STANDARD_LIVE_SCORE_FLOOR - 0.001
 
-    /** Micro-probe size multiplier — mirrors the 6394 setting. */
+    /** Early-risk size multiplier retained for already-admitted canonical candidates. */
     const val EARLY_RISK_SIZE_MULTIPLIER: Double = 0.30
     @Deprecated("V5.0.7431: use EARLY_RISK_SIZE_MULTIPLIER; this is risk shaping, not exploration")
     const val PROBE_SIZE_MULTIPLIER: Double = EARLY_RISK_SIZE_MULTIPLIER
