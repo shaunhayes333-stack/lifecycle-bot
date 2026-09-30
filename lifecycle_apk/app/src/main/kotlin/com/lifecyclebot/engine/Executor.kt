@@ -12529,6 +12529,23 @@ class Executor(
             FinalDecisionGate.ApprovalClass.PAPER_PROBE,
         )
         if (paperExploration7525) {
+            val shadowLane7537 = identity.executionLane
+                .ifBlank { ts.position.tradingMode }
+                .ifBlank { decision.phase }
+                .ifBlank { "STANDARD" }
+            val shadowBudgetAllows7537 = try {
+                com.lifecyclebot.engine.learning.ExplorationBudget.allowShadowSignal(shadowLane7537)
+            } catch (_: Throwable) { true }
+            if (!shadowBudgetAllows7537) {
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_EXPLORATION_SHADOW_BUDGET_REFUSED_7537")
+                    PipelineHealthCollector.labelInc(
+                        "PAPER_EXPLORATION_SHADOW_BUDGET_REFUSED_7537|" +
+                            shadowLane7537.uppercase().take(24)
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
             try {
                 runShadowPaperBuy(
                     ts = ts,
@@ -12541,6 +12558,7 @@ class Executor(
                 )
                 PipelineHealthCollector.labelInc("PAPER_EXPLORATION_ROUTED_SHADOW_7525")
                 PipelineHealthCollector.labelInc("PAPER_EXPLORATION_ROUTED_SHADOW_7525_${fdgApprovalClass.name}")
+                PipelineHealthCollector.labelInc("PAPER_EXPLORATION_SHADOW_BUDGET_ADMIT_7537")
             } catch (_: Throwable) {
                 try { PipelineHealthCollector.labelInc("PAPER_EXPLORATION_SHADOW_ROUTE_ERROR_7525") } catch (_: Throwable) {}
             }
