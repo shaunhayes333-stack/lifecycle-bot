@@ -3552,7 +3552,7 @@ object ExecutableOpenGate {
             ?.takeIf { it.isFinite() && it > 0.0 }
         val authoritativeSize6497 = if (preResolvedSizeSol6490 < 0.0) {
             preResolvedSizeSol6490
-        } else if (immutableResolvedSize7522 != null) {
+        } else if (immutableTicket != null && immutableResolvedSize7522 != null) {
             try {
                 val mutableMintSeal7522 = com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint)
                 if (mutableMintSeal7522 != null &&

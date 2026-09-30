@@ -12601,4 +12601,17 @@ class GoldenTapeRegressionTest {
         assertTrue(script.contains("trap runtime_failure_witness_7437 EXIT") && script.contains("canonicalPhase="))
     }
 
+    @Test
+    fun V5_0_7523_nullable_ticket_guard_preserves_immutable_size_and_precheck() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val block = gate.substringAfter("val immutableResolvedSize7522 =")
+            .substringBefore("val effectiveResolvedSize6497 =")
+        assertTrue(block.contains("immutableTicket?.resolvedSize"))
+        assertTrue(block.contains("immutableTicket != null && immutableResolvedSize7522 != null"))
+        assertFalse(block.contains("immutableTicket!!"))
+        assertTrue(block.indexOf("preResolvedSizeSol6490 < 0.0") < block.indexOf("immutableTicket != null"))
+        assertTrue(block.indexOf("immutableTicket != null") < block.indexOf(".authoritativeSize(mint"))
+        assertTrue(block.contains("MINT_SEAL_IGNORED_IMMUTABLE_INTENT_7522"))
+    }
+
 }

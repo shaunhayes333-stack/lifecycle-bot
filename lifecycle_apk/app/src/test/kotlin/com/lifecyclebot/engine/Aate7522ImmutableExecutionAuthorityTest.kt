@@ -12,6 +12,8 @@ class Aate7522ImmutableExecutionAuthorityTest {
         val block = s.substringAfter("V5.0.7522 — the immutable ExecutionIntent owns")
             .substringBefore("if (effectiveResolvedSize6497 < 0.0)")
         assertTrue(block.contains("immutableTicket?.resolvedSize"))
+        assertTrue(block.contains("immutableTicket != null && immutableResolvedSize7522 != null"))
+        assertFalse(block.contains("immutableTicket!!"))
         assertTrue(block.contains("MINT_SEAL_IGNORED_IMMUTABLE_INTENT_7522"))
         val ticketIdx = block.indexOf("immutableResolvedSize7522 != null")
         val legacyIdx = block.indexOf(".authoritativeSize(mint")

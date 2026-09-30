@@ -17,7 +17,7 @@ class Aate7458SpecialistCapitalContinuityTest {
     @Test fun proposal_registry_is_lane_plus_mint_not_single_owner_per_mint() {
         val s = src("engine/truth/GlobalCapitalArbitration6617.kt")
         assertTrue(s.contains("specialistKey7458(lane: String, mint: String)"))
-        assertTrue(s.contains("\"${lane.trim().uppercase()}|${mint.trim()}\""))
+        assertTrue(s.contains("\"\${lane.trim().uppercase()}|\${mint.trim()}\""))
         assertTrue(s.contains("specialistProposals7458"))
     }
 

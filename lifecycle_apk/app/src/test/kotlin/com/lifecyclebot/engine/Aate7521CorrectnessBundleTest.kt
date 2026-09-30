@@ -9,7 +9,9 @@ class Aate7521CorrectnessBundleTest {
 
     @Test fun crypto_has_one_canonical_entry_authority_after_seal() {
         val s = src("perps/CryptoAltTrader.kt")
-        val post = s.substringAfter("val canonicalCryptoAdmission6565 =")
+        val sealedIntent = "val canonicalCryptoIntent6565 = when (canonicalCryptoAdmission6565)"
+        assertTrue(s.contains(sealedIntent))
+        val post = s.substringAfter(sealedIntent)
         val beforePaper = post.substringBefore("if (authoritativePaperMode7425())")
         assertFalse(beforePaper.contains("val finalExecutableVerdict6647 = ExecutableOpenGate.canOpenExecutablePosition"))
         assertTrue(beforePaper.contains("CRYPTO_POST_SEAL_DUPLICATE_GATE_ELIMINATED_7521"))

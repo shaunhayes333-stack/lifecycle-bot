@@ -17,8 +17,7 @@ class Aate7492CryptoDiscoveryReportMemoTest {
 
     @Test fun memo_is_report_only() {
         val s = src()
-        val fn = s.substringAfter("fun discoveryReport6544(): String").substringBefore("
-    fun ", "")
+        val fn = s.substringAfter("fun discoveryReport6544(): String").substringBefore("\n    fun ")
         assertTrue(fn.contains("registry.values.toList()"))
         assertFalse(fn.contains("markEvaluationStarted6567"))
         assertFalse(fn.contains("CanonicalEntryAuthority6551.submit"))

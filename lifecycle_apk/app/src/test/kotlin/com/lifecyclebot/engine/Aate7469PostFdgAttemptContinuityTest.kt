@@ -10,7 +10,7 @@ class Aate7469PostFdgAttemptContinuityTest {
     @Test fun express_reuses_sealed_attempt_before_fresh_fallback() {
         val s = bot()
         val block = s.substringAfter("val expressAttemptId7389 =")
-            .substringBefore("val authResult = TradeAuthorizer.authorize(", s.indexOf("val expressAttemptId7389 ="))
+            .substringBefore("val authResult = TradeAuthorizer.authorize(")
         assertTrue(block.contains("sealedSpecialistAttempt7468("))
         assertTrue(block.contains("nextAttemptId(ts.mint, \"EXPRESS\")"))
     }
@@ -18,7 +18,7 @@ class Aate7469PostFdgAttemptContinuityTest {
     @Test fun shitcoin_reuses_sealed_attempt_before_fresh_fallback() {
         val s = bot()
         val block = s.substringAfter("val shitCoinAttemptId7389 =")
-            .substringBefore("val authResult = TradeAuthorizer.authorize(", s.indexOf("val shitCoinAttemptId7389 ="))
+            .substringBefore("val authResult = TradeAuthorizer.authorize(")
         assertTrue(block.contains("sealedSpecialistAttempt7468("))
         assertTrue(block.contains("nextAttemptId(ts.mint, \"SHITCOIN\")"))
     }
