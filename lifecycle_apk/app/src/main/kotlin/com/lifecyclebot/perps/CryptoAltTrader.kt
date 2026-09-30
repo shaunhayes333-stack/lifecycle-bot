@@ -3405,33 +3405,18 @@ object CryptoAltTrader {
         }
         val canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize
         try { ForensicLogger.phase(ForensicLogger.PHASE.FDG, candidate.symbol, "path=CRYPTO_ALT mode=${canonicalCryptoIntent6565.mode} verdict=${canonicalCryptoIntent6565.fdgVerdict} sealed=true attemptId=${canonicalCryptoIntent6565.attemptId}") } catch (_: Throwable) {}
-        val finalExecutableVerdict6647 = ExecutableOpenGate.canOpenExecutablePosition(
-            mint = canonicalCryptoIntent6565.mint,
-            symbol = canonicalCryptoIntent6565.symbol,
-            rugScore = 100,
-            mode = canonicalCryptoIntent6565.mode,
-            lane = canonicalCryptoIntent6565.canonicalLane,
-            source = "CanonicalEntryAuthority6551.finalExecutableGate6647",
-            attemptId = canonicalCryptoIntent6565.attemptId,
-            liveLiquidityUsd = canonicalCryptoIntent6565.liquidityUsd,
-            liveSafetyTier = canonicalCryptoIntent6565.safetyTier,
-            lastSafetyCheckMs = System.currentTimeMillis(),
-            preResolvedSizeSol6490 = canonicalCryptoIntent6565.resolvedSize,
-            electedLane6494 = canonicalCryptoIntent6565.canonicalLane,
-            electedCandidateVersion6494 = canonicalCryptoIntent6565.candidateVersion,
-            authorityVersion6494 = canonicalCryptoIntent6565.authorityVersion,
-        )
-        val executable6647 = finalExecutableVerdict6647.allowed && !finalExecutableVerdict6647.shadowOnly &&
-            !finalExecutableVerdict6647.reason.contains("SIZE_PENDING", ignoreCase = true)
-        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(executable6647)
-        if (!executable6647) {
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(
-                canonicalCryptoIntent6565,
-                "FINAL_EXECUTABLE_GATE:${finalExecutableVerdict6647.logName}:${finalExecutableVerdict6647.reason}",
-            )
-            terminalDisposition6613("FINAL_EXECUTABLE_GATE_BLOCKED:${finalExecutableVerdict6647.reason}", "AUTHORITY")
-            return
-        }
+        // V5.0.7521 — CanonicalEntryAuthority6551.submit() already owns the
+        // authoritative pre-entry gate, sizing resolution, FDG outcome and immutable
+        // intent seal. Re-running ExecutableOpenGate here created a second admission
+        // authority AFTER the intent existed. Runtime 5.0.7518 proved the contradiction:
+        // CRYPTO_ALT intent=22, dispatch=0, dispatchReject=22 while every sealed intent
+        // had already passed canonical FDG+sizing. Venue/finality safety remains in the
+        // paper canonical transaction and live venue executor; do not re-admit the same
+        // trade through a mutable second gate.
+        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(true)
+        try {
+            PipelineHealthCollector.labelInc("CRYPTO_POST_SEAL_DUPLICATE_GATE_ELIMINATED_7521")
+        } catch (_: Throwable) {}
         try {
             DynamicAltTokenRegistry.markEvaluationDisposition6567(
                 DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey),

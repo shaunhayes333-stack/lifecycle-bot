@@ -310,10 +310,26 @@ object CanonicalPaperTransaction6486 {
             .associateBy { it.positionId }
         if (positions.isEmpty()) return
 
-        positions.values.forEach { ensureOpenProjection6659(it) }
+        // V5.0.7521 — do not create an OPEN journal basis for an historical
+        // CLOSED cross-asset row until durable terminal economics prove that basis
+        // can also be closed. 7518 carried a ~40.64 SOL replay open-cost delta while
+        // the current canonical account conserved exactly; unconditional historical
+        // OPEN projection was capable of creating permanent replay-only inventory.
         val typedEvents = EconomicEventSchema6464.snapshot()
             .filter { it.mode.equals("paper", true) && positions.containsKey(it.positionId) }
             .sortedBy { it.atMs }
+        val positionsWithDurableSell7521 = typedEvents
+            .filterIsInstance<EconomicEventSchema6464.Sell>()
+            .mapTo(HashSet()) { it.positionId }
+        positions.values.forEach { p ->
+            if (p.lifecycle != CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
+                p.positionId in positionsWithDurableSell7521
+            ) {
+                ensureOpenProjection6659(p)
+            } else try {
+                PipelineHealthCollector.labelInc("HISTORY_OPEN_PROJECTION_WITHHELD_NO_TERMINAL_7521")
+            } catch (_: Throwable) {}
+        }
         val buyByPosition = typedEvents.filterIsInstance<EconomicEventSchema6464.Buy>()
             .associateBy { it.positionId }
         val sellSequence = mutableMapOf<String, Long>()

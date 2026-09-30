@@ -136,9 +136,14 @@ object FinalizedLearningReconciler7423 {
             // already permits a missing EntryStrategySnapshot.
             val rich = CanonicalFinalityPersistence6486.durableEventForPosition7459(p.positionId)
             val entry = EntryStrategySnapshot6450.snapshot(p.positionId)
-            if (entry == null && rich == null) {
-                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_ENTRY_SNAPSHOT_MISSING_7459") } catch (_: Throwable) {}
-                continue
+            val terminalOnly7521 = entry == null && rich == null
+            if (terminalOnly7521) {
+                // V5.0.7521 — CLOSED + exact full durable SELL is terminal truth even
+                // when the optional entry-strategy snapshot was lost historically.
+                // Publish it so CLOSED==bus can converge, but mark it non-trainable:
+                // no tactic/style/score is invented and no learner may treat the
+                // reconstructed envelope as strategy evidence.
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_TERMINAL_ONLY_NO_ENTRY_7521") } catch (_: Throwable) {}
             }
             if (entry != null) {
                 val entryProv = entry.entrySource.uppercase()
@@ -151,7 +156,9 @@ object FinalizedLearningReconciler7423 {
             val netPct = rich?.netReturnPct ?: (netPnl / sell.allocatedCostBasisSol * 100.0)
             if (!netPnl.isFinite() || !netPct.isFinite()) continue
 
-            val eligibility = try {
+            val eligibility = if (terminalOnly7521) {
+                PaperLearningEligibility6519.Decision(false, "DURABLE_TERMINAL_NO_ENTRY_SNAPSHOT_7521")
+            } else try {
                 PaperLearningEligibility6519.decision(p.positionId, p.mint)
             } catch (_: Throwable) {
                 PaperLearningEligibility6519.Decision(false, "ELIGIBILITY_LOOKUP_FAILED_7459")

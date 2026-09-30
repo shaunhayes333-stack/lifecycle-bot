@@ -518,6 +518,13 @@ object SpecialistCausalFunnel6625 {
             } catch (_: Throwable) {}
             return
         }
+        // V5.0.7521 — direct downstream writers (SIZE/TICKET/EXEC/OPEN) do not
+        // all flow through ToolkitSignalSheet.recordDeskStage. Recover provenance-
+        // proven intake affinity here as well, at the canonical recorder, so a real
+        // OPEN cannot be invalidated merely because its caller skipped the helper.
+        if (stage.ordinal >= Stage.OWNER.ordinal) {
+            try { ensureAffinityLineage7464(key, stage) } catch (_: Throwable) {}
+        }
         // V5.0.7508 — every causal record creation path MUST flow
         // through the lane-indexing helper. 7480 accidentally left stamp6625
         // on raw records.computeIfAbsent, which created real records with no
