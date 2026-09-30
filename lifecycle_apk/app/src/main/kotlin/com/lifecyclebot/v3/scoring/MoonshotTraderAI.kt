@@ -507,8 +507,10 @@ object MoonshotTraderAI {
         // score 0 remains blocked; genuinely low confirmed scores 2..14 remain
         // rejected in live. Pending score 1 passes with FDG/Executor size caps.
         val pendingRc = rugcheckScore == 1
-        val minRcScore = if (isPaper || pendingRc) 1 else 15
-        if (rugcheckScore < minRcScore || (!isPaper && rugcheckScore in 2 until minRcScore)) {
+        // V5.0.7550 — pending RC=1 remains pending in both modes; confirmed
+        // low RC 2..14 is rejected in both modes.
+        val minRcScore = if (pendingRc) 1 else 15
+        if (rugcheckScore < minRcScore) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
 
@@ -671,11 +673,13 @@ object MoonshotTraderAI {
         // live-mode floors and the lane is REDUCED_SIZE_EXECUTION 0.60× anyway,
         // so size is already contained). The bar a Moonshot must clear is now
         // "marginally selective" instead of "anything that looks alive".
+        // V5.0.7550 — score-floor learning must rehearse the same bar that
+        // LIVE will execute. Mode changes settlement mechanics, not strategy quality.
         val minScoreRaw = when {
-            learningProgress < 0.1 -> if (isPaper) 20 else 30
-            learningProgress < 0.3 -> if (isPaper) 28 else 38
-            learningProgress < 0.5 -> if (isPaper) 38 else 48
-            else                   -> if (isPaper) 52 else 60
+            learningProgress < 0.1 -> 30
+            learningProgress < 0.3 -> 38
+            learningProgress < 0.5 -> 48
+            else                   -> 60
         }
         // V5.9.1328 — ROOT FIX D: apply GATE_RELAXER multiplier in PAPER too.
         // Operator snapshot showed MOONSHOT rejecting score=44 base=45 — a

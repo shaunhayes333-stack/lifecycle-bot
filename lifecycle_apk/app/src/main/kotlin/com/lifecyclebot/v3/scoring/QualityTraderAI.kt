@@ -283,11 +283,10 @@ object QualityTraderAI {
         // learning progress, drop the floor to 1 min so the lane can
         // collect labelled samples like the rest of the V5.9.662
         // family. Live mode + mature paper unchanged.
-        val minAgeRequired = when {
-            isPaperMode && learningProgress < 0.5 -> 1.0  // paper-bootstrap
-            learningProgress < 0.5                -> MIN_AGE_MINUTES_BOOTSTRAP.toDouble()
-            else                                  -> MIN_AGE_MINUTES_MATURE.toDouble()
-        }
+        // V5.0.7550 — PAPER rehearses the same Quality pond as LIVE.
+        val minAgeRequired = if (learningProgress < 0.5)
+            MIN_AGE_MINUTES_BOOTSTRAP.toDouble()
+        else MIN_AGE_MINUTES_MATURE.toDouble()
         
         if (tokenAgeMinutes < minAgeRequired) {
             return QualitySignal(false, reason = "Too new: ${tokenAgeMinutes.toInt()}min < ${minAgeRequired.toInt()}min (learning=${(learningProgress*100).toInt()}%)")
@@ -568,7 +567,8 @@ object QualityTraderAI {
                 laneName = "QUALITY",
                 requestedSol = _qualitySizedSol,
                 walletSol = walletSolProxy,
-                paperMode = true,
+                // V5.0.7550 — do not send LIVE Quality sizing through PAPER capital rules.
+                paperMode = isPaperMode,
             )
             kotlin.math.min(bridged, _qualitySizedSol)
         } catch (_: Throwable) { _qualitySizedSol }

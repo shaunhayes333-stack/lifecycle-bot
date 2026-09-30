@@ -102,8 +102,9 @@ object DipHunterAI {
     private const val DAILY_MAX_LOSS_SOL = 0.20     // Max 0.2 SOL daily loss
     private const val DAILY_MAX_HUNTS = 500         // V5.9.613: live throughput parity with paper target
     private const val PAPER_DAILY_MAX_HUNTS = 500   // V5.9.610: paper target = 500+ trades/day
-    private const val PAPER_RE_DIP_COOLDOWN_MS = 5L * 60_000L
-    private const val LIVE_RE_DIP_COOLDOWN_MS = 2L * 60L * 60_000L
+    // V5.0.7550 — identical re-entry cadence in PAPER/LIVE so paper does not
+    // train on repeat-dips that LIVE would refuse for two hours.
+    private const val RE_DIP_COOLDOWN_MS = 2L * 60L * 60_000L
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -267,7 +268,7 @@ object DipHunterAI {
         // catastrophic drawdown. This preserves sample flow + daily compounding
         // opportunities while shrinking the lane after local bleed.
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        val dailyLossRecoveryProbe = !isPaperMode && dailyPnl <= -DAILY_MAX_LOSS_SOL
+        val dailyLossRecoveryProbe = dailyPnl <= -DAILY_MAX_LOSS_SOL
         if (dailyLossRecoveryProbe) {
             ErrorLogger.warn(TAG, "📉🎯 DIP_DAILY_LOSS_RECOVERY_PROBE_4222: pnl=${dailyPnl.fmt(3)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(3)}◎ — size×0.35")
         }
@@ -290,7 +291,7 @@ object DipHunterAI {
         
         // Recently dip-bought
         val lastDip = recentDips[mint]
-        val redipCooldown = if (isPaperMode) PAPER_RE_DIP_COOLDOWN_MS else LIVE_RE_DIP_COOLDOWN_MS
+        val redipCooldown = RE_DIP_COOLDOWN_MS
         if (lastDip != null && System.currentTimeMillis() - lastDip < redipCooldown) {
             return noDip("RECENT_DIP: waited < ${redipCooldown / 60_000}m")
         }

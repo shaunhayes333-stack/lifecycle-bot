@@ -527,7 +527,8 @@ object CashGenerationAI {
         // "cash generator/treasury isn't running". Align the doctrines: keep a
         // real anti-rug depth floor but open the scalp pond ($5K paper / $10K
         // live). Score threshold + anti-FOMO clamp + FDG remain unchanged.
-        val learnedTreasuryMinLiq = if (isPaperMode) 5_000.0 else 10_000.0
+        // V5.0.7550 — identical Treasury/CashGen admission pond in PAPER and LIVE.
+        val learnedTreasuryMinLiq = 10_000.0
         val treasuryMinLiq = com.lifecyclebot.engine.ColdStartPriors.applyLiquidityFloor("TREASURY", learnedTreasuryMinLiq)
         if (liquidityUsd > 0.0 && liquidityUsd < treasuryMinLiq) {
             try { TreasuryCashflowMissionReport.recordRejected("treasury_liq_floor_${liquidityUsd.toInt()}_below_${treasuryMinLiq.toInt()}", mode.name, isPaperMode) } catch (_: Throwable) {}

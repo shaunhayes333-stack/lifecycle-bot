@@ -1292,3 +1292,29 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] SpecialistBrainBridge cache identity now includes the momentum, volatility, holder, Treasury-meta, safety/bundle, sentiment, tool-affinity and venue evidence consumed by native brains.
 - [x] A fast evidence change can therefore invalidate an authoritative native ALLOW/VETO without waiting only for cache TTL expiry.
 - [x] No scanner source, specialist lane, native brain, learning path or execution safety authority was removed.
+
+
+## V5.0.7548 — PAPER/LIVE canonical decision parity
+
+- [x] PAPER probes/exploration no longer spend canonical capital.
+- [x] Only PAPER_BENCHMARK decisions that pass LIVE-equivalent rules can open canonical paper positions.
+- [x] Proven consensus evidence is mode-neutral.
+- [x] ExecutableOpenGate accepts BUY only as economic finality.
+
+
+## V5.0.7549 — early-launch evidence is risk shaping only
+
+- [x] Smart-money early-launch evidence cannot rescue an EDGE_SKIP into funded capital.
+- [x] EarlyLaunchBypass6396 is explicitly risk shaping on an already-admitted candidate.
+- [x] Legacy fresh-launch scanner remains unwired instead of duplicating LaunchPhase/ModeRouter.
+
+
+## V5.0.7550 — native specialist PAPER/LIVE parity
+
+- [x] QUALITY uses the same age floor in PAPER and LIVE at the same learning maturity.
+- [x] QUALITY sizing passes the actual runtime mode into TraderSizingBridge6444 instead of hardcoding paperMode=true.
+- [x] CASHGEN/TREASURY uses the same $10k native liquidity pond in PAPER and LIVE.
+- [x] MOONSHOT treats pending RC=1 identically in both modes and rejects confirmed RC 2..14 in both.
+- [x] MOONSHOT uses one native score-floor schedule (30/38/48/60) in both modes.
+- [x] DIP_HUNTER uses the same 2-hour re-entry cooldown and the same lane-loss recovery shaping in both modes.
+- [x] Existing hard safety, canonical FDG, sizing authority, exit logic and execution adapters remain intact.
