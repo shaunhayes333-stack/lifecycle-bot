@@ -41,37 +41,40 @@ object LayerVoteSampler {
             safeVote("BehaviorAI", ::voteBehavior, ts, votes)
             safeVote("FluidLearningAI", ::voteFluidLearning, ts, votes)
             safeVote("MomentumPredictorAI", ::voteMomentum, ts, votes)
-            safeVote("QualityTraderAI", ::voteQuality, ts, votes)
             safeVote("VolatilityRegimeAI", ::voteVolatility, ts, votes)
             safeVote("LiquidityCycleAI", ::voteLiquidityCycle, ts, votes)
             safeVote("FearGreedAI", ::voteFearGreed, ts, votes)
             safeVote("MarketRegimeAI", ::voteMarketRegime, ts, votes)
             safeVote("SocialVelocityAI", ::voteSocialVelocity, ts, votes)
-            safeVote("CashGenerationAI", ::voteCashGen, ts, votes)
             safeVote("EducationSubLayerAI", ::voteEducation, ts, votes)
             safeVote("MetaCognitionAI", ::voteMetaCognition, ts, votes)
             safeVote("RegimeTransitionAI", ::voteRegimeTransition, ts, votes)
             safeVote("SmartMoneyDivergenceAI", ::voteSmartMoney, ts, votes)
-            safeVote("DipHunterAI", ::voteDipHunter, ts, votes)
             safeVote("SellOptimizationAI", ::voteSellOpt, ts, votes)
             safeVote("HoldTimeOptimizerAI", ::voteHoldTime, ts, votes)
             safeVote("WhaleTrackerAI", ::voteWhale, ts, votes)
             safeVote("UltraFastRugDetectorAI", ::voteRugDetector, ts, votes)
             safeVote("OrderFlowImbalanceAI", ::voteOrderFlow, ts, votes)
             safeVote("CollectiveIntelligenceAI", ::voteCollective, ts, votes)
-            safeVote("MoonshotTraderAI", ::voteMoonshot, ts, votes)
-            safeVote("ShitCoinTraderAI", ::voteShitCoin, ts, votes)
-            safeVote("ShitCoinExpress", ::voteShitCoinExpress, ts, votes)
-            safeVote("BlueChipTraderAI", ::voteBlueChip, ts, votes)
-            safeVote("ProjectSniperAI", ::voteProjectSniper, ts, votes)
-            // V5.9.1266 — CROSS-TALK: plug the autonomous organs (1260-1263) into
-            // the education/vote-grading chain. Before this they learned in
-            // isolation — consuming committee signals but never broadcasting a
-            // gradeable opinion back, so the network's trust/reflection systems
-            // were blind to the four smartest layers. Now they vote like every
-            // other layer → LayerVoteStore grades their accuracy, Sentience
-            // Orchestrator can reflect on them, and their knowledge flows into
-            // the shared network instead of dead-ending. Abstain-safe.
+
+            // V5.0.7542 — specialist learning grades the exact native brain
+            // opinions used by ownership, not duplicated hand-written predicates.
+            val native = com.lifecyclebot.engine.SpecialistBrainBridge7542.evaluate(ts)
+            val layerNames = mapOf(
+                "QUALITY" to "QualityTraderAI", "BLUECHIP" to "BlueChipTraderAI",
+                "SHITCOIN" to "ShitCoinTraderAI", "CYCLIC" to "CyclicTradeEngine",
+                "EXPRESS" to "ShitCoinExpress", "CORE" to "CORE",
+                "MOONSHOT" to "MoonshotTraderAI", "PROJECT_SNIPER" to "ProjectSniperAI",
+                "DIP_HUNTER" to "DipHunterAI", "MANIPULATED" to "ManipulatedTraderAI",
+                "TREASURY" to "TreasuryBrain", "CASHGEN" to "CashGenerationAI",
+            )
+            native.opinions.forEach { (lane, op) ->
+                if (op.authoritative && op.gradeable) {
+                    val conviction = (maxOf(op.score, op.confidence) / 100.0).coerceIn(0.05, 1.0)
+                    votes[layerNames[lane] ?: lane] = LayerVoteStore.Vote(op.eligible, conviction)
+                }
+            }
+
             safeVote("ForwardOutcomeModel", ::voteForwardModel, ts, votes)
             safeVote("AutonomousMetaPolicy", ::voteMetaPolicy, ts, votes)
             LayerVoteStore.recordVotes(ts.mint, votes)

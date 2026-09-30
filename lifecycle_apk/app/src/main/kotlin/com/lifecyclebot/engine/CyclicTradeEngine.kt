@@ -184,6 +184,26 @@ object CyclicTradeEngine {
     fun setEnabled(on: Boolean) { enabled.set(on) }
     fun isEnabled(): Boolean = enabled.get()
 
+    data class CandidateOpinion7542(val eligible:Boolean,val score:Int,val confidence:Int,val reason:String)
+    fun evaluateCandidate7542(ts:TokenState,isLive:Boolean):CandidateOpinion7542{
+        if(!EnabledTraderAuthority.isEnabled(EnabledTraderAuthority.Trader.CYCLIC))return CandidateOpinion7542(false,0,0,"CYCLIC_DISABLED")
+        if(isInPosition)return CandidateOpinion7542(false,0,0,"CYCLIC_RING_POSITION_ACTIVE")
+        if(ts.position.isOpen||com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint))return CandidateOpinion7542(false,0,0,"POSITION_ALREADY_OPEN")
+        val age=ts.lastPriceUpdate.takeIf{it>0L}?.let{(System.currentTimeMillis()-it).coerceAtLeast(0L)}
+        if(ts.lastPrice<=0.0||age==null||age>90_000L)return CandidateOpinion7542(false,0,0,"PRICE_NOT_FRESH")
+        if(!cyclicEntrySellabilityGuard6097(ts,"native_brain_7542",isLive))return CandidateOpinion7542(false,0,0,"SELLABILITY_REJECT")
+        if(TokenBlacklist.isBlocked(ts.mint)||MemeLossStreakGuard.isBlocked(ts.mint))return CandidateOpinion7542(false,0,0,"KNOWN_BAD_MINT")
+        val score=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100);val conf=(ts.lastV3Confidence?:50).coerceIn(0,100)
+        val bootstrap=try{com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()<0.40}catch(_:Throwable){false}
+        val wr=if(cycleCount>0)winCount*100.0/cycleCount.toDouble()else 0.0;val cold=cycleCount>=3&&(wr<35.0||ringBalanceUsd<lockedFloorUsd.coerceAtLeast(RING_SIZE_USD)*0.80)
+        var floor=when{cold->COLD_MIN_SCORE_TO_ENTER;bootstrap->MIN_SCORE_TO_ENTER_BOOTSTRAP;else->MIN_SCORE_TO_ENTER}
+        if(consecutiveLosses>0)floor+=(consecutiveLosses*5).coerceAtMost(15)
+        try{floor=(floor+com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod()).coerceIn(25.0,90.0)}catch(_:Throwable){}
+        val badExp=try{ScoreExpectancyTracker.shouldReject("CYCLIC",score)}catch(_:Throwable){false};val danger=try{val d=LosingPatternMemory.stats("CYCLIC",score);d.isDangerous&&d.meanPnl<0.0}catch(_:Throwable){false}
+        if(badExp||danger)return CandidateOpinion7542(false,score,conf,"CYCLIC_NEGATIVE_EXPECTANCY_MEMORY")
+        val ok=score.toDouble()>=floor;return CandidateOpinion7542(ok,score,conf,if(ok)"CYCLIC_NATIVE_SCORE_${score}_FLOOR_${floor.toInt()}"else"CYCLIC_SCORE_BELOW_FLOOR_${score}_LT_${floor.toInt()}")
+    }
+
     private data class CyclicPriceVerdict(
         val ok: Boolean,
         val price: Double = 0.0,
