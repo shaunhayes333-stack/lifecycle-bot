@@ -352,40 +352,56 @@ object CanonicalPaperReplay6464 {
         val ledgerOpenCostScoped6743 = canonicalLiveMints6743.values
             .sumOf { it.remainingCostBasisSol.coerceAtLeast(0.0) }
 
-        // V5.0.7474 — exact-position parity. A mint can be closed and later
-        // re-entered; the legacy perMint replay bucket can therefore retain
-        // historical/carry basis for the same mint while canonical inventory
-        // contains only the new position. When every CURRENT active position
-        // has typed-event basis in this replay window, compare by positionId.
-        // If even one current position predates the window, keep the existing
-        // mint/carry path rather than inventing an allocation.
+        // V5.0.7544 — HYBRID current-position parity.
+        //
+        // 7474 required EVERY current position to have typed-event basis before
+        // positionId scoping could be used. One old carry position therefore
+        // forced the entire account back to per-mint history, where closed +
+        // re-entered mints can retain historical basis and manufacture a huge
+        // openCost delta even while current canonical/registry/cash all agree.
+        //
+        // Audit each CURRENT position independently:
+        //   * covered position -> replay exact typed basis;
+        //   * pre-window position -> canonical current basis is neutral carry.
+        // No economics are invented: uncovered history contributes zero delta,
+        // while every covered current position remains fully audited.
         val canonicalOpenPositions7474 = try {
             CanonicalPositionAuthority6441.openPositions()
                 .filter { it.mode.equals("paper", true) && it.remainingQtyRaw > BigInteger.ZERO }
         } catch (_: Throwable) { emptyList() }
-        val exactPositionCoverage7474 = canonicalOpenPositions7474.isNotEmpty() &&
-            canonicalOpenPositions7474.all { snap.perPositionRemainingCostSol7474.containsKey(it.positionId) }
-        if (exactPositionCoverage7474) {
-            val replayExactOpen7474 = canonicalOpenPositions7474.sumOf {
-                (snap.perPositionRemainingCostSol7474[it.positionId] ?: 0.0).coerceAtLeast(0.0)
-            }
-            val canonicalExactOpen7474 = canonicalOpenPositions7474.sumOf {
+        var hybridPositionScopeApplied7544 = false
+        if (canonicalOpenPositions7474.isNotEmpty()) {
+            val canonicalCurrentOpen7544 = canonicalOpenPositions7474.sumOf {
                 (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0)
             }
-            val ledgerAgreesExact7474 = ledgerOpen.isFinite() &&
-                kotlin.math.abs(canonicalExactOpen7474 - ledgerOpen) <= toleranceSol
-            if (ledgerAgreesExact7474) {
-                val exactDelta7474 = replayExactOpen7474 - canonicalExactOpen7474
-                if (kotlin.math.abs(exactDelta7474) < kotlin.math.abs(openDelta)) {
+            val ledgerAgreesCurrent7544 = ledgerOpen.isFinite() &&
+                kotlin.math.abs(canonicalCurrentOpen7544 - ledgerOpen) <= toleranceSol
+            if (ledgerAgreesCurrent7544) {
+                val covered7544 = canonicalOpenPositions7474.count {
+                    snap.perPositionRemainingCostSol7474.containsKey(it.positionId)
+                }
+                val uncovered7544 = canonicalOpenPositions7474.size - covered7544
+                val replayHybridOpen7544 = canonicalOpenPositions7474.sumOf { p ->
+                    snap.perPositionRemainingCostSol7474[p.positionId]
+                        ?.coerceAtLeast(0.0)
+                        ?: (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0)
+                }
+                val hybridDelta7544 = replayHybridOpen7544 - canonicalCurrentOpen7544
+                if (covered7544 > 0 && kotlin.math.abs(hybridDelta7544) <= kotlin.math.abs(openDelta)) {
                     try {
-                        PipelineHealthCollector.labelInc("PAPER_REPLAY_OPEN_COST_SCOPED_TO_POSITION_ID_7474")
+                        PipelineHealthCollector.labelInc("PAPER_REPLAY_OPEN_COST_HYBRID_POSITION_SCOPE_7544")
+                        if (uncovered7544 > 0) {
+                            PipelineHealthCollector.labelInc("PAPER_REPLAY_OPEN_COST_PREWINDOW_CARRY_NEUTRAL_7544")
+                        }
                         ForensicLogger.lifecycle(
-                            "PAPER_REPLAY_OPEN_COST_SCOPED_TO_POSITION_ID_7474",
-                            "rawOpenΔ=${"%.4f".format(openDelta)} exactOpenΔ=${"%.4f".format(exactDelta7474)} " +
-                                "positions=${canonicalOpenPositions7474.size} action=replace_mint_scope_with_exact_active_lots",
+                            "PAPER_REPLAY_OPEN_COST_HYBRID_POSITION_SCOPE_7544",
+                            "rawOpenΔ=${"%.4f".format(openDelta)} hybridOpenΔ=${"%.4f".format(hybridDelta7544)} " +
+                                "covered=$covered7544 uncovered=$uncovered7544 positions=${canonicalOpenPositions7474.size} " +
+                                "action=audit_typed_positions_neutralize_only_pre_window_carry",
                         )
                     } catch (_: Throwable) {}
-                    openDelta = exactDelta7474
+                    openDelta = hybridDelta7544
+                    hybridPositionScopeApplied7544 = true
                 }
             }
         }
@@ -398,7 +414,7 @@ object CanonicalPaperReplay6464 {
         // real ledger drift.
         val scopedLedgerAgreesLedger6743 =
             ledgerOpen.isFinite() && kotlin.math.abs(ledgerOpenCostScoped6743 - ledgerOpen) <= toleranceSol
-        if (scopedLedgerAgreesLedger6743) {
+        if (!hybridPositionScopeApplied7544 && scopedLedgerAgreesLedger6743) {
             val scopedOpenDelta6743 = replayOpenCostScoped6743 - ledgerOpenCostScoped6743
             if (kotlin.math.abs(scopedOpenDelta6743) < kotlin.math.abs(openDelta)) {
                 try {

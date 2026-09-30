@@ -12,8 +12,10 @@ object FinalizedLearningReconciler7423 {
         LEGACY_REPLAY,
         DUPLICATE,
         CORRUPT_ENTRY,
-        /** Durable full terminal proof exists, but finalized bus publication is absent. */
+        /** Durable full terminal proof exists and the current repair path can publish it. */
         BUS_PUBLISH_FAILED,
+        /** Full terminal proof exists, but exact economics/lane are insufficient for safe publication. */
+        DURABLE_TERMINAL_UNREPAIRABLE,
         /** Historical CLOSED row with no durable full terminal proof to safely replay. */
         HISTORICAL_NO_DURABLE_FINALITY,
         UNKNOWN,
@@ -21,7 +23,7 @@ object FinalizedLearningReconciler7423 {
     data class Missing(val positionId: String, val reason: Reason, val detail: String)
     data class Snapshot(val canonicalClosed: Int, val finalizedPublished: Int, val missing: List<Missing>) {
         val unexplained: Int get() = missing.count { it.reason == Reason.UNKNOWN }
-        val explicitExcluded: Int get() = missing.count { it.reason in setOf(Reason.ECONOMICS_QUARANTINED, Reason.LEGACY_REPLAY, Reason.DUPLICATE, Reason.CORRUPT_ENTRY) }
+        val explicitExcluded: Int get() = missing.count { it.reason in setOf(Reason.ECONOMICS_QUARANTINED, Reason.LEGACY_REPLAY, Reason.DUPLICATE, Reason.CORRUPT_ENTRY, Reason.DURABLE_TERMINAL_UNREPAIRABLE) }
     }
 
     private data class SnapshotCache7493(val key: String, val value: Snapshot)
@@ -50,21 +52,44 @@ object FinalizedLearningReconciler7423 {
             // when durable typed economics contains a full terminal SELL for
             // the same canonical positionId. Otherwise it is a historical
             // finality gap that cannot be safely replayed without inventing PnL.
-            val fullTerminalByPosition7432 = try {
-                EconomicEventSchema6464.fullTerminalPositionIds7500()
-            } catch (_: Throwable) { emptySet<String>() }
+            val fullTerminalSells7544 = try {
+                EconomicEventSchema6464.fullTerminalSellsByPosition7500()
+            } catch (_: Throwable) { emptyMap<String, List<EconomicEventSchema6464.Sell>>() }
+            val fullTerminalByPosition7432 = fullTerminalSells7544.keys
 
             val missing = closed.asSequence()
                 .filter { it.positionId !in publishedIds }
                 .map { p ->
                     val src = p.entryPriceSource.uppercase()
                     val q = p.quarantineReason.uppercase()
+                    val terminal7544 = fullTerminalSells7544[p.positionId]?.maxByOrNull { it.atMs }
+                    val rich7544 = if (terminal7544 != null) try {
+                        CanonicalFinalityPersistence6486.durableEventForPosition7459(p.positionId)
+                    } catch (_: Throwable) { null } else null
+                    val lane7544 = (rich7544?.entryLane ?: p.lane).trim()
+                    val hasUsableBasis7544 = rich7544 != null ||
+                        (terminal7544?.allocatedCostBasisSol?.isFinite() == true &&
+                            (terminal7544.allocatedCostBasisSol > 0.0))
+                    val netPnl7544 = when {
+                        rich7544 != null -> rich7544.netRealizedPnlSol
+                        terminal7544 != null -> terminal7544.realizedPnlSol - terminal7544.exitFeesSol
+                        else -> Double.NaN
+                    }
+                    val netPct7544 = when {
+                        rich7544 != null -> rich7544.netReturnPct
+                        terminal7544 != null && hasUsableBasis7544 ->
+                            netPnl7544 / terminal7544.allocatedCostBasisSol * 100.0
+                        else -> Double.NaN
+                    }
+                    val repairable7544 = terminal7544 != null && hasUsableBasis7544 &&
+                        netPnl7544.isFinite() && netPct7544.isFinite() && lane7544.isNotBlank()
                     val reason = when {
                         q.isNotBlank() || q.contains("ECONOMIC") || src.contains("QUARANTIN") -> Reason.ECONOMICS_QUARANTINED
                         src.contains("LEGACY_REPLAY") || src.contains("REPLAY_CARRY") -> Reason.LEGACY_REPLAY
                         src.contains("DUPLICATE") || q.contains("DUPLICATE") -> Reason.DUPLICATE
                         !p.entryCostSol.isFinite() || p.entryCostSol <= 0.0 || p.entryPriceUsd < 0.0 || src.contains("INVARIANT_BROKEN") -> Reason.CORRUPT_ENTRY
-                        p.positionId in fullTerminalByPosition7432 -> Reason.BUS_PUBLISH_FAILED
+                        repairable7544 -> Reason.BUS_PUBLISH_FAILED
+                        terminal7544 != null -> Reason.DURABLE_TERMINAL_UNREPAIRABLE
                         p.positionId.isNotBlank() -> Reason.HISTORICAL_NO_DURABLE_FINALITY
                         else -> Reason.UNKNOWN
                     }
@@ -74,7 +99,10 @@ object FinalizedLearningReconciler7423 {
                         "mint=" + p.mint.take(12) + " lane=" + p.lane +
                             " src=" + p.entryPriceSource.take(48) +
                             " quarantine=" + p.quarantineReason.take(48) +
-                            " durableFullSell=" + (p.positionId in fullTerminalByPosition7432),
+                            " durableFullSell=" + (p.positionId in fullTerminalByPosition7432) +
+                            " repairable=" + repairable7544 +
+                            " usableBasis=" + hasUsableBasis7544 +
+                            " lane=" + lane7544.take(24),
                     )
                 }.toList()
             Snapshot(closed.size, publishedIds.size, missing)
@@ -109,6 +137,11 @@ object FinalizedLearningReconciler7423 {
         if (limit <= 0) return 0
         val started7514 = System.currentTimeMillis()
         val published = CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
+        val repairableIds7544 = try {
+            snapshot().missing.asSequence()
+                .filter { it.reason == Reason.BUS_PUBLISH_FAILED }
+                .mapTo(HashSet()) { it.positionId }
+        } catch (_: Throwable) { emptySet<String>() }
         val sells = try {
             EconomicEventSchema6464.fullTerminalSellsByPosition7500()
         } catch (_: Throwable) { emptyMap<String, List<EconomicEventSchema6464.Sell>>() }
@@ -121,6 +154,7 @@ object FinalizedLearningReconciler7423 {
                 break
             }
             if (p.positionId in published) continue
+            if (p.positionId !in repairableIds7544) continue
 
             val src = p.entryPriceSource.uppercase()
             val q = p.quarantineReason.uppercase()

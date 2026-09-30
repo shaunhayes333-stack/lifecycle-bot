@@ -15,11 +15,12 @@ class Aate7474ExactPositionOpenCostParityTest {
         assertTrue(s.contains("perPositionCost7474[e.positionId]"))
     }
 
-    @Test fun exact_scope_is_used_only_with_complete_current_position_coverage() {
+    @Test fun current_position_scope_supports_partial_typed_event_coverage() {
         val s = src()
-        assertTrue(s.contains("canonicalOpenPositions7474.all { snap.perPositionRemainingCostSol7474.containsKey(it.positionId) }"))
-        assertTrue(s.contains("PAPER_REPLAY_OPEN_COST_SCOPED_TO_POSITION_ID_7474"))
-        assertTrue(s.contains("ledgerAgreesExact7474"))
+        assertTrue(s.contains("PAPER_REPLAY_OPEN_COST_HYBRID_POSITION_SCOPE_7544"))
+        assertTrue(s.contains("covered7544"))
+        assertTrue(s.contains("uncovered7544"))
+        assertTrue(s.contains("PAPER_REPLAY_OPEN_COST_PREWINDOW_CARRY_NEUTRAL_7544"))
     }
 
     @Test fun existing_mint_scope_remains_as_fallback() {
