@@ -1376,3 +1376,14 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] EXPRESS keeps lastPriceChange5m as the separate acute continuation/chase signal, so one 5m print no longer earns both momentum and price-change score buckets.
 - [x] Other native lanes keep the V5.0.7551 signed momentum input; this bundle changes only EXPRESS where the API explicitly has two directional horizons.
 - [x] No score thresholds, safety gates, position sizing caps, or execution authorities were tuned in this repair.
+
+
+## V5.0.7556 — native ShitCoin social evidence wiring
+
+- [x] Authoritative SHITCOIN native evaluation now receives cached website, Twitter and Telegram presence from BirdeyeMetaDataProvider.peekCached().
+- [x] The bridge adds no network/provider I/O; it consumes only the pre-existing metadata cache.
+- [x] GitHub presence remains false because the canonical metadata source does not expose a GitHub field; Discord is not misrepresented as GitHub.
+- [x] Native SHITCOIN's existing 0–15 social feature is therefore live again instead of every authoritative call silently receiving all-false presence flags.
+- [x] Social metadata presence bits are included in SpecialistBrainBridge cache identity so newly hydrated metadata invalidates a stale opinion immediately.
+- [x] Raw social URLs are not stored in the fingerprint or telemetry.
+- [x] Existing sentiment, DEX visibility, graduation, bundle and hard-safety semantics remain unchanged.

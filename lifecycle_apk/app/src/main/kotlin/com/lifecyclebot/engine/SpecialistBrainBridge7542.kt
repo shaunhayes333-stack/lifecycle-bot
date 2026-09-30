@@ -82,7 +82,14 @@ object SpecialistBrainBridge7542 {
         ts.safety.isBlocked,ts.safety.hardBlockReasons.hashCode(),ts.safety.bundleReason,
         ts.sentiment.score.toInt(),ts.toolAffinity.hashCode(),
         ts.source,ts.lastPriceSource,ts.lastPriceDex,
-        ts.tokenMap.creatorOrDevWallet,ts.tokenMap.migratedOrGraduated
+        ts.tokenMap.creatorOrDevWallet,ts.tokenMap.migratedOrGraduated,
+        // V5.0.7556 — cached social metadata is native SHITCOIN evidence.
+        // Include only presence bits; no network call and no raw URLs in identity.
+        try {
+            BirdeyeMetaDataProvider.peekCached(ts.mint)?.let {
+                listOf(it.twitter.isNotBlank(), it.telegram.isNotBlank(), it.website.isNotBlank()).hashCode()
+            } ?: 0
+        } catch (_: Throwable) { 0 }
     ).hashCode()
 
     fun evaluate(ts:TokenState):Snapshot{
@@ -126,6 +133,9 @@ object SpecialistBrainBridge7542 {
         val holders=ts.peakHolderCount.coerceAtLeast(0)
         val rug=ts.safety.rugcheckScore.takeIf{it>=0}?:1
         val bundle=ts.safety.firstBlockSupplyPct.takeIf{it>=0}?:0.0;val danger=(ts.safety.summary+" "+ts.safety.bundleReason+" "+ts.safety.hardBlockReasons.joinToString(" ")).uppercase();val devSelling=danger.contains("DEV_SELL")||danger.contains("DEV SELL")
+        // V5.0.7556 — cached only. The native SHITCOIN social feature existed
+        // but authoritative bridge left every presence flag false.
+        val socialMeta7556 = try { BirdeyeMetaDataProvider.peekCached(ts.mint) } catch (_: Throwable) { null }
         val src=ts.source.uppercase();val trending=src.contains("TREND")||ts.toolAffinity.any{it.contains("TREND",true)};val boosted=src.contains("BOOST")||ts.toolAffinity.any{it.contains("BOOST",true)}
         val platform=when{src.contains("PUMP")->ShitCoinTraderAI.LaunchPlatform.PUMP_FUN;src.contains("RAYDIUM")->ShitCoinTraderAI.LaunchPlatform.RAYDIUM;src.contains("MOONSHOT")->ShitCoinTraderAI.LaunchPlatform.MOONSHOT;src.contains("BONK")->ShitCoinTraderAI.LaunchPlatform.BONK_BOT;else->ShitCoinTraderAI.LaunchPlatform.UNKNOWN}
         val bounce=if(prices.size>=4&&price>0){val tail=prices.takeLast(8);val low=tail.minOrNull()?:price;val idx=tail.indexOf(low);low>0&&idx>=0&&idx<tail.lastIndex-1&&price>=low*1.02&&bp>=50&&volVs>=0.5}else false
@@ -134,7 +144,7 @@ object SpecialistBrainBridge7542 {
         val out=linkedMapOf<String,Opinion>()
         out["QUALITY"]=try{val x=QualityTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,bp.toInt(),ageMin,holders,top,v3,false);op("QUALITY",x.shouldEnter,x.qualityScore,x.qualityScore,x.positionSizeSol,x.reason,"LIQUIDITY_DEPTH_QUALITY","quality_native_entry","quality_native_exit",1.35,0.95,1.15,setOf("QUALITY_DEPTH","HOLDER_DISTRIBUTION","V3"))}catch(t:Throwable){err("QUALITY",t)}
         out["BLUECHIP"]=try{val x=BlueChipTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol);op("BLUECHIP",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"MAINSTREAM_CRYPTO_SWING","bluechip_native_swing","bluechip_native_exit",2.1,1.0,1.35,setOf("BLUECHIP_DEPTH","MCAP_LIQ_SANITY","SWING"))}catch(t:Throwable){err("BLUECHIP",t)}
-        out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=bp,momentum=mom,volatility=vol,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=ts.tokenMap.creatorOrDevWallet.ifBlank{null},bundlePct=bundle,socialScore=try{ts.sentiment.score.toInt().coerceIn(0,100)}catch(_:Throwable){0},isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=ts.meta.curveProgress.coerceIn(0.0,100.0),recordEducationScores=true);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL","GRADUATION"))}catch(t:Throwable){err("SHITCOIN",t)}
+        out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=bp,momentum=mom,volatility=vol,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=ts.tokenMap.creatorOrDevWallet.ifBlank{null},bundlePct=bundle,socialScore=try{ts.sentiment.score.toInt().coerceIn(0,100)}catch(_:Throwable){0},hasWebsite=socialMeta7556?.website?.isNotBlank()==true,hasTwitter=socialMeta7556?.twitter?.isNotBlank()==true,hasTelegram=socialMeta7556?.telegram?.isNotBlank()==true,hasGithub=false,isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=ts.meta.curveProgress.coerceIn(0.0,100.0),recordEducationScores=true);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL_CACHE","GRADUATION"))}catch(t:Throwable){err("SHITCOIN",t)}
         out["EXPRESS"]=try{val x=ShitCoinExpress.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,expressMomentum7555,bp,volVs,ts.lastPriceChange5m,trending,boosted,ageMin);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
         out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,ts.meta.volScore.toInt().coerceIn(0,100),bp,rug,v3.toDouble(),v3c.toDouble(),launch?.phase?.name?:ts.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
         out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
