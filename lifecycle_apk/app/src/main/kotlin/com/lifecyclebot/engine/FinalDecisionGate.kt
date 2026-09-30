@@ -5138,19 +5138,23 @@ object FinalDecisionGate {
                 if (shouldTradeFinal && blockReasonFinal == null) {
                     try {
                         val mpRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
-                        val mpLane = tradingModeTag?.name ?: "STANDARD"
+                        // V5.0.7534 — closed-loop learning identity is the canonical execution
+                        // owner, not the broader/legacy TradingModeTag spelling. Terminal
+                        // finality is credited by canonical position lane; entry-time
+                        // predictors must use the same key or their decisions cannot bind.
+                        val learningOwnerLane7534 = canonicalPrimaryLane6658
                         // V5.9.1296 — bucket the learning context by the lane's REAL score,
                         // not the shared base V3 score (~7 for memes) that collapsed every
                         // context into S00. laneScore defaults to candidate.entryScore so
                         // non-lane callers are identical.
                         val mpScore = laneScoreBanded  // V5.9.1299 reuse hoisted banded lane score
-                        val conv = AutonomousMetaPolicy.conviction(mpLane, mpScore, mpRegime)
-                        AutonomousMetaPolicy.stampDecision(ts.mint, mpLane, mpScore, mpRegime)
+                        val conv = AutonomousMetaPolicy.conviction(learningOwnerLane7534, mpScore, mpRegime)
+                        AutonomousMetaPolicy.stampDecision(ts.mint, learningOwnerLane7534, mpScore, mpRegime)
                         if (conv != 1.0) {
                             val before = finalSize
                             finalSize = (finalSize * conv).coerceAtLeast(0.01)
                             tags.add("metapolicy:${"%.2f".format(conv)}")
-                            checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$mpLane/S$mpScore/$mpRegime"))
+                            checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$learningOwnerLane7534/S$mpScore/$mpRegime"))
                         }
 
                         // V5.9.1289 — CATASTROPHIC-CONTEXT STARVE. conviction()'s
@@ -5160,12 +5164,12 @@ object FinalDecisionGate {
                         // context is statistically dead (n>=20, winP<12%, avg<-18%),
                         // starve size to dust so a known grave can't drain the wallet.
                         // NOT a veto — candidate still flows; pool & FDG fail-open intact.
-                        val starve = AutonomousMetaPolicy.starveFactor(mpLane, mpScore, mpRegime)
+                        val starve = AutonomousMetaPolicy.starveFactor(learningOwnerLane7534, mpScore, mpRegime)
                         if (starve < 1.0) {
                             val beforeS = finalSize
                             finalSize = (finalSize * starve).coerceAtLeast(0.001)
                             tags.add("starve:${"%.2f".format(starve)}")
-                            checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${effectiveGateScore6025.toInt()}/$mpRegime"))
+                            checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$learningOwnerLane7534/S${effectiveGateScore6025.toInt()}/$mpRegime"))
                         }
 
                         // V5.9.1261 — FORWARD OUTCOME MODEL (counterfactual planning).
@@ -5174,10 +5178,10 @@ object FinalDecisionGate {
                         // settled trades keyed by lane×band×quality×regime×edgePhase.
                         // The nudge plans against the predicted distribution. Soft-shape,
                         // stamped for closed-loop credit. Fail-open.
-                        val fwd = ForwardOutcomeModel.forecast(mpLane, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        ForwardOutcomeModel.stamp(ts.mint, mpLane, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        val fwd = ForwardOutcomeModel.forecast(learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        ForwardOutcomeModel.stamp(ts.mint, learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
                         // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
-                        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, mpLane, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, learningOwnerLane7534, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
 
                         // V5.9.1358 — DUAL-BRAIN VETO → SIZE-SHAPE (operator mandate:
@@ -5189,11 +5193,11 @@ object FinalDecisionGate {
                         // real outcomes there and can find the sweet spot / heal. Never
                         // zero: a small live position is how the brain learns the bucket.
                         // -15% hard SL + 500-token pool + FDG fail-open all untouched.
-                        if (AutonomousMetaPolicy.shouldVeto(mpLane, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples)) {
+                        if (AutonomousMetaPolicy.shouldVeto(learningOwnerLane7534, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples)) {
                             val beforePd = finalSize
                             finalSize = (finalSize * 0.15).coerceAtLeast(0.01)
                             tags.add("proven_dead_size_shaped")
-                            checks.add(GateCheck("proven_dead_shape", true, "dual-brain weak ctx=$mpLane/S${effectiveGateScore6025.toInt()}/$mpRegime → small learn-size ${beforePd.format(3)}→${finalSize.format(3)} fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
+                            checks.add(GateCheck("proven_dead_shape", true, "dual-brain weak ctx=$learningOwnerLane7534/S${effectiveGateScore6025.toInt()}/$mpRegime → small learn-size ${beforePd.format(3)}→${finalSize.format(3)} fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
                         }
                         if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
                             val before = finalSize
@@ -5216,16 +5220,16 @@ object FinalDecisionGate {
                             fwdPWin      = fwd.pWin,
                             candConf     = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
                         )
-                        UnifiedPolicyHead.stamp(ts.mint, mpLane, uphSignals)
+                        UnifiedPolicyHead.stamp(ts.mint, learningOwnerLane7534, uphSignals)
                         // V5.0.4094 — AGI MULTI-HEAD: per-lane authority. The lane-
                         // specific head drives sizing once it earns LEARNED tier.
                         // Brier-score-aware calibration demotes drifting heads.
-                        val authConv = UnifiedPolicyHead.authoritativeConviction(mpLane, uphSignals)
+                        val authConv = UnifiedPolicyHead.authoritativeConviction(learningOwnerLane7534, uphSignals)
                         if (authConv != null) {
                             val before = finalSize
                             finalSize = (finalSize * authConv).coerceAtLeast(0.01)
-                            tags.add("agi_auth:${mpLane}:${UnifiedPolicyHead.currentAuthority(mpLane).name}:${"%.2f".format(authConv)}")
-                            checks.add(GateCheck("agi_authority_head", true, "lane=$mpLane tier=${UnifiedPolicyHead.currentAuthority(mpLane).name} pWin=${(UnifiedPolicyHead.predictWinProb(mpLane, uphSignals)*100).toInt()}% mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(mpLane))} size ${before.format(3)}→${finalSize.format(3)} (rule-stack soft damps superseded)"))
+                            tags.add("agi_auth:${learningOwnerLane7534}:${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name}:${"%.2f".format(authConv)}")
+                            checks.add(GateCheck("agi_authority_head", true, "lane=$learningOwnerLane7534 tier=${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name} pWin=${(UnifiedPolicyHead.predictWinProb(learningOwnerLane7534, uphSignals)*100).toInt()}% mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(learningOwnerLane7534))} size ${before.format(3)}→${finalSize.format(3)} (rule-stack soft damps superseded)"))
                             try {
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("AGI_AUTHORITATIVE_OVERRIDE")
                             } catch (_: Throwable) {}
@@ -5233,16 +5237,16 @@ object FinalDecisionGate {
                             // cross-talk + personality see the AGI taking the wheel.
                             try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
                                 "AGI_AUTHORITATIVE_OVERRIDE",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$mpLane tier=${UnifiedPolicyHead.currentAuthority(mpLane).name} mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(mpLane))}",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$learningOwnerLane7534 tier=${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name} mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(learningOwnerLane7534))}",
                                 "INFO"
                             ) } catch (_: Throwable) {}
                         } else {
-                            val uph = UnifiedPolicyHead.conviction(mpLane, uphSignals)
+                            val uph = UnifiedPolicyHead.conviction(learningOwnerLane7534, uphSignals)
                             if (uph != 1.0) {
                                 val before = finalSize
                                 finalSize = (finalSize * uph).coerceAtLeast(0.01)
-                                tags.add("policyhead:${mpLane}:${"%.2f".format(uph)}")
-                                checks.add(GateCheck("unified_policy_head", true, "lane=$mpLane pWin=${(UnifiedPolicyHead.predictWinProb(mpLane, uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))
+                                tags.add("policyhead:${learningOwnerLane7534}:${"%.2f".format(uph)}")
+                                checks.add(GateCheck("unified_policy_head", true, "lane=$learningOwnerLane7534 pWin=${(UnifiedPolicyHead.predictWinProb(learningOwnerLane7534, uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))
                             }
                         }
 
@@ -5258,7 +5262,7 @@ object FinalDecisionGate {
                         // canonical position, so terminal credit cannot drift.
                         val exactStrategyIdentity7430 = try {
                             val cls7430 = ModeRouter.classify(ts)
-                            val style7430 = AgenticStyleRouter.decide(ts, cls7430, mpLane)
+                            val style7430 = AgenticStyleRouter.decide(ts, cls7430, learningOwnerLane7534)
                             listOf(
                                 cls7430.tradeType.name,
                                 style7430.toolkit.setup.name,
@@ -5270,7 +5274,7 @@ object FinalDecisionGate {
                             PipelineHealthCollector.labelInc("FDG_EXACT_STRATEGY_IDENTITY_7430")
                         } catch (_: Throwable) {}
                         val hypoBias = StrategyHypothesisEngine.getSizeBias(
-                            mpLane,
+                            learningOwnerLane7534,
                             effectiveGateScore6025.toInt(),
                             mpRegime,
                             ts.mint,
@@ -5628,7 +5632,7 @@ object FinalDecisionGate {
                 runtimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
                 mode = mode.name, mint = ts.mint, symbol = ts.symbol,
                 candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint),
-                primaryStrategy = laneName, source = ts.source.ifBlank { "UNKNOWN" },
+                primaryStrategy = canonicalPrimaryLane6658, source = ts.source.ifBlank { "UNKNOWN" },
                 regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
             )
             com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(
@@ -5639,7 +5643,7 @@ object FinalDecisionGate {
                     sizeBase = proposedSizeSol, sizeFinal = cooperativeDeskSize6599,
                     tactic = tags.firstOrNull { it.startsWith("tactic:") }?.substringAfter(':') ?: laneName,
                     hardSafety = trueHard6512, contributors = contributions6512,
-                    learningState = "entryHead=${com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneName).name};meta=${"contexts=" + com.lifecyclebot.engine.AutonomousMetaPolicy.contextCount()}",
+                    learningState = "entryHead=${com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(canonicalPrimaryLane6658).name};meta=${"contexts=" + com.lifecyclebot.engine.AutonomousMetaPolicy.contextCount()}",
                 )
             )
         } catch (_: Throwable) { null }
