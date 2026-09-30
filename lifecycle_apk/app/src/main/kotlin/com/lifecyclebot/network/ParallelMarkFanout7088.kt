@@ -131,6 +131,16 @@ object ParallelMarkFanout7088 {
     private val contested = AtomicLong(0L)
     private val sourceWins = ConcurrentHashMap<String, AtomicLong>()
 
+    // V5.0.7529 — pump.fun FRONTEND observation feed circuit only.
+    // This is deliberately separate from PumpPortal execution and curve RPC.
+    // Three whole fanout passes with zero useful frontend marks means the
+    // source is wasting requests; cool it for five minutes, then half-open with
+    // one mint. Any useful mark immediately restores the normal bounded fanout.
+    private val pumpFrontendEmptyPasses7529 = AtomicLong(0L)
+    private val pumpFrontendCooldownUntil7529 = AtomicLong(0L)
+    private const val PUMP_FRONTEND_EMPTY_PASSES_TO_COOLDOWN_7529 = 3L
+    private const val PUMP_FRONTEND_COOLDOWN_MS_7529 = 5L * 60_000L
+
     /** Helius DAS needs the same RPC endpoint V5.0.7075 already resolves. */
     fun installRpc7088(url: String) {
         if (url.isNotBlank()) rpcUrl = url
@@ -445,8 +455,20 @@ object ParallelMarkFanout7088 {
      * and runs its own small fan-out inside this one task.
      */
     private fun pumpFunFanout7088(mints: List<String>): Map<String, Double> {
-        val targets = mints.filter { PumpFunDirectApi.isPumpFunMint(it) }.take(PUMPFUN_MAX_MINTS)
-        if (targets.isEmpty()) return emptyMap()
+        val allTargets7529 = mints.filter { PumpFunDirectApi.isPumpFunMint(it) }.take(PUMPFUN_MAX_MINTS)
+        if (allTargets7529.isEmpty()) return emptyMap()
+
+        val now7529 = System.currentTimeMillis()
+        val cooldownUntil7529 = pumpFrontendCooldownUntil7529.get()
+        if (now7529 < cooldownUntil7529) {
+            try { PipelineHealthCollector.labelInc("PUMPFUN_FRONTEND_FANOUT_CIRCUIT_SKIP_7529") } catch (_: Throwable) {}
+            return emptyMap()
+        }
+        val halfOpen7529 = cooldownUntil7529 > 0L
+        val targets = if (halfOpen7529) allTargets7529.take(1) else allTargets7529
+        if (halfOpen7529) {
+            try { PipelineHealthCollector.labelInc("PUMPFUN_FRONTEND_FANOUT_HALF_OPEN_7529") } catch (_: Throwable) {}
+        }
         val out = ConcurrentHashMap<String, Double>()
         val latch = CountDownLatch(targets.size)
         for (mint in targets) {
@@ -498,7 +520,35 @@ object ParallelMarkFanout7088 {
         try { latch.await(3_000L, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
         }
-        return out.toMap()
+
+        val result7529 = out.toMap()
+        if (result7529.isNotEmpty()) {
+            pumpFrontendEmptyPasses7529.set(0L)
+            pumpFrontendCooldownUntil7529.set(0L)
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (halfOpen7529) "PUMPFUN_FRONTEND_FANOUT_HALF_OPEN_RECOVERED_7529"
+                    else "PUMPFUN_FRONTEND_FANOUT_USEFUL_7529"
+                )
+            } catch (_: Throwable) {}
+        } else {
+            val empties7529 = pumpFrontendEmptyPasses7529.incrementAndGet()
+            if (empties7529 >= PUMP_FRONTEND_EMPTY_PASSES_TO_COOLDOWN_7529) {
+                pumpFrontendEmptyPasses7529.set(0L)
+                pumpFrontendCooldownUntil7529.set(
+                    System.currentTimeMillis() + PUMP_FRONTEND_COOLDOWN_MS_7529
+                )
+                try {
+                    PipelineHealthCollector.labelInc("PUMPFUN_FRONTEND_FANOUT_CIRCUIT_OPEN_7529")
+                    ForensicLogger.lifecycle(
+                        "PUMPFUN_FRONTEND_FANOUT_CIRCUIT_OPEN_7529",
+                        "targets=${targets.size} halfOpen=$halfOpen7529 cooldownMs=$PUMP_FRONTEND_COOLDOWN_MS_7529 " +
+                            "action=skip_frontend_observation_only_curve_rpc_and_pumpportal_execution_unchanged",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+        return result7529
     }
 
     /**
