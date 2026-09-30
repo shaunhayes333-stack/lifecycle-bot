@@ -93,6 +93,8 @@ object ToolkitSignalSheet {
         ARB_FLOW_IMBALANCE,
         MEV_PROTECTED_ENTRY,
         REENTRY_RECOVERY,
+        CASHFLOW_SCALP,
+        CYCLIC_COMPOUND,
         REGIME_DEFENSIVE_PROBE,
     }
 
@@ -619,6 +621,51 @@ object ToolkitSignalSheet {
             lanes = setOf("QUALITY", "BLUECHIP", "TREASURY"),
             tools = setOf("LIQUIDITY_DEPTH", "QUALITY_DEPTH", "BLUECHIP", "MAINSTREAM_CRYPTO"),
             reasons = listOf("liq=${liq.toInt()}", "mcap=${mcap.toInt()}", "sell=${sellPressure.toInt()}")
+        ))
+
+        // V5.0.7541 — CASHGEN is a distinct active cashflow specialist, not a
+        // synonym for TREASURY. Its designed pond is established/liquid flow with
+        // quick profit capture. This creates a CASHGEN-native hypothesis so the
+        // dedicated TreasuryScannerFeed affinity can actually become ownership.
+        val cashflowEligible7541 = mainstream && liq >= 10_000.0 &&
+            bp >= 50.0 && momentum >= 0.0 && sellPressure < 55.0
+        add(Candidate(
+            setup = Setup.CASHFLOW_SCALP,
+            score = if (!cashflowEligible7541) 0.0 else
+                34.0 + ((bp - 50.0) * 0.7).coerceIn(0.0, 18.0) +
+                    momentum.coerceIn(0.0, 12.0) + conf * 0.12,
+            chart = "cashflow_liquid_momentum",
+            entry = "cashgen_liquid_flow_scalp",
+            exit = "cashgen_quick_bank_trail",
+            hold = 0.55,
+            size = 0.82,
+            tp = 0.78,
+            lanes = setOf("CASHGEN"),
+            tools = setOf("LIQUIDITY_DEPTH", "ORDER_FLOW", "SCALP", "TREASURY_FEED"),
+            reasons = listOf("cashgen=true", "liq=${liq.toInt()}", "bp=${bp.toInt()}", "mom=${momentum.toInt()}")
+        ))
+
+        // V5.0.7541 — CYCLIC is the opportunistic compounder. It should receive
+        // a hypothesis whenever the common spine sees a sellable positive-trend
+        // opportunity; the ring/exit engine remains the lane-specific authority.
+        val cyclicEligible7541 = liq >= 5_000.0 && last > 0.0 &&
+            (v3 >= 28.0 || conf >= 55.0) && sellPressure < 58.0 &&
+            (momentum >= 0.0 || higherLows >= 2)
+        add(Candidate(
+            setup = Setup.CYCLIC_COMPOUND,
+            score = if (!cyclicEligible7541) 0.0 else
+                30.0 + (v3.coerceIn(0.0, 60.0) * 0.35) +
+                    (conf.coerceIn(0.0, 100.0) * 0.15) +
+                    momentum.coerceIn(0.0, 12.0),
+            chart = "cyclic_opportunity_compound",
+            entry = "cyclic_best_available_positive_edge",
+            exit = "cyclic_lane_compound_exit",
+            hold = 1.35,
+            size = 0.72,
+            tp = 1.18,
+            lanes = setOf("CYCLIC"),
+            tools = setOf("CYCLIC", "COMPOUND", "V3", "SELLABILITY"),
+            reasons = listOf("cyclic=true", "v3=${v3.toInt()}", "conf=${conf.toInt()}", "liq=${liq.toInt()}")
         ))
 
         // Panic reversion / recovery requires a RECLAIM. One wick while still

@@ -46,6 +46,8 @@ object AgenticStyleRouter {
         ARB_FLOW_IMBALANCE("arb_flow_imbalance", setOf("EXPRESS", "SHITCOIN", "TREASURY"), setOf("ARB", "FLOW_IMBALANCE", "VENUE_LAG"), 0.60, 0.78, 0.55),
         MEV_PROTECTED_ENTRY("mev_protected_entry", setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS"), setOf("MEV_PROTECTION", "JITO", "DEFENSIVE_PROBE"), 0.42, 0.75, 0.50),
         REENTRY_RECOVERY("reentry_recovery", setOf("DIP_HUNTER", "TREASURY", "QUALITY"), setOf("REENTRY_RECOVERY", "PATTERN_BACKTESTER", "DIP_RECLAIM"), 0.65, 0.98, 1.20),
+        CASHFLOW_SCALP("cashflow_scalp", setOf("CASHGEN"), setOf("LIQUIDITY_DEPTH", "ORDER_FLOW", "SCALP", "TREASURY_FEED"), 0.82, 0.78, 0.55),
+        CYCLIC_COMPOUND("cyclic_compound", setOf("CYCLIC"), setOf("CYCLIC", "COMPOUND", "V3", "SELLABILITY"), 0.72, 1.18, 1.35),
         REGIME_DEFENSIVE_PROBE("regime_defensive_probe", setOf("SHITCOIN", "PROJECT_SNIPER", "MOONSHOT"), setOf("DEFENSIVE_PROBE", "TOXIC_GUARD", "REGIME"), 0.35, 0.75, 0.55),
         MICRO_SNIPE("micro_snipe", setOf("PROJECT_SNIPER", "SHITCOIN", "EXPRESS"), setOf("SNIPER", "PUMP_FUN", "EXPRESS"), 0.55, 0.85, 0.45),
         QUICK_FLIP("quick_flip", setOf("SHITCOIN", "EXPRESS", "MANIPULATED"), setOf("EXPRESS", "MEME", "PUMP_FUN"), 0.75, 0.95, 0.65),
@@ -158,6 +160,8 @@ object AgenticStyleRouter {
         ToolkitSignalSheet.Setup.ARB_FLOW_IMBALANCE -> Style.ARB_FLOW_IMBALANCE
         ToolkitSignalSheet.Setup.MEV_PROTECTED_ENTRY -> Style.MEV_PROTECTED_ENTRY
         ToolkitSignalSheet.Setup.REENTRY_RECOVERY -> Style.REENTRY_RECOVERY
+        ToolkitSignalSheet.Setup.CASHFLOW_SCALP -> Style.CASHFLOW_SCALP
+        ToolkitSignalSheet.Setup.CYCLIC_COMPOUND -> Style.CYCLIC_COMPOUND
         ToolkitSignalSheet.Setup.REGIME_DEFENSIVE_PROBE -> Style.REGIME_DEFENSIVE_PROBE
         ToolkitSignalSheet.Setup.NONE -> null
     }
@@ -201,7 +205,10 @@ object AgenticStyleRouter {
             "MANIPULATED" -> if (fallback.lanes.contains("MANIPULATED")) fallback else Style.NARRATIVE_SOCIAL_IGNITION
             "PROJECT_SNIPER" -> if (fallback.lanes.contains("PROJECT_SNIPER")) fallback else Style.PUMP_GRADUATION_SNIPE
             "DIP_HUNTER" -> if (fallback.lanes.contains("DIP_HUNTER")) fallback else Style.PANIC_REVERSION_BOUNCE
-            "TREASURY", "CASHGEN" -> if (fallback.lanes.contains("TREASURY")) fallback else Style.PANIC_REVERSION_BOUNCE
+            "TREASURY" -> if (fallback.lanes.contains("TREASURY")) fallback else Style.PANIC_REVERSION_BOUNCE
+            "CASHGEN" -> if (fallback.lanes.contains("CASHGEN")) fallback else Style.CASHFLOW_SCALP
+            "CYCLIC" -> if (fallback.lanes.contains("CYCLIC")) fallback else Style.CYCLIC_COMPOUND
+            "CORE" -> fallback
             "QUALITY" -> if (fallback.lanes.contains("QUALITY")) fallback else Style.WHALE_ACCUMULATION_HOLD
             "BLUECHIP", "BLUE_CHIP" -> if (fallback.lanes.contains("BLUECHIP")) fallback else Style.MAINSTREAM_CRYPTO_SWING
             else -> fallback

@@ -284,9 +284,25 @@ object LaneExecutionCoordinator {
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
         val mapKey = mapKey(key)
         val now = System.currentTimeMillis()
-        val existing = elections[mapKey]?.takeIf { now - it.createdAtMs <= TTL_MS }
+        var existing = elections[mapKey]?.takeIf { now - it.createdAtMs <= TTL_MS }
 
-        val sealedFdgOwner6679 = if (existing == null) sealedFdgOwnerLane6679(mint, candidateVersion) else null
+        // V5.0.7541 — sealed FDG ownership is authoritative even when a wrapper
+        // created a pre-FDG election first. The old code only consulted FDG when
+        // existing == null, so caller order could permanently own the mint/version
+        // and starve the specialist that actually won FDG.
+        val sealedFdgOwner6679 = sealedFdgOwnerLane6679(mint, candidateVersion)
+        if (sealedFdgOwner6679 != null && existing != null &&
+            existing.primaryLane != sealedFdgOwner6679) {
+            try {
+                PipelineHealthCollector.labelInc("PRESEAL_OWNER_REPLACED_BY_FDG_7541")
+                ForensicLogger.lifecycle(
+                    "PRESEAL_OWNER_REPLACED_BY_FDG_7541",
+                    "mint=${mint.take(10)} version=$candidateVersion prior=${existing.primaryLane} sealed=$sealedFdgOwner6679",
+                )
+            } catch (_: Throwable) {}
+            elections.remove(mapKey, existing)
+            existing = null
+        }
         val e = existing ?: if (sealedFdgOwner6679 != null) {
             if (sealedFdgOwner6679 != laneUpper) {
                 try {

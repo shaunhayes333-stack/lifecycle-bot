@@ -22,7 +22,7 @@ object LiveGrowthDoctrine {
     const val VERSION = "V5.0.4021_ADAPTIVE_LEARNED_GROWTH_CORE"
 
     val growthLaneUniverse: Set<String> = linkedSetOf(
-        "STANDARD", "QUALITY", "BLUECHIP", "BLUE_CHIP", "TREASURY",
+        "STANDARD", "CORE", "QUALITY", "BLUECHIP", "BLUE_CHIP", "TREASURY", "CASHGEN",
         "MOONSHOT", "SHITCOIN", "MANIPULATED", "MANIP", "DIP_HUNTER",
         "PROJECT_SNIPER", "SNIPER", "EXPRESS", "CYCLIC", "PRESALE",
         "PUMP_SNIPER", "WHALE", "WHALE_FOLLOW", "INSIDER_SHARK", "COPY", "COPY_TRADE",
@@ -54,6 +54,8 @@ object LiveGrowthDoctrine {
         return when {
             l.contains("BLUE") -> "BLUECHIP"
             l.contains("QUALITY") -> "QUALITY"
+            l.contains("CASHGEN") || l.contains("CASH_GEN") || l.contains("CASH_GENERATION") -> "CASHGEN"
+            l == "CORE" || l.contains("CORE_ENSEMBLE") -> "CORE"
             l.contains("TREASURY") -> "TREASURY"
             l.contains("MOON") || l.contains("GRADUATION") -> "MOONSHOT"
             l.contains("SHIT") -> "SHITCOIN"
@@ -90,6 +92,8 @@ object LiveGrowthDoctrine {
             "COPY_TRADE" -> 0.96
             "DIP_HUNTER" -> 1.08
             "CYCLIC" -> 0.82
+            "CORE" -> 1.00
+            "CASHGEN" -> 0.92
             "TREASURY" -> 1.02
             "SHITCOIN" -> 0.78
             "MANIPULATED" -> 0.82
@@ -100,7 +104,7 @@ object LiveGrowthDoctrine {
         val liqPct = when (c) {
             "QUALITY", "BLUECHIP", "MOONSHOT" -> 0.0080
             "PROJECT_SNIPER", "WHALE_FOLLOW", "INSIDER_SHARK" -> 0.0060
-            "DIP_HUNTER", "CYCLIC", "COPY_TRADE" -> 0.0044
+            "DIP_HUNTER", "CYCLIC", "CORE", "CASHGEN", "COPY_TRADE" -> 0.0044
             "SHITCOIN", "MANIPULATED", "EXPRESS", "ARBITRAGE" -> 0.0035
             else -> 0.0045
         }
@@ -109,6 +113,7 @@ object LiveGrowthDoctrine {
             "QUALITY", "BLUECHIP" -> 0.28
             "PROJECT_SNIPER", "WHALE_FOLLOW", "INSIDER_SHARK" -> 0.26
             "TREASURY" -> 0.16
+            "CORE", "CASHGEN" -> 0.15
             "COPY_TRADE", "DIP_HUNTER", "CYCLIC" -> 0.14
             else -> 0.10
         }
@@ -206,7 +211,7 @@ object LiveGrowthDoctrine {
         // SHITCOIN/MANIPULATED/EXPRESS were bleeding. Do not rotate bleeders before
         // the lanes currently paying the wallet.
         "BLUECHIP", "MOONSHOT", "QUALITY", "PROJECT_SNIPER", "DIP_HUNTER",
-        "CASHGEN", "TREASURY", "STANDARD", "EXPRESS", "MANIPULATED", "SHITCOIN"
+        "CORE", "CYCLIC", "CASHGEN", "TREASURY", "STANDARD", "EXPRESS", "MANIPULATED", "SHITCOIN"
     )
 
     fun growthLaneFallback(seed: String, existing: Set<String>): String? {

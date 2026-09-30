@@ -2,7 +2,8 @@ package com.lifecyclebot.engine
 
 /** V5.0.6533 — pure execution-authority policy shared by scheduler, FDG and tests. */
 object ExecutionAuthorityPolicy6533 {
-    private val trunk = setOf("STANDARD", "CORE", "V3", "V3_CORE")
+    // V5.0.7541 — CORE is an executable ensemble specialist. Only observer/trunk identities belong here.
+    private val trunk = setOf("STANDARD", "V3", "V3_CORE")
     fun isTrunkLane(lane: String): Boolean = lane.trim().uppercase().replace('-', '_') in trunk
 
     private const val UNDERSAMPLED_CLOSES_7296 = 20
