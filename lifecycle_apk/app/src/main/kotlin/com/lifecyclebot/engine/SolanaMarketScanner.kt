@@ -4402,8 +4402,8 @@ class SolanaMarketScanner(
     // tokens, so a healthy feed that simply has nothing new is never benched.
     private val pumpDirectEmptyWirePasses7530 = java.util.concurrent.atomic.AtomicLong(0L)
     private val pumpDirectCooldownUntil7530 = java.util.concurrent.atomic.AtomicLong(0L)
-    private const val PUMP_DIRECT_EMPTY_PASSES_TO_COOLDOWN_7530 = 3L
-    private const val PUMP_DIRECT_COOLDOWN_MS_7530 = 5L * 60_000L
+    private val PUMP_DIRECT_EMPTY_PASSES_TO_COOLDOWN_7530 = 3L
+    private val PUMP_DIRECT_COOLDOWN_MS_7530 = 5L * 60_000L
 
     private fun isDexFeed7381(url: String): Boolean = url.contains("api.dexscreener.com/token-profiles/") ||
         url.contains("api.dexscreener.com/token-boosts/") || url.contains("api.dexscreener.com/community-takeovers/")
