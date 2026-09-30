@@ -109,7 +109,16 @@ object SpecialistBrainBridge7542 {
         // DataOrchestrator and these native lanes already use score-like bands.
         val vol=ts.volatility?.takeIf{it.isFinite()}?:abs(ts.meta.avgAtr)
         val v3=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100);val v3c=(ts.lastV3Confidence?:50).coerceIn(0,100)
-        val top=ts.topHolderPct?:ts.tokenMap.topHolderConcentrationPct?:ts.safety.topHolderPct.takeIf{it>=0}?:0.0;val holders=ts.peakHolderCount.coerceAtLeast(0);val rug=ts.safety.rugcheckScore.takeIf{it>=0}?:3
+        // V5.0.7552 — unknown data must stay neutral/pending, never masquerade
+        // as best-possible holder distribution or a fabricated confirmed RC.
+        val top = if (ts.holderDataResolved) {
+            ts.topHolderPct
+                ?: ts.tokenMap.topHolderConcentrationPct
+                ?: ts.safety.topHolderPct.takeIf { it >= 0.0 }
+                ?: 20.0
+        } else 20.0
+        val holders=ts.peakHolderCount.coerceAtLeast(0)
+        val rug=ts.safety.rugcheckScore.takeIf{it>=0}?:1
         val bundle=ts.safety.firstBlockSupplyPct.takeIf{it>=0}?:0.0;val danger=(ts.safety.summary+" "+ts.safety.bundleReason+" "+ts.safety.hardBlockReasons.joinToString(" ")).uppercase();val devSelling=danger.contains("DEV_SELL")||danger.contains("DEV SELL")
         val src=ts.source.uppercase();val trending=src.contains("TREND")||ts.toolAffinity.any{it.contains("TREND",true)};val boosted=src.contains("BOOST")||ts.toolAffinity.any{it.contains("BOOST",true)}
         val platform=when{src.contains("PUMP")->ShitCoinTraderAI.LaunchPlatform.PUMP_FUN;src.contains("RAYDIUM")->ShitCoinTraderAI.LaunchPlatform.RAYDIUM;src.contains("MOONSHOT")->ShitCoinTraderAI.LaunchPlatform.MOONSHOT;src.contains("BONK")->ShitCoinTraderAI.LaunchPlatform.BONK_BOT;else->ShitCoinTraderAI.LaunchPlatform.UNKNOWN}

@@ -1330,3 +1330,14 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] The native-brain cache fingerprint tracks the actual signed momentum evidence used by those brains.
 - [x] TokenState.momentum itself is left unchanged for score-scale consumers that legitimately expect the 0..100 representation.
 - [x] Volatility semantics are unchanged in this bundle because producer and current native thresholds both use score-like 0..100 bands.
+
+
+## V5.0.7552 — native specialist unknown-evidence neutrality
+
+- [x] Unresolved holder concentration no longer defaults to 0%, which several native brains interpreted as best-in-class distribution.
+- [x] SpecialistBrainBridge uses TokenState.holderDataResolved to distinguish genuinely measured holder concentration from pending data.
+- [x] Pending holder concentration is represented neutrally as 20%, matching the existing V3 neutral fallback rather than adding bullish points.
+- [x] Unresolved RugCheck no longer fabricates score 3.
+- [x] Unresolved RugCheck maps to score 1, the codebase's documented PENDING value, so Moonshot does not misclassify missing evidence as confirmed weak safety.
+- [x] Confirmed rug scores and resolved holder concentration remain untouched.
+- [x] No hard safety rule, lane threshold, or execution authority is weakened.
