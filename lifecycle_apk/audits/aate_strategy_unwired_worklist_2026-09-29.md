@@ -1365,3 +1365,14 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] SpecialistBrainBridge no longer fabricates holderChange24h=0.
 - [x] CryptoAltTrader no longer fabricates holderChange24h=0 for dynamic DipHunter evaluation.
 - [x] Positive/negative resolved holder-change semantics are unchanged.
+
+
+## V5.0.7555 — Moonshot lifecycle + Express directional fidelity
+
+- [x] MOONSHOT local position-count and same-mint maps are telemetry only during native scoring; canonical occupancy/slot authority remains the execution truth.
+- [x] MOONSHOT phase scoring consumes the canonical LaunchPhaseAuthority7401 vocabulary: PRE_IGNITION, IGNITION, EXPANDING, POST_PUMP_FADE, MATURE_OR_UNKNOWN, METADATA_HYDRATING.
+- [x] PRE_IGNITION/IGNITION receive the strongest lifecycle conviction; EXPANDING is weaker continuation; POST_PUMP_FADE is explicitly negative; unknown/hydrating receive zero rather than free bullish points.
+- [x] EXPRESS native momentum receives TokenState.lastPriceChange1h, with recent-history signed-percent fallback when the 1h feed is unavailable.
+- [x] EXPRESS keeps lastPriceChange5m as the separate acute continuation/chase signal, so one 5m print no longer earns both momentum and price-change score buckets.
+- [x] Other native lanes keep the V5.0.7551 signed momentum input; this bundle changes only EXPRESS where the API explicitly has two directional horizons.
+- [x] No score thresholds, safety gates, position sizing caps, or execution authorities were tuned in this repair.

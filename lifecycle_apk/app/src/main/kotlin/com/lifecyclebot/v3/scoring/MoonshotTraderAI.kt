@@ -479,16 +479,16 @@ object MoonshotTraderAI {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266") } catch (_: Throwable) {}
         }
         
-        // 3. Position limit
+        // V5.0.7555 — local Moonshot map is lifecycle/UI projection state,
+        // not entry authority. Canonical occupancy/slot gates own duplicate
+        // and capacity decisions, as with every other native specialist.
         val maxPos = effectiveMaxPositions()
-        if (activePositions.size >= maxPos) {
-            return MoonshotScore(false, 0, 0.0, "max_${maxPos}_positions")
-        }
-        
-        // 4. Already have position
-        if (hasPosition(mint)) {
-            return MoonshotScore(false, 0, 0.0, "already_have_position")
-        }
+        if (activePositions.size >= maxPos) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_LOCAL_CAP_OBSERVED_7555")
+        } catch (_: Throwable) {}
+        if (hasPosition(mint)) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_LOCAL_OCCUPANCY_OBSERVED_7555")
+        } catch (_: Throwable) {}
         
         // 5. Safety check - fluid RC threshold
         // V5.9.404 — restored build #1941 era leniency. Was 10/20 (V5.5+).
@@ -589,13 +589,17 @@ object MoonshotTraderAI {
         }
         score += v3Score
         
-        // Phase bonus - accumulation and breakout are best
-        val phaseScore = when {
-            phase.contains("breakout", ignoreCase = true) -> 15
-            phase.contains("accumulation", ignoreCase = true) -> 12
-            phase.contains("early", ignoreCase = true) -> 10
-            phase.contains("pump", ignoreCase = true) -> 8
-            else -> 5
+        // V5.0.7555 — bridge passes LaunchPhaseAuthority7401 enum names.
+        // Score the actual canonical lifecycle instead of stale textual labels.
+        // Moonshot wants pre/early expansion; fade/unknown never receive free
+        // bullish points.
+        val phaseScore = when (phase.trim().uppercase()) {
+            "PRE_IGNITION" -> 15
+            "IGNITION" -> 12
+            "EXPANDING" -> 7
+            "POST_PUMP_FADE" -> -10
+            "MATURE_OR_UNKNOWN", "METADATA_HYDRATING", "" -> 0
+            else -> 0
         }
         score += phaseScore
         
