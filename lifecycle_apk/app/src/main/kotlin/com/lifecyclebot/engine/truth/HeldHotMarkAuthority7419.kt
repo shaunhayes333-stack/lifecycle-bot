@@ -105,23 +105,73 @@ object HeldHotMarkAuthority7419 {
             if (bare.isNotBlank() && !bare.contains("|")) solanaByBare7510[bare] = p
         }
 
-        val locked7510 = if (solanaByBare7510.isNotEmpty()) {
+        // V5.0.7546 — price the held Solana book from locked venue and the
+        // corroborated general fanout CONCURRENTLY under one whole-book deadline.
+        // 7510 resolved locked venue first and only then started the fanout for
+        // unresolved mints, so the pass latency was roughly
+        //   lockedVenueChunks + 2.5s fanout
+        // and a 750ms worker routinely took several seconds. The risk clock is
+        // now O(1) (§7545), so stale marks are the remaining latency source.
+        //
+        // Trust semantics do not change:
+        //   locked venue wins when present;
+        //   otherwise a corroborated fanout may publish;
+        //   single-source fanout stays non-authoritative.
+        val heldBare7546 = solanaByBare7510.keys.toList()
+        val lockedFuture7546 = if (heldBare7546.isNotEmpty()) {
+            try { providerPool.submit<Map<String, LockedVenueMarks7392.Mark>> {
+                LockedVenueMarks7392.resolve(heldBare7546, dex)
+            } } catch (_: Throwable) { null }
+        } else null
+        val fanFuture7546 = if (heldBare7546.isNotEmpty()) {
+            try { providerPool.submit<Map<String, ParallelMarkFanout7088.Mark7088>> {
+                ParallelMarkFanout7088.resolve7088(heldBare7546)
+            } } catch (_: Throwable) { null }
+        } else null
+
+        val passStart7546 = System.currentTimeMillis()
+        fun remaining7546(): Long =
+            (BATCH_FANOUT_DEADLINE_MS_7510 - (System.currentTimeMillis() - passStart7546))
+                .coerceAtLeast(1L)
+
+        var lockedTimedOut7546 = false
+        var fanTimedOut7546 = false
+        val locked7510 = if (lockedFuture7546 != null) {
             try {
-                LockedVenueMarks7392.resolve(solanaByBare7510.keys.toList(), dex)
-            } catch (_: Throwable) { emptyMap() }
+                lockedFuture7546.get(remaining7546(), TimeUnit.MILLISECONDS) ?: emptyMap()
+            } catch (_: TimeoutException) {
+                lockedTimedOut7546 = true
+                lockedFuture7546.cancel(true)
+                emptyMap()
+            } catch (_: Throwable) {
+                lockedFuture7546.cancel(true)
+                emptyMap()
+            }
+        } else emptyMap()
+        val fan7510 = if (fanFuture7546 != null) {
+            try {
+                fanFuture7546.get(remaining7546(), TimeUnit.MILLISECONDS) ?: emptyMap()
+            } catch (_: TimeoutException) {
+                fanTimedOut7546 = true
+                fanFuture7546.cancel(true)
+                emptyMap()
+            } catch (_: Throwable) {
+                fanFuture7546.cancel(true)
+                emptyMap()
+            }
         } else emptyMap()
 
-        val unresolved7510 = solanaByBare7510.keys.filter { it !in locked7510 }
-        val fan7510 = if (unresolved7510.isNotEmpty()) {
-            val pair = boundedBatch7510 {
-                ParallelMarkFanout7088.resolve7088(unresolved7510)
-            }
-            if (pair.second) {
-                timeouts.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("HELD_HOT_BATCH_FANOUT_TIMEOUT_7510") } catch (_: Throwable) {}
-            }
-            pair.first ?: emptyMap()
-        } else emptyMap()
+        if (lockedTimedOut7546 || fanTimedOut7546) {
+            timeouts.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("HELD_HOT_BOOK_DEADLINE_TIMEOUT_7546")
+                if (lockedTimedOut7546) PipelineHealthCollector.labelInc("HELD_HOT_LOCKED_VENUE_TIMEOUT_7546")
+                if (fanTimedOut7546) PipelineHealthCollector.labelInc("HELD_HOT_BATCH_FANOUT_TIMEOUT_7546")
+            } catch (_: Throwable) {}
+        }
+        try {
+            PipelineHealthCollector.labelInc("HELD_HOT_BOOK_PARALLEL_PASS_7546")
+        } catch (_: Throwable) {}
 
         try {
             PipelineHealthCollector.labelInc("HELD_HOT_BATCH_PASS_7510")
