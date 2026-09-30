@@ -122,17 +122,22 @@ object FinalizedLearningReconciler7423 {
             ) continue
 
             val sell = sells[p.positionId]?.maxByOrNull { it.atMs } ?: continue
+            // V5.0.7512 — inspect rich durable finality BEFORE requiring the
+            // separate entry-strategy snapshot. The normal 6450->6464 publisher
+            // already permits a missing EntryStrategySnapshot.
+            val rich = CanonicalFinalityPersistence6486.durableEventForPosition7459(p.positionId)
             val entry = EntryStrategySnapshot6450.snapshot(p.positionId)
-            if (entry == null) {
+            if (entry == null && rich == null) {
                 try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_ENTRY_SNAPSHOT_MISSING_7459") } catch (_: Throwable) {}
                 continue
             }
-            val entryProv = entry.entrySource.uppercase()
-            if (entryProv.contains("RESTOR") || entryProv.contains("REPLAY") ||
-                entryProv.contains("ORPHAN") || entryProv.contains("CARRY")) continue
+            if (entry != null) {
+                val entryProv = entry.entrySource.uppercase()
+                if (entryProv.contains("RESTOR") || entryProv.contains("REPLAY") ||
+                    entryProv.contains("ORPHAN") || entryProv.contains("CARRY")) continue
+            }
             if (sell.allocatedCostBasisSol <= 0.0 || !sell.allocatedCostBasisSol.isFinite()) continue
 
-            val rich = CanonicalFinalityPersistence6486.durableEventForPosition7459(p.positionId)
             val netPnl = rich?.netRealizedPnlSol ?: (sell.realizedPnlSol - sell.exitFeesSol)
             val netPct = rich?.netReturnPct ?: (netPnl / sell.allocatedCostBasisSol * 100.0)
             if (!netPnl.isFinite() || !netPct.isFinite()) continue
@@ -142,8 +147,8 @@ object FinalizedLearningReconciler7423 {
             } catch (_: Throwable) {
                 PaperLearningEligibility6519.Decision(false, "ELIGIBILITY_LOOKUP_FAILED_7459")
             }
-            val entryScore = entry.entryScore.coerceIn(0, 100)
-            val lane = (rich?.entryLane ?: entry.entryLane).ifBlank { p.lane }
+            val entryScore = entry?.entryScore?.coerceIn(0, 100) ?: 0
+            val lane = (rich?.entryLane ?: entry?.entryLane ?: p.lane).ifBlank { p.lane }
             if (lane.isBlank()) continue
 
             val env = CanonicalFinalizedTradeBus6464.Envelope(
@@ -159,22 +164,23 @@ object FinalizedLearningReconciler7423 {
                     (rich.dataQuality + ":" + rich.priceIntegrity)
                 else "DURABLE_TYPED_SELL_RECONSTRUCTED_7459",
                 holdingTimeMs = rich?.holdingTimeMs
-                    ?: (sell.atMs - entry.entryTimestampMs).coerceAtLeast(0L),
+                    ?: entry?.let { (sell.atMs - it.entryTimestampMs).coerceAtLeast(0L) }
+                    ?: 0L,
                 entryScore = entryScore,
-                entryTactic = rich?.entryTactic ?: entry.entryTactic,
-                entryTradeType = entry.entryTradeType,
-                entrySetup = entry.entrySetup,
-                entryStyle = entry.entryStyle,
-                entryEntryStyle = entry.entryEntryStyle,
-                entryExitStyle = entry.entryExitStyle,
-                entryStrategyVariantId = entry.entryStrategyVariantId,
-                entrySource = entry.entrySource,
-                marketRegime = entry.entryMarketRegime,
+                entryTactic = rich?.entryTactic ?: entry?.entryTactic.orEmpty(),
+                entryTradeType = entry?.entryTradeType.orEmpty(),
+                entrySetup = entry?.entrySetup.orEmpty(),
+                entryStyle = entry?.entryStyle.orEmpty(),
+                entryEntryStyle = entry?.entryEntryStyle.orEmpty(),
+                entryExitStyle = entry?.entryExitStyle.orEmpty(),
+                entryStrategyVariantId = entry?.entryStrategyVariantId.orEmpty(),
+                entrySource = entry?.entrySource.orEmpty(),
+                marketRegime = entry?.entryMarketRegime.orEmpty(),
                 scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore),
                 terminal = true,
                 learningEligible = eligibility.eligible,
                 learningEligibilityReason = eligibility.reason,
-                assetClassTag = (rich?.assetClassTag ?: entry.assetClassTag)
+                assetClassTag = (rich?.assetClassTag ?: entry?.assetClassTag.orEmpty())
                     .ifBlank { AssetClass.fromLane(lane).tag },
                 economicEventId = rich?.economicEventId?.ifBlank { sell.idempotencyKey }
                     ?: sell.idempotencyKey,
@@ -194,7 +200,7 @@ object FinalizedLearningReconciler7423 {
                     ForensicLogger.lifecycle(
                         "FINALIZED_BUS_DURABLE_REPAIR_7459",
                         "positionId=${p.positionId.take(24)} mint=${p.mint.take(12)} lane=$lane " +
-                            "eventId=${env.economicEventId.take(36)} rich=${rich != null} netPct=$netPct",
+                            "eventId=${env.economicEventId.take(36)} rich=${rich != null} entrySnap=${entry != null} netPct=$netPct",
                     )
                 } catch (_: Throwable) {}
             }

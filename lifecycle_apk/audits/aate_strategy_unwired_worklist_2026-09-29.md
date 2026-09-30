@@ -1192,3 +1192,15 @@ Runtime evidence from 5.0.7501: BG_SCAN_CB=0, but BG_FDG age ~4.6s and normal V3
 - [x] PumpPortal-only intake no longer implies scanner/runtime death.
 - [x] A genuine split runtime with both downstream witnesses stale still alarms.
 - [x] No scanner, intake, FDG, restart, trading or execution behavior changed.
+
+
+## V5.0.7512 — recover finalized-bus gaps from rich durable finality without requiring duplicate entry cache
+
+Runtime evidence from 5.0.7501: closed=1965, published=1503, missing=489 BUS_PUBLISH_FAILED; FINALIZED_BUS_REPAIR_ENTRY_SNAPSHOT_MISSING_7459=3172.
+
+- [x] Durable rich 6450 finality is checked before EntryStrategySnapshot6450.
+- [x] If rich durable finality exists, a missing entry-strategy snapshot no longer blocks 6464 projection repair.
+- [x] This matches the normal CanonicalTradeFinalizedBus6450 publisher, which already publishes durable lane/tactic/economics with optional snapshot fields blank.
+- [x] Typed-SELL-only reconstruction still requires EntryStrategySnapshot6450.
+- [x] Missing optional exact strategy/source/regime fields remain blank, and entryScore remains neutral 0.
+- [x] Existing economics/quarantine/replay/carry checks remain intact.
