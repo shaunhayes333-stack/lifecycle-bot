@@ -1266,3 +1266,15 @@ Runtime evidence from installed 5.0.7501: canonical open=134, registry parity=13
 - [x] The same authority runs on the existing 12-loop integrity cadence under MaintenanceWorker6448.
 - [x] CanonicalPositionAuthority6441 remains the sole lifecycle truth.
 - [x] No position, quantity, exit, admission, sizing or learning policy is changed.
+
+
+## V5.0.7518 — canonical-open short circuit for paper ghost reconciliation
+
+Runtime evidence from 5.0.7501: PAPER_GHOST_PURGE_REFUSED_CANONICAL_OPEN_7351=11448 while canonical inventory was internally consistent.
+
+- [x] Canonical PAPER OPEN now short-circuits the legacy missing-BUY-row ghost heuristic.
+- [x] The journal BUY-row orphan test still runs for rows not present in canonical open inventory.
+- [x] Unknown canonical state remains fail-safe KEEP.
+- [x] True non-canonical/no-BUY ghosts still follow the existing purge path.
+- [x] No canonical position can be made purgeable by this change.
+- [x] Removes repeated refusal logging and stale-journal work against known-good canonical inventory.

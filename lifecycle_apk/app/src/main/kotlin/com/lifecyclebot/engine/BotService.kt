@@ -22374,20 +22374,15 @@ if (hotExitHandledSweep) {
                             // do not close-mark. Only rows with NO BUY row anywhere are
                             // truly orphaned (crashed session / persistence-only). Empty
                             // recentBuyMintsForGhost6373c fails safe: keep the position.
-                            val noBuyRow6373c = recentBuyMintsForGhost6373c.isNotEmpty() && ts.mint !in recentBuyMintsForGhost6373c
-                            // Unknown canonical state (null) fails safe: keep the position.
+                            // V5.0.7518 — canonical OPEN is conclusive positive
+                            // existence. Do not repeatedly run the stale-journal
+                            // ghost heuristic against a position the canonical
+                            // authority already owns; 7351 was refusing the purge
+                            // thousands of times without changing any state.
                             val canonicalOpen7351 = canonicalOpenPaperMints7351?.contains(ts.mint) ?: true
-                            if (noBuyRow6373c && canonicalOpen7351) {
-                                try {
-                                    PipelineHealthCollector.labelInc("PAPER_GHOST_PURGE_REFUSED_CANONICAL_OPEN_7351")
-                                    ForensicLogger.lifecycle(
-                                        "PAPER_GHOST_PURGE_REFUSED_CANONICAL_OPEN_7351",
-                                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol} " +
-                                            "positionId=${p.positionId.take(24)} action=keep_canonical_open_position",
-                                    )
-                                } catch (_: Throwable) {}
-                            }
-                            val ghost6373c = noBuyRow6373c && !canonicalOpen7351
+                            val noBuyRow6373c = if (canonicalOpen7351) false else
+                                recentBuyMintsForGhost6373c.isNotEmpty() && ts.mint !in recentBuyMintsForGhost6373c
+                            val ghost6373c = noBuyRow6373c
                             if (ghost6373c) {
                                 try { ts.position = com.lifecyclebot.data.Position() } catch (_: Throwable) {}
                                 try { com.lifecyclebot.engine.PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
