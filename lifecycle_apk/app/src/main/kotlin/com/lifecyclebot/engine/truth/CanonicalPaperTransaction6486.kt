@@ -322,6 +322,15 @@ object CanonicalPaperTransaction6486 {
             val eventId = sell.idempotencyKey.ifBlank {
                 "PAPER6486:SELL:${sell.positionId}:${sell.atMs}"
             }
+            // V5.0.7516 — durable journal proof means this historical
+            // projection already completed on a prior reconciliation pass.
+            // Check before reopening/stamping the volatile canonical event.
+            if (TradeHistoryStore.isDurableEconomicEvent7371(eventId)) {
+                try {
+                    PipelineHealthCollector.labelInc("HISTORY_REPAIR_DURABLE_EVENT_REUSED_7516")
+                } catch (_: Throwable) {}
+                return@forEach
+            }
             val scale = position.quantityScale.coerceIn(0, 18)
             val soldQty = try { sell.soldQty.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
             val remainingQty = try { sell.remainingQty.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }

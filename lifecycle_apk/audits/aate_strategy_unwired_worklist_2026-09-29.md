@@ -1245,3 +1245,13 @@ Repair:
 - [x] startBackgroundDiscovery remains idempotent.
 - [x] Existing 15s/60s/5m discovery cadence and silent-lease reaper are unchanged.
 - [x] No crypto scoring, route, sizing, entry or exit threshold is changed.
+
+
+## V5.0.7516 — stop re-stamping already durable cross-asset history events
+
+Runtime evidence from 5.0.7501: CANONICAL_EVENT_STORE_DUP_COMMIT_6635=27594, with POSITION/LEDGER/TERMINAL_EXEC/FILL_LOT each ~6156.
+
+- [x] repairCryptoHistory6659 checks TradeHistoryStore.isDurableEconomicEvent7371(eventId) before openEvent, fill-lot projection and store receipt stamping.
+- [x] Durable historical events are reused instead of reconstructing the same volatile receipt chain every reconciliation cadence.
+- [x] Non-durable events still run the complete repair path.
+- [x] No event is skipped before durable journal proof exists.
