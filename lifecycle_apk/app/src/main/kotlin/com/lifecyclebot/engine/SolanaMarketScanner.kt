@@ -1816,6 +1816,17 @@ class SolanaMarketScanner(
     }
 
     private suspend fun scanPumpFunDirect() {
+        val now7530 = System.currentTimeMillis()
+        val cooldown7530 = pumpDirectCooldownUntil7530.get()
+        if (now7530 < cooldown7530) {
+            try { PipelineHealthCollector.labelInc("PUMPFUN_DIRECT_SCANNER_CIRCUIT_SKIP_7530") } catch (_: Throwable) {}
+            return
+        }
+        val halfOpen7530 = cooldown7530 > 0L
+        if (halfOpen7530) {
+            try { PipelineHealthCollector.labelInc("PUMPFUN_DIRECT_SCANNER_HALF_OPEN_7530") } catch (_: Throwable) {}
+        }
+
         // V5.0.4594 — QUALITY-FIRST INTAKE (operator P0: "quality vs
         // quantity situation"). Reordered so market_cap DESC + reply_count
         // DESC (best-quality candidates) fetch FIRST, and a global 75-token
@@ -1832,11 +1843,13 @@ class SolanaMarketScanner(
             "https://frontend-api-v3.pump.fun/coins?offset=100&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
         )
 
-        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun endpoints (quality-first, cap=75)...")
+        val activeUrls7530 = if (halfOpen7530) urls.take(1) else urls
+        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${activeUrls7530.size} pump.fun endpoints (quality-first, cap=75, halfOpen=$halfOpen7530)...")
         var totalFound = 0
+        var validJsonResponses7530 = 0
         val globalCap = 75  // V5.0.4594 — total tokens emitted per scan pass
 
-        for (url in urls) {
+        for (url in activeUrls7530) {
             if (totalFound >= globalCap) {
                 ErrorLogger.info("Scanner", "scanPumpFunDirect: global cap $globalCap reached; skipping remaining URLs (quality-first)")
                 break
@@ -1851,6 +1864,7 @@ class SolanaMarketScanner(
                     }
                     else -> continue
                 }
+                validJsonResponses7530++
 
                 val now = System.currentTimeMillis()
                 var found = 0
@@ -1934,6 +1948,33 @@ class SolanaMarketScanner(
                 throw e
             } catch (e: Exception) {
                 ErrorLogger.warn("Scanner", "scanPumpFunDirect error: ${e.message}")
+            }
+        }
+
+        if (validJsonResponses7530 > 0) {
+            pumpDirectEmptyWirePasses7530.set(0L)
+            pumpDirectCooldownUntil7530.set(0L)
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (halfOpen7530) "PUMPFUN_DIRECT_SCANNER_HALF_OPEN_RECOVERED_7530"
+                    else "PUMPFUN_DIRECT_SCANNER_WIRE_OK_7530"
+                )
+            } catch (_: Throwable) {}
+        } else {
+            val emptyPasses7530 = pumpDirectEmptyWirePasses7530.incrementAndGet()
+            if (emptyPasses7530 >= PUMP_DIRECT_EMPTY_PASSES_TO_COOLDOWN_7530) {
+                pumpDirectEmptyWirePasses7530.set(0L)
+                pumpDirectCooldownUntil7530.set(
+                    System.currentTimeMillis() + PUMP_DIRECT_COOLDOWN_MS_7530
+                )
+                try {
+                    PipelineHealthCollector.labelInc("PUMPFUN_DIRECT_SCANNER_CIRCUIT_OPEN_7530")
+                    ForensicLogger.lifecycle(
+                        "PUMPFUN_DIRECT_SCANNER_CIRCUIT_OPEN_7530",
+                        "urls=${activeUrls7530.size} halfOpen=$halfOpen7530 cooldownMs=$PUMP_DIRECT_COOLDOWN_MS_7530 " +
+                            "action=bench_frontend_list_only_pumpportal_ws_and_execution_unchanged",
+                    )
+                } catch (_: Throwable) {}
             }
         }
 
@@ -4354,6 +4395,15 @@ class SolanaMarketScanner(
     // reads now share one response for 30s and back off under their own label.
     private val dexFeedCache7381 = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, String>>()
     private val DEX_FEED_TTL_MS_7381 = 30_000L
+
+    // V5.0.7530 — direct PumpFun LIST scanner circuit. This is discovery-only;
+    // PumpPortal WS, PumpPortal execution and curve RPC are separate authorities.
+    // Circuit on whole passes with zero valid JSON bodies, not zero emitted
+    // tokens, so a healthy feed that simply has nothing new is never benched.
+    private val pumpDirectEmptyWirePasses7530 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val pumpDirectCooldownUntil7530 = java.util.concurrent.atomic.AtomicLong(0L)
+    private const val PUMP_DIRECT_EMPTY_PASSES_TO_COOLDOWN_7530 = 3L
+    private const val PUMP_DIRECT_COOLDOWN_MS_7530 = 5L * 60_000L
 
     private fun isDexFeed7381(url: String): Boolean = url.contains("api.dexscreener.com/token-profiles/") ||
         url.contains("api.dexscreener.com/token-boosts/") || url.contains("api.dexscreener.com/community-takeovers/")
