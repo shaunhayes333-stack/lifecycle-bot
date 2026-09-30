@@ -1255,3 +1255,14 @@ Runtime evidence from 5.0.7501: CANONICAL_EVENT_STORE_DUP_COMMIT_6635=27594, wit
 - [x] Durable historical events are reused instead of reconstructing the same volatile receipt chain every reconciliation cadence.
 - [x] Non-durable events still run the complete repair path.
 - [x] No event is skipped before durable journal proof exists.
+
+
+## V5.0.7517 — wire canonical lifecycle projection authority
+
+Runtime evidence from installed 5.0.7501: canonical open=134, registry parity=134/134, but PositionStateLedger6454 positions=0 and root cause included LIFECYCLE_PROJECTION_DIVERGED_6470.
+
+- [x] Canonical bootstrap calls CanonicalLifecycleAuthority6470.audit() after restored inventory reconstruction.
+- [x] PositionStateLedger6454 and SellQtyBoundaryClamp6427 therefore project from canonical 6441 before normal trading resumes.
+- [x] The same authority runs on the existing 12-loop integrity cadence under MaintenanceWorker6448.
+- [x] CanonicalPositionAuthority6441 remains the sole lifecycle truth.
+- [x] No position, quantity, exit, admission, sizing or learning policy is changed.

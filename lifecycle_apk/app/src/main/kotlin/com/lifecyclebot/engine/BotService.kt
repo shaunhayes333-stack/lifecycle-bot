@@ -1994,6 +1994,16 @@ class BotService : Service() {
                     try { HeldPositionSupervisor7246.reconcileDiscoveryResidency() } catch (_: Throwable) {}
                     com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(repairedPaperPositions6490)
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)
+                    // V5.0.7517 — run the existing canonical lifecycle
+                    // projection authority after restored inventory is final.
+                    try {
+                        val lifecycle7517 = com.lifecyclebot.engine.truth.CanonicalLifecycleAuthority6470.audit()
+                        PipelineHealthCollector.labelInc("CANONICAL_LIFECYCLE_BOOTSTRAP_SYNC_7517")
+                        ForensicLogger.lifecycle(
+                            "CANONICAL_LIFECYCLE_BOOTSTRAP_SYNC_7517",
+                            "canonicalOpen=${lifecycle7517.canonicalOpen} positionStateOpen=${lifecycle7517.registryOpen} occupancyOpen=${lifecycle7517.occupancyOpen} delta=${lifecycle7517.delta}",
+                        )
+                    } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.start {
                         // The independent 30-second cadence is the durable
@@ -17089,6 +17099,10 @@ class BotService : Service() {
             try { com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.auditConservation() } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.assertInvariant() } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.assertInvariant() } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.truth.CanonicalLifecycleAuthority6470.audit()
+                PipelineHealthCollector.labelInc("CANONICAL_LIFECYCLE_PERIODIC_SYNC_7517")
+            } catch (_: Throwable) {}
             // V5.0.6453 §P0-#6 — ensure the single reward subscriber is
             // installed BEFORE any close fires. Idempotent — no-op after
             // the first successful install.
