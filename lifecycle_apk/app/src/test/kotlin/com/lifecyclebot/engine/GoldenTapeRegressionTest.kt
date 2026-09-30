@@ -12617,4 +12617,26 @@ class GoldenTapeRegressionTest {
         assertTrue(block.contains("MINT_SEAL_IGNORED_IMMUTABLE_INTENT_7522"))
     }
 
+    @Test
+    fun V5_0_7557_bootstrap_timeline_survives_both_gates_and_the_report_prints_it() {
+        val timeline = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalBootstrapTimeline7557.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(timeline.contains("object CanonicalBootstrapTimeline7557"))
+        assertTrue(timeline.contains("fun beginAttempt()"))
+        assertTrue(timeline.contains("fun mark(phase: String)"))
+        assertTrue(timeline.contains("fun statusLine(): String"))
+        // Both bootstrap gates feed the one timeline: 6515's beginAttempt+mark
+        // and 6516's mark, plus both failure paths.
+        assertTrue(bot.contains("CanonicalBootstrapTimeline7557.beginAttempt()"))
+        assertTrue(bot.contains("try { CanonicalBootstrapTimeline7557.mark(phase) } catch (_: Throwable) {}"))
+        assertTrue(bot.contains("CanonicalBootstrapTimeline7557.mark(\"CANONICAL_BOOTSTRAP_FAILED\")"))
+        assertTrue(bot.contains("CanonicalBootstrapTimeline7557.mark(\"SERVICE_BOOTSTRAP_FAILED\")"))
+        // Both mark() wiring call-sites appear once each: markCanonical7438's
+        // lambda body (6515) and bootstrapPhase6516's lambda body (6516).
+        assertEquals(2, Regex(Regex.escape("try { CanonicalBootstrapTimeline7557.mark(phase) } catch (_: Throwable) {}")).findAll(bot).count())
+        assertTrue(report.contains("CanonicalBootstrapTimeline7557.statusLine()"))
+        assertTrue(report.contains("Canonical bootstrap timeline (§7557)"))
+    }
+
 }

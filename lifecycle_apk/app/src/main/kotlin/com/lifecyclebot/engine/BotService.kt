@@ -1949,7 +1949,9 @@ class BotService : Service() {
                 val started6515 = android.os.SystemClock.elapsedRealtime()
                 val markCanonical7438: (String) -> Unit = { phase ->
                     android.util.Log.i("AATE_BOOTSTRAP", "CANONICAL_BOOTSTRAP_PHASE_7438 phase=$phase elapsedMs=${android.os.SystemClock.elapsedRealtime() - started6515}")
+                    try { CanonicalBootstrapTimeline7557.mark(phase) } catch (_: Throwable) {}
                 }
+                try { CanonicalBootstrapTimeline7557.beginAttempt() } catch (_: Throwable) {}
                 markCanonical7438("JOB_ENTERED")
                 try {
                     val startCap6432 = try {
@@ -2024,6 +2026,7 @@ class BotService : Service() {
                     } catch (_: Throwable) {}
                 } catch (t: Throwable) {
                     canonicalBootstrapSucceeded6515 = false
+                    try { CanonicalBootstrapTimeline7557.mark("CANONICAL_BOOTSTRAP_FAILED") } catch (_: Throwable) {}
                     android.util.Log.e("AATE_BOOTSTRAP", "CANONICAL_BOOTSTRAP_FAILED_6515 type=${t.javaClass.simpleName} phase=UNKNOWN", t)
                     ErrorLogger.crash("BotService", "CANONICAL_BOOTSTRAP_FAILED_6515: ${t.javaClass.simpleName}: ${t.message}", t)
                     try {
@@ -2067,6 +2070,7 @@ class BotService : Service() {
                     // and only ever to the forensic log, which is not open
                     // during launch and which the splash cannot reach.
                     try { BootstrapProgress7031.note(phase) } catch (_: Throwable) {}
+                    try { CanonicalBootstrapTimeline7557.mark(phase) } catch (_: Throwable) {}
                 }
 
                 // V5.0.7447 — one optional trader must never wedge the whole
@@ -3320,6 +3324,7 @@ class BotService : Service() {
                     } catch (_: Throwable) {}
                 } catch (t: Throwable) {
                     serviceBootstrapSucceeded6516 = false
+                    try { CanonicalBootstrapTimeline7557.mark("SERVICE_BOOTSTRAP_FAILED") } catch (_: Throwable) {}
                     serviceBootstrapFailure6517 = "${t.javaClass.simpleName}: ${t.message.orEmpty().take(120)}"
                     ErrorLogger.crash("BotService", "SERVICE_BOOTSTRAP_FAILED_6516: ${t.javaClass.simpleName}: ${t.message}", t)
                     try {

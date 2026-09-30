@@ -1329,6 +1329,12 @@ object PipelineHealthCollector {
             if (blockedMs > 0 && ageSec in 0..120) {
                 sb.append("  Execution block reason: ${lastExecutionStateBlockedFields.take(160)}\n")
             }
+            // V5.0.7557 — durable start/stop-button bootstrap timeline, immune
+            // to the "Recent events" ring buffer evicting phase markers before
+            // a snapshot can be captured. See CanonicalBootstrapTimeline7557.
+            try {
+                sb.append("  Canonical bootstrap timeline (§7557): ${com.lifecyclebot.engine.CanonicalBootstrapTimeline7557.statusLine()}\n")
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {
             sb.append("  Execution state:       UNKNOWN (snapshot read error)\n")
         }
