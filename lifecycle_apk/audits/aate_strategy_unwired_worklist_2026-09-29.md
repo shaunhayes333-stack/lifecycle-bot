@@ -1156,3 +1156,16 @@ Runtime evidence from 5.0.7501: records=1479 indexedLanes=0 while active lane ev
 - [x] ensureAffinityLineage7464 and ordinary stage stamps therefore converge on the same indexed canonical record.
 - [x] No causal stages, lane logic, entry criteria, sizing, execution authority or learning output changed.
 - [x] Runtime acceptance: CAUSAL_FUNNEL indexedLanes>0 and specialist discovered/qualified/FDG/etc counters become non-zero when stages are actually stamped.
+
+
+## V5.0.7509 — P0 remove nested runBlocking from held/entry Solana mark fallback
+
+Runtime evidence from 5.0.7501: open-position tick inFlight ~365s at phase=locked_venue with stack ending in runBlocking -> BotService.tryFallbackPriceData; held=134 fresh=0 staleRefresh=72 missing=62 and riskClockStale=87153.
+
+- [x] tryFallbackPriceData is now suspend instead of creating nested blocking coroutine bridges.
+- [x] DexScreenerOracle retains the existing 2s withTimeoutOrNull deadline.
+- [x] BirdeyeOracle retains the existing 2s withTimeoutOrNull deadline.
+- [x] Canonical exit refresh already calls the fallback from Dispatchers.IO and remains asynchronous.
+- [x] Entry hydration explicitly switches to Dispatchers.IO before running the same complete fallback chain.
+- [x] Birdeye overview, DexScreener token, Birdeye Oracle and pump.fun fallback branches are all preserved.
+- [x] No mark trust, stale threshold, exit threshold, provider ordering or safety rule is weakened.

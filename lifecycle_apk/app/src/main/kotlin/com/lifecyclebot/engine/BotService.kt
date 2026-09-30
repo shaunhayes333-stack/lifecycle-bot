@@ -34014,7 +34014,7 @@ if (hotExitHandledSweep) {
     // the storm guard already share, so the doors open exactly when the
     // top-up knocks. Traffic stays bounded by that TTL: <=1 refresh attempt
     // per mint per 30s on success, 5s backoff on failure, as 6594 designed.
-    private fun tryFallbackPriceData(
+    private suspend fun tryFallbackPriceData(
         mint: String,
         ts: TokenState,
         secondaryStaleAfterMs7225: Long = 120_000L,
@@ -34055,10 +34055,8 @@ if (hotExitHandledSweep) {
         // token-level and pair-level data independently.
         if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > secondaryStaleAfterMs7225) {
             try {
-                val priceUsd = kotlinx.coroutines.runBlocking {
-                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                        com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
-                    }
+                val priceUsd = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                    com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
                 }
                 if (priceUsd != null && priceUsd > 0) {
                     synchronized(ts) {
@@ -34078,10 +34076,8 @@ if (hotExitHandledSweep) {
         // hits a separate rate-limit bucket).
         if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > secondaryStaleAfterMs7225) {
             try {
-                val priceUsd = kotlinx.coroutines.runBlocking {
-                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                        com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
-                    }
+                val priceUsd = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                    com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
                 }
                 if (priceUsd != null && priceUsd > 0) {
                     synchronized(ts) {
@@ -34236,7 +34232,9 @@ if (hotExitHandledSweep) {
                         try { PipelineHealthCollector.labelInc("ENTRY_HYDRATION_FANOUT_EMPTY_7273") } catch (_: Throwable) {}
                     }
                 }
-                tryFallbackPriceData(mint, ts)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    tryFallbackPriceData(mint, ts)
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
