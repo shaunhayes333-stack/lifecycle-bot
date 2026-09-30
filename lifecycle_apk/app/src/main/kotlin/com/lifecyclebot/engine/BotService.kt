@@ -5533,12 +5533,56 @@ class BotService : Service() {
                         return@start
                     }
                     val ts6882 = try { status.tokens[mint] } catch (_: Throwable) { null }
-                    val th6882 = if (ts6882 == null) null else
-                        try { executor.protectiveExitThresholds6882(ts6882) } catch (_: Throwable) { null }
-                    // §P0-#9 no fake mark: a stale mark must never latch a
-                    // protective exit, so an unresolvable or aged mark falls
-                    // back to the original heartbeat-only ping.
-                    val markUsable6882 = th6882 != null && th6882.markAgeMs <= 60_000L
+                    // V5.0.7545 — the independent 500ms risk clock may only READ
+                    // held-price truth; it may never run the full price resolver.
+                    // protectiveExitThresholds6882() falls back to getActualPrice()
+                    // when no mark is supplied, and getActualPrice performs quote
+                    // freshness, token-metric identity, candle synthesis, basis
+                    // reconciliation and price-integrity work. With ~100 held
+                    // positions that violated this clock's O(1) contract and is
+                    // the source of 10s+ per-position evaluations / stale resets.
+                    //
+                    // HeldHotMarkAuthority7419 owns asynchronous refresh and
+                    // publishes the canonical EXIT_ECONOMIC mark. Read exactly
+                    // that slot here, keep the existing <=60s risk-clock freshness
+                    // rule, and pass the price as pre-resolved so no provider or
+                    // heavy price-policy path can run inline.
+                    val now7545 = System.currentTimeMillis()
+                    val exitMark7545 = try {
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+                            mint,
+                            com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC,
+                        )
+                    } catch (_: Throwable) { null }
+                    val exitMarkPx7545 = try {
+                        exitMark7545?.priceUsd?.value?.toDouble()
+                            ?.takeIf { it.isFinite() && it > 0.0 }
+                    } catch (_: Throwable) { null }
+                    val exitMarkAge7545 = exitMark7545?.timestampMs?.takeIf { it > 0L }
+                        ?.let { (now7545 - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
+                    val canonicalMarkFresh7545 =
+                        exitMarkPx7545 != null && exitMarkAge7545 <= 60_000L
+                    val th6882 = if (ts6882 == null || !canonicalMarkFresh7545) null else
+                        try {
+                            executor.protectiveExitThresholds6882(
+                                ts6882,
+                                preResolvedMark6891 = exitMarkPx7545,
+                            )?.copy(markAgeMs = exitMarkAge7545)
+                        } catch (_: Throwable) { null }
+                    try {
+                        when {
+                            canonicalMarkFresh7545 ->
+                                PipelineHealthCollector.labelInc("RISK_CLOCK_CANONICAL_EXIT_MARK_READ_7545")
+                            exitMark7545 == null ->
+                                PipelineHealthCollector.labelInc("RISK_CLOCK_CANONICAL_EXIT_MARK_MISSING_7545")
+                            else ->
+                                PipelineHealthCollector.labelInc("RISK_CLOCK_CANONICAL_EXIT_MARK_STALE_7545")
+                        }
+                    } catch (_: Throwable) {}
+                    // §P0-#9 no fake mark: a stale/missing canonical held mark
+                    // never latches a new protective exit. HeldHot refreshes it
+                    // independently; an already-latched exit may still redispatch.
+                    val markUsable6882 = th6882 != null
                     // V5.0.7176 — both branches need these now. A latch made
                     // earlier on a fresh mark does not lapse because the feed
                     // has since gone dark: the trigger decision is monotonic by
@@ -5569,8 +5613,12 @@ class BotService : Service() {
                                     PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_NO_TOKEN_STATE")
                                 ts6882.position.entryPrice <= 0.0 ->
                                     PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_NO_ENTRY_PRICE")
-                                th6882 == null ->
+                                exitMark7545 == null || exitMarkPx7545 == null ->
                                     PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_NO_MARK")
+                                !canonicalMarkFresh7545 ->
+                                    PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_MARK_STALE")
+                                th6882 == null ->
+                                    PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7545_THRESHOLD_UNAVAILABLE")
                                 else ->
                                     PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_MARK_STALE")
                             }
@@ -5591,7 +5639,7 @@ class BotService : Service() {
                                 ts = ts6882, positionId = positionId, mint = mint,
                                 kind = darkLatch7176.kind,
                                 markPx = darkLatch7176.triggerPrice,
-                                markAgeMs = th6882?.markAgeMs ?: -1L,
+                                markAgeMs = exitMarkAge7545.takeIf { it != Long.MAX_VALUE } ?: -1L,
                                 heldMs = posAgeMs6882,
                                 paperMode = paperMode7176,
                                 firstAttempt = false,
