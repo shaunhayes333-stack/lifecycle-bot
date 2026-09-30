@@ -621,6 +621,37 @@ object UnifiedPolicyHead {
         pendingByPosition6681.clear()
     }
 
+    /**
+     * V5.0.7535 — full user learning reset. UnifiedPolicy persists in its own
+     * SharedPreferences file, outside LearningPersistence's kv table; reset both
+     * volatile authority and standalone persistence so old weights cannot keep
+     * steering a supposedly fresh session.
+     */
+    fun resetAllLearning7535() {
+        resetModelState6681()
+        synchronized(degenLock7389) {
+            for (i in 0 until NF) {
+                obsMean7389[i] = 0.5
+                obsVar7389[i] = 0.0
+                for (j in 0 until NF) obsDupDiff7389[i][j] = 0.0
+            }
+            obsCount7389 = 0L
+            degenerateCount7389 = NF
+        }
+        advisoryUsageCount.set(0L)
+        authoritativeOverrideCount.set(0L)
+        calibrationDemoteCount.set(0L)
+        causalBoundCount6681.set(0L)
+        causalOutcomeCount6681.set(0L)
+        causalMissCount6681.set(0L)
+        legacyAmbiguousDropCount6681.set(0L)
+        try { appContext?.getSharedPreferences("unified_policy_head", Context.MODE_PRIVATE)?.edit()?.clear()?.commit() } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("UNIFIED_POLICY_HEAD_RESET_7535")
+            ForensicLogger.lifecycle("UNIFIED_POLICY_HEAD_RESET_7535", "trained=0 lanes=0 pending=0 authority=BOOTSTRAP")
+        } catch (_: Throwable) {}
+    }
+
     fun exportState(): String = try {
         JSONObject().apply {
             put("modelVersion", MODEL_VERSION_V6681)

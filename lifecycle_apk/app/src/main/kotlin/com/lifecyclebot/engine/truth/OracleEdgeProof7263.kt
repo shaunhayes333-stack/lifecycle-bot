@@ -104,6 +104,9 @@ object OracleEdgeProof7263 {
                 brierSum = p[3].toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
             }
         }
+        fun clear7535() = synchronized(lock) {
+            n = 0L; wins = 0L; sumReturn = 0.0; brierSum = 0.0
+        }
     }
 
     private val stamps = ConcurrentHashMap<String, Stamp>()
@@ -170,6 +173,28 @@ object OracleEdgeProof7263 {
                 .filter { now - it.value.atMs <= STAMP_TTL_MS_7263 }
                 .joinToString(";") { "${it.key},${it.value.verdict.name},${it.value.pWin},${it.value.atMs}" }
             p.edit().putString(KEY_STAMPS_7287, body).apply()
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7535 — user-visible Reset Learning must clear the proof that can
+     * make oracle REFUSE binding. This store persists outside LearningPersistence
+     * kv, so database wipe alone cannot reset it.
+     */
+    @Synchronized
+    fun resetAllLearning7535() {
+        stamps.clear()
+        admit.clear7535()
+        refuse.clear7535()
+        scored.set(0L); unmatched.set(0L); staleStamps.set(0L)
+        promotions.set(0L); demotions.set(0L); restored7287.set(0L)
+        lastStampFlushMs7287.set(0L)
+        tier = Tier.ADVISORY
+        tierReason = "reset_learning_7535_no_scored_closes"
+        try { prefs7287?.edit()?.clear()?.commit() } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("ORACLE_EDGE_PROOF_RESET_7535")
+            ForensicLogger.lifecycle("ORACLE_EDGE_PROOF_RESET_7535", "tier=ADVISORY tallies=0 stamps=0")
         } catch (_: Throwable) {}
     }
 

@@ -438,6 +438,8 @@ object LearningPersistence {
         z("META_COGNITION")    { com.lifecyclebot.v3.scoring.MetaCognitionAI.reset() }
         z("AUTONOMOUS_META")   { com.lifecyclebot.engine.AutonomousMetaPolicy.reset() }
         z("FORWARD_OUTCOME")   { com.lifecyclebot.engine.ForwardOutcomeModel.reset() }
+        z("ORACLE_EDGE_PROOF") { com.lifecyclebot.engine.truth.OracleEdgeProof7263.resetAllLearning7535() }
+        z("UNIFIED_POLICY")    { com.lifecyclebot.engine.UnifiedPolicyHead.resetAllLearning7535() }
         z("SIGNAL_QUALITY")    { com.lifecyclebot.engine.SignalQualityTracker.reset() }
         z("STRATEGY_HYPOTHESIS"){ com.lifecyclebot.engine.StrategyHypothesisEngine.reset() }
         z("ASYNC_STRATEGY_LAB"){ com.lifecyclebot.engine.AsyncStrategyLab.reset() }
@@ -454,9 +456,8 @@ object LearningPersistence {
         z("RUNNER_EXIT_SHADOW_LEDGER"){ com.lifecyclebot.engine.RunnerExitShadowLedger.reset() }
         z("LIVE_WALLET_GROWTH_GOVERNOR"){ com.lifecyclebot.engine.LiveWalletGrowthGovernorReport.reset() }
         z("COLLECTIVE_INTEL")  { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.reset() }
-        // UnifiedPolicyHead has no reset(): clear its persisted blob so the next
-        // boot re-initialises fresh weights; in-memory weights keep drifting from
-        // a fresh-trade baseline which is acceptable (they re-train immediately).
+        // V5.0.7535 — admission-affecting oracle proof + UnifiedPolicy have
+        // explicit resets above; neither may retain authority after this action.
         ErrorLogger.info(TAG, "✅ resetAll: all learning stores zeroed (disk + memory)")
     }
 
