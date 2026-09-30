@@ -201,7 +201,7 @@ object CyclicTradeEngine {
         try{floor=(floor+com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod()).coerceIn(25.0,90.0)}catch(_:Throwable){}
         val badExp=try{ScoreExpectancyTracker.shouldReject("CYCLIC",score)}catch(_:Throwable){false};val danger=try{val d=LosingPatternMemory.stats("CYCLIC",score);d.isDangerous&&d.meanPnl<0.0}catch(_:Throwable){false}
         if(badExp||danger)return CandidateOpinion7542(false,score,conf,"CYCLIC_NEGATIVE_EXPECTANCY_MEMORY")
-        val ok=score.toDouble()>=floor;return CandidateOpinion7542(ok,score,conf,if(ok)"CYCLIC_NATIVE_SCORE_${score}_FLOOR_${floor.toInt()}"else"CYCLIC_SCORE_BELOW_FLOOR_${score}_LT_${floor.toInt()}")
+        val ok=score.toDouble()>=floor;return CandidateOpinion7542(ok,score,conf,if (ok) "CYCLIC_NATIVE_SCORE_${score}_FLOOR_${floor.toInt()}" else "CYCLIC_SCORE_BELOW_FLOOR_${score}_LT_${floor.toInt()}")
     }
 
     private data class CyclicPriceVerdict(
