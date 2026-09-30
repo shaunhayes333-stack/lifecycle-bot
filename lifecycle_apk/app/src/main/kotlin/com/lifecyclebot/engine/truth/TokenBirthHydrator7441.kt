@@ -56,7 +56,11 @@ object TokenBirthHydrator7441 {
                 progress.remove(key)
                 cooldownUntil.remove(key)
             }
-            cooldownUntil.entries.removeIf { it.value < cutoff7502 && it.key !in inFlight && it.key !in progress }
+            cooldownUntil.entries.removeIf {
+                it.value < cutoff7502 &&
+                    !inFlight.contains(it.key) &&
+                    !progress.containsKey(it.key)
+            }
             if (dormant7502.isNotEmpty()) try {
                 PipelineHealthCollector.labelInc("TOKEN_BIRTH_DORMANT_STATE_PRUNED_7502")
             } catch (_: Throwable) {}
