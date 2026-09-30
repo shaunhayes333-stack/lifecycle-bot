@@ -1355,3 +1355,13 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] CASHGEN local position/cap state is telemetry only during native entry evaluation.
 - [x] CanonicalPositionAuthority / HeldPositionSupervisor / execution slot authorities remain the sole duplicate and capacity truth.
 - [x] Local maps remain intact for exits, PnL, UI projection, partials and lifecycle bookkeeping.
+
+
+## V5.0.7554 — DipHunter unresolved-holder neutrality
+
+- [x] DipHunter holderChange24h is nullable; null means unresolved/unknown.
+- [x] Unknown holder change contributes zero quality points instead of being treated as stable/growing.
+- [x] Holder-exodus danger only evaluates when real holder-change evidence exists.
+- [x] SpecialistBrainBridge no longer fabricates holderChange24h=0.
+- [x] CryptoAltTrader no longer fabricates holderChange24h=0 for dynamic DipHunter evaluation.
+- [x] Positive/negative resolved holder-change semantics are unchanged.

@@ -1530,7 +1530,7 @@ object CryptoAltTrader {
                                 mint = tok.mint, symbol = tok.symbol, currentPrice = price, highPrice = high7391,
                                 marketCapUsd = bandMcap7391, liquidityUsd = liq, buyPressurePct = buyPct,
                                 volumeVsAvg = 1.0, tokenAgeHours = refreshed.discoveryAgeHours6544.coerceAtMost(9_000.0),
-                                holderCount = 100, holderChange24h = 0, isDevSelling = false,
+                                holderCount = 100, holderChange24h = null, isDevSelling = false,
                                 bounceConfirmed = CryptoLaneDesk7391.bounceConfirmed(deskIdentity7391, buyPct),
                             )
                             if (d.shouldBuy) {

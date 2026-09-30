@@ -245,7 +245,7 @@ object DipHunterAI {
         volumeVsAvg: Double,         // Volume relative to average
         tokenAgeHours: Double,
         holderCount: Int,
-        holderChange24h: Int,        // Net holder change
+        holderChange24h: Int?,       // Net holder change; null = unresolved/unknown
         isDevSelling: Boolean,
         // V5.0.7389 — the caller's read of the chart: a higher low printed after the
         // dip low, price back above it, buy pressure >= 50 and volume present.
@@ -359,7 +359,7 @@ object DipHunterAI {
         }
         
         // Holder exodus
-        if (holderChange24h < -10) {
+        if (holderChange24h != null && holderChange24h < -10) {
             dangerScore += 20
             dangerReasons.add("HOLDER_EXIT(${holderChange24h})")
         }
@@ -436,6 +436,7 @@ object DipHunterAI {
         
         // Holder stability
         qualityScore += when {
+            holderChange24h == null -> 0  // V5.0.7554 — unknown is neutral, not fake stability
             holderChange24h >= 10 -> 10   // Growing during dip!
             holderChange24h >= 0 -> 5
             holderChange24h >= -5 -> 0
