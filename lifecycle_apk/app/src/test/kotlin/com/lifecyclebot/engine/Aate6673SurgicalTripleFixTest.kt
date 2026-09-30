@@ -84,7 +84,7 @@ class Aate6673SurgicalTripleFixTest {
         )
         assertTrue(
             "Synth path must fallback to immutableAuthority6513 when ticket auth absent",
-            openGate.contains("immutableAuthority6513?.verdict?.uppercase() in setOf(\"BUY\", \"PROBE_ONLY\")"),
+            openGate.contains("immutableAuthority6513?.verdict?.uppercase() == \"BUY\""),
         )
         assertTrue(
             "Synth path must fallback to sealedBuyIntent6608 as final tier",

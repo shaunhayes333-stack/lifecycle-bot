@@ -216,16 +216,14 @@ object ExecutableOpenGate {
     internal fun canonicalExecutableIntent6509(
         fdgCan: Boolean?, preFdgVerdict: String, hardNoReasons: List<String>,
     ): Boolean {
-        val paper7403 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        // V5.0.7548 — PROBE_ONLY is shadow-only; only BUY authorizes capital.
         return fdgCan == true && hardNoReasons.isEmpty() &&
-            (preFdgVerdict.equals("BUY", true) ||
-                (paper7403 && preFdgVerdict.equals("PROBE_ONLY", true)))
+            preFdgVerdict.equals("BUY", true)
     }
 
     internal fun mutableSignalCanVeto6519(intent: ExecutionIntent?, signal: String): Boolean {
         val immutableExecutable6533 = intent?.fdgAllowed == true && intent.hardNoReasons.isEmpty() &&
-            (intent.fdgVerdict.equals("BUY", true) ||
-                (intent.mode.equals("PAPER", true) && intent.fdgVerdict.equals("PROBE_ONLY", true)))
+            intent.fdgVerdict.equals("BUY", true)
         return !signal.equals("BUY", true) && !signal.equals("EXECUTE", true) && !immutableExecutable6533
     }
 
@@ -281,8 +279,7 @@ object ExecutableOpenGate {
 
     private fun validSealedDecision6613(intent: ExecutionIntent): Boolean {
         val final = intent.finalDecision6613.name
-        val verdictExecutable7403 = final == "BUY" ||
-            (intent.mode.equals("PAPER", true) && final == "PROBE_ONLY")
+        val verdictExecutable7403 = final == "BUY"
         return verdictExecutable7403 &&
             intent.fdgAllowed && intent.fdgVerdict.uppercase() == final &&
             intent.authoritativeSignal.uppercase() == "BUY" &&
@@ -1147,7 +1144,7 @@ object ExecutableOpenGate {
                             ?: activeExecutionIntent6519(mode, mint, candidateVersion)
                     } catch (_: Throwable) { null }
                     val snapshotIntentAuthoritative6695 = sealedIntent6627 != null &&
-                        sealedIntent6627.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                        sealedIntent6627.fdgVerdict.uppercase() == "BUY" &&
                         sealedIntent6627.executionAction.isNotBlank() &&
                         !sealedIntent6627.executionAction.equals("UNKNOWN", true)
                     val canonicalIntentAuthoritative6695 = canonicalIntent6695 != null &&
@@ -1218,7 +1215,7 @@ object ExecutableOpenGate {
         // no_open_committed_blocked_finality). Accept PROBE_ONLY here so the string
         // gate matches the boolean contract. Real vetoes (NO_BUY/HARD_NO_BUY/WATCH)
         // still drop. -15% floor, FDG hard-veto, and hardNo gating untouched.
-        if (preFdgVerdict != "BUY" && preFdgVerdict != "PROBE_ONLY") {
+        if (preFdgVerdict != "BUY") {
             // V5.9.1496 — FINALITY REASON NORMALIZATION (spec 5.0.3501 §1).
             // In LIVE mode, when the candidate's verdict is NO_BUY *because*
             // safety is stale/missing, report the SAME canonical reason FDG uses
@@ -1528,7 +1525,7 @@ object ExecutableOpenGate {
         // V5.0.7321 — a fresh FDG allow never inherits an expired intent.
         val intent = activeExecutionIntent6519(mode, mint, candidateVersion)?.takeIf { ticketLive(it) } ?: run {
             val verdict = preFdgVerdict.uppercase()
-            if (hardNoReasons.isEmpty() && verdict in setOf("BUY", "PROBE_ONLY") &&
+            if (hardNoReasons.isEmpty() && verdict == "BUY" &&
                 resolvedSizeSol6558.isFinite() && resolvedSizeSol6558 > 0.0
             ) registerCanonicalIntent6554(
                 ExecutionIntent(
@@ -1680,7 +1677,7 @@ object ExecutableOpenGate {
             // signal label — treat as executable PROBE_ONLY rather than WATCH-dropping it.
             else -> "PROBE_ONLY"
         }
-        if (canExecute && finalHardNo.isEmpty() && finalVerdict in setOf("BUY", "PROBE_ONLY")) {
+        if (canExecute && finalHardNo.isEmpty() && finalVerdict == "BUY") {
             try {
                 val laneUpper6641 = canonicalLane(lane)
                 val priority6641 = listOf(
@@ -1879,7 +1876,7 @@ object ExecutableOpenGate {
             ).also { resolvedWinner6512 = it }
         }
             val winner = resolvedWinner6512
-            if (winner?.fdgCan == true && winner.hardNoReasons.isEmpty() && winner.preFdgVerdict in setOf("BUY", "PROBE_ONLY")) {
+            if (winner?.fdgCan == true && winner.hardNoReasons.isEmpty() && winner.preFdgVerdict == "BUY") {
                 try {
                     // V5.0.6613a — canonical decision snapshot/intent MUST publish before
                     // projection-side TradeIdentity mutation. A malformed/restored identity
@@ -2050,7 +2047,7 @@ object ExecutableOpenGate {
             // verdict. ForensicLogger.decision() had ZERO callers, which is why the funnel
             // always showed verdicts produced=0 despite FDG running. phase() bumps phaseCounts;
             // decision() bumps verdictCounts — both are needed.
-            val executableFdg = winningState6512?.fdgCan == true && winningState6512.hardNoReasons.isEmpty() && winningState6512.preFdgVerdict in setOf("BUY", "PROBE_ONLY")
+            val executableFdg = winningState6512?.fdgCan == true && winningState6512.hardNoReasons.isEmpty() && winningState6512.preFdgVerdict == "BUY"
             val verdictLabel = if (executableFdg) finalVerdict else "BLOCK"
             try { ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel, 0, 0, reason ?: finalHardNo.firstOrNull() ?: verdictLabel) } catch (_: Throwable) {}
             if (executableFdg) {
@@ -2082,7 +2079,7 @@ object ExecutableOpenGate {
                         fdgVerdict = finalVerdict,
                         executionAction = when (finalVerdict.uppercase()) {
                             "BUY" -> "BUY"
-                            "PROBE_ONLY" -> "PROBE_BUY"
+                            "PROBE_ONLY" -> "SHADOW_ONLY"
                             else -> ""
                         },
                     )
@@ -2538,7 +2535,7 @@ object ExecutableOpenGate {
                     .sealedSnapshot6609(mint)
                 when (snap6609?.executionAction) {
                     "BUY"       -> "BUY"
-                    "PROBE_BUY" -> "BUY"  // PROBE_BUY is executable BUY per operator
+                    "PROBE_BUY" -> "UNKNOWN"  // PROBE_BUY is executable BUY per operator
                     else        -> null
                 }
             } catch (_: Throwable) { null }
@@ -2841,7 +2838,7 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "EXPIRED_TICKET_ECONOMIC_REJECT_6614")
             }
         }
-        val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
+        val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() == "BUY"
         val stateRequiresSolanaTokenMap6533 = immutableTicket?.requiresSolanaTokenMap ?: state?.requiresSolanaTokenMap ?: true
         val stateTokenMapRouteStatus = state?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP"
         val stateTokenMapHydrationComplete = state?.tokenMapHydrationComplete == true
@@ -3265,7 +3262,7 @@ object ExecutableOpenGate {
         }
         if (immutableAuthority6513 != null && immutableTicket == null && (
                 immutableAuthority6513.authoritativeSignal != "BUY" ||
-                immutableAuthority6513.verdict !in setOf("BUY", "PROBE_ONLY"))) {
+                immutableAuthority6513.verdict != "BUY")) {
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
                 PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
@@ -3301,9 +3298,9 @@ object ExecutableOpenGate {
         //   weren't consulted here.
         val sealedBuyIntent6608 = try {
             val immAuth6608 = immutableAuthority6513
-            val immAuthSealed6608 = immAuth6608 != null && immAuth6608.verdict.uppercase() in setOf("BUY", "PROBE_ONLY")
+            val immAuthSealed6608 = immAuth6608 != null && immAuth6608.verdict.uppercase() == "BUY"
             val ticketSealed6608 = ticketAuthority6564?.fdgAllowed == true &&
-                ticketAuthority6564.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                ticketAuthority6564.fdgVerdict.uppercase() == "BUY" &&
                 ticketAuthority6564.hardNoReasons.isEmpty()
             (immAuthSealed6608 || ticketSealed6608) && hardNoReasons.isEmpty()
         } catch (_: Throwable) { false }
@@ -3658,9 +3655,9 @@ object ExecutableOpenGate {
             val synthSize6673 = effectiveResolvedSize6497.coerceAtLeast(0.0)
             val synthVerdict6673 = when {
                 ticketAuthority6564?.fdgAllowed == true &&
-                    ticketAuthority6564.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                    ticketAuthority6564.fdgVerdict.uppercase() == "BUY" &&
                     ticketAuthority6564.hardNoReasons.isEmpty() -> ticketAuthority6564.fdgVerdict.uppercase()
-                immutableAuthority6513?.verdict?.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                immutableAuthority6513?.verdict?.uppercase() == "BUY" &&
                     immutableAuthority6513?.authoritativeSignal == "BUY" -> immutableAuthority6513!!.verdict.uppercase()
                 sealedBuyIntent6608 -> "BUY"
                 else -> ""

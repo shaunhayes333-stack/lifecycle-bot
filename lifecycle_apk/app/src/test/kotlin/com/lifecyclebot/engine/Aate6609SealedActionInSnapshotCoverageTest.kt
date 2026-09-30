@@ -22,7 +22,7 @@ import org.junit.Assert.assertTrue
  *
  * Repair (per operator's §3 SEAL and §5 UNKNOWN IS PRE-FDG ONLY):
  *   1. Extend Snapshot with fdgVerdict + executionAction.
- *   2. FDG_ALLOW record path passes BUY/PROBE_ONLY → BUY/PROBE_BUY.
+ *   2. FDG_ALLOW record path seals BUY only; PROBE_ONLY remains SHADOW_ONLY.
  *   3. New sealedSnapshot6609(mint) read for the executor.
  *   4. Executor signal derivation consults sealed snapshot as a 4th
  *      authority (after immutableAuthority / ticket / state) — so a
@@ -67,10 +67,10 @@ class Aate6609SealedActionInSnapshotCoverageTest {
             "src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt"
         ).readText()
         assertTrue(
-            "V5.0.6609: FDG_ALLOW record() must map finalVerdict → BUY / PROBE_BUY",
+            "V5.0.7548: PROBE_ONLY snapshot action must stay shadow-only",
             gate.contains("fdgVerdict = finalVerdict") &&
                 gate.contains("\"BUY\" -> \"BUY\"") &&
-                gate.contains("\"PROBE_ONLY\" -> \"PROBE_BUY\"")
+                gate.contains("\"PROBE_ONLY\" -> \"SHADOW_ONLY\"")
         )
     }
 
@@ -89,8 +89,8 @@ class Aate6609SealedActionInSnapshotCoverageTest {
         // directive (\"PROBE_ONLY + allowed=true -> PROBE_BUY -> executable
         // ticket -> executor\").
         assertTrue(
-            "V5.0.6609: PROBE_BUY must resolve to executable BUY at the signal derivation",
-            gate.contains("\"PROBE_BUY\" -> \"BUY\"")
+            "V5.0.7548: legacy PROBE_BUY must require revalidation",
+            gate.contains("\"PROBE_BUY\" -> \"UNKNOWN\"")
         )
     }
 

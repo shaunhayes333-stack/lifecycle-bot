@@ -21,7 +21,7 @@ import org.junit.Assert.assertTrue
  *     record from FDG.
  *   * `ticketAuthority6564` — the FDG ticket carried through by
  *     attemptId.
- * Both of these can carry `verdict = BUY/PROBE_ONLY` with no hardNos,
+ * Both of these can carry a sealed `verdict = BUY` with no hardNos,
  * which is the same operational seal the operator's directive requires
  * EXEC to honour. Fix: add `sealedBuyIntent6608` covering these two
  * additional seals and route them into the diagnostic-ignore branch.
@@ -39,11 +39,13 @@ class Aate6608SealedEnvelopeCoverageTest {
             "src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt"
         ).readText()
         assertTrue(
-            "V5.0.6608: sealedBuyIntent6608 must combine immutableAuthority6513 + ticketAuthority6564 with BUY/PROBE_ONLY + empty hardNos",
+            "V5.0.6608: sealedBuyIntent6608 must combine immutableAuthority6513 + ticketAuthority6564 with BUY + empty hardNos",
             gate.contains("val sealedBuyIntent6608") &&
                 gate.contains("immAuthSealed6608") &&
                 gate.contains("ticketSealed6608") &&
-                gate.contains("hardNoReasons.isEmpty()")
+                gate.contains("hardNoReasons.isEmpty()") &&
+                gate.contains("immAuth6608.verdict.uppercase() == \"BUY\"") &&
+                gate.contains("ticketAuthority6564.fdgVerdict.uppercase() == \"BUY\"")
         )
         assertTrue(
             "V5.0.6608: diagnostic-ignore branch must accept sealedBuyIntent6608",

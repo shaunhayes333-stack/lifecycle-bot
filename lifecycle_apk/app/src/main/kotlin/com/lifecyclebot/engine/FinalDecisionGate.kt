@@ -58,12 +58,9 @@ object FinalDecisionGate {
             }
         }
 
-        // V5.0.7403 — PROBE_ONLY is executable learning in PAPER only.
-        // LIVE routes have a real minimum notional, so "dust probe" can become
-        // normal-sized paid tuition. Real money requires a canonical BUY.
-        fun canExecute(): Boolean = shouldTrade && (
-            blockReason == null || (blockReason == "PROBE_ONLY" && mode == TradeMode.PAPER)
-        )
+        // V5.0.7548 — PAPER canonical capital rehearses LIVE-equivalent decisions.
+        // PAPER_PROBE / PAPER_EXPLORATION remain shadow/diagnostic classifications.
+        fun canExecute(): Boolean = shouldTrade && blockReason == null && isBenchmarkQuality()
         fun isBenchmarkQuality(): Boolean = approvalClass in listOf(ApprovalClass.LIVE, ApprovalClass.PAPER_BENCHMARK)
         fun isExploration(): Boolean = approvalClass == ApprovalClass.PAPER_EXPLORATION
 
@@ -1770,27 +1767,15 @@ object FinalDecisionGate {
         // bot trades from first start per user directive. Modern keeps 8.0.
         val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 1.0 else 8.0
         if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
-            // V5.9.693 — Paper-mode bypass. In paper mode the bot MUST trade
-            // to accumulate learning volume. A sub-1% confidence on a paper
-            // entry is a nuisance filter, not a safety gate — real safety
-            // (rug detection, liquidity collapse, ML rug probability) fires
-            // downstream. Blocking here in paper mode starved Moonshot /
-            // Manip / Express of entries while FDG allow=0 showed in the
-            // funnel. LIVE mode keeps the hard floor.
-            if (isPaperMode) {
-                ErrorLogger.debug("FDG", "ℹ️ BOOTSTRAP_FLOOR_PAPER_BYPASS: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% → paper learn")
-                tags.add("bootstrap_floor_paper_bypass")
-                // fall through to normal scoring
-            } else {
-                // V5.0.4157 — fluid gate doctrine: bootstrap confidence is a size
-                // penalty while the AGI/lane brains are compiling, not a hard freezer.
-                ErrorLogger.info("FDG", "🟡 BOOTSTRAP_MIN_CONFIDENCE_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% | soft-size, continue")
-                tags.add("bootstrap_min_confidence_soft")
-                try {
-                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "BOOTSTRAP_MIN_CONFIDENCE_SOFT")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_BOOTSTRAP_MIN_CONFIDENCE_SOFT_SHAPED")
-                } catch (_: Throwable) {}
-            }
+            // V5.0.7548 — one confidence interpretation before PAPER/LIVE adapters.
+            // Exploration/tuition belongs in shadow/LAB, not canonical paper capital.
+            ErrorLogger.info("FDG", "🟡 BOOTSTRAP_MIN_CONFIDENCE_SOFT: ${ts.symbol} | mode=${mode.name} conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% | same decision spine")
+            tags.add("bootstrap_min_confidence_soft")
+            try {
+                com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "BOOTSTRAP_MIN_CONFIDENCE_SOFT")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_BOOTSTRAP_MIN_CONFIDENCE_SOFT_SHAPED")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_MODE_PARITY_CONFIDENCE_7548")
+            } catch (_: Throwable) {}
         }
 
         if (canBypassConfidenceFloors && confidence < 22.0) {
@@ -4962,8 +4947,8 @@ object FinalDecisionGate {
                                 it.startsWith("LOSING_PATTERN_DANGER_ZONE") || it.startsWith("PROVEN_DEAD_CONTEXT") ||
                                 it.startsWith("LEARNED_TOXIC_LANE")
                         }
-                        if (oracleProven7263 && !oracleDegenerate7380 && evidenceObjections7380 >= 2 &&
-                            !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                        // V5.0.7548 — proven consensus evidence is mode-neutral authority.
+                        if (oracleProven7263 && !oracleDegenerate7380 && evidenceObjections7380 >= 2) {
                             shouldTradeFinal = false
                             blockReasonFinal = "BRAIN_CONSENSUS_NOT_UNANIMOUS_7259:${report.objections.joinToString("+").take(120)}"
                             blockLevelFinal = BlockLevel.HARD
@@ -5651,7 +5636,12 @@ object FinalDecisionGate {
         // Seal only after every advisory input and the canonical envelope have
         // finished. Downstream paper/live execution must consume this value;
         // any market change requires a fresh ticket rather than mutation.
-        if (shouldTradeFinal && finalSize >= 0.005 && ts.mint.isNotBlank()) {
+        val canonicalEconomicApproval7548 = when (mode) {
+            TradeMode.LIVE -> approvalClass == ApprovalClass.LIVE
+            TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK
+        }
+        if (shouldTradeFinal && canonicalEconomicApproval7548 &&
+            aateEnvelope6512?.action != "BLOCK" && finalSize >= 0.005 && ts.mint.isNotBlank()) {
             try {
                 val paperMinimum6653 = if (config.paperMode)
                     PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
@@ -5700,7 +5690,9 @@ object FinalDecisionGate {
         }
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
-            shouldTrade = shouldTradeFinal && aateEnvelope6512?.action != "BLOCK",
+            shouldTrade = shouldTradeFinal &&
+                canonicalEconomicApproval7548 &&
+                aateEnvelope6512?.action != "BLOCK",
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,

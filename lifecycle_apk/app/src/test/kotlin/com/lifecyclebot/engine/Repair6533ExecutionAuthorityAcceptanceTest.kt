@@ -41,35 +41,31 @@ class Repair6533ExecutionAuthorityAcceptanceTest {
         assertEquals(20, intents.map { it.attemptId }.toSet().size)
     }
 
-    @Test fun `C immutable FDG BUY and PROBE survive raw UNKNOWN`() {
-        for (verdict in listOf("BUY", "PROBE_ONLY")) {
-            val intent = ExecutableOpenGate.ExecutionIntent(
-                attemptId="I$verdict", candidateId="C$verdict", candidateVersion=1L,
-                mint="M$verdict", mode="PAPER", canonicalLane="QUALITY", fdgVerdict=verdict,
-                fdgAllowed=true, authorityVersion=1L, resolvedSize=0.05,
-                createdAt=System.currentTimeMillis(), symbol="C", hardNoReasons=emptyList(),
-                finalDecision6613 = if (verdict == "PROBE_ONLY") ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY else ExecutableOpenGate.CanonicalFinalDecision6613.BUY,
-                decisionAuthorityId6613 = "TEST_FDG:1", fdgDecisionId6613 = "TEST:$verdict",
-                fdgEvidence6613 = "verdict=$verdict lane=QUALITY",
-            )
-            assertFalse(ExecutableOpenGate.mutableSignalCanVeto6519(intent, "UNKNOWN"))
-            assertFalse(ExecutableOpenGate.mutableSignalCanVeto6519(intent, "WATCH"))
-        }
-        assertTrue(ExecutableOpenGate.mutableSignalCanVeto6519(null, "UNKNOWN"))
+    @Test fun `C immutable FDG BUY survives raw UNKNOWN while probe does not authorize capital`() {
+        val buy = ExecutableOpenGate.ExecutionIntent(
+            attemptId="IBUY", candidateId="CBUY", candidateVersion=1L,
+            mint="MBUY", mode="PAPER", canonicalLane="QUALITY", fdgVerdict="BUY",
+            fdgAllowed=true, authorityVersion=1L, resolvedSize=0.05,
+            createdAt=System.currentTimeMillis(), symbol="C", hardNoReasons=emptyList(),
+            finalDecision6613 = ExecutableOpenGate.CanonicalFinalDecision6613.BUY,
+            decisionAuthorityId6613 = "TEST_FDG:1", fdgDecisionId6613 = "TEST:BUY",
+            fdgEvidence6613 = "verdict=BUY lane=QUALITY",
+        )
+        assertFalse(ExecutableOpenGate.mutableSignalCanVeto6519(buy, "UNKNOWN"))
+        val probe = buy.copy(attemptId="IPROBE", candidateId="CPROBE", mint="MPROBE",
+            fdgVerdict="PROBE_ONLY", finalDecision6613=ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY)
+        assertTrue(ExecutableOpenGate.mutableSignalCanVeto6519(probe, "UNKNOWN"))
     }
 
-    @Test fun `C2 published PROBE keeps one sealed verdict tuple`() {
+    @Test fun `C2 published PROBE remains shadow only and creates no economic intent`() {
         val mint = "ProbeTuple6533${System.nanoTime()}"
         val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
         val intent = ExecutableOpenGate.recordFdgAndGetIntent6533(
-            mint, "PROBE", "QUALITY", true, null,
-            signal = "WAIT", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 5_000.0,
-            preFdgVerdict = "PROBE_ONLY", candidateVersion = cv, entryScore = 80,
-        )
-        assertNotNull(intent)
-        assertEquals("PROBE_ONLY", intent!!.fdgVerdict)
-        assertEquals(ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY, intent.finalDecision6613)
-        assertSame(intent, ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv))
+            mint, "PROBE", "QUALITY", true, null, signal="WAIT", rugScore=90,
+            safetyTier="SAFE", liquidityUsd=5_000.0, preFdgVerdict="PROBE_ONLY",
+            candidateVersion=cv, entryScore=80)
+        assertNull(intent)
+        assertNull(ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv))
     }
 
     @Test fun `C3 missing intent guard respects immutable FDG authority`() {
