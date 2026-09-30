@@ -75,7 +75,7 @@ object SpecialistBrainBridge7542 {
         ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),
         ts.lastBuyPressurePct.toInt(),ts.lastSellPressurePct.toInt(),ts.lastPriceChange5m.toInt(),
         ts.lastV3Score,ts.lastV3Confidence,
-        ts.momentum,ts.volatility,ts.topHolderPct,ts.peakHolderCount,
+        ts.lastPriceChange5m,ts.volatility,ts.topHolderPct,ts.peakHolderCount,
         ts.meta.momScore.toInt(),ts.meta.pressScore.toInt(),ts.meta.velocityScore.toInt(),
         ts.meta.emafanAlignment,ts.meta.exhaustion,ts.meta.spikeDetected,ts.meta.curveProgress.toInt(),
         ts.safety.checkedAt,ts.safety.rugcheckScore,ts.safety.firstBlockSupplyPct.toInt(),
@@ -93,7 +93,21 @@ object SpecialistBrainBridge7542 {
         val vols=hist.filter{!it.synthetic}.map{it.vol}.filter{it.isFinite()&&it>0};val recent=vols.takeLast(3).takeIf{it.isNotEmpty()}?.average()?:0.0;val prior=vols.dropLast(minOf(3,vols.size)).takeLast(5).takeIf{it.isNotEmpty()}?.average()?:0.0;val volVs=if(recent>0&&prior>0)recent/prior else 1.0
         val high=max(price,prices.maxOrNull()?:price)
         val ageMin=try{com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)}catch(_:Throwable){null}?:ts.safety.tokenAgeMinutes.takeIf{it>=0}?:((now-ts.addedToWatchlistAt).coerceAtLeast(0)/60000.0)
-        val bp=ts.lastBuyPressurePct.takeIf{it.isFinite()}?:50.0;val mom=ts.momentum?.takeIf{it.isFinite()}?:ts.lastPriceChange5m;val vol=ts.volatility?.takeIf{it.isFinite()}?:abs(ts.meta.avgAtr)
+        val bp=ts.lastBuyPressurePct.takeIf{it.isFinite()}?:50.0
+        // V5.0.7551 — TokenState.momentum is a centered 0..100 SCORE (50=flat),
+        // not a signed percentage move. Native BlueChip/ShitCoin/Express/Manip/
+        // CashGen APIs all document/use momentum as signed %. Feeding score=50
+        // into those APIs made a flat token look like +50% momentum.
+        val histMomentumPct7551 = if (prices.size >= 2) {
+            val first = prices[maxOf(0, prices.size - 6)]
+            val last = prices.last()
+            if (first > 0.0 && last.isFinite()) ((last - first) / first) * 100.0 else 0.0
+        } else 0.0
+        val mom = ts.lastPriceChange5m.takeIf { it.isFinite() && kotlin.math.abs(it) > 0.000001 }
+            ?: histMomentumPct7551
+        // volatility intentionally stays on its existing 0..100 score scale:
+        // DataOrchestrator and these native lanes already use score-like bands.
+        val vol=ts.volatility?.takeIf{it.isFinite()}?:abs(ts.meta.avgAtr)
         val v3=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100);val v3c=(ts.lastV3Confidence?:50).coerceIn(0,100)
         val top=ts.topHolderPct?:ts.tokenMap.topHolderConcentrationPct?:ts.safety.topHolderPct.takeIf{it>=0}?:0.0;val holders=ts.peakHolderCount.coerceAtLeast(0);val rug=ts.safety.rugcheckScore.takeIf{it>=0}?:3
         val bundle=ts.safety.firstBlockSupplyPct.takeIf{it>=0}?:0.0;val danger=(ts.safety.summary+" "+ts.safety.bundleReason+" "+ts.safety.hardBlockReasons.joinToString(" ")).uppercase();val devSelling=danger.contains("DEV_SELL")||danger.contains("DEV SELL")

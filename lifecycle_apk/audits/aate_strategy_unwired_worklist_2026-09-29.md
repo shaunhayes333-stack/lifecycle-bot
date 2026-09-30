@@ -1318,3 +1318,15 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] MOONSHOT uses one native score-floor schedule (30/38/48/60) in both modes.
 - [x] DIP_HUNTER uses the same 2-hour re-entry cooldown and the same lane-loss recovery shaping in both modes.
 - [x] Existing hard safety, canonical FDG, sizing authority, exit logic and execution adapters remain intact.
+
+
+## V5.0.7551 — native specialist momentum unit normalization
+
+- [x] Confirmed DataOrchestrator stores TokenState.momentum as a centered 0..100 score where 50 means flat.
+- [x] Confirmed BLUECHIP, SHITCOIN, EXPRESS, MANIPULATED and CASHGEN native APIs consume momentum as a signed percentage move.
+- [x] SpecialistBrainBridge no longer feeds TokenState.momentum into signed-% APIs.
+- [x] Native specialist momentum now comes from lastPriceChange5m when populated, otherwise a bounded recent-history signed percentage calculation.
+- [x] A flat token can no longer appear as +50% momentum to authoritative native brains.
+- [x] The native-brain cache fingerprint tracks the actual signed momentum evidence used by those brains.
+- [x] TokenState.momentum itself is left unchanged for score-scale consumers that legitimately expect the 0..100 representation.
+- [x] Volatility semantics are unchanged in this bundle because producer and current native thresholds both use score-like 0..100 bands.
