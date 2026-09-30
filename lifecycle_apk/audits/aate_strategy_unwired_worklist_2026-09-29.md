@@ -1144,3 +1144,15 @@ Audit found canonical position mutations that changed the authoritative map with
 - [x] Canonical held-position mints, current hydration target, and inflight hydration mints are protected.
 - [x] Route TTL, route classification, executable proof and provider fallback are unchanged.
 - [x] A pruned discovery mint simply rehydrates normally if rediscovered later.
+
+
+## V5.0.7508 — P0 causal funnel lane-index correctness repair
+
+Runtime evidence from 5.0.7501: records=1479 indexedLanes=0 while active lane evaluations continued and every specialist liveness row reported zero.
+
+- [x] Fixed getOrCreateRecord7480 accidental self-recursion.
+- [x] getOrCreateRecord7480 now creates the canonical record with records.computeIfAbsent and always indexes the key by canonical lane.
+- [x] stamp6625 now uses getOrCreateRecord7480 instead of bypassing the index with a raw records.computeIfAbsent.
+- [x] ensureAffinityLineage7464 and ordinary stage stamps therefore converge on the same indexed canonical record.
+- [x] No causal stages, lane logic, entry criteria, sizing, execution authority or learning output changed.
+- [x] Runtime acceptance: CAUSAL_FUNNEL indexedLanes>0 and specialist discovered/qualified/FDG/etc counters become non-zero when stages are actually stamped.

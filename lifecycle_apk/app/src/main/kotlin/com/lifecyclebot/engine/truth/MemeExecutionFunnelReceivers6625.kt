@@ -322,7 +322,7 @@ object SpecialistCausalFunnel6625 {
 
     private fun getOrCreateRecord7480(key: CausalKey): Record {
         val ks = keyString(key)
-        val rec = getOrCreateRecord7480(key)
+        val rec = records.computeIfAbsent(ks) { Record(key) }
         recordKeysByLane7480.computeIfAbsent(key.lane.uppercase()) {
             ConcurrentHashMap.newKeySet<String>()
         }.add(ks)
@@ -518,11 +518,12 @@ object SpecialistCausalFunnel6625 {
             } catch (_: Throwable) {}
             return
         }
-        val ks = keyString(key)
-        // V5.0.6899 — bound the map before adding to it. Cheap size check on
-        // the common path; the sweep itself is single-flight and rate-limited.
+        // V5.0.7508 — every causal record creation path MUST flow
+        // through the lane-indexing helper. 7480 accidentally left stamp6625
+        // on raw records.computeIfAbsent, which created real records with no
+        // lane index and made every specialist report DEAD.
         try { sweepIfNeeded6899(System.currentTimeMillis()) } catch (_: Throwable) {}
-        val rec = records.computeIfAbsent(ks) { Record(key) }
+        val rec = getOrCreateRecord7480(key)
         var inferredTicket6688 = false
         var inferredExec6688 = false
         var inferredIntent7418 = false
