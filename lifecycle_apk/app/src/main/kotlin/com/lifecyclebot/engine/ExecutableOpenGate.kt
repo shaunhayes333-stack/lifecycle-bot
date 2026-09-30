@@ -143,6 +143,10 @@ object ExecutableOpenGate {
         val markId6614: String = "",
         val markVersion6614: Long = 0L,
         val markTimestampMs6614: Long = 0L,
+        // V5.0.7525 — immutable PAPER rehearsal class. Benchmark trades may
+        // enter canonical PAPER economics; exploration/probes belong to the
+        // non-canonical shadow book. Blank preserves legacy callers.
+        val approvalClass7525: String = "",
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal
@@ -242,6 +246,37 @@ object ExecutableOpenGate {
         return activeExecutionIntents6519.values
             .filter { it.mode.equals(mode, true) && it.mint == mint && ticketLive(it) }
             .maxByOrNull { it.candidateVersion }
+    }
+
+    /**
+     * V5.0.7525 — bind FDG's PAPER approval class onto the already-sealed
+     * execution authority. First non-blank writer wins; later disagreement is
+     * surfaced instead of mutating the decision underneath execution.
+     */
+    fun bindApprovalClass7525(mode: String, mint: String, candidateVersion: Long, approvalClass: String): ExecutionIntent? {
+        if (approvalClass.isBlank() || candidateVersion <= 0L || mint.isBlank()) return activeExecutionIntent6519(mode, mint, candidateVersion)
+        val key = intentKey6519(mode, mint, candidateVersion)
+        var conflict = false
+        val bound = activeExecutionIntents6519.computeIfPresent(key) { _, existing ->
+            when {
+                existing.approvalClass7525.isBlank() -> existing.copy(approvalClass7525 = approvalClass.uppercase())
+                existing.approvalClass7525.equals(approvalClass, true) -> existing
+                else -> { conflict = true; existing }
+            }
+        }
+        if (bound != null) executionTickets[bound.attemptId] = bound
+        try {
+            if (conflict) {
+                PipelineHealthCollector.labelInc("EXEC_INTENT_APPROVAL_CLASS_CONFLICT_7525")
+                ForensicLogger.lifecycle(
+                    "EXEC_INTENT_APPROVAL_CLASS_CONFLICT_7525",
+                    "mint=${mint.take(10)} mode=${mode.uppercase()} version=$candidateVersion sealed=${bound?.approvalClass7525} offered=${approvalClass.uppercase()} action=keep_first_immutable",
+                )
+            } else if (bound != null) {
+                PipelineHealthCollector.labelInc("EXEC_INTENT_APPROVAL_CLASS_BOUND_7525")
+            }
+        } catch (_: Throwable) {}
+        return bound
     }
 
     private fun validSealedDecision6613(intent: ExecutionIntent): Boolean {
@@ -376,7 +411,9 @@ object ExecutableOpenGate {
             canonicalLane(a.canonicalLane) == canonicalLane(b.canonicalLane) &&
             a.finalDecision6613 == b.finalDecision6613 && a.fdgVerdict == b.fdgVerdict &&
             a.safetyTier == b.safetyTier && a.hardNoReasons == b.hardNoReasons &&
-            a.requiresSolanaTokenMap == b.requiresSolanaTokenMap && a.action == b.action && a.direction == b.direction
+            a.requiresSolanaTokenMap == b.requiresSolanaTokenMap && a.action == b.action && a.direction == b.direction &&
+            (a.approvalClass7525.isBlank() || b.approvalClass7525.isBlank() ||
+                a.approvalClass7525.equals(b.approvalClass7525, true))
 
     private fun publishFdgIntent6519(intent: ExecutionIntent, fallbackSizeSol6556: Double = 0.0) {
         val sizedIntent = if (intent.resolvedSize > 0.0 || fallbackSizeSol6556 <= 0.0) intent

@@ -12048,6 +12048,20 @@ class Executor(
         val identity = tradeIdentity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         fdgApprovalClass?.let { identity.fdgApprovalClass = it.name }
+        // V5.0.7525 — freeze the PAPER rehearsal class onto the canonical
+        // execution intent as soon as Executor receives the FDG decision.
+        if (fdgApprovalClass != null) {
+            val approvalVersion7525 = identity.fdgCandidateVersion.takeIf { it > 0L }
+                ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+            try {
+                ExecutableOpenGate.bindApprovalClass7525(
+                    mode = if (isPaperRT()) "PAPER" else "LIVE",
+                    mint = ts.mint,
+                    candidateVersion = approvalVersion7525,
+                    approvalClass = fdgApprovalClass.name,
+                )
+            } catch (_: Throwable) {}
+        }
         
         val cbState = security.getCircuitBreakerState()
         if (cbState.isHalted) {
@@ -12503,6 +12517,36 @@ class Executor(
         )
         
         val skipGraduated = fdgApprovedSize != null
+
+        // V5.0.7525 — PAPER is the live-rehearsal account, not the exploration
+        // laboratory. FDG already classifies these decisions; preserve that
+        // boundary at the economic adapter. Exploration/probes still execute
+        // and learn on observed marks in the existing shadow book, but they
+        // cannot debit canonical PAPER cash, occupy canonical slots, or enter
+        // benchmark expectancy/WR.
+        val paperExploration7525 = isPaper && fdgApprovalClass in setOf(
+            FinalDecisionGate.ApprovalClass.PAPER_EXPLORATION,
+            FinalDecisionGate.ApprovalClass.PAPER_PROBE,
+        )
+        if (paperExploration7525) {
+            try {
+                runShadowPaperBuy(
+                    ts = ts,
+                    sol = size,
+                    score = decision.entryScore,
+                    quality = decision.finalQuality,
+                    reason = "fdg_${fdgApprovalClass!!.name.lowercase()}_7525",
+                    wallet = wallet,
+                    walletSol = walletSol,
+                )
+                PipelineHealthCollector.labelInc("PAPER_EXPLORATION_ROUTED_SHADOW_7525")
+                PipelineHealthCollector.labelInc("PAPER_EXPLORATION_ROUTED_SHADOW_7525_${fdgApprovalClass.name}")
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("PAPER_EXPLORATION_SHADOW_ROUTE_ERROR_7525") } catch (_: Throwable) {}
+            }
+            return
+        }
+
         doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality, skipGraduated)
     }
 
