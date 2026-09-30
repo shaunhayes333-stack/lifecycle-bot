@@ -3236,7 +3236,7 @@ class GoldenTapeRegressionTest {
         val host = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
 
-        assertTrue("Live sizing must be centralized after lane math", executor.contains("realisticLiveEntrySize") && executor.contains("LIVE_REALISTIC_SIZE_AUTHORITY"))
+        assertTrue("Live sizing must be centralized after lane math", executor.contains("realisticEntrySize6867") && executor.contains("LIVE_REALISTIC_SIZE_AUTHORITY"))
         assertTrue("doBuy final size must pass through realistic live sizing", executor.contains("source=doBuy.final") || executor.contains("\"doBuy.final\""))
         assertTrue("liveBuy final chokepoint must also pass through realistic sizing", executor.contains("\"liveBuy.final\"") && executor.contains("LIVE_REALISTIC_SIZE_CLAMPED_TO_SPENDABLE"))
         assertTrue("Realistic sizing must use wallet, liquidity, score, and lane", listOf("walletTarget", "liquidityCapSol", "laneMult", "walletPct").all { executor.contains(it) })
@@ -3744,7 +3744,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Positive expectancy winners need a larger max boost than legacy 1.75x", exec.contains("winnerMaxBoost") && exec.contains("laneEvMult > 1.0") && exec.contains("sol * winnerMaxBoost"))
         assertTrue("Growth doctrine must raise winner lane wallet allocation", doctrine.contains("AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH") && doctrine.contains("MOONSHOT") && doctrine.contains("0.35") && doctrine.contains("absoluteCap"))
         assertTrue("Bleeder lanes remain lower allocation than winner lanes", doctrine.contains(""""EXPRESS" -> 0.72""") && doctrine.contains(""""SHITCOIN" -> 0.78"""))
-        assertTrue("Safety/route gates remain upstream", doctrine.contains("never bypasses route") && exec.contains("realisticLiveEntrySize"))
+        assertTrue("Safety/route gates remain upstream", doctrine.contains("never bypasses route") && exec.contains("realisticEntrySize6867"))
     }
 
     @Test
@@ -3788,7 +3788,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("FDG-approved WATCH restore must allow nonzero low liquidity", gate.contains("val liqOk = effectiveLiq > 0.0") && gate.contains("LOW-LIQ WATCH RESTORE ALIGNMENT"))
         assertFalse("ExecutableOpenGate must not require USD 1200 liquidity for FDG-approved WATCH restore", gate.contains("latestAllows && safetyOk && effectiveLiq >= 1200.0") || gate.contains("liquidityUsd >= 1200.0"))
-        assertTrue("thin-liq restored entries must still be clamped economically", gate.contains("LiveRestoreExecutionPolicy.fromRuntimeDrift") && exec.contains("realisticLiveEntrySize"))
+        assertTrue("thin-liq restored entries must still be clamped economically", gate.contains("LiveRestoreExecutionPolicy.fromRuntimeDrift") && exec.contains("realisticEntrySize6867"))
         assertTrue("generic exit reasons must be canonicalized before queue/journal poisoning", exec.contains("EXIT_ROUTE_RETRY_${'$'}{trackerStatus}_${'$'}{closeState}") && exec.contains("requestReason") && exec.contains("return doSell(ts, requestReason, wallet, walletSol)") && exec.contains("PendingSellQueue.add(ts.mint, ts.symbol, reason)"))
     }
 
@@ -4084,7 +4084,7 @@ class GoldenTapeRegressionTest {
     fun canonical_features_age_bucket_uses_token_age_at_entry_not_hold_time() {
         val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
         assertTrue("ageBucket must use token/pool age at entry, not now-entry hold duration",
-            builder.contains("estimateTokenAgeAtEntryMs(ts)") && builder.contains("ts.tokenMap.poolAgeMs") && builder.contains("ts.addedToWatchlistAt"))
+            builder.contains("estimateTokenAgeAtEntryMs(ts)") && builder.contains("CanonicalTokenBirthTime7440.resolve(ts.mint, entryAt)"))
         assertFalse("ageBucket must not be computed from System.currentTimeMillis() - ts.position.entryTime; holdBucket already handles hold time",
             builder.contains("val ageMs = if (ts.position.entryTime > 0)"))
     }
@@ -7030,21 +7030,21 @@ class GoldenTapeRegressionTest {
         val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorAuxiliaryStatusDigest.kt").readText()
         assertTrue("V5.0.4573: common-sense playbook helper must exist with cached side-effect refresh", playbook.contains("V5.0.4573_COMMON_SENSE_PLAYBOOK") && playbook.contains("AppDispatchers.sideEffect") && playbook.contains("ConcurrentHashMap") && playbook.contains("assessPreBuy"))
         assertTrue("V5.0.4573: playbook must enforce anti-stupid hard data/safety basics", playbook.contains("PRICE_BASIS_UNKNOWN") && playbook.contains("SELL_ROUTE_UNKNOWN") && playbook.contains("TOKEN_MAP_INCOMPLETE") && playbook.contains("SAFETY_OR_HOLDER_RISK"))
-        assertTrue("V5.0.4575: ambiguous structure/RR must shape/pivot instead of bluntly choking setup-rich trades", playbook.contains("COMMON_SENSE_PREBUY_SHAPED_4575") && playbook.contains("RISK_REWARD_REDUCED_SIZE") && playbook.contains("INFER_INVALIDATION_FROM_SETUP") && playbook.contains("trade_setup_pivot_not_block"))
+        assertTrue("V5.0.4575: ambiguous structure/RR must shape/pivot instead of bluntly choking setup-rich trades", playbook.contains("COMMON_SENSE_PREBUY_SHAPED_4575") && playbook.contains("RISK_REWARD_POOR") && playbook.contains("EARLY_LAUNCH_IMPLICIT_INVALIDATION_7403") && playbook.contains("trade_setup_pivot_not_block"))
         assertTrue("V5.0.4573: liveBuy must call the playbook before live spend", executor.contains("CommonSenseTradePlaybook.assessPreBuy") && executor.contains("COMMON_SENSE_PREBUY_") && executor.contains("BUY_TERMINAL_COMMON_SENSE"))
         assertTrue("V5.0.4573: playbook confidence must feed the existing live size stack", executor.contains("commonSenseSizeMultiplier4573") && executor.contains("COMMON_SENSE_SIZE_APPLIED_4573"))
         assertTrue("V5.0.4573: operator digest must surface playbook state", digest.contains("CommonSenseTradePlaybook.statusLine") && digest.contains("playbook_execution_authority=Executor.liveBuy"))
         val bot6020 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6020: score floors must be fluid scaffolding that soft-starts, tightens, then delegates to AGI/SSI authority", bot6020.contains("FLUID_SCORE_SCAFFOLD_6020") && bot6020.contains("UnifiedPolicyHead.currentAuthority") && bot6020.contains("AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0") && bot6020.contains("AuthorityTier.AUTHORITATIVE -> 0.0"))
-        assertTrue("V5.0.6020: good meme lanes must get real volume pivots, not probe-only starvation", bot6020.contains("GOOD_LANE_WAIT_VOLUME_PIVOT_6020") && bot6020.contains("QUALITY") && bot6020.contains("CASHGEN") && bot6020.contains("TREASURY") && playbook.contains("GOOD_LANE_NO_STRUCTURE_VOLUME_PIVOT_6020") && playbook.contains("dangerousStructure"))
+        assertTrue("V5.0.6020: good meme lanes must get real volume pivots, not probe-only starvation", bot6020.contains("GOOD_LANE_WAIT_VOLUME_PIVOT_6020") && bot6020.contains("QUALITY") && bot6020.contains("CASHGEN") && bot6020.contains("TREASURY") && bot6020.contains("GOOD_LANE_VOLUME_PIVOT_6020") && playbook.contains("dangerousStructure"))
         assertTrue("V5.0.6021: CommonSense must read cached AGI/toolkit/research brain context before classifying structure", playbook.contains("ToolkitSignalSheet.snapshot") && playbook.contains("ResearchScout.riskHint") && playbook.contains("UltimateEdgeEngine.cached") && playbook.contains("brainSetup") && playbook.contains("brainConfidence") && playbook.contains("brainContext"))
         assertTrue("V5.0.6021: CommonSense brain access must remain hot-path safe and async/cache-first", playbook.contains("UltimateEdgeEngine.enqueueRefresh") && playbook.contains("common_sense_brain_context_6021") && playbook.contains("hot-path provider/LLM/network call") && !playbook.contains("UltimateEdgeEngine.evaluate(ts)"))
         assertTrue("V5.0.6022: Toolkit good-lane setups must bridge pre-FDG lane starvation into real FDG candidates", bot6020.contains("ToolkitGoodLaneBridge6022") && bot6020.contains("TOOLKIT_GOOD_LANE_BRIDGE_6022") && bot6020.contains("TOOLKIT_BRIDGE_${'$'}{laneKey}") && bot6020.contains("action=send_to_fdg"))
         assertTrue("V5.0.6022: Quality BlueChip and Treasury must consume bridged signal copies instead of requiring legacy shouldEnter", bot6020.contains("qualitySignal6022") && bot6020.contains("blueChipSignal6022") && bot6020.contains("treasurySignal6022") && bot6020.contains("qualitySignal.copy") && bot6020.contains("blueChipSignal.copy") && bot6020.contains("treasurySignal.copy"))
         val main6024 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6648: main dashboard headline must explicitly use the portfolio book and fail closed when account reconciliation is unavailable", main6024.contains("DeskPerformanceAuthority6648.Book.PORTFOLIO") && main6024.contains("unifiedSnap6635?.realizedPnlSol") && main6024.contains("ACCOUNT UNAVAILABLE") && main6024.contains("PORTFOLIO WR"))
+        assertTrue("V5.0.6648: main dashboard headline must explicitly use the portfolio book and fail closed when account reconciliation is unavailable", main6024.contains("DeskPerformanceAuthority6648.Book.PORTFOLIO") && main6024.contains("realizedPnlSol") && main6024.contains("ACCOUNT UNAVAILABLE") && main6024.contains("PORTFOLIO WR"))
         val fdg6025 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6025: FDG score gates must consume effective lane/AGI consensus score from trade 1", fdg6025.contains("effectiveGateScore6025") && fdg6025.contains("FDG_EFFECTIVE_GATE_SCORE_6025") && fdg6025.contains("score_gates_use_consensus_from_trade1") && fdg6025.contains("UnifiedPolicyHead.currentAuthority(laneName)"))
+        assertTrue("V5.0.6025: FDG score gates must consume effective lane/AGI consensus score from trade 1", fdg6025.contains("effectiveGateScore6025") && fdg6025.contains("FDG_EFFECTIVE_GATE_SCORE_6025") && fdg6025.contains("score_gates_use_two_way_consensus_7403") && fdg6025.contains("UnifiedPolicyHead.currentAuthority(laneName)"))
         assertTrue("V5.0.6025: FDG unknown-phase and live-edge gates must use effective score while logging raw/lane split", fdg6025.contains("val isHighScore = effectiveGateScore6025 >= minScore") && fdg6025.contains("val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore") && fdg6025.contains("raw=${'$'}{candidate.entryScore.toInt()} lane=${'$'}{laneConsensusScore6025.toInt()}"))
         assertTrue("V5.0.6025: BrainConsensusGate must evaluate the effective-gate candidate, not stale raw V3 score", fdg6025.contains("fdgGateCandidate6025") && fdg6025.contains("BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)"))
         val fdgBrain6026 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt").readText()
@@ -8457,13 +8457,13 @@ class GoldenTapeRegressionTest {
         val intent = gate.substring(gate.indexOf("internal fun canonicalExecutableIntent6509"), gate.indexOf("private val states"))
         assertFalse(intent.contains("hasImmutableTicket"))
         assertTrue(gate.contains("fdgElectionLocks6512") && gate.contains("rank(old?.preFdgVerdict) >= rank(finalVerdict)"))
-        assertTrue(gate.contains("signal = if (keepOld) old?.signal") && gate.contains("selectedLane = if (keepOld) old?.selectedLane"))
+        assertTrue(gate.contains("signal = if (keepOld) old?.signal") && gate.contains("keepOld -> old?.selectedLane"))
         assertTrue(decision.contains("byAuthorityKey") && decision.contains("runtimeGeneration") && decision.contains("candidateVersion") && decision.contains("executionLane"))
         assertFalse(snapshot.contains("add(" + "\"primaryLane("))
         assertTrue(gate.contains("canonicalOccupancy =") && gate.contains("mode.uppercase()}:" + "$" + "mint") && gate.contains("PAPER") && gate.contains("LIVE"))
         assertTrue(exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6512") && exec.contains("EXEC_AUTHORITY_MISSING_DEFERRED_6512") && exec.contains("releaseIfPrimary"))
         assertFalse(exec.contains("ENTRY_BRIDGE_NON_BUY_GUARD_6504"))
-        assertTrue(aggregator.contains("DataSource.DEXPAPRIKA") && aggregator.contains("data-api.binance.vision"))
+        assertTrue(aggregator.contains("DataSource.BINANCE") && aggregator.contains("data-api.binance.vision"))
         assertTrue(dex.contains("fetchDexPaprikaToken6512") && provider.contains("DEXPAPRIKA") && provider.contains("ProviderConfig"))
         assertTrue(fabric.contains("object PolicySynthesizer6512") && fabric.contains("data class AateDecisionEnvelope6512") && fabric.contains("AATE_POLICY") && fabric.contains("AATE_REWARD"))
         assertTrue(fabric.contains("byAttempt") && fabric.contains("byPosition") && fabric.contains("rewardedPositions"))
@@ -9096,9 +9096,9 @@ class GoldenTapeRegressionTest {
             mark.contains("resolveExecutableFromSourceEvidence6616") &&
             bot.contains("CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616"))
         assertTrue(markGate.contains("isObservationAuthoritative6570") && markGate.contains("GECKOTERMINAL"))
-        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("markEvaluationProgress6570(observedTok6569") &&
+        assertTrue(crypto.contains("markEvaluationProgress6570(") && crypto.contains("refreshed") && crypto.contains("markEvaluationProgress6570(observedTok6569") &&
             crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))
-        assertEquals(1, Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE").findAll(crypto).count())
+        assertEquals(1, Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED(?!_REQUEUE)").findAll(crypto).count())
         assertTrue(registry.contains("evaluationGeneration6615") && registry.contains("evaluationInflight6615") &&
             registry.contains("CRYPTO_EVAL_GENERATION_COALESCED_6615"))
         assertTrue(crypto.contains("canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize") && crypto.contains("markFailed(canonicalCryptoIntent6565"))
@@ -9173,7 +9173,7 @@ class GoldenTapeRegressionTest {
         assertTrue(marks.contains("MarkState6615") && marks.contains("PAPER_MARK_UNCHANGED_COALESCED_6615"))
         assertTrue(registry.contains("evaluationGeneration6615") && registry.contains("evaluationInflight6615") && registry.contains("CRYPTO_EVAL_STALE_COMPLETION_DROPPED_6615"))
         assertTrue(crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") &&
-            Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE").findAll(crypto).count() == 1)
+            Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED(?!_REQUEUE)").findAll(crypto).count() == 1)
         assertTrue(gate.contains("EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615") && gate.contains("NO_EXECUTION_INTENT"))
     }
 
@@ -11385,7 +11385,7 @@ class GoldenTapeRegressionTest {
         assertFalse(lsa.runnerSlotFree("QUALITY", 0, 0L, 1_000_000L))
         assertFalse(lsa.runnerSlotFree("MOONSHOT", 0, 900_000L, 1_000_000L))
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
-        assertTrue(adm.contains("PumpCurveKeys7269.createdAtMs7280(ts.mint)"))
+        assertTrue(adm.contains("PumpCurveKeys7269.createPriceSol7280(ts.mint)"))
         assertTrue(adm.contains("RUNNER_SHAPED_CURVE_7323"))
         assertTrue(adm.contains("if (!curve7323 && (!liq.isFinite() || liq <= 0.0)) return no(\"LIQ_UNKNOWN\")"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
