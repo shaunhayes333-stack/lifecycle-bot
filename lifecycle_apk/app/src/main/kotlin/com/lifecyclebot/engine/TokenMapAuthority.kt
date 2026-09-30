@@ -63,7 +63,7 @@ object TokenMapAuthority {
                 e.key !in held7505 &&
                 e.value.updatedAtMs > 0L &&
                 e.value.updatedAtMs < cutoff7505 &&
-                e.key !in activeHydrationByMint
+                !activeHydrationByMint.containsKey(e.key)
             if (drop) removed7505++
             drop
         }
