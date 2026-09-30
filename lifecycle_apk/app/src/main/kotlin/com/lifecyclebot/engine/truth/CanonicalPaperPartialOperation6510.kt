@@ -452,6 +452,13 @@ object CanonicalPaperPartialOperation6510 {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_PARTIAL_JOURNAL_PROJECTED_6677")
             } catch (_: Throwable) {}
 
+            // V5.0.7531 — immediately project canonical partial truth into the
+            // legacy mint registry; do not wait for parity auto-heal.
+            try {
+                val active7531 = CanonicalPositionAuthority6441.openPositions()
+                    .filter { it.mode == "paper" && it.mint == mint }
+                com.lifecyclebot.engine.EmergentGuardrails.syncMintFromCanonical7531(mint, active7531)
+            } catch (_: Throwable) {}
             tierStates6613[tierKey] = TierState6613.CONFIRMED
             tierStates6613[tierKey] = TierState6613.ACCOUNTED
             tierStates6613[tierKey] = TierState6613.COMPLETE

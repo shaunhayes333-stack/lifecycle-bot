@@ -294,6 +294,52 @@ object EmergentGuardrails {
     }
 
     /**
+     * V5.0.7531 — targeted canonical projection after an in-session mutation.
+     * CanonicalPositionAuthority remains authoritative; this refreshes only
+     * the single mint's legacy projection immediately after a partial.
+     */
+    fun syncMintFromCanonical7531(
+        mint: String,
+        positions: List<com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position>,
+    ) {
+        if (mint.isBlank()) return
+        val lots = positions.filter {
+            it.mint == mint &&
+                (it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                 it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) &&
+                it.remainingQtyRaw > java.math.BigInteger.ZERO
+        }
+        val projected = if (lots.isEmpty()) null else {
+            val p = lots.maxByOrNull { it.lastMutationMs } ?: lots.first()
+            PositionInfo(
+                mint = p.mint, symbol = p.symbol, layer = p.lane,
+                openedAt = lots.minOf { it.openedAtMs },
+                size = lots.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) },
+                qtyRaw = lots.fold(java.math.BigInteger.ZERO) { acc, lot -> acc + lot.remainingQtyRaw },
+                state = if (lots.any {
+                    it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED
+                }) "PARTIALLY_CLOSED" else "OPEN",
+            )
+        }
+        var changed = false
+        while (true) {
+            val before = openPositions.get()
+            val after = if (projected == null) before - mint else before + (mint to projected)
+            if (before == after) break
+            if (openPositions.compareAndSet(before, after)) { changed = true; break }
+        }
+        if (changed) {
+            try {
+                PipelineHealthCollector.labelInc("PARTIAL_REGISTRY_PROJECTED_FROM_CANONICAL_7531")
+                com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("partial_registry_" + mint)
+                ErrorLogger.debug(TAG, "PARTIAL_REGISTRY_PROJECTED_FROM_CANONICAL_7531 mint=" + mint.take(10) +
+                    " state=" + (projected?.state ?: "CLOSED") + " qty=" + (projected?.qtyRaw ?: java.math.BigInteger.ZERO) +
+                    " cost=" + (projected?.size ?: 0.0))
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /**
      * Unregister a closed position.
      */
     fun unregisterPosition(mint: String) {
