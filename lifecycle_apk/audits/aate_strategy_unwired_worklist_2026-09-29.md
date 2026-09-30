@@ -1204,3 +1204,18 @@ Runtime evidence from 5.0.7501: closed=1965, published=1503, missing=489 BUS_PUB
 - [x] Typed-SELL-only reconstruction still requires EntryStrategySnapshot6450.
 - [x] Missing optional exact strategy/source/regime fields remain blank, and entryScore remains neutral 0.
 - [x] Existing economics/quarantine/replay/carry checks remain intact.
+
+
+## V5.0.7513 — additive shadow evidence for 6663 canonical quality refusals
+
+Runtime evidence from installed 5.0.7501:
+- FDG allow=86, EXEC_GATE allow=19, PAPER BUY ok=0.
+- A representative SHITCOIN passed FDG and EXEC authority, then PAPER_ENTRY_QUALITY_REJECTED_6663 rejected score=45 / liq=2847 against the legacy 66 / 3000 learning-quality floor.
+
+Repair:
+- [x] The 6663 canonical paper-capital hard block is preserved exactly.
+- [x] Rejected candidates are offered to the existing always-on shadow book before canonical markPaperBuyNotOpened/return.
+- [x] Shadow positions use observed prices, do not debit canonical paper capital, and close through the existing shadow learning path.
+- [x] No score floor, liquidity floor, FDG decision, execution authority, live route, sizing authority or safety gate is relaxed.
+- [x] Existing duplicate/no-price/full-book shadow protections remain authoritative.
+- [x] New counters distinguish shadow diversion attempts from errors.

@@ -15825,13 +15825,25 @@ class Executor(
             } catch (_: Throwable) {}
         }
         shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->
-            // V5.0.6663 — canonical paper capital may not be spent on an
-            // outcome the learner is forbidden to consume.  That split made
-            // weak BLUECHIP/SHITCOIN/EXPRESS entries lose money while the
-            // self-tuner saw no terminal sample. Keep the candidate visible in
-            // telemetry, but do not open a canonical position.
+            // V5.0.7513 — preserve the 6663 canonical-capital invariant, but
+            // stop throwing away the observation. The always-on shadow book
+            // is explicitly non-canonical and already closes on observed marks
+            // into the paper exploration learner. This unlocks evidence without
+            // spending canonical paper capital or changing any entry floor.
+            try {
+                runShadowPaperBuy(
+                    ts = ts,
+                    sol = effectiveBuySol6451.coerceAtLeast(0.001),
+                    score = score,
+                    quality = quality,
+                    reason = "learning_quality_rejected_7513:${why.take(120)}",
+                )
+                PipelineHealthCollector.labelInc("PAPER_QUALITY_REJECTED_SHADOWED_7513")
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("PAPER_QUALITY_REJECTED_SHADOW_ERROR_7513") } catch (_: Throwable) {}
+            }
             try { PipelineHealthCollector.labelInc("PAPER_ENTRY_QUALITY_REJECTED_6663") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_ENTRY_QUALITY_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=false") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_ENTRY_QUALITY_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=false shadowObservation=attempted_7513") } catch (_: Throwable) {}
             ErrorLogger.debug("Executor", "🧪 PAPER_ENTRY_QUALITY_REJECTED_6663: ${ts.symbol} | $why")
             markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")
             return
