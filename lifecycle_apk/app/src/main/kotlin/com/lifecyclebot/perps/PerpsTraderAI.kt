@@ -614,7 +614,27 @@ object PerpsTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        val composed = baseSize * sizeMultiplier * behaviorSizeMult * behaviorGradeMult
+        // V5.0.7540 — PerpsAutoReplayLearner has learned exact market+
+        // direction patterns for years but none of its query surfaces had a
+        // production caller. Consume that local evidence as a bounded size
+        // shape only. It cannot veto, cannot change leverage, and is neutral
+        // when evidence is immature or WR and mean-PnL disagree.
+        val replayPatternSizeMult7540 = try {
+            PerpsAutoReplayLearner.boundedSizeMultiplier7540(market, direction)
+        } catch (_: Throwable) { 1.0 }
+        if (kotlin.math.abs(replayPatternSizeMult7540 - 1.0) > 0.0001) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_REPLAY_PATTERN_SIZE_SHAPED_7540")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (replayPatternSizeMult7540 > 1.0)
+                        "PERPS_REPLAY_PATTERN_FAVORABLE_7540"
+                    else "PERPS_REPLAY_PATTERN_DAMPED_7540"
+                )
+            } catch (_: Throwable) {}
+            reasons.add("🎬 Replay pattern size×${"%.2f".format(replayPatternSizeMult7540)}")
+        }
+
+        val composed = baseSize * sizeMultiplier * behaviorSizeMult * behaviorGradeMult * replayPatternSizeMult7540
         val recommendedSizePct = composed.coerceIn(2.0, MAX_POSITION_PCT_OF_BALANCE)
         
         // ═══════════════════════════════════════════════════════════════════

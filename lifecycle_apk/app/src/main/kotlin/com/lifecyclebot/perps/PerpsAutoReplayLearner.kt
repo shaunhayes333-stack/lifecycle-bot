@@ -662,6 +662,25 @@ object PerpsAutoReplayLearner {
                 "⚪ NEUTRAL: Insufficient data for pattern matching"
         }
     }
+
+    /**
+     * V5.0.7540 — bounded read-side actuator for the patterns this learner
+     * already produces. No hard veto and no leverage mutation. The multiplier
+     * is neutral unless sample/confidence are mature AND WR direction agrees
+     * with mean PnL, protecting fat-tail low-WR winners from being mislabeled.
+     */
+    fun boundedSizeMultiplier7540(market: PerpsMarket, direction: PerpsDirection): Double {
+        val pattern = matchesWinningPattern(market, direction)
+            ?: matchesLosingPattern(market, direction)
+            ?: return 1.0
+        if (pattern.occurrences < 3 || pattern.confidence < 60.0) return 1.0
+        val positive = pattern.winRate > 50.0 && pattern.avgPnl > 0.0
+        val negative = pattern.winRate < 50.0 && pattern.avgPnl < 0.0
+        if (!positive && !negative) return 1.0
+        val wrEdge = ((pattern.winRate - 50.0) / 50.0).coerceIn(-1.0, 1.0)
+        val confidenceWeight = (pattern.confidence / 100.0).coerceIn(0.0, 1.0)
+        return (1.0 + wrEdge * 0.25 * confidenceWeight).coerceIn(0.75, 1.15)
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATS
