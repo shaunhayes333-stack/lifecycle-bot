@@ -152,6 +152,14 @@ object EconomicEventSchema6464 {
     private const val PREFS = "canonical_economic_events_6486"
     private const val KEY_PREFIX = "event:"
     private const val REPLAY_CARRY_KEY_6489 = "replay_carry_6489"
+    // V5.0.7558 — the durable event log itself no longer lives in this
+    // SharedPreferences file. See EVENT_LOG_FILE_6558 below; PREFS now only
+    // ever holds the single REPLAY_CARRY_KEY_6489 row.
+    private const val EVENT_LOG_FILE_6558 = "economic_events_6486.ndjson"
+    // Amortizes eviction compaction: rewriting the whole log file on every
+    // single eviction would reintroduce the same O(n)-per-write cost this
+    // migration exists to remove. Batching keeps it O(1) amortized.
+    private const val COMPACT_EVERY_6558 = 512
     private val events = ConcurrentLinkedDeque<Event>()
     private val eventKeys = ConcurrentHashMap.newKeySet<String>()
     // ConcurrentLinkedDeque.size walks the entire deque. Calling it for every
@@ -159,6 +167,24 @@ object EconomicEventSchema6464 {
     // hold service bootstrap past the runtime-smoke deadline.
     private val eventCount = AtomicInteger(0)
     @Volatile private var prefs: SharedPreferences? = null
+    @Volatile private var eventLogFile6558: java.io.File? = null
+    // V5.0.7558 — a single background writer, never the framework's
+    // QueuedWork. Android forces QueuedWork.processPendingWork() to run
+    // synchronously on the main thread at Activity/Service lifecycle
+    // boundaries so a killed process cannot lose an in-flight
+    // SharedPreferences.apply(); with up to 8192 economic-event keys stored
+    // one-per-row in a single prefs file, every recordBuy/recordSell queued
+    // a full-file rewrite there, and that queue is exactly what a later
+    // lifecycle transition blocked main on — the device's own ANR sampler
+    // attributes the plurality of samples to this stack
+    // (QueuedWork.processPendingWork / SharedPreferencesImpl.writeToFile).
+    // Writing this log to a private file we own entirely removes it from
+    // QueuedWork's reach: appends are cheap (one line), and eviction only
+    // rewrites the file in bounded, infrequent batches (COMPACT_EVERY_6558).
+    private val ioExecutor6558 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "EconomicEventLog-6558-IO").apply { isDaemon = true }
+    }
+    private val pendingEvictions6558 = AtomicInteger(0)
     @Volatile private var initialized = false
     @Volatile private var replayCarry6489 = ReplayCarry6489()
     private val recordedBuys = AtomicLong(0L)
@@ -173,11 +199,53 @@ object EconomicEventSchema6464 {
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         replayCarry6489 = decodeReplayCarry6489(p.getString(REPLAY_CARRY_KEY_6489, null)) ?: ReplayCarry6489()
-        val loaded = p.all.entries.asSequence()
-            .filter { it.key.startsWith(KEY_PREFIX) && it.value is String }
-            .mapNotNull { decode6486(it.value as String) }
-            .sortedBy { it.atMs }
-            .toList()
+
+        val f = java.io.File(context.applicationContext.filesDir, EVENT_LOG_FILE_6558)
+        eventLogFile6558 = f
+        val fileHasData = try { f.exists() && f.length() > 0L } catch (_: Throwable) { false }
+        val loadedFromFile = if (fileHasData) {
+            try {
+                f.readLines(Charsets.UTF_8).mapNotNull { decode6486(it) }.sortedBy { it.atMs }
+            } catch (_: Throwable) { emptyList() }
+        } else emptyList()
+
+        val legacyKeys = try {
+            p.all.keys.filter { it.startsWith(KEY_PREFIX) }
+        } catch (_: Throwable) { emptyList() }
+
+        var loaded = loadedFromFile
+        var logIsAuthoritative = fileHasData
+        if (!fileHasData && legacyKeys.isNotEmpty()) {
+            // V5.0.7558 — first boot after this migration: the event log has
+            // always lived in `p` (SharedPreferences) until now. Read it once
+            // from there, write it to the new file, and only then treat the
+            // file as authoritative — never drop the legacy copy on a failed write.
+            val legacyLoaded = legacyKeys.asSequence()
+                .mapNotNull { k -> (p.getString(k, null))?.let { decode6486(it) } }
+                .sortedBy { it.atMs }
+                .toList()
+            loaded = legacyLoaded
+            logIsAuthoritative = try {
+                java.io.FileOutputStream(f, false).use { out ->
+                    legacyLoaded.forEach { out.write((encode6486(it) + "\n").toByteArray(Charsets.UTF_8)) }
+                }
+                PipelineHealthCollector.labelInc("ECONOMIC_EVENT_LOG_MIGRATED_FROM_PREFS_6558")
+                true
+            } catch (_: Throwable) { false }
+        }
+        if (logIsAuthoritative && legacyKeys.isNotEmpty()) {
+            // Best-effort, idempotent: the file already holds every row these
+            // keys represent, so the legacy copies are pure dead weight that
+            // would otherwise force every future replay-carry commit() to
+            // rewrite them too. Safe to retry indefinitely if this ever fails.
+            try {
+                val editor = p.edit()
+                legacyKeys.forEach { editor.remove(it) }
+                editor.apply()
+                PipelineHealthCollector.labelInc("ECONOMIC_EVENT_LEGACY_PREFS_KEYS_PURGED_6558")
+            } catch (_: Throwable) {}
+        }
+
         loaded.forEach { appendBounded(it, persist = false) }
         recordedBuys.set(events.count { it is Buy }.toLong())
         recordedSells.set(events.count { it is Sell && !it.partial }.toLong())
@@ -363,16 +431,48 @@ object EconomicEventSchema6464 {
         events.addFirst(e)
         eventCount.incrementAndGet()
         eventVersion.incrementAndGet()
-        if (persist) prefs?.edit()?.putString(KEY_PREFIX + durableKey, encode6486(e))?.apply()
+        if (persist) {
+            val line = encode6486(e)
+            ioExecutor6558.execute { appendEventLine6558(line) }
+        }
+        var evictedN = 0
         while (eventCount.get() > CAP) {
             val evicted = events.pollLast() ?: break
             eventCount.decrementAndGet()
             val evictedKey = "${evicted.mode}:${evicted.idempotencyKey}"
             foldEvictedIntoReplayCarry6489(evicted)
             eventKeys.remove(evictedKey)
-            prefs?.edit()?.remove(KEY_PREFIX + evictedKey)?.apply()
+            evictedN++
+        }
+        // V5.0.7558 — eviction no longer removes one row per event. The file
+        // only ever holds appended rows; a bounded, infrequent compaction
+        // pass rewrites it down to the live `events` set, instead of a
+        // SharedPreferences remove()+apply() (a full-file rewrite) per evict.
+        if (persist && evictedN > 0 && pendingEvictions6558.addAndGet(evictedN) >= COMPACT_EVERY_6558) {
+            pendingEvictions6558.set(0)
+            val snapshotOldestFirst = events.toList().asReversed()
+            ioExecutor6558.execute { compactEventLog6558(snapshotOldestFirst) }
         }
         return true
+    }
+
+    private fun appendEventLine6558(line: String) {
+        val f = eventLogFile6558 ?: return
+        try {
+            java.io.FileOutputStream(f, true).use { it.write((line + "\n").toByteArray(Charsets.UTF_8)) }
+        } catch (_: Throwable) {}
+    }
+
+    private fun compactEventLog6558(oldestFirst: List<Event>) {
+        val f = eventLogFile6558 ?: return
+        try {
+            val tmp = java.io.File(f.parentFile, f.name + ".tmp")
+            java.io.FileOutputStream(tmp, false).use { out ->
+                oldestFirst.forEach { out.write((encode6486(it) + "\n").toByteArray(Charsets.UTF_8)) }
+            }
+            tmp.renameTo(f)
+            try { PipelineHealthCollector.labelInc("ECONOMIC_EVENT_LOG_COMPACTED_6558") } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     @Synchronized

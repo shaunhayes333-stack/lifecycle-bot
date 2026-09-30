@@ -12639,4 +12639,29 @@ class GoldenTapeRegressionTest {
         assertTrue(report.contains("Canonical bootstrap timeline (§7557)"))
     }
 
+    @Test
+    fun V5_0_7558_economic_event_log_moves_off_shared_preferences_queued_work() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicEventSchema6464.kt").readText()
+        // The per-event hot path must never call SharedPreferences.edit() again —
+        // that is exactly the QueuedWork/ANR mechanism this migration removes.
+        val appendBoundedBody = src.substringAfter("private fun appendBounded(e: Event, persist: Boolean = true): Boolean {")
+            .substringBefore("private fun appendEventLine6558")
+        assertFalse(appendBoundedBody.contains("prefs?.edit()"))
+        assertTrue(appendBoundedBody.contains("ioExecutor6558.execute { appendEventLine6558(line) }"))
+        assertTrue(appendBoundedBody.contains("compactEventLog6558(snapshotOldestFirst)"))
+        // Compaction is amortized, not per-eviction.
+        assertTrue(src.contains("pendingEvictions6558.addAndGet(evictedN) >= COMPACT_EVERY_6558"))
+        // The writer is a private single-thread executor, never the framework's
+        // QueuedWork-registering apply()/commit() path.
+        assertTrue(src.contains("Executors.newSingleThreadExecutor"))
+        assertTrue(appendBoundedBody.contains("if (persist)"))
+        // init6486 must migrate any legacy SharedPreferences rows into the new
+        // file exactly once, then purge them so persistReplayCarry6489's
+        // commit() (which shares this prefs file) never rewrites stale rows.
+        val init6486Body = src.substringAfter("fun init6486(context: Context) {").substringBefore("fun recordBuy(")
+        assertTrue(init6486Body.contains("ECONOMIC_EVENT_LOG_MIGRATED_FROM_PREFS_6558"))
+        assertTrue(init6486Body.contains("ECONOMIC_EVENT_LEGACY_PREFS_KEYS_PURGED_6558"))
+        assertTrue(init6486Body.indexOf("logIsAuthoritative") < init6486Body.indexOf("legacyKeys.forEach { editor.remove(it) }"))
+    }
+
 }
