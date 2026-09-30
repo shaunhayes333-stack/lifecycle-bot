@@ -340,10 +340,18 @@ object CanonicalPriceMarkRegistry6522 {
         val admitted = if (published) promoted else
             getFresh6734(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
                 ?.takeIf { it.timestampMs >= promoted.timestampMs }
-        return if (admitted != null) PromotionResult6613(admitted, reason, admitted.source,
-            admitted.priceUsd.value.toDouble(), nowMs - admitted.timestampMs,
-            "${admitted.baseMint}->${admitted.quoteMint}@${admitted.pairId}", "scale=${admitted.priceUsd.value.scale()}")
-        else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age,
+        return if (admitted != null) {
+            try {
+                MarkIdentityExecutionGate7230.clearWithNewerExecutableMark7527(
+                    mint = mint,
+                    markTimestampMs = admitted.timestampMs,
+                    proof = "PROMOTED_EXECUTABLE_ENTRY_QUOTE:${admitted.source}",
+                )
+            } catch (_: Throwable) {}
+            PromotionResult6613(admitted, reason, admitted.source,
+                admitted.priceUsd.value.toDouble(), nowMs - admitted.timestampMs,
+                "${admitted.baseMint}->${admitted.quoteMint}@${admitted.pairId}", "scale=${admitted.priceUsd.value.scale()}")
+        } else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age,
             "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
     }
 
@@ -496,6 +504,16 @@ object CanonicalPriceMarkRegistry6522 {
             }
         }
         if (strict != null) {
+            // V5.0.7527 — the strict mark has already passed canonical mark
+            // publication. If it is newer than a sticky identity suppression,
+            // the suppression is stale and must not keep blocking this mint.
+            try {
+                MarkIdentityExecutionGate7230.clearWithNewerExecutableMark7527(
+                    mint = mint,
+                    markTimestampMs = strict.timestampMs,
+                    proof = "ENTRY_MARK_MODE_RESOLVER_STRICT_7465:${strict.source}",
+                )
+            } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_MARK_MODE_RESOLVER_STRICT_7465") } catch (_: Throwable) {}
             return EntryMarkResolution7465(strict, "STRICT_EXECUTABLE", promoted.reason)
         }

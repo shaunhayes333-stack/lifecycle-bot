@@ -107,6 +107,35 @@ object MarkIdentityExecutionGate7230 {
     fun suppressionReason7243(mint: String): String =
         suppressedByMint7243[mint]?.reason.orEmpty()
 
+    fun suppressionAtMs7527(mint: String): Long = suppressedByMint7243[mint]?.atMs ?: 0L
+
+    /**
+     * V5.0.7527 — a suppression is evidence at a point in time, not a permanent
+     * mint sentence. Clear it only when a newer STRICT executable mark has
+     * independently passed canonical publication. Older/equal marks cannot
+     * erase newer integrity evidence.
+     */
+    fun clearWithNewerExecutableMark7527(mint: String, markTimestampMs: Long, proof: String): Boolean {
+        if (mint.isBlank() || markTimestampMs <= 0L) return false
+        while (true) {
+            val current = suppressedByMint7243[mint] ?: return false
+            if (markTimestampMs <= current.atMs) {
+                try { PipelineHealthCollector.labelInc("MARK_SUPPRESSION_KEPT_NEWER_THAN_EXEC_MARK_7527") } catch (_: Throwable) {}
+                return false
+            }
+            if (suppressedByMint7243.remove(mint, current)) {
+                try {
+                    PipelineHealthCollector.labelInc("MARK_SUPPRESSION_CLEARED_BY_NEWER_EXEC_MARK_7527")
+                    ForensicLogger.lifecycle(
+                        "MARK_SUPPRESSION_CLEARED_BY_NEWER_EXEC_MARK_7527",
+                        "mint=${mint.take(10)} oldReason=${current.reason} oldAt=${current.atMs} markAt=$markTimestampMs proof=${proof.take(80)} action=clear_stale_suppression",
+                    )
+                } catch (_: Throwable) {}
+                return true
+            }
+        }
+    }
+
     fun markRepairedUsable7243(mint: String): Boolean {
         if (mint.isBlank()) return false
         val removed = suppressedByMint7243.remove(mint) ?: return false
