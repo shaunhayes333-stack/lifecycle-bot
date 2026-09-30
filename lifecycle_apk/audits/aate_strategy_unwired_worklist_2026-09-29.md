@@ -1228,3 +1228,20 @@ Repair:
 - [x] The repair remains on IndependentReconcilerScheduler6431 Dispatchers.IO, never the bot loop.
 - [x] No additional row becomes eligible: 7512 proof/quarantine/replay/economics rules are unchanged.
 - [x] Faster draining reduces repeated scans over the same CLOSED positions while restoring learner population sooner.
+
+
+## V5.0.7515 — wire Crypto Universe discovery/reaper to canonical runtime plan
+
+Runtime evidence from installed 5.0.7501:
+- Crypto Universe identities=4774 but networks observed / DEXes observed were blank.
+- CrossAsset CRYPTO_ALT started=1 scanTick=1, then no continuing discovery/candidate flow.
+- evaluation inflight=1 with oldestQueueAgeMs≈356872, beyond the 5-minute adaptive ceiling.
+- DynamicAltTokenRegistry.startBackgroundDiscovery() had no production caller.
+
+Repair:
+- [x] Startup uses TraderRuntimePlan6526.cryptoUniverseOn to start/stop DynamicAltTokenRegistry discovery.
+- [x] Runtime settings reapply uses the same authority.
+- [x] Bot shutdown stops the discovery scheduler alongside CryptoAltTrader.
+- [x] startBackgroundDiscovery remains idempotent.
+- [x] Existing 15s/60s/5m discovery cadence and silent-lease reaper are unchanged.
+- [x] No crypto scoring, route, sizing, entry or exit threshold is changed.

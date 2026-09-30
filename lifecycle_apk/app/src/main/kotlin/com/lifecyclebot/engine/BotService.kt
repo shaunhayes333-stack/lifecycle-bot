@@ -215,6 +215,12 @@ class BotService : Service() {
             }
             val cryptoUniverseOn = plan.cryptoUniverseOn
             try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn) } catch (_: Exception) {}
+            // V5.0.7515 — the registry discovery/reaper clock is part of the
+            // Crypto Universe runtime, so it shares the same canonical plan.
+            try {
+                if (cryptoUniverseOn) com.lifecyclebot.perps.DynamicAltTokenRegistry.startBackgroundDiscovery()
+                else com.lifecyclebot.perps.DynamicAltTokenRegistry.stopBackgroundDiscovery()
+            } catch (_: Exception) {}
             try {
                 // V5.0.6526 — publish the WHOLE canonical enabled set from
                 // the plan so reapply() and startBot() agree on the exact
@@ -2814,6 +2820,14 @@ class BotService : Service() {
         com.lifecyclebot.perps.ForexTrader.setEnabled(plan6526.forexEffective)
         val cryptoUniverseOnAtStart = plan6526.cryptoUniverseOn
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOnAtStart)
+        try {
+            if (cryptoUniverseOnAtStart) {
+                com.lifecyclebot.perps.DynamicAltTokenRegistry.startBackgroundDiscovery()
+                PipelineHealthCollector.labelInc("CRYPTO_DISCOVERY_RUNTIME_STARTED_7515")
+            } else {
+                com.lifecyclebot.perps.DynamicAltTokenRegistry.stopBackgroundDiscovery()
+            }
+        } catch (_: Throwable) {}
         if (!cryptoUniverseOnAtStart) {
             try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
             ErrorLogger.info("BotService", "CRYPTO_RUNTIME_DISABLED reason=MEME_ONLY_MODE_OR_MARKETS_OFF startup marketsLaneOn=$marketsLaneOn cryptoToggle=${marketsStartCfg.cryptoAltsEnabled}")
@@ -9252,6 +9266,7 @@ class BotService : Service() {
             com.lifecyclebot.perps.MetalsTrader.stop()
             com.lifecyclebot.perps.ForexTrader.stop()
             com.lifecyclebot.perps.CryptoAltTrader.stop()
+            com.lifecyclebot.perps.DynamicAltTokenRegistry.stopBackgroundDiscovery()
             com.lifecyclebot.perps.PerpsExecutionEngine.stop()
             ErrorLogger.info("BotService", "All Markets traders stopped + positions closed alongside main bot")
         } catch (e: Exception) {
