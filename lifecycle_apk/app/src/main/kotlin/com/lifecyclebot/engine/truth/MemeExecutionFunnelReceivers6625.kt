@@ -111,15 +111,18 @@ object ExpressHandoffFunnel6625 {
         liveIntents6627.remove(mint)
     }
     fun onExecuted6625(mint: String) {
-        // V5.0.6688 — an executed immutable attempt necessarily passed ticket
-        // publication. Heal only the causal witness when an older call path missed
-        // the explicit TICKET desk stamp; never create/mutate economic authority.
-        if (ticketIdentities6688.add(mint)) {
-            ticketSealed.incrementAndGet()
+        // V5.0.7537 — execution is evidence that execution happened; it is NOT
+        // proof that our causal ticket recorder fired. Do not fabricate an
+        // upstream ticket witness after the fact. Missing ticket telemetry is a
+        // producer-contract fault that must remain visible until the real ticket
+        // producer stamps it.
+        if (mint !in ticketIdentities6688) {
             try {
-                PipelineHealthCollector.labelInc("EXPRESS_FUNNEL_TICKET_INFERRED_FROM_EXEC_6688")
-                ForensicLogger.lifecycle("EXPRESS_FUNNEL_TICKET_INFERRED_FROM_EXEC_6688",
-                    "attempt=${mint.take(48)} action=causal_witness_backfill_only")
+                PipelineHealthCollector.labelInc("EXPRESS_EXEC_WITHOUT_TICKET_WITNESS_7537")
+                ForensicLogger.lifecycle(
+                    "EXPRESS_EXEC_WITHOUT_TICKET_WITNESS_7537",
+                    "attempt=${mint.take(48)} action=preserve_missing_predecessor_no_backfill",
+                )
             } catch (_: Throwable) {}
         }
         executed.incrementAndGet()
@@ -531,49 +534,63 @@ object SpecialistCausalFunnel6625 {
         // lane index and made every specialist report DEAD.
         try { sweepIfNeeded6899(System.currentTimeMillis()) } catch (_: Throwable) {}
         val rec = getOrCreateRecord7480(key)
-        var inferredTicket6688 = false
-        var inferredExec6688 = false
-        var inferredIntent7418 = false
+        var missingPredecessor7537 = ""
         synchronized(rec) {
             val now = System.currentTimeMillis()
-            // V5.0.7418 — if the SAME immutable causal record already has
-            // DISCOVER + FDG_ALLOW + MARK_READY + SIZED_EXECUTABLE and then
-            // reaches TICKET/EXEC/OPEN, a missing INTENT stamp is telemetry loss,
-            // not a missing economic intent. Backfill only under that complete proof.
-            val hasFdgAllow7418 = "FDG_ALLOW" in rec.outcomes || "FDG" in rec.outcomes
-            val hasMark7418 = "MARK_READY" in rec.outcomes || "MARK" in rec.outcomes
-            val hasSize7418 = "SIZED_EXECUTABLE" in rec.outcomes || "SIZE" in rec.outcomes
-            if ((stage == Stage.TICKET || stage == Stage.EXEC || stage == Stage.OPEN) &&
-                Stage.INTENT !in rec.stages && Stage.DISCOVER in rec.stages &&
-                hasFdgAllow7418 && hasMark7418 && hasSize7418
-            ) {
-                rec.stages[Stage.INTENT] = now
-                rec.outcomes += "INTENT_INFERRED_FROM_EXECUTABLE_LINEAGE_7418"
-                inferredIntent7418 = true
-            }
-            // V5.0.6688 — downstream economic facts are stronger than an omitted
-            // telemetry callback. EXEC can only be reached after ticket publication,
-            // and OPEN can only be reached after execution. Backfill those missing
-            // causal witnesses on the SAME immutable record; never manufacture an
-            // intent, FDG, mark, size, position, or economic event.
-            if ((stage == Stage.EXEC || stage == Stage.OPEN) && Stage.TICKET !in rec.stages) {
-                rec.stages[Stage.TICKET] = now
-                rec.outcomes += "TICKET_INFERRED_FROM_${stage.name}_6688"
-                inferredTicket6688 = true
-            }
-            if (stage == Stage.OPEN && Stage.EXEC !in rec.stages) {
-                rec.stages[Stage.EXEC] = now
-                rec.outcomes += "EXEC_INFERRED_FROM_OPEN_6688"
-                inferredExec6688 = true
+            val hasFdgAllow7537 = "FDG_ALLOW" in rec.outcomes || "FDG" in rec.outcomes
+            val hasMark7537 = "MARK_READY" in rec.outcomes || "MARK" in rec.outcomes
+            val hasSize7537 = "SIZED_EXECUTABLE" in rec.outcomes || "SIZE" in rec.outcomes
+
+            // V5.0.7537 — downstream truth never manufactures upstream truth.
+            // Record the raw stage exactly as observed, but keep validated counts
+            // dependent on independently stamped predecessors.
+            missingPredecessor7537 = when (stage) {
+                Stage.TICKET -> when {
+                    Stage.INTENT !in rec.stages -> "NO_INTENT"
+                    !hasFdgAllow7537 -> "NO_FDG_ALLOW"
+                    !hasMark7537 -> "NO_MARK_READY"
+                    !hasSize7537 -> "NO_EXECUTABLE_SIZE"
+                    else -> ""
+                }
+                Stage.EXEC -> when {
+                    Stage.TICKET !in rec.stages -> "NO_TICKET"
+                    Stage.INTENT !in rec.stages -> "NO_INTENT"
+                    !hasFdgAllow7537 -> "NO_FDG_ALLOW"
+                    !hasMark7537 -> "NO_MARK_READY"
+                    !hasSize7537 -> "NO_EXECUTABLE_SIZE"
+                    else -> ""
+                }
+                Stage.OPEN -> when {
+                    Stage.EXEC !in rec.stages -> "NO_EXEC"
+                    Stage.TICKET !in rec.stages -> "NO_TICKET"
+                    Stage.INTENT !in rec.stages -> "NO_INTENT"
+                    !hasFdgAllow7537 -> "NO_FDG_ALLOW"
+                    !hasMark7537 -> "NO_MARK_READY"
+                    !hasSize7537 -> "NO_EXECUTABLE_SIZE"
+                    else -> ""
+                }
+                else -> ""
             }
             rec.stages[stage] = now
             rec.outcomes += outcome.uppercase()
+            if (missingPredecessor7537.isNotBlank()) {
+                rec.outcomes += "ORPHAN_${stage.name}_${missingPredecessor7537}_7537"
+            }
         }
         try {
             PipelineHealthCollector.labelInc("CAUSAL_FUNNEL_STAGE_${stage.name}_${key.lane}_6625")
-            if (inferredTicket6688) PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_TICKET_WITNESS_BACKFILLED_6688")
-            if (inferredExec6688) PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_EXEC_WITNESS_BACKFILLED_6688")
-            if (inferredIntent7418) PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_INTENT_WITNESS_BACKFILLED_7418")
+            if (missingPredecessor7537.isNotBlank()) {
+                val lane7537 = key.lane.uppercase()
+                PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_ORPHAN_STAGE_7537")
+                PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_ORPHAN_STAGE_7537_${stage.name}")
+                PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_ORPHAN_STAGE_7537_${lane7537}")
+                PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_ORPHAN_STAGE_7537_${stage.name}_${missingPredecessor7537}")
+                ForensicLogger.lifecycle(
+                    "SPECIALIST_CAUSAL_ORPHAN_STAGE_7537",
+                    "lane=$lane7537 stage=${stage.name} missing=$missingPredecessor7537 " +
+                        "mint=${key.mint.take(12)} intent=${key.intentId.take(48)} action=raw_only_no_predecessor_fabrication",
+                )
+            }
         } catch (_: Throwable) {}
     }
     fun stageCounts6625(lane: String): Map<Stage, Int> {
