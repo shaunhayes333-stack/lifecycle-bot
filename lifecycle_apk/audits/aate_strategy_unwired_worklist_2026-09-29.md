@@ -1169,3 +1169,16 @@ Runtime evidence from 5.0.7501: open-position tick inFlight ~365s at phase=locke
 - [x] Entry hydration explicitly switches to Dispatchers.IO before running the same complete fallback chain.
 - [x] Birdeye overview, DexScreener token, Birdeye Oracle and pump.fun fallback branches are all preserved.
 - [x] No mark trust, stale threshold, exit threshold, provider ordering or safety rule is weakened.
+
+
+## V5.0.7510 — P0 batch held Solana mark supervision
+
+Runtime evidence from 5.0.7501: held=134 fresh=0 staleRefresh=72 missing=62, riskClockStale=87153. HeldHotMarkAuthority processed stale Solana positions one-by-one and wrapped LockedVenueMarks (internally bounded to 600ms/provider) in a shorter 450ms outer timeout.
+
+- [x] Stale held Solana positions are resolved as one locked-venue book per pass.
+- [x] Only unresolved Solana mints enter one existing ParallelMarkFanout batch.
+- [x] Batch fanout has a bounded 2.5s deadline.
+- [x] Per-position canonical mark publication and identity verification remain unchanged.
+- [x] CRYPTO_ALT held marks retain the existing exact-identity DynamicAltTokenRegistry path.
+- [x] Freshness bar, mark trust, exit thresholds, stop logic and provider set are unchanged.
+- [x] No held position is removed or marked fresh unless a real canonical mark advances.
