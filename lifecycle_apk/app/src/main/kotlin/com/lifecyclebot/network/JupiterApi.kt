@@ -3,6 +3,7 @@ package com.lifecyclebot.network
 import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Dns
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -95,6 +96,12 @@ class JupiterApi(
         private const val CONNECT_TIMEOUT_MS = 15_000L
         private const val READ_TIMEOUT_MS = 20_000L
         private const val WRITE_TIMEOUT_MS = 15_000L
+        // V5.0.7528 — observation-only Jupiter is optional evidence inside
+        // parallel mark/repair paths. It must fit inside those paths' budget
+        // and must never park them behind the serial DoH fallback chain.
+        private const val OBS_CONNECT_TIMEOUT_MS_7528 = 1_200L
+        private const val OBS_READ_TIMEOUT_MS_7528 = 1_500L
+        private const val OBS_CALL_TIMEOUT_MS_7528 = 1_800L
 
         @Volatile
         private var dnsStatusLogged = false
@@ -109,11 +116,30 @@ class JupiterApi(
     }
 
     private val http = SharedHttpClient.builder()
-        .dns(CloudflareDns.INSTANCE)
-        .connectTimeout(CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .writeTimeout(WRITE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .retryOnConnectionFailure(true)
+        // V5.0.7528 — execution retains the resilient DoH chain. Observation
+        // callers (ParallelMarkFanout/mark repair/price fallback) use OS DNS:
+        // DoH's internal CountDownLatch is not reliably interruptible by the
+        // outer Future timeout and was captured wedged for ~31s in the held
+        // mark/risk path. Observation is optional parallel evidence, so a fast
+        // miss is safer than occupying a protective worker.
+        .dns(if (observationOnly7397) Dns.SYSTEM else CloudflareDns.INSTANCE)
+        .connectTimeout(
+            if (observationOnly7397) OBS_CONNECT_TIMEOUT_MS_7528 else CONNECT_TIMEOUT_MS,
+            TimeUnit.MILLISECONDS,
+        )
+        .readTimeout(
+            if (observationOnly7397) OBS_READ_TIMEOUT_MS_7528 else READ_TIMEOUT_MS,
+            TimeUnit.MILLISECONDS,
+        )
+        .writeTimeout(
+            if (observationOnly7397) OBS_READ_TIMEOUT_MS_7528 else WRITE_TIMEOUT_MS,
+            TimeUnit.MILLISECONDS,
+        )
+        .callTimeout(
+            if (observationOnly7397) OBS_CALL_TIMEOUT_MS_7528 else 12_000L,
+            TimeUnit.MILLISECONDS,
+        )
+        .retryOnConnectionFailure(!observationOnly7397)
         .build()
 
     private val JSON = "application/json".toMediaType()
