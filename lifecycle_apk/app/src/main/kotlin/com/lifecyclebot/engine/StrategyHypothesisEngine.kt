@@ -123,8 +123,25 @@ object StrategyHypothesisEngine {
     private val pendingByPosition7428 = ConcurrentHashMap<String, AppliedDecision7428>()
     private val settledPositions7428 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
-    /** V5.9.1353 — TRUE RESET: drop baselines, active hypotheses + pending. */
-    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear(); pendingByDecision7428.clear(); pendingByPosition7428.clear(); settledPositions7428.clear(); settledOnceGuard6747.clear() }
+    /** V5.0.7536 — TRUE RESET: volatile experiment state + standalone persistence. */
+    fun reset() {
+        baseline.clear()
+        stopBaseline.clear()
+        active.clear()
+        pending.clear()
+        pendingByDecision7428.clear()
+        pendingByPosition7428.clear()
+        settledPositions7428.clear()
+        settledOnceGuard6747.clear()
+        promotions = 0L
+        retirements = 0L
+        outcomeUpdates6512 = 0L
+        try {
+            appContext?.getSharedPreferences("strategy_hypothesis_engine", Context.MODE_PRIVATE)
+                ?.edit()?.clear()?.commit()
+        } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("STRATEGY_HYPOTHESIS_RESET_7536") } catch (_: Throwable) {}
+    }
     @Volatile private var promotions = 0L
     @Volatile private var outcomeUpdates6512 = 0L
     fun outcomeUpdateCount6512(): Long = outcomeUpdates6512

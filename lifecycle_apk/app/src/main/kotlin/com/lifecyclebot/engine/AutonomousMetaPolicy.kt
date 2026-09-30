@@ -220,8 +220,18 @@ object AutonomousMetaPolicy {
     /** Pending decision contexts keyed by mint, set at decision time. */
     private val pending = ConcurrentHashMap<String, String>()
 
-    /** V5.9.1353 — TRUE RESET: drop all learned arms + pending. */
-    fun reset() { arms.clear(); pending.clear() }
+    /** V5.0.7536 — TRUE RESET: volatile state + standalone persistence. */
+    fun reset() {
+        arms.clear()
+        pending.clear()
+        totalUpdates = 0L
+        vetoProbeCounter.set(0L)
+        try {
+            appContext?.getSharedPreferences("autonomous_meta_policy", Context.MODE_PRIVATE)
+                ?.edit()?.clear()?.commit()
+        } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("AUTONOMOUS_META_RESET_7536") } catch (_: Throwable) {}
+    }
     // V5.9.1290 — monotonic probe counter for the veto bypass valve
     private val vetoProbeCounter = java.util.concurrent.atomic.AtomicLong(0L)
 
