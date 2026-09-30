@@ -4117,10 +4117,14 @@ object PipelineHealthCollector {
             val intakeAge = bgAges6579["BG_INTAKE"] ?: Long.MAX_VALUE
             val scanAge = bgAges6579["BG_SCAN_CB"] ?: Long.MAX_VALUE
             val fdgAge = bgAges6579["BG_FDG"] ?: Long.MAX_VALUE
-            if (intakeAge < 60_000L && (scanAge > 600_000L || fdgAge > 600_000L)) {
+            // V5.0.7511 — PumpPortal/probation/hot-warmup intake can
+            // legitimately bypass the STARTUP scanner callback while V3/FDG
+            // continue to advance. Call the runtime split only when intake is
+            // fresh and BOTH downstream witnesses are stale.
+            if (intakeAge < 60_000L && scanAge > 600_000L && fdgAge > 600_000L) {
                 labelInc("BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579")
                 sb.append("  ⚠ BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579=intakeAge<60s scanAge=${scanAge}ms fdgAge=${fdgAge}ms\n")
-                sb.append("     ROOT-CAUSE: intake producer alive without canonical scan/FDG generation.\n")
+                sb.append("     ROOT-CAUSE: intake producer alive while both scan callback and FDG generation are stale.\n")
             }
             sb.append(com.lifecyclebot.engine.BotService.backgroundLivenessSnapshot6544()).append("\n")
         } catch (_: Throwable) {}

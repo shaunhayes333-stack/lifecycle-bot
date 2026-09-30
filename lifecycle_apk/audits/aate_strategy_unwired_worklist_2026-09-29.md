@@ -1182,3 +1182,13 @@ Runtime evidence from 5.0.7501: held=134 fresh=0 staleRefresh=72 missing=62, ris
 - [x] CRYPTO_ALT held marks retain the existing exact-identity DynamicAltTokenRegistry path.
 - [x] Freshness bar, mark trust, exit thresholds, stop logic and provider set are unchanged.
 - [x] No held position is removed or marked fresh unless a real canonical mark advances.
+
+
+## V5.0.7511 — background split-runtime diagnostic correction
+
+Runtime evidence from 5.0.7501: BG_SCAN_CB=0, but BG_FDG age ~4.6s and normal V3/FDG were active; intake was PumpPortal/probation/hot-warmup. The prior OR condition produced a false zombie alarm.
+
+- [x] BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579 now requires fresh intake plus BOTH scan-callback and FDG staleness.
+- [x] PumpPortal-only intake no longer implies scanner/runtime death.
+- [x] A genuine split runtime with both downstream witnesses stale still alarms.
+- [x] No scanner, intake, FDG, restart, trading or execution behavior changed.
