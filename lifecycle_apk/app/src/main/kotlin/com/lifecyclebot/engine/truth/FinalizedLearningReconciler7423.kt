@@ -145,25 +145,40 @@ object FinalizedLearningReconciler7423 {
                 // reconstructed envelope as strategy evidence.
                 try { PipelineHealthCollector.labelInc("FINALIZED_BUS_TERMINAL_ONLY_NO_ENTRY_7521") } catch (_: Throwable) {}
             }
-            if (entry != null) {
-                val entryProv = entry.entrySource.uppercase()
-                if (entryProv.contains("RESTOR") || entryProv.contains("REPLAY") ||
-                    entryProv.contains("ORPHAN") || entryProv.contains("CARRY")) continue
+            val restoredEntry7526 = entry?.entrySource?.uppercase()?.let { entryProv ->
+                entryProv.contains("RESTOR") || entryProv.contains("REPLAY") ||
+                    entryProv.contains("ORPHAN") || entryProv.contains("CARRY")
+            } == true
+            // V5.0.7526 — a rich durable finality event already owns settled
+            // net P&L + return. Do not require the older typed SELL allocation
+            // basis as a second authority in that case; that kept provable
+            // terminals stranded as BUS_PUBLISH_FAILED forever.
+            if (rich == null &&
+                (sell.allocatedCostBasisSol <= 0.0 || !sell.allocatedCostBasisSol.isFinite())
+            ) {
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_NO_USABLE_BASIS_7526") } catch (_: Throwable) {}
+                continue
             }
-            if (sell.allocatedCostBasisSol <= 0.0 || !sell.allocatedCostBasisSol.isFinite()) continue
 
             val netPnl = rich?.netRealizedPnlSol ?: (sell.realizedPnlSol - sell.exitFeesSol)
             val netPct = rich?.netReturnPct ?: (netPnl / sell.allocatedCostBasisSol * 100.0)
             if (!netPnl.isFinite() || !netPct.isFinite()) continue
 
-            val eligibility = if (terminalOnly7521) {
-                PaperLearningEligibility6519.Decision(false, "DURABLE_TERMINAL_NO_ENTRY_SNAPSHOT_7521")
-            } else try {
-                PaperLearningEligibility6519.decision(p.positionId, p.mint)
-            } catch (_: Throwable) {
-                PaperLearningEligibility6519.Decision(false, "ELIGIBILITY_LOOKUP_FAILED_7459")
+            val eligibility = when {
+                terminalOnly7521 ->
+                    PaperLearningEligibility6519.Decision(false, "DURABLE_TERMINAL_NO_ENTRY_SNAPSHOT_7521")
+                restoredEntry7526 ->
+                    PaperLearningEligibility6519.Decision(false, "DURABLE_TERMINAL_RESTORED_ENTRY_7526")
+                else -> try {
+                    PaperLearningEligibility6519.decision(p.positionId, p.mint)
+                } catch (_: Throwable) {
+                    PaperLearningEligibility6519.Decision(false, "ELIGIBILITY_LOOKUP_FAILED_7459")
+                }
             }
-            val entryScore = entry?.entryScore?.coerceIn(0, 100) ?: 0
+            if (restoredEntry7526) {
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_RESTORED_ENTRY_PUBLISHED_NONTRAINABLE_7526") } catch (_: Throwable) {}
+            }
+            val entryScore = if (restoredEntry7526) 0 else entry?.entryScore?.coerceIn(0, 100) ?: 0
             val lane = (rich?.entryLane ?: entry?.entryLane ?: p.lane).ifBlank { p.lane }
             if (lane.isBlank()) continue
 
@@ -183,15 +198,15 @@ object FinalizedLearningReconciler7423 {
                     ?: entry?.let { (sell.atMs - it.entryTimestampMs).coerceAtLeast(0L) }
                     ?: 0L,
                 entryScore = entryScore,
-                entryTactic = rich?.entryTactic ?: entry?.entryTactic.orEmpty(),
-                entryTradeType = entry?.entryTradeType.orEmpty(),
-                entrySetup = entry?.entrySetup.orEmpty(),
-                entryStyle = entry?.entryStyle.orEmpty(),
-                entryEntryStyle = entry?.entryEntryStyle.orEmpty(),
-                entryExitStyle = entry?.entryExitStyle.orEmpty(),
-                entryStrategyVariantId = entry?.entryStrategyVariantId.orEmpty(),
-                entrySource = entry?.entrySource.orEmpty(),
-                marketRegime = entry?.entryMarketRegime.orEmpty(),
+                entryTactic = if (restoredEntry7526) "" else rich?.entryTactic ?: entry?.entryTactic.orEmpty(),
+                entryTradeType = if (restoredEntry7526) "" else entry?.entryTradeType.orEmpty(),
+                entrySetup = if (restoredEntry7526) "" else entry?.entrySetup.orEmpty(),
+                entryStyle = if (restoredEntry7526) "" else entry?.entryStyle.orEmpty(),
+                entryEntryStyle = if (restoredEntry7526) "" else entry?.entryEntryStyle.orEmpty(),
+                entryExitStyle = if (restoredEntry7526) "" else entry?.entryExitStyle.orEmpty(),
+                entryStrategyVariantId = if (restoredEntry7526) "" else entry?.entryStrategyVariantId.orEmpty(),
+                entrySource = if (restoredEntry7526) "RESTORED_NONTRAINABLE_7526" else entry?.entrySource.orEmpty(),
+                marketRegime = if (restoredEntry7526) "" else entry?.entryMarketRegime.orEmpty(),
                 scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore),
                 terminal = true,
                 learningEligible = eligibility.eligible,
