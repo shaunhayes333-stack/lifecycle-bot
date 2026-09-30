@@ -177,13 +177,24 @@ object CanonicalPositionAuthority6441 {
      * Executor paper/live buy uses the promotion branch; consequently the UI
      * could never resolve a locked snapshot for a normal fresh position.
      */
-    private fun lockEntryMetricsAtOpen6636(position: Position) {
+    private fun lockEntryMetricsAtOpen6636(
+        position: Position,
+        freshExecution6715: Boolean = true,
+    ) {
         if (position.lifecycle != Lifecycle.OPEN && position.lifecycle != Lifecycle.PARTIALLY_CLOSED) return
-        try {
-            CausalFeedbackAuthority6715.onPositionOpened(
-                position.positionId, position.mode, position.mint, position.lane,
-            )
-        } catch (_: Throwable) {}
+        if (freshExecution6715) {
+            try {
+                CausalFeedbackAuthority6715.onPositionOpened(
+                    position.positionId, position.mode, position.mint, position.lane,
+                )
+            } catch (_: Throwable) {}
+        } else {
+            // V5.0.7522 — bootstrap/recovery is projection of exposure that
+            // already existed before this runtime. Rebuilding its immutable
+            // entry witness and HELD handoff is required; pretending it just
+            // crossed the fresh execution reservation boundary is not.
+            try { PipelineHealthCollector.labelInc("CAUSAL_OPEN_RESTORE_SUPPRESSED_7522") } catch (_: Throwable) {}
+        }
         // V5.0.7246 — ownership handoff. Once canonical OPEN exists, the
         // mint must stop consuming discovery/watchlist capacity. Held pricing
         // and exits are now supervised outside discovery.
@@ -1488,7 +1499,7 @@ object CanonicalPositionAuthority6441 {
             // Without this, a process restart loses every 6634 lock even
             // though the canonical position itself was restored correctly.
             canonicalOpen6519.forEach { p ->
-                try { lockEntryMetricsAtOpen6636(p) } catch (_: Throwable) {}
+                try { lockEntryMetricsAtOpen6636(p, freshExecution6715 = false) } catch (_: Throwable) {}
             }
             try { PositionStateLedger6454.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}
             try { SellQtyBoundaryClamp6427.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}
@@ -1588,7 +1599,7 @@ object CanonicalPositionAuthority6441 {
                 assetClass = recoveredAssetClass,
             )
             positions[positionId] = recovered
-            try { lockEntryMetricsAtOpen6636(recovered) } catch (_: Throwable) {}
+            try { lockEntryMetricsAtOpen6636(recovered, freshExecution6715 = false) } catch (_: Throwable) {}
             try { PositionStateLedger6454.onEntry(positionId) } catch (_: Throwable) {}
             try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(openPositions()) } catch (_: Throwable) {}
             muts.incrementAndGet()

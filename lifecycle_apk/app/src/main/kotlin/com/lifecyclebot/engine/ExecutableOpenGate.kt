@@ -3538,17 +3538,44 @@ object ExecutableOpenGate {
                 )
             }
         }
-        // V5.0.6497 §1 — SEALED ORDER SIZE AUTHORITY. If the canonical
-        // OrderSizeResolver has sealed a larger executable size for
-        // this mint, use it. This prevents a stale/duplicated caller
-        // from passing 0.01 SOL while the canonical resolver produced
-        // 2.00 SOL — the exact mismatch operator observed in 6496.
-        val authoritativeSize6497 = try {
-            com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497
-                .authoritativeSize(mint, preResolvedSizeSol6490.coerceAtLeast(0.0))
-        } catch (_: Throwable) { preResolvedSizeSol6490.coerceAtLeast(0.0) }
-        val effectiveResolvedSize6497 = if (preResolvedSizeSol6490 < 0.0) preResolvedSizeSol6490
-            else authoritativeSize6497
+        // V5.0.7522 — the immutable ExecutionIntent owns the exact size for
+        // this candidate/attempt. The legacy mint-level seal is only a fallback
+        // when no immutable ticket exists. A mint can have a newer candidate
+        // sized before an older ticket executes; allowing that newer mint seal
+        // to overwrite the older ticket's resolvedSize cross-contaminates two
+        // independently FDG-sealed attempts and is exactly what the 7518
+        // EXEC_SIZE_AUTHORITY_MISMATCH_6497 population exposed.
+        //
+        // Preserve the negative precheck sentinel: a caller that has not reached
+        // executable sizing remains SIZE_PENDING and cannot borrow a stale seal.
+        val immutableResolvedSize7522 = immutableTicket?.resolvedSize
+            ?.takeIf { it.isFinite() && it > 0.0 }
+        val authoritativeSize6497 = if (preResolvedSizeSol6490 < 0.0) {
+            preResolvedSizeSol6490
+        } else if (immutableResolvedSize7522 != null) {
+            try {
+                val mutableMintSeal7522 = com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint)
+                if (mutableMintSeal7522 != null &&
+                    kotlin.math.abs(mutableMintSeal7522 - immutableResolvedSize7522) >
+                        maxOf(1e-6, immutableResolvedSize7522 * 0.05)
+                ) {
+                    PipelineHealthCollector.labelInc("MINT_SEAL_IGNORED_IMMUTABLE_INTENT_7522")
+                    ForensicLogger.lifecycle(
+                        "MINT_SEAL_IGNORED_IMMUTABLE_INTENT_7522",
+                        "attemptId=${immutableTicket.attemptId.take(28)} mint=${mint.take(10)} " +
+                            "ticketSize=$immutableResolvedSize7522 mintSeal=$mutableMintSeal7522 " +
+                            "action=immutable_attempt_size_wins",
+                    )
+                }
+            } catch (_: Throwable) {}
+            immutableResolvedSize7522
+        } else {
+            try {
+                com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497
+                    .authoritativeSize(mint, preResolvedSizeSol6490.coerceAtLeast(0.0))
+            } catch (_: Throwable) { preResolvedSizeSol6490.coerceAtLeast(0.0) }
+        }
+        val effectiveResolvedSize6497 = authoritativeSize6497
         if (effectiveResolvedSize6497 < 0.0) {
             try {
                 PipelineHealthCollector.labelInc("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
