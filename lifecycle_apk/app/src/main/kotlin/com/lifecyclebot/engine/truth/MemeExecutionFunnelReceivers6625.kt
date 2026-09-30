@@ -685,6 +685,20 @@ object SpecialistCausalFunnel6625 {
         .filter { it.key.mint == mint }
         .maxByOrNull { record -> synchronized(record) { record.stages.values.maxOrNull() ?: 0L } }
         ?.key?.intentId?.split(':')?.getOrNull(1)?.toLongOrNull()
+    // V5.0.7524 — downstream callbacks can arrive after a newer scanner
+    // generation has already created another record for the same mint/lane.
+    // "latest" is therefore not the same thing as "the sealed attempt this
+    // callback belongs to". Resolve the immutable intent identity first.
+    fun keyForIntent7524(mint: String, lane: String, intentId: String, mode: String): CausalKey? =
+        laneRecords7480(lane)
+            .asSequence()
+            .map { it.key }
+            .firstOrNull {
+                it.mint == mint &&
+                    it.intentId == intentId &&
+                    it.mode.equals(mode, true)
+            }
+
     fun latestKey6647(mint: String, lane: String): CausalKey? = laneRecords7480(lane)
         .filter { it.key.mint == mint }
         .maxByOrNull { record -> synchronized(record) { record.stages.values.maxOrNull() ?: 0L } }

@@ -1076,7 +1076,11 @@ object ToolkitSignalSheet {
                 // check is what the canonicalAttempt guard was really protecting — a
                 // PAPER and a LIVE attempt on the same mint and version must never
                 // merge — and it is now enforced directly instead of by proxy.
-                val key = priorCausalKey6647?.takeIf {
+                val exactCausalKey7524 = try {
+                    com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625
+                        .keyForIntent7524(mint, lane, expectedIntentId6647, resolvedMode6858)
+                } catch (_: Throwable) { null }
+                val key = exactCausalKey7524 ?: priorCausalKey6647?.takeIf {
                     it.intentId == expectedIntentId6647 && it.mode.equals(resolvedMode6858, true)
                 } ?: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.CausalKey(
                         runId = if (canonicalAttempt6647) parts6647[0] else BotRuntimeController.currentGeneration().toString(),
@@ -1084,6 +1088,9 @@ object ToolkitSignalSheet {
                         mint = mint, lane = lane, authorityVersion = 6551L,
                         intentId = expectedIntentId6647,
                     )
+                if (exactCausalKey7524 != null && priorCausalKey6647?.keyString != exactCausalKey7524.keyString) {
+                    try { PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_EXACT_INTENT_REBOUND_7524") } catch (_: Throwable) {}
+                }
                 // V5.0.7464 — a specialist may be elected after the initial
                 // Toolkit hypothesis pass. When scanner/intake provenance
                 // already proves this mint belonged to this lane, recover only

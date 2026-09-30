@@ -80,7 +80,13 @@ object PaperAccountReplay6461 {
         } catch (_: Throwable) { emptyList() }
 
         var cash = startingCashSol.coerceAtLeast(0.0)
-        var openCost = 0.0
+        // V5.0.7524 — open basis is a position-scoped invariant, not a
+        // portfolio-wide accumulator. The old flat accumulator allowed a SELL
+        // for position A (or a duplicate/repaired historical SELL) to consume
+        // position B's basis, producing a persistent replay-only openCost delta
+        // even while the canonical paper ledger conserved exactly.
+        val openCostByPosition7524 = linkedMapOf<String, Double>()
+        val seenBasisEvents7524 = hashSetOf<String>()
         var realized = 0.0
         var fees = 0.0
         var buys = 0
@@ -95,6 +101,23 @@ object PaperAccountReplay6461 {
             val side = t.side.uppercase()
             val sol = t.sol.takeIf { it.isFinite() && it >= 0.0 } ?: continue
             val fee = t.feeSol.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+            val basisKey7524 = when {
+                t.positionId.isNotBlank() -> "POS:" + t.positionId
+                t.mint.isNotBlank() -> "LEGACY_MINT:" + t.mint
+                else -> "LEGACY_ROW:" + t.ts + ":" + t.side + ":" + t.sol
+            }
+            // Economic-event identity is authoritative when present. For
+            // legacy rows, operationId/partialSequence provide the next best
+            // stable basis identity. This dedupe is intentionally scoped to
+            // BASIS only: cash/realized algebra remains byte-for-byte the old
+            // replay contract in this correctness pass.
+            val basisEventKey7524 = when {
+                t.economicEventId.isNotBlank() -> t.economicEventId
+                t.operationId.isNotBlank() -> t.operationId + ":" + t.partialSequence
+                else -> basisKey7524 + ":" + side + ":" + t.ts + ":" + t.partialSequence
+            }
+            val firstBasisEvent7524 = seenBasisEvents7524.add(basisEventKey7524)
+
             when (side) {
                 "BUY" -> {
                     val total = sol + fee
@@ -103,7 +126,10 @@ object PaperAccountReplay6461 {
                     // gate already refuses these in real time.
                     if (cash - total < -1e-6) { skipped++; continue }
                     cash -= total
-                    openCost += sol
+                    if (firstBasisEvent7524) {
+                        openCostByPosition7524[basisKey7524] =
+                            (openCostByPosition7524[basisKey7524] ?: 0.0) + sol
+                    }
                     fees += fee
                     buys++
                 }
@@ -133,7 +159,22 @@ object PaperAccountReplay6461 {
                     val costBasisSold = (gross - pnl).coerceAtLeast(0.0)
                     val netProceeds = (gross - fee).coerceAtLeast(0.0)
                     cash += netProceeds
-                    openCost = (openCost - costBasisSold).coerceAtLeast(0.0)
+                    if (firstBasisEvent7524) {
+                        val priorBasis7524 = (openCostByPosition7524[basisKey7524] ?: 0.0).coerceAtLeast(0.0)
+                        when (side) {
+                            "SELL" -> openCostByPosition7524[basisKey7524] = 0.0
+                            "PARTIAL_SELL" -> {
+                                val exactPost7524 = t.postCostSol.takeIf { it.isFinite() && it >= 0.0 }
+                                val soldBasis7524 = t.soldCostBasisSol
+                                    .takeIf { it.isFinite() && it >= 0.0 }
+                                    ?: costBasisSold
+                                openCostByPosition7524[basisKey7524] =
+                                    exactPost7524 ?: (priorBasis7524 - soldBasis7524.coerceAtMost(priorBasis7524)).coerceAtLeast(0.0)
+                            }
+                        }
+                    } else {
+                        try { PipelineHealthCollector.labelInc("PAPER_REPLAY_BASIS_DUPLICATE_SKIPPED_7524") } catch (_: Throwable) {}
+                    }
                     realized += pnl
                     fees += fee
                     if (side == "PARTIAL_SELL") partials++ else fulls++
@@ -144,10 +185,14 @@ object PaperAccountReplay6461 {
             }
         }
 
+        val openCost7524 = openCostByPosition7524.values
+            .asSequence()
+            .filter { it.isFinite() && it > 0.0 }
+            .sum()
         val snap = Snapshot(
             startingCashSol = startingCashSol,
             cashSol = cash,
-            openCostBasisSol = openCost,
+            openCostBasisSol = openCost7524,
             realizedPnlSol = realized,
             feesSol = fees,
             buyCount = buys,
