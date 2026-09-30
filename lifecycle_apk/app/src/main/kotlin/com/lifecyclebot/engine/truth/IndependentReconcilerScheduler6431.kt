@@ -74,7 +74,10 @@ object IndependentReconcilerScheduler6431 {
                 // the independent reconciliation clock, never the bot loop.
                 try {
                     val n7459 = FinalizedLearningReconciler7423
-                        .repairDurableBusPublishFailures7459(limit = 8)
+                        .repairDurableBusPublishFailures7459(
+                            limit = 32,
+                            maxWorkMs7514 = 2_500L,
+                        )
                     if (n7459 > 0) {
                         com.lifecyclebot.engine.PipelineHealthCollector
                             .labelInc("FINALIZED_BUS_REPAIR_BATCH_7459")

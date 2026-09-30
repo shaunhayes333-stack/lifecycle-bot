@@ -102,8 +102,12 @@ object FinalizedLearningReconciler7423 {
      * typed full SELL exists, reconstruct only fields directly supported by
      * the typed economics + immutable entry snapshot.
      */
-    fun repairDurableBusPublishFailures7459(limit: Int = 8): Int {
+    fun repairDurableBusPublishFailures7459(
+        limit: Int = 8,
+        maxWorkMs7514: Long = 2_500L,
+    ): Int {
         if (limit <= 0) return 0
+        val started7514 = System.currentTimeMillis()
         val published = CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
         val sells = try {
             EconomicEventSchema6464.fullTerminalSellsByPosition7500()
@@ -111,7 +115,12 @@ object FinalizedLearningReconciler7423 {
 
         var repaired = 0
         for (p in CanonicalPositionAuthority6441.closedPositions()) {
-            if (repaired >= limit || p.positionId in published) continue
+            if (repaired >= limit) break
+            if (System.currentTimeMillis() - started7514 >= maxWorkMs7514) {
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_BUDGET_YIELD_7514") } catch (_: Throwable) {}
+                break
+            }
+            if (p.positionId in published) continue
 
             val src = p.entryPriceSource.uppercase()
             val q = p.quarantineReason.uppercase()

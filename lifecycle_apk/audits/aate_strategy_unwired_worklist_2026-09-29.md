@@ -1219,3 +1219,12 @@ Repair:
 - [x] No score floor, liquidity floor, FDG decision, execution authority, live route, sizing authority or safety gate is relaxed.
 - [x] Existing duplicate/no-price/full-book shadow protections remain authoritative.
 - [x] New counters distinguish shadow diversion attempts from errors.
+
+
+## V5.0.7514 — bounded finalized-bus repair throughput
+
+- [x] Independent reconciliation may repair up to 32 proven bus gaps per 30-second full pass instead of 8.
+- [x] Repair loop has a 2.5-second wall-clock budget and yields cleanly when exhausted.
+- [x] The repair remains on IndependentReconcilerScheduler6431 Dispatchers.IO, never the bot loop.
+- [x] No additional row becomes eligible: 7512 proof/quarantine/replay/economics rules are unchanged.
+- [x] Faster draining reduces repeated scans over the same CLOSED positions while restoring learner population sooner.
