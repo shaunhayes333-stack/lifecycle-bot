@@ -234,8 +234,10 @@ object MathematicalEdgeEngine {
                     try {
                         val lp = LiveProbabilityEngine.forecast(e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)
                         val fwd = ForwardOutcomeModel.forecast(e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)
-                        ForwardOutcomeModel.stamp(e.mint, e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)
-                        UnifiedPolicyHead.stamp(e.mint, e.lane, UnifiedPolicyHead.Signals(
+                        // V5.0.7532 — MathematicalEdge is a reporting/readback fanout.
+                        // It must not manufacture canonical decision stamps. The real FDG
+                        // path owns ForwardOutcomeModel/UnifiedPolicy entry attribution.
+                        UnifiedPolicyHead.predictWinProb(e.lane, UnifiedPolicyHead.Signals(
                             mlEntryConf = (scoreInt / 100.0).coerceIn(0.0, 1.0),
                             symGreenLight = e.clampedMultiplier.coerceIn(0.0, 1.0),
                             evRatio = ((lp.expectedPnlPct + 50.0) / 100.0).coerceIn(0.0, 1.0),
@@ -243,9 +245,9 @@ object MathematicalEdgeEngine {
                             fwdPWin = fwd.pWin,
                             candConf = (scoreInt / 100.0).coerceIn(0.0, 1.0),
                         ))
-                        readback("ForwardOutcomeModel.stamp"); readback("UnifiedPolicyHead.stamp"); readback("LiveProbabilityEngine.sizing")
+                        readback("ForwardOutcomeModel.read"); readback("UnifiedPolicyHead.read"); readback("LiveProbabilityEngine.sizing")
                     } catch (_: Throwable) {}
-                    try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.getSizeBias(e.lane, scoreInt, regimeForEdge, e.mint); StrategyHypothesisEngine.getStopBias(e.lane, scoreInt, regimeForEdge, e.mint); com.lifecyclebot.engine.LaneBucketPivot.logPivotOnEntry(e.lane, scoreInt, e.mint, e.symbol); readback("LiveStrategyTuner"); readback("LaneExpectancyDamper"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine.sizing"); readback("LaneBucketPivot") } catch (_: Throwable) {}
+                    try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.peekSizeBias(e.lane, scoreInt, regimeForEdge, e.mint); StrategyHypothesisEngine.peekStopBias7532(e.lane, scoreInt, regimeForEdge, e.mint); com.lifecyclebot.engine.LaneBucketPivot.logPivotOnEntry(e.lane, scoreInt, e.mint, e.symbol); readback("LiveStrategyTuner"); readback("LaneExpectancyDamper"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine.readonly"); readback("LaneBucketPivot") } catch (_: Throwable) {}
                     if (e.score >= 75.0 && e.clampedMultiplier < 0.35) {
                         try {
                             ChokeReliefBus.launch("MEE_SIZING_ANOMALY_HYPOTHESIS_4530", e.mint) {

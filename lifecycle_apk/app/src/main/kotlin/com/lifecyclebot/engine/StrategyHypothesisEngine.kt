@@ -345,6 +345,27 @@ object StrategyHypothesisEngine {
         } catch (_: Throwable) { 1.0 }
     }
 
+
+    /**
+     * V5.0.7532 — read-only stop-bias companion for reporting/readback paths.
+     * Unlike getStopBias(), this never creates an arm and never mutates pending.
+     */
+    fun peekStopBias7532(
+        lane: String,
+        score: Int,
+        regime: String,
+        mint: String,
+        strategyIdentity: String = "",
+    ): Double {
+        return try {
+            val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
+            val h = active[ctx] ?: return stopBaseline[ctx] ?: 1.0
+            val variant = isVariant(mint)
+            val mult = if (variant) h.variantStopMult else (stopBaseline[ctx] ?: 1.0)
+            mult.coerceIn(STOP_MULT_MIN, STOP_MULT_MAX)
+        } catch (_: Throwable) { 1.0 }
+    }
+
     /**
      * V5.9.1286 — stop-width multiplier for this mint/context. A lane multiplies
      * its base stop-loss pct by this. Returns the variant's tested mult when the
