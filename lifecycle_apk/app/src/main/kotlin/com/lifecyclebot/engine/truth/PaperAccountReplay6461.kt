@@ -199,7 +199,7 @@ object PaperAccountReplay6461 {
             partialSellCount = partials,
             fullSellCount = fulls,
             skippedInvalidPnl = skipped,
-            equityShadowSol = cash + openCost,
+            equityShadowSol = cash + openCost7524,
         )
         lastSnapshot.set(snap)
         return snap

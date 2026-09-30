@@ -1088,7 +1088,11 @@ object ToolkitSignalSheet {
                         mint = mint, lane = lane, authorityVersion = 6551L,
                         intentId = expectedIntentId6647,
                     )
-                if (exactCausalKey7524 != null && priorCausalKey6647?.keyString != exactCausalKey7524.keyString) {
+                if (exactCausalKey7524 != null && priorCausalKey6647 != null && (
+                    priorCausalKey6647.intentId != exactCausalKey7524.intentId ||
+                    !priorCausalKey6647.mode.equals(exactCausalKey7524.mode, true) ||
+                    priorCausalKey6647.runId != exactCausalKey7524.runId
+                )) {
                     try { PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_EXACT_INTENT_REBOUND_7524") } catch (_: Throwable) {}
                 }
                 // V5.0.7464 — a specialist may be elected after the initial
