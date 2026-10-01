@@ -42,5 +42,9 @@ class Aate7441PredictiveCausalityTest {
         assertTrue(stock.contains("recordPrice7441(market.symbol, data.price)"))
         assertFalse(crypto.contains("CrossAssetLeadLagAI.recordReturn(market.symbol, data.priceChange24hPct)"))
         assertFalse(stock.contains("CrossAssetLeadLagAI.recordReturn(market.symbol, data.priceChange24hPct)"))
+        // V5.0.7674 — dynamic crypto must obey the same causality rule. 7431
+        // fixed the key but still repeated rolling 24h change into the model.
+        assertTrue(crypto.contains("recordPrice7441(leadLagSymbol7431, price)"))
+        assertFalse(crypto.contains("recordReturn(leadLagSymbol7431, change)"))
     }
 }

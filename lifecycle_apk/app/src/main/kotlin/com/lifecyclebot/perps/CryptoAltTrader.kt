@@ -1263,8 +1263,13 @@ object CryptoAltTrader {
                     // regime model, but feed lead/lag the market symbol it expects.
                     val leadLagSymbol7431 = refreshed.symbol.trim().uppercase()
                     if (leadLagSymbol7431.isNotBlank()) {
-                        CrossAssetLeadLagAI.recordReturn(leadLagSymbol7431, change)
-                        try { PipelineHealthCollector.labelInc("CROSS_ASSET_SYMBOL_FEED_7431") } catch (_: Throwable) {}
+                        // V5.0.7674 — 7431 fixed identity (symbol not mint), but
+                        // still fed the same rolling 24h return on every scan.
+                        // That manufactures repeated pseudo-observations and can
+                        // create false lead/lag correlation. Use 7441's bounded
+                        // interval-price sampler just like hardcoded crypto/stocks.
+                        CrossAssetLeadLagAI.recordPrice7441(leadLagSymbol7431, price)
+                        try { PipelineHealthCollector.labelInc("CROSS_ASSET_DYNAMIC_INTERVAL_PRICE_FEED_7674") } catch (_: Throwable) {}
                     }
                     CrossMarketRegimeAI.updateMarketState(tok.mint, price, change, vol)
                 } catch (_: Exception) {}

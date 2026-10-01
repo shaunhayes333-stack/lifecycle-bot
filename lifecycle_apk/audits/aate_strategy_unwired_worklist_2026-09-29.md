@@ -395,7 +395,7 @@ Source: current `ci/UNWIRED_LEDGER.tsv`.
 - [x] `OrthogonalSignals.calculateAgePatternScore` now contributes from authoritative launch age + canonical graduation state.
 - [x] `MomentumPredictorAI.getStrongMomentumTokens` reclassified from UNWIRED: already consumed by `LaneHunter7297.claimMomentum7298`.
 - [x] `SourceTimingRegistry.isLateSignal` reclassified ALIAS_REDUNDANT: `ScoreCard` already consumes the underlying `getSourceTimingPenalty`; wiring both would double-count timing.
-- [ ] `CrossAssetLeadLagAI.getRotationProbability` remains blocked on producer-key mismatch: crypto feeds mint IDs while model pairs are symbol/sector keys (BTC/SOL/MEME_SECTOR/etc). Repair producer identity before consuming it.
+- [x] `CrossAssetLeadLagAI.getRotationProbability` producer identity/chronology repaired: 7431 already changed dynamic crypto from mint IDs to symbol keys; 7674 closes the remaining causality defect by replacing repeated rolling-24h `recordReturn` samples with `recordPrice7441(symbol, price)` interval sampling.
 - [ ] `PatternBacktester.getConfidenceAdjustments` requires a cached/background backtest report; do not call synchronously from admission.
 - [ ] `EducationSubLayerAI.getEdgeLedger` is aggregate reason-ledger output and needs candidate-key mapping before it can safely affect admission.
 - [ ] `TradeDatabase.getSignalWinRate` overlaps source-performance evidence; classify per-key before adding to avoid correlated double-counting.
@@ -3499,3 +3499,18 @@ Repair:
 - [x] Existing price-based FILL compatibility path remains for any future/legacy producer that genuinely owns quote and realized prices.
 - [x] No entry threshold, execution routing, capital, safety or sizing authority changed.
 - [x] Regression coverage: `Aate7673ExecutionCostMeasuredFillRepairTest`.
+
+
+## V5.0.7674 - dynamic crypto lead/lag causality repair
+
+The unchecked lead/lag audit item was partly stale and partly incomplete.
+
+- [x] V5.0.7431 had already repaired producer identity from contract mint -> market symbol for dynamic crypto.
+- [x] Recheck found the dynamic path still called `recordReturn(symbol, priceChange24h)` every scan.
+- [x] V5.0.7441's causal model explicitly replaced repeated rolling-24h returns with 45s..180s interval returns derived from actual price samples, but its regression only covered the hardcoded crypto path.
+- [x] Dynamic crypto now calls `CrossAssetLeadLagAI.recordPrice7441(leadLagSymbol7431, price)`.
+- [x] Removed dynamic repeated rolling-24h return injection.
+- [x] This preserves the symbol-key repair while making hardcoded crypto, dynamic crypto and tokenized stocks share the same temporal semantics.
+- [x] CrossTalk / QuantMind / SymbolicExitReasoner / TradeLessonRecorder can no longer consume synthetic correlation produced by duplicated 24h snapshots from this path.
+- [x] No trading threshold, sizing, safety, execution or hard-veto authority changed.
+- [x] Regression coverage strengthened in `Aate7441PredictiveCausalityTest` plus `Aate7674DynamicCryptoLeadLagCausalityTest`.
