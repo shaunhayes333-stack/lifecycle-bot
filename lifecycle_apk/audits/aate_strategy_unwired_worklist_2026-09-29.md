@@ -2679,3 +2679,21 @@ After the 7614 CASHGEN identity repair and 7615 MANIPULATED PAPER restoration, t
 - [x] MANIPULATED remains PAPER-executable / LIVE-disabled under the 7615 safety contract.
 - [x] No lane score threshold, FDG rule, mark rule, sizing multiplier, TP/SL, allocation or hard safety changed.
 - [x] Regression coverage: `Aate7616TwelveLaneExecutionParityContractTest`.
+
+
+## V5.0.7617 — finalized learning backlog catch-up
+
+5.0.7607 runtime evidence:
+- canonical CLOSED = 3,113;
+- finalized bus published = 330;
+- missing = 2,783, of which 2,782 were `BUS_PUBLISH_FAILED`;
+- `FINALIZED_BUS_DURABLE_REPAIR_7459=128` after four full reconciler passes, exactly the prior 32-row batch ceiling.
+
+Repair:
+- [x] Background durable-bus repair batch ceiling increased from 32 to 128.
+- [x] Existing `maxWorkMs7514=2,500ms` remains unchanged, so the repair cannot extend its wall-clock background slice.
+- [x] Reconciliation remains on `IndependentReconcilerScheduler6431` / Dispatchers.IO, never the bot loop or exit worker.
+- [x] No eligibility is fabricated: only rows already classified `BUS_PUBLISH_FAILED` with durable terminal economics can publish.
+- [x] Non-trainable historical terminals stay non-trainable under existing 7521/7526 rules.
+- [x] No entry, FDG, sizing, exit, lane or safety behavior changed.
+- [x] Regression coverage: `Aate7617FinalizedLearningCatchupBudgetTest`.

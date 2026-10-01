@@ -75,7 +75,12 @@ object IndependentReconcilerScheduler6431 {
                 try {
                     val n7459 = FinalizedLearningReconciler7423
                         .repairDurableBusPublishFailures7459(
-                            limit = 32,
+                            // V5.0.7617 — 7607 had 2,783 repairable historical
+                            // finals and repaired exactly 4×32 in four full passes.
+                            // The count ceiling, not the existing wall-clock guard,
+                            // was the limiter. Raise the scan/output ceiling while
+                            // preserving the SAME 2.5s background work budget.
+                            limit = 128,
                             maxWorkMs7514 = 2_500L,
                         )
                     if (n7459 > 0) {
