@@ -175,6 +175,18 @@ object SuperIntelligenceCalibration7636 {
         failureModes7640.computeIfAbsent(failureMode7640) {
             java.util.concurrent.atomic.AtomicLong(0L)
         }.incrementAndGet()
+        try {
+            SuperReflectionLoop7642.observe(
+                lane = stamp.lane,
+                failureMode = failureMode7640,
+                realizedReturnPct = env.realizedReturnPct,
+                latentState = stamp.world.latentState,
+                horizon = nearest,
+                criticVerdict = stamp.criticVerdict,
+                treePolicy = stamp.treePolicy,
+                arbiterDominant = stamp.arbiterDominant,
+            )
+        } catch (_: Throwable) {}
         val laneKey7641 = stamp.lane.uppercase()
         laneReasoningOutcomes7641.computeIfAbsent(laneKey7641) {
             java.util.concurrent.atomic.AtomicLong(0L)
