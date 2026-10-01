@@ -1992,3 +1992,27 @@ These rows are cached-state lookups, persisted preference reads, scanner paramet
 - [x] `WhaleWalletTracker.getWatchedWhaleMovements` — **TRACKER SNAPSHOT**.
 - [x] F_DEAD reconciliation progress: prior 229 + 24 = **253 / 1,458** classified; **1,205 remain**.
 - [x] Regression coverage: `Aate7590CachedStateAccessorTrancheTest`.
+
+
+## V5.0.7591 — F_DEAD explicit maintenance/recovery control tranche (16 rows)
+
+These APIs are deliberate maintenance, recovery, UI/operator configuration, cache cleanup, or queue housekeeping. Some mutate state when explicitly invoked, but none is a missing autonomous strategy edge and none should be auto-wired into the trading hot path.
+
+- [x] `AutoModeEngine.clearCopy` — **COPY-MODE CLEANUP**.
+- [x] `BirdeyeBudgetGate.setDailyCap` — **EXPLICIT BUDGET CONFIG CONTROL**.
+- [x] `DataOrchestrator.setDevWallet` — **METADATA/TRACKING REGISTRATION**.
+- [x] `EfficiencyLayer.removeCandidate` — **QUEUE MAINTENANCE**.
+- [x] `EmergentGuardrails.enableConfigChanges` — **EXPLICIT RUN/CONFIG CONTROL**.
+- [x] `FluidLearningAI.setCrossLearningEnabled` — **EXPLICIT LEARNING CONFIG CONTROL**.
+- [x] `GlobalTradeRegistry.pruneDormant` — **INTAKE MAINTENANCE NO-OP BY CURRENT DOCTRINE**.
+- [x] `InsiderTrackerAI.removeCustomWallet` — **USER TRACKER MAINTENANCE**.
+- [x] `PerpsTrailingStop.setGlobalConfig` — **EXPLICIT TRAILING CONFIG CONTROL**.
+- [x] `ReentryGuard.clearLockout` — **MANUAL RECOVERY CONTROL**.
+- [x] `RemoteKillSwitch.clearLocalKill` — **LOCAL OPERATOR RECOVERY CONTROL**.
+- [x] `SelfHealingDiagnostics.clearPoisonedMemory` — **DESTRUCTIVE EXPLICIT REPAIR ACTION**, never autonomous hot-path wiring.
+- [x] `SelfHealingDiagnostics.manualClearMemory` — **UI/MANUAL REPAIR WRAPPER**.
+- [x] `TradeHistoryStore.invalidateStatsCache` — **CACHE MAINTENANCE**.
+- [x] `TokenMetaCache.pruneStale` — **BOUNDED METADATA CACHE MAINTENANCE**.
+- [x] `WhaleDetector.clearToken` — **TRACKER CACHE MAINTENANCE**.
+- [x] F_DEAD reconciliation progress: prior 253 + 16 = **269 / 1,458** classified; **1,189 remain**.
+- [x] Regression coverage: `Aate7591MaintenanceRecoveryControlTrancheTest`.
