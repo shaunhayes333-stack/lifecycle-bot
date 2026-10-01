@@ -3386,3 +3386,22 @@ Findings and repair:
 Audit reconciliation in the same pass:
 - [x] F_DEAD row 17 `AdvancedExitManager.calculateTimePressure` is a stale external-caller false positive: it is internally called by `evaluateExit()`, which is active through HoldingLogicLayer. No duplicate caller added.
 - [x] Rows 649/650 `LiquidityFragilityAI.recordBreakout/recordWick`: V5.0.7630 already restored the active `analyze()` feed and passes real OHLC wick history directly. `recordWick` is therefore optional/duplicate for current scoring; `recordBreakout` remains optional until a canonical breakout event exists. No heuristic event fabrication.
+
+
+## V5.0.7668 - resume ~2000-item audit: correlation runtime-feed repair
+
+Audit rows rechecked:
+- F_DEAD row 289 `CorrelationScanner.recordPrices`
+- F_DEAD row 290 `CorrelationScanner.scanAllCorrelations`
+
+Findings:
+- [x] `recordPrices` is only a convenience wrapper over `recordPrice`; no separate authority is required.
+- [x] The singular `CorrelationScanner.recordPrice` had a production caller only in `MultiAssetActivity`, making correlation history dependent on the UI screen being open.
+- [x] `PerpsMarketScanners` already owns the background market-data loop and already feeds `PerpsAdvancedAI`; it now also appends the same fetched price to `CorrelationScanner`.
+- [x] This is a local in-memory append only. No additional provider request or full correlation scan occurs on the scanner hot path.
+- [x] `scanAllCorrelations` remains an internal/background sidecar method reached by `getActionableSignals`; it is not promoted to execution or synchronous scanner authority.
+- [x] The correlation model can now accumulate the minimum rolling history without requiring a UI lifecycle.
+- [x] Regression coverage: `Aate7668CorrelationRuntimeFeedTest`.
+
+Additional audit reconciliation:
+- [x] EducationSubLayerAI rows 380/381 (`recordLayerVote`, `recordScanDecision`) are telemetry firehoses into `signalStats`, not the terminal layer-accuracy/expectancy/approval learner. Terminal education learning is already active through `recordSimpleTradeOutcome` / `recordTradeOutcomeAcrossAllLayers`; no high-volume duplicate firehose wiring added.

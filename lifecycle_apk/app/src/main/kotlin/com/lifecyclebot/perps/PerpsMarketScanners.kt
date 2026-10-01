@@ -101,6 +101,10 @@ object PerpsMarketScanners {
                 
                 // V5.7.5: Record price in AdvancedAI for technical analysis
                 PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
+                // V5.0.7668 — correlation history must be runtime-fed even when
+                // MultiAssetActivity is never opened. Pure in-memory O(1) append;
+                // no correlation scan or provider call is triggered here.
+                try { CorrelationScanner.recordPrice(market, data.price) } catch (_: Throwable) {}
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Failed to fetch ${market.symbol}: ${e.message}")
             }
