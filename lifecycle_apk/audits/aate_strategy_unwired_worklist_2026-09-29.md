@@ -2347,3 +2347,30 @@ These rows belong to explicit LAB/backtest/background research surfaces. They ar
 - [x] `LlmLabStore.getLiveBalance` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
 - [x] F_DEAD reconciliation progress: prior 520 + 7 = **527 / 1,458** classified; **931 remain**.
 - [x] Regression coverage: `Aate7600LabBacktestTrancheTest`.
+
+
+## V5.0.7601 — F_DEAD V4 meta-layer API tranche (19 rows)
+
+All remaining V4 rows are meta-layer accessors, recorders, risk/advisory queries or explicit quarantine controls. They are reviewed as **META-LAYER UNUSED API / NO DIRECT HOT-PATH WIRING**: any future promotion must converge through canonical policy/oracle surfaces rather than creating another authority.
+
+- [x] `CrossMarketRegimeAI.getCapitalBias` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `CrossMarketRegimeAI.getRegimeFitMultiplier` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `CrossMarketRegimeAI.lastAssessAgeMs` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `CrossMarketRegimeAI.trackedMarketCount` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `ExecutionPathAI.recordExecution` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `LeverageSurvivalAI.getAllowedLeverage` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `LiquidityFragilityAI.getMaxSafeSize` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `LiquidityFragilityAI.getMaxSafeSizeFor` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `LiquidityFragilityAI.isTradeAllowed` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `LiquidityFragilityAI.recordBreakout` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `LiquidityFragilityAI.recordWick` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `PortfolioHeatAI.excess` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `PortfolioHeatAI.isNewEntryAllowed` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `StrategyTrustAI.getQuarantineUntil` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `StrategyTrustAI.getTrustRecord` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `StrategyTrustAI.setQuarantine` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `TradeLessonRecorder.getLeverageLessons` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `TradeLessonRecorder.getNarrativeLessons` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] `TradeLessonRecorder.getRegimeLessons` — **V4 META API / NO DIRECT AUTHORITY**.
+- [x] F_DEAD reconciliation progress: prior 520 + 19 = **539 / 1,458** classified; **919 remain**.
+- [x] Regression coverage: `Aate7601V4MetaApiTrancheTest`.
