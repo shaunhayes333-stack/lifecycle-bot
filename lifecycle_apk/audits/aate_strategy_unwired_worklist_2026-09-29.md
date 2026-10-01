@@ -1728,3 +1728,22 @@ F_DEAD triage continues with non-authoritative engine diagnostics and telemetry 
 - [x] None of these rows justifies a fabricated production caller; their underlying mutating/decision paths are audited separately.
 - [x] F_DEAD reconciliation progress: prior 74 + 12 = **86 / 1,458** classified; **1,372 remain**.
 - [x] Regression coverage: `Aate7578EngineDiagnosticReadbackTrancheTest`.
+
+
+## V5.0.7579 — F_DEAD perps state/readback tranche (11 rows)
+
+This tranche classifies read-only perps state, registry, scanner and execution diagnostics. None creates trade intent or alters perps admission/execution.
+
+- [x] `CorrelationScanner.getDataPointCounts` — **STATE/DIAGNOSTIC READBACK** over existing price-history buffers.
+- [x] `DynamicAltTokenRegistry.getStaticCount` — **REGISTRY COUNT READBACK**.
+- [x] `DynamicAltTokenRegistry.getDynamicCount` — **REGISTRY COUNT READBACK**.
+- [x] `JupiterPerps.getActiveOrderCount` — **ACTIVE-ORDER STATE READBACK**.
+- [x] `MarketsScanner.getCategoryStats` — **SCANNER CATALOG REPORT**.
+- [x] `MarketsScanner.getTotalAssetsCount` — **STATIC MARKET-CATALOG COUNT**.
+- [x] `PerpsAutoReplayLearner.getTradeHistorySize` — **LEARNING BUFFER SIZE READBACK**.
+- [x] `PerpsExecutionEngine.getExecutionCount` — **EXECUTION TELEMETRY READBACK**.
+- [x] `PerpsMarketScanners.getScannerStats` — **REPORT/STUB DIAGNOSTIC**; returns per-scanner display counts and is not signal authority.
+- [x] `PerpsUnifiedScorerBridge.openEntryCount` — **BRIDGE STATE READBACK**.
+- [x] `PriceAggregator.getSourceStats` — **PROVIDER SUCCESS/FAIL REPORT**.
+- [x] F_DEAD reconciliation progress: prior 86 + 11 = **97 / 1,458** classified; **1,361 remain**.
+- [x] Regression coverage: `Aate7579PerpsReadbackTrancheTest`.
