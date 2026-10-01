@@ -3139,3 +3139,18 @@ The Super Intelligence layer now explicitly consumes existing AATE brains and le
 - [x] SuperPolicyTree7638 consumes the combined existing-stack prior capped to +/-6 utility points.
 - [x] No execution, hard-veto, safety or capital authority moved.
 - [x] Regression coverage: Aate7650ExistingIntelligenceIntegrationTest.
+
+
+## V5.0.7651 - evidence ancestry graph and correlation-aware fusion
+
+The integrated Super Intelligence stack now reasons about evidence provenance instead of assuming every adapter output is an independent vote.
+
+- [x] Added `SuperEvidenceTopology7651`, a pure/local evidence ancestry fuser.
+- [x] Native specialist opinion, aggregate cross-checks, strategy learning and counterfactual replay are represented as distinct ancestry families.
+- [x] `UltimateEdgeEngine` score/size and legacy `BrainConsensusBridge6329` outputs collapse inside one aggregate family instead of triple-counting overlapping lower-level intelligence.
+- [x] `StrategyHypothesisEngine` and symbolically reviewed `AsyncStrategyLab` evidence collapse inside one learned-strategy family instead of behaving like independent votes.
+- [x] Independent native-specialist and counterfactual evidence can still corroborate policy conviction.
+- [x] Cross-family disagreement explicitly attenuates utility; correlated repetition cannot manufacture confidence.
+- [x] De-correlation can only preserve or reduce evidence magnitude and remains bounded to +/-6 planner utility points.
+- [x] No provider I/O, LLM call, execution, capital, sizing, hard-veto, threshold or safety authority was added.
+- [x] Regression coverage: `Aate7651EvidenceTopologyTest`.

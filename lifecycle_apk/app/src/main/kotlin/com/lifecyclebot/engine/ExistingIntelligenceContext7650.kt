@@ -24,46 +24,65 @@ object ExistingIntelligenceContext7650 {
         val mctsConfidence: Double,
         val sources: Set<String>,
     ) {
-        fun policyPrior(policy: SuperPolicyTree7638.Policy): Double {
-            var u = 0.0
+        fun evidenceTopology7651(policy: SuperPolicyTree7638.Policy): SuperEvidenceTopology7651.Result {
+            val observations = ArrayList<SuperEvidenceTopology7651.Observation>(7)
 
-            // Native specialist opinion is already the lane's own brain output.
-            if (specialistEligible == true) {
-                val scoreTerm = (((specialistScore ?: 50) - 50) / 50.0) * 2.5
-                val confTerm = (((specialistConfidence ?: 50) - 50) / 50.0) * 1.5
-                u += scoreTerm + confTerm
-            } else if (specialistEligible == false) {
-                u -= 1.5
+            // Native specialist opinion is an independent lane-native family.
+            val specialistUtility = when (specialistEligible) {
+                true -> {
+                    val scoreTerm = (((specialistScore ?: 50) - 50) / 50.0) * 2.5
+                    val confTerm = (((specialistConfidence ?: 50) - 50) / 50.0) * 1.5
+                    scoreTerm + confTerm
+                }
+                false -> -1.5
+                null -> 0.0
             }
+            if (specialistUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
+                "native_specialist", SuperEvidenceTopology7651.Family.NATIVE_SPECIALIST, specialistUtility,
+            )
 
-            // UltimateEdge is itself a cache over existing semantic/source/route
-            // intelligence, so keep it small to avoid double counting.
-            u += (ultimateScoreBias * 0.30).coerceIn(-1.5, 1.5)
-            u += ((ultimateSizeMult - 1.0) * 6.0).coerceIn(-1.0, 1.0)
+            // These are both aggregate/cross-check surfaces over lower-level brains.
+            // Keeping them in one ancestry family prevents MetaCog/SuperBrain/semantic
+            // evidence from receiving multiple independent votes merely via adapters.
+            val edgeScoreUtility = (ultimateScoreBias * 0.30).coerceIn(-1.5, 1.5)
+            val edgeSizeUtility = ((ultimateSizeMult - 1.0) * 6.0).coerceIn(-1.0, 1.0)
+            val consensusUtility = ((legacyConsensusMult - 1.0) * 3.0).coerceIn(-1.5, 0.3)
+            if (edgeScoreUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
+                "ultimate_edge_score", SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK, edgeScoreUtility,
+            )
+            if (edgeSizeUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
+                "ultimate_edge_size", SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK, edgeSizeUtility,
+            )
+            if (consensusUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
+                "legacy_consensus", SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK, consensusUtility,
+            )
 
-            // Old consensus is a cross-check, not a duplicate full vote.
-            u += ((legacyConsensusMult - 1.0) * 3.0).coerceIn(-1.5, 0.3)
-
-            // Existing hypothesis/lab stack already contains reviewed strategy
-            // experiments; expose it as a small policy prior.
-            val strategyBias = (
-                (hypothesisSizeBias - 1.0) * 5.0 +
-                    (reviewedLabBias - 1.0) * 4.0
-                ).coerceIn(-3.0, 3.0)
-            u += when (policy) {
-                SuperPolicyTree7638.Policy.WAIT_REASSESS -> -strategyBias * 0.30
-                SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE -> strategyBias * 0.45
-                SuperPolicyTree7638.Policy.BASE_TACTICAL_HOLD -> strategyBias * 0.70
-                SuperPolicyTree7638.Policy.BASE_TACTICAL_BANK -> strategyBias * 0.60
-                SuperPolicyTree7638.Policy.CONVICTION_RUNNER -> strategyBias
+            // HypothesisEngine and AsyncStrategyLab are descendants of the same
+            // learned-strategy evidence family, so fuse them before cross-family sum.
+            val hypothesisBias = ((hypothesisSizeBias - 1.0) * 5.0).coerceIn(-2.0, 2.0)
+            val labBias = ((reviewedLabBias - 1.0) * 4.0).coerceIn(-2.0, 2.0)
+            fun strategyPolicyUtility(bias: Double): Double = when (policy) {
+                SuperPolicyTree7638.Policy.WAIT_REASSESS -> -bias * 0.30
+                SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE -> bias * 0.45
+                SuperPolicyTree7638.Policy.BASE_TACTICAL_HOLD -> bias * 0.70
+                SuperPolicyTree7638.Policy.BASE_TACTICAL_BANK -> bias * 0.60
+                SuperPolicyTree7638.Policy.CONVICTION_RUNNER -> bias
             }
+            if (hypothesisBias != 0.0) observations += SuperEvidenceTopology7651.Observation(
+                "strategy_hypothesis", SuperEvidenceTopology7651.Family.STRATEGY_LEARNING,
+                strategyPolicyUtility(hypothesisBias),
+            )
+            if (labBias != 0.0) observations += SuperEvidenceTopology7651.Observation(
+                "reviewed_lab", SuperEvidenceTopology7651.Family.STRATEGY_LEARNING,
+                strategyPolicyUtility(labBias),
+            )
 
-            // Reuse the already-built counterfactual replay/MCTS exit learner.
+            // Counterfactual replay is a separate empirical ancestry family.
             val mcts = mctsPolicy
             if (mcts != null && mctsConfidence > 0.0) {
                 val magnitude = (mctsExpectedDeltaPct / 25.0)
                     .coerceIn(-3.0, 3.0) * mctsConfidence
-                u += when (mcts) {
+                val mctsUtility = when (mcts) {
                     CounterfactualReplayEngine.AlternativeKind.BANK_25,
                     CounterfactualReplayEngine.AlternativeKind.BANK_50 ->
                         if (policy == SuperPolicyTree7638.Policy.BASE_TACTICAL_BANK) magnitude else 0.0
@@ -73,12 +92,20 @@ object ExistingIntelligenceContext7650 {
                             policy == SuperPolicyTree7638.Policy.BASE_TACTICAL_HOLD) magnitude else 0.0
                     CounterfactualReplayEngine.AlternativeKind.HARD_STOP_15 ->
                         if (policy == SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE ||
-                            policy == SuperPolicyTree7638.Policy.WAIT_REASSESS) magnitude else -kotlin.math.abs(magnitude) * 0.35
+                            policy == SuperPolicyTree7638.Policy.WAIT_REASSESS) magnitude
+                        else -kotlin.math.abs(magnitude) * 0.35
                 }
+                if (mctsUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
+                    "counterfactual_mcts", SuperEvidenceTopology7651.Family.COUNTERFACTUAL_REPLAY,
+                    mctsUtility, mctsConfidence.coerceIn(0.0, 1.0),
+                )
             }
 
-            return u.coerceIn(-6.0, 6.0)
+            return SuperEvidenceTopology7651.fuse(observations)
         }
+
+        fun policyPrior(policy: SuperPolicyTree7638.Policy): Double =
+            evidenceTopology7651(policy).decorrelatedUtility.coerceIn(-6.0, 6.0)
 
         fun contributionTag(): String {
             return String.format(
