@@ -110,6 +110,11 @@ object ExistingIntelligenceContext7650 {
                 "scanner_ensemble_cache", SuperEvidenceTopology7651.Family.SCANNER_ENSEMBLE,
                 scannerUtility7654, 0.75,
             )
+            val sourceLearning7658 = estate7654.sourceLearningUtility(policy)
+            if (kotlin.math.abs(sourceLearning7658) >= 0.02) observations += SuperEvidenceTopology7651.Observation(
+                "scanner_source_learning", SuperEvidenceTopology7651.Family.SCANNER_SOURCE_LEARNING,
+                sourceLearning7658, 0.60,
+            )
 
             // Counterfactual replay is a separate empirical ancestry family.
             val mcts = mctsPolicy
@@ -224,9 +229,9 @@ object ExistingIntelligenceContext7650 {
         if (mcts != null) src += "CounterfactualReplayEngine"
 
         val estate7654 = try {
-            SuperIntelligenceEstate7654.read(mint, symbol, laneKey)
+            SuperIntelligenceEstate7654.read(mint, symbol, laneKey, source)
         } catch (_: Throwable) {
-            SuperIntelligenceEstate7654.read("", "", laneKey)
+            SuperIntelligenceEstate7654.read("", "", laneKey, source)
         }
 
         return Snapshot(

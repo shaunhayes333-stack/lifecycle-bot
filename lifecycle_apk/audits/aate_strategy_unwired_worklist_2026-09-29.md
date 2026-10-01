@@ -3243,3 +3243,15 @@ The expanded intelligence estate now learns *when* each reasoning family deserve
 - [x] Corrected the source-contract test path to the lifecycle_apk CI directory.
 - [x] Hardened nullable LLM cache rendering in `SuperIntelligenceEstate7654` without changing policy utility.
 - [x] No trading, execution, sizing, safety or intelligence weighting semantics changed.
+
+
+## V5.0.7658 - scanner-source learned evidence + durable conversation handoff
+
+- [x] Added `ScannerSourceBrain.sourceSnapshot7658`, a read-only terminal-cohort view of source sample count, WR, mean PnL and authority.
+- [x] Added `SCANNER_SOURCE_LEARNING` as its own evidence ancestry family; it is not merged with the ArbScanner model family.
+- [x] Source learning contributes only after 20 terminal outcomes, is sample-shrunk and bounded before the shared topology.
+- [x] It never invokes scanner work, starvation boosts, intake skipping or source reordering from the Super planner.
+- [x] Added canonical `audits/SUPER_INTELLIGENCE_HANDOFF.md` containing the architecture, build chain, estate scope, anti-double-count rules and recovery instructions for a new conversation.
+- [x] The handoff explicitly instructs future sessions to read the canonical worklist tail and latest main commits before continuing.
+- [x] No execution, safety, sizing, capital or provider authority changed.
+- [x] Regression coverage: `Aate7658ScannerSourceAndHandoffTest`.

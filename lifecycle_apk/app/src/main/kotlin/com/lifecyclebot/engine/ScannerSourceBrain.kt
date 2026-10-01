@@ -211,6 +211,33 @@ object ScannerSourceBrain {
         }
     }
 
+    data class SourceSnapshot7658(
+        val source: String,
+        val samples: Long,
+        val winRate: Double,
+        val avgPnlPct: Double,
+        val authority: AuthorityTier,
+    )
+
+    /**
+     * V5.0.7658 - read-only source cohort state for Super Intelligence.
+     * Does not reorder scanners, apply starvation boosts, skip intake or mutate stats.
+     */
+    fun sourceSnapshot7658(source: String): SourceSnapshot7658? {
+        val key = normalise(source)
+        if (key.isBlank()) return null
+        val s = stats[key] ?: return null
+        return synchronized(s) {
+            SourceSnapshot7658(
+                source = key,
+                samples = s.samples(),
+                winRate = s.winRate(),
+                avgPnlPct = s.avgPnlPct(),
+                authority = authority(key),
+            )
+        }
+    }
+
     /** Multiplier in [0.40, 1.80] depending on tier + winRate.
      *  Caller multiplies its baseline priority by this. */
     fun intakeMultiplier(source: String): Double {

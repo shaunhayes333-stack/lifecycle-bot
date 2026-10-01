@@ -16,6 +16,7 @@ object SuperIntelligenceEstate7654 {
         val arbConfidence: Int?,
         val arbExpectedMovePct: Double?,
         val arbType: String?,
+        val sourceLearning: ScannerSourceBrain.SourceSnapshot7658?,
         val layerEstate: LayerBrain.EstateSnapshot7654,
         val smartSystemsTotal: Int,
         val smartSystemsActive: Int,
@@ -59,6 +60,22 @@ object SuperIntelligenceEstate7654 {
             }
         }
 
+        fun sourceLearningUtility(policy: SuperPolicyTree7638.Policy): Double {
+            val s = sourceLearning ?: return 0.0
+            if (s.samples < 20L) return 0.0
+            val sample = (s.samples.toDouble() / (s.samples + 40.0)).coerceIn(0.0, 1.0)
+            val wrTerm = ((s.winRate - 0.50) * 2.0).coerceIn(-1.0, 1.0)
+            val evTerm = (s.avgPnlPct / 20.0).coerceIn(-1.0, 1.0)
+            val base = (wrTerm * 0.55 + evTerm * 0.75).coerceIn(-1.25, 1.25) * sample
+            return when (policy) {
+                SuperPolicyTree7638.Policy.WAIT_REASSESS -> -base * 0.40
+                SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE -> base * 0.50
+                SuperPolicyTree7638.Policy.BASE_TACTICAL_HOLD -> base * 0.70
+                SuperPolicyTree7638.Policy.BASE_TACTICAL_BANK -> base * 0.70
+                SuperPolicyTree7638.Policy.CONVICTION_RUNNER -> base * 0.80
+            }
+        }
+
         fun scannerUtility(policy: SuperPolicyTree7638.Policy): Double {
             val score = arbScore ?: return 0.0
             val conf = (arbConfidence ?: 0).coerceIn(0, 100) / 100.0
@@ -89,7 +106,7 @@ object SuperIntelligenceEstate7654 {
 
         fun tag(): String = String.format(
             java.util.Locale.US,
-            "estate7654(cross=%s,llm=%s,arb=%s/%s@%s,layer=%d mature=%d auth=%d train=%d breadth=%.2f,smart=%d/%d/%d,cov=%d/%d)",
+            "estate7654(cross=%s,llm=%s,arb=%s/%s@%s,srcLearn=%s/%s/%+.1f,layer=%d mature=%d auth=%d train=%d breadth=%.2f,smart=%d/%d/%d,cov=%d/%d)",
             crossTalk?.signalType?.name ?: "none",
             when {
                 llm?.quickScam == true -> "scam"
@@ -99,6 +116,9 @@ object SuperIntelligenceEstate7654 {
             arbType ?: "none",
             arbScore?.toString() ?: "-",
             arbConfidence?.toString() ?: "-",
+            sourceLearning?.samples?.toString() ?: "-",
+            sourceLearning?.let { String.format(java.util.Locale.US, "%.0f%%", it.winRate * 100.0) } ?: "-",
+            sourceLearning?.avgPnlPct ?: 0.0,
             layerEstate.registered,
             layerEstate.mature,
             layerEstate.authoritative,
@@ -112,7 +132,7 @@ object SuperIntelligenceEstate7654 {
         )
     }
 
-    fun read(mint: String, symbol: String, lane: String): Snapshot {
+    fun read(mint: String, symbol: String, lane: String, source: String = ""): Snapshot {
         val cross = try {
             AICrossTalk.cachedSignal7654(mint, lane.ifBlank { null }, isOpenPosition = false)
         } catch (_: Throwable) { null }
@@ -121,6 +141,9 @@ object SuperIntelligenceEstate7654 {
         } catch (_: Throwable) { null }
         val arb = try {
             com.lifecyclebot.v3.arb.ArbScannerAI.cachedOpportunity(mint)
+        } catch (_: Throwable) { null }
+        val sourceLearning = try {
+            ScannerSourceBrain.sourceSnapshot7658(source)
         } catch (_: Throwable) { null }
         val layers = try {
             LayerBrain.estateSnapshot7654()
@@ -138,6 +161,7 @@ object SuperIntelligenceEstate7654 {
             arbConfidence = arb?.confidence,
             arbExpectedMovePct = arb?.expectedMovePct,
             arbType = arb?.arbType?.name,
+            sourceLearning = sourceLearning,
             layerEstate = layers,
             smartSystemsTotal = systems.size,
             smartSystemsActive = systems.count { it.runtimeClass == SmartSystemRuntimeRegistry.RuntimeClass.ACTIVE },

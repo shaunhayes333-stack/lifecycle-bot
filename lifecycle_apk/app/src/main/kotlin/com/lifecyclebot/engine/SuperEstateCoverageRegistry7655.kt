@@ -32,6 +32,7 @@ object SuperEstateCoverageRegistry7655 {
         Family("AI CrossTalk", Route.DIRECT_CACHE, "AICrossTalk.cachedSignal7654", "cross-AI correlation hub", true),
         Family("LLM provider council", Route.DIRECT_CACHE, "AsyncGeminiNarrativeCache6478.peekBySymbol7654", "Gemini/Groq/Cerebras/Mistral/OpenRouter/keyless", true),
         Family("Scanner/arb ensemble", Route.DIRECT_CACHE, "ArbScannerAI.cachedOpportunity", "VenueLag+FlowImbalance+PanicReversion", true),
+        Family("Scanner source outcome brain", Route.DIRECT_CACHE, "ScannerSourceBrain.sourceSnapshot7658", "per-source terminal WR/EV learning", true),
         Family("MetaCognition/SuperBrain/BotBrain/Sentience aggregate", Route.REPRESENTED_UPSTREAM, "BrainConsensusBridge6329", "legacy executive/meta aggregate", true),
         Family("Ultimate semantic/source/route edge", Route.REPRESENTED_UPSTREAM, "UltimateEdgeEngine", "semantic+source+route edge cards", true),
         Family("Strategy hypothesis + reviewed lab", Route.REPRESENTED_UPSTREAM, "ExistingIntelligenceContext7650", "strategy learning/research", true),

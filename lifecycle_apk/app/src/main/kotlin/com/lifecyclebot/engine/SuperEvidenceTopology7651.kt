@@ -21,6 +21,7 @@ object SuperEvidenceTopology7651 {
         AI_CROSSTALK,
         LLM_COUNCIL,
         SCANNER_ENSEMBLE,
+        SCANNER_SOURCE_LEARNING,
     }
 
     data class Observation(
