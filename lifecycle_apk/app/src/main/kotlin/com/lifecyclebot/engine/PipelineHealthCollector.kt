@@ -131,6 +131,12 @@ object PipelineHealthCollector {
         fdgLiveBlock.set(0L)
         fdgPaperAllow.set(0L)
         fdgPaperBlock.set(0L)
+        fdgFinalAllow7685.set(0L)
+        fdgFinalBlock7685.set(0L)
+        fdgFinalLiveAllow7685.set(0L)
+        fdgFinalLiveBlock7685.set(0L)
+        fdgFinalPaperAllow7685.set(0L)
+        fdgFinalPaperBlock7685.set(0L)
         execLiveAttempt.set(0L); execPaperAttempt.set(0L)
         execLiveBuyOk.set(0L)
         execLiveBuyFail.set(0L)
@@ -151,6 +157,14 @@ object PipelineHealthCollector {
     private val fdgLiveBlock   = AtomicLong(0L)
     private val fdgPaperAllow  = AtomicLong(0L)
     private val fdgPaperBlock  = AtomicLong(0L)
+    // V5.0.7685 — authoritative final FDG verdict population.
+    // Legacy gate mirror can include advisory/probe paths that are not the final sealed decision.
+    private val fdgFinalAllow7685 = AtomicLong(0L)
+    private val fdgFinalBlock7685 = AtomicLong(0L)
+    private val fdgFinalLiveAllow7685 = AtomicLong(0L)
+    private val fdgFinalLiveBlock7685 = AtomicLong(0L)
+    private val fdgFinalPaperAllow7685 = AtomicLong(0L)
+    private val fdgFinalPaperBlock7685 = AtomicLong(0L)
 
     private val execLiveAttempt  = AtomicLong(0L)
     private val execLiveBuyOk    = AtomicLong(0L)
@@ -560,6 +574,25 @@ object PipelineHealthCollector {
         if (!attached) return
         bump(phaseCounts, phaseTag)
         bump(verdictCounts, verdict)
+        if (phaseTag == "FDG") {
+            // ExecutableOpenGate emits BLOCK for non-executable outcomes and the
+            // final sealed verdict otherwise; this is the authoritative population.
+            val allowed7685 = !verdict.equals("BLOCK", ignoreCase = true)
+            if (allowed7685) fdgFinalAllow7685.incrementAndGet() else fdgFinalBlock7685.incrementAndGet()
+            val eventMode7685 = extractModeFromText(reason)
+            val effMode7685 = when (eventMode7685) {
+                "LIVE", "PAPER" -> eventMode7685
+                else -> when (modeSnapshot) {
+                    "LIVE", "PAPER" -> modeSnapshot
+                    else -> try { if (RuntimeModeAuthority.isLive()) "LIVE" else "PAPER" } catch (_: Throwable) { "UNKNOWN" }
+                }
+            }
+            when (effMode7685) {
+                "LIVE" -> if (allowed7685) fdgFinalLiveAllow7685.incrementAndGet() else fdgFinalLiveBlock7685.incrementAndGet()
+                "PAPER" -> if (allowed7685) fdgFinalPaperAllow7685.incrementAndGet() else fdgFinalPaperBlock7685.incrementAndGet()
+                else -> bump(labelCounts, "FDG_FINAL_MODE_UNKNOWN_7685")
+            }
+        }
         appendEvent(Event(
             System.currentTimeMillis(),
             "DEC/$phaseTag/$verdict",
@@ -1660,9 +1693,14 @@ object PipelineHealthCollector {
             sb.append("===== Gate allow / block tally =====\n")
             val allKeys = (s.phaseAllow.keys + s.phaseBlock.keys).distinct().sorted()
             for (k in allKeys) {
-                val a = s.phaseAllow[k] ?: 0L
-                val b = s.phaseBlock[k] ?: 0L
-                sb.append("  $k:  allow=$a  block=$b\n")
+                val legacyA = s.phaseAllow[k] ?: 0L
+                val legacyB = s.phaseBlock[k] ?: 0L
+                if (k == "FDG" && (fdgFinalAllow7685.get() + fdgFinalBlock7685.get()) > 0L) {
+                    sb.append("  FDG:  allow=${fdgFinalAllow7685.get()}  block=${fdgFinalBlock7685.get()}  [FINAL_SEALED_7685]\n")
+                    sb.append("       legacyGateMirror allow=$legacyA block=$legacyB (diagnostic only)\n")
+                } else {
+                    sb.append("  $k:  allow=$legacyA  block=$legacyB\n")
+                }
             }
             sb.append('\n')
         }
@@ -3501,9 +3539,12 @@ object PipelineHealthCollector {
         val v3          = s.phaseCounts["V3"]       ?: 0L
         val laneEval    = s.phaseCounts["LANE_EVAL"]?: 0L
         val fdgRawRows  = s.phaseCounts["FDG"]      ?: 0L
-        val fdgBlock    = s.phaseBlock["FDG"]       ?: 0L
-        val fdgAllow    = s.phaseAllow["FDG"]       ?: 0L
-        val fdgTotal    = (fdgAllow + fdgBlock).takeIf { it > 0L } ?: fdgRawRows
+        val fdgLegacyBlock7685 = s.phaseBlock["FDG"] ?: 0L
+        val fdgLegacyAllow7685 = s.phaseAllow["FDG"] ?: 0L
+        val hasFinalFdg7685 = (fdgFinalAllow7685.get() + fdgFinalBlock7685.get()) > 0L
+        val fdgBlock = if (hasFinalFdg7685) fdgFinalBlock7685.get() else fdgLegacyBlock7685
+        val fdgAllow = if (hasFinalFdg7685) fdgFinalAllow7685.get() else fdgLegacyAllow7685
+        val fdgTotal = (fdgAllow + fdgBlock).takeIf { it > 0L } ?: fdgRawRows
         val intakeBlock = s.phaseBlock["INTAKE"]    ?: 0L
         val exitAllow   = s.phaseAllow["EXIT"]      ?: 0L
         val exitBlock   = s.phaseBlock["EXIT"]      ?: 0L
@@ -3545,7 +3586,13 @@ object PipelineHealthCollector {
         }
 
         // ── FDG gate ────────────────────────────────────────────────────
-        sb.append("\n  [FDG GATE]  allow=$fdgAllow  block=$fdgBlock\n")
+        sb.append("\n  [FDG GATE]  allow=$fdgAllow  block=$fdgBlock")
+        if (hasFinalFdg7685) sb.append("  authority=FINAL_SEALED_7685")
+        sb.append("\n")
+        if (hasFinalFdg7685 && (fdgLegacyAllow7685 != fdgAllow || fdgLegacyBlock7685 != fdgBlock)) {
+            sb.append("  legacy mirror: allow=$fdgLegacyAllow7685 block=$fdgLegacyBlock7685 (not used for choke diagnosis)\n")
+            try { labelInc("FDG_GATE_MIRROR_DIVERGED_FROM_FINAL_7685") } catch (_: Throwable) {}
+        }
         // V5.9.915 — EMERGENT-MEME #9: derive interpretation from
         // actual top block reason, not blanket "likely bootstrap".
         // The user's V5.9.915 dump had top reason
@@ -3589,8 +3636,15 @@ object PipelineHealthCollector {
         // whether live trading is actually happening.
         sb.append("\n  [MODE]  current=${modeSnapshot}\n")
         sb.append("  [FDG PER-MODE]\n")
-        sb.append("    FDG_LIVE_ALLOW=${fdgLiveAllow.get()}   FDG_LIVE_BLOCK=${fdgLiveBlock.get()}\n")
-        sb.append("    FDG_PAPER_ALLOW=${fdgPaperAllow.get()}  FDG_PAPER_BLOCK=${fdgPaperBlock.get()}\n")
+        val finalPerModeN7685 = fdgFinalLiveAllow7685.get() + fdgFinalLiveBlock7685.get() + fdgFinalPaperAllow7685.get() + fdgFinalPaperBlock7685.get()
+        if (finalPerModeN7685 > 0L) {
+            sb.append("    FDG_LIVE_ALLOW=${fdgFinalLiveAllow7685.get()}   FDG_LIVE_BLOCK=${fdgFinalLiveBlock7685.get()} [FINAL_SEALED_7685]\n")
+            sb.append("    FDG_PAPER_ALLOW=${fdgFinalPaperAllow7685.get()}  FDG_PAPER_BLOCK=${fdgFinalPaperBlock7685.get()} [FINAL_SEALED_7685]\n")
+            sb.append("    LEGACY_FDG_MIRROR live=${fdgLiveAllow.get()}/${fdgLiveBlock.get()} paper=${fdgPaperAllow.get()}/${fdgPaperBlock.get()}\n")
+        } else {
+            sb.append("    FDG_LIVE_ALLOW=${fdgLiveAllow.get()}   FDG_LIVE_BLOCK=${fdgLiveBlock.get()}\n")
+            sb.append("    FDG_PAPER_ALLOW=${fdgPaperAllow.get()}  FDG_PAPER_BLOCK=${fdgPaperBlock.get()}\n")
+        }
         sb.append("  [EXEC PER-MODE]\n")
         sb.append("    EXEC_LIVE_ATTEMPT=${execLiveAttempt.get()}\n")
         sb.append("    EXEC_LIVE_BUY_OK=${execLiveBuyOk.get()}   EXEC_LIVE_BUY_FAIL=${execLiveBuyFail.get()}\n")
@@ -3602,7 +3656,9 @@ object PipelineHealthCollector {
         sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}  EXEC_LIVE_SELL_PENDING_FINALITY=${execLiveSellPendingFinality.get()}\n")
         sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}  EXEC_PAPER_PARTIAL_OK=${execPaperPartialOk.get()}\n")
         sb.append("    PAPER_JOURNAL_ROWS=$paperJournalRows  PAPER_QUARANTINED_ROWS=$paperQuarantinedRows\n")
-        if (modeSnapshot == "LIVE" && fdgLiveBlock.get() > 0 && fdgLiveAllow.get() == 0L) {
+        val liveFdgAllowForDiag7685 = if (finalPerModeN7685 > 0L) fdgFinalLiveAllow7685.get() else fdgLiveAllow.get()
+        val liveFdgBlockForDiag7685 = if (finalPerModeN7685 > 0L) fdgFinalLiveBlock7685.get() else fdgLiveBlock.get()
+        if (modeSnapshot == "LIVE" && liveFdgBlockForDiag7685 > 0 && liveFdgAllowForDiag7685 == 0L) {
             val landedLiveBuys7425 = execLiveBuyOk.get()
             val liveExecAttempts7425 = execLiveAttempt.get()
             if (landedLiveBuys7425 > 0L) {

@@ -3645,3 +3645,18 @@ P0-7 throughput repair:
 - [x] Existing 128-row output ceiling, 2.5s wall-clock budget, full-terminal-SELL proof, usable economics, quarantine/replay exclusions and exactly-once bus semantics remain unchanged.
 - [x] Cursor telemetry reports scanned rows, wraps and repair progress; cursor itself is not durable economic truth.
 - [x] No synthetic economics, no historical promotion, no threshold/sizing/safety/execution changes.
+
+
+## V5.0.7685 - authoritative FDG outcome telemetry
+
+Fresh 5.0.7677 runtime exposed an observability contradiction:
+- legacy gate tally reported FDG allow=0 / block=973 and the cheat-sheet declared 100% blocked;
+- the same session had EXEC_GATE allow=43, 63 PAPER buys, 33 canonical opens and zero FDG_ALLOW_WITHOUT_EXEC_INTENT violations.
+
+Repair:
+- [x] PipelineHealthCollector.onDecision(FDG, ...) now maintains a dedicated FINAL_SEALED verdict population.
+- [x] ExecutableOpenGate is already the final sealed FDG authority and emits final verdict for executable candidates or BLOCK otherwise.
+- [x] Gate tally and choke interpretation prefer FINAL_SEALED_7685 when available.
+- [x] Legacy onGate FDG mirror remains visible as diagnostic-only and divergence is named FDG_GATE_MIRROR_DIVERGED_FROM_FINAL_7685.
+- [x] Per-mode FDG totals also prefer final sealed decision attribution.
+- [x] No FDG threshold, probe policy, sizing, safety, execution or admission behavior changed.

@@ -78,6 +78,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7682: P0-1/P0-2 source contracts reconciled. Causal predecessor recovery is proof-bounded, canonical entry marks are immutable/sealed, and executable sizing cannot fabricate a stage without the exact intent/mark lineage; runtime convergence remains open.
 - 5.0.7683: terminal specialist causal identity repair. SELL_ATTEMPT/SELL_CONFIRMED/FINALIZED position events bind only to the exact still-open causal record; legacy/restored terminal events without that record are named forensic-only instead of being rebound to a current scanner generation.
 - 5.0.7684: fresh 7677 runtime proved Crypto Universe and EXPRESS end-to-end acceptance. P0-7 durable-finality catch-up now resumes through a rotating CLOSED-position cursor instead of rescanning history from zero; proof/economic gates are unchanged.
+- 5.0.7685: FDG health telemetry authority corrected. The report now diagnoses allow/block from ExecutableOpenGate final sealed decisions; legacy gate/probe mirror remains diagnostic-only.
 
 ## Existing intelligence estate explicitly in scope
 
