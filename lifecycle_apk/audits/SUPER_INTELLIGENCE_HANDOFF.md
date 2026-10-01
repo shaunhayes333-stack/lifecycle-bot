@@ -66,6 +66,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7670: crypto canonical learning repair; sub-1% scratch closes now reconcile into INCONCLUSIVE instead of generic OTHER, preserving directional learning purity.
 - 5.0.7671: dual specialist parity manifest. Meme native bridge pinned at 12 lane opinions; crypto-native brain estate pinned at 13 modules, with the 9 crypto desk lanes tracked separately as only one subset.
 - 5.0.7672: repaired the ~2000-item audit generator: same-file/internal consumers now classify as E_INFILE / INFILE_WIRED instead of false F_DEAD/STARVED. Historical ledger remains immutable audit evidence.
+- 5.0.7673: restored execution-cost learning on Crypto Universe verified fills. Exact submitted Jupiter quote output (including requotes) is compared with confirmed target-token raw delta and trained only with real candidate liquidity through MathematicalEdgeEngine.
 
 ## Existing intelligence estate explicitly in scope
 

@@ -58,6 +58,9 @@ object MathematicalEdgeEngine {
         val clampedMultiplier: Double = 1.0,
         val quotePx: Double = 0.0,
         val realizedPx: Double = 0.0,
+        // V5.0.7673 — exact raw-output pair from one submitted swap.
+        val expectedOutRaw7673: Long = 0L,
+        val actualOutRaw7673: Long = 0L,
         val slippagePct: Double = 0.0,
         val latencyMs: Long = 0L,
         val pnlPct: Double = 0.0,
@@ -264,7 +267,13 @@ object MathematicalEdgeEngine {
                     }
                 }
                 "FILL" -> {
-                    if (e.liquidityUsd > 0.0 && e.quotePx > 0.0 && e.realizedPx > 0.0) {
+                    if (e.liquidityUsd > 0.0 && e.expectedOutRaw7673 > 0L && e.actualOutRaw7673 > 0L) {
+                        try {
+                            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.learnFromRawOutput7673(
+                                e.liquidityUsd, e.expectedOutRaw7673, e.actualOutRaw7673
+                            )
+                        } catch (_: Throwable) {}
+                    } else if (e.liquidityUsd > 0.0 && e.quotePx > 0.0 && e.realizedPx > 0.0) {
                         try { com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.learn(e.liquidityUsd, e.quotePx, e.realizedPx) } catch (_: Throwable) {}
                     }
                 }
@@ -311,6 +320,28 @@ object MathematicalEdgeEngine {
     fun captureFill(stage: String, lane: String, source: String, mint: String, symbol: String, side: String, quotePx: Double, realizedPx: Double, liquidityUsd: Double, slippagePct: Double, latencyMs: Long, reason: String = "") = submit(EdgeEvent(
         kind = "FILL", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = "FILL_$side", reason = reason, liquidityUsd = liquidityUsd, quotePx = quotePx, realizedPx = realizedPx, slippagePct = slippagePct, latencyMs = latencyMs,
     ))
+
+    fun captureRawFill7673(
+        stage: String,
+        lane: String,
+        source: String,
+        mint: String,
+        symbol: String,
+        side: String,
+        expectedOutRaw: Long,
+        actualOutRaw: Long,
+        liquidityUsd: Double,
+        latencyMs: Long = 0L,
+        reason: String = "",
+    ) {
+        if (expectedOutRaw <= 0L || actualOutRaw <= 0L || liquidityUsd <= 0.0) return
+        submit(EdgeEvent(
+            kind = "FILL", stage = stage, lane = lane, source = source, mint = mint,
+            symbol = symbol, decision = "FILL_$side", reason = reason,
+            liquidityUsd = liquidityUsd, expectedOutRaw7673 = expectedOutRaw,
+            actualOutRaw7673 = actualOutRaw, latencyMs = latencyMs,
+        ))
+    }
 
     fun captureTerminal(stage: String, lane: String, source: String, mint: String, symbol: String, side: String, reason: String, pnlPct: Double, pnlSol: Double, sizeSol: Double, holdMs: Long, peakGainPct: Double, maxDrawdownPct: Double, trainable: Boolean, accepted: Boolean, score: Double = -1.0, regime: String = ""): Boolean {
         // V5.0.6501 §1 — SOURCE-LEVEL QUARANTINE. MathEdge stats must

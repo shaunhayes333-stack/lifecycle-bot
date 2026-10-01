@@ -139,6 +139,22 @@ object ExecutionCostPredictorAI {
         save()
     }
 
+    /**
+     * V5.0.7673 — train from the exact quote output and the confirmed received
+     * raw output. The ratio is dimensionless, so token decimals cancel.
+     */
+    fun learnFromRawOutput7673(liqUsd: Double, expectedOutRaw: Long, actualOutRaw: Long) {
+        if (liqUsd <= 0.0 || expectedOutRaw <= 0L || actualOutRaw <= 0L) return
+        val ratio = try {
+            java.math.BigDecimal.valueOf(actualOutRaw)
+                .divide(java.math.BigDecimal.valueOf(expectedOutRaw), 12, java.math.RoundingMode.HALF_UP)
+                .toDouble()
+        } catch (_: Throwable) { return }
+        if (!ratio.isFinite() || ratio <= 0.0) return
+        learn(liqUsd, 1.0, ratio)
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_COST_RAW_FILL_LEARNED_7673") } catch (_: Throwable) {}
+    }
+
     fun expectedExtraSlipPct(liqUsd: Double): Double {
         val raw = bands[bandFor(liqUsd)]?.avgSlipPct() ?: 0.0
         // V5.0.4184 — never hand the executor a phantom-poisoned value.

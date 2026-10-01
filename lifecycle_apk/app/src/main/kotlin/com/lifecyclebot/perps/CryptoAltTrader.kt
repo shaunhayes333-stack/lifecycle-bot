@@ -3840,6 +3840,7 @@ object CryptoAltTrader {
                 assetSymbol6493 = signal.marketSymbol,
                 targetMint6493 = signal.dynMint,
                 targetChainId6544 = signal.dynChainId,
+                liquidityUsd6493 = exactAssetMetrics6493(signal).liquidityUsd,
             )
             when (outcome) {
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.Executed -> {

@@ -3480,3 +3480,22 @@ Repair:
 - [x] Historical `ci/UNWIRED_LEDGER.tsv` and the 7605 1,458-row disposition remain untouched as immutable audit history; new/re-run audits use corrected semantics.
 - [x] This reduces false repair work and prevents arbitrary duplicate callers being added merely to satisfy a static ledger.
 - [x] Regression coverage: `Aate7672UnwiredAuditInternalCallerTest`.
+
+
+## V5.0.7673 - restore measured execution-cost learning from verified crypto fills
+
+Audit row:
+- F_DEAD row 446 `ExecutionCostPredictorAI.avgSlipPct` is an internal helper, not itself a missing caller.
+- The real causal defect was upstream: `MathematicalEdgeEngine.captureFill()` had no production producer, so the active `ExecutionCostPredictorAI.learn()` fanout received no verified fills.
+
+Repair:
+- [x] `UniversalBridgeEngine` now retains the exact Jupiter `outAmount` from the quote that actually built the submitted transaction.
+- [x] A stale supplied quote that triggers the existing one-time 422 requote records the replacement quote's output, never the stale original.
+- [x] `BridgeResult.expectedTargetRaw7673` carries this exact expected output alongside the already-confirmed actual target raw delta.
+- [x] CryptoAltTrader supplies registry-backed candidate liquidity to CryptoUniverseExecutor; unknown liquidity remains 0 and does not train a fake band.
+- [x] CryptoUniverseExecutor publishes a FILL observation only when expected raw, actual raw and real liquidity are all positive.
+- [x] MathematicalEdgeEngine routes the raw-output ratio to `ExecutionCostPredictorAI.learnFromRawOutput7673`.
+- [x] Token decimals cancel in the ratio; no USD price proxy, entry-vs-exit movement or phantom oracle mark is treated as execution slippage.
+- [x] Existing price-based FILL compatibility path remains for any future/legacy producer that genuinely owns quote and realized prices.
+- [x] No entry threshold, execution routing, capital, safety or sizing authority changed.
+- [x] Regression coverage: `Aate7673ExecutionCostMeasuredFillRepairTest`.

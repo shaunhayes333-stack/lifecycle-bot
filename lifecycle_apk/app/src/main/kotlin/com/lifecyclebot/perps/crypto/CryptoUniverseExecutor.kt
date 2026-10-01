@@ -81,6 +81,7 @@ object CryptoUniverseExecutor {
         assetSymbol6493: String? = null,
         targetMint6493: String? = null,
         targetChainId6544: String? = null,
+        liquidityUsd6493: Double = 0.0,
     ): Outcome = LiveExecutionScope.runAwaited("CU_${assetSymbol6493 ?: market.symbol}_${direction.name}") { job ->
         val symbol = assetSymbol6493?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: market.symbol.uppercase()
         val wallet = try { WalletManager.getWallet() } catch (_: Throwable) { null }
@@ -334,6 +335,25 @@ object CryptoUniverseExecutor {
             return@runAwaited Outcome.VerifyPending(sig, mint, resolution, bridge.proofState)
         }
         val filledRaw = java.math.BigInteger.valueOf(bridge.targetAmountRaw)
+        // V5.0.7673 — only a confirmed exact quote + confirmed target delta can
+        // train execution cost. No market-price proxy and no invented liquidity.
+        if (bridge.expectedTargetRaw7673 > 0L && bridge.targetAmountRaw > 0L && liquidityUsd6493 > 0.0) {
+            try {
+                com.lifecyclebot.engine.MathematicalEdgeEngine.captureRawFill7673(
+                    stage = "CRYPTO_UNIVERSE_VERIFIED_FILL_7673",
+                    lane = traderType.uppercase(),
+                    source = resolution.route.name,
+                    mint = mint,
+                    symbol = symbol,
+                    side = "BUY",
+                    expectedOutRaw = bridge.expectedTargetRaw7673,
+                    actualOutRaw = bridge.targetAmountRaw,
+                    liquidityUsd = liquidityUsd6493,
+                    reason = bridge.proofState,
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EXEC_COST_FILL_PUBLISHED_7673")
+            } catch (_: Throwable) {}
+        }
         // V5.0.7132 — a Crypto Universe open must name its own asset class and
         // its own USD basis.
         //

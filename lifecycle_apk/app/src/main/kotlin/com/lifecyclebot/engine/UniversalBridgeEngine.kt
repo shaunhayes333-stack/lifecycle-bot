@@ -102,6 +102,9 @@ object UniversalBridgeEngine {
         val errorMsg: String = "",
         val targetDecimals: Int = 0,
         val proofState: String = "UNKNOWN",
+        // V5.0.7673 — exact output amount from the quote actually used to build
+        // the submitted Jupiter transaction. Zero means no measured swap.
+        val expectedTargetRaw7673: Long = 0L,
     )
 
     data class WalletCapacity(
@@ -418,7 +421,7 @@ object UniversalBridgeEngine {
             msg = "single-hop ${mintLabel(src)} → ${mintLabel(targetMint)} amt=$sourceAmountRaw",
         )
 
-        val txSig = executeJupiterSwap(
+        val swap7673 = executeJupiterSwapMeasured7673(
             wallet      = wallet,
             inputMint   = src,
             outputMint  = targetMint,        // ← SINGLE atomic call to the real target
@@ -439,6 +442,7 @@ object UniversalBridgeEngine {
             return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
                 "Atomic ${mintLabel(src)}→${mintLabel(targetMint)} swap failed — no fallback to two-leg per V5.9.495z19 rule")
         }
+        val txSig = swap7673.signature
 
         // ── Post-trade verification: did the target token actually land? ──
         // V5.9.495z46 P0 — operator forensics 0508_143519 spec item B.
@@ -563,6 +567,7 @@ object UniversalBridgeEngine {
                 // then books it VerifyPending instead of EXEC_FAILED (which
                 // left the tokens unmanaged and armed the failure cooldown).
                 proofState = "SIGNATURE_ONLY_UNPROVED",
+                expectedTargetRaw7673 = swap7673.expectedOutRaw,
             )
         }
 
@@ -588,6 +593,7 @@ object UniversalBridgeEngine {
             swapTxSig      = txSig,
             targetDecimals = targetDecimals,
             proofState     = verifySource.uppercase(),
+            expectedTargetRaw7673 = swap7673.expectedOutRaw,
         )
     }
 
@@ -650,14 +656,24 @@ object UniversalBridgeEngine {
     // INTERNAL HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
 
-    internal suspend fun executeJupiterSwap(
+    internal data class JupiterSwapMeasurement7673(
+        val signature: String,
+        val expectedOutRaw: Long,
+    )
+
+    /**
+     * V5.0.7673 — execute and retain the exact quote that built the submitted tx.
+     * If a supplied quote is stale and 422 forces a requote, expectedOutRaw is
+     * from that replacement quote, never the stale caller quote.
+     */
+    internal suspend fun executeJupiterSwapMeasured7673(
         wallet: SolanaWallet,
         inputMint: String,
         outputMint: String,
         amountRaw: Long,
         slippageBps: Int,
         prevalidatedQuote7444: com.lifecyclebot.network.SwapQuote? = null,
-    ): String? = withContext(Dispatchers.IO) {
+    ): JupiterSwapMeasurement7673? = withContext(Dispatchers.IO) {
         // V5.0.7326 — the crypto / markets swap now runs the meme pipeline:
         // execution scope (our own backoff can't refuse it), a BINDING quote
         // with the wallet as taker (an RFQ decline surfaces here, and v6 is
@@ -701,7 +717,7 @@ object UniversalBridgeEngine {
                         )
                     } catch (_: Throwable) {}
 
-                    return@withContext wallet.signSendAndConfirm(
+                    val sig7673 = wallet.signSendAndConfirm(
                         txBase64 = txResult.txBase64,
                         useJito = false,
                         jitoTipLamports = 0,
@@ -710,6 +726,9 @@ object UniversalBridgeEngine {
                         isRfqRoute = txResult.isRfqRoute,
                         senderCompatible = txResult.senderCompatible,
                     )
+                    return@withContext sig7673?.takeIf { it.isNotBlank() }?.let {
+                        JupiterSwapMeasurement7673(it, quote.outAmount)
+                    }
                 } catch (e: Exception) {
                     if (attempt7444 == 0 && e.message?.contains("422") == true) {
                         // Binding tx went stale. Drop the supplied quote and retry
@@ -725,6 +744,21 @@ object UniversalBridgeEngine {
             null
         }
     }
+
+    /**
+     * Compatibility wrapper for recovery and legacy callers that only need the
+     * signature. Normal verified opens use the measured variant above.
+     */
+    internal suspend fun executeJupiterSwap(
+        wallet: SolanaWallet,
+        inputMint: String,
+        outputMint: String,
+        amountRaw: Long,
+        slippageBps: Int,
+        prevalidatedQuote7444: com.lifecyclebot.network.SwapQuote? = null,
+    ): String? = executeJupiterSwapMeasured7673(
+        wallet, inputMint, outputMint, amountRaw, slippageBps, prevalidatedQuote7444
+    )?.signature
 
     /** V5.0.7326 — Sender tip for bridge swaps (same 200k floor the meme path uses). */
     private const val SENDER_TIP_LAMPORTS_7326 = 200_000L
