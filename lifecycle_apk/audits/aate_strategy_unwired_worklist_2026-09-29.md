@@ -1707,3 +1707,24 @@ F_DEAD triage continues with pure readback/counter accessors in canonical truth 
 - [x] None of these rows requires a fabricated production caller. They are retained as observability/test/readback surfaces.
 - [x] F_DEAD reconciliation progress: prior 62 + 12 = **74 / 1,458** classified; **1,384 remain**.
 - [x] Regression coverage: `Aate7577TruthCounterReadbackTrancheTest`.
+
+
+## V5.0.7578 — F_DEAD engine diagnostic counter-readback tranche (12 rows)
+
+F_DEAD triage continues with non-authoritative engine diagnostics and telemetry counters. These functions expose already-maintained state; they do not create trade intent, alter score/size, authorize execution, or schedule exits.
+
+- [x] `CatastrophicExitLatency.activeTraceCount` — **TRACE STATE READBACK** over active catastrophic-exit traces.
+- [x] `CatastrophicExitLatency.emittedTraceCount` — **TRACE COUNTER READBACK** over completed latency traces.
+- [x] `ExitCoordinatorHeartbeat.falseResetsPreventedCount` — **DIAGNOSTIC COUNTER READBACK**.
+- [x] `ExitCoordinatorHeartbeat.justifiedResetCount` — **DIAGNOSTIC COUNTER READBACK**.
+- [x] `ExitCoordinatorHeartbeat.staleResetCount` — **DIAGNOSTIC COUNTER READBACK**.
+- [x] `ForensicReconciler6377.lifetimeMismatchCount` — **FORENSIC COUNTER READBACK**.
+- [x] `ForensicReconciler6377.lifetimePassCount` — **FORENSIC COUNTER READBACK**.
+- [x] `LoopCycleEmergencyEvict6352.totalShedCount` — **RUNTIME SHED COUNTER READBACK**.
+- [x] `RejectionTelemetry.totalSessionCount` — **SESSION TELEMETRY READBACK**.
+- [x] `RuntimeRepairState.staleLocksClearedCount` — **REPAIR TELEMETRY READBACK**.
+- [x] `ScannerFanoutDedupe6374.admitCount` — **DEDUPE COUNTER READBACK**.
+- [x] `ScannerFanoutDedupe6374.skipCount` — **DEDUPE COUNTER READBACK**.
+- [x] None of these rows justifies a fabricated production caller; their underlying mutating/decision paths are audited separately.
+- [x] F_DEAD reconciliation progress: prior 74 + 12 = **86 / 1,458** classified; **1,372 remain**.
+- [x] Regression coverage: `Aate7578EngineDiagnosticReadbackTrancheTest`.
