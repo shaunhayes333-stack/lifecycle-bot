@@ -2555,3 +2555,12 @@ Repairs:
 - [x] The mirror is restricted to the canonical 12 meme specialists: QUALITY, BLUECHIP, SHITCOIN, CYCLIC, EXPRESS, CORE, MOONSHOT, PROJECT_SNIPER, DIP_HUNTER, MANIPULATED, TREASURY, CASHGEN.
 - [x] No lane threshold, score floor, TP/SL, sizing multiplier, allocation, FDG decision, or execution safety rule changed.
 - [x] Regression coverage: `Aate7607TwelveLaneParityRepairTest`.
+
+
+## V5.0.7608 — 12-lane native-brain liveness visibility
+
+- [x] Each configured meme specialist now reports native brain called/allow/reject/error counts in the runtime liveness row.
+- [x] Each row includes latest native eligible/score/confidence/reason.
+- [x] This distinguishes native-strategy rejection from router/election/causal starvation without relaxing any thresholds.
+- [x] No trading decision, size, TP/SL, allocation, FDG or execution authority changed.
+- [x] Regression coverage: `Aate7608TwelveLaneNativeLivenessTelemetryTest`.

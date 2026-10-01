@@ -26,10 +26,11 @@ object SpecialistBrainBridge7542 {
     private val allowed=ConcurrentHashMap<String,AtomicLong>()
     private val rejected=ConcurrentHashMap<String,AtomicLong>()
     private val errors=ConcurrentHashMap<String,AtomicLong>()
+    private val lastOpinion=ConcurrentHashMap<String,Opinion>()
 
     private fun bump(m:ConcurrentHashMap<String,AtomicLong>,lane:String){m.computeIfAbsent(lane){AtomicLong(0)}.incrementAndGet()}
     private fun noGrade(reason:String)=listOf("ALREADY_","MAX_","DAILY_LIMIT","RECENT_","HYDRATING","DISABLED","POSITION_ACTIVE","COOLDOWN").any{reason.uppercase().contains(it)}
-    private fun record(o:Opinion){bump(called,o.lane);bump(if(o.eligible)allowed else rejected,o.lane);try{
+    private fun record(o:Opinion){lastOpinion[o.lane]=o;bump(called,o.lane);bump(if(o.eligible)allowed else rejected,o.lane);try{
         PipelineHealthCollector.labelInc("NATIVE_BRAIN_CALLED_7542_${o.lane}")
         PipelineHealthCollector.labelInc(if(o.eligible)"NATIVE_BRAIN_ALLOW_7542_${o.lane}" else "NATIVE_BRAIN_REJECT_7542_${o.lane}")
     }catch(_:Throwable){}}
@@ -38,7 +39,10 @@ object SpecialistBrainBridge7542 {
     private fun err(lane:String,t:Throwable):Opinion{bump(called,lane);bump(errors,lane);try{
         PipelineHealthCollector.labelInc("NATIVE_BRAIN_CALLED_7542_$lane");PipelineHealthCollector.labelInc("NATIVE_BRAIN_ERROR_7542_$lane")
         ForensicLogger.lifecycle("NATIVE_BRAIN_ERROR_7542","lane=$lane error=${t.javaClass.simpleName} message=${t.message?.take(100)?:""}")
-    }catch(_:Throwable){};return Opinion(lane,false,0,0,0.0,"BRAIN_ERROR_${t.javaClass.simpleName}","NONE","brain_error","brain_error",gradeable=false,authoritative=false)}
+    }catch(_:Throwable){};return Opinion(lane,false,0,0,0.0,"BRAIN_ERROR_${t.javaClass.simpleName}","NONE","brain_error","brain_error",gradeable=false,authoritative=false).also{lastOpinion[lane]=it}}
+
+    data class LaneRuntime7542(val lane:String,val called:Long,val allowed:Long,val rejected:Long,val errors:Long,val eligible:Boolean,val score:Int,val confidence:Int,val authoritative:Boolean,val reason:String)
+    fun laneRuntime7542(lane:String):LaneRuntime7542 { val k=lane.uppercase(); val o=lastOpinion[k]; return LaneRuntime7542(k,called[k]?.get()?:0L,allowed[k]?.get()?:0L,rejected[k]?.get()?:0L,errors[k]?.get()?:0L,o?.eligible?:false,o?.score?:0,o?.confidence?:0,o?.authoritative?:false,o?.reason.orEmpty()) }
 
     private fun ensureInitialized(paper:Boolean){
         val ctx=AATEApp.appContextOrNull()
