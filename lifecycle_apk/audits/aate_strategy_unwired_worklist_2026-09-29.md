@@ -2332,3 +2332,18 @@ These remaining network rows are provider I/O wrappers, batching helpers, wallet
 - [x] `SwapQuote.isTransient` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
 - [x] F_DEAD reconciliation progress: prior 499 + 21 = **520 / 1,458** classified; **938 remain**.
 - [x] Regression coverage: `Aate7599NetworkProviderHelperTrancheTest`.
+
+
+## V5.0.7600 — F_DEAD lab/backtest-only tranche (7 rows)
+
+These rows belong to explicit LAB/backtest/background research surfaces. They are intentionally outside canonical LIVE/PAPER execution authority unless a separately reviewed transfer contract promotes an artifact.
+
+- [x] `AsyncStrategyLab.requestBackgroundProviderHypothesis` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
+- [x] `BacktestEngine.assetClassBreakdown` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
+- [x] `BacktestEngine.compareStrategies` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
+- [x] `BacktestEngine.runAndLog` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
+- [x] `LlmLabEngine.requestTransferToMainPaper` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
+- [x] `LlmLabStore.adjustLiveBalance` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
+- [x] `LlmLabStore.getLiveBalance` — **LAB/BACKTEST/BACKGROUND RESEARCH SURFACE**.
+- [x] F_DEAD reconciliation progress: prior 520 + 7 = **527 / 1,458** classified; **931 remain**.
+- [x] Regression coverage: `Aate7600LabBacktestTrancheTest`.
