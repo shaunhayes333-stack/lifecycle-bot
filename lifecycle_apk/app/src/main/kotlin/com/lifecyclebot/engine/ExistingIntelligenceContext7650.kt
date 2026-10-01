@@ -151,8 +151,9 @@ object ExistingIntelligenceContext7650 {
             state: SuperWorldModel7634.LatentState? = null,
         ): Double {
             val topology = evidenceTopology7651(policy, state)
-            val interaction = SuperEvidenceInteraction7653.adjustment(lane, topology.familyUtility)
-            return (topology.decorrelatedUtility + interaction).coerceIn(-6.0, 6.0)
+            val budgeted = SuperEpistemicBudget7664.apply(topology)
+            val interaction = SuperEvidenceInteraction7653.adjustment(lane, budgeted.familyUtility)
+            return (budgeted.utility + interaction).coerceIn(-6.0, 6.0)
         }
 
         fun contributionTag(): String {

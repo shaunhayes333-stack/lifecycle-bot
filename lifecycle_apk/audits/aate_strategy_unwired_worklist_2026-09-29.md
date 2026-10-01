@@ -3319,3 +3319,16 @@ The next census tranche deliberately prevents duplicate promotion of intelligenc
 - [x] This reduces passenger credit: a family merely present on a winner no longer receives the same learning signal as the family that actually moved the decision.
 - [x] No execution, provider, capital, sizing or safety authority was added.
 - [x] Regression coverage: `Aate7663CounterfactualAblationTest`.
+
+
+## V5.0.7664 - fixed epistemic budget for the expanding estate
+
+- [x] Added `SuperEpistemicBudget7664`.
+- [x] Total family L1 evidence budget is capped at 6.0 planner utility regardless of how many brains/families are bridged.
+- [x] Each family is individually capped at +/-2.5 before aggregation.
+- [x] With three or more independent families, no family may consume more than 55% of the L1 budget.
+- [x] Excess concentration is removed rather than redistributed, so adding more voices cannot manufacture conviction.
+- [x] Budgeted utility can only preserve or attenuate the existing de-correlated opinion; it cannot amplify it.
+- [x] Learned family interaction operates on the budgeted family map.
+- [x] No execution, safety, capital, sizing or provider authority changed.
+- [x] Regression coverage: `Aate7664EpistemicBudgetTest`.

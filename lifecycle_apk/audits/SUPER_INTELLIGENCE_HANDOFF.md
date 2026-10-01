@@ -57,6 +57,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7661: lane x latent-state expert coalition learning for already-participating CrossTalk experts; coalition trust remains subordinate to family and individual expert trust.
 - 5.0.7662: estate-aware adaptive deliberation; expanded intelligence disagreement/breadth now controls recursive depth and imagination budget before policy search.
 - 5.0.7663: counterfactual leave-one-family-out ablation; family trust now learns from marginal decision contribution, not mere presence on winning/losing trades.
+- 5.0.7664: fixed epistemic budget; expanding the estate cannot increase conviction by headcount, and no broad-estate family may consume more than 55% of the L1 evidence budget.
 
 ## Existing intelligence estate explicitly in scope
 
