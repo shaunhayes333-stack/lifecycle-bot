@@ -26,6 +26,8 @@ object ExistingIntelligenceContext7650 {
     ) {
         fun evidenceTopology7651(policy: SuperPolicyTree7638.Policy): SuperEvidenceTopology7651.Result {
             val observations = ArrayList<SuperEvidenceTopology7651.Observation>(7)
+            fun trust(family: SuperEvidenceTopology7651.Family): Double =
+                SuperEvidenceReliability7652.trust(lane, family)
 
             // Native specialist opinion is an independent lane-native family.
             val specialistUtility = when (specialistEligible) {
@@ -39,6 +41,7 @@ object ExistingIntelligenceContext7650 {
             }
             if (specialistUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
                 "native_specialist", SuperEvidenceTopology7651.Family.NATIVE_SPECIALIST, specialistUtility,
+                trust(SuperEvidenceTopology7651.Family.NATIVE_SPECIALIST),
             )
 
             // These are both aggregate/cross-check surfaces over lower-level brains.
@@ -49,12 +52,15 @@ object ExistingIntelligenceContext7650 {
             val consensusUtility = ((legacyConsensusMult - 1.0) * 3.0).coerceIn(-1.5, 0.3)
             if (edgeScoreUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
                 "ultimate_edge_score", SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK, edgeScoreUtility,
+                trust(SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK),
             )
             if (edgeSizeUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
                 "ultimate_edge_size", SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK, edgeSizeUtility,
+                trust(SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK),
             )
             if (consensusUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
                 "legacy_consensus", SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK, consensusUtility,
+                trust(SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK),
             )
 
             // HypothesisEngine and AsyncStrategyLab are descendants of the same
@@ -71,10 +77,12 @@ object ExistingIntelligenceContext7650 {
             if (hypothesisBias != 0.0) observations += SuperEvidenceTopology7651.Observation(
                 "strategy_hypothesis", SuperEvidenceTopology7651.Family.STRATEGY_LEARNING,
                 strategyPolicyUtility(hypothesisBias),
+                trust(SuperEvidenceTopology7651.Family.STRATEGY_LEARNING),
             )
             if (labBias != 0.0) observations += SuperEvidenceTopology7651.Observation(
                 "reviewed_lab", SuperEvidenceTopology7651.Family.STRATEGY_LEARNING,
                 strategyPolicyUtility(labBias),
+                trust(SuperEvidenceTopology7651.Family.STRATEGY_LEARNING),
             )
 
             // Counterfactual replay is a separate empirical ancestry family.
@@ -97,7 +105,9 @@ object ExistingIntelligenceContext7650 {
                 }
                 if (mctsUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
                     "counterfactual_mcts", SuperEvidenceTopology7651.Family.COUNTERFACTUAL_REPLAY,
-                    mctsUtility, mctsConfidence.coerceIn(0.0, 1.0),
+                    mctsUtility,
+                    (mctsConfidence.coerceIn(0.0, 1.0) *
+                        trust(SuperEvidenceTopology7651.Family.COUNTERFACTUAL_REPLAY)).coerceIn(0.0, 1.15),
                 )
             }
 

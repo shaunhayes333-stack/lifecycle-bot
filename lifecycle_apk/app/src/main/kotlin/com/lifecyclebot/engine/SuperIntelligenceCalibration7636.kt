@@ -28,6 +28,7 @@ object SuperIntelligenceCalibration7636 {
         val treePropensity: Double,
         val arbiterDominant: String,
         val arbiterMetaConfidence: Double,
+        val evidenceFamilyUtility7652: Map<SuperEvidenceTopology7651.Family, Double>,
         val atMs: Long,
     )
 
@@ -71,6 +72,7 @@ object SuperIntelligenceCalibration7636 {
         critic: SuperAdversarialCritic7635.Review,
         tree: SuperPolicyTree7638.Result,
         arbiter: SuperReasoningArbiter7639.Decision,
+        evidenceTopology7652: SuperEvidenceTopology7651.Result? = null,
     ) {
         if (mint.isBlank()) return
         val laneKey = lane.trim().uppercase().ifBlank { world.lane }
@@ -86,6 +88,7 @@ object SuperIntelligenceCalibration7636 {
             treePropensity = tree.selectionPropensity,
             arbiterDominant = arbiter.dominant,
             arbiterMetaConfidence = arbiter.metaConfidence,
+            evidenceFamilyUtility7652 = evidenceTopology7652?.familyUtility ?: emptyMap(),
             atMs = System.currentTimeMillis(),
         )
         try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_DECISION_STAMPED_7636") } catch (_: Throwable) {}
@@ -168,6 +171,13 @@ object SuperIntelligenceCalibration7636 {
                 state = stamp.world.latentState,
                 policy = stamp.treePolicy,
                 selectionPropensity = stamp.treePropensity,
+                realizedReturnPct = env.realizedReturnPct,
+            )
+        } catch (_: Throwable) {}
+        try {
+            SuperEvidenceReliability7652.recordOutcome(
+                lane = stamp.lane,
+                familyUtility = stamp.evidenceFamilyUtility7652,
                 realizedReturnPct = env.realizedReturnPct,
             )
         } catch (_: Throwable) {}
@@ -339,6 +349,7 @@ object SuperIntelligenceCalibration7636 {
             ro.put(JSONObject().put("k", k).put("n", v.get()))
         }
         root.put("reasonOutcomes7641", ro)
+        root.put("evidenceReliability7652", SuperEvidenceReliability7652.exportJson())
         return root.toString()
     }
 
@@ -383,6 +394,7 @@ object SuperIntelligenceCalibration7636 {
                 if (k.isNotBlank()) laneReasoningOutcomes7641[k] =
                     java.util.concurrent.atomic.AtomicLong(o.optLong("n", 0L))
             }
+            SuperEvidenceReliability7652.importJson(root.optJSONArray("evidenceReliability7652") ?: JSONArray())
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_CALIBRATION_RESTORED_7637") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }

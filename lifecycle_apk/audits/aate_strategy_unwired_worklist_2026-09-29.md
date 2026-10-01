@@ -3154,3 +3154,18 @@ The integrated Super Intelligence stack now reasons about evidence provenance in
 - [x] De-correlation can only preserve or reduce evidence magnitude and remains bounded to +/-6 planner utility points.
 - [x] No provider I/O, LLM call, execution, capital, sizing, hard-veto, threshold or safety authority was added.
 - [x] Regression coverage: `Aate7651EvidenceTopologyTest`.
+
+
+## V5.0.7652 - position-bound evidence-family reliability
+
+The evidence ancestry graph now learns which independent reasoning families deserve trust in each specialist lane.
+
+- [x] Added `SuperEvidenceReliability7652`, keyed by lane x evidence ancestry family.
+- [x] The chosen policy's family utilities are frozen into `SuperIntelligenceCalibration7636.DecisionStamp` and therefore bind to the exact canonical positionId at OPEN.
+- [x] Terminal settlement grades whether each family's signed support agreed with the realized trade direction, plus bounded signed realized return.
+- [x] Trust stays neutral until 8 exact position-bound outcomes and remains shrunk toward neutral while samples are small.
+- [x] Trust is lane-local: good CounterfactualReplay evidence in MOONSHOT does not automatically increase its weight in CORE.
+- [x] Learned family trust is fed back as observation confidence before evidence de-correlation, so weak ancestry is attenuated without becoming a hard gate.
+- [x] Reliability state persists inside the existing Super Intelligence calibration persistence payload.
+- [x] Trust is bounded to 0.65x..1.15x and cannot create a veto, execute, size, reserve capital or bypass safety.
+- [x] Regression coverage: `Aate7652EvidenceReliabilityTest`.
