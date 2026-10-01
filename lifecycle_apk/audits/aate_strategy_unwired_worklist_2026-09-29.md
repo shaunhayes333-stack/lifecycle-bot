@@ -2564,3 +2564,13 @@ Repairs:
 - [x] This distinguishes native-strategy rejection from router/election/causal starvation without relaxing any thresholds.
 - [x] No trading decision, size, TP/SL, allocation, FDG or execution authority changed.
 - [x] Regression coverage: `Aate7608TwelveLaneNativeLivenessTelemetryTest`.
+
+
+## V5.0.7609 — specialist architecture-state visibility
+
+- [x] Role-liveness rows now distinguish native rejection from live quarantine, buyer disablement and ownership aliasing.
+- [x] MANIPULATED reports its real buyer-enabled flag rather than merely runtimeAlive.
+- [x] CASHGEN reports `ownershipModel=TREASURY_SHARED_EXEC_ALIAS` until an independent canonical execution path exists.
+- [x] Live quarantine state is shown per lane from `LaneQuarantineController`.
+- [x] Read-only diagnostics only; no entry permission, sizing, FDG, TP/SL or execution behaviour changed.
+- [x] Regression coverage: `Aate7609SpecialistArchitectureStateTest`.

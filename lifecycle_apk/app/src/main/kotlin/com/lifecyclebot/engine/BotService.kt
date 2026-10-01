@@ -31,6 +31,7 @@ class BotService : Service() {
     companion object {
         // V5.0.7395 — MANIPULATED is a danger overlay, never a buyer (operator decision).
         private const val MANIPULATED_IS_A_BUYER_7395 = false
+        fun manipulatedBuyerEnabled7609(): Boolean = MANIPULATED_IS_A_BUYER_7395
 
         // V5.9.1355 P0.3 — WAIT-override dust-probe controls.
         // Below this liquidity a weak-WAIT candidate is hard-rejected from EXEC
