@@ -1882,3 +1882,32 @@ These rows are callback registration, explicit unwatch/migration controls, cache
 - [x] `PerpsTradeVisualizer.clearAllHistory` — **PRODUCT VISUALIZATION CACHE RESET**.
 - [x] F_DEAD reconciliation progress: prior 164 + 10 = **174 / 1,458** classified; **1,284 remain**.
 - [x] Regression coverage: `Aate7586MaintenanceCallbackControlTrancheTest`.
+
+
+## V5.0.7587 — F_DEAD analytics/advisory tranche (21 rows)
+
+These rows are performance snapshots, rankings, heatmap summaries, curriculum progress or advisory calculations. They may inform UI/research/explicit policy consumers, but they are not independent execution authorities and must not be wired directly into scanner/FDG merely to eliminate dead-code counts.
+
+- [x] `ArbLearning.getTypeStats` — **ARBITRAGE LEARNING SNAPSHOT**.
+- [x] `EducationSubLayerAI.getLayerLevel` — **CURRICULUM PROGRESS READBACK**.
+- [x] `EducationSubLayerAI.getLayerLevelProgress` — **CURRICULUM PROGRESS READBACK**.
+- [x] `EducationSubLayerAI.getStockLearningStats` — **STOCK LEARNING REPORT**.
+- [x] `EducationSubLayerAI.getTopWinningReasons` — **LEARNING RANKING REPORT**.
+- [x] `EducationSubLayerAI.getTopLosingReasons` — **LEARNING RANKING REPORT**.
+- [x] `PerpsPerformanceAttribution.getLayerStats` — **ATTRIBUTION SNAPSHOT**.
+- [x] `PerpsPerformanceAttribution.getTopLayers` — **RANKING REPORT**.
+- [x] `PerpsPerformanceAttribution.getBottomLayers` — **RANKING REPORT**.
+- [x] `PerpsPerformanceAttribution.getLayersNeedingAttention` — **ANALYTICS REPORT**.
+- [x] `PerpsPerformanceAttribution.getSuggestedWeightAdjustments` — **ADVISORY OUTPUT**, not direct weight mutation.
+- [x] `PerpsPositionSizer.getMarketStats` — **MARKET PERFORMANCE SNAPSHOT**.
+- [x] `PerpsTradeHeatmap.getAvgPnl` — **CELL STATISTIC HELPER**.
+- [x] `PerpsTradeHeatmap.getHeatmapData` — **UI/ANALYTICS AGGREGATE**.
+- [x] `PerpsTradeHeatmap.getBestSetup` — **HEATMAP ADVISORY**.
+- [x] `PerpsTradeHeatmap.getBestTierForMarket` — **HEATMAP ADVISORY**.
+- [x] `PerpsTradeHeatmap.getBestTimeSlot` — **HEATMAP ADVISORY**.
+- [x] `QuantMindV2.getOverallGrade` — **QUANT STATE READBACK**.
+- [x] `QuantMindV2.getRegimePerformance` — **QUANT ANALYTICS SNAPSHOT**.
+- [x] `QuantMindV2.getStrategyMetrics` — **QUANT ANALYTICS SNAPSHOT**.
+- [x] `QuantMindV2.getRegimeSharpe` — **QUANT METRIC READBACK**.
+- [x] F_DEAD reconciliation progress: prior 174 + 21 = **195 / 1,458** classified; **1,263 remain**.
+- [x] Regression coverage: `Aate7587AnalyticsAdvisoryTrancheTest`.
