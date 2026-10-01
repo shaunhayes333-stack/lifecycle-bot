@@ -62,6 +62,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7666: AITrustNetwork audit repair. UnifiedScorer already consumed getTrustWeight; rolling trust state now persists across restart instead of resetting to neutral.
 - 5.0.7667: ExecutionPathAI audit repair. Canonical receipts and endpoint failures now train execution confidence; unknown slippage stays unknown. Also reconciled stale AdvancedExitManager and LiquidityFragility audit rows without duplicate wiring.
 - 5.0.7668: CorrelationScanner history moved off UI dependence into the background perps market-data loop; full correlation scan remains background/advisory. Education vote/scan firehose rows reconciled as telemetry, not missing terminal learning.
+- 5.0.7669: dual specialist estate scope made explicit (12+ meme and 12+ crypto specialist brains/tactics; crypto desk lanes are only one subset). Project Sniper's TP ladder now advances extractedPct only from terminal canonical partial receipts, idempotently across paper/live.
 
 ## Existing intelligence estate explicitly in scope
 
@@ -111,3 +112,12 @@ Read this file first, then read the tail of:
 `lifecycle_apk/audits/aate_strategy_unwired_worklist_2026-09-29.md`
 
 Then inspect the latest commits on main and continue from the newest version. Do not restart the architectural analysis from scratch.
+
+
+## Specialist parity rule added 2026-10-01
+
+Treat these as separate estates during every audit/build:
+- MEME specialist estate: 12+ native lanes/brains.
+- CRYPTO/ALT specialist estate: 12+ crypto-native specialists/tactics plus the meme-style crypto desk. `CryptoLaneDesk7391` currently exposes 9 desk lanes, which is not the total crypto-brain count.
+
+Do not use success in one estate as evidence that the other estate is healthy. Every repair sweep must check intake, scoring, strategy directionality, learning, exit ownership, and outcome feedback independently for both.

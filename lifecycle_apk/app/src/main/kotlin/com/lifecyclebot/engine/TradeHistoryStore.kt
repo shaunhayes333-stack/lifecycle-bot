@@ -1027,6 +1027,32 @@ object TradeHistoryStore {
             return
         }
         try { LearningRejectLabelSentinel.inspect(tradeToStore, "TradeHistoryStore.recordTrade.prePersistence") } catch (_: Throwable) {}
+
+        // V5.0.7669 - Project Sniper's partial ladder previously never advanced:
+        // checkExit() reads mission.extractedPct, but updateExtracted had no caller.
+        // Advance only from a terminal, typed canonical PARTIAL_SELL projection.
+        // Cumulative original-vs-remaining raw makes this idempotent across replay.
+        try {
+            val terminal7669 = com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236
+                .isTerminalOutcome(tradeToStore.mode, tradeToStore.proofState)
+            val lane7669 = normalizeTradeModeName(tradeToStore.tradingMode).uppercase()
+            if (
+                terminal7669 &&
+                tradeToStore.side.equals("PARTIAL_SELL", true) &&
+                lane7669 == "PROJECT_SNIPER" &&
+                tradeToStore.entryRawQty > java.math.BigInteger.ZERO &&
+                tradeToStore.canonicalConsumedRaw > java.math.BigInteger.ZERO &&
+                tradeToStore.remainingRawQty >= java.math.BigInteger.ZERO &&
+                tradeToStore.remainingRawQty < tradeToStore.entryRawQty
+            ) {
+                com.lifecyclebot.v3.scoring.ProjectSniperAI.syncExtractedFromCanonicalPartial7669(
+                    mint = tradeToStore.mint,
+                    originalRaw = tradeToStore.entryRawQty,
+                    remainingRaw = tradeToStore.remainingRawQty,
+                )
+            }
+        } catch (_: Throwable) {}
+
         synchronized(lock) {
             trades.add(tradeToStore)
             journalRevision7343.incrementAndGet()

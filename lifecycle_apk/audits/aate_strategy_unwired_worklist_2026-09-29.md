@@ -3405,3 +3405,26 @@ Findings:
 
 Additional audit reconciliation:
 - [x] EducationSubLayerAI rows 380/381 (`recordLayerVote`, `recordScanDecision`) are telemetry firehoses into `signalStats`, not the terminal layer-accuracy/expectancy/approval learner. Terminal education learning is already active through `recordSimpleTradeOutcome` / `recordTradeOutcomeAcrossAllLayers`; no high-volume duplicate firehose wiring added.
+
+
+## V5.0.7669 - dual specialist estate scope + Project Sniper partial-ladder repair
+
+Operator scope clarification:
+- Meme side has 12+ specialist lanes/brains.
+- Crypto/alt side also has 12+ specialist brains/tactics; `CryptoLaneDesk7391` currently exposes 9 meme-style desk lanes, while additional crypto-native brains/tactics sit outside that desk set.
+- Audit acceptance must therefore track **meme specialist parity** and **crypto specialist parity** separately. A healthy meme desk does not prove the crypto estate is healthy, and vice versa.
+
+Project Sniper audit row:
+- F_DEAD row 1002 `ProjectSniperAI.updateExtracted` exposed a real causal defect.
+- [x] `checkExit()` uses `mission.extractedPct` to suppress repeated TP1/TP2/TP3, but no production path advanced it.
+- [x] Added `syncExtractedFromCanonicalPartial7669`, deriving cumulative sold percent from canonical original/remaining raw quantity.
+- [x] TradeHistoryStore projects extraction state only for terminal, typed canonical `PARTIAL_SELL` rows in the PROJECT_SNIPER lane.
+- [x] Both paper and live terminal semantics are supported through `LiveTerminalSemanticsAuthority7236`.
+- [x] Projection is idempotent: a replayed 33% partial reasserts the same cumulative percent rather than adding another 33%.
+- [x] Advisory exit signals do not mutate extraction state; only confirmed canonical partial truth does.
+- [x] Legacy `updateExtracted` remains as a bounded compatibility setter but is no longer the production path.
+- [x] Regression coverage: `Aate7669ProjectSniperPartialStateRepairTest`.
+
+Audit reconciliation batched with this repair:
+- [x] F_DEAD row 514 `FluidLearningAI.recordAltsTradeStart` is a reset/control hook: it zeroes alt cached learning progress. It must remain unwired from normal trade starts.
+- [x] F_DEAD rows 895/896 `PerpsLearningBridge.learnFromStockTrade/recordMemeTrade` are superseded wrappers. Stock learning is live through `recordStockTrade`; meme per-layer learning is live through `LayerVoteStore.closeoutMeme -> learnFromAssetTrade`.

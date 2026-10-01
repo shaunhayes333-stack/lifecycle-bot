@@ -782,8 +782,41 @@ object ProjectSniperAI {
             "${pnlSol.fmt(4)}◎ | hold=${(System.currentTimeMillis() - mission.entryTime)/1000}s")
     }
     
+    /**
+     * V5.0.7669 - cumulative canonical partial projection.
+     *
+     * The TP ladder reads extractedPct to prevent the same rung firing again.
+     * Set it from original-vs-remaining canonical raw quantity, never from an
+     * advisory exit request. Replaying the same receipt is idempotent.
+     */
+    fun syncExtractedFromCanonicalPartial7669(
+        mint: String,
+        originalRaw: java.math.BigInteger,
+        remainingRaw: java.math.BigInteger,
+    ) {
+        if (mint.isBlank() || originalRaw <= java.math.BigInteger.ZERO) return
+        if (remainingRaw < java.math.BigInteger.ZERO || remainingRaw > originalRaw) return
+        val mission = activeMissions[mint] ?: return
+        val sold = originalRaw.subtract(remainingRaw)
+        val pct = try {
+            sold.multiply(java.math.BigInteger.valueOf(100L))
+                .divide(originalRaw)
+                .toInt()
+                .coerceIn(0, 100)
+        } catch (_: Throwable) { return }
+        if (pct > mission.extractedPct) {
+            mission.extractedPct = pct
+            try { save(force = true) } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("PROJECT_SNIPER_EXTRACTED_CANONICAL_7669")
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /** Legacy/manual compatibility setter. Production partials use 7669. */
     fun updateExtracted(mint: String, pct: Int) {
-        activeMissions[mint]?.let { it.extractedPct = pct }
+        activeMissions[mint]?.let { it.extractedPct = pct.coerceIn(0, 100) }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
