@@ -3280,3 +3280,16 @@ The next census tranche deliberately prevents duplicate promotion of intelligenc
 - [x] CrossTalk family influence is modulated by trust of only the experts that participated; scanner confidence is modulated by the exact winning arb model.
 - [x] Individual experts do not become independent votes or execution authorities.
 - [x] Regression coverage: `Aate7660ExpertCreditAssignmentTest`.
+
+
+## V5.0.7661 - contextual expert coalition learning
+
+- [x] Added `SuperExpertCoalition7661` to learn whether already-participating expert sets work well together.
+- [x] Coalition identity is lane x latent-state x sorted expert set.
+- [x] Only CrossTalk experts that were actually present in the exact chosen-policy decision can form a coalition.
+- [x] Coalition trust remains neutral until 10 exact position-bound outcomes and is bounded to 0.78x..1.12x.
+- [x] Coalition trust multiplies the cached CrossTalk family contribution after family and individual expert trust; it never creates an independent vote.
+- [x] A Whale+Momentum coalition can become trusted in MOONSHOT/ACCELERATING while remaining neutral in CORE or DISTRIBUTING.
+- [x] Coalition state persists inside Super Intelligence calibration persistence.
+- [x] No expert invocation, provider I/O, execution, capital, sizing or safety authority was added.
+- [x] Regression coverage: `Aate7661ExpertCoalitionTest`.

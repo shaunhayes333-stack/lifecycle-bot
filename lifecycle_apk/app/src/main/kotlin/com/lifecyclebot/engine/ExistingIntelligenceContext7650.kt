@@ -95,7 +95,7 @@ object ExistingIntelligenceContext7650 {
 
             // Wider intelligence estate: read-only/cached families that were not
             // explicitly represented in the 7650 integration.
-            val crossUtility7654 = estate7654.crossTalkUtility(policy)
+            val crossUtility7654 = estate7654.crossTalkUtility(policy, lane, state)
             if (kotlin.math.abs(crossUtility7654) >= 0.02) observations += SuperEvidenceTopology7651.Observation(
                 "ai_crosstalk", SuperEvidenceTopology7651.Family.AI_CROSSTALK,
                 crossUtility7654, 0.80,

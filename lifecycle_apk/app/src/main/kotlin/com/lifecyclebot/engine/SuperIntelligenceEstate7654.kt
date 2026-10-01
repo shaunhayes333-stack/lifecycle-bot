@@ -59,14 +59,24 @@ object SuperIntelligenceEstate7654 {
             return out
         }
 
-        fun crossTalkUtility(policy: SuperPolicyTree7638.Policy): Double {
+        fun crossTalkUtility(
+            policy: SuperPolicyTree7638.Policy,
+            lane: String = "",
+            state: SuperWorldModel7634.LatentState? = null,
+        ): Double {
             val s = crossTalk ?: return 0.0
             val trust = if (s.participatingAIs.isEmpty()) 1.0 else
                 s.participatingAIs.distinct().map {
                     SuperExpertTrust7660.trust("CROSSTALK:" + it.uppercase())
                 }.average().coerceIn(0.70, 1.15)
+            val coalitionTrust = if (state == null || s.participatingAIs.size < 2) 1.0
+                else SuperExpertCoalition7661.trust(
+                    lane = lane,
+                    state = state,
+                    experts = s.participatingAIs.map { "CROSSTALK:" + it.uppercase() },
+                )
             val directional = (s.entryBoost / 8.0 + s.confidenceBoost / 12.0)
-                .coerceIn(-2.0, 2.0) * trust
+                .coerceIn(-2.0, 2.0) * trust * coalitionTrust
             return when (policy) {
                 SuperPolicyTree7638.Policy.WAIT_REASSESS -> -directional * 0.45
                 SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE -> directional * 0.55

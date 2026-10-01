@@ -206,6 +206,14 @@ object SuperIntelligenceCalibration7636 {
             )
         } catch (_: Throwable) {}
         try {
+            SuperExpertCoalition7661.recordOutcome(
+                lane = stamp.lane,
+                state = stamp.world.latentState,
+                expertUtility = stamp.expertUtility7660,
+                realizedReturnPct = env.realizedReturnPct,
+            )
+        } catch (_: Throwable) {}
+        try {
             SuperLatentTransitionModel7648.recordOutcome(
                 lane = stamp.lane,
                 state = stamp.world.latentState,
@@ -377,6 +385,7 @@ object SuperIntelligenceCalibration7636 {
         root.put("evidenceInteractions7653", SuperEvidenceInteraction7653.exportJson())
         root.put("evidenceContextTrust7656", SuperEvidenceContextTrust7656.exportJson())
         root.put("expertTrust7660", SuperExpertTrust7660.exportJson())
+        root.put("expertCoalitions7661", SuperExpertCoalition7661.exportJson())
         return root.toString()
     }
 
@@ -425,6 +434,7 @@ object SuperIntelligenceCalibration7636 {
             SuperEvidenceInteraction7653.importJson(root.optJSONArray("evidenceInteractions7653") ?: JSONArray())
             SuperEvidenceContextTrust7656.importJson(root.optJSONArray("evidenceContextTrust7656") ?: JSONArray())
             SuperExpertTrust7660.importJson(root.optJSONArray("expertTrust7660") ?: JSONArray())
+            SuperExpertCoalition7661.importJson(root.optJSONArray("expertCoalitions7661") ?: JSONArray())
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_CALIBRATION_RESTORED_7637") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }
