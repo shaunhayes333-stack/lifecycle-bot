@@ -3293,3 +3293,15 @@ The next census tranche deliberately prevents duplicate promotion of intelligenc
 - [x] Coalition state persists inside Super Intelligence calibration persistence.
 - [x] No expert invocation, provider I/O, execution, capital, sizing or safety authority was added.
 - [x] Regression coverage: `Aate7661ExpertCoalitionTest`.
+
+
+## V5.0.7662 - estate-aware adaptive deliberation
+
+- [x] Added `SuperEstateDeliberation7662` so AATE's reasoning depth sees the expanded intelligence estate before policy search.
+- [x] PredictiveEntryOracle now reads `ExistingIntelligenceContext7650` before final deliberation allocation.
+- [x] High cross-family conflict can add up to two reasoning levels.
+- [x] Broad evidence with a large de-correlation gap receives deeper review because apparent consensus may be ancestry duplication.
+- [x] Broad mature high-agreement evidence can use a shallow fast path when value-at-risk is not high.
+- [x] The refiner updates only local depth/rollout budget and uncertainty; it cannot admit/refuse, execute, size or override safety.
+- [x] Policy search continues to receive the same bounded existing-intelligence prior, now with compute allocated according to estate complexity.
+- [x] Regression coverage: `Aate7662EstateAwareDeliberationTest`.
