@@ -821,6 +821,17 @@ object ToolkitSignalSheet {
                 "nativeBrain7542;${native.reason}"
             )
         }
+        // V5.0.7621 — publish the exact current native-qualified desk set into
+        // the election coordinator. Scanner/source affinity is useful evidence
+        // but is not equivalent to this candidate's specialist qualification.
+        try {
+            val cv7621 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            LaneExecutionCoordinator.registerQualifiedContest7621(
+                ts.mint,
+                cv7621,
+                deskHypotheses.keys,
+            )
+        } catch (_: Throwable) {}
         // V5.0.7346 — depends only on ts.mint; was re-resolved per hypothesis.
         val causalId6647 = "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"
         deskHypotheses.values.forEach { h ->

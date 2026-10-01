@@ -2743,3 +2743,17 @@ Repair:
 - [x] Sealed FDG ownership remains authoritative and still replaces any pre-seal owner.
 - [x] No score floor, lane strategy threshold, FDG rule, mark rule, sizing multiplier, TP/SL, allocation or hard safety changed.
 - [x] Regression coverage: `Aate7620QualifiedPreFdgElectionParityTest`.
+
+
+## V5.0.7621 — candidate-specific native-qualified election set
+
+Post-7620 source audit found one remaining ownership ambiguity: the fair pre-FDG contest was built from persistent scanner/registry affinity plus the requesting lane. Affinity is only a hint and can be stale/incomplete; it is not the same thing as the specialists whose native brains qualified this exact candidate.
+
+- [x] `ToolkitSignalSheet` publishes the exact current `deskHypotheses.keys` set for `mint + candidateVersion`.
+- [x] `LaneExecutionCoordinator` stores that set with candidate-TTL semantics and **replaces**, rather than accumulates, the set for the generation.
+- [x] Pre-FDG election prefers this exact native-qualified set when available.
+- [x] Scanner/source affinity remains a bootstrap fallback only when no candidate-qualified set has been published yet.
+- [x] Observer/non-owner lanes remain excluded.
+- [x] Sealed FDG ownership remains immutable authority.
+- [x] No lane threshold, scoring rule, FDG verdict rule, mark rule, sizing multiplier, TP/SL, allocation or safety gate changed.
+- [x] Regression coverage: `Aate7621CandidateQualifiedElectionSetTest`.

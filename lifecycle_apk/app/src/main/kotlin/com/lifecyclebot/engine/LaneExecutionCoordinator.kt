@@ -44,6 +44,11 @@ object LaneExecutionCoordinator {
     private val elections = ConcurrentHashMap<String, Election>()
     private val duplicateOpenSuppressed = AtomicLong(0L)
     private val affinities = ConcurrentHashMap<String, Set<String>>()
+    // V5.0.7621 — current native-qualified specialists for an exact candidate
+    // generation. Source/scanner affinity is a hint; this is the actual desk
+    // qualification set produced by ToolkitSignalSheet for this candidate.
+    private data class QualifiedContest7621(val lanes: Set<String>, val stampedAtMs: Long)
+    private val qualifiedContests7621 = ConcurrentHashMap<String, QualifiedContest7621>()
 
     // V5.9.1135 — lane election must be priority-based, not first-caller-wins.
     private val lanePriority = mapOf(
@@ -152,7 +157,44 @@ object LaneExecutionCoordinator {
         return qualified.maxByOrNull { claimPriority(mint, it, qualified) }
     }
 
-    private fun qualifiedLanesFor(mint: String, vararg contesting: String): List<String> {
+    private fun qualifiedContestKey7621(mint: String, candidateVersion: Long): String =
+        "${mint.trim()}::$candidateVersion"
+
+    fun registerQualifiedContest7621(mint: String, candidateVersion: Long, lanes: Collection<String>) {
+        if (mint.isBlank() || candidateVersion <= 0L) return
+        val clean = lanes.map { it.trim().uppercase() }
+            .filter { laneCanOwnExecution6910(it) }
+            .toSet()
+        if (clean.isEmpty()) {
+            qualifiedContests7621.remove(qualifiedContestKey7621(mint, candidateVersion))
+            return
+        }
+        qualifiedContests7621[qualifiedContestKey7621(mint, candidateVersion)] =
+            QualifiedContest7621(clean, System.currentTimeMillis())
+        try {
+            PipelineHealthCollector.labelInc("SPECIALIST_QUALIFIED_CONTEST_PUBLISHED_7621")
+            clean.forEach { PipelineHealthCollector.labelInc("SPECIALIST_QUALIFIED_CONTEST_7621_$it") }
+        } catch (_: Throwable) {}
+    }
+
+    private fun currentQualifiedContest7621(mint: String, candidateVersion: Long): Set<String> {
+        val key = qualifiedContestKey7621(mint, candidateVersion)
+        val q = qualifiedContests7621[key] ?: return emptySet()
+        if (System.currentTimeMillis() - q.stampedAtMs > TTL_MS) {
+            qualifiedContests7621.remove(key, q)
+            return emptySet()
+        }
+        return q.lanes
+    }
+
+    private fun qualifiedLanesFor(mint: String, candidateVersion: Long, vararg contesting: String): List<String> {
+        // Native qualification is stronger than scanner/source affinity. When
+        // present for this exact candidate generation, contest only those desks.
+        val currentQualified7621 = currentQualifiedContest7621(mint, candidateVersion)
+        if (currentQualified7621.isNotEmpty()) return currentQualified7621.toList()
+
+        // Bootstrap/fallback before Toolkit has published the candidate-specific
+        // set: retain 7620's affinity-based behavior.
         val registryAffinity = try { GlobalTradeRegistry.getLaneAffinity(mint) } catch (_: Throwable) { emptySet() }
         val all = ((affinities[mint] ?: emptySet()) + registryAffinity + contesting.map { it.uppercase() })
             .filter { it.isNotBlank() }
@@ -343,7 +385,7 @@ object LaneExecutionCoordinator {
             // the requesting specialist, then let the coordinator's existing
             // learned/fair selector choose. Once FDG seals a canonical owner,
             // the branch above still replaces this pre-seal election.
-            val qualified7620 = qualifiedLanesFor(mint, laneUpper)
+            val qualified7620 = qualifiedLanesFor(mint, candidateVersion, laneUpper)
                 .filter { laneCanOwnExecution6910(it) }
                 .distinct()
             elect(
@@ -437,6 +479,7 @@ object LaneExecutionCoordinator {
     fun resetForTests() {
         elections.clear()
         affinities.clear()
+        qualifiedContests7621.clear()
         duplicateOpenSuppressed.set(0L)
         versionSeq.set(0L)
         authoritySeq6494.set(0L)
