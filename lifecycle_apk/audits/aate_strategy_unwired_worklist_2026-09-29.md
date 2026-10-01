@@ -3062,3 +3062,10 @@ The planner now learns which policy branch actually works in each lane + latent-
 - [x] Policy learning persists across restart.
 - [x] This learns planning strategy, not execution authority; safety and canonical execution remain unchanged.
 - [x] Regression coverage: Aate7644ContextualPolicyBanditTest.
+
+
+## V5.0.7645 - repair reflection loop CI expression-body false positive
+
+- [x] `SuperReflectionLoop7642.repairShape` converted from expression-body `= when` to an explicit block-body function.
+- [x] Behaviour is unchanged; this only prevents the repository expression-body return guard from misreading string literals containing the word `return`.
+- [x] No intelligence, execution, safety, sizing, threshold or learning semantics changed.

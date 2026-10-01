@@ -84,32 +84,34 @@ object SuperReflectionLoop7642 {
         val rollback: String,
     )
 
-    private fun repairShape(failure: String): Repair = when {
-        failure.contains("MEMORY") -> Repair(
-            proposal = "bounded soft test: reduce episodic-memory weighting for repeated-miss contexts and require stronger exact-strategy sample confidence before memory dominates; preserve world/critic/safety authority",
-            metric = "reduce memory-attributed direction misses while preserving or improving realized mean return",
-            rollback = "restore prior memory weighting if exact-strategy direction accuracy improves or realized mean return deteriorates",
-        )
-        failure.contains("TREE") -> Repair(
-            proposal = "bounded soft test: increase policy-tree margin required for conviction branches and prefer reduced-then-scale when branch utilities are close; no hard veto or zero-size rule",
-            metric = "reduce wrong tree-policy selections and improve plan-vs-realized direction accuracy",
-            rollback = "restore prior tree margin if correct tree selections or realized expectancy decline",
-        )
-        failure.contains("CRITIC") -> Repair(
-            proposal = "bounded soft test: recalibrate adversarial critic penalty for this lane using exact outcome error; keep safety facts independent and never convert critic opinion into hard veto",
-            metric = "reduce critic-too-weak and critic-too-pessimistic classifications",
-            rollback = "restore prior critic weighting if Brier or realized expectancy worsens",
-        )
-        failure.contains("HORIZON") || failure.contains("LATENT_STATE") -> Repair(
-            proposal = "bounded soft test: increase world-model uncertainty for the failing horizon/state and require stronger cross-horizon coherence before conviction; preserve base/reduced policy availability",
-            metric = "improve horizon Brier score, directional accuracy and latent-state realized expectancy",
-            rollback = "restore prior uncertainty shaping when horizon calibration returns healthy",
-        )
-        else -> Repair(
-            proposal = "bounded soft diagnostic hypothesis: lower meta-confidence for repeated unclassified reasoning misses and collect additional exact position-bound evidence before changing authority",
-            metric = "reduce unclassified reasoning misses with no loss of realized expectancy",
-            rollback = "remove diagnostic dampening when failure rate falls below baseline",
-        )
+    private fun repairShape(failure: String): Repair {
+        return when {
+            failure.contains("MEMORY") -> Repair(
+                proposal = "bounded soft test: reduce episodic-memory weighting for repeated-miss contexts and require stronger exact-strategy sample confidence before memory dominates; preserve world/critic/safety authority",
+                metric = "reduce memory-attributed direction misses while preserving or improving realized mean return",
+                rollback = "restore prior memory weighting if exact-strategy direction accuracy improves or realized mean return deteriorates",
+            )
+            failure.contains("TREE") -> Repair(
+                proposal = "bounded soft test: increase policy-tree margin required for conviction branches and prefer reduced-then-scale when branch utilities are close; no hard veto or zero-size rule",
+                metric = "reduce wrong tree-policy selections and improve plan-vs-realized direction accuracy",
+                rollback = "restore prior tree margin if correct tree selections or realized expectancy decline",
+            )
+            failure.contains("CRITIC") -> Repair(
+                proposal = "bounded soft test: recalibrate adversarial critic penalty for this lane using exact outcome error; keep safety facts independent and never convert critic opinion into hard veto",
+                metric = "reduce critic-too-weak and critic-too-pessimistic classifications",
+                rollback = "restore prior critic weighting if Brier or realized expectancy worsens",
+            )
+            failure.contains("HORIZON") || failure.contains("LATENT_STATE") -> Repair(
+                proposal = "bounded soft test: increase world-model uncertainty for the failing horizon/state and require stronger cross-horizon coherence before conviction; preserve base/reduced policy availability",
+                metric = "improve horizon Brier score, directional accuracy and latent-state realized expectancy",
+                rollback = "restore prior uncertainty shaping when horizon calibration returns healthy",
+            )
+            else -> Repair(
+                proposal = "bounded soft diagnostic hypothesis: lower meta-confidence for repeated unclassified reasoning misses and collect additional exact position-bound evidence before changing authority",
+                metric = "reduce unclassified reasoning misses with no loss of realized expectancy",
+                rollback = "remove diagnostic dampening when failure rate falls below baseline",
+            )
+        }
     }
 
     fun statusLine(): String {
