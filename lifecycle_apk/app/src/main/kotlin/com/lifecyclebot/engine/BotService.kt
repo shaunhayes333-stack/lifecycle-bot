@@ -2295,7 +2295,16 @@ class BotService : Service() {
                 } else {
                     try { PipelineHealthCollector.labelInc("SMART_MONEY_COPY_SIGNAL_DISABLED_IN_SETTINGS_7277") } catch (_: Throwable) {}
                 }
-                if (ts != null && c.copyTradingEnabled) {
+                // V5.0.7690 — operator: "it even fires when the bot is stopped."
+                // CopyTradeEngine is wired once in onCreate() and its onCopySignal
+                // listener runs for the life of the foreground service — it was
+                // never gated on BotRuntimeController at all, only on the
+                // copyTradingEnabled SETTING. Pressing Stop halts the scan/trade
+                // loop but left this listener free to keep firing real buys and
+                // real Flash perps opens. isRuntimeActive() is the same proof the
+                // rest of the codebase uses to distinguish "service process alive"
+                // from "the user actually pressed Start" (see its own doc comment).
+                if (ts != null && c.copyTradingEnabled && isRuntimeActive()) {
                     autoMode.triggerCopy(mint, wallet)
                     addLog("📋 COPY BUY triggered: ${mint.take(8)}… from ${wallet.take(8)}…", mint)
                     // V5.9: also fire copy-perps trade on SOL via MarketsLiveExecutor
@@ -2324,6 +2333,8 @@ class BotService : Service() {
                             }
                         }
                     }
+                } else if (ts != null && c.copyTradingEnabled && !isRuntimeActive()) {
+                    try { PipelineHealthCollector.labelInc("COPY_TRADE_SUPPRESSED_RUNTIME_STOPPED_7690") } catch (_: Throwable) {}
                 }
             },
             onLog = { msg -> addLog(msg) }

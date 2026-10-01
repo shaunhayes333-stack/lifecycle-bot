@@ -12690,4 +12690,35 @@ class GoldenTapeRegressionTest {
         assertEquals(1, Regex("return ExitSignal\\.STOP_LOSS").findAll(betweenSpan).count())
     }
 
+    @Test
+    fun V5_0_7690_copy_trade_perps_cannot_fire_while_stopped_and_backs_off_after_failure() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        // Operator: "it even fires when the bot is stopped." CopyTradeEngine's
+        // onCopySignal listener is wired once in onCreate() and used to run for
+        // the life of the foreground service, gated only on the copyTradingEnabled
+        // SETTING — never on whether the user had actually pressed Start.
+        val copyBlock = bot.substringAfter("copyTradeEngine = CopyTradeEngine(")
+            .substringBefore("scope.launch {\n")
+        assertTrue(copyBlock.contains("if (ts != null && c.copyTradingEnabled && isRuntimeActive())"))
+        assertTrue(copyBlock.contains("COPY_TRADE_SUPPRESSED_RUNTIME_STOPPED_7690"))
+
+        val marketsExec = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        // Operator: "48 opens failed in 15 minutes ... retrying every ~20s ...
+        // every failure preceded by a real SOL->USDC swap that DID go through."
+        // Every Flash-open failure branch must arm a per-symbol backoff, and the
+        // backoff must be checked BEFORE the funding swap so a backed-off symbol
+        // burns no more SOL while it waits.
+        val flashFn = marketsExec.substringAfter("private suspend fun executeFlashTradePerps(")
+            .substringBefore("private fun armFlashOpenFailure7690(")
+        val backoffCheckAt = flashFn.indexOf("flashOpenBackoffUntilMs[symbol]")
+        val fundingSwapAt = flashFn.indexOf("UniversalBridgeEngine.bridgeToUsdc(")
+        assertTrue(backoffCheckAt in 1 until fundingSwapAt)
+        assertEquals(7, Regex(Regex.escape("armFlashOpenFailure7690(")).findAll(flashFn).count())
+        assertTrue(marketsExec.contains("flashOpenBackoffUntilMs[symbol] = System.currentTimeMillis() + FLASH_OPEN_FAILURE_BACKOFF_MS"))
+        // The HTTP status code and Flash's own response/error body must reach
+        // the forensics export, not just ErrorLogger.warn (device-only).
+        assertTrue(marketsExec.contains("\"HTTP_\${response.code}\""))
+        assertTrue(marketsExec.contains("LiveTradeLogStore.Phase.BUY_FAILED"))
+    }
+
 }

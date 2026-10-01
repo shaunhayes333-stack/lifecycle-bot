@@ -66,6 +66,19 @@ object MarketsLiveExecutor {
     // V5.9.104: hard slippage ceiling for ALL perps-family live swaps
     private const val MAX_SLIPPAGE_BPS = 500   // 5% — matches Executor.kt memecoin cap
 
+    // V5.0.7690 — operator: "48 opens failed in 15 minutes, retrying every ~20s,
+    // every failure preceded by a real SOL->USDC funding swap that DID land."
+    // Root cause: BotService's COPY_PERPS side-trade (and every other caller of
+    // executeFlashTradePerps) calls this on every signal with no memory of a
+    // prior failure, so a market Flash keeps rejecting gets re-funded and
+    // re-attempted every cycle, burning real SOL into USDC on every try. This
+    // same pattern was already called out once (V5.0.7320: "47 in ten minutes
+    // on a 0.38 SOL wallet") without ever gaining a backoff. Keyed by symbol so
+    // one bad market cannot starve the others, and checked BEFORE the funding
+    // swap so a backed-off symbol burns nothing while it waits.
+    private const val FLASH_OPEN_FAILURE_BACKOFF_MS = 15 * 60 * 1000L
+    private val flashOpenBackoffUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     /**
      * V5.0.7132 — a Markets open must name its own asset class.
      *
@@ -1284,6 +1297,18 @@ object MarketsLiveExecutor {
             return@withContext null
         }
 
+        // V5.0.7690 — checked BEFORE the SOL->USDC funding swap below so a
+        // market Flash keeps rejecting cannot keep burning SOL into USDC on
+        // every retry while it waits out the backoff.
+        val backoffUntil = flashOpenBackoffUntilMs[symbol] ?: 0L
+        val nowBackoffCheck = System.currentTimeMillis()
+        if (nowBackoffCheck < backoffUntil) {
+            val remainingSec = (backoffUntil - nowBackoffCheck) / 1000
+            ErrorLogger.info(TAG, "⏳ Flash $symbol in post-failure backoff (${remainingSec}s remaining) — skipping open, no funding swap")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FLASH_OPEN_BACKOFF_SKIPPED_7690") } catch (_: Throwable) {}
+            return@withContext null
+        }
+
         val tradeType = if (direction == PerpsDirection.LONG) "LONG" else "SHORT"
         val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
         val inputAmountUsd = sizeSol * solPriceUsd  // collateral in USD
@@ -1313,7 +1338,7 @@ object MarketsLiveExecutor {
         }
         val fundedUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
         if (fundedUsdc + 1e-6 < inputAmountUsd) {
-            ErrorLogger.warn(TAG, "⛔ Flash collateral remains insufficient after bridge: have=$fundedUsdc need=$inputAmountUsd")
+            armFlashOpenFailure7690(symbol, forensicsKey, forensicsMint, "COLLATERAL_INSUFFICIENT_AFTER_BRIDGE", "have=$fundedUsdc need=$inputAmountUsd")
             return@withContext null
         }
 
@@ -1339,20 +1364,20 @@ object MarketsLiveExecutor {
             val responseBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                ErrorLogger.warn(TAG, "⚠️ Flash open-position ${response.code}: $responseBody — perps open failed; funded USDC remains in wallet")
+                armFlashOpenFailure7690(symbol, forensicsKey, forensicsMint, "HTTP_${response.code}", responseBody.take(500))
                 return@withContext null
             }
 
             val json = org.json.JSONObject(responseBody)
             val err = json.optString("err", "null")
             if (err != "null" && err.isNotBlank()) {
-                ErrorLogger.warn(TAG, "⚠️ Flash API err for $symbol: $err — perps open failed; funded USDC remains in wallet")
+                armFlashOpenFailure7690(symbol, forensicsKey, forensicsMint, "API_ERR", err.take(500))
                 return@withContext null
             }
 
             val txBase64 = json.optString("transactionBase64", "")
             if (txBase64.isBlank()) {
-                ErrorLogger.warn(TAG, "⚠️ Flash: no transaction in response for $symbol")
+                armFlashOpenFailure7690(symbol, forensicsKey, forensicsMint, "NO_TRANSACTION_IN_RESPONSE", responseBody.take(500))
                 return@withContext null
             }
 
@@ -1360,12 +1385,12 @@ object MarketsLiveExecutor {
             val sig = try {
                 wallet.signAndSend(txBase64)
             } catch (ex: Exception) {
-                ErrorLogger.warn(TAG, "⚠️ Flash sign/send failed for $symbol: ${ex.message}")
+                armFlashOpenFailure7690(symbol, forensicsKey, forensicsMint, "SIGN_SEND_EXCEPTION", ex.message.orEmpty().take(500))
                 return@withContext null
             }
 
             if (sig.isNullOrBlank()) {
-                ErrorLogger.warn(TAG, "⚠️ Flash: empty sig for $symbol — perps open failed; funded USDC remains in wallet")
+                armFlashOpenFailure7690(symbol, forensicsKey, forensicsMint, "EMPTY_SIGNATURE", "")
                 return@withContext null
             }
 
@@ -1373,9 +1398,34 @@ object MarketsLiveExecutor {
             sig
 
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "Flash exception for $symbol: ${e.message} — perps open failed; funded USDC remains in wallet")
+            armFlashOpenFailure7690(symbol, forensicsKey, forensicsMint, "EXCEPTION_${e.javaClass.simpleName}", e.message.orEmpty().take(500))
             null
         }
+    }
+
+    /**
+     * V5.0.7690 — one place that both arms the post-failure backoff and writes
+     * the failure to the forensics export. Before this, every Flash open
+     * failure branch logged only via ErrorLogger.warn (device logcat only,
+     * never reaches the exported Pipeline Health / LiveTradeLog report), so an
+     * operator reading an export could see 48 failed opens with no way to see
+     * WHY — not even the HTTP status code or Flash's own error body.
+     */
+    private fun armFlashOpenFailure7690(symbol: String, forensicsKey: String, forensicsMint: String, reason: String, detail: String) {
+        flashOpenBackoffUntilMs[symbol] = System.currentTimeMillis() + FLASH_OPEN_FAILURE_BACKOFF_MS
+        ErrorLogger.warn(TAG, "⚠️ Flash open failed for $symbol: $reason $detail — backing off ${FLASH_OPEN_FAILURE_BACKOFF_MS / 60_000}m; funded USDC remains in wallet")
+        try {
+            com.lifecyclebot.engine.LiveTradeLogStore.log(
+                tradeKey = forensicsKey,
+                mint = forensicsMint,
+                symbol = symbol,
+                side = "BUY",
+                phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.BUY_FAILED,
+                message = "⚠️ FLASH_OPEN_FAILED_7690 reason=$reason detail=$detail backoffMin=${FLASH_OPEN_FAILURE_BACKOFF_MS / 60_000}",
+                traderTag = "PERPS_FLASH_OPEN",
+            )
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FLASH_OPEN_FAILED_7690")
+        } catch (_: Throwable) {}
     }
 
     /** Degrade a Flash perps open to a Jupiter SPOT swap (1x, LONG only). */
