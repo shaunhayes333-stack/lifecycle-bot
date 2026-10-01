@@ -1459,3 +1459,21 @@ This bundle removes another false-positive cluster from the original-113 C_EXIT 
 - [x] `EducationSubLayerAI.getCurriculumHoldStats` — **DIAGNOSTIC LEARNING SNAPSHOT**. Source explicitly describes it as a diagnostic hold-bucket snapshot.
 - [x] No sell threshold, stop, partial ladder, hold clock, route, finality or execution authority changes in this bundle.
 - [x] Regression coverage: `Aate7563ExitHelperLedgerTruthTest`.
+
+
+## V5.0.7564 — C_EXIT recovery/compatibility authority classification
+
+This bundle continues the C_EXIT audit by separating recovery/test/compatibility surfaces from production sell authority. No new seller, stop engine or finality path is introduced.
+
+- [x] `EvidenceEpochFilter6388.buildFullExitPlan` — **RECOVERY_SUBSTRATE / TESTED HELPER**. It constructs a full-exit chunk plan with one exitIntentId; current evidence shows direct test coverage rather than a missing production seller.
+- [x] `EvidenceEpochFilter6388.p1FaultLiveReconcilerMissingWithHoldings` — **RECOVERY_INVARIANT HELPER**. It detects a missing live reconciler under holdings; not an exit actuator.
+- [x] `EvidenceEpochFilter6388.requiresFullExit` — **RECOVERY CLASSIFIER / TESTED HELPER**. It classifies hard-stop reasons that require full liquidation; not a second sell path.
+- [x] `LiveExecutionGate.sellCompleted` — **FORWARD-COMPAT NO-OP**. Source explicitly states pending counts are tracker-derived.
+- [x] `LiveExecutionGate.trySell` — **LEGACY/COMPATIBILITY GATE**. It enforces pending-sell concurrency but is not the canonical sell executor; do not promote it into a parallel sell authority.
+- [x] `LiveExitOnlyMode6387.classifyForStop` — **PRICE-INTEGRITY CLASSIFIER / TESTED HELPER**. It maps zero/stale prices to observation/refresh states and prevents fake -100% exits; it does not dispatch sells.
+- [x] `PortfolioInvariants6405.verifyWalletParity` — **INVARIANT TEST/DIAGNOSTIC HELPER**. Existing use is acceptance testing; not a runtime exit decision primitive.
+- [x] `SellIntentQuantityAuthority6401.validateSellIntentFromUi` — **UI/BOUNDARY VALIDATION HELPER**. Existing evidence is unit-test coverage for quantity/decimals; not a missing autonomous exit strategy.
+- [x] `TerminalFinalityAuthority6405.allowExit` — **TERMINAL-IDEMPOTENCY HELPER / TESTED AUTHORITY**. It guards duplicate terminal exits; current evidence is explicit acceptance tests, not an unwired strategy.
+- [x] `PositionIdentity6395.activeExitIntent` — **STATE ACCESSOR**. Reads the currently active exit-intent id; mutation/open/close authority lives in the same position-identity subsystem.
+- [x] No exit thresholds, partial fractions, finality rules, quantity clamps or sell dispatch behavior changed.
+- [x] Regression coverage: `Aate7564ExitRecoveryAuthorityClassificationTest`.
