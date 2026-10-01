@@ -1509,3 +1509,20 @@ This bundle reconciles the remaining perps/market helper cluster without creatin
 - [x] `SmartExitOptimizer.getExitPressure` remains **ALIAS_REDUNDANT_FOR_MEME_HOLD** from 7455/7560 and stays out of canonical meme held management.
 - [x] No entry/exit threshold, TP/SL, route, partial, finality or operator-authority behavior changed.
 - [x] Regression coverage: `Aate7566PerpsExitHelperContractTest`.
+
+
+## V5.0.7567 — final C_EXIT tail classification
+
+This bundle closes the remaining C_EXIT entries from the original-113 ledger. None of these rows justifies a new canonical sell authority.
+
+- [x] `BirdeyeApi.getHolderDistribution` — **NETWORK DATA HELPER / BACKGROUND ONLY**. It performs Birdeye HTTP I/O and should be prefetched/cached, not called synchronously from held/exit hot paths.
+- [x] `BotBrain.resetThresholds` — **EXPLICIT LEARNING RESET CONTROL**. Source documents it as a manual recovery action for poisoned learned thresholds; not adaptive exit intelligence.
+- [x] `BotRuntimeController.runtimeJobActiveButUiStopped` — **TEST/REGRESSION HELPER**. Existing evidence is RuntimePipelineGatesTest; it detects UI/runtime divergence, not position exit conditions.
+- [x] `CanonicalPositionAuthority6441.activeMintProjections6489` — **COMPATIBILITY ALIAS**. Delegates directly to `activeMintProjections6490()`.
+- [x] `CounterParityLedger6399.recordSellExecutorInvocation` — **COUNTER/OBSERVABILITY HOOK**. Tracks sell-executor parity only.
+- [x] `EarlyEntryScout6390.trackedPeakCount6948` — **REPORT/LEAK-CANARY ACCESSOR**. Source explicitly calls it a leak canary and OperatorAuxiliaryStatusDigest already consumes it.
+- [x] `FluidLearningAI.getBreakoutThreshold` — **THRESHOLD ACCESSOR / NOT EXIT AUTHORITY**. Returns the fluid breakout threshold used by strategy/scanner logic; its C_EXIT ledger placement is taxonomy noise.
+- [x] `TelegramNotifier.partialMsg` — **FORMATTER**. Produces notification text only.
+- [x] `TradeIdentityManager.auditTrail` — **REPORT FORMATTER**. Renders trade identity history and has no mutation/execution authority.
+- [x] With 7560–7567, every C_EXIT row has now been either proven closed-loop, explicitly classified as helper/report/test/background/alias, or fenced from duplicate sell authority.
+- [x] Regression coverage: `Aate7567FinalCExitTailClassificationTest`.
