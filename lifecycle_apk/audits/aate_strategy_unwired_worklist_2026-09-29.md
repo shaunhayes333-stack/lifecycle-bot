@@ -1840,3 +1840,27 @@ These functions perform HTTP/database/background retrieval or explicit connectiv
 - [x] These remain eligible for prefetched/cached sidecars where product value exists; no hot-path caller is fabricated to satisfy static analysis.
 - [x] F_DEAD reconciliation progress: prior 138 + 11 = **149 / 1,458** classified; **1,309 remain**.
 - [x] Regression coverage: `Aate7584BackgroundNetworkIoTrancheTest`.
+
+
+## V5.0.7585 — count reconciliation + operator/config control tranche (14 rows)
+
+Count reconciliation: V5.0.7582 classified **15** ledger rows, not 14, because `CloudLearningSync.isOptedIn` and `isUsingCommunityWeights` are distinct F_DEAD rows. Therefore the correct pre-7585 state is **150 / 1,458 classified; 1,308 remain**.
+
+This tranche classifies explicit operator, UI and persisted configuration controls. They can change configured behaviour when deliberately invoked, but they are not missing autonomous strategy primitives and must not be auto-wired merely to satisfy unused-function analysis.
+
+- [x] `CloudLearningSync.setOptIn` — **OPERATOR PRIVACY/SHARING CONTROL**.
+- [x] `CloudLearningSync.setUseCommunityWeights` — **OPERATOR LEARNING CONFIG CONTROL**.
+- [x] `PerpsNotificationManager.setSoundEnabled` — **PRODUCT NOTIFICATION CONTROL**.
+- [x] `PerpsNotificationManager.setVibrationEnabled` — **PRODUCT NOTIFICATION CONTROL**.
+- [x] `TimeModeScheduler.setAutoSwitchEnabled` — **USER SCHEDULER CONTROL**.
+- [x] `TimeModeScheduler.setScheduleOverride` — **USER SCHEDULE OVERRIDE**.
+- [x] `TimeModeScheduler.clearSchedule` — **USER SCHEDULE RESET**.
+- [x] `V3ConfidenceConfig.setMode` — **EXPLICIT UI CONFIG CONTROL**.
+- [x] `V3ConfidenceConfig.setCustomOverrides` — **EXPLICIT UI CONFIG CONTROL**.
+- [x] `V3ConfidenceConfig.clearCustomOverrides` — **EXPLICIT UI CONFIG RESET**.
+- [x] `FreeRangeMode.forceOff` — **OPERATOR OVERRIDE CONTROL**.
+- [x] `FreeRangeMode.forceOn` — **OPERATOR OVERRIDE CONTROL**.
+- [x] `FreeRangeMode.clearOverride` — **OPERATOR OVERRIDE RESET**.
+- [x] `LeveragePreference.setLeveragePreferred` — **PERSISTED USER ASSET-CLASS PREFERENCE**.
+- [x] F_DEAD reconciliation progress: corrected prior 150 + 14 = **164 / 1,458** classified; **1,294 remain**.
+- [x] Regression coverage: `Aate7585OperatorConfigControlTrancheTest`.
