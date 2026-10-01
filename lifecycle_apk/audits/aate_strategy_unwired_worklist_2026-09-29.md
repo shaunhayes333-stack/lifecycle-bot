@@ -3365,3 +3365,24 @@ This bundle repairs the first runtime-quant tranche:
 - [x] Persist/restore the bounded rolling sample window per layer.
 - [x] Existing UnifiedScorer authority remains the only score-weighting path.
 - [x] Regression coverage: `Aate7666AiTrustPersistenceRepairTest`.
+
+
+## V5.0.7667 - resume ~2000-item audit: ExecutionPathAI learning loop repair
+
+Audit row rechecked:
+- F_DEAD row 454: `ExecutionPathAI.recordExecution` — **real broken learning loop**, not merely a readback.
+
+Findings and repair:
+- [x] `ExecutionPathAI.getExecutionConfidenceMultiplier()` is actively consumed by SymbolicExitReasoner and TradeLessonRecorder, while `QuantMindV2` reads venue stats.
+- [x] No production caller fed `recordExecution`, so venue confidence never learned from actual execution outcomes.
+- [x] CanonicalExecutionReceipt6394 now feeds successful persisted receipts with exact provider/route, actual receipt latency, partial-fill truth and principal size.
+- [x] ExecutionEndpointHealth feeds provider failures into the same learner.
+- [x] Quote-vs-fill slippage is not present in CanonicalExecutionReceipt6394; it remains unknown (`NaN`) rather than being fabricated as zero.
+- [x] Venue aggregation ignores unknown slippage/fill-time samples and retains prior/default values when no measured sample exists.
+- [x] Duplicate receipt persistence does not double-train ExecutionPathAI.
+- [x] This makes the existing execution-confidence readers causally live without creating execution authority.
+- [x] Regression coverage: `Aate7667ExecutionPathLearningRepairTest`.
+
+Audit reconciliation in the same pass:
+- [x] F_DEAD row 17 `AdvancedExitManager.calculateTimePressure` is a stale external-caller false positive: it is internally called by `evaluateExit()`, which is active through HoldingLogicLayer. No duplicate caller added.
+- [x] Rows 649/650 `LiquidityFragilityAI.recordBreakout/recordWick`: V5.0.7630 already restored the active `analyze()` feed and passes real OHLC wick history directly. `recordWick` is therefore optional/duplicate for current scoring; `recordBreakout` remains optional until a canonical breakout event exists. No heuristic event fabrication.

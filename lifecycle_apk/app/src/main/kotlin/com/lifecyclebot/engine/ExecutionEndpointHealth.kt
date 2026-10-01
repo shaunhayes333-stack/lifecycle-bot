@@ -23,6 +23,8 @@ object ExecutionEndpointHealth {
         val ttl = if (reason.contains("503") || reason.contains("429") || reason.contains("4xx", true)) maxOf(cooldownMs, 30_000L) else cooldownMs
         disabled[k] = Cooldown(now() + ttl, reason.take(140), failures)
         try { ExecutionRouteReliabilityMemory.recordFailure(endpoint, reason, mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v4.meta.ExecutionPathAI.recordEndpointFailure7667(endpoint) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("EXECUTION_PATH_ENDPOINT_FAILURE_7667") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("${endpoint.uppercase()}_DISABLED") } catch (_: Throwable) {}
         try { ForensicLogger.lifecycle("EXEC_ENDPOINT_DISABLED", "endpoint=${endpoint.uppercase()} mint=${mint.take(10)} reason=${reason.take(120)} cooldownMs=$ttl failures=$failures") } catch (_: Throwable) {}
     }

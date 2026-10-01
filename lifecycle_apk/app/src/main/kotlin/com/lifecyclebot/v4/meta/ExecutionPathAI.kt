@@ -151,6 +151,48 @@ object ExecutionPathAI {
     // RECORD — Feed execution results for learning
     // ═══════════════════════════════════════════════════════════════════════
 
+    /**
+     * V5.0.7667 - canonical receipt bridge. Slippage is NaN unless a real
+     * quote-vs-fill measurement exists; unknown must not masquerade as zero.
+     */
+    fun recordCanonicalReceipt7667(
+        venue: String,
+        success: Boolean,
+        fillTimeSec: Double,
+        partialFill: Boolean,
+        sizeSol: Double,
+    ) {
+        recordExecution(
+            ExecutionResult(
+                venue = venue.ifBlank { "UNKNOWN" }.uppercase(),
+                success = success,
+                slippageBps = Double.NaN,
+                fillTimeSec = fillTimeSec.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                partialFill = partialFill,
+                expectedPrice = Double.NaN,
+                actualPrice = Double.NaN,
+                sizeSol = sizeSol.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+                congestionLevel = Double.NaN,
+            )
+        )
+    }
+
+    fun recordEndpointFailure7667(venue: String) {
+        recordExecution(
+            ExecutionResult(
+                venue = venue.ifBlank { "UNKNOWN" }.uppercase(),
+                success = false,
+                slippageBps = Double.NaN,
+                fillTimeSec = Double.NaN,
+                partialFill = false,
+                expectedPrice = Double.NaN,
+                actualPrice = Double.NaN,
+                sizeSol = 0.0,
+                congestionLevel = Double.NaN,
+            )
+        )
+    }
+
     fun recordExecution(result: ExecutionResult) {
         synchronized(recentExecutions) {
             recentExecutions.add(result)
@@ -162,11 +204,14 @@ object ExecutionPathAI {
             recentExecutions.filter { it.venue == result.venue }.takeLast(50)
         }
         if (venueResults.size >= 5) {
+            val old = venueStats[result.venue]
+            val slip = venueResults.map { it.slippageBps }.filter { it.isFinite() && it >= 0.0 }
+            val fill = venueResults.map { it.fillTimeSec }.filter { it.isFinite() && it >= 0.0 }
             venueStats[result.venue] = VenuePerformance(
                 venue = result.venue,
                 successRate = venueResults.count { it.success }.toDouble() / venueResults.size,
-                avgSlippageBps = venueResults.map { it.slippageBps }.average(),
-                avgFillTimeSec = venueResults.map { it.fillTimeSec }.average(),
+                avgSlippageBps = if (slip.isNotEmpty()) slip.average() else old?.avgSlippageBps ?: 30.0,
+                avgFillTimeSec = if (fill.isNotEmpty()) fill.average() else old?.avgFillTimeSec ?: 2.0,
                 partialFillRate = venueResults.count { it.partialFill }.toDouble() / venueResults.size,
                 failureRate = venueResults.count { !it.success }.toDouble() / venueResults.size,
                 totalExecutions = venueResults.size

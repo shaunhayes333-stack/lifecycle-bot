@@ -46,7 +46,26 @@ object CanonicalReceiptStore6394 {
     fun persist(r: CanonicalExecutionReceipt6394): Boolean {
         if (r.signature.isBlank()) return false
         // Directive P0#10: receipt is persisted BEFORE canonical position mutation.
-        return bySignature.putIfAbsent(r.signature, r) == null
+        val inserted = bySignature.putIfAbsent(r.signature, r) == null
+        if (inserted) {
+            try {
+                val elapsedMs = (r.finalizedAt - r.createdAt).coerceAtLeast(0L)
+                val partial = r.requestedRawAmount.signum() > 0 &&
+                    r.actualConsumedRawAmount.signum() >= 0 &&
+                    r.actualConsumedRawAmount < r.requestedRawAmount
+                val sizeSol = if (r.principalLamports.signum() >= 0)
+                    r.principalLamports.toDouble() / 1_000_000_000.0 else 0.0
+                com.lifecyclebot.v4.meta.ExecutionPathAI.recordCanonicalReceipt7667(
+                    venue = r.provider.ifBlank { r.route },
+                    success = r.settlementStatus.uppercase() !in setOf("FAILED", "REJECTED"),
+                    fillTimeSec = elapsedMs / 1000.0,
+                    partialFill = partial,
+                    sizeSol = sizeSol,
+                )
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_PATH_CANONICAL_RECEIPT_7667") } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+        }
+        return inserted
     }
     fun get(sig: String): CanonicalExecutionReceipt6394? = bySignature[sig]
     fun size(): Int = bySignature.size
