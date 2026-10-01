@@ -1820,3 +1820,23 @@ These rows expose already-maintained projections or cached collective state for 
 - [x] `CollectiveLearning.getWhaleEffectiveness` — **CACHED HASHED-WALLET LOOKUP**.
 - [x] F_DEAD reconciliation progress: prior 131 + 7 = **138 / 1,458** classified; **1,320 remain**.
 - [x] Regression coverage: `Aate7583DashboardCacheProjectionTrancheTest`.
+
+
+## V5.0.7584 — F_DEAD background/network I-O tranche (11 rows)
+
+These functions perform HTTP/database/background retrieval or explicit connectivity work. Their absence from a direct hot-path caller is not evidence that scanner/FDG should invoke them synchronously.
+
+- [x] `BirdeyeApi.getTokenPrice` — **NETWORK PRICE ENDPOINT**; use only through bounded provider/cache authority.
+- [x] `BirdeyeApi.getTokenSecurity` — **NETWORK SECURITY ENDPOINT**.
+- [x] `BirdeyeApi.getAllTimeStats` — **NETWORK HISTORICAL-STATS ENDPOINT**.
+- [x] `BirdeyeApi.getTraderGainersLosers` — **NETWORK RANKING ENDPOINT**.
+- [x] `TursoClient.testConnection` — **CONNECTIVITY/DIAGNOSTIC I-O**.
+- [x] `TursoClient.getMarketsTradesForReplay` — **BACKGROUND DATABASE REPLAY QUERY**.
+- [x] `TelegramScraper.scrapePublicChannel` — **EXTERNAL WEB SCRAPE**; never synchronous candidate authority.
+- [x] `XScraper.checkSolanaAccounts` — **EXTERNAL NETWORK SCRAPE** with deliberate pacing.
+- [x] `CollectiveLearning.getActiveUsersCount` — **BACKGROUND DATABASE AGGREGATE**.
+- [x] `CollectiveLearning.getCollectiveTradeCount` — **BACKGROUND/CACHED AGGREGATE**.
+- [x] `CollectiveLearning.getLegalAgreementCount` — **BACKGROUND DATABASE AGGREGATE**.
+- [x] These remain eligible for prefetched/cached sidecars where product value exists; no hot-path caller is fabricated to satisfy static analysis.
+- [x] F_DEAD reconciliation progress: prior 138 + 11 = **149 / 1,458** classified; **1,309 remain**.
+- [x] Regression coverage: `Aate7584BackgroundNetworkIoTrancheTest`.
