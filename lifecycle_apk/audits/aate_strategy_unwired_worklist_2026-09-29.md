@@ -23,8 +23,8 @@ Do not wire every module directly into FDG. Decision inputs must converge throug
 - [x] `MemeCausalLearning6568` reports exact trade type / setup / style / variant alongside lane and tactic.
 - [x] Regression coverage added in `Aate7427ExactStrategyIdentityTest`.
 - [x] `TradingMemory.getPatternWinRate` wired as bounded exact-context predictive evidence (`TRADING_MEMORY_PATTERN_READ_7427`).
-- [ ] Next: expand hypothesis contexts from coarse `lane|scoreBand|regime` toward hierarchical exact-strategy context without sparse-cell deadlock.
-- [ ] Next: consume exact style/setup outcome statistics in entry selection and strategy promotion.
+- [x] Exact hypothesis context expansion completed in 7430: `tradeType > setup > style > tactic` is the child context and inherits promoted parent baselines to avoid sparse-cell deadlock.
+- [x] Exact style/setup outcome consumption completed in 7431: `ExactStrategyPerformance7429` supplies O(1) exact-playbook EV to admission and promotion while exact variant credit remains position-bound.
 
 ### First A_PREDICT classifications
 
@@ -105,10 +105,10 @@ Do not wire every module directly into FDG. Decision inputs must converge throug
 - [x] Real validated copy BUY events now write `SmartMoneyFeed6394.onWhaleBuy`; its previous production-writer gap is closed.
 - [x] `SmartMoneyFeed6394.smartMoneyBuysLast60s` now counts **distinct wallets**, not raw transactions. One whale buying twice cannot impersonate a 2-wallet cluster.
 - [x] `EarlyLaunchBypass6396` is a real FDG consumer in current source; the September directionality audit entry saying it was unwired is stale.
-- [ ] Review/rename `EarlyLaunchBypass6396` semantics against the new canonical no-exploration-PROBE doctrine. Smart-money early entry may remain reduced-size risk shaping, but it must not be an unrelated exploration escape hatch.
-- [ ] PAPER/LIVE parity defect: FDG PAPER edge handling still has separate `PAPER BOOTSTRAP PROBE` and soft-bypass behavior while LIVE uses different evidence. Converge to one canonical pre-execution edge decision.
-- [ ] `EarlyEntryScout6390.evaluate()` remains unconsumed. Wire only if its distinct-buyer/flow/authority inputs can be sourced from existing canonical caches without adding hot-path I/O.
-- [ ] `ModeSpecificScanners.scanFreshLaunch()` remains legacy/unwired; do not resurrect if PumpPortal/ModeRouter/LaunchPhase already cover the same source/setup.
+- [x] `EarlyLaunchBypass6396` semantics reconciled by 7549: smart-money early evidence is risk shaping only after canonical edge evidence exists; it cannot convert EDGE_SKIP into funded PAPER/LIVE capital.
+- [x] FDG edge-evidence PAPER/LIVE parity completed by 7431/7549: the edge block uses one canonical evidence test in both modes and the 7549 regression forbids `PAPER BOOTSTRAP PROBE`, paper softening, or `if (config.paperMode)` inside that edge section. Remaining mode-specific confidence/time shaping is tracked separately and is not an edge-evidence divergence.
+- [x] `EarlyEntryScout6390.evaluate()` is superseded/do-not-resurrect for entry authority: its age, mcap, buyer breadth, buy/sell flow, holder concentration, smart-money, bonding-curve acceleration, pool and authority inputs are already consumed from canonical cached launch/safety surfaces by `LaunchPhaseAuthority7401`, Toolkit/V3Adapter, LayerVoteSampler and ProjectSniper. Wiring the old scout would double-count the same launch evidence.
+- [x] `ModeSpecificScanners.scanFreshLaunch()` classified legacy/superseded: PumpPortal discovery + ModeRouter + LaunchPhaseAuthority7401 + specialist launch logic already own fresh-launch discovery and timing. Do not resurrect a duplicate scanner authority.
 
 ## Priority findings from the strategy audit
 
@@ -3514,3 +3514,15 @@ The unchecked lead/lag audit item was partly stale and partly incomplete.
 - [x] CrossTalk / QuantMind / SymbolicExitReasoner / TradeLessonRecorder can no longer consume synthetic correlation produced by duplicated 24h snapshots from this path.
 - [x] No trading threshold, sizing, safety, execution or hard-veto authority changed.
 - [x] Regression coverage strengthened in `Aate7441PredictiveCausalityTest` plus `Aate7674DynamicCryptoLeadLagCausalityTest`.
+
+
+## V5.0.7675 - canonical audit reconciliation after source recheck
+
+This bundle removes stale work from the canonical strategy backlog; it does not change trading behavior.
+
+- [x] 7427/7430/7431 already completed exact strategy identity, hierarchical context, sparse-parent inheritance, exact playbook EV, exact entry selection and position-bound strategy promotion credit.
+- [x] 7431/7549 already completed the specific FDG EDGE-evidence PAPER/LIVE parity item; the edge section is one canonical decision surface.
+- [x] 7549 already converted EarlyLaunchBypass smart-money evidence from an admission bypass into bounded risk shaping after canonical edge evidence.
+- [x] EarlyEntryScout6390 is intentionally not resurrected because every material input is already represented by canonical launch/safety/toolkit specialist surfaces; direct wiring would duplicate launch evidence.
+- [x] ModeSpecificScanners.scanFreshLaunch remains retired because current PumpPortal/ModeRouter/LaunchPhase/specialist discovery owns that setup.
+- [x] No thresholds, scoring coefficients, sizing, execution, safety, or capital authority changed.

@@ -68,6 +68,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7672: repaired the ~2000-item audit generator: same-file/internal consumers now classify as E_INFILE / INFILE_WIRED instead of false F_DEAD/STARVED. Historical ledger remains immutable audit evidence.
 - 5.0.7673: restored execution-cost learning on Crypto Universe verified fills. Exact submitted Jupiter quote output (including requotes) is compared with confirmed target-token raw delta and trained only with real candidate liquidity through MathematicalEdgeEngine.
 - 5.0.7674: dynamic crypto lead/lag causality repair. 7431's symbol-key fix now uses 7441 interval-price sampling instead of repeatedly injecting rolling 24h returns into CrossAssetLeadLagAI.
+- 5.0.7675: canonical audit reconciliation. Removed stale unchecked items already completed by exact-strategy 7430/7431, edge parity 7431/7549, and current launch-authority architecture; EarlyEntryScout/legacy fresh-launch scanner remain intentionally retired to avoid duplicate evidence.
 
 ## Existing intelligence estate explicitly in scope
 
