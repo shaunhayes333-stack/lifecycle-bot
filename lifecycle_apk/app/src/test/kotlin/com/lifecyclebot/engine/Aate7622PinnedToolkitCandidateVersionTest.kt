@@ -16,7 +16,7 @@ class Aate7622PinnedToolkitCandidateVersionTest {
         assertTrue(block.contains("val candidateVersion7622 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)"))
         assertTrue(block.contains("LaneExecutionCoordinator.registerQualifiedContest7621("))
         assertTrue(block.contains("candidateVersion7622,"))
-        assertTrue(block.contains("val causalId6647 = \"${ts.mint}:$candidateVersion7622\""))
+        assertTrue(block.contains("val causalId6647 = \"\${ts.mint}:\$candidateVersion7622\""))
         assertEquals(
             1,
             Regex("LaneExecutionCoordinator\\.candidateVersionFor\\(ts\\.mint\\)")

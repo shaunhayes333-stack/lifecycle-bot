@@ -16,7 +16,7 @@ class Aate7623PinnedFdgCandidateVersionTest {
         assertTrue(evaluate.contains("LaneExecutionCoordinator.candidateVersionFor(ts.mint)"))
         assertTrue(evaluate.contains("val causalRoot7232 = candidateVersion7623.toString()"))
         assertTrue(evaluate.contains("fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore, candidateVersion7623)"))
-        assertTrue(evaluate.contains("${ts.mint}:$candidateVersion7623"))
+        assertTrue(evaluate.contains("\${ts.mint}:\$candidateVersion7623"))
         assertTrue(evaluate.contains("candidateVersion = candidateVersion7623"))
         assertEquals(
             1,

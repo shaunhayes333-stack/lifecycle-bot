@@ -8,7 +8,7 @@ import java.io.File
 class Aate7532MathEdgeReadOnlyLearningTest {
     @Test fun mathematical_edge_sizing_readback_does_not_stamp_canonical_learning_identity() {
         val mee = File("src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt").readText()
-        val block = mee.substringAfter(""SIZING" -> {").substringBefore("if (e.score >= 75.0")
+        val block = mee.substringAfter("\"SIZING\" -> {").substringBefore("if (e.score >= 75.0")
         assertFalse(block.contains("ForwardOutcomeModel.stamp("))
         assertFalse(block.contains("UnifiedPolicyHead.stamp("))
         assertFalse(block.contains("StrategyHypothesisEngine.getSizeBias("))

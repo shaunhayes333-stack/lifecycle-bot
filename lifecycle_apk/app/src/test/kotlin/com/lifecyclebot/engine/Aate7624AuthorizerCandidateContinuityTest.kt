@@ -12,7 +12,7 @@ class Aate7624AuthorizerCandidateContinuityTest {
         val s = src("TradeAuthorizer.kt")
         val fn = s.substringAfter("fun authorize(").substringBefore("fun release(")
         assertTrue(fn.contains("val candidateVersion7624 = LaneExecutionCoordinator.candidateVersionFor(mint)"))
-        assertTrue(fn.contains("${mint}:$candidateVersion7624:${requestedBook.name}"))
+        assertTrue(fn.contains("\${mint}:\$candidateVersion7624:\${requestedBook.name}"))
         assertTrue(fn.contains("candidateVersion = candidateVersion7624"))
         assertTrue(fn.contains("candidateVersion = receipt?.candidateVersion ?: candidateVersion7624"))
         assertTrue(fn.contains("nextAttemptId(mint, requestedBook.name, laneElection.candidateVersion)"))

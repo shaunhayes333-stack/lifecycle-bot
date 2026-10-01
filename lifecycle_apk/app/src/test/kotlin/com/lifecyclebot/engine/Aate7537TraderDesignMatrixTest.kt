@@ -28,7 +28,7 @@ class Aate7537TraderDesignMatrixTest {
     @Test fun downstreamCausalStagesCannotBackfillTicketOrExec() {
         val funnel = File("src/main/kotlin/com/lifecyclebot/engine/truth/MemeExecutionFunnelReceivers6625.kt").readText()
         assertTrue(funnel.contains("SPECIALIST_CAUSAL_ORPHAN_STAGE_7537"))
-        assertFalse(funnel.contains("TICKET_INFERRED_FROM_${stage.name}_6688"))
+        assertFalse(funnel.contains("TICKET_INFERRED_FROM_\${stage.name}_6688"))
         assertFalse(funnel.contains("EXEC_INFERRED_FROM_OPEN_6688"))
         assertFalse(funnel.contains("EXPRESS_FUNNEL_TICKET_INFERRED_FROM_EXEC_6688"))
     }
