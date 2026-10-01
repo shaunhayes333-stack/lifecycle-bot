@@ -116,6 +116,8 @@ object MoonshotTraderAI {
     // LosingPatternMemory predictive override below (-3/-5/-7 for buckets
     // in danger zone).
     private const val HARD_FLOOR_STOP = -15.0        // V5.9.808: -20→-15 progressive triage
+    /** V5.0.7696 — first-phase stop while peak < +8% (was -5; see checkExit). Same tier as the ≤12-min -10. */
+    private const val EARLY_TIGHT_STOP_PCT_7696 = -10.0
     private const val EARLY_DEAD_EXIT_MINUTES = 20   // Dead exit window (mirrors ShitCoin's 12min)
     private const val EARLY_DEAD_EXIT_THRESHOLD = -6.0 // Dead at <-6% within early window
 
@@ -1144,7 +1146,7 @@ object MoonshotTraderAI {
             com.lifecyclebot.engine.PatternGoldenGoose.edge("", pos.symbol).verdict ==
                 com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD
         } catch (_: Throwable) { false }
-        if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(-5.0, effectiveHardFloor))
+        if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor))
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
         val holdMinutes = holdSeconds / 60
         if (holdMinutes <= 12) stop = maxOf(stop, -10.0)
@@ -1629,10 +1631,19 @@ object MoonshotTraderAI {
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
         val goldenExitProtected = gooseExitVerdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD
         run {
-            val earlyTightStop = minOf(-5.0, effectiveHardFloor)  // never looser than -5, respects predictive
+            // V5.0.7696 — the first-phase stop is -10, not -5. V5.9.1341's backtest
+            // for TIGHT_STOP_-5 was n=9. The operator's 5.0.7693 live tape: five
+            // MOONSHOT closes, every one between -4% and -9%, zero wins, while the
+            // lane's shadow proof read +12343%. On a fresh pump.fun pair the fill
+            // itself marks -2..-4% (spread + 1% venue fee), so a -5 stop left two or
+            // three points of room against a tape that moves 10-20% a minute: it
+            // was a coin flip on every entry, decided before the token had done
+            // anything. -10 is the tier this lane already uses inside 12 minutes;
+            // the -15 hard floor and the rug/catastrophe exits are unchanged.
+            val earlyTightStop = minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor)  // respects predictive
             if (!goldenExitProtected && pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {
-                ErrorLogger.warn(TAG, "🚀✂️ EARLY_TIGHT_STOP(-5): ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(earlyTightStop)}% " +
-                    "(peak +${pos.peakPnlPct.fmt(1)}% < +8% — no upside shown; backtest edge MOONSHOT/TIGHT_STOP_-5)")
+                ErrorLogger.warn(TAG, "🚀✂️ EARLY_TIGHT_STOP(${EARLY_TIGHT_STOP_PCT_7696.toInt()}): ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(earlyTightStop)}% " +
+                    "(peak +${pos.peakPnlPct.fmt(1)}% < +8% — no upside shown)")
                 return ExitSignal.STOP_LOSS
             }
             if (goldenExitProtected && pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {

@@ -78,6 +78,16 @@ class BotService : Service() {
         // -29.4% real-money fill on a -15% stop (V5.9.1454 dump).
         private const val TICK_HARD_FLOOR_PCT = -10.0
         private const val RUNNER_LANE_FLOOR_PCT_7330 = -15.0
+        /**
+         * V5.0.7696 — the 500ms rapid monitor's NEGATIVE fluid stop is
+         * -(cfg.stopLossPct × volatilityMult): with the default 10 and a calm
+         * tape that is -8.5, tighter than a runner lane's own first-phase -10
+         * (MoonshotTraderAI EARLY_TIGHT_STOP_PCT_7696) and far tighter than its
+         * -15 floor. 5.0.7693: MOONSHOT_LUNAR RAPID_FLUID_STOP=42 in ten minutes.
+         * On a runner lane a negative fluid stop may not sit above -10; the
+         * lane's own stops and the catastrophe/hard-floor exits own that band.
+         */
+        private const val RUNNER_LANE_MIN_FLUID_STOP_PCT_7696 = -10.0
 
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
@@ -11117,7 +11127,13 @@ class BotService : Service() {
                         // exits with appropriate reason codes; this trailing
                         // path only matters for non-catastrophe / non-floor
                         // exits driven by FluidLearningAI's adaptive stop.
-                        if (pnlPct <= dynamicStopPct && !(dynamicStopPct > 0.0 && runnerDefer7322)) {
+                        // V5.0.7696 — see RUNNER_LANE_MIN_FLUID_STOP_PCT_7696.
+                        val runnerLane7696 = try { RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode) } catch (_: Throwable) { false }
+                        val dynamicStopPct7696 = if (runnerLane7696 && dynamicStopPct < 0.0 && dynamicStopPct > RUNNER_LANE_MIN_FLUID_STOP_PCT_7696) {
+                            try { PipelineHealthCollector.labelInc("RUNNER_FLUID_STOP_HELD_AT_LANE_FLOOR_7696") } catch (_: Throwable) {}
+                            RUNNER_LANE_MIN_FLUID_STOP_PCT_7696
+                        } else dynamicStopPct
+                        if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322)) {
                             // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator
                             // directive). No more ENTRY_PROTECT stop label/behaviour.
                             // The 40s warmup HOLD above already prevents the dynamic
@@ -11125,7 +11141,7 @@ class BotService : Service() {
                             // reaches here post-warmup is a normal trailing/fluid
                             // stop. Hard -15% floor (handled above) is untouched.
                             val stopType = if (peakPnlPct > 5.0) "TRAILING" else "FLUID"
-                            ErrorLogger.warn("BotService", "⚠️ RAPID $stopType STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${dynamicStopPct.toInt()}%)")
+                            ErrorLogger.warn("BotService", "⚠️ RAPID $stopType STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${dynamicStopPct7696.toInt()}%)")
                             addLog("🛑 RAPID $stopType STOP: ${ts.symbol} ${pnlPct.toInt()}%")
                             
                             executor.requestSell(

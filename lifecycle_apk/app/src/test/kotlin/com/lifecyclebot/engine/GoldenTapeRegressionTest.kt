@@ -12932,4 +12932,27 @@ class GoldenTapeRegressionTest {
         assertTrue(moon.contains("com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock(\"MOONSHOT\", pos.peakPnlPct)"))
     }
 
+    @Test
+    fun V5_0_7696_moonshot_first_phase_stop_is_minus_ten_and_the_rapid_fluid_stop_cannot_undercut_a_runner_lane() {
+        // 5.0.7693 live tape (second snapshot, 10 min): five MOONSHOT closes at
+        // -4%..-9%, zero wins; MOONSHOT_LUNAR RAPID_FLUID_STOP=42. A fresh
+        // pump.fun fill marks -2..-4% on its own, so a -5 first-phase stop was
+        // decided before the token did anything.
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(moon.contains("private const val EARLY_TIGHT_STOP_PCT_7696 = -10.0"))
+        // Both the exit path and the tick-path mirror (stopFor) read the constant;
+        // no literal -5 first-phase stop remains in either.
+        assertEquals(2, Regex(Regex.escape("minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor)")).findAll(moon).count())
+        assertFalse(moon.contains("minOf(-5.0, effectiveHardFloor)"))
+        // The ≤12-minute tier and the hard floor are unchanged.
+        assertTrue(moon.contains("if (holdMinutes <= 12) stop = maxOf(stop, -10.0)"))
+        assertTrue(moon.contains("private const val HARD_FLOOR_STOP = -15.0"))
+
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("private const val RUNNER_LANE_MIN_FLUID_STOP_PCT_7696 = -10.0"))
+        assertTrue(bot.contains("val dynamicStopPct7696 = if (runnerLane7696 && dynamicStopPct < 0.0 && dynamicStopPct > RUNNER_LANE_MIN_FLUID_STOP_PCT_7696) {"))
+        assertTrue(bot.contains("if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322)) {"))
+        assertFalse(bot.contains("if (pnlPct <= dynamicStopPct && !(dynamicStopPct > 0.0 && runnerDefer7322)) {"))
+    }
+
 }
