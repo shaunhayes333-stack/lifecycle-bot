@@ -610,9 +610,9 @@ Baseline evidence:
 - ownerSelectedN=0 buyIntentN=0 markN=0 sizedN=0 ticketN=0 execN=0.
 - status=INTENT_CHOKED.
 Required repair:
-- [ ] Find why EXPRESS can reach FDG accounting with no owner/intent lineage.
-- [ ] EXPRESS remains the intentionally reactive chase/scalp desk; do not convert it into launch/sniper ownership.
-- [ ] Require same-lane owner/intent proof before executable downstream stages.
+- [x] EXPRESS owner/intent source defect repaired by 7464/7469: provenance-proven predecessor lineage is restored and post-FDG execution reuses the sealed EXPRESS attempt before any fresh fallback.
+- [x] EXPRESS role preserved as reactive chase/scalp: directionality and style routing keep it distinct from Project Sniper/launch ignition while native `ShitCoinExpress` remains an authoritative specialist opinion.
+- [x] Same-lane owner/intent source proof enforced by the specialist causal receivers plus 7469 sealed-attempt continuity; cross-lane/fresh-attempt fallback is not allowed after a same-lane seal exists.
 
 ## P0-6 — Crypto Universe discovery -> CryptoBrain -> V3/FDG handoff
 Baseline evidence:
@@ -3538,3 +3538,13 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] The candidate submits exactly once through `CanonicalAssetEntryContract6551` as `AssetClass.CRYPTO_ALT`; 7521 removed the contradictory duplicate post-seal admission gate.
 - [x] Runtime acceptance remains separate: fresh/routable candidates reaching V3/FDG/open must be verified from a device snapshot rather than inferred from source.
 - [x] No score/confidence thresholds, sizing multipliers, execution routes or safety rules changed.
+
+
+## V5.0.7677 - EXPRESS ownership/intent source contract reconciliation
+
+- [x] 7464 restored provenance-proven specialist predecessor lineage instead of counting downstream FDG stages without OWNER/BUY_INTENT ancestry.
+- [x] 7469 repaired EXPRESS post-FDG attempt identity: the lane consumes `sealedSpecialistAttempt7468` first and uses `nextAttemptId(..., EXPRESS)` only as a pre-seal fallback.
+- [x] EXPRESS remains the reactive continuation/chase/scalp specialist; it is not promoted into Project Sniper launch ownership.
+- [x] Same-lane sealed intent/attempt identity is required before executable downstream continuation.
+- [x] Runtime acceptance remains open: device evidence must show real EXPRESS ownerSelected/buyIntent and continuous validated stage chains.
+- [x] No entry threshold, score, sizing, exit, safety or execution-volume policy changed.
