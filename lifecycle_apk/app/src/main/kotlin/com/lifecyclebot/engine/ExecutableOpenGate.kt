@@ -445,6 +445,15 @@ object ExecutableOpenGate {
                     "BUY_INTENT",
                     authoritative.attemptId,
                 )
+                // Registration above requires an actual sealed BUY decision.
+                // Record that approval on the same key as its intent, including
+                // direct specialist routes which do not emit Toolkit FDG stages.
+                ToolkitSignalSheet.recordDeskStage(
+                    authoritative.canonicalLane,
+                    "FDG_ALLOW",
+                    authoritative.attemptId,
+                )
+                PipelineHealthCollector.labelInc("SPECIALIST_SEALED_FDG_MIRRORED_7687")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_OWNER_MIRRORED_7612")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_INTENT_MIRRORED_7607")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_INTENT_MIRRORED_7607_" + authoritative.canonicalLane.uppercase())
@@ -2400,7 +2409,18 @@ object ExecutableOpenGate {
             val modeUpper6747 = mode.uppercase()
             if (modeUpper6747 == "LIVE" || modeUpper6747 == "PAPER") {
                 val entryScore6747 = try {
-                    ts.lastV3Score ?: states[ts.mint]?.entryScore ?: -1
+                    // An approved specialist was scored by FDG for this exact
+                    // intent. A later generic V3 tick must not replace that score.
+                    val sealed7687 = executionTickets[attemptId]?.takeIf {
+                        it.mint == ts.mint && it.mode.equals(mode, true) &&
+                            canonicalLane(it.canonicalLane) == canonicalLane(lane) &&
+                            validSealedDecision6613(it)
+                    }
+                    if (sealed7687 != null && sealed7687.effectiveEntryScore7256 in 0..100) {
+                        PipelineHealthCollector.labelInc("REGIME_FLOOR_SEALED_SCORE_USED_7687")
+                    }
+                    sealed7687?.effectiveEntryScore7256?.takeIf { it in 0..100 }
+                        ?: ts.lastV3Score ?: states[ts.mint]?.entryScore ?: -1
                 } catch (_: Throwable) { -1 }
                 val floorDelta6747 = try { RegimeDetector.scoreFloorDelta() } catch (_: Throwable) { 0 }
                 if (entryScore6747 >= 0 && floorDelta6747 > 0) {

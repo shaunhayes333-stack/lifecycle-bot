@@ -297,6 +297,18 @@ object CanonicalPaperTransaction6486 {
      * CryptoAlt wrote a display-only row or none on stop. The typed economic
      * sidecar still has the exact basis/proceeds/quantity receipt, so project
      * it rather than inventing values or resetting the operator's account. */
+    internal fun historicalExitPriceUsd7687(
+        recordedPriceUsd: Double, grossProceedsSol: Double,
+        soldQtyToken: Double, historicalSolUsd: Double,
+    ): Double {
+        if (recordedPriceUsd.isFinite() && recordedPriceUsd > 0.0) return recordedPriceUsd
+        if (!grossProceedsSol.isFinite() || grossProceedsSol <= 0.0 ||
+            !soldQtyToken.isFinite() || soldQtyToken <= 0.0 ||
+            !historicalSolUsd.isFinite() || historicalSolUsd <= 0.0) return 0.0
+        return (grossProceedsSol * historicalSolUsd / soldQtyToken)
+            .takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+    }
+
     fun repairCryptoHistory6659() {
         // V5.0.6697 — this is CROSS-ASSET history repair only. 6696 selected
         // every PAPER position, including SOLANA_TOKEN meme positions, and
@@ -335,6 +347,10 @@ object CanonicalPaperTransaction6486 {
         val sellSequence = mutableMapOf<String, Long>()
         typedEvents.filterIsInstance<EconomicEventSchema6464.Sell>().forEach { sell ->
             val position = positions[sell.positionId] ?: return@forEach
+            // Sequence belongs to the durable stream, not to the subset still
+            // missing from the journal on this repair pass.
+            val sequence = (sellSequence[sell.positionId] ?: 0L) + 1L
+            sellSequence[sell.positionId] = sequence
             val eventId = sell.idempotencyKey.ifBlank {
                 "PAPER6486:SELL:${sell.positionId}:${sell.atMs}"
             }
@@ -351,9 +367,19 @@ object CanonicalPaperTransaction6486 {
             val soldQty = try { sell.soldQty.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
             val remainingQty = try { sell.remainingQty.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
             val originalQty = try { position.originalQtyRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
-            val exitPrice = if (soldQty > 0.0) sell.grossProceedsSol / soldQty else position.entryPriceUsd
-            val sequence = (sellSequence[sell.positionId] ?: 0L) + 1L
-            sellSequence[sell.positionId] = sequence
+            // Trade.price is USD/token. SOL proceeds divided by token quantity
+            // are SOL/token and cannot be substituted for a USD exit mark.
+            // Preserve unknown historical pricing rather than using entry price
+            // or today's SOL rate to manufacture a terminal observation.
+            val exitPrice = historicalExitPriceUsd7687(
+                sell.exitPriceUsd, sell.grossProceedsSol, soldQty, sell.solUsdAtExit,
+            )
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (exitPrice > 0.0) "HISTORY_EXIT_USD_BASIS_RESTORED_7687"
+                    else "HISTORY_EXIT_USD_BASIS_UNKNOWN_7687"
+                )
+            } catch (_: Throwable) {}
 
             CanonicalEconomicEvent6635.openEvent(CanonicalEconomicEvent6635.Event(
                 economicEventId = eventId, positionId = sell.positionId,

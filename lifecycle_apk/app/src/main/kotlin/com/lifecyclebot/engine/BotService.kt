@@ -14551,6 +14551,13 @@ class BotService : Service() {
         val pos = ts.position
         val entry = pos.entryPrice
         if (entry <= 0.0 || rawPrice <= 0.0 || !entry.isFinite() || !rawPrice.isFinite()) return rawPrice
+        // A carried market cap is not independent evidence against a newer
+        // price. Use the existing cap-age authority rather than flattening a
+        // runner's exit trigger back to its entry price.
+        if (com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.capStale7268(ts.mint)) {
+            try { PipelineHealthCollector.labelInc("EXIT_TRIGGER_STALE_CAP_REBASE_SKIPPED_7687") } catch (_: Throwable) {}
+            return rawPrice
+        }
         val entryMcap = pos.entryMcap.takeIf { it > 0.0 && it.isFinite() } ?: return rawPrice
         val currentMcap = ts.lastMcap.takeIf { it > 0.0 && it.isFinite() } ?: return rawPrice
         val rawGain = ((rawPrice - entry) / entry) * 100.0
@@ -27187,7 +27194,7 @@ if (hotExitHandledSweep) {
                     allow = treasuryFdgCanExecute6663,
                     reason = (treasuryFdgReason6663) + " path=$compounderLane7614")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, compounderLane7614, treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, compounderLane7614, treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = treasuryFdg?.effectiveEntryScore7687?.takeIf { it >= 0 } ?: ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
                             val trsFdgStructural = !treasuryFdgCanExecute6663 &&
                                 (treasuryFdg == null || treasuryFdgReason6663.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") })
@@ -27509,7 +27516,7 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=QUALITY")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = qualityFdg?.effectiveEntryScore7687?.takeIf { it >= 0 } ?: ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Quality signals
                             val qualityFdgStructural = qualityFdg != null && !qualityFdg.canExecute() &&
                                 qualityFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -27771,7 +27778,7 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=BLUECHIP")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = blueChipFdg?.effectiveEntryScore7687?.takeIf { it >= 0 } ?: ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, BlueChip signals
                             val bcFdgStructural = blueChipFdg != null && !blueChipFdg.canExecute() &&
                                 blueChipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -28162,7 +28169,7 @@ if (hotExitHandledSweep) {
                                     ErrorLogger.warn("BotService", "🚀 [MOONSHOT] FDG error: ${fdgEx.message} — proceeding without FDG veto")
                                     null // null = no veto, proceed
                                 }
-                                ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MOONSHOT", moonshotFdgDecision?.canExecute() ?: true, moonshotFdgDecision?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+                                ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MOONSHOT", moonshotFdgDecision?.canExecute() ?: true, moonshotFdgDecision?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = moonshotFdgDecision?.effectiveEntryScore7687?.takeIf { it >= 0 } ?: ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
 
                                 // V5.9.691 — FDG is MODULATOR not KILLER for sub-traders.
                                 // Perpetual-learning architecture: FDG adjusts size when it disagrees,
@@ -28807,7 +28814,7 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=SHITCOIN")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = shitCoinFdg?.effectiveEntryScore7687?.takeIf { it >= 0 } ?: ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                             // V5.9.1201 — FDG is a HARD VETO for ShitCoin too.
                             // Runtime log 03:27 showed direct SHITCOIN paper buys
                             // after V3/FDG state was WATCH/HARD_NO_BUY. The old
@@ -29200,7 +29207,7 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=MANIP")
                         } catch (_: Throwable) {}
-                        ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+                        ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = manipFdg?.effectiveEntryScore7687?.takeIf { it >= 0 } ?: ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                         // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
                         val manipFdgStructural = manipFdg != null && !manipFdg.canExecute() &&
                             manipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -29532,7 +29539,8 @@ if (hotExitHandledSweep) {
                                     liquidityUsd = ts.lastLiquidityUsd,
                                     hardNoReasons = emptyList(),
                                     preFdgVerdict = if (expressFdg?.canExecute() == false) "NO_BUY" else "BUY",
-                                    entryScore = expressSignal.estimatedGainPct.toInt(),
+                                    entryScore = expressFdg?.effectiveEntryScore7687?.takeIf { it >= 0 }
+                                        ?: expressSignal.confidence,
                                     tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
                                     tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
                                     tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
@@ -30123,7 +30131,7 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=DIPHUNTER")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = dipFdg?.effectiveEntryScore7687?.takeIf { it >= 0 } ?: ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, DipHunter signals
                             val dipFdgStructural = dipFdg != null && !dipFdg.canExecute() &&
                                 dipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -30553,7 +30561,8 @@ if (hotExitHandledSweep) {
                                 rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
                                 liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
                                 preFdgVerdict = if (v3Fdg6533.canExecute()) (v3Fdg6533.blockReason ?: "BUY") else "NO_BUY",
-                                candidateVersion = v3CandidateVersion6533, entryScore = result.score,
+                                candidateVersion = v3CandidateVersion6533,
+                                entryScore = v3Fdg6533.effectiveEntryScore7687.takeIf { it >= 0 } ?: result.score,
                                 tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
                                 tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
                                 tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
@@ -31619,7 +31628,9 @@ if (hotExitHandledSweep) {
                 rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
                 liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
                 preFdgVerdict = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
-                candidateVersion = effectiveCandidateVersion6614, entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
+                candidateVersion = effectiveCandidateVersion6614,
+                entryScore = fdgDecision.effectiveEntryScore7687.takeIf { it >= 0 }
+                    ?: ts.lastV3Score ?: ts.entryScore.toInt(),
                 tokenMapRouteStatus = tokenMap6614.routeStatus,
                 tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
                 tokenMapExpectedOut = tokenMap6614.expectedOutAmount,

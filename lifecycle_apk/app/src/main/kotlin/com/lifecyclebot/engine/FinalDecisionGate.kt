@@ -31,6 +31,7 @@ object FinalDecisionGate {
         val symbol: String,
         val approvalReason: String,
         val gateChecks: List<GateCheck>,
+        val effectiveEntryScore7687: Int = -1,
     ) {
         // V5.9.1368 — PROBE_ONLY is an APPROVED dust-size buy, NOT a veto. The lane
         // wait-override path (BotService ~7616/7640) deliberately returns
@@ -5726,6 +5727,7 @@ object FinalDecisionGate {
             symbol = ts.symbol,
             approvalReason = approvalReason,
             gateChecks = checks,
+            effectiveEntryScore7687 = effectiveGateScore6025.toInt().coerceIn(0, 100),
         ))
     }
 

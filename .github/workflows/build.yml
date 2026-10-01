@@ -218,6 +218,10 @@ jobs:
       # suite visible and upload its reports, but do not let those stale tests
       # prevent production APK assembly. Static authority/patch-rot gates above
       # remain hard failures.
+      - name: Required lane and history regression tests
+        run: |
+          ./gradlew testReleaseUnitTest --tests '*Aate7687*' --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+
       - name: Unit regression suite (diagnostic)
         continue-on-error: true
         run: |
