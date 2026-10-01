@@ -2897,3 +2897,17 @@ The intelligence stack already had many useful bounded opinions, but the oracle 
 - [x] No provider I/O, LLM call, new hard veto, new execution authority, threshold reduction, sizing bypass or safety weakening was added.
 - [x] Runtime proof: `SUPER_SSI_FUSION_7632`, `SUPER_SSI_CONSENSUS_7632`, `SUPER_SSI_CONFLICT_7632`.
 - [x] Regression coverage: `Aate7632SuperSsiFusionTest`.
+
+
+## V5.0.7633 — Super Intelligence counterfactual planner
+
+The post-7632 architecture moves beyond additive scoring. AATE now has an explicit advisory planner that evaluates alternative actions against the already-fused predicted distribution rather than reducing intelligence to one scalar.
+
+- [x] Added `SuperIntelligencePlanner7633` with a bounded action lattice: WAIT, ENTER_REDUCED, ENTER_BASE, ENTER_CONVICTION.
+- [x] Each action receives risk-adjusted expected utility from predicted expectancy, win probability, confidence, policy-head agreement and epistemic disagreement.
+- [x] High disagreement and low confidence increase uncertainty cost instead of pretending all models are equally certain.
+- [x] Hard safety facts force the planner recommendation to WAIT but remain owned by existing safety authorities.
+- [x] Planner output is appended to oracle forensic contributions and is **advisory-only**; it has no execution, capital, sizing or veto authority in this build.
+- [x] No provider I/O, LLM call, hot-path network work, threshold reduction, safety weakening or execution bypass was added.
+- [x] Runtime proof: `SUPER_INTELLIGENCE_PLAN_7633`.
+- [x] Regression coverage: `Aate7633SuperIntelligencePlannerTest`.

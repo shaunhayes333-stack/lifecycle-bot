@@ -1049,6 +1049,19 @@ object PredictiveEntryOracle6915 {
                     policyAgrees7261 &&
                     brainDelta7261 >= -5.0
             val coldExpectancy7261 = ((currentCandidatePWin7261 * 2.0) - 1.0) * 100.0
+            try {
+                val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
+                    pWin = currentCandidatePWin7261,
+                    expectancyPct = coldExpectancy7261,
+                    confidence = candidateConfidenceSafe7260,
+                    disagreement = (kotlin.math.abs(brainDelta7261) / BRAIN_NETWORK_CAP_PCT_6917)
+                        .let { (1.0 - it.coerceIn(0.0, 1.0)) },
+                    policyPWin = policyPWin7261,
+                    hardSafetyBlocked = false,
+                )
+                contributions += superPlan7633.contributionTag()
+                try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
             contributions += listOf(
                 "coldCandidate(score=$s,p=${"%.2f".format(scoreP7261)})",
                 "candidateConf(p=${"%.2f".format(candidateConfidenceSafe7260)})",
@@ -1211,6 +1224,19 @@ object PredictiveEntryOracle6915 {
         val opinionShare7329 = 1.0 - evidenceWeight7329
         val finalE = blendedE + (boundedAdjust + boundedBrain6917) * opinionShare7329 +
             creatorRugAdjust7329.coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, 0.0)
+        try {
+            val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
+                pWin = blendedPWin,
+                expectancyPct = finalE,
+                confidence = confidence,
+                disagreement = (kotlin.math.abs(boundedBrain6917) / BRAIN_NETWORK_CAP_PCT_6917)
+                    .let { (1.0 - it.coerceIn(0.0, 1.0)) },
+                policyPWin = if (unifiedPolicyReads7260.get() > 0L) unifiedPolicyPWin7260 else 0.50,
+                hardSafetyBlocked = creatorRugAdjust7329 < 0.0,
+            )
+            contributions += superPlan7633.contributionTag()
+            try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
         if (evidenceWeight7329 > 0.0) {
             contributions += "opinionShare7329(${"%.2f".format(opinionShare7329)})"
             try { PipelineHealthCollector.labelInc("ORACLE_OPINIONS_FADED_BY_EVIDENCE_7329") } catch (_: Throwable) {}
