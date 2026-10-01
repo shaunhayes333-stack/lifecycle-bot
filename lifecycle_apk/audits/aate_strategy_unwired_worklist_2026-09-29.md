@@ -1911,3 +1911,22 @@ These rows are performance snapshots, rankings, heatmap summaries, curriculum pr
 - [x] `QuantMindV2.getRegimeSharpe` — **QUANT METRIC READBACK**.
 - [x] F_DEAD reconciliation progress: prior 174 + 21 = **195 / 1,458** classified; **1,263 remain**.
 - [x] Regression coverage: `Aate7587AnalyticsAdvisoryTrancheTest`.
+
+
+## V5.0.7588 — F_DEAD pure helper/state-accessor tranche (12 rows)
+
+This tranche classifies deterministic validation helpers, immutable/current-state accessors and local record predicates. None performs I/O or creates a new trading decision.
+
+- [x] `TursoDefaults.validOrDefaultUrl` — **CONFIG SANITIZER**.
+- [x] `TursoDefaults.validOrDefaultToken` — **CONFIG SANITIZER**.
+- [x] Two ledger rows for `SwitchboardOracle.isSupported` in `AlternativeOracles.kt` — **STATIC FEED-CATALOG LOOKUPS** for separate oracle/token maps.
+- [x] `QuantMindV2.getKellyFraction` — **CURRENT QUANT STATE READBACK**.
+- [x] `QuantMindV2.getOptimalLeverage` — **CURRENT QUANT STATE READBACK**.
+- [x] `QuantMindV2.getMomentumState` — **CURRENT QUANT STATE READBACK**.
+- [x] `QuantMindV2.getEdgeDecay` — **CURRENT QUANT STATE READBACK**.
+- [x] `QuantMindV2.getRecommendation` — **CURRENT QUANT ADVISORY STRING**.
+- [x] `BirdeyeCreationInfoProvider.Info.isFreshDeploy` — **LOCAL AGE PREDICATE**.
+- [x] `BirdeyeCreationInfoProvider.Info.isYoungToken` — **LOCAL AGE PREDICATE**.
+- [x] `BirdeyeWhaleFeeder.isKnownWhale` — **LOCAL CACHE MEMBERSHIP QUERY**.
+- [x] F_DEAD reconciliation progress: prior 195 + 12 = **207 / 1,458** classified; **1,251 remain**.
+- [x] Regression coverage: `Aate7588PureHelperStateAccessorTrancheTest`.
