@@ -2706,3 +2706,21 @@ Repair:
 - [x] This closes the post-7614 asymmetry where CASHGEN gained self ownership but could skip the proof protecting the shared cashflow executor.
 - [x] No threshold value changed.
 - [x] Regression coverage: `Aate7618CashgenTreasuryProofParityTest`.
+
+
+## V5.0.7619 — fresh specialist election uses learned/fair authority
+
+Source audit after 5.0.7607 exposed a dormant authority path:
+
+- `LaneExecutionCoordinator` already computes lane affinity, realised-expectancy priority and recent-win fairness.
+- `pickFreshPrimary()` had **zero production callers**.
+- Fresh `elect()` still selected `preferred ?: clean.firstOrNull()`, making caller/list order an undeclared owner-selection authority.
+
+Repair:
+
+- [x] Explicit valid `preferred` remains authoritative when deliberately supplied.
+- [x] Otherwise, fresh specialist ownership now uses existing `pickFreshPrimary()` rather than list insertion order.
+- [x] Secondary telemetry lane uses the same priority/fairness model over the remaining qualified lanes.
+- [x] Sealed FDG ownership remains authoritative and is not re-elected.
+- [x] No lane score threshold, FDG rule, mark rule, sizing multiplier, TP/SL, allocation or safety gate changed.
+- [x] Regression coverage: `Aate7619LearnedFairFreshElectionTest`.

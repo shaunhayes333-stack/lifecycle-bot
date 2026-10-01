@@ -198,9 +198,20 @@ object LaneExecutionCoordinator {
         candidateVersion: Long = candidateVersionFor(mint),
         runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
     ): Election {
-        val clean = lanes.map { it.uppercase() }.filter { it.isNotBlank() }
-        val primary = (preferred?.uppercase()?.takeIf { it in clean } ?: clean.firstOrNull() ?: "CORE")
-        val secondary = clean.firstOrNull { it != primary }
+        val clean = lanes.map { it.uppercase() }.filter { it.isNotBlank() }.distinct()
+        // V5.0.7619 — the coordinator already owns learned expectancy priority,
+        // affinity weighting and recent-win fairness, but fresh elect() bypassed
+        // all of it by taking clean.firstOrNull(). That made caller/list order an
+        // undeclared ownership authority and could starve otherwise-qualified lanes.
+        //
+        // Preserve an explicit valid preferred lane: the caller may already have a
+        // canonical source/style owner. When no explicit preference exists, use the
+        // existing learned/fair selector instead of insertion order.
+        val explicitPreferred7619 = preferred?.uppercase()?.takeIf { it in clean }
+        val primary = explicitPreferred7619 ?: pickFreshPrimary(mint, clean) ?: "CORE"
+        val secondary = clean
+            .filter { it != primary }
+            .maxByOrNull { claimPriority(mint, it, clean) }
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
         val mapKey = mapKey(key)
         val now = System.currentTimeMillis()
