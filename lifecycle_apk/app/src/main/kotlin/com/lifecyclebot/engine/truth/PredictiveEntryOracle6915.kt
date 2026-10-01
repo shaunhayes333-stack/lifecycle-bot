@@ -1079,6 +1079,10 @@ object PredictiveEntryOracle6915 {
                 contributions += memory7638.contributionTag()
                 val tree7638 = com.lifecyclebot.engine.SuperPolicyTree7638.search(world7634, critic7635, memory7638)
                 contributions += tree7638.contributionTag()
+                val arbiter7639 = com.lifecyclebot.engine.SuperReasoningArbiter7639.arbitrate(
+                    world7634, critic7635, memory7638, tree7638,
+                )
+                contributions += arbiter7639.contributionTag()
                 val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                     pWin = currentCandidatePWin7261,
                     expectancyPct = coldExpectancy7261,
@@ -1089,6 +1093,7 @@ object PredictiveEntryOracle6915 {
                     world = world7634,
                     critic = critic7635,
                     tree = tree7638,
+                    arbiter = arbiter7639,
                 )
                 contributions += superPlan7633.contributionTag()
                 try {
@@ -1290,6 +1295,10 @@ object PredictiveEntryOracle6915 {
             contributions += memory7638.contributionTag()
             val tree7638 = com.lifecyclebot.engine.SuperPolicyTree7638.search(world7634, critic7635, memory7638)
             contributions += tree7638.contributionTag()
+            val arbiter7639 = com.lifecyclebot.engine.SuperReasoningArbiter7639.arbitrate(
+                world7634, critic7635, memory7638, tree7638,
+            )
+            contributions += arbiter7639.contributionTag()
             val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                 pWin = blendedPWin,
                 expectancyPct = finalE,
@@ -1300,6 +1309,7 @@ object PredictiveEntryOracle6915 {
                 world = world7634,
                 critic = critic7635,
                 tree = tree7638,
+                arbiter = arbiter7639,
             )
             contributions += superPlan7633.contributionTag()
             try {

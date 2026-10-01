@@ -52,6 +52,7 @@ object SuperIntelligencePlanner7633 {
         world: SuperWorldModel7634.Snapshot? = null,
         critic: SuperAdversarialCritic7635.Review? = null,
         tree: SuperPolicyTree7638.Result? = null,
+        arbiter: SuperReasoningArbiter7639.Decision? = null,
     ): Plan {
         val p = pWin.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.50
         val e = expectancyPct.takeIf { it.isFinite() } ?: 0.0
@@ -83,19 +84,21 @@ object SuperIntelligencePlanner7633 {
                     world != null &&
                     world.trajectorySlopePct < 0.0
                 ) 8.0 else 0.0
+                val criticWeight7639 = arbiter?.criticWeight ?: 1.0
                 val criticPenalty = when {
                     critic == null -> 0.0
-                    action == Action.ENTER_CONVICTION -> critic.convictionPenalty
-                    action == Action.ENTER_BASE -> critic.convictionPenalty * 0.45
-                    action == Action.ENTER_REDUCED -> critic.convictionPenalty * 0.15
+                    action == Action.ENTER_CONVICTION -> critic.convictionPenalty * criticWeight7639
+                    action == Action.ENTER_BASE -> critic.convictionPenalty * 0.45 * criticWeight7639
+                    action == Action.ENTER_REDUCED -> critic.convictionPenalty * 0.15 * criticWeight7639
                     else -> 0.0
                 }
                 val convictionPenalty = if (action == Action.ENTER_CONVICTION && p < 0.62) 8.0 else 0.0
+                val treeWeight7639 = arbiter?.treeWeight ?: 1.0
                 val treeBias = when {
                     tree == null -> 0.0
-                    tree.rootAction == action -> 4.0 * tree.confidence
-                    tree.rootAction == Action.WAIT -> -5.0 * tree.confidence
-                    else -> -1.5 * tree.confidence
+                    tree.rootAction == action -> 4.0 * tree.confidence * treeWeight7639
+                    tree.rootAction == Action.WAIT -> -5.0 * tree.confidence * treeWeight7639
+                    else -> -1.5 * tree.confidence * treeWeight7639
                 }
                 ActionScore(
                     action = action,

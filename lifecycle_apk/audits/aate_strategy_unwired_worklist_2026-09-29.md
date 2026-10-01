@@ -2981,3 +2981,15 @@ Super Intelligence now reasons from retrieved experience and searches multi-step
 - [x] The planner consumes only a bounded tree-search bias; the tree remains advisory and cannot execute or reserve capital.
 - [x] No provider I/O, LLM call, new hard veto, safety weakening or duplicate execution authority was added.
 - [x] Regression coverage: Aate7638RetrievalTreeSearchTest.
+
+
+## V5.0.7639 - recursive reasoning arbitration
+
+Super Intelligence now performs model-of-models arbitration instead of assigning fixed trust to every reasoning mechanism.
+
+- [x] Added SuperReasoningArbiter7639 over world-model coherence, critic confidence/fragility, episodic-memory confidence, policy-tree confidence and learned horizon calibration.
+- [x] The arbiter identifies which reasoning family is dominant for the current candidate and emits meta-confidence.
+- [x] Critic and tree influence in the planner are dynamically weighted by arbitration rather than permanently fixed.
+- [x] Horizon calibration from exact settled outcomes contributes to world-model trust.
+- [x] Arbitration only reweights existing bounded reasoning; it owns no execution, capital, provider, safety or hard-veto authority.
+- [x] Regression coverage: Aate7639RecursiveReasoningArbiterTest.
