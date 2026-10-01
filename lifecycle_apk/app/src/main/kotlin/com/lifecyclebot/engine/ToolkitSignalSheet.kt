@@ -821,19 +821,25 @@ object ToolkitSignalSheet {
                 "nativeBrain7542;${native.reason}"
             )
         }
+        // V5.0.7622 — pin one candidate generation for this entire Toolkit
+        // evaluation. Resolving candidateVersionFor() separately for the
+        // qualified-contest publish and the causal-funnel stamp could split one
+        // candidate across two generations if the 30s bucket rolled or an FDG
+        // allow latch appeared between those reads.
+        val candidateVersion7622 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
         // V5.0.7621 — publish the exact current native-qualified desk set into
         // the election coordinator. Scanner/source affinity is useful evidence
         // but is not equivalent to this candidate's specialist qualification.
         try {
-            val cv7621 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
             LaneExecutionCoordinator.registerQualifiedContest7621(
                 ts.mint,
-                cv7621,
+                candidateVersion7622,
                 deskHypotheses.keys,
             )
         } catch (_: Throwable) {}
-        // V5.0.7346 — depends only on ts.mint; was re-resolved per hypothesis.
-        val causalId6647 = "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"
+        // V5.0.7346 / 7622 — the causal identity uses the same pinned generation
+        // as the qualified specialist contest above.
+        val causalId6647 = "${ts.mint}:$candidateVersion7622"
         deskHypotheses.values.forEach { h ->
             recordDeskStage(h.lane, "POOL", causalId6647)
             recordDeskStage(h.lane, "QUALIFIED", causalId6647)

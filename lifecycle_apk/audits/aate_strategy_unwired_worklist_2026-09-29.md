@@ -2757,3 +2757,14 @@ Post-7620 source audit found one remaining ownership ambiguity: the fair pre-FDG
 - [x] Sealed FDG ownership remains immutable authority.
 - [x] No lane threshold, scoring rule, FDG verdict rule, mark rule, sizing multiplier, TP/SL, allocation or safety gate changed.
 - [x] Regression coverage: `Aate7621CandidateQualifiedElectionSetTest`.
+
+
+## V5.0.7622 — pin Toolkit qualification + causal funnel to one candidate generation
+
+Post-7621 audit found a same-evaluation generation race: `ToolkitSignalSheet` called `candidateVersionFor(mint)` once when publishing the native-qualified specialist contest and again when building the causal funnel ID. A 30-second bucket rollover, or an FDG allow latch appearing between the reads, could therefore publish qualification under generation N while POOL/QUALIFIED stages were stamped under generation N+1.
+
+- [x] Resolve `candidateVersionFor(ts.mint)` exactly once for the completed Toolkit desk evaluation.
+- [x] Publish `registerQualifiedContest7621` with that pinned version.
+- [x] Stamp `causalId6647` with the same pinned version.
+- [x] No lane threshold, score, FDG verdict, sizing, TP/SL, allocation or hard-safety rule changed.
+- [x] Regression coverage: `Aate7622PinnedToolkitCandidateVersionTest`.
