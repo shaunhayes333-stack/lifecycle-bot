@@ -1063,6 +1063,8 @@ object PredictiveEntryOracle6915 {
                         .let { (1.0 - it.coerceIn(0.0, 1.0)) },
                 )
                 contributions += world7634.contributionTag()
+                val critic7635 = com.lifecyclebot.engine.SuperAdversarialCritic7635.review(world7634)
+                contributions += critic7635.contributionTag()
                 val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                     pWin = currentCandidatePWin7261,
                     expectancyPct = coldExpectancy7261,
@@ -1071,6 +1073,7 @@ object PredictiveEntryOracle6915 {
                     policyPWin = policyPWin7261,
                     hardSafetyBlocked = false,
                     world = world7634,
+                    critic = critic7635,
                 )
                 contributions += superPlan7633.contributionTag()
                 try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
@@ -1251,6 +1254,8 @@ object PredictiveEntryOracle6915 {
                     .let { (1.0 - it.coerceIn(0.0, 1.0)) },
             )
             contributions += world7634.contributionTag()
+            val critic7635 = com.lifecyclebot.engine.SuperAdversarialCritic7635.review(world7634)
+            contributions += critic7635.contributionTag()
             val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                 pWin = blendedPWin,
                 expectancyPct = finalE,
@@ -1259,6 +1264,7 @@ object PredictiveEntryOracle6915 {
                 policyPWin = if (unifiedPolicyReads7260.get() > 0L) unifiedPolicyPWin7260 else 0.50,
                 hardSafetyBlocked = creatorRugAdjust7329 < 0.0,
                 world = world7634,
+                critic = critic7635,
             )
             contributions += superPlan7633.contributionTag()
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}

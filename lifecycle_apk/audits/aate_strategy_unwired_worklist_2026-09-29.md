@@ -2927,3 +2927,16 @@ The Super-SSI stack now moves from scalar scoring to explicit trajectory reasoni
 - [x] Conviction entry receives an explicit penalty when the modeled trajectory slopes down.
 - [x] World-model output is forensic/advisory only; existing safety, oracle, admission, sizing and execution authorities remain canonical.
 - [x] Regression coverage: Aate7634SuperWorldModelTest.
+
+
+## V5.0.7635 - adversarial scenario critic
+
+The Super Intelligence stack now red-teams its own world model before the planner trusts conviction.
+
+- [x] Added SuperAdversarialCritic7635 with explicit BULL, BASE and BEAR scenarios.
+- [x] The critic measures cross-horizon contradictions, thesis fragility, scenario spread, worst-case utility and epistemic risk.
+- [x] High fragility produces a bounded conviction penalty rather than a new independent veto.
+- [x] The planner applies the critic strongest to conviction entries, less to base entries, and only lightly to reduced entries.
+- [x] Existing hard safety remains independent and authoritative.
+- [x] No provider I/O, LLM call, new execution path, sizing bypass or hard gate was added.
+- [x] Regression coverage: Aate7635SuperAdversarialCriticTest.

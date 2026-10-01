@@ -50,6 +50,7 @@ object SuperIntelligencePlanner7633 {
         policyPWin: Double,
         hardSafetyBlocked: Boolean,
         world: SuperWorldModel7634.Snapshot? = null,
+        critic: SuperAdversarialCritic7635.Review? = null,
     ): Plan {
         val p = pWin.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.50
         val e = expectancyPct.takeIf { it.isFinite() } ?: 0.0
@@ -81,12 +82,19 @@ object SuperIntelligencePlanner7633 {
                     world != null &&
                     world.trajectorySlopePct < 0.0
                 ) 8.0 else 0.0
+                val criticPenalty = when {
+                    critic == null -> 0.0
+                    action == Action.ENTER_CONVICTION -> critic.convictionPenalty
+                    action == Action.ENTER_BASE -> critic.convictionPenalty * 0.45
+                    action == Action.ENTER_REDUCED -> critic.convictionPenalty * 0.15
+                    else -> 0.0
+                }
                 val convictionPenalty = if (action == Action.ENTER_CONVICTION && p < 0.62) 8.0 else 0.0
                 ActionScore(
                     action = action,
-                    expectedUtility = expected - downside - uncertaintyPenalty - convictionPenalty - trajectoryPenalty,
+                    expectedUtility = expected - downside - uncertaintyPenalty - convictionPenalty - trajectoryPenalty - criticPenalty,
                     downsidePenalty = downside,
-                    uncertaintyPenalty = uncertaintyPenalty + convictionPenalty + trajectoryPenalty,
+                    uncertaintyPenalty = uncertaintyPenalty + convictionPenalty + trajectoryPenalty + criticPenalty,
                 )
             }
         }
