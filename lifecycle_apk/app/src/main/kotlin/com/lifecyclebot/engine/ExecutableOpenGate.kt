@@ -2562,6 +2562,11 @@ object ExecutableOpenGate {
     ): OpenVerdict {
         val modeUpper = mode.uppercase()
         val requestedLaneForSynth = canonicalLane(lane)
+        // V5.0.7626 — capture one "current candidate" observation for this
+        // open-gate attempt. Synthetic-state creation, authority fallback and
+        // stale-candidate comparison must agree even across a bucket rollover.
+        val currentCandidateVersion7626 =
+            LaneExecutionCoordinator.candidateVersionFor(mint).takeIf { it > 0L } ?: 1L
         val existingState = states[mint]
         // V5.0.3722/V5.0.3910 — direct-lane finality restore.
         // Paper had this rescue already; live still died as
@@ -2578,7 +2583,7 @@ object ExecutableOpenGate {
             (liveSafetyTier.equals("SAFE", true) || liveSafetyTier.equals("CAUTION", true)) &&
             rug != 0
         ) {
-            val cv = LaneExecutionCoordinator.candidateVersionFor(mint).takeIf { it > 0L } ?: 1L
+            val cv = currentCandidateVersion7626
             EntryState(
                 mint = mint,
                 symbol = symbol,
@@ -2610,7 +2615,7 @@ object ExecutableOpenGate {
         val provisionalState6513 = existingState ?: syntheticPaperState
         val authorityCandidateVersion6513 = electedCandidateVersion6494.takeIf { it > 0L }
             ?: provisionalState6513?.candidateVersion
-            ?: LaneExecutionCoordinator.candidateVersionFor(mint)
+            ?: currentCandidateVersion7626
         val immutableAuthority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
             mint, authorityCandidateVersion6513, modeUpper,
         )
@@ -2954,7 +2959,7 @@ object ExecutableOpenGate {
         if (RuntimeConfigOverlay.isTradingPaused()) {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
         }
-        val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
+        val currentCandidateVersion = currentCandidateVersion7626
         var immutableTicket = ticketAuthority6564
         if (immutableTicket != null && !ticketLive(immutableTicket)) {
             val expiredTicket7255 = immutableTicket

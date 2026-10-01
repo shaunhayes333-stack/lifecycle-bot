@@ -2806,3 +2806,16 @@ The execution-finality sweep found the same intra-call generation race in `Final
 - [x] Immutable ticket validation compares against the generation captured at permit entry, not a later reread.
 - [x] No execution eligibility, hard safety, finality, sizing, route or economic rule changed.
 - [x] Regression coverage: `Aate7625PermitCandidateContinuityTest`.
+
+
+## V5.0.7626 — one current-candidate observation per ExecutableOpenGate attempt
+
+The open-gate sweep found three independent current-generation observations inside one `canOpenExecutablePositionInternal` call. The first could create a synthetic LIVE state under generation N, the second could select authority under N+1, and the third could then classify the same state as stale.
+
+- [x] Capture `currentCandidateVersion7626` once at open-gate entry.
+- [x] Synthetic LIVE state uses the pinned generation.
+- [x] Authority fallback uses the same pinned generation.
+- [x] The intentional stale-candidate comparison uses that same attempt-entry observation.
+- [x] Immutable elected/ticket/snapshot generations still take precedence where present.
+- [x] No FDG threshold, lane policy, sizing, route, exit or safety rule changed.
+- [x] Regression coverage: `Aate7626OpenGateCandidateContinuityTest`.
