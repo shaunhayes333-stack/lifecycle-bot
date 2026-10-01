@@ -1079,6 +1079,8 @@ object PredictiveEntryOracle6915 {
                 contributions += memory7638.contributionTag()
                 val tree7638 = com.lifecyclebot.engine.SuperPolicyTree7638.search(world7634, critic7635, memory7638)
                 contributions += tree7638.contributionTag()
+            try { PipelineHealthCollector.labelInc("SUPER_IMAGINATION_TREE_SEARCH_7643") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("SUPER_IMAGINATION_TREE_SEARCH_7643") } catch (_: Throwable) {}
                 val arbiter7639 = com.lifecyclebot.engine.SuperReasoningArbiter7639.arbitrate(
                     world7634, critic7635, memory7638, tree7638,
                 )

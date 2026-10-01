@@ -3034,3 +3034,17 @@ Repeated reasoning failures now create their own bounded repair hypotheses for s
 - [x] Proposals specify an expected metric and rollback condition.
 - [x] Reflection cannot directly modify live execution, thresholds, capital, safety or trade authority.
 - [x] Regression coverage: Aate7642AutonomousReflectionTest.
+
+
+## V5.0.7643 - distributional imagination rollouts and CVaR policy search
+
+Policy search now reasons over outcome distributions rather than one average future.
+
+- [x] Added SuperImaginationRollout7643 with deterministic imagined trajectories per policy.
+- [x] Rollouts derive from world-model dispersion, epistemic uncertainty, disagreement, failure risk, adversarial fragility, episodic prior and runner-tail opportunity.
+- [x] Each policy receives mean utility, median utility, downside P10, downside CVaR, upside P90 and failure probability.
+- [x] SuperPolicyTree7638 ranks branches on robust distributional utility, so a high average cannot hide a catastrophic lower tail.
+- [x] WAIT remains zero-exposure baseline; no synthetic rollout can itself authorize execution.
+- [x] No provider I/O, LLM call, random network dependency, hard-veto authority or safety weakening was added.
+- [x] Runtime proof: SUPER_IMAGINATION_TREE_SEARCH_7643.
+- [x] Regression coverage: Aate7643DistributionalImaginationTest.

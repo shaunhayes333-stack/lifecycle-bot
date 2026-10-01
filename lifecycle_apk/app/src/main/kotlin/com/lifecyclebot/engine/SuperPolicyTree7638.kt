@@ -21,6 +21,10 @@ object SuperPolicyTree7638 {
         val rootAction: SuperIntelligencePlanner7633.Action,
         val utility: Double,
         val rationale: String,
+        val meanImagined: Double = utility,
+        val downsideCvar: Double = utility,
+        val failureProbability: Double = 0.0,
+        val upsideTail: Double = utility,
     )
 
     data class Result(
@@ -32,7 +36,13 @@ object SuperPolicyTree7638 {
     ) {
         fun contributionTag(): String {
             val top = branches.sortedByDescending { it.utility }.take(3).joinToString(",") {
-                it.policy.name + ":" + String.format(java.util.Locale.US, "%+.1f", it.utility)
+                it.policy.name + ":" + String.format(
+                    java.util.Locale.US,
+                    "%+.1f/cv=%+.1f/f=%.2f",
+                    it.utility,
+                    it.downsideCvar,
+                    it.failureProbability,
+                )
             }
             return String.format(
                 java.util.Locale.US,
@@ -62,12 +72,12 @@ object SuperPolicyTree7638 {
         val frag = critic.thesisFragility
         val criticPen = critic.convictionPenalty
 
-        val branches = listOf(
+        val rawBranches = listOf(
             Branch(
                 Policy.WAIT_REASSESS,
                 SuperIntelligencePlanner7633.Action.WAIT,
                 0.0 + if (frag >= 0.70) 4.0 else 0.0,
-                "preserve_optionalilty",
+                "preserve_optionality",
             ),
             Branch(
                 Policy.REDUCED_THEN_SCALE,
@@ -99,6 +109,24 @@ object SuperPolicyTree7638 {
                 "thesis_runner_if_robust",
             ),
         )
+
+        val branches = rawBranches.map { b ->
+            val imagined = SuperImaginationRollout7643.evaluate(
+                world = world,
+                critic = critic,
+                memory = memory,
+                policy = b.policy.name,
+                exposure = b.rootAction.exposure,
+                baseUtility = b.utility,
+            )
+            b.copy(
+                utility = imagined.robustUtility,
+                meanImagined = imagined.meanUtility,
+                downsideCvar = imagined.downsideCvar,
+                failureProbability = imagined.failureProbability,
+                upsideTail = imagined.upsideP90,
+            )
+        }
 
         val best = branches.maxByOrNull { it.utility } ?: branches.first()
         val sorted = branches.sortedByDescending { it.utility }
