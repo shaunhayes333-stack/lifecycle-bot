@@ -634,10 +634,10 @@ Baseline evidence:
 - missing=373, all classified `BUS_PUBLISH_FAILED`.
 - acceptance failure includes reward population mismatch.
 Required repair:
-- [ ] Repair only provable durable finalized-bus publication gaps.
-- [ ] Require CLOSED canonical position + durable full SELL + immutable entry identity + trustworthy economics.
-- [ ] Never synthesize economics for historical rows lacking durable proof.
-- [ ] Fresh terminal close must publish once and reach all intended consumers once.
+- [x] Durable finalized-bus repair is proof-bounded by `FinalizedLearningReconciler7423`: only `BUS_PUBLISH_FAILED` rows with exact full terminal SELL/economics are eligible; 7459/7544 perform bounded repair.
+- [x] Finalized repair requires CLOSED canonical position + durable full SELL + trustworthy economics; rich immutable entry identity is used when present, while terminal-only/restored rows without strategy identity may publish only as explicitly non-trainable finality truth.
+- [x] Historical rows without durable full-terminal proof are classified `HISTORICAL_NO_DURABLE_FINALITY`; unreconstructable durable terminals are `DURABLE_TERMINAL_UNREPAIRABLE`. Neither path invents PnL/economics.
+- [x] Fresh terminal source path is exactly-once for rich persistence/subscribers; 7473 permits duplicate callbacks to re-drive only a missing canonical 6464 learning projection without replaying cash/quantity/journal/position mutation. Runtime consumer-population convergence remains separately observable.
 
 ## P0-8 — strategy / hypothesis attribution completeness
 Baseline evidence:
@@ -647,10 +647,10 @@ Baseline evidence:
 - `TACTIC_ENTRY_ATTRIBUTION_INVALID_6568=9`.
 - UnifiedPolicy pendingPositions=671.
 Required repair:
-- [ ] Exact entry identity must bind at open and survive to terminal outcome.
-- [ ] Invalid/legacy tactic identity remains forensic-only; never credit current close-time tactic.
-- [ ] Reduce bind/outcome misses for fresh post-fix positions to zero.
-- [ ] Keep restored/replayed/administrative rows out of strategy learning.
+- [x] Exact entry identity binds at canonical OPEN via 7470: UnifiedPolicy plus `StrategyHypothesisEngine.bindExecutedPosition7428` use immutable sealed candidateVersion/primaryStrategy and terminal credit is position-bound.
+- [x] Invalid/legacy tactic identity is forensic-only since 7456: `TACTIC_ENTRY_ATTRIBUTION_INVALID_6568` emits and returns without falling back to current close-time tactic.
+- [ ] Runtime acceptance: reduce hypothesis/variant bind/outcome misses for fresh post-fix positions to zero; legacy/incomplete rows remain forensic-only.
+- [x] Restored/replayed/administrative/phantom/orphan/synthetic terminal rows are excluded from strategy learning by 7456 purity gates in MathematicalEdge, V3JournalRecorder/AateDecisionEnvelope and tactic attribution.
 
 ## P0-9 — provider/data-waste reduction
 Baseline evidence:
@@ -3560,3 +3560,15 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] Contributors affect CORE evidence/strategy selection but execution remains one owner/one sealed attempt/one economic open.
 - [x] Runtime acceptance remains open for real BLUECHIP and CORE stage-chain observations.
 - [x] No thresholds, score floors, sizing multipliers, TP/SL, safety or execution-volume policy changed.
+
+
+## V5.0.7679 - finalized population + exact attribution source reconciliation
+
+- [x] P0-7 repair authority is proof-bounded: only CLOSED positions with exact durable full SELL/economics can be repaired into the 6464 finalized projection.
+- [x] Missing historical durable proof never causes synthetic economics; it is classified and left forensic.
+- [x] Terminal-only/restored durable rows may restore finalized population truth but remain non-trainable when exact strategy identity is absent/forensic.
+- [x] 7473 preserves exactly-once rich terminal side effects and allows duplicate callbacks to re-drive only a missing canonical learning projection.
+- [x] P0-8 exact hypothesis/variant identity is bound at canonical OPEN from the immutable AATE envelope and credited by positionId at terminal.
+- [x] 7456 forbids current close-time tactic fallback and filters restored/replayed/administrative terminal rows from strategy learning.
+- [x] Remaining P0-7/P0-8 obligations are runtime population/miss convergence, not additional source wiring.
+- [x] No economics are fabricated and no thresholds, sizing, safety, execution, promotion or learner policy changed.
