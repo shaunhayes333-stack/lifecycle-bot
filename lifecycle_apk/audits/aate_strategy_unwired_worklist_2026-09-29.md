@@ -2303,3 +2303,32 @@ These rows expose perps/markets state, catalog scans, correlation/learning analy
 - [x] Network-backed market-data retrieval remains background/bounded; no synchronous meme hot-path wiring is introduced.
 - [x] F_DEAD reconciliation progress: prior 452 + 47 = **499 / 1,458** classified; **959 remain**.
 - [x] Regression coverage: `Aate7598PerpsMarketsAccessorTrancheTest`.
+
+
+## V5.0.7599 — F_DEAD network/provider helper tranche (21 rows)
+
+These remaining network rows are provider I/O wrappers, batching helpers, wallet serialization/confirmation utilities, cache/status counters, or transport classification helpers. Network-capable functions stay behind their owning provider/budget/background authority and are not promoted into synchronous decision voting.
+
+- [x] `CoinGeckoTrending.getTrending` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `CoinGeckoTrending.getTrendingRank` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `HeliusEnhancedWS.updateWatchlist` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `HostCircuitInterceptor.totalNxBypassedRequests` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `HostCircuitInterceptor.totalServerBypassedRequests` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `JupiterStrictTokenList.getVerified` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `KeylessLlmProviders6999.chatWithModel` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `KeylessLlmProviders6999.models` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `KeylessPriceSources6996.defiLlamaBatch` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `KeylessPriceSources6996.jupiterBatch` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.applyRoundRobin` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.awaitConfirmation` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.compactU16` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.finalized` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.getTokenAccountsChecked` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.getTokenAccountsWithDecimals` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.getTokenAccountsWithDecimalsStrict` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.markEndpointUnhealthy` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolanaWallet.mergeFrom` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SolscanDevTracker.getRecentTransactions` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] `SwapQuote.isTransient` — **NETWORK/PROVIDER/TRANSPORT HELPER**.
+- [x] F_DEAD reconciliation progress: prior 499 + 21 = **520 / 1,458** classified; **938 remain**.
+- [x] Regression coverage: `Aate7599NetworkProviderHelperTrancheTest`.
