@@ -1422,3 +1422,22 @@ This bundle continues the original-113 A_PREDICT audit. These accessors are usef
 - [x] `QualityTraderAI.getRecommendedLeverage` — **ASSET/LEVERAGE_HELPER**. It reads learned leverage preference state; it is not meme entry intelligence and should be audited with leveraged/perps execution rather than wired into meme FDG.
 - [x] No scanner source, V3 score, FDG threshold, safety rule, sizing rule or execution authority is changed in this bundle.
 - [x] Regression coverage: `Aate7561PredictiveSidecarContractTest` proves network/DB/suspend sidecars stay out of the canonical meme hot path.
+
+
+## V5.0.7562 — B_RISK ledger truth + hot-path safety fencing
+
+This bundle reconciles the original-113 B_RISK entries against current source. It does not add new hot-path provider/LLM/database dependencies and does not weaken deterministic safety.
+
+- [x] `CanonicalEconomicIdentity6470.breachCount` — **TEST/DIAGNOSTIC COUNTER**. It reports invariant breaches; it is not an independent admission authority.
+- [x] `EvidenceEpochFilter6388.canPassForensicRegressionGuard` — **FORENSIC_ACCEPTANCE_HELPER / TEST-ONLY BY DESIGN**. It validates export/recovery evidence completeness and must not become a trade gate.
+- [x] `ExitCoordinatorHeartbeat.duplicateSweepsSuppressedCount` — **CLOSED_LOOP REPORT COUNTER**. `HealthSnapshot6324` already consumes it.
+- [x] `ExternalAlphaFeeds.enrichSafety` — **OPTIONAL BACKGROUND SIDECAR / DO_NOT HOTPATH WIRE**. It performs synchronous DexScreener + RugCheck HTTP calls and its own source comment explicitly requires off-hot-path use. Deterministic canonical safety remains elsewhere.
+- [x] `GeminiCopilot.assessRisk` — **LLM SIDECAR / DO_NOT HOTPATH WIRE**. No production caller; it can invoke external model providers and must not become a blocking prerequisite for deterministic safety/FDG.
+- [x] `MemeExecutionRouteStack.stackExhausted` — **TELEMETRY WRAPPER**. It only emits the existing `EXEC_STACK_EXHAUSTED` lifecycle event; it is not missing execution/risk logic.
+- [x] `ReentryGuard.manualBlock` — **MANUAL/OPERATOR HOOK**. It wraps the existing re-entry lockout mechanism for explicit human/scam actions; not a predictive risk primitive.
+- [x] `SameMintCandidateEpoch6402.totalSuppressed` — **TEST/REPORT COUNTER**. The suppression mechanism itself is separate; this accessor only exposes count state.
+- [x] `SellOnlySafeMode.blockedBuyCount` — **REPORT COUNTER**. Buy blocking authority lives in SellOnlySafeMode's active/update/check paths, not this getter.
+- [x] `SoftScoreShaping6400.recordMechanicalMinBlock` — **OBSERVABILITY HELPER**. It records a distinct mechanical-minimum event and is not a score-floor/risk authority.
+- [x] `TradeDatabase.getSuppressionStrength` — **BACKGROUND DB CACHE REQUIRED** if promoted. It executes a SQLite query per feature key and must not be called synchronously from scanner/V3/FDG.
+- [x] `TradeLifecycle.forceExpireBlocked` — **DEBUG/TEST-ONLY BY DESIGN**. Source explicitly describes it as testing/debugging; production retry uses normal lifecycle expiry/reset paths.
+- [x] Regression coverage: `Aate7562RiskLedgerTruthTest` locks these classifications and forbids synchronous ExternalAlpha/Gemini/TradeDatabase B_RISK calls from the canonical meme hot path.
