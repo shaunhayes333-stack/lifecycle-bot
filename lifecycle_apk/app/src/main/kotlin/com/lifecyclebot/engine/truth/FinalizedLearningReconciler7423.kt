@@ -295,7 +295,7 @@ object FinalizedLearningReconciler7423 {
         return repaired
     }
 
-    fun repairCursorStatus7684(): String =
+    private fun repairCursorStatus7684(): String =
         "cursor=${repairCursor7684.get()} scanned=${repairScanned7684.get()} wraps=${repairWraps7684.get()}"
 
     fun statusLine(): String {
