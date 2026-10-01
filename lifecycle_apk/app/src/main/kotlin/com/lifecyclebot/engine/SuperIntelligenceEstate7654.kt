@@ -20,6 +20,8 @@ object SuperIntelligenceEstate7654 {
         val smartSystemsTotal: Int,
         val smartSystemsActive: Int,
         val smartSystemsInterfaceUsed: Int,
+        val coverageFamilies: Int,
+        val coverageDirectional: Int,
     ) {
         fun crossTalkUtility(policy: SuperPolicyTree7638.Policy): Double {
             val s = crossTalk ?: return 0.0
@@ -87,7 +89,7 @@ object SuperIntelligenceEstate7654 {
 
         fun tag(): String = String.format(
             java.util.Locale.US,
-            "estate7654(cross=%s,llm=%s,arb=%s/%s@%s,layer=%d mature=%d auth=%d train=%d breadth=%.2f,smart=%d/%d/%d)",
+            "estate7654(cross=%s,llm=%s,arb=%s/%s@%s,layer=%d mature=%d auth=%d train=%d breadth=%.2f,smart=%d/%d/%d,cov=%d/%d)",
             crossTalk?.signalType?.name ?: "none",
             when {
                 llm?.quickScam == true -> "scam"
@@ -105,6 +107,8 @@ object SuperIntelligenceEstate7654 {
             smartSystemsTotal,
             smartSystemsActive,
             smartSystemsInterfaceUsed,
+            coverageFamilies,
+            coverageDirectional,
         )
     }
 
@@ -124,6 +128,9 @@ object SuperIntelligenceEstate7654 {
             LayerBrain.EstateSnapshot7654(0,0,0,0,0,0L,0,0)
         }
         val systems = try { SmartSystemRuntimeRegistry.allSystems() } catch (_: Throwable) { emptyList() }
+        val coverage7655 = try { SuperEstateCoverageRegistry7655.coverage() } catch (_: Throwable) {
+            SuperEstateCoverageRegistry7655.Coverage(0,0,0,0,0,0,0,0,0)
+        }
         return Snapshot(
             crossTalk = cross,
             llm = llm,
@@ -135,6 +142,8 @@ object SuperIntelligenceEstate7654 {
             smartSystemsTotal = systems.size,
             smartSystemsActive = systems.count { it.runtimeClass == SmartSystemRuntimeRegistry.RuntimeClass.ACTIVE },
             smartSystemsInterfaceUsed = systems.count { it.runtimeClass == SmartSystemRuntimeRegistry.RuntimeClass.INTERFACE_USED },
+            coverageFamilies = coverage7655.totalFamilies,
+            coverageDirectional = coverage7655.directionalFamilies,
         )
     }
 }

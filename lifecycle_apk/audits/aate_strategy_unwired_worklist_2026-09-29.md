@@ -3203,3 +3203,19 @@ The Super stack now explicitly reaches beyond the first 7650 integration into AA
 - [x] SmartSystemRuntimeRegistry census is included in estate telemetry so active/interface-used systems can be distinguished from dark/future/report-only systems.
 - [x] No hot-path provider I/O, LLM call, scorer recomputation, execution, capital, sizing, threshold or new hard-veto authority was added.
 - [x] Regression coverage: `Aate7654IntelligenceEstateBridgeTest`.
+
+
+## V5.0.7655 - enforceable intelligence-estate census and provenance map
+
+The "150+ brains" problem is now tracked explicitly instead of relying on architectural memory.
+
+- [x] Added `SuperEstateCoverageRegistry7655` with explicit provenance routes: direct cache, represented upstream, learned estate, safety-sovereign, background-only, report-only and legacy/no-autowire.
+- [x] Registry explicitly names AICrossTalk, the multi-provider LLM council, scanner/arb brains, LayerBrain learned heads, MetaCognition/SuperBrain/BotBrain/Sentience aggregate, collective intelligence, SSI pilot council and the existing Super/world/policy families.
+- [x] Represented-upstream intelligence is labelled as such so it is not counted again as an independent vote.
+- [x] Added `ci/super_intelligence_estate_audit_7655.py` to source-scan intelligence-like Kotlin files and emit TSV/JSON census artifacts.
+- [x] Census classifications include direct Super/cache, LayerBrain, aggregator-represented, safety-sovereign, background research, provider-backed, cache/readback and unclassified-review populations.
+- [x] Build regression requires the source estate to remain at least 150 intelligence candidates and verifies the major family map.
+- [x] Runtime estate telemetry now reports family coverage alongside LayerBrain and SmartSystem census data.
+- [x] Current repository tree inspection before this bundle found 250 intelligence-named Kotlin candidates across 1,246 Kotlin source files; the CI census recomputes this from source rather than hard-coding that count.
+- [x] No new execution authority, provider call, scanner recomputation, hard veto, sizing or capital authority was added.
+- [x] Regression coverage: `Aate7655IntelligenceEstateCoverageTest`.
