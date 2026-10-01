@@ -1662,3 +1662,15 @@ These rows are now removed from the unresolved strategy-correctness backlog as f
 - [x] Wider-ledger reconciliation state: original 113 complete + D_DISPLAY 151 + E_INFILE 100 + pre-triaged dispositions 182 classified.
 - [x] Remaining large raw tier for real triage: **F_DEAD = 1,458 declarations**.
 - [x] Regression coverage: `Aate7574PreTriagedTierDispositionTest`.
+
+
+## V5.0.7575 — F_DEAD safe tranche: UI + voice product surface (40 rows)
+
+F_DEAD triage begins with the lowest-risk homogeneous tranche: every dead declaration under `ui/` and `engine/voice/`.
+
+- [x] **40 F_DEAD rows** classified **PRODUCT_UI_VOICE_DEAD / NOT TRADING AUTHORITY**.
+- [x] Scope includes AateComponents6994, AateLoopAnim7027, BrainNetworkView, CollectiveBrainActivity, CryptoAltActivity view helpers, ErrorLogActivity, HeatmapRenderCache6374, JournalActivity, PersonaStudioActivity, BotViewModel UI toggle helper, UniverseHealthActivity, WalletActivity UI helpers, ElevenLabsApi unused helpers, PersonalityVoiceRegistry unused setters, VoiceDiagnostics and VoiceSfxLibrary accessors.
+- [x] These functions may be removed or revived only as product/UI work; they are excluded from strategy, scanner, risk, sizing, execution, held-management, finality and learning correctness counts.
+- [x] No canonical engine caller is manufactured for a dead UI/voice helper merely to make static analysis green.
+- [x] F_DEAD reconciliation progress: **40 / 1,458** classified; **1,418** remain for subsystem-aware triage.
+- [x] Regression coverage: `Aate7575DeadUiVoiceTrancheTest`.
