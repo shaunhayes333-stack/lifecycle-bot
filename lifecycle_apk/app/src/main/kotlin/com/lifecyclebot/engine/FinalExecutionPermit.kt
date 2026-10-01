@@ -131,18 +131,24 @@ object FinalExecutionPermit {
         lastSafetyCheckMs: Long = -1L,
     ): Boolean {
         val now = System.currentTimeMillis()
-        // V5.0.7625 — one immutable candidate generation per permit attempt.
-        // Finality, release bookkeeping and ticket-version validation must not
-        // independently observe a bucket rollover inside this call.
-        val candidateVersion7625 = LaneExecutionCoordinator.candidateVersionFor(mint)
+        // V5.0.7628 — an already-sealed attempt owns its generation.
+        // Sampling the current 30s bucket here can roll after authorization and
+        // falsely reject a valid immutable ticket as superseded.
+        val existingAttemptTicket7628 = attemptId
+            .takeIf { it.isNotBlank() }
+            ?.let { ExecutableOpenGate.ticketForAttempt(it) }
+        val candidateVersion7628 = existingAttemptTicket7628
+            ?.candidateVersion
+            ?.takeIf { it > 0L }
+            ?: LaneExecutionCoordinator.candidateVersionFor(mint)
         fun releasePrimaryAfterPermitFailure(reason: String) {
-            val ticket6494 = ExecutableOpenGate.ticketForAttempt(attemptId)
+            val ticket6494 = existingAttemptTicket7628 ?: ExecutableOpenGate.ticketForAttempt(attemptId)
             try {
                 LaneExecutionCoordinator.releaseIfPrimary(
                     mint = mint,
                     lane = ticket6494?.lane ?: layer,
                     reason = reason,
-                    candidateVersion = ticket6494?.candidateVersion ?: candidateVersion7625,
+                    candidateVersion = ticket6494?.candidateVersion ?: candidateVersion7628,
                 )
             } catch (_: Throwable) {}
         }
@@ -175,7 +181,7 @@ object FinalExecutionPermit {
         // V5.9.1093 — finality BEFORE ENTER/permit side effects.
         // Existing lane code logs ENTER immediately after this function returns
         // true, so this is the last universal pre-side-effect choke point.
-        val finalityAttemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(mint, layer, candidateVersion7625) }
+        val finalityAttemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(mint, layer, candidateVersion7628) }
         val sizeFinalityTicketPresent6491 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId) != null
         if (!finalityPrechecked || !sizeFinalityTicketPresent6491) {
             val finality = ExecutableOpenGate.canOpenExecutablePosition(
@@ -207,7 +213,7 @@ object FinalExecutionPermit {
             recordPermitFalseReturn4416("IMMUTABLE_EXEC_TICKET_MISSING_6494")
             return false
         }
-        val currentVersion6513 = candidateVersion7625
+        val currentVersion6513 = candidateVersion7628
         if (executionTicket6494.primaryLane != executionTicket6494.lane ||
             !(executionTicket6494.fdgVerdict == "BUY" ||
                 (executionTicket6494.mode.equals("PAPER", true) &&

@@ -2830,3 +2830,14 @@ After execution-path generation continuity was repaired through 7626, the learni
 - [x] `pendingByDecision7428` is keyed by the exact FDG decision generation.
 - [x] No hypothesis scoring/bias value, promotion logic, thresholds, sizing bounds or execution policy changed.
 - [x] Regression coverage: `Aate7627HypothesisCandidateContinuityTest`.
+
+
+## V5.0.7628 — final permit inherits sealed ticket generation
+
+A remaining false-stale path survived 7625: when `attemptId` already identifies an immutable ticket on generation N, `FinalExecutionPermit.tryAcquireExecution` must not resample the current 30-second candidate clock and compare that ticket against N+1.
+
+- [x] Existing attempt ticket generation is authoritative for permit finality.
+- [x] Current candidate authority is consulted only when no immutable ticket generation exists.
+- [x] Fallback attempt creation, release bookkeeping and ticket validation reuse the inherited generation.
+- [x] No threshold, scoring, FDG, sizing, TP/SL, allocation, route or hard-safety policy changed.
+- [x] Regression coverage: `Aate7628PermitTicketGenerationContinuityTest`.
