@@ -1747,3 +1747,21 @@ This tranche classifies read-only perps state, registry, scanner and execution d
 - [x] `PriceAggregator.getSourceStats` — **PROVIDER SUCCESS/FAIL REPORT**.
 - [x] F_DEAD reconciliation progress: prior 86 + 11 = **97 / 1,458** classified; **1,361 remain**.
 - [x] Regression coverage: `Aate7579PerpsReadbackTrancheTest`.
+
+
+## V5.0.7580 — F_DEAD learning/report readback tranche (10 rows)
+
+This tranche classifies cached learning counters, analytics snapshots and report-only aggregate reads. No entry score, size, execution or exit authority is added.
+
+- [x] `BehaviorLearning.getWinLossCount` — **LEARNING COUNTER READBACK**.
+- [x] `CloudLearningSync.getCommunityStats` — **CACHED COMMUNITY REPORT FORMATTER**.
+- [x] `FluidLearningAI.getSessionPnlStats` — **SESSION ANALYTICS SNAPSHOT**.
+- [x] `FluidLearningAI.getSubTraderTradeCount` — **SESSION COUNTER READBACK**.
+- [x] `FluidLearningAI.getSubTraderWinCount` — **SESSION COUNTER READBACK**.
+- [x] `FluidLearningAI.getMarketsTradeCount` — **MARKETS LEARNING COUNTER READBACK**.
+- [x] `FluidLearningAI.getAltsTradeCount` — **ALTS LEARNING COUNTER READBACK**.
+- [x] `PerformanceAnalytics.lifetimeClosedCount` — **ANALYTICS STATE READBACK**.
+- [x] `ShadowLearningEngine.getTrackedTradesCount` — **SHADOW REPORT COUNT**.
+- [x] `ShadowLearningEngine.getVolatilityPlayStats` — **COMPLETED-SHADOW ANALYTICS REPORT**.
+- [x] F_DEAD reconciliation progress: prior 97 + 10 = **107 / 1,458** classified; **1,351 remain**.
+- [x] Regression coverage: `Aate7580LearningReportReadbackTrancheTest`.
