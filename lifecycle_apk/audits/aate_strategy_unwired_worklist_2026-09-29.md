@@ -2159,3 +2159,40 @@ These rows expose logs, counters, persisted paths/preferences, cache/status snap
 - [x] `TradeState.getCooldownRemaining` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
 - [x] F_DEAD reconciliation progress: prior 352 + 28 = **380 / 1,458** classified; **1,078 remain**.
 - [x] Regression coverage: `Aate7595DiagnosticsStorageStatusTrancheTest`.
+
+
+## V5.0.7596 — F_DEAD classification/validation helper tranche (29 rows)
+
+These are deterministic classification, validation, forensic-list, or state-predicate helpers. They may support an owning authority when called, but are not themselves evidence that a second decision path must be manufactured.
+
+- [x] `AssetClass.isRealLearningSize` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BannedTokens.getBanTimestamp` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BannedTokens.getBannedList` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BannedTokens.getDetailedBannedList` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BannedTokens.getReason` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BehaviorLearning.getBroadSignature` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BehaviorLearning.getFineSignature` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BehaviorLearning.getRichSignature` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BehaviorLearning.getSignature` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `BirdeyeBudgetGate.isLockedDown` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `CloseOutcomeLabelSanitizer.isDirtyForTraining` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `DeadAILayerFilter.isNotApplicable` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `ExecutionHealthGuard.isEmergencyReason` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `HardRugPreFilter.isViable` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `HotfixRules.isSignatureValid` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `LaneTag.isMeme` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `LearningPnlSanitizer.isTrainablePct` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `LearningPnlSanitizer.isTrainableTrade` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `LiquidityClassifier.isBondingCurveQuote` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `LivePositionCloseAuthority.isUntrustedRpc` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `MintIntegrityGate.isSilentStablePark` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `PendingSellQueue.isTemporary` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `SellIntentSeverity.isEmergencyBand` (ledger declaration 22) — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `SellIntentSeverity.isEmergencyBand` (ledger declaration 23) — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `SellReconciler.isLiveAlive` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `SolanaBlueChipWatchlist.isBlueChip` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `UniversalRouteEngine.isPumpFamilyMint` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `WalletReconciler.isHeldOrOpen` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] `WalletReconciler.knownMintContains` — **CLASSIFICATION/VALIDATION HELPER**.
+- [x] F_DEAD reconciliation progress: prior 380 + 29 = **409 / 1,458** classified; **1,049 remain**.
+- [x] Regression coverage: `Aate7596ClassificationValidationHelperTrancheTest`.
