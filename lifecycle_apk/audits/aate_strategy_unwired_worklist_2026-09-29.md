@@ -2374,3 +2374,19 @@ All remaining V4 rows are meta-layer accessors, recorders, risk/advisory queries
 - [x] `TradeLessonRecorder.getRegimeLessons` — **V4 META API / NO DIRECT AUTHORITY**.
 - [x] F_DEAD reconciliation progress: prior 520 + 19 = **539 / 1,458** classified; **919 remain**.
 - [x] Regression coverage: `Aate7601V4MetaApiTrancheTest`.
+
+
+## V5.0.7602 — F_DEAD collective/Turso remaining tranche (8 rows)
+
+These are collective sync, legal/product state, orphan reconciliation, database maintenance, or background persistence surfaces. None belongs in scanner/V3/FDG as a synchronous vote.
+
+- [x] `CollectiveLearning.downloadAll` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] `CollectiveLearning.uploadModePerformance` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] `LegalAgreementManager.getAcceptanceTimestamp` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] `LegalAgreementManager.hasAcceptedAgreement` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] `LegalAgreementManager.needsReacceptance` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] `LocalOrphanStore.reconcileAll` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] `TursoClient.nukeBadData` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] `TursoClient.saveLeadLagPair` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
+- [x] F_DEAD reconciliation progress: prior 539 + 8 = **547 / 1,458** classified; **911 remain**.
+- [x] Regression coverage: `Aate7602CollectiveRemainingTrancheTest`.
