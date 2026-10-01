@@ -260,6 +260,25 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     /**
+     * V5.0.7694 — SOL balance of an arbitrary address (one attempt, null on any
+     * failure). Used by FeeAccumulator to see whether a fee destination still
+     * exists on-chain: a system transfer that would leave a NEW account below
+     * the rent-exempt minimum (~0.00089 SOL) fails preflight with "insufficient
+     * funds for rent", so a swept-to-zero fee wallet cannot be re-created by a
+     * 0.0001 SOL flush. The caller holds the bucket until it can.
+     */
+    fun getSolBalanceOf7694(address: String): Double? {
+        if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) return null
+        return try {
+            val resp = rpc("getBalance", JSONArray().put(address))
+            if (resp.optJSONObject("error") != null) return null
+            val result = resp.optJSONObject("result") ?: return null
+            val lam = result.optLong("value", Long.MIN_VALUE)
+            if (lam == Long.MIN_VALUE) null else lam / 1_000_000_000.0
+        } catch (_: Throwable) { null }
+    }
+
+    /**
      * V5.0.6685 — connect-time primary-only balance probe.
      * WalletManager owns endpoint failover. This method deliberately performs
      * exactly one JSON-RPC call to this wallet's rpcUrl so Connect cannot create

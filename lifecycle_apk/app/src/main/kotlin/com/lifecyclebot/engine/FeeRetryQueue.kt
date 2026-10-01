@@ -77,19 +77,45 @@ object FeeRetryQueue {
         val remaining = JSONArray()
         val now = System.currentTimeMillis()
 
+        // V5.0.7694 — this queue no longer destroys money. Stale, exhausted and
+        // "non-retryable" entries go back to the FeeAccumulator bucket for their
+        // destination, where the rent-exemption hold (the actual cause of the
+        // "insufficient funds for rent" preflight failures that were classified
+        // non-retryable here) lets them accrue until one transfer can land. If
+        // the accumulator is not initialised the entry simply stays queued.
+        fun returnToBucket7694(entry: FeeEntry, why: String): Boolean {
+            // A self-addressed entry is not a fee anyone can receive; it is the
+            // one case that is correctly discarded (accrue() would refuse it too).
+            val selfPk7694 = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
+            if (selfPk7694.isNotBlank() && selfPk7694 == entry.toAddress) {
+                ErrorLogger.warn("FeeRetryQueue", "⛔ Discarding self-addressed fee entry ($why): ${entry.amountSol.fmt(5)} SOL → self")
+                return true
+            }
+            if (!FeeAccumulator.isInitialized7694()) return false
+            return try {
+                val bucket = FeeAccumulator.accrue(entry.toAddress, entry.amountSol, "retry_queue_returned_7694_$why")
+                if (bucket > 0.0) {
+                    PipelineHealthCollector.labelInc("FEE_RETRY_RETURNED_TO_BUCKET_7694")
+                    ErrorLogger.warn("FeeRetryQueue", "↩ Returned to bucket ($why): ${entry.amountSol.fmt(5)} SOL → ${entry.toAddress} (bucket=${bucket.fmt(5)})")
+                    true
+                } else false
+            } catch (_: Throwable) { false }
+        }
+
         for (i in 0 until arr.length()) {
             val json = arr.getJSONObject(i)
             val entry = jsonToEntry(json)
 
-            // Drop stale entries (>24h)
+            // Stale entries (>24h) and exhausted retries return to the bucket
+            // (V5.0.7694); they used to be dropped.
             if (now - entry.createdMs > MAX_AGE_MS) {
-                ErrorLogger.warn("FeeRetryQueue", "🗑 Dropping stale fee (>24h): ${entry.amountSol.fmt(5)} SOL → ${entry.toAddress}")
+                if (returnToBucket7694(entry, "stale")) continue
+                remaining.put(entryToJson(entry))
                 continue
             }
-
-            // Drop entries that have exceeded retry limit
             if (entry.retryCount >= MAX_RETRIES) {
-                ErrorLogger.error("FeeRetryQueue", "🗑 Dropping fee (${MAX_RETRIES} retries exhausted): ${entry.amountSol.fmt(5)} SOL → ${entry.toAddress}")
+                if (returnToBucket7694(entry, "retries_exhausted")) continue
+                remaining.put(entryToJson(entry))
                 continue
             }
 
@@ -135,19 +161,24 @@ object FeeRetryQueue {
                 val errMsg = (e.message ?: "").lowercase()
                 val nonRetryable = nonRetryablePatterns.any { it in errMsg }
                 if (nonRetryable) {
+                    // V5.0.7694 — "insufficient" here was usually the DESTINATION's
+                    // rent-exemption preflight on a 0.0001 SOL transfer, not a real
+                    // dead end. Return the amount to its bucket; the accumulator
+                    // holds it until a single transfer can fund the account.
+                    val returned7694 = returnToBucket7694(entry, "non_retryable")
                     ErrorLogger.warn(
                         "FeeRetryQueue",
-                        "🛑 NON_RETRYABLE error — dropping fee permanently (${entry.amountSol.fmt(5)} SOL → ${entry.toAddress}): ${e.message?.take(80)}"
+                        "🛑 NON_RETRYABLE error — ${if (returned7694) "returned to bucket" else "kept queued"} (${entry.amountSol.fmt(5)} SOL → ${entry.toAddress}): ${e.message?.take(80)}"
                     )
                     LiveTradeLogStore.log(
                         tradeKey = "FEE_${entry.toAddress.take(8)}",
                         mint = "", symbol = "FEE",
                         side = "FEE",
                         phase = LiveTradeLogStore.Phase.FEE_RETRY_CANCELLED_NON_RETRYABLE,
-                        message = "🛑 Fee retry cancelled (non-retryable): ${e.message?.take(60)} → drop ${entry.amountSol.fmt(5)} SOL",
+                        message = "🛑 Fee retry non-retryable: ${e.message?.take(60)} → ${if (returned7694) "returned to bucket" else "kept queued"} ${entry.amountSol.fmt(5)} SOL",
                         solAmount = entry.amountSol,
                     )
-                    // Do not re-queue — drop permanently.
+                    if (!returned7694) remaining.put(entryToJson(entry))
                 } else {
                     ErrorLogger.warn("FeeRetryQueue", "⚠ Retry failed (${entry.retryCount + 1}/${MAX_RETRIES}): ${e.message?.take(60)}")
                     remaining.put(entryToJson(entry.copy(retryCount = entry.retryCount + 1)))

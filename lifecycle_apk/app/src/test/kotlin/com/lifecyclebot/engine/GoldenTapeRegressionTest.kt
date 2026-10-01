@@ -12852,4 +12852,48 @@ class GoldenTapeRegressionTest {
         assertTrue(whenBlock.indexOf("flatCull7693 ->") < whenBlock.indexOf("pnlPct <= -1.0 ->"))
     }
 
+    @Test
+    fun V5_0_7694_a_fee_that_fails_preflight_is_held_in_its_bucket_never_dropped() {
+        // Operator: "live trading fees aren't sending again." Their export:
+        // "a fee transfer failed simulation and was dropped (0.00011 SOL)".
+        // tryFlush removed the bucket and handed it to FeeRetryQueue, whose
+        // non-retryable classifier matched "insufficient" in the destination's
+        // rent-exemption preflight error and dropped the fee permanently. A fee
+        // wallet swept to zero cannot be re-created by a sub-0.00089 SOL transfer.
+        val acc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeAccumulator.kt").readText()
+        assertTrue(acc.contains("private const val RENT_EXEMPT_MIN_SOL_7694 = 0.00089088"))
+        assertTrue(acc.contains("private const val DEST_FUNDING_FLOOR_SOL_7694 = 0.00095"))
+        assertTrue(acc.contains("private fun destinationHoldReason7694("))
+        // Both send branches consult the hold before sending.
+        assertEquals(2, Regex(Regex.escape("destinationHoldReason7694(wallet, dest,")).findAll(acc).count())
+        assertEquals(2, Regex(Regex.escape("PipelineHealthCollector.labelInc(\"FEE_FLUSH_HELD_DEST_BELOW_RENT_7694\")")).findAll(acc).count())
+        // A failed send keeps its bucket: tryFlush no longer enqueues to the
+        // retry queue on failure, and no longer removes the bucket on failure.
+        val flushFn = acc.substringAfter("fun tryFlush(wallet: SolanaWallet): Double {").substringBefore("fun snapshot(): String")
+        assertFalse(flushFn.contains("FeeRetryQueue.enqueue("))
+        assertEquals(1, Regex(Regex.escape("buckets.remove(dest)")).findAll(flushFn).count()) // success path only
+        assertTrue(acc.contains("fun isInitialized7694(): Boolean = prefs != null"))
+        assertTrue(acc.contains("fun holdStatus7694(): String"))
+
+        // The destination balance read exists and is null-on-failure.
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(wallet.contains("fun getSolBalanceOf7694(address: String): Double? {"))
+
+        // The retry queue returns money to the bucket instead of destroying it.
+        val rq = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeRetryQueue.kt").readText()
+        assertTrue(rq.contains("fun returnToBucket7694(entry: FeeEntry, why: String): Boolean"))
+        assertTrue(rq.contains("if (returnToBucket7694(entry, \"stale\")) continue"))
+        assertTrue(rq.contains("if (returnToBucket7694(entry, \"retries_exhausted\")) continue"))
+        assertTrue(rq.contains("val returned7694 = returnToBucket7694(entry, \"non_retryable\")"))
+        assertTrue(rq.contains("if (!returned7694) remaining.put(entryToJson(entry))"))
+        assertFalse(rq.contains("Dropping stale fee"))
+        assertFalse(rq.contains("Dropping fee ("))
+        assertFalse(rq.contains("dropping fee permanently"))
+
+        // The report names the cause.
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("heldDestBelowRent=\$heldRent7694 sendFailed=\$sendFailed7694 returnedFromRetryQueue=\$returned7694"))
+        assertTrue(phc.contains("com.lifecyclebot.engine.FeeAccumulator.holdStatus7694()"))
+    }
+
 }

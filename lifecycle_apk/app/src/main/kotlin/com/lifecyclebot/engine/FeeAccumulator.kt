@@ -107,6 +107,69 @@ object FeeAccumulator {
     @Volatile private var flushThresholdSol: Double = DEFAULT_FLUSH_THRESHOLD_SOL
     private var prefs: SharedPreferences? = null
 
+    /**
+     * V5.0.7694 §A_FLUSH_THAT_FAILS_PREFLIGHT_WAS_A_FEE_THAT_GOT_DROPPED.
+     *
+     * Operator: "live trading fees aren't sending again." Their earlier export
+     * had the mechanism in one line: "a fee transfer failed simulation and was
+     * dropped (0.00011 SOL)". The path:
+     *
+     *   tryFlush -> wallet.sendSol(dest, 0.00011) throws on preflight
+     *            -> bucket REMOVED, amount handed to FeeRetryQueue
+     *   FeeRetryQueue -> error text contains "insufficient"
+     *            -> NON_RETRYABLE -> dropped permanently.
+     *
+     * The preflight error on a 0.0001-SOL system transfer is not the sender's
+     * balance (0.27 SOL). It is the DESTINATION: the runtime refuses a transfer
+     * that creates an account below the rent-exempt minimum (890,880 lamports
+     * ≈ 0.00089 SOL for a zero-data account) — "Transaction results in an
+     * account with insufficient funds for rent". A fee wallet that was swept
+     * to zero is garbage-collected, and from then on every micro-flush to it
+     * fails preflight and is dropped. That is why it keeps coming back: it
+     * recurs every time a fee wallet is emptied, and 7124/7212/7213 could not
+     * see it because they only ever looked at the sending side.
+     *
+     * Three changes, no amount or destination touched:
+     *   1. Before sending, read the destination's balance. If it is below the
+     *      rent-exempt minimum and the transfer alone would not fund it, HOLD
+     *      the bucket (counted, printed) — it keeps accruing until one transfer
+     *      can re-create the account. A balance read failure proceeds as before.
+     *   2. A failed send keeps its bucket. It is not moved to the retry queue,
+     *      which is where it could be dropped, and the split branch no longer
+     *      leaves the amount in BOTH the bucket and the queue.
+     *   3. FeeRetryQueue returns exhausted/stale/non-retryable entries to the
+     *      bucket instead of dropping them.
+     */
+    private const val RENT_EXEMPT_MIN_SOL_7694 = 0.00089088
+    /** A single transfer must clear this to re-create an empty destination (rent minimum + headroom). */
+    private const val DEST_FUNDING_FLOOR_SOL_7694 = 0.00095
+    private val heldDest7694 = java.util.concurrent.ConcurrentHashMap<String, String>()
+    @Volatile private var lastFlushError7694: String = ""
+
+    fun isInitialized7694(): Boolean = prefs != null
+
+    /** Operator dump: which destinations are being held and why; blank when none. */
+    fun holdStatus7694(): String {
+        val held = heldDest7694.entries.joinToString(" | ") { "${it.key.take(6)}…: ${it.value}" }
+        val err = lastFlushError7694
+        return buildString {
+            if (held.isNotBlank()) append("held: ").append(held)
+            if (err.isNotBlank()) { if (isNotEmpty()) append("  "); append("lastSendError: ").append(err.take(140)) }
+        }
+    }
+
+    /**
+     * Returns a hold reason when [dest] is an empty/absent account that [amount]
+     * cannot make rent-exempt on its own; null when the send may proceed.
+     */
+    private fun destinationHoldReason7694(wallet: SolanaWallet, dest: String, amount: Double, cache: MutableMap<String, Double?>): String? {
+        val destBal = cache.getOrPut(dest) { try { wallet.getSolBalanceOf7694(dest) } catch (_: Throwable) { null } }
+            ?: return null
+        if (destBal >= RENT_EXEMPT_MIN_SOL_7694) return null
+        if (amount >= DEST_FUNDING_FLOOR_SOL_7694) return null
+        return "dest holds ${destBal.fmt(6)} SOL (< rent-exempt ${RENT_EXEMPT_MIN_SOL_7694.fmt(5)}); bucket ${amount.fmt(5)} must reach ${DEST_FUNDING_FLOOR_SOL_7694.fmt(5)} to re-create the account"
+    }
+
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
@@ -237,6 +300,7 @@ object FeeAccumulator {
             } catch (_: Throwable) {}
         }
 
+        val destBalanceCache7694 = HashMap<String, Double?>()
         for (dest in keys) {
             val accrued = buckets.optDouble(dest, 0.0)
             if (accrued <= 0.0) continue
@@ -269,6 +333,16 @@ object FeeAccumulator {
                         "⏸ Flush deferred: wallet=${balance.fmt(5)} SOL < accrued=${accrued.fmt(5)} SOL + reserve=${MIN_WALLET_RESERVE_SOL}. Retry next cycle.")
                     continue
                 }
+                // V5.0.7694 — an empty destination cannot be re-created by a
+                // sub-rent transfer; hold the bucket instead of failing preflight.
+                val splitHold7694 = destinationHoldReason7694(wallet, dest, sendable, destBalanceCache7694)
+                if (splitHold7694 != null) {
+                    heldDest7694[dest] = splitHold7694
+                    PipelineHealthCollector.labelInc("FEE_FLUSH_HELD_DEST_BELOW_RENT_7694")
+                    ErrorLogger.warn("FeeAccumulator", "⏸ Split-flush held → $dest: $splitHold7694")
+                    continue
+                }
+                heldDest7694.remove(dest)
                 try {
                     wallet.sendSol(dest, sendable)
                     ErrorLogger.warn("FeeAccumulator",
@@ -277,14 +351,28 @@ object FeeAccumulator {
                     balance -= sendable
                     totalSent += sendable
                     changed = true
+                    lastFlushError7694 = ""
                     PipelineHealthCollector.labelInc("FEE_SPLIT_FLUSH_6405")
                 } catch (e: Exception) {
+                    // V5.0.7694 — the bucket still holds the full amount; it used
+                    // to ALSO be enqueued, so a later retry success paid it twice.
+                    // Keep it here and retry from the bucket next cycle.
+                    PipelineHealthCollector.labelInc("FEE_FLUSH_SEND_FAILED_7124")
+                    lastFlushError7694 = "${dest.take(6)}…: ${e.message ?: e.javaClass.simpleName}"
                     ErrorLogger.warn("FeeAccumulator",
-                        "❌ Split-flush failed ${sendable.fmt(5)} SOL → $dest: ${e.message} — handing off to FeeRetryQueue")
-                    try { FeeRetryQueue.enqueue(dest, sendable, "accumulator_split_retry") } catch (_: Throwable) {}
+                        "❌ Split-flush failed ${sendable.fmt(5)} SOL → $dest: ${e.message} — bucket kept, retry next cycle")
                 }
                 continue
             }
+            // V5.0.7694 — see destinationHoldReason7694.
+            val hold7694 = destinationHoldReason7694(wallet, dest, accrued, destBalanceCache7694)
+            if (hold7694 != null) {
+                heldDest7694[dest] = hold7694
+                PipelineHealthCollector.labelInc("FEE_FLUSH_HELD_DEST_BELOW_RENT_7694")
+                ErrorLogger.warn("FeeAccumulator", "⏸ Flush held → $dest: $hold7694")
+                continue
+            }
+            heldDest7694.remove(dest)
             try {
                 wallet.sendSol(dest, accrued)
                 // V5.0.7124 — the only proof-of-payment counter in the fee path.
@@ -296,15 +384,17 @@ object FeeAccumulator {
                 balance -= accrued
                 totalSent += accrued
                 changed = true
+                lastFlushError7694 = ""
             } catch (e: Exception) {
                 PipelineHealthCollector.labelInc("FEE_FLUSH_SEND_FAILED_7124")
-                // Send failed — leave bucket intact, fall back to FeeRetryQueue
-                // so the next drain cycle retries with backoff.
+                // V5.0.7694 — the bucket is KEPT. It used to be removed and handed
+                // to FeeRetryQueue, whose non-retryable classifier matched
+                // "insufficient" in the rent-exemption preflight error and
+                // dropped the fee for good. The bucket is the durable store;
+                // the next cycle re-checks the destination and retries.
+                lastFlushError7694 = "${dest.take(6)}…: ${e.message ?: e.javaClass.simpleName}"
                 ErrorLogger.warn("FeeAccumulator",
-                    "❌ Flush failed ${accrued.fmt(5)} SOL → $dest: ${e.message} — handing off to FeeRetryQueue")
-                try { FeeRetryQueue.enqueue(dest, accrued, "accumulator_flush_retry") } catch (_: Throwable) {}
-                buckets.remove(dest)
-                changed = true
+                    "❌ Flush failed ${accrued.fmt(5)} SOL → $dest: ${e.message} — bucket kept, retry next cycle")
             }
         }
         if (changed) p.edit().putString(KEY_BUCKETS, buckets.toString()).apply()

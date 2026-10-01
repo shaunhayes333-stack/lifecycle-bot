@@ -3973,8 +3973,23 @@ object PipelineHealthCollector {
                 // about payout size, not a reason nothing arrived.
                 val dust7213 = labelCountSnapshot("FEE_BUCKET_DUST_PROCEEDED_7213")
                 sb.append("  PAID (on-chain):     sent=$sent7212 splitSent=$split7212\n")
+                // V5.0.7694 — the two causes that actually lose fees are now named:
+                // a destination below rent-exempt minimum (held, not dropped) and
+                // a failed send (bucket kept, last error printed).
+                val heldRent7694 = labelCountSnapshot("FEE_FLUSH_HELD_DEST_BELOW_RENT_7694")
+                val sendFailed7694 = labelCountSnapshot("FEE_FLUSH_SEND_FAILED_7124")
+                val returned7694 = labelCountSnapshot("FEE_RETRY_RETURNED_TO_BUCKET_7694")
                 sb.append("  NOT paid, by cause:  deferredLowBalance=$lowBal7212 ")
-                    .append("strandedSelfWallet=$self7212\n")
+                    .append("strandedSelfWallet=$self7212 ")
+                    .append("heldDestBelowRent=$heldRent7694 sendFailed=$sendFailed7694 returnedFromRetryQueue=$returned7694\n")
+                try {
+                    val hold7694 = com.lifecyclebot.engine.FeeAccumulator.holdStatus7694()
+                    if (hold7694.isNotBlank()) sb.append("  §7694 ").append(hold7694).append('\n')
+                    if (heldRent7694 > 0L) {
+                        sb.append("  🟡 heldDestBelowRent>0 — a fee wallet is empty on-chain (swept to 0?). A sub-0.00089 SOL\n")
+                        sb.append("     transfer cannot re-create it; the bucket keeps accruing and sends once it can.\n")
+                    }
+                } catch (_: Throwable) {}
                 sb.append("  dust payouts (sent anyway, under the cost floor): $dust7213\n")
                 sb.append("  minSendablePerBucket: ${"%.5f".format(0.0002)} SOL")
                     .append("  (a bucket under this cannot be transferred)\n")
