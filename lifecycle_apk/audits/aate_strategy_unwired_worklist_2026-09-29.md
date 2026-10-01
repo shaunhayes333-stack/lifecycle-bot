@@ -2077,3 +2077,49 @@ These rows are truth-layer counters, immutable/current-state accessors, classifi
 - [x] `UniversalSlLeaseRegistry6402.oldestLeaseAgeMs` — **TRUTH STATE/PREDICATE/READBACK**.
 - [x] F_DEAD reconciliation progress: prior 277 + 37 = **314 / 1,458** classified; **1,144 remain**.
 - [x] Regression coverage: `Aate7593TruthReadbackPredicateTrancheTest`.
+
+
+## V5.0.7594 — F_DEAD truth eligibility/classification helper tranche (38 rows)
+
+These are bounded truth-layer predicates and lookups over already-authoritative state. Their job is classification/eligibility/query semantics; lack of an external caller does not justify inventing parallel authority.
+
+- [x] `BleederLaneProbation6747.isOnProbation` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `CanaryReleaseGate6386.canAcceptBuy` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `CanonicalPositionAuthority6441.canAffordPaperBuy` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `CapitalPreservationCreed6439.isAlignedWithDailyTarget` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `DataProviderFaultCircuits6468.isNetworkAllowed` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `EarlyEntryScout6390.isAlarm` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `EvidenceEpochFilter6388.isHeld` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `EvidenceEpochFilter6388.isHistoricalAudit` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `EvidenceEpochFilter6388.isRecoveryEligible` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `FdgFanoutControl6396.canShadowLaneExecute` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `FillLotLedger6504.canonicalQtyOf` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `GovernorRecovery6388.lastDemotionReason` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `LaneCapitalFairness6732.hasHeadroom` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `LiveContinuityPolicy6392.isBluechip` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `LiveExitOnlyMode6387.currentIndex` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `LiveExitOnlyMode6387.isConfirmedZero` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `LiveExitOnlyMode6387.isJobActive` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `OwnershipClassification6391.hasAnyProof` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `OwnershipClassification6391.isValidEvent` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PaperAccountLedger6430.canAffordBuy` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PaperAccountLedger6430.hasPersistentState6487` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PaperCatastrophicCloseIdempotency6497.isClaimed` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PerpsSandbox6463.leverageOf` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PositionIdentity6395.canonicalId` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PositionLifecycleFormalization6617.lastDeltas` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PositionViewModelStore6395.canShowLockedPercent` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PositionViewModelStore6395.getByMint` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `PreSupervisorBudgetGuard6437.canRun` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `RootCauseFreshnessAuthority6496.isHistoricalOnly` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `SentienceLabRewardBridge6444.canonicalWLTrio` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `SoftScoreShaping6400.lastShaping` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `SpecialistProposalArbiter6629.currentDecision6629` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `StartupReconciliation6635.isQuarantined6635` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `V3VerdictContract6622.isFatal6622` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `WalletAssetClass6387.countsAsFreeEntrySlot` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `WalletAssetClass6387.isDeletedMint` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `WalletAssetClass6387.isLearningEligible` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] `WorkerPoolDomainRegistry6411.canDegradedEntry` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
+- [x] F_DEAD reconciliation progress: prior 314 + 38 = **352 / 1,458** classified; **1,106 remain**.
+- [x] Regression coverage: `Aate7594TruthEligibilityHelperTrancheTest`.
