@@ -2401,6 +2401,65 @@ object ExecutableOpenGate {
                 )
             }
         }
+        // V5.0.7611 — restore TokenState -> canonical entry-mark continuity.
+        // 7607 field evidence showed 557 valid-source candidates and 540
+        // EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613. The finality boundary owns
+        // the complete current TokenState, but the refactored mark resolver only
+        // checked the registry + TokenMap cache; it no longer materialised the
+        // already-observed (price,pool,source,timestamp) tuple carried here.
+        //
+        // Feed that tuple through the existing canonical resolver BEFORE final
+        // admission. This is not a bypass: resolveBestSourceEvidence6734 still
+        // enforces mint identity, source provenance, freshness, sentinel rejection,
+        // pool/liquidity requirements and purpose separation. PAPER may receive an
+        // observation mark under existing doctrine; LIVE still requires a strict
+        // EXECUTABLE_ENTRY_QUOTE. Never rewrite a zero/stale timestamp to now.
+        try {
+            val already7611 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                .resolveEntryMarkForMode7465(ts.mint, paperMode = mode.equals("PAPER", true))
+                .mark
+            if (already7611 == null &&
+                ts.lastPrice.isFinite() && ts.lastPrice > 0.0 &&
+                ts.lastPriceUpdate > 0L
+            ) {
+                val pool7611 = ts.lastPricePoolAddr.ifBlank {
+                    ts.pairAddress.ifBlank {
+                        ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
+                    }
+                }
+                val source7611 = ts.lastPriceSource.ifBlank {
+                    ts.lastPriceDex.ifBlank {
+                        ts.tokenMap.venue.ifBlank {
+                            ts.tokenMap.dexId.ifBlank { ts.source }
+                        }
+                    }
+                }
+                val quote7611 = ts.tokenMap.quoteMint.ifBlank { "USD" }
+                val liq7611 = TokenMapAuthority.observedLiquidityUsd(ts)
+                val repaired7611 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                    .resolveBestSourceEvidence6734(
+                        ts.mint,
+                        listOf(
+                            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                                baseMint = ts.mint,
+                                pair = pool7611,
+                                quoteMint = quote7611,
+                                source = source7611,
+                                priceUsd = ts.lastPrice,
+                                liquidityUsd = liq7611,
+                                timestampMs = ts.lastPriceUpdate,
+                            )
+                        )
+                    )
+                try {
+                    PipelineHealthCollector.labelInc(
+                        if (repaired7611.promoted) "ENTRY_MARK_TOKENSTATE_MATERIALIZED_7611"
+                        else "ENTRY_MARK_TOKENSTATE_REFUSED_7611_" + repaired7611.reason.take(40)
+                    )
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+
         return canOpenExecutablePositionInternal(
             mint = ts.mint,
             symbol = ts.symbol,

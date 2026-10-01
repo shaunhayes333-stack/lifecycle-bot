@@ -2588,3 +2588,21 @@ Root cause: `IntakeFanoutGovernor6835` still enforced `LANE_EVAL_CAP=2` as **two
 - [x] Per-lane cap counters are emitted as `FANOUT_LANE_EVAL_CAPPED_6835_<LANE>`.
 - [x] No score floor, strategy threshold, TP/SL, sizing multiplier, capital allocation, or safety gate changed.
 - [x] Regression coverage: `Aate7610PerLaneFanoutFairnessTest`.
+
+
+## V5.0.7611 — all-lane TokenState → canonical entry-mark continuity
+
+5.0.7607 runtime evidence:
+- `VALID_SOURCE_NO_EXECUTABLE_MARK=557`
+- `EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=540`
+- specialist mark failures affected BLUECHIP, SHITCOIN, CYCLIC, CORE, MOONSHOT, PROJECT_SNIPER, DIP_HUNTER, MANIPULATED, TREASURY and CASHGEN.
+- held-position mark coverage was already healthy, proving this is specifically an ENTRY mark continuity defect.
+
+Repair:
+- [x] The final `canOpenExecutablePosition(TokenState,...)` boundary now republishes the already-observed TokenState price/pool/source/timestamp through `CanonicalPriceMarkRegistry6522.resolveBestSourceEvidence6734` when the canonical entry mark is absent.
+- [x] Uses the original `lastPriceUpdate`; zero/stale timestamps are never rewritten to current time.
+- [x] Uses canonical pool/source/quote/liquidity fields already present on TokenState/TokenMap.
+- [x] Existing canonical mark integrity remains authoritative: identity, provider provenance, sentinel filtering, freshness, route and liquidity checks are unchanged.
+- [x] PAPER retains observation-mark fallback; LIVE still requires strict `EXECUTABLE_ENTRY_QUOTE`.
+- [x] No lane threshold, score floor, TP/SL, sizing multiplier or capital allocation changed.
+- [x] Regression coverage: `Aate7611TokenStateEntryMarkContinuityTest`.
