@@ -12802,4 +12802,54 @@ class GoldenTapeRegressionTest {
         assertTrue(cl.contains("private fun describeThrowable7692(e: Throwable): String"))
     }
 
+    @Test
+    fun V5_0_7693_runner_lanes_are_not_throttled_by_lifetime_win_rate_and_culled_mints_stay_out() {
+        // Operator (5.0.7691, live): "it should be finding 200 and 500% runs with
+        // ease". Same snapshot: "Lane shadow proof: MOONSHOT[n=5 net=+17313.5%
+        // wr=20%]" next to "MOONSHOT nativeReject=3767/4277
+        // wr_recovery_score_floor_34_below_43". WrRecoveryPartial reads the
+        // lifetime, all-lane, paper+live hit rate (3,740 closes, 910 of them
+        // paper CRYPTO_ALT at 17%) and raised the runner lane's floor by 18
+        // points and halved its live size. A runner lane's edge is the tail.
+        val wr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WrRecoveryPartial.kt").readText()
+        assertTrue(wr.contains("fun isRunnerLaneExempt7693(lane: String?): Boolean"))
+        assertTrue(wr.contains("fun minScoreFloor(lane: String? = null): Int"))
+        assertTrue(wr.contains("fun entrySizeMultiplier(lane: String? = null): Double"))
+        val floorFn = wr.substringAfter("fun minScoreFloor(lane: String? = null): Int {").substringBefore("val s = stateNow()")
+        assertTrue(floorFn.contains("if (isRunnerLaneExempt7693(lane)) {") && floorFn.contains("return 0"))
+        val sizeFn = wr.substringAfter("fun entrySizeMultiplier(lane: String? = null): Double {").substringBefore("val s = stateNow()")
+        assertTrue(sizeFn.contains("if (isRunnerLaneExempt7693(lane)) {") && sizeFn.contains("return 1.0"))
+
+        // Every caller passes its lane; no caller is left on the lane-blind form.
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(moon.contains("WrRecoveryPartial.minScoreFloor(\"MOONSHOT\")"))
+        assertFalse(moon.contains("WrRecoveryPartial.minScoreFloor()"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("WrRecoveryPartial.entrySizeMultiplier(layerTag)"))
+        assertFalse(exec.contains("WrRecoveryPartial.entrySizeMultiplier()"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("val runnerExempt7693 = com.lifecyclebot.engine.WrRecoveryPartial.isRunnerLaneExempt7693(specialistLane)"))
+        assertTrue(fdg.contains("val isHighRecovery = !runnerExempt7693 && ("))
+
+        // A dark price feed is not a dump: the blind forced exit waits 10 min on
+        // a runner lane (PRICE_STALE_LIVE_POSITION=47 on one live MOONSHOT hold).
+        assertTrue(exec.contains("private const val RUNNER_DARK_FEED_FORCED_EXIT_MS_7693: Long = 10L * 60_000L"))
+        assertTrue(exec.contains("if (cachedAgeMs > darkLimitMs7693 && posAgeMs > 60_000L) {"))
+        assertFalse(exec.contains("if (cachedAgeMs > 90_000L && posAgeMs > 60_000L) {"))
+        // And the next early runner-lane live exit names its raw trigger.
+        assertTrue(exec.contains("\"RUNNER_EARLY_EXIT_7693\""))
+        assertTrue(exec.contains("rawReason=\${reason.take(80)}"))
+
+        // TREASURY bought CTPoyC 02:44, STALE_FLAT_CULL 03:06, bought again
+        // 03:16, culled again 03:37. A cull now arms a 30-minute re-entry cooldown.
+        val cd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MintReEntryCooldown.kt").readText()
+        assertTrue(cd.contains("private const val FLAT_CULL_COOLDOWN_MS: Long = 30L * 60_000L"))
+        assertTrue(cd.contains("reasonU.contains(\"STALE_FLAT_CULL\")"))
+        assertTrue(cd.contains("reasonU.contains(\"DEAD_MONEY_CULL\")"))
+        assertTrue(cd.contains("reasonU.contains(\"DEAD_TOKEN_NO_PRICE\")"))
+        val whenBlock = cd.substringAfter("val cooldownMs = when {").substringBefore("}")
+        assertTrue(whenBlock.indexOf("catastrophic ->") < whenBlock.indexOf("flatCull7693 ->"))
+        assertTrue(whenBlock.indexOf("flatCull7693 ->") < whenBlock.indexOf("pnlPct <= -1.0 ->"))
+    }
+
 }

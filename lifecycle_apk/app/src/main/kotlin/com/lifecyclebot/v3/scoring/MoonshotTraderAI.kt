@@ -718,7 +718,10 @@ object MoonshotTraderAI {
         // bypassing the FinalDecisionGate Smart Entry Gate when Moonshot
         // promotion fires its own signal. AGGRESSIVE → 45, MODERATE → 30,
         // FLUID/OFF → 0 (no floor).
-        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
+        // V5.0.7693 — lane-aware: MOONSHOT is a runner lane and is exempt from
+        // the lifetime-WR floor (it was 25 -> 43 on 5.0.7691, rejecting 88% of
+        // candidates for a lane whose shadow proof read +17313% at 20% WR).
+        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor("MOONSHOT") } catch (_: Throwable) { 0 }
         // V5.9.1333 — Personality floor bias (-2..+6 pts, bounded). The
         // PersonalityMemoryStore traits steer the bot's caution. This is
         // additive on top of WR floors — never veto, only nudge.

@@ -314,7 +314,32 @@ object WrRecoveryPartial {
     // Centralising these here means item-A (sub-trader entry gating) and
     // item-D (entry-size dampening) can never drift between lanes.
     // ─────────────────────────────────────────────────────────────────────
-    fun entrySizeMultiplier(): Double {
+    /**
+     * V5.0.7693 §A_HIT_RATE_IS_THE_WRONG_INSTRUMENT_FOR_A_RUNNER_LANE.
+     *
+     * stateNow() reads TradeHistoryStore.getLifetimeStats(): every lane, every
+     * mode, for the life of the install. On the operator's 5.0.7691 device that
+     * is 3,740 closes dominated by 910 paper CRYPTO_ALT rows at 17% WR, so the
+     * whole bot sits in AGGRESSIVE recovery and this file then:
+     *   - raised MOONSHOT's entry floor from 25 to 43 (minScoreFloor → 45):
+     *     "nativeReject=3767/4277 wr_recovery_score_floor_34_below_43";
+     *   - halved its live size (entrySizeMultiplier → 0.5×).
+     * In the same snapshot: "Lane shadow proof: MOONSHOT[n=5 net=+17313.5%
+     * wr=20%]". A runner lane's expectancy lives in the tail, not the hit
+     * rate; a 20% WR with that tail is the lane working as designed. Gating it
+     * on WR is the exact mechanism that keeps it from ever producing the live
+     * closes that would let the WR "recover". Runner lanes (RunnerExitProfile7277)
+     * are therefore exempt from both WR-recovery levers. Everything else keeps
+     * them unchanged.
+     */
+    fun isRunnerLaneExempt7693(lane: String?): Boolean =
+        try { RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+
+    fun entrySizeMultiplier(lane: String? = null): Double {
+        if (isRunnerLaneExempt7693(lane)) {
+            try { PipelineHealthCollector.labelInc("WR_RECOVERY_SIZE_RUNNER_EXEMPT_7693") } catch (_: Throwable) {}
+            return 1.0
+        }
         val s = stateNow()
         return when (s.band) {
             Band.AGGRESSIVE -> 0.5
@@ -384,7 +409,12 @@ object WrRecoveryPartial {
         return V3DistSnapshot(samples = n, median = median, mode = mode)
     }
 
-    fun minScoreFloor(): Int {
+    fun minScoreFloor(lane: String? = null): Int {
+        // V5.0.7693 — see isRunnerLaneExempt7693: no WR-derived floor on a runner lane.
+        if (isRunnerLaneExempt7693(lane)) {
+            try { PipelineHealthCollector.labelInc("WR_RECOVERY_FLOOR_RUNNER_EXEMPT_7693") } catch (_: Throwable) {}
+            return 0
+        }
         val s = stateNow()
         val base = when {
             s.rollingCollapse -> 60

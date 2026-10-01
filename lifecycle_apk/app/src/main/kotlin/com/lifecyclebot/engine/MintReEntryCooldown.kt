@@ -35,6 +35,14 @@ object MintReEntryCooldown {
     private const val LOSS_COOLDOWN_MS: Long = 180_000L           // 3m
     private const val SCRATCH_COOLDOWN_MS: Long = 45_000L         // 45s
     private const val CATASTROPHIC_PNL_PCT: Double = -20.0
+    // V5.0.7693 — a position the bot itself culled as dead money (flat for
+    // 20+ min, no price feed, no new high) was back in the wallet ten minutes
+    // later. 5.0.7691 live tape: TREASURY bought CTPoyC 02:44, STALE_FLAT_CULL
+    // 03:06, bought it again 03:16, STALE_FLAT_CULL again 03:37 — two round
+    // trips of fees on a token the bot had just classified as not moving. A
+    // cull is a judgement that the mint has nothing for us right now; it must
+    // outlast the 45s scratch cooldown.
+    private const val FLAT_CULL_COOLDOWN_MS: Long = 30L * 60_000L     // 30m
 
     fun onFinalisedClose(mint: String, exitReason: String, pnlPct: Double) {
         if (mint.isBlank()) return
@@ -42,8 +50,11 @@ object MintReEntryCooldown {
         val catastrophic = pnlPct <= CATASTROPHIC_PNL_PCT ||
             reasonU.contains("CATASTROPHIC") || reasonU.contains("RUG") ||
             reasonU.contains("HARD_BACKSTOP") || reasonU.contains("HARD_FLOOR")
+        val flatCull7693 = reasonU.contains("STALE_FLAT_CULL") ||
+            reasonU.contains("DEAD_MONEY_CULL") || reasonU.contains("DEAD_TOKEN_NO_PRICE")
         val cooldownMs = when {
             catastrophic -> CATASTROPHIC_COOLDOWN_MS
+            flatCull7693 -> FLAT_CULL_COOLDOWN_MS
             pnlPct <= -1.0 -> LOSS_COOLDOWN_MS
             pnlPct < 1.0 -> SCRATCH_COOLDOWN_MS
             else -> 0L
@@ -62,6 +73,7 @@ object MintReEntryCooldown {
         try {
             val bucket = when {
                 catastrophic -> "CATASTROPHIC"
+                flatCull7693 -> "FLAT_CULL"
                 pnlPct <= -1.0 -> "LOSS"
                 else -> "SCRATCH"
             }

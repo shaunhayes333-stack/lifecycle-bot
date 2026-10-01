@@ -1742,8 +1742,12 @@ object FinalDecisionGate {
         var wrRecoveryQualityPenaltyMult = 1.0
         try {
             val wrState = com.lifecyclebot.engine.WrRecoveryPartial.stateNow()
-            val isHighRecovery = wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||
-                                 wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE
+            // V5.0.7693 — a runner lane's conf×size is not discounted by the
+            // lifetime hit rate (see WrRecoveryPartial.isRunnerLaneExempt7693).
+            val runnerExempt7693 = com.lifecyclebot.engine.WrRecoveryPartial.isRunnerLaneExempt7693(specialistLane)
+            val isHighRecovery = !runnerExempt7693 && (
+                wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||
+                                 wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE)
             val isAGrade = candidate.setupQuality == "A" || candidate.setupQuality == "A+"
             // V5.0.6710 — restore V5.9.1221's selective collapse authority.
             // A catastrophic rolling cohort is evidence the CURRENT entry policy

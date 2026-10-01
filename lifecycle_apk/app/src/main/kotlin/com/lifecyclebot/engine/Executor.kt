@@ -114,6 +114,10 @@ private const val CROSS_BASIS_MAX_RATIO_6895: Double = 10.0
 private const val PAPER_GAIN_CLAMP_PCT_7271: Double = 1000.0
 // V5.0.7353 — flat-position cull (see runManageOnly).
 private const val FLAT_CULL_MIN_HOLD_MS_7353: Long = 20L * 60_000L
+/** V5.0.7693 — how long a runner-lane position may sit with a dark price feed before a blind forced exit. */
+private const val RUNNER_DARK_FEED_FORCED_EXIT_MS_7693: Long = 10L * 60_000L
+/** V5.0.7693 — a runner-lane live close inside this window is logged with its trigger (see doSell). */
+private const val RUNNER_EARLY_EXIT_WINDOW_MS_7693: Long = 5L * 60_000L
 private const val FLAT_CULL_MAX_PEAK_PCT_7353: Double = 10.0
 private const val FLAT_CULL_BAND_PCT_7353: Double = 3.0
 private const val FLAT_CULL_MARK_MAX_AGE_MS_7353: Long = 120_000L  // V5.0.7392 — was 60 s; matches the 7388 cull
@@ -9247,8 +9251,18 @@ class Executor(
                         return
                     }
                 }
-                if (cachedAgeMs > 90_000L && posAgeMs > 60_000L) {
-                    try { ForensicLogger.lifecycle("STRICT_SL_STALE_PRICE_FORCED_EXIT", "mint=${ts.mint.take(10)} sym=${ts.symbol} cachedAgeMs=$cachedAgeMs posAgeMs=$posAgeMs entry=${pos.entryPrice} lastCached=${ts.lastPrice}") } catch (_: Throwable) {}
+                // V5.0.7693 — a dark feed is not a dump. This branch sells a
+                // position on NO price information at all once the cache is
+                // 90s old. On a fresh pump.fun runner the pair feed routinely
+                // goes quiet for minutes (5.0.7691: PRICE_STALE_LIVE_POSITION=47
+                // on one live MOONSHOT hold), so the rule turned every feed gap
+                // into a forced scratch exactly where the +200% moves live. A
+                // runner lane now gets 10 minutes of dark before a blind exit;
+                // the cached-price floor check above still fires on real loss.
+                val runnerDark7693 = try { RunnerExitProfile7277.isRunnerLane(pos.tradingMode) } catch (_: Throwable) { false }
+                val darkLimitMs7693 = if (runnerDark7693) RUNNER_DARK_FEED_FORCED_EXIT_MS_7693 else 90_000L
+                if (cachedAgeMs > darkLimitMs7693 && posAgeMs > 60_000L) {
+                    try { ForensicLogger.lifecycle("STRICT_SL_STALE_PRICE_FORCED_EXIT", "mint=${ts.mint.take(10)} sym=${ts.symbol} cachedAgeMs=$cachedAgeMs posAgeMs=$posAgeMs entry=${pos.entryPrice} lastCached=${ts.lastPrice} runner=$runnerDark7693 darkLimitMs=$darkLimitMs7693") } catch (_: Throwable) {}
                     onLog("⚠ STRICT SL STALE: ${ts.symbol} feed dark ${cachedAgeMs/1000}s, posAge ${posAgeMs/1000}s — force-exit to prevent overrun", ts.mint)
                     doSell(ts, "STALE_PRICE_FORCED_EXIT_AGE_${cachedAgeMs/1000}s", wallet, walletSol)
                     return
@@ -20233,7 +20247,8 @@ class Executor(
         // Same dampener applied in paperBuy(); duplicated here so the
         // live and paper paths cannot drift. AGGRESSIVE → 0.5×,
         // MODERATE → 0.75×, FLUID/OFF → 1.0× (no change).
-        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
+        // V5.0.7693 — lane-aware: runner lanes are exempt (WrRecoveryPartial.isRunnerLaneExempt7693).
+        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier(layerTag) } catch (_: Throwable) { 1.0 }
         @Suppress("NAME_SHADOWING")
         var sol = if (wrSizeMult < 1.0) {
             val damped = sol * wrSizeMult
@@ -24746,6 +24761,30 @@ class Executor(
             PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
         }
         ExecutionRootCauseTrace.sell("DO_SELL_ENTRY", ts, "reason=$reason walletLoaded=${wallet != null} walletSol=$walletSol identity=${identity?.source ?: "-"} posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
+        // V5.0.7693 — name the trigger of every early runner-lane live exit.
+        // 5.0.7691: the one live MOONSHOT buy of the session was sold 65s later
+        // at 0% and the export shows only the sanitizer's relabel
+        // (REALIZED_SCRATCH_AFTER_RISK_EXIT_SIGNAL), never the reason that
+        // fired. The next one carries its raw reason, hold, pnl and mark age.
+        try {
+            if (!paperCloseAuthorityActive && RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode)) {
+                val now7693 = System.currentTimeMillis()
+                val held7693 = (now7693 - ts.position.entryTime).coerceAtLeast(0L)
+                if (ts.position.entryTime > 0L && held7693 < RUNNER_EARLY_EXIT_WINDOW_MS_7693) {
+                    val ep7693 = ts.position.entryPrice
+                    val px7693 = ts.lastPrice
+                    val pnl7693 = if (ep7693 > 0.0 && px7693 > 0.0) (px7693 / ep7693 - 1.0) * 100.0 else Double.NaN
+                    val markAge7693 = if (ts.lastPriceUpdate > 0L) now7693 - ts.lastPriceUpdate else -1L
+                    PipelineHealthCollector.labelInc("RUNNER_EARLY_EXIT_7693")
+                    ForensicLogger.lifecycle(
+                        "RUNNER_EARLY_EXIT_7693",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${ts.position.tradingMode} rawReason=${reason.take(80)} " +
+                            "heldSec=${held7693 / 1000L} pnlPct=${if (pnl7693.isNaN()) "n/a" else "%.2f".format(pnl7693)} " +
+                            "peakPct=${"%.1f".format(ts.position.peakGainPct)} markAgeMs=$markAge7693 lastPx=$px7693 entryPx=$ep7693",
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
         // V5.9.1411 — Move paper settle-in delay guard directly into doSell.
         // This ensures exits originating from riskCheck (like v8_catastrophic_loss)
         // or UltraFastRugDetector are caught by the settle-in delay if they are fake soft losses.
