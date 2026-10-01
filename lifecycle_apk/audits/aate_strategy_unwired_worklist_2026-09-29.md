@@ -3255,3 +3255,16 @@ The expanded intelligence estate now learns *when* each reasoning family deserve
 - [x] The handoff explicitly instructs future sessions to read the canonical worklist tail and latest main commits before continuing.
 - [x] No execution, safety, sizing, capital or provider authority changed.
 - [x] Regression coverage: `Aate7658ScannerSourceAndHandoffTest`.
+
+
+## V5.0.7659 - intelligence-estate overlap guard
+
+The next census tranche deliberately prevents duplicate promotion of intelligence that is already live upstream.
+
+- [x] Collective/hive source reliability is confirmed in `PredictiveEntryOracle6915` through `CollectiveIntelligenceAI.getSourceReliability(sourceFamily)`; no second Super hive vote was added.
+- [x] Sentience LLM trade bias is confirmed in `MemeNarrativeAI` through `SentienceHooks.entryQualityScoreBias6678(symbol)`; the Super LLM family continues to use the background council cache rather than stacking the Sentience derivative again.
+- [x] `MetaCognitionExecutorBridge` is confirmed as an input to `BrainConsensusBridge6329`; no independent MetaCognition vote was added.
+- [x] Provenance registry now records all three overlap paths explicitly as `REPRESENTED_UPSTREAM`.
+- [x] SSI Pilot Council remains background/provider-backed strategic intelligence pending an independent cached transfer contract.
+- [x] Durable handoff updated so future sessions do not rediscover and double-wire these families.
+- [x] Regression coverage: `Aate7659EstateOverlapGuardTest`.

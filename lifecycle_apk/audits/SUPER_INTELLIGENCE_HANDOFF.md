@@ -52,6 +52,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7656: lane x latent-state evidence trust.
 - 5.0.7657: intelligence-estate census moved into GitHub preflight.
 - 5.0.7658: scanner-source learned WR/EV cohort bridge + durable handoff state.
+- 5.0.7659: overlap guard for collective/hive, sentience LLM and MetaCognition; confirms they are already represented upstream and must not be double-wired.
 
 ## Existing intelligence estate explicitly in scope
 
@@ -88,7 +89,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 ## Immediate next work
 
 1. Burn down UNCLASSIFIED_INTELLIGENCE_REVIEW from the CI estate census.
-2. Audit ScannerSourceBrain, source diversity/selection brains, collective/hive intelligence, SSI council, Sentience/meta surfaces for independent cache-only evidence.
+2. Continue source diversity/selection brain audit. Collective/hive source reliability is already consumed by PredictiveEntryOracle6915; Sentience LLM vote is already in MemeNarrativeAI; MetaCognition is already in BrainConsensusBridge6329. Treat those as represented upstream unless a genuinely independent signal is proven.
 3. Promote genuinely independent evidence into explicit ancestry families only.
 4. Feed new families through 7651 de-correlation, 7652 reliability, 7653 interaction learning and 7656 state-conditioned trust.
 5. Keep exact position-bound outcome attribution and persistence.
