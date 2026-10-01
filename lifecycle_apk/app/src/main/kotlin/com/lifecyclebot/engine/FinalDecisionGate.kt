@@ -1161,7 +1161,9 @@ object FinalDecisionGate {
         val laneConsensusScore6025 = laneScore.coerceIn(0.0, 100.0)
         val policyAuthority6025 = try { UnifiedPolicyHead.currentAuthority(laneName) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
         val metaCogMult6025 = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(laneName) } catch (_: Throwable) { 1.0 }
-        val cleanStats6025 = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+        val cleanStats6025 = try { TradeHistoryStore.getCleanStatsSnapshot4517(
+            executionMode = if (mode == TradeMode.PAPER) "paper" else "live",
+        ) } catch (_: Throwable) { null }
         val cleanPerfSupportsFluid6025 = cleanStats6025 == null || cleanStats6025.totalTrades < 5 ||
             cleanStats6025.totalPnlSol >= 0.0 || cleanStats6025.profitFactor >= 1.0 || cleanStats6025.winRate >= 35.0
         val laneScoreDelta6025 = laneConsensusScore6025 - rawCandidateGateScore6025

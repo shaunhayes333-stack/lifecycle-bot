@@ -41,6 +41,11 @@ import org.json.JSONObject
  * - LOSS   = pnlPct <= -0.5 (V5.9.204)
  * - SCRATCH = between those thresholds
  */
+internal fun scopePerformanceEvidence4517(rows: List<Trade>, executionMode: String?): List<Trade> {
+    val expectedMode = executionMode?.trim()?.takeIf { it.isNotEmpty() } ?: return rows
+    return rows.filter { it.mode.trim().equals(expectedMode, ignoreCase = true) }
+}
+
 object TradeHistoryStore {
 
     // ── Legacy SharedPreferences keys (used only for one-time migration) ──
@@ -2390,8 +2395,13 @@ object TradeHistoryStore {
      * evidence. This gives reports/UI a clean cache target without deleting or
      * mutating historical duplicate/recovered/partial forensic rows.
      */
-    fun getCleanStatsSnapshot4517(limit: Int = 2_500): StatsSnapshot {
-        val raw = try { getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
+    fun getCleanStatsSnapshot4517(limit: Int = 2_500, executionMode: String? = null): StatsSnapshot {
+        val raw = try {
+            scopePerformanceEvidence4517(
+                getRecentValidClosedTradesRaw(limit = limit, includePartials = true),
+                executionMode,
+            )
+        } catch (_: Throwable) { emptyList() }
         val clean = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
             .filter { it.side.equals("SELL", true) }
         val cutoff24h = System.currentTimeMillis() - 24L * 60L * 60L * 1000L

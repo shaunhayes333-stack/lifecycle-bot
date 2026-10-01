@@ -19992,7 +19992,7 @@ class Executor(
                     commonSense.snapshot.holderHardRisk ||
                     commonSense.reason in setOf("TRUE_HARD_SAFETY_OR_HOLDER_RISK", "PRICE_BASIS_UNKNOWN", "SELL_ROUTE_UNKNOWN", "TOKEN_MAP_INCOMPLETE", "LIQUIDITY_UNKNOWN")
                 val commonSenseBrain6026 = try {
-                    val clean = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+                    val clean = try { TradeHistoryStore.getCleanStatsSnapshot4517(executionMode = "live") } catch (_: Throwable) { null }
                     FdgBrainChain.evaluate(
                         lane = routedLaneTag,
                         candidateScore = score,
