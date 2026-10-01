@@ -158,6 +158,13 @@ object SuperPolicyTree7638 {
                     policy = b.policy,
                 )
             } catch (_: Throwable) { 0.0 }
+            val transition7648 = try {
+                SuperLatentTransitionModel7648.prior(
+                    lane = world.lane,
+                    state = world.latentState,
+                    policy = b.policy,
+                )
+            } catch (_: Throwable) { null }
             val imagined = SuperImaginationRollout7643.evaluate(
                 world = world,
                 critic = critic,
@@ -166,6 +173,7 @@ object SuperPolicyTree7638 {
                 exposure = b.rootAction.exposure,
                 baseUtility = b.utility + learnedPrior7644 + causalLift7647,
                 rolloutBudget = deliberation.rolloutBudget,
+                transition = transition7648,
             )
             b.copy(
                 utility = imagined.robustUtility,

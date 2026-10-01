@@ -3097,3 +3097,17 @@ The planner now distinguishes raw policy performance from selection-biased estim
 - [x] State persists across restart.
 - [x] This is propensity-aware observational estimation, not a claim of randomized causal identification; it owns no execution or veto authority.
 - [x] Regression coverage: Aate7647CausalPolicyEvaluationTest.
+
+
+## V5.0.7648 - learned latent-state policy transition model
+
+The planning stack now learns empirical state-transition dynamics from exact position-bound outcomes.
+
+- [x] Added SuperLatentTransitionModel7648 keyed by lane x entry latent-state x selected multi-step policy.
+- [x] Exact terminal outcomes classify into RUNNER, PROFIT, SCRATCH, LOSS or CATASTROPHIC and retain mean return/MFE/MAE/hold duration.
+- [x] Transition priors are neutral until at least 3 exact outcomes and confidence shrinks by n/(n+10).
+- [x] SuperPolicyTree7638 retrieves the transition prior separately for every candidate branch.
+- [x] SuperImaginationRollout7643 blends learned loss/catastrophic probability into downside risk and learned runner probability into upside-tail imagination.
+- [x] Transition state persists across restart.
+- [x] No provider I/O, LLM call, independent execution authority, hard veto or safety weakening was added.
+- [x] Regression coverage: Aate7648LatentTransitionModelTest.

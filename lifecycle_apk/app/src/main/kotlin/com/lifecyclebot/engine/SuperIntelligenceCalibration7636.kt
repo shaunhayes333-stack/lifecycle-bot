@@ -171,6 +171,17 @@ object SuperIntelligenceCalibration7636 {
                 realizedReturnPct = env.realizedReturnPct,
             )
         } catch (_: Throwable) {}
+        try {
+            SuperLatentTransitionModel7648.recordOutcome(
+                lane = stamp.lane,
+                state = stamp.world.latentState,
+                policy = stamp.treePolicy,
+                realizedReturnPct = env.realizedReturnPct,
+                mfePct = env.mfePct,
+                maePct = env.maePct,
+                holdingTimeMs = env.holdingTimeMs,
+            )
+        } catch (_: Throwable) {}
 
         val failureMode7640 = when {
             directionCorrect -> "REASONING_OK"

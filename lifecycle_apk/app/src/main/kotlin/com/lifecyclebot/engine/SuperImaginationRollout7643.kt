@@ -40,6 +40,7 @@ object SuperImaginationRollout7643 {
         exposure: Double,
         baseUtility: Double,
         rolloutBudget: Int = 11,
+        transition: SuperLatentTransitionModel7648.Prior? = null,
     ): Distribution {
         if (exposure <= 0.0 || policy.contains("WAIT")) {
             return Distribution(
@@ -63,10 +64,24 @@ object SuperImaginationRollout7643 {
 
         val uncertainty = h?.uncertainty ?: world.disagreement
         val dispersion = (h?.dispersionPct ?: 40.0).coerceAtLeast(1.0)
-        val failureRisk = max(h?.failureRisk ?: world.failureRisk, world.failureRisk)
+        val baseFailureRisk = max(h?.failureRisk ?: world.failureRisk, world.failureRisk)
+        val transitionConfidence7648 = transition?.confidence?.coerceIn(0.0, 1.0) ?: 0.0
+        val transitionFailure7648 = transition?.let {
+            (it.pLoss + it.pCatastrophic).coerceIn(0.0, 1.0)
+        } ?: baseFailureRisk
+        val failureRisk = (
+            baseFailureRisk * (1.0 - transitionConfidence7648) +
+                transitionFailure7648 * transitionConfidence7648
+            ).coerceIn(0.0, 1.0)
         val memoryPrior = memory.priorUtilityDelta * memory.confidence
+        val transitionPrior7648 = transition?.let {
+            (it.meanReturnPct * 0.10 * transitionConfidence7648).coerceIn(-8.0, 8.0)
+        } ?: 0.0
         val criticDrag = critic.thesisFragility * critic.convictionPenalty
-        val tailBoost = if (policy.contains("CONVICTION")) world.tailOpportunity * 8.0 else 0.0
+        val tailBoost = (
+            (if (policy.contains("CONVICTION")) world.tailOpportunity * 8.0 else 0.0) +
+                (transition?.pRunner ?: 0.0) * transitionConfidence7648 * 8.0
+            )
 
         val scenarioScale = (
             dispersion * 0.18 +
@@ -88,7 +103,8 @@ object SuperImaginationRollout7643 {
             }
             val criticTerm = if (shock < 0.0) criticDrag * 0.45 else criticDrag * 0.12
             val shockTerm = shock * scenarioScale * asymmetry * exposure
-            baseUtility + shockTerm + pathMemory + tailBoost * max(shock, 0.0) - criticTerm
+            baseUtility + transitionPrior7648 + shockTerm + pathMemory +
+                tailBoost * max(shock, 0.0) - criticTerm
         }.sorted()
 
         val n = values.size
