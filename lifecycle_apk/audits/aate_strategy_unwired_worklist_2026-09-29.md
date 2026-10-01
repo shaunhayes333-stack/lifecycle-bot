@@ -2483,3 +2483,38 @@ These engine-level rows expose current state, cached analytics, policy status, d
 - [x] Database/provider-backed reads remain off synchronous hot paths unless separately cached/prefetched.
 - [x] F_DEAD reconciliation progress: prior 575 + 53 = **628 / 1,458** classified; **830 remain**.
 - [x] Regression coverage: `Aate7604EngineStatePredicateTrancheTest`.
+
+
+## V5.0.7605 — complete F_DEAD disposition ledger (1,458 / 1,458)
+
+The incremental tranche audit is now replaced by a complete machine-readable disposition ledger at `audits/f_dead_disposition_7605.tsv`.
+
+Important semantic distinction: **0 unresolved F_DEAD rows does not mean 1,458 functions were wired.** It means every static zero-caller declaration now has an explicit disposition and basis, so no row remains an unexplained "maybe this should be wired" item.
+
+Disposition policy is deliberately conservative:
+
+- [x] UI/voice surfaces remain product/UI work, not trading authority.
+- [x] Explicit test hooks remain test-only.
+- [x] Lab/backtest functions remain research/background unless promoted through a reviewed canonical contract.
+- [x] Network/database/provider helpers remain bounded/background or behind provider authority.
+- [x] Explicit setters/resetters/recovery controls are not auto-called merely to remove dead-code warnings.
+- [x] Readbacks/predicates/advisories are not promoted into independent votes.
+- [x] Truth-layer zero-caller declarations remain internal/compatibility/legacy surfaces; fabricate no parallel authority.
+- [x] Strategy/V3/V4/perps zero-caller internals remain owned by their canonical subsystem; direct wiring requires proof of distinct evidence and non-duplication.
+- [x] Remaining legacy zero-caller declarations are **DO_NOT_AUTOWIRE**: retain for explicit redesign/removal or delete in a later cleanup pass.
+- [x] **F_DEAD unresolved count: 0 / 1,458.**
+- [x] Complete disposition count: **1,458 / 1,458 classified.**
+- [x] Regression coverage: `Aate7605FDeadDispositionCompletenessTest`.
+
+Disposition totals generated from the ledger:
+
+- BACKGROUND_IO_PROVIDER_HELPER: 44
+- EXPLICIT_CONTROL_MAINTENANCE: 105
+- LAB_BACKTEST_BACKGROUND: 10
+- LEGACY_ZERO_CALLER_DO_NOT_AUTOWIRE: 308
+- PRODUCT_UI_VOICE_DEAD: 42
+- READBACK_PREDICATE_ADVISORY: 523
+- RUNTIME_QUANT_LEARNING_UTILITY: 17
+- STRATEGY_INTERNAL_ZERO_CALLER: 94
+- TEST_HOOK_ONLY: 21
+- TRUTH_INTERNAL_ZERO_CALLER: 294
