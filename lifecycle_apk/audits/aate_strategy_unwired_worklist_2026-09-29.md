@@ -2196,3 +2196,54 @@ These are deterministic classification, validation, forensic-list, or state-pred
 - [x] `WalletReconciler.knownMintContains` — **CLASSIFICATION/VALIDATION HELPER**.
 - [x] F_DEAD reconciliation progress: prior 380 + 29 = **409 / 1,458** classified; **1,049 remain**.
 - [x] Regression coverage: `Aate7596ClassificationValidationHelperTrancheTest`.
+
+
+## V5.0.7597 — F_DEAD V3 state/accessor/predicate tranche (43 rows)
+
+These V3 rows expose learned state, configuration, dashboard projections, threshold reads, or convenience predicates. Classification here does not declare the owning subsystem dead; it prevents unused-accessor noise from being mistaken for missing independent strategy authority.
+
+- [x] `AIStartupCoordinator.isInitialized` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `BehaviorAI.getAggressionName` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `BootstrapAdaptiveEngine.getMultiplier` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `CashGenerationAI.getCurrentTreasuryBalance` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `ConfidenceBreakdown.getStarvationRelief` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `DipHunterAI.getFluidRecoveryTarget` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `EducationSubLayerAI.getBootstrapRelaxation` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `EligibilityResult.isCoolingDown` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `EligibilityResult.isGlobalExposureMaxed` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `EligibilityResult.isTokenAlreadyOpen` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `FluidLearningAI.getAltsLearningProgress` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `FluidLearningAI.getBehaviorModifier` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `FluidLearningAI.getFreshTokenAgeMinutes` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `FluidLearningAI.getLearningWeights` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `FluidLearningAI.getMinHistoryCandles` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `FluidLearningAI.getScannerMinLiquidity` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `FundingRateAwarenessAI.getFundingApr` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `LayerTransitionManager.getCurrentLayer` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `LayerTransitionManager.getLayerState` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `LiquidityCycleAI.isOutflowing` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `ManipulatedTraderAI.getFluidMaxAge` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `ManipulatedTraderAI.getFluidPositionSize` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `MarketStructureRouter.getAIWeights` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `MarketStructureRouter.getRawPositionParams` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `MarketStructureRouter.isSuitableForLiquidity` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `MetaCognitionAI.getLayerDashboard` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `MoonshotTraderAI.getDailyHundredX` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `MoonshotTraderAI.getDailyTenX` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `NewsShockAI.getSlope` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `OrderFlowImbalanceAI.getCumulativeDelta` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `OrderFlowImbalanceAI.isAbsorbing` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `ProjectSniperAI.getActiveMissionCount` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `ScoreComponent.hasFatal` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `ShadowOutcome.isTracked` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `SmartMoneyDivergenceAI.hasBearishDivergence` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `SmartMoneyDivergenceAI.hasBullishDivergence` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `StablecoinFlowAI.getRegimeBias` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `UltraFastRugDetectorAI.getMonitoredCount` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `V3Adapter.getLearningStore` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `V3Adapter.getOrchestrator` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `V3EngineManager.getMode` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `V3EngineManager.isSuccess` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] `V3EngineManager.shouldExecute` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
+- [x] F_DEAD reconciliation progress: prior 409 + 43 = **452 / 1,458** classified; **1006 remain**.
+- [x] Regression coverage: `Aate7597V3AccessorPredicateTrancheTest`.
