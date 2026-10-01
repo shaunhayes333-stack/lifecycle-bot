@@ -12721,4 +12721,46 @@ class GoldenTapeRegressionTest {
         assertTrue(marketsExec.contains("LiveTradeLogStore.Phase.BUY_FAILED"))
     }
 
+    @Test
+    fun V5_0_7691_hive_gate_failure_is_logged_and_usdc_never_tracked_as_a_position() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        // Operator: "the hive mind isn't connecting" — a 38-minute live session's
+        // export had zero HIVE_SUPERVISOR_CONNECTED_6943 / HIVE_RECONNECT_OK_6943
+        // / HIVE_RECONNECT_FAILED_6943 anywhere, meaning startHiveSupervisor6943()
+        // never even started. The gate that decides that must now say why, win
+        // or lose, in a form that reaches the exported report.
+        val collectiveBlock = bot.substringAfter("if (cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()) {")
+            .substringBefore("// Note: Community weights download")
+        assertTrue(collectiveBlock.contains("HIVE_SUPERVISOR_GATE_PASSED_7691"))
+        assertTrue(collectiveBlock.contains("HIVE_SUPERVISOR_GATE_BLOCKED_7691"))
+        assertTrue(collectiveBlock.contains("reason=CREDENTIALS_BLANK"))
+        assertTrue(collectiveBlock.contains("reason=COLLECTIVE_LEARNING_DISABLED_IN_SETTINGS"))
+
+        val reconciler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
+        // Operator: a Flash perps collateral funding swap left USDC in the
+        // wallet, and it was adopted as a tracked "position" (RECOVERED_EPjFWd,
+        // OPEN_TRACKING, no_sell_requeue) with a balance that only ever moved
+        // from ordinary collateral funding/spend, never a trade.
+        assertTrue(reconciler.contains("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"))
+        assertTrue(reconciler.contains(".filterKeys { it != USDC_MINT_7691 }"))
+
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        // USDC excluded the same way SOL already is, at the same guard.
+        assertTrue(tracker.contains("if (mint == SOL_MINT || mint == USDC_MINT_7691) continue"))
+        // AAVE (wallet holds 0.0116) was closed CLOSED_STALE_RECOVERY_UNHELD
+        // because currentHeldSnapshot requires uiAmount > TERMINAL_DUST_UI
+        // (1.0) — a MEME-remnant threshold that misreads a real, low-supply,
+        // high-value holding as dust. hasCurrentWalletRawBalance7691 must back
+        // up every closure/classification guard that used to rely on the
+        // UI-amount-gated check alone.
+        assertTrue(tracker.contains("private fun hasCurrentWalletRawBalance7691"))
+        val widenedSites = Regex(Regex.escape("hasCurrentWalletPositiveProof(p) || hasCurrentWalletRawBalance7691(p)"))
+            .findAll(tracker).count()
+        assertEquals(5, widenedSites)
+        // STALE_RECOVERY_UNPROVEN logged 162 times in 20 minutes for 0.04 KIN:
+        // the forensic line must now be throttled per mint.
+        assertTrue(tracker.contains("staleRecoveryUnprovenLoggedAtMs7691"))
+        assertTrue(tracker.contains("STALE_RECOVERY_UNPROVEN_LOG_COOLDOWN_MS_7691"))
+    }
+
 }

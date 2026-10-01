@@ -7449,9 +7449,23 @@ class BotService : Service() {
         
         // Initialize CollectiveLearning (Turso shared knowledge base)
         // V5.6.12: Log config values for debugging collective initialization
+        // V5.0.7691 — operator: "the hive mind isn't connecting," with zero
+        // HIVE_SUPERVISOR_CONNECTED_6943 / HIVE_RECONNECT_OK_6943 /
+        // HIVE_RECONNECT_FAILED_6943 anywhere in a 38-minute session's export.
+        // startHiveSupervisor6943() is gated on this exact condition, and
+        // ApiHealthMonitor never sees a "turso" row until the supervisor's own
+        // loop runs at least once — so a gate failure here is INDISTINGUISHABLE
+        // from a live connection attempt in every exported report, including
+        // the three prior hive fixes (6943/6989/7190) that all assumed the
+        // supervisor was at least running. The line below was already computing
+        // everything needed to tell them apart; it just never left logcat.
         ErrorLogger.info("BotService", "🔧 COLLECTIVE CONFIG CHECK: enabled=${cfg.collectiveLearningEnabled} | urlLen=${cfg.tursoDbUrl.length} | tokenLen=${cfg.tursoAuthToken.length}")
         if (cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()) {
             ErrorLogger.info("BotService", "🔧 COLLECTIVE: Starting init coroutine...")
+            try {
+                ForensicLogger.lifecycle("HIVE_SUPERVISOR_GATE_PASSED_7691", "enabled=${cfg.collectiveLearningEnabled} urlLen=${cfg.tursoDbUrl.length} tokenLen=${cfg.tursoAuthToken.length}")
+                PipelineHealthCollector.labelInc("HIVE_SUPERVISOR_GATE_PASSED_7691")
+            } catch (_: Throwable) {}
             startHiveSupervisor6943()
             scope.launch {
                 try {
@@ -7529,6 +7543,20 @@ class BotService : Service() {
             }
         } else if (cfg.collectiveLearningEnabled) {
             addLog("ℹ️ CollectiveLearning: No Turso credentials configured")
+            try {
+                ForensicLogger.lifecycle("HIVE_SUPERVISOR_GATE_BLOCKED_7691", "reason=CREDENTIALS_BLANK urlLen=${cfg.tursoDbUrl.length} tokenLen=${cfg.tursoAuthToken.length}")
+                PipelineHealthCollector.labelInc("HIVE_SUPERVISOR_GATE_BLOCKED_CREDENTIALS_7691")
+            } catch (_: Throwable) {}
+        } else {
+            // V5.0.7691 — the case the prior three hive fixes never logged
+            // anywhere an exported report could show it: collectiveLearningEnabled
+            // itself is false, so startHiveSupervisor6943() never runs and the
+            // hive is silently off by setting, not by a failed connection.
+            addLog("ℹ️ CollectiveLearning: disabled in settings — hive mind will not connect")
+            try {
+                ForensicLogger.lifecycle("HIVE_SUPERVISOR_GATE_BLOCKED_7691", "reason=COLLECTIVE_LEARNING_DISABLED_IN_SETTINGS")
+                PipelineHealthCollector.labelInc("HIVE_SUPERVISOR_GATE_BLOCKED_DISABLED_7691")
+            } catch (_: Throwable) {}
         }
         
         // Note: Community weights download happens in main loop after first iteration

@@ -33,6 +33,16 @@ object WalletReconciler {
     private const val DUST_RAW = 1L
     /** Minimum spacing between full reconciles to avoid hammering RPC. */
     private const val MIN_INTERVAL_MS = 15_000L
+    // V5.0.7691 — operator: a Flash perps collateral funding swap left USDC in
+    // the wallet, and this reconciler adopted it as a tracked "position"
+    // (symbol=RECOVERED_EPjFWd, trackerStatus=OPEN_TRACKING, no_sell_requeue)
+    // that then sat forever with no exit — the wallet balance it reported
+    // (2.9 -> 17.6 -> 2.9 -> 8.8 -> 5.9) was ordinary collateral funding/spend
+    // movement misread as a position whose "price" the bot had no model for.
+    // USDC is collateral, never a tradable position; exclude it from orphan
+    // recovery and zombie-closure here so no downstream consumer of this
+    // wallet snapshot ever sees it as one.
+    private const val USDC_MINT_7691 = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
     private val lastRunMs = AtomicLong(0L)
     private val lastDigestMs = AtomicLong(0L)
@@ -51,7 +61,11 @@ object WalletReconciler {
         if (!lastRunMs.compareAndSet(prev, now)) return 0
 
         val walletMints: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
-            wallet.getTokenAccountsWithDecimalsBounded()
+            // V5.0.7691 — USDC is collateral, never a tradable position; drop it
+            // before any consumer of this snapshot (orphan recovery, zombie
+            // closure, HostWalletTokenTracker, LiveCanonicalRecovery6686) can
+            // adopt it as one. See the USDC_MINT_7691 comment above for why.
+            wallet.getTokenAccountsWithDecimalsBounded().filterKeys { it != USDC_MINT_7691 }
         } catch (t: Throwable) {
             ErrorLogger.debug(TAG, "wallet read failed: ${t.message?.take(80)}")
             return 0

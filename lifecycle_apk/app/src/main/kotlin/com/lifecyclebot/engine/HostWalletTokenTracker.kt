@@ -53,6 +53,15 @@ object HostWalletTokenTracker {
     private const val TERMINAL_DUST_UI = 1.0
     /** SOL native mint — always excluded from the tracker. */
     private const val SOL_MINT = "So11111111111111111111111111111111111111112"
+    // V5.0.7691 — operator: a Flash perps collateral funding swap left USDC
+    // held in the wallet, and this tracker adopted it as a position
+    // (RECOVERED_EPjFWd, bucket=QUARANTINED_WITH_EXPLICIT_REASON,
+    // trackerStatus=OPEN_TRACKING, action=no_sell_requeue) that then sat
+    // forever with no exit while its reported balance moved around purely
+    // from ordinary collateral funding/spend, not a trade. USDC is
+    // collateral, never a tradable position — excluded the same way SOL
+    // already is, right above.
+    private const val USDC_MINT_7691 = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
     // V5.9.778 — EMERGENT MEME-ONLY: manual-swap detection grace window.
     // A wallet snapshot can briefly miss a mint due to RPC propagation
@@ -192,6 +201,10 @@ object HostWalletTokenTracker {
     private val positions = ConcurrentHashMap<String, TrackedTokenPosition>()
     private val walletAuthority = ConcurrentHashMap<String, WalletAuthoritySnapshot>()
     @Volatile private var loaded = false
+    // V5.0.7691 — per-mint throttle for the STALE_RECOVERY_UNPROVEN forensic
+    // line so a stuck dust mint logs it once per cooldown, not once per tick.
+    private val staleRecoveryUnprovenLoggedAtMs7691 = ConcurrentHashMap<String, Long>()
+    private const val STALE_RECOVERY_UNPROVEN_LOG_COOLDOWN_MS_7691 = 5 * 60 * 1000L
 
     /** V5.0.7253 — frozen SPL accounts are not executable inventory. */
     fun ignoreFrozenMints7253(mints: Set<String>): Int {
@@ -320,6 +333,25 @@ object HostWalletTokenTracker {
 
     private fun hasCurrentWalletPositiveProof(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean =
         currentHeldSnapshot(p, now) != null
+
+    // V5.0.7691 — operator: "the bot bought AAVE at 01:31, and the tracker
+    // marked it CLOSED_STALE_RECOVERY_UNHELD while the wallet holds 0.0116
+    // AAVE." Root cause: currentHeldSnapshot requires uiAmount >
+    // TERMINAL_DUST_UI (1.0) — a threshold the V5.0.4155 comment explicitly
+    // scopes to "literal one-token wallet remnants" for MEME position
+    // accounting, where one raw unit of a billion-supply token is genuinely
+    // worthless. Applied to a real, low-supply, high-value asset (AAVE, TNSR,
+    // and anything else routed through the tokenized-asset / Markets lanes),
+    // the same 1.0 UI-unit cutoff misclassifies a real, spendable holding as
+    // dust. This checks the on-chain RAW balance directly, without the
+    // UI-amount dust gate, so a genuinely held low-unit-count valuable asset
+    // is never erased as "unheld" by a threshold tuned for a different asset
+    // class. Used only to GUARD closure/ghost-reap decisions — it never makes
+    // a position MORE eligible to close, only less.
+    private fun hasCurrentWalletRawBalance7691(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
+        val snap = walletAuthority[p.mint] as? WalletAuthoritySnapshot.HELD ?: return false
+        return snap.raw > BigInteger.valueOf(DUST_RAW) && (now - snap.observedAtMs) <= CAP_WALLET_PROOF_TTL_MS
+    }
 
     private fun hasFreshBuyLiability(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
         val anchor = p.buyTimeMs ?: p.firstSeenWalletMs
@@ -1043,7 +1075,7 @@ object HostWalletTokenTracker {
 
         // Pass 1: orphan recovery / refresh existing.
         for ((mint, pair) in walletMints) {
-            if (mint == SOL_MINT) continue
+            if (mint == SOL_MINT || mint == USDC_MINT_7691) continue
             val uiAmount = pair.uiDoubleForDisplay()
             val decimals = pair.decimals
             val rawExact = pair.raw
@@ -1755,11 +1787,23 @@ object HostWalletTokenTracker {
                 reaped++
                 continue
             }
-            if (hasCurrentWalletPositiveProof(p)) continue                  // wallet-truth holds tokens — real
+            // V5.0.7691 — widened with the raw-balance check so a real,
+            // low-unit-count holding (AAVE, TNSR) is never treated as unheld
+            // merely because its UI amount reads as dust (see helper doc).
+            if (hasCurrentWalletPositiveProof(p) || hasCurrentWalletRawBalance7691(p)) continue  // wallet-truth holds tokens — real
             if (hasLastPositiveRaw(p)) {
                 markNoCurrentHeldProof(p, "HISTORICAL_RAW_NOT_CURRENT_HELD_PROOF")
-                emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "STALE_RECOVERY_UNPROVEN ${p.symbol ?: p.mint.take(6)} historicalRaw=${rawAmountBig(p)} is not current wallet proof")
+                // V5.0.7691 — throttle: this previously re-emitted on every
+                // reconcile tick for the same stuck mint (operator: "logged
+                // STALE_RECOVERY_UNPROVEN KIN 162 times over 20 minutes for
+                // 0.04 KIN left over"). One emission per mint per cooldown is
+                // enough to keep it visible without spamming the export.
+                val lastLoggedAt = staleRecoveryUnprovenLoggedAtMs7691[p.mint] ?: 0L
+                if (now - lastLoggedAt >= STALE_RECOVERY_UNPROVEN_LOG_COOLDOWN_MS_7691) {
+                    staleRecoveryUnprovenLoggedAtMs7691[p.mint] = now
+                    emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
+                        "STALE_RECOVERY_UNPROVEN ${p.symbol ?: p.mint.take(6)} historicalRaw=${rawAmountBig(p)} is not current wallet proof")
+                }
             }
             if (p.status in SELL_IN_FLIGHT_STATUSES && p.lastSeenWalletMs > 0L &&
                 (now - p.lastSeenWalletMs) < GHOST_REAP_GRACE_MS) continue  // genuine in-flight sell
@@ -1802,7 +1846,10 @@ object HostWalletTokenTracker {
         val staleRecoveryTtlMs = 180_000L
         for (p in positions.values.toList()) {
             if (p.status != PositionStatus.STALE_RECOVERY_UNPROVEN) continue
-            if (hasCurrentWalletPositiveProof(p)) continue
+            // V5.0.7691 — see hasCurrentWalletRawBalance7691's doc: this is the
+            // exact closure this sweep performed on AAVE/TNSR while the wallet
+            // still genuinely held them.
+            if (hasCurrentWalletPositiveProof(p) || hasCurrentWalletRawBalance7691(p)) continue
             val anchor2 = maxOf(p.lastWalletReconcileMs ?: 0L, p.lastSeenWalletMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs)
             if (anchor2 > 0L && (now - anchor2) < staleRecoveryTtlMs) continue
             p.status = PositionStatus.CLOSED_STALE_RECOVERY_UNHELD
@@ -1826,10 +1873,15 @@ object HostWalletTokenTracker {
         return reaped
     }
 
-    /** True only when wallet-truth says this mint has a non-dust token amount. */
+    /**
+     * True when wallet-truth says this mint has a non-dust token amount, OR a
+     * positive raw balance regardless of UI-amount size (V5.0.7691 — exit
+     * management and cap/slot bookkeeping must see AAVE/TNSR-class low-unit,
+     * high-value holdings as held; see hasCurrentWalletRawBalance7691's doc).
+     */
     fun isActuallyHeld(mint: String): Boolean {
         val p = positions[mint] ?: return false
-        return hasCurrentWalletPositiveProof(p)
+        return hasCurrentWalletPositiveProof(p) || hasCurrentWalletRawBalance7691(p)
     }
 
     /** V5.9.612 AntiChoke: wallet snapshot proved zero; unblock internal ghost state. */
@@ -2051,7 +2103,8 @@ object HostWalletTokenTracker {
             // so the next requestSell proceeds. Wallet reconcile / verify watchdog
             // will re-establish truth; we only unblock the SELL path here.
             if (p.status in SELL_IN_FLIGHT_STATUSES) {
-                p.status = if (hasCurrentWalletPositiveProof(p)) PositionStatus.OPEN_TRACKING else PositionStatus.STALE_RECOVERY_UNPROVEN
+                // V5.0.7691 — widened; see hasCurrentWalletRawBalance7691's doc.
+                p.status = if (hasCurrentWalletPositiveProof(p) || hasCurrentWalletRawBalance7691(p)) PositionStatus.OPEN_TRACKING else PositionStatus.STALE_RECOVERY_UNPROVEN
             }
             p.activeSellAttemptId = null
             p.sellAttemptStartedMs = 0L
@@ -2074,7 +2127,8 @@ object HostWalletTokenTracker {
         val p = positions[mint] ?: return
         val wasFlagged = p.status in SELL_IN_FLIGHT_STATUSES || !p.activeSellAttemptId.isNullOrBlank()
         if (!wasFlagged) return
-        if (p.status in SELL_IN_FLIGHT_STATUSES) p.status = if (hasCurrentWalletPositiveProof(p)) PositionStatus.OPEN_TRACKING else PositionStatus.STALE_RECOVERY_UNPROVEN
+        // V5.0.7691 — widened; see hasCurrentWalletRawBalance7691's doc.
+        if (p.status in SELL_IN_FLIGHT_STATUSES) p.status = if (hasCurrentWalletPositiveProof(p) || hasCurrentWalletRawBalance7691(p)) PositionStatus.OPEN_TRACKING else PositionStatus.STALE_RECOVERY_UNPROVEN
         p.activeSellAttemptId = null
         p.sellAttemptStartedMs = 0L
         try {
