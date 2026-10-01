@@ -1644,3 +1644,21 @@ The current UNWIRED ledger contains **100 `E_INFILE` rows**. By construction, th
 - [x] E_INFILE is removed from the strategy-correctness “unwired” count and retained only as local-callgraph audit metadata.
 - [x] Wider-ledger reconciliation state: original 113 complete + D_DISPLAY 151/151 + E_INFILE 100/100 classified.
 - [x] Regression coverage: `Aate7573InFileHelperClassificationTest`.
+
+
+## V5.0.7574 — wider-ledger pre-triaged disposition tiers (182 rows)
+
+The current UNWIRED ledger contains **182 rows** outside A/B/C, D_DISPLAY, E_INFILE and F_DEAD whose tier name already records an audited disposition.
+
+These rows are now removed from the unresolved strategy-correctness backlog as follows:
+
+- [x] `INTERNAL_VERIFIED_7079` (4) + `INTERNAL_VERIFIED_7094` (80) — **verified internal consumers/behaviour**.
+- [x] `LOCAL_FUN_7081` (5) — **local implementation functions**, not missing external APIs.
+- [x] `REDUNDANT_*` tiers (17 total) — **verified duplicate/advisory/relay/TTL surfaces**; do not re-wire duplicates.
+- [x] `RETIRED_*` tiers (66 total) — **intentionally dark/disabled/duplicate/superseded/doc-marker/new-veto surfaces**; retirement is the resolution.
+- [x] Operator/product markers: `CONSTRAINED_OPERATOR_RULE_7095` (1), `HUMAN_OVERRIDE_BY_DESIGN_7095` (1), `NEEDS_PRODUCT_DECISION_7095` (1), `COSMETIC_7095` (1) — not silent missing strategy wiring.
+- [x] Starvation markers: `STARVED_LANE_IDLE_7095` (2), `STARVED_NO_INPUT_7094` (3), `STARVED_UPSTREAM_IDLE_7095` (1) — **upstream/input liveness diagnoses**, not evidence that their functions need arbitrary callers.
+- [x] `REDUNDANT_ADVISORY_7095`, `REDUNDANT_RELAY_7095`, `REDUNDANT_TTL_SELFCLEARS_7095` remain explicitly redundant and must not be resurrected merely to shrink static counts.
+- [x] Wider-ledger reconciliation state: original 113 complete + D_DISPLAY 151 + E_INFILE 100 + pre-triaged dispositions 182 classified.
+- [x] Remaining large raw tier for real triage: **F_DEAD = 1,458 declarations**.
+- [x] Regression coverage: `Aate7574PreTriagedTierDispositionTest`.
