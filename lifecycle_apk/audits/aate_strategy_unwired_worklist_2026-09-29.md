@@ -1562,3 +1562,28 @@ This bundle reconciles original-113 A_PREDICT items 20–30 as one family. These
 - [x] `QualityTraderAI.getRecommendedLeverage` — **ASSET/LEVERAGE HELPER**. Reads learned leverage preference; not meme entry intelligence.
 - [x] Original-113 A_PREDICT items 20–30 are now classified/closed as a contiguous block.
 - [x] Regression coverage: `Aate7569Original113PerpsPredictiveBlockTest`.
+
+
+## V5.0.7570 — original-113 A_PREDICT tail (items 31–47)
+
+This bundle closes original-113 A_PREDICT items 31–47 as a contiguous block using current production-source evidence.
+
+- [x] `QuantMetrics.calculateWinRateStats` — **REPORT/ANALYTICS API**.
+- [x] `RuntimeTune6833.isHighEdge` — **CLOSED_LOOP / LEDGER_STALE** via InventoryPressureGovernor6829 / order-size admission.
+- [x] `ScoreComponent.sourceScore` — **ALIAS_REDUNDANT**; production scoring uses richer timing-aware source evidence and duplicate voting is forbidden.
+- [x] `ScoreDistributionHistogram6396.recommendAdaptiveBaseline` — **THRESHOLD CALIBRATION HELPER / TESTED**, not per-candidate alpha.
+- [x] `ShadowLearningEngine.getPerformanceByConfidence` — **REPORT/ANALYTICS**.
+- [x] `SmartExitOptimizer.getMinConfidenceAdvisory` — **ADVISORY HELPER**.
+- [x] `SourceTimingRegistry.isLateSignal` — **ALIAS_REDUNDANT**; ScoreCard already consumes `getSourceTimingPenalty`, with regression tests proving single-vote timing.
+- [x] `SymbolicContext.getAllSignals` — **UTILITY_ALIAS**; individual/composite symbolic signals already have consumers.
+- [x] `TacticSwitcher.posteriorLossProbAboveForTest` — **TEST_ONLY_BY_DESIGN** and used by TacticSwitcherBayesTest.
+- [x] `TradeDatabase.getSignalWinRate` — **BACKGROUND_DB_REQUIRED**. It executes SQLite rawQuery and must be cached/off-hot-path before any future use.
+- [x] `TradeLessonRecorder.getWinRateForLane` — **INTERNAL_ANALYTICS_HELPER**.
+- [x] `TradeLifecycle.noSignal` — **LIFECYCLE STATE HELPER**, not predictive alpha; clears proposal tracking after strategy returns no BUY.
+- [x] `TradingCopilot.convictionBoost` — **CLOSED_LOOP (7430/7432)** through PredictiveEntryOracle6915 bounded evidence.
+- [x] `TradingMemory.getPatternWinRate` — **CLOSED_LOOP (7427)** through PredictiveEntryOracle6915 exact-context evidence.
+- [x] `TrailingStopManager.getRecommendedStopType` — **LEGACY_DEAD_COMPANION / DO_NOT WIRE**, already fenced in 7560.
+- [x] `TursoClient.getMarketsAssetRankings` — **BACKGROUND_DB_REQUIRED**, already fenced in 7561.
+- [x] `UnifiedPolicyHead.brierScore` — **CLOSED_LOOP / LEDGER_STALE**; FinalDecisionGate reads it for authoritative lane-head diagnostics/calibration.
+- [x] Original-113 A_PREDICT items 31–47 are now classified/closed.
+- [x] Regression coverage: `Aate7570Original113PredictiveTailTest`.
