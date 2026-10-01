@@ -1,0 +1,190 @@
+[
+  {
+    "path": "com/lifecyclebot/engine/ScannerDiversityBandit.kt",
+    "classification": "SOURCE_SELECTION_UPSTREAM",
+    "reason": "Orders discovery using ScannerSourceBrain family evidence; another oracle vote would duplicate source ancestry.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/engine/BotService.kt",
+        "call": "ScannerDiversityBandit.orderedFamilies("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/v4/meta/ExecutionPathAI.kt",
+    "classification": "EXECUTION_LEARNED_UPSTREAM",
+    "reason": "Confirmed execution receipts and endpoint failures train execution confidence consumed by exit reasoning.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/engine/truth/CanonicalExecutionTruth6394.kt",
+        "call": "ExecutionPathAI.recordCanonicalReceipt7667("
+      },
+      {
+        "path": "com/lifecyclebot/engine/ExecutionEndpointHealth.kt",
+        "call": "ExecutionPathAI.recordEndpointFailure7667("
+      },
+      {
+        "path": "com/lifecyclebot/engine/SymbolicExitReasoner.kt",
+        "call": "ExecutionPathAI.getExecutionConfidenceMultiplier("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/v4/meta/LiquidityFragilityAI.kt",
+    "classification": "RISK_SHAPING_UPSTREAM",
+    "reason": "Existing toolkit analysis and executor sizing own fragility; do not add a separate alpha vote.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/engine/ToolkitSignalSheet.kt",
+        "call": "LiquidityFragilityAI.analyze("
+      },
+      {
+        "path": "com/lifecyclebot/engine/Executor.kt",
+        "call": "LiquidityFragilityAI.getReportFor("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/v4/meta/PortfolioHeatAI.kt",
+    "classification": "RISK_SHAPING_UPSTREAM",
+    "reason": "Canonical position updates and executor safety multiplier already consume portfolio exposure.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/engine/Executor.kt",
+        "call": "PortfolioHeatAI.addPosition("
+      },
+      {
+        "path": "com/lifecyclebot/engine/Executor.kt",
+        "call": "PortfolioHeatAI.getSafetyMultiplier("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/v4/meta/NarrativeFlowAI.kt",
+    "classification": "CRYPTO_NATIVE_UPSTREAM",
+    "reason": "Crypto discovery records activity and applies cached narrative multipliers.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "NarrativeFlowAI.recordActivity("
+      },
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "NarrativeFlowAI.getNarrativeMultiplier("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/v4/meta/StrategyTrustAI.kt",
+    "classification": "STRATEGY_LEARNED_UPSTREAM",
+    "reason": "Trade lessons train trust; crypto uses existing strategy trust shaping.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/v4/meta/TradeLessonRecorder.kt",
+        "call": "StrategyTrustAI.recordTrade("
+      },
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "StrategyTrustAI.getTrustMultiplier("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt",
+    "classification": "CRYPTO_NATIVE_UPSTREAM",
+    "reason": "Native crypto score/confidence and tactics feed CryptoAltTrader; distinct from meme specialist estate.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "CryptoBrain.scoreAdjustment("
+      },
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "CryptoBrain.confidenceModifier("
+      },
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "CryptoBrain.activeTactic("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/perps/crypto/brain/CryptoFluidLearning.kt",
+    "classification": "CRYPTO_LEARNING_UPSTREAM",
+    "reason": "CryptoBrain consumes learned thresholds/stops and outcomes; state persists through CryptoBrainState.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt",
+        "call": "CryptoFluidLearning.recordPaperTrade("
+      },
+      {
+        "path": "com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt",
+        "call": "CryptoFluidLearning.getDynamicFluidStop("
+      },
+      {
+        "path": "com/lifecyclebot/perps/crypto/brain/CryptoBrainState.kt",
+        "call": "CryptoFluidLearning.writeTo("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/perps/crypto/brain/CryptoCanonicalLearning.kt",
+    "classification": "CANONICAL_LEARNING_INFRASTRUCTURE",
+    "reason": "Crypto outcome population reconciliation is infrastructure, not independent directional evidence.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt",
+        "call": "CryptoCanonicalLearning.recordSettled("
+      },
+      {
+        "path": "com/lifecyclebot/perps/crypto/brain/CryptoBrainState.kt",
+        "call": "CryptoCanonicalLearning.writeTo("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/perps/crypto/brain/CryptoScannerLaneBridge.kt",
+    "classification": "CRYPTO_SOURCE_SELECTION_UPSTREAM",
+    "reason": "Crypto discovery consults source/lane reliability and records outcomes.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "CryptoScannerLaneBridge.shouldRoute("
+      },
+      {
+        "path": "com/lifecyclebot/perps/CryptoAltTrader.kt",
+        "call": "CryptoScannerLaneBridge.recordOutcome("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/engine/ExitIntelligence.kt",
+    "classification": "EXIT_LEARNED_UPSTREAM",
+    "reason": "Executor evaluates exits and learns settled outcomes; entry oracle must not independently duplicate exit authority.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/engine/Executor.kt",
+        "call": "ExitIntelligence.evaluateExit("
+      },
+      {
+        "path": "com/lifecyclebot/engine/Executor.kt",
+        "call": "ExitIntelligence.learnFromExit("
+      }
+    ]
+  },
+  {
+    "path": "com/lifecyclebot/engine/UnifiedExitPolicyHead.kt",
+    "classification": "EXIT_LEARNED_UPSTREAM",
+    "reason": "Exit decisions are stamped by Executor and canonical finalized consumer delivers outcomes.",
+    "consumers": [
+      {
+        "path": "com/lifecyclebot/engine/Executor.kt",
+        "call": "UnifiedExitPolicyHead.stamp("
+      },
+      {
+        "path": "com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt",
+        "call": "UnifiedExitPolicyHead.recordOutcome("
+      }
+    ]
+  }
+]

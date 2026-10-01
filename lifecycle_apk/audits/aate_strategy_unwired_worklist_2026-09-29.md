@@ -3660,3 +3660,14 @@ Repair:
 - [x] Legacy onGate FDG mirror remains visible as diagnostic-only and divergence is named FDG_GATE_MIRROR_DIVERGED_FROM_FINAL_7685.
 - [x] Per-mode FDG totals also prefer final sealed decision attribution.
 - [x] No FDG threshold, probe policy, sizing, safety, execution or admission behavior changed.
+
+## V5.0.7686 — consumer-proven intelligence estate audit batch
+
+- [x] Reviewed 12 previously-unclassified components: ScannerDiversityBandit, ExecutionPathAI, LiquidityFragilityAI, PortfolioHeatAI, NarrativeFlowAI, StrategyTrustAI, CryptoBrain, CryptoFluidLearning, CryptoCanonicalLearning, CryptoScannerLaneBridge, ExitIntelligence and UnifiedExitPolicyHead.
+- [x] Verified production consumers in discovery, confirmed execution receipts, endpoint failures, risk shaping, crypto-native scoring/tactics/outcomes, and exit decision/outcome paths.
+- [x] Classified source ancestry explicitly in `ci/super_intelligence_reviewed_7686.json`; none is added as a second independent Super intelligence vote.
+- [x] CI validates every manifest component path and production consumer call; missing calls or comment-only remnants fail the census instead of silently preserving a wired classification.
+- [x] Three Python regression checks pass: production manifest, removed-call rejection, comment-only-call rejection.
+- [x] Census: 252 intelligence candidates / 1,256 Kotlin files; unclassified review count reduced from 71 to 59.
+- [x] Source classification is not runtime acceptance. Device mark, learning population, partial accounting and specialist causal-chain obligations remain open.
+- [x] No Kotlin trading logic, thresholds, sizes, safety, exit policy or live capability changed.

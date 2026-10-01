@@ -13461,7 +13461,9 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
                 return laneBase.copy(
                     signal = "BUY", finalSignal = "BUY", shouldTrade = true,
-                    blockReason = "GOOD_LANE_VOLUME_PIVOT_6020",
+                    // This branch admits a BUY. Keep its reason in the lifecycle
+                    // event above; FDG treats any candidate blockReason as a veto.
+                    blockReason = "",
                     edgeVeto = false,
                     edgeQuality = if (laneBase.edgeQuality == "SKIP") "B" else laneBase.edgeQuality,
                     finalQuality = if (cleanQuality == "C") "B" else cleanQuality,

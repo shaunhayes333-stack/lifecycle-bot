@@ -26,6 +26,31 @@ SAFETY_WORDS = ("Rug", "Safety", "Freeze", "HardBlock", "Veto", "Blacklist")
 BACKGROUND_WORDS = ("Sentience", "PilotCouncil", "Lab", "Research", "Reflection")
 REPORT_WORDS = ("Operator", "Sentinel", "Digest", "Registry", "Report")
 
+def load_reviewed(root: Path = ROOT) -> dict:
+    """Reviewed ancestry is valid only while its production consumer calls exist.
+
+    Missing proof fails CI rather than silently declaring an amputated component
+    wired. This manifest classifies source wiring, never runtime acceptance.
+    """
+    manifest = Path(__file__).with_name("super_intelligence_reviewed_7686.json")
+    reviewed = {}
+    for row in json.loads(manifest.read_text()):
+        path = row["path"]
+        if path in reviewed or not (root / path).is_file():
+            raise ValueError("invalid reviewed estate path: " + path)
+        if not row["reason"] or not row["consumers"]:
+            raise ValueError("review missing ancestry/consumer proof: " + path)
+        for proof in row["consumers"]:
+            consumer = root / proof["path"]
+            if proof["path"] == path or not consumer.is_file():
+                raise ValueError("invalid estate consumer: " + proof["path"])
+            # Strip comments so a retired call left in prose cannot pass proof.
+            code = re.sub(r"/\*.*?\*/|//[^\n]*", "", consumer.read_text(), flags=re.S)
+            if proof["call"] not in code:
+                raise ValueError("estate consumer call missing: " + proof["call"])
+        reviewed[path] = row
+    return reviewed
+
 def object_name(text: str, path: Path) -> str:
     m = re.search(r"\b(?:object|class)\s+([A-Za-z0-9_]+)", text)
     return m.group(1) if m else path.stem
@@ -52,6 +77,7 @@ def classify(path: Path, text: str, name: str, roots_text: str) -> str:
     return "UNCLASSIFIED_INTELLIGENCE_REVIEW"
 
 def main() -> int:
+    reviewed = load_reviewed()
     files = sorted(ROOT.rglob("*.kt"))
     candidates = [p for p in files if TOKENS.search(p.name)]
 
@@ -70,14 +96,15 @@ def main() -> int:
     for p in candidates:
         text = p.read_text(errors="ignore")
         name = object_name(text, p)
-        cls = classify(p, text, name, roots_text)
+        review = reviewed.get(str(p.relative_to(ROOT)))
+        cls = review["classification"] if review else classify(p, text, name, roots_text)
         counts[cls] = counts.get(cls, 0) + 1
         rows.append((name, cls, str(p.relative_to(ROOT)), "LayerBrain.register(" in text))
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     tsv = OUT_DIR / "super_intelligence_estate_census_7655.tsv"
     with tsv.open("w", newline="") as f:
-        w = csv.writer(f, delimiter="\t")
+        w = csv.writer(f, delimiter="\t", lineterminator="\n")
         w.writerow(["name", "classification", "path", "layer_brain"])
         w.writerows(rows)
 
@@ -86,6 +113,7 @@ def main() -> int:
         "intelligence_candidates": len(candidates),
         "classifications": dict(sorted(counts.items())),
         "unclassified": counts.get("UNCLASSIFIED_INTELLIGENCE_REVIEW", 0),
+        "source_reviewed_with_consumer_proof": len(reviewed),
     }
     (OUT_DIR / "super_intelligence_estate_census_7655.json").write_text(json.dumps(summary, indent=2) + "\n")
     print("SUPER_INTELLIGENCE_ESTATE_CENSUS_7655", json.dumps(summary, sort_keys=True))

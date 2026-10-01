@@ -137,3 +137,11 @@ Treat these as separate estates during every audit/build:
 - CRYPTO/ALT specialist estate: 12+ crypto-native specialists/tactics plus the meme-style crypto desk. `CryptoLaneDesk7391` currently exposes 9 desk lanes, which is not the total crypto-brain count.
 
 Do not use success in one estate as evidence that the other estate is healthy. Every repair sweep must check intake, scoring, strategy directionality, learning, exit ownership, and outcome feedback independently for both.
+
+## 5.0.7686 audit continuation
+
+Twelve previously-unclassified components now have explicit source ancestry and production consumer-call proof in `ci/super_intelligence_reviewed_7686.json`. The census validates these references on every build and runs removed-call/comment-only regression checks. Unclassified intelligence review fell 71 -> 59 (252 candidates). This records existing wiring without creating duplicate Super votes; runtime correctness obligations remain open.
+
+The 7683 runtime log also exposed 271 `GOOD_LANE_VOLUME_PIVOT_6020` FDG refusals. The shared lane admission branch returned BUY/shouldTrade=true while retaining this success label in CandidateDecision.blockReason. FDG correctly treats a nonempty blockReason as a veto. The producer now clears blockReason on this admission branch; its existing lifecycle event and learning admission retain the reason. No FDG safety rule or benchmark requirement was relaxed.
+
+Remaining runtime sweep includes all 12 meme lanes (explicitly Moonshot), plus Crypto Universe. QUALITY/BLUECHIP zero opens, CYCLIC/DIP_HUNTER zero raw opens, missing canonical marks, causal predecessor suppression, replay accounting deltas, finalized-bus gaps and outcome binding remain unresolved. Raw opens on Moonshot, Express, Manipulated, Treasury and Sniper must not be reported as healthy solely because they opened, or as dead solely because validated funnel counters are zero. A fresh installed-build report is required to measure this admission repair.
