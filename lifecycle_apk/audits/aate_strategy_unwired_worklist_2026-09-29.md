@@ -2536,3 +2536,22 @@ Repairs:
 - [x] `FluidLearning.recordPriceImpact` no longer performs `runBlocking` / provider I/O. It consumes `WalletManager.lastKnownSolPrice` cache and fails soft to the existing simulation default.
 - [x] No score floor, lane threshold, TP/SL, sizing doctrine, live enablement, or strategy authority changed.
 - [x] Regression coverage: `Aate7606RuntimeForwardProgressRepairTest`.
+
+
+## V5.0.7607 — 12-lane specialist parity + causal intent continuity
+
+Field evidence from 5.0.7586 showed the configured 12-lane specialist set was not receiving equivalent routing opportunity:
+
+- BLUECHIP/CORE/MOONSHOT/CASHGEN had meaningful candidate/FDG traffic.
+- QUALITY and PROJECT_SNIPER had partial causal progress.
+- SHITCOIN/CYCLIC/EXPRESS/MANIPULATED/TREASURY were effectively absent from qualified ownership flow.
+- DIP_HUNTER showed only an orphan mark reject.
+- Capital headroom was available across all lanes, so starvation was upstream of capital allocation.
+
+Repairs:
+
+- [x] `TokenMetricStageRouter.laneFit()` now reuses `isEstablished7306()` instead of the obsolete `ageMin >= 60` predicate. A token selected as established by source/scale can no longer be rejected one line later because it has not sat on the watchlist for an hour.
+- [x] `ExecutableOpenGate.registerCanonicalIntent6554()` mirrors the immutable canonical `ExecutionIntent` into the specialist causal funnel as `BUY_INTENT`. This closes telemetry-only `NO_INTENT` phantoms for any of the 12 lanes without creating a new decision or execution authority.
+- [x] The mirror is restricted to the canonical 12 meme specialists: QUALITY, BLUECHIP, SHITCOIN, CYCLIC, EXPRESS, CORE, MOONSHOT, PROJECT_SNIPER, DIP_HUNTER, MANIPULATED, TREASURY, CASHGEN.
+- [x] No lane threshold, score floor, TP/SL, sizing multiplier, allocation, FDG decision, or execution safety rule changed.
+- [x] Regression coverage: `Aate7607TwelveLaneParityRepairTest`.

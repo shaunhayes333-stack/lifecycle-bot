@@ -385,6 +385,27 @@ object ExecutableOpenGate {
             }
         } ?: return null
         executionTickets[authoritative.attemptId] = authoritative
+        // V5.0.7607 — the immutable ExecutionIntent is the canonical BUY_INTENT
+        // authority. Some specialist routes create/reuse it without passing through
+        // TradeAuthorizer's telemetry hook, which left the specialist causal funnel
+        // reporting NO_INTENT even while execution invariants proved an intent existed.
+        // Mirror the canonical authority into telemetry here; this does not create,
+        // permit, size, or execute a trade.
+        try {
+            if (authoritative.canonicalLane.uppercase() in setOf(
+                    "QUALITY","BLUECHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
+                    "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN"
+                )
+            ) {
+                ToolkitSignalSheet.recordDeskStage(
+                    authoritative.canonicalLane,
+                    "BUY_INTENT",
+                    authoritative.attemptId,
+                )
+                PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_INTENT_MIRRORED_7607")
+                PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_INTENT_MIRRORED_7607_" + authoritative.canonicalLane.uppercase())
+            }
+        } catch (_: Throwable) {}
         // V5.0.6715 — stamp the actual FDG/intent creation epoch. Never stamp at
         // terminal/report time: this is the decision provenance trade N+1 must prove.
         try {

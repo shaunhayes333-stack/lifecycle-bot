@@ -204,7 +204,11 @@ object TokenMetricStageRouter {
         // re-routed back to memes, defeating the purpose. An established asset
         // is fit for BLUECHIP/DIP_HUNTER/QUALITY/TREASURY at any non-toxic
         // stage.
-        val isEstablished = s.marketCapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0
+        // V5.0.7607 — use the SAME established-token predicate as primary routing.
+        // 7306 removed the false first-hour starvation from preferredPrimaryLane(),
+        // but laneFit() kept the obsolete watchAge>=60 requirement and could reject
+        // BLUECHIP/DIP_HUNTER/QUALITY/TREASURY immediately after routing selected them.
+        val isEstablished = isEstablished7306(ts, s.marketCapUsd, s.liquidityUsd, s.ageMin)
         if (isEstablished && s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION) {
             if (lane in setOf("BLUECHIP", "DIP_HUNTER", "QUALITY", "TREASURY", "STANDARD", "CORE", "V3")) {
                 return LaneFit(true, lane, s.stage, s.compact)
