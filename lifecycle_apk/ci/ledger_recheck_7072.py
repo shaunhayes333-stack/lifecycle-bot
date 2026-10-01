@@ -14,6 +14,8 @@ argued with line by line:
   GONE         the declaration is not in the tree any more. Stale ledger row;
                it is not work, it is an artefact of an older checkout.
   WIRED        called by name from a file other than the one declaring it.
+  INFILE_WIRED called by name from inside its declaring file. This is real
+               internal wiring, not dead code.
   RETIRED      the declaration or its doc says it is deliberately inert.
   DARK_OWNER   the owner's NAME never appears outside its own file, so nothing
                on it is reachable. Wiring a member means resurrecting a whole
@@ -106,12 +108,28 @@ def main():
                 )
                 if wired:
                     v = "WIRED"
-                elif any(mk in ctx.lower() for mk in RETIREMENT_MARKERS):
-                    v = "RETIRED"
-                elif not owner_live[o]:
-                    v = "DARK_OWNER"
                 else:
-                    v = "STARVED"
+                    # V5.0.7672 — prove same-file consumption after removing
+                    # the declaration token itself. This catches helpers called
+                    # through bare names inside an object/class.
+                    infile = False
+                    bare = re.compile(r"\b" + re.escape(fn) + r"\s*\(")
+                    for p in decl_files[o]:
+                        txt = sources[p]
+                        dm = re.search(r"\bfun\s+(?:<[^>]+>\s+)?" + re.escape(fn) + r"\s*\(", txt)
+                        if dm:
+                            remainder = txt[:dm.start()] + txt[dm.end():]
+                            if bare.search(remainder):
+                                infile = True
+                                break
+                    if infile:
+                        v = "INFILE_WIRED"
+                    elif any(mk in ctx.lower() for mk in RETIREMENT_MARKERS):
+                    v = "RETIRED"
+                    elif not owner_live[o]:
+                        v = "DARK_OWNER"
+                    else:
+                        v = "STARVED"
         verdicts[v] = verdicts.get(v, 0) + 1
         detail.append("%-11s %-18s %s.%s" % (v, tier, o, fn))
 
@@ -119,7 +137,7 @@ def main():
     for d in detail:
         print(d)
     print()
-    order = ["GONE", "WIRED", "RETIRED", "DARK_OWNER", "STARVED", "GENUINE"]
+    order = ["GONE", "WIRED", "INFILE_WIRED", "RETIRED", "DARK_OWNER", "STARVED", "GENUINE"]
     total = 0
     for k in order:
         if verdicts.get(k):
@@ -128,8 +146,9 @@ def main():
     print("%-12s %5d" % ("TOTAL", total))
     real = verdicts.get("STARVED", 0) + verdicts.get("GENUINE", 0)
     print()
-    print("Not work (GONE + WIRED + RETIRED + DARK_OWNER): %d"
+    print("Not work (GONE + WIRED + INFILE_WIRED + RETIRED + DARK_OWNER): %d"
           % (verdicts.get("GONE", 0) + verdicts.get("WIRED", 0)
+             + verdicts.get("INFILE_WIRED", 0)
              + verdicts.get("RETIRED", 0) + verdicts.get("DARK_OWNER", 0)))
     print("Candidate work (STARVED + GENUINE): %d" % real)
     return 0

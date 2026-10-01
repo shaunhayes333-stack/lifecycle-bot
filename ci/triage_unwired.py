@@ -26,10 +26,13 @@ def co(t):
     t=re.sub(r'/\*.*?\*/',' ',t,flags=re.S); t=re.sub(r'//[^\n]*',' ',t)
     t=re.sub(r'"""(?:.|\n)*?"""',' "" ',t); t=re.sub(r'"(?:\\.|[^"\\\n])*"',' "" ',t); return t
 CALL=re.compile(r'\b([A-Za-z_][A-Za-z0-9_]{5,})\s*\(')
-calls=defaultdict(set); selfcalls=defaultdict(int)
+calls=defaultdict(set); callcounts=defaultdict(lambda: defaultdict(int))
 code={p:co(t) for p,t in raw.items()}
 for p,c in code.items():
-    for m in CALL.finditer(c): calls[m.group(1)].add(p)
+    for m in CALL.finditer(c):
+        fn=m.group(1)
+        calls[fn].add(p)
+        callcounts[fn][p]+=1
 OBJ=re.compile(r'^(?:internal\s+)?(?:object|class|data class|enum class)\s+([A-Za-z0-9_]+)',re.M)
 FUNLINE=re.compile(r'^\s{0,8}(?:@\w+\s+)*(?:public\s+|internal\s+)?(?:suspend\s+)?fun\s+(?:<[^>]+>\s+)?([A-Za-z0-9_]+)\s*\(')
 SKIP={"toString","equals","hashCode","invoke","resetForTest","clearForTest"}
@@ -52,8 +55,17 @@ for p,t in raw.items():
         if len(fn)<6 or fn in SKIP: continue
         ext=calls.get(fn,set())-{p}
         if ext: continue                      # has an external caller — fine
+        # V5.0.7672 — CALL also sees the declaration itself as "fn(".
+        # If the declaring file contains this token more than once, the extra
+        # occurrence is a genuine same-file/internal consumer. Historically we
+        # ignored those calls except in five hard-coded GOD files, which emitted
+        # live helpers such as calculateTimePressure / activeTactic / saveNow as
+        # F_DEAD. Same-file consumption is wiring too.
+        decl_count=len(re.findall(r'\bfun\s+(?:<[^>]+>\s+)?'+re.escape(fn)+r'\s*\(', code[p]))
+        internal_calls=max(0, callcounts.get(fn,{}).get(p,0)-decl_count)
+        if internal_calls>0: tier="E_INFILE"
         # classify
-        if rel in GOD: tier="E_INFILE"
+        elif rel in GOD: tier="E_INFILE"
         elif D.search(fn): tier="D_DISPLAY"
         elif A.search(fn): tier="A_PREDICT"
         elif B.search(fn): tier="B_RISK"
@@ -67,7 +79,7 @@ out=os.path.join("ci","UNWIRED_LEDGER.tsv")
 with open(out,"w") as f:
     f.write("tier\towner\tfunction\tfile\n")
     for r in rows: f.write("\t".join(r)+"\n")
-print(f"total never-called public funs: {len(rows)}")
+print(f"total no-external-caller public funs: {len(rows)}")
 for k in sorted(counts): print(f"  {k:12s} {counts[k]:5d}")
 print(f"\nledger -> {out}")
 print("\nTIER A (decision inputs) — top owners by count:")

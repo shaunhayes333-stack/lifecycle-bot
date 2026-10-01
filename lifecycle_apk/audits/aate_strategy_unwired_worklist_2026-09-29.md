@@ -3462,3 +3462,21 @@ Operator requirement is now a hard source/build contract rather than a conversat
 - [x] Moonshot `recordCollectiveWinner` row 807 is reconciled as already repaired in 7631 through the off-thread CollectiveIntelligenceAI network refresh.
 - [x] This bundle changes no thresholds, execution, capital, sizing or safety semantics.
 - [x] Regression coverage: `Aate7671DualSpecialistEstateParityTest`.
+
+
+## V5.0.7672 - repair the ~2000-item audit generator itself
+
+Repeated manual rechecks proved the historical unwired generator was systematically overstating dead code.
+
+Root cause:
+- [x] `ci/triage_unwired.py` intentionally subtracts the declaring file from its caller set.
+- [x] It then granted `E_INFILE` only to five hard-coded GOD files.
+- [x] Therefore normal objects/classes with real same-file consumers were emitted as A/B/C/F unwired rows.
+- [x] Confirmed false positives include AdvancedExitManager.calculateTimePressure, CryptoAltStrategy.classifyVolRegime/classifyBtcRegime, CryptoBrain.activeTactic, CryptoBrainState.saveNow, CryptoAltTrader.requestClose/terminalDisposition6613, CryptoBridgeAdapter.dryRunChain6987 and CryptoLaneExitTuner.netSol.
+
+Repair:
+- [x] Generator now counts same-file call occurrences separately from declarations and classifies any genuine same-file consumer as `E_INFILE`.
+- [x] `ledger_recheck_7072.py` now emits explicit `INFILE_WIRED` rather than incorrectly leaving those rows STARVED.
+- [x] Historical `ci/UNWIRED_LEDGER.tsv` and the 7605 1,458-row disposition remain untouched as immutable audit history; new/re-run audits use corrected semantics.
+- [x] This reduces false repair work and prevents arbitrary duplicate callers being added merely to satisfy a static ledger.
+- [x] Regression coverage: `Aate7672UnwiredAuditInternalCallerTest`.
