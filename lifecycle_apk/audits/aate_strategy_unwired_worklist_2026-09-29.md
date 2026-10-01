@@ -2639,3 +2639,20 @@ Repair:
 - [x] Restricted to the canonical 12 specialist lanes.
 - [x] No FDG, mark, sizing, safety, route, TP/SL or allocation rule changed.
 - [x] Regression coverage: `Aate7613SpecialistTicketContinuityTest`.
+
+
+## V5.0.7614 — CASHGEN canonical execution identity restored
+
+5.0.7607 proved CASHGEN was not a real independent lane despite its canonical contracts:
+- CASHGEN qualified 329 candidates but printed `alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true`.
+- LaneHunter CASHGEN ownership was explicitly rewritten to TREASURY.
+- Canonical lane identity, execution-book and learning contracts define CASHGEN as distinct.
+
+Repair:
+- [x] CASHGEN LaneHunter ownership is no longer rewritten to TREASURY.
+- [x] `compounderLane7614` selects TREASURY or CASHGEN while reusing one cashflow implementation.
+- [x] The selected lane flows through permit precheck, Toolkit bridge, FDG, TradeAuthorizer book, sealed attempt, final execution permit, failure release and position tradingMode.
+- [x] CASHGEN therefore gains its own canonical owner → FDG → intent → ticket → executor attribution.
+- [x] Treasury-style position mechanics remain shared; economic execution is not duplicated.
+- [x] No threshold, TP/SL, sizing multiplier, capital allocation or hard safety changed.
+- [x] Regression coverage: `Aate7614CashgenCanonicalExecutionIdentityTest`.

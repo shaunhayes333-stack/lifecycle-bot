@@ -13798,11 +13798,8 @@ class BotService : Service() {
             val huntClaim7297: String? = if (forced != null) null else {
                 try {
                     com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
-                        // V5.0.7301 — CASHGEN has no buy section of its own: it
-                        // executes through TREASURY's (alias TREASURY_CASHGEN_SHARED_EXEC,
-                        // CashGenerationAI), which only runs when TREASURY owns the
-                        // token. A CASHGEN owner therefore reached nothing.
-                        ?.let { if (it == "CASHGEN") "TREASURY" else it }
+                        // V5.0.7614 — CASHGEN and TREASURY are distinct canonical
+                        // executable specialists. Shared mechanics must not rewrite owner identity.
                         ?.takeIf { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) }
                 } catch (_: Throwable) { null }
             }
@@ -26708,24 +26705,26 @@ if (hotExitHandledSweep) {
 
             val treasuryLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "TREASURY", cyclePrimaryLane)
             val cashgenLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "CASHGEN", cyclePrimaryLane)
-            if (cashgenLaneAllowedThisCycle4483 && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
-                try {
-                    ForensicLogger.phase(
-                        ForensicLogger.PHASE.LANE_EVAL,
-                        ts.symbol,
-                        "lane=CASHGEN paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true v3Skip=$v3WillExecuteCore"
-                    )
-                    PipelineHealthCollector.labelInc("CASHGEN_ALIAS_LANE_EVAL_4483")
-                } catch (_: Throwable) {}
+            // V5.0.7614 — shared cashflow mechanics, distinct canonical owners.
+            // Prefer the elected primary when both are eligible; never fold CASHGEN
+            // into TREASURY merely because both use CashGenerationAI/treasuryBuy.
+            val compounderLane7614 = when {
+                v3WillExecuteCore -> ""
+                cashgenLaneAllowedThisCycle4483 && cyclePrimaryLane.equals("CASHGEN", true) -> "CASHGEN"
+                treasuryLaneAllowedThisCycle4483 && cyclePrimaryLane.equals("TREASURY", true) -> "TREASURY"
+                cashgenLaneAllowedThisCycle4483 && !treasuryLaneAllowedThisCycle4483 -> "CASHGEN"
+                treasuryLaneAllowedThisCycle4483 -> "TREASURY"
+                cashgenLaneAllowedThisCycle4483 -> "CASHGEN"
+                else -> ""
             }
-            if (!v3WillExecuteCore && treasuryLaneAllowedThisCycle4483 && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
-                // V5.9.920 — TREASURY LANE_EVAL emit.
+            if (compounderLane7614.isNotBlank() && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=TREASURY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} v3Skip=$v3WillExecuteCore"
+                        "lane=$compounderLane7614 paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sharedMechanics=TREASURY_CASHFLOW_EXEC identityPreserved=true v3Skip=$v3WillExecuteCore"
                     )
+                    PipelineHealthCollector.labelInc("COMPOUNDER_LANE_EVAL_7614_$compounderLane7614")
                 } catch (_: Throwable) {}
                 try {
                     // ═══════════════════════════════════════════════════════════════════
@@ -26735,7 +26734,7 @@ if (hotExitHandledSweep) {
                     val permitResult = FinalExecutionPermit.canExecute(
                         mint = ts.mint,
                         symbol = ts.symbol,
-                        requestingLayer = "TREASURY",
+                        requestingLayer = compounderLane7614,
                         hasOpenPosition = ts.position.isOpen
                     )
                     
@@ -26813,7 +26812,7 @@ if (hotExitHandledSweep) {
                             priceDex = ts.lastPriceDex,
                             tokenAgeMinutes = tokenAge,
                         )
-                        val treasuryBridge6022 = if (!treasurySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, "TREASURY", treasurySignal.reason) else null
+                        val treasuryBridge6022 = if (!treasurySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, compounderLane7614, treasurySignal.reason) else null
                         val treasurySignal6022 = if (treasuryBridge6022 != null) treasurySignal.copy(
                             shouldEnter = true,
                             positionSizeSol = treasuryBridge6022.sizeSol,
@@ -27161,7 +27160,7 @@ if (hotExitHandledSweep) {
                                     proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("TREASURY") } catch (_: Exception) { null },
-                                    specialistLane = "TREASURY",
+                                    specialistLane = compounderLane7614,
                                 )
                             } catch (fdgEx: Exception) {
                                 treasuryFdgFailure6663 = "FDG_EXCEPTION:${fdgEx.javaClass.simpleName}:${fdgEx.message.orEmpty().take(80)}"
@@ -27179,9 +27178,9 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = treasuryFdgCanExecute6663,
-                    reason = (treasuryFdgReason6663) + " path=TREASURY")
+                    reason = (treasuryFdgReason6663) + " path=$compounderLane7614")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, compounderLane7614, treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
                             val trsFdgStructural = !treasuryFdgCanExecute6663 &&
                                 (treasuryFdg == null || treasuryFdgReason6663.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") })
@@ -27203,12 +27202,12 @@ if (hotExitHandledSweep) {
                                 confidence = treasurySignal6022.confidence.toDouble(),  // V5.2: Use Treasury's confidence
                                 quality = if (treasurySignal6022.confidence >= 70) "B" else "C",  // V5.2: Derive quality from confidence
                                 isPaperMode = cfg.paperMode,
-                                requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
+                                requestedBook = executionBookForLane6494(compounderLane7614),
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = adjustedSize,
-                                attemptId = sealedSpecialistAttempt7468(ts.mint, "TREASURY", cfg.paperMode),
+                                attemptId = sealedSpecialistAttempt7468(ts.mint, compounderLane7614, cfg.paperMode),
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -27234,7 +27233,7 @@ if (hotExitHandledSweep) {
                                 val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
-                                    layer = "TREASURY",
+                                    layer = compounderLane7614,
                                     sizeSol = adjustedSize,
                                     attemptId = treasuryAttemptId,
                                     finalityPrechecked = true,
@@ -27292,16 +27291,16 @@ if (hotExitHandledSweep) {
                                 if (!treasuryOpened) {
                                     ErrorLogger.warn("BotService", "TREASURY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=TREASURY symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
-                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "TREASURY", "BUY_NOT_OPENED") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, compounderLane7614, "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
-                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.TREASURY) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", executionBookForLane6494(compounderLane7614)) } catch (_: Throwable) {}
                                     return
                                 }
 
                                 
                                 // V5.0 FIX: Mark position as treasury so checkExit uses correct thresholds
                                 ts.position.isTreasuryPosition = true
-                                ts.position.tradingMode = "TREASURY"
+                                ts.position.tradingMode = compounderLane7614
                                 ts.position.tradingModeEmoji = "💰"
                                 // V5.9.200: Persist TP/SL + raw entry price for recovery after restart
                                 ts.position.treasuryTakeProfit = effectiveTpPct
@@ -27339,7 +27338,7 @@ if (hotExitHandledSweep) {
                                 // Release authorizer lock since we didn't execute
                                 TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
                                 try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "PERMIT_BLOCKED") } catch (_: Throwable) {}
-                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "TREASURY", "PERMIT_BLOCKED") } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, compounderLane7614, "PERMIT_BLOCKED") } catch (_: Throwable) {}
                             }
                             } // end authResult.isExecutable()
                         }
