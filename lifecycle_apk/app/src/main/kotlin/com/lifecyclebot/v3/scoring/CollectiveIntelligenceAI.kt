@@ -1166,8 +1166,29 @@ object CollectiveIntelligenceAI {
             networkSignalsCache.clear()
             
             for (signal in signals) {
-                // Key by mint address
-                networkSignalsCache[signal.mint] = signal
+                // V5.0.7631 — retain the strongest current peer outcome for a
+                // mint. getNetworkSignals is sorted by pnl DESC, but plain map
+                // assignment let a later weaker row overwrite an earlier 10x.
+                networkSignalsCache.merge(signal.mint, signal) { old, incoming ->
+                    if (incoming.pnlPct > old.pnlPct) incoming else old
+                }
+
+                // Moonshot's dormant collective-winner memory is explicitly a
+                // 10x+ concept. Do NOT map the much looser MEGA_WINNER label
+                // (which starts at +50%) into it. Raw sanitized peer PnL is the
+                // authority. One broadcaster is the only guaranteed trader;
+                // ackCount is acknowledgements, not a unique-trader count.
+                if (signal.mint.isNotBlank() && signal.pnlPct >= 900.0) {
+                    MoonshotTraderAI.recordCollectiveWinner(
+                        mint = signal.mint,
+                        symbol = signal.symbol,
+                        peakGainPct = signal.pnlPct,
+                        networkTraders = 1,
+                        avgEntryMcap = 0.0, // unavailable in NetworkSignal; preserve UNKNOWN
+                        confidence = (signal.confidence.coerceIn(0, 100) / 100.0),
+                    )
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_COLLECTIVE_10X_FEED_7631") } catch (_: Throwable) {}
+                }
                 
                 // Log significant signals
                 if (signal.signalType == "MEGA_WINNER" || signal.signalType == "HOT_TOKEN") {
@@ -1175,6 +1196,10 @@ object CollectiveIntelligenceAI {
                         "+${signal.pnlPct.toInt()}% from ${signal.broadcasterId.take(8)}...")
                 }
             }
+
+            // Prune the lane-local 24h collective memory on the same existing
+            // background refresh; this does not add hot-path work.
+            MoonshotTraderAI.cleanCollectiveWinners()
             
             // Also cleanup expired signals in the database
             CollectiveLearning.cleanupExpiredSignals()

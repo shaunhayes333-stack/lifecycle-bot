@@ -2868,3 +2868,18 @@ The F_DEAD strategy-internal re-audit found a source contradiction: `SymbolicExi
 - [x] Existing consumers become data-bearing; no new independent hard veto or entry gate was added.
 - [x] Runtime proof counters: `LIQUIDITY_FRAGILITY_CACHED_FEED_7630`, `LIQUIDITY_FRAGILITY_CACHED_FEED_FAILED_7630`.
 - [x] Regression coverage: `Aate7630LiquidityFragilityProductionFeedTest`.
+
+
+## V5.0.7631 — restore Moonshot 10x collective-winner feed
+
+The strategy-internal zero-caller sweep found `MoonshotTraderAI.recordCollectiveWinner` dead while `scoreMoonshot` actively reads `collectiveWinners` for both the collective bonus and JUPITER mode. The hive already downloads peer `NetworkSignal` rows containing exact mint, sanitized raw PnL, confidence and broadcaster identity.
+
+- [x] Existing off-thread `CollectiveIntelligenceAI.refreshNetworkSignals` feeds Moonshot collective memory only when raw peer `pnlPct >= 900%` (canonical 10x threshold).
+- [x] The coarse `MEGA_WINNER` label is **not** used as the condition because it starts at only +50%.
+- [x] `networkTraders=1` records only the guaranteed broadcaster; ack count is not misrepresented as unique traders.
+- [x] Missing peer entry market cap remains explicit UNKNOWN (`0.0`) and is not used as scoring evidence.
+- [x] For duplicate peer rows on one mint, the strongest raw PnL is retained instead of a later weaker row overwriting it.
+- [x] Existing 24h Moonshot collective-memory cleanup now runs on the already-scheduled network refresh.
+- [x] No new network call, hard veto, threshold reduction, sizing bypass or execution authority was added.
+- [x] Runtime proof: `MOONSHOT_COLLECTIVE_10X_FEED_7631`.
+- [x] Regression coverage: `Aate7631MoonshotCollectiveWinnerFeedTest`.

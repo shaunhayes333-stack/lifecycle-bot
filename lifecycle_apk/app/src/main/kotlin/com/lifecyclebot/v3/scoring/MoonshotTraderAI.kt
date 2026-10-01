@@ -1040,7 +1040,10 @@ object MoonshotTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
-     * Called when a 10x+ trade is reported from the collective network
+     * Called when a raw, sanitized 10x+ (>= +900%) trade is reported from the
+     * collective network. avgEntryMcap may be 0.0 when the peer signal schema
+     * does not carry entry market cap; that value is retained as UNKNOWN and is
+     * not used to manufacture scoring evidence.
      */
     fun recordCollectiveWinner(
         mint: String,
