@@ -2656,3 +2656,14 @@ Repair:
 - [x] Treasury-style position mechanics remain shared; economic execution is not duplicated.
 - [x] No threshold, TP/SL, sizing multiplier, capital allocation or hard safety changed.
 - [x] Regression coverage: `Aate7614CashgenCanonicalExecutionIdentityTest`.
+
+
+## V5.0.7615 — MANIPULATED paper execution restored, live safeguard retained
+
+The all-12-lane directive supersedes the old assumption that MANIPULATED should be inert everywhere. Source audit showed the complete canonical MANIPULATED execution path still exists; one constant disabled it after its native brain evaluated.
+
+- [x] PAPER MANIPULATED candidates may now proceed through their existing FDG → MANIPULATED TradeAuthorizer book → sealed attempt → executor → position → learning path.
+- [x] LIVE manipulation buying remains disabled by the existing 7395 real-money safeguard.
+- [x] The native ManipulatedTraderAI eligibility/scoring, safety, FDG, sizing and finality rules remain unchanged.
+- [x] No generic candidate is relabelled MANIPULATED; its own brain must emit `shouldEnter`.
+- [x] Regression coverage: `Aate7615ManipulatedPaperExecutionRestorationTest`.

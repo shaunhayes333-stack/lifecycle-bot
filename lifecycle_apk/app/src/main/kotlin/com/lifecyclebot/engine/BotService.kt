@@ -29,9 +29,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BotService : Service() {
 
     companion object {
-        // V5.0.7395 — MANIPULATED is a danger overlay, never a buyer (operator decision).
-        private const val MANIPULATED_IS_A_BUYER_7395 = false
-        fun manipulatedBuyerEnabled7609(): Boolean = MANIPULATED_IS_A_BUYER_7395
+        // V5.0.7615 — MANIPULATED paper execution is restored so the lane can
+        // learn and prove itself like the other 11 specialists. The 7395 live-money
+        // safeguard remains: live manipulation buying stays disabled until separately
+        // promoted by an explicit live contract.
+        private const val MANIPULATED_LIVE_BUYER_7395 = false
+        fun manipulatedBuyerEnabled7609(): Boolean =
+            try { RuntimeModeAuthority.isPaper() || MANIPULATED_LIVE_BUYER_7395 }
+            catch (_: Throwable) { MANIPULATED_LIVE_BUYER_7395 }
 
         // V5.9.1355 P0.3 — WAIT-override dust-probe controls.
         // Below this liquidity a weak-WAIT candidate is hard-rejected from EXEC
@@ -29124,7 +29129,7 @@ if (hotExitHandledSweep) {
                         isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                     )
 
-                    // V5.0.7395 — operator: "manipulated was closed out from trading."
+                    // V5.0.7615 — live remains closed under 7395; PAPER is restored for canonical learning.
                     // 5.0.7389 took MANIPULATED out of cycle ownership and the meme ring,
                     // but this direct ManipulatedTraderAI entry still reached FDG and the
                     // live executor, and 5.0.7394 opened a live MANIPULATED position. The
@@ -29136,7 +29141,7 @@ if (hotExitHandledSweep) {
                         } catch (_: Throwable) {}
                     }
                     // V5.0.7389 — labeled lane scope: MANIPULATED disabled exits only this lane.
-                    if (manipSignal.shouldEnter && MANIPULATED_IS_A_BUYER_7395) run manipEntry7389@{
+                    if (manipSignal.shouldEnter && manipulatedBuyerEnabled7609()) run manipEntry7389@{
                         // V5.9.1110 — QUALITY-only containment must happen BEFORE FDG.
                         // V5.9.1108 blocked MANIP later, but the 1108 report still
                         // showed Active non-QUALITY FDG=42. Do not call FDG/auth/exec
