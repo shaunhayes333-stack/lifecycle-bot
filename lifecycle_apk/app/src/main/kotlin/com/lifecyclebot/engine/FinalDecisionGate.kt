@@ -5273,6 +5273,7 @@ object FinalDecisionGate {
                             mpRegime,
                             ts.mint,
                             exactStrategyIdentity7430,
+                            candidateVersion7623,
                         )
                         if (hypoBias != 1.0) {
                             val before = finalSize

@@ -284,6 +284,7 @@ object StrategyHypothesisEngine {
         regime: String,
         mint: String,
         strategyIdentity: String = "",
+        candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
     ): Double {
         return try {
             val parentCtx7430 = ctxKey(lane, score, regime)
@@ -328,7 +329,7 @@ object StrategyHypothesisEngine {
                 } else 1.0
             } catch (_: Throwable) { 1.0 }
             try {
-                val cv7428 = LaneExecutionCoordinator.candidateVersionFor(mint)
+                val cv7428 = candidateVersion
                 pendingByDecision7428[decisionKey7428(mint, cv7428, lane)] =
                     AppliedDecision7428(ctx, variant, exactVariantId7428)
                 PipelineHealthCollector.labelInc("HYPOTHESIS_DECISION_STAMPED_7428")

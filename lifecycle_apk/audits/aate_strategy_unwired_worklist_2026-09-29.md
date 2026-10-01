@@ -2819,3 +2819,14 @@ The open-gate sweep found three independent current-generation observations insi
 - [x] Immutable elected/ticket/snapshot generations still take precedence where present.
 - [x] No FDG threshold, lane policy, sizing, route, exit or safety rule changed.
 - [x] Regression coverage: `Aate7626OpenGateCandidateContinuityTest`.
+
+
+## V5.0.7627 — bind strategy-hypothesis decision stamp to FDG generation
+
+After execution-path generation continuity was repaired through 7626, the learning audit found `StrategyHypothesisEngine.getSizeBias` re-reading `candidateVersionFor(mint)` when storing `pendingByDecision7428`. That could stamp the exact strategy hypothesis under N+1 while the FDG decision and eventual position belonged to N.
+
+- [x] `getSizeBias` accepts an explicit candidateVersion, preserving source compatibility with a canonical default.
+- [x] FDG passes its already-pinned `candidateVersion7623`.
+- [x] `pendingByDecision7428` is keyed by the exact FDG decision generation.
+- [x] No hypothesis scoring/bias value, promotion logic, thresholds, sizing bounds or execution policy changed.
+- [x] Regression coverage: `Aate7627HypothesisCandidateContinuityTest`.
