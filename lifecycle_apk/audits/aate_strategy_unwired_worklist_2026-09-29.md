@@ -1441,3 +1441,21 @@ This bundle reconciles the original-113 B_RISK entries against current source. I
 - [x] `TradeDatabase.getSuppressionStrength` — **BACKGROUND DB CACHE REQUIRED** if promoted. It executes a SQLite query per feature key and must not be called synchronously from scanner/V3/FDG.
 - [x] `TradeLifecycle.forceExpireBlocked` — **DEBUG/TEST-ONLY BY DESIGN**. Source explicitly describes it as testing/debugging; production retry uses normal lifecycle expiry/reset paths.
 - [x] Regression coverage: `Aate7562RiskLedgerTruthTest` locks these classifications and forbids synchronous ExternalAlpha/Gemini/TradeDatabase B_RISK calls from the canonical meme hot path.
+
+
+## V5.0.7563 — C_EXIT helper/report ledger cleanup
+
+This bundle removes another false-positive cluster from the original-113 C_EXIT list. Every item below is a snapshot/getter/analytics/helper surface; none is an independent sell authority.
+
+- [x] `HistoricalChartScanner.getProgress` — **DIAGNOSTIC COUNTER ACCESSOR**. Returns scan progress only.
+- [x] `GlobalTradeRegistry.getProbationStats` — **REPORT STRING**. Summarizes probation occupancy/promotions/rejections; does not gate exits.
+- [x] `GovernorRecovery6388.lastPromotionReason` — **REPORT ACCESSOR**. Exposes the reason already written by the governor state machine.
+- [x] `PerpsMarketDataFetcher.getPriceSource` — **PROVENANCE GETTER**. Reads cached source attribution; not an exit verdict.
+- [x] `PriceAggregator.getPrunedSymbols` — **DIAGNOSTIC SNAPSHOT**. Returns active provider-symbol cooldowns for UI/diagnostics.
+- [x] `QuantMetrics.calculateProfitFactor` — **ANALYTICS API**. Computes historical performance under lock; not a held-position decision primitive.
+- [x] `TacticBleedPivot.getLastPivot` — **STATE/REPORT ACCESSOR**. Returns the last recorded pivot decision; the pivot engine's active decision path is separate.
+- [x] `TreasuryOpportunityEngine.getPendingOpportunities` — **QUEUE SNAPSHOT**. Returns sorted pending opportunities; not a sell/exit actuator.
+- [x] `SolanaWallet.getPublicKeyOnly` — **SECURE IDENTITY GETTER**. Returns public key text only; not exit intelligence.
+- [x] `EducationSubLayerAI.getCurriculumHoldStats` — **DIAGNOSTIC LEARNING SNAPSHOT**. Source explicitly describes it as a diagnostic hold-bucket snapshot.
+- [x] No sell threshold, stop, partial ladder, hold clock, route, finality or execution authority changes in this bundle.
+- [x] Regression coverage: `Aate7563ExitHelperLedgerTruthTest`.
