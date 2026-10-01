@@ -387,7 +387,9 @@ object CanonicalPaperTransaction6486 {
                 symbol = sell.symbol, mode = "paper", lane = position.lane,
                 side = if (sell.partial) CanonicalEconomicEvent6635.Side.PARTIAL_SELL else CanonicalEconomicEvent6635.Side.SELL,
                 timestampMs = sell.atMs, qtyRaw = sell.soldQty, decimals = scale,
-                executionPriceUsd = exitPrice, executionPriceSol = exitPrice,
+                executionPriceUsd = exitPrice,
+                executionPriceSol = (sell.grossProceedsSol / soldQty)
+                    .takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
                 notionalSol = sell.grossProceedsSol, feeSol = sell.exitFeesSol,
                 cashDeltaSol = sell.grossProceedsSol - sell.exitFeesSol,
                 positionQtyDeltaRaw = sell.soldQty.negate(),
