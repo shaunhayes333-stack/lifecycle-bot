@@ -1630,3 +1630,17 @@ Classification rule for this bundle:
 - [x] D_DISPLAY remains eligible for UI/product cleanup, but is removed from the strategy-correctness backlog.
 - [x] Wider-ledger reconciliation state after this bundle: original 113 complete + D_DISPLAY 151/151 classified.
 - [x] Regression coverage: `Aate7572DisplayTierClassificationTest`.
+
+
+## V5.0.7573 — wider-ledger E_INFILE local-helper classification (100 rows)
+
+The current UNWIRED ledger contains **100 `E_INFILE` rows**. By construction, these functions have references inside their own implementation file but no external-file caller.
+
+- [x] All 100 `E_INFILE` rows are classified **LOCAL_IMPLEMENTATION_HELPER / NOT EXTERNALLY UNWIRED**.
+- [x] Same-file use is a valid production consumer for private/local orchestration, reducers, validation helpers, formatting, canonical substeps, and internal state transitions.
+- [x] An E_INFILE row is not promoted to a cross-module API merely to satisfy static unused-function heuristics.
+- [x] If an E_INFILE helper belongs to a broken subsystem, that subsystem is repaired through its actual public/canonical entry point rather than by manufacturing an external caller for the helper.
+- [x] Representative owners include BotService, FinalDecisionGate, Executor/MainActivity helper surfaces, and ScannerLearning internals; their local call graph remains authoritative.
+- [x] E_INFILE is removed from the strategy-correctness “unwired” count and retained only as local-callgraph audit metadata.
+- [x] Wider-ledger reconciliation state: original 113 complete + D_DISPLAY 151/151 + E_INFILE 100/100 classified.
+- [x] Regression coverage: `Aate7573InFileHelperClassificationTest`.
