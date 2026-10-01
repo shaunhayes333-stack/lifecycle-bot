@@ -1615,3 +1615,18 @@ This bundle closes original-113 A_PREDICT items 1–19 against current source an
 - [x] Original-113 A_PREDICT items 1–19 are now classified/closed.
 - [x] **ORIGINAL 113 COMPLETE:** A_PREDICT 47/47, B_RISK 12/12, C_EXIT 54/54 have each been source-reconciled as CLOSED_LOOP, LEDGER_STALE, ALIAS_REDUNDANT, BACKGROUND/SIDECAR, REPORT/TEST/HELPER, OPERATOR CONTROL, LEGACY/DO_NOT-WIRE, or genuine design-review surface. No row remains an unexplained “unwired function”.
 - [x] Regression coverage: `Aate7571Original113FrontAndCompletionTest`.
+
+
+## V5.0.7572 — wider-ledger D_DISPLAY demotion (151 rows)
+
+After completing the original 113, the remaining UNWIRED ledger was re-counted by tier. The largest non-dead false-positive family is `D_DISPLAY`: **151 rows**.
+
+Classification rule for this bundle:
+
+- [x] All 151 `D_DISPLAY` rows are **DISPLAY/REPORT/DIAGNOSTIC SURFACES**, not missing predictive/risk/exit authority merely because no external production caller exists.
+- [x] These rows include UI builders, report formatters, status snapshots, diagnostic exporters, display-only summaries, and read-only health cards.
+- [x] A D_DISPLAY function may still be useful product surface, but it is **not counted as an unwired trading primitive** unless a separate source audit proves it was intended to change entry, sizing, hold, exit, safety or finality.
+- [x] Do not wire D_DISPLAY functions into scanner/V3/FDG/Executor/held-management merely to reduce a static unused-function count.
+- [x] D_DISPLAY remains eligible for UI/product cleanup, but is removed from the strategy-correctness backlog.
+- [x] Wider-ledger reconciliation state after this bundle: original 113 complete + D_DISPLAY 151/151 classified.
+- [x] Regression coverage: `Aate7572DisplayTierClassificationTest`.
