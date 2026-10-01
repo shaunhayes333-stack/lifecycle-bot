@@ -2794,3 +2794,15 @@ The post-7623 sweep found a second generation split downstream of FDG. `TradeAut
 - [x] Existing two-argument `nextAttemptId` callers remain source-compatible through the canonical default.
 - [x] No threshold, sizing, FDG, exit, allocation, route or safety policy changed.
 - [x] Regression coverage: `Aate7624AuthorizerCandidateContinuityTest`.
+
+
+## V5.0.7625 — preserve candidate generation through FinalExecutionPermit
+
+The execution-finality sweep found the same intra-call generation race in `FinalExecutionPermit.tryAcquireExecution`: release fallback, a generated attempt ID, and the immutable-ticket version comparison could each observe a different current generation.
+
+- [x] Pin `candidateVersion7625` once at permit entry.
+- [x] Generated attempt IDs use that pinned version.
+- [x] Release fallback uses that pinned version when no ticket is available.
+- [x] Immutable ticket validation compares against the generation captured at permit entry, not a later reread.
+- [x] No execution eligibility, hard safety, finality, sizing, route or economic rule changed.
+- [x] Regression coverage: `Aate7625PermitCandidateContinuityTest`.

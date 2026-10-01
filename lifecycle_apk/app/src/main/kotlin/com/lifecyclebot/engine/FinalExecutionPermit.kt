@@ -131,6 +131,10 @@ object FinalExecutionPermit {
         lastSafetyCheckMs: Long = -1L,
     ): Boolean {
         val now = System.currentTimeMillis()
+        // V5.0.7625 — one immutable candidate generation per permit attempt.
+        // Finality, release bookkeeping and ticket-version validation must not
+        // independently observe a bucket rollover inside this call.
+        val candidateVersion7625 = LaneExecutionCoordinator.candidateVersionFor(mint)
         fun releasePrimaryAfterPermitFailure(reason: String) {
             val ticket6494 = ExecutableOpenGate.ticketForAttempt(attemptId)
             try {
@@ -138,7 +142,7 @@ object FinalExecutionPermit {
                     mint = mint,
                     lane = ticket6494?.lane ?: layer,
                     reason = reason,
-                    candidateVersion = ticket6494?.candidateVersion ?: LaneExecutionCoordinator.candidateVersionFor(mint),
+                    candidateVersion = ticket6494?.candidateVersion ?: candidateVersion7625,
                 )
             } catch (_: Throwable) {}
         }
@@ -171,7 +175,7 @@ object FinalExecutionPermit {
         // V5.9.1093 — finality BEFORE ENTER/permit side effects.
         // Existing lane code logs ENTER immediately after this function returns
         // true, so this is the last universal pre-side-effect choke point.
-        val finalityAttemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(mint, layer) }
+        val finalityAttemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(mint, layer, candidateVersion7625) }
         val sizeFinalityTicketPresent6491 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId) != null
         if (!finalityPrechecked || !sizeFinalityTicketPresent6491) {
             val finality = ExecutableOpenGate.canOpenExecutablePosition(
@@ -203,7 +207,7 @@ object FinalExecutionPermit {
             recordPermitFalseReturn4416("IMMUTABLE_EXEC_TICKET_MISSING_6494")
             return false
         }
-        val currentVersion6513 = LaneExecutionCoordinator.candidateVersionFor(mint)
+        val currentVersion6513 = candidateVersion7625
         if (executionTicket6494.primaryLane != executionTicket6494.lane ||
             !(executionTicket6494.fdgVerdict == "BUY" ||
                 (executionTicket6494.mode.equals("PAPER", true) &&
