@@ -53,6 +53,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7657: intelligence-estate census moved into GitHub preflight.
 - 5.0.7658: scanner-source learned WR/EV cohort bridge + durable handoff state.
 - 5.0.7659: overlap guard for collective/hive, sentience LLM and MetaCognition; confirms they are already represented upstream and must not be double-wired.
+- 5.0.7660: exact position-bound expert credit assignment inside CrossTalk/scanner families; individual participating experts earn or lose bounded trust without being separately invoked.
 
 ## Existing intelligence estate explicitly in scope
 

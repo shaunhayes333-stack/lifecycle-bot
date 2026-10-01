@@ -1118,6 +1118,7 @@ object PredictiveEntryOracle6915 {
                     com.lifecyclebot.engine.SuperIntelligenceCalibration7636.recordDecision(
                         mint, laneKey, world7634, superPlan7633, critic7635, tree7638, arbiter7639,
                         existing7650.evidenceTopology7651(tree7638.bestPolicy, world7634.latentState),
+                        existing7650.estate7654.expertUtilities7660(tree7638.bestPolicy),
                     )
                 } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
@@ -1351,6 +1352,7 @@ object PredictiveEntryOracle6915 {
                 com.lifecyclebot.engine.SuperIntelligenceCalibration7636.recordDecision(
                     mint, laneKey, world7634, superPlan7633, critic7635, tree7638, arbiter7639,
                         existing7650.evidenceTopology7651(tree7638.bestPolicy, world7634.latentState),
+                    existing7650.estate7654.expertUtilities7660(tree7638.bestPolicy),
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}

@@ -24,10 +24,49 @@ object SuperIntelligenceEstate7654 {
         val coverageFamilies: Int,
         val coverageDirectional: Int,
     ) {
+        fun expertUtilities7660(policy: SuperPolicyTree7638.Policy): Map<String, Double> {
+            val out = linkedMapOf<String, Double>()
+            val cross = crossTalk
+            if (cross != null) {
+                val base = (cross.entryBoost / 8.0 + cross.confidenceBoost / 12.0)
+                    .coerceIn(-2.0, 2.0)
+                val scale = when (policy) {
+                    SuperPolicyTree7638.Policy.WAIT_REASSESS -> -0.45
+                    SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE -> 0.55
+                    SuperPolicyTree7638.Policy.BASE_TACTICAL_HOLD -> 0.75
+                    SuperPolicyTree7638.Policy.BASE_TACTICAL_BANK -> 0.65
+                    SuperPolicyTree7638.Policy.CONVICTION_RUNNER -> 1.0
+                }
+                val u = base * scale
+                cross.participatingAIs.distinct().take(12).forEach { name ->
+                    if (name.isNotBlank()) out["CROSSTALK:" + name.uppercase()] = u
+                }
+            }
+            if (arbType != null && arbScore != null && arbConfidence != null) {
+                val conf = arbConfidence.coerceIn(0, 100) / 100.0
+                val move = (arbExpectedMovePct ?: 0.0).coerceIn(-25.0, 25.0)
+                val edge = ((((arbScore - 50) / 50.0) * 1.2 + move / 20.0)
+                    .coerceIn(-1.5, 1.5) * conf)
+                val scale = when (policy) {
+                    SuperPolicyTree7638.Policy.WAIT_REASSESS -> -0.30
+                    SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE -> 0.65
+                    SuperPolicyTree7638.Policy.BASE_TACTICAL_HOLD -> 0.65
+                    SuperPolicyTree7638.Policy.BASE_TACTICAL_BANK -> 0.80
+                    SuperPolicyTree7638.Policy.CONVICTION_RUNNER -> 0.55
+                }
+                out["ARBITRAGE:" + arbType.uppercase()] = edge * scale
+            }
+            return out
+        }
+
         fun crossTalkUtility(policy: SuperPolicyTree7638.Policy): Double {
             val s = crossTalk ?: return 0.0
+            val trust = if (s.participatingAIs.isEmpty()) 1.0 else
+                s.participatingAIs.distinct().map {
+                    SuperExpertTrust7660.trust("CROSSTALK:" + it.uppercase())
+                }.average().coerceIn(0.70, 1.15)
             val directional = (s.entryBoost / 8.0 + s.confidenceBoost / 12.0)
-                .coerceIn(-2.0, 2.0)
+                .coerceIn(-2.0, 2.0) * trust
             return when (policy) {
                 SuperPolicyTree7638.Policy.WAIT_REASSESS -> -directional * 0.45
                 SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE -> directional * 0.55
@@ -78,7 +117,11 @@ object SuperIntelligenceEstate7654 {
 
         fun scannerUtility(policy: SuperPolicyTree7638.Policy): Double {
             val score = arbScore ?: return 0.0
-            val conf = (arbConfidence ?: 0).coerceIn(0, 100) / 100.0
+            val expertTrust = arbType?.let {
+                SuperExpertTrust7660.trust("ARBITRAGE:" + it.uppercase())
+            } ?: 1.0
+            val conf = ((arbConfidence ?: 0).coerceIn(0, 100) / 100.0 * expertTrust)
+                .coerceIn(0.0, 1.15)
             val move = (arbExpectedMovePct ?: 0.0).coerceIn(-25.0, 25.0)
             if (score < 50 || conf <= 0.0) return 0.0
             val edge = (((score - 50) / 50.0) * 1.2 + move / 20.0)

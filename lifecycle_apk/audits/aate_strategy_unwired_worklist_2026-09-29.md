@@ -3268,3 +3268,15 @@ The next census tranche deliberately prevents duplicate promotion of intelligenc
 - [x] SSI Pilot Council remains background/provider-backed strategic intelligence pending an independent cached transfer contract.
 - [x] Durable handoff updated so future sessions do not rediscover and double-wire these families.
 - [x] Regression coverage: `Aate7659EstateOverlapGuardTest`.
+
+
+## V5.0.7660 - expert-level credit assignment inside the family graph
+
+- [x] Added `SuperExpertTrust7660` for individual experts that already participated in cached family evidence.
+- [x] AICrossTalk participating AIs are frozen into the chosen-policy decision without re-running any constituent AI.
+- [x] The winning ArbScanner model type is frozen as a scanner expert.
+- [x] Expert attributions bind to the exact canonical positionId through `SuperIntelligenceCalibration7636` and are graded once at terminal close.
+- [x] Trust is neutral until 8 exact outcomes, sample-shrunk, persistent and bounded to 0.70x..1.15x.
+- [x] CrossTalk family influence is modulated by trust of only the experts that participated; scanner confidence is modulated by the exact winning arb model.
+- [x] Individual experts do not become independent votes or execution authorities.
+- [x] Regression coverage: `Aate7660ExpertCreditAssignmentTest`.

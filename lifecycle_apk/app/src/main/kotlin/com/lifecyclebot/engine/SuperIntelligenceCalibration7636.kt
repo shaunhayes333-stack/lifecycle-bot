@@ -29,6 +29,7 @@ object SuperIntelligenceCalibration7636 {
         val arbiterDominant: String,
         val arbiterMetaConfidence: Double,
         val evidenceFamilyUtility7652: Map<SuperEvidenceTopology7651.Family, Double>,
+        val expertUtility7660: Map<String, Double>,
         val atMs: Long,
     )
 
@@ -73,6 +74,7 @@ object SuperIntelligenceCalibration7636 {
         tree: SuperPolicyTree7638.Result,
         arbiter: SuperReasoningArbiter7639.Decision,
         evidenceTopology7652: SuperEvidenceTopology7651.Result? = null,
+        expertUtility7660: Map<String, Double> = emptyMap(),
     ) {
         if (mint.isBlank()) return
         val laneKey = lane.trim().uppercase().ifBlank { world.lane }
@@ -89,6 +91,7 @@ object SuperIntelligenceCalibration7636 {
             arbiterDominant = arbiter.dominant,
             arbiterMetaConfidence = arbiter.metaConfidence,
             evidenceFamilyUtility7652 = evidenceTopology7652?.familyUtility ?: emptyMap(),
+            expertUtility7660 = expertUtility7660,
             atMs = System.currentTimeMillis(),
         )
         try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_DECISION_STAMPED_7636") } catch (_: Throwable) {}
@@ -193,6 +196,12 @@ object SuperIntelligenceCalibration7636 {
             SuperEvidenceInteraction7653.recordOutcome(
                 lane = stamp.lane,
                 familyUtility = stamp.evidenceFamilyUtility7652,
+                realizedReturnPct = env.realizedReturnPct,
+            )
+        } catch (_: Throwable) {}
+        try {
+            SuperExpertTrust7660.recordOutcome(
+                expertUtility = stamp.expertUtility7660,
                 realizedReturnPct = env.realizedReturnPct,
             )
         } catch (_: Throwable) {}
@@ -367,6 +376,7 @@ object SuperIntelligenceCalibration7636 {
         root.put("evidenceReliability7652", SuperEvidenceReliability7652.exportJson())
         root.put("evidenceInteractions7653", SuperEvidenceInteraction7653.exportJson())
         root.put("evidenceContextTrust7656", SuperEvidenceContextTrust7656.exportJson())
+        root.put("expertTrust7660", SuperExpertTrust7660.exportJson())
         return root.toString()
     }
 
@@ -414,6 +424,7 @@ object SuperIntelligenceCalibration7636 {
             SuperEvidenceReliability7652.importJson(root.optJSONArray("evidenceReliability7652") ?: JSONArray())
             SuperEvidenceInteraction7653.importJson(root.optJSONArray("evidenceInteractions7653") ?: JSONArray())
             SuperEvidenceContextTrust7656.importJson(root.optJSONArray("evidenceContextTrust7656") ?: JSONArray())
+            SuperExpertTrust7660.importJson(root.optJSONArray("expertTrust7660") ?: JSONArray())
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_CALIBRATION_RESTORED_7637") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }
