@@ -1492,3 +1492,20 @@ This bundle closes another C_EXIT cluster by distinguishing already-wired produc
 - [x] `LiveStrategyTuner.tpMultiplier` — **ALIAS / LEDGER_STALE (7455)**. Canonical held management consumes one cached `LiveStrategyTuner.adjustment(mode)` object, including tp/hold/partial multipliers.
 - [x] No sell dispatch, quantity, finality, partial, stop or learning thresholds changed.
 - [x] Regression coverage: `Aate7565ExitStaleLedgerAndHelperTruthTest`.
+
+
+## V5.0.7566 — C_EXIT perps/market helper + operator-control classification
+
+This bundle reconciles the remaining perps/market helper cluster without creating duplicate exit authority.
+
+- [x] `PerpsAdvancedAI.shouldPartialExit` — **PERPS HELPER / DECLARATION-ONLY**. It computes a partial-exit percentage from an existing plan; current source has no production caller. Do not wire it into meme held management.
+- [x] `PerpsTrailingStop.getTrailStop` — **STATE ACCESSOR**. Reads the already-computed trailing-stop state for a position.
+- [x] `JupiterPerps.getPoolInfo` — **BACKGROUND NETWORK HELPER**. It is suspend, runs on Dispatchers.IO and performs a Jupiter perps HTTP request; never await it from scanner/FDG/held hot paths.
+- [x] `ForexStrategy.tpSlPrices` — **PURE STRATEGY HELPER / DECLARATION-ONLY**. Computes direction-aware TP/SL levels from a setup; current source has no external caller.
+- [x] `RouteValidator.validateFinalOutput` — **POST-EXECUTION VALIDATOR / DECLARATION-ONLY**. Validates terminal route output; not an exit strategy or seller.
+- [x] `RuntimeRepairState.requestPaperMode` — **OPERATOR-AUTHORITY NO-OP**. Source explicitly logs the request as ignored because mode authority is operator-controlled.
+- [x] `ScannerHeatPublisher6398.currentPct01` — **STATE/TELEMETRY ACCESSOR**. Computes current scanner heat from its timestamp window; not an exit decision.
+- [x] `ToxicModeCircuitBreaker.activateEmergencyStop` / `deactivateEmergencyStop` — **EXPLICIT OPERATOR/EMERGENCY CONTROLS**. These are manual global entry controls, not adaptive exit intelligence.
+- [x] `SmartExitOptimizer.getExitPressure` remains **ALIAS_REDUNDANT_FOR_MEME_HOLD** from 7455/7560 and stays out of canonical meme held management.
+- [x] No entry/exit threshold, TP/SL, route, partial, finality or operator-authority behavior changed.
+- [x] Regression coverage: `Aate7566PerpsExitHelperContractTest`.
