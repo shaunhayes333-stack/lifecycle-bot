@@ -50,7 +50,7 @@ object LiveConcentrationDoctrine7697 {
 
     const val MAX_SHARE_7697 = 0.50
     /** Hard ceiling on one live position, whatever the wallet. */
-    const val MAX_POSITION_SOL_7697 = 2.0
+    private const val MAX_POSITION_SOL_7697 = 2.0
 
     private val slotRefusals = AtomicLong(0)
     private val convictionRefusals = AtomicLong(0)
@@ -82,7 +82,7 @@ object LiveConcentrationDoctrine7697 {
     }
 
     /** The figure live sizing uses (LIVE_WALLET_AUTHORITY_6686) less the untouchable reserve. */
-    fun liveTradeableSol(): Double {
+    private fun liveTradeableSol(): Double {
         val wallet = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
         val reserve = try { LiveSpendReserveAuthority7255.RESERVE_SOL } catch (_: Throwable) { 0.0 }
         return if (wallet.isFinite()) (wallet - reserve).coerceAtLeast(0.0) else 0.0
