@@ -2359,11 +2359,40 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.LaneShadowProof7307.attach7307(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SignalSourceProof7291.attach(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.LaneHunter7297.attach(applicationContext) } catch (_: Throwable) {}
-        try {
-            val replayedFinality6486 = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.initAndReplay(applicationContext)
-            if (replayedFinality6486 > 0) PipelineHealthCollector.labelInc("DURABLE_FINALITY_REPLAYED_6486")
-        } catch (t: Throwable) {
-            try { ForensicLogger.lifecycle("DURABLE_FINALITY_REPLAY_FAILED_6486", t.message.orEmpty().take(120)) } catch (_: Throwable) {}
+        // V5.0.7559 — START BUTTON LIVENESS. Durable finalized-outcome replay is
+        // historical learning repair, not a prerequisite for creating the runtime.
+        // Running initAndReplay() inline here made the UI Start command wait behind
+        // thousands of old finalized rows / failed-bus republishes. Canonical
+        // position/lot reconstruction has already completed above; attach the
+        // consumers now, then replay historical finality on its own IO child.
+        // New closes continue to publish through the live canonical bus while this
+        // idempotent replay catches history up in the background.
+        scope.launch(
+            kotlinx.coroutines.Dispatchers.IO +
+                kotlinx.coroutines.CoroutineName("post-boot-finality-replay-7559")
+        ) {
+            try {
+                val replayedFinality6486 =
+                    com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486
+                        .initAndReplay(applicationContext)
+                if (replayedFinality6486 > 0) {
+                    PipelineHealthCollector.labelInc("DURABLE_FINALITY_REPLAYED_6486")
+                }
+                try {
+                    ForensicLogger.lifecycle(
+                        "DURABLE_FINALITY_REPLAY_BACKGROUND_DONE_7559",
+                        "replayed=$replayedFinality6486 action=historical_learning_only",
+                    )
+                } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "DURABLE_FINALITY_REPLAY_FAILED_6486",
+                        t.message.orEmpty().take(120),
+                    )
+                    PipelineHealthCollector.labelInc("DURABLE_FINALITY_REPLAY_BACKGROUND_FAILED_7559")
+                } catch (_: Throwable) {}
+            }
         }
 
         // V5.0.6382 — COLD-BOOT TACTIC RE-DERIVE. Purges phantom μ drift from
