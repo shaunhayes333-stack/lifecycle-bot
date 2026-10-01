@@ -2247,3 +2247,59 @@ These V3 rows expose learned state, configuration, dashboard projections, thresh
 - [x] `V3EngineManager.shouldExecute` — **V3 STATE/ACCESSOR/PREDICATE SURFACE**.
 - [x] F_DEAD reconciliation progress: prior 409 + 43 = **452 / 1,458** classified; **1006 remain**.
 - [x] Regression coverage: `Aate7597V3AccessorPredicateTrancheTest`.
+
+
+## V5.0.7598 — F_DEAD perps/markets accessor and analytics tranche (47 rows)
+
+These rows expose perps/markets state, catalog scans, correlation/learning analytics, cached mark predicates, or reporting conveniences. They do not justify a second execution path simply because the accessor itself has no external caller.
+
+- [x] `CorrelationScanner.getCorrelationStrength` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CorrelationScanner.hasEnoughData` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoAltScannerAI.getAltBeta` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoAltScannerAI.getTopSectors` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoAltTrader.getClosedPositions` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoAltTrader.hasPositionSymbol` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoAltTrader.hasTrustedMark` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoBrain.getLevConfFloor` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoBrain.getSlPct` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoBrain.shouldShadowOnly` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `CryptoWrappedAssetMapper.isNativeOnly` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `DynamicAltTokenRegistry.getNewTokens` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `DynamicAltTokenRegistry.getTokensBySector` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `JupiterPerps.getActiveOrders` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `JupiterPerps.getFailedOrders` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `JupiterPerps.getSuccessfulOrders` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `JupiterPerps.getTotalOrders` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsLiveExecutor.getSuccessRate` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsLiveExecutor.getTotalExecutions` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsLiveExecutor.getTotalFeesCollected` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsScanner.getChinaStocks` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsScanner.getEuropeStocks` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsScanner.getGoldMiners` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsScanner.getJapanStocks` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `MarketsScanner.getSilverMiners` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsAdvancedAI.getBestTradingHours` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsAdvancedAI.getCorrelatedPositions` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsAdvancedAI.getSectorRotation` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsAdvancedAI.isHighlyCorrelated` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsAdvancedAI.isInHotSector` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsAutoReplayLearner.getLayerAdjustments` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsAutoReplayLearner.isLearning` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsCorrelationMatrix.getCorrelationMatrix` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsCorrelationMatrix.getGroupMembers` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsCorrelationMatrix.getMarketGroup` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsDirection.isReadyForLive` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsLearningInsightsPanel.getActionableInsights` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsLearningInsightsPanel.getHighPriorityInsights` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsLearningInsightsPanel.getInsightsByType` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsLearningInsightsPanel.getMarketInsights` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsMarketDataFetcher.getAllMarketsData` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsMarketScanners.getLastScanTime` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsMarketScanners.getTotalScans` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PerpsTraderAI.getCurrentStreak` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `PythOracle.isTradable` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `TokenizedStockTrader.isRegularTradingHours` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] `WatchlistEngine.isOnWatchlist` — **PERPS/MARKETS ACCESSOR/ANALYTICS/PREDICATE**.
+- [x] Network-backed market-data retrieval remains background/bounded; no synchronous meme hot-path wiring is introduced.
+- [x] F_DEAD reconciliation progress: prior 452 + 47 = **499 / 1,458** classified; **959 remain**.
+- [x] Regression coverage: `Aate7598PerpsMarketsAccessorTrancheTest`.
