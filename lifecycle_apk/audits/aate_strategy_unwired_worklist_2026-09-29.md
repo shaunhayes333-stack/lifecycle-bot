@@ -2016,3 +2016,19 @@ These APIs are deliberate maintenance, recovery, UI/operator configuration, cach
 - [x] `WhaleDetector.clearToken` — **TRACKER CACHE MAINTENANCE**.
 - [x] F_DEAD reconciliation progress: prior 253 + 16 = **269 / 1,458** classified; **1,189 remain**.
 - [x] Regression coverage: `Aate7591MaintenanceRecoveryControlTrancheTest`.
+
+
+## V5.0.7592 — F_DEAD RuntimeRepairState explicit-control tranche (8 rows)
+
+`RuntimeRepairState` is explicitly documented as bounded live repair state. These remaining rows are operator/recovery controls or state readbacks; they are not missing autonomous alpha or execution logic. `staleLocksClearedCount` was already classified in 7578 and is not double-counted.
+
+- [x] `RuntimeRepairState.clearPaperModeRequest` — **REPAIR STATE RESET**.
+- [x] `RuntimeRepairState.enableLane` — **EXPLICIT LANE RECOVERY CONTROL**.
+- [x] `RuntimeRepairState.enableScannerSource` — **EXPLICIT SOURCE RECOVERY CONTROL**.
+- [x] `RuntimeRepairState.resumeTrading` — **EXPLICIT RUNTIME RECOVERY CONTROL**.
+- [x] `RuntimeRepairState.scannerCap` — **REPAIR CONFIG READBACK**.
+- [x] `RuntimeRepairState.setScannerUserDisabled` — **EXPLICIT OPERATOR SCANNER CONTROL**.
+- [x] `RuntimeRepairState.shouldForcePaper` — **NEUTRALIZED COMPATIBILITY READBACK**; current implementation returns false.
+- [x] `RuntimeRepairState.uiRebindGeneration` — **UI REPAIR GENERATION READBACK**.
+- [x] F_DEAD reconciliation progress: prior 269 + 8 = **277 / 1,458** classified; **1,181 remain**.
+- [x] Regression coverage: `Aate7592RuntimeRepairStateTrancheTest`.
