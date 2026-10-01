@@ -2123,3 +2123,39 @@ These are bounded truth-layer predicates and lookups over already-authoritative 
 - [x] `WorkerPoolDomainRegistry6411.canDegradedEntry` — **TRUTH ELIGIBILITY/CLASSIFICATION HELPER**.
 - [x] F_DEAD reconciliation progress: prior 314 + 38 = **352 / 1,458** classified; **1,106 remain**.
 - [x] Regression coverage: `Aate7594TruthEligibilityHelperTrancheTest`.
+
+
+## V5.0.7595 — F_DEAD diagnostics/storage/status tranche (28 rows)
+
+These rows expose logs, counters, persisted paths/preferences, cache/status snapshots, or diagnostics. They do not create trade authority.
+
+- [x] `ErrorLogger.getCrashesOnly` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `ErrorLogger.getCurrentSessionLogs` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `ErrorLogger.getErrorsAndCrashes` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `ErrorLogger.getLogsByComponent` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `PatternAutoTuner.getLastUpdateTs` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `PatternAutoTuner.getTradesAnalyzed` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `RateLimiter.getAllUsage` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `RateLimiter.getEffectiveLimit` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `RateLimiter.getRetryAfterMs` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `RateLimiter.getUsage` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `ReentryGuard.getLockoutInfo` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `ReentryGuard.getRemainingMinutes` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `ReentryGuard.isSecondMoonHot` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `RuggedContracts.getCount` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `SafetyTier.getWhitelistedMints` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `SafetyTier.isWhitelisted` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `ScannerFanoutDedupe6374.currentTtlMs` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `WalletPositionLock.getBreakdown` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `WalletPositionLock.getExposurePct` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `WalletPositionLock.getTotalDeployed` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `WalletTokenMemory.getAllEntries` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `WalletTokenMemory.isKnownOpenPosition` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `WalletConnectionState.getCurrentRpcUrl` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `PipelineTracer.getLoopAggression` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `PersonalityMemoryStore.getBio` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `PersistentLearning.getStoragePath` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `TradeLifecycle.getCompleted` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] `TradeState.getCooldownRemaining` — **DIAGNOSTIC/STATUS/STORAGE READBACK**.
+- [x] F_DEAD reconciliation progress: prior 352 + 28 = **380 / 1,458** classified; **1,078 remain**.
+- [x] Regression coverage: `Aate7595DiagnosticsStorageStatusTrancheTest`.
