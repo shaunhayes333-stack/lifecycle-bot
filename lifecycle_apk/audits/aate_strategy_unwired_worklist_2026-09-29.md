@@ -1686,3 +1686,24 @@ F_DEAD triage continues with functions whose names explicitly mark them as test/
 - [x] No test-only reset/probe hook is promoted into scanner, FDG, execution, wallet, settlement, risk or learning authority.
 - [x] F_DEAD reconciliation progress: prior 40 UI/voice + 22 explicit test hooks = **62 / 1,458** classified; **1,396** remain.
 - [x] Regression coverage: `Aate7576DeadExplicitTestHookTrancheTest`.
+
+
+## V5.0.7577 — F_DEAD engine/truth counter-readback tranche (12 rows)
+
+F_DEAD triage continues with pure readback/counter accessors in canonical truth subsystems. These functions expose already-maintained state and do not mutate trading behavior.
+
+- [x] `CanonicalCloseFinality6389.auditCount` — **COUNTER/INVARIANT READBACK**; test-covered.
+- [x] `CanonicalCloseFinality6389.learningExcludedCount` — **COUNTER/INVARIANT READBACK**; test-covered.
+- [x] `CanonicalLedgerParityHold6387.cleanCycleCount` — **STATE READBACK**; consumed by ExecutableOpenGate diagnostics and tests.
+- [x] `CanonicalOutcomeClassifier6576.divergenceCount` — **COUNTER READBACK**; test-covered.
+- [x] `CapitalConservationTracer6469.violationCount` — **COUNTER READBACK**; test-covered.
+- [x] `CounterParityLedger6399.fdgCount` — **COUNTER READBACK**; used in parity/ordering tests.
+- [x] `IntentSide.outstandingCount` — **STATE SIZE READBACK** over current intent map.
+- [x] `OwnershipClassification6391.openMintCount` — **STATE SIZE READBACK** over recovered ownership map.
+- [x] `ReconciliationCoordinator6387.activeJobsCount` — **STATE READBACK**; test-covered.
+- [x] `RootCauseFreshnessAuthority6496.lifetimeCount` — **FORENSIC COUNTER READBACK** over PipelineHealthCollector.
+- [x] `SameMintCandidateEpoch6402.trackedMintCount` — **STATE SIZE READBACK**.
+- [x] `SpecialistContributorMerge6612.mergeCount` — **TELEMETRY COUNTER READBACK**.
+- [x] None of these rows requires a fabricated production caller. They are retained as observability/test/readback surfaces.
+- [x] F_DEAD reconciliation progress: prior 62 + 12 = **74 / 1,458** classified; **1,384 remain**.
+- [x] Regression coverage: `Aate7577TruthCounterReadbackTrancheTest`.
