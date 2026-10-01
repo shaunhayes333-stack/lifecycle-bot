@@ -1587,3 +1587,31 @@ This bundle closes original-113 A_PREDICT items 31–47 as a contiguous block us
 - [x] `UnifiedPolicyHead.brierScore` — **CLOSED_LOOP / LEDGER_STALE**; FinalDecisionGate reads it for authoritative lane-head diagnostics/calibration.
 - [x] Original-113 A_PREDICT items 31–47 are now classified/closed.
 - [x] Regression coverage: `Aate7570Original113PredictiveTailTest`.
+
+
+## V5.0.7571 — original-113 A_PREDICT front (items 1–19) + 113 reconciliation complete
+
+This bundle closes original-113 A_PREDICT items 1–19 against current source and completes classification of all 113 high-value ledger rows.
+
+- [x] `BlueChipTraderAI.getStockTrustScore` — **ASSET-SPECIFIC STOCK HELPER**. Learned stock trust belongs to tokenized-stock/perps policy, not meme admission.
+- [x] `BotBrain.getBlendedWinRate` — **UNWIRED INSTANCE API / DESIGN-REVIEW CLOSED**. BotBrain is instantiated; no canonical singleton exists. Creating another instance just to consume this getter would fork brain state.
+- [x] `CoinGeckoTrending.getSolanaEcosystemMomentum` — **BACKGROUND_CACHE_REQUIRED**. It can refresh CoinGecko over HTTP.
+- [x] `CollectiveLearning.getNetworkBoostForMint` — **BACKGROUND_CACHE_REQUIRED**. Suspend + Dispatchers.IO / remote-hive work.
+- [x] `CorrelationScanner.getActionableSignals` — **PERPS_SIDECAR / BACKGROUND_SCAN**. Suspend full correlation scan.
+- [x] `CrossAssetLeadLagAI.getRotationProbability` — **ALIAS/OVERLAP FOR MEME ENTRY**. Cross-asset lead/lag already reaches canonical symbolic/crosstalk surfaces; do not add a second correlated oracle vote.
+- [x] `DataOrchestrator.scoreSentimentWithLlm` — **BACKGROUND_LLM_SIDECAR**. Never blocking scanner/V3/FDG.
+- [x] `EdgeOptimizer.calculateWeightedScores` — **LEGACY PARALLEL SCORE STACK / DO NOT LAYER**. A second entry/exit weighting authority beside V3/UnifiedScorer/FDG would double-score the same evidence.
+- [x] `EducationSubLayerAI.getEdgeLedger` — **BACKGROUND_REPORT / STRATEGY_RESEARCH**. Aggregate reason-performance ledger; no candidate-keyed synchronous gate.
+- [x] `ExecutableEntryAuthority6450.scoreFloorDelta6487` — **INTENTIONALLY NEUTRALIZED COMPAT ACCESSOR**; returns 0.
+- [x] `ExplorationBudget.allowShadowSignal` — **CLOSED_LOOP / LEDGER_STALE (7537)** in Executor paper-exploration routing.
+- [x] `FluidLearning.getExitTagWinRate` — **REPORT/LEARNING TABLE ACCESSOR**, deliberately not a second exit authority.
+- [x] `FluidLearningAI.getHeuristicSignal` — **DECLARATION-ONLY FALLBACK HELPER**; do not stack beside canonical V3/Unified scoring without authority consolidation.
+- [x] `ForensicEventEnvelope6430.setLedgerEpoch` — **FORENSIC STATE SETTER**, not prediction.
+- [x] `HistoricalChartScanner.getBestModeForConditions` — **ALIAS_COARSE_WRAPPER** over richer `getHistoricalRecommendation`, which is already consumed by PredictiveEntryOracle.
+- [x] `InsiderTrackerAI.getSignalsByWallet` — **LOCAL QUERY HELPER** over cached signals; actionable smart-money/copy paths are separate closed-loop producers.
+- [x] `MomentumPredictorAI.getStrongMomentumTokens` — **CLOSED_LOOP / LEDGER_STALE** via LaneHunter7297.
+- [x] `OrthogonalSignals.calculateAgePatternScore` — **CLOSED_LOOP (7430)** through PredictiveEntryOracle6915 with bounded contribution and regression coverage.
+- [x] `PatternBacktester.getConfidenceAdjustments` — **LAB_BACKGROUND**. Consumes completed backtest reports; do not run synchronous backtests/adaptation in admission.
+- [x] Original-113 A_PREDICT items 1–19 are now classified/closed.
+- [x] **ORIGINAL 113 COMPLETE:** A_PREDICT 47/47, B_RISK 12/12, C_EXIT 54/54 have each been source-reconciled as CLOSED_LOOP, LEDGER_STALE, ALIAS_REDUNDANT, BACKGROUND/SIDECAR, REPORT/TEST/HELPER, OPERATOR CONTROL, LEGACY/DO_NOT-WIRE, or genuine design-review surface. No row remains an unexplained “unwired function”.
+- [x] Regression coverage: `Aate7571Original113FrontAndCompletionTest`.
