@@ -1674,3 +1674,15 @@ F_DEAD triage begins with the lowest-risk homogeneous tranche: every dead declar
 - [x] No canonical engine caller is manufactured for a dead UI/voice helper merely to make static analysis green.
 - [x] F_DEAD reconciliation progress: **40 / 1,458** classified; **1,418** remain for subsystem-aware triage.
 - [x] Regression coverage: `Aate7575DeadUiVoiceTrancheTest`.
+
+
+## V5.0.7576 — F_DEAD explicit test-hook tranche (22 rows)
+
+F_DEAD triage continues with functions whose names explicitly mark them as test/reset/testing-only hooks.
+
+- [x] **22 F_DEAD rows** classified **TEST_HOOK_ONLY / NOT PRODUCTION-WIRING GAP**.
+- [x] Includes `resetForTest*`, `resetAllForTest`, `setForTest`, `aliasesForTest`, `economicInvalidReasonForTest*`, `clearForTesting`, `lanesCompatibleForTests`, `setTestMemoryMode*`, `evaluateForTest*`, `replayForTest`, `forceTripForTests`, `forceOpenLockForTests`, and `forceAgeOpenLockForTests`.
+- [x] These hooks remain available for unit/invariant tests but are not candidates for production caller fabrication.
+- [x] No test-only reset/probe hook is promoted into scanner, FDG, execution, wallet, settlement, risk or learning authority.
+- [x] F_DEAD reconciliation progress: prior 40 UI/voice + 22 explicit test hooks = **62 / 1,458** classified; **1,396** remain.
+- [x] Regression coverage: `Aate7576DeadExplicitTestHookTrancheTest`.
