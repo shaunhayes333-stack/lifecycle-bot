@@ -168,6 +168,61 @@ object FinalDecisionGate {
         return verdict
     }
 
+    /**
+     * V5.0.7629 — keep fanout accounting out of the giant evaluate() method.
+     *
+     * Runtime smoke on API 30 rejected FinalDecisionGate.evaluate with ART
+     * VerifyError (register/type merge conflict). This is the same structural
+     * failure class repaired in 7417. Preserve the exact current fanout policy,
+     * but compile its locals/branches in a separate method.
+     */
+    private fun fanoutCapVerdict7629(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        config: BotConfig,
+        specialistLane: String?,
+        fanoutRole: String,
+        candidateVersion: Long,
+    ): FinalDecision? {
+        return try {
+            val causalRoot = candidateVersion.toString()
+            val fanoutLane =
+                (specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "TRUNK") +
+                    (fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { ":" + it } ?: "")
+            val allowed = com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowFdgEval(
+                mint = ts.mint,
+                causalRoot = causalRoot,
+                laneName = fanoutLane,
+            )
+            if (allowed) {
+                null
+            } else {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232")
+                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232_" + fanoutLane)
+                } catch (_: Throwable) {}
+                FinalDecision(
+                    shouldTrade = false,
+                    mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "FDG_FANOUT_CAP_7232",
+                    blockLevel = BlockLevel.EDGE,
+                    sizeSol = 0.0,
+                    tags = listOf("FDG_FANOUT_CAP_7232", "mint:" + ts.mint.take(8)),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "cap 2 FDG evals per (mint,causalRoot); this is beyond cap",
+                    gateChecks = emptyList(),
+                )
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     fun invalidateCandidate6734(mint: String) {
         fdgVerdictCache.keys.removeIf { it.startsWith("${runtimeGenerationKey()}|$mint|") }
         FdgReEvalThrottle.invalidate(mint)
@@ -807,62 +862,17 @@ object FinalDecisionGate {
         } catch (_: Throwable) {
             System.currentTimeMillis() / 30_000L
         }
-        // V5.0.7232 §FDG_FANOUT_CAP — operator 7227 diagnosis:
-        //   laneEval/intake = 29.51,  FDG/intake = 10.86.
-        //   Authority invariants clean (EXECUTABLE_FANOUT_PER_CANDIDATE
-        //   _GT_2 = 0), so this is pure decision fanout, not economic
-        //   double-execution. Cap at 2 FDG evaluations per (mint,
-        //   causalRoot) so weak/probe candidates cannot survive by
-        //   attrition. IntakeFanoutGovernor6835 uses causalRoot =
-        //   candidateVersion (unique per fresh scan) so genuinely new
-        //   opportunities on the same mint are counted separately.
-        //   Returns short-circuit BLOCK when the cap is exceeded.
-        try {
-            // V5.0.7255 — score+phase collapsed unrelated generations into
-            // roots such as `0:blocke`; after two evaluations that mint was
-            // suppressed for the governor TTL even when a fresh candidate was
-            // elected. Bind fanout to the same candidate version execution uses.
-            val causalRoot7232 = candidateVersion7623.toString()
-            // V5.0.7265 — the budget is per lane. Ten lanes call this gate in
-            // a fixed order per cycle; a shared two-eval budget meant the
-            // third lane onward never got a verdict on any mint the first
-            // two had looked at (1143 of 1377 FDG blocks on 5.0.7263, and
-            // SHITCOIN/EXPRESS at zero intents). Trunk/main callers that
-            // pass no specialist lane share the "TRUNK" bucket.
-            val fanoutLane7265 = (specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "TRUNK") +
-                (fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { ":$it" } ?: "")
-            val ok = com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowFdgEval(
-                mint = ts.mint,
-                causalRoot = causalRoot7232,
-                laneName = fanoutLane7265,
-            )
-            if (!ok) {
-                try {
-                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232")
-                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232_$fanoutLane7265")
-                } catch (_: Throwable) {}
-                return FinalDecision(
-                    shouldTrade = false,
-                    // V5.0.7232 — fanout cap fires before `authoritativePaperMode`
-                    //   is computed lower in the function.  Read the config
-                    //   directly; the mode value on a blocked decision is not
-                    //   used for economic settlement.
-                    mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = candidate.aiConfidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "FDG_FANOUT_CAP_7232",
-                    blockLevel = BlockLevel.EDGE,
-                    sizeSol = 0.0,
-                    tags = listOf("FDG_FANOUT_CAP_7232", "mint:${ts.mint.take(8)}"),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "cap 2 FDG evals per (mint,causalRoot); this is beyond cap",
-                    gateChecks = emptyList(),
-                )
-            }
-        } catch (_: Throwable) {}
+        // V5.0.7629 — preserve the 7232/7265 fanout policy while
+        // keeping its branch-heavy bytecode out of evaluate() for ART verifier
+        // compatibility. The candidate generation remains the pinned 7623 value.
+        fanoutCapVerdict7629(
+            ts = ts,
+            candidate = candidate,
+            config = config,
+            specialistLane = specialistLane,
+            fanoutRole = fanoutRole,
+            candidateVersion = candidateVersion7623,
+        )?.let { return it }
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
         var blockLevel: BlockLevel? = null

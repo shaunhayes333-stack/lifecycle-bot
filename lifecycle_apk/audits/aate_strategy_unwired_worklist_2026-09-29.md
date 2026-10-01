@@ -2841,3 +2841,17 @@ A remaining false-stale path survived 7625: when `attemptId` already identifies 
 - [x] Fallback attempt creation, release bookkeeping and ticket validation reuse the inherited generation.
 - [x] No threshold, scoring, FDG, sizing, TP/SL, allocation, route or hard-safety policy changed.
 - [x] Regression coverage: `Aate7628PermitTicketGenerationContinuityTest`.
+
+
+## V5.0.7629 — restore ART-verifier-safe FDG structure
+
+Runtime Smoke Test run 36841737881 proved the current debug APK compiled but crashed during MainActivity startup with `java.lang.VerifyError` while ART verified `FinalDecisionGate.evaluate` on the API-30 emulator. The later `btnToggle` miss and `NO_WINDOW_START` were downstream symptoms of the process death.
+
+This is the same structural failure class previously repaired in 7417; the helper extraction had since regressed out while `evaluate` continued accumulating locals and branches.
+
+- [x] Move the current 7232/7265 fanout-cap branch into `fanoutCapVerdict7629`.
+- [x] Preserve the exact per-lane fanout key, counters and blocked verdict.
+- [x] Reuse the pinned `candidateVersion7623`; no candidate-generation reread is introduced.
+- [x] Remove the fanout locals/branch tree from the giant `evaluate` bytecode to reduce ART register pressure.
+- [x] No threshold, scoring, FDG policy, sizing, TP/SL, allocation, route or safety behavior changed.
+- [x] Regression coverage: `Aate7629FinalDecisionGateVerifierStructureTest`.
