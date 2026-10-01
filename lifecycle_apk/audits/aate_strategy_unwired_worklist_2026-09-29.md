@@ -3446,3 +3446,19 @@ Findings:
 - [x] Regression coverage: `Aate7670CryptoCanonicalScratchClassificationTest`.
 
 Dual-estate rule remains in force: every large-audit tranche must check both meme and crypto specialist learning loops independently.
+
+
+## V5.0.7671 - enforce dual specialist estate parity
+
+Operator requirement is now a hard source/build contract rather than a conversation note.
+
+- [x] Added `SpecialistEstateParity7671`.
+- [x] Meme native specialist estate is explicitly pinned at 12 lanes:
+  QUALITY, BLUECHIP, SHITCOIN, EXPRESS, MOONSHOT, PROJECT_SNIPER, DIP_HUNTER, MANIPULATED, TREASURY, CASHGEN, CYCLIC, CORE.
+- [x] Crypto-native brain estate is explicitly tracked separately and currently contains 13 `perps/crypto/brain` modules.
+- [x] CryptoLaneDesk7391's 9 meme-style desk lanes are tracked as a subset, not misreported as the total crypto specialist count.
+- [x] Regression fails if either meme-native breadth falls below 12 or the crypto-native brain estate loses any pinned module.
+- [x] SolanaArbAI remains a dormant/report-only specialist subsystem pending a complete two-feed/two-leg execution redesign; zero-caller scan/execute/close functions are not auto-wired.
+- [x] Moonshot `recordCollectiveWinner` row 807 is reconciled as already repaired in 7631 through the off-thread CollectiveIntelligenceAI network refresh.
+- [x] This bundle changes no thresholds, execution, capital, sizing or safety semantics.
+- [x] Regression coverage: `Aate7671DualSpecialistEstateParityTest`.

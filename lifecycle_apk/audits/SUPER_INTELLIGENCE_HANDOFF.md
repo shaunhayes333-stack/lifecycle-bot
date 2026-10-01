@@ -64,6 +64,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7668: CorrelationScanner history moved off UI dependence into the background perps market-data loop; full correlation scan remains background/advisory. Education vote/scan firehose rows reconciled as telemetry, not missing terminal learning.
 - 5.0.7669: dual specialist estate scope made explicit (12+ meme and 12+ crypto specialist brains/tactics; crypto desk lanes are only one subset). Project Sniper's TP ladder now advances extractedPct only from terminal canonical partial receipts, idempotently across paper/live.
 - 5.0.7670: crypto canonical learning repair; sub-1% scratch closes now reconcile into INCONCLUSIVE instead of generic OTHER, preserving directional learning purity.
+- 5.0.7671: dual specialist parity manifest. Meme native bridge pinned at 12 lane opinions; crypto-native brain estate pinned at 13 modules, with the 9 crypto desk lanes tracked separately as only one subset.
 
 ## Existing intelligence estate explicitly in scope
 
