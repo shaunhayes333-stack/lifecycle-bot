@@ -1065,6 +1065,20 @@ object PredictiveEntryOracle6915 {
                 contributions += world7634.contributionTag()
                 val critic7635 = com.lifecyclebot.engine.SuperAdversarialCritic7635.review(world7634)
                 contributions += critic7635.contributionTag()
+                val memory7638 = com.lifecyclebot.engine.SuperEpisodicRetriever7638.retrieve(
+                    liveMode = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false },
+                    lane = laneKey,
+                    tradeType = tradeType,
+                    setup = setup,
+                    style = style,
+                    tactic = tactic,
+                    sourceFamily = sourceFamily,
+                    regime = regime,
+                    edgePhase = edgePhase,
+                )
+                contributions += memory7638.contributionTag()
+                val tree7638 = com.lifecyclebot.engine.SuperPolicyTree7638.search(world7634, critic7635, memory7638)
+                contributions += tree7638.contributionTag()
                 val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                     pWin = currentCandidatePWin7261,
                     expectancyPct = coldExpectancy7261,
@@ -1074,6 +1088,7 @@ object PredictiveEntryOracle6915 {
                     hardSafetyBlocked = false,
                     world = world7634,
                     critic = critic7635,
+                    tree = tree7638,
                 )
                 contributions += superPlan7633.contributionTag()
                 try {
@@ -1261,6 +1276,20 @@ object PredictiveEntryOracle6915 {
             contributions += world7634.contributionTag()
             val critic7635 = com.lifecyclebot.engine.SuperAdversarialCritic7635.review(world7634)
             contributions += critic7635.contributionTag()
+            val memory7638 = com.lifecyclebot.engine.SuperEpisodicRetriever7638.retrieve(
+                liveMode = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false },
+                lane = laneKey,
+                tradeType = tradeType,
+                setup = setup,
+                style = style,
+                tactic = tactic,
+                sourceFamily = sourceFamily,
+                regime = regime,
+                edgePhase = edgePhase,
+            )
+            contributions += memory7638.contributionTag()
+            val tree7638 = com.lifecyclebot.engine.SuperPolicyTree7638.search(world7634, critic7635, memory7638)
+            contributions += tree7638.contributionTag()
             val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                 pWin = blendedPWin,
                 expectancyPct = finalE,
@@ -1270,6 +1299,7 @@ object PredictiveEntryOracle6915 {
                 hardSafetyBlocked = creatorRugAdjust7329 < 0.0,
                 world = world7634,
                 critic = critic7635,
+                tree = tree7638,
             )
             contributions += superPlan7633.contributionTag()
             try {

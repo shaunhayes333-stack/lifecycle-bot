@@ -2968,3 +2968,16 @@ Super Intelligence now learns which of its own horizon models deserve confidence
 - [x] A well-calibrated horizon may reduce uncertainty modestly, capped at 1.20x trust; a poor horizon may be damped to 0.60x.
 - [x] This modifies model confidence only; it does not grant execution, hard-veto or safety authority.
 - [x] Regression coverage: Aate7637AdaptiveModelTrustTest.
+
+
+## V5.0.7638 - retrieval-augmented policy-tree search
+
+Super Intelligence now reasons from retrieved experience and searches multi-step policies instead of only one-shot actions.
+
+- [x] Added SuperEpisodicRetriever7638: exact playbook evidence is O(1), with bounded cached local semantic-memory fallback when exact history is absent.
+- [x] Retrieval carries exact sample size, WR, EV, semantic size/score bias, confidence and a bounded utility prior.
+- [x] Added SuperPolicyTree7638 with WAIT_REASSESS, REDUCED_THEN_SCALE, BASE_TACTICAL_HOLD, BASE_TACTICAL_BANK and CONVICTION_RUNNER branches.
+- [x] Tree utility combines horizon-specific world forecasts, adversarial fragility, failure risk and retrieved episodic evidence.
+- [x] The planner consumes only a bounded tree-search bias; the tree remains advisory and cannot execute or reserve capital.
+- [x] No provider I/O, LLM call, new hard veto, safety weakening or duplicate execution authority was added.
+- [x] Regression coverage: Aate7638RetrievalTreeSearchTest.
