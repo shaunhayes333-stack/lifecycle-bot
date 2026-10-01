@@ -622,8 +622,8 @@ Baseline evidence:
 - terminal reasons: `CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244=1067` / 1110 terminal.
 - Cross-asset producer liveness: only CRYPTO_ALT started; STOCK/FOREX/COMMODITY/METAL/PERPS all zero.
 Required repair:
-- [ ] Audit CryptoBrain actionable-signal logic and handoff contract before changing thresholds.
-- [ ] Preserve static-vs-dynamic candidate identity.
+- [x] CryptoBrain actionable-signal logic and handoff contract source-audited: native score/confidence, tactic shaping and sizing feed actionable `AltSignal`s; 7472 warmup preserves fresh evidence accumulation; canonical handoff occurs once through `CanonicalAssetEntryContract6551` before execution. No threshold change required.
+- [x] Static-vs-dynamic candidate identity preserved: dynamic signals carry `dynAssetKey/dynMint/dynChainId`, `buildCryptoFinalBuyCandidate` resolves one canonical `assetKey`, and the same key/version is submitted as CRYPTO_ALT authority identity.
 - [ ] Prove fresh/routable candidates can reach canonical V3/FDG when strategy evidence is actionable.
 - [ ] Restore configured non-crypto cross-asset producer liveness where the product configuration expects those traders to run.
 
@@ -3526,3 +3526,15 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] EarlyEntryScout6390 is intentionally not resurrected because every material input is already represented by canonical launch/safety/toolkit specialist surfaces; direct wiring would duplicate launch evidence.
 - [x] ModeSpecificScanners.scanFreshLaunch remains retired because current PumpPortal/ModeRouter/LaunchPhase/specialist discovery owns that setup.
 - [x] No thresholds, scoring coefficients, sizing, execution, safety, or capital authority changed.
+
+
+## V5.0.7676 - CryptoBrain actionable handoff source contract
+
+- [x] CryptoBrain score/confidence modifiers are active in dynamic crypto scoring.
+- [x] CryptoTacticSwitcher is consumed by entry logic (7443), so tactic rotation changes candidate shape rather than telemetry only.
+- [x] Fresh dynamic candidates with <4 local tape samples release for retry via `CRYPTO_FRESH_TAPE_WARMUP_7472` instead of terminal NO_ACTIONABLE.
+- [x] Actionable CryptoBrain and desk signals become `AltSignal` while preserving dynamic symbol, mint, chain and canonical asset key.
+- [x] `buildCryptoFinalBuyCandidate` seals one crypto-native asset identity, route/safety evidence, score/confidence and candidateVersion.
+- [x] The candidate submits exactly once through `CanonicalAssetEntryContract6551` as `AssetClass.CRYPTO_ALT`; 7521 removed the contradictory duplicate post-seal admission gate.
+- [x] Runtime acceptance remains separate: fresh/routable candidates reaching V3/FDG/open must be verified from a device snapshot rather than inferred from source.
+- [x] No score/confidence thresholds, sizing multipliers, execution routes or safety rules changed.
