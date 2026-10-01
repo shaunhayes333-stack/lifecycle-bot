@@ -3082,3 +3082,18 @@ Super Intelligence now spends deeper local reasoning only when a candidate warra
 - [x] SuperImaginationRollout7643 accepts a bounded dynamic rollout budget rather than always running one fixed ensemble.
 - [x] No network I/O, LLM call, execution authority, hard veto or safety weakening was added.
 - [x] Regression coverage: Aate7646AdaptiveDeliberationTest.
+
+
+## V5.0.7647 - propensity-aware causal policy evaluation
+
+The planner now distinguishes raw policy performance from selection-biased estimated policy lift.
+
+- [x] SuperPolicyTree7638 emits a bounded softmax selection propensity from robust branch utilities.
+- [x] The selected propensity is frozen into the position-bound Super Intelligence decision stamp.
+- [x] Exact canonical terminal outcomes feed SuperCausalPolicyEvaluator7647.
+- [x] The evaluator uses clipped inverse-propensity weighting (max 5x) against the same lane + latent-state baseline.
+- [x] Policy lift remains neutral until at least 5 policy outcomes and 10 context outcomes exist.
+- [x] Estimated lift is reliability-shrunk and bounded to +/-6 utility points before entering tree search.
+- [x] State persists across restart.
+- [x] This is propensity-aware observational estimation, not a claim of randomized causal identification; it owns no execution or veto authority.
+- [x] Regression coverage: Aate7647CausalPolicyEvaluationTest.

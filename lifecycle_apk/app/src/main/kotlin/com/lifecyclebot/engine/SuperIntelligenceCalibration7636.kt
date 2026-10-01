@@ -25,6 +25,7 @@ object SuperIntelligenceCalibration7636 {
         val criticVerdict: String,
         val treePolicy: SuperPolicyTree7638.Policy,
         val treeConfidence: Double,
+        val treePropensity: Double,
         val arbiterDominant: String,
         val arbiterMetaConfidence: Double,
         val atMs: Long,
@@ -82,6 +83,7 @@ object SuperIntelligenceCalibration7636 {
             criticVerdict = critic.verdict,
             treePolicy = tree.bestPolicy,
             treeConfidence = tree.confidence,
+            treePropensity = tree.selectionPropensity,
             arbiterDominant = arbiter.dominant,
             arbiterMetaConfidence = arbiter.metaConfidence,
             atMs = System.currentTimeMillis(),
@@ -157,6 +159,15 @@ object SuperIntelligenceCalibration7636 {
                 lane = stamp.lane,
                 state = stamp.world.latentState,
                 policy = stamp.treePolicy,
+                realizedReturnPct = env.realizedReturnPct,
+            )
+        } catch (_: Throwable) {}
+        try {
+            SuperCausalPolicyEvaluator7647.recordOutcome(
+                lane = stamp.lane,
+                state = stamp.world.latentState,
+                policy = stamp.treePolicy,
+                selectionPropensity = stamp.treePropensity,
                 realizedReturnPct = env.realizedReturnPct,
             )
         } catch (_: Throwable) {}

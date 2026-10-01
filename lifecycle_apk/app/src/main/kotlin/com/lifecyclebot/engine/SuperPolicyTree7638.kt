@@ -32,6 +32,7 @@ object SuperPolicyTree7638 {
         val rootAction: SuperIntelligencePlanner7633.Action,
         val utility: Double,
         val confidence: Double,
+        val selectionPropensity: Double,
         val branches: List<Branch>,
     ) {
         fun contributionTag(): String {
@@ -46,11 +47,12 @@ object SuperPolicyTree7638 {
             }
             return String.format(
                 java.util.Locale.US,
-                "tree7638(best=%s,root=%s,u=%+.1f,conf=%.2f,top=[%s])",
+                "tree7638(best=%s,root=%s,u=%+.1f,conf=%.2f,prop=%.3f,top=[%s])",
                 bestPolicy.name,
                 rootAction.name,
                 utility,
                 confidence,
+                selectionPropensity,
                 top,
             )
         }
@@ -149,13 +151,20 @@ object SuperPolicyTree7638 {
                     policy = b.policy,
                 )
             } catch (_: Throwable) { 0.0 }
+            val causalLift7647 = try {
+                SuperCausalPolicyEvaluator7647.policyLift(
+                    lane = world.lane,
+                    state = world.latentState,
+                    policy = b.policy,
+                )
+            } catch (_: Throwable) { 0.0 }
             val imagined = SuperImaginationRollout7643.evaluate(
                 world = world,
                 critic = critic,
                 memory = memory,
                 policy = b.policy.name,
                 exposure = b.rootAction.exposure,
-                baseUtility = b.utility + learnedPrior7644,
+                baseUtility = b.utility + learnedPrior7644 + causalLift7647,
                 rolloutBudget = deliberation.rolloutBudget,
             )
             b.copy(
@@ -177,11 +186,25 @@ object SuperPolicyTree7638 {
                 (margin / 20.0).coerceIn(0.0, 1.0) * 0.15
             ).coerceIn(0.0, 1.0)
 
+        // V5.0.7647 - softmax propensity over the robust utilities. This is
+        // NOT used to randomize execution; it records how strongly the policy
+        // tree preferred the selected branch so terminal learning can correct
+        // selection bias with bounded inverse-propensity weighting.
+        val maxU7647 = branches.maxOfOrNull { it.utility } ?: 0.0
+        val temperature7647 = 6.0
+        val propWeights7647 = branches.associate { b ->
+            b.policy to kotlin.math.exp(((b.utility - maxU7647) / temperature7647).coerceIn(-12.0, 0.0))
+        }
+        val propSum7647 = propWeights7647.values.sum().coerceAtLeast(1e-9)
+        val selectionPropensity7647 =
+            ((propWeights7647[best.policy] ?: 0.0) / propSum7647).coerceIn(0.02, 1.0)
+
         return Result(
             bestPolicy = best.policy,
             rootAction = best.rootAction,
             utility = best.utility,
             confidence = confidence,
+            selectionPropensity = selectionPropensity7647,
             branches = branches,
         )
     }
