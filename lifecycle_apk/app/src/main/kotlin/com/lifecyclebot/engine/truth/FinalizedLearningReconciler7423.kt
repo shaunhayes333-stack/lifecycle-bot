@@ -29,6 +29,11 @@ object FinalizedLearningReconciler7423 {
     private data class SnapshotCache7493(val key: String, val value: Snapshot)
     private val snapshotCache7493 =
         java.util.concurrent.atomic.AtomicReference<SnapshotCache7493?>(null)
+    // V5.0.7684 — durable repair must not rescan CLOSED history from index 0
+    // every 30s. Cursor is session-local; proof/economics remain canonical.
+    private val repairCursor7684 = java.util.concurrent.atomic.AtomicInteger(0)
+    private val repairScanned7684 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val repairWraps7684 = java.util.concurrent.atomic.AtomicLong(0L)
 
     private fun revisionKey7493(): String =
         CanonicalPositionAuthority6441.mutationCount7387().toString() + "|" +
@@ -147,12 +152,26 @@ object FinalizedLearningReconciler7423 {
         } catch (_: Throwable) { emptyMap<String, List<EconomicEventSchema6464.Sell>>() }
 
         var repaired = 0
-        for (p in CanonicalPositionAuthority6441.closedPositions()) {
+        val closed7684 = CanonicalPositionAuthority6441.closedPositions()
+        if (closed7684.isEmpty()) return 0
+        var idx7684 = Math.floorMod(repairCursor7684.get(), closed7684.size)
+        var scannedThisPass7684 = 0
+        while (scannedThisPass7684 < closed7684.size) {
             if (repaired >= limit) break
             if (System.currentTimeMillis() - started7514 >= maxWorkMs7514) {
                 try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_BUDGET_YIELD_7514") } catch (_: Throwable) {}
                 break
             }
+            val p = closed7684[idx7684]
+            scannedThisPass7684++
+            repairScanned7684.incrementAndGet()
+            idx7684++
+            if (idx7684 >= closed7684.size) {
+                idx7684 = 0
+                repairWraps7684.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_CURSOR_WRAP_7684") } catch (_: Throwable) {}
+            }
+            repairCursor7684.set(idx7684)
             if (p.positionId in published) continue
             if (p.positionId !in repairableIds7544) continue
 
@@ -270,13 +289,19 @@ object FinalizedLearningReconciler7423 {
                 } catch (_: Throwable) {}
             }
         }
+        try {
+            if (repaired > 0) PipelineHealthCollector.labelInc("FINALIZED_BUS_CURSOR_REPAIR_PROGRESS_7684")
+        } catch (_: Throwable) {}
         return repaired
     }
+
+    fun repairCursorStatus7684(): String =
+        "cursor=${repairCursor7684.get()} scanned=${repairScanned7684.get()} wraps=${repairWraps7684.get()}"
 
     fun statusLine(): String {
         val s = snapshot()
         val by = s.missing.groupingBy { it.reason }.eachCount().entries.sortedBy { it.key.name }.joinToString(",") { "${it.key.name}=${it.value}" }
         val ids = s.missing.take(5).joinToString("|") { "${it.positionId.take(36)}:${it.reason.name}" }
-        return "closed=${s.canonicalClosed} published=${s.finalizedPublished} missing=${s.missing.size} explicit=${s.explicitExcluded} unknown=${s.unexplained} by=[$by] ids=[$ids]"
+        return "closed=${s.canonicalClosed} published=${s.finalizedPublished} missing=${s.missing.size} explicit=${s.explicitExcluded} unknown=${s.unexplained} by=[$by] ids=[$ids] ${repairCursorStatus7684()}"
     }
 }

@@ -624,7 +624,7 @@ Baseline evidence:
 Required repair:
 - [x] CryptoBrain actionable-signal logic and handoff contract source-audited: native score/confidence, tactic shaping and sizing feed actionable `AltSignal`s; 7472 warmup preserves fresh evidence accumulation; canonical handoff occurs once through `CanonicalAssetEntryContract6551` before execution. No threshold change required.
 - [x] Static-vs-dynamic candidate identity preserved: dynamic signals carry `dynAssetKey/dynMint/dynChainId`, `buildCryptoFinalBuyCandidate` resolves one canonical `assetKey`, and the same key/version is submitted as CRYPTO_ALT authority identity.
-- [ ] Prove fresh/routable candidates can reach canonical V3/FDG when strategy evidence is actionable.
+- [x] Runtime proof from fresh 5.0.7677 field log: fresh reaching CryptoBrain=234, fresh reaching V3/FDG=14, CRYPTO_ALT candidate=128 submit=52 fdgAllow=24 intent=24 dispatch=24 open=24. Actionable crypto evidence reaches canonical V3/FDG/open.
 - [ ] Restore configured non-crypto cross-asset producer liveness where the product configuration expects those traders to run.
 
 ## P0-7 — finalized-learning population completeness
@@ -780,7 +780,7 @@ Fault class: both lanes called `ExecutableOpenGate.recordFdg()` and then immedia
 - [x] If no executable sealed intent exists, both lanes retain the prior fresh-attempt fallback. This preserves paper bootstrap/probe paths that intentionally continue after a non-executable FDG opinion.
 - [x] PROJECT_SNIPER is not changed: its standalone path does not seal FDG first, so generating its own attempt remains correct.
 - [x] No entry thresholds, FDG decisions, paper-probe policy, position sizes, or LIVE safety rules changed.
-- [ ] Runtime acceptance: EXPRESS ownerSelected/buyIntent become non-zero on real executable candidates and SHITCOIN phantom split-stage counts fall without changing execution volume policy.
+- [x] EXPRESS runtime half accepted on fresh 5.0.7677 field log: EXPRESS ownerSelected=2, buyIntent=2 and §P2 handoff intent=2 markOK=1 sizedPos=1 ticketSealed=1 executed=1. SHITCOIN phantom split-stage cleanup remains a separate runtime obligation.
 
 
 ## V5.0.7470 — grouped position-bound learner identity repair (P0-8)
@@ -3630,3 +3630,18 @@ Repair:
 - [x] Generic `SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647` is no longer polluted by known terminal-position identity shape and is therefore more useful for fresh entry-lineage diagnosis.
 - [x] No execution, exit, finality, economics, thresholds, sizing, safety or learning eligibility changed.
 - [x] Regression coverage: `Aate7683TerminalCausalPositionBindingTest`.
+
+
+## V5.0.7684 - P0-7 rotating durable-finality catch-up + fresh runtime acceptance
+
+Fresh 5.0.7677 field evidence:
+- [x] Crypto Universe P0-6 runtime acceptance passed: fresh CryptoBrain=234, fresh V3/FDG=14, CRYPTO_ALT candidate=128 / submit=52 / fdgAllow=24 / intent=24 / dispatch=24 / open=24.
+- [x] EXPRESS canonical handoff runtime acceptance passed: intent=2 / markOK=1 / sizedPos=1 / ticketSealed=1 / executed=1.
+- [ ] Finalized population remains incomplete: canonical CLOSED=3,633, finalized published=900, missing=2,743, BUS_PUBLISH_FAILED=2,741.
+
+P0-7 throughput repair:
+- [x] Each independent 30s pass previously restarted at CLOSED index 0 under the same 2.5s budget, repeatedly paying the skip cost for already-published history.
+- [x] Added a session-local rotating cursor to `repairDurableBusPublishFailures7459` so the next pass resumes after the prior pass yielded or filled its batch.
+- [x] Existing 128-row output ceiling, 2.5s wall-clock budget, full-terminal-SELL proof, usable economics, quarantine/replay exclusions and exactly-once bus semantics remain unchanged.
+- [x] Cursor telemetry reports scanned rows, wraps and repair progress; cursor itself is not durable economic truth.
+- [x] No synthetic economics, no historical promotion, no threshold/sizing/safety/execution changes.
