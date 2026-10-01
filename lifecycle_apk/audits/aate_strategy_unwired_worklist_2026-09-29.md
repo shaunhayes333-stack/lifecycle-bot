@@ -1864,3 +1864,21 @@ This tranche classifies explicit operator, UI and persisted configuration contro
 - [x] `LeveragePreference.setLeveragePreferred` — **PERSISTED USER ASSET-CLASS PREFERENCE**.
 - [x] F_DEAD reconciliation progress: corrected prior 150 + 14 = **164 / 1,458** classified; **1,294 remain**.
 - [x] Regression coverage: `Aate7585OperatorConfigControlTrancheTest`.
+
+
+## V5.0.7586 — F_DEAD maintenance/callback control tranche (10 rows)
+
+These rows are callback registration, explicit unwatch/migration controls, cache maintenance, or UI retry/reset surfaces. They are not autonomous trading decisions.
+
+- [x] `WatchlistEngine.setAlertCallback` — **CALLBACK REGISTRATION**.
+- [x] `WhaleWalletTracker.setOnMovementCallback` — **CALLBACK REGISTRATION**.
+- [x] `WhaleWalletTracker.unwatchWhale` — **EXPLICIT USER/MAINTENANCE CONTROL**.
+- [x] `HeliusWebSocket.unwatchWallet` — **SUBSCRIPTION MAINTENANCE CONTROL**.
+- [x] `AutoEndpointMigrator.forceMigrate` — **OPERATOR ENDPOINT RECOVERY CONTROL**.
+- [x] `AutoEndpointMigrator.clearMigration` — **OPERATOR ENDPOINT RECOVERY RESET**.
+- [x] `GeminiCopilot.clearCaches` — **CACHE MAINTENANCE**.
+- [x] `SmartChartScanner.clearAllCaches` — **CACHE MAINTENANCE**.
+- [x] `PriceAggregator.clearPrune` — **MANUAL PROVIDER RETRY/PRUNE RESET**.
+- [x] `PerpsTradeVisualizer.clearAllHistory` — **PRODUCT VISUALIZATION CACHE RESET**.
+- [x] F_DEAD reconciliation progress: prior 164 + 10 = **174 / 1,458** classified; **1,284 remain**.
+- [x] Regression coverage: `Aate7586MaintenanceCallbackControlTrancheTest`.
