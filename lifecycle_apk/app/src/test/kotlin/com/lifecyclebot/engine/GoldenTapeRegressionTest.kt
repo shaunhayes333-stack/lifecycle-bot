@@ -12664,4 +12664,30 @@ class GoldenTapeRegressionTest {
         assertTrue(init6486Body.indexOf("logIsAuthoritative") < init6486Body.indexOf("legacyKeys.forEach { editor.remove(it) }"))
     }
 
+    @Test
+    fun V5_0_7689_moonshot_early_death_cutoff_no_longer_overrides_the_backtested_tight_stop() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        // ChopFilter.earlyDeathCutoffPct("MOONSHOT") (-0.5%..-3.0%) used to fire
+        // BEFORE the lane's own backtested -5% EARLY_TIGHT_STOP ever got a chance,
+        // cutting fresh entries on first-minute noise — the same churn V5.9.1425
+        // already removed from ShitCoinTraderAI. The function may still be named
+        // in explanatory comments (unqualified); it must never be CALLED again
+        // (every real call site used the fully-qualified package path).
+        assertFalse(src.contains("com.lifecyclebot.engine.ChopFilter"))
+        // stopFor (fast tick path): no sub-60s gate narrows `stop` below the
+        // -5/hard-floor band computed just above it.
+        val stopForBody = src.substringAfter("fun stopFor(mint: String): Double? {")
+            .substringBefore("fun restorePosition(")
+        assertTrue(stopForBody.contains("if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(-5.0, effectiveHardFloor))"))
+        assertFalse(stopForBody.contains("holdSeconds < 60"))
+        // checkExit: the EARLY_TIGHT_STOP(-5) block still stands as the ONLY
+        // early-exit return between it and the peak-P&L update — the old
+        // narrower early-death return (a second STOP_LOSS in this span) is gone.
+        val earlyTightStopAt = src.indexOf("EARLY_TIGHT_STOP(-5)")
+        val peakUpdateAt = src.indexOf("// Update peak P&L")
+        assertTrue(earlyTightStopAt in 1 until peakUpdateAt)
+        val betweenSpan = src.substring(earlyTightStopAt, peakUpdateAt)
+        assertEquals(1, Regex("return ExitSignal\\.STOP_LOSS").findAll(betweenSpan).count())
+    }
+
 }

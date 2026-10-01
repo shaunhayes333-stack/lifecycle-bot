@@ -1091,8 +1091,21 @@ object MoonshotTraderAI {
     // null when this lane has no position on the mint. Mirrors the loss gates of
     // checkExit in order: hard floor (tightened by LosingPatternMemory), the early
     // tight stop while peak < +8% (minOf(-5, hardFloor), so never tighter than the
-    // floor), the <60s early-death cutoff, the <=12-min -10% dead exit, and the
-    // position's stopLossPct once past the breather window. The tightest applies.
+    // floor), the <=12-min -10% dead exit, and the position's stopLossPct once past
+    // the breather window. The tightest applies.
+    //
+    // V5.0.7689 — the <60s ChopFilter.earlyDeathCutoffPct("MOONSHOT") gate that
+    // used to sit here is REMOVED. That cutoff is tuned to -0.5%..-3.0% — tighter
+    // than the backtested -5% early-tight-stop one line above, which V5.9.1341
+    // proved is this lane's own optimal first-phase floor
+    // ([MOONSHOT/TIGHT_STOP_-5] n=9 WR=11% avg=+4628.5% net=+18.159). Because it
+    // is tighter, it fired FIRST, cutting fresh entries on ordinary first-minute
+    // noise before the evidence-based -5% stop ever got a chance — the exact
+    // buy→stop→buy churn V5.9.1425 already diagnosed and removed from
+    // ShitCoinTraderAI for the identical reason. MOONSHOT's own hard floor
+    // (above) and -5% early-tight-stop already cover every real crash; this
+    // generic SHITCOIN-derived gate only ever made MOONSHOT cut earlier than
+    // its own proven threshold.
     fun stopFor(mint: String): Double? {
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return null
         val predictiveSlPct: Double? = try {
@@ -1110,10 +1123,6 @@ object MoonshotTraderAI {
         } catch (_: Throwable) { false }
         if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(-5.0, effectiveHardFloor))
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
-        if (holdSeconds < 60) {
-            val cutoff = try { com.lifecyclebot.engine.ChopFilter.earlyDeathCutoffPct("MOONSHOT") } catch (_: Throwable) { null }
-            if (cutoff != null && cutoff < 0.0) stop = maxOf(stop, cutoff)
-        }
         val holdMinutes = holdSeconds / 60
         if (holdMinutes <= 12) stop = maxOf(stop, -10.0)
         val inBreatherWindow = holdMinutes <= 12 && pos.stopLossPct > -10.0
@@ -1610,14 +1619,15 @@ object MoonshotTraderAI {
 
         // V5.9.443 — EARLY-DEATH STOP.
         // V5.9.444 — fluid cutoff from HoldDurationTracker 0-1min bucket.
-        val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
-        if (holdSeconds < 60) {
-            val cutoff = com.lifecyclebot.engine.ChopFilter.earlyDeathCutoffPct("MOONSHOT")
-            if (pnlPct < cutoff) {
-                ErrorLogger.info(TAG, "🚀⚡ EARLY-DEATH STOP: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s (cutoff=${"%.1f".format(cutoff)}%)")
-                return ExitSignal.STOP_LOSS
-            }
-        }
+        // V5.0.7689 — REMOVED. ChopFilter.earlyDeathCutoffPct("MOONSHOT") is
+        // tuned to -0.5%..-3.0%, tighter than the backtested -5%
+        // EARLY_TIGHT_STOP just above (V5.9.1341's proven first-phase floor:
+        // [MOONSHOT/TIGHT_STOP_-5] n=9 WR=11% avg=+4628.5% net=+18.159). Being
+        // tighter, it fired first and cut fresh entries on ordinary
+        // first-minute noise before that evidence-based stop ever applied —
+        // the identical buy→stop→buy churn V5.9.1425 already diagnosed and
+        // removed from ShitCoinTraderAI. The HARD_FLOOR and EARLY_TIGHT_STOP
+        // above already cover every real crash in this window.
 
         // Update peak P&L
         if (pnlPct > pos.peakPnlPct) {
