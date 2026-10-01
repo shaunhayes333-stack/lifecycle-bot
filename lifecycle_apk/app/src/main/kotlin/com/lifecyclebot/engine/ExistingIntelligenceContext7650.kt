@@ -23,6 +23,7 @@ object ExistingIntelligenceContext7650 {
         val mctsExpectedDeltaPct: Double,
         val mctsConfidence: Double,
         val sources: Set<String>,
+        val estate7654: SuperIntelligenceEstate7654.Snapshot,
     ) {
         fun evidenceTopology7651(policy: SuperPolicyTree7638.Policy): SuperEvidenceTopology7651.Result {
             val observations = ArrayList<SuperEvidenceTopology7651.Observation>(7)
@@ -85,6 +86,24 @@ object ExistingIntelligenceContext7650 {
                 trust(SuperEvidenceTopology7651.Family.STRATEGY_LEARNING),
             )
 
+            // Wider intelligence estate: read-only/cached families that were not
+            // explicitly represented in the 7650 integration.
+            val crossUtility7654 = estate7654.crossTalkUtility(policy)
+            if (kotlin.math.abs(crossUtility7654) >= 0.02) observations += SuperEvidenceTopology7651.Observation(
+                "ai_crosstalk", SuperEvidenceTopology7651.Family.AI_CROSSTALK,
+                crossUtility7654, 0.80,
+            )
+            val llmUtility7654 = estate7654.llmUtility(policy)
+            if (kotlin.math.abs(llmUtility7654) >= 0.02) observations += SuperEvidenceTopology7651.Observation(
+                "llm_council_cache", SuperEvidenceTopology7651.Family.LLM_COUNCIL,
+                llmUtility7654, 0.65,
+            )
+            val scannerUtility7654 = estate7654.scannerUtility(policy)
+            if (kotlin.math.abs(scannerUtility7654) >= 0.02) observations += SuperEvidenceTopology7651.Observation(
+                "scanner_ensemble_cache", SuperEvidenceTopology7651.Family.SCANNER_ENSEMBLE,
+                scannerUtility7654, 0.75,
+            )
+
             // Counterfactual replay is a separate empirical ancestry family.
             val mcts = mctsPolicy
             if (mcts != null && mctsConfidence > 0.0) {
@@ -136,7 +155,7 @@ object ExistingIntelligenceContext7650 {
                 mctsExpectedDeltaPct,
                 mctsConfidence,
                 sources.joinToString("+").take(80),
-            )
+            ) + " " + estate7654.tag()
         }
     }
 
@@ -194,6 +213,12 @@ object ExistingIntelligenceContext7650 {
         if (lab != 1.0) src += "AsyncStrategyLab"
         if (mcts != null) src += "CounterfactualReplayEngine"
 
+        val estate7654 = try {
+            SuperIntelligenceEstate7654.read(mint, symbol, laneKey)
+        } catch (_: Throwable) {
+            SuperIntelligenceEstate7654.read("", "", laneKey)
+        }
+
         return Snapshot(
             lane = laneKey,
             specialistEligible = specialist?.eligible,
@@ -208,6 +233,7 @@ object ExistingIntelligenceContext7650 {
             mctsExpectedDeltaPct = mcts?.expectedDeltaPct ?: 0.0,
             mctsConfidence = mcts?.confidence ?: 0.0,
             sources = src,
+            estate7654 = estate7654,
         )
     }
 }

@@ -369,6 +369,58 @@ object LayerBrain {
         } catch (_: Throwable) { "" }
     }
 
+    data class EstateSnapshot7654(
+        val registered: Int,
+        val bootstrap: Int,
+        val advisory: Int,
+        val learned: Int,
+        val authoritative: Int,
+        val trainedSamples: Long,
+        val calibrated: Int,
+        val drifting: Int,
+    ) {
+        val mature: Int get() = learned + authoritative
+        val matureRatio: Double get() =
+            if (registered > 0) mature.toDouble() / registered.toDouble() else 0.0
+    }
+
+    /**
+     * V5.0.7654 - read-only census of the broader per-layer brain population.
+     * No scorer is run here; this proves how much learned intelligence exists.
+     */
+    fun estateSnapshot7654(): EstateSnapshot7654 {
+        var bootstrap = 0
+        var advisory = 0
+        var learned = 0
+        var authoritative = 0
+        var calibrated = 0
+        var drifting = 0
+        var samples = 0L
+        brains.values.forEach { b ->
+            samples += b.trained
+            when (b.authority()) {
+                AuthorityTier.BOOTSTRAP -> bootstrap++
+                AuthorityTier.ADVISORY -> advisory++
+                AuthorityTier.LEARNED -> learned++
+                AuthorityTier.AUTHORITATIVE -> authoritative++
+            }
+            if (b.brierN >= 20L) {
+                val br = b.brierSum / b.brierN
+                if (br <= BRIER_DRIFTING_MAX) calibrated++ else drifting++
+            }
+        }
+        return EstateSnapshot7654(
+            registered = brains.size,
+            bootstrap = bootstrap,
+            advisory = advisory,
+            learned = learned,
+            authoritative = authoritative,
+            trainedSamples = samples,
+            calibrated = calibrated,
+            drifting = drifting,
+        )
+    }
+
     /** Total registered brains. */
     fun count(): Int = brains.size
 

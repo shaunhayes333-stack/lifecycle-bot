@@ -18,6 +18,9 @@ object SuperEvidenceTopology7651 {
         AGGREGATE_CROSSCHECK,
         STRATEGY_LEARNING,
         COUNTERFACTUAL_REPLAY,
+        AI_CROSSTALK,
+        LLM_COUNCIL,
+        SCANNER_ENSEMBLE,
     }
 
     data class Observation(

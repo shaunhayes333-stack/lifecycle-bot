@@ -22,6 +22,21 @@ object AsyncGeminiNarrativeCache6478 {
     private fun key(symbol: String, name: String): String =
         "${symbol.trim().uppercase()}|${name.trim().uppercase()}"
 
+
+    /**
+     * V5.0.7654 - cache-only LLM council readback for Super reasoning.
+     * This deliberately does NOT schedule a refresh or call a provider.
+     */
+    fun peekBySymbol7654(symbol: String): Entry? {
+        val prefix = symbol.trim().uppercase() + "|"
+        if (prefix.length <= 1) return null
+        val now = System.currentTimeMillis()
+        return cache.entries.asSequence()
+            .filter { it.key.startsWith(prefix) && now - it.value.updatedAtMs <= TTL_MS }
+            .map { it.value }
+            .maxByOrNull { it.updatedAtMs }
+    }
+
     fun cachedOrRequest(symbol: String, name: String): Entry? {
         val k = key(symbol, name)
         val now = System.currentTimeMillis()

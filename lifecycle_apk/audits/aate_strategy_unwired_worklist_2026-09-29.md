@@ -3185,3 +3185,21 @@ Super Intelligence now learns whether reasoning families are complementary, redu
 - [x] First-order evidence remains authoritative; pair learning can refine but never replace or amplify past the planner's existing +/-6 total cap.
 - [x] No provider I/O, execution, sizing, capital, hard-veto, threshold or safety authority was added.
 - [x] Regression coverage: `Aate7653EvidenceInteractionTest`.
+
+
+## V5.0.7654 - wider intelligence estate bridge
+
+The Super stack now explicitly reaches beyond the first 7650 integration into AATE's older intelligence estate without synchronously re-running the estate.
+
+- [x] Added `SuperIntelligenceEstate7654`, a cache/read-only bridge for previously omitted intelligence families.
+- [x] `AICrossTalk.cachedSignal7654` exposes the already-computed strongest inter-AI correlation signal without re-running Whale/Momentum/Liquidity/Narrative/MetaCognition/etc.
+- [x] `AsyncGeminiNarrativeCache6478.peekBySymbol7654` exposes the existing background multi-provider LLM council result without scheduling a refresh or making a provider call.
+- [x] `ArbScannerAI.cachedOpportunity` feeds a bounded scanner-ensemble cross-check; no scanner model is run from the oracle.
+- [x] `LayerBrain.estateSnapshot7654` makes the broader learned per-layer brain population visible: registered/mature/authoritative counts, training volume and calibration state.
+- [x] LayerBrain population breadth is epistemic telemetry only. Merely having many brains cannot manufacture a directional vote.
+- [x] Added independent ancestry families `AI_CROSSTALK`, `LLM_COUNCIL` and `SCANNER_ENSEMBLE`; they therefore pass through 7651 de-correlation, 7652 family reliability and 7653 interaction learning.
+- [x] LLM scam state is not duplicated as a Super vote; canonical safety/FDG remains the owner of hard scam refusal.
+- [x] Existing scorer brains already represented upstream through UnifiedScorer/specialist outputs are counted as represented estate, not blindly added again.
+- [x] SmartSystemRuntimeRegistry census is included in estate telemetry so active/interface-used systems can be distinguished from dark/future/report-only systems.
+- [x] No hot-path provider I/O, LLM call, scorer recomputation, execution, capital, sizing, threshold or new hard-veto authority was added.
+- [x] Regression coverage: `Aate7654IntelligenceEstateBridgeTest`.

@@ -102,6 +102,21 @@ object AICrossTalk {
         analyzeCrossTalk(mint = mint, symbol = symbol, isOpenPosition = isOpenPosition, lane = null)
 
     /**
+     * V5.0.7654 - cache-only Super Intelligence readback.
+     * Never invokes constituent AIs and never refreshes provider/network state.
+     */
+    fun cachedSignal7654(
+        mint: String,
+        lane: String?,
+        isOpenPosition: Boolean = false,
+    ): CrossTalkSignal? {
+        if (mint.isBlank()) return null
+        val key = "${mint}_${lane ?: "_"}_${isOpenPosition}"
+        val cached = crossTalkCache[key] ?: return null
+        return if (System.currentTimeMillis() - cached.timestamp <= CACHE_TTL_MS * 2L) cached.signal else null
+    }
+
+    /**
      * V5.9.409 — TokenState convenience overload. Pulls the per-token
      * trading-mode tag directly from `ts.position.tradingMode` so every
      * call site that has a `ts` handle gets lane-aware scaling for free.
