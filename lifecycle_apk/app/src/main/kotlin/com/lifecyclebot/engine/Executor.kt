@@ -21169,8 +21169,9 @@ class Executor(
                 }
             }
 
+            var executionQuote7688 = requireNotNull(jq7325) { "JUPITER_QUOTE_MISSING_BEFORE_BUILD_7688" }
             var txResultLocal = buildTxWithRetry(
-                        jq7325, wallet.publicKeyB58,
+                        executionQuote7688, wallet.publicKeyB58,
                         senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
                     )
             txResult = txResultLocal
@@ -21188,19 +21189,19 @@ class Executor(
                 refresh7688++
                 // No transaction has been signed/submitted. Refresh the whole
                 // quote/build pair at the same tolerance and input amount.
-                val slip7688 = jq7325.raw.optInt("slippageBps", buyBaseSlippage).coerceIn(1, 500)
+                val slip7688 = executionQuote7688.raw.optInt("slippageBps", buyBaseSlippage).coerceIn(1, 500)
                 PipelineHealthCollector.labelInc("LIVE_BUY_SLIPPAGE_REQUOTE_7688")
                 LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
                     "Simulation slippage exceeded; fresh quote ${refresh7688}/2 @ ${slip7688}bps",
                     slippageBps = slip7688, traderTag = "MEME")
                 val fresh7688 = getQuoteWithSlippageGuard(
-                    JupiterApi.SOL_MINT, ts.mint, jq7325.inAmount,
+                    JupiterApi.SOL_MINT, ts.mint, executionQuote7688.inAmount,
                     slip7688, effectiveSol, buyTaker = wallet.publicKeyB58,
                 ) ?: throw Exception("SLIPPAGE_REFRESH_NO_QUOTE_7688")
                 val guard7688 = security.validateQuote(fresh7688, isBuy = true, inputSol = effectiveSol)
                 if (guard7688 is GuardResult.Block) throw Exception("SLIPPAGE_REFRESH_QUOTE_REJECTED_7688:${guard7688.reason}")
-                jq7325 = fresh7688
+                executionQuote7688 = fresh7688
                 txResultLocal = buildTxWithRetry(fresh7688, wallet.publicKeyB58,
                     senderTipLamports = effectiveSenderTipLamports(c, urgent = false))
                 txResult = txResultLocal
@@ -21250,10 +21251,10 @@ class Executor(
 
             security.enforceSignDelay()
 
-            useJito = c.jitoEnabled && !jq7325.isUltra
+            useJito = c.jitoEnabled && !executionQuote7688.isUltra
             jitoTip = effectiveJitoTipLamports(c, urgent = false)
             
-            if (jq7325.isUltra) {
+            if (executionQuote7688.isUltra) {
                 onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
             } else if (useJito) {
                 onLog("⚡ Broadcasting buy tx via Jito MEV protection…", ts.mint)
@@ -21263,11 +21264,11 @@ class Executor(
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_BROADCAST,
-                "Broadcasting | route=${if (jq7325.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
+                "Broadcasting | route=${if (executionQuote7688.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
                 traderTag = "MEME",
             )
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${if (jq7325.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} sol=$sol") } catch (_: Throwable) {}
-            quote = jq7325
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${if (executionQuote7688.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} sol=$sol") } catch (_: Throwable) {}
+            quote = executionQuote7688
             }  // end if (pumpFirstResult == null) — Jupiter pipeline only runs when PUMP-FIRST didn't land
             
             val sig: String
