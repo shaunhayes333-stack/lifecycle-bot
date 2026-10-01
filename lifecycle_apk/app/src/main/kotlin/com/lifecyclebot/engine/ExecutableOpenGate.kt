@@ -903,6 +903,18 @@ object ExecutableOpenGate {
         allowedAttempts[laneKey(ticket.mint, ticket.lane)] = ticket.attemptId to now
         allowedAttempts[ticket.mint.trim()] = ticket.attemptId to now
         try { PipelineHealthCollector.labelInc("EXEC_TICKET_CREATED") } catch (_: Throwable) {}
+        try {
+            val lane7613 = canonicalLane(ticket.canonicalLane.ifBlank { ticket.lane })
+            if (lane7613 in setOf(
+                    "QUALITY","BLUECHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
+                    "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
+                )
+            ) {
+                ToolkitSignalSheet.recordDeskStage(lane7613, "TICKET", ticket.attemptId)
+                PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_TICKET_MIRRORED_7613")
+                PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_TICKET_MIRRORED_7613_" + lane7613)
+            }
+        } catch (_: Throwable) {}
         try { ForensicLogger.lifecycle("EXEC_TICKET_CREATED", "attemptId=${ticket.attemptId} mint=${ticket.mint.take(10)} symbol=${ticket.symbol} lane=${ticket.lane} version=${ticket.candidateVersion} liq=${ticket.liquidityUsd.toInt()} safety=${ticket.safetyTier}") } catch (_: Throwable) {}
     }
 

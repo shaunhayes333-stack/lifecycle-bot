@@ -2623,3 +2623,19 @@ Repair:
 - [x] Canonical specialist intent registration mirrors `OWNER_SELECTED` before `BUY_INTENT`.
 - [x] No score threshold, FDG decision, sizing, TP/SL, allocation, safety or route rule changed.
 - [x] Regression coverage: `Aate7612SpecialistIntentOwnershipReclaimTest`.
+
+
+## V5.0.7613 — specialist sealed-ticket stage continuity
+
+5.0.7607 field evidence:
+- global `EXEC_TICKET_CREATED=10`;
+- every one of the 12 specialist rows reported `ticketN=0`;
+- downstream raw EXEC/OPEN existed for PROJECT_SNIPER and DIP_HUNTER, proving the missing specialist ticket stage was instrumentation drift, not absence of tickets.
+
+Repair:
+- [x] The canonical `publishTicket()` authority now mirrors `TICKET` into the specialist causal funnel.
+- [x] Only already-created immutable tickets are mirrored; this path cannot create or authorize a ticket.
+- [x] Lane comes from canonical ticket ownership and is normalized through `CanonicalLaneIdentity6506`.
+- [x] Restricted to the canonical 12 specialist lanes.
+- [x] No FDG, mark, sizing, safety, route, TP/SL or allocation rule changed.
+- [x] Regression coverage: `Aate7613SpecialistTicketContinuityTest`.
