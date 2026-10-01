@@ -1405,3 +1405,20 @@ This bundle continues the original-113 audit by reconciling C_EXIT/A_PREDICT fal
 - [x] `ShadowLearningEngine.getPerformanceByMode` — **REPORT/ANALYTICS API**. It aggregates completed shadow outcomes and must not become a synchronous held-position gate.
 - [x] `SmartExitOptimizer.getExitPressure` — **ALIAS_REDUNDANT_FOR_MEME_HOLD** remains closed as classified in 7455. It re-runs symbolic exit assessment and is deliberately absent from the meme held hot path.
 - [x] Regression coverage: `Aate7560ExitUnwiredLedgerTruthTest` proves the canonical held stack is present, duplicate legacy classifiers stay out, and the stale-ledger markets TP accessor is genuinely called in production.
+
+
+## V5.0.7561 — predictive sidecar/background contract bundle
+
+This bundle continues the original-113 A_PREDICT audit. These accessors are useful intelligence surfaces, but their implementation shape makes them unsuitable for synchronous scanner / V3 / FDG use. The repair is classification + regression fencing so they are prefetched, cached, sidecar/report-only, or deliberately left local rather than accidentally becoming hot-path I/O.
+
+- [x] `CoinGeckoTrending.getSolanaEcosystemMomentum` — **BACKGROUND_CACHE_REQUIRED**. It calls `getTrending()`, which refreshes CoinGecko over HTTP when cache TTL expires. Never call synchronously from scanner/V3/FDG.
+- [x] `CollectiveLearning.getNetworkBoostForMint` — **BACKGROUND_CACHE_REQUIRED**. It is `suspend` and explicitly switches to `Dispatchers.IO`; hive/database evidence must be prefetched before admission.
+- [x] `CorrelationScanner.getActionableSignals` — **PERPS_SIDECAR / BACKGROUND_SCAN**. It is suspend and invokes a full correlation scan; current runtime classification already treats CorrelationScanner as a perps sidecar/report surface.
+- [x] `DataOrchestrator.scoreSentimentWithLlm` — **BACKGROUND_LLM_SIDECAR**. It invokes LLM sentiment and must never become a blocking prerequisite for scanner/FDG.
+- [x] `EducationSubLayerAI.getEdgeLedger` — **BACKGROUND_REPORT / STRATEGY_RESEARCH**. It ranks aggregate learned reason statistics; useful for periodic strategy selection, not per-candidate admission.
+- [x] `ShadowLearningEngine.getPerformanceByConfidence` — **REPORT/ANALYTICS**. It aggregates completed shadow outcomes; it is not an independent predictive veto/allow authority.
+- [x] `TursoClient.getMarketsAssetRankings` — **BACKGROUND_DB_REQUIRED**. It is suspend and executes a remote SQL ranking query; never await it in a trading hot path.
+- [x] `InsiderTrackerAI.getSignalsByWallet` — **LOCAL_QUERY_HELPER**. It filters an already-cached signal map by wallet; the actionable insider/copy routes are separate production surfaces, so this accessor is not itself a missing strategy.
+- [x] `QualityTraderAI.getRecommendedLeverage` — **ASSET/LEVERAGE_HELPER**. It reads learned leverage preference state; it is not meme entry intelligence and should be audited with leveraged/perps execution rather than wired into meme FDG.
+- [x] No scanner source, V3 score, FDG threshold, safety rule, sizing rule or execution authority is changed in this bundle.
+- [x] Regression coverage: `Aate7561PredictiveSidecarContractTest` proves network/DB/suspend sidecars stay out of the canonical meme hot path.
