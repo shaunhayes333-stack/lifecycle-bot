@@ -1783,3 +1783,25 @@ This tranche closes simple crypto/perps learning-state accessors and same-record
 - [x] `CryptoLosingPatternMemory.Bucket.meanPnl` — **LOCAL BUCKET STATISTIC HELPER** used to derive danger state.
 - [x] F_DEAD reconciliation progress: prior 107 + 10 = **117 / 1,458** classified; **1,341 remain**.
 - [x] Regression coverage: `Aate7581CryptoLearningStateTrancheTest`.
+
+
+## V5.0.7582 — F_DEAD provider-health/readback helper tranche (14 rows)
+
+These rows are provider-health state queries, local health predicates, cooldown/readback helpers, or cached configuration state. They are not missing independent trading authorities.
+
+- [x] `DexScreenerWebSocket.getSubscribedCount` — **STATUS COUNT READBACK**.
+- [x] `LiveProviderQuorum.hostHealthy` — **LOCAL QUORUM HELPER** used inside provider evaluation.
+- [x] `LiveProviderQuorum.hostDegraded` — **LOCAL QUORUM HELPER** used inside provider evaluation.
+- [x] `ProviderAuthority.isDegraded` — **PROVIDER STATE READBACK**.
+- [x] `ProviderAuthority.allowedRoles` — **AUTHORITY POLICY QUERY HELPER**.
+- [x] `ProviderAuthority.canFulfill` — **AUTHORITY POLICY QUERY HELPER**.
+- [x] `ProviderAuthority.deviationPct` — **PURE CROSS-PROVIDER MATH HELPER**.
+- [x] `ExitProviderHealth.jupiterProbeReady` — **CIRCUIT STATE QUERY**.
+- [x] `ExitProviderHealth.jupiterCooldownRemainingMs` — **CIRCUIT STATE READBACK**.
+- [x] `ExitProviderHealth.pumpRouteInvalidatedRecently` — **ROUTE-CACHE STATE QUERY**.
+- [x] `ProviderCircuitBreaker6402.totalSkipEvents` — **TELEMETRY COUNTER READBACK**.
+- [x] `NetworkSignalAutoBuyer.getDailyRemaining` — **BUDGET STATE READBACK**; not an authorization bypass.
+- [x] `PythOracle.isPriceFeedHealthy` — **CACHE HEALTH QUERY**.
+- [x] `CloudLearningSync.isOptedIn` + `isUsingCommunityWeights` are configuration readbacks; counted as one paired configuration surface for this tranche.
+- [x] F_DEAD reconciliation progress: prior 117 + 14 = **131 / 1,458** classified; **1,327 remain**.
+- [x] Regression coverage: `Aate7582ProviderHealthReadbackTrancheTest`.
