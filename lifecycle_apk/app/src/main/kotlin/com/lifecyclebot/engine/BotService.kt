@@ -14237,7 +14237,7 @@ class BotService : Service() {
                 return false
             }
             // V5.0.6047 — TREASURY uses permissive cashGenProofOk (scalp/compounder role)
-            if (l == "TREASURY" && !cashGenProofOk()) {
+            if (l in setOf("TREASURY", "CASHGEN") && !cashGenProofOk()) {
                 try { ForensicLogger.lifecycle("CASHGEN_TREASURY_PRIMARY_PROOF_REJECTED_6047", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }}") } catch (_: Throwable) {}
                 return false
             }

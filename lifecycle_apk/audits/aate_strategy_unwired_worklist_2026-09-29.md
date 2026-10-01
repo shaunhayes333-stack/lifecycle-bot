@@ -2697,3 +2697,12 @@ Repair:
 - [x] Non-trainable historical terminals stay non-trainable under existing 7521/7526 rules.
 - [x] No entry, FDG, sizing, exit, lane or safety behavior changed.
 - [x] Regression coverage: `Aate7617FinalizedLearningCatchupBudgetTest`.
+
+
+## V5.0.7618 — CASHGEN/TREASURY structural-proof parity
+
+- [x] A CASHGEN canonical primary now runs the same `cashGenProofOk()` structural proof as TREASURY.
+- [x] Both require real route price evidence, no hard safety block, and scalp-executable liquidity before owner execution.
+- [x] This closes the post-7614 asymmetry where CASHGEN gained self ownership but could skip the proof protecting the shared cashflow executor.
+- [x] No threshold value changed.
+- [x] Regression coverage: `Aate7618CashgenTreasuryProofParityTest`.
