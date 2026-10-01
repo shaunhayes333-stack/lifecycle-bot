@@ -1387,3 +1387,21 @@ Audit continuation after 7542 made all native specialist opinions authoritative.
 - [x] Social metadata presence bits are included in SpecialistBrainBridge cache identity so newly hydrated metadata invalidates a stale opinion immediately.
 - [x] Raw social URLs are not stored in the fingerprint or telemetry.
 - [x] Existing sentiment, DEX visibility, graduation, bundle and hard-safety semantics remain unchanged.
+
+
+## V5.0.7560 — exit-intelligence ledger truth + duplicate-authority guard
+
+This bundle continues the original-113 audit by reconciling C_EXIT/A_PREDICT false positives against the current canonical held-position stack. It intentionally does **not** add another exit manager beside HoldingLogicLayer / AdvancedExitManager / Executor sell authority.
+
+- [x] `HoldingLogicLayer.getHoldParams` — **CLOSED_LOOP / LEDGER_STALE (7455)**. `evaluatePosition` reads it as the single mode-parameter surface.
+- [x] `LiveStrategyTuner.tpMultiplier` — **CLOSED_LOOP / LEDGER_STALE (7455)**. TP, hold and partial multipliers are consumed through one cached `LiveStrategyTuner.adjustment(mode)` in canonical held management.
+- [x] `FluidLearningAI.getMarketsUncappedTpPct` — **CLOSED_LOOP / LEDGER_STALE**. Forex, Metals and Commodities consume it to preserve a stronger signal-derived TP instead of capping to the fluid default.
+- [x] `ExitManager.shouldPartialSell` — **LEGACY_DEAD / DO_NOT_WIRE**. `ExitManager` is explicitly retired and has no production authority; canonical partial/full exits already route through held management and Executor sell authority.
+- [x] `TrailingStopManager.getRecommendedStopType` — **LEGACY_DEAD_COMPANION / DO_NOT_WIRE**. The only production-looking adaptive-stop call remains inside retired `ExitManager`; canonical held management already owns hard stop, trailing, time and AEM decisions. Wiring this getter would create a second stop classifier.
+- [x] `ExitIntelligence.getLearnedMaxHoldMinutes` — **REPORT_ONLY**. Current production use is operator status/telemetry; learned hold policy that can actuate positions is already represented through `LiveStrategyTuner` + FluidLearning hold clocks in `HoldingLogicLayer`.
+- [x] `FluidLearningAI.getLayerHoldParams` — **ALIAS_WRAPPER**. Canonical held management consumes the constituent min/max/urgency getters directly; adding the aggregate wrapper would create two read surfaces for the same policy.
+- [x] `FluidLearningAI.getMarketsTakeProfitPct` — **ALIAS_REDUNDANT**. Markets production paths use the explicit spot/leveraged TP getters; the generic getter is not a missing strategy.
+- [x] `FluidLearning.getSimulatedPeak` — **REPORT/STATE ACCESSOR**. It exposes account-simulation state, not an independent exit decision primitive.
+- [x] `ShadowLearningEngine.getPerformanceByMode` — **REPORT/ANALYTICS API**. It aggregates completed shadow outcomes and must not become a synchronous held-position gate.
+- [x] `SmartExitOptimizer.getExitPressure` — **ALIAS_REDUNDANT_FOR_MEME_HOLD** remains closed as classified in 7455. It re-runs symbolic exit assessment and is deliberately absent from the meme held hot path.
+- [x] Regression coverage: `Aate7560ExitUnwiredLedgerTruthTest` proves the canonical held stack is present, duplicate legacy classifiers stay out, and the stale-ledger markets TP accessor is genuinely called in production.
