@@ -62,6 +62,18 @@ class Repair6517StartStopFunctionTest {
         assertTrue(vm.contains("ctx.startService(intent)"))
     }
 
+
+    @Test
+    fun `historical finality replay cannot block operator Start bootstrap`() {
+        val coreReady = service.indexOf("bootstrapPhase6516(\"CORE_STORES_READY\")")
+        val backgroundReplay = service.indexOf("post-boot-finality-replay-7559")
+        val replayCall = service.indexOf("CanonicalFinalityPersistence6486", backgroundReplay)
+        assertTrue(backgroundReplay > 0 && replayCall > backgroundReplay)
+        assertTrue(coreReady > replayCall)
+        assertTrue(service.contains("DURABLE_FINALITY_REPLAY_BACKGROUND_DONE_7559"))
+        assertTrue(service.contains("DURABLE_FINALITY_REPLAY_BACKGROUND_FAILED_7559"))
+    }
+
     @Test
     fun `runtime smoke clears Android background permission before looking for stop`() {
         val loopReady = smoke.indexOf("wait_log_marker \"BOT_LOOP_TICK\"")
