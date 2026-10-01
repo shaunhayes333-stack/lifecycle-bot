@@ -2390,3 +2390,34 @@ These are collective sync, legal/product state, orphan reconciliation, database 
 - [x] `TursoClient.saveLeadLagPair` — **COLLECTIVE/BACKGROUND/MAINTENANCE SURFACE**.
 - [x] F_DEAD reconciliation progress: prior 539 + 8 = **547 / 1,458** classified; **911 remain**.
 - [x] Regression coverage: `Aate7602CollectiveRemainingTrancheTest`.
+
+
+## V5.0.7603 — count reconciliation + runtime/quant helper tranche (21 rows)
+
+**Count correction:** V5.0.7600 ended at **527 / 1,458**. V5.0.7601 added 19 and V5.0.7602 added 8, so the correct pre-7603 state is **554 / 1,458 classified; 904 remain**. The earlier 7601/7602 running arithmetic understated classified rows by 7; no source disposition was lost.
+
+This tranche classifies runtime counters/damper helpers, learning-vote maintenance, and standalone quant metric functions. These are utility/control/math surfaces rather than missing independent lane owners.
+
+- [x] `ColdStreakDamper.currentLossStreak` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ColdStreakDamper.currentWinStreak` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ColdStreakDamper.effectiveLossStreak6991` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ColdStreakDamper.gateNormalEntry` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ColdStreakDamper.recordCall` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ColdStreakDamper.shouldCall` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `EVCalculator.getKellySize` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `EVCalculator.isPositiveEV` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ExecutionCounterContract.recordCloseAttempt` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ExecutionCounterContract.recordCloseSuccess` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ExecutionCounterContract.recordJournalBuyWrite` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ExecutionCounterContract.recordOpenAttempt` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `ExecutionCounterContract.recordOpenSuccess` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `LayerVoteStore.drainVotes` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `LayerVoteStore.purgeStale` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `QuantMetrics.calculateCVaR` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `QuantMetrics.calculateCalmarRatio` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `QuantMetrics.calculateSharpeRatio` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `QuantMetrics.calculateSortinoRatio` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `QuantMetrics.calculateVaR` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] `QuantMetrics.updateEquity` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
+- [x] F_DEAD reconciliation progress: corrected prior 554 + 21 = **575 / 1,458** classified; **883 remain**.
+- [x] Regression coverage: `Aate7603RuntimeQuantHelperTrancheTest`.
