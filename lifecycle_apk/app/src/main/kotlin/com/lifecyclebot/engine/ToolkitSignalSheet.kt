@@ -1033,6 +1033,23 @@ object ToolkitSignalSheet {
             parts6647.size >= 2 && parts6647[1].toLongOrNull() != null -> parts6647[0]
             else -> ""
         }
+
+        // V5.0.7683 — terminal position events are not candidate-generation
+        // events. The 7677 runtime showed 184 generic unresolved-id drops and
+        // they decomposed exactly to SELL_ATTEMPT=73 + SELL_CONFIRMED=73 +
+        // FINALIZED=38. Reconstructing those from the current scanner version
+        // risks attaching an old/restored close to a newer candidate.
+        //
+        // Prefer the exact OPEN causal record that is still awaiting terminal
+        // finality. If it does not exist (legacy/restored/evicted entry), keep
+        // the terminal event forensic-only instead of poisoning the generic
+        // entry-lineage unresolved counter.
+        val terminalPositionStage7683 =
+            positionEvent6647 && stage in setOf("SELL_ATTEMPT", "SELL_CONFIRMED", "FINALIZED")
+        val terminalOpenKey7683 = if (terminalPositionStage7683 && mint.isNotBlank()) try {
+            com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625
+                .latestUnfinalizedOpenKey6713(mint, lane)
+        } catch (_: Throwable) { null } else null
         // V5.0.7471 — downstream specialist stages must follow the immutable
         // sealed execution intent, not whichever candidateVersion the callback
         // happens to carry after scanner/election generation advances.
@@ -1141,7 +1158,24 @@ object ToolkitSignalSheet {
             else -> null
         }
         if (causalStage != null) {
-            if (mint.isNotBlank() && candidateVersion6647 > 0L) {
+            if (terminalPositionStage7683) {
+                if (terminalOpenKey7683 != null) {
+                    com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625
+                        .stamp6625(terminalOpenKey7683, causalStage, stage)
+                    try {
+                        PipelineHealthCollector.labelInc("SPECIALIST_TERMINAL_POSITION_REBOUND_7683")
+                        PipelineHealthCollector.labelInc("SPECIALIST_TERMINAL_POSITION_REBOUND_7683_$stage")
+                    } catch (_: Throwable) {}
+                } else {
+                    // Canonical finality/learning may still be published by the
+                    // finalized bus. This counter means only that the transient
+                    // specialist causal OPEN record is unavailable.
+                    try {
+                        PipelineHealthCollector.labelInc("SPECIALIST_TERMINAL_NO_OPEN_CAUSAL_RECORD_7683")
+                        PipelineHealthCollector.labelInc("SPECIALIST_TERMINAL_NO_OPEN_CAUSAL_RECORD_7683_$stage")
+                    } catch (_: Throwable) {}
+                }
+            } else if (mint.isNotBlank() && candidateVersion6647 > 0L) {
                 val expectedIntentId6647 = "$mint:$candidateVersion6647:$lane"
                 val resolvedMode6858 = resolvedMode7471
                 // V5.0.6858 §THE_CANONICAL_STAGES_ORPHANED_THEMSELVES — the reuse

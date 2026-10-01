@@ -3612,3 +3612,21 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] Primary post-auth continuation requires same attempt, positive resolved size and a positive executable mark timestamp before SIZED_EXECUTABLE/TICKET.
 - [x] Runtime acceptance remains open: raw/validated stage counts must converge and valid-source missing-mark counts must materially fall on a fresh device run.
 - [x] No mark trust threshold, sizing formula, score floor, execution route, safety or finality rule changed.
+
+
+## V5.0.7683 - terminal specialist causal identity reclassification
+
+Fresh 5.0.7677 runtime evidence:
+- `SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647=184`.
+- The pinned dropped-stage counters decompose that exactly into:
+  `SELL_ATTEMPT=73 + SELL_CONFIRMED=73 + FINALIZED=38 = 184`.
+- Therefore this counter was not measuring entry candidate identity loss in that run; it was dominated by terminal position events whose original in-memory candidate version was unavailable.
+
+Repair:
+- [x] Position-based SELL_ATTEMPT / SELL_CONFIRMED / FINALIZED first resolve the exact `latestUnfinalizedOpenKey6713(mint,lane)`.
+- [x] When that exact OPEN record exists, the terminal stage is stamped on it and emits `SPECIALIST_TERMINAL_POSITION_REBOUND_7683`.
+- [x] When it does not exist (legacy/restored/evicted entry), no current scanner generation is used as a substitute. Emit `SPECIALIST_TERMINAL_NO_OPEN_CAUSAL_RECORD_7683` and keep the specialist funnel event forensic-only.
+- [x] Canonical finalized-bus publication remains independently authoritative for economic finality/learning.
+- [x] Generic `SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647` is no longer polluted by known terminal-position identity shape and is therefore more useful for fresh entry-lineage diagnosis.
+- [x] No execution, exit, finality, economics, thresholds, sizing, safety or learning eligibility changed.
+- [x] Regression coverage: `Aate7683TerminalCausalPositionBindingTest`.
