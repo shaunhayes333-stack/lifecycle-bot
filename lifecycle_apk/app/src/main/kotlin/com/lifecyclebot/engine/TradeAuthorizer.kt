@@ -174,6 +174,10 @@ object TradeAuthorizer {
         attemptId: String = "",
     ): AuthorizationResult {
         val now = System.currentTimeMillis()
+        // V5.0.7624 — pin one candidate generation at authorization entry.
+        // BUY_INTENT, lane election, release and any generated attempt id must
+        // refer to the same candidate even if the 30s bucket rolls mid-call.
+        val candidateVersion7624 = LaneExecutionCoordinator.candidateVersionFor(mint)
         val normalizedQuality = quality.trim().uppercase()
         val safeConfidence = confidence.coerceIn(0.0, 100.0)
 
@@ -232,7 +236,7 @@ object TradeAuthorizer {
             }
         }
 
-        val causalAttempt6613 = attemptId.ifBlank { "${mint}:${LaneExecutionCoordinator.candidateVersionFor(mint)}:${requestedBook.name}" }
+        val causalAttempt6613 = attemptId.ifBlank { "${mint}:$candidateVersion7624:${requestedBook.name}" }
         var electionReceipt6494: LaneExecutionCoordinator.Verdict? = null
         fun releasePrimaryAfterAuthFailure(reason: String) {
             val receipt = electionReceipt6494
@@ -245,7 +249,7 @@ object TradeAuthorizer {
                     mint = mint,
                     lane = receipt?.primaryLane ?: requestedBook.name,
                     reason = reason,
-                    candidateVersion = receipt?.candidateVersion ?: LaneExecutionCoordinator.candidateVersionFor(mint),
+                    candidateVersion = receipt?.candidateVersion ?: candidateVersion7624,
                 )
             } catch (_: Throwable) {}
         }
@@ -288,7 +292,11 @@ object TradeAuthorizer {
         // by the canonical execution key. That burns worker budget and causes
         // supervisor timeouts without increasing real trades. Preserve primary
         // lane execution; suppress secondary lanes as telemetry before finality.
-        val laneElection = LaneExecutionCoordinator.canRequestExecution(mint, requestedBook.name)
+        val laneElection = LaneExecutionCoordinator.canRequestExecution(
+            mint = mint,
+            lane = requestedBook.name,
+            candidateVersion = candidateVersion7624,
+        )
         electionReceipt6494 = laneElection
         if (laneElection.allowed) try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "OWNER_SELECTED", causalAttempt6613) } catch (_: Throwable) {}
         if (!laneElection.allowed) {
@@ -310,7 +318,7 @@ object TradeAuthorizer {
         // No AUTHORIZED/PAPER_EXECUTE/LIVE_EXECUTE/token lock may appear before
         // EXEC_OPEN_ALLOWED for this same attempt.
         val finalityAttemptId = attemptId.ifBlank {
-            ExecutableOpenGate.nextAttemptId(mint, requestedBook.name)
+            ExecutableOpenGate.nextAttemptId(mint, requestedBook.name, laneElection.candidateVersion)
         }
         val finality = ExecutableOpenGate.canOpenExecutablePosition(
             mint = mint,

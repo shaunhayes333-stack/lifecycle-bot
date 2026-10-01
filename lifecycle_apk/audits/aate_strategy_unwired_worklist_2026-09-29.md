@@ -2780,3 +2780,17 @@ The 7622 follow-up sweep found seven independent `candidateVersionFor(ts.mint)` 
 - [x] Existing mutable score/safety/liquidity cache fingerprints remain unchanged.
 - [x] No threshold, scoring, sizing, TP/SL, allocation, route or hard-safety policy changed.
 - [x] Regression coverage: `Aate7623PinnedFdgCandidateVersionTest`.
+
+
+## V5.0.7624 — preserve candidate generation through TradeAuthorizer handoff
+
+The post-7623 sweep found a second generation split downstream of FDG. `TradeAuthorizer.authorize` independently resolved candidateVersion for its causal BUY_INTENT ID, then let `canRequestExecution` resolve again, and a blank caller attempt generated `nextAttemptId()` with yet another current-version read. A bucket rollover between those points could encode N+1 in the attempt ID while the immutable lane-election receipt remained on N.
+
+- [x] Pin `candidateVersion7624` once at authorization entry.
+- [x] Use it for fallback causal BUY_INTENT/AUTH_REJECT identity.
+- [x] Pass it explicitly into `LaneExecutionCoordinator.canRequestExecution`.
+- [x] Release fallback uses the same pinned generation.
+- [x] `nextAttemptId` now accepts an explicit candidateVersion and TradeAuthorizer supplies the immutable election receipt generation.
+- [x] Existing two-argument `nextAttemptId` callers remain source-compatible through the canonical default.
+- [x] No threshold, sizing, FDG, exit, allocation, route or safety policy changed.
+- [x] Regression coverage: `Aate7624AuthorizerCandidateContinuityTest`.

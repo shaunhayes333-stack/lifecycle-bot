@@ -168,7 +168,16 @@ object ExecutableOpenGate {
     )
 
     private val attemptSeq = AtomicLong(0L)
-    fun nextAttemptId(mint: String, lane: String): String = canonicalExecutionKey(mint, lane = lane, ticketId = attemptSeq.incrementAndGet())
+    fun nextAttemptId(
+        mint: String,
+        lane: String,
+        candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
+    ): String = canonicalExecutionKey(
+        mint,
+        lane = lane,
+        candidateVersion = candidateVersion,
+        ticketId = attemptSeq.incrementAndGet(),
+    )
     fun canonicalExecutionKey(
         mint: String,
         mode: String = if (FinalExecutionPermit.isPaperMode) "PAPER" else "LIVE",
