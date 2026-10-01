@@ -93,8 +93,8 @@ object OracleEdgeProof7263 {
         else -> null
     }
 
-    private fun activeMode(): String =
-        try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
+    private fun activeMode(): String? =
+        try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { null }
 
     private fun book(mode: String?): ModeBook? = normalizeMode(mode)?.let { books[it] }
     private fun stampKey(mode: String, mint: String) = "$mode|$mint"
@@ -178,7 +178,7 @@ object OracleEdgeProof7263 {
     fun stamp(
         mint: String,
         forecast: PredictiveEntryOracle6915.Forecast,
-        executionMode: String = activeMode(),
+        executionMode: String? = activeMode(),
     ) {
         val mode = normalizeMode(executionMode) ?: return
         if (mint.isBlank()) return
@@ -265,7 +265,7 @@ object OracleEdgeProof7263 {
         }
     }
 
-    fun tier(executionMode: String = activeMode()): Tier = book(executionMode)?.tier ?: Tier.ADVISORY
+    fun tier(executionMode: String? = activeMode()): Tier = book(executionMode)?.tier ?: Tier.ADVISORY
 
     fun isInverted7304(executionMode: String = activeMode()): Boolean {
         val b = book(executionMode) ?: return false
