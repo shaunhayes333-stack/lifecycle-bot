@@ -75,6 +75,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7679: P0-7/P0-8 source reconciliation. Durable finalized repair remains proof-bounded/non-synthetic, 7473 redrives only missing canonical projection, 7470 binds exact strategy identity at open, and 7456 keeps invalid/restored/replayed attribution forensic-only. Runtime miss/population convergence remains open.
 - 5.0.7680: P0-9 provider/data-waste source contract reconciled. Canonical-mint refresh gating, duplicate-evidence coalescing, OHLCV/supply negative caches, bounded pools and provider lockout cooldowns prevent retry storms while degradation stays fail-open where safe.
 - 5.0.7681: P0-10 latency/exit stability source contract. Slow-cycle phase attribution now starts at 5s; maintenance/fanout/provider work remains bounded/off-loop, and healthy exit sweeps cannot be stale-reset while active/progressing.
+- 5.0.7682: P0-1/P0-2 source contracts reconciled. Causal predecessor recovery is proof-bounded, canonical entry marks are immutable/sealed, and executable sizing cannot fabricate a stage without the exact intent/mark lineage; runtime convergence remains open.
 
 ## Existing intelligence estate explicitly in scope
 

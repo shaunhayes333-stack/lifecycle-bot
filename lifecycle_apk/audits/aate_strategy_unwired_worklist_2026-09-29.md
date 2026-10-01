@@ -567,8 +567,8 @@ Baseline evidence:
 - CYCLIC: rawSized=1 rawTicket=1 rawExec=1 rawOpen=1 while validated downstream counts are zero; suppressedStages=SIZE,TICKET,EXEC,OPEN.
 - Funnel suppression counter: `FUNNEL_STAGE_COUNT_SUPPRESSED_7214=18`.
 Required repair:
-- [ ] Preserve the same immutable candidate/attempt identity from discovery -> qualification -> owner selection -> intent -> FDG -> mark -> size -> ticket -> exec -> open.
-- [ ] Never backfill a predecessor from a later stage unless same-record proof is complete.
+- [x] P0-1 immutable candidate/attempt source continuity is repaired: 7464 restores only provenance-proven DISCOVER/QUALIFY on the same causal key, later stages retain the exact intent/attempt identity, and 7468/7469/7623 prevent post-seal attempt/generation drift.
+- [x] Later-stage predecessor fabrication is blocked: 7464 may recover only DISCOVER/QUALIFY from exact registry mint+lane affinity; 7537 refuses to invent missing upstream ticket/mark/FDG truth, and INTENT inference requires the same record to already contain DISCOVER + FDG_ALLOW + MARK + executable SIZE proof.
 - [ ] Raw stage counts and validated counts must converge for fresh post-fix attempts.
 - [ ] Keep `PROJECT_SNIPER_NON_SNIPER_ADMISSION=0`.
 
@@ -579,10 +579,10 @@ Baseline evidence:
 - MARK health: broken=277, suppressed=277.
 - Valid source/no executable mark telemetry: 194.
 Required repair:
-- [ ] Trace exact source-valid -> canonical mark -> mark identity -> sizing edge.
-- [ ] A valid source must end in either MARK_READY or an explicit terminal MARK_REJECT reason.
-- [ ] No candidate may reach executable sizing without an immutable canonical mark.
-- [ ] Eliminate phantom size records caused by missing mark predecessors.
+- [x] P0-2 source-valid→mark→size chain is explicit: 7465 `resolveEntryMarkForMode7465` owns entry-mark selection, sealed intents carry mark source/timestamp/price, and executable sizing joins only through the same immutable intent attemptId.
+- [x] Canonical mark resolution terminates explicitly: accepted marks carry immutable provenance into the intent/MARK_READY path; missing/unusable marks remain hard refusals with named resolver/`EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613` reasons rather than silently disappearing.
+- [x] Executable sizing requires immutable mark authority: the primary post-auth spine verifies same attempt, positive sealed size and `executableMarkTimestampMs6613 > 0L`; paper execution hard-refuses when canonical mark resolution returns no executable mark.
+- [x] Phantom executable-size source defect is closed: `CanonicalSizingBridge6532` derives causal stage identity solely from an existing immutable intent for the exact mode/mint/candidateVersion and withholds `SIZED_EXECUTABLE` telemetry when that intent does not exist; downstream causal validation still exposes any missing predecessor instead of fabricating it.
 
 ## P0-3 — BLUECHIP sizing-path break
 Baseline evidence:
@@ -3599,3 +3599,16 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] Supervisor/exit health uses recent timeout pressure rather than cumulative session debt to avoid permanent recovery mode after the system has recovered.
 - [x] Runtime acceptance remains open: device snapshots must show >5s attribution populated and timeout/reset counts materially improved.
 - [x] No exit threshold, stop logic, finality rule, safety gate, sizing or execution authority changed.
+
+
+## V5.0.7682 - P0-1/P0-2 immutable lineage + canonical mark source reconciliation
+
+- [x] 7464 lineage recovery is deliberately narrow: exact registry mint+lane affinity may reconstruct DISCOVER and downstream authority may establish QUALIFY, but INTENT/FDG/MARK/SIZE are never invented.
+- [x] Same-record INTENT inference remains allowed only when that exact causal record already proves DISCOVER + FDG_ALLOW + MARK + executable SIZE.
+- [x] 7537 preserves missing predecessor faults instead of backfilling later truth into earlier stages.
+- [x] 7465 provides one mode-aware canonical entry-mark resolver for intent sealing, paper execution and ticket revalidation; LIVE never falls back to observation-only marks.
+- [x] Fresh intents seal executable mark source, timestamp and price. Missing marks terminate with explicit resolver/execution refusal reasons.
+- [x] CanonicalSizingBridge6532 stamps executable sizing only when the exact mode/mint/candidateVersion already has an immutable execution intent; caller-supplied nonblank causal IDs cannot fabricate SIZE telemetry.
+- [x] Primary post-auth continuation requires same attempt, positive resolved size and a positive executable mark timestamp before SIZED_EXECUTABLE/TICKET.
+- [x] Runtime acceptance remains open: raw/validated stage counts must converge and valid-source missing-mark counts must materially fall on a fresh device run.
+- [x] No mark trust threshold, sizing formula, score floor, execution route, safety or finality rule changed.
