@@ -1050,14 +1050,27 @@ object PredictiveEntryOracle6915 {
                     brainDelta7261 >= -5.0
             val coldExpectancy7261 = ((currentCandidatePWin7261 * 2.0) - 1.0) * 100.0
             try {
+                val world7634 = com.lifecyclebot.engine.SuperWorldModel7634.forecast(
+                    lane = laneKey,
+                    score = s,
+                    quality = quality,
+                    regime = regime,
+                    edgePhase = edgePhase,
+                    basePWin = currentCandidatePWin7261,
+                    baseExpectancyPct = coldExpectancy7261,
+                    baseConfidence = candidateConfidenceSafe7260,
+                    disagreement = (kotlin.math.abs(brainDelta7261) / BRAIN_NETWORK_CAP_PCT_6917)
+                        .let { (1.0 - it.coerceIn(0.0, 1.0)) },
+                )
+                contributions += world7634.contributionTag()
                 val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                     pWin = currentCandidatePWin7261,
                     expectancyPct = coldExpectancy7261,
                     confidence = candidateConfidenceSafe7260,
-                    disagreement = (kotlin.math.abs(brainDelta7261) / BRAIN_NETWORK_CAP_PCT_6917)
-                        .let { (1.0 - it.coerceIn(0.0, 1.0)) },
+                    disagreement = world7634.disagreement,
                     policyPWin = policyPWin7261,
                     hardSafetyBlocked = false,
+                    world = world7634,
                 )
                 contributions += superPlan7633.contributionTag()
                 try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
@@ -1225,14 +1238,27 @@ object PredictiveEntryOracle6915 {
         val finalE = blendedE + (boundedAdjust + boundedBrain6917) * opinionShare7329 +
             creatorRugAdjust7329.coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, 0.0)
         try {
+            val world7634 = com.lifecyclebot.engine.SuperWorldModel7634.forecast(
+                lane = laneKey,
+                score = s,
+                quality = quality,
+                regime = regime,
+                edgePhase = edgePhase,
+                basePWin = blendedPWin,
+                baseExpectancyPct = finalE,
+                baseConfidence = confidence,
+                disagreement = (kotlin.math.abs(boundedBrain6917) / BRAIN_NETWORK_CAP_PCT_6917)
+                    .let { (1.0 - it.coerceIn(0.0, 1.0)) },
+            )
+            contributions += world7634.contributionTag()
             val superPlan7633 = com.lifecyclebot.engine.SuperIntelligencePlanner7633.plan(
                 pWin = blendedPWin,
                 expectancyPct = finalE,
                 confidence = confidence,
-                disagreement = (kotlin.math.abs(boundedBrain6917) / BRAIN_NETWORK_CAP_PCT_6917)
-                    .let { (1.0 - it.coerceIn(0.0, 1.0)) },
+                disagreement = world7634.disagreement,
                 policyPWin = if (unifiedPolicyReads7260.get() > 0L) unifiedPolicyPWin7260 else 0.50,
                 hardSafetyBlocked = creatorRugAdjust7329 < 0.0,
+                world = world7634,
             )
             contributions += superPlan7633.contributionTag()
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}

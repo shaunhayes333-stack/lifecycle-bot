@@ -49,6 +49,7 @@ object SuperIntelligencePlanner7633 {
         disagreement: Double,
         policyPWin: Double,
         hardSafetyBlocked: Boolean,
+        world: SuperWorldModel7634.Snapshot? = null,
     ): Plan {
         val p = pWin.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.50
         val e = expectancyPct.takeIf { it.isFinite() } ?: 0.0
@@ -64,15 +65,28 @@ object SuperIntelligencePlanner7633 {
                 ActionScore(action, 0.0, 0.0, 0.0)
             } else {
                 val exposure = action.exposure
-                val expected = e * exposure
-                val downside = (1.0 - p) * 22.0 * exposure
-                val uncertaintyPenalty = uncertainty * 14.0 * exposure
+                val horizon = when (action) {
+                    Action.ENTER_REDUCED -> SuperWorldModel7634.Horizon.IMPULSE
+                    Action.ENTER_BASE -> SuperWorldModel7634.Horizon.TACTICAL
+                    Action.ENTER_CONVICTION -> SuperWorldModel7634.Horizon.THESIS
+                    Action.WAIT -> SuperWorldModel7634.Horizon.TACTICAL
+                }
+                val hf = world?.forHorizon(horizon)
+                val expected = (hf?.expectedPnlPct ?: e) * exposure
+                val downside = (hf?.failureRisk ?: (1.0 - p)) * 22.0 * exposure
+                val worldUncertainty = hf?.uncertainty ?: uncertainty
+                val uncertaintyPenalty = worldUncertainty * 14.0 * exposure
+                val trajectoryPenalty = if (
+                    action == Action.ENTER_CONVICTION &&
+                    world != null &&
+                    world.trajectorySlopePct < 0.0
+                ) 8.0 else 0.0
                 val convictionPenalty = if (action == Action.ENTER_CONVICTION && p < 0.62) 8.0 else 0.0
                 ActionScore(
                     action = action,
-                    expectedUtility = expected - downside - uncertaintyPenalty - convictionPenalty,
+                    expectedUtility = expected - downside - uncertaintyPenalty - convictionPenalty - trajectoryPenalty,
                     downsidePenalty = downside,
-                    uncertaintyPenalty = uncertaintyPenalty + convictionPenalty,
+                    uncertaintyPenalty = uncertaintyPenalty + convictionPenalty + trajectoryPenalty,
                 )
             }
         }

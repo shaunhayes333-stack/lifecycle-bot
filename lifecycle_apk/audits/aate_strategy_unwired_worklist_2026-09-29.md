@@ -2911,3 +2911,19 @@ The post-7632 architecture moves beyond additive scoring. AATE now has an explic
 - [x] No provider I/O, LLM call, hot-path network work, threshold reduction, safety weakening or execution bypass was added.
 - [x] Runtime proof: `SUPER_INTELLIGENCE_PLAN_7633`.
 - [x] Regression coverage: `Aate7633SuperIntelligencePlannerTest`.
+
+
+## V5.0.7634 - hierarchical multi-horizon Super World Model
+
+The Super-SSI stack now moves from scalar scoring to explicit trajectory reasoning.
+
+- [x] Added SuperWorldModel7634 with IMPULSE (~30s), TACTICAL (~5m) and THESIS (~30m) forecasts.
+- [x] Each horizon carries P(win), expected PnL, failure risk, rug risk, dispersion, epistemic uncertainty and risk-adjusted utility.
+- [x] Existing learned evidence is ensembled from ForwardOutcomeModel, LiveProbabilityEngine and the oracle current-candidate estimate; no new provider or hot-path network dependency exists.
+- [x] Lane doctrine is horizon-aware: runner lanes may preserve thesis upside while short-horizon scalp lanes naturally decay over long holds.
+- [x] Regime context shapes horizon projections without inventing a new hard veto.
+- [x] The world model derives a latent state: ACCELERATING, TRENDING, MEAN_REVERTING, DISTRIBUTING, FRAGILE or UNCERTAIN.
+- [x] SuperIntelligencePlanner7633 now evaluates reduced/base/conviction actions against the appropriate horizon rather than one scalar expectation.
+- [x] Conviction entry receives an explicit penalty when the modeled trajectory slopes down.
+- [x] World-model output is forensic/advisory only; existing safety, oracle, admission, sizing and execution authorities remain canonical.
+- [x] Regression coverage: Aate7634SuperWorldModelTest.
