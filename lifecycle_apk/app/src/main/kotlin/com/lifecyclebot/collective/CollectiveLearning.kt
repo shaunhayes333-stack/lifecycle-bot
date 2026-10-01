@@ -41,8 +41,12 @@ object CollectiveLearning {
     // deployed, add signed attestation there, not here.
     private val secureHiveGatewayReady = true
 
-    private var client: TursoClient? = null
-    private var isInitialized = false
+    // V5.0.7692 — both fields are read and written from several coroutines
+    // (BotService.startBot's direct init(), the hive supervisor, the 180-tick
+    // reconnect, the Collective screen, stopBot's shutdown()). Volatile so a
+    // write on one dispatcher thread is seen by the next isEnabled() check.
+    @Volatile private var client: TursoClient? = null
+    @Volatile private var isInitialized = false
     private var lastSyncTime = 0L
 
     private var appContext: Context? = null
@@ -181,14 +185,40 @@ object CollectiveLearning {
                 return@withLock false
             }
 
-            client = TursoClient(dbUrl, authToken)
+            // V5.0.7692 §THE_HIVE_NULLED_ITS_OWN_CLIENT_MID_HANDSHAKE.
+            //
+            // The operator's 5.0.7691 snapshot, first one after the 7691 gate
+            // diagnostic shipped:
+            //
+            //     HIVE_SUPERVISOR_GATE_PASSED_7691:1
+            //     🔴 turso  sr=0%  s=0  net=1   last_err: NullPointerException
+            //
+            // A bare "NullPointerException" with no message is what Kotlin's
+            // `!!` throws. BotService.startBot() launches startHiveSupervisor6943()
+            // and a direct init() back to back. The supervisor sees
+            // isEnabled()==false (init is mid-flight) and calls
+            // ensureConnected(force=true), which used to do
+            // `isInitialized = false; client = null` BEFORE taking initMutex —
+            // while this init, holding the mutex, sat between `client =
+            // TursoClient(...)` and the force-unwrapped probe call on that same
+            // shared field. The handshake died on that unwrap, the outer catch stored the
+            // message-less NPE as lastInitError, and the supervisor's own init
+            // ran next against a connection it had just torn down. Same race
+            // from stopBot's shutdown() and the 180-tick ensureConnected().
+            //
+            // Fix: the handshake runs against a local reference, and the
+            // shared `client` field is only assigned once the probe and the
+            // schema both succeeded — the same moment isInitialized flips.
+            // ensureConnected() no longer touches either field outside the
+            // mutex (init resets them itself under the lock).
+            val handshakeClient = TursoClient(dbUrl, authToken)
             Log.i(TAG, "TursoClient created, testing connection...")
 
             var connectionSuccess = false
             var connectionError = "no response captured"
             for (attempt in 1..3) {
                 try {
-                    val probe = client!!.testConnectionResult()
+                    val probe = handshakeClient.testConnectionResult()
                     if (probe.success) {
                         connectionSuccess = true
                         break
@@ -200,7 +230,7 @@ object CollectiveLearning {
                         delay(attempt * 1000L)
                     }
                 } catch (e: Exception) {
-                    connectionError = e.message ?: e.javaClass.simpleName
+                    connectionError = describeThrowable7692(e)
                     lastInitError = "Connection attempt $attempt/3 error: $connectionError"
                     Log.e(TAG, "Connection attempt $attempt error: $connectionError")
                 }
@@ -216,7 +246,7 @@ object CollectiveLearning {
 
             Log.i(TAG, "Turso connection successful!")
 
-            if (!client!!.initSchema()) {
+            if (!handshakeClient.initSchema()) {
                 lastInitError = "Schema initialization failed"
                 Log.e(TAG, "Failed to initialize schema")
                 client = null
@@ -224,6 +254,7 @@ object CollectiveLearning {
                 return@withLock false
             }
 
+            client = handshakeClient
             isInitialized = true
             Log.i(TAG, "COLLECTIVE LEARNING ONLINE - HIVE MIND ACTIVE")
 
@@ -243,12 +274,27 @@ object CollectiveLearning {
 
             true
         } catch (e: Exception) {
-            lastInitError = e.message ?: e.javaClass.simpleName
+            lastInitError = describeThrowable7692(e)
             client = null
             isInitialized = false
             Log.e(TAG, "Init error: ${e.message}", e)
             false
         }
+    }
+
+    /**
+     * V5.0.7692 — a message-less throwable (Kotlin `!!`, some platform NPEs)
+     * used to reach the API health table as the bare class name, which says
+     * nothing about WHERE. Append the top app frame so the next one is
+     * locatable from the exported report alone.
+     */
+    private fun describeThrowable7692(e: Throwable): String {
+        val msg = e.message
+        if (!msg.isNullOrBlank()) return msg
+        val frame = e.stackTrace.firstOrNull { it.className.startsWith("com.lifecyclebot") }
+            ?: e.stackTrace.firstOrNull()
+        return if (frame == null) e.javaClass.simpleName
+        else "${e.javaClass.simpleName}@${frame.fileName ?: frame.className.substringAfterLast('.')}:${frame.lineNumber}"
     }
 
     private suspend fun registerInstance(ctx: Context) {
@@ -341,13 +387,26 @@ object CollectiveLearning {
         }
         Log.i(TAG, "Attempting to reconnect to Turso... force=$force")
 
-        isInitialized = false
-        client = null
+        // V5.0.7692 — do NOT reset `isInitialized`/`client` here. This ran
+        // outside initMutex and tore down a handshake another caller had in
+        // flight (see init()). init() resets both fields itself, under the
+        // lock, so a reconnect loses nothing by leaving them alone.
+        //
+        // And if an init is already in flight, don't queue a second full
+        // handshake behind it: wait for it and report its outcome. Stacking a
+        // retry on top of a failure only tripled the probes against a host
+        // that had just said no.
+        if (initMutex.isLocked) {
+            Log.i(TAG, "Turso init already in flight — waiting for its result")
+            initMutex.withLock { }
+            if (!isEnabled() && lastInitError.isBlank()) lastInitError = "Init in flight elsewhere did not connect"
+            return isEnabled()
+        }
 
         return try {
             init(ctx)
         } catch (e: Exception) {
-            lastInitError = e.message ?: e.javaClass.simpleName
+            lastInitError = describeThrowable7692(e)
             Log.e(TAG, "Reconnect failed: ${e.message}")
             false
         }
@@ -3185,7 +3244,7 @@ object CollectiveLearning {
     suspend fun forceSyncNow(): String {
         if (!isEnabled()) {
             val reconnected = try { ensureConnected(force = true) } catch (e: Throwable) {
-                lastInitError = e.message ?: e.javaClass.simpleName
+                lastInitError = describeThrowable7692(e)
                 false
             }
             if (!reconnected || !isEnabled()) {
@@ -3230,7 +3289,7 @@ Last init error: ${lastInitError.ifBlank { "none captured" }}
 
     suspend fun runDiagnostics(): String {
         if (!isEnabled()) {
-            try { ensureConnected(force = true) } catch (e: Throwable) { lastInitError = e.message ?: e.javaClass.simpleName }
+            try { ensureConnected(force = true) } catch (e: Throwable) { lastInitError = describeThrowable7692(e) }
         }
         if (!isEnabled()) {
             val cfg = try { appContext?.let { ConfigStore.load(it) } } catch (_: Throwable) { null }

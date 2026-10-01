@@ -12763,4 +12763,43 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("STALE_RECOVERY_UNPROVEN_LOG_COOLDOWN_MS_7691"))
     }
 
+    @Test
+    fun V5_0_7692_hive_handshake_cannot_be_nulled_by_a_concurrent_reconnect() {
+        val cl = java.io.File("src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt").readText()
+        // Operator's 5.0.7691 snapshot, the first with the 7691 gate diagnostic:
+        // "HIVE_SUPERVISOR_GATE_PASSED_7691:1 ... 🔴 turso sr=0% s=0 net=1
+        // last_err: NullPointerException". A message-less NPE is Kotlin `!!`.
+        // startBot() launches the supervisor and a direct init() together; the
+        // supervisor's ensureConnected(force=true) nulled `client` outside
+        // initMutex while init() sat between `client = TursoClient(...)` and
+        // `client!!.testConnectionResult()`.
+        val initFn = cl.substringAfter("suspend fun init(ctx: Context): Boolean = initMutex.withLock {")
+            .substringBefore("private fun describeThrowable7692(")
+        // The handshake must run against a local reference, never the shared field.
+        assertTrue(initFn.contains("val handshakeClient = TursoClient(dbUrl, authToken)"))
+        assertTrue(initFn.contains("handshakeClient.testConnectionResult()"))
+        assertTrue(initFn.contains("handshakeClient.initSchema()"))
+        assertFalse(initFn.contains("client!!"))
+        // The shared field is assigned only once both probe and schema passed,
+        // immediately before isInitialized flips.
+        assertTrue(initFn.contains("client = handshakeClient\n            isInitialized = true"))
+
+        val ensureFn = cl.substringAfter("suspend fun ensureConnected(force: Boolean = false): Boolean {")
+            .substringBefore("fun shutdown()")
+        // ensureConnected must not reset the shared state outside the mutex.
+        assertFalse(ensureFn.contains("isInitialized = false"))
+        assertFalse(ensureFn.contains("client = null"))
+        // An in-flight init is awaited, not stacked.
+        assertTrue(ensureFn.contains("if (initMutex.isLocked) {"))
+        assertTrue(ensureFn.contains("initMutex.withLock { }"))
+
+        // Cross-coroutine visibility.
+        assertTrue(cl.contains("@Volatile private var client: TursoClient? = null"))
+        assertTrue(cl.contains("@Volatile private var isInitialized = false"))
+        // No bare-class-name failure strings remain: every catch that feeds
+        // lastInitError goes through the frame-bearing describer.
+        assertFalse(cl.contains("e.message ?: e.javaClass.simpleName"))
+        assertTrue(cl.contains("private fun describeThrowable7692(e: Throwable): String"))
+    }
+
 }
