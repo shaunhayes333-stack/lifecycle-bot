@@ -1960,3 +1960,35 @@ This tranche classifies report builders, telemetry state, analytics aggregators,
 - [x] `UniversalBridgeEngine.getBridgeStats` — **BRIDGE TELEMETRY REPORT**.
 - [x] F_DEAD reconciliation progress: prior 207 + 22 = **229 / 1,458** classified; **1,229 remain**.
 - [x] Regression coverage: `Aate7589TelemetryReportNotificationTrancheTest`.
+
+
+## V5.0.7590 — F_DEAD cached/state/report accessor tranche (24 rows)
+
+These rows are cached-state lookups, persisted preference reads, scanner parameter accessors, schedule analytics, trace formatters, or registry views. They do not independently authorize a trade.
+
+- [x] `BalanceProofWaitState.getWaiting` — **WAIT-STATE LOOKUP**.
+- [x] `CanonicalIdentityModel6464.getIdentity` — **CANONICAL IDENTITY LOOKUP**.
+- [x] `InsiderTrackerAI.getAllWallets` — **TRACKED-WALLET SNAPSHOT**.
+- [x] `InsiderTrackerAI.getWalletActivity` — **CACHED WALLET-ACTIVITY LOOKUP**.
+- [x] `LeveragePreference.isLeveragePreferred` — **PERSISTED USER PREFERENCE READ**.
+- [x] `ModeSpecificScanners.getCached` — **RECENT RESULT CACHE LOOKUP**.
+- [x] `ModeSpecificScanners.getMinBuyPressure` — **CONFIG/FLUID THRESHOLD READBACK**.
+- [x] `ModeSpecificScanners.getMinDipDepth` — **CONFIG/FLUID THRESHOLD READBACK**.
+- [x] `ModeSpecificScanners.getMinImpulse` — **CONFIG/FLUID THRESHOLD READBACK**.
+- [x] `RunTracker30D.getTradeTrace` — **TRACE FORMATTER**.
+- [x] `RunTracker30D.isRunComplete` — **RUN-STATE PREDICATE**.
+- [x] `SourceTimingRegistry.getFirstSeen` — **TIMING CACHE LOOKUP**.
+- [x] `SourceTimingRegistry.getLatestSeen` — **TIMING CACHE LOOKUP**.
+- [x] `SourceTimingRegistry.getSourceCount` — **TIMING CACHE AGGREGATE**.
+- [x] `SourceTimingRegistry.getVenueLagMs` — **TIMING CACHE DERIVED METRIC**.
+- [x] `TimeModeScheduler.getSchedule` — **USER SCHEDULE SNAPSHOT**.
+- [x] `TimeModeScheduler.getBestHoursForMode` — **SCHEDULE ANALYTICS REPORT**.
+- [x] `TimeModeScheduler.getWorstHoursForMode` — **SCHEDULE ANALYTICS REPORT**.
+- [x] `TokenizedAssetRegistry.knownSymbols` — **STATIC/USER REGISTRY VIEW**.
+- [x] `V3ConfidenceConfig.getAllModes` — **UI CONFIG CATALOG**.
+- [x] `V3ConfidenceConfig.getModeDescription` — **UI CONFIG DESCRIPTION**.
+- [x] `V3ConfidenceConfig.hasCustomOverrides` — **CONFIG STATE READBACK**.
+- [x] `WhaleWalletTracker.getWatchedWhales` — **TRACKER SNAPSHOT**.
+- [x] `WhaleWalletTracker.getWatchedWhaleMovements` — **TRACKER SNAPSHOT**.
+- [x] F_DEAD reconciliation progress: prior 229 + 24 = **253 / 1,458** classified; **1,205 remain**.
+- [x] Regression coverage: `Aate7590CachedStateAccessorTrancheTest`.
