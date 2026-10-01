@@ -372,6 +372,11 @@ object ExecutableOpenGate {
         // size resolver runs. When that same immutable attempt returns with a
         // positive size, upgrade it instead of retaining a zero-sized shell.
         var created6734 = false
+        var supersededPlaceholder7612: ExecutionIntent? = null
+        val specialistOwners7612 = setOf(
+            "QUALITY","BLUECHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
+            "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
+        )
         val authoritative = activeExecutionIntents6519.compute(key) { _, existing ->
             when {
                 existing == null -> intent.also { created6734 = true }
@@ -381,9 +386,33 @@ object ExecutableOpenGate {
                 // V5.0.7321 — an expired intent is replaced, not reused with
                 // its old createdAt (which made the new allow stale on arrival).
                 !ticketLive(existing) -> intent.also { created6734 = true }
+                // V5.0.7612 — one active intent per mode/mint/version is correct,
+                // but caller order must not let a trunk placeholder permanently
+                // own a candidate later sealed by a canonical specialist.
+                canonicalLane(existing.canonicalLane) !in specialistOwners7612 &&
+                    canonicalLane(intent.canonicalLane) in specialistOwners7612 -> {
+                    supersededPlaceholder7612 = existing
+                    intent.also { created6734 = true }
+                }
                 else -> existing
             }
         } ?: return null
+        supersededPlaceholder7612?.let { old7612 ->
+            executionTickets.remove(old7612.attemptId, old7612)
+            try {
+                PipelineHealthCollector.labelInc("SPECIALIST_INTENT_RECLAIMED_FROM_TRUNK_7612")
+                PipelineHealthCollector.labelInc("SPECIALIST_INTENT_RECLAIMED_FROM_TRUNK_7612_" + canonicalLane(intent.canonicalLane))
+                ForensicLogger.lifecycle(
+                    "SPECIALIST_INTENT_RECLAIMED_FROM_TRUNK_7612",
+                    "mint=" + intent.mint.take(10) +
+                        " version=" + intent.candidateVersion +
+                        " oldLane=" + old7612.canonicalLane +
+                        " newLane=" + intent.canonicalLane +
+                        " oldAttempt=" + old7612.attemptId.take(28) +
+                        " newAttempt=" + intent.attemptId.take(28),
+                )
+            } catch (_: Throwable) {}
+        }
         executionTickets[authoritative.attemptId] = authoritative
         // V5.0.7607 — the immutable ExecutionIntent is the canonical BUY_INTENT
         // authority. Some specialist routes create/reuse it without passing through
@@ -399,9 +428,15 @@ object ExecutableOpenGate {
             ) {
                 ToolkitSignalSheet.recordDeskStage(
                     authoritative.canonicalLane,
+                    "OWNER_SELECTED",
+                    authoritative.attemptId,
+                )
+                ToolkitSignalSheet.recordDeskStage(
+                    authoritative.canonicalLane,
                     "BUY_INTENT",
                     authoritative.attemptId,
                 )
+                PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_OWNER_MIRRORED_7612")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_INTENT_MIRRORED_7607")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_INTENT_MIRRORED_7607_" + authoritative.canonicalLane.uppercase())
             }

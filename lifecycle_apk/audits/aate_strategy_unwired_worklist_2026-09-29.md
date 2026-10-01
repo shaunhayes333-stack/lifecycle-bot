@@ -2606,3 +2606,20 @@ Repair:
 - [x] PAPER retains observation-mark fallback; LIVE still requires strict `EXECUTABLE_ENTRY_QUOTE`.
 - [x] No lane threshold, score floor, TP/SL, sizing multiplier or capital allocation changed.
 - [x] Regression coverage: `Aate7611TokenStateEntryMarkContinuityTest`.
+
+
+## V5.0.7612 — specialist intent ownership reclaim from trunk placeholders
+
+5.0.7607 field evidence exposed an authority contradiction on the same candidate:
+- FDG emitted `lane=TREASURY ... FDG_ALLOW`.
+- The immediately reused immutable intent reported `lane=STANDARD`.
+- Several specialists therefore showed BUY_INTENT activity while `ownerSelected=0`.
+
+Repair:
+- [x] A same-version live non-specialist placeholder may be replaced by a canonical specialist intent.
+- [x] The 12 specialist owner lanes are QUALITY, BLUECHIP, SHITCOIN, CYCLIC, EXPRESS, CORE, MOONSHOT, PROJECT_SNIPER, DIP_HUNTER, MANIPULATED, TREASURY and CASHGEN.
+- [x] A real specialist can never replace another real specialist in this repair.
+- [x] The superseded placeholder ticket is removed from the ticket map.
+- [x] Canonical specialist intent registration mirrors `OWNER_SELECTED` before `BUY_INTENT`.
+- [x] No score threshold, FDG decision, sizing, TP/SL, allocation, safety or route rule changed.
+- [x] Regression coverage: `Aate7612SpecialistIntentOwnershipReclaimTest`.
