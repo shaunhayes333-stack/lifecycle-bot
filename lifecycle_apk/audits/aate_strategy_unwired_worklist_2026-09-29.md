@@ -3428,3 +3428,21 @@ Project Sniper audit row:
 Audit reconciliation batched with this repair:
 - [x] F_DEAD row 514 `FluidLearningAI.recordAltsTradeStart` is a reset/control hook: it zeroes alt cached learning progress. It must remain unwired from normal trade starts.
 - [x] F_DEAD rows 895/896 `PerpsLearningBridge.learnFromStockTrade/recordMemeTrade` are superseded wrappers. Stock learning is live through `recordStockTrade`; meme per-layer learning is live through `LayerVoteStore.closeoutMeme -> learnFromAssetTrade`.
+
+
+## V5.0.7670 - crypto specialist audit: canonical scratch classification repair
+
+Crypto specialist estate pass:
+- F_DEAD rows 321/322 `CryptoCanonicalLearning.recordInconclusive/recordOther` were rechecked against the active CryptoBrain lifecycle.
+
+Findings:
+- [x] `CryptoBrain.onTradeClose` defines abs(pnlPct) < 1.0 as scratch / not trainable.
+- [x] Prior `recordSettled(win, trainable=false)` incorrectly wrote these scratches to `otherExplicitBucket`, leaving the dedicated `inconclusiveTrades` bucket at zero forever.
+- [x] Non-trainable terminal crypto closes now land in `inconclusiveTrades`.
+- [x] Trainable outcomes still land exclusively in settledWins/settledLosses.
+- [x] `recordOther()` remains reserved for genuinely explicit non-outcome classifications and is not auto-wired.
+- [x] Canonical reconciliation invariant remains exact: canonicalTotal == W + L + open + inconclusive + other.
+- [x] No entry/exit threshold, sizing, execution, or safety logic changed.
+- [x] Regression coverage: `Aate7670CryptoCanonicalScratchClassificationTest`.
+
+Dual-estate rule remains in force: every large-audit tranche must check both meme and crypto specialist learning loops independently.

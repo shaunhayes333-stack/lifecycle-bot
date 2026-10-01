@@ -63,6 +63,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7667: ExecutionPathAI audit repair. Canonical receipts and endpoint failures now train execution confidence; unknown slippage stays unknown. Also reconciled stale AdvancedExitManager and LiquidityFragility audit rows without duplicate wiring.
 - 5.0.7668: CorrelationScanner history moved off UI dependence into the background perps market-data loop; full correlation scan remains background/advisory. Education vote/scan firehose rows reconciled as telemetry, not missing terminal learning.
 - 5.0.7669: dual specialist estate scope made explicit (12+ meme and 12+ crypto specialist brains/tactics; crypto desk lanes are only one subset). Project Sniper's TP ladder now advances extractedPct only from terminal canonical partial receipts, idempotently across paper/live.
+- 5.0.7670: crypto canonical learning repair; sub-1% scratch closes now reconcile into INCONCLUSIVE instead of generic OTHER, preserving directional learning purity.
 
 ## Existing intelligence estate explicitly in scope
 

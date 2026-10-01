@@ -36,7 +36,10 @@ object CryptoCanonicalLearning {
         if (trainable) {
             if (win) settledWins.incrementAndGet() else settledLosses.incrementAndGet()
         } else {
-            otherExplicitBucket.incrementAndGet()
+            // V5.0.7670 — CryptoBrain defines these as scratch / not trainable.
+            // They are terminal economic outcomes but not directional evidence,
+            // so the exclusive INCONCLUSIVE bucket is the correct canonical class.
+            inconclusiveTrades.incrementAndGet()
         }
     }
 

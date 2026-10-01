@@ -115,7 +115,7 @@ object CryptoBrain {
         symbol: String,
     ) {
         val win = pnlPct > 0.0
-        val trainable = kotlin.math.abs(pnlPct) >= 1.0   // scratch is not trainable
+        val trainable = kotlin.math.abs(pnlPct) >= 1.0   // <1% scratch is canonical INCONCLUSIVE, not W/L evidence
 
         // 1. Maturity counters
         if (isPaper) CryptoFluidLearning.recordPaperTrade(win, pnlPct)
