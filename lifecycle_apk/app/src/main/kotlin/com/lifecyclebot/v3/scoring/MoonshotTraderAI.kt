@@ -1097,6 +1097,26 @@ object MoonshotTraderAI {
     // floor), the <=12-min -10% dead exit, and the position's stopLossPct once past
     // the breather window. The tightest applies.
     //
+    /**
+     * V5.0.7695 — the LIVE "let it develop" rule V5.0.6383 applied to the
+     * time-based FLAT_EXIT, applied to every other FLAT_EXIT producer in
+     * checkExit (hold-bucket, LLM override, lab promoted rule). A live runner
+     * position under 15 minutes, or one that ever printed +3%, is left to its
+     * stops and locks. Paper positions are unchanged: paper's job is to explore.
+     */
+    private fun liveFlatExitSuppressed7695(pos: MoonshotPosition, holdMinutes: Long, pnlPct: Double, source: String): Boolean {
+        if (pos.isPaperMode) return false
+        val stillFresh = holdMinutes < 15L
+        val hadUpsideBlink = pos.peakPnlPct >= 3.0
+        if (!stillFresh && !hadUpsideBlink) return false
+        ErrorLogger.info(TAG, "🛡️ LIVE_WINNER_PROTECT_7695[$source]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min | peak=+${pos.peakPnlPct.toInt()}% (FLAT_EXIT suppressed — let it develop)")
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_7695_$source")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     // V5.0.7689 — the <60s ChopFilter.earlyDeathCutoffPct("MOONSHOT") gate that
     // used to sit here is REMOVED. That cutoff is tuned to -0.5%..-3.0% — tighter
     // than the backtested -5% early-tight-stop one line above, which V5.9.1341
@@ -1769,8 +1789,15 @@ object MoonshotTraderAI {
         // itself (centralised across all lanes), so per-caller check removed.
         if (!goldenExitProtected && com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
                 layer = "MOONSHOT", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
-            ErrorLogger.info(TAG, "🧠⏱️ HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket history bleeds")
-            return ExitSignal.FLAT_EXIT
+            // V5.0.7695 — a LIVE position that is still fresh (or ever showed
+            // upside) is not flat-exited by a learned hold bucket. 5.0.7693:
+            // Janes MOONSHOT closed FALLBACK_MOONSHOT_FLAT_EXIT at 226s / -3.9%.
+            // The bucket bleeds BECAUSE every position in it was cut at 3-4 min;
+            // reading that back as a reason to cut at 3-4 min is the loop.
+            if (!liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, "HOLD_BUCKET")) {
+                ErrorLogger.info(TAG, "🧠⏱️ HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket history bleeds")
+                return ExitSignal.FLAT_EXIT
+            }
         }
         
         // 4. TRAILING STOP - locks in gains while letting it run
@@ -1844,7 +1871,7 @@ object MoonshotTraderAI {
                 pnlPct = pnlPct,
                 holdMinutes = holdMinutes,
                 peakPct = pos.peakPnlPct
-            )) {
+            ) && !liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, "LLM_OVERRIDE")) {
             ErrorLogger.info(TAG, "🤖 LLM EXIT OVERRIDE: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.FLAT_EXIT
         }
@@ -1855,7 +1882,7 @@ object MoonshotTraderAI {
                     asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
                     pnlPct = pnlPct,
                     holdMinutes = holdMinutes,
-                )) {
+                ) && !liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, "LAB_PROMOTED_RULE")) {
                 ErrorLogger.info(TAG, "🧪 LAB EXIT: ${pos.symbol} matched a promoted strategy's TP/SL/timeout (${pnlPct.fmt(1)}%/${holdMinutes}min)")
                 return ExitSignal.FLAT_EXIT
             }

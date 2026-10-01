@@ -12896,4 +12896,40 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("com.lifecyclebot.engine.FeeAccumulator.holdStatus7694()"))
     }
 
+    @Test
+    fun V5_0_7695_runner_lane_give_back_locks_arm_at_twenty_percent_and_live_flat_exits_wait() {
+        // Operator (5.0.7693 live): "still cutting trades before they could make
+        // money". RUNNER_EARLY_EXIT_7693 named them: MICRO sold at 206s/-5.2%
+        // on TICK_PROFIT_LOCK_GAPPED_peak4_floor2_now-5; Janes at 226s/-3.9% on
+        // FALLBACK_MOONSHOT_FLAT_EXIT; HppB5r 21s after buy on a profit-type
+        // lock. 7386 had set the runner give-back deferral to `false`.
+        val rp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerExitProfile7277.kt").readText()
+        assertTrue(rp.contains("const val RUNNER_LOCK_ARM_PEAK_PCT_7695 = 20.0"))
+        assertFalse(rp.contains("fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean = false"))
+        val deferFn = rp.substringAfter("fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean {").substringBefore("fun armThresholdPct(")
+        assertTrue(deferFn.contains("if (!isRunnerLane(lane)) return false"))
+        assertTrue(deferFn.contains("peakPnlPct < RUNNER_LOCK_ARM_PEAK_PCT_7695"))
+        assertTrue(rp.contains("if (isRunnerLane(lane)) maxOf(defaultPct, RUNNER_LOCK_ARM_PEAK_PCT_7695) else defaultPct"))
+        // The moonbag bar is untouched.
+        assertTrue(rp.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
+
+        // Every give-back path still reads the one function (no caller was
+        // rewritten to bypass it).
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertEquals(3, Regex(Regex.escape("RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode,")).findAll(bot).count())
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)"))
+        val pdl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PeakDrawdownLock.kt").readText()
+        assertTrue(pdl.contains("RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)"))
+
+        // MOONSHOT: every FLAT_EXIT producer except the 180-minute dead flush
+        // now honours the live fresh/upside protection.
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(moon.contains("private fun liveFlatExitSuppressed7695(pos: MoonshotPosition, holdMinutes: Long, pnlPct: Double, source: String): Boolean"))
+        assertTrue(moon.contains("liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, \"HOLD_BUCKET\")"))
+        assertTrue(moon.contains("liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, \"LLM_OVERRIDE\")"))
+        assertTrue(moon.contains("liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, \"LAB_PROMOTED_RULE\")"))
+        assertTrue(moon.contains("com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock(\"MOONSHOT\", pos.peakPnlPct)"))
+    }
+
 }
