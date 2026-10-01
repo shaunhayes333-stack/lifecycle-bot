@@ -59,6 +59,11 @@ object LaneExecutionCoordinator {
         "V3" to 58,
         "STANDARD" to 56,
         "CORE" to 55,
+        // V5.0.7616 — these are real specialists, not unknown lanes.
+        // Both already inherited the default priority 50. Make that explicit
+        // so future default changes cannot silently change their election rank.
+        "CYCLIC" to 50,
+        "CASHGEN" to 50,
         "TREASURY" to 40,
         "SHADOW" to 10,
     )

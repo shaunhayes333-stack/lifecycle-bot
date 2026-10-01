@@ -1422,7 +1422,7 @@ object ToolkitSignalSheet {
             val nativeReason7608 = native7608?.reason?.replace("\n", " ")?.take(120).orEmpty()
             val liveQuarantine7609 = try { LaneQuarantineController.isQuarantined(lane) } catch (_: Throwable) { false }
             val buyerEnabled7609 = if (lane == "MANIPULATED") try { BotService.manipulatedBuyerEnabled7609() } catch (_: Throwable) { false } else true
-            val ownershipModel7609 = if (lane == "CASHGEN") "TREASURY_SHARED_EXEC_ALIAS" else "SELF"
+            val ownershipModel7609 = "SELF"
             appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$status nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")

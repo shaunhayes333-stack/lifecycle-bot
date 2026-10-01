@@ -2667,3 +2667,15 @@ The all-12-lane directive supersedes the old assumption that MANIPULATED should 
 - [x] The native ManipulatedTraderAI eligibility/scoring, safety, FDG, sizing and finality rules remain unchanged.
 - [x] No generic candidate is relabelled MANIPULATED; its own brain must emit `shouldEnter`.
 - [x] Regression coverage: `Aate7615ManipulatedPaperExecutionRestorationTest`.
+
+
+## V5.0.7616 — explicit 12-lane execution parity contract
+
+After the 7614 CASHGEN identity repair and 7615 MANIPULATED PAPER restoration, the static contracts are pinned to the runtime architecture:
+
+- [x] CASHGEN role-liveness reports `ownershipModel=SELF`; the obsolete Treasury alias diagnostic is retired.
+- [x] CYCLIC and CASHGEN are explicit in `LaneExecutionCoordinator.lanePriority` at the same value (50) they previously inherited from the unknown-lane default. This is behavior-preserving but removes hidden default dependency.
+- [x] CI requires the canonical 12 to exist in SpecialistBrainBridge, MemeOwnershipInvariant, Toolkit specialist registry and TradeAuthorizer.
+- [x] MANIPULATED remains PAPER-executable / LIVE-disabled under the 7615 safety contract.
+- [x] No lane score threshold, FDG rule, mark rule, sizing multiplier, TP/SL, allocation or hard safety changed.
+- [x] Regression coverage: `Aate7616TwelveLaneExecutionParityContractTest`.
