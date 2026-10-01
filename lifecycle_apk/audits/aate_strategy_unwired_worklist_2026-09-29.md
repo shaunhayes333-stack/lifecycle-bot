@@ -1477,3 +1477,18 @@ This bundle continues the C_EXIT audit by separating recovery/test/compatibility
 - [x] `PositionIdentity6395.activeExitIntent` — **STATE ACCESSOR**. Reads the currently active exit-intent id; mutation/open/close authority lives in the same position-identity subsystem.
 - [x] No exit thresholds, partial fractions, finality rules, quantity clamps or sell dispatch behavior changed.
 - [x] Regression coverage: `Aate7564ExitRecoveryAuthorityClassificationTest`.
+
+
+## V5.0.7565 — C_EXIT stale-ledger + classifier/idempotency cleanup
+
+This bundle closes another C_EXIT cluster by distinguishing already-wired production hooks from helper/counter/classifier surfaces.
+
+- [x] `PositionStateLedger6454.onPartial` — **CLOSED_LOOP / LEDGER_STALE (7457)**. CanonicalPositionAuthority6441.partialSell() invokes it after PARTIALLY_CLOSED commits.
+- [x] `GlobalCapitalArbitration6617.recordSpecialistProposal6617` — **CLOSED_LOOP / LEDGER_STALE (7458)**. CanonicalSizingBridge6532 records SOLANA specialist proposals by mint+lane before canonical entry sealing.
+- [x] `ExecutionCounterContract.recordJournalSellWrite` — **COUNTER/OBSERVABILITY HELPER**. It increments journal-sell parity telemetry; not a sell decision.
+- [x] `FinalizedSellProof6386.classifyPartial` — **FINALITY CLASSIFIER / TESTED HELPER**. It maps partial-proof state to pending/finalized classification; it does not execute the sell.
+- [x] `IdempotencyKeyStore6437.sellKey` — **IDEMPOTENCY KEY HELPER**. Generates canonical SELL keys; not an exit strategy or actuator.
+- [x] `LearnerRuntimeBudgetGuard6441.shouldStop` — **MAINTENANCE BUDGET HELPER**. Stops learner maintenance slices when their wall-clock budget is hit; unrelated to position stop-loss/exit.
+- [x] `LiveStrategyTuner.tpMultiplier` — **ALIAS / LEDGER_STALE (7455)**. Canonical held management consumes one cached `LiveStrategyTuner.adjustment(mode)` object, including tp/hold/partial multipliers.
+- [x] No sell dispatch, quantity, finality, partial, stop or learning thresholds changed.
+- [x] Regression coverage: `Aate7565ExitStaleLedgerAndHelperTruthTest`.
