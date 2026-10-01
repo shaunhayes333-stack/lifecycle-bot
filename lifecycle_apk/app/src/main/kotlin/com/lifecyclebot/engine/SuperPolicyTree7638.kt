@@ -154,7 +154,7 @@ object SuperPolicyTree7638 {
                     policy = b.policy,
                 )
             } catch (_: Throwable) { 0.0 }
-            val existingPrior7650 = existing?.policyPrior(b.policy) ?: 0.0
+            val existingPrior7650 = existing?.policyPrior(b.policy, world.latentState) ?: 0.0
             val causalLift7647 = try {
                 SuperCausalPolicyEvaluator7647.policyLift(
                     lane = world.lane,

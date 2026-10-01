@@ -25,10 +25,17 @@ object ExistingIntelligenceContext7650 {
         val sources: Set<String>,
         val estate7654: SuperIntelligenceEstate7654.Snapshot,
     ) {
-        fun evidenceTopology7651(policy: SuperPolicyTree7638.Policy): SuperEvidenceTopology7651.Result {
-            val observations = ArrayList<SuperEvidenceTopology7651.Observation>(7)
-            fun trust(family: SuperEvidenceTopology7651.Family): Double =
-                SuperEvidenceReliability7652.trust(lane, family)
+        fun evidenceTopology7651(
+            policy: SuperPolicyTree7638.Policy,
+            state: SuperWorldModel7634.LatentState? = null,
+        ): SuperEvidenceTopology7651.Result {
+            val observations = ArrayList<SuperEvidenceTopology7651.Observation>(10)
+            fun trust(family: SuperEvidenceTopology7651.Family): Double {
+                val laneTrust = SuperEvidenceReliability7652.trust(lane, family)
+                val stateTrust = if (state == null) 1.0
+                    else SuperEvidenceContextTrust7656.trust(lane, state, family)
+                return (laneTrust * stateTrust).coerceIn(0.60, 1.20)
+            }
 
             // Native specialist opinion is an independent lane-native family.
             val specialistUtility = when (specialistEligible) {
@@ -133,8 +140,11 @@ object ExistingIntelligenceContext7650 {
             return SuperEvidenceTopology7651.fuse(observations)
         }
 
-        fun policyPrior(policy: SuperPolicyTree7638.Policy): Double {
-            val topology = evidenceTopology7651(policy)
+        fun policyPrior(
+            policy: SuperPolicyTree7638.Policy,
+            state: SuperWorldModel7634.LatentState? = null,
+        ): Double {
+            val topology = evidenceTopology7651(policy, state)
             val interaction = SuperEvidenceInteraction7653.adjustment(lane, topology.familyUtility)
             return (topology.decorrelatedUtility + interaction).coerceIn(-6.0, 6.0)
         }

@@ -3219,3 +3219,18 @@ The "150+ brains" problem is now tracked explicitly instead of relying on archit
 - [x] Current repository tree inspection before this bundle found 250 intelligence-named Kotlin candidates across 1,246 Kotlin source files; the CI census recomputes this from source rather than hard-coding that count.
 - [x] No new execution authority, provider call, scanner recomputation, hard veto, sizing or capital authority was added.
 - [x] Regression coverage: `Aate7655IntelligenceEstateCoverageTest`.
+
+
+## V5.0.7656 - state-conditioned epistemic routing
+
+The expanded intelligence estate now learns *when* each reasoning family deserves trust, not only whether it is useful on average.
+
+- [x] Added `SuperEvidenceContextTrust7656`, keyed by lane x learned latent market state x evidence ancestry family.
+- [x] CrossTalk, LLM council, scanner ensemble, native specialist, aggregate, strategy-learning and counterfactual families all inherit the same context-trust mechanism through the shared topology.
+- [x] Exact chosen-policy family utilities are graded against the exact canonical position-bound terminal outcome in the entry latent state.
+- [x] Sparse state cells remain neutral until 6 outcomes, preserving the broader lane trust learned by 7652 as hierarchical fallback.
+- [x] The same family can therefore gain influence in ACCELERATING conditions while losing influence in DISTRIBUTING/FRAGILE conditions in the same lane.
+- [x] SuperPolicyTree passes the current `world.latentState` into the existing-intelligence prior for every candidate branch.
+- [x] Context trust persists inside the existing Super Intelligence calibration state.
+- [x] Combined lane x state trust remains bounded and advisory; no context cell can create an execution veto or bypass safety.
+- [x] Regression coverage: `Aate7656StateConditionedEvidenceTrustTest`.

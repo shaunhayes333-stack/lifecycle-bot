@@ -182,6 +182,14 @@ object SuperIntelligenceCalibration7636 {
             )
         } catch (_: Throwable) {}
         try {
+            SuperEvidenceContextTrust7656.recordOutcome(
+                lane = stamp.lane,
+                state = stamp.world.latentState,
+                familyUtility = stamp.evidenceFamilyUtility7652,
+                realizedReturnPct = env.realizedReturnPct,
+            )
+        } catch (_: Throwable) {}
+        try {
             SuperEvidenceInteraction7653.recordOutcome(
                 lane = stamp.lane,
                 familyUtility = stamp.evidenceFamilyUtility7652,
@@ -358,6 +366,7 @@ object SuperIntelligenceCalibration7636 {
         root.put("reasonOutcomes7641", ro)
         root.put("evidenceReliability7652", SuperEvidenceReliability7652.exportJson())
         root.put("evidenceInteractions7653", SuperEvidenceInteraction7653.exportJson())
+        root.put("evidenceContextTrust7656", SuperEvidenceContextTrust7656.exportJson())
         return root.toString()
     }
 
@@ -404,6 +413,7 @@ object SuperIntelligenceCalibration7636 {
             }
             SuperEvidenceReliability7652.importJson(root.optJSONArray("evidenceReliability7652") ?: JSONArray())
             SuperEvidenceInteraction7653.importJson(root.optJSONArray("evidenceInteractions7653") ?: JSONArray())
+            SuperEvidenceContextTrust7656.importJson(root.optJSONArray("evidenceContextTrust7656") ?: JSONArray())
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_CALIBRATION_RESTORED_7637") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }

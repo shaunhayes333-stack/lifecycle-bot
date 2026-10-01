@@ -66,7 +66,7 @@ class Aate7652EvidenceReliabilityTest {
         assertTrue(c.contains("SuperEvidenceReliability7652.recordOutcome("))
         assertTrue(c.contains("SuperEvidenceReliability7652.exportJson()"))
         assertTrue(c.contains("SuperEvidenceReliability7652.importJson("))
-        assertTrue(o.contains("existing7650.evidenceTopology7651(tree7638.bestPolicy)"))
+        assertTrue(o.contains("existing7650.evidenceTopology7651(tree7638.bestPolicy, world7634.latentState)"))
         assertTrue(e.contains("SuperEvidenceReliability7652.trust(lane, family)"))
     }
 }

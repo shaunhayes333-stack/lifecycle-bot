@@ -29,7 +29,7 @@ class Aate7650ExistingIntelligenceIntegrationTest {
         val t = File("src/main/kotlin/com/lifecyclebot/engine/SuperPolicyTree7638.kt").readText()
         val o = File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
         assertTrue(t.contains("existing: ExistingIntelligenceContext7650.Snapshot? = null"))
-        assertTrue(t.contains("existing?.policyPrior(b.policy) ?: 0.0"))
+        assertTrue(t.contains("existing?.policyPrior(b.policy, world.latentState) ?: 0.0"))
         assertTrue(o.contains("ExistingIntelligenceContext7650.read("))
         assertTrue(o.contains("contributions += existing7650.contributionTag()"))
     }
