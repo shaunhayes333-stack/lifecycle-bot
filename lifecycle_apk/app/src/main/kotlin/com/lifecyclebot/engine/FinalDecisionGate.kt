@@ -5134,6 +5134,33 @@ object FinalDecisionGate {
                     BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }
                 }
 
+                // V5.0.7697 §FEWER_LARGER_HIGHER_CONVICTION — LIVE CONVICTION GATE.
+                // Operator: "less trades overall but higher conviction and higher
+                // probability of profitability." A live entry now needs the
+                // owning lane's own specialist brain to be eligible for this mint
+                // when it holds an authoritative opinion, and no danger-bucket /
+                // toxic-lane / proven-dead consensus objection. Paper is untouched.
+                if (shouldTradeFinal && blockReasonFinal == null) {
+                    try {
+                        val live7697 = !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                        if (live7697) {
+                            val lane7697 = specialistLane?.trim()?.uppercase().orEmpty()
+                                .ifBlank { tradingModeTag?.name?.trim()?.uppercase().orEmpty() }
+                            val conviction7697 = com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697
+                                .convictionVerdict(ts.mint, lane7697, report.objections)
+                            if (!conviction7697.allow) {
+                                shouldTradeFinal = false
+                                blockReasonFinal = "LIVE_CONVICTION_7697:${conviction7697.reason.take(100)}"
+                                blockLevelFinal = BlockLevel.CONFIDENCE
+                                tags.add("live_conviction_refused_7697")
+                                checks.add(GateCheck("live_conviction_7697", false, conviction7697.reason.take(120)))
+                            } else {
+                                tags.add("live_conviction_ok_7697")
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
+
                 // V5.9.1260 — AUTONOMOUS META-POLICY (deliberative layer).
                 // Above the rule-based consensus gate sits a Thompson-sampling
                 // policy that LEARNS the true win-prob of each decision-context

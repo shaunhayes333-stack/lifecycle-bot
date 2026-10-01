@@ -2730,6 +2730,13 @@ object PipelineHealthCollector {
             sb.append("  Order size resolver (§6441):  ").append(
                 com.lifecyclebot.engine.truth.OrderSizeResolver6441.statusLine()
             ).append("\n")
+            // V5.0.7697 — fewer, larger, higher-conviction live entries: slots,
+            // share and the two refusal counts, next to the resolver they shape.
+            try {
+                sb.append("  Concentration doctrine (§7697):").append(
+                    com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.statusLine()
+                ).append("\n")
+            } catch (_: Throwable) {}
             // V5.0.6909 — learned admission now has a caller, and conviction
             // now reaches the sizing floor. Both are surfaced so the next
             // snapshot can be read against the 6908 diagnosis directly:

@@ -125,6 +125,17 @@ object ExitThroughputAuthority6727 {
         } catch (_: Throwable) { 0 }
         val cashRatio = if (equity > 0.0) cash / equity else 1.0
 
+        // V5.0.7697 §FEWER_LARGER_HIGHER_CONVICTION — a live wallet holds at most
+        // LiveConcentrationDoctrine7697.slots() positions at once (2 under 1 SOL).
+        // Unconditional: it sits above the lane-fairness bypass on purpose. Exits
+        // are not consulted here; a slot frees the moment a position closes.
+        if (m == "live") {
+            val slot7697 = try { LiveConcentrationDoctrine7697.slotVerdict(openCount) } catch (_: Throwable) { null }
+            if (slot7697 != null && !slot7697.allow) {
+                return Verdict(false, slot7697.reason, openCount, cash, equity, cashRatio)
+            }
+        }
+
         // Hard cap: absolute open count exceeds sanity ceiling regardless
         // of cash. Prevents runaway inventory even when a fresh deposit
         // temporarily lifts cashRatio.

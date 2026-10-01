@@ -12955,4 +12955,58 @@ class GoldenTapeRegressionTest {
         assertFalse(bot.contains("if (pnlPct <= dynamicStopPct && !(dynamicStopPct > 0.0 && runnerDefer7322)) {"))
     }
 
+    @Test
+    fun V5_0_7697_live_entries_are_fewer_larger_and_higher_conviction() {
+        // Operator (5.0.7696 live): "its spreading capital way way too wide.
+        // less trades overall but higher conviction and higher probability of
+        // profitability would make way more sense." SmartSizerV3's live floor
+        // was clamped to LIVE_FLOOR_CEILING_SOL_7127 = 0.05, so every live fill
+        // was a $5 ticket, across 12 lanes, up to 24 at once.
+        val doc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
+        assertTrue(doc.contains("object LiveConcentrationDoctrine7697"))
+        assertTrue(doc.contains("const val MAX_SHARE_7697 = 0.50"))
+        // Slot ladder: 2 under 1 SOL, 3 under 5, 4 under 20, else 6.
+        val slotsFn = doc.substringAfter("fun slots(tradeableSol: Double): Int {").substringBefore("fun share(")
+        assertTrue(slotsFn.contains("t < 1.0 -> 2"))
+        assertTrue(slotsFn.contains("t < 5.0 -> 3"))
+        assertTrue(slotsFn.contains("t < 20.0 -> 4"))
+        assertTrue(slotsFn.contains("else -> 6"))
+        assertTrue(doc.contains("kotlin.math.min(MAX_SHARE_7697, 1.0 / slots(tradeableSol))"))
+        // Conviction: specialist must not have rejected; danger objections refuse.
+        assertTrue(doc.contains("if (opinion != null && opinion.authoritative && !opinion.eligible) {"))
+        assertTrue(doc.contains("\"LOSING_PATTERN_DANGER_ZONE\", \"LEARNED_TOXIC_LANE\", \"PROVEN_DEAD_CONTEXT\""))
+
+        // Sizing: the doctrine's position is the live floor when larger, and the
+        // share guard is lifted to the same share in BOTH compute() and the
+        // read-only preflight (the file's own rule: change them in one commit).
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt").readText()
+        assertTrue(sizer.contains("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable)"))
+        assertEquals(2, Regex(Regex.escape("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.share(tradeable)")).findAll(sizer).count())
+        assertTrue(sizer.contains("val safeShareCap7142 = tradeable * shareGuardEff7697"))
+        assertTrue(sizer.contains("val safeShareCap = tradeable * shareGuard7697"))
+        assertTrue(sizer.contains("shareGuard = shareGuard7697,"))
+        assertTrue(sizer.contains("if (isLive && cappedSize > 0.0 && cappedSize < liveFloorEff7697) {"))
+        assertTrue(sizer.contains("val promoted7142 = liveFloorEff7697.coerceAtMost("))
+        assertFalse(sizer.contains("val promoted7142 = liveNoDustFloor6269.coerceAtMost("))
+
+        // Concurrency: the live slot cap sits above the lane-fairness bypass.
+        val thr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExitThroughputAuthority6727.kt").readText()
+        val slotAt = thr.indexOf("LiveConcentrationDoctrine7697.slotVerdict(openCount)")
+        val fairnessAt = thr.indexOf("LaneCapitalFairness6732.headroomFor(m, lane)")
+        assertTrue(slotAt in 1 until fairnessAt)
+
+        // Admission: the live conviction gate runs after the consensus verdict
+        // and before the meta-policy, and only downgrades an allow.
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val gateAt = fdg.indexOf(".convictionVerdict(ts.mint, lane7697, report.objections)")
+        val allowAt = fdg.indexOf("BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }")
+        val metaAt = fdg.indexOf("// V5.9.1260 — AUTONOMOUS META-POLICY (deliberative layer).")
+        assertTrue(allowAt in 1 until gateAt && gateAt < metaAt)
+        assertTrue(fdg.contains("blockReasonFinal = \"LIVE_CONVICTION_7697:\${conviction7697.reason.take(100)}\""))
+        assertTrue(fdg.contains("val live7697 = !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()"))
+
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("Concentration doctrine (§7697):"))
+    }
+
 }
