@@ -1930,3 +1930,33 @@ This tranche classifies deterministic validation helpers, immutable/current-stat
 - [x] `BirdeyeWhaleFeeder.isKnownWhale` — **LOCAL CACHE MEMBERSHIP QUERY**.
 - [x] F_DEAD reconciliation progress: prior 195 + 12 = **207 / 1,458** classified; **1,251 remain**.
 - [x] Regression coverage: `Aate7588PureHelperStateAccessorTrancheTest`.
+
+
+## V5.0.7589 — F_DEAD telemetry/report/notification tranche (22 rows)
+
+This tranche classifies report builders, telemetry state, analytics aggregators, notification emitters, and presentation helpers. They may be useful observability/product surfaces but are not missing entry/size/exit authority.
+
+- [x] `BundleDetector.getCacheStats` — **CACHE STATUS FORMATTER**.
+- [x] `CanonicalEntryAuthority6540.assetClassStats6567` — **ENTRY FUNNEL TELEMETRY SNAPSHOT**.
+- [x] `DiscordNotifier.bigWinMsg` — **NOTIFICATION FORMATTER**.
+- [x] `JournalReceiptAccounting6663.getLiveStats` — **JOURNAL ANALYTICS REPORT**.
+- [x] `LockDiagnosticsTracker.inFlight` — **LOCK DIAGNOSTIC READBACK**.
+- [x] `MarketsScanner.getTopGainers` — **SCANNER CONVENIENCE/REPORT WRAPPER**.
+- [x] `MarketsScanner.getTopLosers` — **SCANNER CONVENIENCE/REPORT WRAPPER**.
+- [x] `PerpsNotificationManager.notifyLearningMilestone` — **PRODUCT NOTIFICATION SIDE EFFECT**.
+- [x] `PerpsNotificationManager.notifyLiquidationWarning` — **PRODUCT NOTIFICATION SIDE EFFECT**; not liquidation authority.
+- [x] `PerpsNotificationManager.notifyMTFAlignment` — **PRODUCT NOTIFICATION SIDE EFFECT**.
+- [x] `PortfolioAnalytics.calculateCorrelations` — **PORTFOLIO ANALYTICS COMPUTATION**.
+- [x] `PortfolioAnalytics.generateHeatMap` — **PORTFOLIO ANALYTICS REPORT**.
+- [x] `RejectionTelemetry.topWindow` — **ROLLING TELEMETRY REPORT**.
+- [x] `RejectionTelemetry.topSession` — **SESSION TELEMETRY REPORT**.
+- [x] `ReportingHub.addBoundedSection` — **LOCAL REPORT COMPOSITION HELPER**.
+- [x] `RootCauseTelemetry6441.attribute` — **TELEMETRY ATTRIBUTION MUTATOR**, not trading authority.
+- [x] `RootCauseTelemetry6441.subsystemBreakdown` — **TELEMETRY REPORT FORMATTER**.
+- [x] `RunTracker30D.getFilterStats` — **UI/REPORT FORMATTER**.
+- [x] `StrategyTelemetry.computePaperTerminalLeaderboard` — **PAPER ANALYTICS REPORT**.
+- [x] `StrategyTelemetry.bleeders` — **ANALYTICS RANKING REPORT**.
+- [x] `StrategyTelemetry.getDisabled` — **COMPATIBILITY/STATE READBACK**; current doctrine returns empty.
+- [x] `UniversalBridgeEngine.getBridgeStats` — **BRIDGE TELEMETRY REPORT**.
+- [x] F_DEAD reconciliation progress: prior 207 + 22 = **229 / 1,458** classified; **1,229 remain**.
+- [x] Regression coverage: `Aate7589TelemetryReportNotificationTrancheTest`.
