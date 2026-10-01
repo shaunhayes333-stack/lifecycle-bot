@@ -2574,3 +2574,17 @@ Repairs:
 - [x] Live quarantine state is shown per lane from `LaneQuarantineController`.
 - [x] Read-only diagnostics only; no entry permission, sizing, FDG, TP/SL or execution behaviour changed.
 - [x] Regression coverage: `Aate7609SpecialistArchitectureStateTest`.
+
+
+## V5.0.7610 — remove first-N specialist lane starvation
+
+5.0.7607 field evidence: 12 native specialist brains were alive/qualifying, but active lane evaluation still showed only eight lanes and `FANOUT_LANE_EVAL_CAPPED_6835=147`.
+
+Root cause: `IntakeFanoutGovernor6835` still enforced `LANE_EVAL_CAP=2` as **two distinct lanes total per candidate causal root**. The first two callers spent the entire lane budget. This is the same caller-order starvation class already repaired for FDG in 7265.
+
+- [x] Lane fanout budget is now keyed by `mint + causalRoot + lane`.
+- [x] Each lane may perform at most two active evaluations per burst, with the existing refill cadence.
+- [x] One specialist can no longer consume another specialist's evaluation allowance.
+- [x] Per-lane cap counters are emitted as `FANOUT_LANE_EVAL_CAPPED_6835_<LANE>`.
+- [x] No score floor, strategy threshold, TP/SL, sizing multiplier, capital allocation, or safety gate changed.
+- [x] Regression coverage: `Aate7610PerLaneFanoutFairnessTest`.

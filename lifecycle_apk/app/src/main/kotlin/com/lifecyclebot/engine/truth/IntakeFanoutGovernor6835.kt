@@ -26,11 +26,10 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * TWO CAPS, DIFFERENT DEDUPE KEYS:
  *
- *  1. LANE FANOUT — max `LANE_EVAL_CAP` (=2) distinct lane evaluations
- *     per (intake mint, causal root). Callers ask
- *     `allowLaneEval(mint, causalRoot, laneName)` before scoring a
- *     candidate on a lane. Returns false once cap exceeded; caller
- *     emits FANOUT_LANE_EVAL_CAPPED_6835 and moves on.
+ *  1. LANE FANOUT — max `LANE_EVAL_CAP` (=2) evaluations PER LANE
+ *     per (intake mint, causal root). One lane cannot consume another
+ *     lane's allowance. Callers ask `allowLaneEval(...)` before scoring.
+ *     This preserves bounded repeated work without first-caller starvation.
  *
  *  2. FDG FANOUT — max `FDG_EVAL_CAP` (=2) distinct FDG evaluations per
  *     (intake mint, causal root). Same shape.
@@ -57,11 +56,13 @@ object IntakeFanoutGovernor6835 {
 
     private data class LaneCounters(
         val lanesSeen: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf()),
+        val laneEvalSeen: AtomicLong = AtomicLong(0L),
         val fdgSeen: AtomicLong = AtomicLong(0L),
         val laneCapped: AtomicLong = AtomicLong(0L),
         val fdgCapped: AtomicLong = AtomicLong(0L),
         val stampMs: Long = System.currentTimeMillis(),
         val lastFdgMs7304: AtomicLong = AtomicLong(0L),
+        val lastLaneEvalMs7610: AtomicLong = AtomicLong(0L),
         val lastLaneAddMs7321: AtomicLong = AtomicLong(0L),
     )
 
@@ -115,33 +116,51 @@ object IntakeFanoutGovernor6835 {
             return true
         }
         cleanupIfStale()
-        val key = keyFor(mint, causalRoot)
-        val c = chains.computeIfAbsent(key) { LaneCounters() }
         val lane = laneName.trim().uppercase()
-        val alreadyPresent = c.lanesSeen.contains(lane)
-        if (alreadyPresent) return true
-        // V5.0.7321 — the lane budget had no refill at all (2,933 caps).
-        val lastAdd7321 = c.lastLaneAddMs7321.get()
-        if (c.lanesSeen.size >= LANE_EVAL_CAP && lastAdd7321 > 0L &&
-            System.currentTimeMillis() - lastAdd7321 >= refillMs7321()) {
-            c.lanesSeen.clear()
-            try { PipelineHealthCollector.labelInc("LANE_FANOUT_BUDGET_REFILLED_7321") } catch (_: Throwable) {}
+        if (lane.isBlank()) {
+            advisoryUngovernedTotal.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("FANOUT_ADVISORY_UNGOVERNED_6835") } catch (_: Throwable) {}
+            return true
         }
-        if (c.lanesSeen.size >= LANE_EVAL_CAP) {
+
+        // V5.0.7610 — a shared "two distinct lanes per candidate" budget is a
+        // deterministic lane disable. 7607 proved all twelve native brains can
+        // qualify, yet FANOUT_LANE_EVAL_CAPPED_6835 still removed 147 active
+        // evaluations and only eight lanes reached LANE_EVAL. The first two
+        // callers consumed everybody else's budget.
+        //
+        // Keep the anti-fanout contract, but scope it to the thing being
+        // bounded: repeated evaluations of THIS lane for THIS causal root.
+        // Each lane gets at most LANE_EVAL_CAP evaluations per burst; another
+        // lane cannot spend its allowance. This mirrors the per-lane FDG repair
+        // from 7265 and preserves bounded compute without caller-order bias.
+        val key = keyFor(mint, causalRoot) + "::LANE::" + lane.take(20)
+        val c = chains.computeIfAbsent(key) { LaneCounters() }
+        val now7610 = System.currentTimeMillis()
+        val last7610 = c.lastLaneEvalMs7610.get()
+        if (c.laneEvalSeen.get() >= LANE_EVAL_CAP && last7610 > 0L &&
+            now7610 - last7610 >= refillMs7321()
+        ) {
+            c.laneEvalSeen.set(0L)
+            try { PipelineHealthCollector.labelInc("LANE_FANOUT_BUDGET_REFILLED_7610") } catch (_: Throwable) {}
+        }
+        val current7610 = c.laneEvalSeen.get()
+        if (current7610 >= LANE_EVAL_CAP) {
             c.laneCapped.incrementAndGet()
             laneCappedTotal.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("FANOUT_LANE_EVAL_CAPPED_6835")
+                PipelineHealthCollector.labelInc("FANOUT_LANE_EVAL_CAPPED_6835_$lane")
                 ForensicLogger.lifecycle(
                     "FANOUT_LANE_EVAL_CAPPED_6835",
                     "mint=${mint.take(10)} causalRoot=${causalRoot.take(10)} lane=$lane " +
-                        "already=${c.lanesSeen.size} cap=$LANE_EVAL_CAP",
+                        "laneEvalCount=$current7610 cap=$LANE_EVAL_CAP scope=PER_LANE_7610",
                 )
             } catch (_: Throwable) {}
             return false
         }
-        c.lanesSeen.add(lane)
-        c.lastLaneAddMs7321.set(System.currentTimeMillis())
+        c.laneEvalSeen.incrementAndGet()
+        c.lastLaneEvalMs7610.set(now7610)
         return true
     }
 
