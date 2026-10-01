@@ -3124,3 +3124,18 @@ The shared Super Intelligence core now optimizes different economic objectives f
 - [x] Learned transition hold duration supplies the capital-velocity objective when enough exact evidence exists.
 - [x] No duplicate execution authority, provider I/O, LLM call, hard veto or safety weakening was added.
 - [x] Regression coverage: Aate7649GoalConditionedPlanningTest.
+
+
+## V5.0.7650 - integrate the intelligence AATE already had
+
+The Super Intelligence layer now explicitly consumes existing AATE brains and learning systems instead of building parallel replacements.
+
+- [x] SpecialistBrainBridge7542 exposes a read-only cached snapshot accessor; Super reasoning never re-runs specialist brains.
+- [x] ExistingIntelligenceContext7650 consumes cached native specialist opinion, UltimateEdgeEngine, BrainConsensusBridge6329, StrategyHypothesisEngine, AsyncStrategyLab and CounterfactualReplayEngine MCTS.
+- [x] The adapter creates no new market signal and performs no provider I/O.
+- [x] UltimateEdge and old consensus are deliberately low-weight cross-checks because their underlying evidence overlaps other stack inputs; this prevents double counting.
+- [x] Existing strategy hypotheses and symbolically reviewed Lab work contribute bounded policy priors.
+- [x] Existing counterfactual replay/MCTS exit intelligence maps into tactical-bank, hold/runner, reduced/wait policy branches.
+- [x] SuperPolicyTree7638 consumes the combined existing-stack prior capped to +/-6 utility points.
+- [x] No execution, hard-veto, safety or capital authority moved.
+- [x] Regression coverage: Aate7650ExistingIntelligenceIntegrationTest.

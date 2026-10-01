@@ -65,6 +65,7 @@ object SuperPolicyTree7638 {
         critic: SuperAdversarialCritic7635.Review,
         memory: SuperEpisodicRetriever7638.Retrieval,
         deliberation: SuperDeliberationController7646.Plan = SuperDeliberationController7646.shallowPlan(),
+        existing: ExistingIntelligenceContext7650.Snapshot? = null,
     ): Result {
         val imp = world.forHorizon(SuperWorldModel7634.Horizon.IMPULSE)
         val tac = world.forHorizon(SuperWorldModel7634.Horizon.TACTICAL)
@@ -153,6 +154,7 @@ object SuperPolicyTree7638 {
                     policy = b.policy,
                 )
             } catch (_: Throwable) { 0.0 }
+            val existingPrior7650 = existing?.policyPrior(b.policy) ?: 0.0
             val causalLift7647 = try {
                 SuperCausalPolicyEvaluator7647.policyLift(
                     lane = world.lane,
@@ -173,7 +175,7 @@ object SuperPolicyTree7638 {
                 memory = memory,
                 policy = b.policy.name,
                 exposure = b.rootAction.exposure,
-                baseUtility = b.utility + learnedPrior7644 + causalLift7647,
+                baseUtility = b.utility + learnedPrior7644 + causalLift7647 + existingPrior7650,
                 rolloutBudget = deliberation.rolloutBudget,
                 transition = transition7648,
             )

@@ -41,6 +41,16 @@ object SpecialistBrainBridge7542 {
         ForensicLogger.lifecycle("NATIVE_BRAIN_ERROR_7542","lane=$lane error=${t.javaClass.simpleName} message=${t.message?.take(100)?:""}")
     }catch(_:Throwable){};return Opinion(lane,false,0,0,0.0,"BRAIN_ERROR_${t.javaClass.simpleName}","NONE","brain_error","brain_error",gradeable=false,authoritative=false).also{lastOpinion[lane]=it}}
 
+    /**
+     * V5.0.7650 - read-only access for higher-order reasoning.
+     * Returns only the already-evaluated specialist snapshot; never invokes a
+     * trader brain or provider from the oracle/planner path.
+     */
+    fun cachedSnapshot7650(mint:String):Snapshot? {
+        val c=cache[mint]?.snapshot?:return null
+        return if(System.currentTimeMillis()-c.evaluatedAtMs<=CACHE_MS*2L)c else null
+    }
+
     data class LaneRuntime7542(val lane:String,val called:Long,val allowed:Long,val rejected:Long,val errors:Long,val eligible:Boolean,val score:Int,val confidence:Int,val authoritative:Boolean,val reason:String)
     fun laneRuntime7542(lane:String):LaneRuntime7542 { val k=lane.uppercase(); val o=lastOpinion[k]; return LaneRuntime7542(k,called[k]?.get()?:0L,allowed[k]?.get()?:0L,rejected[k]?.get()?:0L,errors[k]?.get()?:0L,o?.eligible?:false,o?.score?:0,o?.confidence?:0,o?.authoritative?:false,o?.reason.orEmpty()) }
 

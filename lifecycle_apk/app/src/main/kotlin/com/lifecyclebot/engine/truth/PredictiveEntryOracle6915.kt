@@ -1081,8 +1081,18 @@ object PredictiveEntryOracle6915 {
                     world7634, critic7635, memory7638,
                 )
                 contributions += deliberation7646.contributionTag()
+                val existing7650 = com.lifecyclebot.engine.ExistingIntelligenceContext7650.read(
+                    mint = mint,
+                    symbol = symbol,
+                    lane = laneKey,
+                    source = sourceFamily,
+                    score = s,
+                    regime = regime,
+                    strategyIdentity = listOf(tradeType, setup, style, tactic).joinToString(">"),
+                )
+                contributions += existing7650.contributionTag()
                 val tree7638 = com.lifecyclebot.engine.SuperPolicyTree7638.search(
-                    world7634, critic7635, memory7638, deliberation7646,
+                    world7634, critic7635, memory7638, deliberation7646, existing7650,
                 )
                 contributions += tree7638.contributionTag()
             try { PipelineHealthCollector.labelInc("SUPER_IMAGINATION_TREE_SEARCH_7643") } catch (_: Throwable) {}
@@ -1305,8 +1315,18 @@ object PredictiveEntryOracle6915 {
                     world7634, critic7635, memory7638,
                 )
                 contributions += deliberation7646.contributionTag()
+                val existing7650 = com.lifecyclebot.engine.ExistingIntelligenceContext7650.read(
+                    mint = mint,
+                    symbol = symbol,
+                    lane = laneKey,
+                    source = sourceFamily,
+                    score = s,
+                    regime = regime,
+                    strategyIdentity = listOf(tradeType, setup, style, tactic).joinToString(">"),
+                )
+                contributions += existing7650.contributionTag()
                 val tree7638 = com.lifecyclebot.engine.SuperPolicyTree7638.search(
-                    world7634, critic7635, memory7638, deliberation7646,
+                    world7634, critic7635, memory7638, deliberation7646, existing7650,
                 )
             contributions += tree7638.contributionTag()
             val arbiter7639 = com.lifecyclebot.engine.SuperReasoningArbiter7639.arbitrate(
