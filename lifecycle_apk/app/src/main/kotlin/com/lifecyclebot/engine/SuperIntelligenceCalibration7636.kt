@@ -4,6 +4,8 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * V5.0.7636 - causal calibration ledger for the Super Intelligence stack.
@@ -159,6 +161,89 @@ object SuperIntelligenceCalibration7636 {
             )
         } catch (_: Throwable) {}
         return true
+    }
+
+    /**
+     * V5.0.7637 - calibration-derived trust for each planning horizon.
+     *
+     * Neutral until n>=8. Then Brier calibration + directional accuracy earn
+     * a bounded trust multiplier. This is model trust, not execution authority.
+     */
+    fun horizonReliability(h: SuperWorldModel7634.Horizon): Double {
+        val s = horizonStats[h] ?: return 1.0
+        return synchronized(s) {
+            if (s.n < 8L) return@synchronized 1.0
+            val brierQuality = (1.0 - (s.brier() / 0.35)).coerceIn(0.0, 1.0)
+            val dirQuality = s.directionAccuracy().coerceIn(0.0, 1.0)
+            val raw = 0.55 + brierQuality * 0.35 + dirQuality * 0.30
+            raw.coerceIn(0.60, 1.20)
+        }
+    }
+
+    fun exportState(): String {
+        val root = JSONObject().put("version", 7637)
+        val hs = JSONArray()
+        SuperWorldModel7634.Horizon.entries.forEach { h ->
+            val s = horizonStats[h] ?: return@forEach
+            synchronized(s) {
+                hs.put(
+                    JSONObject()
+                        .put("h", h.name)
+                        .put("n", s.n)
+                        .put("brierSum", s.brierSum)
+                        .put("absEvErrorSum", s.absEvErrorSum)
+                        .put("directionCorrect", s.directionCorrect)
+                        .put("realizedSum", s.realizedSum)
+                )
+            }
+        }
+        root.put("horizons", hs)
+
+        val ss = JSONArray()
+        stateStats.forEach { (state, s) ->
+            synchronized(s) {
+                ss.put(
+                    JSONObject()
+                        .put("state", state.name)
+                        .put("n", s.n)
+                        .put("wins", s.wins)
+                        .put("realizedSum", s.realizedSum)
+                )
+            }
+        }
+        root.put("states", ss)
+        return root.toString()
+    }
+
+    fun importState(raw: String) {
+        if (raw.isBlank()) return
+        try {
+            val root = JSONObject(raw)
+            val hs = root.optJSONArray("horizons") ?: JSONArray()
+            for (i in 0 until hs.length()) {
+                val o = hs.optJSONObject(i) ?: continue
+                val h = try { SuperWorldModel7634.Horizon.valueOf(o.optString("h")) } catch (_: Throwable) { continue }
+                horizonStats[h] = HorizonStats(
+                    n = o.optLong("n", 0L),
+                    brierSum = o.optDouble("brierSum", 0.0),
+                    absEvErrorSum = o.optDouble("absEvErrorSum", 0.0),
+                    directionCorrect = o.optLong("directionCorrect", 0L),
+                    realizedSum = o.optDouble("realizedSum", 0.0),
+                )
+            }
+
+            val ss = root.optJSONArray("states") ?: JSONArray()
+            for (i in 0 until ss.length()) {
+                val o = ss.optJSONObject(i) ?: continue
+                val state = try { SuperWorldModel7634.LatentState.valueOf(o.optString("state")) } catch (_: Throwable) { continue }
+                stateStats[state] = StateStats(
+                    n = o.optLong("n", 0L),
+                    wins = o.optLong("wins", 0L),
+                    realizedSum = o.optDouble("realizedSum", 0.0),
+                )
+            }
+            try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_CALIBRATION_RESTORED_7637") } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     fun statusLine(): String {

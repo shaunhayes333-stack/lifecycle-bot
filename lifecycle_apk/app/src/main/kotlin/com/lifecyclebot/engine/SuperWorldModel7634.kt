@@ -182,11 +182,16 @@ object SuperWorldModel7634 {
 
         val forecasts = Horizon.entries.map { h ->
             val sh = shape(h)
-            val uncertainty = (
+            val baseUncertainty = (
                 (1.0 - conf) * 0.40 +
                     dis * 0.35 +
                     (sh.disp / 100.0).coerceIn(0.0, 1.0) * 0.25
                 ).coerceIn(0.0, 1.0)
+            val reliability7637 = try {
+                SuperIntelligenceCalibration7636.horizonReliability(h)
+            } catch (_: Throwable) { 1.0 }
+            val uncertainty = (baseUncertainty / reliability7637.coerceAtLeast(0.60))
+                .coerceIn(0.0, 1.0)
             val utility = sh.e - sh.risk * 20.0 - uncertainty * 12.0
             HorizonForecast(
                 horizon = h,

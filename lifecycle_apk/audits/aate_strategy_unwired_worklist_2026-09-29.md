@@ -2955,3 +2955,16 @@ The world model, critic and planner are now graded against exact canonical termi
 - [x] Missing historical predictions ACK as no-op with explicit telemetry rather than causing infinite redelivery.
 - [x] No execution authority, provider I/O, threshold reduction or safety weakening was added.
 - [x] Regression coverage: Aate7636SuperIntelligenceCalibrationTest.
+
+
+## V5.0.7637 - persistent adaptive trust for world-model horizons
+
+Super Intelligence now learns which of its own horizon models deserve confidence.
+
+- [x] Calibration statistics persist across process restarts through LearningPersistence.
+- [x] IMPULSE, TACTICAL and THESIS each earn an independent bounded reliability multiplier.
+- [x] Reliability remains neutral until at least 8 exact position-bound outcomes exist for that horizon.
+- [x] Brier calibration and directional accuracy determine trust; poor calibration increases world-model uncertainty rather than silently rewriting expected returns.
+- [x] A well-calibrated horizon may reduce uncertainty modestly, capped at 1.20x trust; a poor horizon may be damped to 0.60x.
+- [x] This modifies model confidence only; it does not grant execution, hard-veto or safety authority.
+- [x] Regression coverage: Aate7637AdaptiveModelTrustTest.
