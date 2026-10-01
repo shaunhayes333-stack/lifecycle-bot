@@ -71,6 +71,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7675: canonical audit reconciliation. Removed stale unchecked items already completed by exact-strategy 7430/7431, edge parity 7431/7549, and current launch-authority architecture; EarlyEntryScout/legacy fresh-launch scanner remain intentionally retired to avoid duplicate evidence.
 - 5.0.7676: CryptoBrain actionable handoff source contract locked. Native crypto signals/tactics preserve dynamic identity into one CRYPTO_ALT canonical submit; 7472 warmup prevents fresh-tape starvation and 7521 prevents duplicate post-seal admission.
 - 5.0.7677: EXPRESS source contract reconciled. 7464/7469 already restored owner/intent lineage and sealed same-lane attempt reuse; remaining EXPRESS work is runtime acceptance, not another wiring layer.
+- 5.0.7678: CORE + BLUECHIP source continuity reconciled. BLUECHIP uses 7465/7466 mark/sealed-attempt sizing; CORE remains a 7439/7541 executable ensemble with 7467 same-attempt mark/size proof. Runtime acceptance remains open.
 
 ## Existing intelligence estate explicitly in scope
 

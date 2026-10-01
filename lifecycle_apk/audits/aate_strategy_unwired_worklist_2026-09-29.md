@@ -590,8 +590,8 @@ Baseline evidence:
 - sizedN=0 ticketN=0 execN=0 positionOpenedN=0.
 - Capital is available: sharedCash=59.4863, enforcedHeadroom=true, capitalStarved=false.
 Required repair:
-- [ ] Trace BLUECHIP mark -> canonical sizing bridge -> sealed size -> ticket.
-- [ ] Identify exact suppressor rather than loosening score/floor policy.
+- [x] BLUECHIP mark→size→ticket source continuity repaired by 7465/7466: one mode-aware canonical entry-mark authority feeds a lane-matched sealed FDG attempt, and SIZED_EXECUTABLE/TICKET stages are emitted only after executable authorization.
+- [x] BLUECHIP suppressor class was causal identity/mark/authorization continuity, not score-floor policy; 7465/7466 repair that spine without retuning score/confidence/size.
 - [ ] Prove one causal post-fix BLUECHIP attempt can either size or terminate with a named reason.
 
 ## P0-4 — CORE ensemble sizing continuity
@@ -600,9 +600,9 @@ Baseline evidence:
 - sizedN=0 ticketN=0 execN=0.
 - status=SIZING_CHOKED with shared capital available.
 Required repair:
-- [ ] Preserve CORE as ensemble/coordinator for opportunities not cleanly owned by a specialist.
-- [ ] Trace owner-selected/intent/FDG/mark -> size without collapsing CORE into a generic tag.
-- [ ] Ensure contributors can influence but cannot create duplicate economic execution.
+- [x] CORE ensemble role source-locked by 7439/7541: CORE requires multi-specialist ambiguity/generalist fallback, yields to a clear specialist owner, and is an executable specialist rather than V3/observer trunk.
+- [x] CORE/primary spine source continuity repaired by 7467: lane-matched sealed intent attemptId is reused and post-FDG SIZE/TICKET require same-attempt executable mark + positive sealed size proof.
+- [x] CORE contributor contract preserved: specialist opinions contribute to CORE ensemble evidence/tools, while one canonical elected owner/sealed attempt continues to execution; contributors do not mint duplicate economic opens.
 
 ## P0-5 — EXPRESS ownership / intent continuity
 Baseline evidence:
@@ -3548,3 +3548,15 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] Same-lane sealed intent/attempt identity is required before executable downstream continuation.
 - [x] Runtime acceptance remains open: device evidence must show real EXPRESS ownerSelected/buyIntent and continuous validated stage chains.
 - [x] No entry threshold, score, sizing, exit, safety or execution-volume policy changed.
+
+
+## V5.0.7678 - CORE + BLUECHIP source continuity reconciliation
+
+- [x] BLUECHIP uses the 7465 mode-aware canonical entry-mark resolver and 7466 active sealed FDG attempt reuse.
+- [x] BLUECHIP SIZED_EXECUTABLE and TICKET stages occur only inside the executable TradeAuthorizer result branch; no score/floor retune is part of that repair.
+- [x] CORE is a real executable ensemble specialist: 7439 elects it only for ambiguous multi-specialist/generalist cases, 7541 excludes CORE from observer/trunk lanes.
+- [x] 7467 requires CORE/primary post-auth stages to match the sealed attempt, carry a positive resolved size and a valid executable mark timestamp.
+- [x] Incomplete proof terminates with `PRIMARY_SPINE_POST_AUTH_PROOF_INCOMPLETE_7467` rather than fabricating downstream stages.
+- [x] Contributors affect CORE evidence/strategy selection but execution remains one owner/one sealed attempt/one economic open.
+- [x] Runtime acceptance remains open for real BLUECHIP and CORE stage-chain observations.
+- [x] No thresholds, score floors, sizing multipliers, TP/SL, safety or execution-volume policy changed.
