@@ -2940,3 +2940,18 @@ The Super Intelligence stack now red-teams its own world model before the planne
 - [x] Existing hard safety remains independent and authoritative.
 - [x] No provider I/O, LLM call, new execution path, sizing bypass or hard gate was added.
 - [x] Regression coverage: Aate7635SuperAdversarialCriticTest.
+
+
+## V5.0.7636 - causal self-calibration for Super Intelligence
+
+The world model, critic and planner are now graded against exact canonical terminal outcomes instead of remaining unvalidated advisory traces.
+
+- [x] Decision-time world/critic/plan state is stamped by mint + canonical owner lane.
+- [x] CanonicalPositionAuthority binds that exact decision snapshot to the immutable positionId at OPEN.
+- [x] The canonical finalized trade bus delivers settled economics to SuperIntelligenceCalibration7636.
+- [x] Terminal grading is position-bound; later same-mint evaluations cannot steal outcome credit.
+- [x] The horizon nearest the actual holding duration is graded, so short trades test IMPULSE and longer holds test TACTICAL/THESIS.
+- [x] Calibration records Brier error, expected-PnL absolute error, direction accuracy, realized return and latent-state performance.
+- [x] Missing historical predictions ACK as no-op with explicit telemetry rather than causing infinite redelivery.
+- [x] No execution authority, provider I/O, threshold reduction or safety weakening was added.
+- [x] Regression coverage: Aate7636SuperIntelligenceCalibrationTest.

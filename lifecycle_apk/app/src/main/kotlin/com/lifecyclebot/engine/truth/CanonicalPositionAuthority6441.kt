@@ -474,6 +474,7 @@ object CanonicalPositionAuthority6441 {
             )
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.bindPosition(positionId, mint, lane) } catch (_: Throwable) {}
             // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.
             try { positions[positionId]?.let(::lockEntryMetricsAtOpen6636) } catch (_: Throwable) {}
             muts.incrementAndGet()

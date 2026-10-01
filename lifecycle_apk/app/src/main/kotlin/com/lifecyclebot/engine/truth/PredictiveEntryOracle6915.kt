@@ -1076,6 +1076,11 @@ object PredictiveEntryOracle6915 {
                     critic = critic7635,
                 )
                 contributions += superPlan7633.contributionTag()
+                try {
+                    com.lifecyclebot.engine.SuperIntelligenceCalibration7636.recordDecision(
+                        mint, laneKey, world7634, superPlan7633, critic7635,
+                    )
+                } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
             } catch (_: Throwable) {}
             contributions += listOf(
@@ -1267,6 +1272,11 @@ object PredictiveEntryOracle6915 {
                 critic = critic7635,
             )
             contributions += superPlan7633.contributionTag()
+            try {
+                com.lifecyclebot.engine.SuperIntelligenceCalibration7636.recordDecision(
+                    mint, laneKey, world7634, superPlan7633, critic7635,
+                )
+            } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
         if (evidenceWeight7329 > 0.0) {

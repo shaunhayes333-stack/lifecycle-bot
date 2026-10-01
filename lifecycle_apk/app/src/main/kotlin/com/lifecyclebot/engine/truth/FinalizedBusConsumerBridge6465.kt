@@ -133,6 +133,7 @@ object FinalizedBusConsumerBridge6465 {
             "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)
             "UnifiedExitPolicyHead" -> deliverToUnifiedExitPolicyHead6696(env)
             "CausalFeedback6715"  -> deliverToCausalFeedback6715(env)
+            "SuperIntelligenceCalibration7636" -> deliverToSuperIntelligenceCalibration7636(env)
             "Dashboard"           -> deliverToDashboard(env)
             "OperatorFingerprint7074" -> deliverToOperatorFingerprint7074(env)
             else -> false
@@ -509,6 +510,10 @@ object FinalizedBusConsumerBridge6465 {
             )
         } catch (_: Throwable) {}
         true
+    } catch (t: Throwable) { threw7154(t) }
+
+    private fun deliverToSuperIntelligenceCalibration7636(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.SuperIntelligenceCalibration7636.onFinalized(env)
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

@@ -1,0 +1,203 @@
+
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
+
+/**
+ * V5.0.7636 - causal calibration ledger for the Super Intelligence stack.
+ *
+ * Decision-time world/critic/plan state is first keyed by mint+owner lane, then
+ * bound to the canonical positionId at OPEN. Terminal grading is position-bound,
+ * so a later same-mint evaluation can never steal credit from the trade that
+ * actually opened.
+ */
+object SuperIntelligenceCalibration7636 {
+    data class DecisionStamp(
+        val mint: String,
+        val lane: String,
+        val world: SuperWorldModel7634.Snapshot,
+        val planAction: SuperIntelligencePlanner7633.Action,
+        val criticFragility: Double,
+        val criticVerdict: String,
+        val atMs: Long,
+    )
+
+    data class HorizonStats(
+        var n: Long = 0L,
+        var brierSum: Double = 0.0,
+        var absEvErrorSum: Double = 0.0,
+        var directionCorrect: Long = 0L,
+        var realizedSum: Double = 0.0,
+    ) {
+        fun brier(): Double = if (n > 0) brierSum / n else 0.0
+        fun mae(): Double = if (n > 0) absEvErrorSum / n else 0.0
+        fun directionAccuracy(): Double =
+            if (n > 0) directionCorrect.toDouble() / n.toDouble() else 0.0
+        fun meanRealized(): Double = if (n > 0) realizedSum / n else 0.0
+    }
+
+    data class StateStats(
+        var n: Long = 0L,
+        var wins: Long = 0L,
+        var realizedSum: Double = 0.0,
+    )
+
+    private val pending = ConcurrentHashMap<String, DecisionStamp>()
+    private val byPosition = ConcurrentHashMap<String, DecisionStamp>()
+    private val settled = ConcurrentHashMap.newKeySet<String>()
+    private val horizonStats = ConcurrentHashMap<SuperWorldModel7634.Horizon, HorizonStats>()
+    private val stateStats = ConcurrentHashMap<SuperWorldModel7634.LatentState, StateStats>()
+
+    private fun key(mint: String, lane: String): String =
+        lane.trim().uppercase() + "|" + mint.trim()
+
+    fun recordDecision(
+        mint: String,
+        lane: String,
+        world: SuperWorldModel7634.Snapshot,
+        plan: SuperIntelligencePlanner7633.Plan,
+        critic: SuperAdversarialCritic7635.Review,
+    ) {
+        if (mint.isBlank()) return
+        val laneKey = lane.trim().uppercase().ifBlank { world.lane }
+        pending[key(mint, laneKey)] = DecisionStamp(
+            mint = mint,
+            lane = laneKey,
+            world = world,
+            planAction = plan.chosen,
+            criticFragility = critic.thesisFragility,
+            criticVerdict = critic.verdict,
+            atMs = System.currentTimeMillis(),
+        )
+        try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_DECISION_STAMPED_7636") } catch (_: Throwable) {}
+        if (pending.size > 4096) {
+            val cutoff = System.currentTimeMillis() - 10L * 60L * 1000L
+            pending.entries.removeIf { it.value.atMs < cutoff }
+        }
+    }
+
+    fun bindPosition(positionId: String, mint: String, lane: String): Boolean {
+        if (positionId.isBlank() || mint.isBlank()) return false
+        val laneKey = lane.trim().uppercase()
+        val exact = pending.remove(key(mint, laneKey))
+        val fallback = exact ?: pending.entries
+            .filter { it.value.mint == mint }
+            .maxByOrNull { it.value.atMs }
+            ?.let { e ->
+                pending.remove(e.key)
+                e.value
+            }
+        if (fallback == null) {
+            try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_BIND_MISSING_7636") } catch (_: Throwable) {}
+            return false
+        }
+        byPosition[positionId] = fallback
+        try {
+            PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_POSITION_BOUND_7636")
+            PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_POSITION_BOUND_7636_" + fallback.world.latentState.name)
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    fun onFinalized(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        if (!env.terminal || env.positionId.isBlank()) return true
+        if (!settled.add(env.positionId)) return true
+        val stamp = byPosition.remove(env.positionId) ?: run {
+            try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_OUTCOME_NO_BOUND_PREDICTION_7636") } catch (_: Throwable) {}
+            return true
+        }
+
+        val holdSec = (env.holdingTimeMs.coerceAtLeast(0L) / 1000L).toInt()
+        val nearest = SuperWorldModel7634.Horizon.entries.minByOrNull {
+            abs(it.seconds - holdSec)
+        } ?: SuperWorldModel7634.Horizon.TACTICAL
+        val forecast = stamp.world.forHorizon(nearest) ?: return true
+
+        val y = if (env.realizedReturnPct > 0.0) 1.0 else 0.0
+        val brier = (forecast.pWin - y) * (forecast.pWin - y)
+        val evError = abs(forecast.expectedPnlPct - env.realizedReturnPct)
+        val directionCorrect =
+            (forecast.expectedPnlPct > 0.0 && env.realizedReturnPct > 0.0) ||
+                (forecast.expectedPnlPct <= 0.0 && env.realizedReturnPct <= 0.0)
+
+        val hs = horizonStats.computeIfAbsent(nearest) { HorizonStats() }
+        synchronized(hs) {
+            hs.n += 1
+            hs.brierSum += brier
+            hs.absEvErrorSum += evError
+            if (directionCorrect) hs.directionCorrect += 1
+            hs.realizedSum += env.realizedReturnPct
+        }
+
+        val ss = stateStats.computeIfAbsent(stamp.world.latentState) { StateStats() }
+        synchronized(ss) {
+            ss.n += 1
+            if (env.realizedReturnPct > 0.0) ss.wins += 1
+            ss.realizedSum += env.realizedReturnPct
+        }
+
+        try {
+            PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_OUTCOME_GRADED_7636")
+            PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_HORIZON_GRADED_7636_" + nearest.name)
+            PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_STATE_GRADED_7636_" + stamp.world.latentState.name)
+            if (directionCorrect) PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_DIRECTION_CORRECT_7636")
+            else PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_DIRECTION_WRONG_7636")
+            ForensicLogger.lifecycle(
+                "SUPER_INTELLIGENCE_OUTCOME_GRADED_7636",
+                "positionId=" + env.positionId.take(24) +
+                    " lane=" + stamp.lane +
+                    " horizon=" + nearest.name +
+                    " state=" + stamp.world.latentState.name +
+                    " plan=" + stamp.planAction.name +
+                    " critic=" + stamp.criticVerdict +
+                    " predP=" + String.format(java.util.Locale.US, "%.3f", forecast.pWin) +
+                    " predE=" + String.format(java.util.Locale.US, "%+.2f", forecast.expectedPnlPct) +
+                    " actual=" + String.format(java.util.Locale.US, "%+.2f", env.realizedReturnPct) +
+                    " brier=" + String.format(java.util.Locale.US, "%.3f", brier),
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    fun statusLine(): String {
+        val horizons = SuperWorldModel7634.Horizon.entries.joinToString(" | ") { h ->
+            val s = horizonStats[h]
+            if (s == null || s.n == 0L) h.name + ":n=0"
+            else synchronized(s) {
+                String.format(
+                    java.util.Locale.US,
+                    "%s:n=%d brier=%.3f mae=%.1f dir=%.0f%% mean=%+.1f",
+                    h.name,
+                    s.n,
+                    s.brier(),
+                    s.mae(),
+                    s.directionAccuracy() * 100.0,
+                    s.meanRealized(),
+                )
+            }
+        }
+        val states = stateStats.entries
+            .sortedByDescending { it.value.n }
+            .take(6)
+            .joinToString(" | ") { e ->
+                synchronized(e.value) {
+                    val wr = if (e.value.n > 0) e.value.wins * 100.0 / e.value.n else 0.0
+                    val mean = if (e.value.n > 0) e.value.realizedSum / e.value.n else 0.0
+                    String.format(java.util.Locale.US, "%s:n=%d wr=%.0f%% mean=%+.1f", e.key.name, e.value.n, wr, mean)
+                }
+            }
+        return "SUPER_INTELLIGENCE_CALIBRATION_7636 pending=" + pending.size +
+            " bound=" + byPosition.size +
+            " horizons=[" + horizons + "] states=[" + states + "]"
+    }
+
+    internal fun resetForTest() {
+        pending.clear()
+        byPosition.clear()
+        settled.clear()
+        horizonStats.clear()
+        stateStats.clear()
+    }
+}
