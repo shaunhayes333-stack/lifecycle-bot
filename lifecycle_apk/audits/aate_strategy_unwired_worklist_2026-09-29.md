@@ -3111,3 +3111,16 @@ The planning stack now learns empirical state-transition dynamics from exact pos
 - [x] Transition state persists across restart.
 - [x] No provider I/O, LLM call, independent execution authority, hard veto or safety weakening was added.
 - [x] Regression coverage: Aate7648LatentTransitionModelTest.
+
+
+## V5.0.7649 - multi-objective goal-conditioned planning
+
+The shared Super Intelligence core now optimizes different economic objectives for different specialist lanes instead of forcing every strategy through one generic utility function.
+
+- [x] Added lane goal profiles for capital preservation, fast turnover, early asymmetry, tail capture, recovery edge, quality compounding, asymmetric momentum and balanced edge.
+- [x] Each branch is evaluated across expected return, downside CVaR, failure probability, upside tail, capital velocity and robustness.
+- [x] The planner constructs a Pareto frontier so a branch dominated on every objective cannot win merely because one scalar happened to be large.
+- [x] Lane-specific goal weights apply only a bounded +/-7 utility nudge on top of existing CVaR/world/critic/causal policy reasoning.
+- [x] Learned transition hold duration supplies the capital-velocity objective when enough exact evidence exists.
+- [x] No duplicate execution authority, provider I/O, LLM call, hard veto or safety weakening was added.
+- [x] Regression coverage: Aate7649GoalConditionedPlanningTest.

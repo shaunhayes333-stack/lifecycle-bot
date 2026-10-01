@@ -33,6 +33,7 @@ object SuperPolicyTree7638 {
         val utility: Double,
         val confidence: Double,
         val selectionPropensity: Double,
+        val goalProfile: String,
         val branches: List<Branch>,
     ) {
         fun contributionTag(): String {
@@ -47,12 +48,13 @@ object SuperPolicyTree7638 {
             }
             return String.format(
                 java.util.Locale.US,
-                "tree7638(best=%s,root=%s,u=%+.1f,conf=%.2f,prop=%.3f,top=[%s])",
+                "tree7638(best=%s,root=%s,u=%+.1f,conf=%.2f,prop=%.3f,goal=%s,top=[%s])",
                 bestPolicy.name,
                 rootAction.name,
                 utility,
                 confidence,
                 selectionPropensity,
+                goalProfile,
                 top,
             )
         }
@@ -184,8 +186,17 @@ object SuperPolicyTree7638 {
             )
         }
 
-        val best = branches.maxByOrNull { it.utility } ?: branches.first()
-        val sorted = branches.sortedByDescending { it.utility }
+        val goal7649 = SuperGoalConditionedPlanner7649.rank(
+            lane = world.lane,
+            world = world,
+            branches = branches,
+        )
+        val goalAdjustedBranches7649 = branches.map { b ->
+            b.copy(utility = b.utility + goal7649.nudgeFor(b.policy))
+        }
+
+        val best = goalAdjustedBranches7649.maxByOrNull { it.utility } ?: goalAdjustedBranches7649.first()
+        val sorted = goalAdjustedBranches7649.sortedByDescending { it.utility }
         val margin = if (sorted.size > 1) sorted[0].utility - sorted[1].utility else 0.0
         val confidence = (
             0.35 +
@@ -198,9 +209,9 @@ object SuperPolicyTree7638 {
         // NOT used to randomize execution; it records how strongly the policy
         // tree preferred the selected branch so terminal learning can correct
         // selection bias with bounded inverse-propensity weighting.
-        val maxU7647 = branches.maxOfOrNull { it.utility } ?: 0.0
+        val maxU7647 = goalAdjustedBranches7649.maxOfOrNull { it.utility } ?: 0.0
         val temperature7647 = 6.0
-        val propWeights7647 = branches.associate { b ->
+        val propWeights7647 = goalAdjustedBranches7649.associate { b ->
             b.policy to kotlin.math.exp(((b.utility - maxU7647) / temperature7647).coerceIn(-12.0, 0.0))
         }
         val propSum7647 = propWeights7647.values.sum().coerceAtLeast(1e-9)
@@ -213,7 +224,8 @@ object SuperPolicyTree7638 {
             utility = best.utility,
             confidence = confidence,
             selectionPropensity = selectionPropensity7647,
-            branches = branches,
+            goalProfile = goal7649.profile.name,
+            branches = goalAdjustedBranches7649,
         )
     }
 }
