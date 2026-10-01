@@ -2421,3 +2421,65 @@ This tranche classifies runtime counters/damper helpers, learning-vote maintenan
 - [x] `QuantMetrics.updateEquity` — **RUNTIME/QUANT/LEARNING UTILITY SURFACE**.
 - [x] F_DEAD reconciliation progress: corrected prior 554 + 21 = **575 / 1,458** classified; **883 remain**.
 - [x] Regression coverage: `Aate7603RuntimeQuantHelperTrancheTest`.
+
+
+## V5.0.7604 — F_DEAD engine state/predicate/advisory tranche (53 rows)
+
+These engine-level rows expose current state, cached analytics, policy status, diagnostics, compatibility views, or advisory predicates around an already-owned subsystem. They are **not independently promoted to execution authority** by virtue of being zero-caller declarations.
+
+- [x] `AntiChokeManager.currentLevel` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `BotBrain.isRecentRegimeFavorable` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `EdgeLearning.getLiveTradesSeen` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `EfficiencyLayer.getTopCandidates` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `EmergentGuardrails.getFrozenAggression` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `EmergentGuardrails.getTradesLastMinute` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `EmergentGuardrails.isAggressionFrozen` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `ExitManager.hasCriticalCondition` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `FinalExecutionPermit.getRejectionReason` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `FluidLearning.getAvailableBalance` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `FluidLearning.getLearningScaleMultiplier` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `FluidLearning.isLearningAvailable` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `GeminiCopilot.getRateLimitRemainingMinutes` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `GlobalTradeRegistry.getTotalExposure` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `GlobalTradeRegistry.isInProbation` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `HoldingLogicLayer.getAllModeParams` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LaneAutoPauseGuard.isPausedLive` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LiquidityBucketRouter.isModeAppropriate` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LiquidityDepthAI.getEntryLiquidity` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LiveEntrySafetyHold.currentFloorAdjustment` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LiveProbeEntry.hasActiveProbe` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LiveWalletReconciler.isStarted` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LiveWalletReconciler.lastBuySignature` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `LiveWalletReconciler.lastRunMs` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `MarketRegimeAI.getRegimeDurationMinutes` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `MarketRegimeAI.getRegimeInfo` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `PerpsLaneGate.isShadowEnabled` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `ProfitabilityLayer.isEvicted` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `RemoteKillSwitch.getMaxPositionOverride` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `RemoteKillSwitch.isForcePaperMode` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `SentientPersonality.getLatestThought` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `SentimentEngine.getSentiment` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `ShadowLearningEngine.getBestVariant` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `SuperBrainEnhancements.getBreadthTrend` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `SymbolicContext.getAge` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `SymbolicContext.isFundingUnfavourable` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TimeOptimizationAI.getCurrentDayOfWeek` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TimeOptimizationAI.getCurrentSession` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TimeOptimizationAI.isWeekend` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `ToxicModeCircuitBreaker.getLiquidityFloor` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `ToxicModeCircuitBreaker.isModeDisabled` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradeAuthorizer.getShadowTracking` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradeAuthorizer.getTokenBooks` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradeAuthorizer.getTokenState` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradeAuthorizer.getTokensInBook` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradeAuthorizer.hasOpenPositionInBook` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradeDatabase.getTradesByPhase` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradeHistoryStore.getAllTradesIncludingInvalidForensics` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradingCopilot.getAssetWindow` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradingCopilot.isAggressiveHunt` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TradingCopilot.isEmergencyBrake` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `TreasuryOpportunityEngine.getActiveDeployments` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] `VoiceManager.getBackend` — **ENGINE STATE/PREDICATE/ADVISORY SURFACE**.
+- [x] Database/provider-backed reads remain off synchronous hot paths unless separately cached/prefetched.
+- [x] F_DEAD reconciliation progress: prior 575 + 53 = **628 / 1,458** classified; **830 remain**.
+- [x] Regression coverage: `Aate7604EngineStatePredicateTrancheTest`.
