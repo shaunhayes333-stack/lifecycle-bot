@@ -3048,3 +3048,17 @@ Policy search now reasons over outcome distributions rather than one average fut
 - [x] No provider I/O, LLM call, random network dependency, hard-veto authority or safety weakening was added.
 - [x] Runtime proof: SUPER_IMAGINATION_TREE_SEARCH_7643.
 - [x] Regression coverage: Aate7643DistributionalImaginationTest.
+
+
+## V5.0.7644 - contextual policy bandit over multi-step plans
+
+The planner now learns which policy branch actually works in each lane + latent-state context.
+
+- [x] Added SuperPolicyBandit7644 keyed by lane x world latent-state x tree policy.
+- [x] Exact position-bound terminal outcomes train the selected policy once.
+- [x] Policy priors blend realised mean return, win rate and a small uncertainty/exploration bonus.
+- [x] Priors are neutral until at least 3 outcomes and are hard-clamped to +/-8 utility points.
+- [x] SuperPolicyTree7638 adds the learned contextual prior before distributional imagination/CVaR ranking.
+- [x] Policy learning persists across restart.
+- [x] This learns planning strategy, not execution authority; safety and canonical execution remain unchanged.
+- [x] Regression coverage: Aate7644ContextualPolicyBanditTest.

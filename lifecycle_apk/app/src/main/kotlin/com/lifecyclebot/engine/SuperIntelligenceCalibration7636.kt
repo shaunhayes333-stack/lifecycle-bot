@@ -152,6 +152,14 @@ object SuperIntelligenceCalibration7636 {
             if (env.realizedReturnPct > 0.0) ss.wins += 1
             ss.realizedSum += env.realizedReturnPct
         }
+        try {
+            SuperPolicyBandit7644.recordOutcome(
+                lane = stamp.lane,
+                state = stamp.world.latentState,
+                policy = stamp.treePolicy,
+                realizedReturnPct = env.realizedReturnPct,
+            )
+        } catch (_: Throwable) {}
 
         val failureMode7640 = when {
             directionCorrect -> "REASONING_OK"

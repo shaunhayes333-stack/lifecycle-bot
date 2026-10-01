@@ -172,6 +172,7 @@ object LearningPersistence {
             try { putBlob("AUTONOMOUS_META_POLICY", com.lifecyclebot.engine.AutonomousMetaPolicy.exportState()) } catch (_: Throwable) {}  // V5.9.1260
             try { putBlob("FORWARD_OUTCOME_MODEL", com.lifecyclebot.engine.ForwardOutcomeModel.exportState()) } catch (_: Throwable) {}  // V5.9.1261
             try { putBlob("SUPER_INTELLIGENCE_CALIBRATION_7637", com.lifecyclebot.engine.SuperIntelligenceCalibration7636.exportState()) } catch (_: Throwable) {}
+            try { putBlob("SUPER_POLICY_BANDIT_7644", com.lifecyclebot.engine.SuperPolicyBandit7644.exportState()) } catch (_: Throwable) {}
             try { putBlob("AUTO_COMPOUND", com.lifecyclebot.engine.AutoCompoundEngine.exportState()) } catch (_: Throwable) {}  // V5.9.1481
             try { putBlob("SIGNAL_QUALITY", com.lifecyclebot.engine.SignalQualityTracker.exportState()) } catch (_: Throwable) {}  // V5.9.1271
             try { putBlob("UNIFIED_POLICY_HEAD", com.lifecyclebot.engine.UnifiedPolicyHead.exportState()) } catch (_: Throwable) {}
@@ -267,6 +268,7 @@ object LearningPersistence {
         try { getBlob("AUTONOMOUS_META_POLICY")?.let { com.lifecyclebot.engine.AutonomousMetaPolicy.importState(it) } } catch (_: Throwable) {}  // V5.9.1260
         try { getBlob("FORWARD_OUTCOME_MODEL")?.let { com.lifecyclebot.engine.ForwardOutcomeModel.importState(it) } } catch (_: Throwable) {}  // V5.9.1261
         try { getBlob("SUPER_INTELLIGENCE_CALIBRATION_7637")?.let { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("SUPER_POLICY_BANDIT_7644")?.let { com.lifecyclebot.engine.SuperPolicyBandit7644.importState(it) } } catch (_: Throwable) {}
         try { getBlob("AUTO_COMPOUND")?.let { com.lifecyclebot.engine.AutoCompoundEngine.importState(it) } } catch (_: Throwable) {}  // V5.9.1481
         try { getBlob("SIGNAL_QUALITY")?.let { com.lifecyclebot.engine.SignalQualityTracker.importState(it) } } catch (_: Throwable) {}  // V5.9.1271
         try { getBlob("UNIFIED_POLICY_HEAD")?.let { com.lifecyclebot.engine.UnifiedPolicyHead.importState(it) } } catch (_: Throwable) {}  // V5.9.1262

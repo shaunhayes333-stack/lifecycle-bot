@@ -111,13 +111,20 @@ object SuperPolicyTree7638 {
         )
 
         val branches = rawBranches.map { b ->
+            val learnedPrior7644 = try {
+                SuperPolicyBandit7644.policyPrior(
+                    lane = world.lane,
+                    state = world.latentState,
+                    policy = b.policy,
+                )
+            } catch (_: Throwable) { 0.0 }
             val imagined = SuperImaginationRollout7643.evaluate(
                 world = world,
                 critic = critic,
                 memory = memory,
                 policy = b.policy.name,
                 exposure = b.rootAction.exposure,
-                baseUtility = b.utility,
+                baseUtility = b.utility + learnedPrior7644,
             )
             b.copy(
                 utility = imagined.robustUtility,
