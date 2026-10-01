@@ -1543,3 +1543,22 @@ This bundle continues the A_PREDICT audit without changing score floors or addin
 - [x] `SmartExitOptimizer.getMinConfidenceAdvisory` — **ADVISORY HELPER**. Returns a confidence suggestion from accuracy; not a canonical prediction or safety gate.
 - [x] No score floor, V3 score, FDG threshold, sizing, exploration capital or execution behavior changed.
 - [x] Regression coverage: `Aate7568PredictiveHelperLedgerTruthTest`.
+
+
+## V5.0.7569 — original-113 A_PREDICT perps/markets block (items 20–30)
+
+This bundle reconciles original-113 A_PREDICT items 20–30 as one family. These are perps/markets learning, model, notification, or leverage helpers; none belongs in the canonical meme entry hot path by default.
+
+- [x] `PerpsAdvancedAI.getHourlyWinRate` — **PERPS PERFORMANCE ACCESSOR**. Returns learned hourly WR; not a candidate-level meme predictor.
+- [x] `PerpsAutoReplayLearner.getLosingPatterns` — **PERPS LEARNING SNAPSHOT**. Returns cached losing-pattern rows for analysis/strategy adaptation.
+- [x] `PerpsAutoReplayLearner.getWinningPatterns` — **PERPS LEARNING SNAPSHOT**. Returns cached winning-pattern rows.
+- [x] `PerpsDirection.getSignalStrength` — **MODEL PRESENTATION HELPER**. Maps already-computed score to STRONG/MODERATE/WEAK/NONE.
+- [x] `PerpsDirection.isHighConfidence` — **MODEL CONVENIENCE HELPER**. Boolean wrapper over confidence>=80; not distinct alpha.
+- [x] `PerpsLearningBridge.getStockLayerRecommendations` — **STOCK/PERPS LEARNING HELPER**. Reads stock-lane layer recommendations; audit with tokenized-stock/perps execution, not meme FDG.
+- [x] `PerpsNotificationManager.notifyPatternDiscovered` — **NOTIFICATION SIDE EFFECT**. Does not change trading authority.
+- [x] `PerpsNotificationManager.notifyStrongSignal` — **NOTIFICATION SIDE EFFECT**. Does not change trading authority.
+- [x] `PerpsTradeHeatmap.getAIRecommendation` — **REPORT/RECOMMENDATION STRING**. Already classified in 7568; included here to close original-113 item 28.
+- [x] `PerpsTraderAI.getLifetimeWinRatePct` — **PERFORMANCE METRIC ACCESSOR**. Already classified in 7568; included here to close original-113 item 29.
+- [x] `QualityTraderAI.getRecommendedLeverage` — **ASSET/LEVERAGE HELPER**. Reads learned leverage preference; not meme entry intelligence.
+- [x] Original-113 A_PREDICT items 20–30 are now classified/closed as a contiguous block.
+- [x] Regression coverage: `Aate7569Original113PerpsPredictiveBlockTest`.
