@@ -8,7 +8,6 @@ import com.lifecyclebot.network.LockedVenueMarks7392
 import com.lifecyclebot.network.ParallelMarkFanout7088
 import com.lifecyclebot.perps.DynamicAltTokenRegistry
 import kotlinx.coroutines.*
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -24,9 +23,21 @@ object HeldHotMarkAuthority7419 {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     private val dex by lazy { DexscreenerApi() }
-    private val providerPool = Executors.newFixedThreadPool(2) { r ->
-        Thread(r, "held-hot-mark-7419").apply { isDaemon = true }
-    }
+    // V5.0.7606 — never queue held-position provider work behind timed-out calls.
+    // A fixed two-thread pool allowed one slow locked-venue + fanout pass to occupy
+    // both workers even after Future.cancel(true), leaving every later refresh
+    // queued behind blocked network I/O. Use a bounded, zero-queue executor:
+    // new work either starts immediately on an available worker or is rejected
+    // and retried on the next 750ms pass. This preserves forward progress.
+    private val providerPool = java.util.concurrent.ThreadPoolExecutor(
+        0,
+        6,
+        15L,
+        TimeUnit.SECONDS,
+        java.util.concurrent.SynchronousQueue<Runnable>(),
+        { r -> Thread(r, "held-hot-mark-7419").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+    )
     private val requests = AtomicLong(0L)
     private val advanced = AtomicLong(0L)
     private val unchanged = AtomicLong(0L)
@@ -70,7 +81,12 @@ object HeldHotMarkAuthority7419 {
     } catch (_: Throwable) { 0L }
 
     private fun <T> bounded(block: () -> T?): Pair<T?, Boolean> {
-        val f = providerPool.submit<T?> { block() }
+        val f = try {
+            providerPool.submit<T?> { block() }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            try { PipelineHealthCollector.labelInc("HELD_HOT_PROVIDER_POOL_SATURATED_7606") } catch (_: Throwable) {}
+            return null to true
+        }
         return try {
             f.get(REQUEST_DEADLINE_MS, TimeUnit.MILLISECONDS) to false
         } catch (_: TimeoutException) {
@@ -81,7 +97,12 @@ object HeldHotMarkAuthority7419 {
     }
 
     private fun <T> boundedBatch7510(block: () -> T?): Pair<T?, Boolean> {
-        val f = providerPool.submit<T?> { block() }
+        val f = try {
+            providerPool.submit<T?> { block() }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            try { PipelineHealthCollector.labelInc("HELD_HOT_PROVIDER_POOL_SATURATED_7606") } catch (_: Throwable) {}
+            return null to true
+        }
         return try {
             f.get(BATCH_FANOUT_DEADLINE_MS_7510, TimeUnit.MILLISECONDS) to false
         } catch (_: TimeoutException) {

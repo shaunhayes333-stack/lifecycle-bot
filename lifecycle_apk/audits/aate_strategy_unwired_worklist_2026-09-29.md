@@ -2518,3 +2518,21 @@ Disposition totals generated from the ledger:
 - STRATEGY_INTERNAL_ZERO_CALLER: 94
 - TEST_HOOK_ONLY: 21
 - TRUTH_INTERNAL_ZERO_CALLER: 294
+
+
+## V5.0.7606 — runtime forward-progress repair from 7586 field log
+
+Field evidence from build 5.0.7586 showed two concrete worker-starvation mechanisms:
+
+- held supervisor: `held=101 fresh=4 staleRefresh=1 missing=94`;
+- held mark worker advanced only 2 marks while risk clock accumulated >23k no-mark reads;
+- exit coordinator had stale resets and a >119s `locked_venue` in-flight phase;
+- the captured worker stack ended in `BlockingCoroutine.joinBlocking -> runBlocking -> FluidLearning.recordPriceImpact`.
+
+Repairs:
+
+- [x] `HeldHotMarkAuthority7419` no longer uses a queued fixed 2-thread provider executor. It now uses a bounded zero-queue executor so timed-out network calls cannot permanently head-of-line block every later held-mark refresh pass.
+- [x] Saturation is fail-fast and counted as `HELD_HOT_PROVIDER_POOL_SATURATED_7606`; the next 750ms pass retries instead of building an unbounded stale queue.
+- [x] `FluidLearning.recordPriceImpact` no longer performs `runBlocking` / provider I/O. It consumes `WalletManager.lastKnownSolPrice` cache and fails soft to the existing simulation default.
+- [x] No score floor, lane threshold, TP/SL, sizing doctrine, live enablement, or strategy authority changed.
+- [x] Regression coverage: `Aate7606RuntimeForwardProgressRepairTest`.

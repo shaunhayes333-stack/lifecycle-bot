@@ -88,7 +88,15 @@ object FluidLearning {
      */
     fun recordPriceImpact(mint: String, solAmount: Double, liquidityUsd: Double, isBuy: Boolean) {
         val safeLiquidity = liquidityUsd.coerceAtLeast(1.0)
-        val solPrice = try { kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull(1500L) { PriceAggregator.getPrice("SOL")?.price } } ?: 140.0 } catch (_: Exception) { 140.0 } // V5.0.4109: bounded runBlocking — prevent worker-thread parking deadlock
+        // V5.0.7606 — paper price-impact bookkeeping must never block an exit,
+        // supervisor, or reconciliation worker on network I/O. The runtime already
+        // maintains a SOL/USD cache; use it directly and fail soft to the legacy
+        // simulation default. Provider refresh belongs to the background price loop.
+        val solPrice = try {
+            WalletManager.lastKnownSolPrice
+                .takeIf { it.isFinite() && it in 20.0..5_000.0 }
+                ?: 140.0
+        } catch (_: Throwable) { 140.0 }
         val tradeUsd = solAmount * solPrice
 
         val impactPct = when {
