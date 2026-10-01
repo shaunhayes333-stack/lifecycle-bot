@@ -661,10 +661,10 @@ Baseline evidence:
 - Pump token-trade subscription skipped no key >7k.
 - dead/degraded providers include Birdeye auth failure, Dexpaprika disabled, GeckoTerminal poor health, several LLM endpoints terminal/quota-limited.
 Required repair:
-- [ ] Remove repeated known-dead provider work from hot paths.
-- [ ] Coalesce repeated token birth/metric hydration by canonical identity and freshness epoch.
-- [ ] Cache negative/no-capability results with bounded TTL.
-- [ ] Keep provider degradation fail-open where safe, but never retry dead capabilities every candidate/cycle.
+- [x] Repeated known-dead/degraded provider work is bounded off hot paths: provider lockout/backoff is consulted before supply requests, held-mark provider work is bounded/fail-fast, and network-capable helpers remain behind provider/background authorities rather than synchronous decision voting.
+- [x] Token discovery/metric hydration is coalesced by canonical mint + freshness/evidence state: `TokenRefreshPolicy` gates dynamic refresh cadence, `TokenMergeQueue` suppresses duplicate callbacks with no new evidence, and static metadata persists in `TokenMetaCache` instead of being re-fetched every cycle.
+- [x] Negative/no-capability outcomes use bounded TTL/cooldown: `SolanaOhlcvFeed6916` has a 10-minute negative cache, `OnChainSupplyAuthority7075` has 6-hour negative evidence TTL + 90-second non-evidence cooldown, and provider lockouts are skipped before request construction.
+- [x] Provider degradation remains fail-open where safe: transport/rate-limit/backoff declines are SKIPPED rather than treated as token failure, and retryNotBefore/negative caches prevent per-candidate retry storms while hard execution/finality proof continues to fail closed where required.
 
 ## P0-10 — bot-loop / worker latency and exit-service stability
 Baseline evidence:
@@ -3572,3 +3572,16 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] 7456 forbids current close-time tactic fallback and filters restored/replayed/administrative terminal rows from strategy learning.
 - [x] Remaining P0-7/P0-8 obligations are runtime population/miss convergence, not additional source wiring.
 - [x] No economics are fabricated and no thresholds, sizing, safety, execution, promotion or learner policy changed.
+
+
+## V5.0.7680 - provider/data-waste source contract reconciliation
+
+- [x] Dynamic token refresh is keyed by canonical mint and runtime freshness tier (`ACTIVE/WATCHLIST/COLD/DORMANT`), with DORMANT never auto-refreshing.
+- [x] Duplicate discoveries that add no scanner, affinity, metric or identity evidence are coalesced before watchlist/hydration work.
+- [x] Static token metadata is persisted and read from TokenMetaCache rather than re-fetched on every scan.
+- [x] Solana OHLCV empty/no-pool results use a 10-minute negative cache; identical same-key requests are coalesced inside the provider interval.
+- [x] On-chain supply resolution is one-in-flight-per-mint with a bounded two-thread pool, 6-hour negative evidence TTL, 90-second provider/transport cooldown and pre-request ApiBackoff lockout skip.
+- [x] Rate limit / transport / local provider refusal is classified as SKIPPED, not token failure, so degradation remains fail-open and does not poison data-legitimacy statistics.
+- [x] Retry/cooldown maps self-prune; dead capabilities are not retried every candidate/cycle.
+- [x] Runtime acceptance remains separate: device snapshots must prove provider call volume, token-metric duplicate rate and loop latency materially fall.
+- [x] No scanner source, provider fallback, strategy, score floor, sizing, safety or execution authority changed.

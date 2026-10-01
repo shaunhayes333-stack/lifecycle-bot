@@ -73,6 +73,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7677: EXPRESS source contract reconciled. 7464/7469 already restored owner/intent lineage and sealed same-lane attempt reuse; remaining EXPRESS work is runtime acceptance, not another wiring layer.
 - 5.0.7678: CORE + BLUECHIP source continuity reconciled. BLUECHIP uses 7465/7466 mark/sealed-attempt sizing; CORE remains a 7439/7541 executable ensemble with 7467 same-attempt mark/size proof. Runtime acceptance remains open.
 - 5.0.7679: P0-7/P0-8 source reconciliation. Durable finalized repair remains proof-bounded/non-synthetic, 7473 redrives only missing canonical projection, 7470 binds exact strategy identity at open, and 7456 keeps invalid/restored/replayed attribution forensic-only. Runtime miss/population convergence remains open.
+- 5.0.7680: P0-9 provider/data-waste source contract reconciled. Canonical-mint refresh gating, duplicate-evidence coalescing, OHLCV/supply negative caches, bounded pools and provider lockout cooldowns prevent retry storms while degradation stays fail-open where safe.
 
 ## Existing intelligence estate explicitly in scope
 
