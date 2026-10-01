@@ -47,6 +47,7 @@ object SuperAdversarialCritic7635 {
     }
 
     fun review(world: SuperWorldModel7634.Snapshot): Review {
+        val quant7665 = try { SuperQuantRiskContext7665.snapshot() } catch (_: Throwable) { null }
         val impulse = world.forHorizon(SuperWorldModel7634.Horizon.IMPULSE)
         val tactical = world.forHorizon(SuperWorldModel7634.Horizon.TACTICAL)
         val thesis = world.forHorizon(SuperWorldModel7634.Horizon.THESIS)
@@ -92,7 +93,8 @@ object SuperAdversarialCritic7635 {
             failureRisk = baseFail.coerceIn(0.0, 1.0),
         )
 
-        val bearShock = 12.0 + uncertainty * 18.0 + world.disagreement * 12.0
+        val quantShock7665 = if (quant7665?.usable == true) quant7665.riskPressure * 10.0 else 0.0
+        val bearShock = 12.0 + uncertainty * 18.0 + world.disagreement * 12.0 + quantShock7665
         val bear = Scenario(
             kind = ScenarioKind.BEAR,
             utility = baseUtility - bearShock,
@@ -112,10 +114,11 @@ object SuperAdversarialCritic7635 {
 
         val spread = (bull.utility - bear.utility).coerceAtLeast(0.0)
         val fragility = (
-            world.disagreement * 0.30 +
-                uncertainty * 0.35 +
-                (contradictions / 5.0).coerceIn(0.0, 1.0) * 0.20 +
-                (spread / 60.0).coerceIn(0.0, 1.0) * 0.15
+            world.disagreement * 0.26 +
+                uncertainty * 0.31 +
+                (contradictions / 5.0).coerceIn(0.0, 1.0) * 0.18 +
+                (spread / 60.0).coerceIn(0.0, 1.0) * 0.13 +
+                (if (quant7665?.usable == true) quant7665.riskPressure * 0.12 else 0.0)
             ).coerceIn(0.0, 1.0)
 
         val penalty = (fragility * 14.0 + if (bear.utility < -20.0) 4.0 else 0.0)

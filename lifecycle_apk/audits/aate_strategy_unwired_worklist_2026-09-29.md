@@ -3332,3 +3332,26 @@ The next census tranche deliberately prevents duplicate promotion of intelligenc
 - [x] Learned family interaction operates on the budgeted family map.
 - [x] No execution, safety, capital, sizing or provider authority changed.
 - [x] Regression coverage: `Aate7664EpistemicBudgetTest`.
+
+
+## V5.0.7665 - resume ~2000-item audit: canonical quant-risk repair
+
+Recheck of the large audit bundle found 2,004 rows in `ci/UNWIRED_LEDGER.tsv`, including 1,458 F_DEAD declarations. 7605 completed disposition/classification, not blanket repair.
+
+Repair priority population after recheck:
+- STRATEGY_INTERNAL_ZERO_CALLER = 94
+- RUNTIME_QUANT_LEARNING_UTILITY = 17
+- LEGACY_ZERO_CALLER_DO_NOT_AUTOWIRE = 308 (redesign selectively)
+- READBACK/TRUTH/CONTROL/PROVIDER/UI/TEST rows remain non-authoritative unless a distinct product need is proven.
+
+This bundle repairs the first runtime-quant tranche:
+
+- [x] `QuantMetrics` was confirmed dark: zero production callers for `recordTrade` and `updateEquity`.
+- [x] Added `QuantMetrics7665` as a first-class canonical finalized-trade consumer.
+- [x] Exact finalized trades now populate quant trade history from canonical realized PnL/return/hold/source-regime metadata.
+- [x] Added `SuperQuantRiskContext7665`, neutral until QuantMetrics reports USABLE/ROBUST sample adequacy.
+- [x] Mature VaR/CVaR/Sortino/drawdown context now adds only a bounded global-risk shock/fragility term to `SuperAdversarialCritic7635`.
+- [x] Quant risk cannot admit/refuse, execute, size, reserve capital, or override safety.
+- [x] `PortfolioAnalytics` was also confirmed dark but remains intentionally unwired until canonical open-position + mark lifecycle can feed it correctly.
+- [x] Audit rows addressed in causal chain: QuantMetrics calculateVaR/calculateCVaR/calculateSharpeRatio/calculateSortinoRatio/calculateCalmarRatio become live through the canonical-fed report path; updateEquity remains unresolved pending canonical NAV feed.
+- [x] Regression coverage: `Aate7665CanonicalQuantRepairTest`.

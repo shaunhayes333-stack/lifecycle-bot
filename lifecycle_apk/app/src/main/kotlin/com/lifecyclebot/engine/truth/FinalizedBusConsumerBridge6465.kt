@@ -134,6 +134,7 @@ object FinalizedBusConsumerBridge6465 {
             "UnifiedExitPolicyHead" -> deliverToUnifiedExitPolicyHead6696(env)
             "CausalFeedback6715"  -> deliverToCausalFeedback6715(env)
             "SuperIntelligenceCalibration7636" -> deliverToSuperIntelligenceCalibration7636(env)
+            "QuantMetrics7665" -> deliverToQuantMetrics7665(env)
             "Dashboard"           -> deliverToDashboard(env)
             "OperatorFingerprint7074" -> deliverToOperatorFingerprint7074(env)
             else -> false
@@ -514,6 +515,21 @@ object FinalizedBusConsumerBridge6465 {
 
     private fun deliverToSuperIntelligenceCalibration7636(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.SuperIntelligenceCalibration7636.onFinalized(env)
+    } catch (t: Throwable) { threw7154(t) }
+
+    private fun deliverToQuantMetrics7665(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.quant.QuantMetrics.recordTrade(
+            symbol = env.mint.take(12),
+            mint = env.mint,
+            pnlSol = env.realizedPnlSol,
+            pnlPct = env.realizedReturnPct,
+            holdTimeMinutes = (env.holdingTimeMs.coerceAtLeast(0L) / 60_000.0),
+            entryPhase = env.marketRegime,
+            quality = env.scoreBand,
+            timestamp = env.atMs,
+        )
+        try { PipelineHealthCollector.labelInc("QUANT_METRICS_CANONICAL_TRADE_7665") } catch (_: Throwable) {}
+        true
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
