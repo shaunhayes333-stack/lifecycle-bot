@@ -21,7 +21,7 @@ class Aate7255LiveEntryAndCryptoRecoveryTest {
     fun fanoutAndExpiredTicketsDoNotPoisonFreshCandidates() {
         val fdg = source("com/lifecyclebot/engine/FinalDecisionGate.kt")
         val gate = source("com/lifecyclebot/engine/ExecutableOpenGate.kt")
-        assertTrue(fdg.contains("LaneExecutionCoordinator.candidateVersionFor(ts.mint).toString()"))
+        assertTrue(fdg.contains("val causalRoot7232 = candidateVersion7623.toString()"))
         assertTrue(gate.contains("EXPIRED_TICKET_REVOKED_FOR_FRESH_CANDIDATE_7255"))
         assertTrue(gate.contains("log.contains(\"STALE_TICKET\") || r.contains(\"EXPIRED_TICKET\") -> 0L"))
     }

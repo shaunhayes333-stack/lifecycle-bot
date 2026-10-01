@@ -2768,3 +2768,15 @@ Post-7621 audit found a same-evaluation generation race: `ToolkitSignalSheet` ca
 - [x] Stamp `causalId6647` with the same pinned version.
 - [x] No lane threshold, score, FDG verdict, sizing, TP/SL, allocation or hard-safety rule changed.
 - [x] Regression coverage: `Aate7622PinnedToolkitCandidateVersionTest`.
+
+
+## V5.0.7623 — pin one candidate generation through the full FDG evaluation
+
+The 7622 follow-up sweep found seven independent `candidateVersionFor(ts.mint)` reads inside one FDG evaluation. Those reads fed the verdict cache, fanout root, primary/specialist FDG stamps, brain-contribution causal IDs, AATE strategy context candidateId, and context candidateVersion. A 30-second bucket rollover or an FDG allow latch appearing during the evaluation could therefore split one logical decision across generations.
+
+- [x] Resolve `candidateVersion7623` once at `FinalDecisionGate.evaluate` entry.
+- [x] Pass the pinned generation into the FDG cache key helper rather than letting the helper re-read authority.
+- [x] Reuse the same generation for fanout, FDG stage stamps, desk contribution IDs and AATE strategy context.
+- [x] Existing mutable score/safety/liquidity cache fingerprints remain unchanged.
+- [x] No threshold, scoring, sizing, TP/SL, allocation, route or hard-safety policy changed.
+- [x] Regression coverage: `Aate7623PinnedFdgCandidateVersionTest`.

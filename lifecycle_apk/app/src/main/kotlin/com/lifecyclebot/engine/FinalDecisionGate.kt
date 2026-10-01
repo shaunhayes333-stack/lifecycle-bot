@@ -121,14 +121,11 @@ object FinalDecisionGate {
     private val fdgVerdictCache = ConcurrentHashMap<String, FdgVerdictCacheEntry>()
     private const val FDG_VERDICT_CACHE_TTL_MS = 12_000L
 
-    private fun candidateVersionOf(ts: TokenState, candidate: CandidateDecision, laneScore: Double): String {
-        // V5.0.6653 — use the same 30-second candidate authority as execution.
-        // The former key hashed every mutable score/quality field, so harmless
-        // one-point changes manufactured a fresh FDG decision on each scan and
-        // defeated the cache.  Coarse score bands still re-evaluate meaningful
-        // moves; safety/liquidity fingerprints bust immediately.
-        val canonicalVersion = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) }
-            catch (_: Throwable) { System.currentTimeMillis() / 30_000L }
+    private fun candidateVersionOf(ts: TokenState, candidate: CandidateDecision, laneScore: Double, candidateVersion: Long): String {
+        // V5.0.7623 — candidate generation is resolved exactly once at FDG
+        // evaluation entry and passed through cache/fanout/causal surfaces.
+        // Mutable score/safety/liquidity evidence still busts the cache below.
+        val canonicalVersion = candidateVersion
         val scoreBand = (laneScore.coerceIn(0.0, 100.0).toInt() / 5) * 5
         return listOf(
             canonicalVersion,
@@ -148,8 +145,8 @@ object FinalDecisionGate {
         BotRuntimeController.currentGeneration().toString()
     } catch (_: Throwable) { "0" }
 
-    private fun fdgCacheKey(ts: TokenState, candidate: CandidateDecision, lane: String, side: String, laneScore: Double): String =
-        "${runtimeGenerationKey()}|${ts.mint}|${RuntimeModeAuthority.isPaper()}|${candidateVersionOf(ts, candidate, laneScore)}|${lane.uppercase()}|${side.uppercase()}"
+    private fun fdgCacheKey(ts: TokenState, candidate: CandidateDecision, lane: String, side: String, laneScore: Double, candidateVersion: Long): String =
+        "${runtimeGenerationKey()}|${ts.mint}|${RuntimeModeAuthority.isPaper()}|${candidateVersionOf(ts, candidate, laneScore, candidateVersion)}|${lane.uppercase()}|${side.uppercase()}"
 
     private fun cachedFdgVerdict(key: String): FinalDecision? {
         val now = System.currentTimeMillis()
@@ -801,6 +798,15 @@ object FinalDecisionGate {
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.AlphaLatencyTruth7451.markFdg(ts.mint) } catch (_: Throwable) {}
+        // V5.0.7623 — one immutable candidate generation per FDG evaluation.
+        // Re-reading this authority later can observe a bucket rollover or a
+        // newly-latched provisional FDG version and split one decision across
+        // cache, fanout, causal stamps and strategy context.
+        val candidateVersion7623 = try {
+            LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        } catch (_: Throwable) {
+            System.currentTimeMillis() / 30_000L
+        }
         // V5.0.7232 §FDG_FANOUT_CAP — operator 7227 diagnosis:
         //   laneEval/intake = 29.51,  FDG/intake = 10.86.
         //   Authority invariants clean (EXECUTABLE_FANOUT_PER_CANDIDATE
@@ -816,7 +822,7 @@ object FinalDecisionGate {
             // roots such as `0:blocke`; after two evaluations that mint was
             // suppressed for the governor TTL even when a fresh candidate was
             // elected. Bind fanout to the same candidate version execution uses.
-            val causalRoot7232 = LaneExecutionCoordinator.candidateVersionFor(ts.mint).toString()
+            val causalRoot7232 = candidateVersion7623.toString()
             // V5.0.7265 — the budget is per lane. Ten lanes call this gate in
             // a fixed order per cycle; a shared two-eval budget meant the
             // third lane onward never got a verdict on any mint the first
@@ -1120,7 +1126,7 @@ object FinalDecisionGate {
             } catch (_: Throwable) { null }
             ?: laneName
         val fdgSide = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
-        val fdgCacheKey = fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore)
+        val fdgCacheKey = fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore, candidateVersion7623)
         cachedFdgVerdict(fdgCacheKey)?.let { return it }
 
         if (mode == TradeMode.LIVE && !KeyValidator.isLive("helius")) {
@@ -5540,7 +5546,7 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
-        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:$candidateVersion7623") } catch (_: Throwable) {}
         // V5.0.6657 §FDG_STAMP_FANOUT — operator dump Feb 2026:
         //   QUALITY buyIntent=287 fdg=0 (FDG_CHOKED). Root cause:
         //   line 4857 only stamps the cycle-primary lane. Every
@@ -5556,7 +5562,7 @@ object FinalDecisionGate {
         //   on (lane|stage|eventId) via deskStageOnce6599 so repeat
         //   fan-outs for the same intent produce one stamp per lane.
         try {
-            val fdgCvers6657 = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            val fdgCvers6657 = candidateVersion7623
             val fdgStage6657 = if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK"
             com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses.values.forEach { h ->
                 if (!h.lane.equals(canonicalPrimaryLane6658, true) && h.lane.isNotBlank()) {
@@ -5573,7 +5579,7 @@ object FinalDecisionGate {
                 .filter { hardReason6512.contains(it) }
             val specialistDeskContributions6512 = try {
                 com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses.values.map { h ->
-                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(h.lane, "FDG", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}")
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(h.lane, "FDG", "${ts.mint}:$candidateVersion7623")
                     com.lifecyclebot.engine.truth.AateBrainContribution6512(
                         brain = "MemeDesk:${h.lane}:${h.setup.name}", role = "MEME_SPECIALIST_DESK",
                         weight = (h.conviction / 100.0).coerceIn(0.25, 1.0),
@@ -5616,10 +5622,10 @@ object FinalDecisionGate {
                 )
             ).plus(specialistDeskContributions6512)
             val context6512 = com.lifecyclebot.engine.truth.AateStrategyContext6512(
-                candidateId = "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}",
+                candidateId = "${ts.mint}:$candidateVersion7623",
                 runtimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
                 mode = mode.name, mint = ts.mint, symbol = ts.symbol,
-                candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint),
+                candidateVersion = candidateVersion7623,
                 primaryStrategy = canonicalPrimaryLane6658, source = ts.source.ifBlank { "UNKNOWN" },
                 regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
             )
