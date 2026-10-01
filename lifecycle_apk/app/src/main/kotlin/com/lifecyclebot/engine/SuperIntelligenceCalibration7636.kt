@@ -30,6 +30,7 @@ object SuperIntelligenceCalibration7636 {
         val arbiterMetaConfidence: Double,
         val evidenceFamilyUtility7652: Map<SuperEvidenceTopology7651.Family, Double>,
         val expertUtility7660: Map<String, Double>,
+        val familyMarginal7663: Map<SuperEvidenceTopology7651.Family, Double>,
         val atMs: Long,
     )
 
@@ -92,6 +93,9 @@ object SuperIntelligenceCalibration7636 {
             arbiterMetaConfidence = arbiter.metaConfidence,
             evidenceFamilyUtility7652 = evidenceTopology7652?.familyUtility ?: emptyMap(),
             expertUtility7660 = expertUtility7660,
+            familyMarginal7663 = evidenceTopology7652?.let {
+                SuperEvidenceAblation7663.marginals(it)
+            } ?: emptyMap(),
             atMs = System.currentTimeMillis(),
         )
         try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_DECISION_STAMPED_7636") } catch (_: Throwable) {}
@@ -210,6 +214,13 @@ object SuperIntelligenceCalibration7636 {
                 lane = stamp.lane,
                 state = stamp.world.latentState,
                 expertUtility = stamp.expertUtility7660,
+                realizedReturnPct = env.realizedReturnPct,
+            )
+        } catch (_: Throwable) {}
+        try {
+            SuperFamilyMarginalTrust7663.recordOutcome(
+                lane = stamp.lane,
+                marginal = stamp.familyMarginal7663,
                 realizedReturnPct = env.realizedReturnPct,
             )
         } catch (_: Throwable) {}
@@ -386,6 +397,7 @@ object SuperIntelligenceCalibration7636 {
         root.put("evidenceContextTrust7656", SuperEvidenceContextTrust7656.exportJson())
         root.put("expertTrust7660", SuperExpertTrust7660.exportJson())
         root.put("expertCoalitions7661", SuperExpertCoalition7661.exportJson())
+        root.put("familyMarginalTrust7663", SuperFamilyMarginalTrust7663.exportJson())
         return root.toString()
     }
 
@@ -435,6 +447,7 @@ object SuperIntelligenceCalibration7636 {
             SuperEvidenceContextTrust7656.importJson(root.optJSONArray("evidenceContextTrust7656") ?: JSONArray())
             SuperExpertTrust7660.importJson(root.optJSONArray("expertTrust7660") ?: JSONArray())
             SuperExpertCoalition7661.importJson(root.optJSONArray("expertCoalitions7661") ?: JSONArray())
+            SuperFamilyMarginalTrust7663.importJson(root.optJSONArray("familyMarginalTrust7663") ?: JSONArray())
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_CALIBRATION_RESTORED_7637") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }

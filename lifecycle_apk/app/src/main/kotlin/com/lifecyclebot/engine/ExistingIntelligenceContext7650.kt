@@ -34,7 +34,8 @@ object ExistingIntelligenceContext7650 {
                 val laneTrust = SuperEvidenceReliability7652.trust(lane, family)
                 val stateTrust = if (state == null) 1.0
                     else SuperEvidenceContextTrust7656.trust(lane, state, family)
-                return (laneTrust * stateTrust).coerceIn(0.60, 1.20)
+                val marginalTrust = SuperFamilyMarginalTrust7663.trust(lane, family)
+                return (laneTrust * stateTrust * marginalTrust).coerceIn(0.58, 1.22)
             }
 
             // Native specialist opinion is an independent lane-native family.

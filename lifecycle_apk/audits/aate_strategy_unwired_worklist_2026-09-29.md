@@ -3305,3 +3305,17 @@ The next census tranche deliberately prevents duplicate promotion of intelligenc
 - [x] The refiner updates only local depth/rollout budget and uncertainty; it cannot admit/refuse, execute, size or override safety.
 - [x] Policy search continues to receive the same bounded existing-intelligence prior, now with compute allocated according to estate complexity.
 - [x] Regression coverage: `Aate7662EstateAwareDeliberationTest`.
+
+
+## V5.0.7663 - counterfactual marginal family credit
+
+- [x] Added `SuperEvidenceAblation7663` to compute leave-one-family-out marginal contribution from the chosen-policy evidence topology.
+- [x] No underlying model is rerun; ablation operates only on already-fused family utilities.
+- [x] DecisionStamp freezes each family's marginal contribution alongside family/expert attribution.
+- [x] Added `SuperFamilyMarginalTrust7663`: families are graded only when their removal would materially change fused reasoning.
+- [x] Marginal grading is exact-position-bound and weights terminal credit by contribution magnitude.
+- [x] Marginal trust remains neutral until 10 outcomes and sufficient marginal mass, persists, and is bounded to 0.80x..1.10x.
+- [x] Existing family trust now combines broad lane reliability, state-conditioned reliability and marginal-contribution reliability.
+- [x] This reduces passenger credit: a family merely present on a winner no longer receives the same learning signal as the family that actually moved the decision.
+- [x] No execution, provider, capital, sizing or safety authority was added.
+- [x] Regression coverage: `Aate7663CounterfactualAblationTest`.
