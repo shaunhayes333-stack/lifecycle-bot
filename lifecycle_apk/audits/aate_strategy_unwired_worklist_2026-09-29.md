@@ -1526,3 +1526,20 @@ This bundle closes the remaining C_EXIT entries from the original-113 ledger. No
 - [x] `TradeIdentityManager.auditTrail` — **REPORT FORMATTER**. Renders trade identity history and has no mutation/execution authority.
 - [x] With 7560–7567, every C_EXIT row has now been either proven closed-loop, explicitly classified as helper/report/test/background/alias, or fenced from duplicate sell authority.
 - [x] Regression coverage: `Aate7567FinalCExitTailClassificationTest`.
+
+
+## V5.0.7568 — A_PREDICT stale-ledger + calibration/helper cleanup
+
+This bundle continues the A_PREDICT audit without changing score floors or adding duplicate prediction authority.
+
+- [x] `ExplorationBudget.allowShadowSignal` — **CLOSED_LOOP / LEDGER_STALE (7537)**. Executor consumes it for paper exploration shadow budgeting.
+- [x] `ExecutableEntryAuthority6450.scoreFloorDelta6487` — **INTENTIONALLY NEUTRALIZED COMPAT ACCESSOR**. Current implementation returns 0; entry authority shapes via canonical gate/size state rather than hidden floor inflation.
+- [x] `FluidLearning.getExitTagWinRate` — **REPORT/LEARNING TABLE ACCESSOR**. The regime-tag table is observable, but current design deliberately avoids making it a second live exit authority.
+- [x] `FluidLearningAI.getHeuristicSignal` — **DECLARATION-ONLY FALLBACK HELPER**. No production caller; do not stack it blindly on top of UnifiedScorer/V3/FDG.
+- [x] `ForensicEventEnvelope6430.setLedgerEpoch` — **STATE/FORENSIC SETTER**. Not predictive alpha.
+- [x] `PerpsTradeHeatmap.getAIRecommendation` — **REPORT/RECOMMENDATION STRING**. Aggregates heatmap best setup/time for display/advice, not canonical entry authority.
+- [x] `PerpsTraderAI.getLifetimeWinRatePct` — **PERFORMANCE METRIC ACCESSOR**. Historical WR reporting, not a candidate signal.
+- [x] `ScoreDistributionHistogram6396.recommendAdaptiveBaseline` — **THRESHOLD CALIBRATION HELPER / TESTED**. It recommends a bounded baseline from score distribution after minimum samples; route only through explicit threshold authority, never per-candidate oracle voting.
+- [x] `SmartExitOptimizer.getMinConfidenceAdvisory` — **ADVISORY HELPER**. Returns a confidence suggestion from accuracy; not a canonical prediction or safety gate.
+- [x] No score floor, V3 score, FDG threshold, sizing, exploration capital or execution behavior changed.
+- [x] Regression coverage: `Aate7568PredictiveHelperLedgerTruthTest`.
