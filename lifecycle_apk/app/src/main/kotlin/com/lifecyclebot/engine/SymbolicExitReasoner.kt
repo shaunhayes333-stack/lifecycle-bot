@@ -294,9 +294,10 @@ object SymbolicExitReasoner {
         totalConviction += regimeSignal * 0.08
 
         // 3. Liquidity Fragility (weight: 0.07)
-        // V5.0.6853 — mint-first. Meme tickers collide, and now that
-        // LiquidityFragilityAI is actually fed (BotService safety-commit site), a
-        // symbol-keyed read would hand this token another token's fragility.
+        // V5.0.7630 — mint-first. Meme tickers collide. ToolkitSignalSheet's
+        // side-effect refresh now feeds LiquidityFragilityAI from cached canonical
+        // liquidity/age/holder/candle evidence; symbol-only lookup would hand this
+        // token another token's fragility.
         val fragility = try {
             if (mint.isNotEmpty() || symbol.isNotEmpty())
                 LiquidityFragilityAI.getFragilityScoreFor(mint, symbol)

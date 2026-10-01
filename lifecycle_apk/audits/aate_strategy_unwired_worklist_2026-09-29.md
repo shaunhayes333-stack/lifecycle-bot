@@ -2855,3 +2855,16 @@ This is the same structural failure class previously repaired in 7417; the helpe
 - [x] Remove the fanout locals/branch tree from the giant `evaluate` bytecode to reduce ART register pressure.
 - [x] No threshold, scoring, FDG policy, sizing, TP/SL, allocation, route or safety behavior changed.
 - [x] Regression coverage: `Aate7629FinalDecisionGateVerifierStructureTest`.
+
+
+## V5.0.7630 — restore LiquidityFragilityAI production evidence feed
+
+The F_DEAD strategy-internal re-audit found a source contradiction: `SymbolicExitReasoner` and `TradeLessonRecorder` actively consume `LiquidityFragilityAI`, and comments claimed it was fed at a BotService safety-commit site, but current source contains **zero production callers** of `LiquidityFragilityAI.analyze()`. Its report map therefore remained empty and readers mostly consumed the same default fragility for every meme token.
+
+- [x] `ToolkitSignalSheet.build` now feeds the V4 fragility brain on its existing side-effect refresh, never on the scanner caller thread.
+- [x] Evidence is cached/in-memory only: canonical liquidity, resolved holder concentration, canonical token age, latest real 24h candle volume and real OHLC upper-wick history.
+- [x] Unknown spread, recent execution slippage, price impact, liquidation distance and failed-breakout evidence remain neutral/default; no values are fabricated.
+- [x] Reports remain mint-first so duplicate meme tickers cannot cross-contaminate each other.
+- [x] Existing consumers become data-bearing; no new independent hard veto or entry gate was added.
+- [x] Runtime proof counters: `LIQUIDITY_FRAGILITY_CACHED_FEED_7630`, `LIQUIDITY_FRAGILITY_CACHED_FEED_FAILED_7630`.
+- [x] Regression coverage: `Aate7630LiquidityFragilityProductionFeedTest`.

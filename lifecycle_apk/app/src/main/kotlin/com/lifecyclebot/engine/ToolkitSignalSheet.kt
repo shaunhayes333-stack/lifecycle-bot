@@ -259,6 +259,47 @@ object ToolkitSignalSheet {
         val ageMin = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
         val src = ts.source.uppercase()
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
+
+        // V5.0.7630 — restore the V4 liquidity-fragility brain from cached,
+        // already-observed evidence. Its readers (SymbolicExitReasoner and
+        // TradeLessonRecorder) were live while analyze() had no production
+        // caller, so they consumed the same default fragility for every token.
+        // Unknown spread/slippage/impact remain neutral rather than invented.
+        try {
+            val latestReal7630 = hist.asReversed().firstOrNull {
+                !it.synthetic && it.volume24h.isFinite() && it.volume24h > 0.0
+            }
+            val topHolder7630 = listOfNotNull(
+                ts.safety.topHolderPct.takeIf { it.isFinite() && it >= 0.0 },
+                ts.topHolderPct?.takeIf { it.isFinite() && it >= 0.0 },
+            ).maxOrNull() ?: 0.0
+            val poolAgeDays7630 = if (ageMin.isFinite() && ageMin >= 0.0) {
+                (ageMin / 1440.0).toInt().coerceAtLeast(0)
+            } else 999
+            val upperWickPct7630 = hist.takeLast(30)
+                .filter {
+                    !it.synthetic && it.priceUsd.isFinite() && it.priceUsd > 0.0 &&
+                        it.highUsd.isFinite() && it.highUsd > 0.0
+                }
+                .map {
+                    (((it.highUsd - it.priceUsd).coerceAtLeast(0.0)) / it.priceUsd * 100.0)
+                        .coerceIn(0.0, 10_000.0)
+                }
+            com.lifecyclebot.v4.meta.LiquidityFragilityAI.analyze(
+                market = "MEME",
+                symbol = ts.symbol,
+                id = ts.mint,
+                depthUsd = liq,
+                volume24hUsd = latestReal7630?.volume24h ?: 0.0,
+                topHolderPct = topHolder7630,
+                poolAgeDays = poolAgeDays7630,
+                recentWickPcts = upperWickPct7630,
+            )
+            PipelineHealthCollector.labelInc("LIQUIDITY_FRAGILITY_CACHED_FEED_7630")
+        } catch (_: Throwable) {
+            try { PipelineHealthCollector.labelInc("LIQUIDITY_FRAGILITY_CACHED_FEED_FAILED_7630") } catch (_: Throwable) {}
+        }
+
         val mcap = ts.lastMcap.takeIf { it.isFinite() } ?: 0.0
         val bp = ts.lastBuyPressurePct.takeIf { it.isFinite() } ?: 50.0
         val conf = (ts.lastV3Confidence ?: 50).coerceIn(0, 100).toDouble()
