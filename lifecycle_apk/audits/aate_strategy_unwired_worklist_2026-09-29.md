@@ -2883,3 +2883,17 @@ The strategy-internal zero-caller sweep found `MoonshotTraderAI.recordCollective
 - [x] No new network call, hard veto, threshold reduction, sizing bypass or execution authority was added.
 - [x] Runtime proof: `MOONSHOT_COLLECTIVE_10X_FEED_7631`.
 - [x] Regression coverage: `Aate7631MoonshotCollectiveWinnerFeedTest`.
+
+
+## V5.0.7632 — Super SSI consensus/uncertainty fusion
+
+The intelligence stack already had many useful bounded opinions, but the oracle still combined that tier primarily by arithmetic sum. Five brains agreeing +4 each and five brains split +20/-20 were both reduced to a number without explicitly representing epistemic disagreement.
+
+- [x] Added `SuperSsiFusion7632`, a pure in-memory meta-intelligence transform over the **existing** brain-network reads.
+- [x] It reports positive/negative evidence mass, breadth, directional agreement, disagreement/uncertainty and fused delta.
+- [x] Strong directional agreement preserves nearly all existing bounded influence.
+- [x] Contradictory brains are attenuated rather than blindly summed; fusion can never amplify the magnitude beyond the raw opinion sum.
+- [x] Recorded creator-rug facts remain outside opinion attenuation and retain their existing safety treatment.
+- [x] No provider I/O, LLM call, new hard veto, new execution authority, threshold reduction, sizing bypass or safety weakening was added.
+- [x] Runtime proof: `SUPER_SSI_FUSION_7632`, `SUPER_SSI_CONSENSUS_7632`, `SUPER_SSI_CONFLICT_7632`.
+- [x] Regression coverage: `Aate7632SuperSsiFusionTest`.

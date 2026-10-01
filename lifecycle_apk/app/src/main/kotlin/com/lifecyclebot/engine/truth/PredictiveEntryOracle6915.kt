@@ -1002,11 +1002,25 @@ object PredictiveEntryOracle6915 {
             var brainDelta7261 = 0.0
             try {
                 val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan)
-                brainDelta7261 = reads.sumOf { it.deltaPct }
+                val creatorFacts7632 = reads.filter { it.label.startsWith("creatorRugs(") }
+                val opinionReads7632 = reads.filterNot { it.label.startsWith("creatorRugs(") }
+                val fusion7632 = com.lifecyclebot.engine.SuperSsiFusion7632.fuse(
+                    opinionReads7632.map { com.lifecyclebot.engine.SuperSsiFusion7632.Vote(it.label, it.deltaPct) },
+                )
+                val creatorFactDelta7632 = creatorFacts7632.sumOf { it.deltaPct }
+                brainDelta7261 = (fusion7632.fusedDeltaPct + creatorFactDelta7632)
                     .coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, BRAIN_NETWORK_CAP_PCT_6917)
                 if (reads.isNotEmpty()) {
                     brainReads6917.addAndGet(reads.size.toLong())
                     contributions += reads.map { "${it.label}=${"%+.1f".format(it.deltaPct)}" }
+                    contributions += fusion7632.contributionTag()
+                    try {
+                        PipelineHealthCollector.labelInc("SUPER_SSI_FUSION_7632")
+                        PipelineHealthCollector.labelInc(
+                            if (fusion7632.disagreement >= 0.55) "SUPER_SSI_CONFLICT_7632"
+                            else "SUPER_SSI_CONSENSUS_7632"
+                        )
+                    } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
 
@@ -1152,12 +1166,25 @@ object PredictiveEntryOracle6915 {
         var creatorRugAdjust7329 = 0.0
         try {
             val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan)
+            val opinionVotes7632 = mutableListOf<com.lifecyclebot.engine.SuperSsiFusion7632.Vote>()
             for (r in reads) {
                 if (r.label.startsWith("creatorRugs(")) creatorRugAdjust7329 += r.deltaPct
-                else brainAdjust6917 += r.deltaPct
+                else opinionVotes7632 += com.lifecyclebot.engine.SuperSsiFusion7632.Vote(r.label, r.deltaPct)
                 contributions += "${r.label}=${"%+.1f".format(r.deltaPct)}"
             }
-            if (reads.isNotEmpty()) brainReads6917.addAndGet(reads.size.toLong())
+            val fusion7632 = com.lifecyclebot.engine.SuperSsiFusion7632.fuse(opinionVotes7632)
+            brainAdjust6917 = fusion7632.fusedDeltaPct
+            if (reads.isNotEmpty()) {
+                brainReads6917.addAndGet(reads.size.toLong())
+                contributions += fusion7632.contributionTag()
+                try {
+                    PipelineHealthCollector.labelInc("SUPER_SSI_FUSION_7632")
+                    PipelineHealthCollector.labelInc(
+                        if (fusion7632.disagreement >= 0.55) "SUPER_SSI_CONFLICT_7632"
+                        else "SUPER_SSI_CONSENSUS_7632"
+                    )
+                } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {}
         val boundedBrain6917 = brainAdjust6917
             .coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, BRAIN_NETWORK_CAP_PCT_6917)
