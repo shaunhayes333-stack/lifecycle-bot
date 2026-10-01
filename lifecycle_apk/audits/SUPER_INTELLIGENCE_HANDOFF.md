@@ -59,6 +59,7 @@ Build changes in clean installable bundles. Avoid partial GitHub floods. Preserv
 - 5.0.7663: counterfactual leave-one-family-out ablation; family trust now learns from marginal decision contribution, not mere presence on winning/losing trades.
 - 5.0.7664: fixed epistemic budget; expanding the estate cannot increase conviction by headcount, and no broad-estate family may consume more than 55% of the L1 evidence budget.
 - 5.0.7665: resumed the ~2000-item audit. Canonical terminal outcomes now feed previously-dark QuantMetrics; mature VaR/CVaR/Sortino/drawdown context enters the Super adversarial critic as bounded global risk.
+- 5.0.7666: AITrustNetwork audit repair. UnifiedScorer already consumed getTrustWeight; rolling trust state now persists across restart instead of resetting to neutral.
 
 ## Existing intelligence estate explicitly in scope
 

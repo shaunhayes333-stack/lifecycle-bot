@@ -3355,3 +3355,13 @@ This bundle repairs the first runtime-quant tranche:
 - [x] `PortfolioAnalytics` was also confirmed dark but remains intentionally unwired until canonical open-position + mark lifecycle can feed it correctly.
 - [x] Audit rows addressed in causal chain: QuantMetrics calculateVaR/calculateCVaR/calculateSharpeRatio/calculateSortinoRatio/calculateCalmarRatio become live through the canonical-fed report path; updateEquity remains unresolved pending canonical NAV feed.
 - [x] Regression coverage: `Aate7665CanonicalQuantRepairTest`.
+
+
+## V5.0.7666 - resume ~2000-item audit: AITrustNetwork causal persistence repair
+
+- [x] Rechecked F_DEAD rows 2/3 (`AITrustNetworkAI.trustWeight/weightedValue`).
+- [x] Production weighting already exists through `UnifiedScorer -> AITrustNetworkAI.getTrustWeight(c.name)`; no duplicate caller added.
+- [x] Root defect: persistence restored aggregate counters but discarded the rolling 200-sample decision window used by trust calculation, resetting learned trust to neutral after restart.
+- [x] Persist/restore the bounded rolling sample window per layer.
+- [x] Existing UnifiedScorer authority remains the only score-weighting path.
+- [x] Regression coverage: `Aate7666AiTrustPersistenceRepairTest`.

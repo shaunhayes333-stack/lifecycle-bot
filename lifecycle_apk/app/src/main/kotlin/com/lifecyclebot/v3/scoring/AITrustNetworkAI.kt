@@ -65,9 +65,19 @@ object AITrustNetworkAI {
             val root = JSONObject(blob)
             root.keys().forEach { key ->
                 val o = root.getJSONObject(key)
+                val restoredWindow = ArrayDeque<Int>()
+                val arr = o.optJSONArray("window")
+                if (arr != null) {
+                    for (i in 0 until arr.length()) {
+                        val v = arr.optInt(i, -2)
+                        if (v in -1..1) restoredWindow.addLast(v)
+                    }
+                    while (restoredWindow.size > WINDOW) restoredWindow.removeFirst()
+                }
                 stats[key] = LayerStat(
                     positivePredictions = o.optInt("pp", 0),
                     positivePredictionsWon = o.optInt("ppw", 0),
+                    samplesInWindow = restoredWindow,
                 )
             }
             ErrorLogger.info(TAG, "🧠 Trust net loaded: ${stats.size} layers")
@@ -126,6 +136,9 @@ object AITrustNetworkAI {
                 root.put(k, JSONObject().apply {
                     put("pp", v.positivePredictions)
                     put("ppw", v.positivePredictionsWon)
+                    put("window", org.json.JSONArray().also { a ->
+                        v.samplesInWindow.takeLast(WINDOW).forEach { a.put(it) }
+                    })
                 })
             }
             p.edit().putString("stats_json", root.toString()).apply()
