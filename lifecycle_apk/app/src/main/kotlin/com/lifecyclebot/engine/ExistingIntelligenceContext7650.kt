@@ -114,8 +114,11 @@ object ExistingIntelligenceContext7650 {
             return SuperEvidenceTopology7651.fuse(observations)
         }
 
-        fun policyPrior(policy: SuperPolicyTree7638.Policy): Double =
-            evidenceTopology7651(policy).decorrelatedUtility.coerceIn(-6.0, 6.0)
+        fun policyPrior(policy: SuperPolicyTree7638.Policy): Double {
+            val topology = evidenceTopology7651(policy)
+            val interaction = SuperEvidenceInteraction7653.adjustment(lane, topology.familyUtility)
+            return (topology.decorrelatedUtility + interaction).coerceIn(-6.0, 6.0)
+        }
 
         fun contributionTag(): String {
             return String.format(

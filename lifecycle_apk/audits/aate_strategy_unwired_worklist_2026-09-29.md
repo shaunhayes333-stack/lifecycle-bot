@@ -3169,3 +3169,19 @@ The evidence ancestry graph now learns which independent reasoning families dese
 - [x] Reliability state persists inside the existing Super Intelligence calibration persistence payload.
 - [x] Trust is bounded to 0.65x..1.15x and cannot create a veto, execute, size, reserve capital or bypass safety.
 - [x] Regression coverage: `Aate7652EvidenceReliabilityTest`.
+
+
+## V5.0.7653 - learned evidence interaction graph
+
+Super Intelligence now learns whether reasoning families are complementary, redundant or harmful in combination instead of assuming first-order family trust is sufficient.
+
+- [x] Added `SuperEvidenceInteraction7653`, a lane-local pairwise interaction graph over independent evidence ancestry families.
+- [x] Every active family pair is frozen implicitly through the exact position-bound chosen-policy family map and graded only on canonical terminal settlement.
+- [x] AGREE and CONFLICT relationships are learned separately.
+- [x] Pair quality combines directional alignment and signed realized return, with neutral behaviour until at least 12 exact pair outcomes exist.
+- [x] Pair adjustments are sample-shrunk, apply only to overlapping evidence mass, and are capped to +/-1.5 planner utility.
+- [x] A useful family combination in MOONSHOT does not transfer automatically to CORE or another lane.
+- [x] The interaction graph persists in the existing Super Intelligence calibration state.
+- [x] First-order evidence remains authoritative; pair learning can refine but never replace or amplify past the planner's existing +/-6 total cap.
+- [x] No provider I/O, execution, sizing, capital, hard-veto, threshold or safety authority was added.
+- [x] Regression coverage: `Aate7653EvidenceInteractionTest`.
