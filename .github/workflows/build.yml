@@ -75,6 +75,9 @@ jobs:
       - name: Repository patch-rot scan
         run: python3 ci/patch_rot_scan.py
 
+      - name: Super Intelligence estate census
+        run: python3 ci/super_intelligence_estate_audit_7655.py
+
       - name: Economic unit / cash authority scan
         run: python3 ci/economic_units_scan.py
 

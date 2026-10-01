@@ -93,7 +93,7 @@ object SuperIntelligenceEstate7654 {
             crossTalk?.signalType?.name ?: "none",
             when {
                 llm?.quickScam == true -> "scam"
-                llm?.analysis != null -> llm.analysis.recommendation.take(18)
+                llm?.analysis != null -> llm.analysis?.recommendation?.take(18) ?: "none"
                 else -> "none"
             },
             arbType ?: "none",

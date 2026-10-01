@@ -38,7 +38,7 @@ class Aate7655IntelligenceEstateCoverageTest {
     }
 
     @Test fun censusScriptIsReportOnlyAndWritesAnAuditArtifact() {
-        val s = File("../../ci/super_intelligence_estate_audit_7655.py")
+        val s = File("../ci/super_intelligence_estate_audit_7655.py")
         assertTrue(s.exists())
         val t = s.readText()
         assertTrue(t.contains("super_intelligence_estate_census_7655.tsv"))

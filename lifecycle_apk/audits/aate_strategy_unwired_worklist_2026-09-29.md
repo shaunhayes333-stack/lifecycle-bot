@@ -3234,3 +3234,12 @@ The expanded intelligence estate now learns *when* each reasoning family deserve
 - [x] Context trust persists inside the existing Super Intelligence calibration state.
 - [x] Combined lane x state trust remains bounded and advisory; no context cell can create an execution veto or bypass safety.
 - [x] Regression coverage: `Aate7656StateConditionedEvidenceTrustTest`.
+
+
+## V5.0.7657 - estate census preflight and source-contract hardening
+
+- [x] GitHub build preflight now executes `ci/super_intelligence_estate_audit_7655.py` before Gradle.
+- [x] The census therefore emits current TSV/JSON coverage on every build instead of remaining a dormant audit script.
+- [x] Corrected the source-contract test path to the lifecycle_apk CI directory.
+- [x] Hardened nullable LLM cache rendering in `SuperIntelligenceEstate7654` without changing policy utility.
+- [x] No trading, execution, sizing, safety or intelligence weighting semantics changed.
