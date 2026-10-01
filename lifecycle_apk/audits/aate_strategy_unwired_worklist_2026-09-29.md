@@ -674,10 +674,10 @@ Baseline evidence:
 - exit coordinator stale resets=2.
 - main-thread ANR hints=0, stall=0%; therefore primary fault is pipeline/worker/provider workload, not UI ANR.
 Required repair:
-- [ ] Attribute >5s cycle time by phase and provider/worker wait.
-- [ ] Keep UI/report and learner maintenance off the trading hot path.
-- [ ] Bound provider calls and fanout per cycle.
-- [ ] Eliminate stale coordinator resets and worker timeout storms without weakening exit safety.
+- [x] >5s cycle attribution is source-complete in 7681: `SlowCycleDiagnostic6437` now emits top-phase timing at 5s instead of waiting for 30s; provider/worker wait surfaces remain visible through provider-health, supervisor and exit-sweep telemetry.
+- [x] UI/report and learner maintenance are off the trading hot path: `MaintenanceWorker6448` / `PostLearningOffloader6450` own bounded async maintenance, while cached/report projections remain read-only.
+- [x] Provider/fanout work is bounded per cycle by pre-supervisor learning budgets, scanner batch budgets, provider backoff/circuits, zero-queue held-mark pools and the P0-9 refresh/coalescing/negative-cache contracts.
+- [x] Stale-reset/timeout source protections are in place without weakening exit safety: active exit sweeps require stale heartbeat + zero active workers + expired phase deadline before reset, duplicate healthy sweeps are suppressed, generations fence old workers, supervisor timeout health uses recent windows, and off-loop sells/provider circuits prevent one blocked provider/sell from freezing the book.
 
 ## P0-11 — preserve good 7456 invariants while repairing
 Must remain true:
@@ -3585,3 +3585,17 @@ This bundle removes stale work from the canonical strategy backlog; it does not 
 - [x] Retry/cooldown maps self-prune; dead capabilities are not retried every candidate/cycle.
 - [x] Runtime acceptance remains separate: device snapshots must prove provider call volume, token-metric duplicate rate and loop latency materially fall.
 - [x] No scanner source, provider fallback, strategy, score floor, sizing, safety or execution authority changed.
+
+
+## V5.0.7681 - P0-10 latency attribution + exit-stability source contract
+
+- [x] SlowCycleDiagnostic threshold reduced from 30,000ms to 5,000ms so the common 6-20s degraded band is attributed by phase instead of remaining invisible.
+- [x] This is telemetry only; supervisor/worker/exit deadlines are unchanged.
+- [x] PreSupervisorBudgetGuard6437 caps synchronous learning fanout budget and records slow learners.
+- [x] MaintenanceWorker6448 / PostLearningOffloader6450 keep heavy learner/reconcile/report work asynchronous and single-flight.
+- [x] Scanner/provider work remains bounded by batch budgets, provider circuits/backoff, P0-9 refresh/coalescing contracts and bounded held-mark executor pools.
+- [x] ExitCoordinatorHeartbeat refuses stale reset while heartbeat is fresh, activeWorkers > 0, or phase deadline is not exceeded; duplicate healthy sweep starts are suppressed and prior generations are fenced.
+- [x] Current source has no production direct caller of `ExitCoordinatorHeartbeat.staleReset`; stale-reset invocation is not an uncontrolled hot-path action.
+- [x] Supervisor/exit health uses recent timeout pressure rather than cumulative session debt to avoid permanent recovery mode after the system has recovered.
+- [x] Runtime acceptance remains open: device snapshots must show >5s attribution populated and timeout/reset counts materially improved.
+- [x] No exit threshold, stop logic, finality rule, safety gate, sizing or execution authority changed.

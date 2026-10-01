@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicReference
  *   • top-3 phases by cumulative time within the current cycle
  *
  * At cycle end (noteCycleEnd), if the cycle exceeded the slow threshold
- * (30s by default) we emit SLOW_CYCLE_DIAGNOSTIC_6437 with the top-3
+ * (5s from V5.0.7681) we emit SLOW_CYCLE_DIAGNOSTIC_6437 with the top-3
  * phase spend so the operator can see EXACTLY which block wedged.
  *
  * Zero impact on happy-path performance: two ConcurrentHashMap ops per
@@ -34,7 +34,9 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object SlowCycleDiagnostic6437 {
 
-    private const val SLOW_CYCLE_THRESHOLD_MS = 30_000L
+    // V5.0.7681 — P0-10 requires attribution for the common degraded band,
+    // not only catastrophic 30s+ wedges. Telemetry only; no execution timeout.
+    private const val SLOW_CYCLE_THRESHOLD_MS = 5_000L
 
     private val cycleStartMs = AtomicLong(0L)
     private val lastPhaseMs = AtomicLong(0L)
