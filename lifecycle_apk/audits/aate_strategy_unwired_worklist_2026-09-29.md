@@ -3069,3 +3069,16 @@ The planner now learns which policy branch actually works in each lane + latent-
 - [x] `SuperReflectionLoop7642.repairShape` converted from expression-body `= when` to an explicit block-body function.
 - [x] Behaviour is unchanged; this only prevents the repository expression-body return guard from misreading string literals containing the word `return`.
 - [x] No intelligence, execution, safety, sizing, threshold or learning semantics changed.
+
+
+## V5.0.7646 - adaptive deliberation and dynamic compute allocation
+
+Super Intelligence now spends deeper local reasoning only when a candidate warrants it.
+
+- [x] Added SuperDeliberationController7646 combining novelty, epistemic uncertainty, downside risk, critic fragility and upside optionality.
+- [x] Deliberation depth ranges from 1 to 5 and deterministic imagination rollouts from 7 to 21.
+- [x] Familiar low-conflict candidates remain shallow; novel/conflicted/high-risk/high-opportunity candidates receive deeper recursive lookahead.
+- [x] SuperPolicyTree7638 adds discounted continuation value across the selected reasoning depth.
+- [x] SuperImaginationRollout7643 accepts a bounded dynamic rollout budget rather than always running one fixed ensemble.
+- [x] No network I/O, LLM call, execution authority, hard veto or safety weakening was added.
+- [x] Regression coverage: Aate7646AdaptiveDeliberationTest.

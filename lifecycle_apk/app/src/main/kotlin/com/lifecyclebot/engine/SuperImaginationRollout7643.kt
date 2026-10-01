@@ -24,10 +24,13 @@ object SuperImaginationRollout7643 {
         val rollouts: Int,
     )
 
-    private val shocks = doubleArrayOf(
-        -1.60, -1.25, -1.00, -0.70, -0.35, 0.0,
-         0.30,  0.60,  0.90,  1.20,  1.55,
-    )
+    private fun shocksForBudget7646(rawBudget: Int): DoubleArray {
+        val n = rawBudget.coerceIn(5, 21)
+        val lo = -1.60
+        val hi = 1.55
+        val step = (hi - lo) / (n - 1).toDouble()
+        return DoubleArray(n) { i -> lo + step * i.toDouble() }
+    }
 
     fun evaluate(
         world: SuperWorldModel7634.Snapshot,
@@ -36,6 +39,7 @@ object SuperImaginationRollout7643 {
         policy: String,
         exposure: Double,
         baseUtility: Double,
+        rolloutBudget: Int = 11,
     ): Distribution {
         if (exposure <= 0.0 || policy.contains("WAIT")) {
             return Distribution(
@@ -71,14 +75,15 @@ object SuperImaginationRollout7643 {
                 failureRisk * 12.0
             ).coerceIn(3.0, 45.0)
 
-        val values = shocks.mapIndexed { idx, shock ->
+        val shocks7646 = shocksForBudget7646(rolloutBudget)
+        val values = shocks7646.mapIndexed { idx, shock ->
             val asymmetry = when {
                 shock < 0.0 -> 1.0 + failureRisk * 0.75 + critic.thesisFragility * 0.35
                 else -> 1.0 + world.tailOpportunity * 0.45
             }
             val pathMemory = memoryPrior * when {
-                idx < 3 -> 0.35
-                idx > 7 -> 1.0
+                idx < (shocks7646.size * 0.27).toInt().coerceAtLeast(1) -> 0.35
+                idx >= (shocks7646.size * 0.73).toInt().coerceAtMost(shocks7646.lastIndex) -> 1.0
                 else -> 0.65
             }
             val criticTerm = if (shock < 0.0) criticDrag * 0.45 else criticDrag * 0.12

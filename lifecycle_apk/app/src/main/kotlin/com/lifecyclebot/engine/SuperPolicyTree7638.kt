@@ -60,6 +60,7 @@ object SuperPolicyTree7638 {
         world: SuperWorldModel7634.Snapshot,
         critic: SuperAdversarialCritic7635.Review,
         memory: SuperEpisodicRetriever7638.Retrieval,
+        deliberation: SuperDeliberationController7646.Plan = SuperDeliberationController7646.shallowPlan(),
     ): Result {
         val imp = world.forHorizon(SuperWorldModel7634.Horizon.IMPULSE)
         val tac = world.forHorizon(SuperWorldModel7634.Horizon.TACTICAL)
@@ -72,24 +73,52 @@ object SuperPolicyTree7638 {
         val frag = critic.thesisFragility
         val criticPen = critic.convictionPenalty
 
+        fun recursiveLookahead7646(policy: Policy, depth: Int): Double {
+            if (depth <= 1) return 0.0
+            var total = 0.0
+            var discount = 0.58
+            var d = 2
+            while (d <= depth) {
+                val continuation = when (policy) {
+                    Policy.WAIT_REASSESS ->
+                        ((1.0 - world.disagreement) * 2.0 + (1.0 - world.failureRisk) * 2.0)
+                    Policy.REDUCED_THEN_SCALE ->
+                        maxOf(tu, hu, 0.0) * 0.45 - frag * 2.0
+                    Policy.BASE_TACTICAL_HOLD ->
+                        hu * 0.42 + world.tailOpportunity * 2.0 - world.failureRisk * 2.0
+                    Policy.BASE_TACTICAL_BANK ->
+                        tu * 0.32 + maxOf(iu, 0.0) * 0.15 - world.failureRisk
+                    Policy.CONVICTION_RUNNER ->
+                        hu * 0.50 + world.tailOpportunity * 4.0 - criticPen * 0.25
+                }
+                total += continuation * discount
+                discount *= 0.58
+                d += 1
+            }
+            return total.coerceIn(-12.0, 12.0)
+        }
+
         val rawBranches = listOf(
             Branch(
                 Policy.WAIT_REASSESS,
                 SuperIntelligencePlanner7633.Action.WAIT,
-                0.0 + if (frag >= 0.70) 4.0 else 0.0,
+                0.0 + (if (frag >= 0.70) 4.0 else 0.0) +
+                    recursiveLookahead7646(Policy.WAIT_REASSESS, deliberation.depth),
                 "preserve_optionality",
             ),
             Branch(
                 Policy.REDUCED_THEN_SCALE,
                 SuperIntelligencePlanner7633.Action.ENTER_REDUCED,
                 iu * 0.35 + tu * 0.55 + hu.coerceAtLeast(0.0) * 0.10 +
-                    mem * 0.45 - frag * 4.0,
+                    mem * 0.45 - frag * 4.0 +
+                    recursiveLookahead7646(Policy.REDUCED_THEN_SCALE, deliberation.depth),
                 "small_initial_risk_then_confirm",
             ),
             Branch(
                 Policy.BASE_TACTICAL_HOLD,
                 SuperIntelligencePlanner7633.Action.ENTER_BASE,
-                tu + hu * 0.25 + mem * 0.65 - criticPen * 0.40,
+                tu + hu * 0.25 + mem * 0.65 - criticPen * 0.40 +
+                    recursiveLookahead7646(Policy.BASE_TACTICAL_HOLD, deliberation.depth),
                 "base_entry_with_tactical_thesis",
             ),
             Branch(
@@ -97,7 +126,8 @@ object SuperPolicyTree7638 {
                 SuperIntelligencePlanner7633.Action.ENTER_BASE,
                 iu * 0.30 + tu * 0.80 + mem * 0.55 -
                     world.failureRisk * 5.0 +
-                    if (world.latentState == SuperWorldModel7634.LatentState.DISTRIBUTING) 2.0 else 0.0,
+                    (if (world.latentState == SuperWorldModel7634.LatentState.DISTRIBUTING) 2.0 else 0.0) +
+                    recursiveLookahead7646(Policy.BASE_TACTICAL_BANK, deliberation.depth),
                 "base_entry_bank_before_thesis_decay",
             ),
             Branch(
@@ -105,7 +135,8 @@ object SuperPolicyTree7638 {
                 SuperIntelligencePlanner7633.Action.ENTER_CONVICTION,
                 hu * 1.15 + world.tailOpportunity * 10.0 + mem -
                     criticPen -
-                    if (world.trajectorySlopePct < 0.0) 8.0 else 0.0,
+                    (if (world.trajectorySlopePct < 0.0) 8.0 else 0.0) +
+                    recursiveLookahead7646(Policy.CONVICTION_RUNNER, deliberation.depth),
                 "thesis_runner_if_robust",
             ),
         )
@@ -125,6 +156,7 @@ object SuperPolicyTree7638 {
                 policy = b.policy.name,
                 exposure = b.rootAction.exposure,
                 baseUtility = b.utility + learnedPrior7644,
+                rolloutBudget = deliberation.rolloutBudget,
             )
             b.copy(
                 utility = imagined.robustUtility,
