@@ -1098,7 +1098,7 @@ object PredictiveEntryOracle6915 {
                 contributions += superPlan7633.contributionTag()
                 try {
                     com.lifecyclebot.engine.SuperIntelligenceCalibration7636.recordDecision(
-                        mint, laneKey, world7634, superPlan7633, critic7635,
+                        mint, laneKey, world7634, superPlan7633, critic7635, tree7638, arbiter7639,
                     )
                 } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}
@@ -1314,7 +1314,7 @@ object PredictiveEntryOracle6915 {
             contributions += superPlan7633.contributionTag()
             try {
                 com.lifecyclebot.engine.SuperIntelligenceCalibration7636.recordDecision(
-                    mint, laneKey, world7634, superPlan7633, critic7635,
+                    mint, laneKey, world7634, superPlan7633, critic7635, tree7638, arbiter7639,
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_PLAN_7633") } catch (_: Throwable) {}

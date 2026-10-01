@@ -23,6 +23,10 @@ object SuperIntelligenceCalibration7636 {
         val planAction: SuperIntelligencePlanner7633.Action,
         val criticFragility: Double,
         val criticVerdict: String,
+        val treePolicy: SuperPolicyTree7638.Policy,
+        val treeConfidence: Double,
+        val arbiterDominant: String,
+        val arbiterMetaConfidence: Double,
         val atMs: Long,
     )
 
@@ -51,6 +55,7 @@ object SuperIntelligenceCalibration7636 {
     private val settled = ConcurrentHashMap.newKeySet<String>()
     private val horizonStats = ConcurrentHashMap<SuperWorldModel7634.Horizon, HorizonStats>()
     private val stateStats = ConcurrentHashMap<SuperWorldModel7634.LatentState, StateStats>()
+    private val failureModes7640 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
 
     private fun key(mint: String, lane: String): String =
         lane.trim().uppercase() + "|" + mint.trim()
@@ -61,6 +66,8 @@ object SuperIntelligenceCalibration7636 {
         world: SuperWorldModel7634.Snapshot,
         plan: SuperIntelligencePlanner7633.Plan,
         critic: SuperAdversarialCritic7635.Review,
+        tree: SuperPolicyTree7638.Result,
+        arbiter: SuperReasoningArbiter7639.Decision,
     ) {
         if (mint.isBlank()) return
         val laneKey = lane.trim().uppercase().ifBlank { world.lane }
@@ -71,6 +78,10 @@ object SuperIntelligenceCalibration7636 {
             planAction = plan.chosen,
             criticFragility = critic.thesisFragility,
             criticVerdict = critic.verdict,
+            treePolicy = tree.bestPolicy,
+            treeConfidence = tree.confidence,
+            arbiterDominant = arbiter.dominant,
+            arbiterMetaConfidence = arbiter.metaConfidence,
             atMs = System.currentTimeMillis(),
         )
         try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_DECISION_STAMPED_7636") } catch (_: Throwable) {}
@@ -140,6 +151,29 @@ object SuperIntelligenceCalibration7636 {
             ss.realizedSum += env.realizedReturnPct
         }
 
+        val failureMode7640 = when {
+            directionCorrect -> "REASONING_OK"
+            stamp.world.latentState == SuperWorldModel7634.LatentState.ACCELERATING &&
+                env.realizedReturnPct <= 0.0 -> "LATENT_STATE_OVERBULLISH"
+            stamp.world.latentState == SuperWorldModel7634.LatentState.DISTRIBUTING &&
+                env.realizedReturnPct > 0.0 -> "LATENT_STATE_OVERBEARISH"
+            forecast.pWin >= 0.65 && env.realizedReturnPct <= 0.0 -> "HORIZON_PROBABILITY_OVERCONFIDENT"
+            forecast.pWin <= 0.35 && env.realizedReturnPct > 0.0 -> "HORIZON_PROBABILITY_UNDERCONFIDENT"
+            stamp.criticFragility < 0.35 && env.realizedReturnPct <= 0.0 -> "CRITIC_TOO_WEAK"
+            stamp.criticFragility > 0.70 && env.realizedReturnPct > 0.0 -> "CRITIC_TOO_PESSIMISTIC"
+            stamp.treePolicy == SuperPolicyTree7638.Policy.CONVICTION_RUNNER &&
+                env.realizedReturnPct <= 0.0 -> "TREE_CONVICTION_POLICY_WRONG"
+            stamp.treePolicy == SuperPolicyTree7638.Policy.WAIT_REASSESS &&
+                env.realizedReturnPct > 0.0 -> "TREE_WAIT_POLICY_TOO_TIMID"
+            stamp.arbiterDominant == "MEMORY" && env.realizedReturnPct <= 0.0 -> "MEMORY_OVERTRUST"
+            stamp.arbiterDominant == "TREE" && env.realizedReturnPct <= 0.0 -> "TREE_OVERTRUST"
+            stamp.arbiterDominant == "CRITIC" && env.realizedReturnPct > 0.0 -> "CRITIC_OVERTRUST"
+            else -> "UNCLASSIFIED_REASONING_MISS"
+        }
+        failureModes7640.computeIfAbsent(failureMode7640) {
+            java.util.concurrent.atomic.AtomicLong(0L)
+        }.incrementAndGet()
+
         try {
             PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_OUTCOME_GRADED_7636")
             PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_HORIZON_GRADED_7636_" + nearest.name)
@@ -154,6 +188,9 @@ object SuperIntelligenceCalibration7636 {
                     " state=" + stamp.world.latentState.name +
                     " plan=" + stamp.planAction.name +
                     " critic=" + stamp.criticVerdict +
+                    " tree=" + stamp.treePolicy.name +
+                    " arbiter=" + stamp.arbiterDominant +
+                    " failureMode=" + failureMode7640 +
                     " predP=" + String.format(java.util.Locale.US, "%.3f", forecast.pWin) +
                     " predE=" + String.format(java.util.Locale.US, "%+.2f", forecast.expectedPnlPct) +
                     " actual=" + String.format(java.util.Locale.US, "%+.2f", env.realizedReturnPct) +
@@ -273,9 +310,13 @@ object SuperIntelligenceCalibration7636 {
                     String.format(java.util.Locale.US, "%s:n=%d wr=%.0f%% mean=%+.1f", e.key.name, e.value.n, wr, mean)
                 }
             }
+        val failures = failureModes7640.entries
+            .sortedByDescending { it.value.get() }
+            .take(8)
+            .joinToString(" | ") { it.key + "=" + it.value.get() }
         return "SUPER_INTELLIGENCE_CALIBRATION_7636 pending=" + pending.size +
             " bound=" + byPosition.size +
-            " horizons=[" + horizons + "] states=[" + states + "]"
+            " horizons=[" + horizons + "] states=[" + states + "] failures7640=[" + failures + "]"
     }
 
     internal fun resetForTest() {
@@ -284,5 +325,6 @@ object SuperIntelligenceCalibration7636 {
         settled.clear()
         horizonStats.clear()
         stateStats.clear()
+        failureModes7640.clear()
     }
 }

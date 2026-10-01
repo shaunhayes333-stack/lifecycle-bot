@@ -2993,3 +2993,16 @@ Super Intelligence now performs model-of-models arbitration instead of assigning
 - [x] Horizon calibration from exact settled outcomes contributes to world-model trust.
 - [x] Arbitration only reweights existing bounded reasoning; it owns no execution, capital, provider, safety or hard-veto authority.
 - [x] Regression coverage: Aate7639RecursiveReasoningArbiterTest.
+
+
+## V5.0.7640 - reasoning failure attribution
+
+Super Intelligence now learns not only that a prediction was wrong, but which reasoning subsystem most likely failed.
+
+- [x] Entry-time calibration snapshot now retains tree policy, tree confidence, arbiter dominant mechanism and arbiter meta-confidence alongside world/critic/plan state.
+- [x] Exact position-bound terminal outcomes classify reasoning misses into latent-state, horizon-calibration, critic, tree-policy and model-overtrust failure families.
+- [x] Examples include LATENT_STATE_OVERBULLISH, CRITIC_TOO_WEAK, TREE_CONVICTION_POLICY_WRONG, MEMORY_OVERTRUST and TREE_OVERTRUST.
+- [x] Correct directional calls are explicitly labelled REASONING_OK.
+- [x] Failure-mode counts surface in SuperIntelligenceCalibration status for later meta-learning.
+- [x] No new execution authority, provider I/O, hard veto, sizing bypass or safety weakening was added.
+- [x] Regression coverage: Aate7640ReasoningFailureAttributionTest.
