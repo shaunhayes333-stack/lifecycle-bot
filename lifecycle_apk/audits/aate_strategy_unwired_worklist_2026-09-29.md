@@ -2032,3 +2032,48 @@ These APIs are deliberate maintenance, recovery, UI/operator configuration, cach
 - [x] `RuntimeRepairState.uiRebindGeneration` — **UI REPAIR GENERATION READBACK**.
 - [x] F_DEAD reconciliation progress: prior 269 + 8 = **277 / 1,458** classified; **1,181 remain**.
 - [x] Regression coverage: `Aate7592RuntimeRepairStateTrancheTest`.
+
+
+## V5.0.7593 — F_DEAD truth readback/predicate tranche (37 rows)
+
+These rows are truth-layer counters, immutable/current-state accessors, classification predicates, and forensic snapshots. They expose or classify state already owned elsewhere; they do not create a second execution authority.
+
+- [x] `AntiRewardHackingGuard6439.currentHigh` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `BackgroundTradingAuthority6469.currentJobId` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalCloseFinality6389.currentRunId` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalCloseFinality6389.currentStartMs` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalCloseFinality6389.eligibleForFreshMetrics` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalCloseFinality6389.isAmbiguous` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalCloseFinality6389.isForbiddenSource` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalCloseFinality6389.isLegalSource` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalCloseFinality6389.stallCountAbove700ms` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalExecutionReceipt6394.currentExecutionId` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalExecutionReceipt6394.isConsumed` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalExecutionReceipt6394.isTagged` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFill6393.canonicalLearningEligible` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFill6393.countHeld` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFill6393.countZero` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFill6393.eligibleForGovernorInfluence` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFill6393.eligibleForZeroClose` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFill6393.isValidTransition` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFill6393.isWalletBalanceAuthority` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalFinalizedTradeBus6464.isExcluded` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalOutcomeClassifier6576.counts` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalPositionAuthority6441.openCountForValuation` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalTokenMetricsSnapshot6725.isDyingToken` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalTokenMetricsSnapshot6725.isHealthyRunner` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `CanonicalTradeStream6501.isEligible` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `PaperCapitalAuthority6577.accountId` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `PaperCapitalAuthority6577.invariantCounts` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `ProtectiveExitScheduler6450.armedCount7027` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `ProtectiveExitScheduler6450.noMarkCount7027` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `RiskExitPriorityDomain6461.laneStatsAgeMs` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `RootCauseClassifier6471.lastResult` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `RuntimeTune6833.accountingBoundaryViolations6833` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `RuntimeTune6833.markContractHonoredCount6833` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `RuntimeTune6833.phantomSizedRejectedCount6833` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `TokenMapVersionGuard6411.currentLaneRoutingVersion` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `TokenMapVersionGuard6411.currentMappingVersion` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] `UniversalSlLeaseRegistry6402.oldestLeaseAgeMs` — **TRUTH STATE/PREDICATE/READBACK**.
+- [x] F_DEAD reconciliation progress: prior 277 + 37 = **314 / 1,458** classified; **1,144 remain**.
+- [x] Regression coverage: `Aate7593TruthReadbackPredicateTrancheTest`.
