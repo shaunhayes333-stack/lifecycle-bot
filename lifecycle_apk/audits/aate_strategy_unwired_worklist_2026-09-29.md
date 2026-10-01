@@ -1765,3 +1765,21 @@ This tranche classifies cached learning counters, analytics snapshots and report
 - [x] `ShadowLearningEngine.getVolatilityPlayStats` — **COMPLETED-SHADOW ANALYTICS REPORT**.
 - [x] F_DEAD reconciliation progress: prior 97 + 10 = **107 / 1,458** classified; **1,351 remain**.
 - [x] Regression coverage: `Aate7580LearningReportReadbackTrancheTest`.
+
+
+## V5.0.7581 — F_DEAD crypto/perps learning-state tranche (10 rows)
+
+This tranche closes simple crypto/perps learning-state accessors and same-record statistical helpers. They expose already-maintained learning state and do not constitute missing trade authority.
+
+- [x] `CryptoFluidLearning.paperTradeCount` — **LEARNING COUNTER READBACK**.
+- [x] `CryptoFluidLearning.liveTradeCount` — **LEARNING COUNTER READBACK**.
+- [x] `CryptoFluidLearning.winCount` — **LEARNING COUNTER READBACK**.
+- [x] `CryptoFluidLearning.lossCount` — **LEARNING COUNTER READBACK**.
+- [x] `CryptoFluidLearning.paperPnlEma` — **LEARNED STATE READBACK**.
+- [x] `CryptoAltTrader.getLossCount` — **TRADER PERFORMANCE COUNTER READBACK**.
+- [x] `PerpsTraderAI.getMaxWinStreak` — **PERFORMANCE COUNTER READBACK**.
+- [x] `PerpsTraderAI.getMaxLossStreak` — **PERFORMANCE COUNTER READBACK**.
+- [x] `CryptoLosingPatternMemory.Bucket.lossRate` — **LOCAL BUCKET STATISTIC HELPER** used to derive danger state.
+- [x] `CryptoLosingPatternMemory.Bucket.meanPnl` — **LOCAL BUCKET STATISTIC HELPER** used to derive danger state.
+- [x] F_DEAD reconciliation progress: prior 107 + 10 = **117 / 1,458** classified; **1,341 remain**.
+- [x] Regression coverage: `Aate7581CryptoLearningStateTrancheTest`.
