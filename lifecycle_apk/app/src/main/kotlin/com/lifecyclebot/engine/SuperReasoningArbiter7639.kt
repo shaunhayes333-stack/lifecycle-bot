@@ -41,28 +41,40 @@ object SuperReasoningArbiter7639 {
             try { SuperIntelligenceCalibration7636.horizonReliability(it) } catch (_: Throwable) { 1.0 }
         }.average().coerceIn(0.60, 1.20)
 
-        val worldWeight = (
+        val worldTrust7641 = try {
+            SuperIntelligenceCalibration7636.reasoningTrust7641(world.lane, "WORLD")
+        } catch (_: Throwable) { 1.0 }
+        val worldWeight = ((
             0.55 +
                 horizonTrust * 0.25 +
                 (1.0 - world.disagreement) * 0.20
-            ).coerceIn(0.55, 1.20)
+            ) * worldTrust7641).coerceIn(0.45, 1.20)
 
-        val criticWeight = (
+        val criticTrust7641 = try {
+            SuperIntelligenceCalibration7636.reasoningTrust7641(world.lane, "CRITIC")
+        } catch (_: Throwable) { 1.0 }
+        val criticWeight = ((
             0.55 +
                 critic.criticConfidence * 0.35 +
                 critic.thesisFragility * 0.20
-            ).coerceIn(0.55, 1.20)
+            ) * criticTrust7641).coerceIn(0.45, 1.20)
 
-        val memoryWeight = (
+        val memoryTrust7641 = try {
+            SuperIntelligenceCalibration7636.reasoningTrust7641(world.lane, "MEMORY")
+        } catch (_: Throwable) { 1.0 }
+        val memoryWeight = ((
             0.45 +
                 memory.confidence * 0.60
-            ).coerceIn(0.45, 1.10)
+            ) * memoryTrust7641).coerceIn(0.35, 1.10)
 
-        val treeWeight = (
+        val treeTrust7641 = try {
+            SuperIntelligenceCalibration7636.reasoningTrust7641(world.lane, "TREE")
+        } catch (_: Throwable) { 1.0 }
+        val treeWeight = ((
             0.50 +
                 tree.confidence * 0.45 +
                 memory.confidence * 0.15
-            ).coerceIn(0.50, 1.15)
+            ) * treeTrust7641).coerceIn(0.40, 1.15)
 
         val weights = linkedMapOf(
             "WORLD" to worldWeight,

@@ -56,6 +56,8 @@ object SuperIntelligenceCalibration7636 {
     private val horizonStats = ConcurrentHashMap<SuperWorldModel7634.Horizon, HorizonStats>()
     private val stateStats = ConcurrentHashMap<SuperWorldModel7634.LatentState, StateStats>()
     private val failureModes7640 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val laneReasoningFailures7641 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val laneReasoningOutcomes7641 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
 
     private fun key(mint: String, lane: String): String =
         lane.trim().uppercase() + "|" + mint.trim()
@@ -173,6 +175,15 @@ object SuperIntelligenceCalibration7636 {
         failureModes7640.computeIfAbsent(failureMode7640) {
             java.util.concurrent.atomic.AtomicLong(0L)
         }.incrementAndGet()
+        val laneKey7641 = stamp.lane.uppercase()
+        laneReasoningOutcomes7641.computeIfAbsent(laneKey7641) {
+            java.util.concurrent.atomic.AtomicLong(0L)
+        }.incrementAndGet()
+        if (failureMode7640 != "REASONING_OK") {
+            laneReasoningFailures7641.computeIfAbsent(laneKey7641 + "|" + failureMode7640) {
+                java.util.concurrent.atomic.AtomicLong(0L)
+            }.incrementAndGet()
+        }
 
         try {
             PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_OUTCOME_GRADED_7636")
@@ -206,6 +217,33 @@ object SuperIntelligenceCalibration7636 {
      * Neutral until n>=8. Then Brier calibration + directional accuracy earn
      * a bounded trust multiplier. This is model trust, not execution authority.
      */
+    /**
+     * V5.0.7641 - lane-local self-repair weight for a reasoning family.
+     * Neutral until enough exact outcomes exist. A family loses trust only for
+     * failure modes attributable to that family, and can recover as the lane's
+     * outcome denominator grows.
+     */
+    fun reasoningTrust7641(lane: String, family: String): Double {
+        val laneKey = lane.trim().uppercase()
+        val total = laneReasoningOutcomes7641[laneKey]?.get() ?: return 1.0
+        if (total < 8L) return 1.0
+        val prefixes = when (family.trim().uppercase()) {
+            "MEMORY" -> listOf("MEMORY_OVERTRUST")
+            "TREE" -> listOf("TREE_OVERTRUST", "TREE_CONVICTION_POLICY_WRONG", "TREE_WAIT_POLICY_TOO_TIMID")
+            "CRITIC" -> listOf("CRITIC_TOO_WEAK", "CRITIC_TOO_PESSIMISTIC", "CRITIC_OVERTRUST")
+            "WORLD" -> listOf(
+                "LATENT_STATE_OVERBULLISH", "LATENT_STATE_OVERBEARISH",
+                "HORIZON_PROBABILITY_OVERCONFIDENT", "HORIZON_PROBABILITY_UNDERCONFIDENT",
+            )
+            else -> emptyList()
+        }
+        val misses = prefixes.sumOf { mode ->
+            laneReasoningFailures7641[laneKey + "|" + mode]?.get() ?: 0L
+        }
+        val missRate = (misses.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+        return (1.05 - missRate * 0.75).coerceIn(0.65, 1.05)
+    }
+
     fun horizonReliability(h: SuperWorldModel7634.Horizon): Double {
         val s = horizonStats[h] ?: return 1.0
         return synchronized(s) {
@@ -249,6 +287,16 @@ object SuperIntelligenceCalibration7636 {
             }
         }
         root.put("states", ss)
+        val rf = JSONArray()
+        laneReasoningFailures7641.forEach { (k, v) ->
+            rf.put(JSONObject().put("k", k).put("n", v.get()))
+        }
+        root.put("reasonFailures7641", rf)
+        val ro = JSONArray()
+        laneReasoningOutcomes7641.forEach { (k, v) ->
+            ro.put(JSONObject().put("k", k).put("n", v.get()))
+        }
+        root.put("reasonOutcomes7641", ro)
         return root.toString()
     }
 
@@ -278,6 +326,20 @@ object SuperIntelligenceCalibration7636 {
                     wins = o.optLong("wins", 0L),
                     realizedSum = o.optDouble("realizedSum", 0.0),
                 )
+            }
+            val rf = root.optJSONArray("reasonFailures7641") ?: JSONArray()
+            for (i in 0 until rf.length()) {
+                val o = rf.optJSONObject(i) ?: continue
+                val k = o.optString("k", "")
+                if (k.isNotBlank()) laneReasoningFailures7641[k] =
+                    java.util.concurrent.atomic.AtomicLong(o.optLong("n", 0L))
+            }
+            val ro = root.optJSONArray("reasonOutcomes7641") ?: JSONArray()
+            for (i in 0 until ro.length()) {
+                val o = ro.optJSONObject(i) ?: continue
+                val k = o.optString("k", "")
+                if (k.isNotBlank()) laneReasoningOutcomes7641[k] =
+                    java.util.concurrent.atomic.AtomicLong(o.optLong("n", 0L))
             }
             try { PipelineHealthCollector.labelInc("SUPER_INTELLIGENCE_CALIBRATION_RESTORED_7637") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
@@ -326,5 +388,7 @@ object SuperIntelligenceCalibration7636 {
         horizonStats.clear()
         stateStats.clear()
         failureModes7640.clear()
+        laneReasoningFailures7641.clear()
+        laneReasoningOutcomes7641.clear()
     }
 }

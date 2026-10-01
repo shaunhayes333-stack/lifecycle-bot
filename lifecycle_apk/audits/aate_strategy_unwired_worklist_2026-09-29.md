@@ -3006,3 +3006,18 @@ Super Intelligence now learns not only that a prediction was wrong, but which re
 - [x] Failure-mode counts surface in SuperIntelligenceCalibration status for later meta-learning.
 - [x] No new execution authority, provider I/O, hard veto, sizing bypass or safety weakening was added.
 - [x] Regression coverage: Aate7640ReasoningFailureAttributionTest.
+
+
+## V5.0.7641 - contextual reasoning self-repair
+
+Reasoning failure attribution now feeds back into lane-local model trust.
+
+- [x] Each lane tracks exact settled reasoning outcomes and attributable failure families.
+- [x] WORLD, CRITIC, MEMORY and TREE receive separate lane-local trust multipliers.
+- [x] Trust remains neutral until at least 8 exact position-bound outcomes exist.
+- [x] A repeated MEMORY_OVERTRUST pattern reduces only memory influence for that lane; critic/tree/world are unaffected unless their own failure modes accumulate.
+- [x] Trust can recover automatically because miss rate is measured against the growing exact outcome denominator.
+- [x] Reasoning failure/outcome memory persists across restart.
+- [x] SuperReasoningArbiter7639 now consumes these learned trust multipliers before weighting its internal reasoners.
+- [x] No independent execution, hard-veto, provider, capital or safety authority was added.
+- [x] Regression coverage: Aate7641ReasoningSelfRepairTest.
