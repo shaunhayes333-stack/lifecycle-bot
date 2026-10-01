@@ -2724,3 +2724,22 @@ Repair:
 - [x] Sealed FDG ownership remains authoritative and is not re-elected.
 - [x] No lane score threshold, FDG rule, mark rule, sizing multiplier, TP/SL, allocation or safety gate changed.
 - [x] Regression coverage: `Aate7619LearnedFairFreshElectionTest`.
+
+
+## V5.0.7620 — pre-FDG specialist contest uses qualified/fair election
+
+7619 activated the dormant learned/fair selector in `elect()`, then call-site audit found two more dormant pieces:
+
+- `qualifiedLanesFor()` had zero callers.
+- `recordPrimaryWin()` had zero callers.
+- `canRequestExecution()` pre-FDG compatibility still called `elect(listOf(laneUpper), preferred=laneUpper)`, so a single caller constructed a one-lane contest and necessarily won.
+
+Repair:
+
+- [x] Pre-FDG claims now build a contest from registered/registry affinity plus the requesting lane.
+- [x] Observer/non-owner lanes are excluded from that contest.
+- [x] No explicit preferred lane is fabricated pre-FDG; existing learned expectancy + affinity + fairness chooses among qualified specialists.
+- [x] A newly sealed primary records an ownership win so the existing recent-win fairness decay finally has runtime state.
+- [x] Sealed FDG ownership remains authoritative and still replaces any pre-seal owner.
+- [x] No score floor, lane strategy threshold, FDG rule, mark rule, sizing multiplier, TP/SL, allocation or hard safety changed.
+- [x] Regression coverage: `Aate7620QualifiedPreFdgElectionParityTest`.

@@ -338,12 +338,18 @@ object LaneExecutionCoordinator {
                 runtimeGeneration = runtimeGeneration,
             )
         } else {
-            // Pre-FDG compatibility: if no canonical snapshot exists yet, keep the
-            // existing claimant behavior. The later sealed FDG path is authoritative.
+            // V5.0.7620 — pre-FDG ownership must not be first-caller-wins.
+            // Build the actual qualified contest from registered affinities plus
+            // the requesting specialist, then let the coordinator's existing
+            // learned/fair selector choose. Once FDG seals a canonical owner,
+            // the branch above still replaces this pre-seal election.
+            val qualified7620 = qualifiedLanesFor(mint, laneUpper)
+                .filter { laneCanOwnExecution6910(it) }
+                .distinct()
             elect(
                 mint = mint,
-                lanes = listOf(laneUpper),
-                preferred = laneUpper,
+                lanes = qualified7620.ifEmpty { listOf(laneUpper) },
+                preferred = null,
                 candidateVersion = candidateVersion,
                 runtimeGeneration = runtimeGeneration,
             )
@@ -351,6 +357,11 @@ object LaneExecutionCoordinator {
 
         val allowed = e.primaryLane == laneUpper
         val finalElection6494 = if (allowed && !e.sealed) {
+            recordPrimaryWin(e.primaryLane)
+            try {
+                PipelineHealthCollector.labelInc("LANE_PRIMARY_FAIR_WIN_RECORDED_7620")
+                PipelineHealthCollector.labelInc("LANE_PRIMARY_FAIR_WIN_RECORDED_7620_" + e.primaryLane)
+            } catch (_: Throwable) {}
             e.copy(sealed = true).also { elections[mapKey] = it }
         } else e
         if (!allowed) duplicateOpenSuppressed.incrementAndGet()
