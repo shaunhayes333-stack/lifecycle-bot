@@ -1805,3 +1805,18 @@ These rows are provider-health state queries, local health predicates, cooldown/
 - [x] `CloudLearningSync.isOptedIn` + `isUsingCommunityWeights` are configuration readbacks; counted as one paired configuration surface for this tranche.
 - [x] F_DEAD reconciliation progress: prior 117 + 14 = **131 / 1,458** classified; **1,327 remain**.
 - [x] Regression coverage: `Aate7582ProviderHealthReadbackTrancheTest`.
+
+
+## V5.0.7583 — F_DEAD dashboard/cache projection tranche (7 rows)
+
+These rows expose already-maintained projections or cached collective state for dashboards/diagnostics. They are not missing scanner, FDG, execution or exit authority.
+
+- [x] `DashboardDataProvider.lastCanonicalFinalized6485` — **LAST-FINALIZED PROJECTION READBACK**.
+- [x] `DashboardDataProvider.getIntelligenceDashboard` — **DASHBOARD AGGREGATOR**.
+- [x] `DashboardDataProvider.getTreasuryDashboard` — **TREASURY DISPLAY PROJECTION**.
+- [x] `CollectiveIntelligenceAI.getMintMemory` — **CACHE LOOKUP**.
+- [x] `CollectiveIntelligenceAI.getEndpointHealthRecords` — **CACHE SNAPSHOT READBACK**.
+- [x] `CollectiveLearning.lastSyncAgeMs6943` — **SYNC-AGE DIAGNOSTIC**.
+- [x] `CollectiveLearning.getWhaleEffectiveness` — **CACHED HASHED-WALLET LOOKUP**.
+- [x] F_DEAD reconciliation progress: prior 131 + 7 = **138 / 1,458** classified; **1,320 remain**.
+- [x] Regression coverage: `Aate7583DashboardCacheProjectionTrancheTest`.
