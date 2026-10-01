@@ -74,6 +74,14 @@ class JupiterApi(
     companion object {
         const val SOL_MINT = "So11111111111111111111111111111111111111112"
 
+        internal fun retryableSlippageSimulation7688(error: String?): Boolean {
+            if (error == null || !error.startsWith("Simulate failed:")) return false
+            // Custom codes belong to the failing program, not to all routed DEXes.
+            return error.contains("Program JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 failed:") &&
+                (Regex("(?i)\\b0x1771\\b").containsMatchIn(error) ||
+                    Regex("\\\"Custom\\\"\\s*:\\s*6001\\b").containsMatchIn(error))
+        }
+
         private const val TAG = "JupiterApi"
 
         // V5.9.28 (live-trading fix): migrated from dead quote-api.jup.ag/v6.

@@ -518,7 +518,7 @@ object MarketsLiveExecutor {
                         // V5.9.230: Jupiter Perps v2 is dead. Route to Flash.trade perps API
                         // which is active on Solana mainnet (SOL, BTC, ETH, etc.).
                         // For symbols not supported on Flash, degrade to SPOT (transparent).
-                        executeFlashTradePerps(wallet, walletAddress, market, direction, sizeSol, leverage)
+                        executeFlashTradePerps(wallet, walletAddress, market, direction, sizeSol, leverage, forensicsKey, forensicsMint)
                     }
                     mint != null -> executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
                     else -> {
@@ -637,7 +637,9 @@ object MarketsLiveExecutor {
                 symbol = market.symbol,
                 side = "BUY",
                 phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.BUY_FAILED,
-                message = "❌ [$diagCode] ${traderType} ${market.symbol} — Jupiter/Bridge tx returned no signature.",
+                message = if (market.isCrypto && leverage > 1.0)
+                    "❌ [$diagCode] ${traderType} ${market.symbol} — Flash perps open returned no signature; collateral funding is a separate transaction, see funding events."
+                else "❌ [$diagCode] ${traderType} ${market.symbol} — Jupiter/Bridge tx returned no signature.",
                 solAmount = sizeSol,
                 traderTag = "PERPS_${traderType.uppercase()}",
             )
@@ -1270,6 +1272,8 @@ object MarketsLiveExecutor {
         direction: PerpsDirection,
         sizeSol: Double,
         leverage: Double,
+        forensicsKey: String,
+        forensicsMint: String,
     ): String? = withContext(Dispatchers.IO) {
 
         val symbol = market.symbol
@@ -1290,6 +1294,18 @@ object MarketsLiveExecutor {
         if (usdcBefore + 1e-6 < inputAmountUsd) {
             val capacity = UniversalBridgeEngine.scanWalletCapacity(wallet)
             val bridge = UniversalBridgeEngine.bridgeToUsdc(wallet, capacity.bestSourceMint, inputAmountUsd - usdcBefore)
+            com.lifecyclebot.engine.LiveTradeLogStore.log(
+                tradeKey = forensicsKey,
+                mint = forensicsMint,
+                symbol = market.symbol,
+                side = "INFO",
+                phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.INFO,
+                message = "FLASH_COLLATERAL_FUNDING_7688 target=USDC source=${capacity.bestSourceMint} " +
+                    "requestedUsd=${inputAmountUsd - usdcBefore} success=${bridge.success} proof=${bridge.proofState} " +
+                    "sig=${bridge.swapTxSig ?: "NONE"} error=${bridge.errorMsg ?: "NONE"}; funding does not prove perps opened",
+                sig = bridge.swapTxSig,
+                traderTag = "PERPS_COLLATERAL",
+            )
             if (!bridge.success || !bridge.proofState.contains("CONFIRMED", ignoreCase = true)) {
                 ErrorLogger.warn(TAG, "⛔ Flash collateral pre-bridge failed: ${bridge.errorMsg} proof=${bridge.proofState}")
                 return@withContext null
@@ -1323,14 +1339,14 @@ object MarketsLiveExecutor {
             val responseBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                ErrorLogger.warn(TAG, "⚠️ Flash open-position ${response.code}: $responseBody — degrading to SPOT")
+                ErrorLogger.warn(TAG, "⚠️ Flash open-position ${response.code}: $responseBody — perps open failed; funded USDC remains in wallet")
                 return@withContext null
             }
 
             val json = org.json.JSONObject(responseBody)
             val err = json.optString("err", "null")
             if (err != "null" && err.isNotBlank()) {
-                ErrorLogger.warn(TAG, "⚠️ Flash API err for $symbol: $err — degrading to SPOT")
+                ErrorLogger.warn(TAG, "⚠️ Flash API err for $symbol: $err — perps open failed; funded USDC remains in wallet")
                 return@withContext null
             }
 
@@ -1349,7 +1365,7 @@ object MarketsLiveExecutor {
             }
 
             if (sig.isNullOrBlank()) {
-                ErrorLogger.warn(TAG, "⚠️ Flash: empty sig for $symbol — degrading to SPOT")
+                ErrorLogger.warn(TAG, "⚠️ Flash: empty sig for $symbol — perps open failed; funded USDC remains in wallet")
                 return@withContext null
             }
 
@@ -1357,7 +1373,7 @@ object MarketsLiveExecutor {
             sig
 
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "Flash exception for $symbol: ${e.message} — degrading to SPOT")
+            ErrorLogger.warn(TAG, "Flash exception for $symbol: ${e.message} — perps open failed; funded USDC remains in wallet")
             null
         }
     }

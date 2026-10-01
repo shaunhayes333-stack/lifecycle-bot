@@ -21169,7 +21169,7 @@ class Executor(
                 }
             }
 
-            val txResultLocal = buildTxWithRetry(
+            var txResultLocal = buildTxWithRetry(
                         jq7325, wallet.publicKeyB58,
                         senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
                     )
@@ -21182,7 +21182,30 @@ class Executor(
                 traderTag = "MEME",
             )
 
-            val simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
+            var simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
+            var refresh7688 = 0
+            while (JupiterApi.retryableSlippageSimulation7688(simErr) && refresh7688 < 2) {
+                refresh7688++
+                // No transaction has been signed/submitted. Refresh the whole
+                // quote/build pair at the same tolerance and input amount.
+                val slip7688 = jq7325.raw.optInt("slippageBps", buyBaseSlippage).coerceIn(1, 500)
+                PipelineHealthCollector.labelInc("LIVE_BUY_SLIPPAGE_REQUOTE_7688")
+                LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+                    "Simulation slippage exceeded; fresh quote ${refresh7688}/2 @ ${slip7688}bps",
+                    slippageBps = slip7688, traderTag = "MEME")
+                val fresh7688 = getQuoteWithSlippageGuard(
+                    JupiterApi.SOL_MINT, ts.mint, jq7325.inAmount,
+                    slip7688, effectiveSol, buyTaker = wallet.publicKeyB58,
+                ) ?: throw Exception("SLIPPAGE_REFRESH_NO_QUOTE_7688")
+                val guard7688 = security.validateQuote(fresh7688, isBuy = true, inputSol = effectiveSol)
+                if (guard7688 is GuardResult.Block) throw Exception("SLIPPAGE_REFRESH_QUOTE_REJECTED_7688:${guard7688.reason}")
+                jq7325 = fresh7688
+                txResultLocal = buildTxWithRetry(fresh7688, wallet.publicKeyB58,
+                    senderTipLamports = effectiveSenderTipLamports(c, urgent = false))
+                txResult = txResultLocal
+                simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
+            }
             if (simErr != null) {
                 if (simErr.startsWith("RPC error:") || simErr.startsWith("Simulate failed: null")) {
                     // V5.9.753 — Emergent ticket item #2. PREVIOUSLY this branch

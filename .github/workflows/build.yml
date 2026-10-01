@@ -220,7 +220,7 @@ jobs:
       # remain hard failures.
       - name: Required lane and history regression tests
         run: |
-          ./gradlew testReleaseUnitTest --tests '*Aate7687*' --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          ./gradlew testReleaseUnitTest --tests '*Aate7687*' --tests '*Aate7688*' --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 
       - name: Unit regression suite (diagnostic)
         continue-on-error: true

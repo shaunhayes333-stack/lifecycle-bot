@@ -130,7 +130,10 @@ object CommonSenseTradePlaybook {
         else try { PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_INPUT_MISSING_7432") } catch (_: Throwable) {}
 
         fun deny(reason: String, extra: String = ""): Verdict {
-            val detail = (snap.reasons + extra).filter { it.isNotBlank() }.joinToString("|").take(240)
+            // Preserve the deciding input before verbose research/setup prose
+            // truncates it in the live failure tile.
+            val detail = (listOf("lane=${snap.lane} score=${snap.score} liq=${snap.liquidityUsd}", extra) + snap.reasons)
+                .filter { it.isNotBlank() }.joinToString("|").take(240)
             if (reason == "RISK_REWARD_POOR" || reason == "LIFECYCLE_DANGER_NON_MANIPULATED_7425") try {
                 val markAgeMs = if (ts.lastPriceUpdate > 0L) (now - ts.lastPriceUpdate).coerceAtLeast(0L) else -1L
                 ForensicLogger.lifecycle("COMMON_SENSE_PREBUY_CAUSAL_INPUT_7432",

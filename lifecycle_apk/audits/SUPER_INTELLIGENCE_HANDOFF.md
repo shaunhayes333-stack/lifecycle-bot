@@ -156,3 +156,11 @@ Remaining runtime sweep includes all 12 meme lanes (explicitly Moonshot), plus C
 - Held exit trigger rebasing checks the existing cap-staleness authority before replacing a newer token price with a carried market-cap-implied entry price. Existing price/identity checks still own whether the price is tradeable.
 
 The 7687 regression tests are a required CI step; the historical legacy suite remains visible separately. Build success is not runtime acceptance: fresh canonical mark misses, actual per-lane openings/refusal reasons, partial/replay deltas and learning delivery still require an installed-build report. Do not claim all lanes are healthy from source tests, or repair unreconstructible history with guessed prices.
+
+### 7688 — live simulation recovery
+
+The matched 7686 screenshot proves a Jupiter Swap 6001 simulation failure after a successful Metis quote. The old buy ladder stopped at quote success and aborted at simulation. Added at most two fresh quote/build/simulation passes at the same input amount and tolerance before any signature/submission. Each refreshed quote passes SecurityGuard; other programs, RPC errors, and other Jupiter errors retain the existing refusal path. Required regression tests check program-specific classification.
+
+Common Sense live refusals now show lane, deciding score, and liquidity before verbose context truncation. No risk/reward threshold or safety veto was removed. 7687 preserves the approved FDG score upstream. Latest live report: Moonshot confirmed one position, Cyclic disabled in EnabledTraderAuthority, Manipulated buyer disabled in configuration, historical finalized cursor advancing but incomplete, and crypto candidates blocked by wallet lock. These remain distinct runtime acceptance items, not claimed healthy from compilation.
+
+7688 USDC follow-up: leveraged crypto routes to Flash; its collateral funding can confirm separately before an open failure. Retain funding signatures/proof in the same forensic attempt as INFO (never BUY_VERIFIED_LANDED), and distinguish Flash failures from Jupiter token swaps. Existing recovered USDC cannot be retrospectively attributed without a receipt.
