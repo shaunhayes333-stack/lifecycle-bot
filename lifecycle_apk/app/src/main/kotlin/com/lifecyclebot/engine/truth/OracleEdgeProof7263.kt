@@ -230,7 +230,7 @@ object OracleEdgeProof7263 {
         recompute(mode)
     }
 
-    fun refuseCohortMeanReturn7384(executionMode: String = activeMode()): Double? {
+    fun refuseCohortMeanReturn7384(executionMode: String? = activeMode()): Double? {
         val b = book(executionMode) ?: return null
         val (n, r, _) = b.refuse.snapshot()
         return if (n >= MIN_NON_ADMIT_CLOSES_7263 && r.isFinite()) r else null
@@ -267,7 +267,7 @@ object OracleEdgeProof7263 {
 
     fun tier(executionMode: String? = activeMode()): Tier = book(executionMode)?.tier ?: Tier.ADVISORY
 
-    fun isInverted7304(executionMode: String = activeMode()): Boolean {
+    fun isInverted7304(executionMode: String? = activeMode()): Boolean {
         val b = book(executionMode) ?: return false
         val (aN, aRet, _) = b.admit.snapshot()
         val (rN, rRet, _) = b.refuse.snapshot()
