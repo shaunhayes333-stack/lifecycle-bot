@@ -676,7 +676,8 @@ object FieldManual7715 {
             "4. Volume shows activity, not demand. Indicators are correlated descriptions, not independent votes. " +
             "Market cap is not liquidity. A mark is not an executable price. A submitted order is not a fill.\n" +
             "5. Risk: position_notional <= equity x risk_fraction / loss_fraction_to_invalidation_including_costs. " +
-            "No martingale, no widening stops, no revenge entries, reserve cash for exits.\n" +
+            "No martingale, no widening stops, no revenge entries, reserve cash for exits. " +
+            "Nothing the bot buys is ever unmanaged: every bought holding is a position with an exit from the moment it is held.\n" +
             "6. Exits: structural (thesis failed), integrity (identity/route/liquidity/data untrustworthy, act at once), " +
             "target, time, regime, operational (reconcile before retrying). Never turn an invalidated trade into an investment.\n" +
             "7. Evidence: keep LIVE, PAPER and SHADOW separate; count unique finalized outcomes, not scans; small samples " +

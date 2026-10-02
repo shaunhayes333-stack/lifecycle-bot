@@ -13359,7 +13359,43 @@ class GoldenTapeRegressionTest {
         // Bot-sourced dust is adopted at the $2 floor so it is sold, not left squatting a slot.
         val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
         assertTrue(rec.contains("private fun isBotSourcedRow7717(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean ="))
-        assertTrue(rec.contains("return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_ROUTED_ADOPTION_MIN_USD_7708 else ADOPTION_MIN_VALUE_USD_7706"))
+        // 7718 lowered the bot-holding floor to zero; the row test stands.
+        assertTrue(rec.contains("return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
+    }
+
+    @Test
+    fun V5_0_7718_nothing_the_bot_buys_is_ever_unmanaged() {
+        // Operator: "also nothing the bot buys should ever be unmanaged. that
+        // is a hard rule." Three enforcement points: the adoption bridge has
+        // no value floor for bot holdings, buy admission kicks the bridge the
+        // moment it sees one, and the report measures the rule every time.
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(rec.contains("private const val BOT_HOLDING_ADOPTION_FLOOR_USD_7718 = 0.0"))
+        assertTrue(rec.contains("return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
+        assertTrue(rec.contains("fun requestAdoptionAsync7718(mints: Collection<String>) {"))
+        assertTrue(rec.contains("val n = recoverWalletSnapshot(BotService.status, subset)"))
+        assertTrue(rec.contains("WalletAccountCache.snapshot(ttlMs = 60_000L)"))
+        assertTrue(rec.contains("private const val HEAL_KICK_MIN_INTERVAL_MS_7718 = 60_000L"))
+        assertTrue(rec.contains("BOT_HOLDING_HEAL_KICKED_7718"))
+        assertTrue(rec.contains("botHealKicks7718="))
+        // External deposits keep the $5 floor: the rule is about what the bot bought.
+        assertTrue(rec.contains("private const val ADOPTION_MIN_VALUE_USD_7706 = 5.0"))
+
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
+        val assess = gate.substringAfter("fun assess(walletAddress: String): Decision {")
+        assertTrue(assess.contains("com.lifecyclebot.engine.LiveCanonicalRecovery6686.requestAdoptionAsync7718(unmanaged)"))
+        assertTrue(assess.indexOf("requestAdoptionAsync7718(unmanaged)") < assess.indexOf("\"UNMANAGED_BOT_WALLET_HOLDING\","))
+        // The 7709 invariant itself is untouched.
+        assertTrue(gate.contains("botSource && positive && p.mint in positiveWalletMints && !dustUnroutable7714"))
+        assertTrue(gate.contains("walletRaw > canonicalRaw + java.math.BigInteger.ONE || positiveUiWithoutRaw"))
+
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("Bot-buy coverage (§7718):"))
+        assertTrue(phc.contains("\"VIOLATION unmanagedBotMints=${'$'}{d7718.mints.size}"))
+        assertTrue(phc.indexOf("Bot-buy coverage (§7718):") > phc.indexOf("Wallet adoption (§7706):"))
+
+        val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
+        assertTrue(fm.contains("Nothing the bot buys is ever unmanaged"))
     }
 
 }

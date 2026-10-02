@@ -2750,6 +2750,19 @@ object PipelineHealthCollector {
                     com.lifecyclebot.engine.LiveCanonicalRecovery6686.adoptionStatus7706()
                 ).append("\n")
             } catch (_: Throwable) {}
+            // V5.0.7718 — the hard rule, measured: bot holdings outside canonical exit scope right now.
+            try {
+                val pk7718 = try { com.lifecyclebot.engine.WalletManager.currentPubkey() } catch (_: Throwable) { "" }
+                val d7718 = com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.assess(pk7718)
+                val line7718 = when (d7718) {
+                    is com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked ->
+                        if (d7718.reasonCode == "UNMANAGED_BOT_WALLET_HOLDING")
+                            "VIOLATION unmanagedBotMints=${d7718.mints.size} mints=${d7718.mints.joinToString(",") { it.take(8) }.take(120)} (heal kicked; see Wallet adoption line)"
+                        else "UNKNOWN ${d7718.reasonCode}"
+                    else -> "OK every bot holding is inside canonical exit scope"
+                }
+                sb.append("  Bot-buy coverage (§7718):     ").append(line7718).append("\n")
+            } catch (_: Throwable) {}
             // V5.0.7715 — the Field Manual's plan-card verdicts, risk caps and exit classes.
             try {
                 sb.append("  Field manual (§7715):         ").append(

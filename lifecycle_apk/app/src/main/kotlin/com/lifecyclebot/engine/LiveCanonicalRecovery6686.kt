@@ -104,10 +104,72 @@ object LiveCanonicalRecovery6686 {
                 p.source == HostWalletTokenTracker.PositionSource.RECOVERED_AFTER_RESTART
             )
 
-    /** The smallest holding value, in USD, this bridge will adopt for [mint]. */
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7718 §NOTHING_THE_BOT_BUYS_IS_EVER_UNMANAGED.
+    //
+    // Operator: "also nothing the bot buys should ever be unmanaged. that is
+    // a hard rule." A holding the bot bought is adopted the moment a mark
+    // exists, at ANY value: a $0.40 remainder is still a canonical position,
+    // the 7708 dust liquidation sells it on sight, and a route refusal ends
+    // in 7714's terminal stamp. The $5 / $2 floors remain for holdings the
+    // bot did not buy (external deposits, airdrops), which are not its risk.
+    // The admission gate also kicks this bridge the moment it sees an
+    // unmanaged bot holding (requestAdoptionAsync7718) instead of waiting
+    // for the next reconcile pass.
+    // ─────────────────────────────────────────────────────────────────────
+    private const val BOT_HOLDING_ADOPTION_FLOOR_USD_7718 = 0.0
+    private const val HEAL_KICK_MIN_INTERVAL_MS_7718 = 60_000L
+    private val healKickedAt7718 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val healKicks7718 = java.util.concurrent.atomic.AtomicLong(0)
+    private val healAdopted7718 = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var lastHeal7718: String = ""
+
+    /** The smallest holding value, in USD, this bridge will adopt for [mint]. Bot holdings: none. */
     fun adoptionFloorUsd7708(mint: String): Double {
         val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
-        return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_ROUTED_ADOPTION_MIN_USD_7708 else ADOPTION_MIN_VALUE_USD_7706
+        return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706
+    }
+
+    /** Operator-facing: the V5.0.7718 heal counters, appended to the adoption status line. */
+    private fun healStatus7718(): String =
+        "botHealKicks7718=${healKicks7718.get()} botHealAdopted7718=${healAdopted7718.get()}" +
+            (if (lastHeal7718.isNotBlank()) " lastHeal=[$lastHeal7718]" else "")
+
+    /**
+     * V5.0.7718 — called by LiveExitCoverageGuard7701 when buy admission finds
+     * bot holdings outside canonical exit scope. Runs the adoption bridge for
+     * exactly those mints, off-thread, from the wallet cache (no RPC in
+     * admission), at most once a minute per mint.
+     */
+    fun requestAdoptionAsync7718(mints: Collection<String>) {
+        if (mints.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val due = mints.filter { m -> m.isNotBlank() && now - (healKickedAt7718[m] ?: 0L) >= HEAL_KICK_MIN_INTERVAL_MS_7718 }
+        if (due.isEmpty()) return
+        due.forEach { healKickedAt7718[it] = now }
+        if (healKickedAt7718.size > 512) healKickedAt7718.clear()
+        healKicks7718.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("BOT_HOLDING_HEAL_KICKED_7718") } catch (_: Throwable) {}
+        try {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val snap = try { WalletAccountCache.snapshot(ttlMs = 60_000L) } catch (_: Throwable) { null }
+                    val subset = snap.orEmpty().filterKeys { it in due }.filterValues { it.raw > BigInteger.ONE }
+                    if (subset.isEmpty()) {
+                        PipelineHealthCollector.labelInc("BOT_HOLDING_HEAL_NO_WALLET_SNAPSHOT_7718")
+                        return@launch
+                    }
+                    val n = recoverWalletSnapshot(BotService.status, subset)
+                    if (n > 0) healAdopted7718.addAndGet(n.toLong())
+                    lastHeal7718 = "mints=${due.size} adopted=$n"
+                    PipelineHealthCollector.labelInc(if (n > 0) "BOT_HOLDING_HEAL_ADOPTED_7718" else "BOT_HOLDING_HEAL_STILL_AWAITING_BASIS_7718")
+                    ForensicLogger.lifecycle(
+                        "BOT_HOLDING_HEAL_7718",
+                        "mints=${due.joinToString(",") { it.take(10) }} adopted=$n action=bot_holdings_are_never_left_unmanaged",
+                    )
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -147,7 +209,7 @@ object LiveCanonicalRecovery6686 {
     @Volatile private var lastAdoption7706: String = ""
 
     fun adoptionStatus7706(): String =
-        "adoptedAtMark=${adoptedAtMark7706.get()} belowRoutableNotAdopted=${adoptionBelowRoutable7706.get()} awaitingMark=${adoptionAwaitingMark7706.get()} dustUnroutable7714=${dustUnroutableCount7714()}" +
+        "adoptedAtMark=${adoptedAtMark7706.get()} belowRoutableNotAdopted=${adoptionBelowRoutable7706.get()} awaitingMark=${adoptionAwaitingMark7706.get()} dustUnroutable7714=${dustUnroutableCount7714()} ${healStatus7718()}" +
             (if (lastAdoption7706.isNotBlank()) " last=[$lastAdoption7706]" else "") +
             " read=basis_missing_holdings_are_adopted_at_observed_mark_in_WALLET_RECOVERED_and_exit_through_normal_rules"
 

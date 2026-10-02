@@ -459,6 +459,12 @@ internal object LiveExitCoverageGuard7701 {
                 walletRaw <= java.math.BigInteger.ONE
             walletRaw > canonicalRaw + java.math.BigInteger.ONE || positiveUiWithoutRaw
         }.sorted()
+        // V5.0.7718 — an unmanaged bot holding is healed now, not at the next
+        // reconcile pass: kick the adoption bridge for exactly these mints
+        // (off-thread, wallet cache only; admission still performs no RPC).
+        if (unmanaged.isNotEmpty()) {
+            try { com.lifecyclebot.engine.LiveCanonicalRecovery6686.requestAdoptionAsync7718(unmanaged) } catch (_: Throwable) {}
+        }
         return if (unmanaged.isEmpty()) Decision.Ready else Decision.Blocked(
             "UNMANAGED_BOT_WALLET_HOLDING",
             "${unmanaged.size} positive bot-owned mint(s) or uncovered wallet quantities are outside canonical LIVE exit scope; mark/route recovery required",
