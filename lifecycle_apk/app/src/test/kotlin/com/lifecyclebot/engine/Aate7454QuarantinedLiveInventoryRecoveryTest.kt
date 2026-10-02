@@ -39,6 +39,8 @@ class Aate7454QuarantinedLiveInventoryRecoveryTest {
         assertTrue(gate.contains("HostWalletTokenTracker.PositionSource.BOT_BUY"))
         assertTrue(gate.contains("FillLotLedger6344.snapshotForWallet(walletAddress)"))
         assertTrue(gate.contains("CanonicalPositionAuthority6441.openPositions()"))
+        assertTrue(gate.contains("quarantinedLivePositions7454()"))
+        assertTrue(gate.contains("it in positiveWalletMints"))
         assertTrue(gate.contains("WalletManager.currentPubkey()"))
         assertTrue(gate.contains("callSite=$callSite"))
         assertTrue(executor.contains("LiveBuyAdmissionGate.requireApprovedLiveBuy("))

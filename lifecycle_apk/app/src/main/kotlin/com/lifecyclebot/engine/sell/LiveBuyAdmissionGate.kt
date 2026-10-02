@@ -286,6 +286,15 @@ internal object LiveExitCoverageGuard7701 {
             .toSet()
 
         val tracker = com.lifecyclebot.engine.HostWalletTokenTracker.snapshot()
+        val positiveWalletMints = tracker.asSequence()
+            .filter { p ->
+                val raw = runCatching { java.math.BigInteger(p.rawAmount.trim().ifBlank { "0" }) }
+                    .getOrDefault(java.math.BigInteger.ZERO)
+                raw > java.math.BigInteger.ONE || (p.uiAmount.isFinite() && p.uiAmount > 0.0)
+            }
+            .map { it.mint }
+            .toSet()
+
         val botHeld = tracker.asSequence()
             .filter { p ->
                 val botSource = p.source in setOf(
@@ -308,6 +317,18 @@ internal object LiveExitCoverageGuard7701 {
             }
             .map { it.mint }
             .toMutableSet()
+
+        // A canonical live quarantine is bot provenance even if the host
+        // tracker lost its BUY source/signature. A positive wallet match keeps
+        // it in the fail-closed set until recovery promotes it or a verified
+        // zero balance closes it.
+        val heldQuarantines = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+            .quarantinedLivePositions7454()
+            .asSequence()
+            .map { it.mint }
+            .filter { it in positiveWalletMints }
+            .toSet()
+        botHeld += heldQuarantines
 
         // Durable confirmed live buy lots also carry bot ownership. When the
         // current wallet tracker has terminally proved a zero balance, they are
