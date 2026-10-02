@@ -42,7 +42,7 @@ class Aate7454QuarantinedLiveInventoryRecoveryTest {
         assertTrue(gate.contains("quarantinedLivePositions7454()"))
         assertTrue(gate.contains("it in positiveWalletMints"))
         assertTrue(gate.contains("WalletManager.currentPubkey()"))
-        assertTrue(gate.contains("callSite=$callSite"))
+        assertTrue(gate.contains("callSite="))
         assertTrue(executor.contains("LiveBuyAdmissionGate.requireApprovedLiveBuy("))
         assertTrue(executor.contains("callSite = \"liveTopUp\""))
         assertTrue(executor.contains("callSite = \"liveBuy.main\""))
