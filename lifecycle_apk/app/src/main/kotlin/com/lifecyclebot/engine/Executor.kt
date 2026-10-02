@@ -9413,13 +9413,50 @@ class Executor(
         //   - held >= 20 min, never peaked +10%, |pnl| <= 3% on a trusted mark
         //     that is itself fresh (a stale price is a feed problem, not a flat).
         // It exits through requestSell like every other exit.
+        // V5.0.7714 — a live holding under one routable ticket whose sells the
+        // routes have refused is terminalised as dust-unroutable instead of
+        // firing an exit every tick (5.0.7713: WBTC dust, 382 catastrophic
+        // triggers, 92 retries, 71 abandoned, both live slots held). Canonical
+        // row quarantined, tracker row CLOSED_DUST_UNROUTABLE, token state
+        // released; recovery leaves it alone for six hours, then tries once.
+        run {
+            val p7714 = ts.position
+            if (p7714.isPaperPosition || p7714.qtyToken <= 0.0) return@run
+            if (com.lifecyclebot.engine.LiveCanonicalRecovery6686.isDustUnroutable7714(ts.mint)) {
+                terminalizeDustUnroutable7714(ts, "ALREADY_MARKED")
+                return
+            }
+            if (currentPrice <= 0.0) return@run
+            val solUsd7714 = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            if (!solUsd7714.isFinite() || solUsd7714 <= 0.0) return@run
+            val valueSol7714 = try {
+                com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(p7714.qtyToken * currentPrice, solUsd7714)
+            } catch (_: Throwable) { Double.NaN }
+            val routableMin7714 = try {
+                com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd7714).routableMinSol
+            } catch (_: Throwable) { 0.0 }
+            if (!valueSol7714.isFinite() || routableMin7714 <= 0.0 || valueSol7714 >= routableMin7714) return@run
+            val now7714 = System.currentTimeMillis()
+            val failures7714 = try {
+                com.lifecyclebot.engine.sell.SellFailureHistory.snapshot()[ts.mint]
+                    ?.count { now7714 - it.atMs <= DUST_UNROUTABLE_FAILURE_WINDOW_MS_7714 } ?: 0
+            } catch (_: Throwable) { 0 }
+            val reentryBlocked7714 = try { com.lifecyclebot.engine.sell.ExitProviderHealth.reentryBlockedNow(ts.mint) } catch (_: Throwable) { false }
+            if (failures7714 >= DUST_UNROUTABLE_MIN_FAILURES_7714 || (failures7714 >= 1 && reentryBlocked7714)) {
+                terminalizeDustUnroutable7714(ts, "valueSol=${"%.5f".format(valueSol7714)} routableMin=${"%.5f".format(routableMin7714)} sellFailures15m=$failures7714 reentryBlocked=$reentryBlocked7714")
+                return
+            }
+        }
+
         // V5.0.7708 — a WALLET_RECOVERED live holding worth less than one
         // routable ticket is not a trade to manage; it is SOL to get back. Sell
         // it on sight (once per ten minutes per mint if the route refuses), so
         // the dust the crypto-alt lane left behind returns to the wallet.
+        // V5.0.7714 — any adopted/recovered inventory counts, not only the
+        // WALLET_RECOVERED lane: the crypto-alt projections carry their own lane.
         run {
             val p7708 = ts.position
-            if (p7708.isPaperPosition || !p7708.tradingMode.equals("WALLET_RECOVERED", ignoreCase = true)) return@run
+            if (p7708.isPaperPosition || !isRecoveredInventory7714(p7708)) return@run
             if (currentPrice <= 0.0 || p7708.qtyToken <= 0.0) return@run
             val solUsd7708 = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             if (!solUsd7708.isFinite() || solUsd7708 <= 0.0) return@run
@@ -15110,6 +15147,47 @@ class Executor(
     private val lastNewHighMs7388 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     /** V5.0.7708 — last RECOVERED_DUST_LIQUIDATION_7708 attempt per mint. */
     private val recoveredDustSellAt7708 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** V5.0.7714 — route refusals inside this window count toward dust-unroutable. */
+    private val DUST_UNROUTABLE_FAILURE_WINDOW_MS_7714: Long = 15L * 60_000L
+    private val DUST_UNROUTABLE_MIN_FAILURES_7714: Int = 2
+
+    /** V5.0.7714 — inventory the bot adopted from the wallet rather than entered on a signal. */
+    private fun isRecoveredInventory7714(p: com.lifecyclebot.data.Position): Boolean {
+        if (p.tradingMode.equals("WALLET_RECOVERED", ignoreCase = true)) return true
+        val phase = p.entryPhase.lowercase()
+        if (phase.startsWith("wallet_recovery") || phase == "adopted_from_wallet" || phase == "recovered_basis_7370") return true
+        val src = p.entryPriceSource.uppercase()
+        return src.contains("OBSERVED_MARK_ADOPTION_7706") || src.contains("HOST_TRACKER_SIGNED_BUY_7708") ||
+            src.startsWith("WALLET_RECOVERY") || src.startsWith("WALLET_ADOPT") || src.contains("BASIS_UNKNOWN")
+    }
+
+    /** V5.0.7714 — see runManageOnly. Quarantines the canonical row, stamps the tracker, releases the token state. */
+    private fun terminalizeDustUnroutable7714(ts: TokenState, why: String) {
+        val mint = ts.mint
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mint == mint && it.mode.equals("live", ignoreCase = true) }
+                .forEach { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.quarantine(it.positionId, "DUST_UNROUTABLE_7714") }
+        } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.HostWalletTokenTracker.markDustUnroutable7714(mint, why) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.LiveCanonicalRecovery6686.markDustUnroutable7714(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.CloseLease.release(mint, "DUST_UNROUTABLE_7714") } catch (_: Throwable) {}
+        try {
+            synchronized(BotService.status.tokens) {
+                ts.position = com.lifecyclebot.data.Position()
+                BotService.status.tokens.remove(mint)
+            }
+        } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.V3EngineManager.onPositionClosed(mint) } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("DUST_UNROUTABLE_TERMINALIZED_7714")
+            ForensicLogger.lifecycle(
+                "DUST_UNROUTABLE_TERMINALIZED_7714",
+                "mint=${mint.take(10)} sym=${ts.symbol} lane=${ts.position.tradingMode} $why action=quarantine_canonical_stamp_tracker_release_token_state_retry_in_6h",
+            )
+        } catch (_: Throwable) {}
+    }
 
     /** V5.0.7385 — live sniper entries are launches: mcap at or under this, not graduated. */
     private val LIVE_SNIPER_MAX_MCAP_USD_7385 = LaneEntryContract6342.SNIPER_LAUNCH_MAX_MCAP_USD_7393

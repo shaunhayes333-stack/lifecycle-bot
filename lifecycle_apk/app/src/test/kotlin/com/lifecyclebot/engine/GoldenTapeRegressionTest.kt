@@ -13095,13 +13095,12 @@ class GoldenTapeRegressionTest {
     fun V5_0_7707_an_unsellable_holding_cannot_veto_live_buys() {
         // 5.0.7706 live tape: one sub-$5 wallet token (correctly not adopted)
         // made 7701's coverage gate refuse all 55 live buys of the session.
+        // 5.0.7709 (operator) superseded the value-based exemption: every
+        // positive bot balance stays inside the coverage invariant and 7712
+        // lets it reserve a slot instead of vetoing. What survives from 7707:
+        // a holding with no mark gets one requested rather than waiting
+        // forever, and fill lots only count while the wallet holds the mint.
         val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
-        assertTrue(rec.contains("fun unsellableHoldingReason7707(mint: String): String? {"))
-        assertTrue(rec.contains("private const val UNSELLABLE_NO_MARK_GRACE_MS_7707 = 10L * 60_000L"))
-        val reasonFn = rec.substringAfter("fun unsellableHoldingReason7707(mint: String): String? {").substringBefore("private fun requestMarkAsync7707(")
-        assertTrue(reasonFn.contains("valueUsd < adoptionFloorUsd7708(mint)"))
-        assertTrue(reasonFn.contains("now - seen >= UNSELLABLE_NO_MARK_GRACE_MS_7707"))
-        // A holding with no mark gets one requested rather than waiting forever.
         assertTrue(rec.contains("if (priceUsd == null) requestMarkAsync7707(mint)"))
         assertTrue(rec.contains("HostWalletTokenTracker.recordPriceUpdate(mint, px, 0.0)"))
 
@@ -13109,12 +13108,48 @@ class GoldenTapeRegressionTest {
         // Lots only count while the wallet still holds the mint.
         assertTrue(gate.contains(".filter { it.remainingQty > 1e-9 && it.mintAddress in positiveWalletMints }"))
         assertFalse(gate.contains(".filter { it.remainingQty > 1e-9 }\n"))
-        // Unsellable holdings are named and dropped from the veto set.
-        assertTrue(gate.contains("com.lifecyclebot.engine.LiveCanonicalRecovery6686.unsellableHoldingReason7707(mint)"))
-        assertTrue(gate.contains("\"LIVE_EXIT_COVERAGE_UNSELLABLE_IGNORED_7707\""))
         // The 7701 invariant itself is intact: a sellable bot holding outside canonical scope still blocks.
         assertTrue(gate.contains("\"UNMANAGED_BOT_WALLET_HOLDING\","))
         assertTrue(gate.contains("FillLotLedger6344.snapshotForWallet(walletAddress)"))
+    }
+
+    @Test
+    fun V5_0_7714_dust_the_routes_refuse_is_terminalised_not_retried_forever() {
+        // 5.0.7713 live tape: $4.70 of WBTC dust, adopted into the book, read
+        // -71% on its execution mark, fired the catastrophic exit 382 times,
+        // 92 sell retries, 71 abandoned, and held both live slots for 37 min.
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("private val DUST_UNROUTABLE_MIN_FAILURES_7714: Int = 2"))
+        assertTrue(exec.contains("private fun terminalizeDustUnroutable7714(ts: TokenState, why: String) {"))
+        val term = exec.substringAfter("private fun terminalizeDustUnroutable7714(ts: TokenState, why: String) {").substringBefore("\"DUST_UNROUTABLE_TERMINALIZED_7714\",")
+        assertTrue(term.contains(".forEach { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.quarantine(it.positionId, \"DUST_UNROUTABLE_7714\") }"))
+        assertTrue(term.contains("HostWalletTokenTracker.markDustUnroutable7714(mint, why)"))
+        assertTrue(term.contains("LiveCanonicalRecovery6686.markDustUnroutable7714(mint)"))
+        assertTrue(term.contains("BotService.status.tokens.remove(mint)"))
+        // Evidence first: below one routable ticket AND the routes refused.
+        assertTrue(exec.contains("if (failures7714 >= DUST_UNROUTABLE_MIN_FAILURES_7714 || (failures7714 >= 1 && reentryBlocked7714)) {"))
+        assertTrue(exec.indexOf("terminalizeDustUnroutable7714(ts, \"ALREADY_MARKED\")") < exec.indexOf("\"RECOVERED_DUST_LIQUIDATION_7708\""))
+        // The dust liquidation covers every adopted/recovered position, not one lane.
+        assertTrue(exec.contains("private fun isRecoveredInventory7714(p: com.lifecyclebot.data.Position): Boolean {"))
+        assertTrue(exec.contains("if (p7708.isPaperPosition || !isRecoveredInventory7714(p7708)) return@run"))
+
+        val trk = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(trk.contains("fun markDustUnroutable7714(mint: String, reason: String) {"))
+        assertTrue(trk.contains("p.status = PositionStatus.CLOSED_DUST_UNROUTABLE"))
+
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(rec.contains("private const val DUST_UNROUTABLE_RETRY_MS_7714 = 6L * 60L * 60_000L"))
+        assertTrue(rec.contains("fun isDustUnroutable7714(mint: String): Boolean {"))
+        assertTrue(rec.contains("if (isDustUnroutable7714(mint)) {"))
+        val wr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
+        assertTrue(wr.contains("LiveCanonicalRecovery6686.isDustUnroutable7714(mint)"))
+
+        // The coverage gate keeps the 7709 invariant and carves out only this
+        // evidence-based terminal state, for the tracker stamp and the quarantine.
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
+        assertTrue(gate.contains("botSource && positive && p.mint in positiveWalletMints && !dustUnroutable7714"))
+        assertTrue(gate.contains(".filter { !it.quarantineReason.startsWith(\"DUST_UNROUTABLE_7714\") }"))
+        assertTrue(gate.contains("\"LIVE_EXIT_COVERAGE_DUST_UNROUTABLE_IGNORED_7714\""))
     }
 
     @Test

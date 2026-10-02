@@ -510,6 +510,26 @@ object HostWalletTokenTracker {
         try { PipelineHealthCollector.labelInc("TRACKER_SIGNED_BUY_BASIS_STAMPED_7708") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7714 — a live holding worth less than one routable ticket whose
+     * sells the routes have refused is dust the book cannot clear. Stamp it
+     * CLOSED_DUST_UNROUTABLE so admission, slots and recovery stop treating it
+     * as inventory awaiting management; the balance stays visible in the
+     * tracker and a later wallet read that shows it sold closes it normally.
+     */
+    fun markDustUnroutable7714(mint: String, reason: String) {
+        val p = positions[mint] ?: return
+        if (p.status == PositionStatus.CLOSED_DUST_UNROUTABLE) return
+        p.status = PositionStatus.CLOSED_DUST_UNROUTABLE
+        p.activeSellAttemptId = null
+        p.notes.add("V5.0.7714 dust unroutable: ${reason.take(80)}")
+        save()
+        try {
+            PipelineHealthCollector.labelInc("TRACKER_DUST_UNROUTABLE_7714")
+            ForensicLogger.lifecycle("TRACKER_DUST_UNROUTABLE_7714", "mint=${mint.take(12)} symbol=${p.symbol ?: "?"} qty=${p.uiAmount} reason=${reason.take(100)}")
+        } catch (_: Throwable) {}
+    }
+
     fun purgeOrphanRecoveredRows(phase: String) {
         if (RECOVER_ORPHAN_WALLET_TOKENS) return
         val drop = positions.values.filter { p ->

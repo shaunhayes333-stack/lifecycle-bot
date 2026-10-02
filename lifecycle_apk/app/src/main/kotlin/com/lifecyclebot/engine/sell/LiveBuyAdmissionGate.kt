@@ -388,7 +388,18 @@ internal object LiveExitCoverageGuard7701 {
                 // A positive wallet balance outranks a historical terminal label.
                 // Sell/reconcile races can stamp CLOSED before the next wallet read;
                 // do not let that label hide tokens that are still physically held.
-                botSource && positive && p.mint in positiveWalletMints
+                // V5.0.7714 — one exception, and it is evidence-based rather than a
+                // label: CLOSED_DUST_UNROUTABLE is stamped only after the Executor
+                // tried to sell a below-minimum holding and the routes refused
+                // (5.0.7713: $4.70 of WBTC, 92 retries, 71 abandoned, both live
+                // slots held for 37 minutes). The balance is still held and still
+                // visible; it is not inventory a buy should wait on, and recovery
+                // retries it after six hours.
+                val dustUnroutable7714 = p.status == com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_DUST_UNROUTABLE
+                if (dustUnroutable7714 && botSource && positive) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_EXIT_COVERAGE_DUST_UNROUTABLE_IGNORED_7714") } catch (_: Throwable) {}
+                }
+                botSource && positive && p.mint in positiveWalletMints && !dustUnroutable7714
             }
             .map { it.mint }
             .toMutableSet()
@@ -400,6 +411,9 @@ internal object LiveExitCoverageGuard7701 {
         val heldQuarantines = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
             .quarantinedLivePositions7454()
             .asSequence()
+            // V5.0.7714 — a row quarantined as dust the routes refused is the
+            // same evidence-based exception as the tracker stamp above.
+            .filter { !it.quarantineReason.startsWith("DUST_UNROUTABLE_7714") }
             .map { it.mint }
             .filter { it in positiveWalletMints }
             .toSet()

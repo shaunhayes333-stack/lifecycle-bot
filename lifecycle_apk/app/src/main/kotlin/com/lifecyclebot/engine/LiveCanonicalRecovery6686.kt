@@ -51,6 +51,39 @@ object LiveCanonicalRecovery6686 {
      */
     private const val BOT_ROUTED_ADOPTION_MIN_USD_7708 = 2.0
 
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7714 §DUST_THE_ROUTES_REFUSE_IS_NOT_INVENTORY_AWAITING_MANAGEMENT.
+    //
+    // 5.0.7713 live tape: one WBTC holding of 0.0000378 tokens (about $4.70),
+    // adopted into the book, read -71% on its execution mark and fired the
+    // catastrophic exit 382 times; 92 sell retries, 71 abandoned, zero
+    // fills. While it stood it was both a canonical open (one doctrine slot)
+    // and an unmanaged bot holding (the other), so 43 live buys were refused.
+    // Once the routes have refused a below-minimum holding, re-adopting it
+    // every reconcile pass only re-creates the loop. The Executor stamps it
+    // dust-unroutable after the refusals; this bridge leaves it alone for the
+    // retry window, then tries once more in case a route has appeared.
+    // ─────────────────────────────────────────────────────────────────────
+    private const val DUST_UNROUTABLE_RETRY_MS_7714 = 6L * 60L * 60_000L
+    private val dustUnroutableAt7714 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun markDustUnroutable7714(mint: String) {
+        if (mint.isBlank()) return
+        dustUnroutableAt7714[mint] = System.currentTimeMillis()
+        if (dustUnroutableAt7714.size > 256) dustUnroutableAt7714.clear()
+    }
+
+    fun isDustUnroutable7714(mint: String): Boolean {
+        val at = dustUnroutableAt7714[mint] ?: return false
+        if (System.currentTimeMillis() - at >= DUST_UNROUTABLE_RETRY_MS_7714) {
+            dustUnroutableAt7714.remove(mint)
+            return false
+        }
+        return true
+    }
+
+    private fun dustUnroutableCount7714(): Int = dustUnroutableAt7714.size
+
     private fun isBotSignedRow7708(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =
         p != null && !p.buySignature.isNullOrBlank() &&
             (p.source == HostWalletTokenTracker.PositionSource.BOT_BUY || p.source == HostWalletTokenTracker.PositionSource.TX_PARSE)
@@ -98,7 +131,7 @@ object LiveCanonicalRecovery6686 {
     @Volatile private var lastAdoption7706: String = ""
 
     fun adoptionStatus7706(): String =
-        "adoptedAtMark=${adoptedAtMark7706.get()} belowRoutableNotAdopted=${adoptionBelowRoutable7706.get()} awaitingMark=${adoptionAwaitingMark7706.get()}" +
+        "adoptedAtMark=${adoptedAtMark7706.get()} belowRoutableNotAdopted=${adoptionBelowRoutable7706.get()} awaitingMark=${adoptionAwaitingMark7706.get()} dustUnroutable7714=${dustUnroutableCount7714()}" +
             (if (lastAdoption7706.isNotBlank()) " last=[$lastAdoption7706]" else "") +
             " read=basis_missing_holdings_are_adopted_at_observed_mark_in_WALLET_RECOVERED_and_exit_through_normal_rules"
 
@@ -241,6 +274,11 @@ object LiveCanonicalRecovery6686 {
 
         for ((mint, amount) in walletMints) {
             if (mint.isBlank() || amount.raw <= BigInteger.ONE || existingLive.contains(mint)) continue
+            // V5.0.7714 — see DUST_THE_ROUTES_REFUSE above.
+            if (isDustUnroutable7714(mint)) {
+                try { PipelineHealthCollector.labelInc("LIVE_WALLET_DUST_UNROUTABLE_SKIPPED_7714") } catch (_: Throwable) {}
+                continue
+            }
             val ts = try { status.tokens[mint] } catch (_: Throwable) { null }
             val runtimePos = ts?.position
             val saved = persisted[mint]
