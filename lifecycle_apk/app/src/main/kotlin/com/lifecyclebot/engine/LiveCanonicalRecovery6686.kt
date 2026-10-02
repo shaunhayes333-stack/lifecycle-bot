@@ -43,6 +43,53 @@ object LiveCanonicalRecovery6686 {
 
     /** V5.0.7706 — a holding under this value cannot route a sell; see header. */
     private const val ADOPTION_MIN_VALUE_USD_7706 = 5.0
+    /**
+     * V5.0.7708 — the $5 floor is the pump.fun routing fact. A holding the bot
+     * itself bought (signed buy on the tracker row) proved a route at that
+     * size, so it can be sold at that size: adopt it from $2 so it goes back
+     * to SOL instead of sitting in the wallet as dust the book cannot touch.
+     */
+    private const val BOT_ROUTED_ADOPTION_MIN_USD_7708 = 2.0
+
+    private fun isBotSignedRow7708(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =
+        p != null && !p.buySignature.isNullOrBlank() &&
+            (p.source == HostWalletTokenTracker.PositionSource.BOT_BUY || p.source == HostWalletTokenTracker.PositionSource.TX_PARSE)
+
+    /** The smallest holding value, in USD, this bridge will adopt for [mint]. */
+    fun adoptionFloorUsd7708(mint: String): Double {
+        val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
+        return if (isBotSignedRow7708(p)) BOT_ROUTED_ADOPTION_MIN_USD_7708 else ADOPTION_MIN_VALUE_USD_7706
+    }
+
+    /**
+     * V5.0.7708 — the bot's own signed buy, stamped on the tracker row by
+     * HostWalletTokenTracker.recordSignedBuyBasis7708, is a receipt: cost,
+     * entry price, signature and lane. It outranks an observed-mark adoption.
+     */
+    private fun trackerSignedBuyBasis7708(mint: String): Basis? {
+        val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null } ?: return null
+        if (!isBotSignedRow7708(p)) return null
+        val cost = p.entrySol ?: return null
+        val px = p.entryPriceUsd ?: return null
+        if (!cost.isFinite() || cost <= 0.0 || !px.isFinite() || px <= 0.0) return null
+        try {
+            PipelineHealthCollector.labelInc("LIVE_BASIS_REBUILT_FROM_SIGNED_BUY_7708")
+            ForensicLogger.lifecycle(
+                "LIVE_BASIS_REBUILT_FROM_SIGNED_BUY_7708",
+                "mint=${mint.take(12)} sig=${p.buySignature.orEmpty().take(14)} cost=${"%.5f".format(cost)} entryUsd=$px lane=${p.entryLane7708 ?: "WALLET_RECOVERED"}",
+            )
+        } catch (_: Throwable) {}
+        return Basis(
+            entryCostSol = cost,
+            entryPriceUsd = px,
+            lane = p.entryLane7708?.takeIf { it.isNotBlank() } ?: "WALLET_RECOVERED",
+            openedAtMs = p.buyTimeMs?.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            source = "HOST_TRACKER_SIGNED_BUY_7708",
+            pool = "",
+            dex = "",
+            identity = p.buySignature.orEmpty().ifBlank { "signedbuy" },
+        )
+    }
     /** V5.0.7706 — an observed mark older than this is not a basis to adopt at. */
     private const val ADOPTION_MARK_MAX_AGE_MS_7706 = 10L * 60_000L
     private val adoptedAtMark7706 = java.util.concurrent.atomic.AtomicLong(0)
@@ -82,13 +129,14 @@ object LiveCanonicalRecovery6686 {
             return null
         }
         val valueUsd = qty * priceUsd
-        if (!valueUsd.isFinite() || valueUsd < ADOPTION_MIN_VALUE_USD_7706) {
+        val floorUsd7708 = adoptionFloorUsd7708(mint)
+        if (!valueUsd.isFinite() || valueUsd < floorUsd7708) {
             adoptionBelowRoutable7706.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_BELOW_ROUTABLE_NOT_ADOPTED_7706")
                 ForensicLogger.lifecycle(
                     "LIVE_WALLET_HOLDING_BELOW_ROUTABLE_NOT_ADOPTED_7706",
-                    "mint=${mint.take(12)} qty=$qty priceUsd=$priceUsd valueUsd=${"%.2f".format(valueUsd)} minUsd=$ADOPTION_MIN_VALUE_USD_7706 action=cannot_route_a_sell_left_as_wallet_observation",
+                    "mint=${mint.take(12)} qty=$qty priceUsd=$priceUsd valueUsd=${"%.2f".format(valueUsd)} minUsd=$floorUsd7708 action=cannot_route_a_sell_left_as_wallet_observation",
                 )
             } catch (_: Throwable) {}
             return null
@@ -164,7 +212,7 @@ object LiveCanonicalRecovery6686 {
         val now = System.currentTimeMillis()
         if (px != null && px.isFinite() && px > 0.0) {
             val valueUsd = qty * px
-            return if (valueUsd.isFinite() && valueUsd < ADOPTION_MIN_VALUE_USD_7706) "BELOW_ROUTABLE_${"%.2f".format(valueUsd)}USD" else null
+            return if (valueUsd.isFinite() && valueUsd < adoptionFloorUsd7708(mint)) "BELOW_ROUTABLE_${"%.2f".format(valueUsd)}USD" else null
         }
         val seen = p.firstSeenWalletMs.takeIf { it > 0L } ?: p.buyTimeMs ?: 0L
         requestMarkAsync7707(mint)
@@ -357,6 +405,8 @@ object LiveCanonicalRecovery6686 {
                                 )
                             } else null
                         }
+                        // V5.0.7708 — the bot's own signed buy is a receipt.
+                        ?: trackerSignedBuyBasis7708(mint)
                         // V5.0.7706 — last: adopt at the observed mark (see header).
                         ?: observedMarkBasis7706(mint, amount, ts)
                 }

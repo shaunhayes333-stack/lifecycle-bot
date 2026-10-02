@@ -13027,7 +13027,8 @@ class GoldenTapeRegressionTest {
         assertTrue(rec.contains("?: observedMarkBasis7706(mint, amount, ts)"))
         val adoptFn = rec.substringAfter("private fun observedMarkBasis7706(").substringBefore("fun recoverWalletSnapshot(")
         assertTrue(adoptFn.contains("if (!HostWalletTokenTracker.RECOVER_ORPHAN_WALLET_TOKENS) return null"))
-        assertTrue(adoptFn.contains("if (!valueUsd.isFinite() || valueUsd < ADOPTION_MIN_VALUE_USD_7706) {"))
+        // 7708: the floor is per holding (bot-routed rows adopt from $2).
+        assertTrue(adoptFn.contains("if (!valueUsd.isFinite() || valueUsd < floorUsd7708) {"))
         assertTrue(adoptFn.contains("lane = \"WALLET_RECOVERED\","))
         assertTrue(adoptFn.contains("source = \"OBSERVED_MARK_ADOPTION_7706\","))
         // The unexplained-missing branch still exists for holdings that were not adopted.
@@ -13098,7 +13099,7 @@ class GoldenTapeRegressionTest {
         assertTrue(rec.contains("fun unsellableHoldingReason7707(mint: String): String? {"))
         assertTrue(rec.contains("private const val UNSELLABLE_NO_MARK_GRACE_MS_7707 = 10L * 60_000L"))
         val reasonFn = rec.substringAfter("fun unsellableHoldingReason7707(mint: String): String? {").substringBefore("private fun requestMarkAsync7707(")
-        assertTrue(reasonFn.contains("valueUsd < ADOPTION_MIN_VALUE_USD_7706"))
+        assertTrue(reasonFn.contains("valueUsd < adoptionFloorUsd7708(mint)"))
         assertTrue(reasonFn.contains("now - seen >= UNSELLABLE_NO_MARK_GRACE_MS_7707"))
         // A holding with no mark gets one requested rather than waiting forever.
         assertTrue(rec.contains("if (priceUsd == null) requestMarkAsync7707(mint)"))
@@ -13114,6 +13115,51 @@ class GoldenTapeRegressionTest {
         // The 7701 invariant itself is intact: a sellable bot holding outside canonical scope still blocks.
         assertTrue(gate.contains("\"UNMANAGED_BOT_WALLET_HOLDING\","))
         assertTrue(gate.contains("FillLotLedger6344.snapshotForWallet(walletAddress)"))
+    }
+
+    @Test
+    fun V5_0_7708_the_crypto_alt_lane_obeys_the_live_doctrine_and_its_dust_comes_back_as_sol() {
+        // 5.0.7706 live tape: meme buys 0, wallet SOL 0.366 -> 0.130, a dozen
+        // $2-$4 alt holdings in Phantom, CRYPTO_SIGNED_VERIFY_PENDING_NO_OPEN_7434=24.
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(alt.contains("private fun liveCryptoEntryGate7708(balance: Double, requested: Double): Pair<Double, String?> {"))
+        val gateFn = alt.substringAfter("private fun liveCryptoEntryGate7708(").substringBefore("internal fun canonicalCryptoLane7251(")
+        // The four checks, in order: routable wallet, doctrine size, free slot, exit coverage.
+        assertTrue(gateFn.contains("SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd).routableMinSol"))
+        assertTrue(gateFn.contains("LiveConcentrationDoctrine7697.positionSol(tradeable, routableMin)"))
+        assertTrue(gateFn.contains("\"CRYPTO_LIVE_REFUSED_WALLET_BELOW_ROUTABLE_7708"))
+        assertTrue(gateFn.contains("LiveConcentrationDoctrine7697.slotVerdict()"))
+        assertTrue(gateFn.contains("\"CRYPTO_LIVE_REFUSED_SLOTS_FULL_7708"))
+        assertTrue(gateFn.contains("LiveExitCoverageGuard7701.assess(WalletManager.currentPubkey())"))
+        assertTrue(gateFn.contains("\"CRYPTO_LIVE_BLOCKED_UNMANAGED_BOT_HOLD_7708"))
+        assertTrue(gateFn.contains("if (requested < floor) {"))
+        // The gate sits before submit and only on live; paper is untouched.
+        assertTrue(alt.contains("val requestedFinalSize = if (authoritativePaperMode7425()) requestedFinalSize0 else {"))
+        assertTrue(alt.indexOf("liveCryptoEntryGate7708(balance, requestedFinalSize0)") < alt.indexOf("CanonicalSizingBridge6532.resolve("))
+        // A verify-pending signed buy stamps its real cost and lane on the tracker row.
+        assertTrue(alt.contains("HostWalletTokenTracker.recordSignedBuyBasis7708("))
+
+        val trk = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(trk.contains("var entryLane7708: String? = null,"))
+        assertTrue(trk.contains("p.entryLane7708?.let { put(\"entryLane7708\", it) }"))
+        assertTrue(trk.contains("fun recordSignedBuyBasis7708(mint: String, symbol: String?, entryPriceUsd: Double, entrySol: Double, sig: String?, lane: String) {"))
+
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(rec.contains("private const val BOT_ROUTED_ADOPTION_MIN_USD_7708 = 2.0"))
+        assertTrue(rec.contains("fun adoptionFloorUsd7708(mint: String): Double {"))
+        assertTrue(rec.contains("private fun trackerSignedBuyBasis7708(mint: String): Basis?"))
+        // The signed-buy receipt outranks the observed-mark adoption.
+        assertTrue(rec.indexOf("?: trackerSignedBuyBasis7708(mint)") < rec.indexOf("?: observedMarkBasis7706(mint, amount, ts)"))
+        assertTrue(rec.contains("source = \"HOST_TRACKER_SIGNED_BUY_7708\","))
+
+        // Recovered inventory does not take a doctrine slot, and sub-routable
+        // recovered dust is sold back to SOL on sight.
+        val doc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
+        assertTrue(doc.contains("val allow = (openLiveCount - recovered7708).coerceAtLeast(0) < n"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("requestSell(ts = ts, reason = \"RECOVERED_DUST_LIQUIDATION_7708\", wallet = wallet, walletSol = walletSol)"))
+        assertTrue(exec.contains("if (!valueSol7708.isFinite() || routableMin7708 <= 0.0 || valueSol7708 >= routableMin7708) return@run"))
+        assertTrue(exec.indexOf("RECOVERED_DUST_LIQUIDATION_7708") < exec.indexOf("\"STALE_FLAT_CULL_7353\""))
     }
 
 }

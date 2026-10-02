@@ -124,7 +124,15 @@ object LiveConcentrationDoctrine7697 {
             CanonicalCapitalAuthority6450.snapshot().openMarketValueSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         } catch (_: Throwable) { 0.0 }
         val n = slots(tradeable + deployed)
-        val allow = openLiveCount < n
+        // V5.0.7708 — inventory adopted from the wallet (WALLET_RECOVERED) is
+        // legacy capital being walked back to SOL, not a conviction entry; it
+        // does not take one of the doctrine's slots.
+        val recovered7708 = try {
+            CanonicalPositionAuthority6441.openPositions().count {
+                it.mode.equals("live", ignoreCase = true) && it.lane.equals("WALLET_RECOVERED", ignoreCase = true)
+            }
+        } catch (_: Throwable) { 0 }
+        val allow = (openLiveCount - recovered7708).coerceAtLeast(0) < n
         if (!allow) {
             slotRefusals.incrementAndGet()
             lastRefusal = "slots open=$openLiveCount/$n tradeable=${"%.4f".format(tradeable)}"

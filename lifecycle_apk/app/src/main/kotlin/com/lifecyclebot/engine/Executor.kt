@@ -9413,6 +9413,38 @@ class Executor(
         //   - held >= 20 min, never peaked +10%, |pnl| <= 3% on a trusted mark
         //     that is itself fresh (a stale price is a feed problem, not a flat).
         // It exits through requestSell like every other exit.
+        // V5.0.7708 — a WALLET_RECOVERED live holding worth less than one
+        // routable ticket is not a trade to manage; it is SOL to get back. Sell
+        // it on sight (once per ten minutes per mint if the route refuses), so
+        // the dust the crypto-alt lane left behind returns to the wallet.
+        run {
+            val p7708 = ts.position
+            if (p7708.isPaperPosition || !p7708.tradingMode.equals("WALLET_RECOVERED", ignoreCase = true)) return@run
+            if (currentPrice <= 0.0 || p7708.qtyToken <= 0.0) return@run
+            val solUsd7708 = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            if (!solUsd7708.isFinite() || solUsd7708 <= 0.0) return@run
+            val valueSol7708 = try {
+                com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(p7708.qtyToken * currentPrice, solUsd7708)
+            } catch (_: Throwable) { Double.NaN }
+            val routableMin7708 = try {
+                com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd7708).routableMinSol
+            } catch (_: Throwable) { 0.0 }
+            if (!valueSol7708.isFinite() || routableMin7708 <= 0.0 || valueSol7708 >= routableMin7708) return@run
+            val now7708 = System.currentTimeMillis()
+            val last7708 = recoveredDustSellAt7708[ts.mint] ?: 0L
+            if (now7708 - last7708 < 10L * 60_000L) return@run
+            recoveredDustSellAt7708[ts.mint] = now7708
+            try {
+                PipelineHealthCollector.labelInc("RECOVERED_DUST_LIQUIDATION_7708")
+                ForensicLogger.lifecycle(
+                    "RECOVERED_DUST_LIQUIDATION_7708",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} valueSol=${"%.5f".format(valueSol7708)} routableMin=${"%.5f".format(routableMin7708)} action=sell_back_to_sol",
+                )
+            } catch (_: Throwable) {}
+            requestSell(ts = ts, reason = "RECOVERED_DUST_LIQUIDATION_7708", wallet = wallet, walletSol = walletSol)
+            return
+        }
+
         run {
             val lane7353 = ts.position.tradingMode
             val runner7353 = try { RunnerExitProfile7277.isRunnerLane(lane7353) } catch (_: Throwable) { true }
@@ -15076,6 +15108,8 @@ class Executor(
      */
     /** V5.0.7388 — when each open position (mint|entryTime) last made a new high. */
     private val lastNewHighMs7388 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** V5.0.7708 — last RECOVERED_DUST_LIQUIDATION_7708 attempt per mint. */
+    private val recoveredDustSellAt7708 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** V5.0.7385 — live sniper entries are launches: mcap at or under this, not graduated. */
     private val LIVE_SNIPER_MAX_MCAP_USD_7385 = LaneEntryContract6342.SNIPER_LAUNCH_MAX_MCAP_USD_7393

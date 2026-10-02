@@ -281,6 +281,45 @@ object CryptoAltTrader {
     private val heldMarkLogAt7251 = ConcurrentHashMap<String, Long>()
     private val heldRefreshCoalescedEmitAt7413 = ConcurrentHashMap<String, Long>()
 
+    /**
+     * V5.0.7708 — the live doctrine the meme lanes already obey, applied to a
+     * crypto-alt entry before submit. Returns (sizeSol, refusal); refusal is a
+     * label-safe reason or null.
+     *
+     *   1. The wallet must carry one routable ticket (SmartSizerV3's floor).
+     *   2. The size is at least the concentration doctrine's position
+     *      (tradeable / slots, never under the routable minimum).
+     *   3. A live slot must be free (LiveConcentrationDoctrine7697).
+     *   4. No sellable bot holding may sit outside exit scope
+     *      (LiveExitCoverageGuard7701, as the meme admission gate checks).
+     */
+    private fun liveCryptoEntryGate7708(balance: Double, requested: Double): Pair<Double, String?> {
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd.isFinite() || solUsd <= 0.0) return requested to "CRYPTO_LIVE_REFUSED_NO_SOL_PRICE_7708"
+        val reserve = try { com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL } catch (_: Throwable) { 0.0 }
+        val tradeable = (balance - reserve).coerceAtLeast(0.0)
+        val routableMin = try {
+            com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd).routableMinSol
+        } catch (_: Throwable) { 0.0 }
+        val floor = try {
+            com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMin)
+        } catch (_: Throwable) { 0.0 }
+        if (floor <= 0.0) return requested to "CRYPTO_LIVE_REFUSED_WALLET_BELOW_ROUTABLE_7708:tradeable=${"%.4f".format(tradeable)} routableMin=${"%.4f".format(routableMin)}"
+        val slots = try { com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slotVerdict() } catch (_: Throwable) { null }
+        if (slots != null && !slots.allow) return requested to "CRYPTO_LIVE_REFUSED_SLOTS_FULL_7708:open=${slots.open}/${slots.slots}"
+        val coverage = try {
+            com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.assess(WalletManager.currentPubkey())
+        } catch (_: Throwable) { null }
+        if (coverage is com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked) {
+            return requested to "CRYPTO_LIVE_BLOCKED_UNMANAGED_BOT_HOLD_7708:${coverage.reasonCode}:${coverage.mints.size}"
+        }
+        if (requested < floor) {
+            try { PipelineHealthCollector.labelInc("CRYPTO_LIVE_SIZE_LIFTED_TO_DOCTRINE_7708") } catch (_: Throwable) {}
+            return floor to null
+        }
+        return requested to null
+    }
+
     internal fun canonicalCryptoLane7251(isDynamic: Boolean, isSpot: Boolean): String = when {
         !isSpot -> "CRYPTO_LEV"
         isDynamic -> "CRYPTO_ALT"
@@ -3257,7 +3296,34 @@ object CryptoAltTrader {
         // compounding/winner pressure already included above to express up to
         // 45% of available mode-local balance. Total portfolio risk cap remains
         // 80%, wallet lock still applies live, and route proof still gates real buys.
-        val requestedFinalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        val requestedFinalSize0 = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        // V5.0.7708 §THE_CRYPTO_LANE_WAS_SPENDING_OUTSIDE_THE_DOCTRINE.
+        //
+        // 5.0.7706 live tape, 23 minutes: EXEC_LIVE_BUY_OK=0 on the meme lanes,
+        // yet the wallet SOL fell 0.366 -> 0.130 and Phantom showed a dozen
+        // $2-$4 holdings (TRX, TNSR, IO, WBTC, AAVE, KMNO, CHZ, GALA, PIXEL).
+        // Those were this lane: CRYPTO_SIGNED_VERIFY_PENDING_NO_OPEN_7434=24.
+        // Each buy was 0.01-0.02 SOL — below the $5 routing floor every meme
+        // lane is held to, below the concentration doctrine's position size,
+        // never counted against the two live slots, never through the exit
+        // coverage gate, and never opened as a position. That is the
+        // "spreading capital way too wide" the operator named, from a lane
+        // that had not been told the doctrine. Live crypto entries now clear
+        // the same four checks before any SOL moves. Paper is untouched.
+        val requestedFinalSize = if (authoritativePaperMode7425()) requestedFinalSize0 else {
+            val gate7708 = liveCryptoEntryGate7708(balance, requestedFinalSize0)
+            val refusal7708 = gate7708.second
+            if (refusal7708 != null) {
+                terminalDisposition6613(refusal7708, "PRE_SUBMIT")
+                try {
+                    PipelineHealthCollector.labelInc(refusal7708.substringBefore(':').take(60))
+                    ForensicLogger.lifecycle("CRYPTO_LIVE_DOCTRINE_REFUSED_7708", "symbol=$mktSym requested=${"%.4f".format(requestedFinalSize0)} balance=${"%.4f".format(balance)} reason=$refusal7708")
+                } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(signal.dynMint ?: signal.market.symbol, "CRYPTO", "CRYPTO_LIVE_DOCTRINE_REFUSED_7708") } catch (_: Throwable) {}
+                return
+            }
+            gate7708.first
+        }
         // V5.0.6540 §ONE_EXECUTION_AUTHORITY — CryptoAlt specialist must
         // announce its candidate to the canonical entry funnel BEFORE it
         // consults sizing. Route to MARKETS_SPOT/MARKETS_PERPS venue by
@@ -3624,6 +3690,12 @@ object CryptoAltTrader {
                         liveResult7434.mint, liveResult7434.signature)
                     com.lifecyclebot.engine.HostWalletTokenTracker.recordBuyPending(
                         liveResult7434.mint, mktSym, liveResult7434.signature)
+                    // V5.0.7708 — the signed buy is a receipt: cost, entry mark and
+                    // lane travel with the pending row so the holding opens in the
+                    // canonical book at its real basis once the wallet shows it.
+                    com.lifecyclebot.engine.HostWalletTokenTracker.recordSignedBuyBasis7708(
+                        liveResult7434.mint, mktSym, signal.price, canonicalFinalSize6570,
+                        liveResult7434.signature, canonicalCryptoLane7251(signal.isDynamic, isSpot))
                     com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(
                         WalletManager.getWallet(), "CRYPTO_SIGNED_VERIFY_PENDING_7434")
                 } catch (_: Throwable) {}

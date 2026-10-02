@@ -195,6 +195,9 @@ object HostWalletTokenTracker {
         var balanceAuthorityObservedAtMs: Long = 0L,
         var balanceAuthoritySignature: String? = null,
         var zeroBalanceConfirmedByTwoProviders: Boolean = false,
+        // V5.0.7708 — the lane that signed this buy, when the bot's own signed
+        // buy is the only durable record of the fill (crypto-alt verify-pending).
+        var entryLane7708: String? = null,
     )
 
     @Volatile private var ctx: android.content.Context? = null
@@ -486,6 +489,27 @@ object HostWalletTokenTracker {
         return true
     }
 
+    /**
+     * V5.0.7708 — a bot-signed buy whose target-token proof is still pending
+     * stamps what it paid and the lane that paid it onto the pending row, so
+     * the holding enters the canonical book at its real cost once the wallet
+     * shows the tokens (LiveCanonicalRecovery6686.trackerSignedBuyBasis7708)
+     * instead of being adopted at an observed mark or left unmanaged.
+     */
+    fun recordSignedBuyBasis7708(mint: String, symbol: String?, entryPriceUsd: Double, entrySol: Double, sig: String?, lane: String) {
+        if (mint.isBlank() || mint == SOL_MINT) return
+        if (!entryPriceUsd.isFinite() || entryPriceUsd <= 0.0 || !entrySol.isFinite() || entrySol <= 0.0) return
+        val p = positions[mint] ?: return
+        if ((p.entrySol ?: 0.0) <= 0.0) p.entrySol = entrySol
+        if ((p.entryPriceUsd ?: 0.0) <= 0.0) p.entryPriceUsd = entryPriceUsd
+        if (p.entryLane7708.isNullOrBlank() && lane.isNotBlank()) p.entryLane7708 = lane
+        if (p.buySignature.isNullOrBlank() && !sig.isNullOrBlank()) p.buySignature = sig
+        if (!symbol.isNullOrBlank() && p.symbol.isNullOrBlank()) { p.symbol = symbol; p.name = symbol }
+        p.notes.add("V5.0.7708 signed-buy basis cost=${"%.5f".format(entrySol)} lane=$lane")
+        save()
+        try { PipelineHealthCollector.labelInc("TRACKER_SIGNED_BUY_BASIS_STAMPED_7708") } catch (_: Throwable) {}
+    }
+
     fun purgeOrphanRecoveredRows(phase: String) {
         if (RECOVER_ORPHAN_WALLET_TOKENS) return
         val drop = positions.values.filter { p ->
@@ -529,6 +553,7 @@ object HostWalletTokenTracker {
                     put("lastSeenWalletMs", p.lastSeenWalletMs)
                     p.entryPriceUsd?.let { put("entryPriceUsd", it) }
                     p.entrySol?.let { put("entrySol", it) }
+                    p.entryLane7708?.let { put("entryLane7708", it) }
                     put("rawAmount", p.rawAmount)
                     put("decimals", p.decimals)
                     put("uiAmount", p.uiAmount)
@@ -590,6 +615,7 @@ object HostWalletTokenTracker {
                     lastSeenWalletMs = o.optLong("lastSeenWalletMs", 0L),
                     entryPriceUsd = if (o.has("entryPriceUsd")) o.optDouble("entryPriceUsd") else null,
                     entrySol = if (o.has("entrySol")) o.optDouble("entrySol") else null,
+                    entryLane7708 = o.optString("entryLane7708", "").takeIf { it.isNotBlank() },
                     entryMarketCap = null,
                     rawAmount = o.optString("rawAmount", "0"),
                     decimals = o.optInt("decimals", 9),
