@@ -531,10 +531,17 @@ Default to a natural, normal LLM-style reply with emotional range.
         )
     }
 
+    // V5.0.7715 — every LLM call, structured or free text, carries the Field
+    // Manual doctrine as the first part of its system prompt. The specialist
+    // persona still follows; the manual is the shared expert baseline (§12).
+    private fun doctrinePrompt7715(systemPrompt: String): String = try {
+        com.lifecyclebot.engine.truth.FieldManual7715.withDoctrine7715(systemPrompt)
+    } catch (_: Throwable) { systemPrompt }
+
     private fun callStructured(userPrompt: String, systemPrompt: String): String? {
         return callAnyProvider(
             userPrompt = userPrompt,
-            systemPrompt = systemPrompt,
+            systemPrompt = doctrinePrompt7715(systemPrompt),
             asJson = true,
             temperature = 0.2,
             maxTokens = 1024
@@ -549,7 +556,7 @@ Default to a natural, normal LLM-style reply with emotional range.
     ): String? {
         return callAnyProvider(
             userPrompt = userPrompt,
-            systemPrompt = systemPrompt,
+            systemPrompt = doctrinePrompt7715(systemPrompt),
             asJson = false,
             temperature = temperature,
             maxTokens = maxTokens

@@ -354,7 +354,25 @@ object OrderSizeResolver6441 {
         val feeAwareAvailable6490 = if (paperMode) {
             authoritativeCash / (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490)
         } else authoritativeCash
-        val cashClamped = laddered.coerceAtMost(cashCap)
+        val cashClamped0 = laddered.coerceAtMost(cashCap)
+
+        // V5.0.7715 §THE_FIELD_MANUAL_IS_THE_BASELINE_BRAIN — §8.1 size from
+        // the stop. The lane's risk budget over its loss-to-invalidation
+        // (including costs) is a ceiling on one position; a SMALL_PROBE
+        // verdict from the gate halves the proposal. Both are ceilings only:
+        // the minimum-executable promotion below still applies, and on live
+        // the ceiling never undercuts the routable floor (see riskCapSol).
+        val manualCap7715 = try {
+            FieldManual7715.riskCapSol(laneName, paperMode, authoritativeCash)
+        } catch (_: Throwable) { Double.POSITIVE_INFINITY }
+        val probeMult7715 = try {
+            if (mint.isNotBlank()) FieldManual7715.probeSizeMultiplier(mint) else 1.0
+        } catch (_: Throwable) { 1.0 }
+        val cashClamped1 = (cashClamped0 * probeMult7715).coerceAtMost(manualCap7715)
+        if (cashClamped1 < cashClamped0 - 1e-9) {
+            try { FieldManual7715.noteRiskCapApplied(laneName, cashClamped0, cashClamped1) } catch (_: Throwable) {}
+        }
+        val cashClamped = cashClamped1
 
         // 4. lane cap
         val laneClamped = cashClamped.coerceAtMost(laneRiskCapSol)

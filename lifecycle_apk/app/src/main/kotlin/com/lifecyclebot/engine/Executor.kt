@@ -23706,6 +23706,12 @@ class Executor(
     }
 
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        // V5.0.7715 — §10 exit discipline: every exit request is classified
+        // (structural / integrity / target / time / regime / operational) so
+        // the report shows what kind of exits the book is taking, per mode.
+        try {
+            com.lifecyclebot.engine.truth.FieldManual7715.noteExit(reason, ts.position.isPaperPosition)
+        } catch (_: Throwable) {}
         // V5.0.6501 §4 — CANONICAL EXISTENCE GATE. Operator's 6500 dump
         // showed 140 PAPER_CLOSE_FAILED + 140 SELL_BLOCKED_NO_CANONICAL_POSITION_6373
         // + 141 TERMINAL_SELL_ABANDONED_6454 rows from stale exit requests
