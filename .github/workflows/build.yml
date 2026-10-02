@@ -227,7 +227,15 @@ jobs:
       # remain hard failures.
       - name: Required lane and history regression tests
         run: |
-          ./gradlew testReleaseUnitTest --tests '*Aate7687*' --tests '*Aate7688*' --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          ./gradlew testReleaseUnitTest \
+            --tests '*Aate7687*' \
+            --tests '*Aate7688*' \
+            --tests '*Aate7513PaperQualityShadowEvidenceTest*' \
+            --tests '*Aate7724MissingPolicyEvidenceTest*' \
+            --tests '*Aate7725AutonomousModeIsolationTest*' \
+            --tests '*Aate7725PredictiveSourceEvidenceTest*' \
+            --tests '*GoldenTapeRegressionTest.V5_0_7723_the_autonomous_stack_closes_its_loops_and_paper_proof_does_not_sell_live' \
+            --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 
       - name: Unit regression suite (diagnostic)
         continue-on-error: true
