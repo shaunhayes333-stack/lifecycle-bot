@@ -13618,15 +13618,23 @@ class GoldenTapeRegressionTest {
         // evaluates, so the executing lane's stamp was overwritten. Per-lane stamp,
         // credited by the closing lane.
         val amp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt").readText()
-        assertTrue(amp.contains("fun recordOutcome(mint: String, pnlPct: Double, lane: String? = null) {"))
-        assertTrue(amp.contains("pending[laneStampKey7723(mint, lane)] = key7723"))
-        assertTrue(amp.contains("val key = laneKey7723 ?: mintKey7723 ?: return"))
+        assertTrue(amp.contains("fun recordOutcome(mint: String, pnlPct: Double, lane: String? = null, mode: String? = null) {"))
+        assertTrue(amp.contains("pending[laneStampKey7723(mint, lane, mode7725)] = key7723"))
+        assertTrue(amp.contains("val key = laneKey7723 ?: mintKey7723 ?: run {"))
+        assertTrue(amp.contains("AUTONOMOUS_META_CROSS_MODE_OUTCOME_REFUSED_7725"))
         assertTrue(amp.contains("AUTONOMOUS_META_CREDIT_LANE_STAMP_7723"))
         assertTrue(amp.contains("AUTONOMOUS_META_PENDING_PRUNED_7723"))
         val envSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt").readText()
-        assertTrue(envSrc.contains("AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct, env.lane)"))
+        assertTrue(envSrc.contains("AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct, env.lane, env.mode)"))
+        assertFalse(java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText().contains("AutonomousMetaPolicy.recordOutcome("))
         val mp = com.lifecyclebot.engine.AutonomousMetaPolicy
-        assertEquals(mp.contextKey("MOONSHOT", 57, "NORMAL"), mp.contextKey("MOONSHOT", 57, "NORMAL"))
+        assertEquals(mp.contextKey("MOONSHOT", 57, "NORMAL", "LIVE"), mp.contextKey("MOONSHOT", 57, "NORMAL", "LIVE"))
+        assertFalse(mp.contextKey("MOONSHOT", 57, "NORMAL", "LIVE") == mp.contextKey("MOONSHOT", 57, "NORMAL", "PAPER"))
+        val sourceScorecard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SourceFamilyOpportunityScorecard.kt").readText()
+        assertTrue(sourceScorecard.contains("key.split(',', '+', '|')"))
+        assertTrue(sourceScorecard.contains(".put(\"live\", exportStats7403(liveStats7403))"))
+        assertTrue(sourceScorecard.contains(".put(\"paper\", exportStats7403(paperStats7403))"))
+        assertTrue(sourceScorecard.contains("restore(liveStats7403, o.optJSONArray(\"live\"))"))
 
         // (3) The Lab froze at MAX_LIVE_STRATEGIES: creation skipped at cap and the
         // only cull needed 30 trades on one strategy. A slot is freed (idle 24 h,
@@ -13639,8 +13647,8 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("val active = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ACTIVE }"))
         assertTrue(lab.contains("LAB_SLOT_FREED_7723"))
         assertTrue(lab.contains("LAB_SLOT_NOT_FREED_NO_CANDIDATE_7723"))
-        assertEquals("5.0.7723", java.io.File("../../AATE_VERSION").readText().trim())
-        assertEquals("5.0.7723", java.io.File("../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7725", java.io.File("../../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7725", java.io.File("../AATE_VERSION").readText().trim())
     }
 
 }

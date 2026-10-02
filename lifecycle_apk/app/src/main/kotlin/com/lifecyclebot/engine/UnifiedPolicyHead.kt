@@ -438,9 +438,9 @@ object UnifiedPolicyHead {
         mint: String,
         ownerLane: String,
         scoreFinal: Double,
-        pWin: Double,
-        expectedPnlPct: Double,
-        rugP: Double,
+        pWin: Double?,
+        expectedPnlPct: Double?,
+        rugP: Double?,
         contributorEffect01: Double,
     ): Boolean {
         if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
@@ -448,13 +448,18 @@ object UnifiedPolicyHead {
         return try {
             val owner = normalizeLane(ownerLane)
             val score01 = (scoreFinal / 100.0).coerceIn(0.0, 1.0)
-            val ev01 = (0.5 + expectedPnlPct / 200.0).coerceIn(0.0, 1.0)
+            // Missing fields in a recovered envelope are missing evidence,
+            // not zero EV / zero rug probability. Bind a neutral feature value
+            // so recovery preserves causality without manufacturing a signal.
+            val ev01 = expectedPnlPct?.let { (0.5 + it / 200.0).coerceIn(0.0, 1.0) } ?: 0.5
+            val win01 = pWin?.coerceIn(0.0, 1.0) ?: 0.5
+            val safety01 = rugP?.let { (1.0 - it).coerceIn(0.0, 1.0) } ?: 0.5
             val signals = Signals(
                 mlEntryConf = score01,
-                symGreenLight = (1.0 - rugP).coerceIn(0.0, 1.0),
+                symGreenLight = safety01,
                 evRatio = ev01,
                 metaConviction = contributorEffect01.coerceIn(0.0, 1.0),
-                fwdPWin = pWin.coerceIn(0.0, 1.0),
+                fwdPWin = win01,
                 candConf = score01,
             )
             pendingByPosition6681[positionId] = BoundEntry6681(mint, owner, signals.toArray())

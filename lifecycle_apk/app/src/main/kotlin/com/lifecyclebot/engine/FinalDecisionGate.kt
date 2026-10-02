@@ -5257,8 +5257,8 @@ object FinalDecisionGate {
                         // context into S00. laneScore defaults to candidate.entryScore so
                         // non-lane callers are identical.
                         val mpScore = laneScoreBanded  // V5.9.1299 reuse hoisted banded lane score
-                        val conv = AutonomousMetaPolicy.conviction(learningOwnerLane7534, mpScore, mpRegime)
-                        AutonomousMetaPolicy.stampDecision(ts.mint, learningOwnerLane7534, mpScore, mpRegime)
+                        val conv = AutonomousMetaPolicy.conviction(learningOwnerLane7534, mpScore, mpRegime, mode.name)
+                        AutonomousMetaPolicy.stampDecision(ts.mint, learningOwnerLane7534, mpScore, mpRegime, mode.name)
                         if (conv != 1.0) {
                             val before = finalSize
                             finalSize = (finalSize * conv).coerceAtLeast(0.01)
@@ -5273,7 +5273,7 @@ object FinalDecisionGate {
                         // context is statistically dead (n>=20, winP<12%, avg<-18%),
                         // starve size to dust so a known grave can't drain the wallet.
                         // NOT a veto — candidate still flows; pool & FDG fail-open intact.
-                        val starve = AutonomousMetaPolicy.starveFactor(learningOwnerLane7534, mpScore, mpRegime)
+                        val starve = AutonomousMetaPolicy.starveFactor(learningOwnerLane7534, mpScore, mpRegime, mode.name)
                         if (starve < 1.0) {
                             val beforeS = finalSize
                             finalSize = (finalSize * starve).coerceAtLeast(0.001)
@@ -5302,7 +5302,7 @@ object FinalDecisionGate {
                         // real outcomes there and can find the sweet spot / heal. Never
                         // zero: a small live position is how the brain learns the bucket.
                         // -15% hard SL + 500-token pool + FDG fail-open all untouched.
-                        if (AutonomousMetaPolicy.shouldVeto(learningOwnerLane7534, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples)) {
+                        if (AutonomousMetaPolicy.shouldVeto(learningOwnerLane7534, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples, mode.name)) {
                             val beforePd = finalSize
                             finalSize = (finalSize * 0.15).coerceAtLeast(0.01)
                             tags.add("proven_dead_size_shaped")
@@ -5716,14 +5716,18 @@ object FinalDecisionGate {
                 com.lifecyclebot.engine.truth.AateBrainContribution6512(
                     brain = c.name, role = if (c.name.contains("safety", true) || c.name.contains("rug", true)) "SAFETY" else "CONTRIBUTOR",
                     weight = if (c.passed) 0.55 else 0.70, effect = if (c.passed) 0.05 else -0.10,
-                    pWin = if (c.name.contains("policy", true) || c.name.contains("outcome", true)) (adjustedConfidence / 100.0).coerceIn(0.0, 1.0) else null,
+                    // Confidence is not a calibrated win probability. Keep it
+                    // in scoreFinal; only a mode-matched outcome model may
+                    // populate pWin on the decision envelope.
+                    pWin = null,
                     sizeMultiplier = if (proposedSizeSol > 0.0) (finalSize / proposedSizeSol).coerceIn(0.05, 3.0) else 1.0,
                 )
             }.plus(
                 com.lifecyclebot.engine.truth.AateBrainContribution6512(
                     brain = "PolicySynthesizerInput", role = "INPUT", weight = 1.0,
                     effect = if (shouldTradeFinal) 0.25 else -0.25,
-                    pWin = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
+                    // V5.0.7724 — do not label scorer confidence as p(win).
+                    pWin = null,
                     // V5.0.7296 — this was `STRONG -> 15.0; WEAK -> 2.0; SKIP -> -5.0`:
                     // an expected PnL invented from a three-way label. Every SKIP
                     // candidate therefore carried "EV=-5.0" into AATE_POLICY, which
@@ -5732,7 +5736,7 @@ object FinalDecisionGate {
                     // on SHITCOIN/BLUECHIP. No measured expectancy is in hand here, so
                     // none is reported; the policy family votes only on real evidence.
                     expectedPnlPct = null,
-                    moonshotP = if (laneName == "MOONSHOT") (adjustedConfidence / 100.0).coerceIn(0.0, 1.0) else 0.0,
+                    moonshotP = null,
                     rugP = if (trueHard6512.any { it.contains("RUG") }) 1.0 else 0.0,
                     sizeMultiplier = if (proposedSizeSol > 0.0) (finalSize / proposedSizeSol).coerceIn(0.05, 3.0) else 1.0,
                 )

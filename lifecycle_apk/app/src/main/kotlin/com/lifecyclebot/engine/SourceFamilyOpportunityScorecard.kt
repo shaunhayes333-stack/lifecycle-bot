@@ -46,18 +46,29 @@ object SourceFamilyOpportunityScorecard {
             false -> paperStats7403
             null -> stats
         }
-        val s = store[key]
-            ?: store.entries.firstOrNull { (k, _) -> k.isNotEmpty() && key.contains(k) }?.value
-            ?: return null
-        if (s.closed <= 0) return null
-        val meanPct = if (s.costSol > 0.0) (s.pnlSol / s.costSol) * 100.0 else 0.0
+        // Intake sources arrive as scanner names (often a comma-separated
+        // union), while outcomes are stored under canonical source families.
+        // Resolve every explicit family and combine only those rows. The old
+        // substring fallback never matched DEX_TRENDING -> DEX or
+        // PUMP_PORTAL_WS -> PUMP_FAMILY, so the predictive stack read 0 source
+        // cohorts even when the ledger contained them.
+        val families = key.split(',', '+', '|').map { it.trim() }
+            .filter { it.isNotEmpty() }.map(::family).distinct()
+        val selected = families.mapNotNull { store[it] }
+        if (selected.isEmpty()) return null
+        val closed = selected.sumOf { it.closed }
+        if (closed <= 0) return null
+        val wins = selected.sumOf { it.wins }
+        val pnlSol = selected.sumOf { it.pnlSol }
+        val costSol = selected.sumOf { it.costSol }
+        val meanPct = if (costSol > 0.0) (pnlSol / costSol) * 100.0 else 0.0
         return Expectancy6915(
             source = key,
-            closed = s.closed,
-            wins = s.wins,
-            winRatePct = s.wins * 100.0 / s.closed,
-            pnlSol = s.pnlSol,
-            costSol = s.costSol,
+            closed = closed,
+            wins = wins,
+            winRatePct = wins * 100.0 / closed,
+            pnlSol = pnlSol,
+            costSol = costSol,
             meanPnlPct = if (meanPct.isFinite()) meanPct.coerceIn(-100.0, 5000.0) else 0.0,
         )
     }
@@ -106,12 +117,51 @@ object SourceFamilyOpportunityScorecard {
         } catch (_: Throwable) {}
     }
 
-    fun exportState(): String = JSONArray().also { a ->
-        stats.entries.take(MAX_FAMILIES).forEach { (k, s) -> synchronized(s) { a.put(JSONObject().put("k", k).put("d", s.discovered).put("a", s.admitted).put("o", s.opened).put("c", s.closed).put("w", s.wins).put("p", s.pnlSol).put("cost", s.costSol).put("h", s.holdMin).put("r", s.rugOverlay)) } }
-    }.toString()
+    private fun exportStats7403(source: ConcurrentHashMap<String, Stat>): JSONArray = JSONArray().also { a ->
+        source.entries.take(MAX_FAMILIES).forEach { (k, s) ->
+            synchronized(s) {
+                a.put(JSONObject().put("k", k).put("d", s.discovered).put("a", s.admitted)
+                    .put("o", s.opened).put("c", s.closed).put("w", s.wins).put("p", s.pnlSol)
+                    .put("cost", s.costSol).put("h", s.holdMin).put("r", s.rugOverlay))
+            }
+        }
+    }
+
+    /** Persist the three views separately: pooled rows are reporting-only. */
+    fun exportState(): String = JSONObject()
+        .put("schema", 2)
+        .put("legacy", exportStats7403(stats))
+        .put("live", exportStats7403(liveStats7403))
+        .put("paper", exportStats7403(paperStats7403))
+        .toString()
+
     fun importState(raw: String?) {
         if (raw.isNullOrBlank()) return
-        try { val a = JSONArray(raw); stats.clear(); for (i in 0 until a.length().coerceAtMost(MAX_FAMILIES)) { val o = a.optJSONObject(i) ?: continue; val k = o.optString("k"); if (k.isNotBlank()) stats[k] = Stat(o.optInt("d"), o.optInt("a"), o.optInt("o"), o.optInt("c"), o.optInt("w"), o.optDouble("p"), o.optDouble("cost"), o.optDouble("h"), o.optInt("r")) } } catch (_: Throwable) {}
+        try {
+            stats.clear(); liveStats7403.clear(); paperStats7403.clear()
+            fun restore(target: ConcurrentHashMap<String, Stat>, rows: JSONArray?) {
+                val a = rows ?: return
+                for (i in 0 until a.length().coerceAtMost(MAX_FAMILIES)) {
+                    val o = a.optJSONObject(i) ?: continue
+                    val k = o.optString("k")
+                    if (k.isNotBlank()) target[k] = Stat(
+                        o.optInt("d"), o.optInt("a"), o.optInt("o"), o.optInt("c"), o.optInt("w"),
+                        o.optDouble("p"), o.optDouble("cost"), o.optDouble("h"), o.optInt("r"),
+                    )
+                }
+            }
+            val root = raw.trimStart().firstOrNull()
+            if (root == '{') {
+                val o = JSONObject(raw)
+                restore(stats, o.optJSONArray("legacy"))
+                restore(liveStats7403, o.optJSONArray("live"))
+                restore(paperStats7403, o.optJSONArray("paper"))
+            } else {
+                // V1 was a pooled JSON array. Keep it reporting-only: its mode
+                // and execution-cost provenance cannot be reconstructed.
+                restore(stats, JSONArray(raw))
+            }
+        } catch (_: Throwable) {}
     }
     fun reset() { stats.clear(); liveStats7403.clear(); paperStats7403.clear() }
 

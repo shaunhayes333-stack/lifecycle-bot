@@ -12662,8 +12662,6 @@ class Executor(
                     score = decision.entryScore,
                     quality = decision.finalQuality,
                     reason = "fdg_${fdgApprovalClass!!.name.lowercase()}_7525",
-                    wallet = wallet,
-                    walletSol = walletSol,
                 )
                 PipelineHealthCollector.labelInc("PAPER_EXPLORATION_ROUTED_SHADOW_7525")
                 PipelineHealthCollector.labelInc("PAPER_EXPLORATION_ROUTED_SHADOW_7525_${fdgApprovalClass.name}")
@@ -14755,7 +14753,7 @@ class Executor(
                     // (ExecutionRouteGuard:29-33 states that contract). That is
                     // why 6073 could make the parallel site unconditional in
                     // the first place. Completing it here.
-                    runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", safeWallet, walletSol)
+                    runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}")
                     return
                 }
                 is GuardResult.Allow -> {
@@ -14780,7 +14778,7 @@ class Executor(
                             livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP", "walletExposurePct=${WalletPositionLock.getExposurePct(walletSol).toInt()}")
                             // V5.0.7215 — second of the two sites 6073 missed.
                             // See the note at the security-guard block above.
-                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)
+                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap")
                             return
                         }
                     }
@@ -14823,63 +14821,21 @@ class Executor(
                         } catch (_: Throwable) {}
                     }
                     
-                    // V5.0.6073 — SHADOW ALWAYS-ON: no toggle gate.
-                    runShadowPaperBuy(ts, effSol, score, quality, "parallel", safeWallet, walletSol)
+                    // The common live executor owns the SHADOW observation so
+                    // direct lane callers and the shared path are measured once.
+                    // Do not record it here as well: that made coverage depend
+                    // on which caller happened to reach doBuy().
                 }
             }
         }
     }
     
-    private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double, 
-                                   quality: String, reason: String,
-                                   wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
+    private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double,
+                                   quality: String, reason: String) {
         try {
-            val isMoonshot = cfg().moonshotOverrideEnabled &&
-                             score >= 85 && 
-                             quality in listOf("A", "B") && 
-                             ts.lastLiquidityUsd >= 5000 &&
-                             ts.meta.pressScore >= 70
-            
-            if (isMoonshot && wallet != null && walletSol > 0 && !isPaperRT()) {
-                try { ExecutionRouteGuard.recordShadowRouteAllowed() } catch (_: Throwable) {}
-                // V5.9.779 — EMERGENT MEME-ONLY: shadow → live shortcut
-                // must still pass the canonical LIVE buy chain. We hand
-                // off to liveBuy() which now enforces:
-                //   - SafetyReadyGate (V5.9.776 sync first-check)
-                //   - FinalDecisionGate / LiveBuyAdmissionGate
-                //   - MEME_LIVE_BUY_MUTEX (V5.9.778)
-                //   - EXEC_LIVE_ATTEMPT counter + MEME_LIVE_EXEC_ENTRY
-                //   - HostWalletTokenTracker upsert on confirmation
-                // No direct PumpPortal/Jupiter call from this path —
-                // liveBuy() is the single executor entry point.
-                if (walletSol >= sol * 1.1) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "SHADOW_TO_LIVE_HANDOFF",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=${score.toInt()} quality=$quality sol=${"%.4f".format(sol)}",
-                        )
-                    } catch (_: Throwable) {}
-                    onLog("🌙🚀 MOONSHOT in shadow mode! Score=${score.toInt()} Quality=$quality → handing off to liveBuy() (full FDG chain).", ts.mint)
-                    onNotify("🌙 Shadow → Live!", "${ts.symbol} moonshot detected!", 
-                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                    sounds?.playMilestone(100.0)
-                    
-                    val tradeId = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                    val shadowLiveLane = resolveExecutionLane(ts, tradeId).ifBlank { "MOONSHOT" }
-                    liveBuy(
-                        ts = ts,
-                        sol = sol,
-                        score = score,
-                        wallet = wallet,
-                        walletSol = walletSol,
-                        identity = tradeId,
-                        quality = quality,
-                        layerTag = shadowLiveLane.takeIf { it.isNotBlank() && it != "STANDARD" } ?: "MOONSHOT",
-                        layerTagEmoji = "🚀",
-                    )
-                    return
-                }
-            }
+            // SHADOW is observation-only. A strong shadow candidate must be
+            // promoted by the ordinary live decision path, never by this
+            // helper; otherwise a refused live attempt can be resurrected here.
             
             if (shadowPositions.containsKey(ts.mint)) {
                 try { com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onSkipDuplicate7215() } catch (_: Throwable) {}
@@ -20673,6 +20629,14 @@ class Executor(
                 return false
             }
         }
+
+        // V5.0.7724 — one shared observation point for every live lane. At
+        // this point the candidate has passed the live admission and pre-trade
+        // hard gates; the shadow book can measure its counterfactual without
+        // touching the canonical paper ledger or issuing a live order.
+        // runShadowPaperBuy is idempotent per mint while that shadow position
+        // remains open, so retries and direct lane callers cannot double-open.
+        runShadowPaperBuy(ts, sol, score, quality, "live_prebroadcast_observation")
 
         if (walletSol <= 0) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WALLET_BALANCE_ZERO")
@@ -27234,7 +27198,9 @@ class Executor(
 
             val queued6643 = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.afterCommitted(durableEventId6643) {
                 com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
-                try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+                // AutonomousMetaPolicy is credited once from the canonical
+                // FinalizedTradeBus with its immutable lane and mode. This
+                // legacy fanout has neither and could consume the wrong stamp.
                 try { PipelineHealthCollector.labelInc("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}
@@ -30227,7 +30193,8 @@ class Executor(
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
-            try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            // Canonical FinalizedTradeBus is the sole meta-policy outcome
+            // writer; this legacy sell path has no sealed mode/lane identity.
             // V5.0.4542 — do NOT train ForwardOutcomeModel/UnifiedPolicyHead/
             // UnifiedExitPolicyHead from this legacy sell-local callback. V5.0.4514
             // centralized those heads at Executor.recordTrade after TradeRowSanityCheck

@@ -91,13 +91,19 @@ object AutonomousMetaPolicy {
     }
 
     private val arms = ConcurrentHashMap<String, Arm>()
-    fun contextCount(): Int = arms.size  // V5.9.1355 P0.5 audit
+    fun contextCount(): Int = arms.keys.count { it.startsWith("LIVE|") || it.startsWith("PAPER|") } // V5.0.7725: excludes non-actuating pooled legacy rows
     @Volatile private var totalUpdates: Long = 0L
     fun totalUpdateCount6512(): Long = totalUpdates
     @Volatile private var appContext: Context? = null
 
     // ── Context key ──────────────────────────────────────────────────────
-    fun contextKey(lane: String, score: Int, regime: String): String {
+    private fun normalizedMode7725(mode: String? = null): String {
+        val explicit = mode?.trim()?.uppercase()
+        if (explicit == "LIVE" || explicit == "PAPER") return explicit
+        return if (try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) "PAPER" else "LIVE"
+    }
+
+    fun contextKey(lane: String, score: Int, regime: String, mode: String? = null): String {
         // V5.9.1294 — FINER LOW-END BANDING. The 3259 snapshot showed EVERY
         // learned context collapsed into "S00" because the vast majority of meme
         // entries score <20 (regime v3Median=7). With all volume in one bucket the
@@ -119,7 +125,10 @@ object AutonomousMetaPolicy {
         }
         val l = lane.uppercase().take(16).ifBlank { "MEME" }
         val r = regime.uppercase().take(12).ifBlank { "NORMAL" }
-        return "$l|$band|$r"
+        // LIVE and PAPER have different execution costs and fill quality. A
+        // paper close can inform live only through an explicit bridge; this
+        // policy has none, so they are separate posteriors.
+        return "${normalizedMode7725(mode)}|$l|$band|$r"
     }
 
     /**
@@ -127,9 +136,9 @@ object AutonomousMetaPolicy {
      * 1.0 = neutral only at sample 0/unknown. >1 = lean in. <1 = damp (never 0).
      * Captures the decision so the outcome can be credited to the same context.
      */
-    fun conviction(lane: String, score: Int, regime: String): Double {
+    fun conviction(lane: String, score: Int, regime: String, mode: String? = null): Double {
         return try {
-            val key = contextKey(lane, score, regime)
+            val key = contextKey(lane, score, regime, mode)
             val arm = arms.getOrPut(key) { Arm() }
             if (arm.samples <= 0) return 1.0  // no evidence yet; after trade 1 we tune
             // Thompson sample from Beta(alpha, beta). V5.0.6077: samples 1..4 are
@@ -166,9 +175,9 @@ object AutonomousMetaPolicy {
      * pool — the candidate still flows through FDG fail-open; it just gets
      * sized to dust so a known grave can't drain the wallet. Soft-shape > veto.
      */
-    fun starveFactor(lane: String, score: Int, regime: String): Double {
+    fun starveFactor(lane: String, score: Int, regime: String, mode: String? = null): Double {
         return try {
-            val key = contextKey(lane, score, regime)
+            val key = contextKey(lane, score, regime, mode)
             val arm = arms[key] ?: return 1.0
             if (arm.samples < PROVEN_DEAD_N) return 1.0
             val winP = arm.alpha / (arm.alpha + arm.beta)          // posterior mean
@@ -195,9 +204,9 @@ object AutonomousMetaPolicy {
      * dusting it still pays fees + slippage on a guaranteed loser; skipping is
      * strictly better. Returns false (allow) on any doubt or error — fail-open.
      */
-    fun shouldVeto(lane: String, score: Int, regime: String, fwdPWin: Double, fwdEPnl: Double, fwdSamples: Long): Boolean {
+    fun shouldVeto(lane: String, score: Int, regime: String, fwdPWin: Double, fwdEPnl: Double, fwdSamples: Long, mode: String? = null): Boolean {
         return try {
-            val key = contextKey(lane, score, regime)
+            val key = contextKey(lane, score, regime, mode)
             val arm = arms[key] ?: return false
             if (arm.samples < VETO_N) return false
             val winP = arm.alpha / (arm.alpha + arm.beta)
@@ -243,14 +252,16 @@ object AutonomousMetaPolicy {
     // and this policy recorded updates=6. A per-lane stamp is kept beside the
     // mint stamp; a close that names its lane credits that lane's context.
     private const val PENDING_MAX_7723 = 4000
-    private fun laneStampKey7723(mint: String, lane: String): String = "$mint|${lane.trim().uppercase()}"
+    private fun mintStampKey7725(mint: String, mode: String): String = "$mode|$mint"
+    private fun laneStampKey7723(mint: String, lane: String, mode: String): String = "$mode|$mint|${lane.trim().uppercase()}"
 
     /** Stamp the context chosen for a mint at decision time (for credit). */
-    fun stampDecision(mint: String, lane: String, score: Int, regime: String) {
+    fun stampDecision(mint: String, lane: String, score: Int, regime: String, mode: String? = null) {
         try {
-            val key7723 = contextKey(lane, score, regime)
-            pending[mint] = key7723
-            pending[laneStampKey7723(mint, lane)] = key7723
+            val mode7725 = normalizedMode7725(mode)
+            val key7723 = contextKey(lane, score, regime, mode7725)
+            pending[mintStampKey7725(mint, mode7725)] = key7723
+            pending[laneStampKey7723(mint, lane, mode7725)] = key7723
             if (pending.size > PENDING_MAX_7723) {
                 val it = pending.keys.iterator()
                 var n = 0
@@ -262,13 +273,26 @@ object AutonomousMetaPolicy {
     }
 
     /** Credit a settled outcome back to the context that produced the decision. */
-    fun recordOutcome(mint: String, pnlPct: Double, lane: String? = null) {
+    fun recordOutcome(mint: String, pnlPct: Double, lane: String? = null, mode: String? = null) {
         try {
-            val laneKey7723 = lane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }?.let { pending.remove(laneStampKey7723(mint, it)) }
-            val mintKey7723 = pending.remove(mint)
-            val prefix7723 = "$mint|"
-            for (k in pending.keys.toList()) if (k.startsWith(prefix7723)) pending.remove(k)
-            val key = laneKey7723 ?: mintKey7723 ?: return
+            val mode7725 = normalizedMode7725(mode)
+            val laneKey7723 = lane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }?.let {
+                pending.remove(laneStampKey7723(mint, it, mode7725))
+            }
+            val mintKey7723 = pending.remove(mintStampKey7725(mint, mode7725))
+            val prefix7725 = "$mode7725|$mint|"
+            for (k in pending.keys.toList()) if (k.startsWith(prefix7725)) pending.remove(k)
+            val key = laneKey7723 ?: mintKey7723 ?: run {
+                val otherMode7725 = if (mode7725 == "LIVE") "PAPER" else "LIVE"
+                val crossModeStampExists = pending.containsKey(mintStampKey7725(mint, otherMode7725)) ||
+                    (lane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }?.let {
+                        pending.containsKey(laneStampKey7723(mint, it, otherMode7725))
+                    } ?: false)
+                if (crossModeStampExists) try {
+                    PipelineHealthCollector.labelInc("AUTONOMOUS_META_CROSS_MODE_OUTCOME_REFUSED_7725")
+                } catch (_: Throwable) {}
+                return
+            }
             try {
                 PipelineHealthCollector.labelInc(
                     if (laneKey7723 != null) "AUTONOMOUS_META_CREDIT_LANE_STAMP_7723" else "AUTONOMOUS_META_CREDIT_MINT_STAMP_7723",
@@ -342,6 +366,7 @@ object AutonomousMetaPolicy {
             })
         }
         o.put("arms", a)
+        o.put("schema", 2)
         o.put("pending", JSONObject().also { po -> pending.forEach { (mint, key) -> po.put(mint, key) } })
         o.toString()
     } catch (_: Throwable) { "{}" }
@@ -356,7 +381,11 @@ object AutonomousMetaPolicy {
             while (keys.hasNext()) {
                 val k = keys.next()
                 val ao = a.getJSONObject(k)
-                arms[k] = Arm(
+                // V5.0.7725: old keys had no mode segment. Preserve them as
+                // diagnostic-only legacy evidence, never as LIVE or PAPER
+                // authority; their execution-cost regimes cannot be recovered.
+                val safeKey = if (k.startsWith("LIVE|") || k.startsWith("PAPER|")) k else "LEGACY|$k"
+                arms[safeKey] = Arm(
                     alpha = ao.optDouble("a", PRIOR_ALPHA),
                     beta  = ao.optDouble("b", PRIOR_BETA),
                     samples = ao.optLong("n", 0L),
@@ -369,7 +398,7 @@ object AutonomousMetaPolicy {
                 while (keysPending.hasNext()) {
                     val mint = keysPending.next()
                     val key = po.optString(mint, "")
-                    if (key.isNotBlank()) pending[mint] = key
+                    if (key.isNotBlank() && (key.startsWith("LIVE|") || key.startsWith("PAPER|"))) pending[mint] = key
                 }
             }
         } catch (_: Throwable) {}
@@ -401,11 +430,12 @@ object AutonomousMetaPolicy {
             // so the operator can VERIFY the meta-policy is training.
             val DISPLAY_MIN = 3
             val ranked = arms.entries
+                .filter { it.key.startsWith("LIVE|") || it.key.startsWith("PAPER|") }
                 .filter { it.value.samples >= DISPLAY_MIN }
                 .sortedByDescending { it.value.mean }
-            if (ranked.isEmpty()) return "\n===== Autonomous Meta-Policy (V5.9.1260) =====\n  (bootstrap — all contexts < $DISPLAY_MIN samples · total_arms=${arms.size} updates=$totalUpdates)\n"
+            if (ranked.isEmpty()) return "\n===== Autonomous Meta-Policy (V5.9.1260) =====\n  (bootstrap — all mode-specific contexts < $DISPLAY_MIN samples · total_arms=${contextCount()} updates=$totalUpdates)\n"
             val sb = StringBuilder("\n===== Autonomous Meta-Policy (V5.9.1260) — learned edge surface =====\n")
-            sb.append("  contexts=${arms.size}  updates=$totalUpdates\n")
+            sb.append("  contexts=${contextCount()}  updates=$totalUpdates\n")
             ranked.take(6).forEach { (k, arm) ->
                 sb.append("  ▲ $k  winP=${pct(arm.mean)}  n=${arm.samples}  avgPnl=${"%+.1f".format(arm.avgPnl)}%  conv≈${"%.2f".format(1.0 + (arm.mean - 0.5) * 1.8)}\n")
             }

@@ -35,5 +35,14 @@ class Aate7513PaperQualityShadowEvidenceTest {
         assertTrue(fn.contains("shadowPositions[ts.mint] = shadowPos"))
         assertTrue(fn.contains("ShadowBookTelemetry7215.onOpen7215"))
         assertFalse(fn.contains("CanonicalPaperTransaction6486.open"))
+        assertFalse("shadow observation must never authorize or dispatch a live buy", fn.contains("liveBuy("))
+        assertFalse("shadow observation must never turn into a live handoff", fn.contains("SHADOW_TO_LIVE_HANDOFF"))
+    }
+
+    @Test fun live_shadow_observation_has_one_shared_executor_seam() {
+        val s = src()
+        val fn = s.substringAfter("private fun liveBuy(")
+        assertTrue(fn.contains("runShadowPaperBuy(ts, sol, score, quality, \"live_prebroadcast_observation\")"))
+        assertFalse("the outer doBuy path must not double-record the common live seam", s.contains("runShadowPaperBuy(ts, effSol, score, quality, \"parallel\""))
     }
 }

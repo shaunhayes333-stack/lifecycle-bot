@@ -19,8 +19,8 @@ data class AateStrategyContext6512(
 
 data class AateDecisionEnvelope6512(
     val envelopeId: String, val revision: Long, val context: AateStrategyContext6512,
-    val action: String, val pWin: Double, val expectedPnlPct: Double,
-    val moonshotP: Double, val rugP: Double, val scoreBase: Double, val scoreFinal: Double,
+    val action: String, val pWin: Double?, val expectedPnlPct: Double?,
+    val moonshotP: Double?, val rugP: Double?, val scoreBase: Double, val scoreFinal: Double,
     val sizeBase: Double, val sizeFinal: Double, val tactic: String,
     val hardSafety: List<String>, val contributors: List<AateBrainContribution6512>,
     val learningState: String, val executionTicket: String = "", val sealed: Boolean = false,
@@ -41,11 +41,11 @@ object PolicySynthesizer6512 {
             rugP = it.rugP?.coerceIn(0.0, 1.0), sizeMultiplier = it.sizeMultiplier.coerceIn(0.05, 3.0),
         ) }
         val wp = bounded.mapNotNull { c -> c.pWin?.let { it to c.weight } }
-        val pWin = if (wp.isEmpty()) 0.5 else wp.sumOf { it.first * it.second } / wp.sumOf { it.second }.coerceAtLeast(0.0001)
+        val pWin = if (wp.isEmpty()) null else wp.sumOf { it.first * it.second } / wp.sumOf { it.second }.coerceAtLeast(0.0001)
         val we = bounded.mapNotNull { c -> c.expectedPnlPct?.let { it to c.weight } }
-        val ev = if (we.isEmpty()) 0.0 else we.sumOf { it.first * it.second } / we.sumOf { it.second }.coerceAtLeast(0.0001)
-        val moon = bounded.mapNotNull { c -> c.moonshotP?.let { it to c.weight } }.maxOfOrNull { it.first } ?: 0.0
-        val rug = bounded.mapNotNull { c -> c.rugP?.let { it to c.weight } }.maxOfOrNull { it.first } ?: 0.0
+        val ev = if (we.isEmpty()) null else we.sumOf { it.first * it.second } / we.sumOf { it.second }.coerceAtLeast(0.0001)
+        val moon = bounded.mapNotNull { c -> c.moonshotP?.let { it to c.weight } }.maxOfOrNull { it.first }
+        val rug = bounded.mapNotNull { c -> c.rugP?.let { it to c.weight } }.maxOfOrNull { it.first }
         val action = if (hardSafety.isNotEmpty()) "BLOCK" else proposedAction.uppercase()
         val rev = revisions.incrementAndGet()
         return AateDecisionEnvelope6512(
@@ -192,8 +192,8 @@ object AateDecisionFabric6512 {
                         UnifiedPolicyHead.bindDecisionFallback6713(
                             positionId = env.positionId, mint = env.mint,
                             ownerLane = ledgerLane6747,
-                            scoreFinal = 0.0, pWin = 0.0,
-                            expectedPnlPct = 0.0, rugP = 0.0,
+                            scoreFinal = 0.0, pWin = null,
+                            expectedPnlPct = null, rugP = null,
                             contributorEffect01 = 0.5,
                         )
                     } catch (_: Throwable) { false }
@@ -259,7 +259,7 @@ object AateDecisionFabric6512 {
         try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
         if (policyAck6713 && UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
-        try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct, env.lane) } catch (_: Throwable) {}
+        try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct, env.lane, env.mode) } catch (_: Throwable) {}
         if (AutonomousMetaPolicy.totalUpdateCount6512() > metaBefore) updated += "AutonomousMetaPolicy"
         // V5.0.7445 — StrategyHypothesis terminal credit is position-bound
         // exclusively via FinalizedBusConsumerBridge6465. Mint-only credit can
@@ -370,7 +370,7 @@ object AateDecisionFabric6512 {
         // decays in 5 minutes, is scoped to this mode/lane/mint, counts once for its
         // whole family, and blocks nothing on its own.
         try {
-            if (e.action.equals("BUY", true) && e.expectedPnlPct.isFinite() && e.expectedPnlPct < 0.0) {
+            if (e.action.equals("BUY", true) && e.expectedPnlPct?.let { it.isFinite() && it < 0.0 } == true) {
                 AdaptiveVetoConsensusAuthority6728.raise(
                     AdaptiveVetoConsensusAuthority6728.Signal.UNIFIED_POLICY_BIAS_NEGATIVE,
                     mode = e.context.mode.trim().uppercase(),
