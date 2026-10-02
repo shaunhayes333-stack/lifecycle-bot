@@ -23,17 +23,22 @@ class Aate7725PredictiveSourceEvidenceTest {
         )
         assertEquals(1, scorecard.expectancyFor6915("PUMP_PORTAL_WS", true)!!.closed)
         scorecard.reset()
-        scorecard.importState(
-            """{"schema":2,"legacy":[],"live":[
-                {"k":"PUMP_FAMILY","c":3,"w":2,"p":0.03,"cost":0.30},
-                {"k":"DEX","c":2,"w":1,"p":-0.02,"cost":0.20}],
-                "paper":[{"k":"PUMP_FAMILY","c":20,"w":18,"p":0.40,"cost":0.20}]}"""
+        // Seed outcomes through the same terminal-trade path production uses,
+        // then verify the persisted mode-separated source families.
+        fun closedTrade(mode: String, pnl: Double, basis: Double) = Trade(
+            side = "SELL", mode = mode, sol = basis + pnl, price = 1.0, ts = 200L,
+            pnlSol = pnl, netPnlSol = pnl, entryCostSol = basis,
         )
+        repeat(2) { scorecard.recordClosed("PUMP_PORTAL_WS", closedTrade("live", 0.01, 0.10)) }
+        scorecard.recordClosed("PUMP_PORTAL_WS", closedTrade("live", 0.01, 0.10))
+        scorecard.recordClosed("DEXSCREENER_PAIR_P", closedTrade("live", 0.01, 0.10))
+        scorecard.recordClosed("DEXSCREENER_PAIR_P", closedTrade("live", -0.03, 0.10))
+        repeat(20) { scorecard.recordClosed("PUMP_PORTAL_WS", closedTrade("paper", 0.02, 0.01)) }
 
         val live = scorecard.expectancyFor6915("PUMP_PORTAL_WS,DEXSCREENER_PAIR_P", true)
         assertNotNull(live)
         assertEquals(5, live!!.closed)
-        assertEquals(3, live.wins)
+        assertEquals(4, live.wins)
         assertEquals(2.0, live.meanPnlPct, 0.0001)
         assertEquals(20, scorecard.expectancyFor6915("PUMP_PORTAL_WS", false)!!.closed)
 
