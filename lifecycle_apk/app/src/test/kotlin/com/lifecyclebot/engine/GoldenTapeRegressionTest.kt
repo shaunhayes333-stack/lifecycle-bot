@@ -13546,4 +13546,55 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("src7721.contains(\"HOST_TRACKER_SIGNED_BUY_7708\")"))
     }
 
+    @Test
+    fun V5_0_7722_learning_chokes_a_streak_needs_evidence_every_lane_explores_and_an_inferred_basis_does_not_teach() {
+        // 5.0.7720 snapshot, 478 s: every MOONSHOT request sized at exactly half
+        // (req=0.05972 final=0.02986 reason=OK) on a lane with 8 lifetime closes —
+        // ColdStreakDamper read a persisted 6..9 loss streak and halved without
+        // the 10-close evidence bar 7719 set for streak shaping.
+        val csd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/runtime/ColdStreakDamper.kt").readText()
+        val damp = csd.substringAfter("fun sizeMultiplier(lane: String, isPaper: Boolean): Double {").substringBefore("val mult = when {")
+        assertTrue(damp.contains("ExecutableEntryAuthority6450.laneHasEvidence7719(lane)"))
+        assertTrue(damp.contains("COLD_STREAK_DAMP_DEFERRED_NO_EVIDENCE_7722"))
+        assertTrue(damp.indexOf("COLD_STREAK_NOT_DAMPED_POSITIVE_EV_7331") < damp.indexOf("COLD_STREAK_DAMP_DEFERRED_NO_EVIDENCE_7722"))
+        assertTrue(csd.contains("COLD_STREAK_NOT_DAMPED_POSITIVE_EV_7331"))
+
+        // Same snapshot: CANONICAL_V3_SCORE_FLOOR_7243=622 while TREASURY carried
+        // laneScore=70 against floor=16.4 — the single global exploration slot was
+        // held by the open MOONSHOT/EXPRESS probes. Every lane now has its own
+        // slot; the runner rule (7323) and the pure global predicate are unchanged.
+        val lsa = com.lifecyclebot.engine.truth.LaneScoreAdmission7308
+        assertTrue(lsa.laneSlotFree7722("TREASURY", 0, 0L, 1_000_000L))
+        assertFalse(lsa.laneSlotFree7722("TREASURY", 1, 0L, 1_000_000L))
+        assertFalse(lsa.laneSlotFree7722("TREASURY", 0, 900_000L, 1_000_000L))
+        assertTrue(lsa.laneSlotFree7722("TREASURY", 0, 700_000L, 1_000_000L))
+        assertFalse(lsa.runnerSlotFree("QUALITY", 0, 0L, 1_000_000L))
+        assertTrue(lsa.explorationSlotFree(0, 0L, 1_000_000L))
+        val lsaSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneScoreAdmission7308.kt").readText()
+        val now = lsaSrc.substringAfter("fun runnerSlotFreeNow(").substringBefore("fun explorationSlotFreeNow(")
+        assertTrue(now.contains("if (runnerFree) return true"))
+        assertTrue(now.contains("!com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) && laneSlotFree7722(l, open, lastAt, nowMs)"))
+        assertTrue(now.contains("LANE_EXPLORATION_LANE_SLOT_7722_"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("LaneScoreAdmission7308.runnerSlotFreeNow(floorLane7266)"))
+
+        // Same snapshot: an adopted CRYPTO_SPOT row (HOST_TRACKER_SIGNED, entry=183.80
+        // cost=0.0984 qty=0.02906) sold at TICK_CATASTROPHIC_CONFIRMED_-54PCT and
+        // booked -0.055 SOL into canonical performance. A close on an inferred
+        // basis stays on the bus for the audit and is excluded from every learner.
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        assertTrue(bus.contains("val inferredBasis7722: String? = try {"))
+        assertTrue(bus.contains("CanonicalPositionAuthority6441.getPosition(event.positionId)?.entryPriceSource?.uppercase()"))
+        assertTrue(bus.contains("learningEligible = learningEligibility6519.eligible && economicInvalid6495 == null && inferredBasis7722 == null,"))
+        assertTrue(bus.contains("\"INFERRED_BASIS_7722:\$inferredBasis7722\""))
+        assertTrue(bus.contains("if (economicInvalid6495 == null && inferredBasis7722 != null) {"))
+        assertTrue(bus.contains("FINALIZED_BUS_PUBLISHED_EXCLUDED_INFERRED_BASIS_7722"))
+        assertTrue(bus.indexOf("val inferredBasis7722: String? = try {") < bus.indexOf("val env = CanonicalFinalizedTradeBus6464.Envelope("))
+        for (k in listOf("OBSERVED_MARK_ADOPTION_7706", "HOST_TRACKER_SIGNED_BUY_7708", "BASIS_UNKNOWN", "RECOVERY_6686")) {
+            assertTrue(k, bus.contains("src7722.contains(\"$k\")"))
+        }
+        assertEquals("5.0.7722", java.io.File("../../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7722", java.io.File("../AATE_VERSION").readText().trim())
+    }
+
 }

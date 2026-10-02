@@ -102,6 +102,22 @@ object ColdStreakDamper {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("COLD_STREAK_NOT_DAMPED_POSITIVE_EV_7331") } catch (_: Throwable) {}
                 return 1.0
             }
+            // V5.0.7722 — the same evidence bar as the 7719 streak shaping in
+            // ExecutableEntryAuthority6450. Operator: "tighten only after
+            // proving true entry, strategy, hold etc poor". 5.0.7720 sized
+            // every MOONSHOT request at exactly half (req=0.05972 final=0.02986
+            // reason=OK) on a lane with 8 lifetime closes: this damper read a
+            // 6..9 loss streak (persisted across restarts, paper-seeded) and
+            // halved a lane that has not yet produced the sample a streak
+            // needs to mean anything. Below STREAK_EVIDENCE_MIN_CLOSES_7719
+            // decisive closes the streak is recorded, labelled, and not acted on.
+            val laneHasEvidence7722 = try {
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.laneHasEvidence7719(lane)
+            } catch (_: Throwable) { false }
+            if (!laneHasEvidence7722) {
+                try { PipelineHealthCollector.labelInc("COLD_STREAK_DAMP_DEFERRED_NO_EVIDENCE_7722") } catch (_: Throwable) {}
+                return 1.0
+            }
         }
         val mult = when {
             n <= 2  -> 1.00

@@ -273,6 +273,27 @@ object CanonicalTradeFinalizedBus6450 {
                     }
                 }
             } catch (_: Throwable) {}
+            // V5.0.7722 — a close whose entry basis was inferred (adopted from the
+            // wallet at an observed mark, rebuilt from a signed buy, recovered with
+            // no receipt) has a real exit and a fictional cost. 5.0.7720 sold an
+            // adopted CRYPTO_SPOT row at TICK_CATASTROPHIC_CONFIRMED_-54PCT against
+            // entry=183.80 cost=0.0984 qty=0.02906 (cost x SOL / qty = $406, a price
+            // the asset never traded at) and booked -0.055 SOL into canonical
+            // performance. The sale is real money; the P&L is not evidence about
+            // the entry. Such rows stay on the bus for the audit and the dashboard
+            // and are excluded from every learner, exactly like malformed
+            // economics (7097).
+            val inferredBasis7722: String? = try {
+                val src7722 = CanonicalPositionAuthority6441.getPosition(event.positionId)?.entryPriceSource?.uppercase() ?: ""
+                when {
+                    src7722.contains("OBSERVED_MARK_ADOPTION_7706") -> "OBSERVED_MARK_ADOPTION_7706"
+                    src7722.contains("HOST_TRACKER_SIGNED_BUY_7708") -> "HOST_TRACKER_SIGNED_BUY_7708"
+                    src7722.startsWith("WALLET_RECOVERY") || src7722.startsWith("WALLET_ADOPT") -> "WALLET_RECOVERY"
+                    src7722.contains("BASIS_UNKNOWN") -> "BASIS_UNKNOWN"
+                    src7722.contains("RECOVERY_6686") -> "RECOVERY_6686"
+                    else -> null
+                }
+            } catch (_: Throwable) { null }
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,
@@ -298,9 +319,11 @@ object CanonicalTradeFinalizedBus6450 {
                 terminal = true,
                 // V5.0.7097 — malformed settled economics can never be trainable,
                 // whatever PaperLearningEligibility6519 thinks of the position.
-                learningEligible = learningEligibility6519.eligible && economicInvalid6495 == null,
+                learningEligible = learningEligibility6519.eligible && economicInvalid6495 == null && inferredBasis7722 == null,
                 learningEligibilityReason = if (economicInvalid6495 != null)
                     "ECONOMICS_QUARANTINED_6495:$economicInvalid6495"
+                else if (inferredBasis7722 != null)
+                    "INFERRED_BASIS_7722:$inferredBasis7722"
                 else learningEligibility6519.reason,
                 assetClassTag = event.assetClassTag.ifBlank { entrySnap6567?.assetClassTag ?: AssetClass.fromLane(event.entryLane).tag },
                 economicEventId = event.economicEventId,
@@ -317,6 +340,21 @@ object CanonicalTradeFinalizedBus6450 {
                         env.tradeId, "ECONOMICS_QUARANTINED_6495:$economicInvalid6495",
                     )
                     PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_EXCLUDED_ECONOMICS_7097")
+                } catch (_: Throwable) {}
+            }
+            if (economicInvalid6495 == null && inferredBasis7722 != null) {
+                try {
+                    CanonicalFinalizedTradeBus6464.excludeForAllCanonicalConsumers7097(
+                        env.tradeId, "INFERRED_BASIS_7722:$inferredBasis7722",
+                    )
+                    PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_EXCLUDED_INFERRED_BASIS_7722")
+                    PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_EXCLUDED_INFERRED_BASIS_7722_${event.entryLane.trim().uppercase().take(20)}")
+                    ForensicLogger.lifecycle(
+                        "FINALIZED_LEARNING_EXCLUDED_INFERRED_BASIS_7722",
+                        "positionId=${event.positionId.take(16)} lane=${event.entryLane} basis=$inferredBasis7722 " +
+                            "pnlSol=${"%.5f".format(event.netRealizedPnlSol)} retPct=${"%.1f".format(event.netReturnPct)} " +
+                            "action=row_kept_for_audit_and_dashboard_excluded_from_learners",
+                    )
                 } catch (_: Throwable) {}
             }
             if (CanonicalFinalizedTradeBus6464.publish(env)) {

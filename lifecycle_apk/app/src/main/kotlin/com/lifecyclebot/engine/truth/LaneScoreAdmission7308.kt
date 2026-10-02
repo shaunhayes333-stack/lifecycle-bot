@@ -70,6 +70,20 @@ object LaneScoreAdmission7308 {
             (lastAtMs <= 0L || nowMs - lastAtMs >= EXPLORATION_SPACING_MS)
     }
 
+    /**
+     * V5.0.7722 — every lane has its own exploration slot, not only the runner
+     * lanes. 5.0.7720: the global slot (one unproven live position in ANY lane)
+     * was held by the two open MOONSHOT/EXPRESS probes for their whole hold, so
+     * TREASURY (laneScore=70, floor=16.4), BLUECHIP, QUALITY and CASHGEN died at
+     * FDG as CANONICAL_V3_SCORE_FLOOR_7243 (622) with the generic V3 score 0..11
+     * and never produced a close to learn from — the mirror image of the 7323
+     * defect. One open unproven position per lane, spaced 5 min per lane; the
+     * total book stays bounded by LiveConcentrationDoctrine7697.slots() (3..8),
+     * which is the only authority on how many positions the wallet carries.
+     */
+    fun laneSlotFree7722(lane: String, openInLane: Int, lastAtMs: Long, nowMs: Long): Boolean =
+        openInLane < 1 && (lastAtMs <= 0L || nowMs - lastAtMs >= EXPLORATION_SPACING_MS)
+
     fun runnerSlotFreeNow(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val l = lane.trim().uppercase()
         val open = try {
@@ -77,9 +91,13 @@ object LaneScoreAdmission7308 {
                 it.mode.equals("LIVE", ignoreCase = true) && it.lane.trim().uppercase() == l
             }
         } catch (_: Throwable) { return false }
-        val free = runnerSlotFree(l, open, lastExplorationByLane7323[l] ?: 0L, nowMs)
-        if (free) try { PipelineHealthCollector.labelInc("LANE_EXPLORATION_RUNNER_SLOT_7323_$l") } catch (_: Throwable) {}
-        return free
+        val lastAt = lastExplorationByLane7323[l] ?: 0L
+        val runnerFree = runnerSlotFree(l, open, lastAt, nowMs)
+        if (runnerFree) try { PipelineHealthCollector.labelInc("LANE_EXPLORATION_RUNNER_SLOT_7323_$l") } catch (_: Throwable) {}
+        if (runnerFree) return true
+        val laneFree7722 = !com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) && laneSlotFree7722(l, open, lastAt, nowMs)
+        if (laneFree7722) try { PipelineHealthCollector.labelInc("LANE_EXPLORATION_LANE_SLOT_7722_$l") } catch (_: Throwable) {}
+        return laneFree7722
     }
 
     fun explorationSlotFreeNow(isProven: (String) -> Boolean, nowMs: Long = System.currentTimeMillis()): Boolean {
