@@ -88,12 +88,35 @@ class TursoClient(
         }
     }
 
+    /**
+     * V5.0.7706 §THE_HANDSHAKE_WAS_A_HUNDRED_ROUND_TRIPS.
+     *
+     * initSchema() issued one HTTP request per statement: every CREATE TABLE,
+     * every ALTER TABLE migration, every CREATE INDEX — about 120 sequential
+     * calls with an 8 s timeout each. On the operator's device the init held
+     * initMutex for minutes; the hive supervisor (which waits on that mutex
+     * since 7692) never got a turn, ApiHealthMonitor never saw a "turso" row,
+     * and 5.0.7705 reported HIVE_SUPERVISOR_GATE_PASSED with no connection
+     * attempt visible after three minutes of uptime.
+     *
+     * The pipeline API already accepts many statements per request (batch()
+     * builds exactly that body). Tables, migrations and indexes now go up as
+     * three requests. Each per-statement result is still read individually:
+     * a statement whose batched result is missing or unexplained is re-issued
+     * on its own so the real error is named and a pipeline that stopped early
+     * still applies the rest. Worst case degrades to the old serial path.
+     */
     suspend fun initSchema(): Boolean {
         return try {
-            for (createSql in CollectiveSchema.ALL_TABLES) {
-                val result = execute(createSql.trim())
-                if (!result.success) {
-                    Log.e(TAG, "Schema table init failed: ${result.error}")
+            val startedAt = System.currentTimeMillis()
+            val tables = CollectiveSchema.ALL_TABLES.map { it.trim() }.filter { it.isNotBlank() }
+            val tableResults = batch(tables.map { it to emptyList<Any?>() })
+            for ((i, sql) in tables.withIndex()) {
+                val batched = tableResults.getOrNull(i)
+                if (batched != null && batched.success) continue
+                val single = execute(sql)
+                if (!single.success) {
+                    Log.e(TAG, "Schema table init failed: ${single.error}")
                     return false
                 }
             }
@@ -106,15 +129,17 @@ class TursoClient(
                 .split(";")
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
-
-            for (indexSql in indexStatements) {
-                val result = execute(indexSql)
-                if (!result.success) {
-                    Log.w(TAG, "Index init warning: ${result.error}")
+            val indexResults = batch(indexStatements.map { it to emptyList<Any?>() })
+            for ((i, sql) in indexStatements.withIndex()) {
+                val batched = indexResults.getOrNull(i)
+                if (batched != null && batched.success) continue
+                val single = execute(sql)
+                if (!single.success) {
+                    Log.w(TAG, "Index init warning: ${single.error}")
                 }
             }
 
-            Log.i(TAG, "Schema initialized successfully")
+            Log.i(TAG, "Schema initialized successfully in ${System.currentTimeMillis() - startedAt}ms (tables=${tables.size} migrations=${CollectiveSchema.MIGRATION_STATEMENTS.size} indexes=${indexStatements.size})")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Schema init exception: ${e.message}", e)
@@ -137,25 +162,39 @@ class TursoClient(
 
     suspend fun testConnection(): Boolean = testConnectionResult().success
 
+    private fun migrationAlreadyApplied7706(err: String): Boolean =
+        err.contains("duplicate column name", ignoreCase = true) ||
+            err.contains("already exists", ignoreCase = true)
+
     private suspend fun runMigrations(): Boolean {
-        for (sql in CollectiveSchema.MIGRATION_STATEMENTS) {
-            val result = execute(sql)
-            if (!result.success) {
-                val err = result.error.orEmpty()
-
-                if (
-                    err.contains("duplicate column name", ignoreCase = true) ||
-                    err.contains("already exists", ignoreCase = true)
-                ) {
-                    Log.d(TAG, "Migration already applied: $sql")
-                    continue
-                }
-
-                Log.e(TAG, "Migration failed: $sql | $err")
-                return false
-            } else {
+        // V5.0.7706 — one pipeline request for every migration; an ALTER that
+        // was applied on an earlier install answers "duplicate column" in its
+        // own result slot, which is the same tolerance the serial loop had.
+        val statements = CollectiveSchema.MIGRATION_STATEMENTS
+        val batched = batch(statements.map { it to emptyList<Any?>() })
+        for ((i, sql) in statements.withIndex()) {
+            val r = batched.getOrNull(i)
+            if (r != null && r.success) {
                 Log.i(TAG, "Migration applied: $sql")
+                continue
             }
+            if (r != null && migrationAlreadyApplied7706(r.error.orEmpty())) {
+                Log.d(TAG, "Migration already applied: $sql")
+                continue
+            }
+            // Missing (pipeline stopped early) or unexplained: ask on its own.
+            val single = execute(sql)
+            if (single.success) {
+                Log.i(TAG, "Migration applied: $sql")
+                continue
+            }
+            val err = single.error.orEmpty()
+            if (migrationAlreadyApplied7706(err)) {
+                Log.d(TAG, "Migration already applied: $sql")
+                continue
+            }
+            Log.e(TAG, "Migration failed: $sql | $err")
+            return false
         }
         return true
     }

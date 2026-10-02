@@ -85,11 +85,19 @@ object WrRecoveryPartial {
      * lifetime number degrades.
      */
     fun stateNow(): State {
-        val stats = try {
+        // V5.0.7706 — while the runtime is LIVE, the band is decided by live
+        // closes only. The blended lifetime figure mixes in every paper close
+        // (TradeHistoryStore.liveDecisive7706 explains why that number cannot
+        // speak for the live book). Paper mode keeps the blended read.
+        val liveScoped7706 = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        val liveDecisive7706 = if (liveScoped7706) try {
+            com.lifecyclebot.engine.TradeHistoryStore.liveDecisive7706()
+        } catch (_: Throwable) { null } else null
+        val stats = if (liveDecisive7706 != null) null else try {
             com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
         } catch (_: Throwable) { null }
-        val wins   = (stats?.totalWins ?: 0).toDouble()
-        val losses = (stats?.totalLosses ?: 0).toDouble()
+        val wins   = (liveDecisive7706?.wins ?: stats?.totalWins ?: 0).toDouble()
+        val losses = (liveDecisive7706?.losses ?: stats?.totalLosses ?: 0).toDouble()
         val total  = wins + losses
 
         // V5.9.799 — operator audit: 'win rates / ratio meant to start at
@@ -134,7 +142,8 @@ object WrRecoveryPartial {
         if (targetWR <= 0.0) return State(Band.OFF, currentWR, 0.0, total.toInt(), 0.0, false)
 
         val rollingWr = try {
-            com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePct(50)
+            if (liveDecisive7706 != null) com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePctLive7706(50)
+            else com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePct(50)
         } catch (_: Throwable) { -1.0 }
         val predictive = rollingWr in 0.0..(targetWR * PREDICTIVE_THRESHOLD)
         // V5.9.1221 — rolling collapse guard. Operator screenshot at 1139

@@ -73,13 +73,33 @@ object LiveConcentrationDoctrine7697 {
     fun share(tradeableSol: Double): Double =
         kotlin.math.min(MAX_SHARE_7697, 1.0 / slots(tradeableSol))
 
-    /** Target size of one live position, in SOL. The caller still applies the routable minimum. */
-    fun positionSol(tradeableSol: Double): Double {
+    /**
+     * Target size of one live position, in SOL.
+     *
+     * V5.0.7706 — the routable minimum is part of the answer, not something
+     * the caller bolts on afterwards. 5.0.7699 read positionSol=0.0247 against
+     * routableMin=0.0411 on a one-slot wallet: half of a wallet that can only
+     * carry one ticket is a ticket no DEX will route. A one-slot wallet's
+     * position is the routable minimum; a wallet that cannot carry even that
+     * returns 0 (not affordable), which is the sizer's own refusal.
+     */
+    fun positionSol(tradeableSol: Double, routableMinSol: Double = 0.0): Double {
         val t = if (tradeableSol.isFinite()) tradeableSol.coerceAtLeast(0.0) else 0.0
-        val sol = (t * share(t)).coerceAtMost(MAX_POSITION_SOL_7697)
+        val floor = if (routableMinSol.isFinite()) routableMinSol.coerceAtLeast(0.0) else 0.0
+        if (floor > t) {
+            if (t > 0.0) try { PipelineHealthCollector.labelInc("LIVE_CONCENTRATION_WALLET_BELOW_ONE_ROUTABLE_7706") } catch (_: Throwable) {}
+            return 0.0
+        }
+        val sol = maxOf(t * share(t), floor).coerceAtMost(MAX_POSITION_SOL_7697)
         if (sol > 0.0) floorApplied.incrementAndGet()
         return sol
     }
+
+    /** The routable minimum the sizer would apply right now (0 when the SOL price is unknown). */
+    private fun routableMinNow7706(tradeable: Double): Double = try {
+        val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        if (solUsd > 0.0) com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd).routableMinSol else 0.0
+    } catch (_: Throwable) { 0.0 }
 
     /** The figure live sizing uses (LIVE_WALLET_AUTHORITY_6686) less the untouchable reserve. */
     private fun liveTradeableSol(): Double {
@@ -152,7 +172,8 @@ object LiveConcentrationDoctrine7697 {
 
     fun statusLine(): String {
         val t = liveTradeableSol()
-        return "slots=${slots(t)} share=${"%.0f".format(share(t) * 100)}% positionSol=${"%.4f".format(positionSol(t))} " +
+        val rm = routableMinNow7706(t)
+        return "slots=${slots(t)} share=${"%.0f".format(share(t) * 100)}% positionSol=${"%.4f".format(positionSol(t, rm))} routableMin=${"%.4f".format(rm)} " +
             "liveOpen=${liveOpenCount()} tradeable=${"%.4f".format(t)} " +
             "slotRefusals=${slotRefusals.get()} convictionAllow=${convictionAllows.get()} convictionRefused=${convictionRefusals.get()} " +
             "floorApplied=${floorApplied.get()}" +

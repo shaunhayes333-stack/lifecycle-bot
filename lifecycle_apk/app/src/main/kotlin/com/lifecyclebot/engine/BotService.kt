@@ -1562,9 +1562,18 @@ class BotService : Service() {
                     val healthy = r.isStarted && r.totalTicks > 0L && age < 30_000L
                     if (!healthy) {
                         try {
-                            ForensicLogger.lifecycle("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL", "running=${r.isStarted} ticks=${r.totalTicks} lastTickAgeMs=$age gen=$runtimeGeneration")
+                            ForensicLogger.lifecycle("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL", "running=${r.isStarted} ticks=${r.totalTicks} lastTickAgeMs=$age gen=$runtimeGeneration pendingLiveStart=${r.pendingLiveStart}")
                             PipelineHealthCollector.labelInc("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL")
                         } catch (_: Throwable) {}
+                        // V5.0.7706 — a hard-fail that only logs is the 5.0.7705
+                        // session: start() deferred because the wallet was not
+                        // ready (RECONCILER_START_DEFERRED=1), this check fired
+                        // once, and nothing ever retried — the reconciler never
+                        // ticked, no wallet snapshot was applied, no held-mint
+                        // auto-heal ran, and GovernorRecovery sat in
+                        // BLOCKED_INFRASTRUCTURE for the whole uptime. Retry here,
+                        // and the bot loop now retries every cycle as well.
+                        try { ensureSellReconcilerAlive() } catch (_: Throwable) {}
                     }
                 }
             }
@@ -1661,6 +1670,8 @@ class BotService : Service() {
     //   2. reconciler not started while walletHeldMints>0  → P0, restart now
     //   3. live zombie: activeJobs>0 but totalTicks==0 (loop never advanced)
     @Volatile private var reconcilerWatchdogLastMs: Long = 0L
+    @Volatile private var reconcilerAliveLogMs7706: Long = 0L
+
     private fun ensureSellReconcilerAlive() {
         val cfg = try { com.lifecyclebot.data.ConfigStore.load(applicationContext) } catch (_: Throwable) { return }
         if (cfg.paperMode) {
@@ -1677,10 +1688,16 @@ class BotService : Service() {
         if (now - reconcilerWatchdogLastMs < 3_000L) return
 
         val recon = com.lifecyclebot.engine.sell.SellReconciler
-        try {
-            val age = if (recon.lastTickAtMs > 0L) System.currentTimeMillis() - recon.lastTickAtMs else -1L
-            ForensicLogger.lifecycle("SELL_RECONCILER", "running=${recon.isStarted} ticks=${recon.totalTicks} lastTickAgeMs=$age pending=${recon.pendingLiveStart}")
-        } catch (_: Throwable) {}
+        // V5.0.7706 — called every bot-loop cycle now; the status line is
+        // rate-limited to once a minute so a healthy reconciler is not a
+        // forensic row every five seconds.
+        if (now - reconcilerAliveLogMs7706 >= 60_000L) {
+            reconcilerAliveLogMs7706 = now
+            try {
+                val age = if (recon.lastTickAtMs > 0L) System.currentTimeMillis() - recon.lastTickAtMs else -1L
+                ForensicLogger.lifecycle("SELL_RECONCILER", "running=${recon.isStarted} ticks=${recon.totalTicks} lastTickAgeMs=$age pending=${recon.pendingLiveStart}")
+            } catch (_: Throwable) {}
+        }
         val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
         val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size } catch (_: Throwable) { 0 }
         val zombie = try { recon.isLiveZombie(activeJobs) } catch (_: Throwable) { false }
@@ -20909,6 +20926,14 @@ try {
         "loop=$loopCount phase=POST_SUPERVISOR processed=$processedCount deferred=$deferredCount total=${orderedMints.size}"
     )
 } catch (_: Throwable) {}
+// V5.0.7706 — the sell reconciler is mandatory in live and its only watchdog
+// call sat inside the hot-exit stale branch (never taken in a healthy
+// session). A start deferred for "wallet not ready" was therefore never
+// retried: 5.0.7705 ran 176 s with RECONCILER_START_DEFERRED=1, zero ticks,
+// no wallet snapshot, no held-mint auto-heal, governor recovery stuck in
+// BLOCKED_INFRASTRUCTURE. Every cycle now asks; the call is 3 s debounced
+// and a no-op while the reconciler is ticking.
+try { ensureSellReconcilerAlive() } catch (_: Throwable) {}
 
 // V5.9.1009 — UNIVERSAL EXIT SWEEP enqueue only.
 // Main botLoop must never block on exits. The previous synchronous call here

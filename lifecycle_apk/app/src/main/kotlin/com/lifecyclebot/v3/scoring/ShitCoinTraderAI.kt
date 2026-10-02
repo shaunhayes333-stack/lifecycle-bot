@@ -1348,7 +1348,10 @@ object ShitCoinTraderAI {
         // WrRecoveryPartial.minScoreFloor() (45 / 30 respectively) on top
         // of its FluidLearningAI threshold. FLUID/OFF bands return 0 and
         // change nothing for healthy WR.
-        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
+        // V5.0.7706 — pass the lane: SHITCOIN is a runner lane and 7693 exempted
+        // runner lanes from the WR-recovery floor, but this call never said
+        // which lane it was (5.0.7705: "WR_RECOVERY_SCORE_FLOOR: score=27<55").
+        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor("SHITCOIN") } catch (_: Throwable) { 0 }
         // V5.0.4128 — PATTERN GOLDEN GOOSE. Sharp asymmetric edge applied to
         // the lane score itself (additive, ±35 bounded). Catastrophic
         // verdict (n≥15, WR≤5%) → hard reject. Same goose used by Moonshot

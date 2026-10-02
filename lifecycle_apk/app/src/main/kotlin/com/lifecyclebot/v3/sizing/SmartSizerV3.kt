@@ -438,7 +438,8 @@ class SmartSizerV3(
         // live floor when it is larger. The routable minimum, the share guard
         // (lifted to the same share below) and MAX_POSITION_SOL still bound it.
         val concentrationFloor7697 = if (isLive) try {
-            com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable)
+            // V5.0.7706 — the doctrine applies the routable minimum itself.
+            com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)
         } catch (_: Throwable) { 0.0 } else 0.0
         val liveFloorEff7697 = if (isLive && concentrationFloor7697 > liveNoDustFloor6269) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_CONCENTRATION_FLOOR_APPLIED_7697") } catch (_: Throwable) {}

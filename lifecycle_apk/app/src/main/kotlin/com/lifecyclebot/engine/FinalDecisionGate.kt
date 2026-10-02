@@ -1201,12 +1201,21 @@ object FinalDecisionGate {
         }
         val fdgGateCandidate6025 = if (effectiveGateScore6025 != candidate.entryScore) candidate.copy(entryScore = effectiveGateScore6025) else candidate
         val laneScoreBanded = effectiveGateScore6025.coerceIn(0.0, 100.0).toInt()
-        val canonicalLearning = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
-        val canonicalDecisive = (canonicalLearning?.totalWins ?: 0) + (canonicalLearning?.totalLosses ?: 0)
+        // V5.0.7706 — the learning-deficit dampers below read live closes only
+        // while the runtime is live; the blended journal is paper-dominated
+        // (see TradeHistoryStore.liveDecisive7706).
+        val liveDecisive7706 = if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) try {
+            TradeHistoryStore.liveDecisive7706()
+        } catch (_: Throwable) { null } else null
+        val canonicalLearning = if (liveDecisive7706 != null) null else try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        val canonicalWins7706 = liveDecisive7706?.wins ?: canonicalLearning?.totalWins ?: 0
+        val canonicalDecisive = canonicalWins7706 + (liveDecisive7706?.losses ?: canonicalLearning?.totalLosses ?: 0)
         val canonicalWr = if (canonicalDecisive > 0)
-            (canonicalLearning?.totalWins ?: 0).toDouble() * 100.0 / canonicalDecisive.toDouble()
+            canonicalWins7706.toDouble() * 100.0 / canonicalDecisive.toDouble()
         else 50.0
-        val canonicalRollingWr = try { TradeHistoryStore.rollingWinRatePct(50) } catch (_: Throwable) { -1.0 }
+        val canonicalRollingWr = try {
+            if (liveDecisive7706 != null) TradeHistoryStore.rollingWinRatePctLive7706(50) else TradeHistoryStore.rollingWinRatePct(50)
+        } catch (_: Throwable) { -1.0 }
         val canonicalTargetWr = try { FreeRangeMode.phaseTargetWr(canonicalDecisive) } catch (_: Throwable) { 0.0 }
         val deepLearningDeficit = canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < (canonicalTargetWr * 0.85)
         val moderateLearningDeficit = canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < canonicalTargetWr

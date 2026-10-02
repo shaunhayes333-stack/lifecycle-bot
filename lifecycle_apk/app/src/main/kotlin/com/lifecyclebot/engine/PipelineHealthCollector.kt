@@ -2737,6 +2737,12 @@ object PipelineHealthCollector {
                     com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.statusLine()
                 ).append("\n")
             } catch (_: Throwable) {}
+            // V5.0.7706 — wallet holdings with no receipt, adopted at mark.
+            try {
+                sb.append("  Wallet adoption (§7706):      ").append(
+                    com.lifecyclebot.engine.LiveCanonicalRecovery6686.adoptionStatus7706()
+                ).append("\n")
+            } catch (_: Throwable) {}
             // V5.0.6909 — learned admission now has a caller, and conviction
             // now reaches the sizing floor. Both are surfaced so the next
             // snapshot can be read against the 6908 diagnosis directly:

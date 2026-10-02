@@ -121,6 +121,18 @@ private const val RUNNER_EARLY_EXIT_WINDOW_MS_7693: Long = 5L * 60_000L
 private const val FLAT_CULL_MAX_PEAK_PCT_7353: Double = 10.0
 private const val FLAT_CULL_BAND_PCT_7353: Double = 3.0
 private const val FLAT_CULL_MARK_MAX_AGE_MS_7353: Long = 120_000L  // V5.0.7392 — was 60 s; matches the 7388 cull
+/**
+ * V5.0.7706 — live positions get the "let it develop" window the 7695 flat-exit
+ * protection gave the lane exits. 5.0.7699 closed three live MOONSHOT positions
+ * as DEAD_MONEY_CULL_7388 at about -1% after 13-20 minutes (the inventory-
+ * pressure halving had cut the window to 10 min), the same cut-before-it-moved
+ * pattern the operator keeps reporting, under a different label. Live: no
+ * pressure halving (a two-slot live book is not under paper's inventory
+ * pressure), a 30-minute minimum hold, and a position that has shown +3% life
+ * is not dead money.
+ */
+private const val LIVE_CULL_MIN_HOLD_MS_7706: Long = 30L * 60_000L
+private const val LIVE_CULL_PEAK_EXEMPT_PCT_7706: Double = 3.0
 
 // V5.0.6904 — evidence thresholds for the catastrophic backstop.
 //
@@ -9404,7 +9416,14 @@ class Executor(
         run {
             val lane7353 = ts.position.tradingMode
             val runner7353 = try { RunnerExitProfile7277.isRunnerLane(lane7353) } catch (_: Throwable) { true }
-            if (!runner7353 && posAgeMs >= FLAT_CULL_MIN_HOLD_MS_7353 &&
+            // V5.0.7706 — live: 30-minute minimum and a +3% peak is life, not flat.
+            val live7706 = !ts.position.isPaperPosition
+            if (live7706 && ts.position.peakGainPct >= LIVE_CULL_PEAK_EXEMPT_PCT_7706) {
+                try { PipelineHealthCollector.labelInc("LIVE_CULL_DEFERRED_PEAK_SHOWED_LIFE_7706") } catch (_: Throwable) {}
+                return@run
+            }
+            val minHold7353 = if (live7706) maxOf(FLAT_CULL_MIN_HOLD_MS_7353, LIVE_CULL_MIN_HOLD_MS_7706) else FLAT_CULL_MIN_HOLD_MS_7353
+            if (!runner7353 && posAgeMs >= minHold7353 &&
                 ts.position.peakGainPct < FLAT_CULL_MAX_PEAK_PCT_7353 &&
                 (ts.position.highestPrice <= 0.0 || ts.position.entryPrice <= 0.0 ||
                     ts.position.highestPrice < ts.position.entryPrice * (1.0 + FLAT_CULL_MAX_PEAK_PCT_7353 / 100.0)) &&
@@ -9444,7 +9463,14 @@ class Executor(
             val p7388 = ts.position
             if (p7388.peakGainPct >= PeakDrawdownLock.ARM_THRESHOLD_PCT || p7388.partialSoldPct > 0.0 ||
                 p7388.capitalRecovered || p7388.profitLocked || p7388.isHouseMoney) return@run
-            val pressure7388 = try {
+            // V5.0.7706 — live: no pressure halving, 30-minute minimum, +3% peak exempt
+            // (see LIVE_CULL_MIN_HOLD_MS_7706).
+            val live7706 = !p7388.isPaperPosition
+            if (live7706 && p7388.peakGainPct >= LIVE_CULL_PEAK_EXEMPT_PCT_7706) {
+                try { PipelineHealthCollector.labelInc("LIVE_CULL_DEFERRED_PEAK_SHOWED_LIFE_7706") } catch (_: Throwable) {}
+                return@run
+            }
+            val pressure7388 = if (live7706) false else try {
                 com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.pressureLevel(if (ts.position.isPaperPosition) "PAPER" else "LIVE") >=
                     com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.Pressure.HIGH
             } catch (_: Throwable) { false }
@@ -9453,7 +9479,7 @@ class Executor(
             // so the cull almost never reached a flat meme position. A runner that
             // is running makes new highs and is never culled; peaks >= +20% and
             // banked positions stay exempt as before.
-            val minAgeMs7388 = 20L * 60_000L / (if (pressure7388) 2L else 1L)
+            val minAgeMs7388 = if (live7706) LIVE_CULL_MIN_HOLD_MS_7706 else 20L * 60_000L / (if (pressure7388) 2L else 1L)
             val noHighMs7388 = (if (pressure7388) 5L else 8L) * 60_000L
             val lastHigh7388 = lastNewHighMs7388["${ts.mint}|${p7388.entryTime}"] ?: return@run
             val now7388 = System.currentTimeMillis()

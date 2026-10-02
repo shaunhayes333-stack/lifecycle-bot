@@ -12980,7 +12980,8 @@ class GoldenTapeRegressionTest {
         // share guard is lifted to the same share in BOTH compute() and the
         // read-only preflight (the file's own rule: change them in one commit).
         val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt").readText()
-        assertTrue(sizer.contains("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable)"))
+        // 7706: the doctrine applies the routable minimum itself.
+        assertTrue(sizer.contains("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)"))
         assertEquals(2, Regex(Regex.escape("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.share(tradeable)")).findAll(sizer).count())
         assertTrue(sizer.contains("val safeShareCap7142 = tradeable * shareGuardEff7697"))
         assertTrue(sizer.contains("val safeShareCap = tradeable * shareGuard7697"))
@@ -13007,6 +13008,86 @@ class GoldenTapeRegressionTest {
 
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(phc.contains("Concentration doctrine (§7697):"))
+    }
+
+    @Test
+    fun V5_0_7706_held_tokens_are_managed_the_reconciler_is_retried_and_live_gates_read_live_closes() {
+        // Operator (5.0.7705, fresh install, 176 s): "seems like 0 tokens are
+        // managed". Fourteen wallet balances with no recoverable basis, the
+        // sell reconciler never started (start deferred for wallet-not-ready,
+        // never retried), governor recovery BLOCKED_INFRASTRUCTURE for the
+        // whole uptime, hive handshake still inside its serial schema init.
+
+        // 1. A held token with no receipt is adopted at its observed mark, in
+        //    WALLET_RECOVERED, and only when it is worth one routable sell.
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertFalse(rec.contains("This does NOT invent an entry basis"))
+        assertTrue(rec.contains("private const val ADOPTION_MIN_VALUE_USD_7706 = 5.0"))
+        assertTrue(rec.contains("private fun observedMarkBasis7706(mint: String, amount: CanonicalTokenAmount, ts: com.lifecyclebot.data.TokenState?): Basis?"))
+        assertTrue(rec.contains("?: observedMarkBasis7706(mint, amount, ts)"))
+        val adoptFn = rec.substringAfter("private fun observedMarkBasis7706(").substringBefore("fun recoverWalletSnapshot(")
+        assertTrue(adoptFn.contains("if (!HostWalletTokenTracker.RECOVER_ORPHAN_WALLET_TOKENS) return null"))
+        assertTrue(adoptFn.contains("if (!valueUsd.isFinite() || valueUsd < ADOPTION_MIN_VALUE_USD_7706) {"))
+        assertTrue(adoptFn.contains("lane = \"WALLET_RECOVERED\","))
+        assertTrue(adoptFn.contains("source = \"OBSERVED_MARK_ADOPTION_7706\","))
+        // The unexplained-missing branch still exists for holdings that were not adopted.
+        assertTrue(rec.contains("\"LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686\","))
+        // WALLET_RECOVERED rows stay out of strategy learning.
+        val stl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        assertTrue(stl.contains("return hay.contains(\"WALLET_RECOVERED\") ||"))
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("Wallet adoption (§7706):"))
+
+        // 2. The sell reconciler is retried every bot-loop cycle and from the
+        //    12-second hard-fail check, not only from the hot-exit stale branch.
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertEquals(3, Regex(Regex.escape("try { ensureSellReconcilerAlive() } catch (_: Throwable) {}")).findAll(bot).count())
+        val postSup = bot.indexOf("markProgress(\"POST_SUPERVISOR\")")
+        val loopCall = bot.indexOf("try { ensureSellReconcilerAlive() } catch (_: Throwable) {}", postSup)
+        assertTrue(postSup > 0 && loopCall in (postSup + 1) until (postSup + 1500))
+        val hardFail = bot.indexOf("PipelineHealthCollector.labelInc(\"SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL\")")
+        val hardFailRetry = bot.indexOf("try { ensureSellReconcilerAlive() } catch (_: Throwable) {}", hardFail)
+        assertTrue(hardFail > 0 && hardFailRetry in (hardFail + 1) until (hardFail + 1200))
+        assertTrue(bot.contains("if (now - reconcilerAliveLogMs7706 >= 60_000L) {"))
+
+        // 3. Live culls: 30-minute minimum, no pressure halving, +3% peak exempt.
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("private const val LIVE_CULL_MIN_HOLD_MS_7706: Long = 30L * 60_000L"))
+        assertTrue(exec.contains("private const val LIVE_CULL_PEAK_EXEMPT_PCT_7706: Double = 3.0"))
+        assertTrue(exec.contains("val pressure7388 = if (live7706) false else try {"))
+        assertTrue(exec.contains("val minAgeMs7388 = if (live7706) LIVE_CULL_MIN_HOLD_MS_7706 else 20L * 60_000L / (if (pressure7388) 2L else 1L)"))
+        assertTrue(exec.contains("val minHold7353 = if (live7706) maxOf(FLAT_CULL_MIN_HOLD_MS_7353, LIVE_CULL_MIN_HOLD_MS_7706) else FLAT_CULL_MIN_HOLD_MS_7353"))
+        assertEquals(2, Regex(Regex.escape("LIVE_CULL_DEFERRED_PEAK_SHOWED_LIFE_7706")).findAll(exec).count())
+
+        // 4. Live gates read live closes: WR-recovery band, FDG deficits, SHITCOIN floor.
+        val ths = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(ths.contains("fun liveDecisive7706(): ModeDecisive7706 {"))
+        assertTrue(ths.contains("fun rollingWinRatePctLive7706(n: Int): Double {"))
+        assertEquals(2, Regex(Regex.escape(".filter { isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }")).findAll(ths).count())
+        val wr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WrRecoveryPartial.kt").readText()
+        assertTrue(wr.contains("val liveScoped7706 = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }"))
+        assertTrue(wr.contains("if (liveDecisive7706 != null) com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePctLive7706(50)"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("TradeHistoryStore.liveDecisive7706()"))
+        assertTrue(fdg.contains("val canonicalDecisive = canonicalWins7706 + (liveDecisive7706?.losses ?: canonicalLearning?.totalLosses ?: 0)"))
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue(shit.contains("WrRecoveryPartial.minScoreFloor(\"SHITCOIN\")"))
+        assertFalse(shit.contains("WrRecoveryPartial.minScoreFloor() }"))
+
+        // 5. The doctrine's position never undercuts the routable minimum.
+        val doc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
+        assertTrue(doc.contains("fun positionSol(tradeableSol: Double, routableMinSol: Double = 0.0): Double {"))
+        assertTrue(doc.contains("if (floor > t) {"))
+        assertTrue(doc.contains("val sol = maxOf(t * share(t), floor).coerceAtMost(MAX_POSITION_SOL_7697)"))
+
+        // 6. The hive schema goes up in three pipeline requests, not ~120.
+        val turso = java.io.File("src/main/kotlin/com/lifecyclebot/collective/TursoClient.kt").readText()
+        assertFalse(turso.contains("for (createSql in CollectiveSchema.ALL_TABLES) {"))
+        assertTrue(turso.contains("val tableResults = batch(tables.map { it to emptyList<Any?>() })"))
+        assertTrue(turso.contains("val batched = batch(statements.map { it to emptyList<Any?>() })"))
+        assertTrue(turso.contains("val indexResults = batch(indexStatements.map { it to emptyList<Any?>() })"))
+        // Per-statement tolerance survives: an already-applied migration is not a failure.
+        assertTrue(turso.contains("if (r != null && migrationAlreadyApplied7706(r.error.orEmpty())) {"))
     }
 
 }

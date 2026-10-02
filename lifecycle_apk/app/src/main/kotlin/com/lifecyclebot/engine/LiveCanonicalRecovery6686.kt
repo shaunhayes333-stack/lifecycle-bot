@@ -9,14 +9,116 @@ import java.math.BigInteger
 /**
  * V5.0.6686 — wallet-positive -> canonical LIVE recovery bridge.
  *
- * This does NOT invent an entry basis. A wallet mint is promoted into canonical
- * LIVE authority only when the existing runtime position, persisted position,
- * or finalized canonical buy fill proves a positive cost + entry price.
- * Unknown-basis wallet rows remain visible to HostWalletTokenTracker recovery
- * and are never made trainable by this bridge.
+ * A wallet mint is promoted into canonical LIVE authority with its PROVEN
+ * basis whenever the runtime position, the persisted position, a canonical buy
+ * fill, the fill-lot ledgers or the live journal records a positive cost and
+ * entry price. Those rows are trainable: the P&L is the trade's P&L.
+ *
+ * V5.0.7706 §A_HELD_TOKEN_WITH_NO_RECEIPT_IS_STILL_HELD.
+ *
+ * When none of those sources speaks, the mint used to stay out of the book
+ * ("retain_wallet_tracking_no_invented_basis"). Operator, 5.0.7705: "seems
+ * like 0 tokens are managed" — fourteen wallet balances with
+ * LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686, the SOL that bought them
+ * gone from the wallet (0.0615 -> 0.0235 between snapshots with no new close),
+ * and nothing anywhere that would ever sell them: no canonical position, so no
+ * exit router, no stop, no cull, no P&L, no slot accounting. The wallet is the
+ * bot's trading wallet and the operator has said twice that these are its own
+ * buys whose records did not survive a reinstall.
+ *
+ * So the bridge now ADOPTS such a holding at its observed mark, in lane
+ * WALLET_RECOVERED, with entryPriceSource OBSERVED_MARK_ADOPTION_7706. That is
+ * not inventing a receipt: the cost recorded is what the tokens are worth at
+ * adoption, labelled as such, and WALLET_RECOVERED rows are already excluded
+ * from strategy learning (StrategyTruthLedger.isRecoveryInventory). What it
+ * buys is management: the position sits in the canonical book, counts against
+ * the live slots, is marked every tick, and leaves through the same stops,
+ * locks and flat culls as any other live position — back to SOL. A holding
+ * worth less than the DEX routable minimum is NOT adopted (it cannot be sold;
+ * adopting it would only hold a slot) and is named as such.
  */
 object LiveCanonicalRecovery6686 {
     const val VERSION = "V5.0.6686_LIVE_CANONICAL_RECOVERY"
+
+    /** V5.0.7706 — a holding under this value cannot route a sell; see header. */
+    private const val ADOPTION_MIN_VALUE_USD_7706 = 5.0
+    /** V5.0.7706 — an observed mark older than this is not a basis to adopt at. */
+    private const val ADOPTION_MARK_MAX_AGE_MS_7706 = 10L * 60_000L
+    private val adoptedAtMark7706 = java.util.concurrent.atomic.AtomicLong(0)
+    private val adoptionBelowRoutable7706 = java.util.concurrent.atomic.AtomicLong(0)
+    private val adoptionAwaitingMark7706 = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var lastAdoption7706: String = ""
+
+    fun adoptionStatus7706(): String =
+        "adoptedAtMark=${adoptedAtMark7706.get()} belowRoutableNotAdopted=${adoptionBelowRoutable7706.get()} awaitingMark=${adoptionAwaitingMark7706.get()}" +
+            (if (lastAdoption7706.isNotBlank()) " last=[$lastAdoption7706]" else "") +
+            " read=basis_missing_holdings_are_adopted_at_observed_mark_in_WALLET_RECOVERED_and_exit_through_normal_rules"
+
+    /**
+     * V5.0.7706 — the observed-mark basis for a wallet holding no durable
+     * source can price. Null when there is no fresh mark or SOL price yet
+     * (the next reconcile pass asks again), or when the holding is worth less
+     * than one routable sell.
+     */
+    private fun observedMarkBasis7706(mint: String, amount: CanonicalTokenAmount, ts: com.lifecyclebot.data.TokenState?): Basis? {
+        if (!HostWalletTokenTracker.RECOVER_ORPHAN_WALLET_TOKENS) return null
+        val now = System.currentTimeMillis()
+        val qty = amount.uiDoubleForDisplay()
+        if (!qty.isFinite() || qty <= 0.0) return null
+        val tsMark = ts?.takeIf { it.lastPrice.isFinite() && it.lastPrice > 0.0 && it.lastPriceUpdate > 0L && now - it.lastPriceUpdate <= ADOPTION_MARK_MAX_AGE_MS_7706 }?.lastPrice
+        val trackerMark = try {
+            HostWalletTokenTracker.getEntry(mint)?.takeIf { p ->
+                val px = p.currentPriceUsd
+                px != null && px.isFinite() && px > 0.0 && (p.lastPriceUpdateMs ?: 0L) > 0L && now - (p.lastPriceUpdateMs ?: 0L) <= ADOPTION_MARK_MAX_AGE_MS_7706
+            }?.currentPriceUsd
+        } catch (_: Throwable) { null }
+        val priceUsd = tsMark ?: trackerMark
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (priceUsd == null || !solUsd.isFinite() || solUsd <= 0.0) {
+            adoptionAwaitingMark7706.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("LIVE_WALLET_ADOPTION_AWAITING_MARK_7706") } catch (_: Throwable) {}
+            return null
+        }
+        val valueUsd = qty * priceUsd
+        if (!valueUsd.isFinite() || valueUsd < ADOPTION_MIN_VALUE_USD_7706) {
+            adoptionBelowRoutable7706.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_BELOW_ROUTABLE_NOT_ADOPTED_7706")
+                ForensicLogger.lifecycle(
+                    "LIVE_WALLET_HOLDING_BELOW_ROUTABLE_NOT_ADOPTED_7706",
+                    "mint=${mint.take(12)} qty=$qty priceUsd=$priceUsd valueUsd=${"%.2f".format(valueUsd)} minUsd=$ADOPTION_MIN_VALUE_USD_7706 action=cannot_route_a_sell_left_as_wallet_observation",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        val costSol = try {
+            com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(valueUsd, solUsd)
+        } catch (_: Throwable) { Double.NaN }
+        if (!costSol.isFinite() || costSol <= 0.0) {
+            adoptionAwaitingMark7706.incrementAndGet()
+            return null
+        }
+        adoptedAtMark7706.incrementAndGet()
+        lastAdoption7706 = "mint=${mint.take(8)} valueUsd=${"%.2f".format(valueUsd)} costSol=${"%.4f".format(costSol)}"
+        try {
+            PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_ADOPTED_AT_MARK_7706")
+            ForensicLogger.lifecycle(
+                "LIVE_WALLET_HOLDING_ADOPTED_AT_MARK_7706",
+                "mint=${mint.take(12)} qty=$qty priceUsd=$priceUsd valueUsd=${"%.2f".format(valueUsd)} costSol=${"%.5f".format(costSol)} " +
+                    "markSource=${if (tsMark != null) "token_state" else "wallet_tracker"} lane=WALLET_RECOVERED action=open_canonical_live_position_at_observed_mark_exits_apply",
+            )
+        } catch (_: Throwable) {}
+        return Basis(
+            entryCostSol = costSol,
+            entryPriceUsd = priceUsd,
+            lane = "WALLET_RECOVERED",
+            openedAtMs = now,
+            source = "OBSERVED_MARK_ADOPTION_7706",
+            pool = "",
+            dex = "",
+            identity = "observedmark",
+        )
+    }
 
     private data class Basis(
         val entryCostSol: Double,
@@ -193,6 +295,8 @@ object LiveCanonicalRecovery6686 {
                                 )
                             } else null
                         }
+                        // V5.0.7706 — last: adopt at the observed mark (see header).
+                        ?: observedMarkBasis7706(mint, amount, ts)
                 }
             }
 

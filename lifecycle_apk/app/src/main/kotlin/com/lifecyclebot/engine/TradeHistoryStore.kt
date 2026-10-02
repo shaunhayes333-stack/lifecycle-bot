@@ -2235,6 +2235,87 @@ object TradeHistoryStore {
         return if (decisive > 0) (wins.toDouble() * 100.0) / decisive else 0.0
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7706 §A_LIVE_GATE_READS_LIVE_CLOSES.
+    //
+    // getLifetimeStats() and rollingWinRatePct() count every journal sell in
+    // every mode. On the operator's device that is thousands of paper closes
+    // (CRYPTO_ALT alone wrote 910 at 17% WR) against ten live ones, and the
+    // blended number drove WrRecoveryPartial's band, the FDG
+    // WR_ROLL50_COLLAPSE block and the learning-deficit dampers while the bot
+    // was trading live. Paper's job is to explore; its hit rate is not evidence
+    // about the live book. These two readers see live rows only. They scan the
+    // in-memory journal (capped at MAX_IN_MEMORY_TRADES, far more than the live
+    // row count) and cache for the same 4 s as the blended rolling read.
+    // ─────────────────────────────────────────────────────────────────────
+    data class ModeDecisive7706(val wins: Int, val losses: Int, val sells: Int)
+
+    @Volatile private var liveDecisiveCache7706: ModeDecisive7706? = null
+    @Volatile private var liveDecisiveCacheMs7706: Long = 0L
+
+    private fun isLiveRow7706(t: Trade): Boolean = t.mode.equals("live", ignoreCase = true)
+
+    /** Live-mode decisive counts from the journal: wins, losses, sell-like rows. */
+    fun liveDecisive7706(): ModeDecisive7706 {
+        val now = System.currentTimeMillis()
+        liveDecisiveCache7706?.let { if (now - liveDecisiveCacheMs7706 < ROLLING_WR_CACHE_MS) return it }
+        val onMain = try { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            liveDecisiveCache7706?.let { return it }
+            try {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try { liveDecisive7706() } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+            return ModeDecisive7706(0, 0, 0)
+        }
+        val sample = synchronized(lock) {
+            trades.filter { isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }
+        }
+        val out = ModeDecisive7706(
+            wins = sample.count { isWin(it) },
+            losses = sample.count { isLoss(it) },
+            sells = sample.size,
+        )
+        liveDecisiveCache7706 = out
+        liveDecisiveCacheMs7706 = now
+        return out
+    }
+
+    /** Rolling win rate over the newest [n] LIVE sells; -1.0 when fewer than n/2 decisive. */
+    fun rollingWinRatePctLive7706(n: Int): Double {
+        val key = -n   // negative keys: live-only entries in the shared cache
+        val now = System.currentTimeMillis()
+        val onMain = try { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val cached = rollingWrCache[key]
+            if (cached != null && now - rollingWrCacheMs < ROLLING_WR_CACHE_MS) return cached
+            try {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try { rollingWrCache[key] = computeRollingWinRatePctLive7706(n) } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+            return cached ?: -1.0
+        }
+        val v = computeRollingWinRatePctLive7706(n)
+        rollingWrCache[key] = v
+        return v
+    }
+
+    private fun computeRollingWinRatePctLive7706(n: Int): Double {
+        val sample = synchronized(lock) {
+            trades.asReversed().asSequence()
+                .filter { isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }
+                .take(n)
+                .toList()
+        }
+        val wins = sample.count { isWin(it) }
+        val losses = sample.count { isLoss(it) }
+        val decisive = wins + losses
+        if (decisive < n / 2) return -1.0
+        return if (decisive > 0) (wins.toDouble() * 100.0) / decisive else 0.0
+    }
+
     /**
      * V5.9.798 — operator audit: WR Recovery Heatmap.
      * Returns WR pct for a [width]-trade window starting [offset] sells
