@@ -43,6 +43,8 @@ class Aate6686LiveAuthorityRecoveryTest {
         assertTrue(reservation.contains("it.mint == mint"))
         assertTrue(reservation.contains("it.mode.equals(\"live\", true)"))
         assertTrue(reservation.contains("PENDING_ENTRY_TTL_CANCELLED_6461"))
+        assertTrue(reservation.contains("EXIT_ELIGIBILITY_6570:INVALID_ENTRY_BASIS"))
+        assertTrue(reservation.contains("EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY"))
         assertTrue(fallback.contains("reservation.entryCostSol"))
         assertTrue(fallback.contains("reservation.entryPriceUsd"))
         assertTrue(fallback.contains("CANONICAL_PENDING_ENTRY_RESERVATION_7699"))
