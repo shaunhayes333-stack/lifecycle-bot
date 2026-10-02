@@ -33,6 +33,24 @@ class Aate6686LiveAuthorityRecoveryTest {
         assertTrue(reconciler.contains("LiveCanonicalRecovery6686.recoverWalletSnapshot(status, walletMints)"))
     }
 
+    @Test fun `wallet proven pending bot buys recover into live exit scope without adopting unrelated holds`() {
+        val bridge = src("com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt")
+        val reservation = bridge.substringAfter("val pendingReservation7699")
+            .substringBefore("val basis: Basis?")
+        val fallback = bridge.substringAfter("botReservation7699?.let")
+            .substringBefore("if (basis == null)")
+
+        assertTrue(reservation.contains("it.mint == mint"))
+        assertTrue(reservation.contains("it.mode.equals(\"live\", true)"))
+        assertTrue(reservation.contains("PENDING_ENTRY_TTL_CANCELLED_6461"))
+        assertTrue(fallback.contains("reservation.entryCostSol"))
+        assertTrue(fallback.contains("reservation.entryPriceUsd"))
+        assertTrue(fallback.contains("CANONICAL_PENDING_ENTRY_RESERVATION_7699"))
+        assertTrue(bridge.contains("LIVE_PENDING_ENTRY_PROMOTED_FROM_WALLET_7133"))
+        assertTrue(bridge.contains("if (basis == null)"))
+        assertTrue(bridge.contains("action=retain_wallet_tracking_no_invented_basis"))
+    }
+
     @Test fun `ui positions project from canonical authority not mutable discovery token map`() {
         val projection = src("com/lifecyclebot/engine/truth/CanonicalUiPositionProjection6686.kt")
         val authority = src("com/lifecyclebot/engine/truth/UiSnapshotAuthority6496.kt")
