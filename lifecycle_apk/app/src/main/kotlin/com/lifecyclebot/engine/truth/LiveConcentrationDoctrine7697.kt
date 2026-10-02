@@ -34,7 +34,9 @@ import java.util.concurrent.atomic.AtomicLong
  * that decide size, count and admission read it:
  *
  *   SLOTS      how many live positions the wallet may hold at once:
- *              < 1 SOL -> 2, < 5 -> 3, < 20 -> 4, otherwise 6.
+ *              V5.0.7717: what it can route, floor(tradeable / routableMin),
+ *              bounded to 3..8 (was a fixed 2 under 1 SOL; operator: "I
+ *              don't want two slots").
  *   SHARE      each position is tradeable / slots (never over 50%, never over
  *              MAX_POSITION_SOL), applied as the live floor in SmartSizerV3
  *              and as the share guard, so the sizer stops clamping to 0.05.
@@ -58,15 +60,39 @@ object LiveConcentrationDoctrine7697 {
     private val floorApplied = AtomicLong(0)
     @Volatile private var lastRefusal: String = ""
 
-    /** Concurrent live positions the wallet may hold. */
+    /** V5.0.7717 — the slot count is bounded, not fixed: see slots(). */
+    const val MIN_SLOTS_7717 = 3
+    const val MAX_SLOTS_7717 = 8
+
+    /**
+     * Concurrent live positions the wallet may hold.
+     *
+     * V5.0.7717 — operator, on the 7697 ladder (2 slots under 1 SOL): "I don't
+     * want two slots. I just want ... the bot to have the ability to trade as
+     * it likes but not spread cash over 30 tokens." So the count is what the
+     * wallet can actually route, floor(tradeable / routableMin), bounded to
+     * [MIN_SLOTS_7717, MAX_SLOTS_7717]. At 0.24 SOL and a $5 routable minimum
+     * that is five. Size above the routable floor is the sizer's conviction
+     * call; the ceiling is the only thing this function imposes.
+     *
+     * Computed from the sizer's own constants rather than through
+     * routableCapacityPreflight7224, which reads share() -> slots() and would
+     * recurse.
+     */
     fun slots(tradeableSol: Double): Int {
-        val t = if (tradeableSol.isFinite()) tradeableSol else 0.0
-        return when {
-            t < 1.0 -> 2
-            t < 5.0 -> 3
-            t < 20.0 -> 4
-            else -> 6
-        }
+        val t = if (tradeableSol.isFinite()) tradeableSol.coerceAtLeast(0.0) else 0.0
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val rawMin = try {
+            EconomicUnitInvariant7061.usdToSol(com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_ROUTABLE_MIN_USD_7127, solUsd)
+        } catch (_: Throwable) { Double.NaN }
+        val routableMin = if (rawMin.isFinite() && rawMin > 0.0) {
+            rawMin.coerceIn(
+                com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127,
+                com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127,
+            )
+        } else com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127
+        val capacity = if (t > 0.0 && routableMin > 0.0) kotlin.math.floor(t / routableMin).toInt() else MIN_SLOTS_7717
+        return capacity.coerceIn(MIN_SLOTS_7717, MAX_SLOTS_7717)
     }
 
     /** Share of tradeable one live position takes. */

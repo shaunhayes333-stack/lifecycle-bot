@@ -56,6 +56,12 @@ class AATEApp : Application() {
     override fun onCreate() {
         super.onCreate()
         _appCtx = applicationContext
+        // V5.0.7717 — load the previous process's crash verdict first, so a
+        // startup crash in the last run keeps optional doctrine layers off in
+        // this one and the report can print the trace.
+        try {
+            com.lifecyclebot.engine.truth.StartupCrashGuard7717.markProcessStart(this, com.lifecyclebot.BuildConfig.VERSION_NAME)
+        } catch (_: Throwable) {}
         // V5.0.6487 — this is a per-process prompt latch, not durable consent.
         // Clearing here lets every fresh process remind the operator until Android
         // confirms unrestricted battery access; service restarts in this process do not spam.
@@ -587,6 +593,15 @@ class AATEApp : Application() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            // V5.0.7717 — synchronous record before anything else: prefs with
+            // commit() and files/last_crash_7717.txt. ErrorLogger below is
+            // asynchronous and the default handler kills the process in
+            // milliseconds, which is how 5.0.7715's crash was never readable.
+            try {
+                com.lifecyclebot.engine.truth.StartupCrashGuard7717.recordCrash(
+                    this, thread, throwable, com.lifecyclebot.BuildConfig.VERSION_NAME,
+                )
+            } catch (_: Throwable) {}
             try {
                 // Log the crash to our database
                 ErrorLogger.crash(

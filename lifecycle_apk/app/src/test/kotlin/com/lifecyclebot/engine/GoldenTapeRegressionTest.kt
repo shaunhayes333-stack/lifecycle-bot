@@ -12965,12 +12965,11 @@ class GoldenTapeRegressionTest {
         val doc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
         assertTrue(doc.contains("object LiveConcentrationDoctrine7697"))
         assertTrue(doc.contains("const val MAX_SHARE_7697 = 0.50"))
-        // Slot ladder: 2 under 1 SOL, 3 under 5, 4 under 20, else 6.
+        // V5.0.7717 — slots are routable capacity bounded to 3..8 (operator:
+        // "I don't want two slots"); see V5_0_7717 test for the rule itself.
         val slotsFn = doc.substringAfter("fun slots(tradeableSol: Double): Int {").substringBefore("fun share(")
-        assertTrue(slotsFn.contains("t < 1.0 -> 2"))
-        assertTrue(slotsFn.contains("t < 5.0 -> 3"))
-        assertTrue(slotsFn.contains("t < 20.0 -> 4"))
-        assertTrue(slotsFn.contains("else -> 6"))
+        assertTrue(slotsFn.contains("return capacity.coerceIn(MIN_SLOTS_7717, MAX_SLOTS_7717)"))
+        assertFalse(slotsFn.contains("t < 1.0 -> 2"))
         assertTrue(doc.contains("kotlin.math.min(MAX_SHARE_7697, 1.0 / slots(tradeableSol))"))
         // Conviction: specialist must not have rejected; danger objections refuse.
         assertTrue(doc.contains("if (opinion != null && opinion.authoritative && !opinion.eligible) {"))
@@ -13195,6 +13194,172 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("requestSell(ts = ts, reason = \"RECOVERED_DUST_LIQUIDATION_7708\", wallet = wallet, walletSol = walletSol)"))
         assertTrue(exec.contains("if (!valueSol7708.isFinite() || routableMin7708 <= 0.0 || valueSol7708 >= routableMin7708) return@run"))
         assertTrue(exec.indexOf("RECOVERED_DUST_LIQUIDATION_7708") < exec.indexOf("\"STALE_FLAT_CULL_7353\""))
+    }
+
+    @Test
+    fun V5_0_7715_the_field_manual_is_the_baseline_brain_in_both_modes() {
+        // Operator, handing over "The Crypto Trader's Field Manual": "I want
+        // this used as a baseline logic helper. so from trade one live or
+        // paper there is a real trading brain to build on. this goes
+        // everywhere." Everywhere is four seams every trade of every lane
+        // already passes through: the final decision gate, the one sizing
+        // authority, the sell request, and the LLM system prompt.
+        val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
+        assertTrue(fm.contains("object FieldManual7715 {"))
+        // The manual's vocabulary: Decision / Regime / SetupFamily A-J / ExitClass / LaneMandate / PlanCard / Verdict.
+        assertTrue(fm.contains("enum class Decision { ENTER, SMALL_PROBE, WAIT, PASS }"))
+        assertTrue(fm.contains("enum class Regime { UPTREND, DOWNTREND, RANGE, VOL_EXPANSION, LAUNCH, IMPAIRED, UNKNOWN }"))
+        assertTrue(fm.contains("enum class SetupFamily(val code: Char, val label: String) {"))
+        assertTrue(fm.contains("DERIVATIVES('J', \"shorting and derivatives\"),"))
+        assertTrue(fm.contains("enum class ExitClass { STRUCTURAL, INTEGRITY, TARGET, TIME, REGIME, OPERATIONAL, OTHER }"))
+        assertTrue(fm.contains("data class LaneMandate("))
+        assertTrue(fm.contains("data class PlanCard("))
+        assertTrue(fm.contains("data class Verdict("))
+        // The maths, each a sentence from the manual.
+        assertTrue(fm.contains("fun allInCostPct(sizeUsd: Double, liquidityUsd: Double): Double {"))
+        assertTrue(fm.contains("fun impactRoundTripPct(sizeUsd: Double, liquidityUsd: Double): Double {"))
+        assertTrue(fm.contains("fun sizeFromStop(equitySol: Double, riskFraction: Double, lossFractionPct: Double): Double {"))
+        assertTrue(fm.contains("fun expectancy(winRate: Double, avgNetWin: Double, avgNetLoss: Double): Double {"))
+        assertTrue(fm.contains("fun profitFactor(sumNetWins: Double, sumNetLosses: Double): Double {"))
+        assertTrue(fm.contains("fun rMultiple(realisedNetPnl: Double, plannedRisk: Double): Double ="))
+        assertTrue(fm.contains("fun rewardToRisk(expectedGrossPct: Double, invalidationPct: Double, allInCostPct: Double): Double {"))
+        assertTrue(fm.contains("fun regimeOf(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Regime {"))
+        assertTrue(fm.contains("fun runUpPct(ts: TokenState): Double {"))
+        assertTrue(fm.contains("fun triggerFor(setup: SetupFamily, ts: TokenState, candidate: CandidateDecision, regime: Regime): Pair<Boolean, String> {"))
+        assertTrue(fm.contains("fun mandateFor(lane: String?): LaneMandate {"))
+        assertTrue(fm.contains("fun cardFor("))
+        assertTrue(fm.contains("fun evaluate(card: PlanCard): Verdict {"))
+        assertTrue(fm.contains("fun decide("))
+        assertTrue(fm.contains("fun probeSizeMultiplier(mint: String): Double {"))
+        assertTrue(fm.contains("fun riskCapSol(lane: String?, paper: Boolean, equitySol: Double): Double {"))
+        assertTrue(fm.contains("fun noteRiskCapApplied(lane: String?, requestedSol: Double, cappedSol: Double) {"))
+        assertTrue(fm.contains("fun classifyExit(reason: String): ExitClass {"))
+        assertTrue(fm.contains("fun noteExit(reason: String, paper: Boolean): ExitClass {"))
+        assertTrue(fm.contains("fun doctrineForLlm(): String = DOCTRINE_7715"))
+        assertTrue(fm.contains("fun withDoctrine7715(systemPrompt: String): String {"))
+        assertTrue(fm.contains("fun statusLine(): String {"))
+        // Thresholds named after the manual's sentences.
+        assertTrue(fm.contains("const val QUOTE_MAX_AGE_MS_7715 = 180_000L"))
+        assertTrue(fm.contains("const val MAX_IMPACT_ROUND_TRIP_PCT_7715 = 20.0"))
+        assertTrue(fm.contains("const val MAX_COST_SHARE_OF_GROSS_7715 = 0.50"))
+        assertTrue(fm.contains("const val MIN_R_PASS_7715 = 0.5"))
+        assertTrue(fm.contains("const val MIN_R_FULL_7715 = 1.0"))
+        assertTrue(fm.contains("const val LATE_RUN_UP_PCT_7715 = 60.0"))
+        assertTrue(fm.contains("const val PROBE_SIZE_MULTIPLIER_7715 = 0.5"))
+        assertTrue(fm.contains("const val BASE_ROUND_TRIP_COST_PCT_7715 = 1.5"))
+        assertTrue(fm.contains("const val SLIPPAGE_ALLOWANCE_PCT_7715 = 1.0"))
+        // Hard refusals are the same in both modes; evidence gaps are WAIT on
+        // live and SMALL_PROBE on paper (paper explores, live concentrates).
+        assertTrue(fm.contains("hard.isNotEmpty() -> Decision.PASS"))
+        assertTrue(fm.contains("soft.isEmpty() -> Decision.ENTER"))
+        assertTrue(fm.contains("card.paper -> Decision.SMALL_PROBE"))
+        assertTrue(fm.contains("else -> Decision.WAIT"))
+        assertTrue(fm.contains("if (!card.identityResolved) hard += "))
+        assertTrue(fm.contains("if (card.rewardToRisk < MIN_R_PASS_7715) hard += "))
+        // The live risk cap never undercuts the routable floor, and says so.
+        assertTrue(fm.contains("FIELD_MANUAL_RISK_CAP_UNDER_ROUTABLE_FLOOR_7715"))
+        // No inline usd / solUsd anywhere in the manual.
+        assertFalse(fm.contains("/ solUsd"))
+
+        // Seam 1: the gate, before any lane-specific gate, both modes.
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        // 7717: the call sits in a private helper behind active().
+        assertTrue(fdg.contains("val manual7715 = fieldManualVerdict7715(ts, candidate, manualLane7715, config.paperMode, proposedSizeSol)"))
+        assertTrue(fdg.contains("com.lifecyclebot.engine.truth.FieldManual7715.decide(ts, candidate, lane, paper, proposedSizeSol)"))
+        assertTrue(fdg.contains("if (manual7715 != null && manual7715.blocks) {"))
+        assertTrue(fdg.contains("blockReason = manual7715.blockReason,"))
+        assertTrue(fdg.indexOf("fieldManualVerdict7715(ts, candidate, manualLane7715") < fdg.indexOf("val overlayLane = laneName"))
+        assertTrue(fdg.indexOf("fieldManualVerdict7715(ts, candidate, manualLane7715") > fdg.indexOf("val laneName = tradingModeTag?.name ?: \"STANDARD\""))
+
+        // Seam 2: the one sizing authority applies the risk cap and the probe multiplier as ceilings.
+        val osr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        assertTrue(osr.contains("FieldManual7715.riskCapSol(laneName, paperMode, authoritativeCash)"))
+        assertTrue(osr.contains("if (mint.isNotBlank()) FieldManual7715.probeSizeMultiplier(mint) else 1.0"))
+        assertTrue(osr.contains("val cashClamped1 = (cashClamped0 * probeMult7715).coerceAtMost(manualCap7715)"))
+        assertTrue(osr.contains("val cashClamped = cashClamped1"))
+        assertTrue(osr.indexOf("val cashClamped = cashClamped1") < osr.indexOf("val laneClamped = cashClamped.coerceAtMost(laneRiskCapSol)"))
+
+        // Seam 3: every sell request is classified by the exit discipline.
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("com.lifecyclebot.engine.truth.FieldManual7715.noteExit(reason, ts.position.isPaperPosition)"))
+        assertTrue(exec.indexOf("FieldManual7715.noteExit(") > exec.indexOf("fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {"))
+
+        // Seam 4: every LLM call carries the doctrine first.
+        val gem = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GeminiCopilot.kt").readText()
+        assertTrue(gem.contains("com.lifecyclebot.engine.truth.FieldManual7715.withDoctrine7715(systemPrompt)"))
+        assertEquals(2, Regex("systemPrompt = doctrinePrompt7715\\(systemPrompt\\),").findAll(gem).count())
+
+        // Report line and the verbatim manual in docs.
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("Field manual (§7715):"))
+        val doc = java.io.File("../../docs/FIELD_MANUAL.md").readText()
+        assertTrue(doc.contains("The Crypto Trader"))
+        assertTrue(doc.contains("Decision: ENTER / SMALL PROBE / WAIT / PASS"))
+    }
+
+    @Test
+    fun V5_0_7717_startup_crash_guard_capacity_slots_and_the_manual_behind_active() {
+        // 5.0.7715 crashed the app the instant the password was accepted; the
+        // trace was never readable (ErrorLogger is asynchronous, the default
+        // handler kills the process) and the emulator never reaches the path.
+        // Operator on the 7697 slot ladder: "I don't want two slots ... the
+        // bot to have the ability to trade as it likes but not spread cash
+        // over 30 tokens."
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/StartupCrashGuard7717.kt").readText()
+        assertTrue(guard.contains("object StartupCrashGuard7717 {"))
+        assertTrue(guard.contains("const val STARTUP_WINDOW_MS_7717 = 120_000L"))
+        assertTrue(guard.contains("const val SUPPRESS_MS_7717 = 6L * 60L * 60_000L"))
+        assertTrue(guard.contains("const val LAST_CRASH_FILE_7717 = \"last_crash_7717.txt\""))
+        assertTrue(guard.contains("fun markProcessStart(ctx: Context, buildTag: String) {"))
+        assertTrue(guard.contains("fun recordCrash(ctx: Context, thread: Thread, t: Throwable, buildTag: String) {"))
+        // Synchronous: commit(), not apply(), and a file beside it.
+        assertTrue(guard.contains("e.commit()"))
+        assertFalse(guard.substringAfter("fun recordCrash(").substringBefore("private fun buildHead(").contains(".apply()"))
+        assertTrue(guard.contains("fun manualSuppressed(): Boolean {"))
+        assertTrue(guard.contains("fun lastCrashSummary(): String {"))
+        assertTrue(guard.contains("fun uptimeMs(): Long"))
+        assertTrue(guard.contains("fun statusLine(): String ="))
+
+        // The app records first and loads first.
+        val app = java.io.File("src/main/kotlin/com/lifecyclebot/AATEApp.kt").readText()
+        assertTrue(app.contains("com.lifecyclebot.engine.truth.StartupCrashGuard7717.markProcessStart(this, com.lifecyclebot.BuildConfig.VERSION_NAME)"))
+        val handler = app.substringAfter("Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->")
+        assertTrue(handler.indexOf("StartupCrashGuard7717.recordCrash(") < handler.indexOf("ErrorLogger.crash("))
+
+        // The report prints the last crash at the top.
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.indexOf("Last crash (§7717):") < phc.indexOf("Wallet adoption (§7706):"))
+        assertTrue(phc.indexOf("Last crash (§7717):") > phc.indexOf("===== AATE Pipeline Health Snapshot ====="))
+
+        // The manual is behind active(): a minute after start, never after a startup crash.
+        val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
+        assertTrue(fm.contains("const val ACTIVATION_DELAY_MS_7717 = 60_000L"))
+        assertTrue(fm.contains("!StartupCrashGuard7717.manualSuppressed() && StartupCrashGuard7717.uptimeMs() >= ACTIVATION_DELAY_MS_7717"))
+        assertTrue(fm.contains("if (mint.isBlank() || !active()) return 1.0"))
+        assertTrue(fm.substringAfter("fun riskCapSol(").contains("if (!active()) return Double.POSITIVE_INFINITY"))
+        assertTrue(fm.substringAfter("fun noteExit(").contains("if (!active()) return cls"))
+        assertTrue(fm.substringAfter("fun withDoctrine7715(").contains("if (!active()) return systemPrompt"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("private fun fieldManualVerdict7715("))
+        assertTrue(fdg.contains("if (com.lifecyclebot.engine.truth.FieldManual7715.active()) {"))
+
+        // Slots: routable capacity bounded to 3..8, computed without the
+        // preflight (share() -> slots() would recurse through it).
+        val doc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
+        assertTrue(doc.contains("const val MIN_SLOTS_7717 = 3"))
+        assertTrue(doc.contains("const val MAX_SLOTS_7717 = 8"))
+        val slotsFn = doc.substringAfter("fun slots(tradeableSol: Double): Int {").substringBefore("fun share(")
+        assertTrue(slotsFn.contains("EconomicUnitInvariant7061.usdToSol(com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_ROUTABLE_MIN_USD_7127, solUsd)"))
+        assertTrue(slotsFn.contains("kotlin.math.floor(t / routableMin).toInt()"))
+        assertTrue(slotsFn.contains("return capacity.coerceIn(MIN_SLOTS_7717, MAX_SLOTS_7717)"))
+        assertFalse(slotsFn.contains("routableCapacityPreflight7224"))
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt").readText()
+        assertTrue(sizer.contains("        const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0"))
+
+        // Bot-sourced dust is adopted at the $2 floor so it is sold, not left squatting a slot.
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(rec.contains("private fun isBotSourcedRow7717(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean ="))
+        assertTrue(rec.contains("return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_ROUTED_ADOPTION_MIN_USD_7708 else ADOPTION_MIN_VALUE_USD_7706"))
     }
 
 }

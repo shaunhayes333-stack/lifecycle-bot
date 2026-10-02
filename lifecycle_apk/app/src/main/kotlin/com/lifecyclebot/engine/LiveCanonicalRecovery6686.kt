@@ -88,10 +88,26 @@ object LiveCanonicalRecovery6686 {
         p != null && !p.buySignature.isNullOrBlank() &&
             (p.source == HostWalletTokenTracker.PositionSource.BOT_BUY || p.source == HostWalletTokenTracker.PositionSource.TX_PARSE)
 
+    /**
+     * V5.0.7717 — a row the tracker attributes to the bot (buy, parsed tx, or
+     * restored after restart) is bot inventory whether or not the signature
+     * survived. LiveBuyAdmissionGate already counts it as bot-held, so leaving
+     * it unadopted makes it an unmanaged holding that reserves a slot for
+     * ever (5.0.7716: PIXEL, $3.91, 24 live buys refused). Adopting it at the
+     * $2 floor hands it to the 7708 dust liquidation, and a route refusal
+     * there ends in 7714's terminal stamp; either way the slot comes back.
+     */
+    private fun isBotSourcedRow7717(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =
+        p != null && (
+            p.source == HostWalletTokenTracker.PositionSource.BOT_BUY ||
+                p.source == HostWalletTokenTracker.PositionSource.TX_PARSE ||
+                p.source == HostWalletTokenTracker.PositionSource.RECOVERED_AFTER_RESTART
+            )
+
     /** The smallest holding value, in USD, this bridge will adopt for [mint]. */
     fun adoptionFloorUsd7708(mint: String): Double {
         val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
-        return if (isBotSignedRow7708(p)) BOT_ROUTED_ADOPTION_MIN_USD_7708 else ADOPTION_MIN_VALUE_USD_7706
+        return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_ROUTED_ADOPTION_MIN_USD_7708 else ADOPTION_MIN_VALUE_USD_7706
     }
 
     /**

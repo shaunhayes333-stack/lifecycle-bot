@@ -60,16 +60,19 @@ class SmartSizerV3(
          *  V5.0.6269's own finding: "pump.fun tokens simply have no executable
          *  route below ~$5". Converted at the live SOL price each call, so the
          *  floor tracks the market instead of freezing at one exchange rate. */
-        private const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0
+        // V5.0.7717 — read by LiveConcentrationDoctrine7697.slots(), which
+        // must not call routableCapacityPreflight7224 (that calls share(),
+        // which calls slots(): a cycle).
+        const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0
 
         /** Hard lower bound on the converted routable minimum. Guards against a
          *  bad or spiking SOL price producing a floor small enough to reinstate
          *  the ROUTE_FAILED dust that V5.0.6269 was built to stop. */
-        private const val LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127 = 0.010
+        const val LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127 = 0.010
 
         /** The historical fixed floor, retained as the band's CEILING so a
          *  funded wallet sizes exactly as it did before this change. */
-        private const val LIVE_FLOOR_CEILING_SOL_7127 = 0.05
+        const val LIVE_FLOOR_CEILING_SOL_7127 = 0.05
 
         /** Used only when the SOL price is unknown. Falls back to the old
          *  constant rather than guessing a cheaper floor we cannot justify. */

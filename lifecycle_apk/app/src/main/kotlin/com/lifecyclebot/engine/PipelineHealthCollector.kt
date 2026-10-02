@@ -1309,6 +1309,13 @@ object PipelineHealthCollector {
         val sb = StringBuilder(16 * 1024)
         sb.append("===== AATE Pipeline Health Snapshot =====\n")
         sb.append("  Report revision: ${s.reportRevision}\n")
+        // V5.0.7717 — the last process crash, at the top, so the next pasted
+        // snapshot carries the trace without adb.
+        try {
+            sb.append("  Last crash (§7717):    ").append(
+                com.lifecyclebot.engine.truth.StartupCrashGuard7717.lastCrashSummary()
+            ).append("\n")
+        } catch (_: Throwable) {}
         sb.append("  Session completed trades: ${s.canonicalTradeCounts.sessionCompletedTrades}\n")
         sb.append("  Lifetime completed trades: ${s.canonicalTradeCounts.lifetimeCompletedTrades}\n")
         sb.append("  Open positions: ${s.canonicalTradeCounts.openTrades}\n")
@@ -2741,6 +2748,12 @@ object PipelineHealthCollector {
             try {
                 sb.append("  Wallet adoption (§7706):      ").append(
                     com.lifecyclebot.engine.LiveCanonicalRecovery6686.adoptionStatus7706()
+                ).append("\n")
+            } catch (_: Throwable) {}
+            // V5.0.7715 — the Field Manual's plan-card verdicts, risk caps and exit classes.
+            try {
+                sb.append("  Field manual (§7715):         ").append(
+                    com.lifecyclebot.engine.truth.FieldManual7715.statusLine()
                 ).append("\n")
             } catch (_: Throwable) {}
             // V5.0.6909 — learned admission now has a caller, and conviction
