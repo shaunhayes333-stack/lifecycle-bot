@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.data.Trade
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
