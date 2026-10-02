@@ -102,7 +102,7 @@ object LiveBuyAdmissionGate {
             )
         }
         if (coverage7701 is LiveExitCoverageGuard7701.Decision.Blocked) {
-            // V5.0.7712 — reserve a concentration slot for each unresolved
+            // V5.0.7713 — reserve a concentration slot for each unresolved
             // wallet holding instead of freezing every unrelated candidate.
             // The same mint remains blocked (its own quantity is not yet under
             // canonical exit control). Other mints may proceed only when the
@@ -328,6 +328,12 @@ internal object LiveExitCoverageGuard7701 {
         val unresolvedOnly = unmanagedMints.count { it !in canonicalMints }
         return canonicalMints.size + unresolvedOnly >= slotLimit
     }
+    internal fun positiveWalletMints7712(
+        trackerPositiveMints: Set<String>,
+        observedWalletMints: Set<String>,
+        completeSnapshot: Boolean,
+    ): Set<String> = if (completeSnapshot) observedWalletMints else trackerPositiveMints + observedWalletMints
+
     fun assess(walletAddress: String): Decision {
         if (walletAddress.isBlank()) {
             return Decision.Blocked("EXIT_COVERAGE_WALLET_UNKNOWN", "wallet identity unavailable", emptyList())
@@ -345,16 +351,28 @@ internal object LiveExitCoverageGuard7701 {
         // must never perform wallet RPC, but a fresh cache catches a tracker row
         // omission before it can turn a bot-held mint into invisible inventory.
         val walletSnapshot = try {
-            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L).orEmpty()
-        } catch (_: Throwable) { emptyMap() }
-        val positiveWalletMints = (tracker.asSequence()
+            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L)
+        } catch (_: Throwable) { null }
+        val trackerPositiveMints = tracker.asSequence()
             .filter { p ->
                 val raw = runCatching { java.math.BigInteger(p.rawAmount.trim().ifBlank { "0" }) }
                     .getOrDefault(java.math.BigInteger.ZERO)
                 raw > java.math.BigInteger.ONE || (p.uiAmount.isFinite() && p.uiAmount > 0.0)
             }
             .map { it.mint }
-            .toSet() + walletSnapshot.filterValues { it.raw > java.math.BigInteger.ONE }.keys)
+            .toSet()
+        val observedWalletMints = walletSnapshot.orEmpty()
+            .filterValues { it.raw > java.math.BigInteger.ONE }
+            .keys
+        // A fresh complete two-program read is current wallet truth. Tracker
+        // rows absent from it are historical and must not consume live slots.
+        // On partial/missing reads, retain the tracker lower bound and fail
+        // closed for holdings that may have been hidden by a provider miss.
+        val walletSnapshotComplete = walletSnapshot != null &&
+            !com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial()
+        val positiveWalletMints = positiveWalletMints7712(
+            trackerPositiveMints, observedWalletMints, walletSnapshotComplete,
+        )
 
         val botHeld = tracker.asSequence()
             .filter { p ->
@@ -370,7 +388,7 @@ internal object LiveExitCoverageGuard7701 {
                 // A positive wallet balance outranks a historical terminal label.
                 // Sell/reconcile races can stamp CLOSED before the next wallet read;
                 // do not let that label hide tokens that are still physically held.
-                botSource && positive
+                botSource && positive && p.mint in positiveWalletMints
             }
             .map { it.mint }
             .toMutableSet()
@@ -416,7 +434,7 @@ internal object LiveExitCoverageGuard7701 {
         // not proof that the wallet risk disappeared.
         val unmanaged = botHeld.filter { mint ->
             val walletRow = tracker.firstOrNull { it.mint == mint }
-            val cachedAmount = walletSnapshot[mint]
+            val cachedAmount = walletSnapshot?.get(mint)
             val walletRaw = walletRow?.let {
                 runCatching { java.math.BigInteger(it.rawAmount.trim().ifBlank { "0" }) }
                     .getOrDefault(java.math.BigInteger.ZERO)

@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -70,6 +71,30 @@ class LiveBotInventoryCoverage7709Test {
                 unmanagedMints = setOf("held-mint", "managed-but-overage"),
                 canonicalMints = setOf("managed-but-overage"),
                 slotLimit = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun complete_wallet_snapshot_drops_stale_positive_tracker_rows() {
+        assertEquals(
+            setOf("currently-held"),
+            LiveExitCoverageGuard7701.positiveWalletMints7712(
+                trackerPositiveMints = setOf("currently-held", "stale-history"),
+                observedWalletMints = setOf("currently-held"),
+                completeSnapshot = true,
+            ),
+        )
+    }
+
+    @Test
+    fun partial_or_missing_wallet_snapshot_retains_tracker_lower_bound() {
+        assertEquals(
+            setOf("currently-held", "uncertain-tracker-row"),
+            LiveExitCoverageGuard7701.positiveWalletMints7712(
+                trackerPositiveMints = setOf("uncertain-tracker-row"),
+                observedWalletMints = setOf("currently-held"),
+                completeSnapshot = false,
             ),
         )
     }
