@@ -62,7 +62,11 @@ object LiveCanonicalRecovery6686 {
                 try {
                     CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint)
                         .firstOrNull {
-                            it.quarantineReason == "PENDING_ENTRY_TTL_CANCELLED_6461" &&
+                            it.quarantineReason in setOf(
+                                "PENDING_ENTRY_TTL_CANCELLED_6461",
+                                "EXIT_ELIGIBILITY_6570:INVALID_ENTRY_BASIS",
+                                "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY",
+                            ) &&
                                 it.soldCostBasisSol <= 1e-12 &&
                                 it.realizedProceedsSol <= 1e-12 &&
                                 it.realizedPnlSol == 0.0
