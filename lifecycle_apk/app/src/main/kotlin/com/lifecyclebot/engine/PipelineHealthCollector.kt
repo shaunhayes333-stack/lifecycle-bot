@@ -2743,12 +2743,6 @@ object PipelineHealthCollector {
                     com.lifecyclebot.engine.LiveCanonicalRecovery6686.adoptionStatus7706()
                 ).append("\n")
             } catch (_: Throwable) {}
-            // V5.0.7715 — the Field Manual's plan-card verdicts, risk caps and exit classes.
-            try {
-                sb.append("  Field manual (§7715):         ").append(
-                    com.lifecyclebot.engine.truth.FieldManual7715.statusLine()
-                ).append("\n")
-            } catch (_: Throwable) {}
             // V5.0.6909 — learned admission now has a caller, and conviction
             // now reaches the sizing floor. Both are surfaced so the next
             // snapshot can be read against the 6908 diagnosis directly:

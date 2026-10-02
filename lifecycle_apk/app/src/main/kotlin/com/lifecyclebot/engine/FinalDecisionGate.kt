@@ -1243,41 +1243,6 @@ object FinalDecisionGate {
             )
         }
 
-        // V5.0.7715 §THE_FIELD_MANUAL_IS_THE_BASELINE_BRAIN. Every candidate,
-        // both modes, gets a plan card (identity, regime, setup trigger,
-        // all-in cost at the proposed size, reward-to-risk) and a decision
-        // before any lane-specific gate. PASS and WAIT are refusals here;
-        // SMALL_PROBE leaves a size multiplier for OrderSizeResolver6441.
-        // A fault in the manual is no opinion, never a block.
-        val manualLane7715 = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
-        val manual7715 = try {
-            com.lifecyclebot.engine.truth.FieldManual7715.decide(ts, candidate, manualLane7715, config.paperMode, proposedSizeSol)
-        } catch (_: Throwable) { null }
-        if (manual7715 != null && manual7715.blocks) {
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = candidate.aiConfidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = manual7715.blockReason,
-                blockLevel = BlockLevel.HARD,
-                sizeSol = 0.0,
-                tags = listOf(
-                    "field_manual_7715",
-                    "manual_decision:${manual7715.decision.name}",
-                    "manual_setup:${manual7715.card.mandate.setup.code}",
-                    "manual_regime:${manual7715.card.regime.name}",
-                    "lane:$manualLane7715",
-                ),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "FIELD_MANUAL_${manual7715.decision.name}_7715: ${manual7715.reasons.joinToString(" | ")}",
-                gateChecks = listOf(GateCheck("field_manual_7715", false, "${manual7715.decision.name} lane=$manualLane7715 ${manual7715.reasons.firstOrNull().orEmpty()}")),
-            )
-        }
-
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
             return FinalDecision(
