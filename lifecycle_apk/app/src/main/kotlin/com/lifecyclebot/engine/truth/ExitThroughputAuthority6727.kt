@@ -126,7 +126,7 @@ object ExitThroughputAuthority6727 {
         val cashRatio = if (equity > 0.0) cash / equity else 1.0
 
         // V5.0.7697 §FEWER_LARGER_HIGHER_CONVICTION — a live wallet holds at most
-        // LiveConcentrationDoctrine7697.slots() positions at once (V5.0.7717: routable capacity, 3..8).
+        // LiveConcentrationDoctrine7697.slots() positions at once (V5.0.7728: operator-configured 20).
         // Unconditional: it sits above the lane-fairness bypass on purpose. Exits
         // are not consulted here; a slot frees the moment a position closes.
         if (m == "live") {

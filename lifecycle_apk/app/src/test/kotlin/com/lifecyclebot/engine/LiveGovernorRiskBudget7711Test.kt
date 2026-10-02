@@ -23,9 +23,10 @@ class LiveGovernorRiskBudget7711Test {
 
     @Test
     fun smallGlobalSampleDoesNotShapeLiveStakeAndConfidenceFloorNeverBlocksEvidence() {
-        assertEquals(20, LiveEntrySafetyHold.GOVERNOR_MIN_SAMPLE_7711)
-        assertTrue(!LiveEntrySafetyHold.performanceSampleReady7711(19))
-        assertTrue(LiveEntrySafetyHold.performanceSampleReady7711(20))
+        assertEquals(100, LiveEntrySafetyHold.GOVERNOR_MIN_SAMPLE_7711)
+        assertTrue(!LiveEntrySafetyHold.performanceSampleReady7711(22))
+        assertTrue(!LiveEntrySafetyHold.performanceSampleReady7711(99))
+        assertTrue(LiveEntrySafetyHold.performanceSampleReady7711(100))
         assertTrue(LiveEntrySafetyHold.performanceSampleReady7711(200))
         val governor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt").readText()
         assertTrue(governor.contains("!performanceSampleReady7711(stats.canonicalN)"))

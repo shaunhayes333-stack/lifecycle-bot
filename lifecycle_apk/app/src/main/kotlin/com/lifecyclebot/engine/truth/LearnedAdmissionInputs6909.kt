@@ -49,6 +49,14 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object LearnedAdmissionInputs6909 {
 
+    private data class FoundationStamp7715(val atMs: Long, val prior: FieldManual7715.FoundationPrior)
+    private val foundationByCandidate7715 = java.util.concurrent.ConcurrentHashMap<String, FoundationStamp7715>()
+    private const val FOUNDATION_STAMP_TTL_MS_7715 = 60_000L
+    private const val FOUNDATION_STAMP_MAX_ROWS_7715 = 2_048
+
+    private fun foundationKey7715(lane: String, mint: String, paperMode: Boolean): String =
+        "${if (paperMode) "PAPER" else "LIVE"}|${lane.trim().uppercase()}|${mint.trim()}"
+
     private val assembled = AtomicLong(0L)
     private val forecastMissing = AtomicLong(0L)
     private val forecastResolved = AtomicLong(0L)
@@ -92,6 +100,13 @@ object LearnedAdmissionInputs6909 {
         styleHint: String = "",
         tacticHint: String = "",
         candidateConfidenceHint: Double = 0.50,
+        // Candidate as produced by the real strategy call. This lets the
+        // predictive stack consume a Field Manual foundation read before the
+        // capital authority runs, instead of only seeing doctrine in an LLM
+        // prompt or a later FDG verdict.
+        foundationCandidate: com.lifecyclebot.data.CandidateDecision? = null,
+        paperMode: Boolean = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false },
+        foundationSizeSol: Double? = null,
     ): LearnedAdmissionAuthority6846.Inputs {
         assembled.incrementAndGet()
         val laneKey = lane.trim().uppercase().ifBlank { "UNKNOWN" }
@@ -248,6 +263,37 @@ object LearnedAdmissionInputs6909 {
                     liveMode7403 = !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),
                 )
         } catch (_: Throwable) { null }
+        val foundationKey7715 = foundationKey7715(laneKey, mint, paperMode)
+        val manualFoundation7715 = try {
+            if (foundationCandidate != null && tsForBrains6917 != null) {
+                val card = FieldManual7715.cardFor(
+                    tsForBrains6917, foundationCandidate, laneKey, paperMode,
+                    foundationSizeSol?.takeIf { it.isFinite() && it > 0.0 } ?: requestedSizeSol,
+                )
+                FieldManual7715.foundationPrior(card)?.also { prior ->
+                    foundationByCandidate7715[foundationKey7715] = FoundationStamp7715(System.currentTimeMillis(), prior)
+                    if (foundationByCandidate7715.size > FOUNDATION_STAMP_MAX_ROWS_7715) {
+                        val cutoff = System.currentTimeMillis() - FOUNDATION_STAMP_TTL_MS_7715
+                        foundationByCandidate7715.entries
+                            .filter { it.value.atMs < cutoff }
+                            .forEach { foundationByCandidate7715.remove(it.key, it.value) }
+                        if (foundationByCandidate7715.size > FOUNDATION_STAMP_MAX_ROWS_7715) {
+                            foundationByCandidate7715.keys.firstOrNull()?.let(foundationByCandidate7715::remove)
+                        }
+                    }
+                }
+            } else {
+                val stamp = foundationByCandidate7715[foundationKey7715]
+                val ageMs = stamp?.let { System.currentTimeMillis() - it.atMs } ?: Long.MAX_VALUE
+                if (stamp != null && ageMs >= 0L && ageMs <= FOUNDATION_STAMP_TTL_MS_7715) {
+                    try { PipelineHealthCollector.labelInc("FIELD_MANUAL_FOUNDATION_CACHE_HIT_7715") } catch (_: Throwable) {}
+                    stamp.prior
+                } else {
+                    if (stamp != null) foundationByCandidate7715.remove(foundationKey7715, stamp)
+                    null
+                }
+            }
+        } catch (_: Throwable) { null }
         val oracle6915 = try {
             PredictiveEntryOracle6915.evaluate(
                 lane = laneKey,
@@ -273,6 +319,7 @@ object LearnedAdmissionInputs6909 {
                 style = styleHint,
                 tactic = tacticHint,
                 candidateConfidence = candidateConfidenceHint,
+                manualFoundation = manualFoundation7715,
             )
         } catch (_: Throwable) { null }
         if (oracle6915 != null) {
@@ -393,12 +440,16 @@ object LearnedAdmissionInputs6909 {
         styleHint: String = "",
         tacticHint: String = "",
         candidateConfidenceHint: Double = 0.50,
+        foundationCandidate: com.lifecyclebot.data.CandidateDecision? = null,
+        paperMode: Boolean = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false },
+        foundationSizeSol: Double? = null,
     ): ExecutableEntryAuthority6450.Decision {
         return try {
             val inputs = build(
                 lane, mint, requestedSizeSol, entryScore, minExecutableSol, probeSizeSol,
                 sourceFamilyHint, qualityHint, edgePhaseHint, emaFanHint,
                 tradeTypeHint, setupHint, styleHint, tacticHint, candidateConfidenceHint,
+                foundationCandidate, paperMode, foundationSizeSol,
             )
             val decision = ExecutableEntryAuthority6450.gate(inputs)
             if (decision.verdict != ExecutableEntryAuthority6450.Verdict.ALLOW) {

@@ -138,6 +138,31 @@ object FieldManual7715 {
         }
     }
 
+    /**
+     * Small, explicit rule prior for the predictive brain. This encodes the
+     * manual's setup/trigger discipline; it is not a learned outcome or an
+     * EV claim. Missing market evidence stays neutral. The independently
+     * evaluated manual verdict still owns its existing execution boundary.
+     */
+    data class FoundationPrior(val deltaPct: Double, val label: String)
+
+    fun foundationPrior(card: PlanCard): FoundationPrior? {
+        if (!active()) return null
+        val verdict = evaluate(card)
+        val delta = when {
+            verdict.decision == Decision.PASS -> -4.0
+            !card.triggerPresent -> -2.0
+            verdict.decision == Decision.ENTER -> 4.0
+            verdict.decision == Decision.SMALL_PROBE -> 1.0
+            else -> 0.0 // WAIT from stale/unknown inputs is uncertainty, not bearish EV.
+        }
+        return FoundationPrior(
+            deltaPct = delta,
+            label = "fieldManualFoundation(setup=${card.mandate.setup.code},regime=${card.regime.name}," +
+                "trigger=${card.triggerPresent},R=${fmt(card.rewardToRisk)},decision=${verdict.decision.name})",
+        )
+    }
+
     // ──────────────────────────────────────────────────────────────────
     // Thresholds. Each one is a sentence from the manual.
     // ──────────────────────────────────────────────────────────────────

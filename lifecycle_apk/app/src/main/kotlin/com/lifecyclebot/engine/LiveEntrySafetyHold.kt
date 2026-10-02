@@ -80,7 +80,12 @@ object LiveEntrySafetyHold {
     /** Global verified close sample before performance stats can shape live
      *  stake size. This is a governor confidence threshold only: finalized
      *  outcomes continue to every eligible learner starting with close one. */
-    internal const val GOVERNOR_MIN_SAMPLE_7711: Int = 20
+    // Performance-only steering is deliberately cold-start neutral. The bot
+    // needs a broad, finalized live sample before book-level outcomes can
+    // shape its stake; a small or lane-skewed sample is uncertainty, not an
+    // account-wide mandate. Hard wallet/accounting/route protections remain
+    // active from trade one via runHealthCheck and the execution authorities.
+    internal const val GOVERNOR_MIN_SAMPLE_7711: Int = 100
     private const val GOVERNOR_MIN_SAMPLE: Int = GOVERNOR_MIN_SAMPLE_7711
 
     /** Governor tighten thresholds (n ≥ GOVERNOR_MIN_SAMPLE). */
@@ -94,8 +99,8 @@ object LiveEntrySafetyHold {
 
     // ─── V5.0.7711 BROAD-SAMPLE LIVE GOVERNOR ──────────────────────
     // Performance statistics are pooled across verified live closes.
-    // Fewer than 20 closes leave the governor at baseline so one small
-    // or lane-specific cohort cannot dictate book-wide behavior. At 20+,
+    // Fewer than 100 closes leave the governor at baseline so one small
+    // or lane-specific cohort cannot dictate book-wide behavior. At 100+,
     // mild stake shaping can respond to persistent evidence without
     // raising score floors or disabling any lane. Hard execution and
     // inventory safety invariants remain independent of this sample.
@@ -474,8 +479,8 @@ object LiveEntrySafetyHold {
      *
      * The AUTO SNOOZE GRACE: even after `canonicalN >= GOVERNOR_MIN_SAMPLE`,
      * the governor stays BASELINE until `canonicalN >= AUTO_SNOOZE_GRACE`
-     * (20 canonical fresh trades). This prevents a bad opening streak
-     * of 10 trades from arming HOLD before the tactic switcher has had
+     * (100 canonical fresh trades). This prevents a small opening sample
+     * from arming HOLD before the tactic switcher has had
      * a chance to rotate through its playbook.
      */
     @Volatile private var governorWindowStartMs: Long = System.currentTimeMillis()
@@ -546,7 +551,7 @@ object LiveEntrySafetyHold {
      * Never touches broadcast/pending rows.
      *
      * V5.0.7711 — broad-sample performance shaping. No lane or global
-     * performance statistic changes live stake before 20 verified closes.
+     * performance statistic changes live stake before 100 verified closes.
      * Eligible finalized closes still reach learners starting with close one.
      * Integrity failures remain governed by [runHealthCheck].
      */

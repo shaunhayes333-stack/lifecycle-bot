@@ -33,10 +33,10 @@ import java.util.concurrent.atomic.AtomicLong
  * the one place that states the opposite doctrine, and the three surfaces
  * that decide size, count and admission read it:
  *
- *   SLOTS      how many live positions the wallet may hold at once:
- *              V5.0.7717: what it can route, floor(tradeable / routableMin),
- *              bounded to 3..8 (was a fixed 2 under 1 SOL; operator: "I
- *              don't want two slots").
+ *   SLOTS      how many live positions the bot may hold at once: operator
+ *              configured ceiling, currently 20. Wallet affordability and
+ *              the routeable minimum remain independent sizing constraints;
+ *              neither silently lowers the configured slot count.
  *   SHARE      each position is tradeable / slots (never over 50%, never over
  *              MAX_POSITION_SOL), applied as the live floor in SmartSizerV3
  *              and as the share guard, so the sizer stops clamping to 0.05.
@@ -60,40 +60,20 @@ object LiveConcentrationDoctrine7697 {
     private val floorApplied = AtomicLong(0)
     @Volatile private var lastRefusal: String = ""
 
-    /** V5.0.7717 — the slot count is bounded, not fixed: see slots(). */
-    const val MIN_SLOTS_7717 = 3
-    const val MAX_SLOTS_7717 = 8
+    /** Operator's configured concurrent LIVE position ceiling. */
+    const val LIVE_SLOT_LIMIT_7728 = 20
 
     /**
      * Concurrent live positions the wallet may hold.
      *
-     * V5.0.7717 — operator, on the 7697 ladder (2 slots under 1 SOL): "I don't
-     * want two slots. I just want ... the bot to have the ability to trade as
-     * it likes but not spread cash over 30 tokens." So the count is what the
-     * wallet can actually route, floor(tradeable / routableMin), bounded to
-     * [MIN_SLOTS_7717, MAX_SLOTS_7717]. At 0.24 SOL and a $5 routable minimum
-     * that is five. Size above the routable floor is the sizer's conviction
-     * call; the ceiling is the only thing this function imposes.
-     *
-     * Computed from the sizer's own constants rather than through
-     * routableCapacityPreflight7224, which reads share() -> slots() and would
-     * recurse.
+     * Slots are an operator capacity setting, not a proxy for current wallet
+     * affordability. A low balance can prevent an individual order from
+     * reaching the venue minimum or pass the wallet/share guard; it must not
+     * rewrite the configured max-open-position count. `tradeableSol` remains
+     * in the signature for existing callers and for compatibility.
      */
-    fun slots(tradeableSol: Double): Int {
-        val t = if (tradeableSol.isFinite()) tradeableSol.coerceAtLeast(0.0) else 0.0
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        val rawMin = try {
-            EconomicUnitInvariant7061.usdToSol(com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_ROUTABLE_MIN_USD_7127, solUsd)
-        } catch (_: Throwable) { Double.NaN }
-        val routableMin = if (rawMin.isFinite() && rawMin > 0.0) {
-            rawMin.coerceIn(
-                com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127,
-                com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127,
-            )
-        } else com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127
-        val capacity = if (t > 0.0 && routableMin > 0.0) kotlin.math.floor(t / routableMin).toInt() else MIN_SLOTS_7717
-        return capacity.coerceIn(MIN_SLOTS_7717, MAX_SLOTS_7717)
-    }
+    @Suppress("UNUSED_PARAMETER")
+    fun slots(tradeableSol: Double): Int { return LIVE_SLOT_LIMIT_7728 }
 
     /** Share of tradeable one live position takes. */
     fun share(tradeableSol: Double): Double =

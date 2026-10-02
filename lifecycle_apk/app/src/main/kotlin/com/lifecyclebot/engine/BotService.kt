@@ -25993,6 +25993,23 @@ if (hotExitHandledSweep) {
                 edgePhaseHint = ts.phase,
                 candidateConfidenceHint =
                     ((ts.lastV3Confidence ?: 50).coerceIn(0, 100) / 100.0),
+                foundationCandidate = decision,
+                paperMode = cfg.paperMode,
+                // `requestedSizeSol=1.0` above is a pre-sizing placeholder.
+                // Price the manual's setup prior at the smallest venue-routable
+                // size so the fusion does not call a valid launch PASS merely
+                // because the placeholder position is ~25x larger.
+                foundationSizeSol = try {
+                    val px = WalletManager.lastKnownSolPrice
+                    if (px > 0.0) com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(
+                        com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_ROUTABLE_MIN_USD_7127, px,
+                    ).coerceIn(
+                        com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127,
+                        com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127,
+                    ) else com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127
+                } catch (_: Throwable) {
+                    com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127
+                },
             )
         } catch (_: Throwable) {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(

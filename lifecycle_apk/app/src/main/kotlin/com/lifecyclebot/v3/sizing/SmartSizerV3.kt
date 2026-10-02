@@ -60,9 +60,8 @@ class SmartSizerV3(
          *  V5.0.6269's own finding: "pump.fun tokens simply have no executable
          *  route below ~$5". Converted at the live SOL price each call, so the
          *  floor tracks the market instead of freezing at one exchange rate. */
-        // V5.0.7717 — read by LiveConcentrationDoctrine7697.slots(), which
-        // must not call routableCapacityPreflight7224 (that calls share(),
-        // which calls slots(): a cycle).
+        // V5.0.7728 — the slot limit no longer derives from routable capacity.
+        // This minimum remains an independent sizing/venue constraint.
         const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0
 
         /** Hard lower bound on the converted routable minimum. Guards against a

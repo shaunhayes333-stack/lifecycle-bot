@@ -78,7 +78,7 @@ object LaneScoreAdmission7308 {
      * FDG as CANONICAL_V3_SCORE_FLOOR_7243 (622) with the generic V3 score 0..11
      * and never produced a close to learn from — the mirror image of the 7323
      * defect. One open unproven position per lane, spaced 5 min per lane; the
-     * total book stays bounded by LiveConcentrationDoctrine7697.slots() (3..8),
+     * total book stays bounded by LiveConcentrationDoctrine7697.slots() (20),
      * which is the only authority on how many positions the wallet carries.
      */
     fun laneSlotFree7722(lane: String, openInLane: Int, lastAtMs: Long, nowMs: Long): Boolean =

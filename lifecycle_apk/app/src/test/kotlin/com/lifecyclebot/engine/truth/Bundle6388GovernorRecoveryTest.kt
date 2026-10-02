@@ -92,6 +92,19 @@ class Bundle6388GovernorRecoveryTest {
         assertEquals(GovernorRecovery6388.State.HOLD_PROBATION, GovernorRecovery6388.state())
     }
 
+    @Test fun immature_performance_sample_clears_stale_probation_but_infrastructure_hold_remains_hard() {
+        GovernorRecovery6388.resetForTest(GovernorRecovery6388.State.HOLD_PROBATION)
+        GovernorRecovery6388.onReconcilerTick(governorHold = false, infra = healthyInfra)
+        assertEquals(GovernorRecovery6388.State.BASELINE, GovernorRecovery6388.state())
+        assertTrue(GovernorRecovery6388.entryAuthority().allowBuys)
+        assertTrue(GovernorRecovery6388.entryAuthority().fullSized)
+
+        GovernorRecovery6388.resetForTest(GovernorRecovery6388.State.HOLD_PROBATION)
+        GovernorRecovery6388.onReconcilerTick(governorHold = false, infra = unhealthyReconciler)
+        assertEquals(GovernorRecovery6388.State.EXIT_ONLY, GovernorRecovery6388.state())
+        assertFalse(GovernorRecovery6388.entryAuthority().allowBuys)
+    }
+
     @Test fun governor_hold_policy_block_is_not_buy_failure() {
         // Directive S13: policy blocks emit LIVE_ENTRY_POLICY_BLOCKED, never BUY_FAIL.
         val emitted = PolicyBlockDedup6388.shouldEmit(1L, "MintA", "fdg-1", "HOLD", "HOLD_PROBATION")

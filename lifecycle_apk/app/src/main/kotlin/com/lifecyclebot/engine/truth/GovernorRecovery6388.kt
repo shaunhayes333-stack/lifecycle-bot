@@ -126,6 +126,15 @@ object GovernorRecovery6388 {
             promote(State.SOFT_TIGHT, "INFRA_HEALTHY_GOVERNOR_ALLOW")
             return
         }
+        // A persisted HOLD_PROBATION must not outlive the performance state
+        // that created it. In particular, when the confidence governor returns
+        // to BASELINE because the verified sample is still immature, resume the
+        // normal entry authority immediately. Physical/accounting faults above
+        // still force EXIT_ONLY/BLOCKED before this branch can run.
+        if (s == State.HOLD_PROBATION && !governorHold) {
+            promote(State.BASELINE, "PERFORMANCE_GOVERNOR_BASELINE_SMALL_SAMPLE")
+            return
+        }
     }
 
     /** Section 6: Automatic promotion HOLD_PROBATION → SOFT_TIGHT after clean evidence. */
