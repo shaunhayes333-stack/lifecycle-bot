@@ -102,16 +102,57 @@ object LiveBuyAdmissionGate {
             )
         }
         if (coverage7701 is LiveExitCoverageGuard7701.Decision.Blocked) {
-            try {
-                ForensicLogger.lifecycle(
-                    "LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701",
-                    "mint=${ts.mint.take(10)} callSite=$callSite reason=${coverage7701.reasonCode} " +
-                        "unmanaged=${coverage7701.mints.joinToString(",").take(180)} detail=${coverage7701.detail.take(120)}",
-                )
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701")
-            } catch (_: Throwable) {}
-            onLog("🛑 LIVE BUY BLOCKED: existing bot holding is outside exit management", ts.mint)
-            return Decision.Blocked(coverage7701.reasonCode, coverage7701.detail)
+            // V5.0.7712 — reserve a concentration slot for each unresolved
+            // wallet holding instead of freezing every unrelated candidate.
+            // The same mint remains blocked (its own quantity is not yet under
+            // canonical exit control). Other mints may proceed only when the
+            // existing canonical positions plus unresolved mints leave room
+            // under the live wallet concentration slot limit.
+            val unmanagedMints = coverage7701.mints.toSet()
+            val canonicalMints = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                    .asSequence()
+                    .filter { it.mode.equals("live", true) && it.remainingQtyRaw.signum() > 0 }
+                    .map { it.mint }
+                    .toSet()
+            } catch (_: Throwable) { emptySet<String>() }
+            val occupiedSlots = canonicalMints.size + unmanagedMints.count { it !in canonicalMints }
+            val slotVerdict = try {
+                com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slotVerdict(occupiedSlots)
+            } catch (_: Throwable) { null }
+            val coverageBlocksCandidate = LiveExitCoverageGuard7701.shouldBlockCandidate7712(
+                candidateMint = ts.mint,
+                unmanagedMints = unmanagedMints,
+                canonicalMints = canonicalMints,
+                slotLimit = slotVerdict?.slots ?: 0,
+            )
+            if (coverageBlocksCandidate) {
+                val sameMintUnmanaged = ts.mint in unmanagedMints
+                val reason = if (sameMintUnmanaged) {
+                    "same candidate mint remains outside canonical exit scope"
+                } else {
+                    "unresolved holdings reserve available live slots (${slotVerdict?.open ?: occupiedSlots}/${slotVerdict?.slots ?: 0})"
+                }
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701",
+                        "mint=${ts.mint.take(10)} callSite=$callSite reason=${coverage7701.reasonCode} " +
+                            "unmanaged=${coverage7701.mints.joinToString(",").take(180)} policy=$reason detail=${coverage7701.detail.take(120)}",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701")
+                } catch (_: Throwable) {}
+                onLog("🛑 LIVE BUY BLOCKED: same-mint inventory or all concentration slots are occupied", ts.mint)
+                return Decision.Blocked(coverage7701.reasonCode, "$reason; ${coverage7701.detail}")
+            } else {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_ALLOWED_WITH_RESERVED_INVENTORY_SLOT_7712",
+                        "mint=${ts.mint.take(10)} callSite=$callSite unmanaged=${unmanagedMints.size} " +
+                            "occupied=${slotVerdict?.open ?: occupiedSlots}/${slotVerdict?.slots ?: 0} action=preserve_remaining_concentration_slots",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_ALLOWED_WITH_RESERVED_INVENTORY_SLOT_7712")
+                } catch (_: Throwable) {}
+            }
         }
 
         // V5.0.3941 — NO GLOBAL SELL-ONLY BUY KILL-SWITCH.
@@ -276,6 +317,17 @@ internal object LiveExitCoverageGuard7701 {
         data class Blocked(val reasonCode: String, val detail: String, val mints: List<String>) : Decision()
     }
 
+    /** Candidate-scoped admission while reserving occupied slots for unresolved holdings. */
+    internal fun shouldBlockCandidate7712(
+        candidateMint: String,
+        unmanagedMints: Set<String>,
+        canonicalMints: Set<String>,
+        slotLimit: Int,
+    ): Boolean {
+        if (candidateMint in unmanagedMints) return true
+        val unresolvedOnly = unmanagedMints.count { it !in canonicalMints }
+        return canonicalMints.size + unresolvedOnly >= slotLimit
+    }
     fun assess(walletAddress: String): Decision {
         if (walletAddress.isBlank()) {
             return Decision.Blocked("EXIT_COVERAGE_WALLET_UNKNOWN", "wallet identity unavailable", emptyList())

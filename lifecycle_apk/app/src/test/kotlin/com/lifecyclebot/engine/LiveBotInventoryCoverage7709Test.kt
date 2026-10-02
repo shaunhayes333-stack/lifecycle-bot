@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701
+
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,5 +28,49 @@ class LiveBotInventoryCoverage7709Test {
         assertTrue(recovery.contains("HostWalletTokenTracker.recordPriceUpdate(mint, px, 0.0)"))
         assertFalse(recovery.contains("unsellableHoldingReason7707"))
         assertFalse(recovery.contains("DexscreenerApi().batchPriceFetch(listOf(mint))"))
+    }
+
+    @Test
+    fun unresolved_holding_reserves_one_slot_without_freezing_other_candidates() {
+        assertFalse(
+            LiveExitCoverageGuard7701.shouldBlockCandidate7712(
+                candidateMint = "new-mint",
+                unmanagedMints = setOf("held-mint"),
+                canonicalMints = emptySet(),
+                slotLimit = 2,
+            ),
+        )
+        assertTrue(
+            LiveExitCoverageGuard7701.shouldBlockCandidate7712(
+                candidateMint = "new-mint",
+                unmanagedMints = setOf("held-mint"),
+                canonicalMints = emptySet(),
+                slotLimit = 1,
+            ),
+        )
+    }
+
+    @Test
+    fun candidate_cannot_add_to_its_own_unmanaged_mint() {
+        assertTrue(
+            LiveExitCoverageGuard7701.shouldBlockCandidate7712(
+                candidateMint = "held-mint",
+                unmanagedMints = setOf("held-mint"),
+                canonicalMints = emptySet(),
+                slotLimit = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun canonical_quantity_and_unresolved_mint_share_the_slot_budget_once_each() {
+        assertTrue(
+            LiveExitCoverageGuard7701.shouldBlockCandidate7712(
+                candidateMint = "new-mint",
+                unmanagedMints = setOf("held-mint", "managed-but-overage"),
+                canonicalMints = setOf("managed-but-overage"),
+                slotLimit = 2,
+            ),
+        )
     }
 }
