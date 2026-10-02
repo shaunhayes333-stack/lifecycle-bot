@@ -261,9 +261,25 @@ object MarketSweep7297 {
         null
     }
 
-    /** Keyless lite-api first; with an operator Jupiter key, the keyed host next. */
+    // V5.0.7719 — a lite-api token list that answers 401/403/404 is not
+    // going to answer differently in 45 s; retrying it every sweep only feeds
+    // the host circuit. Remember the refusal for 30 min and go keyed first.
+    private const val LITE_TOKENS_DEAD_MS_7719 = 30L * 60_000L
+    @Volatile private var liteTokensDeadUntil7719 = 0L
+
+    /** Keyless lite-api first (unless it recently refused); with an operator Jupiter key, the keyed host. */
     private fun jupiterBody(path: String, provider: String): String? {
-        getBody("$JUP$path", provider)?.trim()?.takeIf { it.startsWith("[") }?.let { lastFail7301.remove(provider); return it }
+        val now = System.currentTimeMillis()
+        if (now >= liteTokensDeadUntil7719) {
+            getBody("$JUP$path", provider)?.trim()?.takeIf { it.startsWith("[") }?.let { lastFail7301.remove(provider); return it }
+            val fail = lastFail7301[provider].orEmpty()
+            if (fail == "HTTP_401" || fail == "HTTP_403" || fail == "HTTP_404") {
+                liteTokensDeadUntil7719 = now + LITE_TOKENS_DEAD_MS_7719
+                try { PipelineHealthCollector.labelInc("MARKET_SWEEP_LITE_TOKENS_DEAD_LATCHED_7719") } catch (_: Throwable) {}
+            }
+        } else {
+            try { PipelineHealthCollector.labelInc("MARKET_SWEEP_LITE_TOKENS_SKIPPED_DEAD_7719") } catch (_: Throwable) {}
+        }
         val key = jupiterKey7301
         if (key.isBlank()) return null
         return getBody("$JUP_KEYED_7301$path", provider, mapOf("x-api-key" to key))?.trim()

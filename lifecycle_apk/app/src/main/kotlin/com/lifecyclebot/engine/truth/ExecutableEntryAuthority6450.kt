@@ -212,12 +212,9 @@ object ExecutableEntryAuthority6450 {
         } catch (_: Throwable) { 1.0 }
         val learnedHasOpinion7181 = learnedMult7181.isFinite() &&
             kotlin.math.abs(learnedMult7181 - 1.0) > 1e-6
-        val streakPrior7181 = when {
-            streak >= STREAK_HARD_LIMIT -> 0.35
-            streak >= STREAK_TIGHTEN_TWO -> 0.35
-            streak >= STREAK_TIGHTEN_ONE -> 0.65
-            else -> 1.0
-        }
+        // V5.0.7719 — the cold-start prior is the same evidence-gated ladder
+        // as sizeMultiplierFor6488: silent until the lane has a sample.
+        val streakPrior7181 = sizeMultiplierFor6488(lane, mode)
         val mult = when {
             cooling -> 0.35
             learnedHasOpinion7181 -> 1.0
@@ -426,7 +423,8 @@ object ExecutableEntryAuthority6450 {
      * score-floor delta shapes entries instead.
      */
     fun defensiveSuppressWait7377(lane: String, mode: String = currentMode()): Boolean =
-        consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT && !lanePaysEv7334(lane)
+        consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT && !lanePaysEv7334(lane) &&
+            laneHasEvidence7719(lane) // V5.0.7719 — no suppression without a sample either
 
     /**
      * V5.0.7334 — a streak on a lane whose measured expectancy is positive
@@ -448,20 +446,63 @@ object ExecutableEntryAuthority6450 {
                 ?.let { it.first >= 20 && it.third > 0.0 } == true)
     } catch (_: Throwable) { false }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7719 §A_LOSS_IS_NOT_A_LESSON_UNTIL_THERE_IS_A_SAMPLE.
+    //
+    // Operator, on 5.0.7716 (STREAK_SCORE_FLOOR_RAISED=638 after four live
+    // closes): "waaaaay too soon. it shouldn't just tighten but explore or
+    // pivot. but only after proving true entry, strategy, hold etc poor. not
+    // every trade is ever going to be the same." The ladder above raised the
+    // floor +8 after ONE loss and +15 after two, and cut size to 0.65x/0.35x
+    // on the same counts, in a lane with no sample behind it.
+    //
+    // The streak now shapes only once the lane has a real sample
+    // (STREAK_EVIDENCE_MIN_CLOSES_7719 decisive closes from the learners'
+    // own tables) AND the streak is three or more; the shaping is milder
+    // (+5/+10 on the floor, 0.75x/0.5x on size). Below the sample the
+    // counter is silent and the pivot authority (TacticSwitcher: rotate
+    // tactic on 8+ decisive closes) is what answers a bleed. The
+    // LosingStreakReflex cool-down override is unchanged.
+    // ─────────────────────────────────────────────────────────────────────
+    const val STREAK_EVIDENCE_MIN_CLOSES_7719 = 10
+    const val STREAK_SHAPE_ONE_7719 = 3
+    const val STREAK_SHAPE_TWO_7719 = 5
+    private val streakDeferredNoEvidence7719 = AtomicLong(0L)
+
+    /** True once the lane has enough decisive closes for a streak to mean anything. */
+    fun laneHasEvidence7719(lane: String): Boolean = try {
+        val u = lane.uppercase()
+        val probe = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+            .firstOrNull { it.lane.equals(lane, true) }?.sample ?: 0
+        val oracle = OracleTradeHistory7287.lane(u)?.n ?: 0
+        val score = com.lifecyclebot.engine.ScoreExpectancyTracker.laneStats7380(u)?.first ?: 0
+        maxOf(probe, oracle, score) >= STREAK_EVIDENCE_MIN_CLOSES_7719
+    } catch (_: Throwable) { false }
+
+    private fun streakShapingActive7719(lane: String, mode: String): Boolean {
+        val losses = consecutiveLossesFor6488(lane, mode)
+        if (losses < STREAK_SHAPE_ONE_7719) return false
+        if (lanePaysEv7334(lane)) return false
+        if (!laneHasEvidence7719(lane)) {
+            streakDeferredNoEvidence7719.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("STREAK_TIGHTEN_DEFERRED_NO_EVIDENCE_7719") } catch (_: Throwable) {}
+            return false
+        }
+        return true
+    }
+
+    fun streakDeferredNoEvidenceCount7719(): Long = streakDeferredNoEvidence7719.get()
+
     fun scoreFloorDeltaFor6488(lane: String, mode: String = currentMode()): Int = when {
-        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE && lanePaysEv7334(lane) -> 0
-        consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT -> 15
-        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_TWO -> 15
-        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE -> 8
-        else -> 0
+        !streakShapingActive7719(lane, mode) -> 0
+        consecutiveLossesFor6488(lane, mode) >= STREAK_SHAPE_TWO_7719 -> 10
+        else -> 5
     }
 
     fun sizeMultiplierFor6488(lane: String, mode: String = currentMode()): Double = when {
-        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE && lanePaysEv7334(lane) -> 1.0
-        consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT -> 0.35
-        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_TWO -> 0.35
-        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE -> 0.65
-        else -> 1.0
+        !streakShapingActive7719(lane, mode) -> 1.0
+        consecutiveLossesFor6488(lane, mode) >= STREAK_SHAPE_TWO_7719 -> 0.5
+        else -> 0.75
     }
 
     // Compatibility telemetry only. Global values must not be used for entry authority.

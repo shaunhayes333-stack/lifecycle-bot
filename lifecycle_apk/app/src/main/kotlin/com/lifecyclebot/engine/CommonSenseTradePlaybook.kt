@@ -365,14 +365,40 @@ object CommonSenseTradePlaybook {
             !structureText7403.contains("RECLAIM")
         val logicalBuyZone = tradeType != "NO_STRUCTURE" && !lateChase && !breakdown
         val invalidationKnown = logicalBuyZone && (text.contains("SUPPORT") || text.contains("VWAP") || text.contains("EMA") || text.contains("RETEST") || text.contains("RANGE") || text.contains("SWEEP") || text.contains("RECLAIM") || text.contains("HIGHER_LOW") || tradeType in setOf("NEW_TOKEN_EARLY_LIFECYCLE", "MOMENTUM_SCALP", "ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "NARRATIVE_ROTATION", "WHALE_ACCUMULATION_FOLLOW"))
+        // V5.0.7719 §THE_GATE_KNEW_THINGS_THE_BOT_HAD_NOT_LEARNED.
+        //
+        // Operator, on 26 RISK_REWARD_POOR refusals in a 4-minute live window
+        // (5.0.7716): "moonshot Sniper etc target as low as those ranges.
+        // scoring is meant to be fluid with a rough start of around 15 and
+        // $1500 market cap. remember the bot is supposed to have a chance to
+        // learn but will not if scoring is set like the bot already knows and
+        // has an intelligence base." The 42-58 score / $1,000-1,500 liquidity
+        // bars below are the MATURE end. For the launch lanes they now start
+        // at the lane's cold-start score prior (ColdStartPriors: 15-20) and
+        // $500 of liquidity (the sellability floor), and walk to the mature
+        // bars with FluidLearningAI's learning progress, exactly as the lane
+        // scorers themselves do. Non-launch lanes keep the mature bars.
+        val launchLane7719 = canon(lane).let {
+            it.contains("MOONSHOT") || it.contains("SHITCOIN") || it.contains("SNIPER") ||
+                it.contains("MANIPULATED") || it.contains("EXPRESS") || it.contains("PUMP")
+        }
+        val progress7719 = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0)
+        } catch (_: Throwable) { 1.0 }
+        val coldScore7719 = try { ColdStartPriors.coldStartScoreFloor(canon(lane)).toDouble() } catch (_: Throwable) { 15.0 }
+        fun fluid7719(bootstrap: Double, mature: Double): Double =
+            if (launchLane7719) bootstrap + (mature - bootstrap) * progress7719 else mature
+        if (launchLane7719 && progress7719 < 1.0) {
+            try { PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_FLUID_LAUNCH_FLOOR_7719") } catch (_: Throwable) {}
+        }
         val riskRewardAcceptable = when {
             !liquidityKnown || liq < 500.0 -> false
             lateChase || breakdown -> false
-            tradeType == "MOMENTUM_SCALP" -> score >= 58.0 && liq >= 1_500.0
-            tradeType == "NEW_TOKEN_EARLY_LIFECYCLE" -> score >= 52.0 && liq >= 1_500.0
-            tradeType in setOf("ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_BUY", "VWAP_RECLAIM", "EMA_RECLAIM", "HIGHER_LOW_CONTINUATION") -> score >= 38.0 && liq >= 1_000.0
+            tradeType == "MOMENTUM_SCALP" -> score >= fluid7719(coldScore7719, 58.0) && liq >= fluid7719(500.0, 1_500.0)
+            tradeType == "NEW_TOKEN_EARLY_LIFECYCLE" -> score >= fluid7719(coldScore7719, 52.0) && liq >= fluid7719(500.0, 1_500.0)
+            tradeType in setOf("ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_BUY", "VWAP_RECLAIM", "EMA_RECLAIM", "HIGHER_LOW_CONTINUATION") -> score >= fluid7719(coldScore7719, 38.0) && liq >= fluid7719(500.0, 1_000.0)
             tradeType == "POST_PUMP_EXHAUSTION" -> false
-            else -> score >= 42.0 && liq >= 1_000.0
+            else -> score >= fluid7719(coldScore7719, 42.0) && liq >= fluid7719(500.0, 1_000.0)
         }
         val reasons = mutableListOf<String>()
         if (priceKnown) reasons += "price_known" else reasons += "price_unknown"

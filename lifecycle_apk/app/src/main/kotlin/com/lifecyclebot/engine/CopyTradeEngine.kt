@@ -136,7 +136,16 @@ class CopyTradeEngine(
     ) {
         if (!isBuy) return
         SmartMoneyBridgeHealth7422.detected()
-        val tracked = wallets[buyerWallet]
+        // V5.0.7719 — the Helius push subscription watches the insider list AND
+        // the copy list (BotService whaleAddrs), but this engine only knew the
+        // copy list, so every buy by a watched insider wallet was dropped as
+        // INSUFFICIENT_EVIDENCE (5.0.7716: detected=461, candidatesCreated=0).
+        // A watched insider wallet is tracked by definition; promote it into
+        // the copy map on first sight so its buys become copy signals.
+        val tracked = wallets[buyerWallet] ?: insiderAsCopyWallet7719(buyerWallet)?.also {
+            wallets[buyerWallet] = it
+            try { PipelineHealthCollector.labelInc("SMART_MONEY_WALLET_PROMOTED_7277") } catch (_: Throwable) {}
+        }
         if (tracked == null || !tracked.isActive || tracked.isPaused) {
             SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.INSUFFICIENT_EVIDENCE)
             return
@@ -178,6 +187,19 @@ class CopyTradeEngine(
             SmartMoneyBridgeHealth7422.disposition(SmartMoneyBridgeHealth7422.Disposition.ROUTE_UNAVAILABLE)
         }
     }
+
+    /** V5.0.7719 — an active InsiderWalletTracker wallet, as a copy wallet, or null. */
+    private fun insiderAsCopyWallet7719(address: String): CopyWallet? = try {
+        com.lifecyclebot.perps.InsiderWalletTracker.getActiveWallets()
+            .firstOrNull { it.address == address }
+            ?.let { w ->
+                CopyWallet(
+                    address = address, label = "INSIDER:${w.label}".take(40), isActive = true,
+                    totalCopied = 0, wins = 0, losses = 0, totalPnlSol = 0.0,
+                    addedAt = System.currentTimeMillis(), lastSeenMs = 0L,
+                )
+            }
+    } catch (_: Throwable) { null }
 
     // ── discover top wallets from on-chain leaderboards ───────────────
 

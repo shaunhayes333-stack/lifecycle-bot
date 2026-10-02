@@ -7877,7 +7877,7 @@ class GoldenTapeRegressionTest {
                 bot.contains("signal = " + '"' + "WAIT" + '"') && bot.contains("shouldTrade = false"))
         assertTrue("6488 streak shaping is mode-lane scoped and bounded above zero",
             entry.contains("cohortKey(e.mode, e.entryLane)") && entry.contains("sizeMultiplierFor6488") &&
-                entry.contains("streak >= STREAK_HARD_LIMIT || cooling -> 0.35") &&
+                entry.contains("val streakPrior7181 = sizeMultiplierFor6488(lane, mode)") &&
                 !entry.contains("streak >= STREAK_HARD_LIMIT -> 0.0"))
         assertTrue("6488 global regime no longer consumes streak state while executors retain final lane sizing",
             !regime.contains("scoreFloorDelta6487()") && !regime.contains("sizeMultiplier6487()") &&
@@ -11536,7 +11536,8 @@ class GoldenTapeRegressionTest {
         val mp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt").readText()
         assertTrue(mp.contains("(if (payingContext7334) maxOf(raw, 1.0) else raw).coerceIn(CONVICTION_FLOOR, CONVICTION_CAP)"))
         val ea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
-        assertTrue(ea.contains("consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE && lanePaysEv7334(lane) -> 0"))
+        // 7719: a paying lane is still exempt; the exemption now lives in streakShapingActive7719.
+        assertTrue(ea.contains("if (lanePaysEv7334(lane)) return false"))
     }
 
     @Test
@@ -11566,7 +11567,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7337_moonshot_hunts_its_own_band_again() {
         val m = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
-        assertTrue(m.contains("val minMcap7266 = MIN_MARKET_CAP_USD"))
+        // 7719: the $10k band is the mature end of a fluid floor that starts at $1,500.
+        assertTrue(m.contains("val minMcap7266 = minMarketCapUsdFluid7719()"))
         assertTrue(m.contains("if (marketCapUsd > MAX_MARKET_CAP_USD) {"))
         assertTrue(m.contains("val minLiq = minLiqStatic"))
         val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
@@ -13396,6 +13398,89 @@ class GoldenTapeRegressionTest {
 
         val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
         assertTrue(fm.contains("Nothing the bot buys is ever unmanaged"))
+    }
+
+    @Test
+    fun V5_0_7719_the_bot_learns_before_it_tightens_and_the_quote_host_stops_sleeping() {
+        // Operator standard (5.0.7716): launch lanes start fluid at about score
+        // 15 and $1,500 market cap; tightening after losses only once entry,
+        // strategy and hold are proven poor on a real sample; otherwise pivot.
+        // Plus two chokes found in the same snapshot: the quote host put to
+        // sleep by the market sweep's token lists, and 461 smart-money buys
+        // dropped because the copy engine did not know the insider list.
+
+        // Streak shaping is evidence-gated and milder.
+        val ea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        assertTrue(ea.contains("const val STREAK_EVIDENCE_MIN_CLOSES_7719 = 10"))
+        assertTrue(ea.contains("const val STREAK_SHAPE_ONE_7719 = 3"))
+        assertTrue(ea.contains("const val STREAK_SHAPE_TWO_7719 = 5"))
+        assertTrue(ea.contains("fun laneHasEvidence7719(lane: String): Boolean = try {"))
+        assertTrue(ea.contains("STREAK_TIGHTEN_DEFERRED_NO_EVIDENCE_7719"))
+        val delta = ea.substringAfter("fun scoreFloorDeltaFor6488(").substringBefore("fun sizeMultiplierFor6488(")
+        assertTrue(delta.contains("!streakShapingActive7719(lane, mode) -> 0"))
+        assertTrue(delta.contains("STREAK_SHAPE_TWO_7719 -> 10"))
+        assertTrue(delta.contains("else -> 5"))
+        assertFalse(delta.contains("-> 15"))
+        val mult = ea.substringAfter("fun sizeMultiplierFor6488(").substringBefore("// Compatibility telemetry only")
+        assertTrue(mult.contains("!streakShapingActive7719(lane, mode) -> 1.0"))
+        assertTrue(mult.contains("STREAK_SHAPE_TWO_7719 -> 0.5"))
+        assertTrue(mult.contains("else -> 0.75"))
+        assertTrue(ea.contains("val streakPrior7181 = sizeMultiplierFor6488(lane, mode)"))
+        assertTrue(ea.contains("laneHasEvidence7719(lane) // V5.0.7719"))
+
+        // Pre-buy risk/reward is fluid for launch lanes: cold-start prior and $500 to the mature bars.
+        val cs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
+        assertTrue(cs.contains("val launchLane7719 = canon(lane).let {"))
+        assertTrue(cs.contains("val coldScore7719 = try { ColdStartPriors.coldStartScoreFloor(canon(lane)).toDouble() } catch (_: Throwable) { 15.0 }"))
+        assertTrue(cs.contains("fun fluid7719(bootstrap: Double, mature: Double): Double ="))
+        assertTrue(cs.contains("tradeType == \"MOMENTUM_SCALP\" -> score >= fluid7719(coldScore7719, 58.0) && liq >= fluid7719(500.0, 1_500.0)"))
+        assertTrue(cs.contains("else -> score >= fluid7719(coldScore7719, 42.0) && liq >= fluid7719(500.0, 1_000.0)"))
+        assertTrue(cs.contains("COMMON_SENSE_PREBUY_FLUID_LAUNCH_FLOOR_7719"))
+        // The absolute sellability floor stays.
+        assertTrue(cs.contains("!liquidityKnown || liq < 500.0 -> false"))
+
+        // MOONSHOT's floor: $1,500 at cold start, the 7337 $10k when mature; the fresh-launch admission reads the same number.
+        val m = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(m.contains("const val MIN_MARKET_CAP_BOOTSTRAP_USD_7719 = 1_500.0"))
+        assertTrue(m.contains("fun minMarketCapUsdFluid7719(): Double {"))
+        assertTrue(m.contains("const val MIN_MARKET_CAP_USD = 10_000.0"))
+        val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
+        assertTrue(a.contains("if (mcap < com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()) return no(\"MCAP_BELOW_FLOOR\")"))
+        val sc = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue(sc.contains("private const val SC_SCORE_BOOTSTRAP = 15"))
+
+        // The host circuit cools down per host AND provider label, so token lists cannot sleep the quote path.
+        val hc = java.io.File("src/main/kotlin/com/lifecyclebot/network/HostCircuitInterceptor.kt").readText()
+        assertTrue(hc.contains("val stateKey7719 = if (provider.isNotBlank()) \"${'$'}host|${'$'}provider\" else host"))
+        assertTrue(hc.contains("val state = states.getOrPut(stateKey7719) { HostState() }"))
+        assertFalse(hc.contains("states.getOrPut(host) { HostState() }"))
+        val ms = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/MarketSweep7297.kt").readText()
+        assertTrue(ms.contains("private const val LITE_TOKENS_DEAD_MS_7719 = 30L * 60_000L"))
+        assertTrue(ms.contains("if (fail == \"HTTP_401\" || fail == \"HTTP_403\" || fail == \"HTTP_404\") {"))
+        assertTrue(ms.contains("MARKET_SWEEP_LITE_TOKENS_DEAD_LATCHED_7719"))
+
+        // A watched insider wallet is a tracked copy wallet.
+        val ct = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CopyTradeEngine.kt").readText()
+        assertTrue(ct.contains("val tracked = wallets[buyerWallet] ?: insiderAsCopyWallet7719(buyerWallet)?.also {"))
+        assertTrue(ct.contains("private fun insiderAsCopyWallet7719(address: String): CopyWallet? = try {"))
+        assertTrue(ct.contains("com.lifecyclebot.perps.InsiderWalletTracker.getActiveWallets()"))
+
+        // Crash-loop safe mode: "it runs but I can't get past the login screen. I can't get logs."
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/StartupCrashGuard7717.kt").readText()
+        assertTrue(g.contains("const val CRASH_LOOP_WINDOW_MS_7719 = 15L * 60_000L"))
+        assertTrue(g.contains("fun inCrashLoop(): Boolean ="))
+        assertTrue(g.contains("fun crashForDisplay(): String? {"))
+        assertTrue(g.contains("fun fullCrashText(ctx: Context): String = try {"))
+        assertTrue(g.contains("startupCrashStreak = streak"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertEquals(2, Regex("AUTO_START_REFUSED_CRASH_LOOP_7719\", \"source=").findAll(bs).count())
+        assertTrue(bs.contains("if (!userRequested && try { com.lifecyclebot.engine.truth.StartupCrashGuard7717.inCrashLoop() }"))
+        val app = java.io.File("src/main/kotlin/com/lifecyclebot/AATEApp.kt").readText()
+        assertTrue(app.contains("if (!crashLoop7719) try { scheduleServiceRestart(force = true) } catch (_: Throwable) {}"))
+        val sec = java.io.File("src/main/kotlin/com/lifecyclebot/ui/SecurityActivity.kt").readText()
+        assertTrue(sec.contains("private fun showLastCrash7719() {"))
+        assertTrue(sec.indexOf("showLastCrash7719()") < sec.indexOf("private fun showLastCrash7719()"))
+        assertTrue(sec.contains("android.content.ClipData.newPlainText(\"AATE crash\", full)"))
     }
 
 }

@@ -659,7 +659,10 @@ class AATEApp : Application() {
             // resurrection BEFORE delegating to Android's default crash handler. A main
             // thread UI crash kills the whole process, so a live loop right now is not
             // enough — it will be gone in milliseconds.
-            try { scheduleServiceRestart(force = true) } catch (_: Throwable) {}
+            // V5.0.7719 — a startup crash is not resurrected: the restart is
+            // what re-crashed the process on the login screen.
+            val crashLoop7719 = try { com.lifecyclebot.engine.truth.StartupCrashGuard7717.inCrashLoop() } catch (_: Throwable) { false }
+            if (!crashLoop7719) try { scheduleServiceRestart(force = true) } catch (_: Throwable) {}
 
             // Call the default handler to show the crash dialog / terminate
             defaultHandler?.uncaughtException(thread, throwable)

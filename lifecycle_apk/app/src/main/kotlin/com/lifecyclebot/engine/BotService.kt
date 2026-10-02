@@ -3421,6 +3421,11 @@ class BotService : Service() {
         // restarts it via START_STICKY, the intent is null. Check wasRunning/manualStop
         // and relaunch the bot if the user had it running before the kill.
         if (intent == null) {
+            // V5.0.7719 — no sticky resurrection while the last process died at startup.
+            if (try { com.lifecyclebot.engine.truth.StartupCrashGuard7717.inCrashLoop() } catch (_: Throwable) { false }) {
+                try { ForensicLogger.lifecycle("AUTO_START_REFUSED_CRASH_LOOP_7719", "source=sticky_resurrection") } catch (_: Throwable) {}
+                return START_NOT_STICKY
+            }
             val rp = getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
             val wasRunning = rp.getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
             val manualStop = rp.getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
@@ -3459,6 +3464,14 @@ class BotService : Service() {
                 // not undo a user stop. Only a fresh UI/user start may clear the
                 // manual-stop latch. This fixes the meme bot randomly starting
                 // after Stop because an older ACTION_START alarm fired later.
+                // V5.0.7719 — automatic starts (login pre-kick, crash restart,
+                // watchdog, keep-alive, boot) wait out a startup-crash loop; a
+                // user Start is honoured. See StartupCrashGuard7717.
+                if (!userRequested && try { com.lifecyclebot.engine.truth.StartupCrashGuard7717.inCrashLoop() } catch (_: Throwable) { false }) {
+                    try { ForensicLogger.lifecycle("AUTO_START_REFUSED_CRASH_LOOP_7719", "source=action_start userRequested=false") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("AUTO_START_REFUSED_CRASH_LOOP_7719") } catch (_: Throwable) {}
+                    return START_NOT_STICKY
+                }
                 if (manualStop && !userRequested) {
                     ErrorLogger.warn("BotService", "Ignoring non-user ACTION_START because manual stop latch is active")
                     try { ForensicLogger.lifecycle("LIFECYCLE_START_IGNORED_MANUAL_STOP_LATCH", "userRequested=false manualStop=true") } catch (_: Throwable) {}

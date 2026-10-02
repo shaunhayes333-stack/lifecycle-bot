@@ -175,7 +175,8 @@ object MoonshotFreshLaunchAdmission7044 {
         // below say nothing about it.
         val curve7323 = isObservedCurveToken(ts)
         if (!curve7323 && (!liq.isFinite() || liq <= 0.0)) return no("LIQ_UNKNOWN")
-        if (mcap < MCAP_FLOOR_USD) return no("MCAP_BELOW_FLOOR")
+        // V5.0.7719 — the lane's fluid floor ($1,500 cold start -> $10k mature), the same authority the scorer reads.
+        if (mcap < com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()) return no("MCAP_BELOW_FLOOR")
         if (mcap > MCAP_RUNNER_CEILING_USD) return no("MCAP_ABOVE_RUNNER_CEILING")
         if (!curve7323 && liq < LIQ_FLOOR_USD) return no("LIQ_BELOW_FLOOR")
         if (!curve7323 && liq / mcap < LIQ_TO_MCAP_MIN) return no("LIQ_TO_MCAP_SHELL")

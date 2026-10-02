@@ -67,6 +67,19 @@ object MoonshotTraderAI {
     // Any token from any layer can promote to Moonshot when gains hit threshold
     // Market cap boundaries are wide to accept promotions from all layers
     const val MIN_MARKET_CAP_USD = 10_000.0      // $10K minimum (can come from ShitCoin)
+    // V5.0.7719 — operator: "moonshot Sniper etc target as low as those ranges.
+    // scoring is meant to be fluid with a rough start of around 15 and $1500
+    // market cap ... the bot is supposed to have a chance to learn." The $10k
+    // floor (7337) is the MATURE end; the lane starts at $1,500 and walks to
+    // it with FluidLearningAI's learning progress, like every other fluid
+    // threshold in this file.
+    const val MIN_MARKET_CAP_BOOTSTRAP_USD_7719 = 1_500.0
+
+    /** The lane's minimum market cap right now: $1,500 at cold start, $10k when mature. */
+    fun minMarketCapUsdFluid7719(): Double {
+        val progress = try { FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0) } catch (_: Throwable) { 1.0 }
+        return MIN_MARKET_CAP_BOOTSTRAP_USD_7719 + (MIN_MARKET_CAP_USD - MIN_MARKET_CAP_BOOTSTRAP_USD_7719) * progress
+    }
     // V5.9.1307 — was $100M ("allow Jupiter plays"). But a $50M token cannot 10x-1000x;
     // letting MOONSHOT bid mature caps diluted its edge into a generalist and contributed
     // to its -0.41 SOL / 8.5% WR bleed. A real moonshot hunts $5K-$5M gems BEFORE liftoff.
@@ -453,9 +466,10 @@ object MoonshotTraderAI {
         // the lane hunter move both edges; the lane was profitable when it
         // hunted $10k-$5M tokens with a real pool, not first-block launches
         // that rug in one block. The band is the lane's own constants again.
-        val minMcap7266 = MIN_MARKET_CAP_USD
+        // V5.0.7719 — fluid: $1,500 at cold start, the 7337 $10k floor when mature.
+        val minMcap7266 = minMarketCapUsdFluid7719()
         if (marketCapUsd < minMcap7266) {
-            return MoonshotScore(false, 0, 0.0, "mcap_too_low_${(marketCapUsd/1000).toInt()}K_min_10K")
+            return MoonshotScore(false, 0, 0.0, "mcap_too_low_${(marketCapUsd/1000).toInt()}K_min_${(minMcap7266/1000).toInt()}K")
         }
         if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_high_${(marketCapUsd/1_000_000).toInt()}M")

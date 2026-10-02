@@ -54,9 +54,13 @@ class Repair6487AcceptanceTest {
         ExecutableEntryAuthority6450.recordLossForTest6487(3, lane = "SHITCOIN", mode = "PAPER")
         val toxic = ExecutableEntryAuthority6450.gate("SHITCOIN", "M1", 1.0)
         assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, toxic.verdict)
-        assertEquals(0.35, toxic.recommendedSizeSol, 1e-9)
-        assertEquals(15, ExecutableEntryAuthority6450.scoreFloorDeltaFor6488("SHITCOIN", "PAPER"))
-        assertEquals(0.35, ExecutableEntryAuthority6450.sizeMultiplierFor6488("SHITCOIN", "PAPER"), 0.0)
+        // V5.0.7719 — three losses in a lane with no decisive-close sample is
+        // not evidence; the streak is silent (size 1.0, floor +0) and says so.
+        assertEquals(1.0, toxic.recommendedSizeSol, 1e-9)
+        assertEquals(0, ExecutableEntryAuthority6450.scoreFloorDeltaFor6488("SHITCOIN", "PAPER"))
+        assertEquals(1.0, ExecutableEntryAuthority6450.sizeMultiplierFor6488("SHITCOIN", "PAPER"), 0.0)
+        assertTrue(ExecutableEntryAuthority6450.streakDeferredNoEvidenceCount7719() > 0L)
+        assertEquals(3L, ExecutableEntryAuthority6450.consecutiveLossesFor6488("SHITCOIN", "PAPER"))
 
         val profitableLane = ExecutableEntryAuthority6450.gate("BLUECHIP", "M2", 1.0)
         assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, profitableLane.verdict)

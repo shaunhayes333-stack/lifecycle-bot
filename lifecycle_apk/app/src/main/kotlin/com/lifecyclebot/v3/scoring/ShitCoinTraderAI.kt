@@ -2139,7 +2139,11 @@ object ShitCoinTraderAI {
     // Lane policy already routes SHITCOIN to PAPER_MICRO (0.10× exec weight) so the
     // dollar bleed is contained but the WR is still toxic. Tightening the entry bar
     // teaches FluidLearning to prefer real-signal setups. DOES NOT disable the lane.
-    private const val SC_SCORE_BOOTSTRAP = 28
+    // V5.0.7719 — was 28; operator: "a rough start of around 15". The lane's
+    // cold-start prior (ColdStartPriors.coldStartScoreFloor SHITCOIN = 15) and
+    // the live canonical floor (15) already say so; this bar now agrees and
+    // walks to SC_SCORE_MATURE with learning progress.
+    private const val SC_SCORE_BOOTSTRAP = 15
     private const val SC_SCORE_MATURE = 48
     
     // V5.2 FIX: Lower confidence required in bootstrap

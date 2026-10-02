@@ -136,8 +136,17 @@ object HostCircuitInterceptor : Interceptor {
         val req = chain.request()
         val host = req.url.host
         val now = System.currentTimeMillis()
-        val state = states.getOrPut(host) { HostState() }
         val provider = providerLabelFor(host, req.url.encodedPath)
+        // V5.0.7719 — the cool-down state is keyed by host AND provider label.
+        // 7297 split the ApiBackoff label (jupiter_tokens vs jupiter) but this
+        // host state stayed per host, so three 403s from the market sweep's
+        // token lists on lite-api.jup.ag put the QUOTE path on the same host
+        // into a 90 s cool-down every sweep (5.0.7716: jupiter_quote
+        // transport 14%, route acceptance 8%, preflight REFUSE, while the
+        // lists reported LOCAL_CIRCUIT). Discovery and execution now cool
+        // down separately.
+        val stateKey7719 = if (provider.isNotBlank()) "$host|$provider" else host
+        val state = states.getOrPut(stateKey7719) { HostState() }
         // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
         val isProbe = req.header(PROBE_HEADER_6976) != null && provider != "birdeye"
         // V5.0.7314 — an exit is never refused by the local lockout/cool-down.

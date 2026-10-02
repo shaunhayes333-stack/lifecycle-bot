@@ -115,6 +115,29 @@ class SecurityActivity : AppCompatActivity() {
             "AATE v" + packageManager.getPackageInfo(packageName, 0).versionName
         } catch (_: Throwable) { "AATE" }
         wireKeypad7028()
+        showLastCrash7719()
+    }
+
+    /**
+     * V5.0.7719 — the operator could not get past this screen and had no way
+     * to read logs. The last recorded crash (StartupCrashGuard7717) is shown
+     * here; a tap copies the full trace to the clipboard.
+     */
+    private fun showLastCrash7719() {
+        val text = try { com.lifecyclebot.engine.truth.StartupCrashGuard7717.crashForDisplay() } catch (_: Throwable) { null } ?: return
+        try {
+            tvError.text = text
+            tvError.textSize = 11f
+            tvError.visibility = View.VISIBLE
+            tvError.setOnClickListener {
+                try {
+                    val full = com.lifecyclebot.engine.truth.StartupCrashGuard7717.fullCrashText(this)
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("AATE crash", full))
+                    Toast.makeText(this, "Crash trace copied", Toast.LENGTH_SHORT).show()
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
     }
 
     /**
