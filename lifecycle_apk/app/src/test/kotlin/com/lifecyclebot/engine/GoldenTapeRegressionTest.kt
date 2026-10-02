@@ -13635,6 +13635,7 @@ class GoldenTapeRegressionTest {
         assertTrue(sourceScorecard.contains(".put(\"live\", exportStats7403(liveStats7403))"))
         assertTrue(sourceScorecard.contains(".put(\"paper\", exportStats7403(paperStats7403))"))
         assertTrue(sourceScorecard.contains("restore(liveStats7403, o.optJSONArray(\"live\"))"))
+        assertTrue(sourceScorecard.contains("if (!trade.side.equals(\"SELL\", true)) return"))
 
         // (3) The Lab froze at MAX_LIVE_STRATEGIES: creation skipped at cap and the
         // only cull needed 30 trades on one strategy. A slot is freed (idle 24 h,
@@ -13647,8 +13648,8 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("val active = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ACTIVE }"))
         assertTrue(lab.contains("LAB_SLOT_FREED_7723"))
         assertTrue(lab.contains("LAB_SLOT_NOT_FREED_NO_CANDIDATE_7723"))
-        assertEquals("5.0.7725", java.io.File("../../AATE_VERSION").readText().trim())
-        assertEquals("5.0.7725", java.io.File("../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7726", java.io.File("../../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7726", java.io.File("../AATE_VERSION").readText().trim())
     }
 
 }

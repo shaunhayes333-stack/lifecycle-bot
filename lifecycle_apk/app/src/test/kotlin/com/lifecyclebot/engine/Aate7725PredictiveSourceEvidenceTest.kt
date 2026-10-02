@@ -9,6 +9,19 @@ class Aate7725PredictiveSourceEvidenceTest {
     @Test fun source_family_evidence_resolves_scanner_names_and_survives_restart_by_mode() {
         val scorecard = SourceFamilyOpportunityScorecard
         scorecard.reset()
+        scorecard.recordClosed(
+            "PUMP_PORTAL_WS",
+            Trade(side = "PARTIAL_SELL", mode = "live", sol = 0.01, price = 1.0, ts = 100L,
+                pnlSol = 0.01, netPnlSol = 0.01, entryCostSol = 0.10),
+        )
+        assertNull("partial exits are not independent terminal outcomes", scorecard.expectancyFor6915("PUMP_PORTAL_WS", true))
+        scorecard.recordClosed(
+            "PUMP_PORTAL_WS",
+            Trade(side = "SELL", mode = "live", sol = 0.11, price = 1.0, ts = 200L,
+                pnlSol = 0.01, netPnlSol = 0.01, entryCostSol = 0.10),
+        )
+        assertEquals(1, scorecard.expectancyFor6915("PUMP_PORTAL_WS", true)!!.closed)
+        scorecard.reset()
         scorecard.importState(
             """{"schema":2,"legacy":[],"live":[
                 {"k":"PUMP_FAMILY","c":3,"w":2,"p":0.03,"cost":0.30},

@@ -77,6 +77,10 @@ object SourceFamilyOpportunityScorecard {
     fun recordAdmitted(source: String, hasRugOverlay: Boolean = false) = update(source) { admitted++; if (hasRugOverlay) this.rugOverlay++ }
     fun recordOpened(source: String) = update(source) { opened++ }
     fun recordClosed(source: String, trade: Trade) {
+        // V5.0.7726 / Field Manual §16: a position contributes one terminal
+        // outcome. Partial fills change realized cash but are not independent
+        // strategy outcomes and must not inflate this source cohort's sample.
+        if (!trade.side.equals("SELL", true)) return
         val pnl7403 = (trade.netPnlSol.takeIf { it.isFinite() && it != 0.0 } ?: trade.pnlSol)
             .takeIf { it.isFinite() } ?: 0.0
         // V5.0.7403 — cost means deployed basis, NOT fees. Using feeSol as
