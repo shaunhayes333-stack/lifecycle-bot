@@ -273,11 +273,27 @@ object LabPromotedFeed {
      * a position with the given pnl + hold. Used as a soft cap by Moonshot/
      * ShitCoin/etc. exit checks alongside their own legacy logic.
      */
-    fun shouldExitByPromotedRule(asset: LabAssetClass, pnlPct: Double, holdMinutes: Long): Boolean {
+    fun shouldExitByPromotedRule(asset: LabAssetClass, pnlPct: Double, holdMinutes: Long, live: Boolean = false): Boolean {
         val promoted = LlmLabStore.allStrategies()
             .filter { !com.lifecyclebot.engine.AdaptiveLaneReproof6684.isTargetedStrategy(it.id) }
             .filter { it.status == LabStrategyStatus.PROMOTED &&
                       (it.asset == LabAssetClass.ANY || it.asset == asset) }
+            // V5.0.7723 — the live proof bar (7106) guarded the ENTRY nudge only.
+            // This exit rule read PROMOTED alone (8 paper trades, WR>=33%), so a
+            // strategy that has never directed a cent of real money could
+            // FLAT_EXIT a live MOONSHOT position on its paper stop or hold
+            // timer (5.0.7720: promoted=2 liveBarCleared=0). On live, only a
+            // strategy that clears the same bar as the entry nudge may force
+            // an exit; the rest are labelled and ignored. Paper is unchanged.
+            .filter { s ->
+                if (!live) true else {
+                    val refusal = try { liveNudgeRefusal7106(s.id, 0.0) } catch (_: Throwable) { "UNAVAILABLE" }
+                    if (refusal != null) {
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_EXIT_RULE_LIVE_BAR_REFUSED_7723") } catch (_: Throwable) {}
+                    }
+                    refusal == null
+                }
+            }
         if (promoted.isEmpty()) return false
         return promoted.any { s ->
             pnlPct >= s.takeProfitPct ||

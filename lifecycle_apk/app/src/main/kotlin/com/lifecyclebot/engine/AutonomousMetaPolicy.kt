@@ -235,18 +235,45 @@ object AutonomousMetaPolicy {
     // V5.9.1290 — monotonic probe counter for the veto bypass valve
     private val vetoProbeCounter = java.util.concurrent.atomic.AtomicLong(0L)
 
+    // V5.0.7723 — the stamp was keyed by mint alone, and FinalDecisionGate stamps
+    // once per LANE it evaluates for that mint (specialist fan-out: MOONSHOT,
+    // SHITCOIN, CORE, TREASURY ... on the same candidate in one cycle). The last
+    // lane to evaluate overwrote the lane that actually executed, so a close was
+    // credited to the wrong context or to none: 5.0.7720 delivered 11 outcomes
+    // and this policy recorded updates=6. A per-lane stamp is kept beside the
+    // mint stamp; a close that names its lane credits that lane's context.
+    private const val PENDING_MAX_7723 = 4000
+    private fun laneStampKey7723(mint: String, lane: String): String = "$mint|${lane.trim().uppercase()}"
+
     /** Stamp the context chosen for a mint at decision time (for credit). */
     fun stampDecision(mint: String, lane: String, score: Int, regime: String) {
         try {
-            pending[mint] = contextKey(lane, score, regime)
+            val key7723 = contextKey(lane, score, regime)
+            pending[mint] = key7723
+            pending[laneStampKey7723(mint, lane)] = key7723
+            if (pending.size > PENDING_MAX_7723) {
+                val it = pending.keys.iterator()
+                var n = 0
+                while (it.hasNext() && n < PENDING_MAX_7723 / 10) { it.next(); it.remove(); n++ }
+                try { PipelineHealthCollector.labelInc("AUTONOMOUS_META_PENDING_PRUNED_7723") } catch (_: Throwable) {}
+            }
             appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
         } catch (_: Throwable) {}
     }
 
     /** Credit a settled outcome back to the context that produced the decision. */
-    fun recordOutcome(mint: String, pnlPct: Double) {
+    fun recordOutcome(mint: String, pnlPct: Double, lane: String? = null) {
         try {
-            val key = pending.remove(mint) ?: return
+            val laneKey7723 = lane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }?.let { pending.remove(laneStampKey7723(mint, it)) }
+            val mintKey7723 = pending.remove(mint)
+            val prefix7723 = "$mint|"
+            for (k in pending.keys.toList()) if (k.startsWith(prefix7723)) pending.remove(k)
+            val key = laneKey7723 ?: mintKey7723 ?: return
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (laneKey7723 != null) "AUTONOMOUS_META_CREDIT_LANE_STAMP_7723" else "AUTONOMOUS_META_CREDIT_MINT_STAMP_7723",
+                )
+            } catch (_: Throwable) {}
             val arm = arms.getOrPut(key) { Arm() }
             val win = pnlPct > 0.0
             synchronized(arm) {

@@ -1907,6 +1907,7 @@ object MoonshotTraderAI {
                     asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
                     pnlPct = pnlPct,
                     holdMinutes = holdMinutes,
+                    live = !pos.isPaperMode,
                 ) && !liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, "LAB_PROMOTED_RULE")) {
                 ErrorLogger.info(TAG, "🧪 LAB EXIT: ${pos.symbol} matched a promoted strategy's TP/SL/timeout (${pnlPct.fmt(1)}%/${holdMinutes}min)")
                 return ExitSignal.FLAT_EXIT

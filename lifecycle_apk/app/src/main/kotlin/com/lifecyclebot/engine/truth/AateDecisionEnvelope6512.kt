@@ -259,7 +259,7 @@ object AateDecisionFabric6512 {
         try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
         if (policyAck6713 && UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
-        try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
+        try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct, env.lane) } catch (_: Throwable) {}
         if (AutonomousMetaPolicy.totalUpdateCount6512() > metaBefore) updated += "AutonomousMetaPolicy"
         // V5.0.7445 — StrategyHypothesis terminal credit is position-bound
         // exclusively via FinalizedBusConsumerBridge6465. Mint-only credit can

@@ -13597,4 +13597,50 @@ class GoldenTapeRegressionTest {
         assertEquals("5.0.7722", java.io.File("../AATE_VERSION").readText().trim())
     }
 
+    @Test
+    fun V5_0_7723_the_autonomous_stack_closes_its_loops_and_paper_proof_does_not_sell_live() {
+        // Code trace of the 5.0.7720 autonomous stack (promotions=0, liveBarCleared=0,
+        // updates=6 of 11 outcomes, strategies=36/36 archived=0 maxGen=2).
+
+        // (1) LabPromotedFeed.shouldExitByPromotedRule read PROMOTED alone (8 paper
+        // trades) and could FLAT_EXIT a live MOONSHOT position; the 7106 live bar
+        // guarded the entry nudge only. On live only a bar-clearing strategy may.
+        val feed = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LabPromotedFeed.kt").readText()
+        assertTrue(feed.contains("fun shouldExitByPromotedRule(asset: LabAssetClass, pnlPct: Double, holdMinutes: Long, live: Boolean = false): Boolean {"))
+        val exitRule = feed.substringAfter("fun shouldExitByPromotedRule(").substringBefore("fun summary()")
+        assertTrue(exitRule.contains("val refusal = try { liveNudgeRefusal7106(s.id, 0.0) } catch (_: Throwable) { \"UNAVAILABLE\" }"))
+        assertTrue(exitRule.contains("LAB_EXIT_RULE_LIVE_BAR_REFUSED_7723"))
+        assertTrue(exitRule.indexOf("if (!live) true else {") < exitRule.indexOf("if (promoted.isEmpty()) return false"))
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(moon.contains("live = !pos.isPaperMode,\n                ) && !liveFlatExitSuppressed7695(pos, holdMinutes, pnlPct, \"LAB_PROMOTED_RULE\")"))
+
+        // (2) AutonomousMetaPolicy stamped by mint only; FDG stamps once per lane it
+        // evaluates, so the executing lane's stamp was overwritten. Per-lane stamp,
+        // credited by the closing lane.
+        val amp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt").readText()
+        assertTrue(amp.contains("fun recordOutcome(mint: String, pnlPct: Double, lane: String? = null) {"))
+        assertTrue(amp.contains("pending[laneStampKey7723(mint, lane)] = key7723"))
+        assertTrue(amp.contains("val key = laneKey7723 ?: mintKey7723 ?: return"))
+        assertTrue(amp.contains("AUTONOMOUS_META_CREDIT_LANE_STAMP_7723"))
+        assertTrue(amp.contains("AUTONOMOUS_META_PENDING_PRUNED_7723"))
+        val envSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt").readText()
+        assertTrue(envSrc.contains("AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct, env.lane)"))
+        val mp = com.lifecyclebot.engine.AutonomousMetaPolicy
+        assertEquals(mp.contextKey("MOONSHOT", 57, "NORMAL"), mp.contextKey("MOONSHOT", 57, "NORMAL"))
+
+        // (3) The Lab froze at MAX_LIVE_STRATEGIES: creation skipped at cap and the
+        // only cull needed 30 trades on one strategy. A slot is freed (idle 24 h,
+        // else worst loser with a paper-promotion sample) before each creation.
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
+        assertTrue(lab.contains("if (LlmLabStore.activeStrategies().size >= MAX_LIVE_STRATEGIES) retireForSlot7723()"))
+        assertTrue(lab.indexOf("retireForSlot7723()") < lab.indexOf("LAB_CREATION_SKIPPED_AT_CAP_7104"))
+        assertTrue(lab.contains("private fun retireForSlot7723() {"))
+        assertTrue(lab.contains("private const val IDLE_RETIRE_MS_7723 = 24L * 60L * 60_000L"))
+        assertTrue(lab.contains("val active = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ACTIVE }"))
+        assertTrue(lab.contains("LAB_SLOT_FREED_7723"))
+        assertTrue(lab.contains("LAB_SLOT_NOT_FREED_NO_CANDIDATE_7723"))
+        assertEquals("5.0.7723", java.io.File("../../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7723", java.io.File("../AATE_VERSION").readText().trim())
+    }
+
 }

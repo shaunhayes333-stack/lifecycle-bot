@@ -353,6 +353,43 @@ object LlmLabEngine {
         }
     }
 
+    /** V5.0.7723 — an ACTIVE strategy with no paper trade this long after creation yields its slot. */
+    private const val IDLE_RETIRE_MS_7723 = 24L * 60L * 60_000L
+
+    /** V5.0.7723 — see runCreationCycle. Archives at most one strategy; never a PROMOTED one. */
+    private fun retireForSlot7723() {
+        try {
+            val now = System.currentTimeMillis()
+            val active = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ACTIVE }
+            val idle = active
+                .filter { it.paperTrades == 0 && it.lastTradeAt <= 0L && now - it.createdAt >= IDLE_RETIRE_MS_7723 }
+                .minByOrNull { it.createdAt }
+            val loser = active
+                .filter { it.paperTrades >= LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293 && it.paperPnlSol < 0.0 }
+                .minByOrNull { it.paperPnlSol / it.paperTrades }
+            val victim = idle ?: loser ?: run {
+                try { PipelineHealthCollector.labelInc("LAB_SLOT_NOT_FREED_NO_CANDIDATE_7723") } catch (_: Throwable) {}
+                return
+            }
+            val why = if (victim === idle) "IDLE" else "LOSER"
+            LlmLabStore.archiveStrategy(
+                victim.id,
+                "V5.0.7723 slot freed ($why): trades=${victim.paperTrades} wr=${"%.0f".format(victim.winRatePct())}% " +
+                    "pnl=${"%.3f".format(victim.paperPnlSol)} ageH=${(now - victim.createdAt) / 3_600_000L}",
+            )
+            try {
+                PipelineHealthCollector.labelInc("LAB_SLOT_FREED_7723")
+                PipelineHealthCollector.labelInc("LAB_SLOT_FREED_7723_$why")
+                ForensicLogger.lifecycle(
+                    "LAB_SLOT_FREED_7723",
+                    "strategy=${victim.name.take(32)} gen=${victim.generation} why=$why trades=${victim.paperTrades} " +
+                        "pnl=${"%.3f".format(victim.paperPnlSol)} ageH=${(now - victim.createdAt) / 3_600_000L} " +
+                        "action=population_evolves_past_the_cap",
+                )
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+    }
+
     /** Permanently delete all archived strategies. */
     fun purgeArchived(): Int {
         val archived = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ARCHIVED }
@@ -384,6 +421,15 @@ object LlmLabEngine {
         // this codebase keeps producing — a capability that cannot report its
         // own absence — and it is worst here, because this is the capability the
         // whole "self-evolving" claim rests on.
+        // V5.0.7723 — at the cap the Lab stopped inventing: 5.0.7720 read
+        // strategies=36 (active=34 promoted=2 archived=0) maxGen=2 with 79 paper
+        // trades across 36 strategies, and the only cull needs 30 trades on one
+        // strategy (ARCHIVE_LOSER_AFTER_TRADES), which none will reach. The
+        // population was frozen at generation 2. A slot is freed before each
+        // creation attempt: an ACTIVE strategy that has taken no paper trade in
+        // 24 h since creation is not being tested; failing that, the worst ACTIVE
+        // loser with a paper-promotion-sized sample. PROMOTED is never retired here.
+        if (LlmLabStore.activeStrategies().size >= MAX_LIVE_STRATEGIES) retireForSlot7723()
         val live = LlmLabStore.activeStrategies().size
         if (live >= MAX_LIVE_STRATEGIES) {
             try { PipelineHealthCollector.labelInc("LAB_CREATION_SKIPPED_AT_CAP_7104") } catch (_: Throwable) {}
