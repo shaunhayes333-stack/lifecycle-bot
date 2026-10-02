@@ -77,9 +77,11 @@ object LiveEntrySafetyHold {
         com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396.BASELINE.toDouble()
         private set
 
-    /** Minimum finalised sample before ANY performance-based relaxation
-     *  applies to the live path (governor stays in baseline until then). */
-    private const val GOVERNOR_MIN_SAMPLE: Int = 10
+    /** Global verified close sample before performance stats can shape live
+     *  stake size. This is a governor confidence threshold only: finalized
+     *  outcomes continue to every eligible learner starting with close one. */
+    internal const val GOVERNOR_MIN_SAMPLE_7711: Int = 20
+    private const val GOVERNOR_MIN_SAMPLE: Int = GOVERNOR_MIN_SAMPLE_7711
 
     /** Governor tighten thresholds (n ≥ GOVERNOR_MIN_SAMPLE). */
     private const val TIGHTEN_WR_PCT: Double = 40.0
@@ -90,22 +92,20 @@ object LiveEntrySafetyHold {
     private const val SEVERE_WR_PCT: Double = 25.0
     private const val SEVERE_PF: Double = 0.70
 
-    // ─── V5.0.6324 GOVERNOR FLUIDITY ────────────────────────────────
-    // Operator directive: N=5, WR=20%, PF=0.05, exp=-0.0027 SOL MUST
-    // materially shape live execution — not sit at BASELINE. The 6318
-    // auto-snooze grace (N>=20) blocked all response to real bleed.
-    // 6324 keeps the WADDLE-era exclusion in place (session window) but
-    // opens up CAUTION and SOFT_TIGHT as small-N-friendly states that
-    // reduce size / raise floor / require probe-first WITHOUT disabling
-    // any lane. HOLD is preserved but reserved for execution-integrity /
-    // wallet-safety failures (invariant-driven, not strategy bleed).
+    // ─── V5.0.7711 BROAD-SAMPLE LIVE GOVERNOR ──────────────────────
+    // Performance statistics are pooled across verified live closes.
+    // Fewer than 20 closes leave the governor at baseline so one small
+    // or lane-specific cohort cannot dictate book-wide behavior. At 20+,
+    // mild stake shaping can respond to persistent evidence without
+    // raising score floors or disabling any lane. Hard execution and
+    // inventory safety invariants remain independent of this sample.
 
-    private const val CAUTION_MIN_N: Int = 4
+    private const val CAUTION_MIN_N: Int = GOVERNOR_MIN_SAMPLE_7711
     private const val CAUTION_PF: Double = 0.80
     private const val CAUTION_EXP_SOL: Double = 0.0
     private const val CAUTION_WR_PCT: Double = 35.0
 
-    private const val SOFT_TIGHT_MIN_N: Int = 4
+    private const val SOFT_TIGHT_MIN_N: Int = GOVERNOR_MIN_SAMPLE_7711
     private const val SOFT_TIGHT_PF: Double = 0.35
     private const val SOFT_TIGHT_EXP_SOL: Double = -0.0015
     private const val SOFT_TIGHT_WR_PCT: Double = 25.0
@@ -122,26 +122,23 @@ object LiveEntrySafetyHold {
      *
      *  Correction: poor live results must reduce dollars at risk, not
      *  increase them to recover losses. The lane concentrator may shape
-     *  entries, but below BASELINE its maximum amplification is included
-     *  in the governor's total risk budget.
-     *  Floors remain a small buffer so valid candidates can still be
-     *  evaluated and exits remain fully active. */
+     *  entries. Performance evidence shapes this multiplier gently only
+     *  after a broad global sample; lane-level evidence remains free to
+     *  concentrate into stronger candidates. The entry floor is not raised. */
     private const val SIZE_MULTIPLIER_BASELINE: Double = 1.00
-    private const val SIZE_BUDGET_CAUTION_7710: Double = 0.90
-    private const val SIZE_BUDGET_SOFT_TIGHT_7710: Double = 0.75
-    private const val SIZE_BUDGET_RECOVERY_7710: Double = 0.85
-    private const val SIZE_BUDGET_TIGHTENED_7710: Double = 0.65
-    private const val SIZE_BUDGET_HOLD_7710: Double = 0.50
-    // Executor applies this factor before LaneEdgeConcentrator, whose positive
-    // evidence can amplify by at most 1.50. Divide the risk budget here so the
-    // full live size stack still stays inside the governor's intended cap.
-    internal const val MAX_LANE_EDGE_SIZE_MULTIPLIER_7710: Double = 1.50
+    private const val SIZE_BUDGET_CAUTION_7711: Double = 0.97
+    private const val SIZE_BUDGET_SOFT_TIGHT_7711: Double = 0.93
+    private const val SIZE_BUDGET_RECOVERY_7711: Double = 0.97
+    private const val SIZE_BUDGET_TIGHTENED_7711: Double = 0.90
+    private const val SIZE_BUDGET_HOLD_7711: Double = 0.80
     private const val FLOOR_ADJUSTMENT_BASELINE: Double = 0.0
-    private const val FLOOR_ADJUSTMENT_CAUTION: Double = 1.0
-    private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 2.0
-    private const val FLOOR_ADJUSTMENT_RECOVERY: Double = 2.0
-    private const val FLOOR_ADJUSTMENT_TIGHTENED: Double = 3.0
-    private const val FLOOR_ADJUSTMENT_HOLD: Double = 5.0
+    // Performance uncertainty shapes stake only. It never raises the entry
+    // floor; qualified trades remain available to generate more evidence.
+    private const val FLOOR_ADJUSTMENT_CAUTION: Double = 0.0
+    private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 0.0
+    private const val FLOOR_ADJUSTMENT_RECOVERY: Double = 0.0
+    private const val FLOOR_ADJUSTMENT_TIGHTENED: Double = 0.0
+    private const val FLOOR_ADJUSTMENT_HOLD: Double = 0.0
 
     @Volatile private var lastGovernorState: GovernorState = GovernorState.BASELINE
     @Volatile private var lastGovernorSizeMultiplier: Double = SIZE_MULTIPLIER_BASELINE
@@ -151,23 +148,23 @@ object LiveEntrySafetyHold {
     fun currentFloorAdjustment(): Double = lastGovernorFloorAdjustment
     fun currentGovernorState(): GovernorState = lastGovernorState
 
-    /** One-way risk schedule: weaker live evidence can never raise stake size. */
+    /** Broad global performance evidence makes only a modest stake adjustment. */
     internal fun governorSizeMultiplier6324(state: GovernorState): Double = when (state) {
         GovernorState.BASELINE -> SIZE_MULTIPLIER_BASELINE
-        GovernorState.CAUTION -> SIZE_BUDGET_CAUTION_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
-        GovernorState.SOFT_TIGHT -> SIZE_BUDGET_SOFT_TIGHT_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
-        GovernorState.RECOVERY -> SIZE_BUDGET_RECOVERY_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
-        GovernorState.TIGHTENED -> SIZE_BUDGET_TIGHTENED_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
-        GovernorState.HOLD -> SIZE_BUDGET_HOLD_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
+        GovernorState.CAUTION -> SIZE_BUDGET_CAUTION_7711
+        GovernorState.SOFT_TIGHT -> SIZE_BUDGET_SOFT_TIGHT_7711
+        GovernorState.RECOVERY -> SIZE_BUDGET_RECOVERY_7711
+        GovernorState.TIGHTENED -> SIZE_BUDGET_TIGHTENED_7711
+        GovernorState.HOLD -> SIZE_BUDGET_HOLD_7711
     }
 
-    internal fun governorRiskBudget7710(state: GovernorState): Double = when (state) {
+    internal fun governorRiskBudget7711(state: GovernorState): Double = when (state) {
         GovernorState.BASELINE -> 1.0
-        GovernorState.CAUTION -> SIZE_BUDGET_CAUTION_7710
-        GovernorState.SOFT_TIGHT -> SIZE_BUDGET_SOFT_TIGHT_7710
-        GovernorState.RECOVERY -> SIZE_BUDGET_RECOVERY_7710
-        GovernorState.TIGHTENED -> SIZE_BUDGET_TIGHTENED_7710
-        GovernorState.HOLD -> SIZE_BUDGET_HOLD_7710
+        GovernorState.CAUTION -> SIZE_BUDGET_CAUTION_7711
+        GovernorState.SOFT_TIGHT -> SIZE_BUDGET_SOFT_TIGHT_7711
+        GovernorState.RECOVERY -> SIZE_BUDGET_RECOVERY_7711
+        GovernorState.TIGHTENED -> SIZE_BUDGET_TIGHTENED_7711
+        GovernorState.HOLD -> SIZE_BUDGET_HOLD_7711
     }
 
     // ----- Bypass ban denylist --------------------------------------
@@ -486,7 +483,7 @@ object LiveEntrySafetyHold {
     private const val GOVERNOR_WINDOW_PREFS = "live_entry_governor_window_6328"
     private const val GOVERNOR_WINDOW_KEY = "windowStartMs"
 
-    private const val AUTO_SNOOZE_GRACE: Int = 20
+    private const val AUTO_SNOOZE_GRACE: Int = GOVERNOR_MIN_SAMPLE_7711
 
     /**
      * V5.0.6328 — CANONICAL GOVERNOR SAMPLE PERSISTS ACROSS RESTART.
@@ -541,14 +538,17 @@ object LiveEntrySafetyHold {
 
     enum class GovernorState { BASELINE, CAUTION, SOFT_TIGHT, TIGHTENED, RECOVERY, HOLD }
 
+    internal fun performanceSampleReady7711(canonicalVerifiedCloses: Int): Boolean =
+        canonicalVerifiedCloses >= GOVERNOR_MIN_SAMPLE_7711
+
     /**
      * Reads canonical finalised live stats from TradeHistoryStore.
      * Never touches broadcast/pending rows.
      *
-     * V5.0.6324 — small-N-friendly CAUTION / SOFT_TIGHT states. The
-     * governor now responds materially to real bleed at N>=4 without
-     * disabling any lane. HOLD remains reserved for invariant / wallet
-     * safety failures (armed via [runHealthCheck] or SEVERE bleed).
+     * V5.0.7711 — broad-sample performance shaping. No lane or global
+     * performance statistic changes live stake before 20 verified closes.
+     * Eligible finalized closes still reach learners starting with close one.
+     * Integrity failures remain governed by [runHealthCheck].
      */
     fun evaluateConfidenceGovernor(): GovernorState {
         val stats = try {
@@ -557,7 +557,7 @@ object LiveEntrySafetyHold {
 
         // Not enough data yet — behave normally so the fixed pipeline
         // gets a chance to show real signal.
-        if (stats.canonicalN < CAUTION_MIN_N) {
+        if (!performanceSampleReady7711(stats.canonicalN)) {
             try { PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_BASELINE") } catch (_: Throwable) {}
             return applyGovernorState(GovernorState.BASELINE)
         }
@@ -566,8 +566,8 @@ object LiveEntrySafetyHold {
         // V5.0.6332 — CONCENTRATED CONVICTION. Governor SEVERE bleed
         // MUST NOT arm the safety hold. That created a sticky lockout
         // (LIVE_ENTRY_SAFETY_HOLD_6312 = 862 blocks/session). HOLD is a
-        // live-risk state: it raises the score floor and caps the full size
-        // stack at half its pre-governor amount. armInternal remains reserved for wallet / accounting /
+        // live-risk state: it shapes stake slightly after a broad sample but
+        // never raises the entry floor. armInternal remains reserved for wallet / accounting /
         // decimal-skew invariants triggered via runHealthCheck.
         //
         // V5.0.6384 — "PROFITABLE-LOW-WR" ESCAPE HATCH. Operator's
