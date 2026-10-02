@@ -12470,10 +12470,29 @@ class BotService : Service() {
                                         (pos.costSol * su / pos.qtyToken).takeIf { it.isFinite() && it > 0.0 }
                                     else null
                                 } catch (_: Throwable) { null }
-                                val basisPx7393 = if (fillBasis7393 != null && (entryPx / fillBasis7393) !in (1.0 / 1.5)..1.5) {
+                                // V5.0.7721 — the fill rule assumes costSol is what a fill
+                                // receipt says was paid. An ADOPTED row (observed-mark
+                                // adoption, signed-buy adoption, wallet recovery) carries an
+                                // inferred cost, not a receipt. 5.0.7720: two adopted rows at
+                                // -0.6% and -1.3% on their stamped entry were read at -54% and
+                                // -60% through this swap and fired 486 catastrophic exits in
+                                // five minutes against a wallet read that was returning empty.
+                                // For adopted rows the stamp is the basis.
+                                val adoptedRow7721 = try {
+                                    val src7721 = pos.entryPriceSource.uppercase()
+                                    pos.tradingMode.equals("WALLET_RECOVERED", ignoreCase = true) ||
+                                        src7721.contains("OBSERVED_MARK_ADOPTION_7706") || src7721.contains("HOST_TRACKER_SIGNED_BUY_7708") ||
+                                        src7721.startsWith("WALLET_RECOVERY") || src7721.startsWith("WALLET_ADOPT") || src7721.contains("BASIS_UNKNOWN") ||
+                                        src7721.contains("RECOVERY_6686") || src7721.contains("RESERVATION_7699")
+                                } catch (_: Throwable) { false }
+                                val fillDisagrees7393 = fillBasis7393 != null && (entryPx / fillBasis7393) !in (1.0 / 1.5)..1.5
+                                val basisPx7393 = if (fillDisagrees7393 && !adoptedRow7721) {
                                     try { PipelineHealthCollector.labelInc("LIVE_EXIT_BASIS_FROM_FILL_7393") } catch (_: Throwable) {}
-                                    fillBasis7393
-                                } else entryPx
+                                    fillBasis7393!!
+                                } else {
+                                    if (fillDisagrees7393) try { PipelineHealthCollector.labelInc("LIVE_EXIT_BASIS_STAMP_KEPT_ADOPTED_ROW_7721") } catch (_: Throwable) {}
+                                    entryPx
+                                }
                                 val rawTickPnlPctNow = (priceUsd - basisPx7393) / basisPx7393 * 100.0
                                 // V5.0.4152 — UI/EXEC HIGH-LOCK PARITY.
                                 // Operator screenshot: TARGET Peak +2600% / lock +2600%,

@@ -19729,9 +19729,16 @@ class Executor(
                 val total = s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()
                 if (total > 5) s.successes.get().toDouble() / total else 1.0
             } ?: 1.0
+            // V5.0.7721 — a Jupiter quote 4xx is "no route for this candidate"
+            // (dust launches, unlisted mints), not "Jupiter is down". The live
+            // preflight already scores jupiter_quote on TRANSPORT (successes vs
+            // 5xx + network) for exactly that reason; this gate still counted
+            // candidate 4xx as outages, so on 5.0.7720 the preflight read
+            // transport=73% PASS while this block read 35% and refused all 34
+            // live buys of the session (PROVIDER_DEGRADED_BUY_BLOCK_6264=49).
             val jupQSr = apiHealth["jupiter_quote"]?.let { s ->
-                val total = s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()
-                if (total > 3) s.successes.get().toDouble() / total else 1.0
+                val transportTotal = s.successes.get() + s.failures5xx.get() + s.networkErrors.get()
+                if (transportTotal > 3) s.successes.get().toDouble() / transportTotal else 1.0
             } ?: 1.0
             // V5.0.6276 — SINGLE-PROVIDER SUFFICIENCY. Op-report V5.0.6275
             // showed 52 blocks by PROVIDER_DEGRADED_BUY_BLOCK_6264 while

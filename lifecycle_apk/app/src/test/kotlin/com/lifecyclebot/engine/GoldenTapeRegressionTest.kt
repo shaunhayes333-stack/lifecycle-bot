@@ -13519,4 +13519,31 @@ class GoldenTapeRegressionTest {
         assertTrue(wf.indexOf("fdg_evaluate_budget_scan.py") < wf.indexOf("name: Build Release APK"))
     }
 
+    @Test
+    fun V5_0_7721_quote_4xx_is_not_an_outage_and_an_old_builds_crash_does_not_gag_a_new_one() {
+        // 5.0.7720 snapshot: live preflight JUPITER_QUOTE PASS at transport=73%
+        // while the Executor's provider-degraded block computed 35% (it counted
+        // 58 candidate 4xx as outages) and refused all 34 live buys
+        // (PROVIDER_DEGRADED_BUY_BLOCK_6264=49). Same snapshot: the Field
+        // Manual sat suppressed for 313 more minutes because 5.0.7718 had
+        // crashed, on a build that no longer carried the cause.
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val block = ex.substringAfter("val jupQSr = apiHealth[\"jupiter_quote\"]?.let { s ->").substringBefore("} ?: 1.0")
+        assertTrue(block.contains("val transportTotal = s.successes.get() + s.failures5xx.get() + s.networkErrors.get()"))
+        assertFalse(block.contains("s.failures4xx.get()"))
+        assertTrue(ex.contains("if (dexSr < 0.70 && jupQSr < 0.60) {"))
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/StartupCrashGuard7717.kt").readText()
+        assertTrue(g.contains("if (suppressUntilMs > processStartMs && lastCrashBuild.isNotBlank() && lastCrashBuild != buildTag) {"))
+        assertTrue(g.contains("STARTUP_CRASH_GUARD_LIFTED_NEW_BUILD_7721"))
+        assertTrue(g.indexOf("thisBuild = buildTag") < g.indexOf("STARTUP_CRASH_GUARD_LIFTED_NEW_BUILD_7721"))
+
+        // Same snapshot: two adopted rows at -0.6% / -1.3% read -54% / -60% through
+        // the 7393 fill-basis swap (inferred cost, not a receipt) and fired 486
+        // catastrophic exits in five minutes. Adopted rows keep their stamp.
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("val basisPx7393 = if (fillDisagrees7393 && !adoptedRow7721) {"))
+        assertTrue(bs.contains("LIVE_EXIT_BASIS_STAMP_KEPT_ADOPTED_ROW_7721"))
+        assertTrue(bs.contains("src7721.contains(\"HOST_TRACKER_SIGNED_BUY_7708\")"))
+    }
+
 }

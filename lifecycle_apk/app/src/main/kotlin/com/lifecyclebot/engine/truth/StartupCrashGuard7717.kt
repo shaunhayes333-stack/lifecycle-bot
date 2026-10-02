@@ -71,10 +71,19 @@ object StartupCrashGuard7717 {
             startupCrashStreak = p.getInt(KEY_STARTUP_CRASH_STREAK, 0)
             suppressUntilMs = p.getLong(KEY_SUPPRESS_UNTIL_MS, 0L)
             loaded = true
+            thisBuild = buildTag
+            // V5.0.7721 — suppression protects against the SAME build crashing
+            // again. A new build is a new fact (5.0.7720 ran with the manual
+            // off for 313 min because 5.0.7718 had crashed): lift it, keep the
+            // crash record for the report.
+            if (suppressUntilMs > processStartMs && lastCrashBuild.isNotBlank() && lastCrashBuild != buildTag) {
+                suppressUntilMs = 0L
+                try { p.edit().putLong(KEY_SUPPRESS_UNTIL_MS, 0L).apply() } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("STARTUP_CRASH_GUARD_LIFTED_NEW_BUILD_7721") } catch (_: Throwable) {}
+            }
             if (suppressUntilMs > processStartMs) {
                 try { PipelineHealthCollector.labelInc("STARTUP_CRASH_GUARD_SUPPRESSING_7717") } catch (_: Throwable) {}
             }
-            thisBuild = buildTag
         } catch (_: Throwable) {}
     }
 
