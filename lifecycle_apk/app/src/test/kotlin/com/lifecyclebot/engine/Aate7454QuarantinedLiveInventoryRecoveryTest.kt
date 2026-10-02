@@ -34,7 +34,7 @@ class Aate7454QuarantinedLiveInventoryRecoveryTest {
     @Test fun live_buys_fail_closed_when_bot_wallet_inventory_is_outside_exit_scope() {
         val gate = src("engine/sell/LiveBuyAdmissionGate.kt")
         val executor = src("engine/Executor.kt")
-        assertTrue(gate.contains("LiveExitCoverageGuard7701.assess(walletAddress)"))
+        assertTrue(gate.contains("LiveExitCoverageGuard7701.assess(com.lifecyclebot.engine.WalletManager.currentPubkey())"))
         assertTrue(gate.contains("LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701"))
         assertTrue(gate.contains("HostWalletTokenTracker.PositionSource.BOT_BUY"))
         assertTrue(gate.contains("FillLotLedger6344.snapshotForWallet(walletAddress)"))
