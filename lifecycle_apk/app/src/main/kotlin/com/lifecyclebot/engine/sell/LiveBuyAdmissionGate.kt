@@ -98,6 +98,7 @@ object LiveBuyAdmissionGate {
             LiveExitCoverageGuard7701.Decision.Blocked(
                 "EXIT_COVERAGE_UNVERIFIED",
                 "inventory audit failed: ${t.javaClass.simpleName}:${t.message?.take(100)}",
+                emptyList(),
             )
         }
         if (coverage7701 is LiveExitCoverageGuard7701.Decision.Blocked) {
