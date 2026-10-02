@@ -276,17 +276,17 @@ internal object LiveExitCoverageGuard7701 {
         data class Blocked(val reasonCode: String, val detail: String, val mints: List<String>) : Decision()
     }
 
-    @Volatile private var unsellableLogMs7707: Long = 0L
-
     fun assess(walletAddress: String): Decision {
         if (walletAddress.isBlank()) {
             return Decision.Blocked("EXIT_COVERAGE_WALLET_UNKNOWN", "wallet identity unavailable", emptyList())
         }
-        val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+        val canonicalRows = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
             .asSequence()
             .filter { it.mode.equals("live", true) && it.remainingQtyRaw.signum() > 0 }
-            .map { it.mint }
-            .toSet()
+            .toList()
+        val canonicalRawByMint = canonicalRows.groupBy { it.mint }.mapValues { (_, rows) ->
+            rows.fold(java.math.BigInteger.ZERO) { total, position -> total + position.remainingQtyRaw }
+        }
 
         val tracker = com.lifecyclebot.engine.HostWalletTokenTracker.snapshot()
         val positiveWalletMints = tracker.asSequence()
@@ -308,15 +308,11 @@ internal object LiveExitCoverageGuard7701 {
                     !p.buySignature.isNullOrBlank())
                 val raw = runCatching { java.math.BigInteger(p.rawAmount.trim().ifBlank { "0" }) }
                     .getOrDefault(java.math.BigInteger.ZERO)
-                val terminal = p.status in setOf(
-                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED,
-                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_VERIFIED,
-                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_DUST_UNROUTABLE,
-                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_STALE_RECOVERY_UNHELD,
-                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE,
-                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
-                )
-                botSource && !terminal && (raw > java.math.BigInteger.ONE || (p.uiAmount.isFinite() && p.uiAmount > 0.0))
+                val positive = raw > java.math.BigInteger.ONE || (p.uiAmount.isFinite() && p.uiAmount > 0.0)
+                // A positive wallet balance outranks a historical terminal label.
+                // Sell/reconcile races can stamp CLOSED before the next wallet read;
+                // do not let that label hide tokens that are still physically held.
+                botSource && positive
             }
             .map { it.mint }
             .toMutableSet()
@@ -354,32 +350,26 @@ internal object LiveExitCoverageGuard7701 {
             if (!terminalZero) botHeld += lot.mintAddress
         }
 
-        // V5.0.7707 — a holding no route will sell (under the adoption floor,
-        // or with no obtainable mark) cannot be managed by anyone and is not
-        // capital the book can lose more of; it does not veto the next entry.
-        // See LiveCanonicalRecovery6686.unsellableHoldingReason7707.
-        val unsellable = linkedMapOf<String, String>()
-        val unmanaged = botHeld.filterNot { canonical.contains(it) }.filter { mint ->
-            val why = try { com.lifecyclebot.engine.LiveCanonicalRecovery6686.unsellableHoldingReason7707(mint) } catch (_: Throwable) { null }
-            if (why != null) unsellable[mint] = why
-            why == null
+        // V5.0.7709 — every positive bot-owned balance stays inside the buy
+        // coverage invariant, even when its mark is missing or the current route
+        // rejects a dust sell. Coverage is quantity-aware: a canonical row for a
+        // mint does not cover extra tokens left in the wallet after a partial,
+        // failed close, or duplicate buy. Missing route/mark is a recovery problem,
+        // not proof that the wallet risk disappeared.
+        val unmanaged = botHeld.filter { mint ->
+            val walletRow = tracker.firstOrNull { it.mint == mint }
+            val walletRaw = walletRow?.let {
+                runCatching { java.math.BigInteger(it.rawAmount.trim().ifBlank { "0" }) }
+                    .getOrDefault(java.math.BigInteger.ZERO)
+            } ?: java.math.BigInteger.ZERO
+            val canonicalRaw = canonicalRawByMint[mint] ?: java.math.BigInteger.ZERO
+            val positiveUiWithoutRaw = walletRow != null && walletRow.uiAmount.isFinite() &&
+                walletRow.uiAmount > 0.0 && walletRaw <= java.math.BigInteger.ONE
+            walletRaw > canonicalRaw + java.math.BigInteger.ONE || positiveUiWithoutRaw
         }.sorted()
-        if (unsellable.isNotEmpty()) {
-            val now = System.currentTimeMillis()
-            if (now - unsellableLogMs7707 >= 60_000L) {
-                unsellableLogMs7707 = now
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_EXIT_COVERAGE_UNSELLABLE_IGNORED_7707",
-                        "n=${unsellable.size} ${unsellable.entries.joinToString(",") { "${it.key.take(8)}=${it.value}" }.take(200)} action=not_a_buy_veto",
-                    )
-                } catch (_: Throwable) {}
-            }
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_EXIT_COVERAGE_UNSELLABLE_IGNORED_7707") } catch (_: Throwable) {}
-        }
         return if (unmanaged.isEmpty()) Decision.Ready else Decision.Blocked(
             "UNMANAGED_BOT_WALLET_HOLDING",
-            "${unmanaged.size} positive/active bot-owned mint(s) are outside canonical LIVE exit scope",
+            "${unmanaged.size} positive bot-owned mint(s) or uncovered wallet quantities are outside canonical LIVE exit scope; mark/route recovery required",
             unmanaged,
         )
     }

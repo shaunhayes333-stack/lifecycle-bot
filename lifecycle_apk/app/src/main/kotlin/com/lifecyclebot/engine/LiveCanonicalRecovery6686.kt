@@ -182,44 +182,13 @@ object LiveCanonicalRecovery6686 {
     )
 
     // ─────────────────────────────────────────────────────────────────────
-    // V5.0.7707 §AN_UNSELLABLE_HOLDING_CANNOT_VETO_THE_BOOK.
-    //
-    // 5.0.7706 live tape: the wallet was down to one non-frozen token worth
-    // under $5 (LIVE_WALLET_HOLDING_BELOW_ROUTABLE_NOT_ADOPTED_7706=153,
-    // awaitingMark=11), so 7706 correctly refused to adopt it — and 7701's
-    // exit-coverage gate then counted that same holding as an unmanaged
-    // bot position and refused all 55 live buys of the session
-    // (ADMISSION_GATE:UNMANAGED_BOT_WALLET_HOLDING). A holding no DEX will
-    // route a sell for cannot be put under exit management by anyone; it is
-    // not capital the book can lose any more of. The gate asks here before
-    // it blocks, and a holding with no mark gets one requested instead of
-    // waiting on a price that only arrives for open tracked rows.
-    // ─────────────────────────────────────────────────────────────────────
-    private const val UNSELLABLE_NO_MARK_GRACE_MS_7707 = 10L * 60_000L
+    // V5.0.7709 — positive bot balances remain unmanaged until mark/basis
+    // recovery places them under canonical exit monitoring. This asynchronous
+    // repair is deliberately multi-provider and never runs in buy admission.
     private const val MARK_REQUEST_MIN_INTERVAL_MS_7707 = 2L * 60_000L
     private val markRequestedAt7707 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-    /**
-     * Why this wallet holding cannot be adopted or sold right now, or null
-     * when it can (or when it is not in the tracker at all). Read by the
-     * live-buy coverage gate.
-     */
-    fun unsellableHoldingReason7707(mint: String): String? {
-        val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null } ?: return null
-        val qty = p.uiAmount
-        if (!qty.isFinite() || qty <= 0.0) return null
-        val px = p.currentPriceUsd
-        val now = System.currentTimeMillis()
-        if (px != null && px.isFinite() && px > 0.0) {
-            val valueUsd = qty * px
-            return if (valueUsd.isFinite() && valueUsd < adoptionFloorUsd7708(mint)) "BELOW_ROUTABLE_${"%.2f".format(valueUsd)}USD" else null
-        }
-        val seen = p.firstSeenWalletMs.takeIf { it > 0L } ?: p.buyTimeMs ?: 0L
-        requestMarkAsync7707(mint)
-        return if (seen > 0L && now - seen >= UNSELLABLE_NO_MARK_GRACE_MS_7707) "NO_MARK_AFTER_${(now - seen) / 60_000L}MIN" else null
-    }
-
-    /** Ask DexScreener for a mark off-thread and write it into the wallet tracker; at most once per two minutes per mint. */
+    /** Resolve through independent market feeds off-thread; at most once per two minutes per mint. */
     private fun requestMarkAsync7707(mint: String) {
         val now = System.currentTimeMillis()
         val last = markRequestedAt7707[mint] ?: 0L
@@ -229,12 +198,21 @@ object LiveCanonicalRecovery6686 {
         try {
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    val px = com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(listOf(mint))[mint]
+                    // DexScreener alone was the only recovery source. The live
+                    // snapshot showed it at 0% success while the mint could still
+                    // be priced by Jupiter, Raydium or DefiLlama. Reuse the bounded
+                    // independent-feed resolver used by the exit mark pipeline.
+                    val mark = com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(mint))[mint]
+                    val px = mark?.priceUsd
                     if (px != null && px.isFinite() && px > 0.0) {
                         HostWalletTokenTracker.recordPriceUpdate(mint, px, 0.0)
                         PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_MARK_FETCHED_7707")
+                        ForensicLogger.lifecycle(
+                            "LIVE_WALLET_HOLDING_MARK_FETCHED_7709",
+                            "mint=${mint.take(12)} priceUsd=$px source=${mark.sources} sourceCount=${mark.sourceCount} corroborated=${mark.corroborated}",
+                        )
                     } else {
-                        PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_MARK_UNAVAILABLE_7707")
+                        PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_MARK_UNAVAILABLE_7709")
                     }
                 } catch (_: Throwable) {}
             }
