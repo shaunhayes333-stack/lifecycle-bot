@@ -13265,13 +13265,13 @@ class GoldenTapeRegressionTest {
 
         // Seam 1: the gate, before any lane-specific gate, both modes.
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        // 7717: the call sits in a private helper behind active().
-        assertTrue(fdg.contains("val manual7715 = fieldManualVerdict7715(ts, candidate, manualLane7715, config.paperMode, proposedSizeSol)"))
+        // 7720: the whole block sits in a private helper; evaluate() keeps one call and no locals.
+        assertTrue(fdg.contains("fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }"))
         assertTrue(fdg.contains("com.lifecyclebot.engine.truth.FieldManual7715.decide(ts, candidate, lane, paper, proposedSizeSol)"))
-        assertTrue(fdg.contains("if (manual7715 != null && manual7715.blocks) {"))
-        assertTrue(fdg.contains("blockReason = manual7715.blockReason,"))
-        assertTrue(fdg.indexOf("fieldManualVerdict7715(ts, candidate, manualLane7715") < fdg.indexOf("val overlayLane = laneName"))
-        assertTrue(fdg.indexOf("fieldManualVerdict7715(ts, candidate, manualLane7715") > fdg.indexOf("val laneName = tradingModeTag?.name ?: \"STANDARD\""))
+        assertTrue(fdg.contains("if (!v.blocks) null else FinalDecision("))
+        assertTrue(fdg.contains("blockReason = v.blockReason,"))
+        assertTrue(fdg.indexOf("fieldManualBlock7715(ts, candidate, specialistLane") < fdg.indexOf("val overlayLane = laneName"))
+        assertTrue(fdg.indexOf("fieldManualBlock7715(ts, candidate, specialistLane") > fdg.indexOf("val laneName = tradingModeTag?.name ?: \"STANDARD\""))
 
         // Seam 2: the one sizing authority applies the risk cap and the probe multiplier as ceilings.
         val osr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
@@ -13342,8 +13342,8 @@ class GoldenTapeRegressionTest {
         assertTrue(fm.substringAfter("fun noteExit(").contains("if (!active()) return cls"))
         assertTrue(fm.substringAfter("fun withDoctrine7715(").contains("if (!active()) return systemPrompt"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(fdg.contains("private fun fieldManualVerdict7715("))
-        assertTrue(fdg.contains("if (com.lifecyclebot.engine.truth.FieldManual7715.active()) {"))
+        assertTrue(fdg.contains("private fun fieldManualBlock7715("))
+        assertTrue(fdg.contains("if (!com.lifecyclebot.engine.truth.FieldManual7715.active()) null else {"))
 
         // Slots: routable capacity bounded to 3..8, computed without the
         // preflight (share() -> slots() would recurse through it).
@@ -13481,6 +13481,42 @@ class GoldenTapeRegressionTest {
         assertTrue(sec.contains("private fun showLastCrash7719() {"))
         assertTrue(sec.indexOf("showLastCrash7719()") < sec.indexOf("private fun showLastCrash7719()"))
         assertTrue(sec.contains("android.content.ClipData.newPlainText(\"AATE crash\", full)"))
+    }
+
+    @Test
+    fun V5_0_7720_the_field_manual_leaves_no_footprint_inside_the_giant_evaluate() {
+        // 5.0.7715 crashed the app the instant the PIN was accepted; 7716 (a
+        // clean revert) worked; 7717/7718 crashed again. The only part of the
+        // 7715 diff touching a method with a known ART verifier limit was
+        // FinalDecisionGate.evaluate(): two new locals and a FinalDecision(...)
+        // block. The repo had met this three times (7415, 7417, 7629). Measured
+        // declarations in evaluate(): 503 after 7417, 514 in 7716, 516 in 7715.
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val evalStart = fdg.indexOf("    fun evaluate(\n        ts: TokenState,")
+        assertTrue(evalStart > 0)
+        val body = fdg.substring(evalStart)
+        val code = body.lines().filter { !it.trim().startsWith("//") }.joinToString("\n")
+        // One call, no locals, no construction, inside evaluate().
+        assertTrue(code.contains("fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }"))
+        assertFalse(code.contains("val manualLane7715"))
+        assertFalse(code.contains("val manual7715"))
+        assertFalse(code.contains("manual7715.blocks"))
+        assertFalse(code.contains("\"field_manual_7715\","))
+        // The helper builds the whole blocked verdict and sits before evaluate().
+        val helperAt = fdg.indexOf("private fun fieldManualBlock7715(")
+        assertTrue(helperAt in 1 until evalStart)
+        val helper = fdg.substring(helperAt, evalStart)
+        assertTrue(helper.contains("): FinalDecision? = try {"))
+        assertTrue(helper.contains("if (!v.blocks) null else FinalDecision("))
+        assertTrue(helper.contains("\"field_manual_7715\","))
+        assertTrue(helper.contains("blockReason = v.blockReason,"))
+        // The budget is a required build step, not a diagnostic test.
+        val scan = java.io.File("../ci/fdg_evaluate_budget_scan.py").readText()
+        assertTrue(scan.contains("MAX_DECLARATIONS = 514"))
+        assertTrue(scan.contains("MAX_FINAL_DECISION_RETURNS = 11"))
+        val wf = java.io.File("../../.github/workflows/build.yml").readText()
+        assertTrue(wf.contains("run: python3 ci/fdg_evaluate_budget_scan.py"))
+        assertTrue(wf.indexOf("fdg_evaluate_budget_scan.py") < wf.indexOf("name: Build Release APK"))
     }
 
 }

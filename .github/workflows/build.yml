@@ -166,6 +166,13 @@ jobs:
       - name: Val reassignment guard
         run: python3 ci/kotlin_val_assignment.py
 
+      # V5.0.7720 — FinalDecisionGate.evaluate() is at the ART verifier's
+      # limit; adding locals or a FinalDecision(...) block inside it has
+      # crashed the app on login four times (7415, 7417, 7629, 7715). The
+      # tests that guarded it ran in the diagnostic suite; this is required.
+      - name: FinalDecisionGate.evaluate() verifier budget
+        run: python3 ci/fdg_evaluate_budget_scan.py
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

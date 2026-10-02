@@ -815,17 +815,62 @@ object FinalDecisionGate {
     }
 
 
-    /** V5.0.7717 — the Field Manual's plan-card verdict, or null when the manual is inactive or faults. */
-    private fun fieldManualVerdict7715(
+    /**
+     * V5.0.7720 §EVALUATE_MUST_NOT_GROW.
+     *
+     * 5.0.7715 put two locals and a FinalDecision(...) construction for the
+     * Field Manual inside evaluate(); the app then died the instant the
+     * password was accepted, and 7717/7718 (locals still inside) did the
+     * same. The repo had already met this failure three times: 7415
+     * (emergency rollback after a post-login crash), 7417 ("7410 added
+     * several locals/branches here and Android ART rejected evaluate() at
+     * runtime with VerifyError") and 7629 (java.lang.VerifyError while ART
+     * verified FinalDecisionGate.evaluate). Declarations inside evaluate:
+     * 503 after 7417, 514 in the working 7716, 516 in the crashing 7715.
+     *
+     * So the manual's entire footprint in evaluate is one call with no
+     * locals; everything, including the blocked FinalDecision, is built
+     * here. ci/fdg_evaluate_budget_scan.py fails the build if evaluate ever
+     * gains a declaration or a FinalDecision construction again.
+     *
+     * Null when the manual is inactive (StartupCrashGuard7717 / first minute
+     * of uptime), when it says ENTER or SMALL_PROBE, or when it faults.
+     */
+    private fun fieldManualBlock7715(
         ts: TokenState,
         candidate: CandidateDecision,
-        lane: String,
+        specialistLane: String?,
+        laneName: String,
         paper: Boolean,
         proposedSizeSol: Double,
-    ): com.lifecyclebot.engine.truth.FieldManual7715.Verdict? = try {
-        if (com.lifecyclebot.engine.truth.FieldManual7715.active()) {
-            com.lifecyclebot.engine.truth.FieldManual7715.decide(ts, candidate, lane, paper, proposedSizeSol)
-        } else null
+        mode: TradeMode,
+    ): FinalDecision? = try {
+        if (!com.lifecyclebot.engine.truth.FieldManual7715.active()) null else {
+            val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
+            val v = com.lifecyclebot.engine.truth.FieldManual7715.decide(ts, candidate, lane, paper, proposedSizeSol)
+            if (!v.blocks) null else FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = v.blockReason,
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf(
+                    "field_manual_7715",
+                    "manual_decision:${v.decision.name}",
+                    "manual_setup:${v.card.mandate.setup.code}",
+                    "manual_regime:${v.card.regime.name}",
+                    "lane:$lane",
+                ),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "FIELD_MANUAL_${v.decision.name}_7715: ${v.reasons.joinToString(" | ")}",
+                gateChecks = listOf(GateCheck("field_manual_7715", false, "${v.decision.name} lane=$lane ${v.reasons.firstOrNull().orEmpty()}")),
+            )
+        }
     } catch (_: Throwable) { null }
 
     fun evaluate(
@@ -1256,41 +1301,11 @@ object FinalDecisionGate {
             )
         }
 
-        // V5.0.7715 §THE_FIELD_MANUAL_IS_THE_BASELINE_BRAIN. Every candidate,
-        // both modes, gets a plan card (identity, regime, setup trigger,
-        // all-in cost at the proposed size, reward-to-risk) and a decision
-        // before any lane-specific gate. PASS and WAIT are refusals here;
-        // SMALL_PROBE leaves a size multiplier for OrderSizeResolver6441.
-        // A fault in the manual is no opinion, never a block.
-        // V5.0.7717 — out of this method's body and behind active(): the
-        // manual engages a minute after process start and never after a
-        // startup crash (StartupCrashGuard7717).
-        val manualLane7715 = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
-        val manual7715 = fieldManualVerdict7715(ts, candidate, manualLane7715, config.paperMode, proposedSizeSol)
-        if (manual7715 != null && manual7715.blocks) {
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = candidate.aiConfidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = manual7715.blockReason,
-                blockLevel = BlockLevel.HARD,
-                sizeSol = 0.0,
-                tags = listOf(
-                    "field_manual_7715",
-                    "manual_decision:${manual7715.decision.name}",
-                    "manual_setup:${manual7715.card.mandate.setup.code}",
-                    "manual_regime:${manual7715.card.regime.name}",
-                    "lane:$manualLane7715",
-                ),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "FIELD_MANUAL_${manual7715.decision.name}_7715: ${manual7715.reasons.joinToString(" | ")}",
-                gateChecks = listOf(GateCheck("field_manual_7715", false, "${manual7715.decision.name} lane=$manualLane7715 ${manual7715.reasons.firstOrNull().orEmpty()}")),
-            )
-        }
+        // V5.0.7715/7720 — the Field Manual's verdict. The whole block lives in
+        // fieldManualBlock7715: this method is at the ART verifier's register
+        // limit (7415 post-login crash, 7417 VerifyError, 7629 VerifyError,
+        // 7715 post-login crash) and must not gain locals or branches.
+        fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
