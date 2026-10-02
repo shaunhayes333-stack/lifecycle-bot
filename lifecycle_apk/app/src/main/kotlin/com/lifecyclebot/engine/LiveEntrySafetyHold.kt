@@ -120,19 +120,22 @@ object LiveEntrySafetyHold {
      *  too high → no trades → no data → WR stays bad → HOLD forever)
      *  the whole 6332 patch was meant to break.
      *
-     *  Correction: concentrated conviction lives in SIZE, not FLOOR.
-     *  Size multipliers stay at 1.10..1.50 so the governor still
-     *  amplifies capital toward high-conviction candidates. Floors
-     *  drop to a very small buffer (max +5 in HOLD, effective 55→60)
-     *  so the LaneEdgeConcentrator can actually SEE candidates and
-     *  decide which lanes deserve size — the filtering job moves from
-     *  the score floor to the per-bucket edge concentrator.  */
+     *  Correction: poor live results must reduce dollars at risk, not
+     *  increase them to recover losses. The lane concentrator may shape
+     *  entries, but below BASELINE its maximum amplification is included
+     *  in the governor's total risk budget.
+     *  Floors remain a small buffer so valid candidates can still be
+     *  evaluated and exits remain fully active. */
     private const val SIZE_MULTIPLIER_BASELINE: Double = 1.00
-    private const val SIZE_MULTIPLIER_CAUTION: Double = 1.10
-    private const val SIZE_MULTIPLIER_SOFT_TIGHT: Double = 1.25
-    private const val SIZE_MULTIPLIER_RECOVERY: Double = 1.15
-    private const val SIZE_MULTIPLIER_TIGHTENED: Double = 1.35
-    private const val SIZE_MULTIPLIER_HOLD: Double = 1.50
+    private const val SIZE_BUDGET_CAUTION_7710: Double = 0.90
+    private const val SIZE_BUDGET_SOFT_TIGHT_7710: Double = 0.75
+    private const val SIZE_BUDGET_RECOVERY_7710: Double = 0.85
+    private const val SIZE_BUDGET_TIGHTENED_7710: Double = 0.65
+    private const val SIZE_BUDGET_HOLD_7710: Double = 0.50
+    // Executor applies this factor before LaneEdgeConcentrator, whose positive
+    // evidence can amplify by at most 1.50. Divide the risk budget here so the
+    // full live size stack still stays inside the governor's intended cap.
+    internal const val MAX_LANE_EDGE_SIZE_MULTIPLIER_7710: Double = 1.50
     private const val FLOOR_ADJUSTMENT_BASELINE: Double = 0.0
     private const val FLOOR_ADJUSTMENT_CAUTION: Double = 1.0
     private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 2.0
@@ -147,6 +150,25 @@ object LiveEntrySafetyHold {
     fun currentSizeMultiplier(): Double = lastGovernorSizeMultiplier
     fun currentFloorAdjustment(): Double = lastGovernorFloorAdjustment
     fun currentGovernorState(): GovernorState = lastGovernorState
+
+    /** One-way risk schedule: weaker live evidence can never raise stake size. */
+    internal fun governorSizeMultiplier6324(state: GovernorState): Double = when (state) {
+        GovernorState.BASELINE -> SIZE_MULTIPLIER_BASELINE
+        GovernorState.CAUTION -> SIZE_BUDGET_CAUTION_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
+        GovernorState.SOFT_TIGHT -> SIZE_BUDGET_SOFT_TIGHT_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
+        GovernorState.RECOVERY -> SIZE_BUDGET_RECOVERY_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
+        GovernorState.TIGHTENED -> SIZE_BUDGET_TIGHTENED_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
+        GovernorState.HOLD -> SIZE_BUDGET_HOLD_7710 / MAX_LANE_EDGE_SIZE_MULTIPLIER_7710
+    }
+
+    internal fun governorRiskBudget7710(state: GovernorState): Double = when (state) {
+        GovernorState.BASELINE -> 1.0
+        GovernorState.CAUTION -> SIZE_BUDGET_CAUTION_7710
+        GovernorState.SOFT_TIGHT -> SIZE_BUDGET_SOFT_TIGHT_7710
+        GovernorState.RECOVERY -> SIZE_BUDGET_RECOVERY_7710
+        GovernorState.TIGHTENED -> SIZE_BUDGET_TIGHTENED_7710
+        GovernorState.HOLD -> SIZE_BUDGET_HOLD_7710
+    }
 
     // ----- Bypass ban denylist --------------------------------------
     //
@@ -543,12 +565,10 @@ object LiveEntrySafetyHold {
         // ── HOLD (governor state — informational only) ───────────────
         // V5.0.6332 — CONCENTRATED CONVICTION. Governor SEVERE bleed
         // MUST NOT arm the safety hold. That created a sticky lockout
-        // (LIVE_ENTRY_SAFETY_HOLD_6312 = 862 blocks/session) that
-        // starved the bot of the very live trades needed to recover WR.
-        // Instead, HOLD state now just raises the score floor and
-        // grows per-trade size — fewer, larger, higher-conviction
-        // trades. armInternal remains reserved for wallet / accounting
-        // / decimal-skew invariants triggered via runHealthCheck.
+        // (LIVE_ENTRY_SAFETY_HOLD_6312 = 862 blocks/session). HOLD is a
+        // live-risk state: it raises the score floor and caps the full size
+        // stack at half its pre-governor amount. armInternal remains reserved for wallet / accounting /
+        // decimal-skew invariants triggered via runHealthCheck.
         //
         // V5.0.6384 — "PROFITABLE-LOW-WR" ESCAPE HATCH. Operator's
         // V5.0.6383 snapshot showed n=10 wr=20% pf=7.58 exp=+0.0024
@@ -636,12 +656,12 @@ object LiveEntrySafetyHold {
     private fun applyGovernorState(state: GovernorState): GovernorState {
         val prev = lastGovernorState
         val (mult, floorAdj) = when (state) {
-            GovernorState.BASELINE -> SIZE_MULTIPLIER_BASELINE to FLOOR_ADJUSTMENT_BASELINE
-            GovernorState.CAUTION -> SIZE_MULTIPLIER_CAUTION to FLOOR_ADJUSTMENT_CAUTION
-            GovernorState.SOFT_TIGHT -> SIZE_MULTIPLIER_SOFT_TIGHT to FLOOR_ADJUSTMENT_SOFT_TIGHT
-            GovernorState.TIGHTENED -> SIZE_MULTIPLIER_TIGHTENED to FLOOR_ADJUSTMENT_TIGHTENED
-            GovernorState.RECOVERY -> SIZE_MULTIPLIER_RECOVERY to FLOOR_ADJUSTMENT_RECOVERY
-            GovernorState.HOLD -> SIZE_MULTIPLIER_HOLD to FLOOR_ADJUSTMENT_HOLD
+            GovernorState.BASELINE -> governorSizeMultiplier6324(state) to FLOOR_ADJUSTMENT_BASELINE
+            GovernorState.CAUTION -> governorSizeMultiplier6324(state) to FLOOR_ADJUSTMENT_CAUTION
+            GovernorState.SOFT_TIGHT -> governorSizeMultiplier6324(state) to FLOOR_ADJUSTMENT_SOFT_TIGHT
+            GovernorState.TIGHTENED -> governorSizeMultiplier6324(state) to FLOOR_ADJUSTMENT_TIGHTENED
+            GovernorState.RECOVERY -> governorSizeMultiplier6324(state) to FLOOR_ADJUSTMENT_RECOVERY
+            GovernorState.HOLD -> governorSizeMultiplier6324(state) to FLOOR_ADJUSTMENT_HOLD
         }
         lastGovernorSizeMultiplier = mult
         lastGovernorFloorAdjustment = floorAdj

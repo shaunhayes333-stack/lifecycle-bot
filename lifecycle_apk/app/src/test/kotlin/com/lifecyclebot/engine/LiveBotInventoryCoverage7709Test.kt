@@ -14,6 +14,7 @@ class LiveBotInventoryCoverage7709Test {
         assertTrue(gate.contains("walletRaw > canonicalRaw + java.math.BigInteger.ONE"))
         assertTrue(gate.contains("val unmanaged = botHeld.filter { mint ->"))
         assertTrue(gate.contains("mark/route recovery required"))
+        assertTrue(gate.contains("WalletAccountCache.snapshot(ttlMs = 5_000L)"))
         assertFalse(gate.contains("LIVE_EXIT_COVERAGE_UNSELLABLE_IGNORED_7707"))
     }
 

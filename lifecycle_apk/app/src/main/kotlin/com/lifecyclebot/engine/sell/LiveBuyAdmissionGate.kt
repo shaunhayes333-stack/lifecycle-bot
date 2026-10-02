@@ -289,14 +289,20 @@ internal object LiveExitCoverageGuard7701 {
         }
 
         val tracker = com.lifecyclebot.engine.HostWalletTokenTracker.snapshot()
-        val positiveWalletMints = tracker.asSequence()
+        // Read only the existing short-lived full-wallet cache here. Admission
+        // must never perform wallet RPC, but a fresh cache catches a tracker row
+        // omission before it can turn a bot-held mint into invisible inventory.
+        val walletSnapshot = try {
+            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L).orEmpty()
+        } catch (_: Throwable) { emptyMap() }
+        val positiveWalletMints = (tracker.asSequence()
             .filter { p ->
                 val raw = runCatching { java.math.BigInteger(p.rawAmount.trim().ifBlank { "0" }) }
                     .getOrDefault(java.math.BigInteger.ZERO)
                 raw > java.math.BigInteger.ONE || (p.uiAmount.isFinite() && p.uiAmount > 0.0)
             }
             .map { it.mint }
-            .toSet()
+            .toSet() + walletSnapshot.filterValues { it.raw > java.math.BigInteger.ONE }.keys)
 
         val botHeld = tracker.asSequence()
             .filter { p ->
@@ -358,13 +364,15 @@ internal object LiveExitCoverageGuard7701 {
         // not proof that the wallet risk disappeared.
         val unmanaged = botHeld.filter { mint ->
             val walletRow = tracker.firstOrNull { it.mint == mint }
+            val cachedAmount = walletSnapshot[mint]
             val walletRaw = walletRow?.let {
                 runCatching { java.math.BigInteger(it.rawAmount.trim().ifBlank { "0" }) }
                     .getOrDefault(java.math.BigInteger.ZERO)
-            } ?: java.math.BigInteger.ZERO
+            }?.takeIf { it > java.math.BigInteger.ONE } ?: cachedAmount?.raw ?: java.math.BigInteger.ZERO
             val canonicalRaw = canonicalRawByMint[mint] ?: java.math.BigInteger.ZERO
-            val positiveUiWithoutRaw = walletRow != null && walletRow.uiAmount.isFinite() &&
-                walletRow.uiAmount > 0.0 && walletRaw <= java.math.BigInteger.ONE
+            val walletUiAmount = walletRow?.uiAmount ?: cachedAmount?.uiDoubleForDisplay() ?: 0.0
+            val positiveUiWithoutRaw = walletUiAmount.isFinite() && walletUiAmount > 0.0 &&
+                walletRaw <= java.math.BigInteger.ONE
             walletRaw > canonicalRaw + java.math.BigInteger.ONE || positiveUiWithoutRaw
         }.sorted()
         return if (unmanaged.isEmpty()) Decision.Ready else Decision.Blocked(
