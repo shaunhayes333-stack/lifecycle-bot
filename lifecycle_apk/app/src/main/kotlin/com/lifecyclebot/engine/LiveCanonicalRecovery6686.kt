@@ -29,6 +29,14 @@ object LiveCanonicalRecovery6686 {
         val identity: String,
     )
 
+    private fun isRecoverableQuarantine7454(position: CanonicalPositionAuthority6441.Position): Boolean =
+        position.quarantineReason in setOf(
+            "PENDING_ENTRY_TTL_CANCELLED_6461",
+            "EXIT_ELIGIBILITY_6570:INVALID_ENTRY_BASIS",
+            "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY",
+        ) && position.soldCostBasisSol <= 1e-12 &&
+            position.realizedProceedsSol <= 1e-12 && position.realizedPnlSol == 0.0
+
     fun recoverWalletSnapshot(
         status: BotStatus,
         walletMints: Map<String, CanonicalTokenAmount>,
@@ -61,16 +69,8 @@ object LiveCanonicalRecovery6686 {
             val timedOutReservation7699 = if (pendingReservation7699 == null) {
                 try {
                     CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint)
-                        .firstOrNull {
-                            it.quarantineReason in setOf(
-                                "PENDING_ENTRY_TTL_CANCELLED_6461",
-                                "EXIT_ELIGIBILITY_6570:INVALID_ENTRY_BASIS",
-                                "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY",
-                            ) &&
-                                it.soldCostBasisSol <= 1e-12 &&
-                                it.realizedProceedsSol <= 1e-12 &&
-                                it.realizedPnlSol == 0.0
-                        }
+                        .filter(::isRecoverableQuarantine7454)
+                        .maxByOrNull { it.lastMutationMs }
                 } catch (_: Throwable) { null }
             } else null
             val botReservation7699 = pendingReservation7699 ?: timedOutReservation7699
@@ -238,6 +238,7 @@ object LiveCanonicalRecovery6686 {
             // sibling row beside it.
             val quarantinedSameMint7454 = try {
                 CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint)
+                    .filter(::isRecoverableQuarantine7454)
                     .maxByOrNull { it.lastMutationMs }
             } catch (_: Throwable) { null }
             if (quarantinedSameMint7454 != null) {

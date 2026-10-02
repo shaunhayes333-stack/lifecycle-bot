@@ -1249,35 +1249,79 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     private fun readKnownMints7374(mints: List<String>, deadlineMs: Long): Pair<Map<String, CanonicalTokenAmount>, Int> {
+        if (mints.isEmpty()) return emptyMap<String, CanonicalTokenAmount>() to 0
+        val workerCount = minOf(6, mints.size)
+        val workers = java.util.concurrent.Executors.newFixedThreadPool(workerCount) { r ->
+            Thread(r, "SolanaWallet-known-mint").apply { isDaemon = true }
+        }
+        val completed = java.util.concurrent.ExecutorCompletionService<Triple<String, CanonicalTokenAmount?, Boolean>>(workers)
+        val tasks = mints.map { mint ->
+            completed.submit(java.util.concurrent.Callable {
+                if (System.currentTimeMillis() >= deadlineMs) return@Callable Triple(mint, null, false)
+                try {
+                    val json = rpcTokenAccountsByOwnerFiltered(
+                        JSONObject().put("mint", mint),
+                        "mint:${mint.take(8)}",
+                        deadlineMs,
+                    )
+                    val arr = json.optJSONObject("result")?.optJSONArray("value")
+                        ?: return@Callable Triple(mint, null, false)
+                    var total = java.math.BigInteger.ZERO
+                    var decimals = -1
+                    for (i in 0 until arr.length()) {
+                        val info = arr.optJSONObject(i)?.optJSONObject("account")?.optJSONObject("data")
+                            ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                        if (info.optString("state", "").equals("frozen", ignoreCase = true)) {
+                            total = java.math.BigInteger.ZERO
+                            decimals = -1
+                            break
+                        }
+                        val ta = info.optJSONObject("tokenAmount") ?: continue
+                        val amt = try {
+                            CanonicalTokenAmount.fromRpcAmount(ta.optString("amount", ""), ta.optInt("decimals", -1))
+                        } catch (_: Throwable) { null } ?: continue
+                        total = total.add(amt.raw)
+                        decimals = amt.decimals
+                    }
+                    val amount = if (total.signum() > 0 && decimals >= 0) {
+                        try { CanonicalTokenAmount.fromRpcAmount(total.toString(), decimals) } catch (_: Throwable) { null }
+                    } else null
+                    Triple(mint, amount, true)
+                } catch (_: Throwable) {
+                    Triple(mint, null, false)
+                }
+            })
+        }
         val out = mutableMapOf<String, CanonicalTokenAmount>()
         var answered = 0
-        for (mint in mints) {
-            if (System.currentTimeMillis() > deadlineMs) break
-            val json = try {
-                rpcTokenAccountsByOwnerFiltered(JSONObject().put("mint", mint), "mint:${mint.take(8)}", deadlineMs)
-            } catch (_: Throwable) { continue }
-            val arr = json.optJSONObject("result")?.optJSONArray("value") ?: continue
-            answered++
-            var total = java.math.BigInteger.ZERO
-            var decimals = -1
-            for (i in 0 until arr.length()) {
-                val info = arr.optJSONObject(i)?.optJSONObject("account")?.optJSONObject("data")
-                    ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                if (info.optString("state", "").equals("frozen", ignoreCase = true)) { total = java.math.BigInteger.ZERO; decimals = -1; break }
-                val ta = info.optJSONObject("tokenAmount") ?: continue
-                val amt = try { CanonicalTokenAmount.fromRpcAmount(ta.optString("amount", ""), ta.optInt("decimals", -1)) } catch (_: Throwable) { null } ?: continue
-                total = total.add(amt.raw)
-                decimals = amt.decimals
+        var received = 0
+        try {
+            while (received < tasks.size) {
+                val remainingMs = deadlineMs - System.currentTimeMillis()
+                if (remainingMs <= 0L) break
+                val future = completed.poll(remainingMs, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
+                received++
+                val (mint, amount, didAnswer) = try { future.get() } catch (_: Throwable) { continue }
+                if (didAnswer) answered++
+                if (amount != null) out[mint] = amount
             }
-            if (total.signum() > 0 && decimals >= 0) {
-                val amt = try { CanonicalTokenAmount.fromRpcAmount(total.toString(), decimals) } catch (_: Throwable) { null }
-                if (amt != null) out[mint] = amt
-            }
+        } catch (_: Throwable) {
+            // A timeout is still a partial positive-only snapshot; callers must
+            // preserve unqueried mints and may not infer wallet-zero from absence.
+        } finally {
+            tasks.filterNot { it.isDone }.forEach { try { it.cancel(true) } catch (_: Throwable) {} }
+            workers.shutdownNow()
         }
         return out to answered
     }
 
-    /** Mints the bot has rows for: canonical live positions and live tracker rows. */
+    /**
+     * Bot-owned mints that still need wallet proof. Keep active exit inventory
+     * first, then pending buys, host-held rows, durable live fill lots, and every
+     * quarantined live row. A partial wallet scan is only useful if it asks about
+     * the very buys that fell out of OPEN; the old first-20 cap silently omitted
+     * quarantined rows and stranded real holdings outside exit scope.
+     */
     private fun knownBotMints7374(): List<String> {
         val s = LinkedHashSet<String>()
         try {
@@ -1291,7 +1335,17 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 .filter { !it.status.name.startsWith("CLOSED") && it.status.name != "SOLD_CONFIRMED" }
                 .forEach { s += it.mint }
         } catch (_: Throwable) {}
-        return s.filter { it.isNotBlank() }.take(20)
+        try {
+            val owner = publicKeyB58
+            com.lifecyclebot.engine.FillLotLedger6344.snapshotForWallet(owner)
+                .filter { it.remainingQty.isFinite() && it.remainingQty > 1e-9 }
+                .forEach { s += it.mintAddress }
+        } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.quarantinedLivePositions7454()
+                .forEach { s += it.mint }
+        } catch (_: Throwable) {}
+        return s.filter { it.isNotBlank() }
     }
 
     /**

@@ -288,6 +288,10 @@ object FillLotLedger6344 {
     fun snapshotForMint(walletAddress: String, mintAddress: String): List<Lot> =
         lots.values.filter { it.walletAddress == walletAddress && it.mintAddress == mintAddress }
 
+    /** Wallet-wide enumeration for positive-balance recovery after an RPC timeout. */
+    fun snapshotForWallet(walletAddress: String): List<Lot> =
+        lots.values.filter { it.walletAddress == walletAddress }
+
     private fun persistToDisk() {
         val p = prefs ?: return
         try {

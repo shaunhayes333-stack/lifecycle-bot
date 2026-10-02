@@ -53,6 +53,23 @@ class Aate6686LiveAuthorityRecoveryTest {
         assertTrue(bridge.contains("action=retain_wallet_tracking_no_invented_basis"))
     }
 
+    @Test fun `partial wallet fallback includes quarantined bot buys without a first-20 ceiling`() {
+        val wallet = src("com/lifecyclebot/network/SolanaWallet.kt")
+        val lots = src("com/lifecyclebot/engine/FillLotLedger6344.kt")
+        val recovery = src("com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt")
+        val known = wallet.substringAfter("private fun knownBotMints7374()")
+            .substringBefore("fun getTokenAmountFromSig")
+        val read = wallet.substringAfter("private fun readKnownMints7374")
+            .substringBefore("fun getTokenAmountFromSig")
+        assertTrue(known.contains("quarantinedLivePositions7454()"))
+        assertTrue(known.contains("snapshotForWallet(owner)"))
+        assertFalse(known.contains("take(20)"))
+        assertTrue(read.contains("ExecutorCompletionService"))
+        assertTrue(read.contains("shutdownNow()"))
+        assertTrue(recovery.contains(".filter(::isRecoverableQuarantine7454)"))
+        assertTrue(lots.contains("fun snapshotForWallet(walletAddress: String)"))
+    }
+
     @Test fun `ui positions project from canonical authority not mutable discovery token map`() {
         val projection = src("com/lifecyclebot/engine/truth/CanonicalUiPositionProjection6686.kt")
         val authority = src("com/lifecyclebot/engine/truth/UiSnapshotAuthority6496.kt")
