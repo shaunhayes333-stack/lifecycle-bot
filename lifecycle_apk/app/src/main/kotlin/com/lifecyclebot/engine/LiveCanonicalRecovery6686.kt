@@ -47,6 +47,30 @@ object LiveCanonicalRecovery6686 {
             val runtimePos = ts?.position
             val saved = persisted[mint]
 
+            // A LIVE buy reservation is bot-owned intent created before submit.
+            // If the chain now proves the wallet holds this mint but the async
+            // fill receipt was lost, the reservation still contains the planned
+            // cost and entry mark needed to put the holding under exit control.
+            // Keep the fallback scoped to this exact mint and LIVE mode; wallet
+            // holdings without a matching bot reservation remain external.
+            val pendingReservation7699 = try {
+                CanonicalPositionAuthority6441.pendingEntryPositions6461().firstOrNull {
+                    it.mint == mint && it.mode.equals("live", true)
+                }
+            } catch (_: Throwable) { null }
+            val timedOutReservation7699 = if (pendingReservation7699 == null) {
+                try {
+                    CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint)
+                        .firstOrNull {
+                            it.quarantineReason == "PENDING_ENTRY_TTL_CANCELLED_6461" &&
+                                it.soldCostBasisSol <= 1e-12 &&
+                                it.realizedProceedsSol <= 1e-12 &&
+                                it.realizedPnlSol == 0.0
+                        }
+                } catch (_: Throwable) { null }
+            } else null
+            val botReservation7699 = pendingReservation7699 ?: timedOutReservation7699
+
             val basis: Basis? = when {
                 runtimePos != null && !runtimePos.isPaperPosition &&
                     runtimePos.costSol.isFinite() && runtimePos.costSol > 0.0 &&
@@ -139,7 +163,32 @@ object LiveCanonicalRecovery6686 {
                     // correct source if a live writer is ever added to it, and
                     // removing a source is not what this build is for.
                     fromFill7126 ?: ledgerBasis6344_7133(mint) ?:
-                        ledgerBasis7126(mint, amount) ?: journalBasis7253(mint, amount)
+                        ledgerBasis7126(mint, amount) ?: journalBasis7253(mint, amount) ?:
+                        botReservation7699?.let { reservation ->
+                            if (reservation.entryCostSol.isFinite() && reservation.entryCostSol > 0.0 &&
+                                reservation.entryPriceUsd.isFinite() && reservation.entryPriceUsd > 0.0
+                            ) {
+                                try {
+                                    PipelineHealthCollector.labelInc("LIVE_BASIS_REBUILT_FROM_PENDING_RESERVATION_7699")
+                                    ForensicLogger.lifecycle(
+                                        "LIVE_BASIS_REBUILT_FROM_PENDING_RESERVATION_7699",
+                                        "mint=${mint.take(12)} positionId=${reservation.positionId.take(28)} " +
+                                            "cost=${reservation.entryCostSol} lane=${reservation.lane} " +
+                                            "walletRaw=${amount.raw} action=promote_bot_buy_to_exit_scope",
+                                    )
+                                } catch (_: Throwable) {}
+                                Basis(
+                                    entryCostSol = reservation.entryCostSol,
+                                    entryPriceUsd = reservation.entryPriceUsd,
+                                    lane = reservation.lane.ifBlank { "WALLET_RECOVERED" },
+                                    openedAtMs = reservation.openedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                                    source = "CANONICAL_PENDING_ENTRY_RESERVATION_7699",
+                                    pool = reservation.entryPoolAddress,
+                                    dex = reservation.entryDex,
+                                    identity = reservation.positionId,
+                                )
+                            } else null
+                        }
                 }
             }
 
@@ -275,11 +324,7 @@ object LiveCanonicalRecovery6686 {
             // made to OPEN against tokens the wallet holds. It cannot open a
             // position for a mint with no reservation, it cannot alter an existing
             // OPEN row, and a mint the wallet does not hold never enters this loop.
-            val pendingSameMint7133 = try {
-                CanonicalPositionAuthority6441.pendingEntryPositions6461().firstOrNull {
-                    it.mint == mint && it.mode.equals("live", true)
-                }
-            } catch (_: Throwable) { null }
+            val pendingSameMint7133 = pendingReservation7699
             if (pendingSameMint7133 != null) {
                 val promoted7133 = try {
                     CanonicalPositionAuthority6441.promotePendingToOpen(
