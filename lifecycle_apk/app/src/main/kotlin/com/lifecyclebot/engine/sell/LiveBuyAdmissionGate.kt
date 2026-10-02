@@ -88,6 +88,31 @@ object LiveBuyAdmissionGate {
         onLog: (String, String) -> Unit = { _, _ -> },
         onNotify: (String, String, NotificationHistory.NotifEntry.NotifType) -> Unit = { _, _, _ -> },
     ): Decision {
+        // V5.0.7701 — never spend while a bot-origin wallet holding is outside
+        // canonical exit scope. This is checked at the real Executor admission
+        // gate for both new entries and top-ups. Unknown wallet/canonical state
+        // fails closed; recovery and exits continue independently.
+        val coverage7701 = try {
+            LiveExitCoverageGuard7701.assess(com.lifecyclebot.engine.WalletManager.currentPubkey())
+        } catch (t: Throwable) {
+            LiveExitCoverageGuard7701.Decision.Blocked(
+                "EXIT_COVERAGE_UNVERIFIED",
+                "inventory audit failed: ${t.javaClass.simpleName}:${t.message?.take(100)}",
+            )
+        }
+        if (coverage7701 is LiveExitCoverageGuard7701.Decision.Blocked) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701",
+                    "mint=${ts.mint.take(10)} callSite=$callSite reason=${coverage7701.reasonCode} " +
+                        "unmanaged=${coverage7701.mints.joinToString(",").take(180)} detail=${coverage7701.detail.take(120)}",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701")
+            } catch (_: Throwable) {}
+            onLog("🛑 LIVE BUY BLOCKED: existing bot holding is outside exit management", ts.mint)
+            return Decision.Blocked(coverage7701.reasonCode, coverage7701.detail)
+        }
+
         // V5.0.3941 — NO GLOBAL SELL-ONLY BUY KILL-SWITCH.
         // Runtime 3940: BUY ok=20 but fail=77, with 66 fails from
         // ADMISSION_GATE:SELL_ONLY_SAFE_MODE. That mode is useful telemetry, but as
@@ -238,5 +263,75 @@ object LiveBuyAdmissionGate {
             safetyHardBlock -> Decision.Blocked("SAFETY_HARD_BLOCK", "hard-block tier")
             else            -> Decision.Approved
         }
+    }
+}
+
+
+/** V5.0.7701 — hard live-buy invariant: every positive bot-origin wallet mint
+ * must be visible in canonical LIVE open positions before another SOL spend. */
+internal object LiveExitCoverageGuard7701 {
+    sealed class Decision {
+        object Ready : Decision()
+        data class Blocked(val reasonCode: String, val detail: String, val mints: List<String>) : Decision()
+    }
+
+    fun assess(walletAddress: String): Decision {
+        if (walletAddress.isBlank()) {
+            return Decision.Blocked("EXIT_COVERAGE_WALLET_UNKNOWN", "wallet identity unavailable", emptyList())
+        }
+        val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+            .asSequence()
+            .filter { it.mode.equals("live", true) && it.remainingQtyRaw.signum() > 0 }
+            .map { it.mint }
+            .toSet()
+
+        val tracker = com.lifecyclebot.engine.HostWalletTokenTracker.snapshot()
+        val botHeld = tracker.asSequence()
+            .filter { p ->
+                val botSource = p.source in setOf(
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionSource.BOT_BUY,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionSource.TX_PARSE,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionSource.RECOVERED_AFTER_RESTART,
+                ) || (p.source != com.lifecyclebot.engine.HostWalletTokenTracker.PositionSource.MANUAL_IMPORT &&
+                    !p.buySignature.isNullOrBlank())
+                val raw = runCatching { java.math.BigInteger(p.rawAmount.trim().ifBlank { "0" }) }
+                    .getOrDefault(java.math.BigInteger.ZERO)
+                val terminal = p.status in setOf(
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_VERIFIED,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_DUST_UNROUTABLE,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_STALE_RECOVERY_UNHELD,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE,
+                    com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
+                )
+                botSource && !terminal && (raw > java.math.BigInteger.ONE || (p.uiAmount.isFinite() && p.uiAmount > 0.0))
+            }
+            .map { it.mint }
+            .toMutableSet()
+
+        // Durable confirmed live buy lots also carry bot ownership. When the
+        // current wallet tracker has terminally proved a zero balance, they are
+        // historical; otherwise an unrepresented active lot is unresolved risk.
+        val lots = com.lifecyclebot.engine.FillLotLedger6344.snapshotForWallet(walletAddress)
+            .filter { it.remainingQty > 1e-9 }
+        for (lot in lots) {
+            val row = tracker.firstOrNull { it.mint == lot.mintAddress }
+            val terminalZero = row != null && row.status in setOf(
+                com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED,
+                com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_VERIFIED,
+                com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_DUST_UNROUTABLE,
+                com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_STALE_RECOVERY_UNHELD,
+                com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE,
+                com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
+            ) && row.uiAmount <= 0.0
+            if (!terminalZero) botHeld += lot.mintAddress
+        }
+
+        val unmanaged = botHeld.filterNot { canonical.contains(it) }.sorted()
+        return if (unmanaged.isEmpty()) Decision.Ready else Decision.Blocked(
+            "UNMANAGED_BOT_WALLET_HOLDING",
+            "${unmanaged.size} positive/active bot-owned mint(s) are outside canonical LIVE exit scope",
+            unmanaged,
+        )
     }
 }

@@ -31,6 +31,21 @@ class Aate7454QuarantinedLiveInventoryRecoveryTest {
         assertTrue(s.contains("LIVE_QUARANTINED_POSITION_RECOVERED_7454"))
     }
 
+    @Test fun live_buys_fail_closed_when_bot_wallet_inventory_is_outside_exit_scope() {
+        val gate = src("engine/sell/LiveBuyAdmissionGate.kt")
+        val executor = src("engine/Executor.kt")
+        assertTrue(gate.contains("LiveExitCoverageGuard7701.assess(walletAddress)"))
+        assertTrue(gate.contains("LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701"))
+        assertTrue(gate.contains("HostWalletTokenTracker.PositionSource.BOT_BUY"))
+        assertTrue(gate.contains("FillLotLedger6344.snapshotForWallet(walletAddress)"))
+        assertTrue(gate.contains("CanonicalPositionAuthority6441.openPositions()"))
+        assertTrue(gate.contains("WalletManager.currentPubkey()"))
+        assertTrue(gate.contains("callSite=$callSite"))
+        assertTrue(executor.contains("LiveBuyAdmissionGate.requireApprovedLiveBuy("))
+        assertTrue(executor.contains("callSite = \"liveTopUp\""))
+        assertTrue(executor.contains("callSite = \"liveBuy.main\""))
+    }
+
     @Test fun recovered_inventory_returns_to_held_ownership_via_open_hook() {
         val a = src("engine/truth/CanonicalPositionAuthority6441.kt")
         val h = src("engine/HeldPositionSupervisor7246.kt")
