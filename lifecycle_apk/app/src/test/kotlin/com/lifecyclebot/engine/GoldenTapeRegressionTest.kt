@@ -13090,4 +13090,30 @@ class GoldenTapeRegressionTest {
         assertTrue(turso.contains("if (r != null && migrationAlreadyApplied7706(r.error.orEmpty())) {"))
     }
 
+    @Test
+    fun V5_0_7707_an_unsellable_holding_cannot_veto_live_buys() {
+        // 5.0.7706 live tape: one sub-$5 wallet token (correctly not adopted)
+        // made 7701's coverage gate refuse all 55 live buys of the session.
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(rec.contains("fun unsellableHoldingReason7707(mint: String): String? {"))
+        assertTrue(rec.contains("private const val UNSELLABLE_NO_MARK_GRACE_MS_7707 = 10L * 60_000L"))
+        val reasonFn = rec.substringAfter("fun unsellableHoldingReason7707(mint: String): String? {").substringBefore("private fun requestMarkAsync7707(")
+        assertTrue(reasonFn.contains("valueUsd < ADOPTION_MIN_VALUE_USD_7706"))
+        assertTrue(reasonFn.contains("now - seen >= UNSELLABLE_NO_MARK_GRACE_MS_7707"))
+        // A holding with no mark gets one requested rather than waiting forever.
+        assertTrue(rec.contains("if (priceUsd == null) requestMarkAsync7707(mint)"))
+        assertTrue(rec.contains("HostWalletTokenTracker.recordPriceUpdate(mint, px, 0.0)"))
+
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
+        // Lots only count while the wallet still holds the mint.
+        assertTrue(gate.contains(".filter { it.remainingQty > 1e-9 && it.mintAddress in positiveWalletMints }"))
+        assertFalse(gate.contains(".filter { it.remainingQty > 1e-9 }\n"))
+        // Unsellable holdings are named and dropped from the veto set.
+        assertTrue(gate.contains("com.lifecyclebot.engine.LiveCanonicalRecovery6686.unsellableHoldingReason7707(mint)"))
+        assertTrue(gate.contains("\"LIVE_EXIT_COVERAGE_UNSELLABLE_IGNORED_7707\""))
+        // The 7701 invariant itself is intact: a sellable bot holding outside canonical scope still blocks.
+        assertTrue(gate.contains("\"UNMANAGED_BOT_WALLET_HOLDING\","))
+        assertTrue(gate.contains("FillLotLedger6344.snapshotForWallet(walletAddress)"))
+    }
+
 }

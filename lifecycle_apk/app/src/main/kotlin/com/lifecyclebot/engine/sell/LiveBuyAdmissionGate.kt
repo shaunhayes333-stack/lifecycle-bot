@@ -276,6 +276,8 @@ internal object LiveExitCoverageGuard7701 {
         data class Blocked(val reasonCode: String, val detail: String, val mints: List<String>) : Decision()
     }
 
+    @Volatile private var unsellableLogMs7707: Long = 0L
+
     fun assess(walletAddress: String): Decision {
         if (walletAddress.isBlank()) {
             return Decision.Blocked("EXIT_COVERAGE_WALLET_UNKNOWN", "wallet identity unavailable", emptyList())
@@ -334,8 +336,11 @@ internal object LiveExitCoverageGuard7701 {
         // Durable confirmed live buy lots also carry bot ownership. When the
         // current wallet tracker has terminally proved a zero balance, they are
         // historical; otherwise an unrepresented active lot is unresolved risk.
+        // V5.0.7707 — a lot is unresolved risk only while the wallet still
+        // holds the mint. A lot whose mint is absent from the wallet snapshot
+        // (sold, swept, or purged from the tracker) is history, not inventory.
         val lots = com.lifecyclebot.engine.FillLotLedger6344.snapshotForWallet(walletAddress)
-            .filter { it.remainingQty > 1e-9 }
+            .filter { it.remainingQty > 1e-9 && it.mintAddress in positiveWalletMints }
         for (lot in lots) {
             val row = tracker.firstOrNull { it.mint == lot.mintAddress }
             val terminalZero = row != null && row.status in setOf(
@@ -349,7 +354,29 @@ internal object LiveExitCoverageGuard7701 {
             if (!terminalZero) botHeld += lot.mintAddress
         }
 
-        val unmanaged = botHeld.filterNot { canonical.contains(it) }.sorted()
+        // V5.0.7707 — a holding no route will sell (under the adoption floor,
+        // or with no obtainable mark) cannot be managed by anyone and is not
+        // capital the book can lose more of; it does not veto the next entry.
+        // See LiveCanonicalRecovery6686.unsellableHoldingReason7707.
+        val unsellable = linkedMapOf<String, String>()
+        val unmanaged = botHeld.filterNot { canonical.contains(it) }.filter { mint ->
+            val why = try { com.lifecyclebot.engine.LiveCanonicalRecovery6686.unsellableHoldingReason7707(mint) } catch (_: Throwable) { null }
+            if (why != null) unsellable[mint] = why
+            why == null
+        }.sorted()
+        if (unsellable.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            if (now - unsellableLogMs7707 >= 60_000L) {
+                unsellableLogMs7707 = now
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_EXIT_COVERAGE_UNSELLABLE_IGNORED_7707",
+                        "n=${unsellable.size} ${unsellable.entries.joinToString(",") { "${it.key.take(8)}=${it.value}" }.take(200)} action=not_a_buy_veto",
+                    )
+                } catch (_: Throwable) {}
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_EXIT_COVERAGE_UNSELLABLE_IGNORED_7707") } catch (_: Throwable) {}
+        }
         return if (unmanaged.isEmpty()) Decision.Ready else Decision.Blocked(
             "UNMANAGED_BOT_WALLET_HOLDING",
             "${unmanaged.size} positive/active bot-owned mint(s) are outside canonical LIVE exit scope",

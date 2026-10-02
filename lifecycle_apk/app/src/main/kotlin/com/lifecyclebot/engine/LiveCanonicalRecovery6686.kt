@@ -4,6 +4,7 @@ import com.lifecyclebot.data.BotStatus
 import com.lifecyclebot.data.Trade
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 import com.lifecyclebot.engine.truth.CanonicalTokenAmount
+import kotlinx.coroutines.launch
 import java.math.BigInteger
 
 /**
@@ -77,6 +78,7 @@ object LiveCanonicalRecovery6686 {
         if (priceUsd == null || !solUsd.isFinite() || solUsd <= 0.0) {
             adoptionAwaitingMark7706.incrementAndGet()
             try { PipelineHealthCollector.labelInc("LIVE_WALLET_ADOPTION_AWAITING_MARK_7706") } catch (_: Throwable) {}
+            if (priceUsd == null) requestMarkAsync7707(mint)
             return null
         }
         val valueUsd = qty * priceUsd
@@ -130,6 +132,66 @@ object LiveCanonicalRecovery6686 {
         val dex: String,
         val identity: String,
     )
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7707 §AN_UNSELLABLE_HOLDING_CANNOT_VETO_THE_BOOK.
+    //
+    // 5.0.7706 live tape: the wallet was down to one non-frozen token worth
+    // under $5 (LIVE_WALLET_HOLDING_BELOW_ROUTABLE_NOT_ADOPTED_7706=153,
+    // awaitingMark=11), so 7706 correctly refused to adopt it — and 7701's
+    // exit-coverage gate then counted that same holding as an unmanaged
+    // bot position and refused all 55 live buys of the session
+    // (ADMISSION_GATE:UNMANAGED_BOT_WALLET_HOLDING). A holding no DEX will
+    // route a sell for cannot be put under exit management by anyone; it is
+    // not capital the book can lose any more of. The gate asks here before
+    // it blocks, and a holding with no mark gets one requested instead of
+    // waiting on a price that only arrives for open tracked rows.
+    // ─────────────────────────────────────────────────────────────────────
+    private const val UNSELLABLE_NO_MARK_GRACE_MS_7707 = 10L * 60_000L
+    private const val MARK_REQUEST_MIN_INTERVAL_MS_7707 = 2L * 60_000L
+    private val markRequestedAt7707 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * Why this wallet holding cannot be adopted or sold right now, or null
+     * when it can (or when it is not in the tracker at all). Read by the
+     * live-buy coverage gate.
+     */
+    fun unsellableHoldingReason7707(mint: String): String? {
+        val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null } ?: return null
+        val qty = p.uiAmount
+        if (!qty.isFinite() || qty <= 0.0) return null
+        val px = p.currentPriceUsd
+        val now = System.currentTimeMillis()
+        if (px != null && px.isFinite() && px > 0.0) {
+            val valueUsd = qty * px
+            return if (valueUsd.isFinite() && valueUsd < ADOPTION_MIN_VALUE_USD_7706) "BELOW_ROUTABLE_${"%.2f".format(valueUsd)}USD" else null
+        }
+        val seen = p.firstSeenWalletMs.takeIf { it > 0L } ?: p.buyTimeMs ?: 0L
+        requestMarkAsync7707(mint)
+        return if (seen > 0L && now - seen >= UNSELLABLE_NO_MARK_GRACE_MS_7707) "NO_MARK_AFTER_${(now - seen) / 60_000L}MIN" else null
+    }
+
+    /** Ask DexScreener for a mark off-thread and write it into the wallet tracker; at most once per two minutes per mint. */
+    private fun requestMarkAsync7707(mint: String) {
+        val now = System.currentTimeMillis()
+        val last = markRequestedAt7707[mint] ?: 0L
+        if (now - last < MARK_REQUEST_MIN_INTERVAL_MS_7707) return
+        markRequestedAt7707[mint] = now
+        if (markRequestedAt7707.size > 512) markRequestedAt7707.clear()
+        try {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val px = com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(listOf(mint))[mint]
+                    if (px != null && px.isFinite() && px > 0.0) {
+                        HostWalletTokenTracker.recordPriceUpdate(mint, px, 0.0)
+                        PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_MARK_FETCHED_7707")
+                    } else {
+                        PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_MARK_UNAVAILABLE_7707")
+                    }
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
 
     private fun isRecoverableQuarantine7454(position: CanonicalPositionAuthority6441.Position): Boolean =
         position.quarantineReason in setOf(
