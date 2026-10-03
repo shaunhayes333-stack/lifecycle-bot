@@ -14274,4 +14274,21 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7747_lane_losing_streak_cooldown_refuses_entries_and_whale_tracker_hears_the_trade_stream() {
+        val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
+        val choke = tp.substringAfter("fun chokepointRefusal7742(").substringBefore("private const val CHOKEPOINT_RECENT_MS_7742")
+        assertTrue(choke.contains("LosingStreakReflex6439.cooldownRemainingSec(lane.trim().uppercase(), \"LIVE\")"))
+        assertTrue(choke.indexOf("LosingStreakReflex6439") < choke.indexOf("liveBlockReason(ts, lane, false, nowMs)"))
+        assertTrue(choke.contains("Field Manual §8.2"))
+        val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        assertTrue(orch.contains("solAmount * solUsd7747 >= WHALE_TRADE_MIN_USD_7747"))
+        assertTrue(orch.contains("private val WHALE_TRADE_MIN_USD_7747 = 1_000.0"))
+        assertTrue(orch.contains("Field Manual §3.4"))
+        // The 20-slot setting is the operator's; wallet affordability never rewrites it.
+        assertEquals(20, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slots(0.08))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

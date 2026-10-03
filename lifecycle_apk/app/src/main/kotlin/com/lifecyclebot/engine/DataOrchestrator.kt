@@ -517,6 +517,26 @@ class DataOrchestrator(
     fun onPumpPortalTrade7743(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
         if (mint.isBlank()) return
         try { synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) } } catch (_: Throwable) {}
+        // V5.0.7747 — WhaleTrackerAI's only feeder was BirdeyeWhaleFeeder (Birdeye
+        // 401), so every scorer reading it saw stale data. A single trade at or above
+        // the feeder's own whale bar (MIN_VOLUME_USD_TO_CLASSIFY, $1,000) is recorded.
+        // Field Manual §3.4: one large wallet can distort volume, which is why the
+        // tracker counts distinct whale wallets, not raw size.
+        try {
+            val solUsd7747 = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            if (wallet.isNotBlank() && solUsd7747.isFinite() && solUsd7747 > 0.0 && solAmount * solUsd7747 >= WHALE_TRADE_MIN_USD_7747) {
+                val ts7747 = status.tokens[mint]
+                WhaleTrackerAI.recordWhaleActivity(
+                    whaleAddress = wallet,
+                    mint = mint,
+                    symbol = ts7747?.symbol ?: mint.take(6),
+                    action = if (isBuy) WhaleTrackerAI.WhaleAction.BUY else WhaleTrackerAI.WhaleAction.SELL,
+                    amountSol = solAmount,
+                    priceAtAction = ts7747?.lastPrice ?: 0.0,
+                )
+                PipelineHealthCollector.labelInc(if (isBuy) "WHALE_BUY_FROM_TRADE_STREAM_7747" else "WHALE_SELL_FROM_TRADE_STREAM_7747")
+            }
+        } catch (_: Throwable) {}
         if (!isBuy && wallet.isNotBlank()) {
             val dev = try { OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }
             if (dev != null && dev == wallet) {
@@ -528,6 +548,9 @@ class DataOrchestrator(
             }
         }
     }
+
+    /** V5.0.7747 — BirdeyeWhaleFeeder's MIN_VOLUME_USD_TO_CLASSIFY, the same whale bar. */
+    private val WHALE_TRADE_MIN_USD_7747 = 1_000.0
 
     private fun handlePumpTrade(mint: String, isBuy: Boolean, solAmount: Double, wallet: String) {
         lastWsEventMs[mint] = System.currentTimeMillis()
