@@ -873,6 +873,37 @@ object FinalDecisionGate {
         }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7729 — keep forward-learning prediction and identity stamping out of
+     * evaluate(), whose DEX method is already at ART's register/verifier limit.
+     * The exact candidate version and canonical owner lane travel together so a
+     * later rescan cannot overwrite the prediction that belongs to an execution.
+     */
+    private fun forwardForecastAndStamp7729(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        lane: String,
+        score: Int,
+        regime: String,
+        candidateVersion: Long,
+        mode: TradeMode,
+    ): ForwardOutcomeModel.Forecast {
+        val forecast = ForwardOutcomeModel.forecast(lane, score, candidate.setupQuality, regime, candidate.edgePhase)
+        ForwardOutcomeModel.stampDecision(
+            mint = ts.mint,
+            candidateVersion = candidateVersion,
+            lane = lane,
+            score = score,
+            quality = candidate.setupQuality,
+            regime = regime,
+            edgePhase = candidate.edgePhase,
+            isPaper = mode == TradeMode.PAPER,
+        )
+        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, lane, forecast.pWin, forecast.expectedPnl) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
+        return forecast
+    }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -5287,20 +5318,9 @@ object FinalDecisionGate {
                         // settled trades keyed by lane×band×quality×regime×edgePhase.
                         // The nudge plans against the predicted distribution. Soft-shape,
                         // stamped for closed-loop credit. Fail-open.
-                        val fwd = ForwardOutcomeModel.forecast(learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        ForwardOutcomeModel.stampDecision(
-                            mint = ts.mint,
-                            candidateVersion = candidateVersion7623,
-                            lane = learningOwnerLane7534,
-                            score = mpScore,
-                            quality = candidate.setupQuality,
-                            regime = mpRegime,
-                            edgePhase = candidate.edgePhase,
-                            isPaper = mode == TradeMode.PAPER,
+                        val fwd = forwardForecastAndStamp7729(
+                            ts, candidate, learningOwnerLane7534, mpScore, mpRegime, candidateVersion7623, mode,
                         )
-                        // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
-                        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, learningOwnerLane7534, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
 
                         // V5.9.1358 — DUAL-BRAIN VETO → SIZE-SHAPE (operator mandate:
                         // never refuse/disable a context, learn the right way to trade it
