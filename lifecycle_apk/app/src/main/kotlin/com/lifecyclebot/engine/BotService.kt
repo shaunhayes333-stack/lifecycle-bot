@@ -966,6 +966,25 @@ class BotService : Service() {
     }
 
     /**
+     * V5.0.7754 — a position with a plan exits on the plan: its structure stop
+     * at the setup's invalidation, half at the first target, the runner on a
+     * structure trail, and its time stops (TradePlan7739.exitFor). Lane-blind
+     * percentage exits that sat inside that plan — the 500 ms fluid stop near
+     * -8.5% on a calm tape, the rapid take-profit that sold everything at the
+     * fluid target, the -10% tick floor and MOONSHOT's -5%-before-+8% stop —
+     * were cutting the setups the labels say pay (MOONSHOT +13.8% at 60 min,
+     * live -11.3%; losers held 121.7 min, winners 16.2 min). Field Manual §8:
+     * the stop goes where the idea is wrong, and winners are let run. A
+     * confirmed catastrophe never defers. [wouldFire] is the exit's own verdict.
+     */
+    private fun planOwnsExit7754(ts: com.lifecyclebot.data.TokenState, wouldFire: Boolean, catastrophic: Boolean, exitName: String): Boolean {
+        if (!wouldFire || catastrophic) return false
+        val owned = try { com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) != null } catch (_: Throwable) { false }
+        if (owned) try { PipelineHealthCollector.labelInc("EXIT_DEFERRED_TO_PLAN_7754_$exitName") } catch (_: Throwable) {}
+        return owned
+    }
+
+    /**
      * V5.0.7739 — executes the exit a position's plan owes (TradePlan7739).
      * One dispatch per mint per 10 s; the full sell goes through the same
      * off-loop path as the tick floors, the first-target half off the loop.
@@ -11363,7 +11382,8 @@ class BotService : Service() {
                             try { PipelineHealthCollector.labelInc("RUNNER_FLUID_STOP_HELD_AT_LANE_FLOOR_7696") } catch (_: Throwable) {}
                             RUNNER_LANE_MIN_FLUID_STOP_PCT_7696
                         } else dynamicStopPct
-                        if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322)) {
+                        if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322) &&
+                            !planOwnsExit7754(ts, true, false, "RAPID_FLUID")) {
                             // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator
                             // directive). No more ENTRY_PROTECT stop label/behaviour.
                             // The 40s warmup HOLD above already prevents the dynamic
@@ -11402,7 +11422,7 @@ class BotService : Service() {
                                         .getFluidTakeProfit(cfg.exitScoreThreshold.coerceAtLeast(20.0))
                                 } catch (_: Throwable) { 20.0 }
                             }
-                            if (pnlPct >= tpPct) {
+                            if (pnlPct >= tpPct && !planOwnsExit7754(ts, true, false, "RAPID_TP")) {
                                 // V5.0.4182 — REAL PRICE LOCK on rapid TP delegate.
                                 // Operator V5.0.4181 dump: `🎯 RAPID TAKE_PROFIT_DELEGATE: piss pnl=98181004%`.
                                 // Meme moonshots CAN legitimately do 10,000x+ — we
@@ -12805,7 +12825,8 @@ class BotService : Service() {
                                 val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
                                 if (planExit7739 != null) {
                                     planTickExit7739(ts, com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime), planExit7739, pnlPctNow, peakPct)
-                                } else if (moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) {
+                                } else if ((moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) &&
+                                    !planOwnsExit7754(ts, true, catastrophicConfirmed4485, "TICK_FLOOR")) {
                                     if (moonshotLaneStop7389) try { PipelineHealthCollector.labelInc("TICK_MOONSHOT_LANE_STOP_7389") } catch (_: Throwable) {}
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
@@ -33041,7 +33062,14 @@ if (hotExitHandledSweep) {
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Moonshot:${exitSignal.name}") } catch (_: Exception) {}
             
-            if (exitSignal != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD) {
+            if (exitSignal != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD &&
+                !planOwnsExit7754(
+                    ts, true,
+                    exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.RUG_DETECTED ||
+                        exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.MODE_UPGRADE,
+                    "MOONSHOT_${exitSignal.name}",
+                )
+            ) {
                 val exitEmoji = when (exitSignal) {
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT -> "🌙"
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP -> "🎯"

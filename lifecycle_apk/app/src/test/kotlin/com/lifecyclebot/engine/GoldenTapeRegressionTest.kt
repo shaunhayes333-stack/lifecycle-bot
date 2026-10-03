@@ -14367,4 +14367,25 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7754_planned_positions_exit_on_their_plan_not_on_lane_blind_percent_exits() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("private fun planOwnsExit7754(ts: com.lifecyclebot.data.TokenState, wouldFire: Boolean, catastrophic: Boolean, exitName: String): Boolean"))
+        assertTrue(bot.contains("!planOwnsExit7754(ts, true, catastrophicConfirmed4485, \"TICK_FLOOR\")"))
+        assertTrue(bot.contains("!planOwnsExit7754(ts, true, false, \"RAPID_FLUID\")"))
+        assertTrue(bot.contains("if (pnlPct >= tpPct && !planOwnsExit7754(ts, true, false, \"RAPID_TP\"))"))
+        assertTrue(bot.contains("\"MOONSHOT_\${exitSignal.name}\""))
+        // A confirmed catastrophe never defers to the plan.
+        val helper = bot.substringAfter("private fun planOwnsExit7754(").substringBefore("\n    }\n")
+        assertTrue(helper.contains("if (!wouldFire || catastrophic) return false"))
+        // The plan's own exits are unchanged: structure stop, half at first target, trail, time stops.
+        val tp = com.lifecyclebot.engine.truth.TradePlan7739
+        val plan = com.lifecyclebot.engine.truth.TradePlan7739.Plan(com.lifecyclebot.engine.truth.TradePlan7739.Setup.LAUNCH_EARLY, -15.0, 50.0, 100.0, 0L)
+        assertTrue(tp.exitFor(plan, -9.0, 2.0, 60_000L, false, 4.0) == null)
+        assertTrue(tp.exitFor(plan, -16.0, 2.0, 60_000L, false, 4.0)!!.reason.startsWith("STRUCTURE_STOP_7739"))
+        assertTrue(tp.exitFor(null, -3.0, 1.0, 46L * 60_000L, false, 4.0)!!.reason.startsWith("UNDERWATER_TIME_STOP_7739"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
