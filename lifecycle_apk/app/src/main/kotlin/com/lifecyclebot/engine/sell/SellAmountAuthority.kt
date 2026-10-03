@@ -138,6 +138,45 @@ object SellAmountAuthority {
         return Resolution.Confirmed(e.rawAmount, e.decimals, Source.BALANCE_PROOF_POLLER)
     }
 
+    // V5.0.7733 §A_MINT_ABSENT_FROM_THE_WHOLE_WALLET_IS_A_ZERO_READ.
+    //
+    // 5.0.7732: EkDGB5fb (canonical LIVE row, lane CRYPTO_SPOT, host tracker
+    // lastPositiveRaw=0) fired WALLET_GROWTH_HARVEST_TRIGGERED_6028 132 times in
+    // six minutes. Every attempt read BALANCE_MINT_ABSENT accounts=2 from a
+    // complete two-program snapshot, resolve() returned Unknown (3749: "one
+    // provider missing the mint is UNKNOWN"), the row entered balance-proof
+    // wait, and BalanceProofPoller polled a read that can only ever say
+    // Unknown: BALANCE_PROOF_STILL_UNKNOWN=24, mergeCount=85, no close.
+    //
+    // The poller's own contract (3746, and BotService's zero callback, which
+    // names SELL_AMOUNT_AUTHORITY_NONEMPTY_MINT_ABSENT as its second source)
+    // was written for exactly this read: mint absent from a NON-empty map is
+    // one zero observation, two in a row close the row. 3749 removed the
+    // observation without replacing it, and 7140 later supplied the guard
+    // 3749 was missing (a partial map proves nothing about absence).
+    //
+    // resolve() still returns Unknown for an absent mint, so no broadcast path
+    // changes. It now also records the absence when the snapshot was COMPLETE
+    // and non-empty, and the poller reads that record.
+    data class AbsentFromComplete7733(val count: Int, val firstAtMs: Long, val lastAtMs: Long)
+    private val absentFromComplete7733 = ConcurrentHashMap<String, AbsentFromComplete7733>()
+
+    private fun noteAbsentFromComplete7733(mint: String, nowMs: Long) {
+        absentFromComplete7733.compute(mint) { _, prev ->
+            if (prev == null) AbsentFromComplete7733(1, nowMs, nowMs)
+            else AbsentFromComplete7733(prev.count + 1, prev.firstAtMs, nowMs)
+        }
+    }
+
+    /** Consecutive complete, non-empty wallet snapshots that did not list [mint]; null when the last read listed it or was partial. */
+    fun absentFromCompleteSnapshot7733(mint: String): AbsentFromComplete7733? = absentFromComplete7733[mint]
+
+    /** A buy-tied owner-delta younger than FRESH_TX_PARSE_MS: indexer lag, not absence. */
+    fun hasFreshTxParse7733(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val c = txParseCache[mint] ?: return false
+        return nowMs - c.capturedAtMs <= FRESH_TX_PARSE_MS
+    }
+
     // ── Recent TX_PARSE cache (operator spec — only fresh, only buy-tied) ──
     private data class TxParseEntry(
         val rawAmount: BigInteger,
@@ -201,10 +240,16 @@ object SellAmountAuthority {
         if (entry == null) {
             // V5.0.3749 — one provider missing the mint is UNKNOWN, not zero.
             // Zero finality requires the tracker/reconciler independent-proof path.
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_MINT_ABSENT mint=${mint.take(10)} accounts=${balances.size}") } catch (_: Throwable) {}
+            // V5.0.7733 — a COMPLETE non-empty snapshot without the mint is that
+            // path's observation; record it for BalanceProofPoller (see
+            // absentFromCompleteSnapshot7733). A partial map clears the record.
+            val complete7733 = try { !com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { false }
+            if (complete7733) noteAbsentFromComplete7733(mint, System.currentTimeMillis()) else absentFromComplete7733.remove(mint)
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_MINT_ABSENT mint=${mint.take(10)} accounts=${balances.size} complete7733=$complete7733 absentReads7733=${absentFromComplete7733[mint]?.count ?: 0}") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER mint=${mint.take(8)}…")
             return Resolution.Unknown
         }
+        absentFromComplete7733.remove(mint)
         val uiAmount = entry.uiDoubleForDisplay()
         val decimals = entry.decimals
         if (entry.raw.signum() <= 0) {

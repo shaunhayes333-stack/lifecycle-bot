@@ -13817,4 +13817,71 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    /**
+     * V5.0.7733 — 5.0.7732 device: EkDGB5fb fired a profit-harvest sell 132
+     * times in six minutes (538 tracker/sell events in 22 minutes) against a
+     * wallet that does not hold it, and $WIF's landed buy was filed as failed
+     * ("Buy threw: unknown" after BUY_BROADCAST) and re-adopted eight seconds
+     * later as a WALLET_RECOVERED stranger.
+     */
+    @Test
+    fun V5_0_7733_absent_from_a_complete_wallet_is_a_zero_read_profit_lock_respects_the_wait_a_sent_tx_is_not_a_failed_buy() {
+        // Authority: an absent mint in a COMPLETE non-empty snapshot is recorded; a listed mint clears it; resolve() still says Unknown.
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        val absent = auth.substringAfter("val entry = balances[mint]").substringBefore("val uiAmount = entry.uiDoubleForDisplay()")
+        assertTrue(absent.contains("if (complete7733) noteAbsentFromComplete7733(mint, System.currentTimeMillis()) else absentFromComplete7733.remove(mint)"))
+        assertTrue(absent.contains("return Resolution.Unknown"))
+        assertTrue(absent.trimEnd().endsWith("absentFromComplete7733.remove(mint)"))
+        assertTrue(auth.contains("fun absentFromCompleteSnapshot7733(mint: String): AbsentFromComplete7733? = absentFromComplete7733[mint]"))
+        assertTrue(auth.contains("fun hasFreshTxParse7733(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {"))
+
+        // Poller: Unknown consults the record; two complete-absent reads twenty seconds apart, outside the fresh-buy grace, are the zero read.
+        val poller = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofPoller.kt").readText()
+        assertTrue(poller.contains("if (absentFromCompleteIsZeroRead7733(entry)) onZeroRead7733(entry, \"ABSENT_FROM_COMPLETE_SNAPSHOT_7733\")"))
+        assertTrue(poller.contains("is SellAmountAuthority.Resolution.Zero -> onZeroRead7733(entry, resolution.source.name)"))
+        assertTrue(poller.contains("private const val ABSENT_COMPLETE_MIN_READS_7733 = 2"))
+        assertTrue(poller.contains("private const val ABSENT_COMPLETE_MIN_SPAN_MS_7733 = 20_000L"))
+        assertTrue(poller.contains("private const val FRESH_BUY_GRACE_MS_7733 = 180_000L"))
+        assertTrue(poller.contains("BALANCE_PROOF_ABSENT_DEFERRED_FRESH_BUY_7733"))
+        // BotService's zero callback still names the absent read as the second independent source the tracker trusts.
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("sources = setOf(\"BALANCE_PROOF_POLLER_ZERO_STREAK\", \"SELL_AMOUNT_AUTHORITY_NONEMPTY_MINT_ABSENT\")"))
+
+        // Profit lock: live only, before any multiple is computed; a row the close authority holds CLOSED goes to the 7362 repair.
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val cpl = ex.substringAfter("fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {").substringBefore("val rawGainMultiple = ")
+        assertTrue(cpl.contains("if (!pos.isPaperPosition && profitLockDeferred7733(ts, wallet)) return false"))
+        val defer = ex.substringAfter("private fun profitLockDeferred7733(ts: TokenState, wallet: SolanaWallet?): Boolean {").substringBefore("return true\n    }")
+        assertTrue(defer.contains("if (closed) try { onLiveClosedWithOpenCanonical7362(ts, wallet) } catch (_: Throwable) {}"))
+        assertTrue(defer.contains("PROFIT_LOCK_DEFERRED_BALANCE_PROOF_WAIT_7733"))
+        assertTrue(defer.contains("State.CLOSING_CONFIRMED"))
+        assertFalse(defer.contains("CLOSING_UNKNOWN"))
+
+        // A sent transaction is not a failed buy: the signature survives the confirmation throw ...
+        val w = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(w.contains("class SentButUnconfirmed7733(val signature: String, cause: Throwable) :"))
+        assertEquals(3, Regex("awaitConfirmationKeepingSignature7733\\((sig|signature)\\)").findAll(w).count())
+        assertTrue(w.contains("} catch (sent: SentButUnconfirmed7733) {"))
+        assertTrue(w.contains("} catch (e: SentButUnconfirmed7733) {\n                throw e\n            } catch (e: Exception) {\n                lastException = e"))
+        // ... the receipt is stamped on the pending row before anything after the send can throw ...
+        assertTrue(ex.contains("try { HostWalletTokenTracker.recordSignedBuyBasis7708(ts.mint, ts.symbol, price, sol, sig, routedLaneTag) } catch (_: Throwable) {}"))
+        assertEquals(2, Regex("\\n\\s*broadcastSig7733 = sig\\n").findAll(ex).count())
+        // ... and the catch keeps the buy pending instead of failing it.
+        val catchBlock = ex.substringAfter("val safe = security.sanitiseForLog(e.message ?: \"unknown\")\n            // V5.0.7733").substringBefore("PipelineHealthCollector.labelInc(\"BUY_PROVIDER_FAILED_6324\")")
+        assertTrue(catchBlock.contains("val sentSig7733 = broadcastSig7733 ?: (e as? SolanaWallet.SentButUnconfirmed7733)?.signature"))
+        assertTrue(catchBlock.contains("buyTerminalOk(\"BUY_TERMINAL_OK:THROWN_AFTER_SEND_PENDING_WALLET_DELTA_7733\")"))
+        assertTrue(catchBlock.contains("return false"))
+        val after = ex.substringAfter("private fun onLiveBuyThrownAfterSend7733(").substringBefore("private val PROFIT_LOCK_DEFER_LOG_GAP_MS_7733")
+        assertTrue(after.contains("HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig)"))
+        assertTrue(after.contains("HostWalletTokenTracker.recordSignedBuyBasis7708(ts.mint, ts.symbol, px, sol, sig, lane)"))
+        assertTrue(after.contains("LiveWalletReconciler.recordBuySignature(ts.mint, sig)"))
+        assertFalse(after.contains("BUY_FAILED"))
+
+        // Labeler: a verdict with no fresh tick price takes the canonical mark instead of being skipped (7732: skipped noPrice=743).
+        val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(labeler.contains("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

@@ -553,8 +553,33 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             senderCompatible,
             awaitFinality = false,
         )
-        awaitConfirmation(sig)
+        awaitConfirmationKeepingSignature7733(sig)
         return sig
+    }
+
+    /**
+     * V5.0.7733 §A_THROW_AFTER_THE_SEND_IS_NOT_A_FAILED_BUY.
+     *
+     * The transaction named by [signature] has been sent. The caller's
+     * confirmation wait threw, so whether it landed is unknown; the signature
+     * is not. Executor.liveBuy used to see only the throw ("Buy threw:
+     * unknown", 5.0.7732 $WIF, five seconds after BUY_BROADCAST), file the buy
+     * as failed, and meet its own tokens eight seconds later as a recovered
+     * orphan at the observed mark in WALLET_RECOVERED.
+     */
+    class SentButUnconfirmed7733(val signature: String, cause: Throwable) :
+        RuntimeException("SENT_UNCONFIRMED sig=${signature.take(16)}: ${cause.message ?: cause.javaClass.simpleName}", cause)
+
+    private fun awaitConfirmationKeepingSignature7733(sig: String) {
+        try {
+            awaitConfirmation(sig)
+        } catch (e: SentButUnconfirmed7733) {
+            throw e
+        } catch (e: Exception) {
+            if (e is InterruptedException) Thread.currentThread().interrupt()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SENT_CONFIRMATION_THREW_7733") } catch (_: Throwable) {}
+            throw SentButUnconfirmed7733(sig, e)
+        }
     }
     
     /**
@@ -589,10 +614,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             try {
                 val jupiter = JupiterApi(jupiterApiKey)
                 val signature = jupiter.executeUltra(signedB64, requestId)
-                
+
                 // Still await confirmation to be safe
-                awaitConfirmation(signature)
+                // V5.0.7733 — a confirmation throw after /execute returned a
+                // signature carries that signature out; it is not retried as
+                // if nothing had been sent.
+                awaitConfirmationKeepingSignature7733(signature)
                 return signature
+            } catch (e: SentButUnconfirmed7733) {
+                throw e
             } catch (e: Exception) {
                 lastException = e
                 android.util.Log.w("SolanaWallet", "⚠️ Ultra execute attempt $attempt/$maxAttempts failed: ${e.message?.take(60)}")
@@ -639,8 +669,11 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             // Last resort: plain RPC self-broadcast (already signed).
             val signature = sendRawTransaction(signedB64)
             android.util.Log.i("SolanaWallet", "✅ RPC fallback broadcast succeeded! sig=${signature.take(20)}...")
-            awaitConfirmation(signature)
+            awaitConfirmationKeepingSignature7733(signature)
             return signature
+        } catch (sent: SentButUnconfirmed7733) {
+            // V5.0.7733 — the fallback DID broadcast; the caller gets the signature, not the older Ultra error.
+            throw sent
         } catch (fallbackEx: Exception) {
             android.util.Log.e("SolanaWallet", "❌ Fallback also failed: ${fallbackEx.message}")
             // Throw original Ultra error as it's more descriptive

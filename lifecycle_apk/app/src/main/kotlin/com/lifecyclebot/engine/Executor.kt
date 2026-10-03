@@ -6301,6 +6301,9 @@ class Executor(
         // back over the corrected entryPrice/source fields.
         val pos = ts.position
         if (!pos.isOpen) return false
+        // V5.0.7733 — live only: a mint in balance-proof wait, or already closed
+        // by the close authority, gets no new sell from here.
+        if (!pos.isPaperPosition && profitLockDeferred7733(ts, wallet)) return false
         // V5.9.1128 — use the existing price-basis resolver correctly for PAPER.
         // getActualPrice(ts) already links the stored mint to current price/mcap/pool
         // data and rebases paper entries when the source basis changes. The bug was
@@ -15116,6 +15119,83 @@ class Executor(
     /** V5.0.7708 — last RECOVERED_DUST_LIQUIDATION_7708 attempt per mint. */
     private val recoveredDustSellAt7708 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    /**
+     * V5.0.7733 §A_THROW_AFTER_THE_SEND_IS_NOT_A_FAILED_BUY.
+     *
+     * 5.0.7732, $WIF: BUY_BROADCAST 17:09:13 via Jito, "Buy threw: unknown"
+     * 17:09:18, BUY FAILED. 17:09:18 TOKEN_TRACKER_RECOVERED_FROM_WALLET
+     * qty=20.29, 17:09:26 OPEN_POSITION_RECOVERED_FROM_WALLET "Recovered
+     * orphan: $WIF entry=0.2468 lane=WALLET_RECOVERED". The bot's own landed
+     * buy, filed as failed by the catch at the end of liveBuy, then adopted
+     * as a stranger at a guessed basis in the lane that lost nine tenths of
+     * 5.0.7729's session (26VurL) and is excluded from learning (7722).
+     *
+     * With a signature in hand the buy is pending wallet proof, exactly as
+     * the normal path leaves it at POSITION_TRACKED: the tracker row keeps
+     * the signature, cost, entry mark and lane (7708 receipt), the reconciler
+     * is asked to read the wallet now, and the attempt lease closes OK so no
+     * retry buys the same token twice.
+     */
+    private fun onLiveBuyThrownAfterSend7733(ts: TokenState, sig: String, sol: Double, lane: String, message: String, tradeKey: String) {
+        try { HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig) } catch (_: Throwable) {}
+        val px = try { getActualPrice(ts) } catch (_: Throwable) { 0.0 }
+        try { HostWalletTokenTracker.recordSignedBuyBasis7708(ts.mint, ts.symbol, px, sol, sig, lane) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(ts.mint, sig) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(WalletManager.getWallet(), "LIVE_BUY_THROWN_AFTER_SEND_7733") } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("LIVE_BUY_THROWN_AFTER_SEND_PENDING_VERIFY_7733")
+            ForensicLogger.lifecycle(
+                "LIVE_BUY_THROWN_AFTER_SEND_PENDING_VERIFY_7733",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} sol=${"%.4f".format(sol)} lane=$lane entryUsd=$px " +
+                    "message=${message.take(100)} action=receipt_kept_wallet_proof_decides_not_a_failed_buy",
+            )
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
+                "⏳ Sent, then threw (${message.take(80)}) — signature kept, wallet proof decides; not a failed buy",
+                sig = sig, traderTag = "MEME",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7733 §PROFIT_LOCK_RESPECTS_THE_WAIT_IT_CREATED.
+     *
+     * 5.0.7732, EkDGB5fb: WALLET_GROWTH_HARVEST_TRIGGERED_6028 x132 in six
+     * minutes, each one re-entering balance-proof wait (mergeCount=85) on a
+     * mint the wallet does not hold. BalanceProofWaitState's contract: while
+     * a mint is waiting, only the poller acts. requestSell honours it; the
+     * profit-lock paths (executeProfitLockSell) did not. A mint the close
+     * authority already holds CLOSED is handed to the 7362 repair instead,
+     * which quarantines a canonical row that outlived its ledger close.
+     */
+    private val PROFIT_LOCK_DEFER_LOG_GAP_MS_7733 = 60_000L
+    private val profitLockDeferLogAt7733 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun profitLockDeferred7733(ts: TokenState, wallet: SolanaWallet?): Boolean {
+        val state = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.stateOf(ts.mint) } catch (_: Throwable) { null }
+        val closed = state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSED ||
+            state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSING_CONFIRMED
+        val waiting = !closed && try { com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint) } catch (_: Throwable) { false }
+        if (!closed && !waiting) return false
+        if (closed) try { onLiveClosedWithOpenCanonical7362(ts, wallet) } catch (_: Throwable) {}
+        val label = if (closed) "PROFIT_LOCK_DEFERRED_CLOSE_AUTHORITY_7733" else "PROFIT_LOCK_DEFERRED_BALANCE_PROOF_WAIT_7733"
+        try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
+        val now = System.currentTimeMillis()
+        val last = profitLockDeferLogAt7733[ts.mint] ?: 0L
+        if (now - last >= PROFIT_LOCK_DEFER_LOG_GAP_MS_7733) {
+            profitLockDeferLogAt7733[ts.mint] = now
+            try {
+                ForensicLogger.lifecycle(
+                    label,
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} closeState=${state?.name ?: "none"} waiting=$waiting " +
+                        "action=no_new_sell_from_profit_lock_poller_or_close_authority_owns_next_action",
+                )
+            } catch (_: Throwable) {}
+        }
+        return true
+    }
+
     /** V5.0.7714 — route refusals inside this window count toward dust-unroutable. */
     private val DUST_UNROUTABLE_FAILURE_WINDOW_MS_7714: Long = 15L * 60_000L
     private val DUST_UNROUTABLE_MIN_FAILURES_7714: Int = 2
@@ -20017,6 +20097,8 @@ class Executor(
             return false
         }
         var buyTerminalRecorded = false
+        // V5.0.7733 — the signature of the transaction this attempt sent, once it exists.
+        var broadcastSig7733: String? = null
         fun buyAttemptTrace4576(stage: String, detail: String = "") {
             try {
                 ForensicLogger.lifecycle(
@@ -21418,6 +21500,7 @@ class Executor(
                 liveStage("TX_SUBMIT_START", "route=PUMPPORTAL")
                 // V5.9.495 — PUMP-FIRST landed; skip the entire Jupiter pipeline.
                 sig = directFill7325.first
+                broadcastSig7733 = sig
                 qty = directFill7325.second
                 buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
@@ -21465,6 +21548,7 @@ class Executor(
                 } catch (_: Throwable) {}
                 liveStage("TX_SUBMIT_START", "route=${q.router}")
                 sig = wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
+                broadcastSig7733 = sig
                 buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
                 liveStage("TX_SUBMITTED", "route=${q.router} signature=${sig.take(16)}")
@@ -21510,6 +21594,12 @@ class Executor(
             if (price <= 0.0) {
                 throw Exception("Invalid normalized price for ${ts.symbol}")
             }
+            // V5.0.7733 — the receipt (cost, entry mark, signature, lane) travels
+            // with the pending tracker row from the moment the tx is signed, as
+            // CryptoAltTrader's 7434 path already does. If anything below throws,
+            // the wallet reconciler adopts the holding at THIS basis in THIS lane
+            // (HOST_TRACKER_SIGNED_BUY_7708), not as a stranger at the observed mark.
+            try { HostWalletTokenTracker.recordSignedBuyBasis7708(ts.mint, ts.symbol, price, sol, sig, routedLaneTag) } catch (_: Throwable) {}
             val finalQty: Double = if (directFill7325 != null) qty
                 else {
                     // V5.0.6310 — plumb explicit mint decimals so BUY qty
@@ -22816,6 +22906,15 @@ class Executor(
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
+            // V5.0.7733 — a throw AFTER the transaction was sent is not a failed
+            // buy: the signature decides, through wallet proof, not the exception.
+            val sentSig7733 = broadcastSig7733 ?: (e as? SolanaWallet.SentButUnconfirmed7733)?.signature
+            if (!sentSig7733.isNullOrBlank()) {
+                onLiveBuyThrownAfterSend7733(ts, sentSig7733, sol, routedLaneTag, safe, tradeKey)
+                liveStage("LIVE_BUY_THROWN_AFTER_SEND_7733", "signature=${sentSig7733.take(16)} message=${safe.take(100)} lastStage=$liveBuyLastStage")
+                buyTerminalOk("BUY_TERMINAL_OK:THROWN_AFTER_SEND_PENDING_WALLET_DELTA_7733")
+                return false
+            }
             // V5.0.6325 — CLASSIFY as BUY_PROVIDER_FAILED_6324 for the
             // patch-11 telemetry split. Only genuine provider/tx throws
             // reach this catch — policy redirects short-circuited long

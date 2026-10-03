@@ -202,8 +202,21 @@ object ForwardReturnLabeler7731 {
     fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
         val key = "${ts.mint}|$l"
-        val px = ts.lastPrice
-        if (!px.isFinite() || px <= 0.0 || ts.lastPriceUpdate <= 0L || nowMs - ts.lastPriceUpdate > MARK_MAX_AGE_MS_7731) {
+        // V5.0.7733 — the entry mark comes from the token state when it is fresh,
+        // else from the canonical registry (the same plumbing gap 7730 closed for
+        // the Field Manual: a live canonical mark with lastPriceUpdate=0). 5.0.7732
+        // at 367 s: observed=212, skipped noPrice=743 — three verdicts in four
+        // were thrown away for want of a timestamp the registry already held.
+        val tsFresh = ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L &&
+            nowMs - ts.lastPriceUpdate <= MARK_MAX_AGE_MS_7731
+        val px = if (tsFresh) ts.lastPrice else {
+            val fromRegistry = markFor(ts.mint, { null }, nowMs)
+            if (fromRegistry != null) {
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733") } catch (_: Throwable) {}
+            }
+            fromRegistry
+        }
+        if (px == null || !px.isFinite() || px <= 0.0) {
             skippedNoPrice.incrementAndGet()
             return
         }
