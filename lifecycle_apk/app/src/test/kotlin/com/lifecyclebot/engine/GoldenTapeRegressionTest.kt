@@ -14374,7 +14374,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("!planOwnsExit7754(ts, true, catastrophicConfirmed4485, \"TICK_FLOOR\", stopSide = true)"))
         assertTrue(bot.contains("!planOwnsExit7754(ts, true, false, \"RAPID_FLUID\", stopSide = true)"))
         assertTrue(bot.contains("if (pnlPct >= tpPct && !planOwnsExit7754(ts, true, false, \"RAPID_TP\"))"))
-        assertTrue(bot.contains("\"MOONSHOT_\${exitSignal.name}\""))
+        assertTrue(bot.contains("\"MOONSHOT_\${sig.name}\""))
         // A confirmed catastrophe never defers to the plan.
         val helper = bot.substringAfter("private fun planOwnsExit7754(").substringBefore("\n    }\n")
         assertTrue(helper.contains("if (!wouldFire || catastrophic) return false"))
@@ -14402,8 +14402,20 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val helper = bot.substringAfter("private fun planOwnsExit7754(").substringBefore("\n    }\n")
         assertTrue(helper.contains("if (runner && (stopSide || plan.firstTargetTaken)) return false"))
-        assertTrue(bot.contains("exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP,"))
+        assertTrue(bot.contains("val exitSignal = moonshotExitSignal7755(ts, currentPrice)"))
+        assertTrue(bot.contains("sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP"))
         assertTrue(bot.contains("RunnerExitProfile7277.isRunnerLane(pos.tradingMode),"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
+    @Test
+    fun V5_0_7756_process_token_cycle_reads_moonshot_exits_through_one_helper_call() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val cycle = bot.substringAfter("private fun processTokenCycle(").substringBefore("\n    private fun ")
+        assertTrue(cycle.contains("val exitSignal = moonshotExitSignal7755(ts, currentPrice)"))
+        assertFalse(cycle.contains("planOwnsExit7754("))
+        assertFalse(cycle.contains("com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }

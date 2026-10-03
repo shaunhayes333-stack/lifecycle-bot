@@ -994,6 +994,24 @@ class BotService : Service() {
     }
 
     /**
+     * V5.0.7755 — MoonshotTraderAI's exit signal, read through the plan
+     * (planOwnsExit7754): HOLD while the plan holds back an early full
+     * take-profit. Its stop, trailing stop, rug and mode-upgrade signals pass
+     * through. A helper because processTokenCycle sits at the JVM method-size
+     * limit (5.0.7754 CI: MethodTooLargeException) and may not grow.
+     */
+    private fun moonshotExitSignal7755(ts: com.lifecyclebot.data.TokenState, currentPrice: Double): com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal {
+        val sig = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
+        val hold = com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD
+        if (sig == hold) return sig
+        val protective = sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS ||
+            sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP
+        val never = sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.RUG_DETECTED ||
+            sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.MODE_UPGRADE
+        return if (planOwnsExit7754(ts, true, never, "MOONSHOT_${sig.name}", stopSide = protective)) hold else sig
+    }
+
+    /**
      * V5.0.7739 — executes the exit a position's plan owes (TradePlan7739).
      * One dispatch per mint per 10 s; the full sell goes through the same
      * off-loop path as the tick floors, the first-target half off the loop.
@@ -33045,7 +33063,7 @@ if (hotExitHandledSweep) {
                 )
                 addLog("🌙 [MOONSHOT RECOVERY] ${ts.symbol} | mode=$rawMode entry=${ts.position.entryPrice} peak=+${recoveredPeak.toInt()}% HW=${"%.8f".format(recoveredHW)}", ts.mint)
             }
-            val exitSignal = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
+            val exitSignal = moonshotExitSignal7755(ts, currentPrice)
             // V5.9.362 — Moonshot stale-price exit: same fix as Quality. Without
             // this, a stuck price feed pins pnl=0% and Moonshot's checkExit
             // returns HOLD forever (positions sit 5–8h unchanged in the UI).
@@ -33071,16 +33089,7 @@ if (hotExitHandledSweep) {
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Moonshot:${exitSignal.name}") } catch (_: Exception) {}
             
-            if (exitSignal != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD &&
-                !planOwnsExit7754(
-                    ts, true,
-                    exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.RUG_DETECTED ||
-                        exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.MODE_UPGRADE,
-                    "MOONSHOT_${exitSignal.name}",
-                    stopSide = exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS ||
-                        exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP,
-                )
-            ) {
+            if (exitSignal != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT -> "🌙"
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP -> "🎯"
