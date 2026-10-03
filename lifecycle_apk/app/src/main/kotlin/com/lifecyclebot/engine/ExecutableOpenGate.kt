@@ -1731,6 +1731,7 @@ object ExecutableOpenGate {
         try {
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
                 mint, lane, canExecute && hardNoReasons.isEmpty(), reason ?: preFdgVerdict,
+                score = entryScore,
             )
         } catch (_: Throwable) {}
         val tokenRouteUpper = tokenMapRouteStatus.uppercase()

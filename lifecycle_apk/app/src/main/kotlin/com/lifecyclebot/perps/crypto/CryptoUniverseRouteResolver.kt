@@ -121,6 +121,17 @@ object CryptoUniverseRouteResolver {
         // 2. No real SPL mint means the bridge rail has no target. This is a
         // route-discovery outcome, not a tx failure. Do not call live executor.
         return when {
+            // V5.0.7734 — a bridge the ticket cannot pay for is not an executable
+            // route. 5.0.7732: 16 dispatched, 14 BUILD_FAILED, 74 "live" job cards.
+            cfg.cryptoUniverseAllowBridgeAdapters &&
+                CryptoBridgeAdapter.supportsRoundTrip(targetChainId6544, targetMint6493) &&
+                !CryptoBridgeAdapter.ticketClearsFixedCost7734(sizeSol) -> {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_BRIDGE_TICKET_BELOW_VIABLE_7734") } catch (_: Throwable) {}
+                Resolution(sym, CryptoExecutionRoute.BRIDGE_REQUIRED, null,
+                    CryptoUniverseDiagCodes.ROUTE_BRIDGE_REQUIRED,
+                    "Bridge route exists but ${"%.3f".format(sizeSol)} SOL cannot clear the round-trip cost cap; minimum ${CryptoBridgeAdapter.MIN_VIABLE_TICKET_SOL_7734} SOL.",
+                    executable = false)
+            }
             cfg.cryptoUniverseAllowBridgeAdapters &&
                 CryptoBridgeAdapter.supportsRoundTrip(targetChainId6544, targetMint6493) ->
                 Resolution(sym, CryptoExecutionRoute.BRIDGE_REQUIRED, null,

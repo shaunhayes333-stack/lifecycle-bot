@@ -65,6 +65,11 @@ object ForwardReturnLabeler7731 {
         val source: String,
         val lane: String,
         val admitted: Boolean,
+        /** V5.0.7734 — the forecast signature this label teaches (ForwardOutcomeModel). */
+        val score: Int,
+        val quality: String,
+        val regime: String,
+        val phase: String,
         val entryPrice: Double,
         val costPct: Double,
         val atMs: Long,
@@ -193,13 +198,13 @@ object ForwardReturnLabeler7731 {
 
     // ── observation (called from ExecutableOpenGate.recordFdg for every distinct verdict) ──
 
-    fun observe(mint: String, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
+    fun observe(mint: String, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {
         if (mint.isBlank()) return
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return
-        observe(ts, lane, admitted, reason, nowMs)
+        observe(ts, lane, admitted, reason, nowMs, score)
     }
 
-    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
+    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
         val key = "${ts.mint}|$l"
         // V5.0.7733 — the entry mark comes from the token state when it is fresh,
@@ -232,7 +237,11 @@ object ForwardReturnLabeler7731 {
         val liq = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0
         val cost = try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }
         val cell = cellKey(ts.source, l, ts.lastMcap, ageMs)
-        pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, px, cost.coerceIn(0.0, 60.0), nowMs)
+        // V5.0.7734 — the regime is read now, at decision time, as the forecast
+        // model keys it; the token state carries no setup quality or edge phase,
+        // so the label lands on the coarse signature (lane | band | regime).
+        val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
+        pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score, "U", regime, "UNKNOWN", px, cost.coerceIn(0.0, 60.0), nowMs)
         lastSeenAt[key] = nowMs
         if (lastSeenAt.size > MAX_SEEN_7731) {
             val cutoff = nowMs - REOBSERVE_MS_7731
@@ -323,6 +332,8 @@ object ForwardReturnLabeler7731 {
                 o.done60 = true
                 book(o, 60, net, gross)
                 try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
+                // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
+                try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}
             }
             if (!o.done240 && age >= H240_MS_7731) {
                 o.done240 = true

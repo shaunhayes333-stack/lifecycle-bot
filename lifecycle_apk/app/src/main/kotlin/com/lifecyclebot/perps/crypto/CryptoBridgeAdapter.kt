@@ -35,6 +35,17 @@ object CryptoBridgeAdapter {
     // A bridged position must be able to pay its way: forward + reverse order
     // cost (deBridge fixed fee, protocol fee, spread) as a fraction of size.
     private const val MAX_ROUND_TRIP_COST_FRAC_7316 = 0.08
+
+    /**
+     * V5.0.7734 — the smallest ticket whose two DLN orders can clear
+     * MAX_ROUND_TRIP_COST_FRAC_7316. deBridge charges a flat per-order fee on
+     * the Solana leg (about 0.015 SOL) plus protocol fee and solver spread in
+     * each direction; at 0.042 SOL that is a third of the ticket, and 5.0.7732
+     * dispatched 16 bridge orders of which 14 died BUILD_FAILED on exactly this.
+     * The route resolver reads it so an unaffordable bridge is never a live job.
+     */
+    const val MIN_VIABLE_TICKET_SOL_7734 = 0.40
+    fun ticketClearsFixedCost7734(sizeSol: Double): Boolean = sizeSol.isFinite() && sizeSol >= MIN_VIABLE_TICKET_SOL_7734
     private const val CREATE = "https://dln.debridge.finance/v1.0/dln/order/create-tx"
     private const val TRACK = "https://dln-api.debridge.finance/api/Orders"
     private const val SOLANA_CHAIN = 7_565_164L
@@ -277,10 +288,9 @@ object CryptoBridgeAdapter {
         val token = targetToken?.trim().orEmpty()
         if (!isEvmAddress(token)) return@withContext Execution.Rejected("TOKEN_ADDRESS_INVALID", "exact EVM contract required")
         if (!sizeSol.isFinite() || sizeSol < 0.01) return@withContext Execution.Rejected("SIZE_INVALID", "minimum 0.01 SOL")
+        if (!ticketClearsFixedCost7734(sizeSol))
+            return@withContext Execution.Rejected("TICKET_BELOW_VIABLE_7734", "${"%.3f".format(sizeSol)} SOL cannot clear the round-trip cost cap; minimum $MIN_VIABLE_TICKET_SOL_7734 SOL")
 
-        ensureDestinationGas7316(wallet, chain, stored.ethereumAddress)?.let { why ->
-            return@withContext Execution.Rejected("DESTINATION_GAS_MISSING", why)
-        }
         val recovery = positionId.takeIf { it.isNotBlank() }?.let { loadPosition6649(ctx, it) }
         val prepared = if (recovery?.state == "FORWARD_PREPARED" && recovery.forwardSignedBase64.isNotBlank()) recovery else null
         val before: BigInteger
@@ -335,6 +345,13 @@ object CryptoBridgeAdapter {
                 orderId, signed.signature, "FORWARD_PREPARED", forwardSignedBase64 = signed.signedBase64,
                 destinationBalanceBeforeRaw = before, solanaAddress = solAddr,
             ))
+        }
+        // V5.0.7734 — destination gas is bought only for an order that has already
+        // cleared impact, reverse route and round-trip cost. Before this it ran
+        // first, so a wallet could spend 0.012 to 0.04 SOL on EVM gas for a bridge
+        // order the next line was going to refuse.
+        ensureDestinationGas7316(wallet, chain, stored.ethereumAddress)?.let { why ->
+            return@withContext Execution.Rejected("DESTINATION_GAS_MISSING", why)
         }
         val sourceSig = try { wallet.sendSignedAndConfirm6649(signed) } catch (t: Throwable) {
             return@withContext Execution.Rejected("SOURCE_SUBMIT_FAILED", t.message ?: "Solana submit failed")

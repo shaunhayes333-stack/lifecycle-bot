@@ -341,6 +341,38 @@ object ForwardOutcomeModel {
     private fun coarseKey(lane: String, score: Int, regime: String, isPaper: Boolean = currentIsPaper6869()): String =
         "${modeTag6869(isPaper)}|${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
 
+    /**
+     * V5.0.7734 §LABELS_TEACH_THE_FORECAST.
+     *
+     * 5.0.7732: Learned admission assembled=13,870 forecastResolved=0; this
+     * model held paper=0 live=4 samples, so every read was bootstrap and the
+     * oracle it feeds refused 13,886 of 13,886 as degenerate. The labeler books
+     * hundreds of 60-minute net returns a day on the same lane | score band |
+     * regime signature this model is keyed on. They enter here under their own
+     * mode tag, are served only after own-mode and other-mode cells, and are
+     * shrunk like a paper prior: a cheap mark may warn at full volume and
+     * encourage only softly.
+     */
+    private const val LABEL_TAG_7734 = "S"
+    @Volatile private var labelUpdates7734 = 0L
+    private fun labelFineKey7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String): String =
+        "$LABEL_TAG_7734|${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"
+    private fun labelCoarseKey7734(lane: String, score: Int, regime: String): String =
+        "$LABEL_TAG_7734|${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
+
+    /** A 60-minute forward label (net %, after cost) for a candidate the gate ruled on. */
+    fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double) {
+        try {
+            if (!netPct.isFinite() || lane.isBlank()) return
+            val pnl = netPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
+            update(fine.getOrPut(labelFineKey7734(lane, score, quality, regime, edgePhase)) { Cell() }, pnl)
+            update(coarse.getOrPut(labelCoarseKey7734(lane, score, regime)) { Cell() }, pnl)
+            labelUpdates7734 += 1
+            if (labelUpdates7734 % 25L == 0L) appContext?.let { save(it) }
+            PipelineHealthCollector.labelInc("FORWARD_OUTCOME_LABEL_RECORDED_7734")
+        } catch (_: Throwable) {}
+    }
+
     /** Pre-6869 key shape, kept so historical cells remain readable as a prior. */
     private fun legacyFineKey6869(lane: String, score: Int, quality: String, regime: String, edgePhase: String): String =
         "${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"
@@ -363,6 +395,11 @@ object ForwardOutcomeModel {
             val occ = coarse[coarseKey(lane, score, regime, !isPaper)]
             val lfc = fine[legacyFineKey6869(lane, score, quality, regime, edgePhase)]
             val lcc = coarse[legacyCoarseKey6869(lane, score, regime)]
+            // V5.0.7734 — forward labels (ForwardReturnLabeler7731) are the last
+            // prior before bootstrap: costless marks, so they are shrunk exactly
+            // as a paper prior is (6991) and fade out as own-mode closes arrive.
+            val lfs7734 = fine[labelFineKey7734(lane, score, quality, regime, edgePhase)]
+            val lcs7734 = coarse[labelCoarseKey7734(lane, score, regime)]
             val cell: Cell?; val src: String
             when {
                 fc != null && fc.n >= MIN_SAMPLES -> { cell = fc; src = "fine" }
@@ -371,7 +408,12 @@ object ForwardOutcomeModel {
                 lcc != null && lcc.n >= MIN_SAMPLES -> { cell = lcc; src = "coarse_legacy" }
                 ofc != null && ofc.n >= MIN_SAMPLES -> { cell = ofc; src = if (isPaper) "fine_live_prior" else "fine_paper_prior" }
                 occ != null && occ.n >= MIN_SAMPLES -> { cell = occ; src = if (isPaper) "coarse_live_prior" else "coarse_paper_prior" }
+                lfs7734 != null && lfs7734.n >= MIN_SAMPLES -> { cell = lfs7734; src = "fine_label_prior" }
+                lcs7734 != null && lcs7734.n >= MIN_SAMPLES -> { cell = lcs7734; src = "coarse_label_prior" }
                 else -> return Forecast(0.5, 0.0, 0.0, 0.0, (fc?.n ?: 0L) + (cc?.n ?: 0L), 1.0, "bootstrap")
+            }
+            if (src.endsWith("_label_prior")) {
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_PRIOR_SERVED_7734") } catch (_: Throwable) {}
             }
             // Conviction nudge: lean in on high pWin + positive expectancy, damp on
             // rug-risk or negative expectancy. Penalise high dispersion (uncertain).
@@ -410,7 +452,8 @@ object ForwardOutcomeModel {
             // A paper cell can therefore still stop live from taking a rugging
             // signature at full force, while only mildly encouraging it into a
             // winning one. Own-mode cells are untouched.
-            val fromPaperPrior6991 = !isPaper && src.endsWith("_paper_prior")
+            // V5.0.7734 — a label prior is costless in both modes and is shrunk in both.
+            val fromPaperPrior6991 = (!isPaper && src.endsWith("_paper_prior")) || src.endsWith("_label_prior")
             if (!fromPaperPrior6991) {
                 return Forecast(cell.pWin, cell.mean, cell.pRug, cell.stdev, cell.n, nudge, src)
             }
@@ -594,7 +637,7 @@ object ForwardOutcomeModel {
             val ranked = fine.entries.filter { it.value.n >= MIN_SAMPLES }.sortedByDescending { it.value.mean }
             if (ranked.isEmpty()) return ""
             val sb = StringBuilder("\n===== Forward Outcome Model (V5.9.1261) — counterfactual edge map =====\n")
-            sb.append("  signatures=${fine.size}  updates=$totalUpdates\n")
+            sb.append("  signatures=${fine.size}  updates=$totalUpdates  labelCells7734=${fine.keys.count { it.startsWith("$LABEL_TAG_7734|") }}  labelUpdates7734=$labelUpdates7734\n")
             ranked.take(5).forEach { (k, c) ->
                 sb.append("  ▲ $k  pWin=${(c.pWin*100).toInt()}%  E[pnl]=${"%+.1f".format(c.mean)}%  pRug=${(c.pRug*100).toInt()}%  ±${c.stdev.toInt()}  n=${c.n}\n")
             }

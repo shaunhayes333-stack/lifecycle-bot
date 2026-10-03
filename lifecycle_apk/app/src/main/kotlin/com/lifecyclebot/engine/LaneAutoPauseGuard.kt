@@ -63,6 +63,40 @@ object LaneAutoPauseGuard {
     private const val TOXIC_EV_PCT = -8.0
     private const val TOXIC_MIN_SAMPLE = 8
 
+    // V5.0.7734 §LEARN_BEFORE_TIGHTEN.
+    //
+    // 5.0.7732: TREASURY paused zero-win on six live closes (six $5 tickets at
+    // 3.8% fixed cost) while its own shadow book, the lane's refused candidates
+    // marked to market for an hour, read +7.3% net over ten. It was the only
+    // lane with a positive measured record and the one locked out. Operator
+    // doctrine: a lane is not tightened before ten decisive closes. A pause on
+    // fewer than that yields to the lane's shadow record when that record is
+    // positive at ten or more; the pause predicate re-applies the moment the
+    // live record reaches ten.
+    private const val LEARN_BEFORE_TIGHTEN_MIN_CLOSES_7734 = 10
+    private const val SHADOW_SUPPORT_MIN_N_7734 = 10
+    private val shadowDeferLogAt7734 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun shadowOutranksThinLiveRecord7734(lane: String, liveSample: Int): Boolean {
+        if (liveSample >= LEARN_BEFORE_TIGHTEN_MIN_CLOSES_7734) return false
+        val s = try { com.lifecyclebot.engine.truth.LaneShadowProof7307.stat(lane) } catch (_: Throwable) { null } ?: return false
+        if (s.n < SHADOW_SUPPORT_MIN_N_7734 || s.meanNetPct <= 0.0) return false
+        try {
+            PipelineHealthCollector.labelInc("LANE_PAUSE_DEFERRED_SHADOW_POSITIVE_7734")
+            PipelineHealthCollector.labelInc("LANE_PAUSE_DEFERRED_SHADOW_POSITIVE_7734_$lane")
+            val now = System.currentTimeMillis()
+            if (now - (shadowDeferLogAt7734[lane] ?: 0L) >= 5 * 60_000L) {
+                shadowDeferLogAt7734[lane] = now
+                ForensicLogger.lifecycle(
+                    "LANE_PAUSE_DEFERRED_SHADOW_POSITIVE_7734",
+                    "lane=$lane liveCloses=$liveSample shadowN=${s.n} shadowNet=${"%+.1f".format(s.meanNetPct)}% " +
+                        "action=no_pause_below_ten_closes_while_the_lanes_own_shadow_record_is_positive",
+                )
+            }
+        } catch (_: Throwable) {}
+        return true
+    }
+
     data class PauseState(
         val lane: String,
         val pausedAt: Long,
@@ -338,6 +372,7 @@ object LaneAutoPauseGuard {
                 val toxic = agg.sample >= TOXIC_MIN_SAMPLE &&
                     wrPct < TOXIC_WR_PCT &&
                     evPct <= TOXIC_EV_PCT
+                if ((zeroWin || toxic) && shadowOutranksThinLiveRecord7734(lane, agg.sample)) continue
                 if (zeroWin || toxic) {
                     val reason = if (zeroWin) "zero_win_n${agg.sample}_direct_journal" else "toxic_wr${"%.0f".format(wrPct)}_ev${"%.0f".format(evPct)}_direct_journal"
                     paused[lane] = PauseState(
@@ -470,7 +505,23 @@ object LaneAutoPauseGuard {
                 val stillZeroWin7209 = a != null && a.sample >= ZERO_WIN_MIN_SAMPLE && a.wins == 0
                 val stillToxic7209 = a != null && a.sample >= TOXIC_MIN_SAMPLE &&
                     wr7209 < TOXIC_WR_PCT && ev7209 <= TOXIC_EV_PCT
-                if (stillZeroWin7209 || stillToxic7209) continue
+                if (stillZeroWin7209 || stillToxic7209) {
+                    // V5.0.7734 — a pause earned on fewer than ten closes yields to a
+                    // positive shadow record; it re-arms when the live record reaches ten.
+                    if (!shadowOutranksThinLiveRecord7734(lane, a?.sample ?: 0)) continue
+                    val st7734 = paused.remove(lane) ?: continue
+                    mutated = true
+                    try {
+                        PipelineHealthCollector.labelInc("LANE_PAUSE_RELEASED_SHADOW_POSITIVE_7734")
+                        PipelineHealthCollector.labelInc("LANE_PAUSE_RELEASED_SHADOW_POSITIVE_7734_$lane")
+                        ForensicLogger.lifecycle(
+                            "LANE_PAUSE_RELEASED_SHADOW_POSITIVE_7734",
+                            "lane=$lane liveCloses=${a?.sample ?: 0} liveWins=${a?.wins ?: 0} pausedFor=${(now - st7734.pausedAt) / 60_000L}m " +
+                                "originalReason=${st7734.reason} action=released_below_learn_before_tighten_floor_on_positive_shadow_record",
+                        )
+                    } catch (_: Throwable) {}
+                    continue
+                }
                 val state = paused.remove(lane) ?: continue
                 mutated = true
                 try {

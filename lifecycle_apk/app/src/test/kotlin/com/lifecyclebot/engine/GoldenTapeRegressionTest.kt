@@ -13884,4 +13884,63 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    /**
+     * V5.0.7734 — the stack reads its own measurements: forward labels teach
+     * the forecast model the admission stack reads (7732: forecastResolved=0,
+     * oracle refuse 13,886/13,886); a lane paused on fewer than ten live closes
+     * yields to its own positive shadow record (TREASURY, +7.3% over ten, paused
+     * zero-win on six); a bridge the ticket cannot pay for is never a live job
+     * and never buys destination gas first (16 dispatched, 14 BUILD_FAILED).
+     */
+    @Test
+    fun V5_0_7734_labels_teach_the_forecast_shadow_outranks_thin_pauses_unaffordable_bridge_is_not_a_live_job() {
+        // Forecast model: label cells under their own tag, served after own- and other-mode cells, shrunk like a paper prior.
+        val fom = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ForwardOutcomeModel.kt").readText()
+        assertTrue(fom.contains("private const val LABEL_TAG_7734 = \"S\""))
+        assertTrue(fom.contains("fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double) {"))
+        val whenBlock = fom.substringAfter("val cell: Cell?; val src: String").substringBefore("else -> return Forecast(0.5, 0.0, 0.0, 0.0,")
+        assertTrue(whenBlock.indexOf("coarse_paper_prior") < whenBlock.indexOf("fine_label_prior"))
+        assertTrue(whenBlock.indexOf("fine_label_prior") < whenBlock.indexOf("coarse_label_prior"))
+        assertTrue(fom.contains("val fromPaperPrior6991 = (!isPaper && src.endsWith(\"_paper_prior\")) || src.endsWith(\"_label_prior\")"))
+        // Labeler: the signature travels with the observation and the 60-minute label teaches the model.
+        val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(labeler.contains("fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {"))
+        assertTrue(labeler.contains("ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net)"))
+        assertTrue(labeler.indexOf("book(o, 60, net, gross)") < labeler.indexOf("ForwardOutcomeModel.recordLabel7734("))
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val rec = gate.substringAfter("fun recordFdg(").substringBefore("val tokenRouteUpper = tokenMapRouteStatus.uppercase()")
+        assertTrue(rec.contains("reason ?: preFdgVerdict,\n                score = entryScore,"))
+
+        // Pause guard: learn before tighten. A pause on fewer than ten live closes yields to a positive shadow record (n>=10).
+        val pg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
+        assertTrue(pg.contains("private const val LEARN_BEFORE_TIGHTEN_MIN_CLOSES_7734 = 10"))
+        assertTrue(pg.contains("private const val SHADOW_SUPPORT_MIN_N_7734 = 10"))
+        assertTrue(pg.contains("if ((zeroWin || toxic) && shadowOutranksThinLiveRecord7734(lane, agg.sample)) continue\n                if (zeroWin || toxic) {"))
+        val rel = pg.substringAfter("if (stillZeroWin7209 || stillToxic7209) {").substringBefore("val state = paused.remove(lane) ?: continue")
+        assertTrue(rel.contains("if (!shadowOutranksThinLiveRecord7734(lane, a?.sample ?: 0)) continue"))
+        assertTrue(rel.contains("LANE_PAUSE_RELEASED_SHADOW_POSITIVE_7734"))
+        val helper = pg.substringAfter("private fun shadowOutranksThinLiveRecord7734(lane: String, liveSample: Int): Boolean {").substringBefore("return true\n    }")
+        assertTrue(helper.contains("if (liveSample >= LEARN_BEFORE_TIGHTEN_MIN_CLOSES_7734) return false"))
+        assertTrue(helper.contains("if (s.n < SHADOW_SUPPORT_MIN_N_7734 || s.meanNetPct <= 0.0) return false"))
+
+        // Bridge: a ticket below the viable floor is not an executable route, and gas is bought only after the cost check.
+        val ba = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoBridgeAdapter.kt").readText()
+        assertTrue(ba.contains("const val MIN_VIABLE_TICKET_SOL_7734 = 0.40"))
+        assertTrue(com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.ticketClearsFixedCost7734(0.40))
+        assertFalse(com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.ticketClearsFixedCost7734(0.042))
+        assertFalse(com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.ticketClearsFixedCost7734(Double.NaN))
+        val buy = ba.substringAfter("suspend fun buySolToEvm(").substringBefore("val terminal = awaitTerminal(orderId)")
+        assertTrue(buy.contains("TICKET_BELOW_VIABLE_7734"))
+        assertEquals(1, Regex("ensureDestinationGas7316\\(wallet, chain, stored.ethereumAddress\\)").findAll(buy).count())
+        assertTrue(buy.indexOf("BRIDGE_COST_TOO_HIGH") < buy.indexOf("ensureDestinationGas7316(wallet, chain, stored.ethereumAddress)"))
+        assertTrue(buy.indexOf("ensureDestinationGas7316(wallet, chain, stored.ethereumAddress)") < buy.indexOf("wallet.sendSignedAndConfirm6649(signed)"))
+        val res = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseRouteResolver.kt").readText()
+        val bridgeBranches = res.substringAfter("return when {").substringBefore("cfg.cryptoUniverseAllowCexAdapters")
+        assertTrue(bridgeBranches.contains("!CryptoBridgeAdapter.ticketClearsFixedCost7734(sizeSol) -> {"))
+        assertTrue(bridgeBranches.contains("CRYPTO_BRIDGE_TICKET_BELOW_VIABLE_7734"))
+        assertTrue(bridgeBranches.indexOf("executable = false") < bridgeBranches.indexOf("executable = true"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
