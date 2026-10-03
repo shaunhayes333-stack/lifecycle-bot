@@ -816,6 +816,128 @@ object FinalDecisionGate {
 
 
     /**
+     * Live-only missing/stale safety readiness check extracted from evaluate() to
+     * keep its register/bytecode footprint below ART's verifier limit.
+     */
+    private fun safetyReadinessBlock7715(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        mode: TradeMode,
+    ): FinalDecision? {
+        // V5.9.766 — EMERGENT priority 3: upstream SafetyReady gate.
+        // Operator forensics_20260515_161017 showed 17 BUY_FAILED
+        // LIVE_BUY_BLOCKED_RISK[liveBuy.main] SAFETY_DATA_MISSING events
+        // in a 1.28 s burst — every one fired by the executor's
+        // LiveBuyAdmissionGate AFTER FDG had already approved the trade.
+        // V5.9.765 added a 60 s per-mint dedupe at the executor gate.
+        // V5.9.766 moves the safety-readiness check UPSTREAM so the
+        // candidate is never dispatched to the executor at all when
+        // the safety report is missing or stale — the cleanest fix
+        // per the deferred ticket.
+        //
+        // PAPER mode is intentionally exempt — paper trades treat the
+        // safety report as a scoring input, not a hard gate, so the
+        // bot can keep learning even when rugcheck is slow / down.
+        if (mode == TradeMode.LIVE) {
+            val safetyAgeMs = System.currentTimeMillis() - ts.lastSafetyCheck
+            val safetyMissing = ts.lastSafetyCheck == 0L
+            val safetyStale = !safetyMissing && safetyAgeMs > LiveBuyAdmissionGate.SAFETY_STALE_MS
+            // V5.9.776 — SAFETY_READ canonical-key trace.
+            // Operator forensic spec V5.9.776 §1: every reader of the
+            // safety report must log canonical key + found + ageMs +
+            // reader so a key-mismatch regression is impossible to
+            // hide. Throttled by shouldEmitSafetyReadyBlock dedupe so
+            // we don't spam the forensic store at every tick.
+            if ((safetyMissing || safetyStale) && shouldEmitSafetyReadyBlock(ts.mint)) {
+                try {
+                    val canonicalKey = com.lifecyclebot.data.CanonicalMint.normalize(ts.mint)
+                    ForensicLogger.lifecycle(
+                        "SAFETY_READ",
+                        "key=${canonicalKey.take(10)} symbol=${ts.symbol} found=${!safetyMissing} ageMs=$safetyAgeMs reader=FDG verdict=${if (safetyMissing) "MISSING" else "STALE"}",
+                    )
+                } catch (_: Throwable) {}
+            }
+            if (safetyMissing || safetyStale) {
+                val reason = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
+                // V5.0.3894 — data-capture defer must schedule data capture.
+                // FDG previously only logged SAFETY_NOT_READY_*; now it also queues
+                // a synchronous BotService safety hydration for the next token pass.
+                try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
+
+                // V5.0.6341 — DEMOTE STALE TO SOFT-SHAPE. The 6308-era
+                // emergency snapshot showed 539 SAFETY_NOT_READY_STALE
+                // hard-blocks in a single session, with safety age up
+                // to 606 seconds because Birdeye rate limits (8823
+                // BIRDEYE_SEED_SKIPPED_BUDGET events) and Helius
+                // degradation stalled the refresh. Hard-blocking every
+                // candidate on stale-but-previously-valid data while
+                // the refresh path is throttled produced 52-204s bot
+                // loop cycles and zero visible trades.
+                //
+                // Doctrine: never hard-block on strategy bleed OR on
+                // provider degradation. STALE means we DID check
+                // safety at least once and it passed — the token
+                // fundamentals rarely change in the intervening 5-10
+                // minutes, and the refresh has been requested in the
+                // background. We proceed at reduced size (0.30× of
+                // normal) so:
+                //   - the candidate keeps flowing through the pipeline
+                //   - the sample keeps growing so learning improves
+                //   - if safety refreshes and reveals a real risk on
+                //     the next cycle, the collapse guard / stop-loss
+                //     catches it
+                //
+                // MISSING (never checked) stays a hard-block — that's
+                // a genuine data-integrity risk, not just staleness.
+                if (safetyStale && !safetyMissing) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_STALE_SOFT_SHAPED_6341")
+                        ForensicLogger.lifecycle(
+                            "FDG_SAFETY_STALE_SOFT_SHAPED_6341",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageSec=${safetyAgeMs / 1000} action=soft_shape_030x_and_continue reason=refresh_backlogged_provider_degraded",
+                        )
+                    } catch (_: Throwable) {}
+                    // Fall through — no hard-block return. Downstream
+                    // pipeline continues and the sizing pass shrinks
+                    // via FDG_SAFETY_STALE_SOFT_SHAPE_6341 mult (0.30).
+                } else {
+                    if (shouldEmitSafetyReadyBlock(ts.mint)) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "FDG_BLOCKED_SAFETY_NOT_READY",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
+                            )
+                        } catch (_: Throwable) {}
+                        ErrorLogger.info(
+                            "FDG",
+                            "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
+                        )
+                    }
+                    return FinalDecision(
+                        shouldTrade = false,
+                        mode = mode,
+                        approvalClass = ApprovalClass.BLOCKED,
+                        quality = candidate.setupQuality,
+                        confidence = candidate.aiConfidence,
+                        edge = EdgeVerdict.SKIP,
+                        blockReason = reason,
+                        blockLevel = BlockLevel.HARD,
+                        sizeSol = 0.0,
+                        tags = listOf("upstream_safety_gate", reason.lowercase()),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
+                    gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
+                )
+                }
+            }
+        }
+
+        return null
+    }
+
+    /**
      * V5.0.7720 §EVALUATE_MUST_NOT_GROW.
      *
      * 5.0.7715 put two locals and a FinalDecision(...) construction for the
@@ -872,6 +994,37 @@ object FinalDecisionGate {
             )
         }
     } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.7729 — keep forward-learning prediction and identity stamping out of
+     * evaluate(), whose DEX method is already at ART's register/verifier limit.
+     * The exact candidate version and canonical owner lane travel together so a
+     * later rescan cannot overwrite the prediction that belongs to an execution.
+     */
+    private fun forwardForecastAndStamp7729(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        lane: String,
+        score: Int,
+        regime: String,
+        candidateVersion: Long,
+        mode: TradeMode,
+    ): ForwardOutcomeModel.Forecast {
+        val forecast = ForwardOutcomeModel.forecast(lane, score, candidate.setupQuality, regime, candidate.edgePhase)
+        ForwardOutcomeModel.stampDecision(
+            mint = ts.mint,
+            candidateVersion = candidateVersion,
+            lane = lane,
+            score = score,
+            quality = candidate.setupQuality,
+            regime = regime,
+            edgePhase = candidate.edgePhase,
+            isPaper = mode == TradeMode.PAPER,
+        )
+        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, lane, forecast.pWin, forecast.expectedPnl) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
+        return forecast
+    }
 
     fun evaluate(
         ts: TokenState,
@@ -1357,115 +1510,8 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) {}
 
-        // V5.9.766 — EMERGENT priority 3: upstream SafetyReady gate.
-        // Operator forensics_20260515_161017 showed 17 BUY_FAILED
-        // LIVE_BUY_BLOCKED_RISK[liveBuy.main] SAFETY_DATA_MISSING events
-        // in a 1.28 s burst — every one fired by the executor's
-        // LiveBuyAdmissionGate AFTER FDG had already approved the trade.
-        // V5.9.765 added a 60 s per-mint dedupe at the executor gate.
-        // V5.9.766 moves the safety-readiness check UPSTREAM so the
-        // candidate is never dispatched to the executor at all when
-        // the safety report is missing or stale — the cleanest fix
-        // per the deferred ticket.
-        //
-        // PAPER mode is intentionally exempt — paper trades treat the
-        // safety report as a scoring input, not a hard gate, so the
-        // bot can keep learning even when rugcheck is slow / down.
-        if (mode == TradeMode.LIVE) {
-            val safetyAgeMs = System.currentTimeMillis() - ts.lastSafetyCheck
-            val safetyMissing = ts.lastSafetyCheck == 0L
-            val safetyStale = !safetyMissing && safetyAgeMs > LiveBuyAdmissionGate.SAFETY_STALE_MS
-            // V5.9.776 — SAFETY_READ canonical-key trace.
-            // Operator forensic spec V5.9.776 §1: every reader of the
-            // safety report must log canonical key + found + ageMs +
-            // reader so a key-mismatch regression is impossible to
-            // hide. Throttled by shouldEmitSafetyReadyBlock dedupe so
-            // we don't spam the forensic store at every tick.
-            if ((safetyMissing || safetyStale) && shouldEmitSafetyReadyBlock(ts.mint)) {
-                try {
-                    val canonicalKey = com.lifecyclebot.data.CanonicalMint.normalize(ts.mint)
-                    ForensicLogger.lifecycle(
-                        "SAFETY_READ",
-                        "key=${canonicalKey.take(10)} symbol=${ts.symbol} found=${!safetyMissing} ageMs=$safetyAgeMs reader=FDG verdict=${if (safetyMissing) "MISSING" else "STALE"}",
-                    )
-                } catch (_: Throwable) {}
-            }
-            if (safetyMissing || safetyStale) {
-                val reason = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
-                // V5.0.3894 — data-capture defer must schedule data capture.
-                // FDG previously only logged SAFETY_NOT_READY_*; now it also queues
-                // a synchronous BotService safety hydration for the next token pass.
-                try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
-
-                // V5.0.6341 — DEMOTE STALE TO SOFT-SHAPE. The 6308-era
-                // emergency snapshot showed 539 SAFETY_NOT_READY_STALE
-                // hard-blocks in a single session, with safety age up
-                // to 606 seconds because Birdeye rate limits (8823
-                // BIRDEYE_SEED_SKIPPED_BUDGET events) and Helius
-                // degradation stalled the refresh. Hard-blocking every
-                // candidate on stale-but-previously-valid data while
-                // the refresh path is throttled produced 52-204s bot
-                // loop cycles and zero visible trades.
-                //
-                // Doctrine: never hard-block on strategy bleed OR on
-                // provider degradation. STALE means we DID check
-                // safety at least once and it passed — the token
-                // fundamentals rarely change in the intervening 5-10
-                // minutes, and the refresh has been requested in the
-                // background. We proceed at reduced size (0.30× of
-                // normal) so:
-                //   - the candidate keeps flowing through the pipeline
-                //   - the sample keeps growing so learning improves
-                //   - if safety refreshes and reveals a real risk on
-                //     the next cycle, the collapse guard / stop-loss
-                //     catches it
-                //
-                // MISSING (never checked) stays a hard-block — that's
-                // a genuine data-integrity risk, not just staleness.
-                if (safetyStale && !safetyMissing) {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_STALE_SOFT_SHAPED_6341")
-                        ForensicLogger.lifecycle(
-                            "FDG_SAFETY_STALE_SOFT_SHAPED_6341",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageSec=${safetyAgeMs / 1000} action=soft_shape_030x_and_continue reason=refresh_backlogged_provider_degraded",
-                        )
-                    } catch (_: Throwable) {}
-                    // Fall through — no hard-block return. Downstream
-                    // pipeline continues and the sizing pass shrinks
-                    // via FDG_SAFETY_STALE_SOFT_SHAPE_6341 mult (0.30).
-                } else {
-                    if (shouldEmitSafetyReadyBlock(ts.mint)) {
-                        try {
-                            ForensicLogger.lifecycle(
-                                "FDG_BLOCKED_SAFETY_NOT_READY",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
-                            )
-                        } catch (_: Throwable) {}
-                        ErrorLogger.info(
-                            "FDG",
-                            "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
-                        )
-                    }
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = candidate.setupQuality,
-                        confidence = candidate.aiConfidence,
-                        edge = EdgeVerdict.SKIP,
-                        blockReason = reason,
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = listOf("upstream_safety_gate", reason.lowercase()),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
-                    gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
-                )
-                }
-            }
-        }
+        // V5.0.7729 — keep this hard-safety branch outside ART's oversized evaluator.
+        safetyReadinessBlock7715(ts, candidate, mode)?.let { return it }
 
         val modeMultipliers = try {
             ModeSpecificGates.getMultipliers(tradingModeTag)
@@ -5287,11 +5333,9 @@ object FinalDecisionGate {
                         // settled trades keyed by lane×band×quality×regime×edgePhase.
                         // The nudge plans against the predicted distribution. Soft-shape,
                         // stamped for closed-loop credit. Fail-open.
-                        val fwd = ForwardOutcomeModel.forecast(learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        ForwardOutcomeModel.stamp(ts.mint, learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
-                        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, learningOwnerLane7534, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
+                        val fwd = forwardForecastAndStamp7729(
+                            ts, candidate, learningOwnerLane7534, mpScore, mpRegime, candidateVersion7623, mode,
+                        )
 
                         // V5.9.1358 — DUAL-BRAIN VETO → SIZE-SHAPE (operator mandate:
                         // never refuse/disable a context, learn the right way to trade it

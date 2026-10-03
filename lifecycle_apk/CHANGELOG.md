@@ -1,3 +1,11 @@
+## [5.0.7729] - 2026-10-02 — POSITION-BOUND PREDICTIVE LEARNING
+
+- Forward outcome predictions are now stamped under the immutable FDG mint/version/lane/mode identity, then bound to the canonical position that actually opens. A later scan of the same mint can no longer replace the setup that a live close trains.
+- Canonical finalized outcomes now update the forward model by position ID exactly once; removed the unsafe mint-only update from the earlier journal choke point.
+- Position-to-prediction bindings persist across process restarts, and unmatched binds/terminal outcomes are visible in telemetry.
+- Added regression coverage for same-mint rescans, exact setup attribution, duplicate bind callbacks and duplicate terminal credit.
+- No score floors, governor states, slot limits, or live risk sizes were relaxed.
+
 ## [5.0.7402] - 2026-09-28 — SPECIALISTS THINK IN MARKET TIME, NOT AFTER-THE-FACT CONFIRMATION
 
 - Completed a wired specialist/tool/strategy directionality audit. Full audit: `audits/specialist_directionality_audit_2026-09-28.md`.
