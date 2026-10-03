@@ -316,6 +316,8 @@ object TradePlan7739 {
      * and the council already admitted inside two minutes is not re-judged.
      */
     fun chokepointRefusal7742(ts: TokenState, lane: String, score: Int, nowMs: Long = System.currentTimeMillis()): String? {
+        // V5.0.7746 — the creed's daily loss floor comes first.
+        CapitalPreservationCreed6439.dailyLossLimitRefusal7746()?.let { return it }
         val p = plans[ts.mint]
         val planned = p != null && nowMs - p.atMs in 0L..CHOKEPOINT_RECENT_MS_7742
         if (!planned) liveBlockReason(ts, lane, false, nowMs)?.let { return it }

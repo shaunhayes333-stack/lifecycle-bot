@@ -112,6 +112,29 @@ object CapitalPreservationCreed6439 {
     /** Minimum expected-value multiple (per unit of risked capital). */
     const val MIN_EV_PER_TRADE_MULTIPLE: Double = 1.15
 
+    /**
+     * V5.0.7746 — the daily floor, wired. The header has promised since 6439
+     * "DAILY_LOSS_LIMIT_TRIPPED_6439 → no new BUYs until 00:00 roll", and the
+     * constant had no consumer. RealizedWalletCompoundingGovernor already keeps
+     * the day-start wallet and today's realized P&L on its own day boundary;
+     * when today's realized loss reaches [DAILY_MAX_DRAWDOWN_PCT] of the
+     * day-start wallet, live entries are refused until that day rolls. Exits
+     * are never affected. The weekly floor has no week-start balance anywhere
+     * in the tree and stays unwired. Pure over its inputs.
+     */
+    fun dailyLossLimitTripped7746(dayStartWalletSol: Double, dayPnlSol: Double): Boolean =
+        dayStartWalletSol.isFinite() && dayStartWalletSol > 0.0 && dayPnlSol.isFinite() && dayPnlSol < 0.0 &&
+            (-dayPnlSol / dayStartWalletSol) * 100.0 >= DAILY_MAX_DRAWDOWN_PCT
+
+    /** V5.0.7746 — the live-entry refusal for [dailyLossLimitTripped7746], read from the governor. */
+    fun dailyLossLimitRefusal7746(): String? = try {
+        val s = com.lifecyclebot.engine.RealizedWalletCompoundingGovernor.snapshot()
+        if (dailyLossLimitTripped7746(s.dayStartWalletSol, s.dayPnlSol)) {
+            try { PipelineHealthCollector.labelInc("DAILY_LOSS_LIMIT_TRIPPED_6439") } catch (_: Throwable) {}
+            "DAILY_LOSS_LIMIT_TRIPPED_6439:day=${"%.1f".format(s.dayPnlSol / s.dayStartWalletSol * 100.0)}%"
+        } else null
+    } catch (_: Throwable) { null }
+
     /** True if the given realized ROI (unit: multiple, e.g. 1.08 = +8%) is
      *  aligned with daily compounding target. Used by the reward shaper so
      *  break-even trades stop counting as "good behaviour". */
@@ -138,6 +161,6 @@ object CapitalPreservationCreed6439 {
             // and by isAlignedWithDailyTarget(), which nothing calls. The growth
             // target is not wired into any sizer, ladder or learner. Said here
             // so nobody reads a big number and assumes the bot is chasing it.
-            "| consumers=statusLine_only growthTargetWiredToSizing=false " +
+            "| dailyFloorWired7746=true weeklyFloorWired=false growthTargetWiredToSizing=false " +
             "legacyPre7221=${LEGACY_DAILY_TARGET_PCT_PRE_7221}%/${LEGACY_WEEKLY_TARGET_PCT_PRE_7221}%"
 }

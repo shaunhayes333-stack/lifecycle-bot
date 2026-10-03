@@ -14260,4 +14260,18 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7746_the_creed_daily_loss_floor_refuses_live_entries() {
+        val c = com.lifecyclebot.engine.truth.CapitalPreservationCreed6439
+        assertTrue(c.dailyLossLimitTripped7746(0.10, -0.008))
+        assertFalse(c.dailyLossLimitTripped7746(0.10, -0.0079))
+        assertFalse(c.dailyLossLimitTripped7746(0.10, 0.02))
+        assertFalse(c.dailyLossLimitTripped7746(0.0, -0.05))
+        val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
+        val choke = tp.substringAfter("fun chokepointRefusal7742(").substringBefore("private const val CHOKEPOINT_RECENT_MS_7742")
+        assertTrue(choke.indexOf("dailyLossLimitRefusal7746()") < choke.indexOf("liveBlockReason(ts, lane, false, nowMs)"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
