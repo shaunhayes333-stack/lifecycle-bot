@@ -46,13 +46,31 @@ object CellProofLadder7731 {
     /** Pure. */
     fun tierFor(stat: ForwardReturnLabeler7731.CellStat?): Tier {
         if (stat == null || stat.n60 < PROOF_MIN_N_7731) return Tier.UNPROVEN
-        if (stat.resolvedShare < MIN_RESOLVED_SHARE_7731) return Tier.UNPROVEN
         val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else 0.0
+        // V5.0.7753 — a cell with most of its marks lost was unjudgeable, so
+        // PUMP_PORTAL_WS|PROJECT_SNIPER (n=494, net -16.1%, wr 8%, lost=1112) and
+        // PUMP_PORTAL_WS|SHITCOIN (n=940, net -10.5%, lost=1734) kept every live
+        // slot they wanted. A lost mark is not assumed to be a loss: the cell is
+        // negative only if it stays negative with every lost observation booked
+        // flat (break-even less the round-trip cost), the most generous reading
+        // of a token no feed can price. Field Manual §12: small or doubtful
+        // samples stay uncertain; this one is neither small nor doubtful.
+        if (stat.resolvedShare < MIN_RESOLVED_SHARE_7731) {
+            return if (stat.meanNet60Pct + se < NEGATIVE_MEAN_PCT_7731 && stat.winRate60 < 0.5 &&
+                lostFlatMeanPct7753(stat) < NEGATIVE_MEAN_PCT_7731) Tier.NEGATIVE else Tier.UNPROVEN
+        }
         return when {
             stat.meanNet60Pct + se < NEGATIVE_MEAN_PCT_7731 && stat.winRate60 < 0.5 -> Tier.NEGATIVE
             stat.meanNet60Pct - se > POSITIVE_MEAN_PCT_7731 -> Tier.POSITIVE
             else -> Tier.UNPROVEN
         }
+    }
+
+    /** Pure: the cell's 60-minute mean if every lost observation had closed flat, less the round-trip cost. */
+    fun lostFlatMeanPct7753(stat: ForwardReturnLabeler7731.CellStat): Double {
+        val n = stat.n60 + stat.lost
+        if (n <= 0) return 0.0
+        return (stat.meanNet60Pct * stat.n60 - FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 * stat.lost) / n
     }
 
     /**

@@ -175,6 +175,7 @@ object ForwardReturnLabeler7731 {
     private val booked60 = AtomicLong(0)
     private val booked240 = AtomicLong(0)
     private val lostMark = AtomicLong(0)
+    private val offWatchCurvePriced7753 = AtomicLong(0)
     private val bookingsSincePersist = AtomicLong(0)
     @Volatile private var lastPersistMs = 0L
 
@@ -451,7 +452,16 @@ object ForwardReturnLabeler7731 {
         try {
             Thread({
                 try {
-                    val got = com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch)
+                    val got = HashMap(com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch))
+                    // V5.0.7753 — Jupiter's price API misses most young tokens
+                    // (5.0.7749 offWatch priced=1517 missed=7233); a pump.fun token
+                    // still on its curve is priced from the curve account itself.
+                    val missed7753 = batch.filter { it !in got }
+                    if (missed7753.isNotEmpty()) {
+                        val curve7753 = try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(missed7753) } catch (_: Throwable) { emptyMap() }
+                        got.putAll(curve7753)
+                        offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())
+                    }
                     val at = System.currentTimeMillis()
                     for ((m, px) in got) offWatchMarks7737[m] = px to at
                     offWatchPriced7737.addAndGet(got.size.toLong())
@@ -558,7 +568,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()}] basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()}] basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +

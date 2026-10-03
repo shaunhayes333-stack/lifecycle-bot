@@ -325,6 +325,11 @@ object TradePlan7739 {
         val p = plans[ts.mint]
         val planned = p != null && nowMs - p.atMs in 0L..CHOKEPOINT_RECENT_MS_7742
         if (!planned) liveBlockReason(ts, lane, false, nowMs)?.let { return chokeRefused7751(lane, it, p != null) }
+        // V5.0.7753 — the sniper and other native paths never meet FinalDecisionGate's
+        // cell-proof read, so a setup proven negative on its forward labels still
+        // took the live slots. With two affordable slots, a slot spent there is a
+        // slot not spent on a cell that pays. Paper and the labels keep learning it.
+        CellProofLadder7731.liveBlockReason(ts, lane, false, nowMs)?.let { return chokeRefused7751(lane, it, false) }
         // V5.0.7749 — no council here. A buy that reaches the executor was produced
         // by its owner lane's own decision (the sniper's assessTarget, a lane's
         // shouldEnter), so the owner has voted. Re-asking it through

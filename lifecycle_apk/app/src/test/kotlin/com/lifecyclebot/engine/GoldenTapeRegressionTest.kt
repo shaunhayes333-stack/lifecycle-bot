@@ -14342,4 +14342,29 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7753_a_cell_negative_even_with_lost_marks_booked_flat_is_refused_live() {
+        val l = com.lifecyclebot.engine.truth.CellProofLadder7731
+        val neg = com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.NEGATIVE
+        val unp = com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.UNPROVEN
+        fun cell(n: Int, mean: Double, wr: Double, lost: Int) =
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat("c", n, mean, wr, 0.03, 1.0, lost)
+        // 5.0.7749 sniper launch cell: n=494 net -16.1% wr 8% lost=1112 — negative even if every lost mark closed flat.
+        assertEquals(neg, l.tierFor(cell(494, -16.1, 0.08, 1112)))
+        assertTrue(l.lostFlatMeanPct7753(cell(494, -16.1, 0.08, 1112)) < -2.0)
+        // 5.0.7749 shitcoin launch cell: n=940 net -10.5% wr 13% lost=1734.
+        assertEquals(neg, l.tierFor(cell(940, -10.5, 0.13, 1734)))
+        // A mildly negative cell that lost most marks stays unjudged: lost-flat reading is above the bar.
+        assertEquals(unp, l.tierFor(cell(120, -3.5, 0.3, 400)))
+        // A positive cell is never refused however many marks it lost.
+        assertFalse(l.tierFor(cell(219, 13.8, 0.23, 507)) == neg)
+        val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
+        val choke = tp.substringAfter("fun chokepointRefusal7742(").substringBefore("private const val CHOKEPOINT_RECENT_MS_7742")
+        assertTrue(choke.contains("CellProofLadder7731.liveBlockReason(ts, lane, false, nowMs)?.let { return chokeRefused7751(lane, it, false) }"))
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(lab.contains("com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(missed7753)"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
