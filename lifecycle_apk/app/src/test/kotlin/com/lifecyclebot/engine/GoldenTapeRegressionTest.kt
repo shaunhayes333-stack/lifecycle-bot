@@ -14236,4 +14236,28 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7745_smart_money_sells_exit_held_mints_evidence_precedes_copy_filters_and_stale_lane_bias_retired() {
+        val raw = org.json.JSONObject(
+            "{\"transaction\":{\"transaction\":{\"message\":{\"accountKeys\":[\"W1\"]}},\"meta\":{\"err\":null," +
+                "\"preBalances\":[1000000000],\"postBalances\":[2000000000]," +
+                "\"preTokenBalances\":[{\"owner\":\"W1\",\"mint\":\"M1\",\"uiTokenAmount\":{\"uiAmount\":100.0}}]," +
+                "\"postTokenBalances\":[{\"owner\":\"W1\",\"mint\":\"M1\",\"uiTokenAmount\":{\"uiAmount\":40.0}}]}}}",
+        )
+        val sells = com.lifecyclebot.network.HeliusPushSwapParser7277.detectSells(raw, listOf("W1"))
+        assertEquals(1, sells.size)
+        assertEquals(0.6, sells[0].soldFraction, 1e-9)
+        assertEquals(1.0, sells[0].solReceived, 1e-9)
+        assertTrue(com.lifecyclebot.network.HeliusPushSwapParser7277.detectSells(raw, listOf("OTHER")).isEmpty())
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("smartMoneySellExit7745(com.lifecyclebot.network.HeliusPushSwapParser7277.detectSells(raw7277, watched7277))"))
+        assertTrue(bs.contains("if (!ts.position.isOpen || s.soldFraction < 0.5) continue"))
+        val cte = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CopyTradeEngine.kt").readText()
+        assertTrue(cte.indexOf("SmartMoneyFeed6394.onWhaleBuy(mint, buyerWallet, now)") < cte.indexOf("val isDupe = recentSignals.any"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("val laneBiasMult = 1.0"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

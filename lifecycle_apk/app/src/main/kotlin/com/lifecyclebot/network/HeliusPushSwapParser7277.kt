@@ -18,6 +18,83 @@ object HeliusPushSwapParser7277 {
 
     private const val WSOL_MINT = "So11111111111111111111111111111111111111112"
 
+    /** V5.0.7745 — a watched wallet's SELL: token balance fell while its SOL rose. */
+    data class DetectedSell(val wallet: String, val mint: String, val solReceived: Double, val soldFraction: Double)
+
+    /**
+     * V5.0.7745 — the mirror of [detectBuys]. A watched wallet whose balance of
+     * a token fell while its lamports (or WSOL) rose sold that token; the sold
+     * fraction is (pre - post) / pre of its own holding. 7277 parsed buys only,
+     * so a tracked insider dumping a mint the bot held never reached an exit.
+     */
+    fun detectSells(result: JSONObject, watched: Collection<String>): List<DetectedSell> {
+        if (watched.isEmpty()) return emptyList()
+        val p = parse(result, watched.toHashSet()) ?: return emptyList()
+        val sells = ArrayList<DetectedSell>()
+        for ((key, preAmt) in p.preTok) {
+            val (owner, mint) = key
+            if (mint == WSOL_MINT || preAmt <= 0.0) continue
+            val postAmt = p.postTok[key] ?: 0.0
+            if (postAmt >= preAmt) continue
+            val wsolGain = (p.postTok[owner to WSOL_MINT] ?: 0.0) - (p.preTok[owner to WSOL_MINT] ?: 0.0)
+            val solReceived = maxOf(p.lamportDelta(owner) / 1_000_000_000.0, wsolGain)
+            if (solReceived <= 0.0) continue
+            sells.add(DetectedSell(owner, mint, solReceived, ((preAmt - postAmt) / preAmt).coerceIn(0.0, 1.0)))
+        }
+        return sells
+    }
+
+    private class Parsed(
+        val keys: List<String>,
+        val pre: JSONArray,
+        val post: JSONArray,
+        val preTok: Map<Pair<String, String>, Double>,
+        val postTok: Map<Pair<String, String>, Double>,
+    ) {
+        fun lamportDelta(owner: String): Long {
+            val idx = keys.indexOf(owner)
+            if (idx < 0 || idx >= pre.length() || idx >= post.length()) return 0L
+            return post.optLong(idx, 0L) - pre.optLong(idx, 0L)
+        }
+    }
+
+    private fun parse(result: JSONObject, watchedSet: Set<String>): Parsed? {
+        val outer = result.optJSONObject("transaction") ?: return null
+        val meta = outer.optJSONObject("meta") ?: result.optJSONObject("meta") ?: return null
+        val inner = outer.optJSONObject("transaction") ?: outer
+        val message = inner.optJSONObject("message") ?: outer.optJSONObject("message") ?: return null
+        if (meta.optJSONObject("err") != null && !meta.isNull("err")) return null
+        val keys = ArrayList<String>()
+        val accountKeys = message.optJSONArray("accountKeys") ?: JSONArray()
+        for (i in 0 until accountKeys.length()) {
+            when (val k = accountKeys.opt(i)) {
+                is JSONObject -> keys.add(k.optString("pubkey", ""))
+                is String -> keys.add(k)
+                else -> keys.add("")
+            }
+        }
+        fun balances(arr: JSONArray?): Map<Pair<String, String>, Double> {
+            val out = HashMap<Pair<String, String>, Double>()
+            if (arr == null) return out
+            for (i in 0 until arr.length()) {
+                val b = arr.optJSONObject(i) ?: continue
+                val owner = b.optString("owner", "")
+                val mint = b.optString("mint", "")
+                if (owner.isBlank() || mint.isBlank() || owner !in watchedSet) continue
+                val amt = b.optJSONObject("uiTokenAmount")?.optDouble("uiAmount", 0.0) ?: 0.0
+                out[owner to mint] = (out[owner to mint] ?: 0.0) + (if (amt.isFinite()) amt else 0.0)
+            }
+            return out
+        }
+        return Parsed(
+            keys,
+            meta.optJSONArray("preBalances") ?: JSONArray(),
+            meta.optJSONArray("postBalances") ?: JSONArray(),
+            balances(meta.optJSONArray("preTokenBalances")),
+            balances(meta.optJSONArray("postTokenBalances")),
+        )
+    }
+
     fun detectBuys(result: JSONObject, watched: Collection<String>): List<DetectedBuy> {
         if (watched.isEmpty()) return emptyList()
         val watchedSet = watched.toHashSet()

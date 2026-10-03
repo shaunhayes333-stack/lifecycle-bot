@@ -871,6 +871,31 @@ class BotService : Service() {
     private val tickLockFloor7392 = java.util.concurrent.ConcurrentHashMap<String, Double>()
     private val OFF_LOOP_SELL_RETRY_MS_7288 = 60_000L
 
+    /**
+     * V5.0.7745 — a watched smart-money wallet selling at least half of its
+     * holding of a mint the bot holds is the leader's thesis ending (the same
+     * reading ModeSpecificExits gives a copy trade: "leader flow invalidated").
+     * The position is exited with a STOP reason so the live minimum hold does
+     * not delay it.
+     */
+    private fun smartMoneySellExit7745(sells: List<com.lifecyclebot.network.HeliusPushSwapParser7277.DetectedSell>) {
+        if (sells.isEmpty()) return
+        for (s in sells) {
+            try {
+                PipelineHealthCollector.labelInc("SMART_MONEY_PUSH_SELL_DETECTED_7745")
+                val ts = status.tokens[s.mint] ?: continue
+                if (!ts.position.isOpen || s.soldFraction < 0.5) continue
+                val now = System.currentTimeMillis()
+                if (now - (modeExitAttemptMs7744[s.mint] ?: 0L) < 20_000L) continue
+                modeExitAttemptMs7744[s.mint] = now
+                PipelineHealthCollector.labelInc("SMART_MONEY_EXIT_ACTED_7745")
+                ForensicLogger.lifecycle("SMART_MONEY_EXIT_7745", "mint=${s.mint.take(10)} symbol=${ts.symbol} wallet=${s.wallet.take(8)} soldPct=${(s.soldFraction * 100).toInt()} sol=${"%.3f".format(s.solReceived)}")
+                val cfgS = ConfigStore.load(applicationContext)
+                requestSellOffLoop7288(ts, "SMART_MONEY_EXIT_STOP_7745_SOLD${(s.soldFraction * 100).toInt()}PCT", walletManager.getWallet(), status.getEffectiveBalance(cfgS.paperMode))
+            } catch (_: Throwable) {}
+        }
+    }
+
     private val modeExitAttemptMs7744 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /**
@@ -10144,6 +10169,8 @@ class BotService : Service() {
                                 PipelineHealthCollector.labelInc("SMART_MONEY_PUSH_BUY_DETECTED_7277")
                                 copyTradeEngine.onSwapDetected(b.mint, b.wallet, b.solSpent, true)
                             }
+                            // V5.0.7745 — a tracked wallet dumping a mint we hold is an exit signal.
+                            smartMoneySellExit7745(com.lifecyclebot.network.HeliusPushSwapParser7277.detectSells(raw7277, watched7277))
                         } catch (_: Throwable) {}
                         // V5.9.1022 — CRITICAL COST FIX.
                         // Operator V5.9.1021 snapshot showed 200+ "🐳 PUSH: whale tx X… (0 accounts)"

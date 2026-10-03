@@ -151,6 +151,16 @@ class CopyTradeEngine(
             return
         }
         val now = System.currentTimeMillis()
+        // V5.0.7745 — evidence before the copy-signal filters. The 30 s duplicate
+        // window and the 0.01 SOL floor decide whether to COPY; they are not a
+        // reason to hide a tracked wallet's buy from the launch evidence sink
+        // (LaunchPhaseAuthority reads smartMoneyBuysLast60s). Written once here.
+        if (mint.isNotBlank() && mint.length >= 30) {
+            try {
+                com.lifecyclebot.engine.truth.SmartMoneyFeed6394.onWhaleBuy(mint, buyerWallet, now)
+                PipelineHealthCollector.labelInc("SMART_MONEY_FEED_BUY_WRITTEN_7431")
+            } catch (_: Throwable) {}
+        }
         val isDupe = recentSignals.any { s ->
             s.mint == mint && s.trackedWallet == buyerWallet && now - s.ts < 30_000L
         }
@@ -173,10 +183,6 @@ class CopyTradeEngine(
         // test-only writers, so EarlyLaunchBypass6396 could never observe the
         // 2+ wallet cluster it was built to use. Evidence only: execution still
         // goes through the normal candidate -> safety -> V3 -> FDG spine.
-        try {
-            com.lifecyclebot.engine.truth.SmartMoneyFeed6394.onWhaleBuy(mint, buyerWallet, now)
-            PipelineHealthCollector.labelInc("SMART_MONEY_FEED_BUY_WRITTEN_7431")
-        } catch (_: Throwable) {}
         if (recentSignals.size > 20) recentSignals.removeLast()
         try {
             onLog("📋 Copy signal: ${tracked.label} (${tracked.shortAddr}) bought ${"%.3f".format(solAmount)}◎ of ${mint.take(8)}…")

@@ -14387,12 +14387,12 @@ class Executor(
         val highConvBoost = if (isHighConvictionWinner) 1.50 else 1.0
 
         // V5.0.4178 — L8 LANE PRIORITY BIAS (TIGHTENED): MOONSHOT (WR=22.7%)
-        // / STANDARD (WR=23.8%) get ×1.40, every other lane ×0.50. Capital
-        // concentrates on what works.
-        val laneBiasMult = when (laneTag.uppercase()) {
-            "MOONSHOT", "STANDARD" -> 1.40
-            else -> 0.50
-        }
+        // / STANDARD (WR=23.8%) got ×1.40, every other lane ×0.50.
+        // V5.0.7745 — retired to neutral. A win-rate snapshot from 4178 was still
+        // sizing every live entry (5.0.7741: MOONSHOT 3/13, EV -10.7%, pressed
+        // ×1.40). The truth-ledger lane arbitrage directly below (6288) sizes each
+        // lane from its own live record and is the allocation authority.
+        val laneBiasMult = 1.0
         val multiplierProduct = run {
             val product = multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost
             // V5.0.6288 — LIVE ORACLE MODE: TRUTH-LEDGER LANE ARBITRAGE.
