@@ -14284,4 +14284,20 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7749_the_executor_chokepoint_runs_the_plan_only_and_never_re_asks_the_owner() {
+        val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
+        val choke = tp.substringAfter("fun chokepointRefusal7742(").substringBefore("private const val CHOKEPOINT_RECENT_MS_7742")
+        assertFalse(choke.contains("Council7740.liveBlockReason("))
+        assertFalse(choke.contains("recentlyAdmitted7742"))
+        assertTrue(choke.contains("liveBlockReason(ts, lane, false, nowMs)"))
+        val council = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/Council7740.kt").readText()
+        assertFalse(council.contains("fun recentlyAdmitted7742"))
+        // The council still votes in FinalDecisionGate.
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("Council7740.liveBlockReason("))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

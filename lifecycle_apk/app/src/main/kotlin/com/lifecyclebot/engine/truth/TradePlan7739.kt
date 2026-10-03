@@ -312,8 +312,11 @@ object TradePlan7739 {
      * paths open live positions without FinalDecisionGate.evaluate (BotService:
      * "the sniper path never passes FDG"), so the plan and the council never
      * saw them: 5.0.7741 bought 11 times while the plan admitted none. Every
-     * live buy now answers to both here; a candidate the gate already planned
-     * and the council already admitted inside two minutes is not re-judged.
+     * live buy answers to the plan here (the cheat-sheet baseline); a candidate
+     * the gate already planned inside the recent window is not re-judged.
+     * V5.0.7749 — the council does not vote here: the owner lane already
+     * decided to buy, and re-asking a second evaluator overrode it (Field
+     * Manual §12: "One selected strategy owns the live trade").
      */
     fun chokepointRefusal7742(ts: TokenState, lane: String, score: Int, nowMs: Long = System.currentTimeMillis()): String? {
         // V5.0.7748 — no pause here. Operator: "it has to trade to learn." The
@@ -322,8 +325,14 @@ object TradePlan7739 {
         val p = plans[ts.mint]
         val planned = p != null && nowMs - p.atMs in 0L..CHOKEPOINT_RECENT_MS_7742
         if (!planned) liveBlockReason(ts, lane, false, nowMs)?.let { return it }
-        if (Council7740.recentlyAdmitted7742(ts.mint, nowMs)) return null
-        return Council7740.liveBlockReason(ts, lane, score, false, nowMs)
+        // V5.0.7749 — no council here. A buy that reaches the executor was produced
+        // by its owner lane's own decision (the sniper's assessTarget, a lane's
+        // shouldEnter), so the owner has voted. Re-asking it through
+        // SpecialistBrainBridge7542 — separate inputs, liquidity read as $0 where
+        // the lanes saw ~$3k, PROJECT_SNIPER nativeAllow=0 of 5894 — overruled the
+        // owner's real decision: 5.0.7745 CHOKEPOINT_7742=57, buys 0. The council
+        // still votes in FinalDecisionGate, where V3-trunk buys are judged.
+        return null
     }
 
     private const val CHOKEPOINT_RECENT_MS_7742 = 2L * 60_000L
