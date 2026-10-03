@@ -13754,16 +13754,19 @@ class GoldenTapeRegressionTest {
         // the mean a standard error under -2% and under half winners; a cell
         // that mostly lost its mark is unproven whatever its mean says.
         val P = com.lifecyclebot.engine.truth.CellProofLadder7731
+        val UNPROVEN = com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.UNPROVEN
+        val NEGATIVE = com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.NEGATIVE
+        val POSITIVE = com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.POSITIVE
         fun stat(n: Int, mean: Double, wr: Double, se: Double, lost: Int) =
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat("c", n, mean, wr, 0.0, se, lost)
-        assertEquals(P.Tier.UNPROVEN, P.tierFor(null))
-        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(99, -40.0, 0.1, 1.0, 0)))
-        assertEquals(P.Tier.NEGATIVE, P.tierFor(stat(100, -40.0, 0.1, 1.0, 0)))
-        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, -2.5, 0.1, 1.0, 0)))
-        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, -40.0, 0.6, 1.0, 0)))
-        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, -40.0, 0.1, 1.0, 120)))
-        assertEquals(P.Tier.POSITIVE, P.tierFor(stat(100, 7.3, 0.4, 1.0, 10)))
-        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, 1.5, 0.4, 1.0, 0)))
+        assertEquals(UNPROVEN, P.tierFor(null))
+        assertEquals(UNPROVEN, P.tierFor(stat(99, -40.0, 0.1, 1.0, 0)))
+        assertEquals(NEGATIVE, P.tierFor(stat(100, -40.0, 0.1, 1.0, 0)))
+        assertEquals(UNPROVEN, P.tierFor(stat(100, -2.5, 0.1, 1.0, 0)))
+        assertEquals(UNPROVEN, P.tierFor(stat(100, -40.0, 0.6, 1.0, 0)))
+        assertEquals(UNPROVEN, P.tierFor(stat(100, -40.0, 0.1, 1.0, 120)))
+        assertEquals(POSITIVE, P.tierFor(stat(100, 7.3, 0.4, 1.0, 10)))
+        assertEquals(UNPROVEN, P.tierFor(stat(100, 1.5, 0.4, 1.0, 0)))
 
         // Wiring: every distinct verdict in recordFdg is observed; the loop ticks
         // the labeler on the same price closure as the lane shadow proof; the
