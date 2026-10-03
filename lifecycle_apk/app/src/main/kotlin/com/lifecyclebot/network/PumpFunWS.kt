@@ -146,6 +146,20 @@ object PumpFunWS {
         onTradeCb = cb
     }
 
+    /**
+     * V5.0.7743 — the rest of the trade frame. 7278 kept only the price; the
+     * trader wallet, SOL size, side and the seller's remaining balance were
+     * dropped, so WhaleDetector's launch tape, the real-time candle builder and
+     * the dev-sell exit (all built for exactly this data) never received any.
+     * [soldFractionOfHolding] is tokenAmount / (tokenAmount + newTokenBalance)
+     * on a sell, else 0.
+     */
+    @Volatile private var onTradeDetailCb7743: ((mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) -> Unit)? = null
+
+    fun setOnTradeDetail7743(cb: (mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) -> Unit) {
+        onTradeDetailCb7743 = cb
+    }
+
     private fun registerFreshLifecycle7420(mint: String) {
         if (mint.isBlank()) return
         val now = System.currentTimeMillis()
@@ -219,7 +233,12 @@ object PumpFunWS {
         // Capability became available: the real subscription set takes over.
         unsupportedTradeDemand7485.clear()
         val add = wanted - tradeSubscriptions7278
-        val drop = tradeSubscriptions7278 - wanted
+        // V5.0.7743 — fresh-launch subscriptions (registerFreshLifecycle7420) are
+        // not the held set and expire on their own 15-minute TTL. This diff used
+        // to drop them on the next tick of the open-position loop (it passes held
+        // curve mints only), which is why 5.0.7741 showed tradeSubscribedMints=3
+        // against lifecycleMints=96 and every launch tape was empty.
+        val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys
         if (add.isEmpty() && drop.isEmpty()) return
         val sock = ws
         if (add.isNotEmpty()) {
@@ -369,6 +388,14 @@ object PumpFunWS {
                             }
                         } catch (_: Throwable) {}
                         onTradeCb?.invoke(mint, priceSol, mcapSol, txType == "buy")
+                        try {
+                            val sol7743 = j.optDouble("solAmount", 0.0).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                            val tok7743 = j.optDouble("tokenAmount", 0.0)
+                            val left7743 = j.optDouble("newTokenBalance", -1.0)
+                            val soldFrac7743 = if (txType == "sell" && tok7743.isFinite() && tok7743 > 0.0 && left7743.isFinite() && left7743 >= 0.0)
+                                tok7743 / (tok7743 + left7743) else 0.0
+                            onTradeDetailCb7743?.invoke(mint, j.optString("traderPublicKey", ""), sol7743, txType == "buy", soldFrac7743)
+                        } catch (_: Throwable) {}
                     }
                     txType == "create" || j.has("name") && j.has("symbol") && j.has("mint") -> {
                         val mint = j.optString("mint", "")

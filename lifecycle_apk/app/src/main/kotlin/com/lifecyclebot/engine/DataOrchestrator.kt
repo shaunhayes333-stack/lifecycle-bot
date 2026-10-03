@@ -507,6 +507,28 @@ class DataOrchestrator(
         return scaled
     }
 
+    /**
+     * V5.0.7743 — PumpPortal trade frames, routed into the consumers this class
+     * already has for them: WhaleDetector's launch tape and the 8-second
+     * real-time candle builder (handlePumpTrade, reachable before only from the
+     * disabled startPumpFunWebSocket), and the dev-sell exit when the seller is
+     * the mint's creator (OperatorRegistry, written by PumpFunWS on create).
+     */
+    fun onPumpPortalTrade7743(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
+        if (mint.isBlank()) return
+        try { synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) } } catch (_: Throwable) {}
+        if (!isBuy && wallet.isNotBlank()) {
+            val dev = try { OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }
+            if (dev != null && dev == wallet) {
+                try {
+                    PipelineHealthCollector.labelInc("DEV_SELL_FROM_TRADE_STREAM_7743")
+                    ForensicLogger.lifecycle("DEV_SELL_FROM_TRADE_STREAM_7743", "mint=${mint.take(10)} soldPct=${(soldFractionOfHolding * 100).toInt()} sol=$solAmount")
+                } catch (_: Throwable) {}
+                try { onDevSell(mint, soldFractionOfHolding) } catch (_: Throwable) {}
+            }
+        }
+    }
+
     private fun handlePumpTrade(mint: String, isBuy: Boolean, solAmount: Double, wallet: String) {
         lastWsEventMs[mint] = System.currentTimeMillis()
         val ts = status.tokens[mint] ?: return

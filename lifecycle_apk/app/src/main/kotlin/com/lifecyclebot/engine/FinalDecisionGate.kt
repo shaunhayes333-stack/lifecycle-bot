@@ -1012,6 +1012,19 @@ object FinalDecisionGate {
         )
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7743 — tags whose sizing path meant "probe this": live refuses them
+     * instead of trading them. whale_follow_live_growth_probe is a mode label
+     * attached to every whale-follow entry, not a probe size, so it is not here.
+     */
+    private fun isLiveProbeTag7743(t: String): Boolean {
+        val u = t.lowercase()
+        return u == "train_first_micro_probe" || u == "bcg_train_first_micro_probe" ||
+            u.contains("proven_dead") || u.startsWith("starve:") ||
+            u == "copy_trade_live_micro_probe" || u == "rc_timeout_live_probe" ||
+            u.startsWith("lane_policy:")
+    }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -5723,12 +5736,16 @@ object FinalDecisionGate {
                 // whose 0.35x multipliers guarantee the size lands under the core floor —
                 // so every tagged live entry was rejected while paper lifted the same
                 // candidate. They are lifted to the core floor like any other entry.
-                val dustTuitionTag4526 = tags.any { t -> t.uppercase().contains("PROVEN_DEAD") }
-                if (finalSize < coreFloor4526) {
+                // V5.0.7743 — operator: "I dont want probe trades. they cost more than
+                // they are worth." A live entry whose own sizing path wanted a probe
+                // (train-first, proven-dead, starve, low-confidence copy, rugcheck
+                // pending, weak lane policy) is refused at any size, not lifted.
+                val dustTuitionTag4526 = tags.any { t -> isLiveProbeTag7743(t) }
+                if (dustTuitionTag4526 || finalSize < coreFloor4526) {
                     val before4526 = finalSize
                     if (dustTuitionTag4526) {
                         shouldTradeFinal = false
-                        blockReasonFinal = "LIVE_DUST_TUITION_REQUIRES_STRATEGY_PIVOT_4526"
+                        blockReasonFinal = "LIVE_PROBE_REFUSED_7743:${tags.firstOrNull { t -> isLiveProbeTag7743(t) } ?: "probe"}"
                         blockLevelFinal = BlockLevel.SIZE
                         tags.add("live_dust_tuition_rejected_4526")
                         checks.add(GateCheck("live_core_size_floor", false, "micro/probe live dust ${before4526.format(4)} < core ${coreFloor4526.format(4)}; require strategy pivot instead of same-setup dust buy"))

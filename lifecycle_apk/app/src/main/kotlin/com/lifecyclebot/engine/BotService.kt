@@ -9908,6 +9908,11 @@ class BotService : Service() {
             com.lifecyclebot.network.PumpFunWS.setOnTrade7278 { mint, priceSol, mcapSol, _ ->
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
             }
+            // V5.0.7743 — wallet, size and side reach the launch tape, the
+            // real-time candles and the dev-sell exit (DataOrchestrator).
+            com.lifecyclebot.network.PumpFunWS.setOnTradeDetail7743 { mint, wallet, sol, isBuy, soldFrac ->
+                try { orchestrator?.onPumpPortalTrade7743(mint, wallet, sol, isBuy, soldFrac) } catch (_: Throwable) {}
+            }
             com.lifecyclebot.network.PumpFunWS.start(
                 // V5.0.7284 — the trade stream is keyed; blank means launches only.
                 apiKey7284 = cfg.pumpPortalApiKey,

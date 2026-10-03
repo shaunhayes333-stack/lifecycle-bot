@@ -14197,4 +14197,25 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7743_launch_tape_reaches_its_consumers_and_live_probes_are_refused() {
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        assertTrue(ws.contains("val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys"))
+        assertTrue(ws.contains("onTradeDetailCb7743?.invoke(mint, j.optString(\"traderPublicKey\", \"\"), sol7743, txType == \"buy\", soldFrac7743)"))
+        val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        assertTrue(orch.contains("synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) }"))
+        assertTrue(orch.contains("try { onDevSell(mint, soldFractionOfHolding) } catch (_: Throwable) {}"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("orchestrator?.onPumpPortalTrade7743(mint, wallet, sol, isBuy, soldFrac)"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("val dustTuitionTag4526 = tags.any { t -> isLiveProbeTag7743(t) }"))
+        assertTrue(fdg.contains("if (dustTuitionTag4526 || finalSize < coreFloor4526) {"))
+        val probe = fdg.substringAfter("private fun isLiveProbeTag7743(t: String): Boolean {").substringBefore("fun evaluate(")
+        assertTrue(probe.contains("u == \"train_first_micro_probe\""))
+        assertTrue(probe.contains("u.startsWith(\"lane_policy:\")"))
+        assertFalse(probe.contains("whale_follow_live_growth_probe\" ||"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
