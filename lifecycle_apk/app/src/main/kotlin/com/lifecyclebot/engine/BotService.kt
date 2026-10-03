@@ -34099,6 +34099,36 @@ if (hotExitHandledSweep) {
         }
     }
 
+    private val structureExitAttemptMs7739 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.7739 — the exit the position's own thesis owes: under the pullback
+     * low recorded at entry, no retest of the high within its horizon, or under
+     * water after forty-five minutes. One attempt per mint per 30 s.
+     */
+    private fun structureExit7739(ts: TokenState, price: Double, pnlPct: Double, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        val pos = ts.position
+        if (!pos.isOpen || pos.entryTime <= 0L) return false
+        val now = System.currentTimeMillis()
+        val plan = com.lifecyclebot.engine.truth.LaunchStructure7739.planFor(ts.mint, pos.entryTime)
+        val peak = maxOf(pos.peakGainPct, pnlPct)
+        val reason = com.lifecyclebot.engine.truth.LaunchStructure7739.exitReason(plan, pos.entryPrice, price, now - pos.entryTime, pnlPct, peak) ?: return false
+        val last = structureExitAttemptMs7739[ts.mint] ?: 0L
+        if (now - last < 30_000L) return false
+        structureExitAttemptMs7739[ts.mint] = now
+        if (structureExitAttemptMs7739.size > 1_000) structureExitAttemptMs7739.entries.removeIf { now - it.value > 3_600_000L }
+        try {
+            com.lifecyclebot.engine.truth.LaunchStructure7739.onExit(reason)
+            ForensicLogger.lifecycle(
+                "STRUCTURE_EXIT_7739",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason holdMin=${(now - pos.entryTime) / 60_000L} pnl=${"%.1f".format(pnlPct)}% " +
+                    "peak=${"%.1f".format(peak)}% plan=${plan != null} paper=${pos.isPaperPosition}",
+            )
+        } catch (_: Throwable) {}
+        executor.requestSell(ts = ts, reason = reason, wallet = wallet, walletSol = walletSol)
+        return true
+    }
+
     private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wallet: SolanaWallet?) {
         try {
             val price = try { executor.getActualPricePublic(ts) } catch (_: Throwable) { ts.lastPrice }
@@ -34112,6 +34142,8 @@ if (hotExitHandledSweep) {
             // even when many positions were being evaluated for exit.
             val _pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, price, "BotService.fallback_exit_phase_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
             val _pnl = if (_pnlVerdict6038.ok) _pnlVerdict6038.pnlPct else 0.0
+            // V5.0.7739 — structural stop, thesis time exit and underwater time exit (Field Manual §10).
+            if (_pnlVerdict6038.ok && structureExit7739(ts, price, _pnl, wallet, effectiveBalance)) return
             try {
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.EXIT_GATE,

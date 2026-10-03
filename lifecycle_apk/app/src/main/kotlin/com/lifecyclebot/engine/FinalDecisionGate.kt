@@ -942,6 +942,40 @@ object FinalDecisionGate {
         )
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7739 — LaunchStructure7739: a LIVE meme-lane entry needs the launch
+     * pullback-reclaim (impulse, held pullback, reclaim, room to the high, 2R to
+     * the measured move). Without it the verdict is WAIT; the next cycle
+     * re-reads the tape. Paper and the large-cap lanes are never refused here.
+     */
+    private fun launchStructureBlock7739(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        specialistLane: String?,
+        laneName: String,
+        paper: Boolean,
+        mode: TradeMode,
+    ): FinalDecision? = try {
+        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
+        val reason = com.lifecyclebot.engine.truth.LaunchStructure7739.liveBlockReason(ts, lane, paper)
+        if (reason == null) null else FinalDecision(
+            shouldTrade = false,
+            mode = mode,
+            approvalClass = ApprovalClass.BLOCKED,
+            quality = candidate.setupQuality,
+            confidence = candidate.aiConfidence,
+            edge = EdgeVerdict.SKIP,
+            blockReason = reason,
+            blockLevel = BlockLevel.EDGE,
+            sizeSol = 0.0,
+            tags = listOf("launch_structure_7739", "lane:$lane"),
+            mint = ts.mint,
+            symbol = ts.symbol,
+            approvalReason = "LAUNCH_STRUCTURE_WAIT_7739: $reason",
+            gateChecks = listOf(GateCheck("launch_structure_7739", false, "lane=$lane $reason")),
+        )
+    } catch (_: Throwable) { null }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -1377,6 +1411,7 @@ object FinalDecisionGate {
         fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }
         cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
         freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
+        launchStructureBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
