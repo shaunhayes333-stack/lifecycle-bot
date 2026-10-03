@@ -20079,6 +20079,15 @@ class Executor(
                 return false
             }
         }
+        // V5.0.7742 — every live buy answers to the trade plan and the council here,
+        // including the native paths that never call FinalDecisionGate (sniper).
+        try {
+            com.lifecyclebot.engine.truth.TradePlan7739.chokepointRefusal7742(ts, canonicalRoutedLane, score.toInt())
+        } catch (_: Throwable) { null }?.let { refusal7742 ->
+            liveStage("LIVE_BUY_ABORTED", "reason=CHOKEPOINT_7742 $refusal7742")
+            try { emitLiveBuyFail(ts, sol, "CHOKEPOINT_7742", refusal7742.take(120)) } catch (_: Throwable) {}
+            return false
+        }
         var commonSenseSizeMultiplier4573 = 1.0
         var laneCapitalSizeMultiplier = 1.0
         run {

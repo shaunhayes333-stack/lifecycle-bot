@@ -71,24 +71,39 @@ object FreshLaunchSelector7737 {
 
     data class Setup(val key: String, val structuralRefusal: String?, val ageMs: Long, val detail: String)
 
-    /** One setup cell. Units: counts, and summed 60-minute net percent for NEITHER. */
+    /**
+     * One setup cell. Units: counts, and summed 60-minute net percent for NEITHER.
+     * V5.0.7742 — a second ladder, +50% before -[STOP15_PCT_7742]%, is measured on
+     * the same observations (n15/tp15/stop15): the lane floors stop live
+     * positions at -10..-15%, so a -30% ladder does not describe the trade the
+     * bot actually takes. Rows written before 7742 decode with an empty ladder.
+     */
     class Cell {
         var n = 0; var tpFirst = 0; var stopFirst = 0; var neither = 0; var sumNeitherNet = 0.0; var lost = 0
-        fun encode(): String = "$n,$tpFirst,$stopFirst,$neither,$sumNeitherNet,$lost"
+        var n15 = 0; var tp15 = 0; var stop15 = 0
+        fun encode(): String = "$n,$tpFirst,$stopFirst,$neither,$sumNeitherNet,$lost,$n15,$tp15,$stop15"
         fun decode(s: String): Boolean {
             val f = s.split(',')
-            if (f.size != 6) return false
+            if (f.size != 6 && f.size != 9) return false
             n = f[0].toIntOrNull() ?: 0; tpFirst = f[1].toIntOrNull() ?: 0; stopFirst = f[2].toIntOrNull() ?: 0
             neither = f[3].toIntOrNull() ?: 0; sumNeitherNet = f[4].toDoubleOrNull() ?: 0.0; lost = f[5].toIntOrNull() ?: 0
+            if (f.size == 9) { n15 = f[6].toIntOrNull() ?: 0; tp15 = f[7].toIntOrNull() ?: 0; stop15 = f[8].toIntOrNull() ?: 0 }
             return true
         }
         val tpRate: Double get() = if (n > 0) tpFirst.toDouble() / n else 0.0
         val stopRate: Double get() = if (n > 0) stopFirst.toDouble() / n else 0.0
+        /** Expected gross percent per trade on the -15% ladder (+50 x hit rate - 15 x stop rate). */
+        val ev15Pct: Double get() = if (n15 > 0) (tp15 * TP_PCT_7737 - stop15 * STOP15_PCT_7742) / n15 else 0.0
     }
 
     private class Obs(val mint: String, val key: String, val admitted: Boolean, val entryPrice: Double, val costPct: Double, val atMs: Long) {
         @Volatile var lastPricedMs = atMs
+        /** V5.0.7742 — the -15% ladder resolved (TP, STOP or NEITHER booked). */
+        @Volatile var resolved15 = false
     }
+
+    private const val STOP15_PCT_7742 = 15.0
+    private const val LAUNCH_PLAN_MIN_N_7742 = 20
 
     private val cells = ConcurrentHashMap<String, Cell>()
     private val pending = ConcurrentHashMap<String, Obs>()          // key = mint
@@ -311,6 +326,17 @@ object FreshLaunchSelector7737 {
         Cell()
     }
 
+    /** V5.0.7742 — books the -15% ladder once per observation. */
+    private fun book15(o: Obs, outcome: String) {
+        if (o.resolved15) return
+        o.resolved15 = true
+        val c = cellFor(o.key)
+        synchronized(c) {
+            c.n15 += 1
+            if (outcome == "TP") c.tp15 += 1 else if (outcome == "STOP") c.stop15 += 1
+        }
+    }
+
     private fun bookOutcome(o: Obs, outcome: String, net: Double) {
         val c = cellFor(o.key)
         synchronized(c) {
@@ -350,20 +376,47 @@ object FreshLaunchSelector7737 {
             o.lastPricedMs = nowMs
             if (ForwardReturnLabeler7731.basisSuspect7738(o.entryPrice, px)) { pending.remove(mint, o); bookOutcome(o, "LOST", 0.0); continue }
             val gross = (px / o.entryPrice - 1.0) * 100.0
+            // V5.0.7742 — the -15% ladder first: a mark at -15% or below resolves it as a stop,
+            // +50% as a target; whatever the -30% ladder books afterwards cannot rewrite it.
+            if (gross <= -STOP15_PCT_7742) book15(o, "STOP") else if (gross >= TP_PCT_7737) book15(o, "TP")
             when {
                 gross >= TP_PCT_7737 -> { pending.remove(mint, o); bookOutcome(o, "TP", gross - o.costPct) }
                 gross <= -STOP_PCT_7737 -> { pending.remove(mint, o); bookOutcome(o, "STOP", gross - o.costPct) }
-                age >= HORIZON_MS_7737 -> { pending.remove(mint, o); bookOutcome(o, "NEITHER", gross - o.costPct) }
+                age >= HORIZON_MS_7737 -> { pending.remove(mint, o); book15(o, "NEITHER"); bookOutcome(o, "NEITHER", gross - o.costPct) }
             }
         }
         return unpriced
+    }
+
+    enum class LaunchVerdict { NOT_FRESH, REFUSED, LEARNING, PROVEN, NEGATIVE }
+    data class LaunchRead(val verdict: LaunchVerdict, val key: String, val why: String)
+
+    /** Pure: the -15% ladder's verdict on a cell (null cell = no record yet). */
+    fun ladderVerdict7742(c: Cell?, costPct: Double): LaunchVerdict = when {
+        c == null || c.n15 < LAUNCH_PLAN_MIN_N_7742 -> LaunchVerdict.LEARNING
+        c.ev15Pct - costPct > 0.0 -> LaunchVerdict.PROVEN
+        else -> LaunchVerdict.NEGATIVE
+    }
+
+    /**
+     * V5.0.7742 — the launch plan's read for a token too young for one-minute
+     * bars: not fresh, refused on a structural crash shape its cell has not
+     * overturned, or the -15% ladder's verdict for its setup.
+     */
+    fun launchRead7742(ts: TokenState, costPct: Double, nowMs: Long = System.currentTimeMillis()): LaunchRead {
+        val s = setupFor(ts, nowMs) ?: return LaunchRead(LaunchVerdict.NOT_FRESH, "", "NOT_FRESH")
+        val c = cellSnapshot(s.key)
+        if (s.structuralRefusal != null && !cellOverturns(c)) return LaunchRead(LaunchVerdict.REFUSED, s.key, s.structuralRefusal)
+        val v = ladderVerdict7742(c, costPct)
+        val why = if (c == null) "n15=0" else "n15=${c.n15} ev15=${"%+.1f".format(c.ev15Pct)}%"
+        return LaunchRead(v, s.key, why)
     }
 
     fun statusLine(): String {
         val top = cells.entries.mapNotNull { (k, c) -> cellSnapshot(k)?.let { k to it } }
             .filter { it.second.n >= 5 }
             .sortedByDescending { it.second.tpRate - it.second.stopRate }
-        val fmt = { p: Pair<String, Cell> -> "${p.first}[n=${p.second.n} tp=${"%.0f".format(p.second.tpRate * 100)}% stop=${"%.0f".format(p.second.stopRate * 100)}%]" }
+        val fmt = { p: Pair<String, Cell> -> "${p.first}[n=${p.second.n} tp=${"%.0f".format(p.second.tpRate * 100)}% stop=${"%.0f".format(p.second.stopRate * 100)}% n15=${p.second.n15} ev15=${"%+.1f".format(p.second.ev15Pct)}%]" }
         return "pending=${pending.size} observed=${observed.get()} firstTouch[tp=${bookedTp.get()} stop=${bookedStop.get()} neither=${bookedNeither.get()} lost=${lostCount.get()}] " +
             "live[admitted=${admittedFresh.get()} refusedStructural=${refusedStructural.get()} refusedLearned=${refusedLearned.get()} overturned=${overturned.get()}] cells=${cells.size}\n" +
             "      bestSetups: ${top.take(3).joinToString(" · ") { fmt(it) }.ifBlank { "none at n>=5" }}\n" +

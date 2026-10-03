@@ -111,6 +111,8 @@ object Council7740 {
         val decider = resolve(ballots)
         if (decider == null) {
             admittedLive.incrementAndGet()
+            lastAdmitMs7742[ts.mint] = nowMs
+            if (lastAdmitMs7742.size > 2_000) lastAdmitMs7742.entries.removeIf { nowMs - it.value > 10L * 60_000L }
             return null
         }
         refusedLive.incrementAndGet()
@@ -127,6 +129,12 @@ object Council7740 {
         } catch (_: Throwable) {}
         return "COUNCIL_REFUSED_7740_${decider.member.name}:${decider.why}"
     }
+
+    private val lastAdmitMs7742 = ConcurrentHashMap<String, Long>()
+
+    /** V5.0.7742 — the council admitted this mint live within the last two minutes. */
+    fun recentlyAdmitted7742(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        nowMs - (lastAdmitMs7742[mint] ?: 0L) in 0L..120_000L
 
     /**
      * Exit council: may [lane] hold a position through its stop on a member's

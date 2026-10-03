@@ -72,7 +72,36 @@ object TradePlan7739 {
         PULLBACK_RECLAIM(20L * 60_000L),
         BASE_BREAKOUT(15L * 60_000L),
         SWEEP_RECLAIM(30L * 60_000L),
+        /** V5.0.7742 — a fresh launch too young for bars, admitted on its setup's -15% ladder. */
+        LAUNCH_EARLY(30L * 60_000L),
     }
+
+    // V5.0.7742 §A_LAUNCH_IS_NOT_A_CHART_YET.
+    //
+    // 5.0.7741 at 631 s: Trade plans admitted[none] waited=56, TOO_FEW_BARS=55.
+    // A candidate's one-minute bars come from the scan cycle appending one
+    // point per visit (BotService processTokenCycle, pair.candle), about one
+    // point per token every 40 s in that run (5,595 scans over ~380 tokens), so
+    // five bars take about five minutes of watching. Fresh launches reach the
+    // gate at age 0-2 minutes: the plan could never admit one. The launch
+    // record that does exist is FreshLaunchSelector7737's first-touch ladder
+    // for the token's setup; it now measures +50% before -15% (the lane floors'
+    // reach) beside +50% before -30%. A fresh launch whose bars show no setup
+    // and no danger shape is planned LAUNCH_EARLY: stop -15%, half at +50%,
+    // rest at +100%, out after 30 minutes without progress. It trades while
+    // its ladder is thin (learn before tighten) or positive after cost, and
+    // waits once the ladder has [FreshLaunchSelector7737]'s 20 results and is
+    // negative.
+    private const val LAUNCH_STOP_PCT_7742 = 15.0
+    private const val LAUNCH_FIRST_TARGET_PCT_7742 = 50.0
+    private const val LAUNCH_TARGET_PCT_7742 = 100.0
+    private const val LAUNCH_COST_PCT_7742 = 4.0
+    /** Bar reads that only say no setup has formed yet; anything else is a danger shape. */
+    private val NO_SETUP_YET_7742 = setOf("TOO_FEW_BARS", "NO_IMPULSE", "NO_PULLBACK_YET", "NO_BASE", "NO_SWEEP", "NO_ACCEPTANCE")
+    private val launchAdmits7742 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: may a fresh launch with this bar read be planned LAUNCH_EARLY? */
+    fun barsPermitLaunch7742(barWhy: String): Boolean = barWhy in NO_SETUP_YET_7742
 
     /** Size tier: thresholds a token of this size can plausibly print. */
     data class Tier(val minImpulsePct: Double, val maxStopPct: Double, val maxBaseWidthPct: Double)
@@ -232,6 +261,32 @@ object TradePlan7739 {
         val chop = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name == "CHOP" } catch (_: Throwable) { false }
         val read = analyze(barsFrom(ts, nowMs), tierFor(ts.lastMcap), chop, lp?.buyTx60s ?: 0, lp?.sellTx60s ?: 0)
         val setup = read.setup
+        if (setup == null && barsPermitLaunch7742(read.why)) {
+            val lr = try { FreshLaunchSelector7737.launchRead7742(ts, LAUNCH_COST_PCT_7742, nowMs) } catch (_: Throwable) { null }
+            when (lr?.verdict) {
+                FreshLaunchSelector7737.LaunchVerdict.LEARNING, FreshLaunchSelector7737.LaunchVerdict.PROVEN -> {
+                    plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -LAUNCH_STOP_PCT_7742, LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
+                    admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()
+                    launchAdmits7742.computeIfAbsent(lr.verdict.name) { AtomicLong(0) }.incrementAndGet()
+                    try {
+                        PipelineHealthCollector.labelInc("PLAN_ADMITTED_7739_LAUNCH_EARLY_${lr.verdict.name}")
+                        ForensicLogger.lifecycle(
+                            "PLAN_ADMITTED_7739",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane setup=LAUNCH_EARLY ladder=${lr.verdict.name} cell=${lr.key} ${lr.why} bars=${read.why} stop=-$LAUNCH_STOP_PCT_7742%",
+                        )
+                    } catch (_: Throwable) {}
+                    return null
+                }
+                FreshLaunchSelector7737.LaunchVerdict.NEGATIVE, FreshLaunchSelector7737.LaunchVerdict.REFUSED -> {
+                    val why = "LAUNCH_${lr.verdict.name}"
+                    waited.incrementAndGet()
+                    waitReasons.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("PLAN_WAIT_7739_$why") } catch (_: Throwable) {}
+                    return "NO_PLAN_WAIT_7739:$why:${lr.why}"
+                }
+                else -> {}
+            }
+        }
         if (setup == null) {
             waited.incrementAndGet()
             waitReasons.computeIfAbsent(read.why) { AtomicLong(0) }.incrementAndGet()
@@ -251,6 +306,24 @@ object TradePlan7739 {
         } catch (_: Throwable) {}
         return null
     }
+
+    /**
+     * V5.0.7742 — the executor's chokepoint. PROJECT_SNIPER and other native
+     * paths open live positions without FinalDecisionGate.evaluate (BotService:
+     * "the sniper path never passes FDG"), so the plan and the council never
+     * saw them: 5.0.7741 bought 11 times while the plan admitted none. Every
+     * live buy now answers to both here; a candidate the gate already planned
+     * and the council already admitted inside two minutes is not re-judged.
+     */
+    fun chokepointRefusal7742(ts: TokenState, lane: String, score: Int, nowMs: Long = System.currentTimeMillis()): String? {
+        val p = plans[ts.mint]
+        val planned = p != null && nowMs - p.atMs in 0L..CHOKEPOINT_RECENT_MS_7742
+        if (!planned) liveBlockReason(ts, lane, false, nowMs)?.let { return it }
+        if (Council7740.recentlyAdmitted7742(ts.mint, nowMs)) return null
+        return Council7740.liveBlockReason(ts, lane, score, false, nowMs)
+    }
+
+    private const val CHOKEPOINT_RECENT_MS_7742 = 2L * 60_000L
 
     /** The plan recorded at the gate for this position, when it predates the entry by under ten minutes. */
     fun planFor(mint: String, entryTimeMs: Long): Plan? {
@@ -305,7 +378,8 @@ object TradePlan7739 {
     }
 
     fun statusLine(): String =
-        "admitted[${admitted.entries.joinToString(",") { "${it.key.name}=${it.value.get()}" }.ifBlank { "none" }}] waited=${waited.get()} plans=${plans.size} " +
+        "admitted[${admitted.entries.joinToString(",") { "${it.key.name}=${it.value.get()}" }.ifBlank { "none" }}] " +
+            "launchLadder7742[${launchAdmits7742.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] waited=${waited.get()} plans=${plans.size} " +
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}"
 }

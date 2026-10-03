@@ -14163,4 +14163,38 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7742_young_launches_get_a_measured_launch_plan_and_every_live_buy_meets_the_plan_and_council() {
+        val tp = com.lifecyclebot.engine.truth.TradePlan7739
+        assertTrue(tp.barsPermitLaunch7742("TOO_FEW_BARS"))
+        assertTrue(tp.barsPermitLaunch7742("NO_PULLBACK_YET"))
+        assertFalse(tp.barsPermitLaunch7742("STILL_FALLING"))
+        assertFalse(tp.barsPermitLaunch7742("CHASING_THE_HIGH"))
+        assertFalse(tp.barsPermitLaunch7742("SELL_DOMINANT_TAPE"))
+        val sel = com.lifecyclebot.engine.truth.FreshLaunchSelector7737
+        val learning = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.LaunchVerdict.LEARNING
+        assertEquals(learning, sel.ladderVerdict7742(null, 4.0))
+        val thin = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n15 = 10; tp15 = 1; stop15 = 9 }
+        assertEquals(learning, sel.ladderVerdict7742(thin, 4.0))
+        // 20 results, 30% to +50% and 60% to -15%: (6*50 - 12*15)/20 = +6.0% gross, +2.0% after 4% cost.
+        val good = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n15 = 20; tp15 = 6; stop15 = 12 }
+        assertEquals(6.0, good.ev15Pct, 1e-9)
+        assertEquals(com.lifecyclebot.engine.truth.FreshLaunchSelector7737.LaunchVerdict.PROVEN, sel.ladderVerdict7742(good, 4.0))
+        val bad = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n15 = 20; tp15 = 2; stop15 = 16 }
+        assertEquals(com.lifecyclebot.engine.truth.FreshLaunchSelector7737.LaunchVerdict.NEGATIVE, sel.ladderVerdict7742(bad, 4.0))
+        // A pre-7742 row decodes with an empty -15% ladder.
+        val old = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell()
+        assertTrue(old.decode("25,11,14,0,0.0,0"))
+        assertEquals(0, old.n15)
+        // The launch plan exits like every plan.
+        val plan = com.lifecyclebot.engine.truth.TradePlan7739.Plan(com.lifecyclebot.engine.truth.TradePlan7739.Setup.LAUNCH_EARLY, -15.0, 50.0, 100.0, 0L)
+        assertTrue(tp.exitFor(plan, -16.0, 3.0, 60_000L, false, 4.0)!!.reason.startsWith("STRUCTURE_STOP_7739_LAUNCH_EARLY"))
+        assertEquals(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.HALF, tp.exitFor(plan, 52.0, 52.0, 300_000L, false, 4.0)!!.kind)
+        assertTrue(tp.exitFor(plan, 10.0, 12.0, 31L * 60_000L, false, 4.0)!!.reason.startsWith("THESIS_TIME_STOP_7739_LAUNCH_EARLY"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("com.lifecyclebot.engine.truth.TradePlan7739.chokepointRefusal7742(ts, canonicalRoutedLane, score.toInt())"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
