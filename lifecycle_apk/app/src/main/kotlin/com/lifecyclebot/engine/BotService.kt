@@ -21286,6 +21286,10 @@ if (hotExitHandledSweep) {
                     com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.tick({ m ->
                         tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
                     }, nowShadow7307)
+                    // V5.0.7752 — price closed live trades at their sixty-minute mark.
+                    com.lifecyclebot.engine.truth.ExitRegret7752.tick({ m ->
+                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
+                    }, nowShadow7307)
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
                 }

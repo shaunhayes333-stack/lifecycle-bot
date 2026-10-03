@@ -14322,4 +14322,24 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7752_exit_regret_compares_each_live_close_with_holding_to_sixty_minutes() {
+        val r = com.lifecyclebot.engine.truth.ExitRegret7752
+        assertEquals("TICK_PROFIT_LOCK", r.family("TICK_PROFIT_LOCK_peak3_now1"))
+        assertEquals("STALE_FLAT_CULL", r.family("STALE_FLAT_CULL_7353"))
+        assertEquals("UNKNOWN", r.family(""))
+        // Sold at +2%; the token then doubled from the exit price: holding would have paid +104%.
+        assertTrue(kotlin.math.abs(r.holdPct(2.0, 1.0, 2.0) - 104.0) < 1e-9)
+        // Stopped at -10%; the token then fell another 50%: holding would have lost 55%.
+        assertTrue(kotlin.math.abs(r.holdPct(-10.0, 1.0, 0.5) + 55.0) < 1e-9)
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
+        assertTrue(bus.contains("try { ExitRegret7752.onClose(env) } catch (_: Throwable) {}"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("com.lifecyclebot.engine.truth.ExitRegret7752.tick({ m ->"))
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("Exit regret (§7752)"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
