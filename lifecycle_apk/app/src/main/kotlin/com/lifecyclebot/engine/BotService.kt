@@ -1649,6 +1649,8 @@ class BotService : Service() {
                                 try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(mint, ln, "CLOSED_BY_CONFIRMED_ZERO") } catch (_: Throwable) {}
                             }
                             try { ForensicLogger.lifecycle("REAP_CLOSED_CONFIRMED_ZERO", "mint=${mint.take(10)} symbol=$symbol reason=$reason") } catch (_: Throwable) {}
+                        } else if (zeroConfirmedWithoutTrackerRow7736(mint, symbol, reason)) {
+                            // V5.0.7736 — handled: no tracker row to close, canonical row quarantined.
                         } else {
                             try { ForensicLogger.lifecycle("REAP_SKIPPED_BALANCE_UNKNOWN", "mint=${mint.take(10)} symbol=$symbol reason=$reason no_independent_zero_finality_or_last_positive") } catch (_: Throwable) {}
                         }
@@ -1661,6 +1663,49 @@ class BotService : Service() {
         } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "BalanceProofPoller start failed: ${e.message}")
         }
+    }
+
+    /**
+     * V5.0.7736 — the poller's zero streak (two complete wallet snapshots without
+     * the mint) on a mint the tracker has no open row for. confirmZeroBalanceClose
+     * returns null when there is no tracker row, or the tracker already holds it
+     * closed, and the canonical LIVE row lived on: 5.0.7735 REAP_SKIPPED_BALANCE_UNKNOWN=2
+     * against ZERO_BALANCE_CONFIRMED=4, two recovered ghosts at -99% holding slots.
+     * The canonical row is quarantined (no invented sale, as 7362 does), the close
+     * authority is finalized and the lanes released. A wallet that later shows the
+     * token reopens it through the reconciler's still-held repair.
+     */
+    private fun zeroConfirmedWithoutTrackerRow7736(mint: String, symbol: String, reason: String): Boolean {
+        val entry = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
+        val trackerHasNothing = entry == null ||
+            entry.status == com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED ||
+            entry.status == com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE
+        if (!trackerHasNothing) return false
+        val canon = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mint == mint && it.mode.equals("live", ignoreCase = true) }
+        } catch (_: Throwable) { emptyList() }
+        if (canon.isEmpty()) return false
+        canon.forEach {
+            try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.quarantine(it.positionId, "CONFIRMED_ZERO_NO_TRACKER_ROW_7736") } catch (_: Throwable) {}
+        }
+        try {
+            com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(
+                mint = mint, symbol = symbol, signature = null,
+                reason = "BALANCE_PROOF_POLLER_ZERO_NO_TRACKER_ROW_7736", source = "balance_proof_poller_zero_7736",
+            )
+        } catch (_: Throwable) {}
+        for (ln in listOf("SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY", "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER", "EXPRESS", "CORE")) {
+            try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(mint, ln, "CLOSED_BY_CONFIRMED_ZERO_7736") } catch (_: Throwable) {}
+        }
+        try {
+            PipelineHealthCollector.labelInc("ZERO_CONFIRMED_NO_TRACKER_ROW_QUARANTINED_7736")
+            ForensicLogger.lifecycle(
+                "ZERO_CONFIRMED_NO_TRACKER_ROW_QUARANTINED_7736",
+                "mint=${mint.take(10)} symbol=$symbol reason=$reason tracker=${entry?.status?.name ?: "none"} canonicalRows=${canon.size} action=quarantine_no_invented_sale",
+            )
+        } catch (_: Throwable) {}
+        return true
     }
 
     // V5.9.1522 — P0 WATCHDOG. Called every botLoop cycle. Guarantees the sell

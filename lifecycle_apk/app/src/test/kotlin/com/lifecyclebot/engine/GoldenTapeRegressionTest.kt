@@ -13994,4 +13994,32 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+
+    /**
+     * V5.0.7736 — 5.0.7735: RECOVERED_A3J37z / RECOVERED_4C8jbK at -99% with
+     * absentReads7733=44-46 retried a sell forever (liveSell's non-empty-map
+     * absent branch returned FAILED_RETRYABLE), and the poller's zero streak
+     * was refused because the tracker had no open row (REAP_SKIPPED=2). Also
+     * OutOfMemoryError at a 256 MB heap on 5.0.7734.
+     */
+    @Test
+    fun V5_0_7736_absent_live_sell_goes_to_the_poller_and_a_zero_streak_without_a_tracker_row_quarantines() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val br = ex.substringAfter("val absent7736 = ").substringBefore("val retryCount = zeroBalanceRetries.merge(ts.mint, 1)")
+        assertTrue(br.contains("if (absent7736 != null && absent7736.count >= 2) {"))
+        assertTrue(br.contains("BalanceProofWaitState.markWaiting("))
+        assertTrue(br.contains("return SellResult.WAITING_BALANCE_PROOF"))
+        assertTrue(br.contains("LIVESELL_ABSENT_HANDED_TO_PROOF_POLLER_7736"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("} else if (zeroConfirmedWithoutTrackerRow7736(mint, symbol, reason)) {"))
+        val fn = bs.substringAfter("private fun zeroConfirmedWithoutTrackerRow7736(").substringBefore("// V5.9.1522 — P0 WATCHDOG.")
+        assertTrue(fn.contains("if (!trackerHasNothing) return false"))
+        assertTrue(fn.contains("quarantine(it.positionId, \"CONFIRMED_ZERO_NO_TRACKER_ROW_7736\")"))
+        assertTrue(fn.contains("LivePositionCloseAuthority.finalizeClosed("))
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+        assertTrue(manifest.contains("android:largeHeap=\"true\""))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

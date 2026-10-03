@@ -27922,6 +27922,32 @@ class Executor(
                 // — i.e. tokens genuinely gone (rug, honeypot, external
                 // sell). Surface as orphan alert, leave position OPEN,
                 // never claim a sell PnL.
+                // V5.0.7736 — a mint absent from two or more COMPLETE wallet
+                // snapshots is handed to the balance-proof poller, whose 7733
+                // zero-read closes it. This branch used to return
+                // FAILED_RETRYABLE forever: 5.0.7735 RECOVERED_A3J37z and
+                // RECOVERED_4C8jbK sat at -99% with absentReads7733=44-46,
+                // heldAttempts 34 and 60, 400 duplicate-suppressed sells and 254
+                // catastrophe triggers, holding two of six live slots.
+                val absent7736 = try { com.lifecyclebot.engine.sell.SellAmountAuthority.absentFromCompleteSnapshot7733(ts.mint) } catch (_: Throwable) { null }
+                if (absent7736 != null && absent7736.count >= 2) {
+                    try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "ABSENT_FROM_COMPLETE_SNAPSHOT_7736") } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                            ts.mint, ts.symbol, reason,
+                            runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                        )
+                    } catch (_: Throwable) {}
+                    try {
+                        PipelineHealthCollector.labelInc("LIVESELL_ABSENT_HANDED_TO_PROOF_POLLER_7736")
+                        ForensicLogger.lifecycle(
+                            "LIVESELL_ABSENT_HANDED_TO_PROOF_POLLER_7736",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason absentReads=${absent7736.count} action=poller_owns_zero_finality",
+                        )
+                    } catch (_: Throwable) {}
+                    return SellResult.WAITING_BALANCE_PROOF
+                }
                 val retryCount = zeroBalanceRetries.merge(ts.mint, 1) { old, _ -> old + 1 } ?: 1
 
                 if (retryCount >= 20) {
