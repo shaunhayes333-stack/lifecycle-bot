@@ -1725,6 +1725,14 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
             return
         }
+        // V5.0.7731 — every distinct verdict that reaches here is observed for
+        // its forward return (ForwardReturnLabeler7731), admitted or refused.
+        // Reads the loop's own token state; no provider call, no capital.
+        try {
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
+                mint, lane, canExecute && hardNoReasons.isEmpty(), reason ?: preFdgVerdict,
+            )
+        } catch (_: Throwable) {}
         val tokenRouteUpper = tokenMapRouteStatus.uppercase()
         val tokenMapExecutable = tokenRouteUpper == "PUMPFUN_BONDING_CURVE_EXECUTABLE" || tokenRouteUpper == "DEX_ROUTABLE"
         val tokenMapNoRoute = tokenRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")

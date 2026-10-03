@@ -13727,4 +13727,91 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7731_the_sample_is_the_edge_every_verdict_is_labelled_and_one_ladder_reads_it() {
+        // 5.0.7729: 11-23 live closes per session feeding 19 learners with 8-60
+        // sample bars; 36,000 candidate offers seen and discarded. Every FDG
+        // verdict is now followed for its 15/60/240-minute net forward return,
+        // per cell (source | lane | mcap band | age band), persisted.
+        val L = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        assertEquals("PUMP_FUN_NEW", L.sourceFamily("SCANNER_DIRECT_PUMP_FUN_NEW,REGISTRY_DUPLICATE_HYDRATE"))
+        assertEquals("PUMP_PORTAL_WS", L.sourceFamily("PUMP_PORTAL_WS,PUMP_PORTAL"))
+        assertEquals("UNKNOWN", L.sourceFamily(""))
+        assertEquals("MC_LT10K", L.mcapBand(3_400.0))
+        assertEquals("MC_10K_100K", L.mcapBand(58_000.0))
+        assertEquals("MC_100K_1M", L.mcapBand(205_000.0))
+        assertEquals("MC_GT1M", L.mcapBand(1_141_580.0))
+        assertEquals("MC_UNKNOWN", L.mcapBand(0.0))
+        assertEquals("AGE_LT15M", L.ageBand(60_000L))
+        assertEquals("AGE_15M_2H", L.ageBand(30L * 60_000L))
+        assertEquals("AGE_UNKNOWN", L.ageBand(-1L))
+        assertEquals("PUMP_PORTAL_WS|MOONSHOT|MC_LT10K|AGE_LT15M", L.cellKey("PUMP_PORTAL_WS,PUMP_PORTAL", "moonshot", 3_400.0, 60_000L))
+        // Net return: +10% gross less a 2.5% cost is +7.5%.
+        assertEquals(7.5, L.netPct(1.0, 1.10, 2.5), 1e-9)
+        assertEquals(100, com.lifecyclebot.engine.truth.CellProofLadder7731.PROOF_MIN_N_7731)
+
+        // The ladder (pure): nothing below a hundred labels; negative only with
+        // the mean a standard error under -2% and under half winners; a cell
+        // that mostly lost its mark is unproven whatever its mean says.
+        val P = com.lifecyclebot.engine.truth.CellProofLadder7731
+        fun stat(n: Int, mean: Double, wr: Double, se: Double, lost: Int) =
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat("c", n, mean, wr, 0.0, se, lost)
+        assertEquals(P.Tier.UNPROVEN, P.tierFor(null))
+        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(99, -40.0, 0.1, 1.0, 0)))
+        assertEquals(P.Tier.NEGATIVE, P.tierFor(stat(100, -40.0, 0.1, 1.0, 0)))
+        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, -2.5, 0.1, 1.0, 0)))
+        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, -40.0, 0.6, 1.0, 0)))
+        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, -40.0, 0.1, 1.0, 120)))
+        assertEquals(P.Tier.POSITIVE, P.tierFor(stat(100, 7.3, 0.4, 1.0, 10)))
+        assertEquals(P.Tier.UNPROVEN, P.tierFor(stat(100, 1.5, 0.4, 1.0, 0)))
+
+        // Wiring: every distinct verdict in recordFdg is observed; the loop ticks
+        // the labeler on the same price closure as the lane shadow proof; the
+        // table is attached with the other proofs and persisted on stop.
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val rec = gate.substringAfter("fun recordFdg(").substringBefore("val tokenRouteUpper = tokenMapRouteStatus.uppercase()")
+        assertTrue(rec.contains("ForwardReturnLabeler7731.observe("))
+        assertTrue(rec.contains("mint, lane, canExecute && hardNoReasons.isEmpty(), reason ?: preFdgVerdict,"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("ForwardReturnLabeler7731.tick({ m ->"))
+        assertTrue(bs.contains("ForwardReturnLabeler7731.attach(applicationContext)"))
+        assertTrue(bs.contains("ForwardReturnLabeler7731.persistNow7731()"))
+        assertTrue(bs.indexOf("LaneShadowProof7307.tick({ m ->") < bs.indexOf("ForwardReturnLabeler7731.tick({ m ->"))
+
+        // FDG: the ladder's refusal is built outside evaluate() (7720 budget) and
+        // runs right after the Field Manual; paper is never refused.
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("private fun cellProofBlock7731("))
+        assertTrue(fdg.contains("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+        assertTrue(fdg.indexOf("fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }") <
+            fdg.indexOf("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+        assertTrue(fdg.indexOf("private fun cellProofBlock7731(") < fdg.indexOf("fun evaluate("))
+        val ladder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CellProofLadder7731.kt").readText()
+        assertTrue(ladder.contains("if (paper) return null"))
+        assertTrue(ladder.contains("CELL_PROOF_NEGATIVE_7731"))
+
+        // COPY / NETWORK proof accepts labeled evidence (its own tally, own bar).
+        val sp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/SignalSourceProof7291.kt").readText()
+        assertTrue(sp.contains("fun onForwardLabel7731(mint: String, netReturnFraction: Double, nowMs: Long = System.currentTimeMillis()) {"))
+        assertTrue(sp.contains("private const val MIN_LABELS_7731 = 50"))
+        assertTrue(sp.contains("return labeledProves7731(l.n, l.mean(), l.pf())"))
+        assertTrue(com.lifecyclebot.engine.truth.SignalSourceProof7291.labeledProves7731(50, 0.02, 1.3))
+        assertFalse(com.lifecyclebot.engine.truth.SignalSourceProof7291.labeledProves7731(49, 0.02, 1.3))
+        assertFalse(com.lifecyclebot.engine.truth.SignalSourceProof7291.labeledProves7731(50, -0.01, 1.3))
+        assertFalse(com.lifecyclebot.engine.truth.SignalSourceProof7291.labeledProves7731(50, 0.02, 1.1))
+        val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(labeler.contains("SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs)"))
+
+        // Report: both lines, and the fixed-cost share next to the slot setting.
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("Forward labels (§7731):"))
+        assertTrue(phc.contains("Cell proof ladder (§7731):"))
+        val doc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
+        assertTrue(doc.contains("const val FIXED_ROUND_TRIP_COST_SOL_7731 = 0.0016"))
+        assertTrue(doc.contains("fixedCostShare7731="))
+        assertEquals(3.8, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.fixedCostSharePct7731(0.042), 0.05)
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

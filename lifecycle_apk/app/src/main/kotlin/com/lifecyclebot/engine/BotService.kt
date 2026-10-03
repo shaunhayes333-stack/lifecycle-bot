@@ -2402,6 +2402,7 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.OracleEdgeProof7263.attach7287(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.LaneShadowProof7307.attach7307(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SignalSourceProof7291.attach(applicationContext) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.attach(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.LaneHunter7297.attach(applicationContext) } catch (_: Throwable) {}
         // V5.0.7559 — START BUTTON LIVENESS. Durable finalized-outcome replay is
         // historical learning repair, not a prerequisite for creating the runtime.
@@ -3928,6 +3929,8 @@ class BotService : Service() {
         super.onDestroy()
         // V5.0.6431 §K — stop the independent reconciler scheduler.
         try { com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.stop() } catch (_: Throwable) {}
+        // V5.0.7731 — the forward-label table survives the restart.
+        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.persistNow7731() } catch (_: Throwable) {}
         ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
         serviceForegroundActive6487 = false
         try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(false, "BotService.onDestroy6487") } catch (_: Throwable) {}
@@ -21052,6 +21055,11 @@ if (hotExitHandledSweep) {
                     // refusals; a mark older than two minutes is not a price.
                     val nowShadow7307 = System.currentTimeMillis()
                     com.lifecyclebot.engine.truth.LaneShadowProof7307.tick({ m ->
+                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
+                    }, nowShadow7307)
+                    // V5.0.7731 — forward-return labels for every FDG verdict,
+                    // priced from the same closure (canonical mark as fallback).
+                    com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.tick({ m ->
                         tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
                     }, nowShadow7307)
                 } catch (e: Exception) {

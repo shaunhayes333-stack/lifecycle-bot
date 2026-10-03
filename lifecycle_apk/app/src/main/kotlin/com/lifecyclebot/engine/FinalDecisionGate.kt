@@ -873,6 +873,41 @@ object FinalDecisionGate {
         }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7731 — CellProofLadder7731: a LIVE entry whose cell (source | lane |
+     * market-cap band | age band) has a hundred forward labels with negative
+     * net expectancy is refused here. Paper is never refused. Same shape as
+     * fieldManualBlock7715: the whole verdict is built outside evaluate(),
+     * which sits at the ART verifier's register limit (7720).
+     */
+    private fun cellProofBlock7731(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        specialistLane: String?,
+        laneName: String,
+        paper: Boolean,
+        mode: TradeMode,
+    ): FinalDecision? = try {
+        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
+        val reason = com.lifecyclebot.engine.truth.CellProofLadder7731.liveBlockReason(ts, lane, paper)
+        if (reason == null) null else FinalDecision(
+            shouldTrade = false,
+            mode = mode,
+            approvalClass = ApprovalClass.BLOCKED,
+            quality = candidate.setupQuality,
+            confidence = candidate.aiConfidence,
+            edge = EdgeVerdict.SKIP,
+            blockReason = reason,
+            blockLevel = BlockLevel.EDGE,
+            sizeSol = 0.0,
+            tags = listOf("cell_proof_7731", "lane:$lane"),
+            mint = ts.mint,
+            symbol = ts.symbol,
+            approvalReason = "CELL_PROOF_NEGATIVE_7731: the candidate's cell has a hundred forward labels with negative net expectancy",
+            gateChecks = listOf(GateCheck("cell_proof_7731", false, "lane=$lane measured cell expectancy negative")),
+        )
+    } catch (_: Throwable) { null }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -1306,6 +1341,7 @@ object FinalDecisionGate {
         // limit (7415 post-login crash, 7417 VerifyError, 7629 VerifyError,
         // 7715 post-login crash) and must not gain locals or branches.
         fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }
+        cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {

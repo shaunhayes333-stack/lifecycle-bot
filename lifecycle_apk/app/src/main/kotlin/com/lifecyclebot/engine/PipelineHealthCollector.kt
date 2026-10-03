@@ -2829,6 +2829,12 @@ object PipelineHealthCollector {
             sb.append("  Signal source proof (§7291):  ").append(
                 try { com.lifecyclebot.engine.truth.SignalSourceProof7291.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Forward labels (§7731):       ").append(
+                try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
+            sb.append("  Cell proof ladder (§7731):    ").append(
+                try { com.lifecyclebot.engine.truth.CellProofLadder7731.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Market sweep (§7297):         ").append(
                 try { com.lifecyclebot.engine.market.MarketSweep7297.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

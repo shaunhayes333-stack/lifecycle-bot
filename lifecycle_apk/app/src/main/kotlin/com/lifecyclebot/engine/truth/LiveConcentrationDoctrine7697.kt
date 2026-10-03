@@ -184,10 +184,25 @@ object LiveConcentrationDoctrine7697 {
         return ConvictionVerdict(false, reason)
     }
 
+    /**
+     * V5.0.7731 — the fixed per-round-trip venue cost a live position pays
+     * whatever its size: two transaction fees plus two priority fees at the
+     * bot's usual tip (LaneShadowProof7307 prices the same 0.0008 SOL leg).
+     * Printed as a share of the position so the manual's §7.1 rule (cost
+     * under half the expected gross) can be read against the slot setting
+     * instead of guessed: 5.0.7729 ran twenty slots at 0.042 SOL each.
+     */
+    const val FIXED_ROUND_TRIP_COST_SOL_7731 = 0.0016
+
+    fun fixedCostSharePct7731(positionSol: Double): Double =
+        if (positionSol.isFinite() && positionSol > 0.0) FIXED_ROUND_TRIP_COST_SOL_7731 / positionSol * 100.0 else Double.NaN
+
     fun statusLine(): String {
         val t = liveTradeableSol()
         val rm = routableMinNow7706(t)
-        return "slots=${slots(t)} share=${"%.0f".format(share(t) * 100)}% positionSol=${"%.4f".format(positionSol(t, rm))} routableMin=${"%.4f".format(rm)} " +
+        val pos7731 = positionSol(t, rm)
+        return "slots=${slots(t)} share=${"%.0f".format(share(t) * 100)}% positionSol=${"%.4f".format(pos7731)} routableMin=${"%.4f".format(rm)} " +
+            "fixedCostShare7731=${"%.1f".format(fixedCostSharePct7731(pos7731))}% " +
             "liveOpen=${liveOpenCount()} tradeable=${"%.4f".format(t)} " +
             "slotRefusals=${slotRefusals.get()} convictionAllow=${convictionAllows.get()} convictionRefused=${convictionRefusals.get()} " +
             "floorApplied=${floorApplied.get()}" +
