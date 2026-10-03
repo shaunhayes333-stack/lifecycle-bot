@@ -316,20 +316,9 @@ object TradePlan7739 {
      * and the council already admitted inside two minutes is not re-judged.
      */
     fun chokepointRefusal7742(ts: TokenState, lane: String, score: Int, nowMs: Long = System.currentTimeMillis()): String? {
-        // V5.0.7746 — the creed's daily loss floor comes first.
-        CapitalPreservationCreed6439.dailyLossLimitRefusal7746()?.let { return it }
-        // V5.0.7747 — the lane's losing-streak cooldown (Field Manual §8.2: "set a
-        // maximum loss per trade, per day/session, and per strategy. Define when
-        // trading pauses"; §10: "after a loss, do not immediately increase size or
-        // loosen rules"). LosingStreakReflex6439 already starts a 30-minute cooldown
-        // after MAX_CONSECUTIVE_LOSSES straight losses in a mode|lane; nothing read it.
-        try {
-            val rem7747 = LosingStreakReflex6439.cooldownRemainingSec(lane.trim().uppercase(), "LIVE")
-            if (rem7747 > 0L) {
-                PipelineHealthCollector.labelInc("LOSING_STREAK_COOLDOWN_REFUSED_7747")
-                return "LOSING_STREAK_COOLDOWN_6439:lane=${lane.trim().uppercase()} remSec=$rem7747"
-            }
-        } catch (_: Throwable) {}
+        // V5.0.7748 — no pause here. Operator: "it has to trade to learn." The
+        // daily loss floor (7746) and the lane losing-streak cooldown (7747) are
+        // removed; losses teach the lane, they do not stop it.
         val p = plans[ts.mint]
         val planned = p != null && nowMs - p.atMs in 0L..CHOKEPOINT_RECENT_MS_7742
         if (!planned) liveBlockReason(ts, lane, false, nowMs)?.let { return it }

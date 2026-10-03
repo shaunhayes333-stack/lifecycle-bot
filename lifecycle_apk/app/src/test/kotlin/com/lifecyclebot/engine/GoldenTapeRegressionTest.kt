@@ -14261,26 +14261,19 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun V5_0_7746_the_creed_daily_loss_floor_refuses_live_entries() {
-        val c = com.lifecyclebot.engine.truth.CapitalPreservationCreed6439
-        assertTrue(c.dailyLossLimitTripped7746(0.10, -0.008))
-        assertFalse(c.dailyLossLimitTripped7746(0.10, -0.0079))
-        assertFalse(c.dailyLossLimitTripped7746(0.10, 0.02))
-        assertFalse(c.dailyLossLimitTripped7746(0.0, -0.05))
+    fun V5_0_7746_daily_loss_floor_removed_in_7748_the_bot_trades_to_learn() {
         val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
         val choke = tp.substringAfter("fun chokepointRefusal7742(").substringBefore("private const val CHOKEPOINT_RECENT_MS_7742")
-        assertTrue(choke.indexOf("dailyLossLimitRefusal7746()") < choke.indexOf("liveBlockReason(ts, lane, false, nowMs)"))
-        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertFalse(choke.contains("dailyLossLimitRefusal7746"))
+        val creed = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CapitalPreservationCreed6439.kt").readText()
+        assertFalse(creed.contains("fun dailyLossLimitRefusal7746"))
     }
 
     @Test
-    fun V5_0_7747_lane_losing_streak_cooldown_refuses_entries_and_whale_tracker_hears_the_trade_stream() {
+    fun V5_0_7747_whale_tracker_hears_the_trade_stream_and_the_lane_cooldown_was_removed_in_7748() {
         val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
         val choke = tp.substringAfter("fun chokepointRefusal7742(").substringBefore("private const val CHOKEPOINT_RECENT_MS_7742")
-        assertTrue(choke.contains("LosingStreakReflex6439.cooldownRemainingSec(lane.trim().uppercase(), \"LIVE\")"))
-        assertTrue(choke.indexOf("LosingStreakReflex6439") < choke.indexOf("liveBlockReason(ts, lane, false, nowMs)"))
-        assertTrue(choke.contains("Field Manual §8.2"))
+        assertFalse(choke.contains("LosingStreakReflex6439.cooldownRemainingSec"))
         val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
         assertTrue(orch.contains("solAmount * solUsd7747 >= WHALE_TRADE_MIN_USD_7747"))
         assertTrue(orch.contains("private val WHALE_TRADE_MIN_USD_7747 = 1_000.0"))
