@@ -154,11 +154,17 @@ object PumpFunWS {
      * [soldFractionOfHolding] is tokenAmount / (tokenAmount + newTokenBalance)
      * on a sell, else 0.
      */
-    @Volatile private var onTradeDetailCb7743: ((mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) -> Unit)? = null
+    @Volatile private var onTradeDetailCb7743: ((mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double, vSolInCurve: Double) -> Unit)? = null
 
-    fun setOnTradeDetail7743(cb: (mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) -> Unit) {
+    fun setOnTradeDetail7743(cb: (mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double, vSolInCurve: Double) -> Unit) {
         onTradeDetailCb7743 = cb
     }
+
+    /**
+     * V5.0.7744 — pump.fun curves start with 30 SOL of virtual reserves, so the
+     * SOL a curve has actually raised is vSolInBondingCurve minus this.
+     */
+    const val PUMP_INITIAL_VIRTUAL_SOL_7744 = 30.0
 
     private fun registerFreshLifecycle7420(mint: String) {
         if (mint.isBlank()) return
@@ -394,7 +400,7 @@ object PumpFunWS {
                             val left7743 = j.optDouble("newTokenBalance", -1.0)
                             val soldFrac7743 = if (txType == "sell" && tok7743.isFinite() && tok7743 > 0.0 && left7743.isFinite() && left7743 >= 0.0)
                                 tok7743 / (tok7743 + left7743) else 0.0
-                            onTradeDetailCb7743?.invoke(mint, j.optString("traderPublicKey", ""), sol7743, txType == "buy", soldFrac7743)
+                            onTradeDetailCb7743?.invoke(mint, j.optString("traderPublicKey", ""), sol7743, txType == "buy", soldFrac7743, vSol)
                         } catch (_: Throwable) {}
                     }
                     txType == "create" || j.has("name") && j.has("symbol") && j.has("mint") -> {

@@ -150,6 +150,7 @@ object DipHunterAI {
         var recoveryHighPct: Double = 0.0,  // Best recovery so far
         var recoveryBanked: Boolean = false, // V5.0.7389 — target partial taken, remainder rides
         var remainingFrac: Double = 1.0,     // V5.0.7389 — share of entrySol still held
+        val bounceLow: Double = 0.0,         // V5.0.7744 — the confirmed bounce low; a close under it ends the thesis
     )
     
     data class DipSignal(
@@ -589,6 +590,7 @@ object DipHunterAI {
         marketCapUsd: Double,
         liquidityUsd: Double,
         isPaper: Boolean,
+        bounceLow: Double = 0.0,
     ) {
         val position = DipPosition(
             mint = mint,
@@ -601,6 +603,7 @@ object DipHunterAI {
             entryMcap = marketCapUsd,
             entryLiquidity = liquidityUsd,
             isPaper = isPaper,
+            bounceLow = if (bounceLow.isFinite() && bounceLow > 0.0 && bounceLow < entryPrice && bounceLow >= entryPrice * 0.5) bounceLow else 0.0,
         )
         
         synchronized(activeDips) {
@@ -616,6 +619,20 @@ object DipHunterAI {
             "dip=${dipDepthPct.fmt(1)}% | " +
             "size=${entrySol.fmt(4)} SOL")
     }
+
+    /**
+     * V5.0.7744 — pure: the low the bounce confirmation reads (lowest of the
+     * last eight prices, the same window as BotService's dipBounce7389), or 0.
+     */
+    fun bounceLow7744(prices: List<Double>): Double {
+        val px = prices.filter { it.isFinite() && it > 0.0 }.takeLast(8)
+        return if (px.size < 4) 0.0 else px.minOrNull() ?: 0.0
+    }
+
+    /** V5.0.7744 — [bounceLow7744] over the token's own price history; 0 when unreadable. */
+    fun bounceLowOf7744(ts: com.lifecyclebot.data.TokenState): Double = try {
+        bounceLow7744(synchronized(ts.history) { ts.history.toList() }.map { it.priceUsd })
+    } catch (_: Throwable) { 0.0 }
 
     fun restoreDip(position: DipPosition) {
         synchronized(activeDips) { activeDips[position.mint] = position }
@@ -669,6 +686,14 @@ object DipHunterAI {
             return DipExitSignal.PARTIAL_TAKE
         }
         
+        // 3a. V5.0.7744 — STRUCTURAL STOP: the reclaim failed back under the bounce low
+        // the entry was confirmed on (Field Manual §4D: invalidation below the sweep low).
+        if (pos.bounceLow > 0.0 && currentPrice > 0.0 && currentPrice < pos.bounceLow * 0.98) {
+            ErrorLogger.info(TAG, "📉🛑 STRUCTURE STOP! $mint | price under bounce low ${pos.bounceLow.fmtPrice()}")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DIP_STRUCTURE_STOP_7744") } catch (_: Throwable) {}
+            return DipExitSignal.STOP_LOSS
+        }
+
         // 3. STOP LOSS - FLUID
         if (pnlPct <= stopLoss) {
             ErrorLogger.info(TAG, "📉🛑 STOP LOSS! $mint | ${pnlPct.fmt(1)}% (fluid SL: ${stopLoss.toInt()}%)")

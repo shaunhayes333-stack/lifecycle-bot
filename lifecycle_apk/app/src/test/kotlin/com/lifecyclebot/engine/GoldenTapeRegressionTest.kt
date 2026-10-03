@@ -14218,4 +14218,22 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7744_mode_exits_act_dip_stops_on_its_bounce_low_migration_flags_held_tokens_and_curve_reserves_are_real() {
+        val dip = com.lifecyclebot.v3.scoring.DipHunterAI
+        assertEquals(0.90, dip.bounceLow7744(listOf(1.0, 0.95, 0.90, 0.93, 0.96, 0.99)), 1e-9)
+        assertEquals(0.0, dip.bounceLow7744(listOf(1.0, 0.9, 0.95)), 1e-9)
+        val dipSrc = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
+        assertTrue(dipSrc.contains("if (pos.bounceLow > 0.0 && currentPrice > 0.0 && currentPrice < pos.bounceLow * 0.98) {"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("actOnModeExit7744(ts, exitRec, wallet, effectiveBalance)"))
+        assertTrue(bs.contains("if (!immediate && com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) != null) return"))
+        assertTrue(bs.contains("status.tokens[mint]?.let { RouteTruthHydrator.markGraduatedByEvent7744(it) }"))
+        assertTrue(bs.contains("bounceLow = com.lifecyclebot.v3.scoring.DipHunterAI.bounceLowOf7744(ts),"))
+        assertTrue(bs.contains("tm.realSolReserves = (vSol - com.lifecyclebot.network.PumpFunWS.PUMP_INITIAL_VIRTUAL_SOL_7744).coerceAtLeast(0.0)"))
+        assertEquals(30.0, com.lifecyclebot.network.PumpFunWS.PUMP_INITIAL_VIRTUAL_SOL_7744, 1e-9)
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

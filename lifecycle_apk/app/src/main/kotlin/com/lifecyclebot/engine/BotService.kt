@@ -871,6 +871,48 @@ class BotService : Service() {
     private val tickLockFloor7392 = java.util.concurrent.ConcurrentHashMap<String, Double>()
     private val OFF_LOOP_SELL_RETRY_MS_7288 = 60_000L
 
+    private val modeExitAttemptMs7744 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.7744 — ModeSpecificExits' per-trade-type exits (ignition failed,
+     * liquidity draining, reversal reclaim failed, whale band broken, whale or
+     * leader flow gone, post-graduation liquidity collapse, trend broken, learned
+     * timeout) were computed for every held position and only logged. IMMEDIATE
+     * (structure / integrity) now sells; URGENT sells unless a TradePlan7739 plan
+     * owns the position, so a generic timeout cannot cut a plan short of its own
+     * horizon. A partial exitPct sells that share. One attempt per mint per 20 s.
+     */
+    private fun actOnModeExit7744(
+        ts: com.lifecyclebot.data.TokenState,
+        rec: ModeSpecificExits.ExitRecommendation,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+        walletSol: Double,
+    ) {
+        try {
+            val pos = ts.position
+            if (!rec.shouldExit || !pos.isOpen) return
+            val immediate = rec.urgency == ModeSpecificExits.ExitUrgency.IMMEDIATE
+            if (!immediate && rec.urgency != ModeSpecificExits.ExitUrgency.URGENT) return
+            if (!immediate && com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) != null) return
+            val now = System.currentTimeMillis()
+            if (now - (modeExitAttemptMs7744[ts.mint] ?: 0L) < 20_000L) return
+            modeExitAttemptMs7744[ts.mint] = now
+            if (modeExitAttemptMs7744.size > 1_000) modeExitAttemptMs7744.entries.removeIf { now - it.value > 3_600_000L }
+            val tag = rec.reason.uppercase().replace(Regex("[^A-Z0-9]+"), "_").trim('_').take(70)
+            // IMMEDIATE carries STOP so the live minimum hold does not delay a structural exit.
+            val reason = if (immediate) "MODE_EXIT_STOP_7744_$tag" else "MODE_EXIT_7744_$tag"
+            PipelineHealthCollector.labelInc(if (immediate) "MODE_EXIT_IMMEDIATE_ACTED_7744" else "MODE_EXIT_URGENT_ACTED_7744")
+            ForensicLogger.lifecycle("MODE_EXIT_ACTED_7744", "mint=${ts.mint.take(10)} symbol=${ts.symbol} urgency=${rec.urgency} exitPct=${rec.exitPct.toInt()} reason=${rec.reason.take(120)}")
+            if (rec.exitPct in 1.0..98.9) {
+                scope.launch(Dispatchers.IO) {
+                    try { executor.requestPartialSellConfirmed6566(ts, rec.exitPct / 100.0, reason, wallet, walletSol) } catch (_: Throwable) {}
+                }
+            } else {
+                requestSellOffLoop7288(ts, reason, wallet, walletSol)
+            }
+        } catch (_: Throwable) {}
+    }
+
     private val planExitAttemptMs7739 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /**
@@ -9910,8 +9952,18 @@ class BotService : Service() {
             }
             // V5.0.7743 — wallet, size and side reach the launch tape, the
             // real-time candles and the dev-sell exit (DataOrchestrator).
-            com.lifecyclebot.network.PumpFunWS.setOnTradeDetail7743 { mint, wallet, sol, isBuy, soldFrac ->
+            com.lifecyclebot.network.PumpFunWS.setOnTradeDetail7743 { mint, wallet, sol, isBuy, soldFrac, vSol ->
                 try { orchestrator?.onPumpPortalTrade7743(mint, wallet, sol, isBuy, soldFrac) } catch (_: Throwable) {}
+                // V5.0.7744 — the curve's real SOL from the trade itself (BondingCurveTracker read
+                // tokenMap.realSolReserves, which had no writer, and fell back to an mcap estimate).
+                try {
+                    status.tokens[mint]?.tokenMap?.let { tm ->
+                        if (vSol.isFinite() && vSol > 0.0) {
+                            tm.virtualSolReserves = vSol
+                            tm.realSolReserves = (vSol - com.lifecyclebot.network.PumpFunWS.PUMP_INITIAL_VIRTUAL_SOL_7744).coerceAtLeast(0.0)
+                        }
+                    }
+                } catch (_: Throwable) {}
             }
             com.lifecyclebot.network.PumpFunWS.start(
                 // V5.0.7284 — the trade stream is keyed; blank means launches only.
@@ -10025,6 +10077,8 @@ class BotService : Service() {
                 },
                 onMigration = { mint ->
                     ErrorLogger.info("BotService", "🚀 PumpPortal migration: ${mint.take(8)}…")
+                    // V5.0.7744 — a held curve token routes its exits to the AMM from this event on.
+                    try { status.tokens[mint]?.let { RouteTruthHydrator.markGraduatedByEvent7744(it) } } catch (_: Throwable) {}
                     // V5.0.7384 — a graduation is a fresh, high-signal event; it only
                     // logged. Off the socket thread, give the new AMM pool a moment to
                     // index, read its OBSERVED pair liquidity, and admit it like a create.
@@ -30492,6 +30546,8 @@ if (hotExitHandledSweep) {
                                     marketCapUsd = ts.lastMcap,
                                     liquidityUsd = ts.lastLiquidityUsd,
                                     isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
+                                    // V5.0.7744 — the bounce low the entry was confirmed on is the stop.
+                                    bounceLow = com.lifecyclebot.v3.scoring.DipHunterAI.bounceLowOf7744(ts),
                                 )
                                 PipelineHealthCollector.labelInc("DIP_HUNTER_OPEN_AFTER_BUY_4220")
 
@@ -33535,6 +33591,8 @@ if (hotExitHandledSweep) {
         if (exitRec != null && exitRec.shouldExit && 
             exitRec.urgency in listOf(ModeSpecificExits.ExitUrgency.IMMEDIATE, ModeSpecificExits.ExitUrgency.URGENT)) {
             ModeSpecificExits.logExitRecommendation(ts, positionTradeType, exitRec)
+            // V5.0.7744 — and act on it (helper: this body is at the JVM back end's limit).
+            actOnModeExit7744(ts, exitRec, wallet, effectiveBalance)
         }
         
         if (!cbState.isHalted) {

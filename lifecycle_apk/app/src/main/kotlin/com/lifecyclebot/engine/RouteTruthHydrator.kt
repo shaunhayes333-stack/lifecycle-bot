@@ -68,6 +68,22 @@ object RouteTruthHydrator {
         return true
     }
 
+    /**
+     * V5.0.7744 — the PumpPortal migration event is explicit proof the curve
+     * completed. The only other writer infers it from venue strings later, so a
+     * held curve position kept routing exits to the dead curve until then.
+     * Same fields as [markGraduationIfDetected6852]. Returns true if this call flipped the flag.
+     */
+    fun markGraduatedByEvent7744(ts: TokenState): Boolean {
+        val tm = ts.tokenMap
+        if (tm.migratedOrGraduated) return false
+        tm.migratedOrGraduated = true
+        tm.pumpFunExecutable = false
+        tm.pumpFunBondingCurveStatus = "COMPLETED_MIGRATED"
+        try { PipelineHealthCollector.labelInc("GRADUATION_DETECTED_MIGRATION_EVENT_7744") } catch (_: Throwable) {}
+        return true
+    }
+
     fun hydrate(ts: TokenState): Result {
         val now = System.currentTimeMillis()
         val tm = ts.tokenMap
