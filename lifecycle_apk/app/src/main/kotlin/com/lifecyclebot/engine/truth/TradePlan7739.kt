@@ -324,7 +324,7 @@ object TradePlan7739 {
         // removed; losses teach the lane, they do not stop it.
         val p = plans[ts.mint]
         val planned = p != null && nowMs - p.atMs in 0L..CHOKEPOINT_RECENT_MS_7742
-        if (!planned) liveBlockReason(ts, lane, false, nowMs)?.let { return it }
+        if (!planned) liveBlockReason(ts, lane, false, nowMs)?.let { return chokeRefused7751(lane, it, p != null) }
         // V5.0.7749 — no council here. A buy that reaches the executor was produced
         // by its owner lane's own decision (the sniper's assessTarget, a lane's
         // shouldEnter), so the owner has voted. Re-asking it through
@@ -336,6 +336,20 @@ object TradePlan7739 {
     }
 
     private const val CHOKEPOINT_RECENT_MS_7742 = 2L * 60_000L
+
+    // V5.0.7751 — 5.0.7749 showed CHOKEPOINT_7742=72 with no breakdown: the
+    // plan's waitWhy merges gate and executor reads. Which lane, which read,
+    // and whether the gate had planned the mint earlier, so the next snapshot
+    // says what the executor refused instead of leaving it to inference.
+    private val chokeWhy7751 = ConcurrentHashMap<String, AtomicLong>()
+
+    private fun chokeRefused7751(lane: String, reason: String, hadEarlierPlan: Boolean): String {
+        val why = reason.removePrefix("NO_PLAN_WAIT_7739:").substringBefore(':')
+        val key = "${CanonicalLaneIdentity6506.canonical(lane)}|$why${if (hadEarlierPlan) "|planExpired" else ""}"
+        chokeWhy7751.computeIfAbsent(key) { AtomicLong(0) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("CHOKEPOINT_7742_PLAN_$why") } catch (_: Throwable) {}
+        return reason
+    }
 
     /** The plan recorded at the gate for this position, when it predates the entry by under ten minutes. */
     fun planFor(mint: String, entryTimeMs: Long): Plan? {
@@ -393,5 +407,6 @@ object TradePlan7739 {
         "admitted[${admitted.entries.joinToString(",") { "${it.key.name}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "launchLadder7742[${launchAdmits7742.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] waited=${waited.get()} plans=${plans.size} " +
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
-            "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}"
+            "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
+            "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}"
 }

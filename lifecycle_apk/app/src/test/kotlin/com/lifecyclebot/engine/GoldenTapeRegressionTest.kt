@@ -14311,4 +14311,15 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7751_executor_plan_refusals_are_broken_down_by_lane_and_read() {
+        val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
+        val choke = tp.substringAfter("fun chokepointRefusal7742(").substringBefore("private const val CHOKEPOINT_RECENT_MS_7742")
+        assertTrue(choke.contains("liveBlockReason(ts, lane, false, nowMs)?.let { return chokeRefused7751(lane, it, p != null) }"))
+        assertTrue(tp.contains("executorRefused7751="))
+        assertTrue(tp.contains("CanonicalLaneIdentity6506.canonical(lane)"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
