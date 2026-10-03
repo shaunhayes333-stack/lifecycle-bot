@@ -86,6 +86,27 @@ object ForwardReturnLabeler7731 {
     @Volatile private var offWatchLastFetchMs7737 = 0L
     private val offWatchPriced7737 = AtomicLong(0)
     private val offWatchMissed7737 = AtomicLong(0)
+    /**
+     * V5.0.7738 — basis guard. 5.0.7737 at 396 s: PROJECT_SNIPER labels read
+     * n=44 net=+1116.5% wr=9%, and the forecast model's S|PROJECT_SNIPER cell
+     * E=+1245% +-7073 at n=39: a mean that size beside a 9% win rate is one or
+     * two marks tens of times the entry, an entry price and a mark on different
+     * bases, not a token that ran 250x in an hour. A mark more than
+     * [BASIS_MAX_RATIO_7738] times the entry, or under 1/[BASIS_MAX_RATIO_7738]
+     * of it, is not booked; a booked net enters the means capped at
+     * [NET_CEILING_PCT_7738] (the runner count still reads the gross move).
+     */
+    private const val BASIS_MAX_RATIO_7738 = 20.0
+    private const val NET_CEILING_PCT_7738 = 300.0
+    private val basisSuspect7738 = AtomicLong(0)
+    private val purgedCells7738 = AtomicLong(0)
+
+    /** Pure: true when a mark and an entry price cannot be on the same basis. */
+    fun basisSuspect7738(entryPrice: Double, markPrice: Double): Boolean {
+        if (!entryPrice.isFinite() || !markPrice.isFinite() || entryPrice <= 0.0 || markPrice <= 0.0) return true
+        val r = markPrice / entryPrice
+        return r > BASIS_MAX_RATIO_7738 || r < 1.0 / BASIS_MAX_RATIO_7738
+    }
 
     private class Obs(
         val mint: String,
@@ -178,6 +199,25 @@ object ForwardReturnLabeler7731 {
                 val key = row.substring(0, sep)
                 val t = Tally()
                 if (t.decode(row.substring(sep + 1))) cells[key] = t
+            }
+        } catch (_: Throwable) {}
+        // V5.0.7738 — once: cells whose 60-minute mean was built on basis artefacts start over.
+        try {
+            if (!p.getBoolean("purged7738", false)) {
+                for ((k, t) in cells.entries.toList()) {
+                    val implausible = synchronized(t) { t.n60 > 0 && t.sum60 / t.n60 > 150.0 }
+                    if (implausible) {
+                        val fresh = Tally()
+                        fresh.lost = synchronized(t) { t.lost }
+                        cells[k] = fresh
+                        purgedCells7738.incrementAndGet()
+                    }
+                }
+                p.edit().putBoolean("purged7738", true).apply()
+                if (purgedCells7738.get() > 0) {
+                    PipelineHealthCollector.labelInc("FORWARD_LABEL_CELLS_PURGED_7738")
+                    ForensicLogger.lifecycle("FORWARD_LABEL_CELLS_PURGED_7738", "purged=${purgedCells7738.get()} bar=mean60<=150% action=basis_artefact_cells_restarted")
+                }
             }
         } catch (_: Throwable) {}
         try {
@@ -448,9 +488,16 @@ object ForwardReturnLabeler7731 {
                 }
                 continue
             }
+            if (basisSuspect7738(o.entryPrice, px)) {
+                // V5.0.7738 — not a price move; the observation is dropped unbooked.
+                basisSuspect7738.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_SUSPECT_7738") } catch (_: Throwable) {}
+                pending.remove(key, o)
+                continue
+            }
             val gross = (px / o.entryPrice - 1.0) * 100.0
             if (gross > o.peakPct) o.peakPct = gross
-            val net = netPct(o.entryPrice, px, o.costPct)
+            val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
             if (!o.done15 && age >= H15_MS_7731) { o.done15 = true; book(o, 15, net, gross) }
             if (!o.done60 && age >= H60_MS_7731) {
                 o.done60 = true
@@ -511,7 +558,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()}] basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +

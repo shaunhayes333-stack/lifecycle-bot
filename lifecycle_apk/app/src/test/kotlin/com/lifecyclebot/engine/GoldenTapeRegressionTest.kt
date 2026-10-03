@@ -14062,4 +14062,26 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7738_label_basis_artefacts_are_refused_capped_and_purged_and_unhydrated_launches_are_judged() {
+        val lab = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        assertTrue(lab.basisSuspect7738(1.0e-6, 2.5e-4))
+        assertTrue(lab.basisSuspect7738(1.0e-4, 1.0e-6))
+        assertFalse(lab.basisSuspect7738(1.0e-5, 3.0e-5))
+        assertTrue(lab.basisSuspect7738(0.0, 1.0))
+        val sel = com.lifecyclebot.engine.truth.FreshLaunchSelector7737
+        assertEquals(120_000L, sel.unresolvedLaunchAgeMs7738("PUMP_PORTAL_WS", 1_000_000L, 40_000.0, 1_120_000L))
+        assertTrue(sel.unresolvedLaunchAgeMs7738("DEX_TRENDING", 1_000_000L, 40_000.0, 1_120_000L) == null)
+        assertTrue(sel.unresolvedLaunchAgeMs7738("PUMP_FUN_NEW", 1_000_000L, 900_000.0, 1_120_000L) == null)
+        assertTrue(sel.unresolvedLaunchAgeMs7738("RAYDIUM_NEW_POOL", 0L, 40_000.0, 1_120_000L) == null)
+        val fom = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ForwardOutcomeModel.kt").readText()
+        assertTrue(fom.contains("val pnl = netPct.coerceIn(-95.0, LABEL_GAIN_CEILING_PCT_7738)"))
+        assertTrue(fom.contains("if (purgeImplausibleLabelCells7738() > 0) save(context)"))
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(src.contains("val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)"))
+        assertTrue(src.contains("if (!p.getBoolean(\"purged7738\", false)) {"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

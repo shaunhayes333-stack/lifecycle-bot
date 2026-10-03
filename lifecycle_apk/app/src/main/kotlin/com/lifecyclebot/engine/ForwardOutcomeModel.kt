@@ -354,6 +354,26 @@ object ForwardOutcomeModel {
      * encourage only softly.
      */
     private const val LABEL_TAG_7734 = "S"
+    /** V5.0.7738 — the most one forward label may contribute to a label cell's mean. */
+    private const val LABEL_GAIN_CEILING_PCT_7738 = 300.0
+    /** V5.0.7738 — a label cell whose mean is above this was built on basis artefacts. */
+    private const val LABEL_MEAN_PLAUSIBLE_PCT_7738 = 150.0
+
+    /** V5.0.7738 — drops label cells poisoned before the ceiling existed; returns how many. */
+    private fun purgeImplausibleLabelCells7738(): Int {
+        var n = 0
+        for (map in listOf(fine, coarse)) {
+            val bad = map.entries.filter { it.key.startsWith("$LABEL_TAG_7734|") && (it.value.mean > LABEL_MEAN_PLAUSIBLE_PCT_7738 || it.value.stdev > 1_000.0) }
+            bad.forEach { if (map.remove(it.key, it.value)) n++ }
+        }
+        if (n > 0) {
+            try {
+                PipelineHealthCollector.labelInc("FORWARD_OUTCOME_LABEL_CELLS_PURGED_7738")
+                ForensicLogger.lifecycle("FORWARD_OUTCOME_LABEL_CELLS_PURGED_7738", "purged=$n bar=mean<=${LABEL_MEAN_PLAUSIBLE_PCT_7738}% stdev<=1000 action=basis_artefact_cells_dropped")
+            } catch (_: Throwable) {}
+        }
+        return n
+    }
     @Volatile private var labelUpdates7734 = 0L
     private fun labelFineKey7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String): String =
         "$LABEL_TAG_7734|${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"
@@ -364,7 +384,9 @@ object ForwardOutcomeModel {
     fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double) {
         try {
             if (!netPct.isFinite() || lane.isBlank()) return
-            val pnl = netPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
+            // V5.0.7738 — a label is a costless mark, not a close; one basis
+            // artefact at +25,000% made S|PROJECT_SNIPER read E=+1245% at n=39.
+            val pnl = netPct.coerceIn(-95.0, LABEL_GAIN_CEILING_PCT_7738)
             update(fine.getOrPut(labelFineKey7734(lane, score, quality, regime, edgePhase)) { Cell() }, pnl)
             update(coarse.getOrPut(labelCoarseKey7734(lane, score, regime)) { Cell() }, pnl)
             labelUpdates7734 += 1
@@ -629,6 +651,7 @@ object ForwardOutcomeModel {
         try {
             val s = context.getSharedPreferences("forward_outcome_model", Context.MODE_PRIVATE).getString("state", null)
             if (!s.isNullOrBlank()) importState(s)
+            if (purgeImplausibleLabelCells7738() > 0) save(context)
         } catch (_: Throwable) {}
     }
 

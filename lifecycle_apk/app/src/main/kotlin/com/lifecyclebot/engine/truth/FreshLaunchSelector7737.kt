@@ -165,7 +165,11 @@ object FreshLaunchSelector7737 {
     }
 
     private fun setupFor(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Setup? {
-        val age = try { CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) } catch (_: Throwable) { null } ?: return null
+        val resolved = try { CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) } catch (_: Throwable) { null }
+        // V5.0.7738 — a launch whose birth has not hydrated yet is still judged.
+        // 5.0.7737 read TOKEN_BIRTH_HYDRATION_PENDING_7440=3298 in 396 s; each of
+        // those returned null here and went to a live buy unjudged.
+        val age = resolved ?: unresolvedLaunchAgeMs7738(ts.source, ts.addedToWatchlistAt, ts.lastMcap, nowMs) ?: return null
         if (age > FRESH_MAX_AGE_MS_7737) return null
         val lp = try { LaunchPhaseAuthority7401.snapshot(ts, nowMs) } catch (_: Throwable) { null } ?: return null
         val flow = flowBucket(lp.buyTx60s, lp.sellTx60s, lp.buySharePct, lp.distinctBuyers60s, lp.accelerationRising)
@@ -175,6 +179,21 @@ object FreshLaunchSelector7737 {
         val key = "${lp.phase.name}|$flow|$conc|$mult"
         val refusal = structuralRefusal(lp.devSellTx60s, chg5m, flow, conc, lp.createMultiple)
         return Setup(key, refusal, age, lp.reason)
+    }
+
+    /**
+     * Pure: the watchlist age of a token with no resolved birth that came from
+     * a launch feed (pump.fun, PumpPortal, a new Raydium pool) under $300k, or
+     * null. Watchlist age is never older than birth age, so a token this
+     * returns null for may still be fresh, and one it times is at least that old.
+     */
+    fun unresolvedLaunchAgeMs7738(source: String, addedToWatchlistAt: Long, mcapUsd: Double, nowMs: Long): Long? {
+        if (addedToWatchlistAt <= 0L) return null
+        val src = source.uppercase()
+        val launchFeed = src.contains("PUMP") || src.contains("NEW_POOL")
+        if (!launchFeed) return null
+        if (mcapUsd.isFinite() && mcapUsd >= 300_000.0) return null
+        return (nowMs - addedToWatchlistAt).coerceAtLeast(0L)
     }
 
     private fun cellSnapshot(key: String): Cell? {
@@ -329,6 +348,7 @@ object FreshLaunchSelector7737 {
                 continue
             }
             o.lastPricedMs = nowMs
+            if (ForwardReturnLabeler7731.basisSuspect7738(o.entryPrice, px)) { pending.remove(mint, o); bookOutcome(o, "LOST", 0.0); continue }
             val gross = (px / o.entryPrice - 1.0) * 100.0
             when {
                 gross >= TP_PCT_7737 -> { pending.remove(mint, o); bookOutcome(o, "TP", gross - o.costPct) }
