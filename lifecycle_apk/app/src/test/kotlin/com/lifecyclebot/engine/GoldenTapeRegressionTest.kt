@@ -14370,9 +14370,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7754_planned_positions_exit_on_their_plan_not_on_lane_blind_percent_exits() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("private fun planOwnsExit7754(ts: com.lifecyclebot.data.TokenState, wouldFire: Boolean, catastrophic: Boolean, exitName: String): Boolean"))
-        assertTrue(bot.contains("!planOwnsExit7754(ts, true, catastrophicConfirmed4485, \"TICK_FLOOR\")"))
-        assertTrue(bot.contains("!planOwnsExit7754(ts, true, false, \"RAPID_FLUID\")"))
+        assertTrue(bot.contains("private fun planOwnsExit7754(ts: com.lifecyclebot.data.TokenState, wouldFire: Boolean, catastrophic: Boolean, exitName: String, stopSide: Boolean = false): Boolean"))
+        assertTrue(bot.contains("!planOwnsExit7754(ts, true, catastrophicConfirmed4485, \"TICK_FLOOR\", stopSide = true)"))
+        assertTrue(bot.contains("!planOwnsExit7754(ts, true, false, \"RAPID_FLUID\", stopSide = true)"))
         assertTrue(bot.contains("if (pnlPct >= tpPct && !planOwnsExit7754(ts, true, false, \"RAPID_TP\"))"))
         assertTrue(bot.contains("\"MOONSHOT_\${exitSignal.name}\""))
         // A confirmed catastrophe never defers to the plan.
@@ -14384,6 +14384,26 @@ class GoldenTapeRegressionTest {
         assertTrue(tp.exitFor(plan, -9.0, 2.0, 60_000L, false, 4.0) == null)
         assertTrue(tp.exitFor(plan, -16.0, 2.0, 60_000L, false, 4.0)!!.reason.startsWith("STRUCTURE_STOP_7739"))
         assertTrue(tp.exitFor(null, -3.0, 1.0, 46L * 60_000L, false, 4.0)!!.reason.startsWith("UNDERWATER_TIME_STOP_7739"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
+    @Test
+    fun V5_0_7755_runner_lanes_keep_their_stops_and_let_the_runner_half_ride_on_their_own_trail() {
+        val tp = com.lifecyclebot.engine.truth.TradePlan7739
+        val plan = com.lifecyclebot.engine.truth.TradePlan7739.Plan(com.lifecyclebot.engine.truth.TradePlan7739.Setup.LAUNCH_EARLY, -15.0, 50.0, 100.0, 0L)
+        // Non-runner: the fixed target still takes the whole position.
+        assertTrue(tp.exitFor(plan, 120.0, 120.0, 600_000L, false, 4.0, false)!!.reason.startsWith("PLAN_TARGET_7739"))
+        // Runner at +300%: no fixed full target, no three-bar trail; the lane's trailing owns it.
+        plan.firstTargetTaken = true
+        assertTrue(tp.exitFor(plan, 300.0, 320.0, 600_000L, true, 4.0, true) == null)
+        // Runner below its structure stop still exits on the plan.
+        assertTrue(tp.exitFor(plan, -16.0, 2.0, 60_000L, false, 4.0, true)!!.reason.startsWith("STRUCTURE_STOP_7739"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val helper = bot.substringAfter("private fun planOwnsExit7754(").substringBefore("\n    }\n")
+        assertTrue(helper.contains("if (runner && (stopSide || plan.firstTargetTaken)) return false"))
+        assertTrue(bot.contains("exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP,"))
+        assertTrue(bot.contains("RunnerExitProfile7277.isRunnerLane(pos.tradingMode),"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }

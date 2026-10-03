@@ -372,15 +372,23 @@ object TradePlan7739 {
      * Pure: what the position owes now. [trailBroken] is true when the last bar
      * closed under the lowest low of the three completed bars before it.
      */
-    fun exitFor(plan: Plan?, pnlPct: Double, peakPct: Double, holdMs: Long, trailBroken: Boolean, costPct: Double): Exit? {
+    /**
+     * V5.0.7755 — [runner]: a runner lane (MOONSHOT, sniper, shitcoin ...) has
+     * printed 200-500% live on its own trailing logic. On a runner the plan
+     * banks half at the first target and hands the rest to the lane: no fixed
+     * full target (it would sell a 5x at +100%) and no one-minute three-bar
+     * trail (it would shake a runner out on its first pullback). Field Manual
+     * §8: scale out, let the runner run on a trail that fits it.
+     */
+    fun exitFor(plan: Plan?, pnlPct: Double, peakPct: Double, holdMs: Long, trailBroken: Boolean, costPct: Double, runner: Boolean = false): Exit? {
         if (plan != null) {
             if (pnlPct <= plan.stopPnlPct) return Exit(ExitKind.FULL, "STRUCTURE_STOP_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
-            if (pnlPct >= plan.targetPnlPct) return Exit(ExitKind.FULL, "PLAN_TARGET_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
+            if (!runner && pnlPct >= plan.targetPnlPct) return Exit(ExitKind.FULL, "PLAN_TARGET_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
             if (!plan.firstTargetTaken && pnlPct >= plan.firstTargetPnlPct && plan.firstTargetPnlPct >= costPct + 5.0) {
                 return Exit(ExitKind.HALF, "PLAN_FIRST_TARGET_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
             }
             val armed = plan.trailArmed || peakPct >= plan.firstTargetPnlPct
-            if (armed && trailBroken && pnlPct > 0.0) return Exit(ExitKind.FULL, "STRUCTURE_TRAIL_STOP_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
+            if (!runner && armed && trailBroken && pnlPct > 0.0) return Exit(ExitKind.FULL, "STRUCTURE_TRAIL_STOP_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
             val halfWay = plan.firstTargetPnlPct / 2.0
             if (holdMs >= plan.setup.horizonMs && peakPct < halfWay && pnlPct < halfWay) {
                 return Exit(ExitKind.FULL, "THESIS_TIME_STOP_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
