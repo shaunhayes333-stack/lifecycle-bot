@@ -544,13 +544,37 @@ object GlobalTradeRegistry {
                 } catch (_: Throwable) {}
             } else {
                 // Every current entry is protected (all hot / open / recent).
-                // Rather than block admission we log and admit anyway; the
-                // hard-cap invariant will surface if this becomes chronic.
+                //
+                // V5.0.7735 §THE_HOT_BENCH_IS_NOT_ELASTIC. "Admit anyway" was the
+                // 6598 answer and it became chronic the moment the PumpPortal
+                // trade stream came up: 5.0.7734 read WATCHLIST_HARDCAP_OVERRUN
+                // 675 times, 255 entries on a 220 cap, every entry protected
+                // because every entry is processed every cycle, and the cycle
+                // went to 60-106 s. A longer cycle protects more entries, which
+                // lengthens the cycle. The incoming token still gets coverage:
+                // it goes to probation, the lighter tier this registry already
+                // promotes from on confirmation. Operator-added mints keep the
+                // old behaviour.
+                val userAdded7735 = addedBy == "USER" || source.contains("USER_ADDED", ignoreCase = true)
+                if (!userAdded7735) {
+                    try {
+                        PipelineHealthCollector.labelInc("WATCHLIST_OVER_CAP_ROUTED_TO_PROBATION_7735")
+                        ForensicLogger.lifecycle(
+                            "WATCHLIST_OVER_CAP_ROUTED_TO_PROBATION_7735",
+                            "size=${watchlist.size} cap=$MAX_WATCHLIST_SIZE incoming=$symbol action=probation_not_hot_bench"
+                        )
+                    } catch (_: Throwable) {}
+                    return addToProbationOnly(
+                        mint = mint, symbol = symbol, addedBy = addedBy, source = source,
+                        initialMcap = initialMcap, liquidityUsd = initialLiquidityUsd, confidence = confidence,
+                        laneAffinity = laneAffinity, toolAffinity = toolAffinity,
+                    )
+                }
                 try {
                     PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598")
                     ForensicLogger.lifecycle(
                         "WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598",
-                        "size=${watchlist.size} cap=$MAX_WATCHLIST_SIZE incoming=$symbol action=admit_no_eviction"
+                        "size=${watchlist.size} cap=$MAX_WATCHLIST_SIZE incoming=$symbol action=admit_no_eviction_user_added"
                     )
                 } catch (_: Throwable) {}
             }

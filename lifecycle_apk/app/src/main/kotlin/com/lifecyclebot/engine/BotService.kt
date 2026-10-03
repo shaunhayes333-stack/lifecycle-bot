@@ -14849,8 +14849,20 @@ class BotService : Service() {
     // request bit; the existing bounded maintenance owner performs at most one
     // global rebalance for the accumulated burst, off the control loop.
     private val hotWatchlistRebalanceRequested6615 = java.util.concurrent.atomic.AtomicBoolean(false)
+    // V5.0.7735 — one submission per 20 s. This was submitted on every intake
+    // sighting: 726 runs in 54 minutes on 5.0.7734 (avg 756 ms, max 67 s),
+    // each one snapshotting status.tokens against the bot loop's INTAKE phase.
+    // The request flag still coalesces; the next submission drains it.
+    private val HOT_REBALANCE_MIN_GAP_MS_7735 = 20_000L
+    @Volatile private var lastHotRebalanceSubmitMs7735 = 0L
     private fun requestHotWatchlistRebalance6615(reason: String) {
         hotWatchlistRebalanceRequested6615.set(true)
+        val nowSubmit7735 = System.currentTimeMillis()
+        if (nowSubmit7735 - lastHotRebalanceSubmitMs7735 < HOT_REBALANCE_MIN_GAP_MS_7735) {
+            try { PipelineHealthCollector.labelInc("HOT_WATCHLIST_REBALANCE_COALESCED_7735") } catch (_: Throwable) {}
+            return
+        }
+        lastHotRebalanceSubmitMs7735 = nowSubmit7735
         com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
             name = "hot_watchlist_rebalance_6615", budgetMs = 2_500L,
         ) {
@@ -18339,7 +18351,14 @@ class BotService : Service() {
             if (cfg.paperMode || pnlPct > catastropheThreshold && pnlPct > -HARD_FLOOR_STOP_PCT_CONST) return@run true
             val ageMs = System.currentTimeMillis() - ts.position.entryTime
             val src = ts.lastPriceSource.uppercase()
+            // V5.0.7735 — an uncorroborated fan-out mark, a trade-stream observation
+            // or a single-source read is not a basis either. 5.0.7734 4FdojU:
+            // bought 18:23:21 on FANOUT_UNCORROBORATED_7088, RAPID_CATASTROPHE_STOP
+            // at 18:23:37, realised -4.9% including cost: the mark said
+            // catastrophe, the fill said flat. Inside the 45 s window such a
+            // mark asks the executable quote before it may stop a position out.
             val offBasis = src.contains("SYNTH") || src.contains("PUMP_FUN_BC") || src.contains("CAP_SEED") ||
+                src.contains("UNCORROBORATED") || src.contains("OBSERVATION") || src.contains("TRADE_WS") ||
                 (ts.position.entryPoolAddress.isNotBlank() && ts.lastPricePoolAddr.isNotBlank() &&
                     ts.position.entryPoolAddress != ts.lastPricePoolAddr)
             if (ts.position.entryTime <= 0L || ageMs >= 45_000L || !offBasis) return@run true

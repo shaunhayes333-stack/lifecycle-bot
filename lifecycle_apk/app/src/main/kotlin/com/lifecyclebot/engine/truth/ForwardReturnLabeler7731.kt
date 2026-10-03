@@ -57,6 +57,20 @@ object ForwardReturnLabeler7731 {
     private const val COST_SIZE_USD_7731 = 5.0
     /** A 60-minute gross move above this is a runner. */
     private const val RUNNER_PCT_7731 = 50.0
+    /** V5.0.7735 — oldest decision-time price a label may start from. */
+    private const val ENTRY_MARK_MAX_AGE_MS_7735 = 10L * 60_000L
+    /**
+     * V5.0.7735 — pending observations survive a restart. Every install or
+     * restart inside the 60-minute horizon used to discard every open
+     * observation, and the app is reinstalled about once an hour while it is
+     * being built: 5.0.7734 at 54 minutes read booked15=65 booked60=0, the
+     * ladder's horizon never reached. Persisted beside the cells, restored on
+     * attach, bounded to the newest [MAX_PERSISTED_PENDING_7735].
+     */
+    private const val MAX_PERSISTED_PENDING_7735 = 2_000
+    private const val FIELD_SEP_7735 = '\u001F'
+    private const val ROW_SEP_7735 = '\u001E'
+    private val restoredPending7735 = AtomicLong(0)
 
     private class Obs(
         val mint: String,
@@ -150,6 +164,14 @@ object ForwardReturnLabeler7731 {
                 if (t.decode(row.substring(sep + 1))) cells[key] = t
             }
         } catch (_: Throwable) {}
+        try {
+            val n = restorePending7735(p.getString("pending", null), System.currentTimeMillis())
+            if (n > 0) {
+                restoredPending7735.addAndGet(n.toLong())
+                PipelineHealthCollector.labelInc("FORWARD_LABELER_PENDING_RESTORED_7735")
+                ForensicLogger.lifecycle("FORWARD_LABELER_PENDING_RESTORED_7735", "restored=$n action=open_observations_survive_the_restart")
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun persist(force: Boolean = false) {
@@ -160,8 +182,43 @@ object ForwardReturnLabeler7731 {
         bookingsSincePersist.set(0)
         try {
             val enc = cells.entries.joinToString(";") { (k, t) -> "$k=${synchronized(t) { t.encode() }}" }
-            p.edit().putString("cells", enc).apply()
+            p.edit().putString("cells", enc).putString("pending", encodePending7735(now)).apply()
         } catch (_: Throwable) {}
+    }
+
+    private fun encodePending7735(nowMs: Long): String {
+        val fs = FIELD_SEP_7735.toString()
+        return pending.values.asSequence()
+            .filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 }
+            .sortedByDescending { it.atMs }
+            .take(MAX_PERSISTED_PENDING_7735)
+            .joinToString(ROW_SEP_7735.toString()) { o ->
+                listOf(
+                    o.mint, o.symbol.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '), o.cell, o.source, o.lane,
+                    if (o.admitted) "1" else "0", o.score.toString(), o.quality, o.regime, o.phase,
+                    o.entryPrice.toString(), o.costPct.toString(), o.atMs.toString(),
+                    if (o.done15) "1" else "0", if (o.done60) "1" else "0", if (o.done240) "1" else "0", o.peakPct.toString(),
+                ).joinToString(fs)
+            }
+    }
+
+    private fun restorePending7735(enc: String?, nowMs: Long): Int {
+        if (enc.isNullOrBlank()) return 0
+        var n = 0
+        enc.split(ROW_SEP_7735).forEach { row ->
+            val f = row.split(FIELD_SEP_7735)
+            if (f.size != 17) return@forEach
+            val atMs = f[12].toLongOrNull() ?: return@forEach
+            if (atMs <= 0L || nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731) return@forEach
+            val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
+            val o = Obs(f[0], f[1], f[2], f[3], f[4], f[5] == "1", f[6].toIntOrNull() ?: -1, f[7], f[8], f[9], px, f[11].toDoubleOrNull() ?: 0.0, atMs)
+            o.done15 = f[13] == "1"; o.done60 = f[14] == "1"; o.done240 = f[15] == "1"
+            o.peakPct = f[16].toDoubleOrNull() ?: 0.0
+            if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
+            val key = "${o.mint}|${o.lane}"
+            if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
+        }
+        return n
     }
 
     // ── cell naming (pure) ──
@@ -212,14 +269,27 @@ object ForwardReturnLabeler7731 {
         // the Field Manual: a live canonical mark with lastPriceUpdate=0). 5.0.7732
         // at 367 s: observed=212, skipped noPrice=743 — three verdicts in four
         // were thrown away for want of a timestamp the registry already held.
-        val tsFresh = ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L &&
-            nowMs - ts.lastPriceUpdate <= MARK_MAX_AGE_MS_7731
+        val tsAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
+        val tsPriced = ts.lastPrice.isFinite() && ts.lastPrice > 0.0
+        val tsFresh = tsPriced && tsAge <= MARK_MAX_AGE_MS_7731
         val px = if (tsFresh) ts.lastPrice else {
             val fromRegistry = markFor(ts.mint, { null }, nowMs)
-            if (fromRegistry != null) {
-                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733") } catch (_: Throwable) {}
+            when {
+                fromRegistry != null -> {
+                    try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733") } catch (_: Throwable) {}
+                    fromRegistry
+                }
+                // V5.0.7735 — the gate ruled on this very price. 5.0.7734 still
+                // skipped 2,325 verdicts for want of a two-minute-fresh mark while
+                // observing 505; a label may start from the price the decision
+                // was made on when it is under ten minutes old. The exit marks
+                // that close the label keep the two-minute bar.
+                tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {
+                    try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_STALE_MARK_7735") } catch (_: Throwable) {}
+                    ts.lastPrice
+                }
+                else -> null
             }
-            fromRegistry
         }
         if (px == null || !px.isFinite() || px <= 0.0) {
             skippedNoPrice.incrementAndGet()
@@ -381,7 +451,7 @@ object ForwardReturnLabeler7731 {
         val worst = cellStats.sortedBy { it.meanNet60Pct }.take(3)
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
-        return "pending=${pending.size} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
+        return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
             "lostMark=${lostMark.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +

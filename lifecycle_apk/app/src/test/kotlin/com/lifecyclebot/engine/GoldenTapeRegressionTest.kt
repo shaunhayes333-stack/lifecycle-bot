@@ -13943,4 +13943,55 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    /**
+     * V5.0.7735 — 5.0.7734 device at 54 minutes: bot-loop cycles of 60-106 s
+     * with the hot watchlist at 255 on a 220 cap (every entry protected, 675
+     * overruns) and the rebalance job submitted on every intake (726 runs);
+     * a RAPID_CATASTROPHE_STOP 16 s after fill on an uncorroborated fan-out
+     * mark that realised -4.9%; 192 crypto candidates dead on an
+     * IllegalArgumentException from an empty coerce range; and booked60=0
+     * because every restart discarded the open observations.
+     */
+    @Test
+    fun V5_0_7735_hot_bench_bounded_rapid_stop_asks_the_quote_crypto_size_floor_labels_survive_restart() {
+        // Registry: over cap with every entry protected routes the incoming to probation (operator-added keeps the old path).
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        val branch = reg.substringAfter("// Every current entry is protected (all hot / open / recent).").substringBefore("// Add to watchlist")
+        assertTrue(branch.contains("val userAdded7735 = addedBy == \"USER\" || source.contains(\"USER_ADDED\", ignoreCase = true)"))
+        assertTrue(branch.contains("WATCHLIST_OVER_CAP_ROUTED_TO_PROBATION_7735"))
+        assertTrue(branch.indexOf("return addToProbationOnly(") < branch.indexOf("WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598"))
+        assertTrue(branch.contains("action=admit_no_eviction_user_added"))
+
+        // Rebalance: one submission per 20 s; the request flag still coalesces.
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("private val HOT_REBALANCE_MIN_GAP_MS_7735 = 20_000L"))
+        val req = bs.substringAfter("private fun requestHotWatchlistRebalance6615(reason: String) {").substringBefore("MaintenanceWorker6448.submit(")
+        assertTrue(req.contains("hotWatchlistRebalanceRequested6615.set(true)"))
+        assertTrue(req.contains("if (nowSubmit7735 - lastHotRebalanceSubmitMs7735 < HOT_REBALANCE_MIN_GAP_MS_7735) {"))
+        assertTrue(req.contains("HOT_WATCHLIST_REBALANCE_COALESCED_7735"))
+
+        // Rapid stop: an uncorroborated, observation or trade-stream mark is off-basis inside the 45 s window.
+        val off = bs.substringAfter("val stopConfirmed7385 = run {").substringBefore("if (ts.position.entryTime <= 0L || ageMs >= 45_000L || !offBasis) return@run true")
+        assertTrue(off.contains("src.contains(\"UNCORROBORATED\") || src.contains(\"OBSERVATION\") || src.contains(\"TRADE_WS\") ||"))
+
+        // Crypto: the size clamp can no longer throw; the exception message travels with the disposition.
+        val cat = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(cat.contains("val requestedFinalSize0 = (sizeSol * hiveSizeMult).coerceIn(0.01, maxOf(0.01, balance * 0.45))"))
+        assertFalse(cat.contains("val requestedFinalSize0 = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)"))
+        assertTrue(cat.contains("CRYPTO_EXECUTE_SIGNAL_THREW_7735"))
+
+        // Labeler: a decision-time price up to ten minutes old may start a label; open observations persist and restore.
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(lab.contains("private const val ENTRY_MARK_MAX_AGE_MS_7735 = 10L * 60_000L"))
+        assertTrue(lab.contains("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
+        assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
+        assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
+        assertTrue(lab.contains(".putString(\"pending\", encodePending7735(now))"))
+        assertTrue(lab.contains("restorePending7735(p.getString(\"pending\", null), System.currentTimeMillis())"))
+        assertTrue(lab.contains("if (f.size != 17) return@forEach"))
+        assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

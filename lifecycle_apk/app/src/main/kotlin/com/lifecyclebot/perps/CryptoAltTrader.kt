@@ -1792,6 +1792,13 @@ object CryptoAltTrader {
                     throw e
                 } catch (e: Throwable) {
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(terminalTok6567, "EXECUTION_EXCEPTION_${e.javaClass.simpleName}")
+                    // V5.0.7735 — the class name alone hid a sizing bug for three builds; the message travels with it.
+                    try {
+                        ForensicLogger.lifecycle(
+                            "CRYPTO_EXECUTE_SIGNAL_THREW_7735",
+                            "symbol=${sig.marketSymbol} exception=${e.javaClass.simpleName} message=${(e.message ?: "").take(140)}",
+                        )
+                    } catch (_: Throwable) {}
                 }
             }
         }
@@ -3296,7 +3303,12 @@ object CryptoAltTrader {
         // compounding/winner pressure already included above to express up to
         // 45% of available mode-local balance. Total portfolio risk cap remains
         // 80%, wallet lock still applies live, and route proof still gates real buys.
-        val requestedFinalSize0 = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        // V5.0.7735 — coerceIn(0.01, balance * 0.45) throws IllegalArgumentException
+        // ("empty range") whenever the balance is under 0.0222 SOL, and every
+        // candidate then died as EXECUTION_EXCEPTION_ILLEGALARGUMENTEXCEPTION
+        // (192 on 5.0.7734) instead of a named refusal. The floor is the cap when
+        // the wallet is that small; the live doctrine below refuses the size.
+        val requestedFinalSize0 = (sizeSol * hiveSizeMult).coerceIn(0.01, maxOf(0.01, balance * 0.45))
         // V5.0.7708 §THE_CRYPTO_LANE_WAS_SPENDING_OUTSIDE_THE_DOCTRINE.
         //
         // 5.0.7706 live tape, 23 minutes: EXEC_LIVE_BUY_OK=0 on the meme lanes,
