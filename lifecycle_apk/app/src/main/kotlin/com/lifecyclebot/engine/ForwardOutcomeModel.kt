@@ -431,14 +431,26 @@ object ForwardOutcomeModel {
         } catch (_: Throwable) { Forecast(0.5, 0.0, 0.0, 0.0, 0L, 1.0, "bootstrap") }
     }
 
-    /** Stamp the signature chosen at decision time so the settled outcome credits it. */
+    /** Legacy mint-only stamps remain for callers that have no execution identity. */
     private val pending = ConcurrentHashMap<String, Pair<String, String>>()  // mint -> (fineKey, coarseKey)
+    // Candidate predictions are not outcomes until an execution ticket opens.
+    // Keep their signatures under the immutable FDG identity, then move exactly
+    // one signature to the canonical position at open. Repeated scans of the
+    // same mint can no longer overwrite the learning target for an open trade.
+    private val pendingByDecision = ConcurrentHashMap<String, Pair<String, String>>()
+    private val pendingByPosition = ConcurrentHashMap<String, Pair<String, String>>()
+    private const val MAX_PENDING_DECISIONS_7729 = 4_096
+
+    private fun decisionKey(mint: String, candidateVersion: Long, lane: String, isPaper: Boolean): String =
+        "${if (isPaper) "P" else "L"}|${mint.trim()}|$candidateVersion|${lane.trim().uppercase()}"
 
     /** V5.0.7536 — TRUE RESET: volatile state + standalone persistence. */
     fun reset() {
         fine.clear()
         coarse.clear()
         pending.clear()
+        pendingByDecision.clear()
+        pendingByPosition.clear()
         totalUpdates = 0L
         try {
             appContext?.getSharedPreferences("forward_outcome_model", Context.MODE_PRIVATE)
@@ -448,6 +460,71 @@ object ForwardOutcomeModel {
     }
     fun stamp(mint: String, lane: String, score: Int, quality: String, regime: String, edgePhase: String) {
         try { pending[mint] = fineKey(lane, score, quality, regime, edgePhase) to coarseKey(lane, score, regime) } catch (_: Throwable) {}
+    }
+
+    /** Stamp a decision without letting later rescans replace its identity. */
+    fun stampDecision(
+        mint: String, candidateVersion: Long, lane: String, score: Int,
+        quality: String, regime: String, edgePhase: String,
+        isPaper: Boolean = currentIsPaper6869(),
+    ) {
+        if (mint.isBlank() || candidateVersion <= 0L || lane.isBlank()) return
+        try {
+            pendingByDecision[decisionKey(mint, candidateVersion, lane, isPaper)] =
+                fineKey(lane, score, quality, regime, edgePhase, isPaper) to coarseKey(lane, score, regime, isPaper)
+            while (pendingByDecision.size > MAX_PENDING_DECISIONS_7729) {
+                val oldestAvailable = pendingByDecision.keys.firstOrNull() ?: break
+                pendingByDecision.remove(oldestAvailable)
+                PipelineHealthCollector.labelInc("FORWARD_OUTCOME_DECISION_STAMP_EVICTED_7729")
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** Bind the exact candidate prediction to the canonical position at OPEN. */
+    fun bindExecutedPosition(
+        positionId: String, mint: String, candidateVersion: Long, lane: String,
+        isPaper: Boolean,
+    ): Boolean {
+        if (positionId.isBlank() || mint.isBlank() || candidateVersion <= 0L || lane.isBlank()) return false
+        return try {
+            var newlyBound = false
+            val key = decisionKey(mint, candidateVersion, lane, isPaper)
+            val bound = pendingByPosition.compute(positionId) { _, existing ->
+                if (existing != null) existing
+                else pendingByDecision.remove(key)?.also { newlyBound = true }
+            }
+            when {
+                bound == null -> {
+                    PipelineHealthCollector.labelInc("FORWARD_OUTCOME_POSITION_BIND_MISSING_7729")
+                    false
+                }
+                newlyBound -> {
+                    appContext?.let { save(it) }
+                    PipelineHealthCollector.labelInc("FORWARD_OUTCOME_POSITION_BOUND_7729")
+                    true
+                }
+                else -> {
+                    PipelineHealthCollector.labelInc("FORWARD_OUTCOME_POSITION_BIND_IDEMPOTENT_7729")
+                    true
+                }
+            }
+        } catch (_: Throwable) { false }
+    }
+
+    /** Credit only the signature sealed to this position, once. */
+    fun recordOutcomeForPosition(positionId: String, pnlPct: Double): Boolean {
+        if (positionId.isBlank() || !pnlPct.isFinite()) return false
+        return try {
+            val keys = pendingByPosition.remove(positionId) ?: return false
+            val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
+            update(fine.getOrPut(keys.first) { Cell() }, pnl)
+            update(coarse.getOrPut(keys.second) { Cell() }, pnl)
+            totalUpdates += 1
+            if (totalUpdates % DECAY_EVERY == 0L) decayAll()
+            appContext?.let { save(it) }
+            PipelineHealthCollector.labelInc("FORWARD_OUTCOME_POSITION_CREDITED_7729")
+            true
+        } catch (_: Throwable) { false }
     }
 
     /** Feed settled PnL back — updates BOTH the fine and coarse cells (Welford). */
@@ -538,15 +615,9 @@ object ForwardOutcomeModel {
     }
 
     // V5.0.6862 §THE_MODEL_NEVER_LEARNED_FROM_A_TRADE_THAT_OUTLIVED_A_RESTART —
-    // `pending` holds the mint → (fineKey, coarseKey) mapping written at entry by
-    // stamp(), and recordOutcome opens with `pending.remove(mint) ?: return`. It was
-    // the only part of this model's state that was NOT persisted, so every position
-    // open across a restart came back with no mapping and its close returned early —
-    // silently, with no counter, so the loss did not appear anywhere. Given hold
-    // times from minutes to hours, that is a standing slice of every session's
-    // closes that the forward model never saw, and it biases what remains toward
-    // short-hold trades purely because those are the ones that fit inside one
-    // process lifetime.
+    // the legacy mint-only `pending` map is persisted for backward compatibility.
+    // V5.0.7729's canonical position bindings are persisted alongside it, so a
+    // restart during a real hold no longer discards the executed signature.
     fun exportState(): String = try {
         JSONObject().apply {
             put("totalUpdates", totalUpdates)
@@ -557,6 +628,7 @@ object ForwardOutcomeModel {
                     put(mint, JSONObject().apply { put("f", keys.first); put("c", keys.second) })
                 }
             })
+            put("pendingPositions7729", pairMapToJson(pendingByPosition))
         }.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -576,7 +648,26 @@ object ForwardOutcomeModel {
                     if (f.isNotBlank() && c.isNotBlank()) pending.putIfAbsent(mint, f to c)
                 }
             }
+            jsonToPairMap(o.optJSONObject("pendingPositions7729"), pendingByPosition)
         } catch (_: Throwable) {}
+    }
+
+    private fun pairMapToJson(map: Map<String, Pair<String, String>>): JSONObject = JSONObject().apply {
+        map.forEach { (id, keys) -> put(id, JSONObject().apply { put("f", keys.first); put("c", keys.second) }) }
+    }
+
+    private fun jsonToPairMap(o: JSONObject?, target: ConcurrentHashMap<String, Pair<String, String>>) {
+        if (o == null) return
+        val keys = o.keys()
+        while (keys.hasNext()) {
+            val id = keys.next()
+            val entry = o.optJSONObject(id) ?: continue
+            val fineKey = entry.optString("f", "")
+            val coarseKey = entry.optString("c", "")
+            if (id.isNotBlank() && fineKey.isNotBlank() && coarseKey.isNotBlank()) {
+                target.putIfAbsent(id, fineKey to coarseKey)
+            }
+        }
     }
 
     private fun save(context: Context) {

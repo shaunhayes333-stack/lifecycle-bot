@@ -4837,7 +4837,8 @@ class Executor(
                 val pnlForHeads4514 = terminalSnap4514.pnlPct
                 val mintForHeads4514 = terminalSnap4514.mint.ifBlank { ts.mint }
                 GlobalScope.launch(AppDispatchers.sideEffect) {
-                    try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
+                    // ForwardOutcomeModel is credited from canonical finality, where the executed position ID identifies its sealed candidate signature.
+                    // A mint-only update here can train the most recent rescan instead of the executed setup.
                     try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
                     // V5.0.6258 — PAPER→LIVE AGI REWIRE. Central-fanout StrategyHypothesisEngine
                     // recordOutcome so BOTH paper and live closes credit the A/B arms. Prior
@@ -17136,6 +17137,12 @@ class Executor(
                     entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pid6450, tradeId.mint, tradeId.fdgCandidateVersion, entryLane6450),
                 )
             )
+            try {
+                com.lifecyclebot.engine.ForwardOutcomeModel.bindExecutedPosition(
+                    pid6450, tradeId.mint, tradeId.fdgCandidateVersion, entryLane6450,
+                    isPaper = true,
+                )
+            } catch (_: Throwable) {}
             com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
                 com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pid6450,
             )
@@ -22407,6 +22414,12 @@ class Executor(
                             entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pidLive6486, verifyMint, tradeId.fdgCandidateVersion, liveEntryLane6568),
                         )
                     )
+                    try {
+                        com.lifecyclebot.engine.ForwardOutcomeModel.bindExecutedPosition(
+                            pidLive6486, verifyMint, tradeId.fdgCandidateVersion, liveEntryLane6568,
+                            isPaper = false,
+                        )
+                    } catch (_: Throwable) {}
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
                         com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pidLive6486,
                     )

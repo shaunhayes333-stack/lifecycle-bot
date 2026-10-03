@@ -922,7 +922,7 @@ class GoldenTapeRegressionTest {
         // commit title or CI run count must not relabel unchanged production code.
         val workflow = java.io.File("../../.github/workflows/build.yml").readText()
         assertTrue(workflow.contains("id: aate_build"))
-        assertTrue(workflow.contains("< ../AATE_VERSION"))
+        assertTrue(workflow.contains("VERSION_NAME=\"\$(tr -d '[:space:]' < AATE_VERSION)\""))
         assertTrue(workflow.contains("BUILD_NUMBER=\"\${BASH_REMATCH[1]}\""))
         assertTrue(workflow.contains("version_name=\$VERSION_NAME"))
         assertTrue(workflow.contains("-PbuildNumber=\$AATE_BUILD_NUMBER -PaateVersionName=\$AATE_VERSION_NAME"))
@@ -3969,7 +3969,7 @@ class GoldenTapeRegressionTest {
         assertEquals("Root and Gradle production versions must agree", version, gradleVersion)
         assertTrue(gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue(workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
-        assertTrue("Invalid source versions must fail CI", workflow.contains("Invalid production AATE_VERSION") && workflow.contains("exit 1"))
+        assertTrue("Invalid source versions must fail CI", workflow.contains("Invalid production lifecycle_apk/AATE_VERSION") && workflow.contains("exit 1"))
         assertFalse("Repeated CI runs must not invent source revisions", workflow.contains("BUILD_NUMBER=\$((GITHUB_RUN_NUMBER + 1))"))
     }
 
@@ -6531,7 +6531,7 @@ class GoldenTapeRegressionTest {
         // V5.0.6009 — exit-brain label fix. Prior `pnlForHeads4514 > -5.0` labelled -4%
         // losses as "optimal exits", so the brain learned to paper-hand every winner.
         // Correct: real banked win only (>= 2%) OR managed TP/trailing exit; SL never.
-        assertTrue("V5.0.4514: central fanout must feed all pending policy heads asynchronously", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, exitWasOptimal)") && exec.contains("GlobalScope.launch(AppDispatchers.sideEffect)"))
+        assertTrue("V5.0.7729: centralized fanout keeps policy-head feedback, while the forward model is credited by position-bound canonical finality", exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, exitWasOptimal)") && exec.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && exec.contains("executed position ID identifies its sealed candidate signature"))
         assertTrue("V5.0.6009: exit-brain label must reject STOP_LOSS/scratch, credit TP/trailing, and gate raw pnl at real banked-win floor (>=2%)", exec.contains("UNIFIED_EXIT_POLICY_HEAD_LABEL_FIX_6009") && exec.contains("STOP_LOSS") && exec.contains("TAKE_PROFIT") && exec.contains("pnlForHeads4514 >= 2.0"))
     }
 
@@ -6801,7 +6801,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun aate4542PolicyHeadsOnlyTrainAtRecordTradeChokePoint() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.4542: policy heads must still train at the gated recordTrade choke point", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514"))
+        assertTrue("V5.0.7729: non-forward policy heads still train at the gated recordTrade choke point", !exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514"))
         assertTrue("V5.0.4542: legacy paper/live sell callbacks must suppress direct policy-head fanout", exec.contains("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") && exec.contains("do NOT train ForwardOutcomeModel/UnifiedPolicyHead"))
         assertEquals("V5.0.4542: no direct ts.mint policy-head recordOutcome calls may survive outside recordTrade", 0, Regex("""(ForwardOutcomeModel|UnifiedPolicyHead|UnifiedExitPolicyHead)\.recordOutcome\(ts\.mint""").findAll(exec).count())
     }
@@ -13611,8 +13611,8 @@ class GoldenTapeRegressionTest {
         for (k in listOf("OBSERVED_MARK_ADOPTION_7706", "HOST_TRACKER_SIGNED_BUY_7708", "BASIS_UNKNOWN", "RECOVERY_6686")) {
             assertTrue(k, bus.contains("src7722.contains(\"$k\")"))
         }
-        assertEquals("5.0.7722", java.io.File("../../AATE_VERSION").readText().trim())
-        assertEquals("5.0.7722", java.io.File("../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7729", java.io.File("../../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7729", java.io.File("../AATE_VERSION").readText().trim())
     }
 
     @Test
@@ -13666,8 +13666,8 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("val active = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ACTIVE }"))
         assertTrue(lab.contains("LAB_SLOT_FREED_7723"))
         assertTrue(lab.contains("LAB_SLOT_NOT_FREED_NO_CANDIDATE_7723"))
-        assertEquals("5.0.7728", java.io.File("../../AATE_VERSION").readText().trim())
-        assertEquals("5.0.7728", java.io.File("../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7729", java.io.File("../../AATE_VERSION").readText().trim())
+        assertEquals("5.0.7729", java.io.File("../AATE_VERSION").readText().trim())
     }
 
 }

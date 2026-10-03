@@ -488,7 +488,12 @@ object FinalizedBusConsumerBridge6465 {
     // permanently dropped valid samples. 6465 runs only after the exact-event
     // check above succeeds and retries until durability is visible.
     private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        val credited = com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcomeForPosition(
+            env.positionId, env.realizedReturnPct,
+        )
+        if (!credited) {
+            try { PipelineHealthCollector.labelInc("FORWARD_OUTCOME_POSITION_UNMAPPED_7729") } catch (_: Throwable) {}
+        }
         // Close the prediction-quality loop from the same canonical terminal.
         com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(env.mint, env.realizedReturnPct)
         true

@@ -5288,7 +5288,16 @@ object FinalDecisionGate {
                         // The nudge plans against the predicted distribution. Soft-shape,
                         // stamped for closed-loop credit. Fail-open.
                         val fwd = ForwardOutcomeModel.forecast(learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        ForwardOutcomeModel.stamp(ts.mint, learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        ForwardOutcomeModel.stampDecision(
+                            mint = ts.mint,
+                            candidateVersion = candidateVersion7623,
+                            lane = learningOwnerLane7534,
+                            score = mpScore,
+                            quality = candidate.setupQuality,
+                            regime = mpRegime,
+                            edgePhase = candidate.edgePhase,
+                            isPaper = mode == TradeMode.PAPER,
+                        )
                         // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
                         try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, learningOwnerLane7534, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
