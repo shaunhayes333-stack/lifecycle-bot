@@ -2838,6 +2838,9 @@ object PipelineHealthCollector {
             sb.append("  Trade plans (§7739):          ").append(
                 try { com.lifecyclebot.engine.truth.TradePlan7739.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Council (§7740):              ").append(
+                try { com.lifecyclebot.engine.truth.Council7740.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Cell proof ladder (§7731):    ").append(
                 try { com.lifecyclebot.engine.truth.CellProofLadder7731.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

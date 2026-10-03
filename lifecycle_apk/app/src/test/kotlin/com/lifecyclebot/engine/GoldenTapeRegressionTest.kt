@@ -14135,4 +14135,32 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7740_the_council_votes_owners_decide_their_trades_and_holds_through_stops_are_earned() {
+        val c = com.lifecyclebot.engine.truth.Council7740
+        assertEquals("PROJECT_SNIPER", c.ownerKey("PRESALE_SNIPE"))
+        assertEquals("MOONSHOT", c.ownerKey("moonshot"))
+        assertTrue(c.ownerKey("STANDARD") == null)
+        val owner = com.lifecyclebot.engine.truth.Council7740.Member.OWNER
+        val oracle = com.lifecyclebot.engine.truth.Council7740.Member.ORACLE
+        val refuse = com.lifecyclebot.engine.truth.Council7740.Vote.REFUSE
+        val admit = com.lifecyclebot.engine.truth.Council7740.Vote.ADMIT
+        fun b(m: com.lifecyclebot.engine.truth.Council7740.Member, v: com.lifecyclebot.engine.truth.Council7740.Vote, binding: Boolean) =
+            com.lifecyclebot.engine.truth.Council7740.Ballot(m, v, binding, "t")
+        // An unproven refusal does not decide; a binding one does; admits never override it.
+        assertTrue(c.resolve(listOf(b(owner, admit, true), b(oracle, refuse, false))) == null)
+        assertEquals(owner, c.resolve(listOf(b(owner, refuse, true), b(oracle, admit, true)))!!.member)
+        // No lane record: a hold-through-stop vote is not earned.
+        assertFalse(c.holdThroughStopEarned("NO_SUCH_LANE_7740"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("        councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, config.paperMode, mode)?.let { return it }"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (extendHold6725 && pnlPctNow > -20.0 && com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned(agiLane)) {"))
+        assertTrue(ex.contains("com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned(\"MOONSHOT\")) {"))
+        val proof = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OracleEdgeProof7263.kt").readText()
+        assertTrue(proof.contains("rRet <= aRet - MIN_EDGE_MARGIN_RETURN_7263"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

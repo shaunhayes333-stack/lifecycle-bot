@@ -9237,7 +9237,10 @@ class Executor(
                         currentPnlPct = pnlPctNow,
                     )
                 } catch (_: Throwable) { false }
-                if (extendHold6725 && pnlPctNow > -20.0) {
+                // V5.0.7740 — holding through a stop is a council vote it must earn:
+                // a heuristic with no record may not override the stop on a lane
+                // whose measured record is not positive.
+                if (extendHold6725 && pnlPctNow > -20.0 && com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned(agiLane)) {
                     try { PipelineHealthCollector.labelInc("SMART_EXIT_TOOL_HOLD_EXTEND_VETO_6725") } catch (_: Throwable) {}
                     try { ForensicLogger.lifecycle("SMART_EXIT_TOOL_HOLD_EXTEND_VETO_6725", "mint=${ts.mint.take(10)} sym=${ts.symbol} pnl=${pnlPctNow.fmt(2)} vol=${volChangePct6725.fmt(0)} bp=${buyPressure6725.fmt(0)} mom=${momentum6725.fmt(1)} lane=$agiLane") } catch (_: Throwable) {}
                     onLog("🌡 EXTEND-HOLD (metrics): ${ts.symbol} pnl=${pnlPctNow.toInt()}% vol=${volChangePct6725.toInt()}% bp=${buyPressure6725.toInt()}% mom=${momentum6725.toInt()} — metrics say let it run", ts.mint)
@@ -11407,8 +11410,11 @@ class Executor(
             // -20% mid-run pullbacks. The unconditional -15% hard floor path
             // ABOVE and the rug/gap guards remain active — we're only holding
             // the noise-driven fluid stop.
+            // V5.0.7740 — the ELITE profile's hold-through-stop vote binds only on a
+            // positive measured MOONSHOT record (5.0.7737: 3/13, EV -10.7%).
             if (com.lifecyclebot.engine.truth.MoonshotHoldProfileRegistry6415
-                    .shouldSuppressSl(ts.mint, gainPct)) {
+                    .shouldSuppressSl(ts.mint, gainPct) &&
+                com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned("MOONSHOT")) {
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "MOONSHOT_SL_SUPPRESSED_6415",

@@ -977,6 +977,41 @@ object FinalDecisionGate {
         )
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7740 — Council7740: the owner lane's own verdict, the mature score
+     * band and an oracle that has shown judgement vote; a binding refusal
+     * decides, nothing rewrites another member's verdict. Runs after the
+     * cheat-sheet baseline (Field Manual + TradePlan7739). Paper never refused.
+     */
+    private fun councilBlock7740(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        specialistLane: String?,
+        laneName: String,
+        laneScore: Double,
+        paper: Boolean,
+        mode: TradeMode,
+    ): FinalDecision? = try {
+        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
+        val reason = com.lifecyclebot.engine.truth.Council7740.liveBlockReason(ts, lane, laneScore.toInt(), paper)
+        if (reason == null) null else FinalDecision(
+            shouldTrade = false,
+            mode = mode,
+            approvalClass = ApprovalClass.BLOCKED,
+            quality = candidate.setupQuality,
+            confidence = candidate.aiConfidence,
+            edge = EdgeVerdict.SKIP,
+            blockReason = reason,
+            blockLevel = BlockLevel.EDGE,
+            sizeSol = 0.0,
+            tags = listOf("council_7740", "lane:$lane"),
+            mint = ts.mint,
+            symbol = ts.symbol,
+            approvalReason = "COUNCIL_REFUSED_7740: $reason",
+            gateChecks = listOf(GateCheck("council_7740", false, "lane=$lane $reason")),
+        )
+    } catch (_: Throwable) { null }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -1413,6 +1448,7 @@ object FinalDecisionGate {
         cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
         freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
         tradePlanBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
+        councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, config.paperMode, mode)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {

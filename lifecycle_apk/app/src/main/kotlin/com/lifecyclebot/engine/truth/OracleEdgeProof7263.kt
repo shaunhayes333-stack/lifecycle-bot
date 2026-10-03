@@ -293,6 +293,25 @@ object OracleEdgeProof7263 {
 
     fun tier(): Tier = tier
 
+    /** V5.0.7740 — the oracle's verdict for [mint] when it was stamped within [maxAgeMs], else null. */
+    fun latestVerdict7740(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): PredictiveEntryOracle6915.Verdict? {
+        val s = stamps[mint] ?: return null
+        return if (nowMs - s.atMs in 0L..maxAgeMs) s.verdict else null
+    }
+
+    /**
+     * V5.0.7740 — the council's bar for a binding oracle refusal: at the proof's
+     * own sample bars its refused closes settled worse than its admitted closes
+     * by the proof margin. Refusals that only lose as the whole market loses
+     * show no judgement, so a lopsided refuser stays advisory.
+     */
+    fun discriminates7740(): Boolean {
+        val (aN, aRet, _) = admit.snapshot()
+        val (rN, rRet, _) = refuse.snapshot()
+        return aN >= MIN_NON_ADMIT_CLOSES_7263 && rN >= MIN_NON_ADMIT_CLOSES_7263 &&
+            aRet.isFinite() && rRet.isFinite() && rRet <= aRet - MIN_EDGE_MARGIN_RETURN_7263
+    }
+
     /**
      * V5.0.7304 §AN_ORACLE_THAT_SCORES_BACKWARDS.
      *
