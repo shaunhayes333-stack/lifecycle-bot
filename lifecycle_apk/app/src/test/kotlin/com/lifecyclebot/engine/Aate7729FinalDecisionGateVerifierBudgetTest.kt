@@ -21,4 +21,18 @@ class Aate7729FinalDecisionGateVerifierBudgetTest {
         assertTrue(helper.contains("ForwardOutcomeModel.forecast("))
         assertTrue(helper.contains("SignalQualityTracker.stamp("))
     }
+
+    @Test fun `live safety readiness decision is extracted without weakening its veto`() {
+        val source = source()
+        val evaluate = source.substringAfter("fun evaluate(\n        ts: TokenState,")
+        val helper = source.substringAfter("private fun safetyReadinessBlock7715(").substringBefore("private fun forwardForecastAndStamp7729(")
+
+        assertTrue(evaluate.contains("safetyReadinessBlock7715(ts, candidate, mode)?.let { return it }"))
+        assertFalse(evaluate.contains("val safetyAgeMs"))
+        assertTrue(helper.contains("if (mode == TradeMode.LIVE)"))
+        assertTrue(helper.contains("SAFETY_NOT_READY_MISSING"))
+        assertTrue(helper.contains("SAFETY_NOT_READY_STALE"))
+        assertTrue(helper.contains("return FinalDecision("))
+        assertTrue(helper.contains("return null"))
+    }
 }
