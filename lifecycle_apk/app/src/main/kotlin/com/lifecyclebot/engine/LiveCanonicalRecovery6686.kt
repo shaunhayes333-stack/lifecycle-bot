@@ -124,10 +124,31 @@ object LiveCanonicalRecovery6686 {
     private val healAdopted7718 = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var lastHeal7718: String = ""
 
+    // V5.0.7730 — LiveExitCoverageGuard7701 attributes a holding to the bot from
+    // THREE sources (tracker row, canonical live quarantine, durable fill lot);
+    // this floor read only the tracker row. 5.0.7729: coverage VIOLATION on
+    // EkDGB5fb and wdysfTqU, 21 heal kicks, 233 x LIVE_WALLET_HOLDING_BELOW_
+    // ROUTABLE_NOT_ADOPTED_7706 at minUsd=5 — the guard said "bot holding",
+    // the bridge priced it as an external deposit, and the hard rule was
+    // broken for 38 minutes. A mint the guard hands to requestAdoptionAsync7718
+    // is bot inventory by construction; it adopts at the bot floor.
+    private const val BOT_ATTRIBUTION_TTL_MS_7730 = 6L * 60L * 60_000L
+    private val botAttributedAt7730 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun coverageAttributed7730(mint: String): Boolean {
+        val at = botAttributedAt7730[mint] ?: return false
+        return System.currentTimeMillis() - at <= BOT_ATTRIBUTION_TTL_MS_7730
+    }
+
     /** The smallest holding value, in USD, this bridge will adopt for [mint]. Bot holdings: none. */
     fun adoptionFloorUsd7708(mint: String): Double {
         val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
-        return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706
+        val trackerSaysBot = isBotSignedRow7708(p) || isBotSourcedRow7717(p)
+        val coverageSaysBot7730 = coverageAttributed7730(mint)
+        if (coverageSaysBot7730 && !trackerSaysBot) {
+            try { PipelineHealthCollector.labelInc("BOT_HOLDING_ADOPTION_FLOOR_BY_COVERAGE_ATTRIBUTION_7730") } catch (_: Throwable) {}
+        }
+        return if (trackerSaysBot || coverageSaysBot7730) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706
     }
 
     /** Operator-facing: the V5.0.7718 heal counters, appended to the adoption status line. */
@@ -144,6 +165,11 @@ object LiveCanonicalRecovery6686 {
     fun requestAdoptionAsync7718(mints: Collection<String>) {
         if (mints.isEmpty()) return
         val now = System.currentTimeMillis()
+        // V5.0.7730 — the coverage guard's attribution travels with the kick.
+        mints.forEach { m -> if (m.isNotBlank()) botAttributedAt7730[m] = now }
+        if (botAttributedAt7730.size > 512) {
+            botAttributedAt7730.entries.removeIf { now - it.value > BOT_ATTRIBUTION_TTL_MS_7730 }
+        }
         val due = mints.filter { m -> m.isNotBlank() && now - (healKickedAt7718[m] ?: 0L) >= HEAL_KICK_MIN_INTERVAL_MS_7718 }
         if (due.isEmpty()) return
         due.forEach { healKickedAt7718[it] = now }

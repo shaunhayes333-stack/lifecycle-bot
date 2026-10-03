@@ -440,6 +440,25 @@ object FieldManual7715 {
     // The plan card (§9) and the decision (§9, §16)
     // ──────────────────────────────────────────────────────────────────
 
+    /**
+     * V5.0.7730 — quote freshness from the canonical mark when the token state
+     * carries none. 5.0.7729: FIELD_MANUAL_WAIT_7715:quote=186 (the manual's
+     * top block, ahead of every other reason it has) and PASS:quote=23, on
+     * BLUECHIP / TREASURY candidates that had a live canonical mark and a
+     * price, but `lastPriceUpdate=0`: the mark reaches TokenState through the
+     * canonical registry, which stamps its own timestamp, not the legacy
+     * field. "Freshness unknown" was a plumbing gap, not a stale quote. The
+     * registry's timestamp is the provider's; a mint with no mark at all is
+     * still unknown and still waits.
+     */
+    private fun canonicalMarkAgeMs7730(mint: String, nowMs: Long): Long = try {
+        val mark = CanonicalPriceMarkRegistry6522.get(mint)
+        if (mark != null && mark.timestampMs > 0L) {
+            try { PipelineHealthCollector.labelInc("FIELD_MANUAL_QUOTE_AGE_FROM_CANONICAL_MARK_7730") } catch (_: Throwable) {}
+            (nowMs - mark.timestampMs).coerceAtLeast(0L)
+        } else -1L
+    } catch (_: Throwable) { -1L }
+
     fun cardFor(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -452,7 +471,7 @@ object FieldManual7715 {
         val regime = regimeOf(ts, nowMs)
         val identity = ts.mint.isNotBlank() && ts.lastPrice > 0.0 &&
             (ts.pairAddress.isNotBlank() || ts.lastPriceSource.isNotBlank() || ts.lastPricePoolAddr.isNotBlank())
-        val quoteAge = if (ts.lastPriceUpdate > 0L) (nowMs - ts.lastPriceUpdate).coerceAtLeast(0L) else -1L
+        val quoteAge = if (ts.lastPriceUpdate > 0L) (nowMs - ts.lastPriceUpdate).coerceAtLeast(0L) else canonicalMarkAgeMs7730(ts.mint, nowMs)
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val size = if (proposedSizeSol.isFinite()) proposedSizeSol.coerceAtLeast(0.0) else 0.0
         val sizeUsd = if (solUsd > 0.0) size * solUsd else 0.0

@@ -8993,7 +8993,19 @@ class Executor(
             val runnerLiveSettle7366 = try {
                 !isPaperRT() && RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode)
             } catch (_: Throwable) { false }
-            if (!isPaperRT() && !runnerLiveSettle7366) return@run false
+            // V5.0.7730 — every lane settles in live exactly as in paper. 7366
+            // gave the runner lanes their settle-in; TREASURY / CASHGEN /
+            // BLUECHIP still ran STRICT_SL from the first second: 5.0.7729
+            // 7Vertk bought 14:14:52 at $1.67M mcap and STRICT_SL_-5 sold it at
+            // 14:15:08, sixteen seconds after the fill, on fill-versus-mark
+            // noise. The -25% backstop, gap/drain guards, tick floors and
+            // rug/catastrophe exits above and elsewhere still act from second
+            // one; only the routine stop waits the lane's settle-in (30 s floor).
+            val liveSettleAllLanes7730 = !isPaperRT()
+            if (liveSettleAllLanes7730 && !runnerLiveSettle7366) {
+                try { PipelineHealthCollector.labelInc("LIVE_SETTLE_IN_NON_RUNNER_LANE_7730") } catch (_: Throwable) {}
+            }
+            if (!isPaperRT() && !runnerLiveSettle7366 && !liveSettleAllLanes7730) return@run false
             val entryMs = ts.position.entryTime
             if (entryMs <= 0L) return@run false
             val ageMs = System.currentTimeMillis() - entryMs

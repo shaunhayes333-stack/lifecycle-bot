@@ -58,7 +58,52 @@ object SellAmountAuthority {
         object Unknown : Resolution()
     }
 
-    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA, BALANCE_PROOF_POLLER }
+    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA, BALANCE_PROOF_POLLER, WALLET_SNAPSHOT_EMERGENCY_7730 }
+
+    // V5.0.7730 §A_STOP_THAT_WAITS_FOR_PROOF_IS_NOT_A_STOP.
+    //
+    // 5.0.7729: an adopted WALLET_RECOVERED row (26VurL, cost 0.162 SOL) fired
+    // RAPID_CATASTROPHE_STOP 34 times and TICK_CATASTROPHIC_CONFIRMED 15 times
+    // and sold once, at -75% (0.039 SOL back, -0.124 SOL: nine tenths of the
+    // session's loss). Every trigger landed while the live token read was
+    // indeterminate (solana_rpc public rungs 25% / 0%, WALLET_TOKEN_READ_
+    // INDETERMINATE=59), so resolveForExit returned Unknown, the close lease
+    // was released, and the poller waited for a read the RPC would not give.
+    //
+    // The wallet had ALREADY been read, completely, by the reconciler: the
+    // adoption itself came from WalletAccountCache (a two-program snapshot
+    // that WalletSnapshotCompleteness7140 marked complete). For an EMERGENCY
+    // exit that snapshot, while younger than the same ten minutes the
+    // emergency TX_PARSE window allows, is current wallet truth. A quantity
+    // the wallet no longer holds fails simulation and costs a retry, not
+    // capital; a quantity the wallet does hold stops the bleed. Discretionary
+    // and profit-protect sells are unchanged: they still wait for a live read.
+    private const val EMERGENCY_WALLET_SNAPSHOT_MS_7730 = 10 * 60_000L
+
+    /** V5.0.7730 — the last complete wallet snapshot as sell authority, EMERGENCY reasons only. */
+    fun emergencyWalletSnapshotBalance7730(mint: String, reason: String): Resolution.Confirmed? {
+        if (mint.isBlank() || !isEmergencyExitReason(reason)) return null
+        val partial = try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { true }
+        if (partial) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENCY_SELL_SNAPSHOT_REFUSED_PARTIAL_7730") } catch (_: Throwable) {}
+            return null
+        }
+        val snap = try { com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = EMERGENCY_WALLET_SNAPSHOT_MS_7730) } catch (_: Throwable) { null }
+        val amount = snap?.get(mint) ?: run {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (snap == null) "EMERGENCY_SELL_SNAPSHOT_NONE_7730" else "EMERGENCY_SELL_SNAPSHOT_MINT_ABSENT_7730") } catch (_: Throwable) {}
+            return null
+        }
+        if (amount.raw <= SELL_DUST_RAW) return null
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENCY_SELL_FROM_WALLET_SNAPSHOT_7730")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "EMERGENCY_SELL_FROM_WALLET_SNAPSHOT_7730",
+                "mint=${mint.take(10)} reason=$reason raw=${amount.raw} decimals=${amount.decimals} " +
+                    "action=last_complete_wallet_snapshot_is_sell_authority_for_an_emergency_exit",
+            )
+        } catch (_: Throwable) {}
+        return Resolution.Confirmed(amount.raw, amount.decimals, Source.WALLET_SNAPSHOT_EMERGENCY_7730)
+    }
 
     // V5.0.3791 — sell-side dust floor (raw base units). A confirmed wallet balance
     // at or below this is economically unsellable (fees exceed proceeds) and is
@@ -224,6 +269,8 @@ object SellAmountAuthority {
             // or recovered ghost rows can keep trying to sell tokens the wallet no longer holds.
             Source.TX_META_OWNER_DELTA -> BalanceSource.UNKNOWN
             Source.BALANCE_PROOF_POLLER -> BalanceSource.WALLET_SCAN_CONFIRMED
+            // V5.0.7730 — a complete two-program wallet snapshot IS a wallet scan.
+            Source.WALLET_SNAPSHOT_EMERGENCY_7730 -> BalanceSource.WALLET_SCAN_CONFIRMED
         }
         is Resolution.Zero -> BalanceSource.UNKNOWN   // one provider missing-mint is not two-provider zero proof
         else -> BalanceSource.UNKNOWN
@@ -332,6 +379,7 @@ object SellAmountAuthority {
         val normal = resolve(mint, wallet)
         if (normal is Resolution.Confirmed || normal is Resolution.Zero) return normal
         consumeProofReady(mint)?.let { return it }
+        emergencyWalletSnapshotBalance7730(mint, reason)?.let { return it }
         val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
         val trackedRaw = tracked?.rawAmount?.trim()?.takeIf { it.isNotBlank() }?.let { raw ->
             runCatching { BigInteger(raw) }.getOrNull()

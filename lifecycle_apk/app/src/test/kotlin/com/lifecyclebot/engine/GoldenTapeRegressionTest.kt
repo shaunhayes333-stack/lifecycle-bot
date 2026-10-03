@@ -11971,8 +11971,8 @@ class GoldenTapeRegressionTest {
         // The give-back profit lock never sells a loser and honours runner deferral.
         assertTrue(bs.contains("val giveBackTrigger = peakGainPct >= 20.0 && pnlPct > 0.0 && !runnerDefer7366 &&"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        // Runner lanes settle in live exactly as in paper.
-        assertTrue(ex.contains("if (!isPaperRT() && !runnerLiveSettle7366) return@run false"))
+        // Runner lanes settle in live exactly as in paper (V5.0.7730: every lane does).
+        assertTrue(ex.contains("if (!isPaperRT() && !runnerLiveSettle7366 && !liveSettleAllLanes7730) return@run false"))
         // Risk clock never tighter than the runner lane's own fluid stop.
         assertTrue(ex.contains("maxOf(effStopPctGlobal7366, laneStop7366)"))
         // Catastrophe price unchanged.
@@ -13611,8 +13611,10 @@ class GoldenTapeRegressionTest {
         for (k in listOf("OBSERVED_MARK_ADOPTION_7706", "HOST_TRACKER_SIGNED_BUY_7708", "BASIS_UNKNOWN", "RECOVERY_6686")) {
             assertTrue(k, bus.contains("src7722.contains(\"$k\")"))
         }
-        assertEquals("5.0.7722", java.io.File("../../AATE_VERSION").readText().trim())
-        assertEquals("5.0.7722", java.io.File("../AATE_VERSION").readText().trim())
+        // V5.0.7730 — the two version files agree and carry a release tag; the
+        // exact build moves every ship and is not this test's subject.
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
     @Test
@@ -13666,8 +13668,63 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("val active = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ACTIVE }"))
         assertTrue(lab.contains("LAB_SLOT_FREED_7723"))
         assertTrue(lab.contains("LAB_SLOT_NOT_FREED_NO_CANDIDATE_7723"))
-        assertEquals("5.0.7728", java.io.File("../../AATE_VERSION").readText().trim())
-        assertEquals("5.0.7728", java.io.File("../AATE_VERSION").readText().trim())
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
+    @Test
+    fun V5_0_7730_a_stop_that_waits_for_proof_is_not_a_stop_and_every_lane_settles_in_live() {
+        // 5.0.7729 snapshot (2292 s): an adopted WALLET_RECOVERED row fired 49
+        // catastrophic triggers and sold once at -75% (-0.124 SOL) because every
+        // live token read was indeterminate. The last COMPLETE wallet snapshot is
+        // sell authority for an EMERGENCY exit (10 min, same as the TX_PARSE window).
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        assertTrue(auth.contains("WALLET_SNAPSHOT_EMERGENCY_7730"))
+        assertTrue(auth.contains("private const val EMERGENCY_WALLET_SNAPSHOT_MS_7730 = 10 * 60_000L"))
+        assertTrue(auth.contains("fun emergencyWalletSnapshotBalance7730(mint: String, reason: String): Resolution.Confirmed? {"))
+        val helper = auth.substringAfter("fun emergencyWalletSnapshotBalance7730(").substringBefore("private data class ProofReadyEntry(")
+        assertTrue(helper.contains("if (mint.isBlank() || !isEmergencyExitReason(reason)) return null"))
+        assertTrue(helper.contains("WalletSnapshotCompleteness7140.isLastPartial()"))
+        assertTrue(helper.contains("WalletAccountCache.snapshot(ttlMs = EMERGENCY_WALLET_SNAPSHOT_MS_7730)"))
+        assertTrue(helper.contains("if (amount.raw <= SELL_DUST_RAW) return null"))
+        assertTrue(helper.contains("EMERGENCY_SELL_FROM_WALLET_SNAPSHOT_7730"))
+        val exitFn = auth.substringAfter("fun resolveForExit(mint: String, wallet: SolanaWallet?, reason: String): Resolution {").substringBefore("val maxAgeMs = when {")
+        assertTrue(exitFn.indexOf("consumeProofReady(mint)?.let { return it }") < exitFn.indexOf("emergencyWalletSnapshotBalance7730(mint, reason)?.let { return it }"))
+        assertTrue(auth.contains("Source.WALLET_SNAPSHOT_EMERGENCY_7730 -> BalanceSource.WALLET_SCAN_CONFIRMED"))
+        assertTrue(com.lifecyclebot.engine.sell.SellAmountAuthority.isEmergencyExitReason("RAPID_CATASTROPHE_STOP"))
+        assertTrue(com.lifecyclebot.engine.sell.SellAmountAuthority.isEmergencyExitReason("TICK_CATASTROPHIC_CONFIRMED_-74PCT"))
+        assertFalse(com.lifecyclebot.engine.sell.SellAmountAuthority.isEmergencyExitReason("TICK_PROFIT_LOCK_peak4_now2"))
+        assertTrue(com.lifecyclebot.engine.sell.SellAmountAuthority.emergencyWalletSnapshotBalance7730("mint", "TICK_PROFIT_LOCK_peak4_now2") == null)
+
+        // Same snapshot: 7Vertk bought 14:14:52 (TREASURY, $1.67M mcap) and
+        // STRICT_SL_-5 sold it at 14:15:08. Every lane now settles in live as in paper.
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("val liveSettleAllLanes7730 = !isPaperRT()"))
+        assertTrue(ex.contains("if (!isPaperRT() && !runnerLiveSettle7366 && !liveSettleAllLanes7730) return@run false"))
+        assertTrue(ex.contains("LIVE_SETTLE_IN_NON_RUNNER_LANE_7730"))
+        assertTrue(ex.contains("val settleInMs = maxOf((settleInMinutes * 60_000.0).toLong(), 30_000L)"))
+
+        // Same snapshot: Bot-buy coverage VIOLATION (EkDGB5fb, wdysfTqU), 233 x
+        // LIVE_WALLET_HOLDING_BELOW_ROUTABLE_NOT_ADOPTED_7706 at minUsd=5. The
+        // guard's attribution travels with the heal kick; the floor honours it.
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(rec.contains("fun adoptionFloorUsd7708(mint: String): Double {"))
+        assertTrue(rec.contains("private const val BOT_ATTRIBUTION_TTL_MS_7730 = 6L * 60L * 60_000L"))
+        assertTrue(rec.contains("mints.forEach { m -> if (m.isNotBlank()) botAttributedAt7730[m] = now }"))
+        assertTrue(rec.contains("return if (trackerSaysBot || coverageSaysBot7730) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
+        assertTrue(rec.contains("BOT_HOLDING_ADOPTION_FLOOR_BY_COVERAGE_ATTRIBUTION_7730"))
+        assertTrue(rec.indexOf("botAttributedAt7730[m] = now") < rec.indexOf("val due = mints.filter { m -> m.isNotBlank() && now - (healKickedAt7718[m] ?: 0L) >= HEAL_KICK_MIN_INTERVAL_MS_7718 }"))
+
+        // Same snapshot: FIELD_MANUAL_WAIT_7715:quote=186 on marks the canonical
+        // registry had stamped. Freshness falls back to the canonical mark.
+        val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
+        assertTrue(fm.contains("val quoteAge = if (ts.lastPriceUpdate > 0L) (nowMs - ts.lastPriceUpdate).coerceAtLeast(0L) else canonicalMarkAgeMs7730(ts.mint, nowMs)"))
+        assertTrue(fm.contains("private fun canonicalMarkAgeMs7730(mint: String, nowMs: Long): Long = try {"))
+        assertTrue(fm.contains("val mark = CanonicalPriceMarkRegistry6522.get(mint)"))
+        assertTrue(fm.contains("FIELD_MANUAL_QUOTE_AGE_FROM_CANONICAL_MARK_7730"))
+        assertTrue(fm.contains("if (card.quoteAgeMs < 0L) soft += \"quote freshness unknown\""))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
 }
