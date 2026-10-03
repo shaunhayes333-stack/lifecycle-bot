@@ -874,6 +874,31 @@ class BotService : Service() {
     private val planExitAttemptMs7739 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /**
+     * V5.0.7739 — the exit a position's plan owes on this tick, or null. An
+     * unconfirmed sub -50% read is not a price (the tick's phantom rule).
+     */
+    private fun planTickRead7739(
+        ts: com.lifecyclebot.data.TokenState,
+        pnlPctNow: Double,
+        peakPct: Double,
+        rawTickPnlPctNow: Double,
+        execPriceSeen: Boolean,
+    ): com.lifecyclebot.engine.truth.TradePlan7739.Exit? {
+        val phantom = pnlPctNow < -50.0 && !(execPriceSeen && kotlin.math.abs(pnlPctNow - rawTickPnlPctNow) <= 20.0)
+        if (phantom) return null
+        return try {
+            val pos = ts.position
+            val now = System.currentTimeMillis()
+            val plan = com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime)
+            com.lifecyclebot.engine.truth.TradePlan7739.exitFor(
+                plan, pnlPctNow, peakPct, now - pos.entryTime,
+                plan != null && com.lifecyclebot.engine.truth.TradePlan7739.trailBroken(ts, now),
+                PLAN_COST_PCT_7739,
+            )
+        } catch (_: Throwable) { null }
+    }
+
+    /**
      * V5.0.7739 — executes the exit a position's plan owes (TradePlan7739).
      * One dispatch per mint per 10 s; the full sell goes through the same
      * off-loop path as the tick floors, the first-target half off the loop.
@@ -12618,20 +12643,10 @@ class BotService : Service() {
                                 }
                                 val peakPct = pos.peakGainPct
 
-                                // V5.0.7739 — the position's own plan exits first (TradePlan7739):
-                                // structural stop, first target, structure trail, target, thesis
-                                // time, underwater time. An unconfirmed sub -50% read is not a price.
-                                val plan7739 = try { com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) } catch (_: Throwable) { null }
-                                val phantom7739 = pnlPctNow < -50.0 &&
-                                    !(execPxForTickLock != null && kotlin.math.abs(execPnlPctNow - rawTickPnlPctNow) <= 20.0)
-                                val planExit7739 = if (phantom7739) null else try {
-                                    val nowP7739 = System.currentTimeMillis()
-                                    com.lifecyclebot.engine.truth.TradePlan7739.exitFor(
-                                        plan7739, pnlPctNow, peakPct, nowP7739 - pos.entryTime,
-                                        plan7739 != null && com.lifecyclebot.engine.truth.TradePlan7739.trailBroken(ts, nowP7739),
-                                        PLAN_COST_PCT_7739,
-                                    )
-                                } catch (_: Throwable) { null }
+                                // V5.0.7739 — the position's own plan exits first (TradePlan7739).
+                                // Read in a helper: this loop body is at the JVM back end's limit
+                                // (5.0.7739 "Couldn't transform method node" with four locals here).
+                                val planExit7739 = planTickRead7739(ts, pnlPctNow, peakPct, rawTickPnlPctNow, execPxForTickLock != null)
 
                                 // ─── Guard 1: TICK_HARD_FLOOR @ -10% ───
                                 // V5.9.1564 — SANITY: a single tick can read a stale entry
@@ -12703,7 +12718,7 @@ class BotService : Service() {
                                 // MANIPULATED/SHITCOIN/EXPRESS keep their one-strike -10.
                                 val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
                                 if (planExit7739 != null) {
-                                    planTickExit7739(ts, plan7739, planExit7739, pnlPctNow, peakPct)
+                                    planTickExit7739(ts, com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime), planExit7739, pnlPctNow, peakPct)
                                 } else if (moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) {
                                     if (moonshotLaneStop7389) try { PipelineHealthCollector.labelInc("TICK_MOONSHOT_LANE_STOP_7389") } catch (_: Throwable) {}
                                     ErrorLogger.warn("BotService",
@@ -12737,7 +12752,7 @@ class BotService : Service() {
                                     // rendered as "lock +X%" in the open-position card.
                                     // V5.0.7346 — deferral first; the floor is only read when not deferred.
                                     // V5.0.7739 — a planned position trails under structure, not 3-5 points under its peak.
-                                    val runnerLockDeferred7277 = plan7739 != null || try {
+                                    val runnerLockDeferred7277 = com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) != null || try {
                                         RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPct)
                                     } catch (_: Throwable) { false }
                                     val lockedFloor = if (runnerLockDeferred7277) Double.NaN else try {

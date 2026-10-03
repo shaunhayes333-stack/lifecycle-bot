@@ -14129,8 +14129,8 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("        tradePlanBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bs.contains("planTickExit7739(ts, plan7739, planExit7739, pnlPctNow, peakPct)"))
-        assertTrue(bs.contains("val runnerLockDeferred7277 = plan7739 != null || try {"))
+        assertTrue(bs.contains("val planExit7739 = planTickRead7739(ts, pnlPctNow, peakPct, rawTickPnlPctNow, execPxForTickLock != null)"))
+        assertTrue(bs.contains("val runnerLockDeferred7277 = com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) != null || try {"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
