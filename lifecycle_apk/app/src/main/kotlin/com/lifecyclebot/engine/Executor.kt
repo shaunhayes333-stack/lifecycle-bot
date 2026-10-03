@@ -6453,6 +6453,9 @@ class Executor(
             }
         }
 
+        // V5.0.7737 — a live fresh-launch entry banks its quick move.
+        if (freshLaunchQuickTake7737(ts, wallet, walletSol, pos, actualPrice, gainMultiple, gainPct)) return true
+
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
 
         // V5.0.3896 — ULTRA-RUNNER PANIC BANK.
@@ -6797,6 +6800,47 @@ class Executor(
      * qty/cost update, canonical PARTIAL_SELL trade row into recordTrade,
      * TreasuryManager profit-lock event, onPaperBalanceChange invoke, log).
      */
+    /**
+     * V5.0.7737 — the quick take FreshLaunchSelector7737 selects for. A live
+     * position whose entry was a fresh launch (canonical birth under thirty
+     * minutes at entry) sells 60% of its holding at +50% and half of what is
+     * left at +100%; the remainder rides the ordinary trail. 5.0.7736 measured
+     * fresh-launch lanes running +41% to +110% an hour out while the live book
+     * closed at PF 0.50: the moves were there and the book did not bank them.
+     */
+    private fun freshLaunchQuickTake7737(
+        ts: TokenState,
+        wallet: SolanaWallet?,
+        walletSol: Double,
+        pos: Position,
+        actualPrice: Double,
+        gainMultiple: Double,
+        gainPct: Double,
+    ): Boolean {
+        if (pos.isPaperPosition || wallet == null) return false
+        val selector = com.lifecyclebot.engine.truth.FreshLaunchSelector7737
+        val stepsDone = selector.quickTakeStepsDone(ts.mint, pos.entryTime)
+        val fraction = selector.quickTakeFraction(gainPct, stepsDone)
+        if (fraction <= 0.0) return false
+        if (!selector.quickTakeMayTry(ts.mint, pos.entryTime)) return false
+        if (!selector.wasFreshAtEntry(ts.mint, pos.entryTime)) return false
+        val qtyBefore = pos.qtyToken
+        try {
+            PipelineHealthCollector.labelInc("FRESH_LAUNCH_QUICK_TAKE_7737")
+            ForensicLogger.lifecycle(
+                "FRESH_LAUNCH_QUICK_TAKE_7737",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} gainPct=${gainPct.toInt()} step=${stepsDone + 1} " +
+                    "sellFraction=${"%.2f".format(fraction)} action=bank_the_quick_move_rest_rides_the_trail",
+            )
+        } catch (_: Throwable) {}
+        onLog("💰 FRESH LAUNCH QUICK TAKE: ${ts.symbol} +${gainPct.toInt()}% — selling ${(fraction * 100).toInt()}% of holding", ts.mint)
+        executeProfitLockSellPaperOrLive(ts, wallet, fraction, "fresh_launch_quick_take_7737_${gainPct.toInt()}pct", walletSol, pos, actualPrice, gainMultiple, gainPct)
+        val after = ts.position
+        val banked = !after.isOpen || after.qtyToken < qtyBefore * (1.0 - fraction * 0.5)
+        selector.onQuickTakeAttempt(ts.mint, pos.entryTime, banked)
+        return true
+    }
+
     private fun executeProfitLockSellPaperOrLive(
         ts: TokenState,
         wallet: SolanaWallet?,

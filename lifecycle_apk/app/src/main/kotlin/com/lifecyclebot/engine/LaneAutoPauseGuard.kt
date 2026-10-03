@@ -97,6 +97,59 @@ object LaneAutoPauseGuard {
         return true
     }
 
+    // V5.0.7737 §THE_LANE'S_OWN_LABELS.
+    //
+    // 5.0.7736 at 2972 s: TREASURY liveQuarantine=true, reason
+    // awaiting_exact_lab_proof, while the forward labeler had followed 28 of the
+    // lane's candidates an hour forward at +1.8% net, 50% positive, and the
+    // forecast model's label cell S|TREASURY read pWin 66%, E +5.2% at n=12. The
+    // Lab path wants 30 sandbox paper trades from a seed strategy; the lane's
+    // own market record was already larger and positive. A paused lane whose
+    // 60-minute label record is positive at [LABEL_RELEASE_MIN_N60_7737] or more
+    // is released into a fresh live epoch: closes before the release no longer
+    // count, so the ordinary pause predicate re-arms on five straight losses or
+    // eight toxic closes made after it. A lane re-paused after a label release
+    // needs [LABEL_RELEASE_MIN_N60_7737] more labels, still positive, before a
+    // second one, so losses cannot be laundered by a stale table.
+    private const val LABEL_RELEASE_MIN_N60_7737 = 25
+    private const val LABEL_RELEASE_MIN_WR_7737 = 0.45
+    private const val LABEL_RELEASE_PERSIST_KEY_7737 = "LANE_LABEL_RELEASE_7737"
+    private data class LabelRelease7737(val atMs: Long, val n60AtRelease: Int)
+    private val labelRelease7737 = ConcurrentHashMap<String, LabelRelease7737>()
+
+    private fun labelsForLane7737(lane: String): com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat? {
+        val direct = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane) } catch (_: Throwable) { null }
+        if (direct != null || lane != "PRESALE_SNIPE") return direct
+        return try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737("PROJECT_SNIPER") } catch (_: Throwable) { null }
+    }
+
+    private fun labelReleaseAllowed7737(lane: String, st: PauseState): com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat? {
+        val s = labelsForLane7737(lane) ?: return null
+        if (s.n60 < LABEL_RELEASE_MIN_N60_7737 || s.meanNet60Pct <= 0.0 || s.winRate60 < LABEL_RELEASE_MIN_WR_7737) return null
+        val prior = labelRelease7737[lane]
+        if (prior != null && st.pausedAt > prior.atMs && s.n60 < prior.n60AtRelease + LABEL_RELEASE_MIN_N60_7737) return null
+        return s
+    }
+
+    private fun loadLabelRelease7737() {
+        try {
+            val blob = LearningPersistence.load(LABEL_RELEASE_PERSIST_KEY_7737) ?: return
+            val o = org.json.JSONObject(blob)
+            for (k in o.keys()) {
+                val r = o.optJSONObject(k) ?: continue
+                labelRelease7737[k] = LabelRelease7737(r.optLong("at"), r.optInt("n60"))
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun persistLabelRelease7737() {
+        try {
+            val o = org.json.JSONObject()
+            labelRelease7737.forEach { (k, r) -> o.put(k, org.json.JSONObject().put("at", r.atMs).put("n60", r.n60AtRelease)) }
+            LearningPersistence.save(LABEL_RELEASE_PERSIST_KEY_7737, o.toString())
+        } catch (_: Throwable) {}
+    }
+
     data class PauseState(
         val lane: String,
         val pausedAt: Long,
@@ -119,6 +172,7 @@ object LaneAutoPauseGuard {
         synchronized(this) {
             if (loaded) return
             loaded = true
+            loadLabelRelease7737()
             try {
                 val blob = LearningPersistence.load(PERSIST_KEY) ?: return
                 val arr = org.json.JSONArray(blob)
@@ -329,6 +383,8 @@ object LaneAutoPauseGuard {
                 if (lane.isBlank()) continue
                 val promotionEpoch6684 = try { AdaptiveLaneReproof6684.activationEpochMs(lane) } catch (_: Throwable) { 0L }
                 if (promotionEpoch6684 > 0L && t.ts < promotionEpoch6684) continue
+                val labelEpoch7737 = labelRelease7737[lane]?.atMs ?: 0L
+                if (labelEpoch7737 > 0L && t.ts < labelEpoch7737) continue
                 val agg = byLane.getOrPut(lane) { Agg() }
                 agg.sample += 1
                 val outcome6684 = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(t.pnlPct)
@@ -541,6 +597,25 @@ object LaneAutoPauseGuard {
                         "lane=$lane mode=$modeTag7209 modeN=${a?.sample ?: 0} " +
                             "originalReason=${state.reason} originalSample=${state.sample} " +
                             "action=released_claim_this_modes_record_does_not_support",
+                    )
+                } catch (_: Throwable) {}
+            }
+
+            for (lane in paused.keys.toList()) {
+                val st7737 = paused[lane] ?: continue
+                val s7737 = labelReleaseAllowed7737(lane, st7737) ?: continue
+                paused.remove(lane, st7737)
+                labelRelease7737[lane] = LabelRelease7737(now, s7737.n60)
+                persistLabelRelease7737()
+                mutated = true
+                try {
+                    PipelineHealthCollector.labelInc("LANE_PAUSE_RELEASED_LABEL_PROOF_7737")
+                    PipelineHealthCollector.labelInc("LANE_PAUSE_RELEASED_LABEL_PROOF_7737_$lane")
+                    ForensicLogger.lifecycle(
+                        "LANE_PAUSE_RELEASED_LABEL_PROOF_7737",
+                        "lane=$lane labelsN60=${s7737.n60} net60=${"%+.1f".format(s7737.meanNet60Pct)}% wr60=${"%.0f".format(s7737.winRate60 * 100)}% " +
+                            "lost=${s7737.lost} pausedFor=${(now - st7737.pausedAt) / 60_000L}m originalReason=${st7737.reason} " +
+                            "action=released_into_a_fresh_live_epoch_on_the_lanes_own_forward_labels",
                     )
                 } catch (_: Throwable) {}
             }

@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * It spends nothing, opens nothing and touches no ledger. It reads prices the
  * loop already holds (the same closure LaneShadowProof7307 ticks on) and the
- * canonical mark registry; it never calls a provider. Cells persist across
+ * canonical mark registry; the loop never waits on a provider (7737 below). Cells persist across
  * restarts, so a thousand labels a day accumulate into the table a selection
  * authority can read (CellProofLadder7731), instead of a dozen closes a day
  * being asked to prove everything.
@@ -36,6 +36,13 @@ import java.util.concurrent.atomic.AtomicLong
  * the same from here, and guessing which would poison the table. The ladder
  * reads the lost share next to the mean and refuses to act on a cell that
  * mostly vanishes.
+ *
+ * V5.0.7737 — a mark that leaves the watchlist is fetched. 5.0.7736 read
+ * admitted60 n=71 against lost=1481: the table kept the survivors and dropped
+ * the rugs, so its means flattered whatever stayed on the bench. An observation
+ * due at a horizon with no loop or registry price now joins a batch (fifty
+ * mints, one Jupiter Price call, off the loop, at most every
+ * [OFFWATCH_FETCH_GAP_MS_7737]); a dead token Jupiter no longer prices stays lost.
  */
 object ForwardReturnLabeler7731 {
 
@@ -71,6 +78,14 @@ object ForwardReturnLabeler7731 {
     private const val FIELD_SEP_7735 = '\u001F'
     private const val ROW_SEP_7735 = '\u001E'
     private val restoredPending7735 = AtomicLong(0)
+    /** V5.0.7737 — off-watchlist marks fetched for observations due at a horizon. */
+    private const val OFFWATCH_FETCH_GAP_MS_7737 = 20_000L
+    private const val OFFWATCH_BATCH_7737 = 50
+    private val offWatchMarks7737 = ConcurrentHashMap<String, Pair<Double, Long>>()
+    private val offWatchInFlight7737 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var offWatchLastFetchMs7737 = 0L
+    private val offWatchPriced7737 = AtomicLong(0)
+    private val offWatchMissed7737 = AtomicLong(0)
 
     private class Obs(
         val mint: String,
@@ -155,6 +170,7 @@ object ForwardReturnLabeler7731 {
             context.applicationContext.getSharedPreferences(PREFS_7731, Context.MODE_PRIVATE)
         } catch (_: Throwable) { return }
         prefs = p
+        try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try {
             p.getString("cells", null)?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
@@ -313,6 +329,8 @@ object ForwardReturnLabeler7731 {
         val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score, "U", regime, "UNKNOWN", px, cost.coerceIn(0.0, 60.0), nowMs)
         lastSeenAt[key] = nowMs
+        // V5.0.7737 — a fresh launch is also followed by first touch (+50% / -30%).
+        try { FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs) } catch (_: Throwable) {}
         if (lastSeenAt.size > MAX_SEEN_7731) {
             val cutoff = nowMs - REOBSERVE_MS_7731
             lastSeenAt.entries.removeIf { it.value < cutoff }
@@ -370,20 +388,56 @@ object ForwardReturnLabeler7731 {
     private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? {
         val fromLoop = try { priceFor(mint) } catch (_: Throwable) { null }
         if (fromLoop != null && fromLoop.isFinite() && fromLoop > 0.0) return fromLoop
-        return try {
-            val m = CanonicalPriceMarkRegistry6522.get(mint) ?: return null
-            if (m.timestampMs <= 0L || nowMs - m.timestampMs > MARK_MAX_AGE_MS_7731) return null
-            val px = m.priceUsd.value.toDouble()
-            if (px.isFinite() && px > 0.0) px else null
+        val fromRegistry = try {
+            val m = CanonicalPriceMarkRegistry6522.get(mint)
+            if (m == null || m.timestampMs <= 0L || nowMs - m.timestampMs > MARK_MAX_AGE_MS_7731) null
+            else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
         } catch (_: Throwable) { null }
+        if (fromRegistry != null) return fromRegistry
+        val off = offWatchMarks7737[mint] ?: return null
+        return if (nowMs - off.second <= MARK_MAX_AGE_MS_7731) off.first else null
+    }
+
+    /** V5.0.7737 — true when [o] has reached a horizon it has not booked yet. */
+    private fun dueAtHorizon7737(o: Obs, age: Long): Boolean =
+        (!o.done15 && age >= H15_MS_7731) || (!o.done60 && age >= H60_MS_7731) || (!o.done240 && age >= H240_MS_7731)
+
+    /** V5.0.7737 — prices the oldest due, unpriced mints (the 60-minute label first) in one batch on a background thread. */
+    private fun fetchOffWatchMarks7737(due: List<String>, nowMs: Long) {
+        if (due.isEmpty() || nowMs - offWatchLastFetchMs7737 < OFFWATCH_FETCH_GAP_MS_7737) return
+        if (!offWatchInFlight7737.compareAndSet(false, true)) return
+        offWatchLastFetchMs7737 = nowMs
+        val batch = due.distinct().take(OFFWATCH_BATCH_7737)
+        try {
+            Thread({
+                try {
+                    val got = com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch)
+                    val at = System.currentTimeMillis()
+                    for ((m, px) in got) offWatchMarks7737[m] = px to at
+                    offWatchPriced7737.addAndGet(got.size.toLong())
+                    offWatchMissed7737.addAndGet((batch.size - got.size).toLong())
+                    PipelineHealthCollector.labelInc("FORWARD_LABEL_OFFWATCH_BATCH_7737")
+                    val cutoff = at - MARK_MAX_AGE_MS_7731
+                    offWatchMarks7737.entries.removeIf { it.value.second < cutoff }
+                } catch (_: Throwable) {
+                } finally {
+                    offWatchInFlight7737.set(false)
+                }
+            }, "fwd-label-offwatch-7737").apply { isDaemon = true }.start()
+        } catch (_: Throwable) {
+            offWatchInFlight7737.set(false)
+        }
     }
 
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
-        if (pending.isEmpty()) return
+        val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
+        if (pending.isEmpty() && freshUnpriced7737.isEmpty()) return
+        val dueUnpriced7737 = ArrayList<Pair<String, Long>>()
         for ((key, o) in pending.entries.toList()) {
             val age = nowMs - o.atMs
             val px = markFor(o.mint, priceFor, nowMs)
             if (px == null) {
+                if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
                 if (!o.done60 && age >= H60_MS_7731 + LOST_GRACE_MS_7731) {
                     // Nothing priced it through its 60-minute horizon: lost, not booked.
                     markLost(o)
@@ -411,6 +465,8 @@ object ForwardReturnLabeler7731 {
                 pending.remove(key, o)
             }
         }
+        val due7737 = dueUnpriced7737.sortedBy { it.second }.map { it.first } + freshUnpriced7737
+        if (due7737.isNotEmpty()) fetchOffWatchMarks7737(due7737, nowMs)
     }
 
     // ── reads ──
@@ -439,6 +495,9 @@ object ForwardReturnLabeler7731 {
 
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))
 
+    /** V5.0.7737 — the lane's 60-minute label record (LaneAutoPauseGuard's label-proof release). */
+    fun laneStatFor7737(lane: String): CellStat? = laneStat(lane)
+
     private fun fmtStat(s: CellStat?): String =
         if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}"
 
@@ -452,7 +511,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
@@ -462,6 +521,7 @@ object ForwardReturnLabeler7731 {
     /** Called when the service stops: the table survives the restart. */
     fun persistNow7731() {
         persist(force = true)
+        try { FreshLaunchSelector7737.persistNow7737() } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle(
                 "FORWARD_LABELER_PERSISTED_7731",

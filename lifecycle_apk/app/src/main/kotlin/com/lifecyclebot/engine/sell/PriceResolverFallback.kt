@@ -394,6 +394,25 @@ object PriceResolverFallback {
     }
 
     /**
+     * V5.0.7737 — one Jupiter Price v3 call for up to fifty mints, same shape
+     * and host pacing as [fetchJupiterLitePrice6914]. Blocking; callers run it
+     * off the loop. A mint Jupiter does not price is simply absent.
+     */
+    fun jupiterBatchPrices7737(mints: List<String>): Map<String, Double> {
+        val ids = mints.filter { it.isNotBlank() }.distinct().take(50)
+        if (ids.isEmpty()) return emptyMap()
+        val json = getJson6914("jupiter", "https://lite-api.jup.ag/price/v3?ids=${ids.joinToString(",")}") ?: return emptyMap()
+        val out = HashMap<String, Double>()
+        for (mint in ids) {
+            val obj = json.optJSONObject(mint) ?: json.optJSONObject("data")?.optJSONObject(mint) ?: continue
+            val v3 = obj.optDouble("usdPrice", Double.NaN)
+            val px = if (v3.isFinite() && v3 > 0.0) v3 else (obj.optString("price", "0").toDoubleOrNull() ?: 0.0)
+            if (px.isFinite() && px > 0.0) out[mint] = px
+        }
+        return out
+    }
+
+    /**
      * V5.0.6914 — Raydium v3 keyless mint price. Shape mirrors
      * PriceAggregator.fetchRaydiumV3 (§6065): {"data":{"<mint>":"1.23"}}.
      * Native #1 Solana DEX, so this is the best long-tail coverage for

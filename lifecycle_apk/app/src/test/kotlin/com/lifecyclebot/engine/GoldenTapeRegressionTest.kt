@@ -14022,4 +14022,44 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7737_fresh_launches_are_selected_by_setup_treasury_answers_to_its_labels_and_lost_marks_are_fetched() {
+        val sel = com.lifecyclebot.engine.truth.FreshLaunchSelector7737
+        assertEquals("FLOW_SELL", sel.flowBucket(2, 5, 30.0, 3, false))
+        assertEquals("FLOW_STRONG", sel.flowBucket(8, 1, 80.0, 6, true))
+        assertEquals("FLOW_NONE", sel.flowBucket(0, 0, 50.0, 0, false))
+        assertEquals("CONC_ONE", sel.concentrationBucket(70.0, 2))
+        assertEquals("DEV_SELLING", sel.structuralRefusal(1, 0.0, "FLOW_STRONG", "CONC_BROAD", 1.2))
+        assertEquals("FIVE_MINUTE_CASCADE", sel.structuralRefusal(0, -25.0, "FLOW_OK", "CONC_BROAD", 1.2))
+        assertEquals("CHASING_3X_FROM_CREATE", sel.structuralRefusal(0, 0.0, "FLOW_OK", "CONC_BROAD", 3.4))
+        assertTrue(sel.structuralRefusal(0, 2.0, "FLOW_STRONG", "CONC_BROAD", 1.2) == null)
+        assertEquals(0.60, sel.quickTakeFraction(55.0, 0), 1e-9)
+        assertEquals(0.0, sel.quickTakeFraction(80.0, 1), 1e-9)
+        assertEquals(0.50, sel.quickTakeFraction(120.0, 1), 1e-9)
+        assertEquals(0.0, sel.quickTakeFraction(300.0, 2), 1e-9)
+        val stops = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 24; tpFirst = 4; stopFirst = 14 }
+        assertTrue(sel.cellRefuses(stops))
+        assertFalse(sel.cellOverturns(stops))
+        val runs = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 32; tpFirst = 12; stopFirst = 8 }
+        assertTrue(sel.cellOverturns(runs))
+        assertFalse(sel.cellRefuses(runs))
+        val thin = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 12; tpFirst = 0; stopFirst = 12 }
+        assertFalse(sel.cellRefuses(thin))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("        freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (freshLaunchQuickTake7737(ts, wallet, walletSol, pos, actualPrice, gainMultiple, gainPct)) return true"))
+        assertTrue(ex.contains("selector.onQuickTakeAttempt(ts.mint, pos.entryTime, banked)"))
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
+        assertTrue(guard.contains("LANE_PAUSE_RELEASED_LABEL_PROOF_7737"))
+        assertTrue(guard.contains("if (labelEpoch7737 > 0L && t.ts < labelEpoch7737) continue"))
+        assertTrue(guard.contains("if (prior != null && st.pausedAt > prior.atMs && s.n60 < prior.n60AtRelease + LABEL_RELEASE_MIN_N60_7737) return null"))
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(lab.contains("com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch)"))
+        assertTrue(lab.contains("if (dueAtHorizon7737(o, age)) dueUnpriced7737.add("))
+        assertTrue(lab.contains("FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs)"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

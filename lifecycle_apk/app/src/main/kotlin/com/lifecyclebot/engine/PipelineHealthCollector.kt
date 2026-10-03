@@ -2832,6 +2832,9 @@ object PipelineHealthCollector {
             sb.append("  Forward labels (§7731):       ").append(
                 try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Fresh launch setups (§7737):  ").append(
+                try { com.lifecyclebot.engine.truth.FreshLaunchSelector7737.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Cell proof ladder (§7731):    ").append(
                 try { com.lifecyclebot.engine.truth.CellProofLadder7731.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

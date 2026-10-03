@@ -908,6 +908,40 @@ object FinalDecisionGate {
         )
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7737 — FreshLaunchSelector7737: a LIVE entry on a fresh launch
+     * (canonical birth under thirty minutes) is refused when its setup carries
+     * a structural crash shape its own cell has not overturned, or when its
+     * setup cell measurably hits -30% before +50%. Paper is never refused.
+     */
+    private fun freshLaunchBlock7737(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        specialistLane: String?,
+        laneName: String,
+        paper: Boolean,
+        mode: TradeMode,
+    ): FinalDecision? = try {
+        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
+        val reason = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.liveBlockReason(ts, lane, paper)
+        if (reason == null) null else FinalDecision(
+            shouldTrade = false,
+            mode = mode,
+            approvalClass = ApprovalClass.BLOCKED,
+            quality = candidate.setupQuality,
+            confidence = candidate.aiConfidence,
+            edge = EdgeVerdict.SKIP,
+            blockReason = reason,
+            blockLevel = BlockLevel.EDGE,
+            sizeSol = 0.0,
+            tags = listOf("fresh_launch_7737", "lane:$lane"),
+            mint = ts.mint,
+            symbol = ts.symbol,
+            approvalReason = "FRESH_LAUNCH_SETUP_REFUSED_7737: $reason",
+            gateChecks = listOf(GateCheck("fresh_launch_7737", false, "lane=$lane $reason")),
+        )
+    } catch (_: Throwable) { null }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -1342,6 +1376,7 @@ object FinalDecisionGate {
         // 7715 post-login crash) and must not gain locals or branches.
         fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }
         cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
+        freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
