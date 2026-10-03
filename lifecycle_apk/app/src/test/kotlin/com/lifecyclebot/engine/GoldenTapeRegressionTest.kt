@@ -14300,4 +14300,15 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7750_operator_released_the_sniper_and_the_guard_never_re_pauses_it() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
+        assertTrue(g.contains("private val OPERATOR_RELEASED_LANES_7750 = setOf(\"PRESALE_SNIPE\")"))
+        assertTrue(g.contains("if (lane in OPERATOR_RELEASED_LANES_7750) continue"))
+        assertTrue(g.contains("OPERATOR_RELEASED_LANES_7750.filter { paused.remove(it) != null }"))
+        assertTrue(g.contains("Field Manual §12"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

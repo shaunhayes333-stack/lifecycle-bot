@@ -161,6 +161,16 @@ object LaneAutoPauseGuard {
     )
 
     private val paused = ConcurrentHashMap<String, PauseState>()
+
+    // V5.0.7750 §OPERATOR_RELEASED_THE_SNIPER. Operator: "yes release the
+    // sniper" — after "it has to trade to learn". 5.0.7745 showed
+    // LANE_QUARANTINED_BLOCKED_ENTRY_6684=4238 on PROJECT_SNIPER: a lane that
+    // cannot trade cannot produce the closes that would ever prove it again.
+    // Field Manual §12: "Small samples should remain uncertain and shrink
+    // toward broader evidence rather than becoming hard rules." The sniper's
+    // record keeps teaching its cells, the plan and the council; it no longer
+    // switches the lane off. The persisted pause is dropped on load.
+    private val OPERATOR_RELEASED_LANES_7750 = setOf("PRESALE_SNIPE")
     // V5.0.7193 — last observed post-pause record per paused lane, for the
     // status line. Rebuilt every evaluateLive tick; never a decision input.
     private val selfReproofProgress7193 = ConcurrentHashMap<String, String>()
@@ -191,6 +201,14 @@ object LaneAutoPauseGuard {
                     )
                 }
             } catch (_: Throwable) {}
+            val released7750 = OPERATOR_RELEASED_LANES_7750.filter { paused.remove(it) != null }
+            if (released7750.isNotEmpty()) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_OPERATOR_RELEASED_7750")
+                    ForensicLogger.lifecycle("LANE_OPERATOR_RELEASED_7750", "lanes=${released7750.joinToString(",")} action=trade_to_learn")
+                } catch (_: Throwable) {}
+                try { persistAsync() } catch (_: Throwable) {}
+            }
             // V5.0.6687 — PATCH-ROT PURGE. Historical hard_seed_* pauses were
             // baked from old runtime samples and recreated after every restart,
             // contradicting the current adaptive tactic/reproof architecture. Remove
@@ -422,6 +440,7 @@ object LaneAutoPauseGuard {
             var mutated = false
             for ((lane, agg) in byLane) {
                 if (paused.containsKey(lane)) continue
+                if (lane in OPERATOR_RELEASED_LANES_7750) continue
                 val wrPct = if (agg.sample > 0) agg.wins.toDouble() / agg.sample.toDouble() * 100.0 else 0.0
                 val evPct = if (agg.sample > 0) agg.pnlSum / agg.sample else 0.0
                 val zeroWin = agg.sample >= ZERO_WIN_MIN_SAMPLE && agg.wins == 0
