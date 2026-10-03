@@ -77,6 +77,8 @@ class BotService : Service() {
         // catastrophic kill-switch. Tighter (-10) at operator directive after a
         // -29.4% real-money fill on a -15% stop (V5.9.1454 dump).
         private const val TICK_HARD_FLOOR_PCT = -10.0
+        /** V5.0.7739 — round-trip cost a plan's first target must clear before it banks half. */
+        private const val PLAN_COST_PCT_7739 = 4.0
         private const val RUNNER_LANE_FLOOR_PCT_7330 = -15.0
         /**
          * V5.0.7696 — the 500ms rapid monitor's NEGATIVE fluid stop is
@@ -868,6 +870,45 @@ class BotService : Service() {
     // stale or skipped tick could never remember a lock it had already earned.
     private val tickLockFloor7392 = java.util.concurrent.ConcurrentHashMap<String, Double>()
     private val OFF_LOOP_SELL_RETRY_MS_7288 = 60_000L
+
+    private val planExitAttemptMs7739 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.7739 — executes the exit a position's plan owes (TradePlan7739).
+     * One dispatch per mint per 10 s; the full sell goes through the same
+     * off-loop path as the tick floors, the first-target half off the loop.
+     */
+    private fun planTickExit7739(
+        ts: com.lifecyclebot.data.TokenState,
+        plan: com.lifecyclebot.engine.truth.TradePlan7739.Plan?,
+        exit: com.lifecyclebot.engine.truth.TradePlan7739.Exit,
+        pnlPct: Double,
+        peakPct: Double,
+    ) {
+        val now = System.currentTimeMillis()
+        val last = planExitAttemptMs7739[ts.mint] ?: 0L
+        if (now - last < 10_000L) return
+        planExitAttemptMs7739[ts.mint] = now
+        if (planExitAttemptMs7739.size > 1_000) planExitAttemptMs7739.entries.removeIf { now - it.value > 3_600_000L }
+        try {
+            com.lifecyclebot.engine.truth.TradePlan7739.onExit(plan, exit)
+            ForensicLogger.lifecycle(
+                "PLAN_EXIT_7739",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${exit.reason} kind=${exit.kind} holdMin=${(now - ts.position.entryTime) / 60_000L} " +
+                    "pnl=${"%.1f".format(pnlPct)}% peak=${"%.1f".format(peakPct)}% setup=${plan?.setup?.name ?: "NONE"} paper=${ts.position.isPaperPosition}",
+            )
+            val cfgP = ConfigStore.load(applicationContext)
+            val walletP = walletManager.getWallet()
+            val balP = status.getEffectiveBalance(cfgP.paperMode)
+            if (exit.kind == com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.HALF) {
+                scope.launch(Dispatchers.IO) {
+                    try { executor.requestPartialSellConfirmed6566(ts, 0.5, exit.reason, walletP, balP) } catch (_: Throwable) {}
+                }
+            } else {
+                requestSellOffLoop7288(ts, exit.reason, walletP, balP)
+            }
+        } catch (_: Throwable) {}
+    }
 
     private fun requestSellOffLoop7288(
         ts: com.lifecyclebot.data.TokenState,
@@ -12577,6 +12618,21 @@ class BotService : Service() {
                                 }
                                 val peakPct = pos.peakGainPct
 
+                                // V5.0.7739 — the position's own plan exits first (TradePlan7739):
+                                // structural stop, first target, structure trail, target, thesis
+                                // time, underwater time. An unconfirmed sub -50% read is not a price.
+                                val plan7739 = try { com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) } catch (_: Throwable) { null }
+                                val phantom7739 = pnlPctNow < -50.0 &&
+                                    !(execPxForTickLock != null && kotlin.math.abs(execPnlPctNow - rawTickPnlPctNow) <= 20.0)
+                                val planExit7739 = if (phantom7739) null else try {
+                                    val nowP7739 = System.currentTimeMillis()
+                                    com.lifecyclebot.engine.truth.TradePlan7739.exitFor(
+                                        plan7739, pnlPctNow, peakPct, nowP7739 - pos.entryTime,
+                                        plan7739 != null && com.lifecyclebot.engine.truth.TradePlan7739.trailBroken(ts, nowP7739),
+                                        PLAN_COST_PCT_7739,
+                                    )
+                                } catch (_: Throwable) { null }
+
                                 // ─── Guard 1: TICK_HARD_FLOOR @ -10% ───
                                 // V5.9.1564 — SANITY: a single tick can read a stale entry
                                 // price right after a basis switch (PumpFun BC → Raydium)
@@ -12646,7 +12702,9 @@ class BotService : Service() {
                                 // -10/-12/-13 inside the band their lane holds through.
                                 // MANIPULATED/SHITCOIN/EXPRESS keep their one-strike -10.
                                 val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
-                                if (moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) {
+                                if (planExit7739 != null) {
+                                    planTickExit7739(ts, plan7739, planExit7739, pnlPctNow, peakPct)
+                                } else if (moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) {
                                     if (moonshotLaneStop7389) try { PipelineHealthCollector.labelInc("TICK_MOONSHOT_LANE_STOP_7389") } catch (_: Throwable) {}
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
@@ -12678,7 +12736,8 @@ class BotService : Service() {
                                     // Use FluidLearningAI's high-lock floor — the same value
                                     // rendered as "lock +X%" in the open-position card.
                                     // V5.0.7346 — deferral first; the floor is only read when not deferred.
-                                    val runnerLockDeferred7277 = try {
+                                    // V5.0.7739 — a planned position trails under structure, not 3-5 points under its peak.
+                                    val runnerLockDeferred7277 = plan7739 != null || try {
                                         RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPct)
                                     } catch (_: Throwable) { false }
                                     val lockedFloor = if (runnerLockDeferred7277) Double.NaN else try {
@@ -34099,36 +34158,6 @@ if (hotExitHandledSweep) {
         }
     }
 
-    private val structureExitAttemptMs7739 = java.util.concurrent.ConcurrentHashMap<String, Long>()
-
-    /**
-     * V5.0.7739 — the exit the position's own thesis owes: under the pullback
-     * low recorded at entry, no retest of the high within its horizon, or under
-     * water after forty-five minutes. One attempt per mint per 30 s.
-     */
-    private fun structureExit7739(ts: TokenState, price: Double, pnlPct: Double, wallet: SolanaWallet?, walletSol: Double): Boolean {
-        val pos = ts.position
-        if (!pos.isOpen || pos.entryTime <= 0L) return false
-        val now = System.currentTimeMillis()
-        val plan = com.lifecyclebot.engine.truth.LaunchStructure7739.planFor(ts.mint, pos.entryTime)
-        val peak = maxOf(pos.peakGainPct, pnlPct)
-        val reason = com.lifecyclebot.engine.truth.LaunchStructure7739.exitReason(plan, pos.entryPrice, price, now - pos.entryTime, pnlPct, peak) ?: return false
-        val last = structureExitAttemptMs7739[ts.mint] ?: 0L
-        if (now - last < 30_000L) return false
-        structureExitAttemptMs7739[ts.mint] = now
-        if (structureExitAttemptMs7739.size > 1_000) structureExitAttemptMs7739.entries.removeIf { now - it.value > 3_600_000L }
-        try {
-            com.lifecyclebot.engine.truth.LaunchStructure7739.onExit(reason)
-            ForensicLogger.lifecycle(
-                "STRUCTURE_EXIT_7739",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason holdMin=${(now - pos.entryTime) / 60_000L} pnl=${"%.1f".format(pnlPct)}% " +
-                    "peak=${"%.1f".format(peak)}% plan=${plan != null} paper=${pos.isPaperPosition}",
-            )
-        } catch (_: Throwable) {}
-        executor.requestSell(ts = ts, reason = reason, wallet = wallet, walletSol = walletSol)
-        return true
-    }
-
     private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wallet: SolanaWallet?) {
         try {
             val price = try { executor.getActualPricePublic(ts) } catch (_: Throwable) { ts.lastPrice }
@@ -34142,8 +34171,6 @@ if (hotExitHandledSweep) {
             // even when many positions were being evaluated for exit.
             val _pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, price, "BotService.fallback_exit_phase_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
             val _pnl = if (_pnlVerdict6038.ok) _pnlVerdict6038.pnlPct else 0.0
-            // V5.0.7739 — structural stop, thesis time exit and underwater time exit (Field Manual §10).
-            if (_pnlVerdict6038.ok && structureExit7739(ts, price, _pnl, wallet, effectiveBalance)) return
             try {
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.EXIT_GATE,

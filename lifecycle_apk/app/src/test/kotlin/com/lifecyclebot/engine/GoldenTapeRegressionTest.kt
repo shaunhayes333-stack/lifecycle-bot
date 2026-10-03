@@ -14084,4 +14084,55 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7739_every_live_entry_carries_a_plan_and_the_plan_owns_the_exit() {
+        val tp = com.lifecyclebot.engine.truth.TradePlan7739
+        fun bar(i: Int, o: Double, h: Double, l: Double, c: Double) = com.lifecyclebot.engine.truth.TradePlan7739.Bar(i * 60_000L, o, h, l, c)
+        val micro = tp.tierFor(50_000.0)
+        assertEquals(30.0, micro.minImpulsePct, 1e-9)
+        assertEquals(5.0, tp.tierFor(68_000_000.0).minImpulsePct, 1e-9)
+        // A/F pullback-reclaim: +53% impulse, 46% retrace, turned up, room under the high.
+        val pb = listOf(bar(0, 1.0, 1.02, 0.98, 1.0), bar(1, 1.0, 1.25, 1.0, 1.22), bar(2, 1.22, 1.50, 1.2, 1.45),
+            bar(3, 1.45, 1.46, 1.30, 1.32), bar(4, 1.32, 1.33, 1.26, 1.28), bar(5, 1.28, 1.36, 1.28, 1.35))
+        val r1 = tp.pullbackReclaim(pb, micro)
+        assertEquals(com.lifecyclebot.engine.truth.TradePlan7739.Setup.PULLBACK_RECLAIM, r1.setup)
+        assertEquals(8.53, r1.stopPct, 0.05)
+        assertTrue(r1.r >= 2.0)
+        // Blind launch: no structure yet.
+        assertEquals("TOO_FEW_BARS", tp.pullbackReclaim(pb.take(3), micro).why)
+        // Chasing: the same tape bought at the high.
+        val chase = pb.dropLast(1) + bar(5, 1.28, 1.46, 1.28, 1.45)
+        assertEquals("CHASING_THE_HIGH", tp.pullbackReclaim(chase, micro).why)
+        // A sell-dominant tape refuses every setup.
+        assertEquals("SELL_DOMINANT_TAPE", tp.analyze(pb, micro, false, 1, 5).why)
+        // B base breakout: 10% base, two closes above it.
+        val base = listOf(bar(0, 1.05, 1.10, 1.00, 1.06), bar(1, 1.06, 1.09, 1.02, 1.03), bar(2, 1.03, 1.08, 1.01, 1.07),
+            bar(3, 1.07, 1.10, 1.03, 1.04), bar(4, 1.04, 1.09, 1.02, 1.08), bar(5, 1.08, 1.10, 1.04, 1.09),
+            bar(6, 1.09, 1.14, 1.08, 1.13), bar(7, 1.13, 1.16, 1.11, 1.15))
+        assertEquals(com.lifecyclebot.engine.truth.TradePlan7739.Setup.BASE_BREAKOUT, tp.baseBreakout(base, micro, true).setup)
+        // D sweep and reclaim.
+        val sweep = listOf(bar(0, 1.05, 1.10, 1.00, 1.04), bar(1, 1.04, 1.08, 1.01, 1.06), bar(2, 1.06, 1.30, 1.03, 1.15),
+            bar(3, 1.15, 1.16, 1.02, 1.03), bar(4, 1.03, 1.04, 0.95, 0.97), bar(5, 0.97, 1.01, 0.96, 1.00), bar(6, 1.00, 1.04, 0.99, 1.03))
+        assertEquals(com.lifecyclebot.engine.truth.TradePlan7739.Setup.SWEEP_RECLAIM, tp.sweepReclaim(sweep, micro).setup)
+        // Exits.
+        val plan = com.lifecyclebot.engine.truth.TradePlan7739.Plan(com.lifecyclebot.engine.truth.TradePlan7739.Setup.PULLBACK_RECLAIM, -8.5, 11.1, 49.6, 0L)
+        assertTrue(tp.exitFor(plan, -9.0, 2.0, 60_000L, false, 4.0)!!.reason.startsWith("STRUCTURE_STOP_7739"))
+        val half = tp.exitFor(plan, 12.0, 12.0, 120_000L, false, 4.0)!!
+        assertEquals(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.HALF, half.kind)
+        assertTrue(tp.exitFor(plan, 50.0, 50.0, 300_000L, false, 4.0)!!.reason.startsWith("PLAN_TARGET_7739"))
+        tp.onExit(plan, half)
+        assertTrue(tp.exitFor(plan, 15.0, 30.0, 600_000L, true, 4.0)!!.reason.startsWith("STRUCTURE_TRAIL_STOP_7739"))
+        val fresh = com.lifecyclebot.engine.truth.TradePlan7739.Plan(com.lifecyclebot.engine.truth.TradePlan7739.Setup.PULLBACK_RECLAIM, -8.5, 11.1, 49.6, 0L)
+        assertTrue(tp.exitFor(fresh, 2.0, 3.0, 21L * 60_000L, false, 4.0)!!.reason.startsWith("THESIS_TIME_STOP_7739"))
+        assertTrue(tp.exitFor(null, -1.0, 0.0, 46L * 60_000L, false, 4.0)!!.reason.startsWith("UNDERWATER_TIME_STOP_7739"))
+        assertTrue(tp.exitFor(null, 1.0, 2.0, 46L * 60_000L, false, 4.0) == null)
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("        tradePlanBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("planTickExit7739(ts, plan7739, planExit7739, pnlPctNow, peakPct)"))
+        assertTrue(bs.contains("val runnerLockDeferred7277 = plan7739 != null || try {"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

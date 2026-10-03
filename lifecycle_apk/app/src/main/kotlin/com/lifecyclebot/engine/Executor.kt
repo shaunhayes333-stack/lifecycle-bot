@@ -6824,6 +6824,8 @@ class Executor(
         if (fraction <= 0.0) return false
         if (!selector.quickTakeMayTry(ts.mint, pos.entryTime)) return false
         if (!selector.wasFreshAtEntry(ts.mint, pos.entryTime)) return false
+        // V5.0.7739 — a planned position banks at its own first target (TradePlan7739).
+        if (com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) != null) return false
         val qtyBefore = pos.qtyToken
         try {
             PipelineHealthCollector.labelInc("FRESH_LAUNCH_QUICK_TAKE_7737")

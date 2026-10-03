@@ -943,12 +943,13 @@ object FinalDecisionGate {
     } catch (_: Throwable) { null }
 
     /**
-     * V5.0.7739 — LaunchStructure7739: a LIVE meme-lane entry needs the launch
-     * pullback-reclaim (impulse, held pullback, reclaim, room to the high, 2R to
-     * the measured move). Without it the verdict is WAIT; the next cycle
-     * re-reads the tape. Paper and the large-cap lanes are never refused here.
+     * V5.0.7739 — TradePlan7739: a LIVE entry must carry a plan read from the
+     * token's own one-minute tape (pullback-reclaim, base breakout or sweep-
+     * reclaim), with a structural invalidation and 2R to target. Without one
+     * the verdict is WAIT; the next cycle re-reads the tape. Paper is never
+     * refused. Field Manual §4/§9: no trigger and invalidation, no trade.
      */
-    private fun launchStructureBlock7739(
+    private fun tradePlanBlock7739(
         ts: TokenState,
         candidate: CandidateDecision,
         specialistLane: String?,
@@ -957,7 +958,7 @@ object FinalDecisionGate {
         mode: TradeMode,
     ): FinalDecision? = try {
         val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
-        val reason = com.lifecyclebot.engine.truth.LaunchStructure7739.liveBlockReason(ts, lane, paper)
+        val reason = com.lifecyclebot.engine.truth.TradePlan7739.liveBlockReason(ts, lane, paper)
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
             mode = mode,
@@ -968,11 +969,11 @@ object FinalDecisionGate {
             blockReason = reason,
             blockLevel = BlockLevel.EDGE,
             sizeSol = 0.0,
-            tags = listOf("launch_structure_7739", "lane:$lane"),
+            tags = listOf("trade_plan_7739", "lane:$lane"),
             mint = ts.mint,
             symbol = ts.symbol,
-            approvalReason = "LAUNCH_STRUCTURE_WAIT_7739: $reason",
-            gateChecks = listOf(GateCheck("launch_structure_7739", false, "lane=$lane $reason")),
+            approvalReason = "NO_PLAN_WAIT_7739: $reason",
+            gateChecks = listOf(GateCheck("trade_plan_7739", false, "lane=$lane $reason")),
         )
     } catch (_: Throwable) { null }
 
@@ -1411,7 +1412,7 @@ object FinalDecisionGate {
         fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }
         cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
         freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
-        launchStructureBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
+        tradePlanBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
