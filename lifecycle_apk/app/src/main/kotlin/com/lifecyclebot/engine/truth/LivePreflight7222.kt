@@ -228,8 +228,8 @@ object LivePreflight7222 {
         // 9. Structural facts the operator should not have to rediscover.
         checks += check("MARK_STAGE_LIVE") {
             Check("MARK_STAGE_LIVE", Verdict.INFO,
-                "the live buy path records no MARK_READY/MARK_REJECT desk stage (only paperBuy does, Executor:14748); " +
-                    "funnel telemetry reads MARK_STAGE_UNRECORDED in live BY CONSTRUCTION — not a trade blocker (§7214)")
+                "live Executor stamps MARK_READY/MARK_REJECT from the exact canonical entry snapshot and immutable intent (§7790); " +
+                    "a zero live MARK count now means causal mark continuity is genuinely missing")
         }
         checks += check("SHADOW_BOOK") {
             Check("SHADOW_BOOK", Verdict.INFO, ShadowBookTelemetry7215.statusLine7215())

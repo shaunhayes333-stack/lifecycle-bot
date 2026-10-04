@@ -218,6 +218,17 @@ object CommonSenseTradePlaybook {
         if (snap.hardSafetyBlocked || snap.holderHardRisk) {
             return deny("TRUE_HARD_SAFETY_OR_HOLDER_RISK", "hardSafety=${snap.hardSafetyBlocked} holderHard=${snap.holderHardRisk} safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
         }
+        // V5.0.7790 — the canonical trade plan is already concrete setup proof.
+        // Provider/holder UNKNOWN must not become a second hard veto when the
+        // route, token map, liquidity and plan are executable. True hard safety
+        // and holderHardRisk above remain absolute blocks.
+        val plan7790 = try { com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783(ts.mint, now) } catch (_: Throwable) { null }
+        val planRr7790 = plan7790?.let {
+            val stop = kotlin.math.abs(it.stopPnlPct)
+            if (stop > 0.0) it.firstTargetPnlPct / stop else 0.0
+        } ?: 0.0
+        val executablePlan7790 = plan7790 != null && planRr7790 >= PLAN_MIN_RR_7783 &&
+            snap.liquidityUsd >= 500.0 && snap.routeKnown && snap.tokenMapComplete && !snap.dangerousStructure
         // V5.0.7425 — lifecycle danger is not a normal-lane dip signal.
         // POST_PUMP_EXHAUSTION / free-fall / breakdown may only be considered
         // by the explicitly MANIPULATED desk. DIP_HUNTER/QUALITY must wait for
@@ -230,6 +241,13 @@ object CommonSenseTradePlaybook {
             )
         }
         if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) {
+            if (executablePlan7790) {
+                return allowShaped(
+                    "PLAN_BACKED_PROVIDER_UNCERTAINTY_7790",
+                    0.50,
+                    "plan=${plan7790?.setup?.name} rr=${"%.2f".format(planRr7790)} safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}",
+                )
+            }
             if (tradeableSetup && snap.score >= fluidScore6020(55.0)) {
                 return allowShaped(
                     "SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT",
@@ -248,7 +266,7 @@ object CommonSenseTradePlaybook {
         // phase text. Hard safety, rug/holder, and post-pump danger above stay
         // binding. Field Manual: define entry, stop and target before entry —
         // the plan did; refusing it again is a second opinion, not a gate.
-        val plan7783 = try { com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783(ts.mint, now) } catch (_: Throwable) { null }
+        val plan7783 = plan7790
         if (plan7783 != null && snap.liquidityUsd >= 500.0) {
             val stop7783 = kotlin.math.abs(plan7783.stopPnlPct)
             val rr7783 = if (stop7783 > 0.0) plan7783.firstTargetPnlPct / stop7783 else 0.0

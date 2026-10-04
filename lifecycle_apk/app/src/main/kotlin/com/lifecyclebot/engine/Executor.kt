@@ -13388,7 +13388,31 @@ class Executor(
         }
     }
 
+    private fun terminalizeCanonicalLiveFailure7790(ts: TokenState, reason: String) {
+        try {
+            val cv = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            val intent = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE", cv)
+                ?: com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE")
+            if (intent != null) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(intent, reason)
+                PipelineHealthCollector.labelInc("LIVE_FAILURE_CANONICAL_TERMINAL_7790")
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun stampLiveEntryMark7790(ts: TokenState, ready: Boolean, detail: String = "") {
+        try {
+            val cv = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            val intent = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE", cv)
+                ?: com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE")
+            if (intent != null && intent.attemptId.isNotBlank()) {
+                ToolkitSignalSheet.recordDeskStage(intent.canonicalLane, if (ready) "MARK_READY" else "MARK_REJECT", intent.attemptId)
+                PipelineHealthCollector.labelInc(if (ready) "LIVE_MARK_READY_CAUSAL_7790" else "LIVE_MARK_REJECT_CAUSAL_7790")
+            }
+        } catch (_: Throwable) {}
+    }
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
+        terminalizeCanonicalLiveFailure7790(ts, reason)
         try {
             val r = reason.uppercase()
             when {
@@ -20040,6 +20064,7 @@ class Executor(
 
         val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy")
         if (entryMarketSnapshot == null) {
+            stampLiveEntryMark7790(ts, false, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             terminalizeCanonicalPreLease7789("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }}")
             // V5.0.7356 — nothing was spent; give back the mint-version claim so the
@@ -20051,6 +20076,7 @@ class Executor(
             } catch (_: Throwable) {}
             return false
         }
+        stampLiveEntryMark7790(ts, true, "EXECUTOR_ENTRY_SNAPSHOT")
 
         val resolvedInputLaneForPivot = resolveExecutionLane(ts, identity).ifBlank { "STANDARD" }
         val originalLaneForPivot = layerTag.ifBlank { ts.position.tradingMode.ifBlank { resolvedInputLaneForPivot } }

@@ -1077,6 +1077,18 @@ object ToolkitSignalSheet {
                 }
         } catch (_: Throwable) { null } else null
         val candidateVersion6647 = sealedIntent7471?.candidateVersion ?: parsedCandidateVersion7471
+        // V5.0.7790 — executable size is a lifecycle stage, not advisory math.
+        // If no immutable intent owns this exact mode/mint/version/lane, do not
+        // feed SIZED_EXECUTABLE into the causal funnel. Sizing still occurred;
+        // only the false execution-progress stamp is withheld.
+        if (stage == "SIZED_EXECUTABLE" && sealedIntent7471 == null) {
+            try {
+                PipelineHealthCollector.labelInc("ADVISORY_SIZE_STAMP_WITHHELD_7790")
+                ForensicLogger.lifecycle("ADVISORY_SIZE_STAMP_WITHHELD_7790",
+                    "mint=${mint.take(10)} lane=$lane mode=$resolvedMode7471 version=$parsedCandidateVersion7471 eventId=${eventId.take(80)}")
+            } catch (_: Throwable) {}
+            return
+        }
         if (sealedIntent7471 != null && parsedCandidateVersion7471 > 0L &&
             sealedIntent7471.candidateVersion != parsedCandidateVersion7471
         ) try {
