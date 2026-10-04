@@ -2776,6 +2776,25 @@ object ExecutableOpenGate {
             restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
         }
 
+        // V5.0.7778 — LIVE FDG->TICKET continuity.
+        // Learned performance vetoes must earn clean LIVE evidence before they can
+        // erase a mechanically valid, sealed real-money BUY.
+        val liveSealedFdgBuy7778 = modeUpper == "LIVE" && fdgCan == true &&
+            hardNoReasons.isEmpty() && (
+                preFdgVerdict.equals("BUY", true) ||
+                immutableAuthority6513?.verdict?.equals("BUY", true) == true ||
+                (ticketAuthority6564?.fdgAllowed == true && ticketAuthority6564.fdgVerdict.equals("BUY", true))
+            )
+        val liveLaneCloses7778: Int = if (modeUpper == "LIVE") try {
+            com.lifecyclebot.engine.StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+                .firstOrNull {
+                    com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(it.strategy)
+                        .equals(canonicalSelectedLane, true)
+                }?.trades ?: 0
+        } catch (_: Throwable) { 0 } else Int.MAX_VALUE
+        val liveLearnedMature7778 = liveLaneCloses7778 >= 8
+        val liveTerminalMature7778 = liveLaneCloses7778 >= 20
+
         fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
             try {
                 val coolMs = cooldownMsFor(log, reason)
@@ -2787,9 +2806,16 @@ object ExecutableOpenGate {
                 ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_BLOCK $detail")
                 ForensicLogger.gate(ForensicLogger.PHASE.EXEC_GATE, symbol, allow = false, reason = reason)
             } catch (_: Throwable) {}
-            // No PAPER_LEARNING_PROBE_NOT_EXECUTED spam here. A blocked open is
-            // already represented by its EXEC_OPEN_BLOCKED_* reason; probe spam was
-            // self-DOSing the loop and hiding real executor demand.
+            if (liveSealedFdgBuy7778) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_FDG_ALLOW_PRETICKET_REJECT_7778")
+                    PipelineHealthCollector.labelInc("LIVE_FDG_ALLOW_PRETICKET_REJECT_7778_" + log.take(64))
+                    ForensicLogger.lifecycle(
+                        "LIVE_FDG_ALLOW_PRETICKET_REJECT_7778",
+                        "attemptId=$attemptId mint=${mint.take(10)} lane=$canonicalSelectedLane liveN=$liveLaneCloses7778 log=$log reason=${reason.take(120)}",
+                    )
+                } catch (_: Throwable) {}
+            }
             return OpenVerdict(false, reason, shadowOnly = shadow, logName = log, attemptId = attemptId)
         }
 
@@ -2902,7 +2928,8 @@ object ExecutableOpenGate {
         run {
             val gateScore = state?.entryScore ?: -1
             if (gateScore >= 0 && isRealExecutionLane(canonicalSelectedLane)) {
-                if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore)) {
+                if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore) &&
+                    !(liveSealedFdgBuy7778 && !liveTerminalMature7778)) {
                     try {
                         PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683")
                         PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683|${canonicalSelectedLane.uppercase().take(24)}")
@@ -2916,6 +2943,10 @@ object ExecutableOpenGate {
                         "SHADOW_TRAIN_ONLY_6683 lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)}",
                         shadow = true,
                     )
+                }
+                if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore) &&
+                    liveSealedFdgBuy7778 && !liveTerminalMature7778) {
+                    try { PipelineHealthCollector.labelInc("LIVE_UNPROVEN_SHADOW_BUCKET_ADVISORY_7778") } catch (_: Throwable) {}
                 }
             }
         }
@@ -3614,8 +3645,18 @@ object ExecutableOpenGate {
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE,
             )) {
-            try { PipelineHealthCollector.labelInc("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487") } catch (_: Throwable) {}
-            return blocked("EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY_6487", effectiveEntryDecision6487.reason, shadow = true)
+            if (liveSealedFdgBuy7778 && !liveLearnedMature7778) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_UNPROVEN_ENTRY_AUTHORITY_ADVISORY_7778")
+                    ForensicLogger.lifecycle(
+                        "LIVE_UNPROVEN_ENTRY_AUTHORITY_ADVISORY_7778",
+                        "mint=${mint.take(10)} lane=$canonicalSelectedLane liveN=$liveLaneCloses7778 learned=${effectiveEntryDecision6487.verdict} reason=${effectiveEntryDecision6487.reason.take(100)} action=sealed_fdg_buy_continues",
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                try { PipelineHealthCollector.labelInc("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487") } catch (_: Throwable) {}
+                return blocked("EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY_6487", effectiveEntryDecision6487.reason, shadow = true)
+            }
         }
         if (isShadowReadOnlyLane6487(lane) && immutableAuthority6513 == null) {
             return blocked("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487", "${lane.uppercase()}_READ_ONLY", shadow = true)
@@ -3726,7 +3767,7 @@ object ExecutableOpenGate {
                 com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715
                     .terminalCohortSuppressionForBand(modeUpper, lane, band6727)
             } catch (_: Throwable) { null }
-            if (terminalBlock6727 != null) {
+            if (terminalBlock6727 != null && !(liveSealedFdgBuy7778 && !liveTerminalMature7778)) {
                 try {
                     PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCK_TAXONOMY_TERMINAL_COHORT_SUPPRESSED_6727")
                     PipelineHealthCollector.labelInc("COHORT_TERMINAL_SUPPRESSED_6727_${lane.uppercase()}_${band6727}")
@@ -3740,6 +3781,9 @@ object ExecutableOpenGate {
                     "lane=$lane band=$band6727 wr=${"%.1f".format(terminalBlock6727.winRatePct)}% n=${terminalBlock6727.decidedCount}",
                     shadow = true,
                 )
+            }
+            if (terminalBlock6727 != null && liveSealedFdgBuy7778 && !liveTerminalMature7778) {
+                try { PipelineHealthCollector.labelInc("LIVE_UNPROVEN_TERMINAL_COHORT_ADVISORY_7778") } catch (_: Throwable) {}
             }
         }
         // V5.0.7522 — the immutable ExecutionIntent owns the exact size for
@@ -3972,7 +4016,16 @@ object ExecutableOpenGate {
                     )
                 )
             }
-        } catch (_: Throwable) {}
+            if (modeUpper == "LIVE") PipelineHealthCollector.labelInc("LIVE_FDG_ALLOW_TICKET_PUBLISHED_7778")
+        } catch (ticketEx: Throwable) {
+            try {
+                PipelineHealthCollector.labelInc("LIVE_FDG_ALLOW_TICKET_PUBLISH_EXCEPTION_7778")
+                ForensicLogger.lifecycle(
+                    "LIVE_FDG_ALLOW_TICKET_PUBLISH_EXCEPTION_7778",
+                    "attemptId=$execKey mint=${mint.take(10)} lane=$canonicalSelectedLane error=${ticketEx.javaClass.simpleName}:${ticketEx.message.orEmpty().take(100)}",
+                )
+            } catch (_: Throwable) {}
+        }
         val allowedVerdict = OpenVerdict(
             true,
             if (restorePenalty.reason == "NONE") "finality_clear" else "LIVE_RESTORE_PENALTY_EXEC:${restorePenalty.reason}",

@@ -32066,6 +32066,19 @@ if (hotExitHandledSweep) {
         )
         
         ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
+        if (!cfg.paperMode && fdgDecision.canExecute()) {
+            try {
+                if (authResult.isExecutable()) {
+                    PipelineHealthCollector.labelInc("LIVE_FDG_ALLOW_AUTH_EXECUTABLE_7778")
+                } else {
+                    PipelineHealthCollector.labelInc("LIVE_FDG_ALLOW_AUTH_REJECT_7778")
+                    ForensicLogger.lifecycle(
+                        "LIVE_FDG_ALLOW_AUTH_REJECT_7778",
+                        "mint=${identity.mint.take(10)} lane=$cyclePrimaryLane verdict=${authResult.verdict} reason=${authResult.reason.take(140)} attempt=${authResult.attemptId.take(40)}",
+                    )
+                }
+            } catch (_: Throwable) {}
+        }
 
         // V5.0.6614 — every counted specialist BUY intent receives one
         // same-identity FDG terminal outcome before any SHADOW/REJECT return.
@@ -32271,6 +32284,15 @@ if (hotExitHandledSweep) {
                         symbol = identity.symbol,
                         fields = "size=${actualInitialSize.fmt(4)} v3=$useV3Decision conf=${if (useV3Decision) 0 else fdgDecision.confidence.toInt()}"
                     )
+                } catch (_: Throwable) {}
+                try {
+                    if (!cfg.paperMode) {
+                        PipelineHealthCollector.labelInc("LIVE_TICKET_TO_EXECUTOR_7778")
+                        ForensicLogger.lifecycle(
+                            "LIVE_TICKET_TO_EXECUTOR_7778",
+                            "mint=${identity.mint.take(10)} lane=$cyclePrimaryLane attempt=${authResult.attemptId.take(40)} size=$actualInitialSize",
+                        )
+                    }
                 } catch (_: Throwable) {}
                 executor.maybeActWithDecision(
                     ts                 = ts,
