@@ -746,7 +746,10 @@ object TradeHistoryStore {
             }
             val soldQty = when {
                 row.soldQtyToken > 0.0 -> row.soldQtyToken
-                !isBuyLike(row.side) && entryCost > 0.0 && entryQty > 0.0 && row.sol > 0.0 -> (entryQty * (row.sol / entryCost)).coerceIn(0.0, entryQty)
+                // V5.0.7785 — proceeds/cost is a return multiple, not a token
+            // quantity. A terminal SELL sold the position; a partial without a
+            // supplied quantity stays unknown (0) rather than invented.
+            row.side.equals("SELL", true) && entryQty > 0.0 -> entryQty
                 else -> 0.0
             }
             val enriched = row.copy(
@@ -807,7 +810,10 @@ object TradeHistoryStore {
         }
         val soldQty = when {
             t.soldQtyToken > 0.0 -> t.soldQtyToken
-            !isBuyLike(t.side) && entryCost > 0.0 && entryQty > 0.0 && t.sol > 0.0 -> (entryQty * (t.sol / entryCost)).coerceIn(0.0, entryQty)
+            // V5.0.7785 — proceeds/cost is a return multiple, not a token
+            // quantity. A terminal SELL sold the position; a partial without a
+            // supplied quantity stays unknown (0) rather than invented.
+            t.side.equals("SELL", true) && entryQty > 0.0 -> entryQty
             else -> 0.0
         }
         val remainingQty = when {

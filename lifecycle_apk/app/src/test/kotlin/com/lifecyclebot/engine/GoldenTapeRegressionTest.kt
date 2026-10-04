@@ -14794,4 +14794,17 @@ class GoldenTapeRegressionTest {
         assertFalse(partial.contains("TradingCopilot.recordTradeForAsset"))
         assertFalse(partial.contains("BehaviorAI.recordTradeForAsset"))
     }
+
+    @org.junit.Test
+    fun `V5_0_7785 terminal live SELL row carries the closed quantity and no phantom remainder`() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val row = ex.substringAfter("// V5.0.7785 — this row is the terminal close").substringBefore("recordTrade(ts, trade)")
+        assertTrue(row.contains("soldQtyToken = pos.qtyToken"))
+        assertTrue(row.contains("remainingQtyToken = 0.0"))
+        assertTrue(row.contains("positionId = pos.positionId"))
+        val th = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertFalse(th.contains("(entryQty * (row.sol / entryCost))"))
+        assertFalse(th.contains("(entryQty * (t.sol / entryCost))"))
+        assertTrue(ex.contains("val correctedRemaining = if (tradeWithMint.side.equals(\"SELL\", true)) 0.0"))
+    }
 }

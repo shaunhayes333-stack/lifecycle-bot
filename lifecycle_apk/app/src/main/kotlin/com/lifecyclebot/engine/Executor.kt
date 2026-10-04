@@ -4294,7 +4294,9 @@ class Executor(
                     val entryQtyMismatch = fill6320.walletVerifiedQty > 0.0 && staleQty > 0.0 &&
                         maxOf(fill6320.walletVerifiedQty, staleQty) / minOf(fill6320.walletVerifiedQty, staleQty) > 1.10
                     if (entryPxMismatch || entryQtyMismatch) {
-                        val correctedRemaining = (fill6320.walletVerifiedQty - tradeWithMint.soldQtyToken).coerceAtLeast(0.0)
+                        // V5.0.7785 — a terminal SELL leaves nothing; only a partial has a remainder.
+                        val correctedRemaining = if (tradeWithMint.side.equals("SELL", true)) 0.0
+                            else (fill6320.walletVerifiedQty - tradeWithMint.soldQtyToken).coerceAtLeast(0.0)
                         tradeWithMint = tradeWithMint.copy(
                             entryPriceSnapshot = if (canonicalEntryPx > 0.0) canonicalEntryPx else tradeWithMint.entryPriceSnapshot,
                             entryQtyToken = fill6320.walletVerifiedQty,
@@ -29644,6 +29646,19 @@ class Executor(
                 netPnlSol = netPnl,
                 tradingMode = pos.tradingMode,
                 tradingModeEmoji = pos.tradingModeEmoji,
+                // V5.0.7785 — this row is the terminal close (markClosedFull above),
+                // so it carries the position it closed: entry qty sold, nothing left.
+                // Without these the journal printed rem = the whole position and
+                // invented "sold" as proceeds/cost, and LiveCanonicalRecovery6686
+                // read that rem as still-held inventory and re-adopted the sold
+                // mint as a phantom open position.
+                mint = ts.mint,
+                positionId = pos.positionId,
+                entryTsMs = pos.entryTime,
+                entryCostSol = pos.costSol,
+                entryQtyToken = pos.qtyToken,
+                soldQtyToken = pos.qtyToken,
+                remainingQtyToken = 0.0,
             )
             recordTrade(ts, trade)
             security.recordTrade(trade)
