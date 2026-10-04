@@ -2853,6 +2853,9 @@ object PipelineHealthCollector {
             sb.append("  Market sweep (§7297):         ").append(
                 try { com.lifecyclebot.engine.market.MarketSweep7297.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Opportunity intelligence (§7777): ").append(
+                try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityStatusLine7777() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Lane hunters (§7297):         ").append(
                 try { com.lifecyclebot.engine.market.LaneHunter7297.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

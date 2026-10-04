@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.execution.MemeExecutionRouteStack
+import com.lifecyclebot.engine.market.MarketSweep7297
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -29,9 +30,18 @@ object UltimateEdgeEngine {
         val sourceSummary: String,
         val routeSummary: String,
         val researchHint: String,
+        val opportunityScore: Double = 50.0,
+        val opportunityRank: Int = 0,
+        val opportunityUniverse: Int = 0,
+        val opportunitySetup: String = "OBSERVING",
+        val relativeStrengthPct: Double = 0.0,
+        val modelPWin: Double = 0.50,
+        val modelExpectedPnlPct: Double = 0.0,
+        val capitalEfficiencyMult: Double = 1.0,
+        val regime: String = "NORMAL",
         val generatedAtMs: Long = System.currentTimeMillis(),
     ) {
-        fun compact(): String = "ULTIMATE_EDGE_CARD_4321 lane=$lane source=$source scoreBias=$scoreBias sizeMult=${sizeMult.fmtEdgeLocal(3)} semantic=${semanticReason.take(90)} route=${routeSummary.take(120)} research=${researchHint.take(100)} report_only=true no_execution_authority=true"
+        fun compact(): String = "ULTIMATE_EDGE_CARD_7777 lane=$lane source=$source scoreBias=$scoreBias sizeMult=${sizeMult.fmtEdgeLocal(3)} opp=$opportunityScore rank=$opportunityRank/$opportunityUniverse setup=$opportunitySetup rs=$relativeStrengthPct pWin=$modelPWin ePnl=$modelExpectedPnlPct cap=$capitalEfficiencyMult regime=$regime semantic=${semanticReason.take(70)} route=${routeSummary.take(90)} research=${researchHint.take(80)} report_only=true no_execution_authority=true"
     }
 
     private val cards = ConcurrentHashMap<String, LaneEdgeCard>()
@@ -59,6 +69,42 @@ object UltimateEdgeEngine {
     private fun buildCard(mint: String, symbol: String, lane: String, source: String, entryScore: Int, reason: String): LaneEdgeCard {
         val safeLane = lane.ifBlank { "UNKNOWN" }.uppercase().take(32)
         val safeSource = source.ifBlank { "UNKNOWN" }.uppercase().take(64)
+        val opportunity7777 = try { MarketSweep7297.opportunityFor7777(mint) } catch (_: Throwable) { null }
+        val opportunityScore7777 = opportunity7777?.score ?: 50.0
+        val opportunitySetup7777 = opportunity7777?.setup ?: "OBSERVING"
+        val regime7777 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
+        val liveModel7777 = try {
+            LiveProbabilityEngine.forecast(
+                rawLane = safeLane,
+                score = entryScore.coerceIn(0, 100),
+                quality = opportunitySetup7777,
+                regime = regime7777,
+                edgePhase = opportunitySetup7777,
+                candidateConfidence = (opportunityScore7777 / 100.0).coerceIn(0.05, 0.95),
+            )
+        } catch (_: Throwable) { null }
+        val forward7777 = try {
+            ForwardOutcomeModel.forecast(
+                safeLane, entryScore.coerceIn(0, 100), opportunitySetup7777, regime7777, opportunitySetup7777
+            )
+        } catch (_: Throwable) { null }
+        val modelPWin7777 = when {
+            liveModel7777 != null && forward7777 != null && !forward7777.source.contains("bootstrap", true) ->
+                ((liveModel7777.pWin + forward7777.pWin) / 2.0).coerceIn(0.0, 1.0)
+            liveModel7777 != null -> liveModel7777.pWin.coerceIn(0.0, 1.0)
+            forward7777 != null -> forward7777.pWin.coerceIn(0.0, 1.0)
+            else -> 0.50
+        }
+        val modelExpected7777 = when {
+            liveModel7777 != null && forward7777 != null && !forward7777.source.contains("bootstrap", true) ->
+                (liveModel7777.expectedPnlPct + forward7777.expectedPnl) / 2.0
+            liveModel7777 != null -> liveModel7777.expectedPnlPct
+            forward7777 != null -> forward7777.expectedPnl
+            else -> 0.0
+        }.coerceIn(-500.0, 5_000.0)
+        val capitalEfficiency7777 = try {
+            CapitalEfficiencyBrain.sizeMultiplier(safeLane, safeSource).coerceIn(0.50, 1.50)
+        } catch (_: Throwable) { 1.0 }
         val semantic = try {
             SemanticPatternGraph.entryDnaBias(
                 setup = "$symbol $safeLane $safeSource score_$entryScore ${reason.take(80)}",
@@ -90,7 +136,13 @@ object UltimateEdgeEngine {
         val sourceSummary = try { SourceFamilyOpportunityScorecard.snapshot().ifBlank { "source_scorecard:empty" }.take(320) } catch (_: Throwable) { "source_scorecard:error" }
         val researchHint = try { ResearchScout.riskHint(mint).take(220) } catch (_: Throwable) { "ResearchScout:error" }
         val adapterPenalty = if ((coverage?.adapterGapProviderNames?.size ?: 0) >= 6) 0.98 else 1.0
-        val sizeMult = (semantic.sizeMult * adapterPenalty).coerceIn(0.90, 1.08)
+        val opportunityMult7777 = try { MarketSweep7297.opportunityMultiplier7777(mint) } catch (_: Throwable) { 1.0 }
+        val capitalShape7777 = (1.0 + (capitalEfficiency7777 - 1.0) * 0.10).coerceIn(0.95, 1.05)
+        val modelSize7777 = (0.94 + modelPWin7777 * 0.12).coerceIn(0.94, 1.06)
+        val sizeMult = (semantic.sizeMult * adapterPenalty * opportunityMult7777 * capitalShape7777 * modelSize7777).coerceIn(0.82, 1.18)
+        val opportunityBias7777 = ((opportunityScore7777 - 50.0) / 10.0).toInt().coerceIn(-4, 4)
+        val modelBias7777 = (((modelPWin7777 - 0.50) * 10.0) + (modelExpected7777 / 25.0))
+            .toInt().coerceIn(-3, 3)
         return LaneEdgeCard(
             mint = mint,
             symbol = symbol,
@@ -98,12 +150,21 @@ object UltimateEdgeEngine {
             source = safeSource,
             // V5.0.7112 — was coerceIn(0, 5), which discarded the graph's negative
             // verdict a second time after biasFromNodes had already flattened it.
-            scoreBias = semantic.scoreDelta.coerceIn(-5, 5),
+            scoreBias = (semantic.scoreDelta + opportunityBias7777 + modelBias7777).coerceIn(-10, 10),
             sizeMult = sizeMult,
             semanticReason = semantic.reason,
             sourceSummary = sourceSummary,
             routeSummary = routeSummary,
             researchHint = researchHint,
+            opportunityScore = opportunityScore7777,
+            opportunityRank = opportunity7777?.rank ?: 0,
+            opportunityUniverse = opportunity7777?.universe ?: 0,
+            opportunitySetup = opportunitySetup7777,
+            relativeStrengthPct = opportunity7777?.relativeStrengthPct ?: 0.0,
+            modelPWin = modelPWin7777,
+            modelExpectedPnlPct = modelExpected7777,
+            capitalEfficiencyMult = capitalEfficiency7777,
+            regime = regime7777,
         )
     }
 
@@ -119,7 +180,12 @@ object UltimateEdgeEngine {
                 .put("mint", c.mint).put("symbol", c.symbol).put("lane", c.lane).put("source", c.source)
                 .put("scoreBias", c.scoreBias).put("sizeMult", c.sizeMult)
                 .put("semanticReason", c.semanticReason).put("sourceSummary", c.sourceSummary)
-                .put("routeSummary", c.routeSummary).put("researchHint", c.researchHint).put("ts", c.generatedAtMs))
+                .put("routeSummary", c.routeSummary).put("researchHint", c.researchHint)
+                .put("opportunityScore", c.opportunityScore).put("opportunityRank", c.opportunityRank)
+                .put("opportunityUniverse", c.opportunityUniverse).put("opportunitySetup", c.opportunitySetup)
+                .put("relativeStrengthPct", c.relativeStrengthPct).put("modelPWin", c.modelPWin)
+                .put("modelExpectedPnlPct", c.modelExpectedPnlPct).put("capitalEfficiencyMult", c.capitalEfficiencyMult)
+                .put("regime", c.regime).put("ts", c.generatedAtMs))
         }
     }.toString()
 
@@ -141,6 +207,15 @@ object UltimateEdgeEngine {
                     sourceSummary = o.optString("sourceSummary"),
                     routeSummary = o.optString("routeSummary"),
                     researchHint = o.optString("researchHint"),
+                    opportunityScore = o.optDouble("opportunityScore", 50.0),
+                    opportunityRank = o.optInt("opportunityRank", 0),
+                    opportunityUniverse = o.optInt("opportunityUniverse", 0),
+                    opportunitySetup = o.optString("opportunitySetup", "OBSERVING"),
+                    relativeStrengthPct = o.optDouble("relativeStrengthPct", 0.0),
+                    modelPWin = o.optDouble("modelPWin", 0.50).coerceIn(0.0, 1.0),
+                    modelExpectedPnlPct = o.optDouble("modelExpectedPnlPct", 0.0),
+                    capitalEfficiencyMult = o.optDouble("capitalEfficiencyMult", 1.0).coerceIn(0.50, 1.50),
+                    regime = o.optString("regime", "NORMAL"),
                     generatedAtMs = o.optLong("ts", System.currentTimeMillis()),
                 )
                 if (card.mint.isNotBlank() && card.lane.isNotBlank()) cards[key(card.mint, card.lane)] = card

@@ -16,7 +16,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * V5.0.7297 §A THE MARKET SCANNER, NOT ONLY A TOKEN SCANNER.
@@ -96,6 +98,48 @@ object MarketSweep7297 {
         val atMs: Long,
     )
 
+    /**
+     * V5.0.7777 — bounded transition tape fed by the already-running market
+     * data path. This is observation only: no provider call, no FDG call, no
+     * execution authority. It lets the market scanner distinguish a static
+     * "good" token from one whose participation/liquidity/price is changing now.
+     */
+    data class RealtimeObservation(
+        val priceUsd: Double,
+        val mcapUsd: Double,
+        val liquidityUsd: Double,
+        val buyPressurePct: Double,
+        val priceChange5mPct: Double,
+        val priceChange1hPct: Double,
+        val volume5mUsd: Double,
+        val txCount5m: Int,
+        val atMs: Long,
+    )
+
+    /**
+     * Cross-sectional opportunity intelligence. Absolute quality and relative
+     * opportunity are deliberately separate: a good token can still be a poor
+     * use of scarce attention when stronger setups exist elsewhere.
+     */
+    data class OpportunitySignal(
+        val mint: String,
+        val symbol: String,
+        val score: Double,
+        val rank: Int,
+        val universe: Int,
+        val percentile: Double,
+        val setup: String,
+        val relativeStrengthPct: Double,
+        val priceVelocity5mPct: Double,
+        val volumeAcceleration: Double,
+        val txAcceleration: Double,
+        val liquidityDeltaPct: Double,
+        val buyPressurePct: Double,
+        val providerAgreement: Int,
+        val regime: String,
+        val generatedAtMs: Long,
+    )
+
     private const val JUP = "https://lite-api.jup.ag/tokens/v2"
     private const val RAYDIUM_POOLS =
         "https://api-v3.raydium.io/pools/info/list?poolType=all&poolSortField=volume24h&sortType=desc&pageSize=100&page=1"
@@ -125,7 +169,82 @@ object MarketSweep7297 {
     private val providerServed = ConcurrentHashMap<String, Long>()
     private val providerEmpty = ConcurrentHashMap<String, Long>()
 
+    // V5.0.7777 — bounded opportunity memory. At 24 observations/mint and
+    // 6,000 mints maximum this cannot become another unbounded heap resident.
+    private const val OPPORTUNITY_OBS_PER_MINT_7777 = 24
+    private const val OPPORTUNITY_OBS_MAX_AGE_MS_7777 = 10L * 60_000L
+    private const val OPPORTUNITY_MAX_MINTS_7777 = 6_000
+    private val realtime7777 = ConcurrentHashMap<String, ConcurrentLinkedDeque<RealtimeObservation>>()
+    private val opportunity7777 = ConcurrentHashMap<String, OpportunitySignal>()
+    private val opportunityRebuilds7777 = AtomicLong(0L)
+    private val realtimeObservations7777 = AtomicLong(0L)
+
     fun latest(): Snapshot? = last
+
+    /**
+     * Hot-feed ingress used by DataOrchestrator after it has already accepted
+     * a coherent DexScreener mark. O(1), local-only, bounded, and intentionally
+     * unable to admit/refuse a trade.
+     */
+    fun recordRealtime7777(
+        mint: String,
+        priceUsd: Double,
+        mcapUsd: Double,
+        liquidityUsd: Double,
+        buyPressurePct: Double,
+        priceChange5mPct: Double,
+        priceChange1hPct: Double,
+        volume5mUsd: Double,
+        txCount5m: Int,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        if (mint.length < 32 || !priceUsd.isFinite() || priceUsd <= 0.0) return
+        val q = realtime7777.computeIfAbsent(mint) { ConcurrentLinkedDeque() }
+        q.addLast(
+            RealtimeObservation(
+                priceUsd = priceUsd,
+                mcapUsd = mcapUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+                liquidityUsd = liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+                buyPressurePct = buyPressurePct.takeIf { it.isFinite() }?.coerceIn(0.0, 100.0) ?: 50.0,
+                priceChange5mPct = priceChange5mPct.takeIf { it.isFinite() } ?: 0.0,
+                priceChange1hPct = priceChange1hPct.takeIf { it.isFinite() } ?: 0.0,
+                volume5mUsd = volume5mUsd.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+                txCount5m = txCount5m.coerceAtLeast(0),
+                atMs = nowMs,
+            )
+        )
+        while (q.size > OPPORTUNITY_OBS_PER_MINT_7777) q.pollFirst()
+        while (true) {
+            val first = q.peekFirst() ?: break
+            if (nowMs - first.atMs <= OPPORTUNITY_OBS_MAX_AGE_MS_7777) break
+            q.pollFirst()
+        }
+        realtimeObservations7777.incrementAndGet()
+
+        // A hard cap is defensive against long-running sessions with one-hit mints.
+        if (realtime7777.size > OPPORTUNITY_MAX_MINTS_7777) {
+            val staleBefore = nowMs - OPPORTUNITY_OBS_MAX_AGE_MS_7777
+            realtime7777.entries.asSequence().take(512).forEach { e ->
+                val newest = e.value.peekLast()?.atMs ?: 0L
+                if (newest < staleBefore) realtime7777.remove(e.key, e.value)
+            }
+        }
+    }
+
+    fun opportunityFor7777(mint: String): OpportunitySignal? = opportunity7777[mint]
+
+    /**
+     * Soft attention/ordering multiplier only. This cannot remove a candidate.
+     * Weak signals still remain available to lane scorers and forward learning.
+     */
+    fun opportunityMultiplier7777(mint: String): Double {
+        val o = opportunity7777[mint] ?: return 1.0
+        var m = 0.82 + (o.score.coerceIn(0.0, 100.0) / 100.0) * 0.36
+        if (o.percentile >= 0.90) m += 0.06
+        if (o.percentile >= 0.97) m += 0.04
+        if (o.setup == "DISTRIBUTION" || o.setup == "EXHAUSTION") m = minOf(m, 0.90)
+        return m.coerceIn(0.78, 1.28)
+    }
 
     /**
      * Sweep every provider in parallel. Returns the cached snapshot when the
@@ -179,7 +298,9 @@ object MarketSweep7297 {
         val merged = merge(results.flatMap { it.second })
         val enriched = enrichMissingCaps(merged)
         if (enriched.isEmpty()) return last
+        val previous7777 = last
         val snap = Snapshot(enriched, bandStates(enriched), providerRows, System.currentTimeMillis())
+        rebuildOpportunitySignals7777(previous7777, snap)
         last = snap
         return snap
     }
@@ -225,6 +346,133 @@ object MarketSweep7297 {
                 volumeShare = if (totalVol > 0.0) rs.sumOf { it.volumeH1Usd.coerceAtLeast(0.0) } / totalVol else 0.0,
             )
         }
+    }
+
+    /**
+     * V5.0.7777 — convert state into transition + relative-opportunity evidence.
+     * No row is filtered here. The ranking allocates attention; downstream lane
+     * doctrine and canonical safety/FDG remain the decision authorities.
+     */
+    private fun rebuildOpportunitySignals7777(previous: Snapshot?, current: Snapshot) {
+        val now = current.atMs
+        val prevByMint = previous?.rows?.associateBy { it.mint }.orEmpty()
+        val provisional = ArrayList<OpportunitySignal>(current.rows.size)
+
+        for (r in current.rows) {
+            val rt = realtime7777[r.mint]?.toList()
+                ?.filter { now - it.atMs <= OPPORTUNITY_OBS_MAX_AGE_MS_7777 }
+                .orEmpty()
+            val latestRt = rt.lastOrNull()
+            val prev = prevByMint[r.mint]
+            val bandMedian = Band.of(r.mcapUsd)?.let { current.bands[it]?.medianChangeH1Pct } ?: 0.0
+            val relative = (r.priceChangeH1Pct - bandMedian).coerceIn(-1000.0, 1000.0)
+            val price5 = latestRt?.priceChange5mPct ?: run {
+                if (prev != null && prev.priceUsd > 0.0 && r.priceUsd > 0.0) {
+                    ((r.priceUsd / prev.priceUsd) - 1.0) * 100.0
+                } else 0.0
+            }
+
+            fun acceleration(values: List<Double>): Double {
+                if (values.size < 4) return 1.0
+                val split = values.size / 2
+                val early = values.take(split).filter { it > 0.0 }.averageOrNull7777()
+                val late = values.drop(split).filter { it > 0.0 }.averageOrNull7777()
+                return if (early > 0.0 && late >= 0.0) (late / early).coerceIn(0.0, 20.0) else 1.0
+            }
+            val volAccel = acceleration(rt.map { it.volume5mUsd })
+            val txAccel = acceleration(rt.map { it.txCount5m.toDouble() })
+            val liqNow = latestRt?.liquidityUsd?.takeIf { it > 0.0 } ?: r.liquidityUsd
+            val liqBefore = rt.firstOrNull()?.liquidityUsd?.takeIf { it > 0.0 }
+                ?: prev?.liquidityUsd?.takeIf { it > 0.0 }
+            val liqDelta = if (liqBefore != null && liqBefore > 0.0 && liqNow > 0.0) {
+                ((liqNow / liqBefore) - 1.0) * 100.0
+            } else 0.0
+            val bp = latestRt?.buyPressurePct ?: 50.0
+            val providerAgreement = r.providers.size.coerceAtLeast(1)
+            val turnover = if (r.liquidityUsd > 0.0) (r.volumeH1Usd / r.liquidityUsd).coerceAtLeast(0.0) else 0.0
+
+            val setup = when {
+                (r.priceChangeH1Pct >= 35.0 && price5 <= -6.0) || bp <= 38.0 -> "EXHAUSTION"
+                price5 <= -8.0 && r.priceChangeH1Pct > 0.0 -> "DISTRIBUTION"
+                r.priceChangeH1Pct <= -4.0 && price5 >= 1.5 && bp >= 55.0 -> "DIP_RECOVERY"
+                price5 >= 2.0 && bp >= 58.0 && volAccel >= 1.35 -> "EARLY_MOMENTUM_IGNITION"
+                price5 >= 5.0 && relative >= 5.0 -> "BREAKOUT_EXPANSION"
+                liqDelta >= 12.0 && bp >= 52.0 -> "LIQUIDITY_EXPANSION"
+                relative >= 8.0 && r.priceChangeH1Pct > 0.0 -> "RELATIVE_STRENGTH_LEADER"
+                r.priceChangeH1Pct >= 3.0 && price5 > 0.0 && bp >= 52.0 -> "CONTINUATION"
+                else -> "OBSERVING"
+            }
+
+            val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
+            val regimeFit = when {
+                regime == "BULL_RIPPING" && setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "CONTINUATION", "RELATIVE_STRENGTH_LEADER") -> 5.0
+                regime == "CHOP" && setup == "DIP_RECOVERY" -> 3.0
+                regime in setOf("DUMP", "DEAD") && setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION") -> -3.0
+                else -> 0.0
+            }
+
+            var score = 50.0
+            score += relative.coerceIn(-15.0, 15.0)
+            score += (price5 * 1.2).coerceIn(-18.0, 18.0)
+            score += ((volAccel - 1.0) * 10.0).coerceIn(-10.0, 18.0)
+            score += ((txAccel - 1.0) * 6.0).coerceIn(-6.0, 10.0)
+            score += (liqDelta / 3.0).coerceIn(-8.0, 10.0)
+            score += ((bp - 50.0) / 2.5).coerceIn(-12.0, 12.0)
+            score += ((providerAgreement - 1) * 2.0).coerceIn(0.0, 6.0)
+            score += (r.organicScore / 15.0).coerceIn(0.0, 6.0)
+            score += (kotlin.math.log10(1.0 + turnover) * 4.0).coerceIn(0.0, 6.0)
+            score += regimeFit
+            if (setup == "EXHAUSTION") score -= 15.0
+            if (setup == "DISTRIBUTION") score -= 10.0
+            score = score.coerceIn(0.0, 100.0)
+
+            provisional += OpportunitySignal(
+                mint = r.mint,
+                symbol = r.symbol,
+                score = score,
+                rank = 0,
+                universe = current.rows.size,
+                percentile = 0.0,
+                setup = setup,
+                relativeStrengthPct = relative,
+                priceVelocity5mPct = price5,
+                volumeAcceleration = volAccel,
+                txAcceleration = txAccel,
+                liquidityDeltaPct = liqDelta,
+                buyPressurePct = bp,
+                providerAgreement = providerAgreement,
+                regime = regime,
+                generatedAtMs = now,
+            )
+        }
+
+        val sorted = provisional.sortedByDescending { it.score }
+        val n = sorted.size.coerceAtLeast(1)
+        opportunity7777.clear()
+        sorted.forEachIndexed { idx, s ->
+            val rank = idx + 1
+            val percentile = if (n <= 1) 1.0 else (1.0 - idx.toDouble() / (n - 1).toDouble()).coerceIn(0.0, 1.0)
+            opportunity7777[s.mint] = s.copy(rank = rank, universe = n, percentile = percentile)
+        }
+        opportunityRebuilds7777.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc("OPPORTUNITY_INTELLIGENCE_REBUILT_7777")
+            sorted.take(10).forEach { PipelineHealthCollector.labelInc("OPPORTUNITY_TOP10_7777_${it.setup}") }
+        } catch (_: Throwable) {}
+    }
+
+    private fun List<Double>.averageOrNull7777(): Double =
+        if (isEmpty()) 0.0 else average().takeIf { it.isFinite() } ?: 0.0
+
+    fun opportunityStatusLine7777(limit: Int = 6): String {
+        val ranked = opportunity7777.values.sortedBy { it.rank }.take(limit.coerceIn(1, 12))
+        if (ranked.isEmpty()) {
+            return "OPPORTUNITY_INTELLIGENCE_7777 candidates=0 observations=${realtimeObservations7777.get()} rebuilds=${opportunityRebuilds7777.get()} authority=ordering_only"
+        }
+        val top = ranked.joinToString(" | ") {
+            "#${it.rank}/${it.universe} ${it.symbol.ifBlank { it.mint.take(6) }} ${it.setup} score=${it.score.toInt()} rs=${"%+.1f".format(it.relativeStrengthPct)} v5=${"%+.1f".format(it.priceVelocity5mPct)} volx=${"%.1f".format(it.volumeAcceleration)}"
+        }
+        return "OPPORTUNITY_INTELLIGENCE_7777 candidates=${opportunity7777.size} observations=${realtimeObservations7777.get()} rebuilds=${opportunityRebuilds7777.get()} top=[$top] authority=ordering_only no_execution_authority=true"
     }
 
     // ── providers ────────────────────────────────────────────────────────

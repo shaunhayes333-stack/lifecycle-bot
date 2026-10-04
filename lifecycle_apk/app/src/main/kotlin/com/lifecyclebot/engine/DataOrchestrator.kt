@@ -694,6 +694,23 @@ class DataOrchestrator(
                     },
                     pressScore = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
                 )
+
+                // V5.0.7777 — feed the existing market sweep's bounded temporal
+                // opportunity tape. This is local/cache-only; no network call
+                // and no admission authority on the websocket hot path.
+                try {
+                    com.lifecyclebot.engine.market.MarketSweep7297.recordRealtime7777(
+                        mint = ts.mint,
+                        priceUsd = priceUsd,
+                        mcapUsd = mcap,
+                        liquidityUsd = liquidity,
+                        buyPressurePct = ts.lastBuyPressurePct,
+                        priceChange5mPct = priceChange5m,
+                        priceChange1hPct = priceChange1h,
+                        volume5mUsd = volume5m,
+                        txCount5m = txns5m,
+                    )
+                } catch (_: Throwable) {}
                 
                 // Log significant price moves
                 if (kotlin.math.abs(priceChange5m) >= 10.0) {

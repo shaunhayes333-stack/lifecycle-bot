@@ -235,6 +235,27 @@ object LaneHunter7297 {
     }
 
     /**
+     * V5.0.7777 — specialist affinity over the market-wide opportunity rank.
+     * This only changes ordering. It never filters a row or overrides a native
+     * specialist opinion, preserving lane autonomy and the canonical owner/FDG.
+     */
+    private fun opportunityLaneMultiplier7777(lane: String, r: MarketSweep7297.Row): Double {
+        val o = MarketSweep7297.opportunityFor7777(r.mint) ?: return 1.0
+        var m = MarketSweep7297.opportunityMultiplier7777(r.mint)
+        val affinity = when (lane) {
+            "MOONSHOT" -> o.setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "RELATIVE_STRENGTH_LEADER", "CONTINUATION")
+            "DIP_HUNTER" -> o.setup == "DIP_RECOVERY"
+            "SHITCOIN" -> o.setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "LIQUIDITY_EXPANSION")
+            "QUALITY", "BLUECHIP" -> o.setup in setOf("CONTINUATION", "LIQUIDITY_EXPANSION", "RELATIVE_STRENGTH_LEADER")
+            "TREASURY", "CASHGEN" -> o.setup in setOf("CONTINUATION", "LIQUIDITY_EXPANSION")
+            else -> false
+        }
+        if (affinity) m *= 1.10
+        if (o.setup == "DISTRIBUTION" || o.setup == "EXHAUSTION") m *= 0.88
+        return m.coerceIn(0.70, 1.40)
+    }
+
+    /**
      * Each lane picks from the sweep. Returns lane → rows, and records every
      * pick as a claim the election honours while the token stays in band.
      */
@@ -248,7 +269,7 @@ object LaneHunter7297 {
                 .sortedByDescending { r ->
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
                     p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
-                        (0.9 + 0.2 * heat / 100.0)
+                        (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r)
                 }
                 .map { it.mint }
         }
