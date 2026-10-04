@@ -46,6 +46,13 @@ data class PairInfo(
 
 class DexscreenerApi {
 
+    // V5.0.7771 — provider bodies are untrusted. 5.0.7749 OOMd in JSONTokener
+    // after OkHttp materialised a large response. Bound before JSON parsing.
+    private companion object {
+        const val MAX_DEXSCREENER_RESPONSE_CHARS_7771 = 2_000_000
+        const val MAX_DEXSCREENER_CONTENT_BYTES_7771 = 4_000_000L
+    }
+
     private val http = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         // V5.9.1030 — readTimeout shrunk 15s → 4s so a wedged DexScreener
@@ -417,10 +424,38 @@ class DexscreenerApi {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0").build()
         // V5.0.6495 — never bypass HealthAwareHttp/ApiBackoff with a raw retry.
-        // A wrapper/network failure is a provider failure, not permission to fire
-        // a second same-cycle request that defeats the circuit breaker.
-        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = host)
-        if (resp.isSuccessful) resp.body?.string() else null
+        // V5.0.7771 — never materialise an unbounded provider body.
+        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = host).use { resp ->
+            if (!resp.isSuccessful) return@use null
+            val body = resp.body ?: return@use null
+            val contentLength = body.contentLength()
+            if (contentLength > MAX_DEXSCREENER_CONTENT_BYTES_7771) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DEXSCREENER_RESPONSE_OVERSIZE_REFUSED_7771")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("DEXSCREENER_RESPONSE_OVERSIZE_REFUSED_7771", "host=$host bytes=$contentLength")
+                } catch (_: Throwable) {}
+                return@use null
+            }
+            val reader = body.charStream()
+            val initial = if (contentLength in 1..MAX_DEXSCREENER_RESPONSE_CHARS_7771.toLong()) contentLength.toInt() else 16_384
+            val out = StringBuilder(initial.coerceAtMost(MAX_DEXSCREENER_RESPONSE_CHARS_7771))
+            val buf = CharArray(8_192)
+            var total = 0
+            while (true) {
+                val n = reader.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > MAX_DEXSCREENER_RESPONSE_CHARS_7771) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DEXSCREENER_RESPONSE_STREAM_CAP_7771")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DEXSCREENER_RESPONSE_STREAM_CAP_7771", "host=$host chars=$total")
+                    } catch (_: Throwable) {}
+                    return@use null
+                }
+                out.append(buf, 0, n)
+            }
+            out.toString()
+        }
     } catch (e: Exception) { null }
 
     private fun encode(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
