@@ -28,6 +28,24 @@ object BundleDetector {
         .build()
 
     private val analysisCache = ConcurrentHashMap<String, BundleAnalysis>()
+
+    // V5.0.7763 — the background producer TokenSafetyChecker (7431) waits for: the
+    // safety check reads a fresh cached analysis and, when there is none, asks for
+    // one off the hot path (Helius, at most four in flight, once per cache window).
+    private val inFlight7763 = ConcurrentHashMap.newKeySet<String>()
+
+    fun cachedFresh7763(mint: String): BundleAnalysis? = analysisCache[mint]?.takeIf { !it.isStale }
+
+    fun requestAsync7763(mint: String, symbol: String, heliusApiKey: String) {
+        if (mint.isBlank() || heliusApiKey.isBlank() || cachedFresh7763(mint) != null) return
+        if (inFlight7763.size >= 4 || !inFlight7763.add(mint)) return
+        try {
+            Thread({
+                try { kotlinx.coroutines.runBlocking { analyze(mint, symbol, heliusApiKey) } } catch (_: Throwable) {
+                } finally { inFlight7763.remove(mint) }
+            }, "bundle-detector-7763").apply { isDaemon = true }.start()
+        } catch (_: Throwable) { inFlight7763.remove(mint) }
+    }
     private const val CACHE_DURATION_MS = 30 * 60 * 1000L
 
     data class BundleAnalysis(

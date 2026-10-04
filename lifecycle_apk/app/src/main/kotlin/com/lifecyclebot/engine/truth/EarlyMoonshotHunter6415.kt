@@ -156,6 +156,9 @@ object EarlyMoonshotHunter6415 {
      * the buy, so exit code sees the profile before the first tick.
      */
     fun registerHoldProfile(mint: String, symbol: String, verdict: Verdict) {
+        // V5.0.7764 — keep the signals that fired at entry for the close.
+        signalsAtEntry7764[mint] = verdict.signalsFired
+        if (signalsAtEntry7764.size > 2_000) signalsAtEntry7764.clear()
         when (verdict.tier) {
             Tier.ELITE -> MoonshotHoldProfileRegistry6415.registerElite(mint, symbol,
                 "composite=${"%.1f".format(verdict.composite)} signals=[${verdict.signalsFired.joinToString(",")}]")
@@ -169,6 +172,11 @@ object EarlyMoonshotHunter6415 {
      * Feed a closed-trade outcome to the learner. Called from the
      * sell terminal path alongside the existing EV loop.
      */
+    private val signalsAtEntry7764 = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+
+    /** V5.0.7764 — the signals recorded at entry, consumed once at the close. */
+    fun takeSignalsAtEntry7764(mint: String): Set<String>? = signalsAtEntry7764.remove(mint)
+
     fun onTradeClosed(mint: String, symbol: String, tier: String, signalsFired: Set<String>, pnlPct: Double) {
         try {
             MoonshotSignalLearner6415.recordOutcome(mint, symbol, tier, signalsFired, pnlPct)

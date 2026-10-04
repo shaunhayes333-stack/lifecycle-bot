@@ -7770,7 +7770,10 @@ class Executor(
                                                 .onTradeClosed(
                                                     mint = ts.mint, symbol = ts.symbol,
                                                     tier = tierName,
-                                                    signalsFired = setOf("MCAP_SUB_25K"),
+                                                    // V5.0.7764 — the signals that actually fired at entry; the
+                                                    // constant MCAP_SUB_25K (fires on every candidate) kept every
+                                                    // learned weight at 1.0.
+                                                    signalsFired = com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.takeSignalsAtEntry7764(ts.mint) ?: setOf("MCAP_SUB_25K"),
                                                     pnlPct = pnlPct,
                                                 )
                                         }

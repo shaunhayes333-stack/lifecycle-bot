@@ -14517,4 +14517,26 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7763_bundle_dev_wallet_holder_inputs_and_moonshot_signals_reach_their_readers() {
+        val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
+        assertTrue(sc.contains("BundleDetector.cachedFresh7763(mint)"))
+        assertTrue(sc.contains("BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey)"))
+        assertFalse(sc.contains("val bundleRisk = \"UNKNOWN\""))
+        val bd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BundleDetector.kt").readText()
+        assertTrue(bd.contains("if (inFlight7763.size >= 4 || !inFlight7763.add(mint)) return"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("devWallet = OperatorRegistry.getDevWallet(ts.mint),"))
+        assertFalse(bot.contains("devWallet = null,  // Dev wallet tracking not yet implemented"))
+        assertTrue(bot.contains("holderChange24h = holderChange7764(ts),"))
+        assertTrue(bot.contains("if (ts.holderDataResolved && ts.holderGrowthRate != 0.0) ts.holderGrowthRate.toInt() else null"))
+        assertTrue(bot.contains("ts.tokenMap.creatorOrDevWallet = it"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("EarlyMoonshotHunter6415.takeSignalsAtEntry7764(ts.mint) ?: setOf(\"MCAP_SUB_25K\")"))
+        val h = com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415
+        assertTrue(h.takeSignalsAtEntry7764("none_7764") == null)
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

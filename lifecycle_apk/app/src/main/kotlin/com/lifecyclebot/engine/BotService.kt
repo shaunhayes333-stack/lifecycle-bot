@@ -1012,6 +1012,15 @@ class BotService : Service() {
     }
 
     /**
+     * V5.0.7764 — DipHunter's holder input was a constant 0 (read as "no holder
+     * exit"); its contract is null = unknown (7554). The holder trend computed from
+     * the poll's holder counts (holderGrowthRate, % over recent candles) once those
+     * counts have resolved; unknown otherwise.
+     */
+    private fun holderChange7764(ts: com.lifecyclebot.data.TokenState): Int? =
+        if (ts.holderDataResolved && ts.holderGrowthRate != 0.0) ts.holderGrowthRate.toInt() else null
+
+    /**
      * V5.0.7758 §THE_POLL_CARRIES_THE_TAPE_THE_DEAD_SOCKET_USED_TO.
      *
      * DexScreenerWebSocket is disabled (DISABLED_7381) and was the only writer of
@@ -1040,6 +1049,9 @@ class BotService : Service() {
             if (pair.priceChangeH1.isFinite()) ts.lastPriceChange1h = pair.priceChangeH1
             if (pair.candle.volumeH1.isFinite() && pair.candle.volumeH1 > 0.0) ts.tokenMap.volume1hUsd = pair.candle.volumeH1
             if (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) ts.tokenMap.volume5mUsd = pair.volumeM5
+            // V5.0.7764 — tokenMap.creatorOrDevWallet had no writer; the creator is held
+            // by OperatorRegistry from the PumpPortal create frame.
+            if (ts.tokenMap.creatorOrDevWallet.isBlank()) OperatorRegistry.getDevWallet(ts.mint)?.takeIf { it.isNotBlank() }?.let { ts.tokenMap.creatorOrDevWallet = it }
             PipelineHealthCollector.labelInc(if (m5 > 0) "POLL_FLOW_M5_WRITTEN_7758" else "POLL_FLOW_H1_FALLBACK_7758")
         } catch (_: Throwable) {}
     }
@@ -29025,7 +29037,7 @@ if (hotExitHandledSweep) {
                             volatility = ts.volatility ?: 0.0,
                             tokenAgeMinutes = tokenAgeMinutes,
                             launchPlatform = launchPlatform,
-                            devWallet = null,  // Dev wallet tracking not yet implemented
+                            devWallet = OperatorRegistry.getDevWallet(ts.mint),  // V5.0.7764 — creator from the PumpPortal create frame
                             devHoldPct = devHoldPct,
                             bundlePct = bundlePct,
                             socialScore = socialScore,
@@ -30536,7 +30548,7 @@ if (hotExitHandledSweep) {
                             volumeVsAvg = dipVolVsAvg,
                             tokenAgeHours = tokenAgeHours,
                             holderCount = ts.peakHolderCount.takeIf { it > 0 } ?: 100,
-                            holderChange24h = 0,
+                            holderChange24h = holderChange7764(ts),  // V5.0.7764 — was a constant 0
                             isDevSelling = ts.safety.bundleRisk == "HIGH",
                             bounceConfirmed = dipBounce7389,
                         )

@@ -943,14 +943,18 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // background producer, bundle fields stay UNKNOWN. Holder concentration
         // remains represented once through topHolderPct and its existing safety
         // penalties.
-        val bundleRisk = "UNKNOWN"
-        val bundleType = "NONE"
-        val bundleRecommendation = "UNKNOWN"
-        val bundleReason = "No canonical first-block bundle observation available"
-        val firstBlockSupplyPct = -1.0
-        val firstBlockBuyers = -1
+        // V5.0.7763 — that producer now exists: BundleDetector's own first-block
+        // analysis (Helius), requested in the background and read here once cached.
+        val bundle7763 = try { BundleDetector.cachedFresh7763(mint) } catch (_: Throwable) { null }
+        if (bundle7763 == null) try { BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey) } catch (_: Throwable) {}
+        val bundleRisk = bundle7763?.bundleRisk?.name ?: "UNKNOWN"
+        val bundleType = bundle7763?.bundleType?.name ?: "NONE"
+        val bundleRecommendation = bundle7763?.recommendation ?: "UNKNOWN"
+        val bundleReason = bundle7763?.reason ?: "No canonical first-block bundle observation available"
+        val firstBlockSupplyPct = bundle7763?.firstBlockSupplyPct ?: -1.0
+        val firstBlockBuyers = bundle7763?.firstBlockBuyers ?: -1
         try {
-            PipelineHealthCollector.labelInc("BUNDLE_EVIDENCE_UNOBSERVED_7431")
+            PipelineHealthCollector.labelInc(if (bundle7763 != null) "BUNDLE_EVIDENCE_OBSERVED_7763" else "BUNDLE_EVIDENCE_UNOBSERVED_7431")
         } catch (_: Throwable) {}
 
         val tier = when {
