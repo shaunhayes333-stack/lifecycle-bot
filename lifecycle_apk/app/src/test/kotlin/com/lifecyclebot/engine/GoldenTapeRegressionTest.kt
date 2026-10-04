@@ -14420,4 +14420,24 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7757_each_plan_wait_is_labelled_and_a_read_proven_positive_stops_refusing() {
+        val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
+        assertTrue(tp.contains("return waitOrOverrule7757(ts, why, \"NO_PLAN_WAIT_7739:\$why:\${lr.why}\", nowMs)"))
+        assertTrue(tp.contains("return waitOrOverrule7757(ts, read.why, \"NO_PLAN_WAIT_7739:\${read.why}\", nowMs)"))
+        val helper = tp.substringAfter("private fun waitOrOverrule7757(").substringBefore("\n    }\n")
+        assertTrue(helper.contains("ForwardReturnLabeler7731.observe(ts, key, false, reason, nowMs)"))
+        assertTrue(helper.contains("if (CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason"))
+        // The read stands until its refused tokens prove positive on a hundred labels.
+        val l = com.lifecyclebot.engine.truth.CellProofLadder7731
+        val pos = com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.POSITIVE
+        fun st(n: Int, mean: Double, se: Double) = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat("LANE|PLANWAIT_X", n, mean, 0.5, 0.05, se, 0)
+        assertEquals(pos, l.tierFor(st(120, 4.0, 1.5)))
+        assertFalse(l.tierFor(st(60, 9.0, 1.0)) == pos)
+        assertFalse(l.tierFor(st(150, 1.5, 1.0)) == pos)
+        assertTrue(tp.contains("waitProof7757="))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

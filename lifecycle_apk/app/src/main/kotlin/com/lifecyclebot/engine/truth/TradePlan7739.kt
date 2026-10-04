@@ -282,7 +282,7 @@ object TradePlan7739 {
                     waited.incrementAndGet()
                     waitReasons.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("PLAN_WAIT_7739_$why") } catch (_: Throwable) {}
-                    return "NO_PLAN_WAIT_7739:$why:${lr.why}"
+                    return waitOrOverrule7757(ts, why, "NO_PLAN_WAIT_7739:$why:${lr.why}", nowMs)
                 }
                 else -> {}
             }
@@ -291,7 +291,7 @@ object TradePlan7739 {
             waited.incrementAndGet()
             waitReasons.computeIfAbsent(read.why) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PLAN_WAIT_7739_${read.why}") } catch (_: Throwable) {}
-            return "NO_PLAN_WAIT_7739:${read.why}"
+            return waitOrOverrule7757(ts, read.why, "NO_PLAN_WAIT_7739:${read.why}", nowMs)
         }
         plans[ts.mint] = Plan(setup, -read.stopPct, read.firstTargetPct, read.targetPct, nowMs)
         if (plans.size > 2_000) plans.entries.removeIf { nowMs - it.value.atMs > PLAN_TTL_MS_7739 }
@@ -306,6 +306,38 @@ object TradePlan7739 {
         } catch (_: Throwable) {}
         return null
     }
+
+    /**
+     * V5.0.7757 §THE_PLAN'S_REFUSALS_ANSWER_TO_THE_TAPE_TOO.
+     *
+     * 5.0.7756 at 31 min: the executor refused 100 buys on the plan (STANDARD
+     * TOO_FEW_BARS=20, BASE_TOO_WIDE=17, NO_PULLBACK_YET=14 ...), and nothing
+     * measured whether those waits were right. Every live plan wait is now a
+     * forward label under its own key (PLANWAIT_<read>), priced at 60 minutes
+     * like any other verdict. Field Manual §12: authority is earned by
+     * measured, net-of-cost outcomes, the baseline's included. A read whose
+     * refused tokens prove positive on the cell ladder (100+ labels, mean
+     * above +1% by a standard error) stops refusing and the owner lane's buy
+     * goes ahead; until then, and whenever its record is negative or thin, the
+     * read stands. Paper never reaches here.
+     */
+    private fun waitOrOverrule7757(ts: TokenState, why: String, reason: String, nowMs: Long): String? {
+        val key = "PLANWAIT_${why.take(20)}"
+        try { ForwardReturnLabeler7731.observe(ts, key, false, reason, nowMs) } catch (_: Throwable) {}
+        val stat = try { ForwardReturnLabeler7731.laneStatFor7737(key) } catch (_: Throwable) { null }
+        if (CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason
+        overruled7757.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc("PLAN_WAIT_OVERRULED_BY_LABELS_7757_$why")
+            ForensicLogger.lifecycle(
+                "PLAN_WAIT_OVERRULED_BY_LABELS_7757",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} read=$why n60=${stat?.n60} net60=${"%+.1f".format(stat?.meanNet60Pct ?: 0.0)}% action=owner_lane_buy_proceeds",
+            )
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    private val overruled7757 = ConcurrentHashMap<String, AtomicLong>()
 
     /**
      * V5.0.7742 — the executor's chokepoint. PROJECT_SNIPER and other native
@@ -416,10 +448,16 @@ object TradePlan7739 {
         try { PipelineHealthCollector.labelInc(key) } catch (_: Throwable) {}
     }
 
+    private fun waitProofLine7757(): String = waitReasons.keys.mapNotNull { why ->
+        val st = try { ForwardReturnLabeler7731.laneStatFor7737("PLANWAIT_${why.take(20)}") } catch (_: Throwable) { null } ?: return@mapNotNull null
+        "$why[n=${st.n60} net=${"%+.1f".format(st.meanNet60Pct)}% ${CellProofLadder7731.tierFor(st).name} overruled=${overruled7757[why]?.get() ?: 0}]"
+    }.joinToString(",").ifBlank { "-" }
+
     fun statusLine(): String =
         "admitted[${admitted.entries.joinToString(",") { "${it.key.name}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "launchLadder7742[${launchAdmits7742.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] waited=${waited.get()} plans=${plans.size} " +
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
-            "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}"
+            "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
+            "waitProof7757=${waitProofLine7757()}"
 }
