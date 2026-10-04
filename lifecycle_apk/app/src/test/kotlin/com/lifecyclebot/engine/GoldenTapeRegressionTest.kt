@@ -14807,4 +14807,18 @@ class GoldenTapeRegressionTest {
         assertFalse(th.contains("(entryQty * (t.sol / entryCost))"))
         assertTrue(ex.contains("val correctedRemaining = if (tradeWithMint.side.equals(\"SELL\", true)) 0.0"))
     }
+
+    @org.junit.Test
+    fun `V5_0_7786 forward labels are the lane prior from trade one`() {
+        val d = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        val prior = d.substringAfter("V5.0.7786 — trade one starts").substringBefore("return out")
+        assertTrue(prior.contains("ForwardReturnLabeler7731.laneStatFor7737(lane)"))
+        assertTrue(prior.contains("st.n60 < LABEL_PRIOR_MIN_N_7786"))
+        assertTrue(prior.contains("liveMean >= 0.0) continue"))
+        assertTrue(prior.contains("st.meanNet240Pct >= 0.0) continue"))
+        assertTrue(prior.contains("minOf(out[lane] ?: 1.0, prior)"))
+        assertTrue(d.contains("coerceIn(MIN_MULT, 1.0)"))
+        val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
+        assertTrue(floor.contains("LaneExpectancyDamper.admissionScoreFloorDelta(lane)"))
+    }
 }

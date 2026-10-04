@@ -340,6 +340,38 @@ object LaneExpectancyDamper {
             }
             out[m.strategy.trim().uppercase()] = blend6715(mult)
         }
+        // V5.0.7786 — trade one starts from what the bot already measured. The
+        // loop above only scores lanes that have live closes, so a fresh install
+        // sent every lane in at full priority while the forward labels held
+        // SHITCOIN -8.3% at 60 min over 5,411 candidates, PROJECT_SNIPER -14.3%
+        // over 2,368, and the established lanes positive (CORE +9.4%, TREASURY
+        // +3.4%). A lane with >= LABEL_PRIOR_MIN_N_7786 negative labels gets
+        // 1 + mean/30 (clamped to MIN_MULT), weighted by label count, which the
+        // admission floor turns into a higher entry bar. Never a refusal. Positive
+        // live closes override it; negative ones keep the stronger cut.
+        // Field Manual §8.1: size and select from the measured edge, net of cost.
+        val liveMeanByLane7786 = board.associate { it.strategy.trim().uppercase() to it.meanPnlPct }
+        for (lane in LABEL_PRIOR_LANES_7786) {
+            val liveMean = liveMeanByLane7786[lane]
+            if (liveMean != null && liveMean >= 0.0) continue
+            val st = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane) } catch (_: Throwable) { null } ?: continue
+            if (st.n60 < LABEL_PRIOR_MIN_N_7786 || !st.meanNet60Pct.isFinite() || st.meanNet60Pct >= 0.0) continue
+            // A runner lane pays on the tail: a non-negative 4-hour record clears it.
+            if (st.n240 >= LABEL_PRIOR_MIN_N240_7786 && st.meanNet240Pct.isFinite() && st.meanNet240Pct >= 0.0) continue
+            val raw = (1.0 + st.meanNet60Pct / LABEL_PRIOR_SPAN_PCT_7786).coerceIn(MIN_MULT, 1.0)
+            val w = com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(st.n60 / LABELS_PER_CLOSE_7775)
+            val prior = 1.0 + (raw - 1.0) * w
+            out[lane] = minOf(out[lane] ?: 1.0, prior)
+            try { PipelineHealthCollector.labelInc("LANE_LABEL_PRIOR_APPLIED_7786_$lane") } catch (_: Throwable) {}
+        }
         return out
     }
+
+    private const val LABEL_PRIOR_MIN_N_7786 = 100
+    private const val LABEL_PRIOR_SPAN_PCT_7786 = 30.0
+    private const val LABEL_PRIOR_MIN_N240_7786 = 30
+    private val LABEL_PRIOR_LANES_7786 = listOf(
+        "SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS", "DIP_HUNTER", "MANIPULATED",
+        "QUALITY", "BLUECHIP", "CORE", "TREASURY", "CASHGEN", "CYCLIC", "STANDARD",
+    )
 }
