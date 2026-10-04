@@ -14480,4 +14480,15 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7760_the_risk_stack_sizes_down_to_the_minimum_executable_and_no_wallet_quota_lifts_it_back() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val fn = ex.substringAfter("private fun realisticEntrySize6867(").substringBefore("private fun applyKellyCap(")
+        assertFalse(fn.contains("val desired = maxOf(requestedSol, walletTarget, minRealistic)"))
+        assertTrue(fn.contains("val desired = maxOf(requestedSol, minRealistic).coerceAtMost(cap)"))
+        assertTrue(fn.contains("WALLET_TARGET_LIFT_DECLINED_7760"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

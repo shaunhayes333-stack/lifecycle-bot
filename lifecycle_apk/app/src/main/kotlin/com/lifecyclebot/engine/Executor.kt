@@ -3601,7 +3601,16 @@ class Executor(
         try { if (cap.isFinite() && cap > 0.0) lastRealisticCapSol7280[ts.mint] = cap to System.currentTimeMillis() } catch (_: Throwable) {}
         try { if (lastRealisticCapSol7280.size > 4096) lastRealisticCapSol7280.clear() } catch (_: Throwable) {}
         val minRealistic = growthPolicy.minExecutableSol.coerceAtMost(cap)
-        val desired = maxOf(requestedSol, walletTarget, minRealistic).coerceAtMost(cap)
+        // V5.0.7760 §THE_DAMPERS_WERE_SIZING_INTO_A_FLOOR_THAT_UNDID_THEM.
+        // desired was maxOf(requested, walletTarget, minExec): walletTarget (spendable ×
+        // 4-24% × lane mult) lifted every damped size straight back up, and this runs
+        // twice (doBuy and liveBuy.final), so the ~35 risk multipliers above (lane
+        // expectancy, regime, heat, fragility, cost) could only ever raise size. The
+        // risk stack now has the final say down to the minimum executable size;
+        // walletTarget remains the growth reference in the trace. Field Manual §6:
+        // size from risk — the stop distance and the edge — not from a wallet quota.
+        val desired = maxOf(requestedSol, minRealistic).coerceAtMost(cap)
+        if (walletTarget > desired + 0.0005) try { PipelineHealthCollector.labelInc("WALLET_TARGET_LIFT_DECLINED_7760") } catch (_: Throwable) {}
         val out = desired.coerceAtLeast(minOf(requestedSol, cap)).coerceAtMost(spendable)
         // V5.0.4131 — ABSOLUTE FLOOR. The user's mandate: "literally everything is
         // basically .01 sol buys" — unsustainable. When the wallet is healthy AND
