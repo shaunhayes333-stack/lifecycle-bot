@@ -86,6 +86,7 @@ class HeliusWebSocket(
 
     fun unsubscribeToken(mint: String) {
         val id = subscriptions.remove(mint) ?: return
+        subscriptionToMint7765.entries.removeIf { it.value == mint }
         ws?.send(JSONObject().apply {
             put("jsonrpc", "2.0")
             put("id", idCounter.getAndIncrement())
@@ -146,16 +147,18 @@ class HeliusWebSocket(
         })
     }
 
+    // V5.0.7765 §ONE_MINT_PER_LOG_SUBSCRIPTION. logsSubscribe's `mentions` filter takes
+    // exactly one address; this sent the mint plus four program ids, and every swap was
+    // then emitted with a blank mint and wallet, so DataOrchestrator matched nothing.
+    // One subscription per mint; the server's subscription id maps each notification
+    // back to its mint (and is what logsUnsubscribe needs).
+    private val requestToMint7765 = java.util.concurrent.ConcurrentHashMap<Int, String>()
+    private val subscriptionToMint7765 = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
     private fun sendSubscribe(id: Int, mints: List<String>) {
-        // Subscribe to log notifications mentioning these program IDs
-        // This catches all swaps on Raydium, Pump.fun, Orca, Jupiter
-        val programIds = listOf(
-            "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",   // Raydium AMM
-            "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymwEuE5",  // Pump.fun
-            "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",    // Orca Whirlpool
-            "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",    // Jupiter v6
-        )
-        val mentions = mints + programIds
+        val mint = mints.firstOrNull()?.takeIf { it.isNotBlank() } ?: return
+        requestToMint7765[id] = mint
+        val mentions = listOf(mint)
         ws?.send(JSONObject().apply {
             put("jsonrpc", "2.0")
             put("id", id)
@@ -190,12 +193,19 @@ class HeliusWebSocket(
         try {
             val msg    = JSONObject(text)
             val method = msg.optString("method", "")
+            // V5.0.7765 — a subscribe reply: request id -> server subscription id.
+            if (method.isBlank() && msg.has("id") && msg.opt("result") is Number) {
+                val mint = requestToMint7765.remove(msg.optInt("id", -1)) ?: return
+                val sub = msg.optInt("result", -1)
+                if (sub >= 0) { subscriptionToMint7765[sub] = mint; subscriptions[mint] = sub }
+                return
+            }
             val params = msg.optJSONObject("params") ?: return
             val result = params.optJSONObject("result") ?: return
             val value  = result.optJSONObject("value") ?: return
 
             when (method) {
-                "logsNotification" -> parseLogsNotification(value)
+                "logsNotification" -> parseLogsNotification(value, subscriptionToMint7765[params.optInt("subscription", -1)].orEmpty())
                 "accountNotification" -> parseAccountNotification(value, params)
             }
         } catch (_: Exception) {}
@@ -206,10 +216,26 @@ class HeliusWebSocket(
      * We look for swap-related log messages to extract trade data.
      * Helius enhanced API enriches these with parsed token amounts.
      */
-    private fun parseLogsNotification(value: JSONObject) {
+    private fun parseLogsNotification(value: JSONObject, mint: String) {
         val logs = value.optJSONArray("logs") ?: return
         val sig  = value.optString("signature", "")
-        if (sig.isBlank()) return
+        if (sig.isBlank() || mint.isBlank()) return
+        if (value.opt("err") != null && value.opt("err") != JSONObject.NULL) return
+        // V5.0.7765 — pump.fun emits its TradeEvent as an Anchor `Program data:` log:
+        // 8-byte discriminator, mint(32), solAmount u64, tokenAmount u64, isBuy u8,
+        // user(32). Decoded here: the real mint, side, size and trader wallet.
+        val mintBytes = try { io.github.novacrypto.base58.Base58.base58Decode(mint) } catch (_: Throwable) { null }
+        for (i in 0 until logs.length()) {
+            val line = logs.optString(i, "")
+            if (!line.startsWith("Program data: ") || mintBytes == null) continue
+            val b = try { android.util.Base64.decode(line.removePrefix("Program data: ").trim(), android.util.Base64.DEFAULT) } catch (_: Throwable) { continue }
+            if (b.size < 89 || !b.copyOfRange(8, 40).contentEquals(mintBytes)) continue
+            val solAmt = u64le7765(b, 40) / 1_000_000_000.0
+            val tokenAmt = u64le7765(b, 48) / 1_000_000.0
+            val isBuy = (b[56].toInt() and 0xFF) == 1
+            val wallet = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(57, 89)) } catch (_: Throwable) { "" }
+            if (solAmt > 0.0) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig); return }
+        }
 
         // Detect swap direction from log messages
         val logList = (0 until logs.length()).map { logs.optString(it, "") }
@@ -229,19 +255,24 @@ class HeliusWebSocket(
             if (buyMatch != null) {
                 val tokenAmt = buyMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = buyMatch.groupValues[2].toDoubleOrNull() ?: continue
-                // We don't know the mint from logs alone — use signature to look up
-                // For now emit with empty mint; BotService will correlate
-                onSwap("", true, solAmt, tokenAmt, "", sig)
+                // V5.0.7765 — the mint is known from the subscription.
+                onSwap(mint, true, solAmt, tokenAmt, "", sig)
                 return
             }
             val sellMatch = sellPattern.find(log)
             if (sellMatch != null) {
                 val tokenAmt = sellMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = sellMatch.groupValues[2].toDoubleOrNull() ?: continue
-                onSwap("", false, solAmt, tokenAmt, "", sig)
+                onSwap(mint, false, solAmt, tokenAmt, "", sig)
                 return
             }
         }
+    }
+
+    private fun u64le7765(b: ByteArray, off: Int): Double {
+        var v = 0L
+        for (k in 7 downTo 0) v = (v shl 8) or (b[off + k].toLong() and 0xFF)
+        return if (v < 0) v.toDouble() + 18446744073709551616.0 else v.toDouble()
     }
 
     /**

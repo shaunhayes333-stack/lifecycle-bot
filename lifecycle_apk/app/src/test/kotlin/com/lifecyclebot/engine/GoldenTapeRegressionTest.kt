@@ -14559,4 +14559,17 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7765_helius_log_stream_subscribes_one_mint_each_and_emits_the_real_mint() {
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/network/HeliusWebSocket.kt").readText()
+        assertTrue(h.contains("val mentions = listOf(mint)"))
+        assertFalse(h.contains("val mentions = mints + programIds"))
+        assertTrue(h.contains("subscriptionToMint7765[sub] = mint"))
+        assertTrue(h.contains("parseLogsNotification(value, subscriptionToMint7765[params.optInt(\"subscription\", -1)].orEmpty())"))
+        assertFalse(h.contains("onSwap(\"\", "))
+        assertTrue(h.contains("b.copyOfRange(8, 40).contentEquals(mintBytes)"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
