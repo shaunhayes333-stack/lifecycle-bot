@@ -60,7 +60,7 @@ class Aate7777OpportunityIntelligenceIntegrationTest {
             "v3/scoring/DipHunterAI.kt",
         )
         specialists.forEach { p ->
-            assertTrue(src(p).contains("UltimateEdgeEngine.cached"), p + " must consume the upgraded existing edge cache")
+            assertTrue(p + " must consume the upgraded existing edge cache", src(p).contains("UltimateEdgeEngine.cached"))
         }
     }
 
