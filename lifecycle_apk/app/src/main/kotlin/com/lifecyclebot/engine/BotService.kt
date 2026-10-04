@@ -32288,6 +32288,10 @@ if (hotExitHandledSweep) {
                     } catch (_: Exception) { 0 },
                     tradeIdentity      = identity,  // Pass canonical identity
                     fdgApprovalClass   = approvalClass,  // Pass approval class for learning
+                    // V5.0.7771 — preserve the exact executable ticket already
+                    // issued by TradeAuthorizer/ExecutableOpenGate.
+                    finalityPrechecked = true,
+                    attemptId          = authResult.attemptId,
                 )
                 
                 // Record V3 position opened
