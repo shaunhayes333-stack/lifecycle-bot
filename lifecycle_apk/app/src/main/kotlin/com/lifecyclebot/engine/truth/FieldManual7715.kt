@@ -284,7 +284,11 @@ object FieldManual7715 {
     }
 
     private const val PLATFORM_FEE_ROUND_TRIP_PCT_7766 = 1.0
-    private const val PRIORITY_FEE_SOL_7766 = 0.0004
+    // V5.0.7768 — per leg: the Executor's sender tip floor (effectiveSenderTipLamports,
+    // 200,000 lamports) plus the CU price (~0.000005 SOL). 0.0004 double-counted it;
+    // at a 0.024 SOL entry that added 3.3 points and every CORE/TREASURY card failed
+    // "all-in cost eats half" (FIELD_MANUAL_PASS_7715:all-in = 27 on 5.0.7767).
+    private const val PRIORITY_FEE_SOL_7766 = 0.000205
 
     /** Entry impact plus exit impact, percent, constant-product approximation against half the pool. */
     fun impactRoundTripPct(sizeUsd: Double, liquidityUsd: Double): Double {

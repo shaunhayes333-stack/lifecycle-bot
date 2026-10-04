@@ -14575,9 +14575,9 @@ class GoldenTapeRegressionTest {
     fun V5_0_7766_one_round_trip_cost_and_one_launch_age_rule() {
         val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
         assertTrue(fm.contains("fun roundTripCostPct7766(sizeSol: Double, sizeUsd: Double, liquidityUsd: Double): Double"))
-        // 0.04 SOL into $4k liquidity at $120/SOL: 1% venue + 2% priority + 1% slippage + 0.48% impact.
+        // 0.04 SOL into $4k liquidity at $120/SOL: 1% venue + 1.025% priority (7768) + 1% slippage + 0.48% impact.
         val c = com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(0.04, 4.8, 4_000.0)
-        assertTrue(c > 4.4 && c < 4.6)
+        assertTrue(c > 3.4 && c < 3.6)
         val be = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
         assertTrue(be.contains("return roundTripCostPct + givebackBufferPct + minProfitBufferPct"))
         val sp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneShadowProof7307.kt").readText()
@@ -14596,4 +14596,18 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7768_v3_reject_frees_ticket_true_priority_fee_dust_latch() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("ExecutableOpenGate.releaseAttemptNonTerminal6514(authResult.attemptId, ts.mint, cyclePrimaryLane, \"V3_FDG_REJECT_7768\")"))
+        // 0.024 SOL into $20k: 1% venue + ~1.7% priority + 1% slippage + small impact stays under half of TREASURY's 12%.
+        val c = com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(0.024, 3.6, 20_000.0)
+        assertTrue(c < 6.0)
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("com.lifecyclebot.engine.sell.DustBagLatch7768.held(ts.mint)"))
+        assertTrue(ex.contains("com.lifecyclebot.engine.sell.DustBagLatch7768.latch(ts.mint)"))
+        com.lifecyclebot.engine.sell.DustBagLatch7768.latch("DUSTMINT7768", 1_000L)
+        assertTrue(com.lifecyclebot.engine.sell.DustBagLatch7768.held("DUSTMINT7768", 2_000L))
+        assertFalse(com.lifecyclebot.engine.sell.DustBagLatch7768.held("DUSTMINT7768", 1_000L + 11L * 60_000L))
+    }
 }

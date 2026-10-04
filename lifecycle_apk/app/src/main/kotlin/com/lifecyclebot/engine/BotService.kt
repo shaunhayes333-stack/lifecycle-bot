@@ -31050,6 +31050,12 @@ if (hotExitHandledSweep) {
                                 } catch (_: Throwable) {}
                                 try { TradeAuthorizer.releasePosition(ts.mint, "V3_FDG_REJECT_6533", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
                                 try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, cyclePrimaryLane, "V3_FDG_REJECT_6533") } catch (_: Throwable) {}
+                                // V5.0.7768 — authorize() already published a ticket and took the
+                                // mint-version buy claim. Left held, the next pass on this mint was
+                                // refused as ONE_EXECUTABLE_BUY_PER_MINT_VERSION (13 on 5.0.7767) by
+                                // an attempt that never ran. Field Manual §12: one live owner per
+                                // trade, and a refused attempt owns nothing.
+                                try { ExecutableOpenGate.releaseAttemptNonTerminal6514(authResult.attemptId, ts.mint, cyclePrimaryLane, "V3_FDG_REJECT_7768") } catch (_: Throwable) {}
                                 return
                             }
                             if (v3Fdg6533.sizeSol > 0.0) proposedSize = v3Fdg6533.sizeSol

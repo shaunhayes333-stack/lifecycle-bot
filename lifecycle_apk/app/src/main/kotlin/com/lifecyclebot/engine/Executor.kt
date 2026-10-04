@@ -23872,6 +23872,12 @@ class Executor(
     }
 
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        // V5.0.7768 — a bag an on-chain read just proved to be unroutable dust is
+        // answered from that proof, not re-sold every tick (DustBagLatch7768).
+        if (!ts.position.isPaperPosition && com.lifecyclebot.engine.sell.DustBagLatch7768.held(ts.mint)) {
+            try { PipelineHealthCollector.labelInc("SELL_DUST_LATCH_ANSWERED_7768") } catch (_: Throwable) {}
+            return SellResult.ROUTE_FAILED_NO_SIGNATURE
+        }
         // V5.0.7715 — §10 exit discipline: every exit request is classified
         // (structural / integrity / target / time / regime / operational) so
         // the report shows what kind of exits the book is taking, per mode.
@@ -28098,6 +28104,7 @@ class Executor(
                     tokenAmount = actualBalanceUi, traderTag = "MEME",
                 )
                 try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+                com.lifecyclebot.engine.sell.DustBagLatch7768.latch(ts.mint)
                 try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "DUST_NO_BROADCAST_NO_SIGNATURE") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "DUST_NO_BROADCAST_NO_SIGNATURE") } catch (_: Throwable) {}
                 return SellResult.ROUTE_FAILED_NO_SIGNATURE
