@@ -264,7 +264,25 @@ object MarketRegimeAI {
     /**
      * Get current market regime.
      */
-    fun getCurrentRegime(): Regime = currentRegime
+    fun getCurrentRegime(): Regime = authority7761()
+
+    /**
+     * V5.0.7761 §ONE_REGIME. This object's own regime was built from the bot's
+     * 24h average trade P&L with solChange24h hard-coded 0 (BotService feed) —
+     * the self-feeding loop V5.0.7173 removed from RegimeDetector — and drove
+     * Executor size x0.5-1.5, a confidence shave, the oracle, the trail and hold
+     * time while RegimeDetector (market-sourced, one step of own-record
+     * tightening) said something else. RegimeDetector is the authority; this
+     * maps it onto the policy table every consumer already reads.
+     */
+    private fun authority7761(): Regime = try {
+        when (RegimeDetector.currentRegime()) {
+            RegimeDetector.Regime.BULL_RIPPING -> Regime.BULL
+            RegimeDetector.Regime.NORMAL, RegimeDetector.Regime.BOOTSTRAP -> Regime.NEUTRAL
+            RegimeDetector.Regime.CHOP, RegimeDetector.Regime.DEAD -> Regime.CRAB
+            RegimeDetector.Regime.DUMP -> Regime.BEAR
+        }
+    } catch (_: Throwable) { Regime.NEUTRAL }
     
     /**
      * Get regime confidence (0-100).
@@ -275,43 +293,43 @@ object MarketRegimeAI {
      * Get confidence multiplier for current regime.
      * Use this to adjust entry confidence thresholds.
      */
-    fun getConfidenceMultiplier(): Double = currentRegime.confidenceMultiplier
+    fun getConfidenceMultiplier(): Double = getCurrentRegime().confidenceMultiplier
     
     /**
      * Get position size multiplier for current regime.
      * Use this to adjust position sizing.
      */
-    fun getPositionSizeMultiplier(): Double = currentRegime.positionSizeMultiplier
+    fun getPositionSizeMultiplier(): Double = getCurrentRegime().positionSizeMultiplier
     
     /**
      * Get trail multiplier for current regime.
      * Use this to adjust trailing stop looseness.
      */
-    fun getTrailMultiplier(): Double = currentRegime.trailMultiplier
+    fun getTrailMultiplier(): Double = getCurrentRegime().trailMultiplier
     
     /**
      * Get hold time multiplier for current regime.
      * Use this to adjust max hold times.
      */
-    fun getHoldTimeMultiplier(): Double = currentRegime.holdTimeMultiplier
+    fun getHoldTimeMultiplier(): Double = getCurrentRegime().holdTimeMultiplier
     
     /**
      * Get minimum entry score for current regime.
      */
-    fun getMinEntryScore(): Double = currentRegime.minEntryScore
+    fun getMinEntryScore(): Double = getCurrentRegime().minEntryScore
     
     /**
      * Check if market is favorable for new entries.
      */
     fun isFavorableForEntry(): Boolean {
-        return currentRegime in listOf(Regime.STRONG_BULL, Regime.BULL, Regime.NEUTRAL)
+        return getCurrentRegime() in listOf(Regime.STRONG_BULL, Regime.BULL, Regime.NEUTRAL)
     }
     
     /**
      * Check if should be extra cautious (reduce exposure).
      */
     fun shouldReduceExposure(): Boolean {
-        return currentRegime in listOf(Regime.STRONG_BEAR, Regime.HIGH_VOLATILITY)
+        return getCurrentRegime() in listOf(Regime.STRONG_BEAR, Regime.HIGH_VOLATILITY)
     }
     
     /**

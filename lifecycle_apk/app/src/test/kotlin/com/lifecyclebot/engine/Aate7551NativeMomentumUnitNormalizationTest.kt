@@ -7,10 +7,11 @@ import org.junit.Test
 class Aate7551NativeMomentumUnitNormalizationTest {
     private fun src(path:String)=File("src/main/kotlin/com/lifecyclebot/"+path).readText()
 
-    @Test fun producer_documents_centered_momentum_score() {
+    // V5.0.7758 — the producer now writes the same signed percent its readers expect.
+    @Test fun producer_writes_signed_percent_momentum() {
         val d=src("engine/DataOrchestrator.kt")
-        assertTrue(d.contains("ts.momentum = (50.0 + chg6852 * 2.0).coerceIn(0.0, 100.0)"))
-        assertTrue(d.contains("50 = flat"))
+        assertFalse(d.contains("ts.momentum = (50.0 + chg6852 * 2.0).coerceIn(0.0, 100.0)"))
+        assertTrue(d.contains("ts.momentum = chg6852.coerceIn(-100.0, 1000.0)"))
     }
 
     @Test fun specialist_bridge_uses_signed_percent_not_centered_score() {

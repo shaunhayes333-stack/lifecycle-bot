@@ -2661,37 +2661,12 @@ class Executor(
         // floor → STRONG_BULL ceiling). Composed multipliers cannot push the
         // size below 0.5 * 0.5 * 0.5 = 0.125× (auto-deesc + regime bear + grade
         // penalty all stacked), which still trades — just very small. No veto.
-        var regimeSizeMult = 1.0
-        var regimeMinScoreBoost = 0.0
-        try {
-            val regimeMult = com.lifecyclebot.engine.MarketRegimeAI.getPositionSizeMultiplier()
-            regimeSizeMult = regimeMult.coerceIn(0.5, 1.5)
-
-            // isFavorableForEntry: if STRONG_BEAR / HIGH_VOL / CRAB → false.
-            // Apply a small additional shrink (soft, not veto).
-            if (!com.lifecyclebot.engine.MarketRegimeAI.isFavorableForEntry()) {
-                regimeSizeMult *= 0.85
-            }
-
-            // shouldReduceExposure: STRONG_BEAR or HIGH_VOLATILITY only. This
-            // is the strongest signal — apply on top of the favorable check.
-            if (com.lifecyclebot.engine.MarketRegimeAI.shouldReduceExposure()) {
-                regimeSizeMult *= 0.85
-            }
-
-            // Re-clamp after compounding so the floor stays at 0.5
-            regimeSizeMult = regimeSizeMult.coerceIn(0.5, 1.5)
-
-            // Entry-score shave: getMinEntryScore returns 20-50 per regime.
-            // Treat as a soft confidence shave: NEUTRAL=30 → 0 shave,
-            // STRONG_BEAR=50 → +20 needed → shave 20 from confidence.
-            // Cap shave at +20 so STRONG_BULL doesnt push it negative.
-            val regimeMinScore = com.lifecyclebot.engine.MarketRegimeAI.getMinEntryScore()
-            regimeMinScoreBoost = (regimeMinScore - 30.0).coerceIn(-10.0, 20.0)
-            if (regimeMinScoreBoost != 0.0) {
-                adjustedConfidence = (adjustedConfidence - regimeMinScoreBoost).coerceIn(0.0, 100.0)
-            }
-        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+        val regimeSizeMult = 1.0
+        val regimeMinScoreBoost = 0.0
+        // V5.0.7761 — removed. The regime already shapes this buy through
+        // RegimeDetector.sizeMultiplier (doBuy) and scoreFloorDelta (CanonicalEntryFloor7266);
+        // this second copy (x0.5-1.5 and a -10..+20 confidence shave from MarketRegimeAI)
+        // counted the same market twice. regimeSizeMult / regimeMinScoreBoost stay neutral.
 
         // ── V5.9.819 — SymbolicContext booleans wire-up (AGI campaign push 8) ──
         // Audit ref: audit_v5.9.811_dormant_agi.md TIER 1.3 — "biggest meme

@@ -14491,4 +14491,17 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7761_one_regime_market_regime_ai_mirrors_regime_detector_and_regime_is_not_counted_twice() {
+        val mr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MarketRegimeAI.kt").readText()
+        assertTrue(mr.contains("fun getCurrentRegime(): Regime = authority7761()"))
+        assertTrue(mr.contains("RegimeDetector.Regime.DUMP -> Regime.BEAR"))
+        assertTrue(mr.contains("fun getPositionSizeMultiplier(): Double = getCurrentRegime().positionSizeMultiplier"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertFalse(ex.contains("val regimeMult = com.lifecyclebot.engine.MarketRegimeAI.getPositionSizeMultiplier()"))
+        assertTrue(ex.contains("val regimeSizeMult = 1.0"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
