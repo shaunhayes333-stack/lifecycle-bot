@@ -152,7 +152,7 @@ object LivePreflight7222 {
         }
 
         // 6. Providers the live buy path cannot do without.
-        fun provider(name: String, host: String, floorPct: Double, requestScoped4xx: Boolean = false): Check {
+        fun provider(name: String, host: String, floorPct: Double, requestScoped4xx: Boolean = false, exclusive: Boolean = true): Check {
             val has = com.lifecyclebot.engine.ApiHealthMonitor.hasSamples(host)
             if (!has) return Check(name, Verdict.UNKNOWN, "$host: no samples this session")
             val rawPct = pctOf(com.lifecyclebot.engine.ApiHealthMonitor.requestAcceptanceRate(host))
@@ -164,19 +164,34 @@ object LivePreflight7222 {
                 "$host: transport=${"%.0f".format(pct)}% routeAcceptance=${"%.0f".format(rawPct)}% (candidate 4xx excluded from outage health)"
             } else "$host: sr=${"%.0f".format(pct)}%"
             return when {
-                broken -> Check(name, Verdict.REFUSE, "$detail circuit=OPEN")
+                broken && exclusive -> Check(name, Verdict.REFUSE, "$detail circuit=OPEN")
+                broken -> Check(name, Verdict.INFO, "$detail circuit=OPEN — degraded route only; other execution adapters remain")
                 pct >= floorPct -> Check(name, Verdict.PASS, detail)
-                else -> Check(name, Verdict.REFUSE, "$detail < ${floorPct.toInt()}% — provider/network failures will prevent execution")
+                exclusive -> Check(name, Verdict.REFUSE, "$detail < ${floorPct.toInt()}% — required provider would prevent execution")
+                else -> Check(name, Verdict.INFO, "$detail < ${floorPct.toInt()}% — degraded route; live fallbacks remain eligible")
             }
         }
-        checks += check("JUPITER_QUOTE") { provider("JUPITER_QUOTE", "jupiter_quote", 50.0, requestScoped4xx = true) }
-        checks += check("JUPITER_SEND") { provider("JUPITER_SEND", "jupiter_send", 50.0) }
+        // V5.0.7771 — Jupiter is not exclusive: Pump-first and Raydium are live builders.
+        checks += check("JUPITER_QUOTE") { provider("JUPITER_QUOTE", "jupiter_quote", 50.0, requestScoped4xx = true, exclusive = false) }
+        checks += check("JUPITER_SEND") { provider("JUPITER_SEND", "jupiter_send", 50.0, exclusive = false) }
         // V5.0.7371 — the buy/sell path uses helius_rpc; the "helius" host is only
         // fed by the enhanced-transactions creator lookup, so 5.0.7368 showed
         // HELIUS REFUSE sr=0% while helius_rpc ran at 100%.
         checks += check("HELIUS") {
             val rpcHost7371 = if (com.lifecyclebot.engine.ApiHealthMonitor.hasSamples("helius_rpc")) "helius_rpc" else "helius"
-            provider("HELIUS", rpcHost7371, 50.0)
+            provider("HELIUS", rpcHost7371, 50.0, exclusive = false)
+        }
+        checks += check("HELIUS_SENDER") {
+            val labels = PipelineHealthCollector.labelsWithPrefix7156("HELIUS_SENDER_")
+            val attempts = labels.filterKeys { it.contains("ATTEMPT_7248") }.values.sum()
+            val accepted = labels.filterKeys { it.contains("ACCEPT_7248") }.values.sum()
+            val failed = labels.filterKeys { it.contains("FAIL_7248") }.values.sum()
+            val proved = labels.filterKeys { it.contains("ENVELOPE_PROVED_7250") }.values.sum()
+            when {
+                accepted > 0L -> Check("HELIUS_SENDER", Verdict.PASS, "envelopeProved=$proved attempts=$attempts accepted=$accepted failed=$failed; order=Helius Sender -> Jito -> RPC")
+                attempts > 0L -> Check("HELIUS_SENDER", Verdict.INFO, "envelopeProved=$proved attempts=$attempts accepted=$accepted failed=$failed; Jito/RPC fallback remains")
+                else -> Check("HELIUS_SENDER", Verdict.INFO, "no sender-compatible tx attempted yet; eligible order=Helius Sender -> Jito -> RPC")
+            }
         }
 
         // 7. Exit engine can see what is held.
