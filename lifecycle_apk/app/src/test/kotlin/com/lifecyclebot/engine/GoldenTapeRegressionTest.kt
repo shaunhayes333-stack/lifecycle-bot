@@ -14552,9 +14552,8 @@ class GoldenTapeRegressionTest {
         assertEquals("PROJECT_SNIPER", com.lifecyclebot.engine.TradeHistoryStore.normalizeTradeModeName("PROJECT_SNIPER"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val toxicPresale = (capitalLane == \"PROJECT_SNIPER\" || capitalLane == \"PRESALE_SNIPE\")"))
-        val cls = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576
-        assertEquals(cls.Class.LOSS, cls.classifyReadonly(-1.0))
-        assertEquals(cls.Class.BREAKEVEN, cls.classifyReadonly(0.3))
+        assertEquals(com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS, com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(-1.0))
+        assertEquals(com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN, com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(0.3))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
