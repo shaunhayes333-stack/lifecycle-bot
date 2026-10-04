@@ -135,4 +135,10 @@ object ScannerLaneBridge {
         val b = buckets[key(src, lane)] ?: return "${src}_${lane}_NO_DATA"
         return "${src}→${lane}_wr${"%.0f".format(b.wrPct)}_pnl${"%.0f".format(b.meanPnlPct)}%_n${b.n}"
     }
+
+    /** V5.0.7781 — operator "reset all learning" clears the source→lane brain. */
+    fun reset() {
+        buckets.clear()
+        try { prefs?.edit()?.clear()?.commit() } catch (_: Throwable) {}
+    }
 }

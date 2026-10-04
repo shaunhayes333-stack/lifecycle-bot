@@ -14704,4 +14704,41 @@ class GoldenTapeRegressionTest {
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(phc.contains("Live education (§7776)"))
     }
+
+    @org.junit.Test
+    fun `V5_0_7781 discipline verdicts size down in liveBuy instead of vetoing doBuy`() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val doBuy = ex.substringAfter("internal fun doBuy(").substringBefore("val laneTilt4132")
+        assertTrue(doBuy.contains("DISCIPLINE_SIZE_DOWN_7781"))
+        assertTrue(doBuy.contains("SCANNER_BRIDGE_SIZE_DOWN_7781"))
+        assertFalse(doBuy.contains("\"DISCIPLINE_VETO_V4132\""))
+        assertFalse(doBuy.contains("Discipline veto:"))
+        assertTrue(doBuy.contains("RUG_BLACKLIST_VETO_V4133"))
+        assertTrue(ex.contains("disciplineRecoverySizeMultiplier4460 = 0.35"))
+    }
+
+    @org.junit.Test
+    fun `V5_0_7781 reset all learning clears every learning store and finishes at boot`() {
+        val names = com.lifecyclebot.engine.truth.LearningResetSweep7781.LEARNING_PREFS_7781
+        for (n in listOf("live_pause_button", "lane_timeout_gate", "forward_return_labeler_7731",
+                "lane_shadow_proof_7307", "aate_oracle_edge_proof_7287", "token_win_memory", "trade_history_store")) {
+            assertTrue(n, names.contains(n))
+        }
+        for (n in listOf("rug_mint_blacklist", "rugged_contracts", "banned_tokens", "position_persistence_v1",
+                "bot_config", "bot_paper_wallet", "cash_generation_ai_state", "canonical_finality_6486",
+                "fill_lot_ledger_6344", "trading_memory")) {
+            assertFalse(n, names.contains(n))
+        }
+        val sweep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearningResetSweep7781.kt").readText()
+        assertTrue(sweep.contains("TradeHistoryStore.clearAllTrades()"))
+        assertTrue(sweep.contains("TradingMemory.clearLearned7781()"))
+        val app = java.io.File("src/main/kotlin/com/lifecyclebot/AATEApp.kt").readText()
+        assertTrue(app.indexOf("LearningResetSweep7781.applyPendingAtBoot") in 1 until app.indexOf("TradeHistoryStore.init(this)"))
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/BehaviorActivity.kt").readText()
+        assertTrue(ui.contains("LearningResetSweep7781.requestFullReset(this)"))
+        val tm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradingMemory.kt").readText()
+        val learned = tm.substringAfter("fun clearLearned7781()").substringBefore("fun clearAll()")
+        assertFalse(learned.contains("creatorBlacklist.clear()"))
+        assertFalse(learned.contains("rugPatterns.clear()"))
+    }
 }

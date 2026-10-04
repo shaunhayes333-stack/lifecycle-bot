@@ -14603,11 +14603,16 @@ class Executor(
         val bridgeToxic4132 = try {
             !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(ts.source ?: "UNKNOWN", laneTag)
         } catch (_: Throwable) { false }
+        // V5.0.7781 — the bridge, pause and lane-timeout verdicts size the entry
+        // down in liveBuy (DISCIPLINE_RECOVERY_PROBE_4460, same three inputs);
+        // they no longer veto here. A veto latched itself: the pause only
+        // releases on new live closes, and the veto stopped every live buy, so
+        // 5.0.7779 ran DISCIPLINE_VETO_V4132=94 against EXEC=0 off a 30-close
+        // window persisted from earlier builds. Field Manual: when a lane is
+        // running cold, cut size, keep taking the A setups — never stop data.
         if (RuntimeModeAuthority.isLive() && bridgeToxic4132 && !isHighEdge4132) {
-            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_VETO") } catch (_: Throwable) {}
-            onLog("🛑 Scanner-bridge veto: ${ts.symbol} src→lane proven toxic (lane=$laneTag)", "discipline")
-            return
+            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_SIZE_DOWN_7781", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")} action=sized_in_liveBuy_4460") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_SIZE_DOWN_7781") } catch (_: Throwable) {}
         }
         if (RuntimeModeAuthority.isLive() && !isHighEdge4132 && (pauseDefensive4132 || laneTimedOut4132)) {
             // V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button
@@ -14626,10 +14631,9 @@ class Executor(
                     effectivePause4148                     -> "discipline_pause_global"
                     else                                    -> "discipline_lane_timeout"
                 }
-                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_${reason4132.uppercase()}") } catch (_: Throwable) {}
-                onLog("🛑 Discipline veto: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name})", "discipline")
-                return
+                // V5.0.7781 — size-down in liveBuy (4460), not a veto; see above.
+                try { ForensicLogger.lifecycle("DISCIPLINE_SIZE_DOWN_7781", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")} action=sized_in_liveBuy_4460") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("DISCIPLINE_SIZE_DOWN_7781_${reason4132.uppercase()}") } catch (_: Throwable) {}
             }
         }
         // (c) PERFORMING-LANE TILT: in DEFENSIVE mode, scale entries up for top

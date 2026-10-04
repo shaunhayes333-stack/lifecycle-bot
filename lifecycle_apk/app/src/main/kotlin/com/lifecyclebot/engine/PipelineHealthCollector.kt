@@ -2723,6 +2723,14 @@ object PipelineHealthCollector {
             sb.append("  Live education (§7776):       ").append(
                 try { com.lifecyclebot.engine.truth.LiveEducationAudit7776.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Learning reset (§7781):       ").append(
+                try { com.lifecyclebot.engine.truth.LearningResetSweep7781.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append(" livePause=").append(
+                try { com.lifecyclebot.engine.LivePauseButton.tag() } catch (_: Throwable) { "?" }
+            ).append(" disciplineSizeDown=").append(
+                listOf("DISCIPLINE_PAUSE_GLOBAL", "DISCIPLINE_LANE_TIMEOUT", "DISCIPLINE_PAUSE_AND_LANE_TIMEOUT")
+                    .sumOf { try { labelCountSnapshot("DISCIPLINE_SIZE_DOWN_7781_$it") } catch (_: Throwable) { 0L } }
+            ).append("\n")
             // V5.0.6440 — learner reward bridge + runner ladder + runtime alive.
             sb.append("  Learner reward bridge (§6440):").append(
                 com.lifecyclebot.engine.truth.LearnerRewardBridge6440.statusLine()

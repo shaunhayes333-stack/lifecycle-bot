@@ -115,4 +115,10 @@ object LaneTimeoutGate {
         val s = byLane[lane.uppercase()] ?: return "${lane.uppercase()}_NO_DATA"
         return "${lane.uppercase()}_${s.status.name}_wr${"%.0f".format(s.wrPct)}_n${s.n}"
     }
+
+    /** V5.0.7781 — operator "reset all learning" clears every lane window. */
+    fun reset() {
+        byLane.clear()
+        try { prefs?.edit()?.clear()?.commit() } catch (_: Throwable) {}
+    }
 }

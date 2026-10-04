@@ -78,6 +78,10 @@ class AATEApp : Application() {
             android.util.Log.e("AATEApp", "Failed to init ErrorLogger: ${e.message}", e)
         }
 
+        // V5.0.7781 — finish an operator "reset all learning" before any
+        // learner reloads its store, so a reset really starts from zero.
+        try { com.lifecyclebot.engine.truth.LearningResetSweep7781.applyPendingAtBoot(this) } catch (_: Throwable) {}
+
         // V5.9.431 — Initialize TradeHistoryStore EARLY so the journal starts
         // logging immediately regardless of whether the bot is running or the
         // user opens JournalActivity before MainActivity. Prior to this, the

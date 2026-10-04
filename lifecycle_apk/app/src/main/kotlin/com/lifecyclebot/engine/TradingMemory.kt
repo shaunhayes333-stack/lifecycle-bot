@@ -1021,6 +1021,20 @@ object TradingMemory {
                "${rugPatterns.size} rug patterns, ${creatorBlacklist.size} blacklisted creators"
     }
 
+    /**
+     * V5.0.7781 — operator "reset all learning": learned bad-token features and
+     * trade patterns go back to zero so live closes refill them visibly. The
+     * rug patterns and the rugged-creator blacklist are kept: those are facts
+     * about who already rugged, not a lesson to relearn with real SOL.
+     */
+    fun clearLearned7781() {
+        badTokenFeatures.clear()
+        badTradePatterns.clear()
+        winPatterns.clear()
+        save()
+        ErrorLogger.info("TradingMemory", "Learned memory cleared (rug patterns + creator blacklist kept)")
+    }
+
     fun clearAll() {
         badTokenFeatures.clear()
         badTradePatterns.clear()

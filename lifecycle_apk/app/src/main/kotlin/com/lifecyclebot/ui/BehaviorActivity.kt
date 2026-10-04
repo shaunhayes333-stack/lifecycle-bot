@@ -860,7 +860,10 @@ class BehaviorActivity : AppCompatActivity() {
                             com.lifecyclebot.engine.LearningPersistence.resetAll()
                             com.lifecyclebot.v3.scoring.FluidLearningAI.resetAllLearning(this)
                             BehaviorAI.reset()
-                            Toast.makeText(this, "All learning reset (disk + memory)", Toast.LENGTH_LONG).show()
+                            // V5.0.7781 — the ~60 learners with their own stores,
+                            // the journal, and the pause/timeout windows.
+                            com.lifecyclebot.engine.truth.LearningResetSweep7781.requestFullReset(this)
+                            Toast.makeText(this, "All learning reset. Close and reopen AATE to finish the clean start.", Toast.LENGTH_LONG).show()
                             refreshStats()
                         } catch (e: Exception) {
                             Toast.makeText(this, "Reset failed: ${e.message}", Toast.LENGTH_SHORT).show()
