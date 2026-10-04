@@ -40,15 +40,13 @@ object MoonshotAdaptiveGate {
     private const val WINDOW = 100
     private const val RECENT_HALF = 50
 
-    // Target win-rate the gate steers toward. MOONSHOT is asymmetric — a few
-    // mega runners pay for many losers — so we accept a relatively low WR.
-    private const val TARGET_WR_PCT = 35.0
+    // V5.0.7791 — fat-tail lane: WR is telemetry, not the optimisation target.
+    // Adaptive authority reads expectancy and runner frequency instead.
     // Need at least this many closes before the gate engages — below this we
     // stay neutral so a cold start can't accidentally tighten the lane.
     private const val MIN_SAMPLES_TO_GATE = 20
 
-    // Bias bounds: -5 (lane is winning, breathe out) → +20 (lane is hemorrhaging, tighten).
-    private const val MAX_TIGHTEN_BIAS = 20
+    private const val MAX_TIGHTEN_BIAS = 6
     private const val MAX_LOOSEN_BIAS = -5
 
     enum class Phase { COLD_START, AGGRESSIVE, NEUTRAL, DEFENSIVE, EMERGENCY }
@@ -56,13 +54,16 @@ object MoonshotAdaptiveGate {
     private data class Snapshot(
         val n: Int,
         val wrPct: Double,
+        val meanPct: Double,
+        val runnerRatePct: Double,
+        val megaRatePct: Double,
         val phase: Phase,
         val floorBias: Int,
     )
 
     private val window = ArrayDeque<Double>(WINDOW + 1)
     @Volatile private var prefs: SharedPreferences? = null
-    private val snap = AtomicReference(Snapshot(0, 0.0, Phase.COLD_START, 0))
+    private val snap = AtomicReference(Snapshot(0, 0.0, 0.0, 0.0, 0.0, Phase.COLD_START, 0))
 
     fun init(context: Context) {
         try {
@@ -140,32 +141,40 @@ object MoonshotAdaptiveGate {
         return n to wr
     }
 
-    private fun phaseFor(n: Int, wr: Double): Phase {
-        if (n < MIN_SAMPLES_TO_GATE) return Phase.COLD_START
-        return when {
-            wr < (TARGET_WR_PCT - 20.0) -> Phase.EMERGENCY   // < 15%
-            wr < (TARGET_WR_PCT - 10.0) -> Phase.DEFENSIVE   // 15–25%
-            wr <  TARGET_WR_PCT          -> Phase.NEUTRAL    // 25–35% (mild tighten)
-            wr < (TARGET_WR_PCT + 15.0) -> Phase.NEUTRAL    // 35–50% (target band)
-            else                          -> Phase.AGGRESSIVE // >= 50%
-        }
-    }
+    private data class TailStats7791(val n:Int,val wr:Double,val mean:Double,val runnerRate:Double,val megaRate:Double)
 
-    private fun biasFor(phase: Phase, wr: Double): Int {
-        return when (phase) {
-            Phase.COLD_START -> 0
-            Phase.EMERGENCY  -> MAX_TIGHTEN_BIAS                 // +20
-            Phase.DEFENSIVE  -> 12
-            Phase.NEUTRAL    -> if (wr < TARGET_WR_PCT) 6 else 0 // mild tighten if below target
-            Phase.AGGRESSIVE -> MAX_LOOSEN_BIAS                  // -5 (let it breathe)
+    private fun tailStats7791(): TailStats7791 {
+        val xs=synchronized(window){window.toList()}
+        if(xs.isEmpty()) return TailStats7791(0,0.0,0.0,0.0,0.0)
+        var ws=0.0; var ps=0.0; var wins=0.0; var runners=0.0; var megas=0.0
+        xs.forEachIndexed { idx, raw ->
+            val age=(xs.size-1)-idx
+            val w=if(age<RECENT_HALF)2.0 else 1.0
+            ws+=w; ps+=raw.coerceIn(-100.0,1000.0)*w
+            if(raw>0.0)wins+=w
+            if(raw>=100.0)runners+=w
+            if(raw>=500.0)megas+=w
         }
+        return TailStats7791(xs.size,wins/ws*100.0,ps/ws,runners/ws*100.0,megas/ws*100.0)
     }
 
     private fun recompute() {
-        val (n, wr) = computeWeightedWR()
-        val phase = phaseFor(n, wr)
-        val bias = biasFor(phase, wr).coerceIn(MAX_LOOSEN_BIAS, MAX_TIGHTEN_BIAS)
-        snap.set(Snapshot(n, wr, phase, bias))
+        val t=tailStats7791()
+        val phase=when {
+            t.n<MIN_SAMPLES_TO_GATE -> Phase.COLD_START
+            t.mean>=15.0 || t.megaRate>=2.0 || t.runnerRate>=8.0 -> Phase.AGGRESSIVE
+            t.mean>=0.0 -> Phase.NEUTRAL
+            t.mean>-8.0 -> Phase.DEFENSIVE
+            else -> Phase.EMERGENCY
+        }
+        val bias=when(phase){
+            Phase.COLD_START->0
+            Phase.AGGRESSIVE->MAX_LOOSEN_BIAS
+            Phase.NEUTRAL->0
+            Phase.DEFENSIVE->3
+            Phase.EMERGENCY->MAX_TIGHTEN_BIAS
+        }.coerceIn(MAX_LOOSEN_BIAS,MAX_TIGHTEN_BIAS)
+        snap.set(Snapshot(t.n,t.wr,t.mean,t.runnerRate,t.megaRate,phase,bias))
     }
 
     /**
@@ -188,7 +197,7 @@ object MoonshotAdaptiveGate {
     /** Short tag for log lines / rejection messages. */
     fun phaseTag(): String {
         val s = snap.get()
-        return "${s.phase.name}_wr${"%.0f".format(s.wrPct)}_n${s.n}_bias${if (s.floorBias >= 0) "+" else ""}${s.floorBias}"
+        return "${s.phase.name}_wr${"%.0f".format(s.wrPct)}_ev${"%+.1f".format(s.meanPct)}_r${"%.0f".format(s.runnerRatePct)}_mega${"%.0f".format(s.megaRatePct)}_n${s.n}_bias${if (s.floorBias >= 0) "+" else ""}${s.floorBias}"
     }
 
     /** Operator hook to wipe history (e.g. after a major code/strategy reset). */

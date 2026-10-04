@@ -696,10 +696,10 @@ object MoonshotTraderAI {
         // V5.0.7550 — score-floor learning must rehearse the same bar that
         // LIVE will execute. Mode changes settlement mechanics, not strategy quality.
         val minScoreRaw = when {
-            learningProgress < 0.1 -> 30
-            learningProgress < 0.3 -> 38
-            learningProgress < 0.5 -> 48
-            else                   -> 60
+            learningProgress < 0.1 -> if (isPaper) 20 else 30
+            learningProgress < 0.3 -> if (isPaper) 28 else 38
+            learningProgress < 0.5 -> if (isPaper) 38 else 48
+            else                   -> if (isPaper) 52 else 60
         }
         // V5.9.1328 — ROOT FIX D: apply GATE_RELAXER multiplier in PAPER too.
         // Operator snapshot showed MOONSHOT rejecting score=44 base=45 — a
@@ -720,7 +720,7 @@ object MoonshotTraderAI {
         // taking it as the minimum replaced the lane's table with a floor that
         // filtered nothing. The learned band may only RAISE the lane-native table
         // floor (the "only high bands pay" case), never lower it.
-        val learnedFloor7267 = try {
+        val learnedFloor7267 = if (isPaper) null else try {
             com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.learnedLaneFloor("MOONSHOT")
         } catch (_: Throwable) { null }?.takeIf { it >= minScoreRaw.toDouble() }
         val minScoreFluid7267 = learnedFloor7267?.toInt() ?: minScoreRaw
@@ -737,7 +737,9 @@ object MoonshotTraderAI {
         // V5.0.7693 — lane-aware: MOONSHOT is a runner lane and is exempt from
         // the lifetime-WR floor (it was 25 -> 43 on 5.0.7691, rejecting 88% of
         // candidates for a lane whose shadow proof read +17313% at 20% WR).
-        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor("MOONSHOT") } catch (_: Throwable) { 0 }
+        val genericWrFloor7791 = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor("MOONSHOT") } catch (_: Throwable) { 0 }
+        if (genericWrFloor7791 > 0) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_GENERIC_WR_FLOOR_IGNORED_TAIL_LANE_7791") } catch (_: Throwable) {}
+        val wrFloor = 0
         // V5.9.1333 — Personality floor bias (-2..+6 pts, bounded). The
         // PersonalityMemoryStore traits steer the bot's caution. This is
         // additive on top of WR floors — never veto, only nudge.
@@ -752,6 +754,24 @@ object MoonshotTraderAI {
         val moonshotAdaptiveBias = try {
             com.lifecyclebot.engine.MoonshotAdaptiveGate.scoreFloorBias()
         } catch (_: Throwable) { 0 }
+        // V5.0.7791 — dedicated early-runner evidence reaches the native brain before ownership.
+        val earlyHunter7791 = try {
+            val ts=com.lifecyclebot.engine.BotService.status.tokens[mint]
+            if(ts!=null){
+                val sc=setOf(ts.source,ts.lastPriceSource,ts.lastPriceDex).map{it.trim()}.filter{it.isNotBlank()&&!it.equals("UNKNOWN",true)}.size.coerceAtLeast(1)
+                val pr=(ts.lastBuyPressurePct+ts.lastSellPressurePct).coerceAtLeast(1.0)
+                val buys=((ts.lastBuyPressurePct/pr)*10.0).toInt().coerceAtLeast(0)
+                val sells=((ts.lastSellPressurePct/pr)*10.0).toInt().coerceAtLeast(0)
+                val safe=ts.safety.freezeAuthorityDisabled==true&&ts.safety.mintAuthorityDisabled==true&&ts.safety.tier!=com.lifecyclebot.engine.SafetyTier.HARD_BLOCK
+                com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.scoreCandidate(mint,symbol,marketCapUsd,liquidityObserved7389,ts.tokenMap.volume1hUsd?:0.0,sc,buys,sells,safe,false)
+            } else null
+        } catch (_:Throwable){null}
+        val hunterLift7791=when(earlyHunter7791?.tier){
+            com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.Tier.ELITE->15
+            com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.Tier.STRONG->8
+            else->0
+        }
+        if(hunterLift7791>0){score=(score+hunterLift7791).coerceAtMost(150);try{com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_EARLY_HUNTER_NATIVE_LIFT_7791_"+(earlyHunter7791?.tier?.name?:"NONE"))}catch(_:Throwable){}}
         // V5.0.4128 — PATTERN GOLDEN GOOSE. Sharp asymmetric bias from
         // TokenWinMemory pattern data (e.g. theme_space 82% WR n=75 = GOLD;
         // theme_musk 0% WR n=11 = TOXIC). Bias is applied to the SCORE
@@ -759,13 +779,14 @@ object MoonshotTraderAI {
         // can clear the floor and a strong-but-toxic token gets pushed
         // below. Catastrophic verdict (n≥15, WR≤5%) → hard reject.
         val gooseEdge = try { com.lifecyclebot.engine.PatternGoldenGoose.edge("", symbol) } catch (_: Throwable) { null }
-        if (gooseEdge?.verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
-            return MoonshotScore(false, score, 0.0,
-                "pattern_catastrophic_veto_${gooseEdge.tag}")
-        }
-        val gooseBias = gooseEdge?.scoreBias ?: 0
-        if (gooseBias != 0) {
-            score = (score + gooseBias).coerceAtLeast(0)
+        var moonshotPatternSizeMult7791=1.0
+        if(gooseEdge?.verdict==com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC){
+            score=(score-10).coerceAtLeast(0)
+            moonshotPatternSizeMult7791=0.70
+            try{com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_PATTERN_CATASTROPHIC_SOFTENED_7791")}catch(_:Throwable){}
+        }else{
+            val gooseBias=gooseEdge?.scoreBias?:0
+            if(gooseBias!=0)score=(score+gooseBias).coerceAtLeast(0)
         }
         val effectiveMinScore = (maxOf(minScore, wrFloor) + personalityFloorBias + moonshotAdaptiveBias)
             .coerceAtLeast(0)
@@ -784,8 +805,8 @@ object MoonshotTraderAI {
         if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("MOONSHOT", score)) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("MOONSHOT", score)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("MOONSHOT", score)
-            moonshotExpectancySoftSize4317 = 0.25
-            ErrorLogger.info(TAG, "🚀 MOONSHOT_EXPECTANCY_RECOVERY_PROBE_4317: score=$score μ=${"%+.1f".format(mean ?: 0.0)}% n=$n — size×0.25")
+            moonshotExpectancySoftSize4317 = 0.60
+            ErrorLogger.info(TAG, "🚀 MOONSHOT_EXPECTANCY_RECOVERY_PROBE_4317: score=$score μ=${"%+.1f".format(mean ?: 0.0)}% n=$n — size×0.60")
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_EXPECTANCY_RECOVERY_PROBE_4317") } catch (_: Throwable) {}
         }
         
@@ -847,7 +868,7 @@ object MoonshotTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        var sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult * moonshotExpectancySoftSize4317, MAX_POSITION_SOL)
+        var sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult * moonshotExpectancySoftSize4317 * moonshotPatternSizeMult7791, MAX_POSITION_SOL)
 
         // V5.9.1455 — CALIBRATION SIZE SHAPE (parity with Quality/BlueChip/Manip/etc).
         // Moonshot had shouldReject but NOT the graduated calibrationSizeMult, so
@@ -891,6 +912,12 @@ object MoonshotTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        val highConvictionRunner7791=runnerShaped7266||earlyHunter7791?.tier==com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.Tier.ELITE||earlyHunter7791?.tier==com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.Tier.STRONG
+        if(highConvictionRunner7791&&score>=effectiveMinScore+10){
+            val fm=if(earlyHunter7791?.tier==com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.Tier.ELITE)0.75 else 0.65
+            val nf=min(baseSizeAdj,MAX_POSITION_SOL)*fm
+            if(sizeSol<nf){sizeSol=nf;try{com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_NATIVE_CONVICTION_SIZE_FLOOR_7791")}catch(_:Throwable){}}
+        }
         // V5.2: Apply FluidLearningAI adjustments to SL/TP
         val fluidTp0 = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
         val fluidSl0 = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
@@ -1197,10 +1224,13 @@ object MoonshotTraderAI {
     // (1 - 0.15)^7 ~= 0.32, so ~32% still rides into the +10000% rung, matching
     // the same "de-risk on the way up, keep a real runner" reasoning as
     // WrRecoveryPartial's 0.15-0.20 fractions.
-    private const val PARTIAL_RUNG_FRACTION = 0.15
+    private val PARTIAL_RUNG_FRACTIONS_7791 = doubleArrayOf(0.10,0.10,0.12,0.12,0.15,0.15,0.15)
 
-    /** Fraction of the remaining position to sell for one PARTIAL_TAKE rung. */
-    fun getPartialSellPct(mint: String): Double = PARTIAL_RUNG_FRACTION
+    /** Fraction of remaining position sold at the NEXT rung. */
+    fun getPartialSellPct(mint: String): Double {
+        val idx=synchronized(activePositions){activePositions[mint]?.partialRungsTaken?:0}
+        return PARTIAL_RUNG_FRACTIONS_7791.getOrElse(idx.coerceAtLeast(0)){0.15}
+    }
 
     /**
      * V5.9.705 — Called by BotService after a PARTIAL_TAKE sell executes successfully.

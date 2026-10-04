@@ -75,8 +75,8 @@ object MoonshotHoldProfileRegistry6415 {
      */
     fun shouldSuppressSl(mint: String, pnlPct: Double): Boolean {
         if (profile(mint) != Profile.ELITE_MOONSHOT_PATIENT_HOLD) return false
-        if (pnlPct.isFinite() && pnlPct <= -40.0) return false
-        try { PipelineHealthCollector.labelInc("MOONSHOT_SL_SUPPRESSED_6415") } catch (_: Throwable) {}
+        if (!pnlPct.isFinite() || pnlPct <= 0.0) return false
+        try { PipelineHealthCollector.labelInc("MOONSHOT_PROFIT_SIDE_STOP_SUPPRESSED_7791") } catch (_: Throwable) {}
         return true
     }
 

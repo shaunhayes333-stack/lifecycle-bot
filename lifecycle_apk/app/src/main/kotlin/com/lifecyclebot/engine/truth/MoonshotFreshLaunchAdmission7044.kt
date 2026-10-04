@@ -162,7 +162,7 @@ object MoonshotFreshLaunchAdmission7044 {
      */
     fun assess(ts: TokenState, tradeType: ModeRouter.TradeType): Verdict {
         val mcap = try { ts.lastMcap } catch (_: Throwable) { 0.0 }
-        val liq = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
+        val liq = try { maxOf(ts.lastLiquidityUsd, com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts)) } catch (_: Throwable) { try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 } }
         val bp = try { ts.lastBuyPressurePct } catch (_: Throwable) { 0.0 }
 
         fun no(reason: String) = Verdict(false, reason, mcap, liq, bp)

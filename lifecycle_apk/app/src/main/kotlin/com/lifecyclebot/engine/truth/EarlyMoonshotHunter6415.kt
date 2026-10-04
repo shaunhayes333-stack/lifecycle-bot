@@ -90,6 +90,7 @@ object EarlyMoonshotHunter6415 {
         buysLastWindow: Int,
         sellsLastWindow: Int,
         rugSafetyConfirmed: Boolean,
+        emitTelemetry: Boolean = true,
     ): Verdict {
         // Fast rejection: no mcap OR mcap way above 25k → NORMAL.
         if (!mcapUsd.isFinite() || mcapUsd <= 0.0 || mcapUsd > 25_000.0) {
@@ -138,7 +139,7 @@ object EarlyMoonshotHunter6415 {
         }
         val verdict = Verdict(tier, composite, mcapUsd, signals, "sub25k_moonshot_hunter")
 
-        try {
+        if (emitTelemetry) try {
             val tag = when (tier) {
                 Tier.ELITE -> "EXEC_MOONSHOT_ELITE_6415"
                 Tier.STRONG -> "EXEC_MOONSHOT_STRONG_6415"

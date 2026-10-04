@@ -29,6 +29,8 @@ object MoonbagRunner7322 {
     // leaving no bag to ride.
     private const val BANK_MIN_PEAK_PCT = RunnerExitProfile7277.MIN_PEAK_FOR_GIVEBACK_LOCK_PCT
     const val BANK_FRACTION = 0.60
+    const val MOONSHOT_BANK_FRACTION_7791 = 0.35
+    fun bankFractionFor7791(lane:String?):Double=if(lane?.uppercase()?.contains("MOONSHOT")==true)MOONSHOT_BANK_FRACTION_7791 else BANK_FRACTION
     private const val MOONBAG_KEEP_OF_PEAK = 0.50
     private const val CAPTURE_SLICE = 0.25
 

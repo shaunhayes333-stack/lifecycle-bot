@@ -823,25 +823,16 @@ object ToolkitSignalSheet {
                 LaneEntryContract6342.isLaneIdentityEligible7252(ts, claimLane7448)
             } catch (_: Throwable) { false }
             if (claimed7448 != null && eligible7448) {
-                val otherBest7448 = deskHypotheses.values
-                    .filter { !it.lane.equals(claimLane7448, true) && !it.lane.equals("CORE", true) }
-                    .maxOfOrNull { it.conviction } ?: 0.0
-                // Claim decides ownership among QUALIFIED specialists. +11
-                // makes the claimed specialist a clear leader for the same
-                // >10-point ambiguity rule CORE uses, without changing the
-                // specialist's own setup/size/exit policy.
-                val ownershipConviction7448 = maxOf(
-                    claimed7448.conviction,
-                    (otherBest7448 + 11.0).coerceAtMost(100.0),
-                ).coerceIn(0.0, 100.0)
-                deskHypotheses[claimLane7448] = claimed7448.copy(
-                    conviction = ownershipConviction7448,
-                    reason = claimed7448.reason + ";huntClaim7448=$claimLane7448",
-                )
-                try {
-                    PipelineHealthCollector.labelInc("LANE_HUNT_CLAIM_CONSUMED_7448_$claimLane7448")
-                } catch (_: Throwable) {}
-            } else {
+                val claimedNative7791=nativeBrains7542.opinions[claimLane7448]
+                val strongestOtherNative7791=nativeBrains7542.opinions.values.filter{it.authoritative&&it.eligible&&!it.lane.equals("CORE",true)&&!it.lane.equals(claimLane7448,true)}.maxByOrNull{maxOf(it.score,it.confidence)}
+                val claimScore7791=claimedNative7791?.let{maxOf(it.score,it.confidence)}?:claimed7448.conviction.toInt()
+                val otherScore7791=strongestOtherNative7791?.let{maxOf(it.score,it.confidence)}?:0
+                if(otherScore7791>=75||otherScore7791>=claimScore7791+8){
+                    try{PipelineHealthCollector.labelInc("LANE_HUNT_CLAIM_YIELDED_TO_STRONGER_NATIVE_7791_"+claimLane7448)}catch(_:Throwable){}
+                }else{
+                    deskHypotheses[claimLane7448]=claimed7448.copy(conviction=(claimed7448.conviction+4.0).coerceAtMost(100.0),reason=claimed7448.reason+";huntTieBreak7791="+claimLane7448)
+                    try{PipelineHealthCollector.labelInc("LANE_HUNT_CLAIM_TIEBREAK_7791_"+claimLane7448)}catch(_:Throwable){}
+                }            } else {
                 try {
                     PipelineHealthCollector.labelInc(
                         if (claimed7448 == null)

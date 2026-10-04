@@ -3359,7 +3359,7 @@ class Executor(
         // across the stack, wire it thru."
         val moonshot6415 = try {
             val vol1h = ts.tokenMap.volume1hUsd ?: 0.0
-            val sourceCount6415 = maxOf(1, ts.laneAffinity.size)
+            val sourceCount6415=setOf(ts.source,ts.lastPriceSource,ts.lastPriceDex).map{it.trim()}.filter{it.isNotBlank()&&!it.equals("UNKNOWN",true)}.size.coerceAtLeast(1)
             val totalPressure = (ts.lastBuyPressurePct + ts.lastSellPressurePct).coerceAtLeast(1.0)
             val buysApprox = ((ts.lastBuyPressurePct / totalPressure) * 10.0).toInt().coerceAtLeast(0)
             val sellsApprox = ((ts.lastSellPressurePct / totalPressure) * 10.0).toInt().coerceAtLeast(0)
@@ -8634,9 +8634,10 @@ class Executor(
                     try { MoonbagRunner7322.notePeak(runnerKey7349, bestPnl) } catch (_: Throwable) {}
                 }
                 if (!runnerBanked7349 && runnerLane7349 && (bothConfirm10x || bothConfirm6x)) {
+                    val bankFraction7349=MoonbagRunner7322.bankFractionFor7791(ts.position.tradingMode)
                     val bank7349 = requestPartialSellConfirmed6566(
                         ts = ts,
-                        sellPercentage = MoonbagRunner7322.BANK_FRACTION,
+                        sellPercentage = bankFraction7349,
                         reason = "QUICK_RUNNER_MOONBAG_BANK_7349_${bestPnl.toInt()}PCT",
                         wallet = wallet,
                         walletBalance = walletSol,
@@ -8648,10 +8649,10 @@ class Executor(
                             ForensicLogger.lifecycle(
                                 "QUICK_RUNNER_MOONBAG_BANKED_7349",
                                 "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${ts.position.tradingMode} bestPnl=${bestPnl.fmt(1)}% " +
-                                    "banked=${MoonbagRunner7322.BANK_FRACTION} action=moonbag_rides_on_lane_exits",
+                                    "banked=$bankFraction7349 action=moonbag_rides_on_lane_exits",
                             )
                         } catch (_: Throwable) {}
-                        onLog("🚀 RUNNER BANKED: ${ts.symbol} +${bestPnl.toInt()}% — ${(MoonbagRunner7322.BANK_FRACTION * 100).toInt()}% banked, moonbag rides", ts.mint)
+                        onLog("🚀 RUNNER BANKED: ${ts.symbol} +${bestPnl.toInt()}% — ${(bankFraction7349 * 100).toInt()}% banked, moonbag rides", ts.mint)
                         return
                     }
                     // The partial did not apply: fall through to the original full exit.
@@ -25138,9 +25139,10 @@ class Executor(
         val mbLane7322 = ts.position.tradingMode
         when (MoonbagRunner7322.decide(mbLane7322, requestReason, mbPnl7322, mbPeak7322, MoonbagRunner7322.bankedPeakFor(mbKey7322))) {
             MoonbagRunner7322.Action.BANK_PARTIAL -> {
+                val bankFraction7322=MoonbagRunner7322.bankFractionFor7791(mbLane7322)
                 val bank7322 = requestPartialSellConfirmed6566(
                     ts = ts,
-                    sellPercentage = MoonbagRunner7322.BANK_FRACTION,
+                    sellPercentage = bankFraction7322,
                     reason = "MOONBAG_BANK_7322_peak${mbPeak7322.toInt()}_now${mbPnl7322.toInt()}",
                     wallet = wallet,
                     walletBalance = walletSol,
@@ -25150,7 +25152,7 @@ class Executor(
                     try {
                         PipelineHealthCollector.labelInc("MOONBAG_BANKED_7322")
                         ForensicLogger.lifecycle("MOONBAG_BANKED_7322",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$mbLane7322 peak=${"%.1f".format(mbPeak7322)} now=${"%.1f".format(mbPnl7322)} sold=${MoonbagRunner7322.BANK_FRACTION} trigger=${requestReason.take(60)}")
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$mbLane7322 peak=${"%.1f".format(mbPeak7322)} now=${"%.1f".format(mbPnl7322)} sold=$bankFraction7322 trigger=${requestReason.take(60)}")
                     } catch (_: Throwable) {}
                     return SellResult.FAILED_RETRYABLE
                 }

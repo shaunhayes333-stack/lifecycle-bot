@@ -87,9 +87,11 @@ object RunnerExitProfile7277 {
      */
     const val RUNNER_LOCK_ARM_PEAK_PCT_7695 = 20.0
 
+    fun giveBackArmPct7791(lane:String?):Double=if(lane?.uppercase()?.contains("MOONSHOT")==true)MIN_PEAK_FOR_GIVEBACK_LOCK_PCT else RUNNER_LOCK_ARM_PEAK_PCT_7695
+
     fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean {
         if (!isRunnerLane(lane)) return false
-        val deferred = !peakPnlPct.isFinite() || peakPnlPct < RUNNER_LOCK_ARM_PEAK_PCT_7695
+        val deferred = !peakPnlPct.isFinite() || peakPnlPct < giveBackArmPct7791(lane)
         if (deferred) {
             try { PipelineHealthCollector.labelInc("RUNNER_GIVEBACK_LOCK_DEFERRED_UNDER_MIN_PEAK_7277") } catch (_: Throwable) {}
         }
@@ -98,7 +100,7 @@ object RunnerExitProfile7277 {
 
     /** Give-back arming threshold for [lane]: a runner lane never arms under RUNNER_LOCK_ARM_PEAK_PCT_7695 (V5.0.7695). */
     fun armThresholdPct(lane: String?, defaultPct: Double): Double =
-        if (isRunnerLane(lane)) maxOf(defaultPct, RUNNER_LOCK_ARM_PEAK_PCT_7695) else defaultPct
+        if (isRunnerLane(lane)) maxOf(defaultPct, giveBackArmPct7791(lane)) else defaultPct
 
     /** True when a runner-lane position should be cut on the first strike. */
     fun earlyCut(lane: String?, pnlPct: Double, positionAgeMs: Long): Boolean {

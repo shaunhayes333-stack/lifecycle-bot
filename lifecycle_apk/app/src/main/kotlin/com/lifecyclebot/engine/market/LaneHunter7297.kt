@@ -101,7 +101,7 @@ object LaneHunter7297 {
             rank = { r -> -r.priceChangeH1Pct / 5.0 + log10(1.0 + r.volumeH1Usd) },
         ),
         Profile(
-            "MOONSHOT", MoonshotTraderAI.MIN_MARKET_CAP_USD, MoonshotTraderAI.MAX_MARKET_CAP_USD,
+            "MOONSHOT", MoonshotTraderAI.MIN_MARKET_CAP_BOOTSTRAP_USD_7719, MoonshotTraderAI.MAX_MARKET_CAP_USD,
             fits = { r -> r.priceChangeH1Pct > 0.0 },
             rank = { r -> r.priceChangeH1Pct / 10.0 + activity(r) },
         ),

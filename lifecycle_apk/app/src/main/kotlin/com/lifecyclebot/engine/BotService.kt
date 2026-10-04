@@ -14233,9 +14233,9 @@ class BotService : Service() {
             }
             val roleFitPrimary6614 = when {
                 forced != null -> forced
-                huntClaim7297 != null -> huntClaim7297
                 ensembleCoreFit6614 -> "CORE"
                 strongestRole6614 != null -> strongestRole6614.lane
+                huntClaim7297 != null -> huntClaim7297
                 else -> metricPrimary
             }
             val scoreForPivot4524 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)
@@ -28453,8 +28453,10 @@ if (hotExitHandledSweep) {
                     // treating "no data" as "out of range" was silently killing
                     // the entire Moonshot evaluation path for most fresh memes.
                     // Fall back to a liquidity proxy (>= $3K) when mcap is unknown.
-                    val mcapInZone = ts.lastMcap in 10_000.0..100_000_000.0
-                    val mcapUnknownButLiq = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 3_000.0
+                    val observedMoonshotLiq7791=try{maxOf(ts.lastLiquidityUsd,TokenMapAuthority.observedLiquidityUsd(ts))}catch(_:Throwable){ts.lastLiquidityUsd}
+                    val moonshotMinMcap7791=com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()
+                    val mcapInZone=ts.lastMcap in moonshotMinMcap7791..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
+                    val mcapUnknownButLiq=ts.lastMcap<=0.0&&observedMoonshotLiq7791>=com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_LIQUIDITY_USD_BOOTSTRAP
                     // V5.0.7266 — the admission authority that elected MOONSHOT as
                     // owner is also the zone for a runner-shaped fresh launch, so
                     // the lane cannot refuse what the election admitted.
