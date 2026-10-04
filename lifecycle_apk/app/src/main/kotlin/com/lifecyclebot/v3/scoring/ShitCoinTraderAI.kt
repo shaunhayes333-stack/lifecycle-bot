@@ -1744,7 +1744,8 @@ object ShitCoinTraderAI {
             } else {
                 val cached = try { com.lifecyclebot.engine.WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
                 val status = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
-                (if (cached.isFinite() && cached > 0.0) cached else status).coerceAtLeast(0.0)
+                // V5.0.7789 — LIVE_WALLET_AUTHORITY_6686 wins; cache is fallback only.
+                (if (status.isFinite() && status > 0.0) status else cached).coerceAtLeast(0.0)
             }
             val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
                 laneName = "SHITCOIN",

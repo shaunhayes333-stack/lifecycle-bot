@@ -15557,6 +15557,51 @@ class Executor(
     private fun requireMintEntryMarketSnapshot(ts: TokenState, reason: String): MintEntryMarketSnapshot? {
         val snap = mintEntryMarketSnapshot(ts)
         if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
+
+        // V5.0.7789 — LAST-MILE MARKET SNAPSHOT CONTINUITY.
+        // A fresh observation may reach the registry before its executable slot
+        // has liquidity. If TokenMapAuthority has independently observed depth,
+        // re-resolve the exact observation tuple through the canonical resolver.
+        // No price, identity, timestamp or liquidity is fabricated.
+        if (!RuntimeModeAuthority.isPaper()) {
+            val now7789 = System.currentTimeMillis()
+            val observedLiq7789 = observedLiquidityUsd7382(ts)
+            val obs7789 = try {
+                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
+                    ts.mint,
+                    com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+                    now7789,
+                )
+            } catch (_: Throwable) { null }
+            if (obs7789 != null &&
+                now7789 - obs7789.timestampMs in -5_000L..com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.MARK_FRESHNESS_WINDOW_MS_6739 &&
+                observedLiq7789.isFinite() && observedLiq7789 > 0.0
+            ) {
+                val promoted7789 = try {
+                    com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616(
+                        mint = ts.mint, observedBaseMint = obs7789.baseMint, pairOrPool = obs7789.pairId,
+                        quoteMint = obs7789.quoteMint, source = obs7789.source,
+                        priceUsd = obs7789.priceUsd.value.toDouble(), liquidityUsd = observedLiq7789,
+                        evidenceTimestampMs = obs7789.timestampMs, nowMs = now7789,
+                    )
+                } catch (_: Throwable) { null }
+                val recovered7789 = promoted7789?.mark?.let {
+                    MintEntryMarketSnapshot.fromCanonicalMark6735(
+                        ts.mint, it, ts.lastMcap, ts.lastPriceDex.ifBlank { "UNKNOWN" }, now7789,
+                        observedLiquidityUsd7321 = observedLiq7789,
+                    )
+                }
+                if (recovered7789 != null) {
+                    try {
+                        PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_RECOVERED_FROM_OBSERVED_LIQUIDITY_7789")
+                        ForensicLogger.lifecycle("ENTRY_SNAPSHOT_RECOVERED_FROM_OBSERVED_LIQUIDITY_7789",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${recovered7789.priceSource} liq=${recovered7789.liquidityUsd} ageMs=${now7789 - recovered7789.capturedAtMs}")
+                    } catch (_: Throwable) {}
+                    persistMintEntryMarketSnapshot(ts, recovered7789, reason)
+                    return recovered7789
+                }
+            }
+        }
         // V5.0.7215 — before deferring, fill in the identity the archive
         // already holds and try once more. A canonical mark can be
         // unresolvable purely because the pool address is blank, and the app
@@ -19485,7 +19530,19 @@ class Executor(
         //   3. QUALITY lane rejects MINT_ROUTE placeholders.
         // Failed candidates redirect to SHADOW (never silently dropped)
         // so paper / shadow learning continues.
-        if (execCtx.execMode == ExecMode.LIVE) {
+        // V5.0.7789 — the live lane contract follows the immutable sealed FDG
+        // owner, not a contributor/caller lane. This stops a BLUECHIP contributor
+        // from vetoing a Pump.fun entry actually owned by a meme specialist.
+        val sealedFdgSnapshot7789 = try {
+            com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.sealedSnapshot6609(ts.mint)
+        } catch (_: Throwable) { null }
+        val sealedFdgBuy7789 = sealedFdgSnapshot7789 != null &&
+            sealedFdgSnapshot7789.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+            sealedFdgSnapshot7789.executionAction.uppercase() in setOf("BUY", "PROBE_BUY")
+        val contractLane7789 = sealedFdgSnapshot7789?.primaryLane
+            ?.takeIf { sealedFdgBuy7789 && it.isNotBlank() } ?: layerTag
+
+        if (execModeResolved == ExecMode.LIVE) {
             // V5.0.6391 (S2/S8) — release-first sell-only hold. The 6391
             // hold is armed ONLY when OwnershipClassification6391 shows an
             // UNRESOLVED PROVEN bot-owned mint. Arbitrary wallet SPL tokens
@@ -19521,7 +19578,7 @@ class Executor(
                 return false
             }
             val contract6342 = try {
-                com.lifecyclebot.engine.LaneEntryContract6342.assessEntry(ts, layerTag)
+                com.lifecyclebot.engine.LaneEntryContract6342.assessEntry(ts, contractLane7789)
             } catch (_: Throwable) { null }
             // V5.0.6388 (S5/S13) — ALLOW_LIVE_PROBATION: clamp size to the
             // probation window (0.005–0.010 SOL, 10% of configured normal)
@@ -19969,8 +20026,21 @@ class Executor(
             return false
         }
 
+        fun terminalizeCanonicalPreLease7789(reason7789: String) {
+            try {
+                val cv7789 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+                val intent7789 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE", cv7789)
+                    ?: com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE")
+                if (intent7789 != null) {
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(intent7789, reason7789)
+                    PipelineHealthCollector.labelInc("LIVE_PRELEASE_CANONICAL_TERMINAL_7789")
+                }
+            } catch (_: Throwable) {}
+        }
+
         val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy")
         if (entryMarketSnapshot == null) {
+            terminalizeCanonicalPreLease7789("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }}")
             // V5.0.7356 — nothing was spent; give back the mint-version claim so the
             // next cycle (with a fresh mark) is not refused as a duplicate buy.
@@ -20110,14 +20180,25 @@ class Executor(
                 return false
             }
         }
-        // V5.0.7742 — every live buy answers to the trade plan and the council here,
-        // including the native paths that never call FinalDecisionGate (sniper).
-        try {
+        // V5.0.7789 — 7742 remains hard for native paths that have not passed
+        // FDG. A sealed FDG BUY has already passed the canonical decision and
+        // must not be vetoed again after EXEC_OPEN_ALLOWED.
+        val refusal7742 = try {
             com.lifecyclebot.engine.truth.TradePlan7739.chokepointRefusal7742(ts, canonicalRoutedLane, score.toInt())
-        } catch (_: Throwable) { null }?.let { refusal7742 ->
-            liveStage("LIVE_BUY_ABORTED", "reason=CHOKEPOINT_7742 $refusal7742")
-            try { emitLiveBuyFail(ts, sol, "CHOKEPOINT_7742", refusal7742.take(120)) } catch (_: Throwable) {}
-            return false
+        } catch (_: Throwable) { null }
+        if (refusal7742 != null) {
+            if (sealedFdgBuy7789) {
+                try {
+                    PipelineHealthCollector.labelInc("CHOKEPOINT_7742_ADVISORY_AFTER_SEALED_FDG_7789")
+                    ForensicLogger.lifecycle("CHOKEPOINT_7742_ADVISORY_AFTER_SEALED_FDG_7789",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$canonicalRoutedLane refusal=${refusal7742.take(120)} action=continue_sealed_owner_buy")
+                } catch (_: Throwable) {}
+            } else {
+                terminalizeCanonicalPreLease7789("CHOKEPOINT_7742:${refusal7742.take(80)}")
+                liveStage("LIVE_BUY_ABORTED", "reason=CHOKEPOINT_7742 $refusal7742")
+                try { emitLiveBuyFail(ts, sol, "CHOKEPOINT_7742", refusal7742.take(120)) } catch (_: Throwable) {}
+                return false
+            }
         }
         var commonSenseSizeMultiplier4573 = 1.0
         var laneCapitalSizeMultiplier = 1.0

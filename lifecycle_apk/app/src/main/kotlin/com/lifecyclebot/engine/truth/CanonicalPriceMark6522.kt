@@ -309,12 +309,14 @@ object CanonicalPriceMarkRegistry6522 {
             ?: return PromotionResult6613(null, "NO_OBSERVATION", identity = mint)
         val price = obs.priceUsd.value.toDouble()
         val age = nowMs - obs.timestampMs
+        // V5.0.7789 — promotion creates EXECUTABLE_ENTRY_QUOTE, so the
+        // observation must satisfy the 120s executable window; 300s is scoring-only.
         val exactIdentity = obs.baseMint == mint && (
             !obs.pairId.startsWith("MINT_ROUTE:", true) || obs.pairId.equals("MINT_ROUTE:$mint", true)
         )
         val unitOk = price.isFinite() && price > 0.0 && price >= 1e-18 && price <= 1e12 && obs.priceUsd.value.scale() <= 30
         val sourceOk = MarkAuthorityIntegrityGate6496.isObservationAuthoritative6570(
-            mint, price, obs.source, obs.pairId, age in -5_000L..300_000L,
+            mint, price, obs.source, obs.pairId, age in -5_000L..MARK_FRESHNESS_WINDOW_MS_6739,
         )
         val liquidityOk = obs.liquidityUsd?.let { it.signum() > 0 } == true
         // V5.0.7341 — a single unverified fanout answer may feed paper
@@ -323,7 +325,7 @@ object CanonicalPriceMarkRegistry6522 {
             .removePrefix("KEYLESS_") == "FANOUT_UNCORROBORATED_7088"
         val reason = when {
             !exactIdentity -> "IDENTITY_MISMATCH"
-            age !in -5_000L..300_000L -> "STALE_SOURCE_MARK"
+            age !in -5_000L..MARK_FRESHNESS_WINDOW_MS_6739 -> "STALE_SOURCE_MARK"
             !unitOk -> "PRICE_UNIT_DECIMAL_INVALID"
             !sourceOk -> "SOURCE_PROVENANCE_REJECTED"
             uncorroboratedFanout7341 -> "FANOUT_UNCORROBORATED_OBSERVATION_ONLY_7341"

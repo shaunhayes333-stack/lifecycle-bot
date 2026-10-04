@@ -89,7 +89,9 @@ object TraderSizingBridge6444 {
         val walletSol7226 = if (paperMode) walletSol else {
             val cached7226: Double = try { com.lifecyclebot.engine.WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
             val status7226: Double = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
-            val live7226: Double = if (cached7226.isFinite() && cached7226 > 0.0) cached7226 else status7226
+            // V5.0.7789 — status.walletSol is LIVE_WALLET_AUTHORITY_6686;
+            // WalletManager is fallback only because its pre-spend cache can lag.
+            val live7226: Double = if (status7226.isFinite() && status7226 > 0.0) status7226 else cached7226
             if (live7226.isFinite() && live7226 > 0.0) {
                 if (kotlin.math.abs(live7226 - walletSol) > 0.01 * kotlin.math.max(live7226, 1e-9)) {
                     try {
