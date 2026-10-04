@@ -12241,6 +12241,11 @@ class Executor(
         walletTotalTrades: Int = 0,
         tradeIdentity: TradeIdentity? = null,
         fdgApprovalClass: FinalDecisionGate.ApprovalClass? = null,
+        // V5.0.7771 — preserve the exact TradeAuthorizer/ExecutableOpenGate ticket.
+        // The primary meme spine already opened finality before this call; dropping
+        // these fields forced liveBuy to reconstruct/re-gate an authorised trade.
+        finalityPrechecked: Boolean = false,
+        attemptId: String = "",
     ) {
         normalizePositionScaleIfNeeded(ts)
         val identity = tradeIdentity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
@@ -12761,7 +12766,11 @@ class Executor(
             return
         }
 
-        doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality, skipGraduated)
+        doBuy(
+            ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality, skipGraduated,
+            finalityPrechecked = finalityPrechecked,
+            attemptId = attemptId,
+        )
     }
 
     // ── top-up (pyramid add) ─────────────────────────────────────────
@@ -13431,7 +13440,9 @@ class Executor(
                       wallet: SolanaWallet?, walletSol: Double,
                       identity: TradeIdentity? = null,
                       quality: String = "C",
-                      skipGraduated: Boolean = false) {
+                      skipGraduated: Boolean = false,
+                      finalityPrechecked: Boolean = false,
+                      attemptId: String = "") {
         // V5.0.6504 §6 — ENTRY BRIDGE FUNNEL: FDG_BUY_TO_AUTH edge.
         // Every doBuy call bumps FDG_BUY_TO_AUTH; every early return
         // bumps FDG_BUY_TO_AUTH_DROP_<reason>. Together with the
@@ -14775,7 +14786,11 @@ class Executor(
         }
         ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=$spineRoute | authPaper=$isPaperMode | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
         if (isPaperMode) {
-            paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
+            paperBuy(
+                ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol,
+                finalityPrechecked = finalityPrechecked,
+                attemptId = attemptId,
+            )
         } else if (wallet == null) {
             ErrorLogger.error("Executor",
                 "🚫 MEME_SPINE LIVE_BUY_REFUSED: ${ts.symbol} — config is LIVE but wallet is NULL. Refusing to fall back to paperBuy.")
@@ -14882,6 +14897,8 @@ class Executor(
                         quality = quality,
                         skipGraduated = skipGraduated,
                         layerTag = laneTag.takeIf { it.isNotBlank() && it != "STANDARD" } ?: "",
+                        finalityPrechecked = finalityPrechecked,
+                        attemptId = attemptId,
                     )
                     val pendingLiveCommit = try {
                         !ts.position.isPaperPosition && ts.position.pendingVerify && ts.position.qtyToken > 0.0 && ts.position.costSol > 0.0

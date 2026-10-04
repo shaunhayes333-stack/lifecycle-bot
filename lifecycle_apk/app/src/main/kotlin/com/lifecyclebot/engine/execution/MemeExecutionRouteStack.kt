@@ -215,6 +215,12 @@ object MemeExecutionRouteStack {
 
     private val senderProviders: List<SenderProvider> = listOf(StandardRpcSender, HeliusSenderProvider, JitoSenderProvider)
 
+    // V5.0.7771 — production execution is bridged through Executor/SolanaWallet.
+    // These are real runtime routes even though this legacy declaration object
+    // does not itself call quoteOrBuild/send. Do not report them as adapter gaps.
+    private val runtimeIntegratedProviders7771 = setOf("PumpFunDirect", "PumpPortal", "PumpSwapDirect", "RaydiumDirect", "JupiterUltra", "JupiterMetis")
+    private val runtimeIntegratedSenders7771 = setOf("HeliusSender", "Jito", "standardRpc")
+
     fun providerOrder(context: ExecutionRouteContext): List<ExecutionProvider> = executionProviders
     fun senderOrder(transaction: ExecutableRouteRequest? = null): List<SenderProvider> = senderProviders
 
@@ -239,8 +245,8 @@ object MemeExecutionRouteStack {
         val unsupported = support.filterValues { !it.supported }.keys.map { it.providerName }
         val senderProviders = senderOrder()
         val senders = senderProviders.map { it.senderName }
-        val adapterGaps = providers.filter { !it.adapterWired }.map { it.providerName }
-        val senderGaps = senderProviders.filter { !it.adapterWired }.map { it.senderName }
+        val adapterGaps = providers.filter { !it.adapterWired && it.providerName !in runtimeIntegratedProviders7771 }.map { it.providerName }
+        val senderGaps = senderProviders.filter { !it.adapterWired && it.senderName !in runtimeIntegratedSenders7771 }.map { it.senderName }
         return StackCoverage(providers.map { it.providerName }, supported, unsupported, adapterGaps, senders, senderGaps)
     }
 
@@ -251,8 +257,8 @@ object MemeExecutionRouteStack {
         val unsupported = support.filterValues { !it.supported }.keys.map { it.providerName }
         val senderProviders = senderOrder()
         val senders = senderProviders.map { it.senderName }
-        val adapterGaps = providers.filter { !it.adapterWired }.map { it.providerName }
-        val senderGaps = senderProviders.filter { !it.adapterWired }.map { it.senderName }
+        val adapterGaps = providers.filter { !it.adapterWired && it.providerName !in runtimeIntegratedProviders7771 }.map { it.providerName }
+        val senderGaps = senderProviders.filter { !it.adapterWired && it.senderName !in runtimeIntegratedSenders7771 }.map { it.senderName }
 
         lifecycle("EXEC_STACK_START", "side=${context.side.name} mint=${context.mint.take(12)} symbol=${context.symbol} reason=${context.reason} urgency=${context.urgency.name} callSite=${context.callSite}")
         lifecycle("EXEC_BALANCE_AUTHORITY_USED", "source=${context.tokenBalanceAuthority} amountIn=${context.amountIn} raw=${context.amountInRaw} walletSol=${context.walletSol} side=${context.side.name}")
@@ -274,14 +280,14 @@ object MemeExecutionRouteStack {
                 // audit event so the operator can still see what was skipped.
                 lifecycle("EXEC_PROVIDER_SKIPPED_6385", "provider=${p.providerName} side=${context.side.name} supported=${s.supported} adapterWired=${p.adapterWired} reason=${s.reason}")
             }
-            if (!p.adapterWired) lifecycle("EXEC_PROVIDER_ADAPTER_GAP_4310", "provider=${p.providerName} supported=${s.supported} reason=provider_adapter_not_yet_wired")
+            if (!p.adapterWired && p.providerName !in runtimeIntegratedProviders7771) lifecycle("EXEC_PROVIDER_ADAPTER_GAP_4310", "provider=${p.providerName} supported=${s.supported} reason=provider_adapter_not_yet_wired")
             if (!context.sideEffectLight && !s.supported) lifecycle("EXEC_PROVIDER_FAIL", "provider=${p.providerName} reason=UNSUPPORTED:${s.reason}")
         }
         if (!context.sideEffectLight) senderProviders.forEach {
             lifecycle("EXEC_SENDER_TRY", "sender=${it.senderName} planned=true adapterWired=${it.adapterWired}")
-            if (!it.adapterWired) lifecycle("EXEC_SENDER_ADAPTER_GAP_4310", "sender=${it.senderName} reason=sender_adapter_not_yet_wired")
+            if (!it.adapterWired && it.senderName !in runtimeIntegratedSenders7771) lifecycle("EXEC_SENDER_ADAPTER_GAP_4310", "sender=${it.senderName} reason=sender_adapter_not_yet_wired")
         }
-        lifecycle("EXEC_STACK_COVERAGE", "providers=${providers.joinToString(",") { it.providerName }} supported=$supported unsupported=$unsupported adapterGaps=$adapterGaps senders=$senders senderGaps=$senderGaps")
+        lifecycle("EXEC_STACK_COVERAGE", "providers=${providers.joinToString(",") { it.providerName }} supported=$supported unsupported=$unsupported runtimeBridged=${runtimeIntegratedProviders7771.joinToString(",")} adapterGaps=$adapterGaps senders=$senders runtimeSenderBridged=${runtimeIntegratedSenders7771.joinToString(",")} senderGaps=$senderGaps")
         return StackCoverage(providers.map { it.providerName }, supported, unsupported, adapterGaps, senders, senderGaps)
     }
 
