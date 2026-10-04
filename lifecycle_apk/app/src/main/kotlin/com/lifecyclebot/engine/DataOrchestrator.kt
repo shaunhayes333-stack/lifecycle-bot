@@ -538,7 +538,9 @@ class DataOrchestrator(
     }
 
     /** V5.0.7787 — (mint, SOL per token) for a held position's on-chain trade; wired by BotService. */
-    @Volatile var onHeldTradeMark7787: ((String, Double) -> Unit)? = null
+    @Volatile private var onHeldTradeMark7787: ((String, Double) -> Unit)? = null
+
+    fun setOnHeldTradeMark7787(cb: (String, Double) -> Unit) { onHeldTradeMark7787 = cb }
 
     private val lastPumpPortalTradeMs7773 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
