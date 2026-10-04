@@ -537,6 +537,9 @@ class DataOrchestrator(
         onTapeTrade7773(mint, wallet, solAmount, isBuy, 0.0)
     }
 
+    /** V5.0.7787 — (mint, SOL per token) for a held position's on-chain trade; wired by BotService. */
+    @Volatile var onHeldTradeMark7787: ((String, Double) -> Unit)? = null
+
     private val lastPumpPortalTradeMs7773 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
 
@@ -623,6 +626,16 @@ class DataOrchestrator(
                 }
                 // V5.0.7773 — the tape (launch flow, candles, whales, dev sells, buy pressure).
                 onHeliusTrade7773(mint, wallet, safeSol, isBuy)
+                // V5.0.7787 — a decoded pump.fun TradeEvent (wallet present) carries the
+                // exact SOL and token amounts, so its executed price is a live mark for a
+                // HELD position. Without the PumpPortal trade stream (no key) held curve
+                // tokens were priced by polling only: riskClockNoMark=1043 /
+                // riskClockStale=177 on 5.0.7783, and stops landed at -46% against a
+                // -15% floor. Field Manual §7: in a fast market stale quotes cost most.
+                if (wallet.isNotBlank() && tokenAmt.isFinite() && tokenAmt > 0.0) {
+                    val held7787 = try { status.tokens[mint]?.position?.isOpen == true } catch (_: Throwable) { false }
+                    if (held7787) try { onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt) } catch (_: Throwable) {}
+                }
             },
             onLargeWalletMove = { wallet, mint, solAmt, isBuy ->
                 // Check if this is a dev wallet selling

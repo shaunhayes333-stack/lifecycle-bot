@@ -10073,6 +10073,11 @@ class BotService : Service() {
             com.lifecyclebot.network.PumpFunWS.setOnTrade7278 { mint, priceSol, mcapSol, _ ->
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
             }
+            // V5.0.7787 — the same mark from Helius-decoded pump.fun trades on held mints.
+            orchestrator?.onHeldTradeMark7787 = { mint, priceSol ->
+                try { applyPumpTradeMark7278(mint, priceSol, 0.0) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("HELD_MARK_FROM_HELIUS_TRADE_7787") } catch (_: Throwable) {}
+            }
             // V5.0.7743 — wallet, size and side reach the launch tape, the
             // real-time candles and the dev-sell exit (DataOrchestrator).
             com.lifecyclebot.network.PumpFunWS.setOnTradeDetail7743 { mint, wallet, sol, isBuy, soldFrac, vSol ->

@@ -14821,4 +14821,16 @@ class GoldenTapeRegressionTest {
         val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
         assertTrue(floor.contains("LaneExpectancyDamper.admissionScoreFloorDelta(lane)"))
     }
+
+    @org.junit.Test
+    fun `V5_0_7787 decoded Helius pump trades mark held positions`() {
+        val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        val hook = o.substringAfter("V5.0.7787 — a decoded pump.fun TradeEvent").substringBefore("onLargeWalletMove")
+        assertTrue(hook.contains("wallet.isNotBlank() && tokenAmt.isFinite() && tokenAmt > 0.0"))
+        assertTrue(hook.contains("position?.isOpen == true"))
+        assertTrue(hook.contains("onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt)"))
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(b.contains("orchestrator?.onHeldTradeMark7787 = { mint, priceSol ->"))
+        assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0)"))
+    }
 }
