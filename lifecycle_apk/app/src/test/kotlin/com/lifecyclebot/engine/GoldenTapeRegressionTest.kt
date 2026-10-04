@@ -14463,4 +14463,21 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7759_exits_see_corroborated_losses_and_the_sweep_tp_and_peak_lock_defer_to_the_plan() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (offRouteLossCorroborated7759(ts.mint, livePrice, pos.entryPrice, onRouteAgeMs)) return livePrice"))
+        val helper = ex.substringAfter("private fun offRouteLossCorroborated7759(").substringBefore("\n    }\n")
+        assertTrue(helper.contains("ForwardReturnLabeler7731.basisSuspect7738(entryPrice, livePrice)"))
+        assertTrue(helper.contains("val silent = onRouteAgeMs >= 180_000L"))
+        assertTrue(ex.contains("SWEEP_TP_DEFERRED_TO_PLAN_7759"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("val peakDrawdown = lockBreached && com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) == null"))
+        // A 30% drop is not a basis artefact; a 50x jump is.
+        assertFalse(com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(1.0, 0.7))
+        assertTrue(com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(1.0, 0.01))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

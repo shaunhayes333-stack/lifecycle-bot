@@ -868,6 +868,33 @@ class Executor(
         return if (sol.isFinite() && sol >= 0.0) sol else null
     }
     
+    /**
+     * V5.0.7759 §A_LOSS_IS_NOT_A_PHANTOM_BECAUSE_THE_FEED_CHANGED.
+     *
+     * With no fresh on-route tick, route-lock returned the ENTRY price for any
+     * off-route loss, so on a feed switch during a drop every stop read 0% while
+     * the canonical registry and the labelers read -30%. The guard exists for
+     * basis phantoms (decimal/pool mix-ups, orders of magnitude). An off-route
+     * loss passes when it is not a basis artefact (within 20x of entry) and
+     * either a fresh canonical mark agrees with it within 30%, or the on-route
+     * feed has been silent past three minutes. Field Manual §8: a stop that
+     * cannot see the price is not a stop.
+     */
+    private fun offRouteLossCorroborated7759(mint: String, livePrice: Double, entryPrice: Double, onRouteAgeMs: Long): Boolean {
+        if (!livePrice.isFinite() || livePrice <= 0.0 || entryPrice <= 0.0 || livePrice >= entryPrice) return false
+        if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(entryPrice, livePrice)) return false
+        val reg = try {
+            val m = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint)
+            if (m == null || System.currentTimeMillis() - m.timestampMs > 60_000L) null
+            else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
+        } catch (_: Throwable) { null }
+        val agrees = reg != null && kotlin.math.abs(reg / livePrice - 1.0) <= 0.30
+        val silent = onRouteAgeMs >= 180_000L
+        if (!agrees && !silent) return false
+        try { PipelineHealthCollector.labelInc(if (agrees) "ROUTE_LOCK_LOSS_CORROBORATED_7759" else "ROUTE_LOCK_LOSS_ONROUTE_SILENT_7759") } catch (_: Throwable) {}
+        return true
+    }
+
     private fun getActualPrice(ts: TokenState): Double {
         // V5.0.6453 §P0-#7 — REAL PRICE CONTRACT. Stamp the freshness
         // guard with whichever provenance we can attribute. Consumers
@@ -1172,6 +1199,7 @@ class Executor(
                         try { PipelineHealthCollector.labelInc("ROUTE_LOCK_PROFIT_PASSTHROUGH_6261") } catch (_: Throwable) {}
                         return livePrice
                     }
+                    if (offRouteLossCorroborated7759(ts.mint, livePrice, pos.entryPrice, onRouteAgeMs)) return livePrice
                     if (pos.routeLockRejects % 20L == 1L) {
                         ErrorLogger.warn("Executor",
                             "🔒 ROUTE_LOCK_STALE ${ts.symbol}: tick source ${ts.lastPriceSource} " +
@@ -8073,6 +8101,13 @@ class Executor(
         // while its moonbag (banks 60% at +100%) and trail own its exits.
         if (laneKey.contains("PROJECT_SNIPER", ignoreCase = true) || laneKey.contains("PRESALE", ignoreCase = true)) {
             try { PipelineHealthCollector.labelInc("SWEEP_TP_DECLINED_RUNNER_LANE_7335") } catch (_: Throwable) {}
+            return false
+        }
+        // V5.0.7759 — a planned position takes profit on its plan (half at the first
+        // target, the rest on the plan's target or the runner lane's trail); a full
+        // sell at the fluid TP (~+20%) cut it before either. Field Manual §8.
+        if (try { com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) != null } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("SWEEP_TP_DEFERRED_TO_PLAN_7759") } catch (_: Throwable) {}
             return false
         }
         val tpPct = when {

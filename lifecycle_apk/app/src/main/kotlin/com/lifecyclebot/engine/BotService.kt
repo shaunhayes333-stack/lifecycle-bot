@@ -24238,7 +24238,9 @@ if (hotExitHandledSweep) {
                     // printed a 3x, at its high. Removed; give-back alone
                     // triggers the peak lock, at any peak.
                     val lockBreached = peakPct >= 30.0 && fluidLockFloor.isFinite() && fluidLockFloor > 0.0 && pnlPct < fluidLockFloor && pnlPct > 0.0
-                    val peakDrawdown = lockBreached
+                    // V5.0.7759 — the tick lock defers to a position's plan (12889); this
+                    // second copy did not, so it closed planned positions the plan holds.
+                    val peakDrawdown = lockBreached && com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) == null
                     if (!hardFloor && !peakDrawdown) return@forEach
                     val reason = if (hardFloor)
                         "UNIVERSAL_HARD_FLOOR_${pnlPct.toInt()}PCT"
