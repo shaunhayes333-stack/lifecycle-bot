@@ -836,8 +836,21 @@ class DataOrchestrator(
      */
     fun shouldPoll(mint: String): Boolean {
         val lastEvent = lastWsEventMs[mint] ?: return true
-        return System.currentTimeMillis() - lastEvent > 15_000L
+        val now = System.currentTimeMillis()
+        if (now - lastEvent > 15_000L) return true
+        // V5.0.7762 — the callers skip the whole processTokenCycle, not just the REST
+        // price fetch, so a launch trading more often than every 15 s never got an
+        // entry evaluation or a liquidity/mcap/flow refresh. A socket-active token is
+        // now cycled at most once per 15 s instead of never.
+        val last = lastWsCycleAllowedMs7762[mint] ?: 0L
+        if (now - last < 15_000L) return false
+        lastWsCycleAllowedMs7762[mint] = now
+        if (lastWsCycleAllowedMs7762.size > 4_000) lastWsCycleAllowedMs7762.entries.removeIf { now - it.value > 600_000L }
+        try { PipelineHealthCollector.labelInc("WS_ACTIVE_TOKEN_CYCLED_7762") } catch (_: Throwable) {}
+        return true
     }
+
+    private val lastWsCycleAllowedMs7762 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 }
 
 private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)

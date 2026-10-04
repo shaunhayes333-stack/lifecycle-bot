@@ -98,7 +98,10 @@ object LiveBreakEvenGuard {
     private fun aliasesFor(canon: String): Set<String> = when (canon) {
         "LIQUIDITY_DEPTH_QUALITY" -> setOf("BLUECHIP", "PRESALE_SNIPE", "MOONSHOT", "WALLET_RECOVERED", "QUALITY", "TREASURY")
         "PULLBACK_RECLAIM" -> setOf("BLUECHIP", "PRESALE_SNIPE", "MOONSHOT", "STANDARD", "QUALITY", "TREASURY")
-        "CASHGEN" -> setOf("TREASURY")
+        // V5.0.7762 — canon() keeps CASHGEN distinct, so this alias made CASHGEN's live
+        // edge read only TREASURY rows and never its own closes. Its own record first,
+        // its treasury cousin beside it.
+        "CASHGEN" -> setOf("CASHGEN", "TREASURY")
         else -> setOf(canon)
     }
 

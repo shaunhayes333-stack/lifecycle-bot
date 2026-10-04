@@ -14504,4 +14504,17 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7762_cashgen_reads_its_own_record_and_socket_active_tokens_still_get_a_cycle() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
+        assertTrue(g.contains("\"CASHGEN\" -> setOf(\"CASHGEN\", \"TREASURY\")"))
+        assertFalse(g.contains("\"CASHGEN\" -> setOf(\"TREASURY\")"))
+        val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        val fn = o.substringAfter("fun shouldPoll(mint: String): Boolean {").substringBefore("\n    }\n")
+        assertTrue(fn.contains("if (now - last < 15_000L) return false"))
+        assertTrue(fn.contains("lastWsCycleAllowedMs7762[mint] = now"))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
