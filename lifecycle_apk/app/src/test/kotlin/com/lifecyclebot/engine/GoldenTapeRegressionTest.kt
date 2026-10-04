@@ -14629,4 +14629,16 @@ class GoldenTapeRegressionTest {
         val sniper = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
         assertTrue(sniper.contains("CanonicalTokenBirthTime7440.launchAgeMs7767(ts)"))
     }
+
+    @Test
+    fun V5_0_7770_birth_is_never_the_first_sighting_and_the_earliest_wins() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertFalse(bot.contains("creationTimeMs = ts.addedToWatchlistAt.takeIf { it > 0L },"))
+        val meta = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMetaCache.kt").readText()
+        assertTrue(meta.contains("(e.creationTimeMs < MIN_BIRTH_MS_7770 || creationTimeMs < e.creationTimeMs)"))
+        val birth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenBirthTime7440.kt").readText()
+        assertTrue(birth.contains("compareBy<Resolution>({ it.birthMs }, { sourceRank7770(it.source) })"))
+        val hyd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TokenBirthHydrator7441.kt").readText()
+        assertTrue(hyd.contains("if (state.pages >= MAX_PAGES_7770)"))
+    }
 }

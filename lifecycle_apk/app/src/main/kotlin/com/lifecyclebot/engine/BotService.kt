@@ -16643,7 +16643,10 @@ class BotService : Service() {
                         lastMcap = ts.lastMcap.takeIf { it > 0.0 } ?: trustedMarketCapUsd6492.takeIf { it > 0.0 },
                         lastLiquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: liquidityUsd.takeIf { it > 0.0 },
                         lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: trustedMarketCapUsd6492.takeIf { it > 0.0 },
-                        creationTimeMs = ts.addedToWatchlistAt.takeIf { it > 0L },
+                        // V5.0.7770 — no creationTimeMs: the watchlist time is when we saw
+                        // the token, not when it was born (CanonicalTokenBirthTime7440). Stored
+                        // here it resolved every intake token's birth to its first sighting and
+                        // kept the RPC birth hydrator from ever being asked.
                         // V5.0.6908 — archive decimals at intake, the earliest
                         // point they are known. Immutable per mint, so this is a
                         // one-time write that arms the §6701 unit guard for

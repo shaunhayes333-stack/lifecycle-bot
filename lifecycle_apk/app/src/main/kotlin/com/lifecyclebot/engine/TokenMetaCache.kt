@@ -369,7 +369,10 @@ class TokenMetaCache private constructor(ctx: Context) :
         if (lastMcap != null && lastMcap > 0.0 && lastMcap != e.lastMcap) { e.lastMcap = lastMcap; changed = true }
         if (lastLiquidityUsd != null && lastLiquidityUsd > 0.0 && lastLiquidityUsd != e.lastLiquidityUsd) { e.lastLiquidityUsd = lastLiquidityUsd; changed = true }
         if (lastFdv != null && lastFdv > 0.0 && lastFdv != e.lastFdv) { e.lastFdv = lastFdv; changed = true }
-        if (creationTimeMs != null && creationTimeMs > 0L && creationTimeMs != e.creationTimeMs) { e.creationTimeMs = creationTimeMs; changed = true }
+        // V5.0.7770 — a token is born once: the earliest plausible time wins. Any
+        // different value used to overwrite it, so a later sighting could replace a
+        // chain-proven birth and make an old token read as a fresh launch.
+        if (creationTimeMs != null && creationTimeMs >= MIN_BIRTH_MS_7770 && (e.creationTimeMs < MIN_BIRTH_MS_7770 || creationTimeMs < e.creationTimeMs)) { e.creationTimeMs = creationTimeMs; changed = true }
         // Decimals are immutable for an SPL mint, so a known value is never
         // overwritten by a later unknown one — and a CHANGE is a genuine
         // integrity event worth surfacing rather than silently accepting,
@@ -695,6 +698,8 @@ class TokenMetaCache private constructor(ctx: Context) :
 
     companion object {
         private const val TAG = "TokenMetaCache"
+        /** V5.0.7770 — 2020-01-01; anything earlier is a unit error, never a birth. */
+        private const val MIN_BIRTH_MS_7770 = 1_577_836_800_000L
         private const val DB_NAME = "lifecycle_token_meta.db"
         // V5.0.6908 — 1 -> 2 adds decimals + last_interacted_ms. Safe to bump
         // now that onUpgrade migrates additively instead of dropping the table.

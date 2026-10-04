@@ -40,7 +40,9 @@ object CanonicalTokenBirthTime7440 {
             if (plausible(poolMs, nowMs)) candidates += Resolution(poolMs, Source.FIRST_POOL_CREATION)
         } catch (_: Throwable) {}
 
-        val resolved = candidates.minByOrNull { it.birthMs }
+        // V5.0.7770 — on a tie the direct witness is credited, not the cache copy
+        // this function wrote from it (create event, then pool, then cache).
+        val resolved = candidates.minWithOrNull(compareBy<Resolution>({ it.birthMs }, { sourceRank7770(it.source) }))
         if (resolved == null) {
             try { TokenBirthHydrator7441.request(m) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
@@ -59,6 +61,12 @@ object CanonicalTokenBirthTime7440 {
             } catch (_: Throwable) {}
         }
         return resolved
+    }
+
+    private fun sourceRank7770(s: Source): Int = when (s) {
+        Source.PUMP_CREATE_EVENT -> 0
+        Source.FIRST_POOL_CREATION -> 1
+        Source.TOKEN_META_CREATION -> 2
     }
 
     fun resolvedAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =

@@ -19,6 +19,12 @@ object TokenBirthHydrator7441 {
     private const val PAGES_PER_ATTEMPT = 4
     private const val RETRY_COOLDOWN_MS = 15_000L
     private const val NO_RPC_COOLDOWN_MS = 60_000L
+    // V5.0.7770 — a launch has a page of history; a mint still paging after this
+    // many is an established token whose pool time is its birth evidence. Without
+    // the watchlist-time stand-in every intake token can reach this hydrator, so
+    // its RPC demand needs a ceiling.
+    private const val MAX_PAGES_7770 = 40
+    private const val PAGE_BUDGET_COOLDOWN_MS_7770 = 60L * 60_000L
 
     private data class Progress(
         var before: String? = null,
@@ -83,6 +89,11 @@ object TokenBirthHydrator7441 {
 
         val state = progress.computeIfAbsent(mint) { Progress() }
         state.lastTouchedMs = System.currentTimeMillis()
+        if (state.pages >= MAX_PAGES_7770) {
+            cooldownUntil[mint] = System.currentTimeMillis() + PAGE_BUDGET_COOLDOWN_MS_7770
+            try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HYDRATE_PAGE_BUDGET_7770") } catch (_: Throwable) {}
+            return
+        }
         var anyRpcAnswered = false
         for (rpc in rpcCandidates) {
             var pagesThisAttempt = 0
