@@ -14765,4 +14765,19 @@ class GoldenTapeRegressionTest {
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertFalse(main.contains("DeskPerformanceAuthority6648.snapshot("))
     }
+
+    @org.junit.Test
+    fun `V5_0_7783 an admitted trade plan is the executor buy zone and invalidation`() {
+        val cs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
+        val planAt = cs.indexOf("TradePlan7739.freshPlan7783(")
+        assertTrue(planAt > 0)
+        assertTrue(planAt < cs.indexOf("return deny(\"NO_LOGICAL_BUY_ZONE\""))
+        assertTrue(planAt < cs.indexOf("return deny(\"RISK_REWARD_POOR\""))
+        assertTrue(cs.indexOf("TRUE_HARD_SAFETY_OR_HOLDER_RISK") < planAt)
+        assertTrue(cs.indexOf("LIFECYCLE_DANGER_NON_MANIPULATED_7425\",") < planAt)
+        assertTrue(cs.indexOf("return deny(\"SAFETY_OR_HOLDER_RISK\"") < planAt)
+        val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
+        assertTrue(tp.contains("fun freshPlan7783(mint: String"))
+        assertTrue(com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783("NO_SUCH_MINT_7783") == null)
+    }
 }

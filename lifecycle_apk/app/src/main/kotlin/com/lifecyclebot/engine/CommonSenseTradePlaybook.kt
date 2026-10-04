@@ -66,6 +66,7 @@ object CommonSenseTradePlaybook {
 
     private val cache = ConcurrentHashMap<String, Snapshot>()
     private const val CACHE_TTL_MS = 8_000L
+    private const val PLAN_MIN_RR_7783 = 1.5
 
     // A mint is shared by specialist desks. Cached conclusions must never
     // cross lane, generation, score, safety or price evidence boundaries.
@@ -237,6 +238,31 @@ object CommonSenseTradePlaybook {
                 )
             }
             return deny("SAFETY_OR_HOLDER_RISK", "safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
+        }
+        // V5.0.7783 — one setup authority, not two. FinalDecisionGate's
+        // TradePlan7739 admitted this mint with a named setup, a stop and
+        // targets: that IS the buy zone, the invalidation and the R:R this
+        // playbook asks for. The 5.0.7781 fresh live run admitted 43 plans and
+        // this check then refused 24 of the resulting buys as
+        // NO_LOGICAL_BUY_ZONE / RISK_REWARD_POOR, re-deriving "structure" from
+        // phase text. Hard safety, rug/holder, and post-pump danger above stay
+        // binding. Field Manual: define entry, stop and target before entry —
+        // the plan did; refusing it again is a second opinion, not a gate.
+        val plan7783 = try { com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783(ts.mint, now) } catch (_: Throwable) { null }
+        if (plan7783 != null && snap.liquidityUsd >= 500.0) {
+            val stop7783 = kotlin.math.abs(plan7783.stopPnlPct)
+            val rr7783 = if (stop7783 > 0.0) plan7783.firstTargetPnlPct / stop7783 else 0.0
+            if (rr7783 >= PLAN_MIN_RR_7783) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "COMMON_SENSE_PLAN_ZONE_7783",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=${snap.lane} setup=${plan7783.setup.name} stop=-${"%.1f".format(stop7783)}% first=+${"%.1f".format(plan7783.firstTargetPnlPct)}% rr=${"%.2f".format(rr7783)} tradeType=${snap.tradeType} zone=${snap.logicalBuyZone} rrHeuristic=${snap.riskRewardAcceptable}",
+                    )
+                    PipelineHealthCollector.labelInc("COMMON_SENSE_PLAN_ZONE_7783_${plan7783.setup.name}")
+                    PipelineHealthCollector.labelInc("COMMON_SENSE_TRADETYPE_${snap.tradeType}")
+                } catch (_: Throwable) {}
+                return Verdict(true, "PLAN_ZONE_7783", "setup=${plan7783.setup.name} rr=${"%.2f".format(rr7783)}", snap.tradeType, snap.confidence, snap.sizeMultiplier, snap)
+            }
         }
         if (!snap.logicalBuyZone) {
             val liquidExecutable = snap.liquidityUsd >= 1_500.0 && snap.routeKnown && snap.tokenMapComplete

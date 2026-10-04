@@ -388,6 +388,15 @@ object TradePlan7739 {
         return reason
     }
 
+    /**
+     * V5.0.7783 — the plan the gate admitted for this mint in the last two
+     * minutes (the same window the executor chokepoint honours), or null.
+     */
+    fun freshPlan7783(mint: String, nowMs: Long = System.currentTimeMillis()): Plan? {
+        val p = plans[mint] ?: return null
+        return if (nowMs - p.atMs in 0L..CHOKEPOINT_RECENT_MS_7742) p else null
+    }
+
     /** The plan recorded at the gate for this position, when it predates the entry by under ten minutes. */
     fun planFor(mint: String, entryTimeMs: Long): Plan? {
         val p = plans[mint] ?: return null
