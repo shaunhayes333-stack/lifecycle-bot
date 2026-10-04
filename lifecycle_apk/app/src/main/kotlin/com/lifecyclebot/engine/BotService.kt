@@ -951,6 +951,18 @@ class BotService : Service() {
         com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(sizeSol, if (solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd)
     } catch (_: Throwable) { PLAN_COST_PCT_7739 }
 
+    /** V5.0.7792 — 7791's Moonshot mcap zone (fluid floor .. MAX_MARKET_CAP_USD). */
+    private fun moonshotMcapInZone7792(ts: com.lifecyclebot.data.TokenState): Boolean = try {
+        ts.lastMcap in com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
+    } catch (_: Throwable) { false }
+
+    /** V5.0.7792 — 7791's unknown-mcap path: observed liquidity at the bootstrap floor. */
+    private fun moonshotUnknownMcapLiquid7792(ts: com.lifecyclebot.data.TokenState): Boolean {
+        if (ts.lastMcap > 0.0) return false
+        val liq = try { maxOf(ts.lastLiquidityUsd, TokenMapAuthority.observedLiquidityUsd(ts)) } catch (_: Throwable) { ts.lastLiquidityUsd }
+        return liq >= com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_LIQUIDITY_USD_BOOTSTRAP
+    }
+
     private fun planTickRead7739(
         ts: com.lifecyclebot.data.TokenState,
         pnlPctNow: Double,
@@ -28453,10 +28465,10 @@ if (hotExitHandledSweep) {
                     // treating "no data" as "out of range" was silently killing
                     // the entire Moonshot evaluation path for most fresh memes.
                     // Fall back to a liquidity proxy (>= $3K) when mcap is unknown.
-                    val observedMoonshotLiq7791=try{maxOf(ts.lastLiquidityUsd,TokenMapAuthority.observedLiquidityUsd(ts))}catch(_:Throwable){ts.lastLiquidityUsd}
-                    val moonshotMinMcap7791=com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()
-                    val mcapInZone=ts.lastMcap in moonshotMinMcap7791..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
-                    val mcapUnknownButLiq=ts.lastMcap<=0.0&&observedMoonshotLiq7791>=com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_LIQUIDITY_USD_BOOTSTRAP
+                    // V5.0.7792 — 7791's zone read, moved to helpers: this method is at the
+                    // Kotlin JVM backend limit and two extra locals + a try broke the build.
+                    val mcapInZone = moonshotMcapInZone7792(ts)
+                    val mcapUnknownButLiq = moonshotUnknownMcapLiquid7792(ts)
                     // V5.0.7266 — the admission authority that elected MOONSHOT as
                     // owner is also the zone for a runner-shaped fresh launch, so
                     // the lane cannot refuse what the election admitted.
