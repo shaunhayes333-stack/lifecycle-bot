@@ -23,11 +23,11 @@ class Aate7778LiveFdgTicketContinuityTest {
         assertTrue(s.contains("LIVE_FDG_ALLOW_TICKET_PUBLISH_EXCEPTION_7778"))
     }
 
-    @Test fun botServiceWitnessesAuthorizerAndExecutorHandoff() {
-        val s = src("engine/BotService.kt")
-        assertTrue(s.contains("LIVE_FDG_ALLOW_AUTH_EXECUTABLE_7778"))
-        assertTrue(s.contains("LIVE_FDG_ALLOW_AUTH_REJECT_7778"))
-        assertTrue(s.contains("LIVE_TICKET_TO_EXECUTOR_7778"))
-        assertTrue(s.contains("attemptId          = authResult.attemptId"))
+    @Test fun canonicalGatePublishesTheTicketAndNamesEverySealedLiveReject() {
+        val s = src("engine/ExecutableOpenGate.kt")
+        assertTrue(s.contains("LIVE_FDG_ALLOW_PRETICKET_REJECT_7778"))
+        assertTrue(s.contains("LIVE_FDG_ALLOW_TICKET_PUBLISHED_7778"))
+        assertTrue(s.contains("publishTicket("))
+        assertTrue(s.contains("EXEC_GATE_ALLOW"))
     }
 }
