@@ -401,7 +401,7 @@ class CryptoAltActivity : AppCompatActivity() {
         } catch (_: Throwable) { null } else null
         val bal = if (isLive) CryptoAltTrader.getBalance() else unified?.cashSol ?: 0.0
         val equity = if (isLive) bal else unified?.equitySol ?: bal
-        val performance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+        val performance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
             if (isLive) "live" else "paper",
         )
@@ -970,7 +970,7 @@ class CryptoAltActivity : AppCompatActivity() {
             com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("CRYPTO")
         } catch (_: Throwable) { null } else null
         val bal    = if (isLive) CryptoAltTrader.getBalance() else unified?.cashSol ?: 0.0
-        val performance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+        val performance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
             if (isLive) "live" else "paper",
         )

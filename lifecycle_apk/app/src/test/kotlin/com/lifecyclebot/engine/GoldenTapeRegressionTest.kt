@@ -14741,4 +14741,28 @@ class GoldenTapeRegressionTest {
         assertFalse(learned.contains("creatorBlacklist.clear()"))
         assertFalse(learned.contains("rugPatterns.clear()"))
     }
+
+    @org.junit.Test
+    fun `V5_0_7782 home screen books every realized sell leg per position like the journal`() {
+        fun row(side: String, pid: String, pnl: Double, ts: Long, lane: String) = com.lifecyclebot.data.Trade(
+            side = side, mode = "live", sol = 0.04, price = 1.0, ts = ts, pnlSol = pnl, netPnlSol = pnl,
+            mint = "M$pid", tradingMode = lane, positionId = pid, entryCostSol = 0.043,
+        )
+        val raw = listOf(
+            row("PARTIAL_SELL", "p1", -0.0058, 2L, "STANDARD"),
+            row("SELL", "p2", -0.0087, 3L, "WALLET_RECOVERED"),
+            row("BUY", "p1", 0.0, 1L, "STANDARD"),
+        )
+        val rows = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountRows7782(raw)
+        assertEquals(2, rows.size)
+        val snap = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.reduce(rows, "live", true)
+            .getValue(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO)
+        assertEquals(2, snap.trades)
+        assertEquals(2, snap.losses)
+        assertEquals(-0.0145, snap.realizedPnlSol ?: 0.0, 1e-9)
+        assertEquals(com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN,
+            com.lifecyclebot.engine.truth.AssetClass.fromLane("WALLET_RECOVERED"))
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertFalse(main.contains("DeskPerformanceAuthority6648.snapshot("))
+    }
 }

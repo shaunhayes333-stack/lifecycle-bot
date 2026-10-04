@@ -63,7 +63,12 @@ enum class AssetClass {
             "SHITCOIN", "MEME", "MOONSHOT", "EXPRESS", "BLUECHIP", "MANIP",
             "MANIPULATED", "PROJECT_SNIPER", "QUALITY", "TREASURY", "STANDARD",
             "V3_CORE", "CASHGEN", "DIP_HUNTER", "COPY_TRADE", "COMMUNITY",
-            "CYCLIC", "CORE", "LAB", "RECOVERED_CARRY_6492" -> SOLANA_TOKEN
+            "CYCLIC", "CORE", "LAB", "RECOVERED_CARRY_6492",
+            // V5.0.7782 — wallet-recovered meme bags are Solana tokens; as
+            // UNKNOWN their real stop-outs vanished from every screen total.
+            // Non-Solana recoveries carry an ALT_/PERPS_/STOCK_ positionId,
+            // which fromPositionIdPrefix resolves first.
+            "WALLET_RECOVERED", "WALLET_RECOVERY", "RECOVERED_CARRY" -> SOLANA_TOKEN
             else -> UNKNOWN
         }
 

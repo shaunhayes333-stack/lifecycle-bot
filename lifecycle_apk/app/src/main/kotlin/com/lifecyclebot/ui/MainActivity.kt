@@ -3527,7 +3527,7 @@ for legal compliance.
         // explicitly paper-start/lifetime-journal based in paper mode; never derive
         // it from current cash, because cash excludes open deployed capital and may
         // be a different wallet epoch than the lifetime journal.
-        val portfolioPerformance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+        val portfolioPerformance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO,
             if (config.paperMode) "paper" else "live",
         )
@@ -3663,7 +3663,7 @@ for legal compliance.
                 // Run; V5.9.462 then aligned ladder pill to the same source so both
                 // halves agreed. Now V5.9.809 mandate "journal is source of truth"
                 // wins — the Journal source is TradeHistoryStore.getStatsCached().)
-                val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
                     com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
                 )
                 val trades = stats.trades
@@ -4106,7 +4106,7 @@ for legal compliance.
             // StrategyTruthLedger-clean stats for reports/diagnostics; do not mux them
             // into the dashboard headline and make the app look like two bots.
             val portfolioMode = if (getSharedPreferences("bot_config", MODE_PRIVATE).getBoolean("paper_mode", true)) "paper" else "live"
-            val portfolioStats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            val portfolioStats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO,
                 portfolioMode,
             )
@@ -4418,7 +4418,7 @@ for legal compliance.
         try {
             // Main is the MEME desk. Its learning phase must never ingest
             // Crypto/Markets/Perps outcomes from a global journal projection.
-            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
                 if (state.config.paperMode) "paper" else "live",
             )
@@ -8633,7 +8633,7 @@ for legal compliance.
     /** V5.9.348: Alts "Lifetime" proof card (CryptoAltTrader has no 30-day window). */
     private fun render30DayAlts() {
         card30DayRun.visibility = View.VISIBLE
-        val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+        val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
         )
         val totalTrades = stats.trades
@@ -8900,7 +8900,7 @@ This cannot be undone!
             // V5.0.6648: an all-market journal snapshot is not a meme metric.
             // Unknown legacy rows remain UNCLASSIFIED; there is deliberately no
             // global/portfolio fallback for a desk readiness decision.
-            val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
             )
             // V5.9.815 — operator screenshot 2026-05-18: Journal shows
@@ -9046,7 +9046,7 @@ This cannot be undone!
     /** V5.9.348: Crypto Alts trader readiness — uses CryptoAltTrader.getStats(). */
     private fun renderAltsReadiness() {
         val traderMeta = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
-        val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+        val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
         )
         val totalTrades    = stats.trades
@@ -9388,14 +9388,14 @@ This cannot be undone!
         try {
             val books = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648
             val mode = if (getSharedPreferences("bot_config", MODE_PRIVATE).getBoolean("paper_mode", true)) "paper" else "live"
-            val memeStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME, mode)
-            val altsStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO, mode)
-            val perpsStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PERPS, mode)
-            val stockStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.STOCKS, mode)
-            val forexStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.FOREX, mode)
-            val metalStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.METALS, mode)
-            val commodityStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.COMMODITIES, mode)
-            val portfolio = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO, mode)
+            val memeStats = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME, mode)
+            val altsStats = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO, mode)
+            val perpsStats = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PERPS, mode)
+            val stockStats = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.STOCKS, mode)
+            val forexStats = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.FOREX, mode)
+            val metalStats = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.METALS, mode)
+            val commodityStats = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.COMMODITIES, mode)
+            val portfolio = books.accountSnapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO, mode)
 
             // V5.9.1354 — CANONICAL TOTALS from the journal (single source of truth).
             // Was summing memeTrades+altsTrades+perpsTrades from THREE independent
@@ -13222,7 +13222,7 @@ Quick trade or open detailed dialog?
         // V5.9.230: Full Sentience + MetaCognition + Education + Symbolic dialog
         try {
             val paper = vm.ui.value.config.paperMode
-            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
                 if (paper) "paper" else "live",
             )

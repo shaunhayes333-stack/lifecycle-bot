@@ -53,6 +53,45 @@ object DeskPerformanceAuthority6648 {
         return cache[key(book, normalizedMode)] ?: Snapshot(book = book, mode = normalizedMode)
     }
 
+    /**
+     * V5.0.7782 — real-money view for the screens. snapshot() is the learner's
+     * clean-terminal projection: it drops partial sells and wallet-recovered
+     * inventory, which is right for training and wrong for showing money. On a
+     * fresh 5.0.7781 install two live stop-outs (both partial, one recovered)
+     * read Journal 2 trades / -$2.17 against Home 0 trades / +0.00. This view
+     * books every realized sell leg, grouped into one trade per position, the
+     * same quantity the Journal header shows. Learners keep reading snapshot().
+     */
+    fun accountSnapshot(book: Book, mode: String = "paper"): Snapshot {
+        refreshAsync()
+        val normalizedMode = requestedMode(mode)
+        return accountCache[key(book, normalizedMode)] ?: Snapshot(book = book, mode = normalizedMode)
+    }
+
+    private val accountCache = ConcurrentHashMap<String, Snapshot>()
+
+    /** One synthetic SELL row per position carrying the summed realized PnL of all its legs. */
+    internal fun accountRows7782(raw: List<Trade>): List<Trade> {
+        val legs = raw.filter {
+            val side = it.side.trim().uppercase()
+            side == "SELL" || side == "PARTIAL_SELL"
+        }
+        return legs.groupBy { leg ->
+            leg.positionId.ifBlank { "${leg.mint}|${leg.entryTsMs}|${leg.mode}" }
+        }.values.map { group ->
+            val newest = group.maxByOrNull { it.ts } ?: group.first()
+            val pnl = group.sumOf(::economicPnl)
+            val basis = newest.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
+                ?: group.sumOf { it.soldCostBasisSol.takeIf { b -> b.isFinite() && b > 0.0 } ?: 0.0 }.takeIf { it > 0.0 }
+            newest.copy(
+                side = "SELL",
+                pnlSol = pnl,
+                netPnlSol = pnl,
+                pnlPct = if (basis != null) pnl * 100.0 / basis else newest.pnlPct,
+            )
+        }
+    }
+
     fun refreshAsync() {
         if (System.currentTimeMillis() - lastRefreshMs.get() < 15_000L) return
         if (!refreshRunning.compareAndSet(false, true)) return
@@ -161,6 +200,12 @@ object DeskPerformanceAuthority6648 {
                 (account.mode == mode && account.status == UnifiedAccountSnapshot6635.Status.RECONCILED && account.accountAvailable)
             reduce(clean, mode, available).forEach { (book, snapshot) -> cache[key(book, mode)] = snapshot }
         }
+        val account7782 = accountRows7782(raw)
+        for (mode in listOf("paper", "live")) {
+            reduce(account7782, mode, true).forEach { (book, snapshot) ->
+                accountCache[key(book, mode)] = snapshot.copy(source = "ACCOUNT_REALIZED_LEGS_7782")
+            }
+        }
         val unclassified = listOf("paper", "live").sumOf { cache[key(Book.UNCLASSIFIED, it)]?.trades ?: 0 }
         if (unclassified > 0) {
             PipelineHealthCollector.labelInc("DESK_PERFORMANCE_UNCLASSIFIED_ROWS_6648")
@@ -195,6 +240,7 @@ object DeskPerformanceAuthority6648 {
 
     internal fun resetForTest() {
         cache.clear()
+        accountCache.clear()
         refreshRunning.set(false)
         lastRefreshMs.set(0L)
     }
