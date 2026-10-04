@@ -180,11 +180,9 @@ object FreshLaunchSelector7737 {
     }
 
     private fun setupFor(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Setup? {
-        val resolved = try { CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) } catch (_: Throwable) { null }
         // V5.0.7738 — a launch whose birth has not hydrated yet is still judged.
-        // 5.0.7737 read TOKEN_BIRTH_HYDRATION_PENDING_7440=3298 in 396 s; each of
-        // those returned null here and went to a live buy unjudged.
-        val age = resolved ?: unresolvedLaunchAgeMs7738(ts.source, ts.addedToWatchlistAt, ts.lastMcap, nowMs) ?: return null
+        // V5.0.7767 — through the one launch-age rule (CanonicalTokenBirthTime7440).
+        val age = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null } ?: return null
         if (age > FRESH_MAX_AGE_MS_7737) return null
         val lp = try { LaunchPhaseAuthority7401.snapshot(ts, nowMs) } catch (_: Throwable) { null } ?: return null
         val flow = flowBucket(lp.buyTx60s, lp.sellTx60s, lp.buySharePct, lp.distinctBuyers60s, lp.accelerationRising)

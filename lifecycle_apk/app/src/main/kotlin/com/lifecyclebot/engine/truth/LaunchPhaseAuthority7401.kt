@@ -65,8 +65,9 @@ object LaunchPhaseAuthority7401 {
         val tooLateForSnipe: Boolean get() = phase == Phase.POST_PUMP_FADE
     }
 
+    // V5.0.7767 — the one launch-age rule; unknown stays "late".
     fun trueAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long =
-        CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) ?: Long.MAX_VALUE
+        CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) ?: Long.MAX_VALUE
 
     fun resolvedAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =
         CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs)

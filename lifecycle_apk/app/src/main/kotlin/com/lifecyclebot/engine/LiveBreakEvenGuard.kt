@@ -126,22 +126,14 @@ object LiveBreakEvenGuard {
     }
 
     fun requiredEdgePct(ts: TokenState, lane: String, style: String, buySlippageBps: Int, sizeSol: Double, score: Double): Double {
-        val buySlippagePct = (buySlippageBps.coerceAtLeast(0) / 100.0).coerceIn(0.0, 20.0)
-        val expectedSellSlippagePct = try {
-            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
-        } catch (_: Throwable) { when {
-            ts.lastLiquidityUsd < 5_000.0 -> 8.0
-            ts.lastLiquidityUsd < 20_000.0 -> 5.0
-            else -> 2.0
-        } }.coerceIn(0.0, 15.0)
-        val priorityFeePct = if (sizeSol > 0.0) (0.0008 / sizeSol * 100.0).coerceIn(0.0, 6.0) else 6.0
-        val platformFeePct = 1.0 // 0.5% buy + 0.5% sell
-        val spreadPct = when {
-            ts.lastLiquidityUsd < 5_000.0 -> 4.0
-            ts.lastLiquidityUsd < 20_000.0 -> 2.0
-            else -> 1.0
-        }
-        val mevBufferPct = 1.5
+        // V5.0.7766 — the trip's cost is the one round-trip cost
+        // (FieldManual7715.roundTripCostPct7766). The order's slippage TOLERANCE
+        // (buySlippageBps) is a ceiling, not a cost, and spread, MEV and a doubled
+        // learned slip counted the same impact several times over.
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val roundTripCostPct = com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(
+            sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd,
+        )
         val givebackBufferPct = when (BleederMemoryRouter.canon(lane)) {
             "SHITCOIN", "EXPRESS", "CYCLIC", "COPYTRADE" -> 5.0
             "MOONSHOT" -> 4.0
@@ -163,6 +155,6 @@ object LiveBreakEvenGuard {
             // Exit ladder and hard SL still protect capital.
             else -> 2.0
         }
-        return buySlippagePct + expectedSellSlippagePct + priorityFeePct + platformFeePct + spreadPct + mevBufferPct + givebackBufferPct + minProfitBufferPct
+        return roundTripCostPct + givebackBufferPct + minProfitBufferPct
     }
 }

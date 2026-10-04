@@ -87,15 +87,10 @@ object LaneShadowProof7307 {
     }
 
     /** Pure round-trip cost, same components as LiveBreakEvenGuard minus its profit buffers. */
+    // V5.0.7766 — the one round-trip cost (FieldManual7715.roundTripCostPct7766).
     private fun roundTripCostPct(liquidityUsd: Double, sizeSol: Double): Double {
-        val slip = try {
-            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(liquidityUsd)
-        } catch (_: Throwable) {
-            when { liquidityUsd < 5_000.0 -> 8.0; liquidityUsd < 20_000.0 -> 5.0; else -> 2.0 }
-        }.coerceIn(0.0, 15.0)
-        val priority = if (sizeSol > 0.0) (0.0008 / sizeSol * 100.0).coerceIn(0.0, 6.0) else 6.0
-        val spread = when { liquidityUsd < 5_000.0 -> 4.0; liquidityUsd < 20_000.0 -> 2.0; else -> 1.0 }
-        return 2.0 * slip + priority + 1.0 + spread + 1.5
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        return FieldManual7715.roundTripCostPct7766(sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0, liquidityUsd)
     }
 
     fun onUnprovenRefusal(lane: String, mint: String, price: Double, liquidityUsd: Double, sizeSol: Double, nowMs: Long = System.currentTimeMillis()) {

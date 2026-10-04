@@ -64,6 +64,20 @@ object CanonicalTokenBirthTime7440 {
     fun resolvedAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =
         resolve(ts.mint, nowMs)?.let { (nowMs - it.birthMs).coerceAtLeast(0L) }
 
+    /**
+     * V5.0.7767 §ONE_LAUNCH_AGE. Four consumers read a token's age four ways:
+     * LaunchPhaseAuthority treated an unresolved birth as infinitely old,
+     * FreshLaunchSelector fell back to watchlist age, and the live sniper gate read
+     * only PoolCreationTime7385 and treated "unknown" as fresh. One rule: the
+     * resolved birth; else, for a launch-feed token under $300k, its watchlist age
+     * (a lower bound — never younger than the truth); else unknown, and unknown is
+     * never fresh. Field Manual §4: an early entry needs a known start.
+     */
+    fun launchAgeMs7767(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =
+        resolvedAgeMs(ts, nowMs) ?: try {
+            FreshLaunchSelector7737.unresolvedLaunchAgeMs7738(ts.source, ts.addedToWatchlistAt, ts.lastMcap, nowMs)
+        } catch (_: Throwable) { null }
+
     fun resolvedAgeMinutes(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? =
         resolvedAgeMs(ts, nowMs)?.div(60_000.0)
 }

@@ -262,9 +262,29 @@ object FieldManual7715 {
      * Unknown liquidity is a conservative range, never zero.
      */
     fun allInCostPct(sizeUsd: Double, liquidityUsd: Double): Double {
-        val impact = impactRoundTripPct(sizeUsd, liquidityUsd)
-        return BASE_ROUND_TRIP_COST_PCT_7715 + SLIPPAGE_ALLOWANCE_PCT_7715 + impact
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd.isFinite() || solUsd <= 0.0 || !sizeUsd.isFinite() || sizeUsd <= 0.0) {
+            return BASE_ROUND_TRIP_COST_PCT_7715 + SLIPPAGE_ALLOWANCE_PCT_7715 + impactRoundTripPct(sizeUsd, liquidityUsd)
+        }
+        return roundTripCostPct7766(EconomicUnitInvariant7061.usdToSol(sizeUsd, solUsd), sizeUsd, liquidityUsd)
     }
+
+    /**
+     * V5.0.7766 §ONE_ROUND_TRIP_COST. Four formulas priced the same trip: this one
+     * (~2.5% + impact), LiveBreakEvenGuard's entry gate (buy slippage TOLERANCE +
+     * 2x learned slip + priority + platform + spread + MEV, ~20-30% at $4k
+     * liquidity), LaneShadowProof7307's variant and a fixed 4% for plan exits. A
+     * round trip costs the venue fee both ways, the priority fee at this size, a
+     * slippage allowance and the price impact in and out. Field Manual §6: cost
+     * is what the trip actually takes, not the tolerance set on the order.
+     */
+    fun roundTripCostPct7766(sizeSol: Double, sizeUsd: Double, liquidityUsd: Double): Double {
+        val priority = if (sizeSol.isFinite() && sizeSol > 0.0) (PRIORITY_FEE_SOL_7766 * 2.0 / sizeSol * 100.0).coerceIn(0.0, 6.0) else 6.0
+        return PLATFORM_FEE_ROUND_TRIP_PCT_7766 + priority + SLIPPAGE_ALLOWANCE_PCT_7715 + impactRoundTripPct(sizeUsd, liquidityUsd)
+    }
+
+    private const val PLATFORM_FEE_ROUND_TRIP_PCT_7766 = 1.0
+    private const val PRIORITY_FEE_SOL_7766 = 0.0004
 
     /** Entry impact plus exit impact, percent, constant-product approximation against half the pool. */
     fun impactRoundTripPct(sizeUsd: Double, liquidityUsd: Double): Double {

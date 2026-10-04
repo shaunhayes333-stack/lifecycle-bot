@@ -20086,8 +20086,9 @@ class Executor(
         if (canonicalRoutedLane == "PROJECT_SNIPER") {
             val mcap7385 = entryMarketSnapshot.marketCapUsd.takeIf { it > 0.0 } ?: ts.lastMcap
             val graduated7385 = ts.tokenMap.migratedOrGraduated
-            val ageSecs7385 = try { com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(ts.mint) } catch (_: Throwable) { null }
-            val stale7385 = ageSecs7385 != null && ageSecs7385 > LIVE_SNIPER_MAX_AGE_SECS_7385
+            // V5.0.7767 — the one launch-age rule; an unknown age is not a launch.
+            val ageSecs7385 = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts)?.div(1000L) } catch (_: Throwable) { null }
+            val stale7385 = ageSecs7385 == null || ageSecs7385 > LIVE_SNIPER_MAX_AGE_SECS_7385
             if (mcap7385 > LIVE_SNIPER_MAX_MCAP_USD_7385 || graduated7385 || stale7385) {
                 try {
                     PipelineHealthCollector.labelInc("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385")

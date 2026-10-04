@@ -944,6 +944,13 @@ class BotService : Service() {
      * V5.0.7739 — the exit a position's plan owes on this tick, or null. An
      * unconfirmed sub -50% read is not a price (the tick's phantom rule).
      */
+    /** V5.0.7766 — the plan's first target must clear the one round-trip cost for this position (was a fixed 4%). */
+    private fun planCostPct7766(ts: com.lifecyclebot.data.TokenState): Double = try {
+        val solUsd = WalletManager.lastKnownSolPrice
+        val sizeSol = ts.position.costSol
+        com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(sizeSol, if (solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd)
+    } catch (_: Throwable) { PLAN_COST_PCT_7739 }
+
     private fun planTickRead7739(
         ts: com.lifecyclebot.data.TokenState,
         pnlPctNow: Double,
@@ -960,7 +967,7 @@ class BotService : Service() {
             com.lifecyclebot.engine.truth.TradePlan7739.exitFor(
                 plan, pnlPctNow, peakPct, now - pos.entryTime,
                 plan != null && com.lifecyclebot.engine.truth.TradePlan7739.trailBroken(ts, now),
-                PLAN_COST_PCT_7739,
+                planCostPct7766(ts),
                 RunnerExitProfile7277.isRunnerLane(pos.tradingMode),
             )
         } catch (_: Throwable) { null }
