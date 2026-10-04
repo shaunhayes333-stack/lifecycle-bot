@@ -113,6 +113,32 @@ object PositionStateLedger6454 {
      * path. Returns true only when this caller moves the exact stale CLOSING
      * back to OPEN; the CAS in reserveTerminalSell then owns a fresh attempt.
      */
+    /**
+     * V5.0.7793 — a LIVE CLOSING whose sell job is provably dead (chain-confirmed
+     * FAILED_FINAL, or FAILED_RETRYABLE before broadcast) is released at once
+     * instead of after the 30/90 s stale window, so the next stop can sell.
+     * A job that may still land (signature in flight) keeps the reservation.
+     */
+    private fun recoverDeadLiveClosing7793(positionId: String, reason: String): Boolean {
+        if (!canonicalOpenLive7146(positionId)) return false
+        val mint = try { CanonicalPositionAuthority6441.getPosition(positionId)?.mint } catch (_: Throwable) { null } ?: return false
+        val job = try { com.lifecyclebot.engine.sell.SellJobRegistry.get(mint) } catch (_: Throwable) { null } ?: return false
+        val dead = job.status == com.lifecyclebot.engine.sell.SellJobStatus.FAILED_FINAL ||
+            job.status == com.lifecyclebot.engine.sell.SellJobStatus.FAILED_RETRYABLE
+        if (!dead) return false
+        val since = closingSinceMs6702[positionId]
+        if (!states.replace(positionId, Lifecycle.CLOSING, Lifecycle.OPEN)) return false
+        if (since != null) closingSinceMs6702.remove(positionId, since)
+        try {
+            PipelineHealthCollector.labelInc("LIVE_TERMINAL_DEAD_JOB_CLOSING_RELEASED_7793")
+            ForensicLogger.lifecycle(
+                "LIVE_TERMINAL_DEAD_JOB_CLOSING_RELEASED_7793",
+                "positionId=${positionId.take(18)} job=${job.status.name} reason=${reason.take(80)} action=closing_to_open_retry_now",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     private fun recoverStaleLiveClosing7146(positionId: String, reason: String, now: Long): Boolean {
         if (!canonicalOpenLive7146(positionId)) return false
         val since = closingSinceMs6702[positionId] ?: return false
@@ -291,6 +317,7 @@ object PositionStateLedger6454 {
         // V5.0.7146 extends the same treatment to LIVE on a longer window.
         if (prior == Lifecycle.CLOSING &&
             (recoverStalePaperClosing6702(positionId, reason, now) ||
+                recoverDeadLiveClosing7793(positionId, reason) ||
                 recoverStaleLiveClosing7146(positionId, reason, now))
         ) {
             prior = Lifecycle.OPEN

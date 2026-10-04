@@ -27578,7 +27578,15 @@ class Executor(
             if (!pid.isNullOrBlank()) {
                 try {
                     val job = com.lifecyclebot.engine.sell.SellJobRegistry.get(ts.mint)
-                    val txMayLand = job != null && job.status != com.lifecyclebot.engine.sell.SellJobStatus.LANDED && (
+                    // V5.0.7793 — a job the chain confirmed FAILED (meta.err, e.g. slippage
+                    // in a dump) or a pre-broadcast attempt released as FAILED_RETRYABLE
+                    // cannot land, whatever signature it still carries. Holding CLOSING
+                    // for it refused every stop for 30-90 s (5.0.7790: 224 duplicate-
+                    // closing rejections, trailing stops 210 s, one exit at -80%).
+                    val jobDead7793 = job != null && (
+                        job.status == com.lifecyclebot.engine.sell.SellJobStatus.FAILED_FINAL ||
+                            job.status == com.lifecyclebot.engine.sell.SellJobStatus.FAILED_RETRYABLE)
+                    val txMayLand = job != null && !jobDead7793 && job.status != com.lifecyclebot.engine.sell.SellJobStatus.LANDED && (
                         !job.signature.isNullOrBlank() ||
                             job.status == com.lifecyclebot.engine.sell.SellJobStatus.BROADCASTING ||
                             job.status == com.lifecyclebot.engine.sell.SellJobStatus.CONFIRMING ||

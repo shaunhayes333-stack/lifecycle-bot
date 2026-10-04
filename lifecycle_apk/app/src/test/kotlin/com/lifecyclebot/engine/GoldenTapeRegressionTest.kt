@@ -14833,4 +14833,17 @@ class GoldenTapeRegressionTest {
         assertTrue(b.contains("orchestrator?.setOnHeldTradeMark7787 { mint: String, priceSol: Double ->"))
         assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0)"))
     }
+
+    @org.junit.Test
+    fun `V5_0_7793 a chain-confirmed failed sell releases the closing lock at once`() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val settle = ex.substringAfter("V5.0.7793 — a job the chain confirmed FAILED").substringBefore("settleLiveAttempt7317(pid, txMayLand, reason)")
+        assertTrue(settle.contains("SellJobStatus.FAILED_FINAL"))
+        assertTrue(settle.contains("SellJobStatus.FAILED_RETRYABLE"))
+        assertTrue(settle.contains("val txMayLand = job != null && !jobDead7793"))
+        val led = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt").readText()
+        val order = led.substringAfter("if (prior == Lifecycle.CLOSING &&").substringBefore(") {")
+        assertTrue(order.indexOf("recoverDeadLiveClosing7793") in 0 until order.indexOf("recoverStaleLiveClosing7146"))
+        assertTrue(led.contains("LIVE_TERMINAL_DEAD_JOB_CLOSING_RELEASED_7793"))
+    }
 }
