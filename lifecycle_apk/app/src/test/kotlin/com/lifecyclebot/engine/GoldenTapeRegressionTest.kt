@@ -14780,4 +14780,18 @@ class GoldenTapeRegressionTest {
         assertTrue(tp.contains("fun freshPlan7783(mint: String"))
         assertTrue(com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783("NO_SUCH_MINT_7783") == null)
     }
+
+    @org.junit.Test
+    fun `V5_0_7784 live lanes are sized not paused and partial legs are not streak trades`() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
+        val skip = g.indexOf("LANE_AUTO_PAUSE_SIZED_NOT_PAUSED_7784")
+        assertTrue(skip > 0)
+        assertTrue(skip < g.indexOf("paused[lane] = PauseState("))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val partial = ex.substringAfter("if (_fanoutSide.equals(\"PARTIAL_SELL\", true)) {").substringBefore("PARTIAL_SELL_MOVEMENT_FANOUT_6041")
+        assertTrue(partial.contains("PARTIAL_LEG_NOT_COUNTED_AS_STREAK_TRADE_7784"))
+        assertFalse(partial.contains("ToxicModeCircuitBreaker.recordLoss"))
+        assertFalse(partial.contains("TradingCopilot.recordTradeForAsset"))
+        assertFalse(partial.contains("BehaviorAI.recordTradeForAsset"))
+    }
 }

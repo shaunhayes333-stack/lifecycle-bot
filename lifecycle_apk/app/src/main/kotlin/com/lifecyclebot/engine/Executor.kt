@@ -5303,28 +5303,13 @@ class Executor(
                         } catch (_: Exception) {}
                     }
                     if (_fanoutSide.equals("PARTIAL_SELL", true)) {
-                        val holdTimeMs = if (_fanoutEntryTime > 0) System.currentTimeMillis() - _fanoutEntryTime else 0L
-                        val _fluidTm = _fanoutTradingMode
-                        val _behAsset = when (_fluidTm) {
-                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "SHITCOIN"
-                            "EXPRESS"                                         -> "EXPRESS"
-                            "CYCLIC"                                          -> "CYCLIC"
-                            "QUALITY"                                         -> "QUALITY"
-                            "BLUECHIP", "BLUE_CHIP"                           -> "BLUECHIP"
-                            "MOONSHOT"                                        -> "MOONSHOT"
-                            "TREASURY", "CASHGEN"                             -> "TREASURY"
-                            "PRESALE_SNIPE", "PROJECT_SNIPER"                 -> "PRESALE_SNIPE"
-                            "MANIPULATED"                                     -> "MANIPULATED"
-                            "DIP_HUNTER"                                      -> "DIP_HUNTER"
-                            else                                              -> "MEME"
-                        }
-                        if (_fanoutPnlPct < 0) {
-                            try { ToxicModeCircuitBreaker.recordLoss(_fanoutTradingMode.takeIf { isMeaningfulLaneName(it) } ?: "STANDARD", _fanoutPnlPct, _fanoutMint, _fanoutSymbol) } catch (_: Exception) {}
-                        }
-                        try { com.lifecyclebot.v3.scoring.BehaviorAI.recordTradeForAsset(pnlPct = _fanoutPnlPct, reason = _fanoutReason, mint = _fanoutMint, isPaperMode = _fanoutIsPaper, assetClass = _behAsset) } catch (_: Exception) {}
-                        if (_behAsset == "MEME" && _fanoutReason != "DEAD_TOKEN_NO_PRICE_EXIT") {
-                            try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct = _fanoutPnlPct, isPaper = _fanoutIsPaper, assetClass = "MEME") } catch (_: Exception) {}
-                        }
+                        // V5.0.7784 — a partial leg is not a trade. ToxicMode (2 losses
+                        // <= -20% in 1h freezes the mode), TradingCopilot's streak brake
+                        // and BehaviorAI's 2-loss de-escalation each counted a stopped
+                        // position twice when it sold in two legs, so one stop-out on a
+                        // fresh install read as a two-loss streak. The terminal SELL row
+                        // records the position once.
+                        try { PipelineHealthCollector.labelInc("PARTIAL_LEG_NOT_COUNTED_AS_STREAK_TRADE_7784") } catch (_: Throwable) {}
                         if (_fanoutIsRun) {
                             try {
                                 val holdTimeSec = if (_fanoutEntryTime > 0) (System.currentTimeMillis() - _fanoutEntryTime) / 1000 else 0L

@@ -448,6 +448,16 @@ object LaneAutoPauseGuard {
                     wrPct < TOXIC_WR_PCT &&
                     evPct <= TOXIC_EV_PCT
                 if ((zeroWin || toxic) && shadowOutranksThinLiveRecord7734(lane, agg.sample)) continue
+                // V5.0.7784 — live lanes are sized by their own record, never
+                // paused by it. A pause here was permanent (released only by Lab
+                // re-proof) and could fire at n=5, so a fresh live install lost a
+                // lane for good after five trades. LaneExpectancyDamper (7775)
+                // already shrinks size and raises the lane's admission bar from
+                // the same closes. Operator: "it has to trade to learn."
+                if ((zeroWin || toxic) && modeTag7209 == "live") {
+                    try { PipelineHealthCollector.labelInc("LANE_AUTO_PAUSE_SIZED_NOT_PAUSED_7784_$lane") } catch (_: Throwable) {}
+                    continue
+                }
                 if (zeroWin || toxic) {
                     val reason = if (zeroWin) "zero_win_n${agg.sample}_direct_journal" else "toxic_wr${"%.0f".format(wrPct)}_ev${"%.0f".format(evPct)}_direct_journal"
                     paused[lane] = PauseState(
