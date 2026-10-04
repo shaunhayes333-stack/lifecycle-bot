@@ -14681,4 +14681,12 @@ class GoldenTapeRegressionTest {
         val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(alt.contains("isPaperMode.get() && signal.isDynamic && route?.mint == null && route?.executable != true"))
     }
+    @Test
+    fun V5_0_7775_lane_record_raises_its_own_bar_continuously_and_labels_count_as_evidence() {
+        val d = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        assertTrue(d.contains("return ((1.0 - m) * ADMISSION_DELTA_PER_UNIT_7775).coerceIn(0.0, 25.0)"))
+        assertTrue(d.contains("if (!m.isFinite() || m >= 1.0) return 0.0"))
+        assertTrue(d.contains("val evidence6715 = maxOf(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades), labelEvidence7775)"))
+        assertTrue(d.contains("if (!closeMeanPct.isFinite() || closeMeanPct >= 0.0) return 0.0"))
+    }
 }

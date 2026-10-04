@@ -186,13 +186,20 @@ object LaneExpectancyDamper {
     fun admissionScoreFloorDelta(lane: String?): Double {
         if (lane.isNullOrBlank()) return 0.0
         val m = try { sizeMultiplier(lane) } catch (_: Throwable) { 1.0 }
-        if (!m.isFinite() || m >= 0.36) return 0.0
-        return when {
-            m <= CATASTROPHIC_MIN_MULT + 0.01 -> 25.0
-            m <= MIN_MULT + 0.01              -> 15.0
-            else                              -> 8.0
-        }
+        if (!m.isFinite() || m >= 1.0) return 0.0
+        // V5.0.7775 — continuous, not three steps. At this wallet every live order
+        // already sits on the routable minimum (LIVE_ABS_FLOOR_LIFT / OK_MIN_PROMOTED
+        // lift the shrunken size back up), so a multiplier above 0.36 changed
+        // nothing: PROJECT_SNIPER ran x0.88 at -18% a trade and kept taking its
+        // weakest band. Where size cannot shrink, the lane's own record raises the
+        // bar it must clear instead: 1 - m of the way to the old +25 ceiling
+        // (x0.88 -> +5, x0.75 -> +10, x0.36 and below -> +25). Never a refusal; a
+        // strong setup still clears, so the lane keeps earning the evidence that
+        // lifts it. Field Manual §8: risk follows the measured edge.
+        return ((1.0 - m) * ADMISSION_DELTA_PER_UNIT_7775).coerceIn(0.0, 25.0)
     }
+
+    private const val ADMISSION_DELTA_PER_UNIT_7775 = 40.0
 
     fun statusLine(): String = try {
         val map = snapshot()
@@ -220,6 +227,20 @@ object LaneExpectancyDamper {
         return fresh
     }
 
+    /**
+     * V5.0.7775 — label weight for [lane], counted at a tenth of a close each, only
+     * when both the closes and the 60-minute labels are negative.
+     */
+    private fun labelEvidenceFor7775(lane: String, closeMeanPct: Double): Double {
+        if (!closeMeanPct.isFinite() || closeMeanPct >= 0.0) return 0.0
+        val st = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane.trim().uppercase()) } catch (_: Throwable) { null }
+            ?: return 0.0
+        if (st.n60 <= 0 || !st.meanNet60Pct.isFinite() || st.meanNet60Pct >= 0.0) return 0.0
+        return com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(st.n60 / LABELS_PER_CLOSE_7775)
+    }
+
+    private const val LABELS_PER_CLOSE_7775 = 10.0
+
     private fun compute(paperRuntime6679: Boolean): Map<String, Double> {
         val board = try {
             if (paperRuntime6679) StrategyTelemetry.computeCleanPaperTerminalLeaderboard()
@@ -242,7 +263,12 @@ object LaneExpectancyDamper {
             // being exactly zero until the old n=8 cliff.
             // V5.0.7277 — the curve is 6715's; k moves from 3 to the shared
             // LANE_OPINION_CLOSES so one close nudges, thirty closes opine.
-            val evidence6715 = com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades)
+            // V5.0.7775 — a bleeding lane's forward labels (every candidate it judged,
+            // priced at 60 min) are evidence too. They only ever strengthen a cut the
+            // lane's own closes already call for, never start one: PROJECT_SNIPER
+            // had 21 closes (weight 0.41) beside 2,190 labels at -14.1%.
+            val labelEvidence7775 = labelEvidenceFor7775(m.strategy, m.meanPnlPct)
+            val evidence6715 = maxOf(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades), labelEvidence7775)
             fun blend6715(raw: Double): Double = (1.0 + (raw - 1.0) * evidence6715).coerceIn(0.05, 1.60)
 
             // Proven profitable asymmetric runners may be pressed, but only when
