@@ -5823,6 +5823,7 @@ object FinalDecisionGate {
         }
 
         try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:$candidateVersion7623") } catch (_: Throwable) {}
+        if (shouldTradeFinal) try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.confirm7772(ts.mint) } catch (_: Throwable) {}
         // V5.0.6657 §FDG_STAMP_FANOUT — operator dump Feb 2026:
         //   QUALITY buyIntent=287 fdg=0 (FDG_CHOKED). Root cause:
         //   line 4857 only stamps the cycle-primary lane. Every

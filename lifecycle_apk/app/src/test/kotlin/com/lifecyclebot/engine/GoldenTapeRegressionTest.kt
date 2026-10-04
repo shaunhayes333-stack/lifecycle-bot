@@ -10699,7 +10699,7 @@ class GoldenTapeRegressionTest {
         assertTrue(main.contains("private val DECISION_LOG_MAX_CHARS_4280 = 3200"))
         // The narrative is the body in the no-token state, not the fallback for an empty table.
         assertTrue(main.contains("val tableRows7285 = latest.take(4)"))
-        assertFalse(main.contains("state.logs.takeLast(8).asReversed().joinToString(\"\\n\").ifBlank"))
+        assertFalse(main.contains("state.logs.takeLast(8).asReversed().joinToString(\"\").ifBlank"))
     }
 
     /** V5.0.7286 — a reasoning model is asked for a short thought and given
@@ -13865,7 +13865,7 @@ class GoldenTapeRegressionTest {
         assertTrue(w.contains("} catch (e: SentButUnconfirmed7733) {\n                throw e\n            } catch (e: Exception) {\n                lastException = e"))
         // ... the receipt is stamped on the pending row before anything after the send can throw ...
         assertTrue(ex.contains("try { HostWalletTokenTracker.recordSignedBuyBasis7708(ts.mint, ts.symbol, price, sol, sig, routedLaneTag) } catch (_: Throwable) {}"))
-        assertEquals(2, Regex("\\n\\s*broadcastSig7733 = sig\\n").findAll(ex).count())
+        assertEquals(2, Regex("\\s*broadcastSig7733 = sig").findAll(ex).count())
         // ... and the catch keeps the buy pending instead of failing it.
         val catchBlock = ex.substringAfter("val safe = security.sanitiseForLog(e.message ?: \"unknown\")\n            // V5.0.7733").substringBefore("PipelineHealthCollector.labelInc(\"BUY_PROVIDER_FAILED_6324\")")
         assertTrue(catchBlock.contains("val sentSig7733 = broadcastSig7733 ?: (e as? SolanaWallet.SentButUnconfirmed7733)?.signature"))
@@ -14640,5 +14640,19 @@ class GoldenTapeRegressionTest {
         assertTrue(birth.contains("compareBy<Resolution>({ it.birthMs }, { sourceRank7770(it.source) })"))
         val hyd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TokenBirthHydrator7441.kt").readText()
         assertTrue(hyd.contains("if (state.pages >= MAX_PAGES_7770)"))
+    }
+    @Test
+    fun V5_0_7772_exploration_slot_spent_on_final_allow_and_not_held_by_recovered_bags() {
+        val lsa = com.lifecyclebot.engine.truth.LaneScoreAdmission7308
+        assertFalse(lsa.holdsExplorationSlot7772("WALLET_RECOVERED"))
+        assertTrue(lsa.holdsExplorationSlot7772("SHITCOIN"))
+        val now = 50_000_000L
+        lsa.record("EXPLMINT7772", "SHITCOIN", 40.0, exploration = true, nowMs = now)
+        // a record alone no longer spends the lane's slot
+        assertTrue(lsa.runnerSlotFree("SHITCOIN", 0, 0L, now + 1_000L))
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneScoreAdmission7308.kt").readText()
+        assertTrue(src.contains("holdsExplorationSlot7772(it.lane) && !isProven("))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("if (shouldTradeFinal) try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.confirm7772(ts.mint) }"))
     }
 }

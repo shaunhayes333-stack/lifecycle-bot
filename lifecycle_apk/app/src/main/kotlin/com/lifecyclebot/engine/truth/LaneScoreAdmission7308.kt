@@ -34,14 +34,31 @@ object LaneScoreAdmission7308 {
     fun record(mint: String, lane: String, score: Double, exploration: Boolean, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || !score.isFinite()) return
         byMint[mint] = Admission(lane.trim().uppercase(), score, exploration, nowMs)
-        if (exploration) {
-            lastExplorationMs = nowMs
-            lastExplorationByLane7323[lane.trim().uppercase()] = nowMs
-        }
+        // V5.0.7772 — the slot's 5-minute spacing starts when FinalDecisionGate's
+        // final verdict allows the trade (confirm7772), not here: this runs before
+        // the Field Manual, cell proof, fresh-launch, plan and council reads, and a
+        // refusal by any of them used to lock the lane out for 5 minutes.
         try {
             PipelineHealthCollector.labelInc(if (exploration) "LANE_EXPLORATION_ADMITTED_7308" else "LANE_SCORE_ADMISSION_RECORDED_7308")
         } catch (_: Throwable) {}
     }
+
+    /** V5.0.7772 — FinalDecisionGate allowed this mint: an exploration admission now spends its lane's slot. */
+    fun confirm7772(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        val a = byMint[mint] ?: return
+        if (!a.exploration || nowMs - a.atMs > TTL_MS) return
+        lastExplorationMs = nowMs
+        lastExplorationByLane7323[a.lane] = nowMs
+    }
+
+    /**
+     * V5.0.7772 — adopted wallet holdings (WALLET_RECOVERED and other recovered
+     * stubs) are leftovers the bot exits, not a strategy's exploration. Counted,
+     * five of them held the single global slot for their whole life and every
+     * unproven specialist died at FDG as CANONICAL_V3_SCORE_FLOOR_7243 (579 on
+     * 5.0.7771). Field Manual §12: a lane earns authority from its own trades.
+     */
+    fun holdsExplorationSlot7772(lane: String): Boolean = !lane.trim().uppercase().contains("RECOVER")
 
     fun forMint(mint: String, nowMs: Long = System.currentTimeMillis()): Admission? {
         val a = byMint[mint] ?: return null
@@ -103,7 +120,7 @@ object LaneScoreAdmission7308 {
     fun explorationSlotFreeNow(isProven: (String) -> Boolean, nowMs: Long = System.currentTimeMillis()): Boolean {
         val openUnproven = try {
             CanonicalPositionAuthority6441.openPositions().count {
-                it.mode.equals("LIVE", ignoreCase = true) && !isProven(it.lane.trim().uppercase())
+                it.mode.equals("LIVE", ignoreCase = true) && holdsExplorationSlot7772(it.lane) && !isProven(it.lane.trim().uppercase())
             }
         } catch (_: Throwable) { return false }
         return explorationSlotFree(openUnproven, lastExplorationMs, nowMs)
