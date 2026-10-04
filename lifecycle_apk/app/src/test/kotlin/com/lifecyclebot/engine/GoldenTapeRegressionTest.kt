@@ -14669,4 +14669,16 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("val laneProvenForLive7307 = config.paperMode || laneScoreClears7307 || laneProven7308(floorLane7266)"))
     }
+
+    @Test
+    fun V5_0_7774_owner_must_want_the_trade_no_probe_halving_no_unroutable_paper_crypto() {
+        val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
+        assertTrue(lec.contains("private fun nativeRefused7774(mint: String, lane: String): Boolean"))
+        assertTrue(lec.contains("lanes = willing7774.ifEmpty { qualified7620.ifEmpty { listOf(laneUpper) } }"))
+        assertTrue(lec.contains("PRESEAL_OWNER_NATIVE_REFUSED_REELECTED_7774"))
+        val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
+        assertTrue(fm.contains("        val mult = 1.0"))
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(alt.contains("isPaperMode.get() && signal.isDynamic && route?.mint == null && route?.executable != true"))
+    }
 }

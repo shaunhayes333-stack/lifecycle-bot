@@ -567,7 +567,11 @@ object FieldManual7715 {
             soft.size == 1 && card.rewardToRisk >= MIN_R_PASS_7715 && card.rewardToRisk < MIN_R_FULL_7715 -> Decision.SMALL_PROBE
             else -> Decision.WAIT
         }
-        val mult = if (decision == Decision.SMALL_PROBE) PROBE_SIZE_MULTIPLIER_7715 else 1.0
+        // V5.0.7774 — operator: "I dont want probe trades." The verdict still records
+        // SMALL_PROBE (the card's open questions stay visible and counted), but it no
+        // longer halves the order: an admitted trade goes at the size the sizer chose.
+        // Nothing that used to trade is refused by this change.
+        val mult = 1.0
         return Verdict(decision, hard + soft, mult, card)
     }
 

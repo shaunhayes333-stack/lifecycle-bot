@@ -332,6 +332,21 @@ object LaneExecutionCoordinator {
             ?.takeIf { laneCanOwnExecution6910(it) }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7774 §THE_OWNER_MUST_WANT_THE_TRADE. A lane whose own evaluator has
+     * authoritatively refused this mint (SpecialistBrainBridge7542's cached opinion,
+     * read-only) cannot own it. On 5.0.7771 the pre-seal fallback elected by static
+     * priority alone, so EXPRESS (93) owned RENDER while its trader answered
+     * MCAP_TOO_HIGH, and CASHGEN, which qualified it, was suppressed as
+     * LANE_TELEMETRY_ONLY (832 preauth suppressions; BLUECHIP/QUALITY/CASHGEN 0
+     * tickets on 255 FDG allows). Field Manual §12: one selected strategy owns the
+     * live trade, the one whose evaluator chose it. Still one primary per mint.
+     */
+    private fun nativeRefused7774(mint: String, lane: String): Boolean = try {
+        val o = SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())
+        o != null && o.authoritative && !o.eligible
+    } catch (_: Throwable) { false }
+
     fun canRequestExecution(
         mint: String,
         lane: String,
@@ -361,6 +376,16 @@ object LaneExecutionCoordinator {
             elections.remove(mapKey, existing)
             existing = null
         }
+        // V5.0.7774 — an unclaimed pre-seal election whose owner refuses the mint
+        // yields to a caller whose own evaluator does not.
+        val prior7774 = existing
+        if (prior7774 != null && sealedFdgOwner6679 == null && !prior7774.sealed &&
+            prior7774.primaryLane != laneUpper && nativeRefused7774(mint, prior7774.primaryLane) &&
+            !nativeRefused7774(mint, laneUpper)) {
+            try { PipelineHealthCollector.labelInc("PRESEAL_OWNER_NATIVE_REFUSED_REELECTED_7774") } catch (_: Throwable) {}
+            elections.remove(mapKey, prior7774)
+            existing = null
+        }
         val e = existing ?: if (sealedFdgOwner6679 != null) {
             if (sealedFdgOwner6679 != laneUpper) {
                 try {
@@ -388,9 +413,15 @@ object LaneExecutionCoordinator {
             val qualified7620 = qualifiedLanesFor(mint, candidateVersion, laneUpper)
                 .filter { laneCanOwnExecution6910(it) }
                 .distinct()
+            // V5.0.7774 — contenders whose own evaluator refused the mint sit out;
+            // if every contender refused, the contest is unchanged (no new choke).
+            val willing7774 = qualified7620.filterNot { nativeRefused7774(mint, it) }
+            if (willing7774.size < qualified7620.size) {
+                try { PipelineHealthCollector.labelInc("LANE_ELECTION_NATIVE_REFUSED_FILTERED_7774") } catch (_: Throwable) {}
+            }
             elect(
                 mint = mint,
-                lanes = qualified7620.ifEmpty { listOf(laneUpper) },
+                lanes = willing7774.ifEmpty { qualified7620.ifEmpty { listOf(laneUpper) } },
                 preferred = null,
                 candidateVersion = candidateVersion,
                 runtimeGeneration = runtimeGeneration,

@@ -2804,6 +2804,16 @@ object CryptoAltTrader {
                 )
             } catch (_: Throwable) {}
         }
+        // V5.0.7774 — a paper position on a non-Solana dynamic asset with no live-
+        // executable route trains a lane live cannot use, and its held mark never
+        // refreshes (CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245 = 433 on 5.0.7771): 15
+        // closes at exactly 0.00% (ADAPTIVE_HOLD_MAX) and four DEAD_TOKEN_NO_PRICE_EXIT
+        // fee haircuts on 1.25-1.3 SOL rows. Paper is evidence for live (Field Manual
+        // §12: mode-matched outcomes); Solana assets and live-routable ones are untouched.
+        if (isPaperMode.get() && signal.isDynamic && route?.mint == null && route?.executable != true) {
+            hardNo += "PAPER_NON_SOLANA_NOT_LIVE_EXECUTABLE_7774"
+            try { PipelineHealthCollector.labelInc("CRYPTO_PAPER_NON_SOLANA_NOT_LIVE_EXECUTABLE_7774") } catch (_: Throwable) {}
+        }
         val pre = when {
             hardNo.isNotEmpty() -> CryptoFinalBuyCandidate.PreFdgVerdict.HARD_NO_BUY
             signal.score >= 50 && signal.confidence >= 40 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
