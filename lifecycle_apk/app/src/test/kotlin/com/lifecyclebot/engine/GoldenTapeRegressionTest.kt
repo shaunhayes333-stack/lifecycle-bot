@@ -14440,4 +14440,27 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7758_the_pair_poll_writes_the_five_minute_tape_and_momentum_is_one_scale() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val cycle = bot.substringAfter("private fun processTokenCycle(").substringBefore("\n    private fun ")
+        assertTrue(cycle.contains("applyPollFlow7758(ts, pair)"))
+        assertFalse(cycle.contains("val candleTxns = pair.candle.buysH1 + pair.candle.sellsH1"))
+        val helper = bot.substringAfter("private fun applyPollFlow7758(").substringBefore("\n    }\n")
+        assertTrue(helper.contains("ts.lastSellPressurePct = pair.sellsM5.toDouble() / m5 * 100.0"))
+        assertTrue(helper.contains("if (pair.priceChangeM5.isFinite()) ts.lastPriceChange5m = pair.priceChangeM5"))
+        assertTrue(helper.contains("ts.tokenMap.volume1hUsd = pair.candle.volumeH1"))
+        val api = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        assertTrue(api.contains("priceChangeM5    = p.optJSONObject(\"priceChange\")"))
+        val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        assertFalse(orch.contains("ts.momentum = (50.0 + chg6852 * 2.0)"))
+        assertTrue(orch.contains("ts.momentum = chg6852.coerceIn(-100.0, 1000.0)"))
+        // Defaults keep a synthesised pair tape-less.
+        val pi = com.lifecyclebot.network.PairInfo("p", "S", "N", "u", com.lifecyclebot.data.Candle(ts = 1L, priceUsd = 1.0, marketCap = 1.0, volumeH1 = 0.0, volume24h = 0.0))
+        assertEquals(-1, pi.buysM5)
+        assertFalse(pi.priceChangeM5.isFinite())
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }

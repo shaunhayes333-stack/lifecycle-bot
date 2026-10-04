@@ -765,9 +765,12 @@ class DataOrchestrator(
                     val first6852 = recent6852.first().priceUsd
                     val last6852 = recent6852.last().priceUsd
                     if (first6852.isFinite() && first6852 > 0.0 && last6852.isFinite() && last6852 > 0.0) {
-                        // net % change across the window, centred so 50 = flat.
+                        // net % change across the window. V5.0.7758 — the same signed
+                        // percent the pair poll writes (BotService) and every reader
+                        // expects (Express >= 3, pivot >= 6); the old 50-centred score
+                        // read as +50% momentum on a flat token.
                         val chg6852 = ((last6852 - first6852) / first6852) * 100.0
-                        ts.momentum = (50.0 + chg6852 * 2.0).coerceIn(0.0, 100.0)
+                        ts.momentum = chg6852.coerceIn(-100.0, 1000.0)
                     }
                 }
             }

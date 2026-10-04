@@ -35,6 +35,13 @@ data class PairInfo(
     val socials: List<String> = emptyList(),     // social platform types: ["twitter","telegram","discord","medium",...]
     val websites: List<String> = emptyList(),    // website urls (deduped)
     val hasImage: Boolean = false,                // imageUrl present in info block
+    // V5.0.7758 — the poll already returns the five-minute tape and the price
+    // changes the disabled DexScreener socket used to supply. NaN / -1 = absent.
+    val buysM5: Int = -1,
+    val sellsM5: Int = -1,
+    val volumeM5: Double = Double.NaN,
+    val priceChangeM5: Double = Double.NaN,
+    val priceChangeH1: Double = Double.NaN,
 )
 
 class DexscreenerApi {
@@ -289,6 +296,11 @@ class DexscreenerApi {
             socials          = socialsList.toList(),
             websites         = websitesList.toList(),
             hasImage         = imagePresent,
+            buysM5           = txns?.optJSONObject("m5")?.optInt("buys", -1) ?: -1,
+            sellsM5          = txns?.optJSONObject("m5")?.optInt("sells", -1) ?: -1,
+            volumeM5         = vol?.takeIf { it.has("m5") }?.optDouble("m5", Double.NaN) ?: Double.NaN,
+            priceChangeM5    = p.optJSONObject("priceChange")?.takeIf { it.has("m5") }?.optDouble("m5", Double.NaN) ?: Double.NaN,
+            priceChangeH1    = p.optJSONObject("priceChange")?.takeIf { it.has("h1") }?.optDouble("h1", Double.NaN) ?: Double.NaN,
         )
     }
 

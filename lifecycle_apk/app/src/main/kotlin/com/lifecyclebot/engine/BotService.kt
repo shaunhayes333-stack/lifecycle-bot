@@ -1012,6 +1012,39 @@ class BotService : Service() {
     }
 
     /**
+     * V5.0.7758 §THE_POLL_CARRIES_THE_TAPE_THE_DEAD_SOCKET_USED_TO.
+     *
+     * DexScreenerWebSocket is disabled (DISABLED_7381) and was the only writer of
+     * lastSellPressurePct, lastPriceChange5m and lastPriceChange1h, so sizing, the
+     * live rug-risk flag, pump-then-fade staging and the launch phase read 50 / 0 /
+     * 0 forever; buy pressure was written from 1h counts while read as 5-minute
+     * flow; tokenMap.volume1hUsd/5mUsd had no writer. The pair poll returns all of
+     * it. Field Manual §3: read the tape you trade — flow, change and volume
+     * belong to the current window. A synthesised pair (no tape) writes nothing.
+     */
+    private fun applyPollFlow7758(ts: com.lifecyclebot.data.TokenState, pair: com.lifecyclebot.network.PairInfo) {
+        try {
+            val m5 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.buysM5 + pair.sellsM5 else 0
+            val h1 = pair.candle.buysH1 + pair.candle.sellsH1
+            when {
+                m5 > 0 -> {
+                    ts.lastBuyPressurePct = pair.buysM5.toDouble() / m5 * 100.0
+                    ts.lastSellPressurePct = pair.sellsM5.toDouble() / m5 * 100.0
+                }
+                h1 > 0 -> {
+                    ts.lastBuyPressurePct = pair.candle.buysH1.toDouble() / h1 * 100.0
+                    ts.lastSellPressurePct = pair.candle.sellsH1.toDouble() / h1 * 100.0
+                }
+            }
+            if (pair.priceChangeM5.isFinite()) ts.lastPriceChange5m = pair.priceChangeM5
+            if (pair.priceChangeH1.isFinite()) ts.lastPriceChange1h = pair.priceChangeH1
+            if (pair.candle.volumeH1.isFinite() && pair.candle.volumeH1 > 0.0) ts.tokenMap.volume1hUsd = pair.candle.volumeH1
+            if (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) ts.tokenMap.volume5mUsd = pair.volumeM5
+            PipelineHealthCollector.labelInc(if (m5 > 0) "POLL_FLOW_M5_WRITTEN_7758" else "POLL_FLOW_H1_FALLBACK_7758")
+        } catch (_: Throwable) {}
+    }
+
+    /**
      * V5.0.7739 — executes the exit a position's plan owes (TradePlan7739).
      * One dispatch per mint per 10 s; the full sell goes through the same
      * off-loop path as the tick floors, the first-target half off the loop.
@@ -25258,10 +25291,7 @@ if (hotExitHandledSweep) {
             // Previously only set by DexScreener WebSocket — tokens without an active
             // WS subscription were stuck at default 50.0, causing ShitCoinExpress (>=55)
             // and ManipulatedTraderAI to never trigger on polled tokens.
-            val candleTxns = pair.candle.buysH1 + pair.candle.sellsH1
-            if (candleTxns > 0) {
-                ts.lastBuyPressurePct = pair.candle.buysH1.toDouble() / candleTxns * 100.0
-            }
+            applyPollFlow7758(ts, pair)
 
             // V3.2: Update shadow learning engine with price
             if (pair.candle.priceUsd > 0) {
