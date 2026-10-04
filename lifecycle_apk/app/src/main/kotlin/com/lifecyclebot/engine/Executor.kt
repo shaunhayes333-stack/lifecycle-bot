@@ -20116,7 +20116,7 @@ class Executor(
             val capitalLane = BleederMemoryRouter.canon(canonicalRoutedLane)
             val st = try { BleederMemoryRouter.statsFor(capitalLane) } catch (_: Throwable) { null }
             val toxicShitcoin = capitalLane == "SHITCOIN" && st != null && st.n50 >= 5 && (st.netPnl50Sol <= 0.0 || st.ev50Pct < 0.0 || st.wr50 < 25.0)
-            val toxicPresale = capitalLane == "PRESALE_SNIPE" && st != null && st.n20 >= 3 && (st.wr20 <= 0.0 || st.ev20Pct < 0.0)
+            val toxicPresale = (capitalLane == "PROJECT_SNIPER" || capitalLane == "PRESALE_SNIPE") && st != null  /* V5.0.7764 — canon() returns PROJECT_SNIPER */ && st.n20 >= 3 && (st.wr20 <= 0.0 || st.ev20Pct < 0.0)
             if (toxicShitcoin || toxicPresale) {
                 val reason = if (toxicShitcoin) "SHITCOIN_NEGATIVE_EV_SIZE_SHAPED" else "PRESALE_SNIPE_NEGATIVE_EV_SIZE_SHAPED"
                 laneCapitalSizeMultiplier = if (toxicShitcoin) 0.35 else 0.25

@@ -101,8 +101,9 @@ object RegimeDetector {
             return RegimeSnapshot(Regime.NORMAL, 0.0, 0.0, v3Median, recentSells.size, now)
         }
 
-        val wins = recentSells.count { it.pnlPct > 1.0 }
-        val losses = recentSells.count { it.pnlPct < -1.0 }
+        // V5.0.7764 — one outcome class for the whole bot (±0.5%).
+        val wins = recentSells.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN }
+        val losses = recentSells.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS }
         val wlDenom = wins + losses
         val wr = if (wlDenom > 0) (wins.toDouble() / wlDenom) * 100.0 else 0.0
         val meanPnl = recentSells.sumOf { it.pnlPct } / recentSells.size

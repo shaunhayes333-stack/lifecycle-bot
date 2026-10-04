@@ -67,9 +67,10 @@ object BleederMemoryRouter {
         return rows.groupBy { canon(it.tradingMode.ifBlank { it.reason }) }.mapValues { (lane, laneRows) ->
             fun slice(n: Int) = laneRows.takeLast(n)
             fun wr(list: List<com.lifecyclebot.data.Trade>): Double {
-                val wl = list.filter { it.pnlPct >= 0.5 || it.pnlPct <= -2.0 }
+                // V5.0.7764 — one outcome class for the whole bot (±0.5%, com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576).
+                val wl = list.filter { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) != com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN }
                 if (wl.isEmpty()) return 100.0
-                return wl.count { it.pnlPct >= 0.5 } * 100.0 / wl.size
+                return wl.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN } * 100.0 / wl.size
             }
             fun ev(list: List<com.lifecyclebot.data.Trade>): Double = if (list.isEmpty()) 0.0 else list.map { it.pnlPct }.average()
             val r20 = slice(20); val r50 = slice(50); val r100 = slice(100)

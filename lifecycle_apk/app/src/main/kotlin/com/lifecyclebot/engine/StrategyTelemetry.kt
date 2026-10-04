@@ -233,8 +233,9 @@ object StrategyTelemetry {
             }
 
         return sellsByStrategy.map { (strategy, trades) ->
-            val wins = trades.count { it.pnlPct >= 0.5 }
-            val losses = trades.count { it.pnlPct <= -2.0 }
+            // V5.0.7764 — one outcome class for the whole bot (±0.5%).
+            val wins = trades.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN }
+            val losses = trades.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS }
             val scratches = trades.size - wins - losses
             // V5.9.1357 — clamp per-trade pnl% for the EV/mean view so a single
             // feed-artifact outlier (e.g. +1,340,125% from a glitched price tick)

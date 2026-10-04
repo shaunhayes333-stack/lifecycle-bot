@@ -683,7 +683,9 @@ object TradeHistoryStore {
             upper.contains("PROJECTSNIPER") || upper.contains("SNIPER") -> "PROJECT_SNIPER"
             upper.contains("DIPHUNTER") -> "DIP_HUNTER"
             upper.contains("MOMENTUM") -> "MOMENTUM_SWING"
-            upper.contains("PRESALE") -> "PRESALE_SNIPE"
+            // V5.0.7764 — one sniper lane (CanonicalLaneIdentity6506 folds PRESALE_SNIPE
+            // into PROJECT_SNIPER); presale rows were split into their own bucket.
+            upper.contains("PRESALE") -> "PROJECT_SNIPER"
             upper.contains("LONGHOLD") -> "LONG_HOLD"
             upper.contains("COMMUNITY") -> "COMMUNITY"
             upper.contains("ALT") && upper.contains("TRADER") -> "ALTTRADER"

@@ -53,8 +53,9 @@ object LiveProbabilityEngine {
                 val groups = raw.filter { it.side.equals("SELL", true) }
                     .groupBy { canonical(it.tradingMode) }
                 val rebuilt = groups.mapValues { (ln, list) ->
-                    val wins = list.count { it.pnlPct > 0.0 }
-                    val losses = list.count { it.pnlPct < 0.0 }
+                    // V5.0.7764 — one outcome class for the whole bot (±0.5%).
+                    val wins = list.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN }
+                    val losses = list.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS }
                     val n = list.size
                     val wr = if (n > 0) wins.toDouble() / n.toDouble() * 100.0 else 0.0
                     val mean = if (n > 0) list.sumOf { it.pnlPct } / n.toDouble() else 0.0

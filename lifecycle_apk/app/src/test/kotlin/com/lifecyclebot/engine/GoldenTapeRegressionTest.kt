@@ -14539,4 +14539,24 @@ class GoldenTapeRegressionTest {
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }
 
+    @Test
+    fun V5_0_7764_one_outcome_class_and_one_sniper_lane_across_the_stats() {
+        val c = "com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576"
+        for (f in listOf("BleederMemoryRouter.kt", "StrategyTelemetry.kt", "RegimeDetector.kt", "LiveProbabilityEngine.kt")) {
+            val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/$f").readText()
+            assertTrue(f, src.contains("$c.classifyReadonly(it.pnlPct)"))
+        }
+        val th = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(th.contains("upper.contains(\"PRESALE\") -> \"PROJECT_SNIPER\""))
+        assertEquals("PROJECT_SNIPER", com.lifecyclebot.engine.TradeHistoryStore.normalizeTradeModeName("PRESALE_SNIPE"))
+        assertEquals("PROJECT_SNIPER", com.lifecyclebot.engine.TradeHistoryStore.normalizeTradeModeName("PROJECT_SNIPER"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("val toxicPresale = (capitalLane == \"PROJECT_SNIPER\" || capitalLane == \"PRESALE_SNIPE\")"))
+        val cls = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576
+        assertEquals(cls.Class.LOSS, cls.classifyReadonly(-1.0))
+        assertEquals(cls.Class.BREAKEVEN, cls.classifyReadonly(0.3))
+        assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+    }
+
 }
