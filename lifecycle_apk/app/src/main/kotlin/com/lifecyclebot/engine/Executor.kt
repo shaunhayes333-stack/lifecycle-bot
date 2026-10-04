@@ -23648,6 +23648,7 @@ class Executor(
      * Idempotent per signature and on canonical state; never throws.
      */
     fun resumeLiveSellFinalization7362(mint: String, sig: String, wallet: SolanaWallet?, tsHint: TokenState? = null): Boolean {
+        try { com.lifecyclebot.engine.truth.LiveEducationAudit7776.onResumePathClose() } catch (_: Throwable) {}
         if (mint.isBlank() || sig.isBlank() || sig.startsWith("PHANTOM_")) return false
         if (sig in resumeProcessedSigs7362 || sig in resumeUnusableSigs7362) {
             label7362("LIVE_SELL_FINALITY_RESUME_SKIPPED_7362_SIG_DONE")
@@ -29929,7 +29930,28 @@ class Executor(
                     try { PipelineHealthCollector.labelInc("BUY_GATE_PENALTY_ONLY_REPEATED_LOSS") } catch (_: Throwable) {}
                     onLog("🧠 LIVE PENALTY_ONLY: ${ts.symbol} repeated losses — size/score/cooldown pressure only, no blacklist", ts.mint)
                 }
+                try { com.lifecyclebot.engine.truth.LiveEducationAudit7776.onBrainLive() } catch (_: Throwable) {}
             }
+            // V5.0.7776 — the bad-token / pattern memory learned only from paperSell;
+            // live losses never reached it (LifecycleStrategy, the scanner and
+            // SmartSizer read it). Same call paper makes.
+            try {
+                TradingMemory.learnFromBadTrade(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    lossPct = pnlP,
+                    phase = ph,
+                    emaFan = fanName,
+                    source = src,
+                    liquidity = ts.lastLiquidityUsd,
+                    mcap = ts.lastMcap,
+                    ageHours = (System.currentTimeMillis() - (ts.history.firstOrNull()?.ts ?: System.currentTimeMillis())) / 3_600_000.0,
+                    hadSocials = false,
+                    isPumpFun = ts.source.contains("pump", ignoreCase = true),
+                    volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
+                )
+                com.lifecyclebot.engine.truth.LiveEducationAudit7776.onTradingMemoryLive(win = false)
+            } catch (_: Throwable) {}
         } else if (shouldLearnAsWin) {
             val fanName = ts.meta.emafanAlignment
             val ph      = pos.entryPhase
@@ -29956,7 +29978,21 @@ class Executor(
                     exitReason = reason,
                     tokenAgeMinutes = tokenAgeMinsLive,
                 )
+                try { com.lifecyclebot.engine.truth.LiveEducationAudit7776.onBrainLive() } catch (_: Throwable) {}
             }
+            // V5.0.7776 — wins reinforce the same memory live, as they do in paper.
+            try {
+                TradingMemory.learnFromWinningTrade(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    winPct = pnlP,
+                    phase = ph,
+                    emaFan = fanName,
+                    source = src,
+                    holdTimeMinutes = holdTimeMins,
+                )
+                com.lifecyclebot.engine.truth.LiveEducationAudit7776.onTradingMemoryLive(win = true)
+            } catch (_: Throwable) {}
         } else {
             ErrorLogger.debug("Executor", "LIVE ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning")
         }

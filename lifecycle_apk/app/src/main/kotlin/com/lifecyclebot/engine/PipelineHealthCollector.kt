@@ -2720,6 +2720,9 @@ object PipelineHealthCollector {
                     .also { try { it.verify6988() } catch (_: Throwable) {} }
                     .statusLine()
             ).append("\n")
+            sb.append("  Live education (§7776):       ").append(
+                try { com.lifecyclebot.engine.truth.LiveEducationAudit7776.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             // V5.0.6440 — learner reward bridge + runner ladder + runtime alive.
             sb.append("  Learner reward bridge (§6440):").append(
                 com.lifecyclebot.engine.truth.LearnerRewardBridge6440.statusLine()

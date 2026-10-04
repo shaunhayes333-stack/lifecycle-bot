@@ -124,6 +124,26 @@ object CanonicalTradeFinalizedBus6450 {
         subscribers.addIfAbsent(subscriber)
     }
 
+    /**
+     * V5.0.7776 — pure check: does a signed-buy basis agree with itself? The entry
+     * price in SOL (via EconomicUnitInvariant7061) must be within 2x of cost / qty.
+     */
+    internal fun signedBasisConsistent7776(pos: CanonicalPositionAuthority6441.Position?): Boolean {
+        if (pos == null) return false
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        return basisAgrees7776(pos.entryCostSol, pos.originalQtyRaw, pos.tokenDecimals, pos.entryPriceUsd, solUsd)
+    }
+
+    internal fun basisAgrees7776(costSol: Double, qtyRaw: java.math.BigInteger, decimals: Int, entryPriceUsd: Double, solUsd: Double): Boolean {
+        if (!costSol.isFinite() || costSol <= 0.0 || qtyRaw.signum() <= 0 || decimals !in 0..24) return false
+        val qtyUi = java.math.BigDecimal(qtyRaw).movePointLeft(decimals).toDouble()
+        if (!qtyUi.isFinite() || qtyUi <= 0.0) return false
+        val entrySol = EconomicUnitInvariant7061.usdToSol(entryPriceUsd, solUsd)
+        if (!entrySol.isFinite() || entrySol <= 0.0) return false
+        val ratio = (costSol / qtyUi) / entrySol
+        return ratio in 0.5..2.0
+    }
+
     fun publish(event: Event): Boolean {
         if (event.positionId.isBlank()) return false
         try { CanonicalRewardBootstrap6453.ensureBootstrapped() } catch (_: Throwable) {}
@@ -284,9 +304,16 @@ object CanonicalTradeFinalizedBus6450 {
             // and are excluded from every learner, exactly like malformed
             // economics (7097).
             val inferredBasis7722: String? = try {
-                val src7722 = CanonicalPositionAuthority6441.getPosition(event.positionId)?.entryPriceSource?.uppercase() ?: ""
+                val pos7776 = CanonicalPositionAuthority6441.getPosition(event.positionId)
+                val src7722 = pos7776?.entryPriceSource?.uppercase() ?: ""
                 when {
                     src7722.contains("OBSERVED_MARK_ADOPTION_7706") -> "OBSERVED_MARK_ADOPTION_7706"
+                    // V5.0.7776 — the bot's own signed buy (and the fill-registry rebuild)
+                    // carries a real cost; it teaches when that cost, the quantity and the
+                    // entry price agree. The 7720 row that motivated 7722 did not (implied
+                    // $406 against a real price far below), and still would not pass.
+                    (src7722.contains("HOST_TRACKER_SIGNED_BUY_7708") || src7722.contains("CANONICAL_BUY_FILL_RECOVERY_6686")) &&
+                        signedBasisConsistent7776(pos7776) -> null
                     src7722.contains("HOST_TRACKER_SIGNED_BUY_7708") -> "HOST_TRACKER_SIGNED_BUY_7708"
                     src7722.startsWith("WALLET_RECOVERY") || src7722.startsWith("WALLET_ADOPT") -> "WALLET_RECOVERY"
                     src7722.contains("BASIS_UNKNOWN") -> "BASIS_UNKNOWN"
@@ -294,6 +321,7 @@ object CanonicalTradeFinalizedBus6450 {
                     else -> null
                 }
             } catch (_: Throwable) { null }
+            if (event.mode.equals("LIVE", ignoreCase = true)) try { LiveEducationAudit7776.onBusLive(inferredBasis7722) } catch (_: Throwable) {}
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,

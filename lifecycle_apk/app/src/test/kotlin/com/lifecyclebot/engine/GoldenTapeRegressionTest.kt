@@ -13602,7 +13602,7 @@ class GoldenTapeRegressionTest {
         // basis stays on the bus for the audit and is excluded from every learner.
         val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
         assertTrue(bus.contains("val inferredBasis7722: String? = try {"))
-        assertTrue(bus.contains("CanonicalPositionAuthority6441.getPosition(event.positionId)?.entryPriceSource?.uppercase()"))
+        assertTrue(bus.contains("val src7722 = pos7776?.entryPriceSource?.uppercase() ?: \"\""))
         assertTrue(bus.contains("learningEligible = learningEligibility6519.eligible && economicInvalid6495 == null && inferredBasis7722 == null,"))
         assertTrue(bus.contains("\"INFERRED_BASIS_7722:\$inferredBasis7722\""))
         assertTrue(bus.contains("if (economicInvalid6495 == null && inferredBasis7722 != null) {"))
@@ -14688,5 +14688,20 @@ class GoldenTapeRegressionTest {
         assertTrue(d.contains("if (!m.isFinite() || m >= 1.0) return 0.0"))
         assertTrue(d.contains("val evidence6715 = maxOf(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades), labelEvidence7775)"))
         assertTrue(d.contains("if (!closeMeanPct.isFinite() || closeMeanPct >= 0.0) return 0.0"))
+    }
+
+    @Test
+    fun V5_0_7776_live_closes_teach_bad_token_memory_and_signed_buys_teach_learners() {
+        val bus = com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450
+        // 1 SOL for 1,000,000 tokens (6 decimals) at $150/SOL -> $0.00015 a token.
+        assertTrue(bus.basisAgrees7776(1.0, java.math.BigInteger("1000000000000"), 6, 0.00015, 150.0))
+        // the 7720 shape: implied price far from the recorded entry -> still excluded
+        assertFalse(bus.basisAgrees7776(1.0, java.math.BigInteger("1000000000000"), 6, 0.0015, 150.0))
+        assertFalse(bus.basisAgrees7776(0.0, java.math.BigInteger("1000000000000"), 6, 0.00015, 150.0))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("com.lifecyclebot.engine.truth.LiveEducationAudit7776.onTradingMemoryLive(win = false)"))
+        assertTrue(ex.contains("com.lifecyclebot.engine.truth.LiveEducationAudit7776.onTradingMemoryLive(win = true)"))
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("Live education (§7776)"))
     }
 }
