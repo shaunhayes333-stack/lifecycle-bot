@@ -97,7 +97,9 @@ object ForwardReturnLabeler7731 {
      * [NET_CEILING_PCT_7738] (the runner count still reads the gross move).
      */
     private const val BASIS_MAX_RATIO_7738 = 20.0
-    private const val NET_CEILING_PCT_7738 = 300.0
+    // V5.0.7769 — 300 clipped every real 4x-20x launch to +300% before the cell
+    // mean saw it; the corroboration check below is what keeps basis errors out.
+    private const val NET_CEILING_PCT_7738 = 1000.0
     private val basisSuspect7738 = AtomicLong(0)
     private val purgedCells7738 = AtomicLong(0)
 
@@ -107,6 +109,29 @@ object ForwardReturnLabeler7731 {
         val r = markPrice / entryPrice
         return r > BASIS_MAX_RATIO_7738 || r < 1.0 / BASIS_MAX_RATIO_7738
     }
+
+    /**
+     * V5.0.7769 §A_REAL_RUN_IS_NOT_A_BASIS_ERROR. The 20x basis guard also threw
+     * away every genuine runner: a $6.4k pump.fun launch that went to $1.2M (187x)
+     * would be dropped unbooked, so the cell it came from could only ever read
+     * its losers and the ladder refused that cell live. A move past 20x is a real
+     * move when the market cap moved by the same multiple (within 2x) and the
+     * ratio is not the SOL/USD factor that the 7738 basis mix-ups produced.
+     * Field Manual §12: authority comes from finalized outcomes, all of them.
+     */
+    fun runCorroborated7769(entryPrice: Double, markPrice: Double, entryMcap: Double, nowMcap: Double, solUsd: Double): Boolean {
+        if (!entryPrice.isFinite() || !markPrice.isFinite() || !entryMcap.isFinite() || !nowMcap.isFinite()) return false
+        if (entryPrice <= 0.0 || markPrice <= 0.0 || entryMcap <= 0.0 || nowMcap <= 0.0) return false
+        val r = markPrice / entryPrice
+        val agree = (nowMcap / entryMcap) / r in 0.5..2.0
+        val solBasis = solUsd.isFinite() && solUsd > 0.0 &&
+            (kotlin.math.abs(EconomicUnitInvariant7061.usdToSol(r, solUsd) - 1.0) < 0.25 ||
+                kotlin.math.abs(r / EconomicUnitInvariant7061.usdToSol(1.0, solUsd) - 1.0) < 0.25)
+        return agree && !solBasis
+    }
+
+    private fun nowMcap7769(mint: String): Double =
+        try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.lastMcap ?: 0.0 } catch (_: Throwable) { 0.0 }
 
     private class Obs(
         val mint: String,
@@ -128,6 +153,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var done60 = false
         @Volatile var done240 = false
         @Volatile var peakPct = 0.0
+        /** V5.0.7769 — market cap at the decision, the second witness for a big move. */
+        @Volatile var entryMcap = 0.0
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -158,6 +185,9 @@ object ForwardReturnLabeler7731 {
         val runnerRate60: Double,
         val stderr60Pct: Double,
         val lost: Int,
+        /** V5.0.7769 — the 4-hour record, where a launch cell's runners pay. */
+        val n240: Int = 0,
+        val meanNet240Pct: Double = 0.0,
     ) {
         /** Share of observations that reached a 60-minute label rather than losing their mark. */
         val resolvedShare: Double get() = if (n60 + lost > 0) n60.toDouble() / (n60 + lost) else 0.0
@@ -255,6 +285,7 @@ object ForwardReturnLabeler7731 {
                     if (o.admitted) "1" else "0", o.score.toString(), o.quality, o.regime, o.phase,
                     o.entryPrice.toString(), o.costPct.toString(), o.atMs.toString(),
                     if (o.done15) "1" else "0", if (o.done60) "1" else "0", if (o.done240) "1" else "0", o.peakPct.toString(),
+                    o.entryMcap.toString(),
                 ).joinToString(fs)
             }
     }
@@ -264,13 +295,14 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size != 17) return@forEach
+            if (f.size != 17 && f.size != 18) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             if (atMs <= 0L || nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731) return@forEach
             val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
             val o = Obs(f[0], f[1], f[2], f[3], f[4], f[5] == "1", f[6].toIntOrNull() ?: -1, f[7], f[8], f[9], px, f[11].toDoubleOrNull() ?: 0.0, atMs)
             o.done15 = f[13] == "1"; o.done60 = f[14] == "1"; o.done240 = f[15] == "1"
             o.peakPct = f[16].toDoubleOrNull() ?: 0.0
+            if (f.size == 18) o.entryMcap = f[17].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -369,6 +401,7 @@ object ForwardReturnLabeler7731 {
         // so the label lands on the coarse signature (lane | band | regime).
         val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score, "U", regime, "UNKNOWN", px, cost.coerceIn(0.0, 60.0), nowMs)
+            .also { it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0 }
         lastSeenAt[key] = nowMs
         // V5.0.7737 — a fresh launch is also followed by first touch (+50% / -30%).
         try { FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs) } catch (_: Throwable) {}
@@ -498,7 +531,10 @@ object ForwardReturnLabeler7731 {
                 }
                 continue
             }
-            if (basisSuspect7738(o.entryPrice, px)) {
+            if (basisSuspect7738(o.entryPrice, px) && !runCorroborated7769(
+                    o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
+                    try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
+                )) {
                 // V5.0.7738 — not a price move; the observation is dropped unbooked.
                 basisSuspect7738.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_SUSPECT_7738") } catch (_: Throwable) {}
@@ -540,6 +576,7 @@ object ForwardReturnLabeler7731 {
                     winRate60 = if (t.n60 > 0) t.win60.toDouble() / t.n60 else 0.0,
                     runnerRate60 = if (t.n60 > 0) t.runner60.toDouble() / t.n60 else 0.0,
                     stderr60Pct = se, lost = t.lost,
+                    n240 = t.n240, meanNet240Pct = if (t.n240 > 0) t.sum240 / t.n240 else 0.0,
                 )
             }
         }

@@ -43,9 +43,21 @@ object CellProofLadder7731 {
     private val unprovenReads = AtomicLong(0)
     @Volatile private var lastBlock: String = ""
 
+    /**
+     * V5.0.7769 — a cell's 4-hour record overrules a negative 60-minute read.
+     * Launch cells pay late: the run that takes a $6k pump.fun create to $1M is
+     * hours long, and the 60-minute mean books it before it has happened. A cell
+     * is not proven negative while [PROOF_240_MIN_N_7769]+ of its 4-hour labels
+     * say otherwise (Field Manual §12: judge the strategy on its tested
+     * distribution, not on the slice that is cheapest to measure).
+     */
+    private const val PROOF_240_MIN_N_7769 = 30
+
     /** Pure. */
     fun tierFor(stat: ForwardReturnLabeler7731.CellStat?): Tier {
         if (stat == null || stat.n60 < PROOF_MIN_N_7731) return Tier.UNPROVEN
+        if (stat.n240 >= PROOF_240_MIN_N_7769 && stat.meanNet240Pct >= NEGATIVE_MEAN_PCT_7731 &&
+            stat.meanNet60Pct - (if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else 0.0) <= POSITIVE_MEAN_PCT_7731) return Tier.UNPROVEN
         val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else 0.0
         // V5.0.7753 — a cell with most of its marks lost was unjudgeable, so
         // PUMP_PORTAL_WS|PROJECT_SNIPER (n=494, net -16.1%, wr 8%, lost=1112) and

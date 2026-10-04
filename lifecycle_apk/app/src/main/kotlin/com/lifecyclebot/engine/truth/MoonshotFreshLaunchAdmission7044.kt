@@ -132,7 +132,9 @@ object MoonshotFreshLaunchAdmission7044 {
     // PumpPortal create frame), not how long the bot has watched it: a $2M
     // trending coin that just joined the watchlist is not a fresh launch.
     private fun ageMinutes(ts: TokenState): Double? =
-        try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts) } catch (_: Throwable) { null }
+        // V5.0.7769 — the one launch-age rule (7767); the resolved-only read left
+        // every launch whose metadata had not landed unable to pass the runner shape.
+        try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts)?.div(60_000.0) } catch (_: Throwable) { null }
 
     /** V5.0.7323 — a pump.fun bonding-curve token whose create frame we saw. */
     private fun isObservedCurveToken(ts: TokenState): Boolean = try {

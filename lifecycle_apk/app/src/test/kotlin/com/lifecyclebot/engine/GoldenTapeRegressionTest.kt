@@ -11386,7 +11386,7 @@ class GoldenTapeRegressionTest {
         assertFalse(lsa.runnerSlotFree("MOONSHOT", 0, 900_000L, 1_000_000L))
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
         val birth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenBirthTime7440.kt").readText()
-        assertTrue(adm.contains("CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)"))
+        assertTrue(adm.contains("CanonicalTokenBirthTime7440.launchAgeMs7767(ts)"))
         assertTrue(birth.contains("PumpCurveKeys7269.createdAtMs7280(m)"))
         assertTrue(adm.contains("PumpCurveKeys7269.createPriceSol7280(ts.mint)"))
         assertTrue(adm.contains("RUNNER_SHAPED_CURVE_7323"))
@@ -13988,7 +13988,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(\"pending\", encodePending7735(now))"))
         assertTrue(lab.contains("restorePending7735(p.getString(\"pending\", null), System.currentTimeMillis())"))
-        assertTrue(lab.contains("if (f.size != 17) return@forEach"))
+        assertTrue(lab.contains("if (f.size != 17 && f.size != 18) return@forEach"))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
@@ -14609,5 +14609,24 @@ class GoldenTapeRegressionTest {
         com.lifecyclebot.engine.sell.DustBagLatch7768.latch("DUSTMINT7768", 1_000L)
         assertTrue(com.lifecyclebot.engine.sell.DustBagLatch7768.held("DUSTMINT7768", 2_000L))
         assertFalse(com.lifecyclebot.engine.sell.DustBagLatch7768.held("DUSTMINT7768", 1_000L + 11L * 60_000L))
+    }
+
+    @Test
+    fun V5_0_7769_launch_runners_are_booked_and_judged_on_four_hours() {
+        val lab = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        // $6.4k -> $1.2M: price and market cap both 187x, not the SOL/USD factor.
+        assertTrue(lab.runCorroborated7769(1.0e-6, 1.87e-4, 6_400.0, 1_200_000.0, 150.0))
+        // a 150x price jump with a flat market cap is a basis error
+        assertFalse(lab.runCorroborated7769(1.0e-6, 1.5e-4, 6_400.0, 6_500.0, 150.0))
+        // the SOL/USD factor itself stays a basis error even if the cap agrees
+        assertFalse(lab.runCorroborated7769(1.0e-6, 1.5e-4, 6_400.0, 960_000.0, 150.0))
+        assertFalse(lab.runCorroborated7769(1.0e-6, 1.87e-4, 0.0, 1_200_000.0, 150.0))
+        val ladder = com.lifecyclebot.engine.truth.CellProofLadder7731
+        val neg60 = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat("c", 300, -6.0, 0.14, 0.04, 1.0, 50)
+        assertEquals(com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.NEGATIVE, ladder.tierFor(neg60))
+        val pays240 = neg60.copy(n240 = 40, meanNet240Pct = 12.0)
+        assertEquals(com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.UNPROVEN, ladder.tierFor(pays240))
+        val sniper = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
+        assertTrue(sniper.contains("CanonicalTokenBirthTime7440.launchAgeMs7767(ts)"))
     }
 }

@@ -208,7 +208,8 @@ object ProjectSniperAI {
     ): TargetAssessment {
         
         // V5.0.7440 — no observation-time fallback.
-        val resolvedAgeMs7440 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts)
+        // V5.0.7769 — the one launch-age rule (CanonicalTokenBirthTime7440.launchAgeMs7767).
+        val resolvedAgeMs7440 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts)
             ?: return noEngage("BIRTH_METADATA_HYDRATING_7440", 0, ThreatLevel.RED)
         val tokenAgeSecs = (resolvedAgeMs7440 / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val launch7449 = try {
