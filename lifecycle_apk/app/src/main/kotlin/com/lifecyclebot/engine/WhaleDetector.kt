@@ -183,6 +183,10 @@ object WhaleDetector {
         )
     }
 
+    /** V5.0.7773 — pure: the tape's buy share once it has 3+ trades in 60 s, else null (no reading). */
+    fun tapeBuyPressure7773(buyTx60s: Int, sellTx60s: Int, buySharePct: Double): Double? =
+        if (buyTx60s + sellTx60s >= 3 && buySharePct.isFinite()) buySharePct.coerceIn(0.0, 100.0) else null
+
     fun launchFlow7401(mint: String, devWallet: String? = null, nowMs: Long = System.currentTimeMillis()): LaunchFlow {
         val q = launchTrades7401[mint]
         val rows = if (q == null) emptyList() else synchronized(q) {

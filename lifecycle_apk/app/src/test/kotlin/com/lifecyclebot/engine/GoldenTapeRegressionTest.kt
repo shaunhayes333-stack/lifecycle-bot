@@ -14655,4 +14655,18 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("if (shouldTradeFinal) try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.confirm7772(ts.mint) }"))
     }
+
+    @Test
+    fun V5_0_7773_helius_trades_feed_the_tape_and_specialists_trade_on_their_own_score() {
+        val w = com.lifecyclebot.engine.WhaleDetector
+        assertEquals(75.0, w.tapeBuyPressure7773(3, 1, 75.0)!!, 1e-9)
+        assertTrue(w.tapeBuyPressure7773(1, 1, 90.0) == null)
+        assertTrue(w.tapeBuyPressure7773(5, 0, Double.NaN) == null)
+        val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        assertTrue(orch.contains("onHeliusTrade7773(mint, wallet, safeSol, isBuy)"))
+        assertTrue(orch.contains("if (System.currentTimeMillis() - pp < PUMPPORTAL_PRIORITY_MS_7773) return"))
+        assertTrue(orch.contains("ts.lastBuyPressurePct = bp"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("val laneProvenForLive7307 = config.paperMode || laneScoreClears7307 || laneProven7308(floorLane7266)"))
+    }
 }

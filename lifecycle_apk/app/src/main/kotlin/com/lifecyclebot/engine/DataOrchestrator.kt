@@ -516,7 +516,33 @@ class DataOrchestrator(
      */
     fun onPumpPortalTrade7743(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
         if (mint.isBlank()) return
+        lastPumpPortalTradeMs7773[mint] = System.currentTimeMillis()
+        onTapeTrade7773(mint, wallet, solAmount, isBuy, soldFractionOfHolding)
+    }
+
+    /**
+     * V5.0.7773 §ONE_TAPE_TWO_FEEDS. PumpPortal's per-token trade stream needs an
+     * API key funded with 0.02 SOL; the Helius websocket decodes the same pump.fun
+     * TradeEvent (mint, side, SOL, wallet) on the operator's existing key. Both now
+     * land here, so the launch tape, whale tracker, dev-sell exit and buy pressure
+     * keep working when either feed is down. While PumpPortal delivers a mint, the
+     * Helius copy of its trades is skipped so no trade is counted twice.
+     */
+    fun onHeliusTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean) {
+        if (mint.isBlank()) return
+        val pp = lastPumpPortalTradeMs7773[mint] ?: 0L
+        if (System.currentTimeMillis() - pp < PUMPPORTAL_PRIORITY_MS_7773) return
+        try { PipelineHealthCollector.labelInc("TAPE_TRADE_FROM_HELIUS_7773") } catch (_: Throwable) {}
+        // Helius carries no holding size, so a dev sell's fraction is unknown (0).
+        onTapeTrade7773(mint, wallet, solAmount, isBuy, 0.0)
+    }
+
+    private val lastPumpPortalTradeMs7773 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
+
+    private fun onTapeTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
         try { synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) } } catch (_: Throwable) {}
+        try { applyTapeBuyPressure7773(mint) } catch (_: Throwable) {}
         // V5.0.7747 — WhaleTrackerAI's only feeder was BirdeyeWhaleFeeder (Birdeye
         // 401), so every scorer reading it saw stale data. A single trade at or above
         // the feeder's own whale bar (MIN_VOLUME_USD_TO_CLASSIFY, $1,000) is recorded.
@@ -549,6 +575,22 @@ class DataOrchestrator(
         }
     }
 
+    /**
+     * V5.0.7773 — buy pressure from the trade tape. ts.lastBuyPressurePct was
+     * written only by DexScreener (5-minute txns), so a bonding-curve launch with
+     * no DexScreener pair sat at the 50.0 default and MoonshotFreshLaunchAdmission
+     * declined it as NO_DEMAND_SIGNAL (744 on 5.0.7771) however hard it was being
+     * bought. With 3+ trades in the last 60 s the tape's buy share is the reading.
+     * Field Manual §3.4: read participation from the tape, not a default.
+     */
+    private fun applyTapeBuyPressure7773(mint: String) {
+        val ts = status.tokens[mint] ?: return
+        val flow = WhaleDetector.launchFlow7401(mint)
+        val bp = WhaleDetector.tapeBuyPressure7773(flow.buyTx60s, flow.sellTx60s, flow.buySharePct) ?: return
+        ts.lastBuyPressurePct = bp
+        ts.lastSellPressurePct = 100.0 - bp
+    }
+
     /** V5.0.7747 — BirdeyeWhaleFeeder's MIN_VOLUME_USD_TO_CLASSIFY, the same whale bar. */
     private val WHALE_TRADE_MIN_USD_7747 = 1_000.0
 
@@ -575,15 +617,12 @@ class DataOrchestrator(
             onSwap            = { mint, isBuy, solAmt, tokenAmt, wallet, sig ->
                 val safeSol = normalizeTradeSolAmount(solAmt, "helius_ws", mint) ?: return@HeliusWebSocket
                 lastWsEventMs[mint] = System.currentTimeMillis()
-                WhaleDetector.recordTrade(mint, wallet, safeSol, isBuy)
                 // V5.9: route to CopyTradeEngine for copy-buy detection
                 if (isBuy && wallet.isNotBlank()) {
                     copyTradeEngine?.onSwapDetected(mint, wallet, safeSol, isBuy = true)
                 }
-                val ts = synchronized(status.tokens) {
-                    status.tokens.values.find { it.mint == mint }
-                } ?: return@HeliusWebSocket
-                updateRealtimeCandle(ts, isBuy, safeSol)
+                // V5.0.7773 — the tape (launch flow, candles, whales, dev sells, buy pressure).
+                onHeliusTrade7773(mint, wallet, safeSol, isBuy)
             },
             onLargeWalletMove = { wallet, mint, solAmt, isBuy ->
                 // Check if this is a dev wallet selling

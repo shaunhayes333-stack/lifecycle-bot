@@ -1215,7 +1215,16 @@ object FinalDecisionGate {
                     )
             } catch (_: Throwable) { false }
         }
-        val laneProvenForLive7307 = config.paperMode || laneProven7308(floorLane7266)
+        // V5.0.7773 — operator: "the 20 trade to journal thing before trading is dumb.
+        // the lanes have adaptive scoring, fluid stops". A specialist whose OWN
+        // adaptive score clears its OWN fluid floor (CanonicalEntryFloor7266) trades
+        // live on that score; it no longer waits for 20 journal closes it had no way
+        // to earn (one exploration slot per lane, 5 min apart, was the only door).
+        // What still stands after this line: the fluid floor itself, hard safety, the
+        // Field Manual pass, the cell-proof ladder (100+ forward labels), the fresh-
+        // launch selector, the trade plan and the council. Field Manual §12: learn
+        // before you tighten; the lane's adaptive layers need closes to adapt.
+        val laneProvenForLive7307 = config.paperMode || laneScoreClears7307 || laneProven7308(floorLane7266)
         // V5.0.7308 — one live exploration slot for an unproven lane: it may
         // hold ONE live position at a time (spaced 5 min) so it earns real
         // closes. Shadow proof keeps accruing for every other refusal.
