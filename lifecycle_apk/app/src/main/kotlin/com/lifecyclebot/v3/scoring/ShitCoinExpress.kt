@@ -800,7 +800,7 @@ object ShitCoinExpress {
         // the runner gives back below its locked-in tier. Biggest wins.
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - ride.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(ride.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(ride.peakPnlPct, holdSeconds = _holdSec, lane = "EXPRESS")
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: $mint | peak +${ride.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
