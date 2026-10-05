@@ -632,7 +632,10 @@ object BlueChipTraderAI {
         v3Score: Int,
         v3Confidence: Int,
         momentum: Double,
-        volatility: Double
+        volatility: Double,
+        holderGrowthRatePct: Double = 0.0,
+        socialDepth: Int = 0,
+        smartMoneyBuyers60s: Int = 0,
     ): BlueChipSignal {
         
         // Check current mode
@@ -799,6 +802,20 @@ object BlueChipTraderAI {
         }
         blueChipScore += volScore
         if (volScore != 0) scoreReasons.add("vol${if (volScore > 0) "+" else ""}$volScore")
+
+        // V5.0.7802 — mature leaders should show persistent participation.
+        val persistence7802 = when {
+            holderGrowthRatePct >= 3.0 -> 6
+            holderGrowthRatePct >= 0.5 -> 3
+            holderGrowthRatePct <= -5.0 -> -8
+            else -> 0
+        } + when {
+            socialDepth >= 3 -> 4
+            socialDepth >= 2 -> 2
+            else -> 0
+        } + if (smartMoneyBuyers60s >= 2) 4 else 0
+        blueChipScore += persistence7802
+        if (persistence7802 != 0) scoreReasons.add("persist${if (persistence7802>0)"+" else ""}$persistence7802")
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: BlueChip lane).
