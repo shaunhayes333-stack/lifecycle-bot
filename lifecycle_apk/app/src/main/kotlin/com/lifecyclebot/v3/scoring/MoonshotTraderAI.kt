@@ -820,6 +820,7 @@ object MoonshotTraderAI {
                     socialVelocityScore=social7798,
                     valuationRunwayScore=expansion7799?.runwayScore?:0.0,
                     attentionVelocityScore=expansion7799?.attentionVelocityScore?:0.0,
+                    telegramCommunityScore=telegramCommunity7800?.communityScore?:0.0,
                     evidenceAheadOfValuation=expansion7799?.evidenceAheadOfValuation?:false,
                     creatorSampleCount=(tailPedigree7799?.weightedSamples?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
                         ?:genericPedigree7799?.sampleCount?:0),
