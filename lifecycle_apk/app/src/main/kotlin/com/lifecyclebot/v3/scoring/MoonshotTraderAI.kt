@@ -303,6 +303,7 @@ object MoonshotTraderAI {
         restore()
         // V5.0.4126 — fluid lane pivot. Loads recent-trade window + recomputes phase.
         try { com.lifecyclebot.engine.MoonshotAdaptiveGate.init(context) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.MoonshotSignalLearner6415.init(context) } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "🚀 MoonshotTraderAI persistence initialized | gate=${runCatching { com.lifecyclebot.engine.MoonshotAdaptiveGate.phaseTag() }.getOrDefault("init_fail")}")
     }
     
