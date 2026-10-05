@@ -788,7 +788,9 @@ object MoonshotTraderAI {
                 val expansion7799=try{
                     com.lifecyclebot.engine.truth.MoonshotExpansionIntelligence7799.observe(
                         mint=mint,mcapUsd=marketCapUsd,holderCount=holders7798,
-                        boostAmount=boost7799,socialDepth=socialDepth7799
+                        boostAmount=boost7799,socialDepth=socialDepth7799,
+                        telegramPresent=meta7799?.telegram?.isNotBlank()==true,
+                        sentimentScore=ts.sentiment.score
                     )
                 }catch(_:Throwable){null}
                 val creator7799=try{com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint)}catch(_:Throwable){null}
