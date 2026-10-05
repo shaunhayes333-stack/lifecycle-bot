@@ -1,9 +1,9 @@
 package com.lifecyclebot.engine
 
 import java.io.File
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 
 class Aate7815RecurringAuthorityRepairTest {
     private fun src(path: String) = File("src/main/kotlin/com/lifecyclebot/" + path).readText()
