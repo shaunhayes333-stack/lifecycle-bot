@@ -833,26 +833,12 @@ object HoldingLogicLayer {
      * This ensures fluid hold parameters are correctly applied per layer type.
      */
     private fun getLayerFromMode(mode: String): String {
-        return when (mode.uppercase()) {
-            // Treasury layer modes
-            "TREASURY", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
-            
-            // ShitCoin layer modes
-            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
-            
-            // V3/Quality layer modes
-            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE", 
-            "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
-            
-            // Blue Chip layer modes  
-            "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
-            
-            // Moonshot layer modes
-            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
-            "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> "MOONSHOT"
-            
-            // Default to V3 for unknown modes
-            else -> "V3"
+        // V5.0.7801/7802 — one lane identity authority. Technique modes remain
+        // mutable, but alias/canonical identity belongs only to 6506.
+        return try {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(mode)
+        } catch (_: Throwable) {
+            mode.trim().uppercase().ifBlank { "V3" }
         }
     }
 }
