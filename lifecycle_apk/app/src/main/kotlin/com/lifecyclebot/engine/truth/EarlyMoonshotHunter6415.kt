@@ -102,6 +102,13 @@ object EarlyMoonshotHunter6415 {
         firstBlockSupplyPct: Double = -1.0,
         devSelling: Boolean = false,
         socialVelocityScore: Double = 0.0,
+        valuationRunwayScore: Double = 0.0,
+        attentionVelocityScore: Double = 0.0,
+        evidenceAheadOfValuation: Boolean = false,
+        creatorSampleCount: Int = 0,
+        creatorWinRate: Double = 0.5,
+        creatorScoreHint: Int = 0,
+        creatorRugCount: Int = 0,
         emitTelemetry: Boolean = true,
     ): Verdict {
         // Fast rejection: no mcap OR mcap way above 25k → NORMAL.
@@ -170,6 +177,26 @@ object EarlyMoonshotHunter6415 {
             fired += Signal("SOCIAL_VELOCITY", 7.0); signals.add("SOCIAL_VELOCITY")
         }
 
+        when {
+            valuationRunwayScore >= 24.0 -> { fired += Signal("VALUATION_RUNWAY_EXTREME", 16.0); signals.add("VALUATION_RUNWAY_EXTREME") }
+            valuationRunwayScore >= 16.0 -> { fired += Signal("VALUATION_RUNWAY_HIGH", 10.0); signals.add("VALUATION_RUNWAY_HIGH") }
+            valuationRunwayScore >= 8.0 -> { fired += Signal("VALUATION_RUNWAY_PRESENT", 5.0); signals.add("VALUATION_RUNWAY_PRESENT") }
+        }
+        when {
+            attentionVelocityScore >= 20.0 -> { fired += Signal("ATTENTION_VELOCITY_STRONG", 12.0); signals.add("ATTENTION_VELOCITY_STRONG") }
+            attentionVelocityScore >= 8.0 -> { fired += Signal("ATTENTION_VELOCITY_BUILDING", 7.0); signals.add("ATTENTION_VELOCITY_BUILDING") }
+        }
+        if (evidenceAheadOfValuation) {
+            fired += Signal("EVIDENCE_AHEAD_OF_VALUATION", 18.0); signals.add("EVIDENCE_AHEAD_OF_VALUATION")
+        }
+
+        if (creatorSampleCount >= 5) {
+            when {
+                creatorWinRate >= 0.65 || creatorScoreHint >= 6 -> { fired += Signal("CREATOR_PEDIGREE_STRONG", 10.0); signals.add("CREATOR_PEDIGREE_STRONG") }
+                creatorWinRate >= 0.55 || creatorScoreHint >= 3 -> { fired += Signal("CREATOR_PEDIGREE_POSITIVE", 5.0); signals.add("CREATOR_PEDIGREE_POSITIVE") }
+            }
+        }
+
         val bundle = bundleRisk.uppercase()
         if (bundle in setOf("LOW", "CLEAN", "NONE") && (firstBlockSupplyPct < 0.0 || firstBlockSupplyPct <= 20.0)) {
             fired += Signal("DISTRIBUTION_CLEAN", 8.0); signals.add("DISTRIBUTION_CLEAN")
@@ -183,6 +210,8 @@ object EarlyMoonshotHunter6415 {
         if (largestBuyerSharePct60s >= 65.0) negative += Signal("ONE_BUYER_DOMINATES_FLOW", -16.0)
         if (top3BuyerSharePct60s >= 85.0) negative += Signal("TOP3_BUYERS_DOMINATE_FLOW", -14.0)
         if (holderGrowthPct.isFinite() && holderGrowthPct <= -5.0) negative += Signal("HOLDER_GROWTH_SHRINKING", -12.0)
+        if (creatorRugCount >= 1) negative += Signal("CREATOR_RUG_HISTORY", -25.0)
+        if (creatorSampleCount >= 5 && creatorWinRate < 0.20) negative += Signal("CREATOR_PEDIGREE_POOR", -18.0)
 
         // Apply learned weights.
         var composite = 0.0
