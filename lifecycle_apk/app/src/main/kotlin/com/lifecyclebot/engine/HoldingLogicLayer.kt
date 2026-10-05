@@ -133,6 +133,39 @@ object HoldingLogicLayer {
         "LIQUIDATION_HUNTER" to ModeHoldParams("LIQUIDATION_HUNTER", 80.0, -25.0, 12.0, 4 * 60 * 60 * 1000L, true, listOf(40.0, 80.0)),
     )
     
+    /**
+     * V5.0.7802 — immutable specialist mandate vs mutable held tactic.
+     * Entry lane owns the minimum patience/profit-capture envelope; current
+     * tradingMode owns the live technique inside that envelope.
+     */
+    private fun mandateMode7802(position: Position): String {
+        val entryLane = try {
+            position.positionId.takeIf { it.isNotBlank() }?.let {
+                com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(it)
+            }
+        } catch (_: Throwable) { null }
+        val lane = entryLane?.trim()?.uppercase().orEmpty()
+        return when (lane) {
+            "MOONSHOT" -> "MOONSHOT"
+            "PROJECT_SNIPER" -> "PUMP_SNIPER"
+            "EXPRESS" -> "PUMP_SNIPER"
+            "SHITCOIN" -> "MICRO_CAP"
+            "MANIPULATED" -> "PUMP_DUMP"
+            "DIP_HUNTER" -> "REVIVAL"
+            "CYCLIC" -> "CYCLIC"
+            "QUALITY" -> "STANDARD"
+            "BLUECHIP", "BLUE_CHIP" -> "BLUE_CHIP"
+            "TREASURY", "CASHGEN" -> "MARKET_MAKER"
+            else -> position.tradingMode.uppercase().ifBlank { "STANDARD" }
+        }
+    }
+
+    private fun entryLane7802(position: Position): String = try {
+        position.positionId.takeIf { it.isNotBlank() }?.let {
+            com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(it)
+        }?.trim()?.uppercase()
+    } catch (_: Throwable) { null } ?: position.tradingMode.uppercase().ifBlank { "STANDARD" }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
@@ -165,11 +198,22 @@ object HoldingLogicLayer {
         try {
             try {
             val mode = position.tradingMode
+            val entryLane7802 = entryLane7802(position)
+            val mandateMode7802 = mandateMode7802(position)
             // V5.0.7455 — one canonical mode-parameter read. The public accessor
             // was previously dead while this hot path reached around it into the
             // backing map, leaving two apparent authorities for the same policy.
             val params = getHoldParams(mode)
-            try { PipelineHealthCollector.labelInc("HOLD_PARAMS_CANONICAL_READ_7455") } catch (_: Throwable) {}
+            val mandateParams7802 = getHoldParams(mandateMode7802)
+            val runnerMandate7802 = try {
+                RunnerExitProfile7277.isRunnerLane(entryLane7802)
+            } catch (_: Throwable) { false }
+            try {
+                PipelineHealthCollector.labelInc("HOLD_PARAMS_CANONICAL_READ_7455")
+                if (runnerMandate7802 && !mode.equals(mandateMode7802, true)) {
+                    PipelineHealthCollector.labelInc("HELD_TACTIC_CLAMPED_BY_ENTRY_MANDATE_7802")
+                }
+            } catch (_: Throwable) {}
             
             val holdTimeMs = System.currentTimeMillis() - position.entryTime
             val holdTimeMinutes = holdTimeMs / (60 * 1000)
@@ -180,13 +224,19 @@ object HoldingLogicLayer {
             // V5.0.6684 — exact promoted Lab strategy becomes this lane's
             // TP/SL/hold profile. It cannot loosen the existing hard stop.
             val labExit6684 = try { AdaptiveLaneReproof6684.exitStrategy(mode) } catch (_: Throwable) { null }
-            val baseTarget6684 = labExit6684?.takeProfitPct?.coerceIn(3.0, 100.0) ?: params.targetProfitPct
+            val tacticalTarget6684 = labExit6684?.takeProfitPct?.coerceIn(3.0, 100.0) ?: params.targetProfitPct
+            val baseTarget6684 = if (runnerMandate7802)
+                maxOf(tacticalTarget6684, mandateParams7802.targetProfitPct)
+            else tacticalTarget6684
             val activeStopLoss6684 = maxOf(
                 params.stopLossPct,
                 labExit6684?.stopLossPct?.coerceIn(-30.0, -2.0) ?: params.stopLossPct,
             )
-            val baseMaxHoldMs6684 = labExit6684?.maxHoldMins?.coerceIn(15, 480)?.toLong()?.times(60_000L)
+            val tacticalMaxHoldMs6684 = labExit6684?.maxHoldMins?.coerceIn(15, 480)?.toLong()?.times(60_000L)
                 ?: params.maxHoldTimeMs
+            val baseMaxHoldMs6684 = if (runnerMandate7802)
+                maxOf(tacticalMaxHoldMs6684, mandateParams7802.maxHoldTimeMs)
+            else tacticalMaxHoldMs6684
 
             // V5.0.7455 — close the terminal-learning → held-management loop.
             // LiveStrategyTuner already reads clean same-mode terminal truth
@@ -209,7 +259,10 @@ object HoldingLogicLayer {
             }
 
             val targetProfit6091 = baseTarget6684 * ssiExitPatience6091 * tpMult7455
-            val trailingStopPct6091 = params.trailingStopPct * ssiExitPatience6091
+            val baseTrail7802 = if (runnerMandate7802)
+                maxOf(params.trailingStopPct, mandateParams7802.trailingStopPct)
+            else params.trailingStopPct
+            val trailingStopPct6091 = baseTrail7802 * ssiExitPatience6091
             val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091 * holdMult7455).toLong()
                 .coerceAtLeast(baseMaxHoldMs6684 / 2L)
             
@@ -483,7 +536,10 @@ object HoldingLogicLayer {
             // ─────────────────────────────────────────────────────────────────
             
             if (!isTooEarly) {
-                for (rawScaleOutLevel in params.scaleOutAt) {
+                val scaleOutLevels7802 = if (runnerMandate7802)
+                    mandateParams7802.scaleOutAt
+                else params.scaleOutAt
+                for (rawScaleOutLevel in scaleOutLevels7802) {
                     val scaleOutLevel = rawScaleOutLevel * ssiExitPatience6091 * partialMult7455
                     if (currentPnlPct >= scaleOutLevel && position.partialSoldPct < rawScaleOutLevel) {
                         return HoldEvaluation(
