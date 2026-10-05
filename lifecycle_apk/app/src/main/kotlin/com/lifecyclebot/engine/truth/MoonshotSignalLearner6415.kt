@@ -52,9 +52,30 @@ object MoonshotSignalLearner6415 {
     )
 
     private val stats = ConcurrentHashMap<String, SignalStat>()
+    private val creatorStats = ConcurrentHashMap<String, SignalStat>()
     private val globalWins = AtomicLong(0L)
     private val globalLosses = AtomicLong(0L)
     @Volatile private var prefs: SharedPreferences? = null
+
+    data class CreatorTailEvidence7799(
+        val weightedSamples: Long,
+        val weightedRunnerWins: Long,
+        val weightedLosses: Long,
+        val runnerRate: Double,
+    )
+
+    fun creatorTailEvidence7799(creator: String?): CreatorTailEvidence7799? {
+        if (creator.isNullOrBlank()) return null
+        val s = creatorStats[creator] ?: return null
+        val n = s.samples.get()
+        if (n <= 0L) return null
+        return CreatorTailEvidence7799(
+            weightedSamples = n,
+            weightedRunnerWins = s.wins.get(),
+            weightedLosses = s.losses.get(),
+            runnerRate = s.wins.get().toDouble() / n.toDouble(),
+        )
+    }
 
     @Synchronized
     fun init(context: Context) {
@@ -79,6 +100,19 @@ object MoonshotSignalLearner6415 {
                         )
                     }
                 }
+                val cs = root.optJSONObject("creators")
+                if (cs != null) {
+                    val it = cs.keys()
+                    while (it.hasNext()) {
+                        val creator = it.next()
+                        val o = cs.optJSONObject(creator) ?: continue
+                        creatorStats[creator] = SignalStat(
+                            AtomicLong(o.optLong("w", 0L)),
+                            AtomicLong(o.optLong("l", 0L)),
+                            AtomicLong(o.optLong("n", 0L)),
+                        )
+                    }
+                }
             }
         } catch (_: Throwable) {}
     }
@@ -92,8 +126,14 @@ object MoonshotSignalLearner6415 {
                     put("w", st.wins.get()); put("l", st.losses.get()); put("n", st.samples.get())
                 })
             }
+            val cs = JSONObject()
+            creatorStats.forEach { (creator, st) ->
+                cs.put(creator, JSONObject().apply {
+                    put("w", st.wins.get()); put("l", st.losses.get()); put("n", st.samples.get())
+                })
+            }
             val root = JSONObject().apply {
-                put("gw", globalWins.get()); put("gl", globalLosses.get()); put("signals", ss)
+                put("gw", globalWins.get()); put("gl", globalLosses.get()); put("signals", ss); put("creators", cs)
             }
             p.edit().putString("state_7799", root.toString()).apply()
         } catch (_: Throwable) {}
@@ -118,6 +158,12 @@ object MoonshotSignalLearner6415 {
             val s = stats.getOrPut(sig) { SignalStat() }
             s.samples.addAndGet(outcomeWeight)
             if (classify == 1) s.wins.addAndGet(outcomeWeight) else s.losses.addAndGet(outcomeWeight)
+        }
+        val creator = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }
+        if (!creator.isNullOrBlank()) {
+            val cs = creatorStats.getOrPut(creator) { SignalStat() }
+            cs.samples.addAndGet(outcomeWeight)
+            if (classify == 1) cs.wins.addAndGet(outcomeWeight) else cs.losses.addAndGet(outcomeWeight)
         }
         persist7799()
         try {
@@ -164,6 +210,7 @@ object MoonshotSignalLearner6415 {
 
     internal fun resetForTest() {
         stats.clear()
+        creatorStats.clear()
         globalWins.set(0L)
         globalLosses.set(0L)
     }
