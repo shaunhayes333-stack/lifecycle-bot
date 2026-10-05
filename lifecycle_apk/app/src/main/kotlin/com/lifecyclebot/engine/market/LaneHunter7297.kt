@@ -551,10 +551,15 @@ object LaneHunter7297 {
         var m = MarketSweep7297.opportunityMultiplier7777(r.mint)
         val affinity = when (lane) {
             "MOONSHOT" -> o.setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "RELATIVE_STRENGTH_LEADER", "CONTINUATION")
-            "DIP_HUNTER" -> o.setup == "DIP_RECOVERY"
+            "PROJECT_SNIPER" -> o.setup == "EARLY_MOMENTUM_IGNITION"
+            "EXPRESS" -> o.setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "RELATIVE_STRENGTH_LEADER")
             "SHITCOIN" -> o.setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "LIQUIDITY_EXPANSION")
+            "MANIPULATED" -> o.setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION")
+            "DIP_HUNTER" -> o.setup == "DIP_RECOVERY"
+            "CYCLIC" -> o.setup in setOf("CONTINUATION", "DIP_RECOVERY", "BREAKOUT_EXPANSION")
             "QUALITY", "BLUECHIP" -> o.setup in setOf("CONTINUATION", "LIQUIDITY_EXPANSION", "RELATIVE_STRENGTH_LEADER")
             "TREASURY", "CASHGEN" -> o.setup in setOf("CONTINUATION", "LIQUIDITY_EXPANSION")
+            "CORE" -> o.setup !in setOf("DISTRIBUTION", "EXHAUSTION")
             else -> false
         }
         if (affinity) m *= 1.10
