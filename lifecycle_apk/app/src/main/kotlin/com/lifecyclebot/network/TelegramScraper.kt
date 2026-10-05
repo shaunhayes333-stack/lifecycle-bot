@@ -110,8 +110,8 @@ class TelegramScraper(private val botToken: String = "") {
         val views = viewRegex.findAll(html).map { parseCompactCount(it.groupValues[1]) }.filter { it > 0L }.toList()
 
         val memberRegexes = listOf(
-            Regex("""tgme_header_counter[^>]*>\\s*([0-9.,]+[KkMm]?)\\s*(?:subscribers|members)""", RegexOption.IGNORE_CASE),
-            Regex("""([0-9.,]+[KkMm]?)\\s+(?:subscribers|members)""", RegexOption.IGNORE_CASE),
+            Regex("""tgme_header_counter[^>]*>\s*([0-9.,]+[KkMm]?)\s*(?:subscribers|members)""", RegexOption.IGNORE_CASE),
+            Regex("""([0-9.,]+[KkMm]?)\s+(?:subscribers|members)""", RegexOption.IGNORE_CASE),
         )
         val subs = memberRegexes.firstNotNullOfOrNull { rx ->
             rx.find(html)?.groupValues?.getOrNull(1)?.let(::parseCompactCount)
