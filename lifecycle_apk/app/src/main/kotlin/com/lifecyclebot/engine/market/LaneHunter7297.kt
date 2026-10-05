@@ -396,10 +396,19 @@ object LaneHunter7297 {
         return n
     }
 
+    /**
+     * V5.0.7812 — autonomous realised-edge pressure at discovery.
+     * Clean terminal outcomes already grade each lane/mcap cohort. Apply that
+     * evidence with sample confidence so repeated losers sink in the hunter
+     * ordering while profitable cohorts rise. Ordering only: nothing is hidden
+     * from learning and no safety/FDG authority is bypassed.
+     */
     private fun brainMultiplier(lane: String, mcap: Double): Double {
         val s = stats[lane]?.get(bucketOf(mcap)) ?: return 1.0
         if (s.n < MIN_BUCKET_N) return 1.0
-        return (1.0 + (s.mean() * 2.0).coerceIn(-0.3, 0.3))
+        val sampleConfidence7812 = (s.n.toDouble() / (s.n + 12.0)).coerceIn(0.0, 1.0)
+        val learnedDelta7812 = (s.mean() * 3.0 * sampleConfidence7812).coerceIn(-0.50, 0.45)
+        return (1.0 + learnedDelta7812).coerceIn(0.50, 1.45)
     }
 
     /**
@@ -424,6 +433,45 @@ object LaneHunter7297 {
     }
 
     /**
+     * V5.0.7812 — adaptive token-cheat-sheet timing from the resident market
+     * tape. It ranks current transition quality; it never authorizes a trade.
+     */
+    private fun adaptiveTimingMultiplier7812(lane: String, r: MarketSweep7297.Row): Double {
+        val o = MarketSweep7297.opportunityFor7777(r.mint) ?: return 1.0
+        val l = lane.uppercase()
+        val runner = l in setOf("MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "SHITCOIN", "MANIPULATED")
+        val quality = l in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN")
+        var m = when (o.setup) {
+            "EARLY_MOMENTUM_IGNITION" -> if (runner) 1.28 else if (quality) 1.06 else 1.02
+            "BREAKOUT_EXPANSION" -> if (runner) 1.20 else if (quality) 1.08 else 1.02
+            "LIQUIDITY_EXPANSION" -> if (quality || l == "SHITCOIN") 1.16 else 1.08
+            "RELATIVE_STRENGTH_LEADER" -> if (l in setOf("MOONSHOT", "QUALITY", "BLUECHIP")) 1.14 else 1.05
+            "CONTINUATION" -> if (l in setOf("MOONSHOT", "QUALITY", "BLUECHIP", "TREASURY", "CASHGEN")) 1.12 else 1.05
+            "DIP_RECOVERY" -> if (l == "DIP_HUNTER") 1.30 else 0.96
+            "DISTRIBUTION" -> if (l == "DIP_HUNTER") 0.78 else 0.62
+            "EXHAUSTION" -> if (l == "DIP_HUNTER") 0.72 else 0.55
+            else -> 1.0
+        }
+        m *= when {
+            o.providerAgreement >= 3 -> 1.08
+            o.providerAgreement == 2 -> 1.04
+            else -> 0.96
+        }
+        if (o.buyPressurePct >= 60.0 && o.volumeAcceleration >= 1.25 && o.txAcceleration >= 1.10) m *= 1.10
+        if (o.buyPressurePct <= 42.0) m *= 0.82
+        if (o.liquidityDeltaPct <= -12.0) m *= 0.82
+        if (runner && o.priceVelocity5mPct > 0.0 && o.relativeStrengthPct > 0.0) m *= 1.06
+        if (runner && o.priceVelocity5mPct < -4.0) m *= 0.78
+        if (l == "DIP_HUNTER" && o.setup != "DIP_RECOVERY" &&
+            r.priceChangeH1Pct < -3.0 && o.priceVelocity5mPct <= 0.0) m *= 0.70
+        if (quality && o.providerAgreement >= 2 && o.liquidityDeltaPct >= 0.0) m *= 1.05
+        if (l == "CYCLIC" && o.setup in setOf(
+                "EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "DISTRIBUTION", "EXHAUSTION"
+            )) m *= 0.78
+        return m.coerceIn(0.45, 1.55)
+    }
+
+    /**
      * Each lane picks from the sweep. Returns lane → rows, and records every
      * pick as a claim the election honours while the token stays in band.
      */
@@ -438,7 +486,7 @@ object LaneHunter7297 {
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
                     p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
                         (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r) *
-                        commonSenseMult7797(p.lane, r)
+                        commonSenseMult7797(p.lane, r) * adaptiveTimingMultiplier7812(p.lane, r)
                 }
                 .map { it.mint }
         }
@@ -462,6 +510,16 @@ object LaneHunter7297 {
                                 cs >= 1.10 -> "LANE_HUNT_COMMON_SENSE_STRONG_7797_$lane"
                                 cs < 0.80 -> "LANE_HUNT_COMMON_SENSE_WEAK_7797_$lane"
                                 else -> "LANE_HUNT_COMMON_SENSE_NEUTRAL_7797_$lane"
+                            }
+                        )
+                    } catch (_: Throwable) {}
+                    try {
+                        val tm7812 = adaptiveTimingMultiplier7812(lane, r)
+                        PipelineHealthCollector.labelInc(
+                            when {
+                                tm7812 >= 1.12 -> "LANE_HUNT_TIMING_STRONG_7812_$lane"
+                                tm7812 < 0.82 -> "LANE_HUNT_TIMING_WEAK_7812_$lane"
+                                else -> "LANE_HUNT_TIMING_NEUTRAL_7812_$lane"
                             }
                         )
                     } catch (_: Throwable) {}

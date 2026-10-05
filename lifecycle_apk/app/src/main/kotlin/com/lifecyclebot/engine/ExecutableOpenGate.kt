@@ -293,7 +293,7 @@ object ExecutableOpenGate {
         if (live.isEmpty()) return null
 
         val elected = try {
-            canonicalLane(LaneExecutionCoordinator.currentElection6600(mint)?.primaryLane)
+            canonicalLane(LaneExecutionCoordinator.currentElection6600(mint)?.primaryLane.orEmpty())
         } catch (_: Throwable) { "" }
         if (elected.isNotBlank()) {
             live.filter { canonicalLane(it.canonicalLane) == elected }

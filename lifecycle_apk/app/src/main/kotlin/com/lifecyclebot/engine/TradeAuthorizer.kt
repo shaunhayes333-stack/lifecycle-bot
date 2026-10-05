@@ -344,19 +344,58 @@ object TradeAuthorizer {
             )
         }
 
-        // V5.9.1093 — finality BEFORE auth side effects.
-        // No AUTHORIZED/PAPER_EXECUTE/LIVE_EXECUTE/token lock may appear before
-        // EXEC_OPEN_ALLOWED for this same attempt.
-        val finalityAttemptId = attemptId.ifBlank {
-            ExecutableOpenGate.nextAttemptId(mint, requestedBook.name, laneElection.candidateVersion)
+        // V5.0.7812 — only an exact immutable FDG BUY may enter executable finality.
+        // READY proposals without the seal are retryable pipeline deferrals, not
+        // execution failures, pre-size refusals, or LOST candidates.
+        val mode7812 = if (isPaperMode) "PAPER" else "LIVE"
+        val sealedIntent7812 = ExecutableOpenGate.activeExecutionIntentForLane7809(
+            mode7812, mint, requestedBook.name,
+        )?.takeIf {
+            it.candidateVersion == laneElection.candidateVersion &&
+                it.fdgAllowed && it.fdgVerdict.equals("BUY", true) && it.hardNoReasons.isEmpty()
         }
+        if (sealedIntent7812 == null) {
+            try {
+                ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AWAIT_FDG_SEAL", causalAttempt6613)
+                PipelineHealthCollector.labelInc("TRADE_AUTH_DEFERRED_AWAIT_FDG_SEAL_7812")
+                PipelineHealthCollector.labelInc("TRADE_AUTH_DEFERRED_AWAIT_FDG_SEAL_7812_${requestedBook.name}")
+                ForensicLogger.lifecycle(
+                    "TRADE_AUTH_DEFERRED_AWAIT_FDG_SEAL_7812",
+                    "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} candidateVersion=${laneElection.candidateVersion} action=retry_after_exact_fdg_buy_seal",
+                )
+            } catch (_: Throwable) {}
+            try {
+                LaneExecutionCoordinator.releaseIfPrimary(
+                    mint = mint, lane = laneElection.primaryLane,
+                    reason = "AWAIT_FDG_SEAL_7812",
+                    candidateVersion = laneElection.candidateVersion,
+                )
+            } catch (_: Throwable) {}
+            return rejectAuth4424(
+                reason = "AWAIT_FDG_SEAL_7812",
+                blockLevel = BlockLevel.SOFT,
+                canRetry = true,
+            )
+        }
+
+        if (attemptId.isNotBlank() && attemptId != sealedIntent7812.attemptId) {
+            try {
+                PipelineHealthCollector.labelInc("TRADE_AUTH_CALLER_ATTEMPT_REBOUND_TO_FDG_7812")
+                ForensicLogger.lifecycle(
+                    "TRADE_AUTH_CALLER_ATTEMPT_REBOUND_TO_FDG_7812",
+                    "mint=${mint.take(10)} lane=${requestedBook.name} caller=${attemptId.take(28)} sealed=${sealedIntent7812.attemptId.take(28)}",
+                )
+            } catch (_: Throwable) {}
+        }
+
+        val finalityAttemptId = sealedIntent7812.attemptId
         val finality = ExecutableOpenGate.canOpenExecutablePosition(
             mint = mint,
             symbol = symbol,
             rugScore = rugcheckScore,
-            mode = if (isPaperMode) "PAPER" else "LIVE",
-            lane = requestedBook.name,
-            source = "TradeAuthorizer.preAuth",
+            mode = mode7812,
+            lane = sealedIntent7812.canonicalLane,
+            source = "TradeAuthorizer.sealedFdg7812",
             attemptId = finalityAttemptId,
             liveLiquidityUsd = liquidity,
             preResolvedSizeSol6490 = preResolvedSizeSol,
@@ -365,10 +404,6 @@ object TradeAuthorizer {
             electionId6494 = laneElection.electionId,
             authorityVersion6494 = laneElection.authorityVersion,
         )
-        // A queued safety precheck/shadow verdict is explicitly non-executable.
-        // `allowed=true` historically let SIZE_PENDING_PRECHECK_ONLY flow on to
-        // the PAPER_OPEN token-lock mutation below.  The final executable gate
-        // must be both allowed and non-shadow before authorization owns a lock.
         if (!finality.allowed || finality.shadowOnly) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: FINALITY_${finality.logName} attemptId=${finality.attemptId} reason=${finality.reason}")
             releasePrimaryAfterAuthFailure("FINALITY_${finality.logName}")
