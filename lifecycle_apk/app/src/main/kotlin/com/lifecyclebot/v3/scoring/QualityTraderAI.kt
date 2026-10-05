@@ -237,6 +237,9 @@ object QualityTraderAI {
         topHolderPct: Double = 0.0,
         v3Score: Int = 0,
         isMeme: Boolean = false,
+        holderGrowthRatePct: Double = 0.0,
+        socialDepth: Int = 0,
+        smartMoneyBuyers60s: Int = 0,
     ): QualitySignal {
         
         // V5.0.7552 — local trader maps are projections for exits/UI, not
@@ -368,6 +371,15 @@ object QualityTraderAI {
         // Holder distribution bonus
         if (holderCount >= 100) qualityScore += 10
         if (topHolderPct < 15) qualityScore += 10
+        // V5.0.7802 — Quality means sustained participation, not just static holders.
+        qualityScore += when {
+            holderGrowthRatePct >= 5.0 -> 8
+            holderGrowthRatePct >= 1.0 -> 4
+            holderGrowthRatePct <= -5.0 -> -10
+            else -> 0
+        }
+        if (socialDepth >= 2) qualityScore += 4
+        if (smartMoneyBuyers60s >= 2) qualityScore += 5
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.932 — HARVARD BRAIN PATTERN MEMORY (Pass 2: Quality lane).
