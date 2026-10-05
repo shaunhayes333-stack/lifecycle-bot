@@ -114,6 +114,15 @@ object HoldingLogicLayer {
         "STANDARD" to ModeHoldParams("STANDARD", 30.0, -15.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(30.0, 60.0)),
         "MOONSHOT" to ModeHoldParams("MOONSHOT", 200.0, -25.0, 15.0, 24 * 60 * 60 * 1000L, true, listOf(100.0, 300.0, 500.0)),
         "PUMP_SNIPER" to ModeHoldParams("PUMP_SNIPER", 50.0, -20.0, 10.0, 30 * 60 * 1000L, true, listOf(25.0, 50.0)),
+        "PROJECT_SNIPER" to ModeHoldParams("PROJECT_SNIPER", 50.0, -15.0, 8.0, 45 * 60 * 1000L, true, listOf(20.0, 50.0, 100.0)),
+        "EXPRESS" to ModeHoldParams("EXPRESS", 30.0, -10.0, 5.0, 45 * 60 * 1000L, true, listOf(10.0, 20.0, 30.0)),
+        "SHITCOIN" to ModeHoldParams("SHITCOIN", 75.0, -20.0, 12.0, 4 * 60 * 60 * 1000L, true, listOf(30.0, 75.0, 150.0)),
+        "MANIPULATED" to ModeHoldParams("MANIPULATED", 25.0, -12.0, 5.0, 30 * 60 * 1000L, true, listOf(10.0, 20.0, 30.0)),
+        "DIP_HUNTER" to ModeHoldParams("DIP_HUNTER", 25.0, -12.0, 7.0, 3 * 60 * 60 * 1000L, true, listOf(10.0, 20.0, 35.0)),
+        "QUALITY" to ModeHoldParams("QUALITY", 50.0, -15.0, 10.0, 8 * 60 * 60 * 1000L, true, listOf(20.0, 50.0, 100.0)),
+        "TREASURY" to ModeHoldParams("TREASURY", 6.0, -5.0, 2.0, 60 * 60 * 1000L, true, listOf(2.5, 5.0, 8.0)),
+        "CASHGEN" to ModeHoldParams("CASHGEN", 8.0, -6.0, 3.0, 45 * 60 * 1000L, true, listOf(3.0, 6.0, 10.0)),
+        "CORE" to ModeHoldParams("CORE", 35.0, -15.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(15.0, 35.0, 75.0)),
         "COPY_TRADE" to ModeHoldParams("COPY_TRADE", 40.0, -15.0, 8.0, 2 * 60 * 60 * 1000L, true, listOf(25.0, 50.0)),
         "LONG_HOLD" to ModeHoldParams("LONG_HOLD", 500.0, -30.0, 20.0, 7 * 24 * 60 * 60 * 1000L, true, listOf(100.0, 250.0, 500.0)),
         "DIAMOND_HANDS" to ModeHoldParams("DIAMOND_HANDS", 5000.0, -35.0, 35.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(250.0, 1000.0, 2500.0)),
@@ -811,18 +820,26 @@ object HoldingLogicLayer {
      */
     private fun getLayerFromMode(mode: String): String {
         return when (mode.uppercase()) {
-            // Treasury layer modes
+            // Treasury / realised-cash specialists
             "TREASURY", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
-            
-            // ShitCoin layer modes
-            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
-            
-            // V3/Quality layer modes
-            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE", 
+            "CASHGEN" -> "CASHGEN"
+
+            // Fast launch / degen specialists
+            "SHITCOIN", "MICRO_CAP", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
+            "PROJECT_SNIPER", "PUMP_SNIPER" -> "PROJECT_SNIPER"
+            "EXPRESS" -> "EXPRESS"
+            "MANIPULATED" -> "MANIPULATED"
+            "DIP_HUNTER" -> "DIP_HUNTER"
+
+            // Selective / lifecycle specialists
+            "QUALITY" -> "QUALITY"
+            "CYCLIC" -> "CYCLIC"
+            "CORE" -> "CORE"
+            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "NICHE",
             "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
-            
-            // Blue Chip layer modes  
-            "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
+
+            // Blue Chip layer modes
+            "BLUECHIP", "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
             
             // Moonshot layer modes
             "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
