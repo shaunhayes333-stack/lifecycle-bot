@@ -102,8 +102,33 @@ object LaneHunter7297 {
         ),
         Profile(
             "MOONSHOT", MoonshotTraderAI.MIN_MARKET_CAP_BOOTSTRAP_USD_7719, MoonshotTraderAI.MAX_MARKET_CAP_USD,
-            fits = { r -> r.priceChangeH1Pct > 0.0 },
-            rank = { r -> r.priceChangeH1Pct / 10.0 + activity(r) },
+            fits = { r ->
+                // V5.0.7796 — not "anything green". Moonshot hunts asymmetry:
+                // real liquidity/activity, positive ignition, and no already-consumed
+                // vertical spike. Continuation up to $5M stays eligible; ranking below
+                // strongly prefers the pre-liftoff end of that universe.
+                r.priceChangeH1Pct > 0.0 && r.priceChangeH1Pct <= 120.0 &&
+                    r.liquidityUsd >= 1_500.0 && r.txCountH1 >= 3
+            },
+            rank = { r ->
+                val earlyCap = when {
+                    r.mcapUsd < 10_000.0 -> 6.0
+                    r.mcapUsd < 25_000.0 -> 5.0
+                    r.mcapUsd < 100_000.0 -> 3.5
+                    r.mcapUsd < 500_000.0 -> 2.0
+                    else -> 0.5
+                }
+                val youth = when {
+                    r.ageHours <= 0.25 -> 3.0
+                    r.ageHours <= 1.0 -> 2.0
+                    r.ageHours <= 6.0 -> 1.0
+                    else -> 0.0
+                }
+                val ignition = r.priceChangeH1Pct.coerceIn(0.0, 40.0) / 8.0
+                val exhaustionPenalty = if (r.priceChangeH1Pct > 60.0) 0.55 else 1.0
+                exhaustionPenalty * (earlyCap + youth + ignition +
+                    activity(r) + 2.0 * turnover(r).coerceAtMost(4.0))
+            },
         ),
         Profile(
             "TREASURY", TreasuryScannerFeed.MIN_TREASURY_MCAP, Double.MAX_VALUE,
@@ -138,11 +163,11 @@ object LaneHunter7297 {
             "PROJECT_SNIPER", 3_000.0, 500_000.0,
             fits = { r ->
                 // ProjectSniperAI is explicitly a pre-ignition / first-minutes desk.
-                r.ageHours in 0.0..0.10 && r.priceChangeH1Pct in -5.0..35.0 &&
+                r.ageHours in 0.0..0.05 && r.priceChangeH1Pct in -5.0..35.0 &&
                     r.liquidityUsd >= 1_500.0
             },
             rank = { r ->
-                val youth = (1.0 - (r.ageHours / 0.10)).coerceIn(0.0, 1.0) * 5.0
+                val youth = (1.0 - (r.ageHours / 0.05)).coerceIn(0.0, 1.0) * 5.0
                 youth + activity(r) + 2.0 * turnover(r).coerceAtMost(3.0) +
                     r.priceChangeH1Pct.coerceIn(-5.0, 15.0) / 10.0
             },
