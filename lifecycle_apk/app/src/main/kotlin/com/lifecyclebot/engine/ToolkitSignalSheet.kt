@@ -1785,7 +1785,18 @@ object ToolkitSignalSheet {
             val liveQuarantine7609 = try { LaneQuarantineController.isQuarantined(lane) } catch (_: Throwable) { false }
             val buyerEnabled7609 = if (lane == "MANIPULATED") try { BotService.manipulatedBuyerEnabled7609() } catch (_: Throwable) { false } else true
             val ownershipModel7609 = "SELF"
-            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
+            // V5.0.7815 — SpecialistBrainBridge7542 deliberately fan-outs every
+            // token through every native brain. Its cached "last opinion" is NOT
+            // the lane hunter's selected prey. Label that scope explicitly so a
+            // QUALITY rejection of a $4k global-fanout token is never diagnosed
+            // again as QUALITY's 75k+ hunter routing the wrong pond.
+            val resident7815 = try {
+                com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.snapshot(lane)
+            } catch (_: Throwable) { emptyList() }
+            val residentReady7815 = resident7815.count {
+                it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY
+            }
+            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=GLOBAL_FANOUT_LAST_TOKEN nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }

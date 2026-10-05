@@ -405,15 +405,11 @@ object SellAmountAuthority {
         "TRAILING_STOP", "TRAILING_FLUID", "BREAKEVEN_RATCHET",
     )
 
-    fun isEmergencyExitReason(reason: String): Boolean {
-        val r = reason.uppercase()
-        return EMERGENCY_REASON_TOKENS.any { r.contains(it) }
-    }
+    fun isEmergencyExitReason(reason: String): Boolean =
+        ProtectiveExitClass7807.isEmergency(reason)
 
-    fun isProfitProtectExitReason(reason: String): Boolean {
-        val r = reason.uppercase()
-        return PROFIT_PROTECT_REASON_TOKENS.any { r.contains(it) }
-    }
+    fun isProfitProtectExitReason(reason: String): Boolean =
+        ProtectiveExitClass7807.of(reason) == ProtectiveExitClass7807.Priority.PROFIT_PROTECTION
 
     /**
      * Resolve balance for a concrete exit reason. UNKNOWN stays UNKNOWN unless
@@ -421,42 +417,54 @@ object SellAmountAuthority {
      * or wallet proof. One-provider missing/zero is never sell finality.
      */
     fun resolveForExit(mint: String, wallet: SolanaWallet?, reason: String): Resolution {
+        val emergency7815 = isEmergencyExitReason(reason)
+        val profitProtect7815 = isProfitProtectExitReason(reason)
+
+        // V5.0.7815 — one urgency vocabulary and one proof order. A hard /
+        // structural stop already fired; do not start by blocking on the same
+        // lagging RPC path that caused the repeated trigger→broadcast delays.
+        if (emergency7815) {
+            consumeProofReady(mint)?.let { return it }
+            emergencyWalletSnapshotBalance7730(mint, reason)?.let { return it }
+        }
+
         val normal = resolve(mint, wallet)
         if (normal is Resolution.Confirmed || normal is Resolution.Zero) return normal
-        consumeProofReady(mint)?.let { return it }
-        emergencyWalletSnapshotBalance7730(mint, reason)?.let { return it }
+        if (!emergency7815) consumeProofReady(mint)?.let { return it }
+
         val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
         val trackedRaw = tracked?.rawAmount?.trim()?.takeIf { it.isNotBlank() }?.let { raw ->
             runCatching { BigInteger(raw) }.getOrNull()
         }
         if (trackedRaw != null && trackedRaw.signum() > 0) {
-            // V5.0.3778 — stale tracker raw is visibility only, never sell authority.
-            // Runtime 3777 showed RECOVERED_* rows using lastPositiveRaw/TX_META_OWNER_DELTA
-            // after the wallet no longer held those tokens. A positive historical balance
-            // can keep a row open for reconciliation, but cannot authorize a broadcast.
             ErrorLogger.warn(TAG,
                 "BALANCE_PROOF_REJECTED reason=STALE_TRACKER_RAW_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(8)}… raw=$trackedRaw status=${tracked.status} source=${tracked.source}")
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=STALE_TRACKER_RAW_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(10)} status=${tracked.status.name} source=${tracked.source.name} raw=$trackedRaw action=wait_current_wallet_proof") } catch (_: Throwable) {}
         }
-        // V5.0.3753 — live-sell finality restoration.
-        // The buy path records owner-filtered tx-meta token delta after a landed
-        // live buy. During Solana indexing gaps, getTokenAccountsByOwner can keep
-        // returning an empty map for minutes, which stranded profit/SL sells in
-        // SELL_WAITING_BALANCE_PROOF forever. Use the buy-tied owner-delta cache
-        // only for time-critical exits, never for ordinary discretionary sells,
-        // and keep the existing freshness windows.
+
         val maxAgeMs = when {
-            isEmergencyExitReason(reason) -> EMERGENCY_TX_PARSE_MS
-            isProfitProtectExitReason(reason) -> PROFIT_PROTECT_TX_PARSE_MS
+            emergency7815 -> EMERGENCY_TX_PARSE_MS
+            profitProtect7815 -> PROFIT_PROTECT_TX_PARSE_MS
             else -> FRESH_TX_PARSE_MS
         }
         val cached = txParseCache[mint]
         val ageMs = cached?.let { System.currentTimeMillis() - it.capturedAtMs } ?: Long.MAX_VALUE
-        if (cached != null && ageMs <= maxAgeMs && cached.rawAmount.signum() > 0 &&
-            (isEmergencyExitReason(reason) || isProfitProtectExitReason(reason))) {
-            ErrorLogger.warn(TAG,
-                "BALANCE_PROOF_REJECTED reason=BUY_TX_META_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(8)}… raw=${cached.rawAmount} ageSec=${ageMs / 1000} reason=$reason sig=${cached.txSignature.take(8)}…")
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=BUY_TX_META_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(10)} exitReason=$reason raw=${cached.rawAmount} ageMs=$ageMs sig=${cached.txSignature.take(8)} action=wait_current_wallet_proof") } catch (_: Throwable) {}
+        val completeAbsence7815 = absentFromCompleteSnapshot7733(mint)
+        if (cached != null && (emergency7815 || profitProtect7815) &&
+            ageMs <= maxAgeMs && cached.rawAmount.signum() > 0 &&
+            cached.txSignature.isNotBlank() && completeAbsence7815 == null
+        ) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENCY_OWNER_DELTA_AMOUNT_RESTORED_7815")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "EMERGENCY_OWNER_DELTA_AMOUNT_RESTORED_7815",
+                    "mint=${mint.take(10)} exitReason=${reason.take(80)} raw=${cached.rawAmount} decimals=${cached.decimals} ageMs=$ageMs sig=${cached.txSignature.take(8)} action=allow_processor_to_reach_existing_emergency_broadcast_authority",
+                )
+            } catch (_: Throwable) {}
+            return Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)
+        }
+        if (cached != null && (emergency7815 || profitProtect7815) && completeAbsence7815 != null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TIME_CRITICAL_SELL_OWNER_DELTA_REFUSED_COMPLETE_ABSENCE_7815") } catch (_: Throwable) {}
         }
         return normal
     }

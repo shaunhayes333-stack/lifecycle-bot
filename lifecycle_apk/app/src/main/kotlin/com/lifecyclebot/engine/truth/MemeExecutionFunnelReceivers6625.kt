@@ -489,7 +489,28 @@ object SpecialistCausalFunnel6625 {
                 .map { CanonicalLaneIdentity6506.canonical(it) }
                 .toSet()
         } catch (_: Throwable) { emptySet() }
-        if (laneKey !in affinity) {
+
+        // V5.0.7815 — the resident specialist book is also first-hand discovery
+        // provenance. 7803 deliberately moved specialist hunting out of the
+        // generic registry, but 7464 still recognised ONLY registry affinity.
+        // A real resident MOONSHOT/SHITCOIN/etc candidate could therefore reach
+        // immutable MARK + SIZE + TICKET while the causal recorder said
+        // NO_DISCOVER, causing 7810's correct anti-phantom SIZE guard to withhold
+        // SIZED_EXECUTABLE and later suppress real EXEC/OPEN as orphan stages.
+        //
+        // Entry() is lane+mint exact and prunes expired/LOST book state. It does
+        // not infer a lane from execution or manufacture a discovery after the
+        // fact; it proves the specialist had already made the mint resident.
+        val residentProof7815 = try {
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803
+                .entry(laneKey, key.mint)
+                ?.takeIf {
+                    it.state != com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.LOST &&
+                        it.state != com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.EXPIRED
+                }
+        } catch (_: Throwable) { null }
+        val registryProof7815 = laneKey in affinity
+        if (!registryProof7815 && residentProof7815 == null) {
             try { PipelineHealthCollector.labelInc("SPECIALIST_AFFINITY_LINEAGE_NO_PROOF_7464_$laneKey") } catch (_: Throwable) {}
             return false
         }
@@ -501,7 +522,9 @@ object SpecialistCausalFunnel6625 {
             val now = System.currentTimeMillis()
             if (Stage.DISCOVER !in rec.stages) {
                 rec.stages[Stage.DISCOVER] = now
-                rec.outcomes += "DISCOVER_FROM_REGISTRY_AFFINITY_7464"
+                rec.outcomes += if (registryProof7815)
+                    "DISCOVER_FROM_REGISTRY_AFFINITY_7464"
+                else "DISCOVER_FROM_RESIDENT_SPECIALIST_7815"
                 discoverAdded = true
             }
             if (Stage.QUALIFY !in rec.stages) {
@@ -511,7 +534,11 @@ object SpecialistCausalFunnel6625 {
             }
         }
         try {
-            if (discoverAdded) PipelineHealthCollector.labelInc("SPECIALIST_DISCOVER_AFFINITY_RECOVERED_7464_$laneKey")
+            if (discoverAdded) {
+                PipelineHealthCollector.labelInc("SPECIALIST_DISCOVER_AFFINITY_RECOVERED_7464_$laneKey")
+                if (!registryProof7815 && residentProof7815 != null)
+                    PipelineHealthCollector.labelInc("SPECIALIST_DISCOVER_RESIDENT_RECOVERED_7815_$laneKey")
+            }
             if (qualifyAdded) PipelineHealthCollector.labelInc("SPECIALIST_QUALIFY_AUTHORITY_RECOVERED_7464_$laneKey")
         } catch (_: Throwable) {}
         return discoverAdded || qualifyAdded

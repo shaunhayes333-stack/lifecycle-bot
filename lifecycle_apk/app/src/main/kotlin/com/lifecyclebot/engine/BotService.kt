@@ -29810,6 +29810,19 @@ if (hotExitHandledSweep) {
                                     "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
                                 
                                 // Execute ShitCoin buy
+                                // V5.0.7815 — executable authorization already proved these
+                                // causal predecessors. Stamp them BEFORE Executor enters:
+                                // Executor records the real EXEC/OPEN internally, so the old
+                                // post-return order made valid fills look orphaned.
+                                try {
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "POOL", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "BUY_INTENT", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "MARK_READY", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "SIZED_EXECUTABLE", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "TICKET", shitcoinAttemptId)
+                                    PipelineHealthCollector.labelInc("STANDALONE_SPECIALIST_PRE_EXEC_CAUSAL_7815_SHITCOIN")
+                                } catch (_: Throwable) {}
+
                                 val shitCoinOpened = executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = adjustedSize,
@@ -29831,16 +29844,6 @@ if (hotExitHandledSweep) {
                                     releaseShitCoinAttempt4230("BUY_NOT_OPENED")
                                     return
                                 }
-                                // V5.0.7389 — buy opened: bind causal desk stages to the same
-                                // attemptId (dedupes on lane|stage|eventId), as PROJECT_SNIPER 6842.
-                                try {
-                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "POOL", shitcoinAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "BUY_INTENT", shitcoinAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "MARK_READY", shitcoinAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "SIZED_EXECUTABLE", shitcoinAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "TICKET", shitcoinAttemptId)
-                                } catch (_: Throwable) {}
-
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
                                 if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
@@ -30466,6 +30469,19 @@ if (hotExitHandledSweep) {
                                     "target=${expressSignal.estimatedGainPct.toInt()}%")
                                 
                                 // Execute buy first — only board the ride if the buy actually opened
+                                // V5.0.7815 — executable authorization already proved these
+                                // causal predecessors. Stamp them BEFORE Executor enters:
+                                // Executor records the real EXEC/OPEN internally, so the old
+                                // post-return order made valid fills look orphaned.
+                                try {
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "POOL", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "BUY_INTENT", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "MARK_READY", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "SIZED_EXECUTABLE", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "TICKET", expressAttemptId)
+                                    PipelineHealthCollector.labelInc("STANDALONE_SPECIALIST_PRE_EXEC_CAUSAL_7815_EXPRESS")
+                                } catch (_: Throwable) {}
+
                                 val expressOpened = executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = expressFinalSize,
@@ -30490,16 +30506,6 @@ if (hotExitHandledSweep) {
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.EXPRESS) } catch (_: Throwable) {}
                                     return
                                 }
-                                // V5.0.7389 — buy opened: bind causal desk stages to the same
-                                // attemptId (dedupes on lane|stage|eventId), as PROJECT_SNIPER 6842.
-                                try {
-                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "POOL", expressAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "BUY_INTENT", expressAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "MARK_READY", expressAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "SIZED_EXECUTABLE", expressAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "TICKET", expressAttemptId)
-                                } catch (_: Throwable) {}
-
 
                                 // V5.0.4223 — live buys can be pendingVerify=true
                                 // while isOpen=false. Board Express state for both paper
@@ -30784,6 +30790,19 @@ if (hotExitHandledSweep) {
                                 val sniperSlMult = try {
                                     com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("PROJECT_SNIPER")
                                 } catch (_: Throwable) { 1.0 }
+                                // V5.0.7815 — executable authorization already proved these
+                                // causal predecessors. Stamp them BEFORE Executor enters:
+                                // Executor records the real EXEC/OPEN internally, so the old
+                                // post-return order made valid fills look orphaned.
+                                try {
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "POOL", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "BUY_INTENT", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "MARK_READY", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "SIZED_EXECUTABLE", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "TICKET", projectSniperAttemptId)
+                                    PipelineHealthCollector.labelInc("STANDALONE_SPECIALIST_PRE_EXEC_CAUSAL_7815_PROJECT_SNIPER")
+                                } catch (_: Throwable) {}
+
                                 val sniperOpened = executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = sniperSizedSol7054,  // V5.0.7054 shaped
@@ -30809,24 +30828,6 @@ if (hotExitHandledSweep) {
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.PROJECT_SNIPER) } catch (_: Throwable) {}
                                     return
                                 }
-
-                                // V5.0.6842 — the buy opened, so bind the causal predecessors to
-                                // the same attemptId the execution spine already used for
-                                // MARK/SIZE/TICKET. Mirrors the coherent 5-stamp block the meme
-                                // spine runs, which the standalone sniper path never reached
-                                // because that block is guarded on specialistIntent6614 != null.
-                                // recordDeskStage dedupes on lane|stage|eventId, so re-stamping a
-                                // stage the spine already recorded is a no-op. Expect
-                                // phantomSizedOnly to fall to 0 and sizedExecutable / ticket /
-                                // exec to become non-zero for PROJECT_SNIPER; those counters were
-                                // undercounted, not the trades.
-                                try {
-                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "POOL", projectSniperAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "BUY_INTENT", projectSniperAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "MARK_READY", projectSniperAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "SIZED_EXECUTABLE", projectSniperAttemptId)
-                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "TICKET", projectSniperAttemptId)
-                                } catch (_: Throwable) {}
 
                                 com.lifecyclebot.v3.scoring.ProjectSniperAI.engageMission(
                                     mint = ts.mint,

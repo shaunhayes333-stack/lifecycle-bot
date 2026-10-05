@@ -66,6 +66,11 @@ object CanonicalEntryAuthority6551 {
     private val dispatchHistory6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val dispatchedAtMs6647 = ConcurrentHashMap<String, Long>()
     private val terminalByAttempt6647 = ConcurrentHashMap<String, String>()
+    // V5.0.7815 — immutable class attribution for each dispatched attempt.
+    // Required because terminal attempts leave `pending`, and the acceptance
+    // witness must distinguish a legitimate CRYPTO_ALT terminal failure from an
+    // unexplained vanished dispatch.
+    private val assetClassByDispatchAttempt7815 = ConcurrentHashMap<String, AssetClass>()
     private fun intentAssetClass6569(intent: ExecutableOpenGate.ExecutionIntent): AssetClass =
         AssetClass.values().firstOrNull { it.tag == intent.assetClassTag } ?: AssetClass.UNKNOWN
 
@@ -489,7 +494,9 @@ object CanonicalEntryAuthority6551 {
         if (dispatchedAttempts6569.add(intent.attemptId)) {
             dispatchHistory6647.add(intent.attemptId)
             dispatchedAtMs6647.putIfAbsent(intent.attemptId, System.currentTimeMillis())
-            CanonicalEntryAuthority6540.markAdapterDispatchFor6551(intentAssetClass6569(intent), intent.symbol)
+            val cls7815 = intentAssetClass6569(intent)
+            assetClassByDispatchAttempt7815.putIfAbsent(intent.attemptId, cls7815)
+            CanonicalEntryAuthority6540.markAdapterDispatchFor6551(cls7815, intent.symbol)
         }
     }
 
@@ -575,6 +582,37 @@ object CanonicalEntryAuthority6551 {
             immutableIntentsForDispatches = attempts.count { it in immutableIntentAttempts6647 }.toLong(),
             dispatches = attempts.size.toLong(),
             terminalResultsForDispatches = attempts.count { terminalByAttempt6647.containsKey(it) }.toLong(),
+        )
+    }
+
+    data class AssetDispatchAccounting7815(
+        val dispatches: Long,
+        val pendingNonTerminal: Long,
+        val terminalResults: Long,
+    ) {
+        val unaccounted: Long get() = (dispatches - pendingNonTerminal - terminalResults).coerceAtLeast(0L)
+    }
+
+    /**
+     * V5.0.7815 — asset-scoped dispatch accounting for runtime acceptance.
+     * OPEN is one terminal result; FAILED/DEFERRED/CANCELLED/EXPIRED are also
+     * terminal results. A failed dispatch must not be mislabeled
+     * DISPATCH_WITHOUT_OPEN_OR_PENDING merely because it correctly left pending.
+     */
+    fun dispatchAccountingForWindow7815(
+        assetClass: AssetClass,
+        fromInclusiveMs: Long,
+        toInclusiveMs: Long,
+    ): AssetDispatchAccounting7815 {
+        val attempts = dispatchedAtMs6647.entries.asSequence()
+            .filter { (_, atMs) -> atMs in fromInclusiveMs..toInclusiveMs }
+            .filter { (attemptId, _) -> assetClassByDispatchAttempt7815[attemptId] == assetClass }
+            .map { it.key }
+            .toList()
+        return AssetDispatchAccounting7815(
+            dispatches = attempts.size.toLong(),
+            pendingNonTerminal = attempts.count { isDispatchedNonTerminal7809(it) }.toLong(),
+            terminalResults = attempts.count { terminalByAttempt6647.containsKey(it) }.toLong(),
         )
     }
 

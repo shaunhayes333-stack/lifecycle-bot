@@ -384,10 +384,42 @@ object LaneExecutionCoordinator {
      */
     private val NON_OWNER_LANES_6910 = setOf("UNKNOWN", "STANDARD", "V3_CORE", "SHADOW")
 
+    /**
+     * V5.0.7815 — execution ownership must obey the canonical enabled-trader
+     * authority, not whichever wrapper happened to reach the coordinator.
+     * PAPER remains learn-everything because EnabledTraderAuthority.isEnabled()
+     * deliberately returns true for every trader there.
+     */
+    private fun enabledOwnerTrader7815(lane: String): EnabledTraderAuthority.Trader? = when (
+        CanonicalLaneIdentity6506.canonical(lane)
+    ) {
+        "CORE" -> EnabledTraderAuthority.Trader.MEME
+        "SHITCOIN" -> EnabledTraderAuthority.Trader.SHITCOIN
+        "MOONSHOT" -> EnabledTraderAuthority.Trader.MOONSHOT
+        "EXPRESS" -> EnabledTraderAuthority.Trader.EXPRESS
+        "QUALITY" -> EnabledTraderAuthority.Trader.QUALITY
+        "TREASURY" -> EnabledTraderAuthority.Trader.TREASURY
+        "CASHGEN" -> EnabledTraderAuthority.Trader.CASHGEN
+        "BLUECHIP" -> EnabledTraderAuthority.Trader.BLUECHIP
+        "MANIPULATED" -> EnabledTraderAuthority.Trader.MANIPULATED
+        "DIP_HUNTER" -> EnabledTraderAuthority.Trader.DIP_HUNTER
+        "PROJECT_SNIPER" -> EnabledTraderAuthority.Trader.PROJECT_SNIPER
+        "CYCLIC" -> EnabledTraderAuthority.Trader.CYCLIC
+        else -> null
+    }
+
     /** True when `lane` can hold canonical execution ownership. */
     fun laneCanOwnExecution6910(lane: String?): Boolean {
-        val u = lane?.trim()?.uppercase().orEmpty()
-        return u.isNotBlank() && u !in NON_OWNER_LANES_6910
+        val u = CanonicalLaneIdentity6506.canonical(lane.orEmpty())
+        if (u.isBlank() || u in NON_OWNER_LANES_6910) return false
+        val trader7815 = enabledOwnerTrader7815(u) ?: return false
+        val enabled7815 = try { EnabledTraderAuthority.isEnabled(trader7815) } catch (_: Throwable) { false }
+        if (!enabled7815) {
+            try {
+                PipelineHealthCollector.labelInc("LANE_OWNER_DISABLED_BY_AUTHORITY_7815_$u")
+            } catch (_: Throwable) {}
+        }
+        return enabled7815
     }
 
     private fun sealedFdgOwnerLane6679(mint: String, candidateVersion: Long): String? = try {
