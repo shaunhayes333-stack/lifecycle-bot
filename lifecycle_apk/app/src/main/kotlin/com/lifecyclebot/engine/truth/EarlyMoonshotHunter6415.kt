@@ -90,6 +90,15 @@ object EarlyMoonshotHunter6415 {
         buysLastWindow: Int,
         sellsLastWindow: Int,
         rugSafetyConfirmed: Boolean,
+        holderCount: Int = 0,
+        holderGrowthPct: Double = 0.0,
+        topHolderPct: Double = -1.0,
+        smartMoneyBuys60s: Int = 0,
+        momentumScore: Double = 50.0,
+        bundleRisk: String = "UNKNOWN",
+        firstBlockSupplyPct: Double = -1.0,
+        devSelling: Boolean = false,
+        socialVelocityScore: Double = 0.0,
         emitTelemetry: Boolean = true,
     ): Verdict {
         // Fast rejection: no mcap OR mcap way above 25k → NORMAL.
@@ -125,11 +134,51 @@ object EarlyMoonshotHunter6415 {
             fired += Signal("CULTURE_RESONANCE_NAME", 8.0); signals.add("CULTURE_RESONANCE_NAME")
         }
 
+        // V5.0.7798 — EXPANSION ENGINE evidence.
+        // A runner is not merely green: independent demand broadens faster than
+        // valuation while distribution stays survivable. Unknown evidence is neutral.
+        if (holderGrowthPct.isFinite()) {
+            when {
+                holderGrowthPct >= 10.0 -> { fired += Signal("HOLDER_GROWTH_VIRAL", 14.0); signals.add("HOLDER_GROWTH_VIRAL") }
+                holderGrowthPct >= 2.0 -> { fired += Signal("HOLDER_GROWTH_POSITIVE", 7.0); signals.add("HOLDER_GROWTH_POSITIVE") }
+            }
+        }
+        if (holderCount >= 100) { fired += Signal("HOLDER_BREADTH", 8.0); signals.add("HOLDER_BREADTH") }
+        if (topHolderPct in 0.0..20.0) { fired += Signal("TOP_HOLDER_HEALTHY", 8.0); signals.add("TOP_HOLDER_HEALTHY") }
+
+        when {
+            smartMoneyBuys60s >= 3 -> { fired += Signal("SMART_MONEY_CONVERGENCE", 16.0); signals.add("SMART_MONEY_CONVERGENCE") }
+            smartMoneyBuys60s >= 2 -> { fired += Signal("SMART_MONEY_CLUSTER", 11.0); signals.add("SMART_MONEY_CLUSTER") }
+            smartMoneyBuys60s == 1 -> { fired += Signal("SMART_MONEY_TOUCH", 4.0); signals.add("SMART_MONEY_TOUCH") }
+        }
+
+        when {
+            momentumScore >= 70.0 -> { fired += Signal("FLOW_ACCELERATION_STRONG", 10.0); signals.add("FLOW_ACCELERATION_STRONG") }
+            momentumScore >= 55.0 -> { fired += Signal("FLOW_ACCELERATION_BUILDING", 5.0); signals.add("FLOW_ACCELERATION_BUILDING") }
+        }
+
+        if (socialVelocityScore >= 6.0) {
+            fired += Signal("SOCIAL_VELOCITY", 7.0); signals.add("SOCIAL_VELOCITY")
+        }
+
+        val bundle = bundleRisk.uppercase()
+        if (bundle in setOf("LOW", "CLEAN", "NONE") && (firstBlockSupplyPct < 0.0 || firstBlockSupplyPct <= 20.0)) {
+            fired += Signal("DISTRIBUTION_CLEAN", 8.0); signals.add("DISTRIBUTION_CLEAN")
+        }
+
+        val negative = mutableListOf<Signal>()
+        if (devSelling) negative += Signal("DEV_SELLING", -25.0)
+        if (topHolderPct >= 45.0) negative += Signal("TOP_HOLDER_DANGEROUS", -18.0)
+        if (bundle in setOf("HIGH", "CRITICAL", "SEVERE")) negative += Signal("BUNDLE_CONCENTRATION", -18.0)
+        if (firstBlockSupplyPct >= 40.0) negative += Signal("FIRST_BLOCK_CONCENTRATION", -15.0)
+        if (holderGrowthPct.isFinite() && holderGrowthPct <= -5.0) negative += Signal("HOLDER_GROWTH_SHRINKING", -12.0)
+
         // Apply learned weights.
         var composite = 0.0
-        for (s in fired) {
+        for (s in fired + negative) {
             val learned = try { MoonshotSignalLearner6415.signalWeight(s.name) } catch (_: Throwable) { 1.0 }
             composite += s.weight * learned
+            if (s.weight < 0.0) signals.add(s.name)
         }
 
         val tier = when {
@@ -137,7 +186,10 @@ object EarlyMoonshotHunter6415 {
             composite >= 55.0 -> Tier.STRONG
             else -> Tier.NORMAL
         }
-        val verdict = Verdict(tier, composite, mcapUsd, signals, "sub25k_moonshot_hunter")
+        val verdict = Verdict(
+            tier, composite, mcapUsd, signals,
+            "sub25k_expansion_engine holders=$holderCount hg=${"%.1f".format(holderGrowthPct)} top=${"%.1f".format(topHolderPct)} smart60=$smartMoneyBuys60s mom=${"%.0f".format(momentumScore)} bundle=$bundle devSell=$devSelling"
+        )
 
         if (emitTelemetry) try {
             val tag = when (tier) {
