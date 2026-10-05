@@ -302,9 +302,16 @@ object AateDecisionFabric6512 {
             val ownerBand6707 = env.scoreBand.ifBlank {
                 try { LosingPatternMemory.scoreBand(env.entryScore.toInt()) } catch (_: Throwable) { "UNKNOWN" }
             }
+            val ownerObjective7801 = try {
+                SpecialistObjective7801.evaluate(
+                    ownerLane6707, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+                )
+            } catch (_: Throwable) { null }
             val ownerOutcome6707 = CanonicalOutcomeClassifier6576.classifyReadonly(env.realizedReturnPct)
-            val ownerWin6707 = ownerOutcome6707 == CanonicalOutcomeClassifier6576.Class.WIN
-            val ownerLoss6707 = ownerOutcome6707 == CanonicalOutcomeClassifier6576.Class.LOSS
+            val ownerWin6707 = ownerObjective7801?.mandateSuccess
+                ?: (ownerOutcome6707 == CanonicalOutcomeClassifier6576.Class.WIN)
+            val ownerLoss6707 = if (ownerObjective7801 != null) ownerObjective7801.utility < 0.0
+                else ownerOutcome6707 == CanonicalOutcomeClassifier6576.Class.LOSS
             try {
                 com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(ownerLane6707, ownerBand6707, ownerWin6707, ownerLoss6707)
                 com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(ownerLane6707, ownerBand6707, ownerWin6707, ownerLoss6707, env.realizedReturnPct)
@@ -320,6 +327,11 @@ object AateDecisionFabric6512 {
             val lane = c.brain.substringAfter("MemeDesk:").substringBefore(':').uppercase()
             val scoreBand = try { LosingPatternMemory.scoreBand(e?.scoreFinal?.toInt() ?: 0) } catch (_: Throwable) { "UNKNOWN" }
             val outcome = CanonicalOutcomeClassifier6576.classifyReadonly(env.realizedReturnPct)
+            val deskObjective7801 = try {
+                SpecialistObjective7801.evaluate(
+                    lane, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+                )
+            } catch (_: Throwable) { null }
             try {
                 // V5.0.6707 — the actual execution owner was trained above from
                 // canonical finality. Secondary desks still receive causal credit
@@ -327,8 +339,10 @@ object AateDecisionFabric6512 {
                 if (!lane.equals(env.lane, true)) {
                     com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(
                         lane, scoreBand,
-                        outcome == CanonicalOutcomeClassifier6576.Class.WIN,
-                        outcome == CanonicalOutcomeClassifier6576.Class.LOSS,
+                        deskObjective7801?.mandateSuccess
+                            ?: (outcome == CanonicalOutcomeClassifier6576.Class.WIN),
+                        if (deskObjective7801 != null) deskObjective7801.utility < 0.0
+                            else outcome == CanonicalOutcomeClassifier6576.Class.LOSS,
                     )
                 }
                 ToolkitSignalSheet.recordDeskStage(lane, "LEARNING", env.positionId)
