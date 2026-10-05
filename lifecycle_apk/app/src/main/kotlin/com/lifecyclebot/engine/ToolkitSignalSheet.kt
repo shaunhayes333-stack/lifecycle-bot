@@ -802,6 +802,21 @@ object ToolkitSignalSheet {
                 try { PipelineHealthCollector.labelInc("NATIVE_BRAIN_HYPOTHESIS_APPLIED_7542_$lane") } catch (_: Throwable) {}
             }
         }
+        // V5.0.7796 — CORE must exist BEFORE hunter-claim arbitration.
+        // Previously its native hypothesis was appended after the claim block, so a
+        // MARKET_HUNT_CORE claim could never find deskHypotheses["CORE"] and therefore
+        // could never influence ownership. CORE remains an ensemble: its native brain
+        // must still mark it authoritative+eligible before the hunter can tie-break.
+        nativeBrains7542.opinions["CORE"]?.takeIf { it.authoritative && it.eligible }?.let { native ->
+            val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
+            deskHypotheses["CORE"] = DeskHypothesis(
+                "CORE", setup, maxOf(native.score,native.confidence).toDouble().coerceIn(25.0,100.0),
+                native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
+                native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
+                "nativeBrain7542;${native.reason}"
+            )
+        }
+
         // V5.0.7448 — LaneHunter claims finally affect ownership.
         // A claim is NOT qualification: it can only promote an already-built
         // hypothesis for the claimed specialist, after that specialist's own
@@ -842,16 +857,6 @@ object ToolkitSignalSheet {
                     )
                 } catch (_: Throwable) {}
             }
-        }
-        // V5.0.7542 — CORE consumes the same native specialist opinions.
-        nativeBrains7542.opinions["CORE"]?.takeIf { it.authoritative && it.eligible }?.let { native ->
-            val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
-            deskHypotheses["CORE"] = DeskHypothesis(
-                "CORE", setup, maxOf(native.score,native.confidence).toDouble().coerceIn(25.0,100.0),
-                native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
-                native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
-                "nativeBrain7542;${native.reason}"
-            )
         }
         // V5.0.7622 — pin one candidate generation for this entire Toolkit
         // evaluation. Resolving candidateVersionFor() separately for the
