@@ -1803,7 +1803,11 @@ class Executor(
     private fun isEmergencySellReason(reason: String): Boolean {
         val r = reason.uppercase()
         val emergencyKeys = listOf("RUG", "HONEYPOT", "EMERGENCY", "SHUTDOWN", "PHANTOM", "STALE", "MAX_HOLD", "MUST_SELL", "CATASTROPHIC")
-        return emergencyKeys.any { r.contains(it) }
+        // V5.0.7807 — B4: capital-preservation + structural emergencies (RAPID_CATASTROPHE_STOP,
+        // liquidity_collapse, dev_dump, authority threat) accept poor price impact up to the
+        // 50% cap instead of deferring on >25% impact (Field Manual L248).
+        return emergencyKeys.any { r.contains(it) } ||
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.acceptsPoorImpact(reason)
     }
 
     private fun buildPriceVariants(rawPrice: Double, decimals: Int): List<Double> {
@@ -2423,7 +2427,9 @@ class Executor(
             rU.contains("STRICT_SL") || rU.contains("HARD_STOP") || rU.contains("STOP_LOSS") ||
             rU.contains("EXIT-RESCUE") || rU.contains("EXIT_RESCUE") ||
             rU.contains("EXIT-DRAIN-RESCUE") || rU.contains("RAPID_CATASTROPHE") ||
-            rU.contains("LIQUIDITY_REMOVED") || rU.contains("WALLET_DRAIN")
+            rU.contains("LIQUIDITY_REMOVED") || rU.contains("WALLET_DRAIN") ||
+            // V5.0.7807 — B3: the whole shared emergency class punches through (Field Manual L311).
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)
 
         // V5.0.4151 — strict/catastrophe exits override recovered-hold grace.
         // Previously RecoveredHoldGuard ran before the safety punch-through and
@@ -4000,6 +4006,40 @@ class Executor(
     /**
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
+    /**
+     * V5.0.7807 — ONE ECONOMIC IDENTITY (Field Manual L415: reconcile journal,
+     * fills, balances). A journal row without a caller-supplied positionId was
+     * stamped with TradeOutcomeLedger's "gen:MODE:mint:openedAt:LANE" id, while
+     * canonical OPEN, lot ledger, economic events and the finalized-trade bus all
+     * key on the canonical "MODE:mint:run:seq" id — so BUY → OPEN → lot → SELL
+     * → journal → bus → learner could not be joined by positionId. Prefer the
+     * canonical id whenever a canonical row for this mode+mint exists; fall back
+     * to the ledger id only when canonical has no record (never a fabricated
+     * canonical-looking id).
+     */
+    private fun canonicalJournalPositionId7807(ts: TokenState, trade: Trade): String {
+        val mint7807 = trade.mint.ifBlank { ts.mint }
+        val paper7807 = if (trade.mode.isNotBlank()) trade.mode.equals("paper", true) else ts.position.isPaperPosition
+        val canonical7807 = try {
+            val id = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint7807, paper7807)
+            val p = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(id)
+            val terminal7807 = p != null && (p.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
+                p.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED)
+            val entryMs7807 = ts.position.entryTime
+            // A BUY never inherits a closed id; an exit never inherits a canonical row
+            // whose last mutation predates this position's entry (previous position).
+            when {
+                p?.mint != mint7807 -> null
+                trade.side.equals("BUY", true) && terminal7807 -> null
+                terminal7807 && entryMs7807 > 0L && (p?.lastMutationMs ?: 0L) < entryMs7807 - 60_000L -> null
+                else -> id
+            }
+        } catch (_: Throwable) { null }
+        if (canonical7807 != null) return canonical7807
+        try { PipelineHealthCollector.labelInc("JOURNAL_POSITION_ID_LEDGER_FALLBACK_7807") } catch (_: Throwable) {}
+        return try { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } catch (_: Throwable) { "" }
+    }
+
     private fun recordTrade(ts: TokenState, trade: Trade) {
         // V5.0.6324 — ACCOUNTING IDEMPOTENCY GATE (operator hotfix §13).
         // A single confirmed transaction can arrive via websocket +
@@ -4197,7 +4237,7 @@ class Executor(
                 resolveExecutionLane(ts, fallback = "STANDARD")
             }
         }
-        val ledgerPositionId = try { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } catch (_: Throwable) { "" }
+        val ledgerPositionId = canonicalJournalPositionId7807(ts, trade)
         val entryTsForJournal = ts.position.entryTime.takeIf { it > 0L } ?: if (trade.side.equals("BUY", true)) trade.ts else trade.entryTsMs
         // V5.0.7355 — an exit row that carries its own sold-slice cost keeps it.
         // The live partial path shrinks ts.position BEFORE journaling, so the
@@ -5264,7 +5304,7 @@ class Executor(
             val _fanoutEntryTime  = ts.position.entryTime
             val _fanoutTradingMode = (ts.position.tradingMode ?: "").uppercase()
             val _fanoutSource     = ts.source
-            val _fanoutPositionId = try { trade.positionId.ifBlank { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } } catch (_: Throwable) { trade.positionId }
+            val _fanoutPositionId = tradeWithMint.positionId.ifBlank { ledgerPositionId } // V5.0.7807 — same id the journal row carries
             val _fanoutEventTsMs  = trade.ts.takeIf { it > 0L } ?: System.currentTimeMillis()
             val _fanoutBuildTag   = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "unknown" }
             val _fanoutEntryPrice = ts.position.entryPrice
@@ -9218,7 +9258,12 @@ class Executor(
                     pos.isTreasuryPosition -> "TREASURY"
                     else -> pos.tradingMode.trim().uppercase().ifBlank { "STANDARD" }
                 }
-                val exitSignals = try { unifiedExitSignalsFor(ts, pnlPctNow, pos.peakGainPct) } catch (_: Throwable) { null }
+                // V5.0.7807 — B2: a breached hard SL (class 3) is never vetoed by a
+                // learner. Outside a Moonshot lane neither the AGI head nor the
+                // extend-hold heuristic / council is consulted at all; a Moonshot
+                // runner keeps its existing behaviour (B3, Field Manual L267-L268).
+                val exitSignals = if (strictSlBypassesAdvisory7807(pos.tradingMode)) null
+                    else try { unifiedExitSignalsFor(ts, pnlPctNow, pos.peakGainPct) } catch (_: Throwable) { null }
                 val veto = if (exitSignals != null) {
                     try { com.lifecyclebot.engine.UnifiedExitPolicyHead.shouldVetoStopLoss(agiLane, pnlPctNow, exitSignals) }
                     catch (_: Throwable) { com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.HONOR }
@@ -9240,7 +9285,7 @@ class Executor(
                 // this SL tick — the position will be re-evaluated on the
                 // next hot-exit pass. Never widens beyond the -20% floor
                 // so a real rug still gets clamped.
-                val extendHold6725 = try {
+                val extendHold6725 = !strictSlBypassesAdvisory7807(pos.tradingMode) && try {
                     com.lifecyclebot.v3.scoring.FluidLearningAI.shouldExtendHoldTime(
                         volumeChangePercent = volChangePct6725,
                         buyPressurePct = buyPressure6725,
@@ -10414,7 +10459,17 @@ class Executor(
                     // V5.0.7355 — the slice basis livePnl/liveScore were computed on;
                     // ts.position was already reduced to the remainder above.
                     entryCostSol = pos.costSol * sellFraction, entryPriceSnapshot = pos.entryPrice,
-                    soldCostBasisSol = pos.costSol * sellFraction, grossProceedsSol = solBack)
+                    soldCostBasisSol = pos.costSol * sellFraction, grossProceedsSol = solBack,
+                    // V5.0.7807 — one economic identity + exact sold quantity on the
+                    // partial leg (Field Manual L267). This row carried no positionId,
+                    // so TradeHistoryStore minted "LIVE:<mint>:<entryTs>" — a
+                    // different id from the canonical LIVE:<mint>:<run>:<seq> — and no
+                    // soldQtyToken, so the leg's sold quantity was unknown (0).
+                    positionId = pos.positionId.ifBlank { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false) },
+                    entryTsMs = pos.entryTime, entryQtyToken = pos.qtyToken,
+                    soldQtyToken = sellQty, remainingQtyToken = newQty.coerceAtLeast(0.0),
+                    canonicalConsumedRaw = expectedConsumedRawForAudit,
+                    tokenDecimals = if (expectedConsumedRawForAudit.signum() > 0) decimalsForAudit else -1)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
                 SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
                 LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
@@ -10717,8 +10772,64 @@ class Executor(
      * none of that should change because the exit engine learned to look at
      * the wallet. This predicate widens exit eligibility only.
      */
+    /**
+     * V5.0.7807 §LANDED_BUY_IS_ALWAYS_MANAGED — a LIVE buy proven on-chain
+     * (tx meta delta or authoritative owner token account) that did not reach
+     * canonical OPEN in its verification path is placed under protective
+     * ownership synchronously (funded QUARANTINED BASIS_UNCERTAIN row), and its
+     * TokenState is kept resident so the risk clock and exits can act on it.
+     * Accounting/learning stay quarantined (Field Manual L39, L407).
+     */
+    private fun protectLandedLiveBuy7807(
+        ts: TokenState,
+        positionIdHint: String,
+        proof: com.lifecyclebot.engine.sell.BalanceProof,
+        costSol: Double,
+        entryPriceUsd: Double,
+        signature: String,
+        reason: String,
+    ) {
+        try {
+            if (ts.position.isPaperPosition) return
+            if (!proof.authoritative || proof.amountRaw <= java.math.BigInteger.ONE || proof.mint != ts.mint) {
+                PipelineHealthCollector.labelInc("LANDED_LIVE_BUY_PROTECT_NO_PROOF_7807")
+                return
+            }
+            val outcome7807 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.ensureProtectiveLiveOwnership7807(
+                positionIdHint = positionIdHint,
+                mint = ts.mint,
+                symbol = ts.symbol,
+                lane = ts.position.tradingMode,
+                actualQtyRaw = proof.amountRaw,
+                tokenDecimals = proof.decimals,
+                entryCostSol = costSol,
+                entryPriceUsd = entryPriceUsd,
+                signature = signature,
+                reason = reason,
+            )
+            // Authoritative on-chain proof: the tokens landed, so the runtime row is
+            // open for exits (liveSell aborts on pendingVerify) at the proven qty.
+            val provenQty7807 = try { proof.amountRaw.toBigDecimal().movePointLeft(proof.decimals).toDouble() } catch (_: Throwable) { 0.0 }
+            if (provenQty7807.isFinite() && provenQty7807 > 0.0) {
+                ts.position = ts.position.copy(qtyToken = provenQty7807, pendingVerify = false)
+            }
+            try { synchronized(BotService.status.tokens) { BotService.status.tokens[ts.mint] = ts } } catch (_: Throwable) {}
+            try { PositionPersistence.savePosition(ts) } catch (_: Throwable) {}
+            try { HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, signature) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellAmountAuthority.recordTxParseBalance(ts.mint, proof.amountRaw, proof.decimals, signature) } catch (_: Throwable) {}
+            PipelineHealthCollector.labelInc("LANDED_LIVE_BUY_PROTECTED_7807_${outcome7807.name}")
+        } catch (t: Throwable) {
+            try {
+                PipelineHealthCollector.labelInc("LANDED_LIVE_BUY_PROTECT_FAILED_7807")
+                ForensicLogger.lifecycle("LANDED_LIVE_BUY_PROTECT_FAILED_7807", "mint=${ts.mint.take(10)} reason=$reason err=${t.message?.take(80)}")
+            } catch (_: Throwable) {}
+        }
+    }
+
     private fun manageableForExit7146(ts: TokenState): Boolean {
         if (ts.position.isOpen) return true
+        // V5.0.7807 — a funded protective quarantine row is managed inventory (Field Manual L407).
+        if (!ts.position.isPaperPosition && com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasFundedProtectiveQuarantine7807(ts.mint)) return true
         return try {
             val held = HostWalletTokenTracker.getEntry(ts.mint)?.uiAmount ?: 0.0
             if (held <= 0.0) return false
@@ -13295,6 +13406,7 @@ class Executor(
                 }
             } catch (_: Throwable) {}
 
+            mirrorLiveTopUpCanonical7807(ts.mint, sig, sol, effectiveNewQty, topUpExplicitDecimals)
             val gainPct = pct(pos.entryPrice, price)
             val trade   = Trade("BUY", "live", sol, price,
                                 System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}",
@@ -13336,6 +13448,47 @@ class Executor(
             canonical.entryCostSol > 0.0 && canonical.remainingQtyRaw > java.math.BigInteger.ZERO &&
             com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.hasFundedOpenLot6485(pid) &&
             com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen("paper", ts.mint)
+    }
+
+    /**
+     * V5.0.7807 — LIVE TOP-UP CANONICAL MIRROR (Field Manual L252/L411:
+     * update exposure after fills; reconcile held positions against
+     * authoritative fills). liveTopUp grew the local Position by the
+     * wallet-verified delta but never touched CanonicalPositionAuthority6441
+     * or the lot ledger, so canonical remaining (what sells, the sell-quantity
+     * guard and the lot ledger trust) under-stated real inventory and the
+     * legacy Position invented quantity on its own. Mirror the verified add
+     * into the SAME canonical positionId. Requires wallet-known decimals; no
+     * fabricated scale.
+     */
+    private fun mirrorLiveTopUpCanonical7807(mint: String, sig: String, addedSol: Double, addedUi: Double, decimals: Int?) {
+        try {
+            if (decimals == null || decimals !in 0..18 || !addedUi.isFinite() || addedUi <= 0.0 || !addedSol.isFinite() || addedSol <= 0.0) {
+                PipelineHealthCollector.labelInc("LIVE_TOPUP_CANONICAL_MIRROR_SKIPPED_7807")
+                return
+            }
+            val addedRaw = java.math.BigDecimal.valueOf(addedUi).movePointRight(decimals).toBigInteger()
+            if (addedRaw.signum() <= 0) return
+            val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint, false)
+            val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            val addedUsdPerToken = if (solUsd.isFinite() && solUsd in 5.0..10_000.0) (addedSol * solUsd) / addedUi else 0.0
+            val r = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.addToPosition6486(
+                idempotencyKey = "LIVE_TOPUP_7807:$sig",
+                positionId = pid,
+                addedCostSol = addedSol,
+                addedQtyRaw = addedRaw,
+                feesSol = 0.0,
+                addedEntryPriceUsd = addedUsdPerToken,
+            )
+            if (r == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED) {
+                com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pid, mint, addedRaw)
+            }
+            PipelineHealthCollector.labelInc("LIVE_TOPUP_CANONICAL_MIRROR_${r.name}_7807")
+            ForensicLogger.lifecycle(
+                "LIVE_TOPUP_CANONICAL_MIRROR_7807",
+                "mint=${mint.take(10)} positionId=${pid.take(28)} sig=${sig.take(16)} addedRaw=$addedRaw addedSol=$addedSol result=${r.name}",
+            )
+        } catch (_: Throwable) {}
     }
 
     private fun buyPhase(label: String) {
@@ -13413,6 +13566,145 @@ class Executor(
             }
         } catch (_: Throwable) {}
     }
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7807 — LiveRiskPolicy7807 wiring, kept out of liveBuy's body.
+    // Field Manual L243 (size from invalidation), L215 (cost vs move),
+    // L250 (per-trade / per-day / per-strategy loss), L145 (sweep and reclaim).
+    // ─────────────────────────────────────────────────────────────────────
+    private fun liveRiskExecMin7807(walletSol: Double, configuredMinSol: Double): Double {
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val routableMin = try {
+            if (solUsd > 0.0) com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
+                (walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
+                solUsd,
+            ).routableMinSol else 0.0
+        } catch (_: Throwable) { 0.0 }
+        return maxOf(if (configuredMinSol.isFinite()) configuredMinSol.coerceAtLeast(0.0) else 0.0, routableMin)
+    }
+
+    private fun liveRiskLiquidityUsd7807(ts: TokenState): Double {
+        val own = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd.coerceAtLeast(0.0) else 0.0
+        val observed = try { TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
+        return maxOf(own, if (observed.isFinite()) observed else 0.0)
+    }
+
+    /** True = refuse this candidate before any lease/ticket. Per-candidate, never a pause. */
+    private fun liveRiskPolicyPreTicketRefused7807(ts: TokenState, lane: String, requestedSol: Double, walletSol: Double): Boolean {
+        if (isPaperRT()) return false
+        return try {
+            val laneKey = lane.ifBlank { ts.source }
+            val inputs = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.runtimeInputs(
+                mint = ts.mint,
+                lane = laneKey,
+                walletSol = walletSol,
+                upstreamSol = requestedSol,
+                execMinSol = liveRiskExecMin7807(walletSol, cfg().minLiveBuySol),
+                liquidityUsd = liveRiskLiquidityUsd7807(ts),
+                governorLossMult = 1.0,
+                partialProviderEvidence = false,
+            )
+            val d = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record(
+                "PRETICKET", ts.mint, ts.symbol, inputs,
+                com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs),
+            )
+            if (!d.open) {
+                emitLiveBuyFail(ts, requestedSol, d.reason, "stage=pre_ticket lane=$laneKey stop=${d.stopPct.fmt(1)} cost=${d.costPct.fmt(1)}")
+            }
+            !d.open
+        } catch (_: Throwable) { false }
+    }
+
+    /**
+     * V5.0.7807 — the late COMMON_SENSE_PREBUY_RISK_REWARD_POOR refusal, asked at
+     * the pre-ticket point with the same thresholds: the playbook's own mirror
+     * (preTicketRiskRewardPoor7807) and the same FdgBrainChain softening the
+     * late block applies. Only a refusal the late check would also make stops
+     * here; the late check is unchanged (Field Manual L123 / L215).
+     */
+    private fun commonSenseRiskRewardPreTicketRefused7807(ts: TokenState, lane: String, score: Double, sol: Double): Boolean {
+        if (isPaperRT()) return false
+        return try {
+            val laneKey = lane.ifBlank { ts.source }
+            if (!CommonSenseTradePlaybook.preTicketRiskRewardPoor7807(ts, laneKey, score)) return false
+            val clean = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+            val brain = try {
+                FdgBrainChain.evaluate(
+                    lane = laneKey,
+                    candidateScore = score,
+                    laneScore = score,
+                    policyAuthority = try { UnifiedPolicyHead.currentAuthority(laneKey) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP },
+                    metaCogMult = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(laneKey) } catch (_: Throwable) { 1.0 },
+                    orthogonalAgreement = null,
+                    orthogonalComposite = null,
+                    cleanTrades = clean?.totalTrades ?: 0,
+                    cleanWinRate = clean?.winRate ?: 0.0,
+                    cleanPnlSol = clean?.totalPnlSol ?: 0.0,
+                    profitFactor = clean?.profitFactor ?: 0.0,
+                    commonSenseBlocked = true,
+                    commonSenseReason = "RISK_REWARD_POOR",
+                    antiChokeSoftening = try { AntiChokeManager.isSoftening() } catch (_: Throwable) { false },
+                )
+            } catch (_: Throwable) { null }
+            if (brain?.softenSoftBlocks == true) return false
+            try { PipelineHealthCollector.labelInc("COMMON_SENSE_RR_POOR_PRETICKET_7807") } catch (_: Throwable) {}
+            emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_RISK_REWARD_POOR", "stage=pre_ticket_7807 lane=$laneKey score=${score.fmt(1)} action=pass_before_attempt")
+            true
+        } catch (_: Throwable) { false }
+    }
+
+    /** Final live size, or null when this candidate is passed this tick. Never raises the order. */
+    private fun liveRiskPolicyFinalSize7807(
+        ts: TokenState,
+        sol: Double,
+        walletSol: Double,
+        lane: String,
+        configuredMinSol: Double,
+        disciplineMult4460: Double,
+        partialProviderEvidence: Boolean,
+    ): Double? {
+        if (isPaperRT() || !sol.isFinite() || sol <= 0.0) return sol
+        return try {
+            val laneKey = lane.ifBlank { ts.source }
+            // B10 — a re-entry after a stop needs a fresh plan (its new invalidation).
+            val reentryThesis = MintReEntryCooldown.reentryAfterStopThesis7807(ts.mint)
+            if (reentryThesis != null && com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783(ts.mint) == null) {
+                try { PipelineHealthCollector.labelInc("REENTRY_AFTER_STOP_NO_FRESH_PLAN_7807") } catch (_: Throwable) {}
+                emitLiveBuyFail(ts, sol, "REENTRY_AFTER_STOP_NO_FRESH_PLAN_7807", reentryThesis)
+                return null
+            }
+            val inputs = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.runtimeInputs(
+                mint = ts.mint,
+                lane = laneKey,
+                walletSol = walletSol,
+                upstreamSol = sol,
+                execMinSol = liveRiskExecMin7807(walletSol, configuredMinSol),
+                liquidityUsd = liveRiskLiquidityUsd7807(ts),
+                governorLossMult = disciplineMult4460,
+                partialProviderEvidence = partialProviderEvidence,
+            )
+            val d = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record(
+                "FINAL", ts.mint, ts.symbol, inputs,
+                com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs),
+            )
+            if (!d.open) {
+                emitLiveBuyFail(ts, sol, d.reason, "stage=final lane=$laneKey stop=${d.stopPct.fmt(1)} cost=${d.costPct.fmt(1)}")
+                return null
+            }
+            if (reentryThesis != null) {
+                try {
+                    PipelineHealthCollector.labelInc("REENTRY_AFTER_STOP_7807")
+                    ForensicLogger.lifecycle(
+                        "REENTRY_AFTER_STOP_7807",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey priorThesis=$reentryThesis newPositionId=allocated_at_fill",
+                    )
+                } catch (_: Throwable) {}
+            }
+            // Below the executable minimum the upstream order is kept and the
+            // existing routable-minimum lift / refusal (7226/7236) decides.
+            minOf(sol, d.sizeSol)
+        } catch (_: Throwable) { sol }
+    }
+
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         terminalizeCanonicalLiveFailure7790(ts, reason)
         try {
@@ -18811,6 +19103,10 @@ class Executor(
             contextAttemptId = executionContext?.attemptId,
             canonicalLane = layerTag,
         ) ?: return false
+        // V5.0.7807 — LiveRiskPolicy7807 pre-ticket: lane slot cap, net-of-cost
+        // move and executable-minimum risk, before any lease (Field Manual L215, L243).
+        if (liveRiskPolicyPreTicketRefused7807(ts, layerTag, sol, walletSol)) return false
+        if (commonSenseRiskRewardPreTicketRefused7807(ts, layerTag, score, sol)) return false
         // V5.0.6451 §ENTRY_GATE — one authority for live BUYs too.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }
         val gateVerdictLive6451 = try {
@@ -18877,7 +19173,11 @@ class Executor(
                 (walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
                 WalletManager.lastKnownSolPrice,
             ).capacity
-            if (com.lifecyclebot.engine.truth.LiveSlotPriority7304.deferLive(gateLaneLive6451, slots7304)) {
+            // V5.0.7807 — B6: a high-EV runner (MOONSHOT/PROJECT_SNIPER, plan >= 3R)
+            // may take the last slot despite an unproven lane record; it is sized
+            // down by LiveRiskPolicy7807 instead (Field Manual L357).
+            if (!com.lifecyclebot.engine.truth.LiveRiskPolicy7807.isHighEvRunner(ts.mint, gateLaneLive6451) &&
+                com.lifecyclebot.engine.truth.LiveSlotPriority7304.deferLive(gateLaneLive6451, slots7304)) {
                 ForensicLogger.lifecycle(
                     "LIVE_LAST_SLOT_RESERVED_FOR_PROVEN_LANE_7304",
                     "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 freeSlots=$slots7304",
@@ -19027,27 +19327,15 @@ class Executor(
                             scoreInt = ts.entryScore.toInt(),
                             isPaper = false,
                         )
+                    // V5.0.7807 — B9: a negative-EV score bucket is a learned
+                    // performance opinion, not a safety fact. It no longer refuses
+                    // the buy or arms a per-mint cooldown; it shrinks size through
+                    // LiveRiskPolicy7807 (floored at 0.7x until the lane has 10 live
+                    // closes). Field Manual L264, L357.
                     if (evVerdict.block) {
-                        try {
-                            PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
-                        } catch (_: Throwable) {}
-                        // V5.0.6405 §19d — LOSER BUCKET COOLDOWN.
-                        // Extend the block to a per-mint cooldown so we stop
-                        // hammering the same rug family within seconds.
-                        // Cooldown scales with the severity of the bucket
-                        // (5 min for chronic negative EV, 15 min for the
-                        // -100 % all-loss bucket).
-                        try {
-                            val cooldownMs = when {
-                                evVerdict.meanPnlPct <= -80.0 -> 15L * 60_000L
-                                evVerdict.meanPnlPct <= -30.0 -> 10L * 60_000L
-                                else -> 5L * 60_000L
-                            }
-                            com.lifecyclebot.engine.truth.GlobalEntryPolicy6405
-                                .setCooldownMs(ts.mint, cooldownMs)
-                            PipelineHealthCollector.labelInc("LOSER_BUCKET_COOLDOWN_APPLIED_6405")
-                        } catch (_: Throwable) {}
-                        return false
+                        com.lifecyclebot.engine.truth.LiveRiskPolicy7807.noteGovernorShrink(
+                            ts.mint, 0.5, "PAPER_EV_BUCKET_SIZE_DOWN_NOT_REFUSED_7807",
+                        )
                     }
                 }
             } catch (_: Throwable) {}
@@ -20195,12 +20483,18 @@ class Executor(
             // V5.0.7767 — the one launch-age rule; an unknown age is not a launch.
             val ageSecs7385 = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts)?.div(1000L) } catch (_: Throwable) { null }
             val stale7385 = ageSecs7385 == null || ageSecs7385 > LIVE_SNIPER_MAX_AGE_SECS_7385
-            if (mcap7385 > LIVE_SNIPER_MAX_MCAP_USD_7385 || graduated7385 || stale7385) {
+            // V5.0.7807 — the decision is the ONE shared predicate election also
+            // reads (LaneEntryContract6342 / LaneExecutionCoordinator), so a
+            // candidate the sniper may own is a candidate this check accepts
+            // (Field Manual L153). The locals above only feed the log line.
+            val identityRefusal7807 = LaneEntryContract6342.sniperLaunchIdentityRefusal7807(ts, mcap7385)
+            if (identityRefusal7807 != null) {
                 try {
                     PipelineHealthCollector.labelInc("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385")
+                    PipelineHealthCollector.labelInc("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385_$identityRefusal7807")
                     ForensicLogger.lifecycle(
                         "LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${mcap7385.toInt()} graduated=$graduated7385 poolAgeSecs=${ageSecs7385 ?: -1} cap=${LIVE_SNIPER_MAX_MCAP_USD_7385.toInt()}",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} why=$identityRefusal7807 mcap=${mcap7385.toInt()} graduated=$graduated7385 poolAgeSecs=${ageSecs7385 ?: -1} stale=$stale7385 cap=${LIVE_SNIPER_MAX_MCAP_USD_7385.toInt()}",
                     )
                 } catch (_: Throwable) {}
                 liveStage("LIVE_BUY_ABORTED", "reason=LIVE_SNIPER_NOT_A_LAUNCH_7385 mcap=${mcap7385.toInt()} graduated=$graduated7385")
@@ -21034,6 +21328,11 @@ class Executor(
         } else {
             sol = realisticSol
         }
+        // V5.0.7807 — LiveRiskPolicy7807 final shape, after the last-mile floor that
+        // erased every earlier live shrink: invalidation-based size, learned shrink,
+        // lane cap, re-entry plan check (Field Manual L243, L250).
+        sol = liveRiskPolicyFinalSize7807(ts, sol, walletSol, layerTag.ifBlank { canonicalRoutedLane }, liveMinExecutableBuySol, disciplineRecoverySizeMultiplier4460, providerQuorumSizeMultiplier < 0.999)
+            ?: run { buyTerminalFail("BUY_TERMINAL_LIVE_RISK_POLICY_7807"); return false }
         // V5.0.6687 — FINAL EXECUTABLE SIZE INVARIANT. No downstream shaper may
         // leave a positive LIVE order below the executable floor. Earlier code
         // raised to the floor, then pending-proof realistic sizing could shrink it
@@ -22547,6 +22846,7 @@ class Executor(
                         txTruth6486.rawTokenDelta.signum() <= 0 || txTruth6486.solSpentLamports <= 0L || txTruth6486.decimals < 0
                     ) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486", "mint=${verifyMint.take(10)} stage=$stage outcome=${txTruth6486?.outcome} raw=${txTruth6486?.rawTokenDelta} spent=${txTruth6486?.solSpentLamports}") } catch (_: Throwable) {}
+                        protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), candidateProof, 0.0, 0.0, verifySig, "TX_TRUTH_DEFERRED:$stage")
                         return false
                     }
                     val proof6386 = com.lifecyclebot.engine.truth.ProofState6386.FinalizedProofComplete(
@@ -22563,6 +22863,7 @@ class Executor(
                     val validated6486 = com.lifecyclebot.engine.truth.FinalizedBuyProof6386.validate(verifyWallet.publicKeyB58, verifyMint, proof6386)
                     if (!validated6486.proofComplete) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486", "mint=${verifyMint.take(10)} stage=$stage reason=${validated6486.reason}") } catch (_: Throwable) {}
+                        protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), candidateProof, 0.0, 0.0, verifySig, "PROOF_INCOMPLETE:$stage")
                         return false
                     }
                     val proof = com.lifecyclebot.engine.sell.BalanceProof(
@@ -22580,6 +22881,7 @@ class Executor(
                     if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != verifyMint) {
                         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol stage=$stage reason=INVALID_PROOF source=${proof.source} raw=${proof.amountRaw}") } catch (_: Throwable) {}
                         try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                        protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), candidateProof, 0.0, 0.0, verifySig, "INVALID_PROOF:$stage")
                         return false
                     }
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_OK", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)} stage=$stage") } catch (_: Throwable) {}
@@ -22643,9 +22945,13 @@ class Executor(
                                 "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_event_time_sol_usd sol=$actualCostSol6486 qty=$qtyUi solUsdWitness=$entrySolUsdWitness6637",
                             )
                         } catch (_: Throwable) {}
+                        protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), proof, actualCostSol6486, 0.0, verifySig, "ENTRY_PRICE_PROOF_DEFERRED")
                         return false
                     }
-                    val pidLive6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint)
+                    // V5.0.7807 — mirrorBuyFill may recover a lost/stale reservation and
+                    // commit under a different positionId; the id is resolved AFTER the
+                    // commit so every downstream hop carries the committed identity
+                    // (Field Manual L252). The real lane is passed for the recovery seal.
                     val canonicalOpen6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
                         mint = verifyMint,
                         actualQtyRaw = proof.amountRaw,
@@ -22657,9 +22963,14 @@ class Executor(
                         actualEntryPriceSource = ts.position.entryPriceSource,
                         actualEntryPoolAddress = ts.position.entryPoolAddress,
                         actualEntryDex = ts.position.entryDex,
+                        recoveryLane = ExecutableOpenGate.activeExecutionIntent6519("LIVE", tradeId.mint, tradeId.fdgCandidateVersion)?.canonicalLane
+                            ?: ts.position.tradingMode.uppercase(),
+                        recoverySymbol = verifySymbol,
                     )
+                    val pidLive6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false)
                     if (!canonicalOpen6486) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486", "mint=${verifyMint.take(10)} pid=${pidLive6486.take(18)} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
+                        protectLandedLiveBuy7807(ts, pidLive6486, proof, actualCostSol6486, ts.position.entryPrice, verifySig, "CANONICAL_COMMIT_REJECTED_6486")
                         return false
                     }
                     val sealedLiveIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("LIVE", tradeId.mint, tradeId.fdgCandidateVersion)
@@ -23989,6 +24300,111 @@ class Executor(
         }
     }
 
+    // ═══ V5.0.7807 — PROTECTIVE EXIT POLICY (operator-approved B1-B4) ═══
+    // Field Manual L248 / L311. These read only the exit reason, the lane string
+    // and canonical inventory; no learner, council, oracle or lane-performance
+    // state is consulted for an emergency (EXPERT_CRYPTO_TRADER_CHEAT_SHEET L35).
+
+    /** Stamp trigger time; true when [reason] bypasses every hold gate for this live position. */
+    private fun protectiveEmergencyAdmit7807(ts: TokenState, reason: String): Boolean {
+        if (ts.position.isPaperPosition) return false
+        try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteTrigger7807(ts.mint, reason) } catch (_: Throwable) {}
+        val bypass = try {
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.bypassesHolds(reason, ts.position.tradingMode)
+        } catch (_: Throwable) { false }
+        if (bypass) {
+            try { PipelineHealthCollector.labelInc("EMERGENCY_EXIT_HOLD_BYPASS_7807_${com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(reason).name}") } catch (_: Throwable) {}
+        }
+        return bypass
+    }
+
+    /** True when a funded LIVE QUARANTINED canonical row still owns wallet risk for [mint]. */
+    private fun fundedQuarantine7807(mint: String): Boolean = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasFundedProtectiveQuarantine7807(mint)
+    } catch (_: Throwable) { false }
+
+    /** B2 — STRICT_SL outside a Moonshot lane is never vetoed by a learner / council. */
+    private fun strictSlBypassesAdvisory7807(lane: String): Boolean = try {
+        com.lifecyclebot.engine.sell.ProtectiveExitClass7807.bypassesHolds("STRICT_SL", lane)
+    } catch (_: Throwable) { false }
+
+    /** B1 — measurement: an emergency sell attempt is leaving now, under its lease. */
+    private fun noteEmergencyDispatched7807(ts: TokenState, reason: String, attempt: Int) {
+        try {
+            if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return
+            PipelineHealthCollector.labelInc("EMERGENCY_EXIT_DISPATCHED_7807")
+            ForensicLogger.lifecycle(
+                "EMERGENCY_EXIT_DISPATCHED_7807",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} " +
+                    "class=${com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(reason).name} attempt=$attempt " +
+                    "lane=${ts.position.tradingMode}",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * B4 — route escalation. After a failed emergency attempt, the aggregator
+     * quote ladder is skipped so the sell goes straight to the direct routes
+     * already in liveSell (PumpPortal -> Raydium/Helius Sender -> rescue).
+     */
+    private fun emergencyAttempt7807(ts: TokenState): Int = try {
+        com.lifecyclebot.engine.sell.ProtectiveExitClass7807.attemptFor(ts.mint, com.lifecyclebot.engine.sell.CloseLease.attemptCount(ts.mint))
+    } catch (_: Throwable) { 1 }
+
+    /** B4 — remember / forget failed emergency attempts across lease release. */
+    private fun noteEmergencyOutcome7807(ts: TokenState, reason: String, r: SellResult) {
+        try {
+            if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return
+            when (r) {
+                SellResult.ROUTE_FAILED_NO_SIGNATURE, SellResult.FAILED_RETRYABLE ->
+                    com.lifecyclebot.engine.sell.ProtectiveExitClass7807.noteFailedAttempt(ts.mint)
+                SellResult.CONFIRMED, SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL ->
+                    com.lifecyclebot.engine.sell.ProtectiveExitClass7807.clearAttempts(ts.mint)
+                else -> {}
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun emergencyRouteEscalated7807(ts: TokenState, reason: String): Boolean {
+        val attempt = emergencyAttempt7807(ts)
+        if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.shouldEscalateRoute(reason, attempt)) return false
+        try {
+            PipelineHealthCollector.labelInc("EMERGENCY_EXIT_ROUTE_ESCALATED_7807")
+            ForensicLogger.lifecycle(
+                "EMERGENCY_EXIT_ROUTE_ESCALATED_7807",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} attempt=$attempt " +
+                    "from=JUPITER to=PUMPPORTAL_RAYDIUM_HELIUS_SENDER",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /** B4 — the emergency slippage ladder for this attempt; logs escalation past the first rung. */
+    private fun emergencySlipLadder7807(ts: TokenState, reason: String): List<Int> {
+        val attempt = emergencyAttempt7807(ts)
+        val ladder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason, attempt)
+        if (attempt >= 2 && com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) {
+            try {
+                PipelineHealthCollector.labelInc("EMERGENCY_EXIT_SLIP_ESCALATED_7807")
+                ForensicLogger.lifecycle(
+                    "EMERGENCY_EXIT_SLIP_ESCALATED_7807",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} attempt=$attempt ladder=${ladder.joinToString("/")}",
+                )
+            } catch (_: Throwable) {}
+        }
+        return ladder
+    }
+
+    /** B4 — single-shot direct-route slippage in bps for an emergency, or null for a normal exit. */
+    private fun emergencyDirectSlipBps7807(ts: TokenState, reason: String): Int? {
+        if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return null
+        if (com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason)) return null
+        val attempt = emergencyAttempt7807(ts)
+        return com.lifecyclebot.engine.sell.ProtectiveExitClass7807.singleShotSlippageBps(
+            attempt, com.lifecyclebot.engine.sell.SellSafetyPolicy.emergencyStartBps7807(reason),
+        )
+    }
+
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         // V5.0.7768 — a bag an on-chain read just proved to be unroutable dust is
         // answered from that proof, not re-sold every tick (DustBagLatch7768).
@@ -24002,6 +24418,9 @@ class Executor(
         try {
             com.lifecyclebot.engine.truth.FieldManual7715.noteExit(reason, ts.position.isPaperPosition)
         } catch (_: Throwable) {}
+        // V5.0.7807 — B1/B2: stamp the trigger and decide, from the reason alone, whether
+        // this exit bypasses every hold gate below (Field Manual L248, L311).
+        val bypass7807 = protectiveEmergencyAdmit7807(ts, reason)
         // V5.0.6501 §4 — CANONICAL EXISTENCE GATE. Operator's 6500 dump
         // showed 140 PAPER_CLOSE_FAILED + 140 SELL_BLOCKED_NO_CANONICAL_POSITION_6373
         // + 141 TERMINAL_SELL_ABANDONED_6454 rows from stale exit requests
@@ -24062,9 +24481,14 @@ class Executor(
                 // depending on which reason string the caller happened to use.
                 val walletStillHolds7128 = try {
                     val held7128 = HostWalletTokenTracker.getEntry(ts.mint)
-                    held7128 != null && held7128.uiAmount > 0.0
+                    // V5.0.7807 — a funded LIVE quarantine is held inventory: quarantine
+                    // never refuses its protective exit (Field Manual L407).
+                    (held7128 != null && held7128.uiAmount > 0.0) ||
+                        (!ts.position.isPaperPosition && com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasFundedProtectiveQuarantine7807(ts.mint))
                 } catch (_: Throwable) { false }
-                if (walletStillHolds7128) {
+                // V5.0.7807 — an emergency on a funded LIVE QUARANTINED row is a held
+                // position, not a phantom: never answer it ALREADY_CLOSED.
+                if (walletStillHolds7128 || (bypass7807 && fundedQuarantine7807(ts.mint))) {
                     try {
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
                             "EXIT_ALLOWED_WALLET_HOLDS_NO_CANONICAL_7128",
@@ -24137,9 +24561,11 @@ class Executor(
         // which this function rewrote itself a few lines above. Telemetry
         // below still reports requestReason so the logs stay comparable.
         // V5.0.7322 — a runner keeps a moonbag (see MoonbagRunner7322).
+        // V5.0.7807 — B2: class 1-3 bypasses moonbag hold (inside moonbagGate7322) and
+        // profit-dust suppression.
         if (isLivePositionEarly) moonbagGate7322(ts, requestReason, wallet, walletSol)?.let { return it }
 
-        if (isLivePositionEarly && liveProfitDustExitShouldDefer(ts, reason)) {
+        if (isLivePositionEarly && !bypass7807 && liveProfitDustExitShouldDefer(ts, reason)) {
             try {
                 val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
                 val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
@@ -24155,7 +24581,9 @@ class Executor(
         // TokenLifecycleTracker.onSellPending, CloseLease, and PendingSellQueue so a
         // deferred hold does not create sell-only drain mode or lock the mint. Only
         // true catastrophic hard-floor/rug/manual-emergency exits bypass.
-        if (isLivePositionEarly) {
+        // V5.0.7807 — B2: class 1-3 bypasses style min-hold / lane hold preference
+        // without consulting the learned exit classifier at all.
+        if (isLivePositionEarly && !bypass7807) {
             val holdDelay = liveHoldDelayIfNeeded(ts, requestReason)
             if (holdDelay != null) {
                 try {
@@ -24270,15 +24698,27 @@ class Executor(
             }
             // Sell under the lease using the CANONICAL (de-polluted) reason so the
             // forensic phases + any requeue carry a clean, non-nesting reason.
-            val canonicalReason = lease.originalExitReason
+            // V5.0.7807 — B3: an emergency arriving on a lease opened for a softer exit
+            // sells under the emergency reason (slippage, routing, bypass all read it).
+            val canonicalReason = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.effectiveReason(
+                lease.emergencyReason7807 ?: lease.originalExitReason,
+                com.lifecyclebot.engine.sell.CloseLease.canonicalReason(requestReason),
+            )
+            noteEmergencyDispatched7807(ts, canonicalReason, emergencyAttempt7807(ts))
             return try {
                 val r = doSell(ts, canonicalReason, wallet, walletSol)
+                noteEmergencyOutcome7807(ts, canonicalReason, r)
                 when (r) {
                     // Terminal outcomes → release the lease.
                     SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED,
                     SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL,
                     SellResult.ROUTE_FAILED_NO_SIGNATURE -> {
                         com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, r.name)
+                        // V5.0.7807 — a position that ended without (another) broadcast must not
+                        // leave its trigger stamp for the next position on this mint.
+                        if (r == SellResult.ALREADY_CLOSED || r == SellResult.FAILED_FATAL) {
+                            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.clearTrigger7807(ts.mint) } catch (_: Throwable) {}
+                        }
                         if (r == SellResult.ROUTE_FAILED_NO_SIGNATURE) {
                             try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_NO_SIGNATURE_NO_BLOCKING_RETRY") } catch (_: Throwable) {}
@@ -25132,6 +25572,11 @@ class Executor(
     /** V5.0.7322 — non-null short-circuits the sell (moonbag banked or held). */
     private fun moonbagGate7322(ts: TokenState, requestReason: String, wallet: SolanaWallet?, walletSol: Double): SellResult? {
         // V5.0.7349 — paper is no longer excluded; see moonbagWouldAct7349.
+        // V5.0.7807 — B2: a class 1-3 exit (lane-aware: only structural / catastrophe on
+        // Moonshot) bypasses the moonbag hold and sells the whole bag (Field Manual L311).
+        if (!ts.position.isPaperPosition &&
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.bypassesHolds(requestReason, ts.position.tradingMode)
+        ) return null
         val mbKey7322 = ts.position.positionId.ifBlank { ts.mint }
         val mbPx7322 = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
         val mbPnl7322 = if (ts.position.entryPrice > 0.0) ((mbPx7322 - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
@@ -28375,7 +28820,8 @@ class Executor(
             // This preserves the V5.9.103 'don't sell rugs at half price' intent
             // while letting genuinely volatile pump.fun memes complete after 2-3
             // 0x1788 retries.
-            val slippageLevels = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
+            // V5.0.7807 — B4: emergency ladder escalates per attempt (500 -> 25% -> 35% -> 50% cap).
+            val slippageLevels = emergencySlipLadder7807(ts, reason)
 
             // V5.0.4102 — Wave B: GLOBAL Jupiter sell-side circuit breaker.
             // If two 503s landed in the last 30s, skip the Jupiter quote ladder
@@ -28397,7 +28843,9 @@ class Executor(
             }
 
             var jupiterProviderClassFailure7228 = false
-            jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen) emptyList() else slippageLevels) {
+            // V5.0.7807 — B4: a funded emergency that already failed once skips the
+            // aggregator quote ladder and goes straight to the direct routes.
+            jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || emergencyRouteEscalated7807(ts, reason)) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
                     try {
                         onLog("SELL: Quote attempt slippage=${slipLevel}bps try=$attempt...", tradeId.mint)
@@ -28510,12 +28958,12 @@ class Executor(
                 if (com.lifecyclebot.engine.ExecutionHealthGuard.shouldDeferDirectRouteSell(ts.mint, reason)) {
                     val n = com.lifecyclebot.engine.ExecutionHealthGuard.directRouteDeferCount(ts.mint)
                     val ageMs = com.lifecyclebot.engine.ExecutionHealthGuard.directRouteDeferAgeMs(ts.mint)
-                    onLog("🛑 SELL DEFERRED (jupiter dead, non-emergency): ${ts.symbol} reason='$reason' (defer ${n}/5 age=${ageMs}ms cap=30000ms) — re-queue, retry on next exit tick", ts.mint)
+                    onLog("🛑 SELL DEFERRED (jupiter dead, non-emergency): ${ts.symbol} reason='$reason' (defer ${n}/5 age=${ageMs}ms cap=15000ms) — re-queue, retry on next exit tick", ts.mint)
                     try {
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
-                            "SELL_DIRECT_ROUTE_FREEZE_4163 jupiter=dead reason='$reason' defer=$n/5 age=${ageMs}ms cap=30000ms — waiting briefly for jupiter recovery before broadcasting direct route",
+                            "SELL_DIRECT_ROUTE_FREEZE_4163 jupiter=dead reason='$reason' defer=$n/5 age=${ageMs}ms cap=15000ms — waiting briefly for jupiter recovery before broadcasting direct route",
                             traderTag = "MEME",
                         )
                         ForensicLogger.lifecycle(
@@ -28605,8 +29053,10 @@ class Executor(
             // failure for forensics + cross-call state.
             val isDrainExit = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
                               (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) ||
-                               com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason))
-            val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
+                               com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason) ||
+                               // V5.0.7807 — B4: capital-preservation / structural emergencies get drain-exit urgency.
+                               com.lifecyclebot.engine.sell.ProtectiveExitClass7807.acceptsPoorImpact(reason))
+            val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason, emergencyAttempt7807(ts))
             if (isDrainExit) {
                 onLog("🚨 DRAIN-EXIT mode for ${ts.symbol} ($reason): ladder=${broadcastSlipLadder.joinToString(",")}bps", tradeId.mint)
                 LiveTradeLogStore.log(
@@ -28645,7 +29095,8 @@ class Executor(
             } catch (_: Throwable) {}
             // V5.9.1542 — quote-derived initial slip (see profit-lock path). Tight
             // first (reason-aware floor), ladder widens to 5% only on a failed land.
-            val lsPumpSlip = (sellSlippage / 100).coerceIn(1, 5)
+            // V5.0.7807 — B4: an emergency uses its per-attempt rung (<= 50%) on the direct route.
+            val lsPumpSlip = emergencyDirectSlipBps7807(ts, reason)?.div(100)?.coerceIn(1, 50) ?: (sellSlippage / 100).coerceIn(1, 5)
             val lsPumpJito = c.jitoEnabled
             val lsPumpTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
             // V5.9.1528 — provider-select forensic (operator spec). PumpPortal
@@ -28681,7 +29132,7 @@ class Executor(
                 jitoTipLamports = lsPumpTip,
                 sellTradeKey = sellTradeKey,
                 traderTag = "MEME",
-                labelTag = if (isDrainExit) "EXIT-DRAIN" else "EXIT",
+                labelTag = (if (isDrainExit) "EXIT-DRAIN" else "EXIT") + (if (emergencyDirectSlipBps7807(ts, reason) != null) "-EMERGENCY_7807" else ""),
             )
             // V5.9.492 — skip Jupiter ladder entirely if PUMP-FIRST landed.
             // V5.9.495d — Ultra-first fallback signal. liveSell uses
@@ -28909,7 +29360,7 @@ class Executor(
                         traderTag = "MEME",
                     )
                     if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L) {
-                        val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, if (isDrainExit) 2_500 else 500)
+                        val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, emergencyDirectSlipBps7807(ts, reason) ?: if (isDrainExit) 2_500 else 500)
                         val built7311 = com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)
                         val senderTip7311 = effectiveSenderTipLamports(c, urgent = isDrainExit)
                         LiveTradeLogStore.log(
@@ -28957,7 +29408,7 @@ class Executor(
             }
 
             if (sig == null) {
-                val rescueSlip = 5  // V5.9.1524 — 5% live sell cap (was 90/50; builder also caps)
+                val rescueSlip = emergencyDirectSlipBps7807(ts, reason)?.div(100)?.coerceIn(1, 50) ?: 5  // V5.9.1524 — 5% live sell cap; V5.0.7807 B4 emergency rung (<= 50%)
                 val rescueJito = c.jitoEnabled
                 val rescueTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
                 // V5.0.4102 — Wave B: skip Pump rescue if the mint is currently
@@ -28994,7 +29445,7 @@ class Executor(
                     jitoTipLamports = rescueTip,
                     sellTradeKey = sellTradeKey,
                     traderTag = "MEME",
-                    labelTag = if (isDrainExit) "EXIT-DRAIN-RESCUE" else "EXIT-RESCUE",
+                    labelTag = (if (isDrainExit) "EXIT-DRAIN-RESCUE" else "EXIT-RESCUE") + (if (emergencyDirectSlipBps7807(ts, reason) != null) "-EMERGENCY_7807" else ""),
                 )
                 // V5.0.4102 — successful Pump rescue clears the suppression for this mint.
                 if (sig != null) {
@@ -31624,7 +32075,9 @@ class Executor(
                 com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)?.decimals ?: 6
             } catch (_: Throwable) { 6 }
             val emergencyOverride = com.lifecyclebot.engine.sell.SellSafetyPolicy
-                .isManualEmergency(labelTag) || labelTag.contains("PANIC_DRAIN", ignoreCase = true)
+                .isManualEmergency(labelTag) || labelTag.contains("PANIC_DRAIN", ignoreCase = true) ||
+                // V5.0.7807 — B4: liveSell tagged a protective emergency; its rung is already <= 50%.
+                labelTag.contains("EMERGENCY_7807")
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,

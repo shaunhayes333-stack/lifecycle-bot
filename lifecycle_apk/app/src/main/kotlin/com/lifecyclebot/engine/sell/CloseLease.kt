@@ -55,6 +55,9 @@ object CloseLease {
         // proof arrives or the hard TTL clears it. Generic residue reaping may
         // prune route-failure leases, never unresolved finality proof leases.
         @Volatile var finalityPending: Boolean = false,
+        // V5.0.7807 — B1/B3: an emergency reason that arrived on a lease opened for
+        // a softer exit. The sell runs under it (ProtectiveExitClass7807.effectiveReason).
+        @Volatile var emergencyReason7807: String? = null,
     )
 
     private val leases = ConcurrentHashMap<String, Lease>()
@@ -160,7 +163,18 @@ object CloseLease {
         val existing = current(mint)
         val now = System.currentTimeMillis()
         if (existing != null) {
-            if (existing.inFlight || now < existing.nextEligibleMs) {
+            // V5.0.7807 — B1: an emergency never waits out a backoff scheduled for a
+            // softer exit (up to 60s before 7807). It is gated only by its own
+            // 2/3/5/8/10s cadence from the last attempt; an in-flight attempt is
+            // still never doubled (Field Manual L248).
+            val emergency7807 = ProtectiveExitClass7807.isEmergency(rawReason)
+            val emergencyEligible7807 = emergency7807 && !existing.inFlight &&
+                now - existing.lastTouchMs >= ProtectiveExitClass7807.emergencyRetryDelayMs(existing.closeAttemptCount - 1)
+            if (emergency7807) {
+                val prior7807 = existing.emergencyReason7807 ?: existing.originalExitReason
+                existing.emergencyReason7807 = ProtectiveExitClass7807.effectiveReason(prior7807, canonicalReason(rawReason))
+            }
+            if (existing.inFlight || (now < existing.nextEligibleMs && !emergencyEligible7807)) {
                 _dupSuppressed.incrementAndGet()
                 try {
                     ForensicLogger.lifecycle("SELL_DUPLICATE_SUPPRESSED",
@@ -172,6 +186,7 @@ object CloseLease {
             }
             // Retryable attempt completed and backoff has elapsed: reuse the
             // existing lease, preserving originalExitReason/attempt history.
+            if (emergency7807) ProtectiveExitClass7807.label("EMERGENCY_EXIT_RETRY_7807")
             existing.inFlight = true
             existing.lastTouchMs = now
             try {
@@ -222,14 +237,20 @@ object CloseLease {
         val l = current(mint) ?: return 0L
         l.lastErrorClass = errorClass
         val attempt = l.closeAttemptCount.coerceAtLeast(1)
-        // 2s, 4s, 8s, 16s, 32s, 60s cap — provider/error aware.
+        // 2s, 4s, 8s, 15s cap (V5.0.7807) — provider/error aware.
         val base = when {
             errorClass.contains("503") || errorClass.contains("429") || errorClass.contains("BACKOFF") -> 4_000L
             errorClass.contains("0x1787") || errorClass.contains("PUMP_ROUTE_INVALID") -> 6_000L
             errorClass.contains("JITO") -> 1_500L
             else -> 2_000L
         }
-        val delay = (base * (1L shl (attempt - 1).coerceIn(0, 5))).coerceAtMost(60_000L)
+        // V5.0.7807 — B1: an emergency lease retries on 2/3/5/8/10s; every other
+        // backoff is capped at 15s (was 60s).
+        val leaseReason7807 = l.emergencyReason7807 ?: l.originalExitReason
+        val delay = ProtectiveExitClass7807.retryDelayMs(
+            leaseReason7807, attempt,
+            (base * (1L shl (attempt - 1).coerceIn(0, 5))).coerceAtMost(60_000L),
+        )
         l.nextEligibleMs = System.currentTimeMillis() + delay
         l.lastTouchMs = System.currentTimeMillis()
         // Do NOT flip inFlight here: scheduleBackoff can be called from inside

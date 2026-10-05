@@ -776,7 +776,9 @@ object PaperAccountLedger6430 {
     @Synchronized
     fun rebuildRealizedFromCanonicalEvents6502(): Double {
         val events = try {
-            com.lifecyclebot.engine.truth.EconomicEventSchema6464.canonicalRealizedEvents()
+            // V5.0.7807 — paper-only, every leg, GROSS (ledger semantics);
+            // see EconomicEventSchema6464.paperLedgerRealizedEvents7807. Field Manual L415.
+            com.lifecyclebot.engine.truth.EconomicEventSchema6464.paperLedgerRealizedEvents7807()
         } catch (_: Throwable) { emptyList() }
         var cleanSum = 0.0
         var droppedInvariant = 0

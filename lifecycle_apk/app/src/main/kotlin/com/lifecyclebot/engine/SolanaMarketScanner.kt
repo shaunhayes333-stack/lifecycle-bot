@@ -709,6 +709,15 @@ class SolanaMarketScanner(
         MARKET_HUNT_MOONSHOT,
         MARKET_HUNT_TREASURY,
         MARKET_HUNT_CASHGEN,
+        // V5.0.7807 — LaneHunter7297 profiles exist for these five lanes (7796)
+        // but they had no TokenSource, so TokenSource.valueOf threw and their
+        // hunted rows were skipped at the emit loop: claims/books without intake.
+        // Field Manual L337 — every specialist receives the shared snapshot.
+        MARKET_HUNT_EXPRESS,
+        MARKET_HUNT_PROJECT_SNIPER,
+        MARKET_HUNT_MANIPULATED,
+        MARKET_HUNT_CYCLIC,
+        MARKET_HUNT_CORE,
     }
 
     data class ScannedToken(
@@ -1564,10 +1573,13 @@ class SolanaMarketScanner(
                         // starving because the CoinGecko-established feed is
                         // rate-limited and only ran every 4th cycle.
                         "scanSolanaBlueChipWatchlist" to { scanSolanaBlueChipWatchlist() },
-                        // V5.0.7297 — the market scanner: a parallel sweep of every
-                        // free provider (Jupiter, Raydium, Helius), then each
-                        // specialist lane hunts its own band from that view.
-                        "scanMarketSweep7297" to { scanMarketSweep7297() },
+                        // V5.0.7807 — the market-sweep source was removed from this batch.
+                        // Its 7-provider sweep (26 s/provider) could never finish
+                        // inside SOURCE_SCAN_TIMEOUT_MS (5 s) / SCAN_BATCH_BUDGET_MS
+                        // (8 s), so "no sweep yet" / hunted=0 forever. The sweep now
+                        // runs in engine.market.ResidentHunterWorker7807 on its own
+                        // cadence and hands hunts back via emitResidentHunt7807.
+                        // Field Manual L412.
                     )
                     // GeckoTerminal / CoinGecko full-network feeders are re-enabled but
                     // staggered through the existing Gecko budget so they cannot wedge the
@@ -2144,19 +2156,34 @@ class SolanaMarketScanner(
 
     private val huntRequeuedAt7301 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-    private suspend fun scanMarketSweep7297() {
-        val heliusKey = try { cfg().heliusApiKey } catch (_: Throwable) { "" }
-        val jupiterKey7301 = try { cfg().jupiterApiKey } catch (_: Throwable) { "" }
+    private val EMIT_PARALLELISM_7807 = 4
+
+    /**
+     * V5.0.7807 — hand-off from engine.market.ResidentHunterWorker7807. The
+     * worker owns sweep + hunt + momentum claims on its own cadence (this was scanMarketSweep7297, cancelled every cycle by
+     * the 5 s source / 8 s batch budget). Here only the existing intake path
+     * runs: requeue seen-but-unwatched picks, or filter + rugcheck + emit, with
+     * at most EMIT_PARALLELISM_7807 rugchecks in flight. No provider call.
+     * Field Manual L412.
+     */
+    suspend fun emitResidentHunt7807(
+        snap: com.lifecyclebot.engine.market.MarketSweep7297.Snapshot,
+        picks: Map<String, List<com.lifecyclebot.engine.market.MarketSweep7297.Row>>,
+    ): Int = coroutineScope {
         huntRequeuedAt7301.entries.removeIf { System.currentTimeMillis() - it.value > 60L * 60 * 1000 }
-        val snap = com.lifecyclebot.engine.market.MarketSweep7297.sweep(heliusKey, jupiterKey7301) ?: return
-        val picks = com.lifecyclebot.engine.market.LaneHunter7297.hunt(snap)
-        try { com.lifecyclebot.engine.market.LaneHunter7297.claimMomentum7298() } catch (_: Throwable) {}
+        // Treasury recirculation is intake (merge-queue re-enqueue), so it stays with the scanner.
         try { TreasuryScannerFeed.recirculate7299() } catch (_: Throwable) {}
-        var emitted = 0
+        val gate7807 = Semaphore(EMIT_PARALLELISM_7807)
+        val emittedCount7807 = java.util.concurrent.atomic.AtomicInteger(0)
+        val pending7807 = ArrayList<kotlinx.coroutines.Deferred<Unit>>()
+        val queuedThisHunt7807 = HashSet<String>()
         for ((lane, rows) in picks) {
             val source = try {
                 TokenSource.valueOf(com.lifecyclebot.engine.market.LaneHunter7297.SOURCE_PREFIX + lane)
-            } catch (_: Throwable) { continue }
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("MARKET_HUNT_7807_NO_TOKEN_SOURCE_$lane") } catch (_: Throwable) {}
+                continue
+            }
             for (r in rows) {
                 // Claimed either way: a mint another source already surfaced
                 // still belongs to this lane while it stays in band.
@@ -2188,6 +2215,13 @@ class SolanaMarketScanner(
                     }
                     continue
                 }
+                // V5.0.7807 — 7803 lets several lanes hunt the same mint; emission
+                // is now concurrent, so one emit (one rugcheck) per mint per hunt.
+                // The other lanes keep their LaneHunter7297 claims and books.
+                if (!queuedThisHunt7807.add(r.mint)) {
+                    try { PipelineHealthCollector.labelInc("MARKET_HUNT_7807_MULTI_LANE_CLAIM_$lane") } catch (_: Throwable) {}
+                    continue
+                }
                 val token = ScannedToken(
                     mint = r.mint,
                     symbol = r.symbol.ifBlank { r.mint.take(6) },
@@ -2204,14 +2238,21 @@ class SolanaMarketScanner(
                     priceUsd = r.priceUsd,
                 )
                 if (passesFilter(token)) {
-                    emitWithRugcheck(token); emitted++
-                    try { PipelineHealthCollector.labelInc("MARKET_HUNT_7301_EMITTED_$lane") } catch (_: Throwable) {}
+                    pending7807 += async(Dispatchers.IO) {
+                        gate7807.acquire()
+                        try { emitWithRugcheck(token) } finally { gate7807.release() }
+                        emittedCount7807.incrementAndGet()
+                        try { PipelineHealthCollector.labelInc("MARKET_HUNT_7301_EMITTED_$lane") } catch (_: Throwable) {}
+                    }
                 } else {
                     try { PipelineHealthCollector.labelInc("MARKET_HUNT_7301_FILTER_REJECTED_$lane") } catch (_: Throwable) {}
                 }
             }
         }
-        ErrorLogger.info("Scanner", "scanMarketSweep7297: rows=${snap.rows.size} picks=${picks.values.sumOf { it.size }} emitted=$emitted")
+        pending7807.awaitAll()
+        val emitted = emittedCount7807.get()
+        ErrorLogger.info("Scanner", "emitResidentHunt7807: rows=${snap.rows.size} picks=${picks.values.sumOf { it.size }} emitted=$emitted")
+        emitted
     }
 
     private suspend fun scanDexTrending() {
@@ -3847,7 +3888,9 @@ class SolanaMarketScanner(
             TokenSource.DEX_BOOSTED, TokenSource.DEX_TRENDING -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
             TokenSource.MARKET_HUNT_SHITCOIN, TokenSource.MARKET_HUNT_QUALITY, TokenSource.MARKET_HUNT_BLUECHIP,
             TokenSource.MARKET_HUNT_DIP_HUNTER, TokenSource.MARKET_HUNT_MOONSHOT, TokenSource.MARKET_HUNT_TREASURY,
-            TokenSource.MARKET_HUNT_CASHGEN -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
+            TokenSource.MARKET_HUNT_CASHGEN, TokenSource.MARKET_HUNT_EXPRESS, TokenSource.MARKET_HUNT_PROJECT_SNIPER,
+            TokenSource.MARKET_HUNT_MANIPULATED, TokenSource.MARKET_HUNT_CYCLIC,
+            TokenSource.MARKET_HUNT_CORE -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
             TokenSource.PUMP_FUN_NEW, TokenSource.PUMP_FUN_GRADUATE -> EfficiencyLayer.LiqSourceQuality.VERIFIED_PAIR
             else -> EfficiencyLayer.LiqSourceQuality.ESTIMATED_MCAP
         }

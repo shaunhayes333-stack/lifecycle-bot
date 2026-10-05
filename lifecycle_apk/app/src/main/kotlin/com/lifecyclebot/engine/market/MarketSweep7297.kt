@@ -148,6 +148,8 @@ object MarketSweep7297 {
     private const val HELIUS_INTERVAL_MS = 120_000L
     private const val HELIUS_SIGNATURES = 15
     private const val PROVIDER_TIMEOUT_MS = 26_000L
+    // V5.0.7807 — hard ceiling for the cap-enrichment pass (see enrichMissingCaps).
+    private const val ENRICH_BUDGET_MS_7807 = 30_000L
 
     private val QUOTE_MINTS = setOf(
         "So11111111111111111111111111111111111111112",
@@ -714,13 +716,23 @@ object MarketSweep7297 {
     private suspend fun enrichMissingCaps(rows: List<Row>): List<Row> {
         val missing = rows.filter { it.mcapUsd <= 0.0 }.map { it.mint }.take(100)
         if (missing.isEmpty()) return rows
-        val found = withContext(Dispatchers.IO) {
-            val body = jupiterBody("/search?query=${missing.joinToString(",")}", "JUP_SEARCH")
-            val jup = if (body == null) emptyList() else parseJupiter(JSONArray(body), "JUP_SEARCH")
-            // V5.0.7301 — DexScreener fills whatever Jupiter did not.
-            val stillMissing = missing - jup.filter { it.mcapUsd > 0.0 }.map { it.mint }.toSet()
-            val dex = if (stillMissing.isEmpty()) emptyList() else try { dexScreenerEnrich7301(stillMissing) } catch (_: Throwable) { emptyList() }
-            jup + dex
+        // V5.0.7807 — enrichment is up to five sequential blocking calls (Jupiter
+        // keyless + keyed, three DexScreener chunks). withContext(IO) could not be
+        // cancelled mid-call, so a slow host held the whole sweep. runInterruptible
+        // + a hard budget bounds it; unenriched rows simply stay cap-unknown.
+        // Field Manual L332 — an unknown figure stays unknown, never guessed.
+        val found = withTimeoutOrNull(ENRICH_BUDGET_MS_7807) {
+            kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+                val body = jupiterBody("/search?query=${missing.joinToString(",")}", "JUP_SEARCH")
+                val jup = if (body == null) emptyList() else parseJupiter(JSONArray(body), "JUP_SEARCH")
+                // V5.0.7301 — DexScreener fills whatever Jupiter did not.
+                val stillMissing = missing - jup.filter { it.mcapUsd > 0.0 }.map { it.mint }.toSet()
+                val dex = if (stillMissing.isEmpty()) emptyList() else try { dexScreenerEnrich7301(stillMissing) } catch (_: Throwable) { emptyList() }
+                jup + dex
+            }
+        } ?: run {
+            try { PipelineHealthCollector.labelInc("MARKET_SWEEP_ENRICH_BUDGET_EXCEEDED_7807") } catch (_: Throwable) {}
+            emptyList()
         }
         if (found.isEmpty()) return rows
         try { PipelineHealthCollector.labelInc("MARKET_SWEEP_7297_ENRICH_CALL_SERVED") } catch (_: Throwable) {}

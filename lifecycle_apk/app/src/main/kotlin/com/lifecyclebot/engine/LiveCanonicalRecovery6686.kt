@@ -187,6 +187,9 @@ object LiveCanonicalRecovery6686 {
                     }
                     val n = recoverWalletSnapshot(BotService.status, subset)
                     if (n > 0) healAdopted7718.addAndGet(n.toLong())
+                    // V5.0.7807 — a bot holding whose basis is still unproven gets a
+                    // protective BASIS_UNCERTAIN owner now instead of staying unmanaged.
+                    protectUnadoptedBotHoldings7807(subset)
                     lastHeal7718 = "mints=${due.size} adopted=$n"
                     PipelineHealthCollector.labelInc(if (n > 0) "BOT_HOLDING_HEAL_ADOPTED_7718" else "BOT_HOLDING_HEAL_STILL_AWAITING_BASIS_7718")
                     ForensicLogger.lifecycle(
@@ -196,6 +199,84 @@ object LiveCanonicalRecovery6686 {
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7807 — bot-attributed wallet holdings (the coverage guard handed
+     * them here) that adoption could not price are owned protectively:
+     * QUARANTINED BASIS_UNCERTAIN, excluded from valuation/learning, included
+     * in protective inventory. Recovery later promotes the same row to OPEN
+     * once a basis is proven (Field Manual L403). Returns rows created/attached.
+     */
+    internal fun protectUnadoptedBotHoldings7807(subset: Map<String, CanonicalTokenAmount>): Int {
+        if (subset.isEmpty()) return 0
+        val covered7807 = try { CanonicalPositionAuthority6441.protectiveInventoryMints7807("live") } catch (_: Throwable) { emptySet<String>() }
+        var n7807 = 0
+        for ((mint, amount) in subset) {
+            if (mint.isBlank() || mint in covered7807 || amount.raw <= BigInteger.ONE) continue
+            if (isDustUnroutable7714(mint)) continue
+            val row7807 = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
+            val r7807 = try {
+                CanonicalPositionAuthority6441.ensureProtectiveLiveOwnership7807(
+                    positionIdHint = "",
+                    mint = mint,
+                    symbol = row7807?.symbol.orEmpty(),
+                    lane = row7807?.entryLane7708.orEmpty().ifBlank { "WALLET_RECOVERED" },
+                    actualQtyRaw = amount.raw,
+                    tokenDecimals = amount.decimals,
+                    entryCostSol = row7807?.entrySol ?: 0.0,
+                    entryPriceUsd = row7807?.entryPriceUsd ?: 0.0,
+                    signature = row7807?.buySignature.orEmpty(),
+                    reason = "BOT_HOLDING_BASIS_UNPROVEN_7718",
+                )
+            } catch (_: Throwable) { CanonicalPositionAuthority6441.ProtectiveOwnership7807.REFUSED }
+            if (r7807 == CanonicalPositionAuthority6441.ProtectiveOwnership7807.CREATED ||
+                r7807 == CanonicalPositionAuthority6441.ProtectiveOwnership7807.ATTACHED_TO_EXISTING_ROW) n7807++
+        }
+        if (n7807 > 0) try { PipelineHealthCollector.labelInc("BOT_HOLDING_PROTECTED_BASIS_UNCERTAIN_7807") } catch (_: Throwable) {}
+        return n7807
+    }
+
+    // V5.0.7807 — funded protective quarantine rows stay managed until wallet
+    // quantity is PROVEN zero: absent from two consecutive COMPLETE wallet
+    // snapshots, and not freshly mutated (indexing lag after a landed buy).
+    private const val PROTECTIVE_ZERO_MIN_AGE_MS_7807 = 120_000L
+    private val protectiveZeroSightings7807 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * V5.0.7807 — reconciliation half of protective inventory: retire funded
+     * LIVE quarantine rows whose mint a complete wallet read proves gone
+     * (Field Manual L39). Returns the number of mints retired.
+     */
+    fun retireProtectiveQuarantinesOnWalletZero7807(walletMints: Map<String, CanonicalTokenAmount>): Int {
+        val partial7807 = try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { true }
+        if (partial7807 || walletMints.isEmpty()) return 0
+        val now7807 = System.currentTimeMillis()
+        val rows7807 = try {
+            CanonicalPositionAuthority6441.protectiveInventory7807("live")
+                .filter { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED }
+        } catch (_: Throwable) { emptyList() }
+        val funded7807 = rows7807.mapTo(HashSet()) { it.mint }
+        protectiveZeroSightings7807.keys.retainAll(funded7807)
+        var retired7807 = 0
+        for (p in rows7807) {
+            val held7807 = walletMints[p.mint]?.raw ?: BigInteger.ZERO
+            if (held7807 > BigInteger.ONE || now7807 - p.lastMutationMs < PROTECTIVE_ZERO_MIN_AGE_MS_7807) {
+                protectiveZeroSightings7807.remove(p.mint)
+                continue
+            }
+            val n7807 = (protectiveZeroSightings7807[p.mint] ?: 0) + 1
+            protectiveZeroSightings7807[p.mint] = n7807
+            if (n7807 < 2) continue
+            val done7807 = try {
+                CanonicalPositionAuthority6441.applyProtectiveSellFill7807(p.mint, BigInteger.ZERO, true, "WalletReconciler.completeSnapshotZero")
+            } catch (_: Throwable) { false }
+            if (done7807) {
+                retired7807++
+                protectiveZeroSightings7807.remove(p.mint)
+            }
+        }
+        return retired7807
     }
 
     /**
@@ -376,11 +457,13 @@ object LiveCanonicalRecovery6686 {
     }
 
     private fun isRecoverableQuarantine7454(position: CanonicalPositionAuthority6441.Position): Boolean =
-        position.quarantineReason in setOf(
+        (position.quarantineReason in setOf(
             "PENDING_ENTRY_TTL_CANCELLED_6461",
             "EXIT_ELIGIBILITY_6570:INVALID_ENTRY_BASIS",
             "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY",
-        ) && position.soldCostBasisSol <= 1e-12 &&
+        ) ||
+            // V5.0.7807 — protective BASIS_UNCERTAIN rows promote to OPEN on proof (Field Manual L39).
+            position.quarantineReason.startsWith("BASIS_UNCERTAIN_7807")) && position.soldCostBasisSol <= 1e-12 &&
             position.realizedProceedsSol <= 1e-12 && position.realizedPnlSol == 0.0
 
     fun recoverWalletSnapshot(

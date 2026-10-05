@@ -539,6 +539,8 @@ object LaneHunter7297 {
     }
 
     private fun onSettled(e: CanonicalTradeFinalizedBus6450.Event) {
+        // V5.0.7807 — lane bands learn from clean terminal truth only (Field Manual L357).
+        if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return
         // V5.0.7803 — grade the exact resident desk+mint that produced the
         // executed lane. Never select another mint merely because its lane matches.
         val directLane7803 = e.entryLane.uppercase()

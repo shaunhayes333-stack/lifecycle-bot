@@ -951,12 +951,62 @@ object ExecutableOpenGate {
                     "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
                 )
             ) {
+                mirrorTicketPredecessors7807(lane7613, ticket)
                 ToolkitSignalSheet.recordDeskStage(lane7613, "TICKET", ticket.attemptId)
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_TICKET_MIRRORED_7613")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_TICKET_MIRRORED_7613_" + lane7613)
             }
         } catch (_: Throwable) {}
         try { ForensicLogger.lifecycle("EXEC_TICKET_CREATED", "attemptId=${ticket.attemptId} mint=${ticket.mint.take(10)} symbol=${ticket.symbol} lane=${ticket.lane} version=${ticket.candidateVersion} liq=${ticket.liquidityUsd.toInt()} safety=${ticket.safetyTier}") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7807 §TICKET_CARRIES_ITS_OWN_PREDECESSORS — a real immutable ticket
+     * is proof of the facts sealed INTO it. Mirror exactly those facts onto the
+     * ticket's own attemptId (same causal record) before TICKET is stamped:
+     * owner/intent/FDG allow always (the ticket is a sealed BUY decision),
+     * MARK_READY only when an executable mark is sealed on it, and
+     * SIZED_EXECUTABLE only when its resolved size is positive. Nothing absent
+     * from the ticket is invented (Field Manual L415: reconcile the journal
+     * with what actually happened). Sealing alone (registerCanonicalIntent6554)
+     * never reaches this helper, so the 7687 seal contract is unchanged.
+     */
+    private fun mirrorTicketPredecessors7807(lane: String, ticket: ExecutionIntent) {
+        if (ticket.attemptId.isBlank() || !ticket.fdgAllowed) return
+        ToolkitSignalSheet.recordDeskStage(lane, "OWNER_SELECTED", ticket.attemptId)
+        ToolkitSignalSheet.recordDeskStage(lane, "BUY_INTENT", ticket.attemptId)
+        ToolkitSignalSheet.recordDeskStage(lane, "FDG_ALLOW", ticket.attemptId)
+        val sealedMark7807 = ticket.executableMarkTimestampMs6613 > 0L &&
+            ticket.executableMarkPriceUsd6613.isFinite() &&
+            ticket.executableMarkPriceUsd6613 > 0.0 &&
+            ticket.executableMarkSource6613.isNotBlank()
+        if (sealedMark7807) ToolkitSignalSheet.recordDeskStage(lane, "MARK_READY", ticket.attemptId)
+        if (ticket.resolvedSize.isFinite() && ticket.resolvedSize > 0.0) {
+            ToolkitSignalSheet.recordDeskStage(lane, "SIZED_EXECUTABLE", ticket.attemptId)
+        }
+        try { PipelineHealthCollector.labelInc("SPECIALIST_TICKET_PREDECESSORS_MIRRORED_7807_$lane") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7807 — the gate-allow boundary is where a ticket becomes executable.
+     * When the sealed intent already occupies executionTickets (it was
+     * registered by registerCanonicalIntent6554 under the same attemptId),
+     * publishTicket is skipped and — before this — TICKET was never stamped,
+     * so every later EXEC/OPEN on that attempt was SPECIALIST_CAUSAL_ORPHAN_
+     * STAGE_7537 missing=NO_TICKET. Stamp the existing ticket once here.
+     * Returns false (and stamps nothing) for a non-specialist lane.
+     */
+    private fun mirrorExistingTicket7807(ticket: ExecutionIntent): Boolean {
+        val lane7807 = canonicalLane(ticket.canonicalLane.ifBlank { ticket.lane })
+        if (lane7807 !in setOf(
+                "QUALITY","BLUECHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
+                "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
+            )
+        ) return false
+        mirrorTicketPredecessors7807(lane7807, ticket)
+        ToolkitSignalSheet.recordDeskStage(lane7807, "TICKET", ticket.attemptId)
+        try { PipelineHealthCollector.labelInc("SPECIALIST_EXISTING_TICKET_MIRRORED_7807_$lane7807") } catch (_: Throwable) {}
+        return true
     }
 
     private fun trueHardTicketKill(reason: String): Boolean {
@@ -1667,7 +1717,15 @@ object ExecutableOpenGate {
             PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
             ForensicLogger.lifecycle("FDG_ALLOW_WITHOUT_EXEC_INTENT", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=explicit_reject")
         } catch (_: Throwable) {}
-        if (intent != null) try { ToolkitSignalSheet.recordDeskStage(lane, "TICKET", intent.attemptId) } catch (_: Throwable) {}
+        // V5.0.7807 — was recordDeskStage(lane, ...) with the RAW requested lane,
+        // so an alias (DIP, SNIPER, MANIP, CASH_GEN, ...) put TICKET in a funnel
+        // lane the intent's EXEC/OPEN never reach. Stamp on the intent's own
+        // canonical lane, with the predecessor facts the intent actually carries.
+        if (intent != null) try {
+            if (!mirrorExistingTicket7807(intent)) {
+                ToolkitSignalSheet.recordDeskStage(canonicalLane(intent.canonicalLane.ifBlank { lane }), "TICKET", intent.attemptId)
+            }
+        } catch (_: Throwable) {}
         return intent
     }
 
@@ -4038,6 +4096,10 @@ object ExecutableOpenGate {
                         resolvedSize = effectiveResolvedSize6497.coerceAtLeast(0.0),
                     )
                 )
+            } else {
+                // V5.0.7807 — ticket already registered at seal time under this
+                // same attemptId: stamp its TICKET lineage here (Field Manual L337).
+                executionTickets[execKey]?.let { existing7807 -> mirrorExistingTicket7807(existing7807) }
             }
             if (modeUpper == "LIVE") PipelineHealthCollector.labelInc("LIVE_FDG_ALLOW_TICKET_PUBLISHED_7778")
         } catch (ticketEx: Throwable) {

@@ -2670,7 +2670,8 @@ object FinalDecisionGate {
         checks.add(GateCheck("proposal_dedupe", true, "checked early in BotService"))
 
         if (ts.lastLiquidityUsd <= 0) {
-            blockReason = "HARD_BLOCK_ZERO_LIQUIDITY"
+            // V5.0.7807 — unknown liquidity is a WAIT on missing exitability evidence, not a drain (Field Manual L190).
+            blockReason = com.lifecyclebot.engine.truth.ProviderEvidence7807.zeroLiquidityBlockReason7807(ts.tokenMap.routeStatus)
             blockLevel = BlockLevel.HARD
             checks.add(GateCheck("liquidity", false, "liq=${ts.lastLiquidityUsd}"))
         } else {

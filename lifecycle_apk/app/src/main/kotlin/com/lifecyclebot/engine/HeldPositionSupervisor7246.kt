@@ -26,7 +26,10 @@ object HeldPositionSupervisor7246 {
 
     private fun currentModeOpenPositions(): List<CanonicalPositionAuthority6441.Position> = try {
         val mode = currentMode()
-        CanonicalPositionAuthority6441.openPositions().filter { it.mode.equals(mode, true) }
+        // V5.0.7807 — held ownership = protective inventory: a funded LIVE
+        // quarantine (accounting untrusted) is still held and supervised
+        // (Field Manual L403/L407).
+        CanonicalPositionAuthority6441.protectiveInventory7807(mode)
     } catch (_: Throwable) { emptyList() }
 
     data class HeldRow(

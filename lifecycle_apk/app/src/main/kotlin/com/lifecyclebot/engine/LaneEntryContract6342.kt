@@ -107,7 +107,36 @@ object LaneEntryContract6342 {
     private const val SNIPER_LAUNCH_MIN_LIQ_USD_7803 = 2_000.0
     private const val SNIPER_LAUNCH_MAX_LIQ_USD_7803 = 250_000.0
 
+    /**
+     * V5.0.7807 — THE deterministic Project Sniper launch-identity test, read by
+     * election (isSniperLaunch7393 -> isLaneIdentityEligible7252, and
+     * LaneExecutionCoordinator's contest filter) AND by the live buy (Executor
+     * 7385). Before this the executor carried its own copy, so a candidate the
+     * coordinator let PROJECT_SNIPER own could still be refused at the last
+     * step as LIVE_SNIPER_NOT_A_LAUNCH_7385 after consuming an attempt, and be
+     * re-elected the next cycle. Null = a launch; otherwise the failing
+     * dependency (Field Manual L153: launch identity is checked first).
+     * [mcapUsd] lets the executor pass its sealed entry snapshot's cap.
+     */
+    fun sniperLaunchIdentityRefusal7807(
+        ts: TokenState,
+        mcapUsd: Double = ts.lastMcap,
+        nowMs: Long = System.currentTimeMillis(),
+    ): String? {
+        if (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) return "GRADUATED"
+        if (mcapUsd > SNIPER_LAUNCH_MAX_MCAP_USD_7393) return "MCAP_ABOVE_LAUNCH_CAP"
+        val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs)?.div(1000L) } catch (_: Throwable) { null }
+            ?: return "LAUNCH_AGE_UNKNOWN"
+        if (age > SNIPER_LAUNCH_MAX_AGE_SECS_7393) return "LAUNCH_AGE_STALE"
+        return null
+    }
+
     fun isSniperLaunch7393(ts: TokenState): Boolean {
+        // V5.0.7807 — the shared identity test first; the setup checks below
+        // (band floors, liquidity, PRE_IGNITION flow) are election-only.
+        // An unknown age falls through to the hydration-pending count below.
+        val identity7807 = sniperLaunchIdentityRefusal7807(ts)
+        if (identity7807 != null && identity7807 != "LAUNCH_AGE_UNKNOWN") return false
         if (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) return false
         if (ts.lastMcap > 0.0 && ts.lastMcap !in SNIPER_LAUNCH_MIN_MCAP_USD_7803..SNIPER_LAUNCH_MAX_MCAP_USD_7393) return false
         if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd !in SNIPER_LAUNCH_MIN_LIQ_USD_7803..SNIPER_LAUNCH_MAX_LIQ_USD_7803) return false

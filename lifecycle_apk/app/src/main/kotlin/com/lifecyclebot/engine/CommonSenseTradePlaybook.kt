@@ -80,6 +80,34 @@ object CommonSenseTradePlaybook {
             ts.tokenMap.routeStatus, ts.tokenMap.hydrationComplete,
             ts.tokenMap.expectedOutAmount).joinToString("|")
 
+    /**
+     * V5.0.7807 — true iff assessPreBuy would deny this candidate as
+     * RISK_REWARD_POOR on the same evidence. It walks assessPreBuy's exact
+     * order and thresholds (same snapshot builder, same plan R:R floor
+     * PLAN_MIN_RR_7783, same lifecycle-danger and safety branches) and answers
+     * true only when every earlier branch passes and the heuristic R:R fails.
+     * Called by Executor at the pre-ticket point (beside LiveRiskPolicy7807's
+     * net-of-cost check) so a knowable poor R:R does not consume a final
+     * execution attempt (Field Manual L123 / L215). No labels, no cache write.
+     */
+    fun preTicketRiskRewardPoor7807(ts: TokenState, lane: String, score: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val snap = try { buildSnapshot(ts, lane, lane, score) } catch (_: Throwable) { return false }
+        if (!snap.priceKnown || !snap.liquidityKnown || !snap.routeKnown || !snap.tokenMapComplete) return false
+        if (snap.hardSafetyBlocked || snap.holderHardRisk) return false
+        if (!snap.lane.equals("MANIPULATED", true) &&
+            (snap.tradeType == "POST_PUMP_EXHAUSTION" || snap.dangerousStructure)) return false
+        if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) return false
+        val plan = try { com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783(ts.mint, nowMs) } catch (_: Throwable) { null }
+        if (plan != null && snap.liquidityUsd >= 500.0) {
+            val stop = kotlin.math.abs(plan.stopPnlPct)
+            val rr = if (stop > 0.0) plan.firstTargetPnlPct / stop else 0.0
+            if (rr >= PLAN_MIN_RR_7783) return false
+        }
+        if (!snap.logicalBuyZone) return false
+        if (!snap.invalidationKnown) return false
+        return !snap.riskRewardAcceptable
+    }
+
     fun warmAsync(ts: TokenState, lane: String, style: String, score: Double) {
         val mint = ts.mint
         if (mint.isBlank()) return

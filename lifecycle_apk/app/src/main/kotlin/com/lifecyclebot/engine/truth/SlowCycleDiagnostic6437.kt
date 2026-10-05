@@ -79,6 +79,16 @@ object SlowCycleDiagnostic6437 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7807 — true only on the thread that opened the current bot cycle.
+     * Scanner/intake callbacks run on their own threads and called
+     * markProgress("INTAKE"/"SCAN_CB"), which charged the bot loop's elapsed
+     * time to the PREVIOUS phase and every later millisecond to INTAKE —
+     * so "worstPhase=INTAKE" named whichever callback fired last, not the
+     * block that was slow (Field Manual L190: unreliable data is unknown).
+     */
+    fun isCycleThread7807(): Boolean = cycleOpen7289 && Thread.currentThread() === cycleThread7289
+
     fun beginCycle(loopCount: Int) {
         val now = System.currentTimeMillis()
         cycleThread7289 = Thread.currentThread()

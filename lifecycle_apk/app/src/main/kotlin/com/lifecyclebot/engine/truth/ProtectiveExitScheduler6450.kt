@@ -394,6 +394,24 @@ object ProtectiveExitScheduler6450 {
      * by construction; this map therefore only ever gates RETRIES.
      */
     private val lastDispatchMs = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.7807 — B1 retry cadence. A latched STOP_LOSS / CATASTROPHE is in the
+     * protective emergency class: it is retried 2s, 3s, 5s, 8s, then every 10s
+     * until the position leaves the open set (never given up while funded).
+     * TAKE_PROFIT / TRAILING_STOP latches keep the old spacing capped at 15s.
+     * The 30s window measured ~34s trigger->broadcast on 5.0.7805 whenever the
+     * first dispatch was refused (Field Manual L248).
+     */
+    private val dispatchAttempts7807 = ConcurrentHashMap<String, Int>()
+
+    private fun isEmergencyKind7807(kind: TriggerKind?): Boolean =
+        kind == TriggerKind.STOP_LOSS || kind == TriggerKind.CATASTROPHE
+
+    internal fun redispatchIntervalMs7807(kind: TriggerKind?, attempt: Int): Long =
+        if (isEmergencyKind7807(kind)) com.lifecyclebot.engine.sell.ProtectiveExitClass7807.emergencyRetryDelayMs(attempt)
+        else com.lifecyclebot.engine.sell.ProtectiveExitClass7807.capNormalWindowMs(REDISPATCH_INTERVAL_MS)
+
     private val redispatches = AtomicLong(0L)
     private val pruned = AtomicLong(0L)
 
@@ -416,8 +434,14 @@ object ProtectiveExitScheduler6450 {
             // not exist. Claim it rather than silently never retrying.
             if (lastDispatchMs.putIfAbsent(positionId, now) != null) return false
         } else {
-            if (now - prev < REDISPATCH_INTERVAL_MS) return false
+            val kind7807 = latches[positionId]?.kind
+            val attempt7807 = dispatchAttempts7807[positionId] ?: 1
+            if (now - prev < redispatchIntervalMs7807(kind7807, attempt7807)) return false
             if (!lastDispatchMs.replace(positionId, prev, now)) return false
+            dispatchAttempts7807[positionId] = attempt7807 + 1
+            if (isEmergencyKind7807(kind7807)) {
+                try { PipelineHealthCollector.labelInc("EMERGENCY_EXIT_RETRY_7807") } catch (_: Throwable) {}
+            }
         }
         redispatches.incrementAndGet()
         try {
@@ -459,6 +483,7 @@ object ProtectiveExitScheduler6450 {
             if (id !in openPositionIds) {
                 it.remove()
                 lastDispatchMs.remove(id)
+                dispatchAttempts7807.remove(id)
                 removed++
             }
         }
@@ -467,6 +492,7 @@ object ProtectiveExitScheduler6450 {
             val id = it2.next()
             if (id !in openPositionIds) {
                 it2.remove()
+                dispatchAttempts7807.remove(id)
                 removed++
             }
         }

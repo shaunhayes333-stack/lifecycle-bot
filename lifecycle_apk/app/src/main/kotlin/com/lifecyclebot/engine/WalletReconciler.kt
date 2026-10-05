@@ -145,6 +145,9 @@ object WalletReconciler {
         } catch (t: Throwable) {
             try { ForensicLogger.lifecycle("LIVE_CANONICAL_RECOVERY_FAILED_6686", "err=${t.message?.take(120)} action=retain_wallet_tracking") } catch (_: Throwable) {}
         }
+        // V5.0.7807 — protective quarantine rows leave management only on a
+        // proven-zero wallet (two complete snapshots) (Field Manual L39).
+        try { changes += LiveCanonicalRecovery6686.retireProtectiveQuarantinesOnWalletZero7807(walletMints) } catch (_: Throwable) {}
 
         // ── Pass 2: zombie closure ──────────────────────────────────────────
         // Every open position with zero wallet balance must be closed —

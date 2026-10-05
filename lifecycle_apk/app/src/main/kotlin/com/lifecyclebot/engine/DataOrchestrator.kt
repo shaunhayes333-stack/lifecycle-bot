@@ -46,10 +46,12 @@ class DataOrchestrator(
     private var creatorChecker: HeliusCreatorHistory? = null
 
     // Last WS event per mint — used to decide if polling is needed
-    private val lastWsEventMs = mutableMapOf<String, Long>()
+    // V5.0.7807 — concurrent (written from OkHttp reader threads and IO coroutines;
+    // a plain HashMap there can corrupt) and pruned by pruneLocalMintCaches7807.
+    private val lastWsEventMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     // Dev wallet for each token — set on token add
-    private val tokenDevWallets = mutableMapOf<String, String>()
+    private val tokenDevWallets = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     // ── startup ───────────────────────────────────────────────────────
 
@@ -76,6 +78,7 @@ class DataOrchestrator(
             creatorChecker = HeliusCreatorHistory(c.heliusApiKey)
         }
         startDevWalletMonitor()
+        startSubscriptionHousekeeping7807()
         onLog("DataOrchestrator started (Helius+DexScreener WS — PumpFun handled by BotService primary)", "")
     }
 
@@ -150,12 +153,55 @@ class DataOrchestrator(
         }
     }
 
-    fun onTokenRemoved(mint: String) {
-        pumpWs?.unsubscribeToken(mint)
-        heliusWs?.unsubscribeToken(mint)
-        dexWs?.unsubscribeToken(mint)
-        tokenDevWallets.remove(mint)
-        lastWsEventMs.remove(mint)
+    // V5.0.7807 §ONE_SUBSCRIPTION_AUTHORITY — onTokenRemoved(mint) is deleted. It had
+    // no production caller, while status.tokens is pruned from 8+ independent sites
+    // (BotService, Executor, AntiChokeManager, DataPipeline, GlobalTradeRegistry), so
+    // explicit eviction would be a second, racing, half-wired model. HeliusWebSocket's
+    // bounded LRU (MAX_TOKEN_SUBSCRIPTIONS_7794) is the sole token-subscription
+    // authority; held positions are pinned through setPinnedMintsProvider7807, and the
+    // housekeeping tick below garbage-collects this class's per-mint caches.
+    // Field Manual L153: launch data goes stale fastest, so held mints keep the feed.
+
+    /**
+     * V5.0.7807 — mints the risk engine must protect (canonical protective inventory:
+     * open/partial with qty + funded LIVE quarantines) ∪ the in-memory book.
+     */
+    private fun heldMintsForSubscriptions7807(): Set<String> {
+        val out = HashSet<String>()
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventoryMints7807().forEach { m ->
+                if (m.isNotBlank()) out.add(m)
+            }
+        } catch (_: Throwable) {}
+        try {
+            status.tokens.values.forEach { ts -> if (ts.position.isOpen) out.add(ts.mint) }
+        } catch (_: Throwable) {}
+        return out
+    }
+
+    private fun startSubscriptionHousekeeping7807() {
+        scope.launch {
+            while (isActive) {
+                delay(10_000L)
+                try { heliusWs?.ensurePinnedSubscriptions7807() } catch (_: Throwable) {}
+                try { pruneLocalMintCaches7807(System.currentTimeMillis()) } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    /**
+     * V5.0.7807 — these maps were keyed by every mint ever seen and never shrank.
+     * Time-keyed entries are dropped only once they are past the window their reader
+     * uses (shouldPoll 15 s, PumpPortal priority 20 s), so behaviour is unchanged.
+     */
+    private fun pruneLocalMintCaches7807(now: Long) {
+        lastWsEventMs.entries.removeIf { now - it.value > 60_000L }
+        lastPumpPortalTradeMs7773.entries.removeIf { now - it.value > 60_000L }
+        val live = HashSet<String>(status.tokens.keys)
+        live.addAll(heldMintsForSubscriptions7807())
+        tokenDevWallets.keys.removeIf { it !in live }
+        synchronized(pendingTrades) { pendingTrades.keys.removeIf { it !in live } }
+        dexWs?.let { d -> d.subscribedMints7807().filter { it !in live }.forEach { d.unsubscribeToken(it) } }
     }
 
     /**
@@ -649,6 +695,8 @@ class DataOrchestrator(
             },
             onLog = { msg -> onLog("Helius: $msg", "") },
         )
+        // V5.0.7807 — held positions are subscription-priority (never the LRU victim).
+        heliusWs?.setPinnedMintsProvider7807 { heldMintsForSubscriptions7807() }
         heliusWs?.connect()
     }
 
@@ -681,7 +729,11 @@ class DataOrchestrator(
                 ts.lastPrice = priceUsd
                 ts.lastPriceUpdate = System.currentTimeMillis()
                 ts.lastMcap = mcap
-                ts.lastLiquidityUsd = liquidity
+                // V5.0.7807 — a WS frame without a liquidity figure carries 0.0;
+                // that is DATA UNKNOWN, not a drained pool. Overwriting a real
+                // reading with it fed HARD_BLOCK_ZERO_LIQUIDITY and the
+                // liquidity-distress exit evidence (Field Manual L190).
+                if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) ts.lastLiquidityUsd = liquidity
                 // Keep the token-map observation coherent with the same stamped mark.
                 ts.tokenMap.priceUsd = priceUsd.takeIf { it.isFinite() && it > 0.0 }
                 ts.tokenMap.poolAddress = dexPair6701

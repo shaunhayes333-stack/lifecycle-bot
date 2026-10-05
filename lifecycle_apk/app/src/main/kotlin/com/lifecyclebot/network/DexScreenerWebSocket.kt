@@ -96,7 +96,11 @@ class DexScreenerWebSocket(
         sendSubscribe(pairAddress)
     }
 
+    /** V5.0.7807 — snapshot for DataOrchestrator's cache GC (map previously never shrank). */
+    fun subscribedMints7807(): Set<String> = HashSet(subscribedPairs.keys)
+
     fun unsubscribeToken(mint: String) {
+        lastPrices.remove(mint) // V5.0.7807 — per-mint price memo leaves with the subscription
         val pair = subscribedPairs.remove(mint) ?: return
         sendUnsubscribe(pair)
         // V5.0.4169 — when the last subscription drops, close the

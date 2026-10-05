@@ -109,7 +109,66 @@ object ExitTelemetryStamper6732 {
         }
     }
 
-    internal fun resetForTest() = intents.clear()
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7807 — B1 TRIGGER -> BROADCAST.
+    //
+    // The operator's SLA is trigger -> broadcast <= 3s for protective
+    // emergencies. Intent -> confirm (above) includes on-chain confirmation and
+    // wallet verification, so it cannot answer that question. The earliest
+    // trigger time per mint is stamped here (the risk clock passes its latch
+    // timestamp; requestSell stamps the moment it is asked) and the first
+    // SELL_BROADCAST phase on any route (Jupiter, PumpPortal, Raydium/Helius
+    // Sender) closes the sample into StopLatencyClasses6464's broadcast
+    // buckets. A stamp older than [TRIGGER_STAMP_MAX_AGE_MS_7807] is dropped
+    // as unknown rather than reported as a multi-minute latency it may not be.
+    // Field Manual L248.
+    private data class Trigger7807(val cls: StopLatencyClasses6464.Class, val atMs: Long, val emergency: Boolean)
+    private val triggers7807 = ConcurrentHashMap<String, Trigger7807>()
+    private const val TRIGGER_STAMP_MAX_AGE_MS_7807 = 10L * 60_000L
+
+    /** Stamp the trigger time for [mint]; the earliest stamp wins. */
+    fun noteTrigger7807(mint: String, reason: String, atMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || atMs <= 0L) return
+        try {
+            val now = System.currentTimeMillis()
+            val stamp = Trigger7807(
+                classify(reason), atMs.coerceAtMost(now),
+                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason),
+            )
+            triggers7807.merge(mint, stamp) { old, new ->
+                when {
+                    now - old.atMs > TRIGGER_STAMP_MAX_AGE_MS_7807 -> new
+                    new.atMs < old.atMs -> new.copy(emergency = new.emergency || old.emergency)
+                    else -> old.copy(emergency = new.emergency || old.emergency)
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** First broadcast for [mint] since its trigger: record trigger -> broadcast ms. */
+    fun noteBroadcast7807(mint: String) {
+        if (mint.isBlank()) return
+        try {
+            val t = triggers7807.remove(mint) ?: return
+            val elapsed = (System.currentTimeMillis() - t.atMs).coerceAtLeast(0L)
+            if (elapsed > TRIGGER_STAMP_MAX_AGE_MS_7807) {
+                PipelineHealthCollector.labelInc("EXIT_TRIGGER_TO_BROADCAST_STAMP_STALE_7807")
+                return
+            }
+            StopLatencyClasses6464.recordTriggerToBroadcast7807(t.cls, elapsed, t.emergency)
+        } catch (_: Throwable) {}
+    }
+
+    /** The position closed or the mint was answered without a broadcast. */
+    fun clearTrigger7807(mint: String) {
+        if (mint.isBlank()) return
+        try { triggers7807.remove(mint) } catch (_: Throwable) {}
+    }
+
+    internal fun resetForTest() {
+        intents.clear()
+        triggers7807.clear()
+    }
 
     fun statusLine(): String = "ExitTelemetryStamper6732 pendingIntents=${intents.size}"
 }

@@ -53,7 +53,8 @@ object ExecutionHealthGuard {
 
     /** Cap on direct-route sell defers per mint; wall-clock cap is the real authority. */
     private const val DIRECT_ROUTE_DEFER_MAX = 5
-    private const val DIRECT_ROUTE_DEFER_MAX_MS = 30_000L
+    // V5.0.7807 — B1: non-emergency retry/defer windows are capped at 15s (was 30s).
+    private const val DIRECT_ROUTE_DEFER_MAX_MS = 15_000L
 
     // ─── Slippage alarm ──────────────────────────────────────────────────
     /** A realized-vs-quoted gap larger than this fraction triggers the alarm. */
@@ -71,7 +72,11 @@ object ExecutionHealthGuard {
     /** True iff the reason should always broadcast, never defer. */
     fun isEmergencyReason(reason: String): Boolean {
         val r = reason.uppercase()
-        return EMERGENCY_REASON_KEYS.any { r.contains(it) }
+        // V5.0.7807 — B3: the shared protective emergency class (dev_dump,
+        // freeze/mint authority threat, ... were missing from the key list) never
+        // waits for Jupiter to recover (Field Manual L248).
+        return EMERGENCY_REASON_KEYS.any { r.contains(it) } ||
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)
     }
 
     /** Snapshot Jupiter health. Returns true when Jupiter is alive enough. */

@@ -10950,7 +10950,9 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("huntClaim7297 != null -> huntClaim7297"))
         assertTrue(bs.contains("designatedDeskHypothesis6599 != null || huntedByLane7297"))
         val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
-        assertTrue(sc.contains("\"scanMarketSweep7297\" to { scanMarketSweep7297() }"))
+        // V5.0.7807 — the sweep moved out of the 5 s scanner batch into the resident worker.
+        assertTrue(sc.contains("fun emitResidentHunt7807"))
+        assertTrue(java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/ResidentHunterWorker7807.kt").readText().contains("MarketSweep7297.sweep("))
         val q = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
         assertTrue(q.contains("LaneHunter7297.floorFor(\"QUALITY\", MIN_MARKET_CAP_USD)"))
     }
@@ -14852,5 +14854,19 @@ class GoldenTapeRegressionTest {
         org.junit.Assert.assertTrue(gate.contains("if (markReady7803) ToolkitSignalSheet.recordDeskStage("))
         org.junit.Assert.assertFalse(gate.contains("if (markReady7803) \"MARK_READY\" else \"MARK_REJECT\""))
         org.junit.Assert.assertTrue(gate.contains("SPECIALIST_CANONICAL_MARK_REJECT_7803"))
+    }
+
+    @org.junit.Test fun bundle7807KeepsProtectiveInventoryExitClassAndRiskPolicyWired() {
+        val base = "src/main/kotlin/com/lifecyclebot/engine/"
+        val auth = java.io.File(base + "truth/CanonicalPositionAuthority6441.kt").readText()
+        org.junit.Assert.assertTrue(auth.contains("fun protectiveInventory7807("))
+        val ex = java.io.File(base + "Executor.kt").readText()
+        org.junit.Assert.assertTrue(ex.contains("protectLandedLiveBuy7807"))
+        org.junit.Assert.assertTrue(ex.contains("LiveRiskPolicy7807"))
+        org.junit.Assert.assertTrue(java.io.File(base + "sell/ProtectiveExitClass7807.kt").exists())
+        val bs = java.io.File(base + "BotService.kt").readText()
+        org.junit.Assert.assertTrue(bs.contains("startResidentHunters7807()"))
+        org.junit.Assert.assertEquals(0.08, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.hardPerTradeRiskCapFracForTest7807(0.15), 1e-9)
+        org.junit.Assert.assertEquals(0.04, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.hardPerTradeRiskCapFracForTest7807(2.0), 1e-9)
     }
 }

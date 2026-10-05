@@ -36,10 +36,11 @@ class SellSafetyPolicyTest {
         // is hard-capped at 500. Only HARD-RUG / MANUAL-EMERGENCY may exceed the cap.
         assertEquals(500, SellSafetyPolicy.maxSlippageBps("emergency_exit"))
         assertEquals(9999, SellSafetyPolicy.maxSlippageBps("MANUAL_EMERGENCY_RUG_DRAIN"))
-        assertEquals(9999, SellSafetyPolicy.maxSlippageBps("RUG_DRAIN"))
-        // hard cap holds for the normal reasons
-        assertEquals(500, SellSafetyPolicy.maxSlippageBps("stop_loss"))
-        assertEquals(500, SellSafetyPolicy.maxSlippageBps("hard_stop"))
+        // V5.0.7807 — operator-approved B4: automatic emergencies (rug, hard SL,
+        // stop-loss family) escalate to a 50% cap; only manual keeps 9999.
+        assertEquals(5000, SellSafetyPolicy.maxSlippageBps("RUG_DRAIN"))
+        assertEquals(5000, SellSafetyPolicy.maxSlippageBps("stop_loss"))
+        assertEquals(5000, SellSafetyPolicy.maxSlippageBps("hard_stop"))
     }
 
     @Test

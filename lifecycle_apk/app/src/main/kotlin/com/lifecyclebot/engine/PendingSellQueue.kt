@@ -123,7 +123,10 @@ object PendingSellQueue {
             if (existing == null) PendingSell(mint, symbol, reason)
             else existing.copy(
                 symbol = symbol.ifBlank { existing.symbol },
-                reason = reason.ifBlank { existing.reason },
+                // V5.0.7807 — B2: a later, softer exit never overwrites a queued
+                // emergency reason (Field Manual L248).
+                reason = if (reason.isBlank()) existing.reason
+                    else com.lifecyclebot.engine.sell.ProtectiveExitClass7807.effectiveReason(reason, existing.reason),
                 queuedAtMs = existing.queuedAtMs,
                 retryCount = existing.retryCount,
             )
@@ -185,7 +188,9 @@ object PendingSellQueue {
         if (pending.isNotEmpty()) {
             ErrorLogger.info(TAG, "📤 Processing ${pending.size} pending sells")
         }
-        return pending
+        // V5.0.7807 — B1: the retry pass is serial with a spacing delay per item, so
+        // protective emergencies go first and never queue behind normal exits.
+        return pending.sortedBy { com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(it.reason).rank }
     }
 
     /**

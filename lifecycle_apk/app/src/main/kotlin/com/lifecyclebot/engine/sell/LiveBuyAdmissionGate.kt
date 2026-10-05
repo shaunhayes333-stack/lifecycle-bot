@@ -110,7 +110,9 @@ object LiveBuyAdmissionGate {
             // under the live wallet concentration slot limit.
             val unmanagedMints = coverage7701.mints.toSet()
             val canonicalMints = try {
-                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                // V5.0.7807 — same protective surface as the coverage guard, so a
+                // funded LIVE quarantine occupies its slot (Field Manual L403).
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live")
                     .asSequence()
                     .filter { it.mode.equals("live", true) && it.remainingQtyRaw.signum() > 0 }
                     .map { it.mint }
@@ -338,7 +340,11 @@ internal object LiveExitCoverageGuard7701 {
         if (walletAddress.isBlank()) {
             return Decision.Blocked("EXIT_COVERAGE_WALLET_UNKNOWN", "wallet identity unavailable", emptyList())
         }
-        val canonicalRows = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+        // V5.0.7807 — coverage is measured against the protective inventory:
+        // a funded LIVE quarantine row is managed (risk clock + exits act on it),
+        // so it covers its wallet quantity. Zero-qty quarantines (TTL-cancelled
+        // reservations) still count as unmanaged below (Field Manual L403).
+        val canonicalRows = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live")
             .asSequence()
             .filter { it.mode.equals("live", true) && it.remainingQtyRaw.signum() > 0 }
             .toList()

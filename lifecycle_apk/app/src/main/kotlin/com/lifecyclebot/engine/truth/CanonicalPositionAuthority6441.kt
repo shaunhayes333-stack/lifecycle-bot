@@ -514,7 +514,12 @@ object CanonicalPositionAuthority6441 {
                 invariantViolations.incrementAndGet()
                 return MutateResult.UNKNOWN_POSITION
             }
-            if (prev.lifecycle == Lifecycle.CLOSED || prev.lifecycle == Lifecycle.QUARANTINED) {
+            // V5.0.7807 — a protective BASIS_UNCERTAIN row is the same bot buy
+            // awaiting proof; a later verified fill promotes it like a pending
+            // entry instead of being refused (Field Manual L39).
+            val protective7807 = prev.lifecycle == Lifecycle.QUARANTINED &&
+                prev.quarantineReason.startsWith("BASIS_UNCERTAIN_7807")
+            if (prev.lifecycle == Lifecycle.CLOSED || (prev.lifecycle == Lifecycle.QUARANTINED && !protective7807)) {
                 return MutateResult.LIFECYCLE_FORBIDDEN
             }
             if (actualQtyRaw <= BigInteger.ZERO || actualEntryCostSol < 0.0) {
@@ -593,6 +598,7 @@ object CanonicalPositionAuthority6441 {
                 // slot that cannot generate revenue and cannot be exited.
                 lifecycle = if (actualQtyRaw.signum() > 0) Lifecycle.OPEN else Lifecycle.CLOSED,
                 lastMutationMs = System.currentTimeMillis(),
+                quarantineReason = if (protective7807) "" else prev.quarantineReason,
                 // The verified fill is the final entry authority. This is
                 // essential for LIVE, whose attempt is reserved before a
                 // wallet proof and therefore has no trustworthy entry basis.
@@ -915,6 +921,243 @@ object CanonicalPositionAuthority6441 {
     }
 
     fun openPositions(): List<Position> = positionViews7496().open
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7807 §PROTECTIVE_INVENTORY — QUARANTINE IS NOT "UNMANAGED".
+    //
+    // Runtime 5.0.7805: "BOT-BUY COVERAGE §7718 unmanagedBotMints=1". A LIVE
+    // row QUARANTINED for an accounting reason (canonical commit rejected,
+    // pending-entry TTL, basis unknown) still holds real tokens in the wallet.
+    // QUARANTINED means "do not learn from it / do not trust its accounting";
+    // it must never mean "drop it from risk management" (Field Manual L39:
+    // reconcile remaining inventory; L407: protective exit and reconciliation
+    // paths must be operating).
+    //
+    // protectiveInventory7807() is the ONE surface for "what must the risk
+    // engine protect right now": OPEN / PARTIALLY_CLOSED with qty, plus funded
+    // LIVE QUARANTINED rows (non-dust raw qty, not the evidence-based
+    // DUST_UNROUTABLE_7714 terminal). Paper quarantines stay out: they carry no
+    // wallet risk and include legacy replay rows. Valuation and learning keep
+    // using openPositionsForValuation() / openPositions().
+    // ─────────────────────────────────────────────────────────────────────
+    private val protectiveCache7807 =
+        java.util.concurrent.atomic.AtomicReference<Pair<Long, List<Position>>?>(null)
+
+    /**
+     * V5.0.7807 — quarantine reasons that are NOT live wallet risk: the
+     * wallet was already proven empty (7736 / 7362 use quarantine as a
+     * no-signature close), the account is frozen and cannot be sold (7253),
+     * the routes refused dust (7714), or the row is a historical journal
+     * replay. Everything else with a funded qty stays protectively managed.
+     */
+    private val NON_PROTECTIVE_QUARANTINE_PREFIXES_7807 = listOf(
+        "DUST_UNROUTABLE_7714",
+        "FROZEN_TOKEN_ACCOUNT_7253",
+        "CONFIRMED_ZERO_NO_TRACKER_ROW_7736",
+        "LIVE_CLOSED_NO_SIG_FINALITY_7362",
+        "LEGACY_",
+    )
+
+    /** V5.0.7807 — a quarantined row that still owns real wallet risk. */
+    internal fun isFundedProtectiveQuarantine7807(p: Position): Boolean =
+        p.lifecycle == Lifecycle.QUARANTINED &&
+            p.mode.equals("live", true) &&
+            p.remainingQtyRaw > BigInteger.ONE &&
+            NON_PROTECTIVE_QUARANTINE_PREFIXES_7807.none { p.quarantineReason.startsWith(it) } &&
+            !p.entryPriceSource.contains("REPLAY_QUARANTINED", true)
+
+    /**
+     * V5.0.7807 — protective inventory: everything the exit/risk engine must
+     * keep managing until wallet quantity is proven zero. [mode] null = all.
+     */
+    fun protectiveInventory7807(mode: String? = null): List<Position> {
+        val revision7807 = muts.get()
+        val cached7807 = protectiveCache7807.get()
+        val all7807 = if (cached7807 != null && cached7807.first == revision7807) cached7807.second else {
+            val built7807 = positions.values.filter { isOpenLifecycleWithQty6743(it) || isFundedProtectiveQuarantine7807(it) }
+            if (muts.get() == revision7807) protectiveCache7807.set(revision7807 to built7807)
+            built7807
+        }
+        val m7807 = mode?.trim()?.lowercase()
+        return if (m7807.isNullOrEmpty()) all7807 else all7807.filter { it.mode.equals(m7807, true) }
+    }
+
+    /** V5.0.7807 — mint set of [protectiveInventory7807] (Helius held-position pinning, UI). */
+    fun protectiveInventoryMints7807(mode: String? = null): Set<String> =
+        protectiveInventory7807(mode).mapTo(LinkedHashSet()) { it.mint }
+
+    /** V5.0.7807 — true when a funded LIVE quarantine row protects [mint]. */
+    fun hasFundedProtectiveQuarantine7807(mint: String): Boolean =
+        mint.isNotBlank() && positions.values.any { it.mint == mint && isFundedProtectiveQuarantine7807(it) }
+
+    /** V5.0.7807 — outcome of [ensureProtectiveLiveOwnership7807]. */
+    enum class ProtectiveOwnership7807 { ALREADY_OPEN, ALREADY_PROTECTED, ATTACHED_TO_EXISTING_ROW, CREATED, REFUSED }
+
+    /**
+     * V5.0.7807 — a LIVE buy proven landed on-chain whose canonical commit did
+     * not happen (commit rejected, entry-price proof deferred, ...) is placed
+     * under protective ownership synchronously, in the same verification path.
+     * The row is QUARANTINED with a BASIS_UNCERTAIN_7807 reason, which both a
+     * later verified fill (promotePendingToOpen) and LiveCanonicalRecovery6686
+     * accept to promote the SAME positionId to OPEN once basis is proven. It is
+     * excluded from valuation and learning; it is included in
+     * [protectiveInventory7807] so exits, risk clock and coverage see it.
+     * Never touches realised economics or cash.
+     */
+    fun ensureProtectiveLiveOwnership7807(
+        positionIdHint: String,
+        mint: String,
+        symbol: String,
+        lane: String,
+        actualQtyRaw: BigInteger,
+        tokenDecimals: Int,
+        entryCostSol: Double,
+        entryPriceUsd: Double,
+        signature: String,
+        reason: String,
+    ): ProtectiveOwnership7807 {
+        if (mint.isBlank() || actualQtyRaw <= BigInteger.ONE || tokenDecimals !in 0..18) return ProtectiveOwnership7807.REFUSED
+        var target7807: Position? = null
+        var outcome7807 = ProtectiveOwnership7807.REFUSED
+        lock.lock()
+        try {
+            val liveRows7807 = positions.values.filter { it.mint == mint && it.mode.equals("live", true) }
+            if (liveRows7807.any { isOpenLifecycleWithQty6743(it) }) return ProtectiveOwnership7807.ALREADY_OPEN
+            if (liveRows7807.any { isFundedProtectiveQuarantine7807(it) }) return ProtectiveOwnership7807.ALREADY_PROTECTED
+            // A frozen token account is an evidence-based non-tradable terminal.
+            if (liveRows7807.any {
+                    it.lifecycle == Lifecycle.QUARANTINED && it.quarantineReason.startsWith("FROZEN_TOKEN_ACCOUNT_7253")
+                }) return ProtectiveOwnership7807.REFUSED
+            val now7807 = System.currentTimeMillis()
+            val reason7807 = "BASIS_UNCERTAIN_7807:${reason.take(60)}"
+            val cost7807 = if (entryCostSol.isFinite() && entryCostSol > 0.0) entryCostSol else 0.0
+            val px7807 = if (entryPriceUsd.isFinite() && entryPriceUsd > 0.0) entryPriceUsd else 0.0
+            val attachable7807: (Position) -> Boolean = {
+                it.mint == mint && it.mode.equals("live", true) &&
+                    (it.lifecycle == Lifecycle.QUARANTINED || it.lifecycle == Lifecycle.PENDING_ENTRY) &&
+                    it.soldCostBasisSol <= 1e-12 && it.realizedProceedsSol <= 1e-12
+            }
+            val existing7807 = positions[positionIdHint]?.takeIf(attachable7807)
+                ?: liveRows7807.filter(attachable7807).maxByOrNull { it.lastMutationMs }
+            val row7807 = if (existing7807 != null) {
+                existing7807.copy(
+                    remainingQtyRaw = actualQtyRaw,
+                    originalQtyRaw = actualQtyRaw,
+                    tokenDecimals = tokenDecimals,
+                    quantityScale = tokenDecimals,
+                    entryCostSol = if (cost7807 > 0.0) cost7807 else existing7807.entryCostSol,
+                    entryPriceUsd = if (px7807 > 0.0) px7807 else existing7807.entryPriceUsd,
+                    lifecycle = Lifecycle.QUARANTINED,
+                    lastMutationMs = now7807,
+                    // BASIS_UNCERTAIN_7807 is promotable by both a later verified fill
+                    // (promotePendingToOpen) and wallet recovery (7454).
+                    quarantineReason = reason7807,
+                    entryPriceSource = if (existing7807.entryPriceSource.contains("REPLAY_QUARANTINED", true)) "BASIS_UNCERTAIN_7807" else existing7807.entryPriceSource,
+                )
+            } else {
+                Position(
+                    positionId = positionIdHint.takeIf { it.isNotBlank() && positions[it] == null }
+                        ?: "LIVE_PROTECT_7807:$mint:${signature.takeLast(10).ifBlank { now7807.toString() }}",
+                    mode = "live",
+                    mint = mint,
+                    symbol = symbol,
+                    lane = lane.ifBlank { "WALLET_RECOVERED" },
+                    runId = "protect7807",
+                    openedAtMs = now7807,
+                    entryCostSol = cost7807,
+                    remainingQtyRaw = actualQtyRaw,
+                    originalQtyRaw = actualQtyRaw,
+                    soldCostBasisSol = 0.0,
+                    realizedPnlSol = 0.0,
+                    realizedProceedsSol = 0.0,
+                    feesSol = 0.0,
+                    tokenDecimals = tokenDecimals,
+                    quantityScale = tokenDecimals,
+                    lifecycle = Lifecycle.QUARANTINED,
+                    lastMutationMs = now7807,
+                    quarantineReason = reason7807,
+                    entryPriceUsd = px7807,
+                    entryPriceSource = "BASIS_UNCERTAIN_7807",
+                    assetClass = AssetClass.SOLANA_TOKEN,
+                )
+            }
+            positions[row7807.positionId] = row7807
+            quarantines.incrementAndGet()
+            muts.incrementAndGet()
+            target7807 = row7807
+            outcome7807 = if (existing7807 != null) ProtectiveOwnership7807.ATTACHED_TO_EXISTING_ROW else ProtectiveOwnership7807.CREATED
+        } finally { lock.unlock() }
+        val t7807 = target7807
+        if (t7807 != null) {
+            // Unknown basis can never become a trusted learning outcome, even if
+            // the row is later promoted for risk purposes.
+            if (t7807.entryCostSol <= 0.0 || t7807.entryPriceUsd <= 0.0) {
+                try { LearningQuarantineGate6470.quarantinePositionId(t7807.positionId, t7807.quarantineReason) } catch (_: Throwable) {}
+            }
+            try {
+                PipelineHealthCollector.labelInc("PROTECTIVE_OWNERSHIP_ESTABLISHED_7807_$outcome7807")
+                ForensicLogger.lifecycle(
+                    "PROTECTIVE_OWNERSHIP_ESTABLISHED_7807",
+                    "positionId=${t7807.positionId.take(40)} mint=${mint.take(12)} raw=$actualQtyRaw dec=$tokenDecimals " +
+                        "cost=$entryCostSol entryUsd=$entryPriceUsd outcome=$outcome7807 qReason=${t7807.quarantineReason.take(60)} " +
+                        "sig=${signature.take(16)} action=quarantined_for_accounting_still_managed_for_risk",
+                )
+            } catch (_: Throwable) {}
+        }
+        return outcome7807
+    }
+
+    /**
+     * V5.0.7807 — a confirmed LIVE sell (or a debounced wallet-zero proof) on a
+     * mint whose only canonical owner is a funded protective quarantine row.
+     * Reduces that row's quantity (no PnL, no cash, no learning) and closes it
+     * at zero / when [walletCleared]. Returns true only when such a row was
+     * mutated; false when an OPEN/PARTIALLY_CLOSED row exists (the normal
+     * canonical sell path owns it) or no protective quarantine exists.
+     */
+    fun applyProtectiveSellFill7807(mint: String, soldQtyRaw: BigInteger, walletCleared: Boolean, source: String): Boolean {
+        if (mint.isBlank()) return false
+        val changed7807 = ArrayList<Position>(1)
+        lock.lock()
+        try {
+            val live7807 = positions.values.filter { it.mint == mint && it.mode.equals("live", true) }
+            if (live7807.any { isOpenLifecycleWithQty6743(it) }) return false
+            val funded7807 = live7807.filter { isFundedProtectiveQuarantine7807(it) }.sortedBy { it.openedAtMs }
+            if (funded7807.isEmpty()) return false
+            var toConsume7807 = if (soldQtyRaw.signum() > 0) soldQtyRaw else BigInteger.ZERO
+            val now7807 = System.currentTimeMillis()
+            for (p in funded7807) {
+                val take7807 = if (walletCleared) p.remainingQtyRaw else toConsume7807.min(p.remainingQtyRaw)
+                toConsume7807 = (toConsume7807 - take7807).max(BigInteger.ZERO)
+                val left7807 = p.remainingQtyRaw - take7807
+                val closed7807 = walletCleared || left7807 <= BigInteger.ONE
+                val updated7807 = p.copy(
+                    remainingQtyRaw = if (closed7807) BigInteger.ZERO else left7807,
+                    lifecycle = if (closed7807) Lifecycle.CLOSED else Lifecycle.QUARANTINED,
+                    lastMutationMs = now7807,
+                )
+                positions[p.positionId] = updated7807
+                changed7807.add(updated7807)
+                if (!walletCleared && toConsume7807.signum() <= 0) break
+            }
+            if (changed7807.isNotEmpty()) muts.incrementAndGet()
+        } finally { lock.unlock() }
+        for (c in changed7807) {
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (c.lifecycle == Lifecycle.CLOSED) "PROTECTIVE_QUARANTINE_CLOSED_ON_WALLET_PROOF_7807"
+                    else "PROTECTIVE_QUARANTINE_QTY_REDUCED_7807",
+                )
+                ForensicLogger.lifecycle(
+                    "PROTECTIVE_QUARANTINE_SELL_APPLIED_7807",
+                    "positionId=${c.positionId.take(40)} mint=${mint.take(12)} sold=$soldQtyRaw walletCleared=$walletCleared " +
+                        "remaining=${c.remainingQtyRaw} lifecycle=${c.lifecycle} source=${source.take(40)} economics=untouched_quarantined",
+                )
+                if (c.lifecycle == Lifecycle.CLOSED) LockedEntryMetrics6634.unlock6634(c.positionId, "PROTECTIVE_QUARANTINE_CLOSED_7807")
+            } catch (_: Throwable) {}
+        }
+        return changed7807.isNotEmpty()
+    }
 
     /**
      * V5.0.6743 — strict valuation surface. Applies the full
@@ -1554,7 +1797,11 @@ object CanonicalPositionAuthority6441 {
             }
             val recoverableReason = prev.quarantineReason == "PENDING_ENTRY_TTL_CANCELLED_6461" ||
                 prev.quarantineReason == "EXIT_ELIGIBILITY_6570:INVALID_ENTRY_BASIS" ||
-                prev.quarantineReason == "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY"
+                prev.quarantineReason == "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY" ||
+                // V5.0.7807 — a protective BASIS_UNCERTAIN row (landed buy whose
+                // canonical commit failed) is promoted once wallet + durable
+                // basis are proven (Field Manual L39).
+                prev.quarantineReason.startsWith("BASIS_UNCERTAIN_7807")
             if (!recoverableReason) return MutateResult.LIFECYCLE_FORBIDDEN
 
             if (prev.soldCostBasisSol > 1e-12 || prev.realizedProceedsSol > 1e-12 ||
@@ -1722,7 +1969,11 @@ object CanonicalPositionAuthority6441 {
                 if (cur.lifecycle != Lifecycle.PENDING_ENTRY) continue
                 // Refund the placeholder debit so cash returns to the pre-open state.
                 val refund = cur.entryCostSol + cur.feesSol
-                if (refund > 0.0) paperCashSol.getAndUpdate { it + refund }
+                // V5.0.7807 — only PAPER pending rows debited the paper facade
+                // (openPosition debits iff paperMode). Refunding a LIVE pending
+                // row minted paper cash from a real-capital reservation.
+                // Field Manual L415: reconcile journal, fills, fees, balances.
+                if (refund > 0.0 && cur.mode.equals("paper", true)) paperCashSol.getAndUpdate { it + refund }
                 positions[cur.positionId] = cur.copy(
                     lifecycle = Lifecycle.QUARANTINED,
                     quarantineReason = "PENDING_ENTRY_TTL_CANCELLED_6461",
@@ -1821,6 +2072,7 @@ object CanonicalPositionAuthority6441 {
             muts.set(0L); duplicates.set(0L); invariantViolations.set(0L); quarantines.set(0L)
             positionViewCache7496.set(null)
             activeProjectionCache7487.set(null)
+            protectiveCache7807.set(null) // V5.0.7807
         } finally { lock.unlock() }
     }
 

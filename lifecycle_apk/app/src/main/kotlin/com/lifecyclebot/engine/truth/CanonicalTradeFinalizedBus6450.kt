@@ -144,6 +144,55 @@ object CanonicalTradeFinalizedBus6450 {
         return ratio in 0.5..2.0
     }
 
+    /**
+     * V5.0.7722 / 7807 — why a terminal is NOT clean truth for strategy
+     * learning, or null when it is. 7722's inferred-basis rules (wallet
+     * recovery / adoption, inconsistent signed-buy rebuild, unknown basis) plus,
+     * since 7807, accounting quarantine: a row the canonical authority or the
+     * quantity invariant quarantined has a real exit and an untrusted cost, so
+     * its P&L is not evidence about the entry (Field Manual L357 / L416).
+     */
+    internal fun learningUncleanReason7807(positionId: String, mint: String): String? = try {
+        val pos7776 = CanonicalPositionAuthority6441.getPosition(positionId)
+        val src7722 = pos7776?.entryPriceSource?.uppercase() ?: ""
+        when {
+            pos7776 != null && (pos7776.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED ||
+                pos7776.quarantineReason.isNotBlank()) -> "QUARANTINED_ACCOUNTING_7807"
+            mint.isNotBlank() && QuantityInvariantAuthority6500.isQuarantined(mint) -> "QUANTITY_QUARANTINED_7807"
+            src7722.contains("OBSERVED_MARK_ADOPTION_7706") -> "OBSERVED_MARK_ADOPTION_7706"
+            // V5.0.7776 — the bot's own signed buy (and the fill-registry rebuild)
+            // carries a real cost; it teaches when that cost, the quantity and the
+            // entry price agree. The 7720 row that motivated 7722 did not (implied
+            // $406 against a real price far below), and still would not pass.
+            (src7722.contains("HOST_TRACKER_SIGNED_BUY_7708") || src7722.contains("CANONICAL_BUY_FILL_RECOVERY_6686")) &&
+                signedBasisConsistent7776(pos7776) -> null
+            src7722.contains("HOST_TRACKER_SIGNED_BUY_7708") -> "HOST_TRACKER_SIGNED_BUY_7708"
+            src7722.startsWith("WALLET_RECOVERY") || src7722.startsWith("WALLET_ADOPT") -> "WALLET_RECOVERY"
+            src7722.contains("BASIS_UNKNOWN") -> "BASIS_UNKNOWN"
+            src7722.contains("RECOVERY_6686") -> "RECOVERY_6686"
+            else -> null
+        }
+    } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.7807 — the 6450 subscribers include learners and proofs
+     * (ExecutableEntryAuthority6450 cohort streaks, OracleEdgeProof7263,
+     * SignalSourceProof7291, LaneHunter7297) beside accounting consumers
+     * (LiveRiskPolicy7807 loss budget, FinalizedFanoutParity6459). 7722
+     * excluded inferred-basis rows only from the 6464 consumers, computed after
+     * this fanout, so wallet-recovered / basis-uncertain / quarantined closes
+     * still graded the oracle and admission. Learners call this and skip the
+     * event; accounting consumers keep receiving every real close.
+     */
+    fun isCleanForLearning7807(event: Event): Boolean {
+        val why = learningUncleanReason7807(event.positionId, event.mint) ?: return true
+        try {
+            PipelineHealthCollector.labelInc("FINALIZED_LEARNER_SKIPPED_UNCLEAN_7807")
+            PipelineHealthCollector.labelInc("FINALIZED_LEARNER_SKIPPED_UNCLEAN_7807_$why")
+        } catch (_: Throwable) {}
+        return false
+    }
+
     fun publish(event: Event): Boolean {
         if (event.positionId.isBlank()) return false
         try { CanonicalRewardBootstrap6453.ensureBootstrapped() } catch (_: Throwable) {}
@@ -303,24 +352,7 @@ object CanonicalTradeFinalizedBus6450 {
             // the entry. Such rows stay on the bus for the audit and the dashboard
             // and are excluded from every learner, exactly like malformed
             // economics (7097).
-            val inferredBasis7722: String? = try {
-                val pos7776 = CanonicalPositionAuthority6441.getPosition(event.positionId)
-                val src7722 = pos7776?.entryPriceSource?.uppercase() ?: ""
-                when {
-                    src7722.contains("OBSERVED_MARK_ADOPTION_7706") -> "OBSERVED_MARK_ADOPTION_7706"
-                    // V5.0.7776 — the bot's own signed buy (and the fill-registry rebuild)
-                    // carries a real cost; it teaches when that cost, the quantity and the
-                    // entry price agree. The 7720 row that motivated 7722 did not (implied
-                    // $406 against a real price far below), and still would not pass.
-                    (src7722.contains("HOST_TRACKER_SIGNED_BUY_7708") || src7722.contains("CANONICAL_BUY_FILL_RECOVERY_6686")) &&
-                        signedBasisConsistent7776(pos7776) -> null
-                    src7722.contains("HOST_TRACKER_SIGNED_BUY_7708") -> "HOST_TRACKER_SIGNED_BUY_7708"
-                    src7722.startsWith("WALLET_RECOVERY") || src7722.startsWith("WALLET_ADOPT") -> "WALLET_RECOVERY"
-                    src7722.contains("BASIS_UNKNOWN") -> "BASIS_UNKNOWN"
-                    src7722.contains("RECOVERY_6686") -> "RECOVERY_6686"
-                    else -> null
-                }
-            } catch (_: Throwable) { null }
+            val inferredBasis7722: String? = learningUncleanReason7807(event.positionId, event.mint)
             if (event.mode.equals("LIVE", ignoreCase = true)) try { LiveEducationAudit7776.onBusLive(inferredBasis7722) } catch (_: Throwable) {}
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,

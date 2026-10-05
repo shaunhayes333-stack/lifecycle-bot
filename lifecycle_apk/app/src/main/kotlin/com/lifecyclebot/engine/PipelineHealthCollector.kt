@@ -2755,6 +2755,10 @@ object PipelineHealthCollector {
                     com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.statusLine()
                 ).append("\n")
             } catch (_: Throwable) {}
+            // V5.0.7807 — the one live size authority: opens, per-reason passes, equity peak.
+            try {
+                sb.append("  ").append(com.lifecyclebot.engine.truth.LiveRiskPolicy7807.statusLine()).append("\n")
+            } catch (_: Throwable) {}
             // V5.0.7706 — wallet holdings with no receipt, adopted at mark.
             try {
                 sb.append("  Wallet adoption (§7706):      ").append(
@@ -2771,7 +2775,11 @@ object PipelineHealthCollector {
                             "VIOLATION unmanagedBotMints=${d7718.mints.size} mints=${d7718.mints.joinToString(",") { it.take(8) }.take(120)} (heal kicked; see Wallet adoption line)"
                         else "UNKNOWN ${d7718.reasonCode}"
                     else -> "OK every bot holding is inside canonical exit scope"
-                }
+                } + try {
+                    // V5.0.7807 — the protective surface coverage is measured against.
+                    val prot7807 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live")
+                    " protectiveInventory7807=${prot7807.size} fundedQuarantined7807=${prot7807.count { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED }}"
+                } catch (_: Throwable) { "" }
                 sb.append("  Bot-buy coverage (§7718):     ").append(line7718).append("\n")
             } catch (_: Throwable) {}
             // V5.0.7715 — the Field Manual's plan-card verdicts, risk caps and exit classes.
@@ -2860,6 +2868,10 @@ object PipelineHealthCollector {
             ).append("\n")
             sb.append("  Market sweep (§7297):         ").append(
                 try { com.lifecyclebot.engine.market.MarketSweep7297.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
+            // V5.0.7807 — the resident worker that owns the sweep (Field Manual L412).
+            sb.append("  Resident hunters (§7807):     ").append(
+                try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             sb.append("  Opportunity intelligence (§7777): ").append(
                 try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityStatusLine7777() } catch (_: Throwable) { "unavailable" }
@@ -4111,6 +4123,8 @@ object PipelineHealthCollector {
             sb.append("  Helius role: HOT_PATH=true(sender_for_proven_envelopes) critical=false(fallback=Jito/RPC)\n")
             sb.append("  Helius Sender: envelopeProved=${lc("HELIUS_SENDER_ENVELOPE_PROVED_7250")} envelopeRefused=${lc("HELIUS_SENDER_ENVELOPE_REFUSED_7250")} attempts=${lc("HELIUS_SENDER_ATTEMPT_7248")} accepted=${lc("HELIUS_SENDER_ACCEPT_7248")} failed=${lc("HELIUS_SENDER_FAIL_7248")}\n")
             sb.append("  Helius degraded: ${if (!KeyValidator.isLive("helius")) "HELIUS_DEGRADED_FALLBACK_AVAILABLE" else "ok"}\n")
+            // V5.0.7807 — subscription memory/cardinality (OOM in subscribeToken, 7792/7806).
+            sb.append("  Helius WS subs (7807): ").append(com.lifecyclebot.network.HeliusSubscriptionTelemetry7807.line7807()).append('\n')
             sb.append("  Jupiter quote/build/confirm: quoteFail=${lc("JUPITER_QUOTE_FAIL")} buildOk=${lc("JUPITER_SWAP_BUILD_OK")} confirmOk=${lc("JUPITER_CONFIRM_OK")} quoteRejected=${lc("JUPITER_QUOTE_REJECTED")}\n")
             sb.append("  Buy terminal: planOk=${lc("BUY_PLAN_OK")} execSelected=${lc("EXEC_SELECTED")} ticket=${lc("EXEC_TICKET_CREATED")} quoteReq=${lc("QUOTE_REQUESTED")} quoteOk=${lc("QUOTE_OK")} swapBuilt=${lc("SWAP_BUILT")} txSigned=${lc("TX_SIGNED")} txSubmitted=${lc("TX_SUBMITTED")} txConfirmed=${lc("TX_CONFIRMED")} pendingProof=${lc("BUY_PENDING_BALANCE_PROOF")} proofCommitted=${lc("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637")} journaled=${lc("BUY_JOURNALED")} ok=${lc("BUY_TERMINAL_OK")} fail=${lc("BUY_TERMINAL_FAIL")} duplicateSuppressed=${lc("EXEC_DUPLICATE_SUPPRESSED")} backoff=${lc("EXEC_RETRY_BACKOFF_SET")}\n")
             if (lc("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") > lc("BUY_JOURNALED")) {

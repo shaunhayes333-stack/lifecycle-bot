@@ -342,6 +342,13 @@ object LiveTradeLogStore {
         val modeTag = try {
             if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
         } catch (_: Throwable) { null }
+        // V5.0.7807 — B1: every sell route (Jupiter, PumpPortal, Raydium/Helius
+        // Sender) logs SELL_BROADCAST immediately before it signs and sends, so
+        // this is the one place a trigger -> broadcast sample can close for all
+        // of them (Field Manual L248).
+        if (phase == Phase.SELL_BROADCAST && side == "SELL") {
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteBroadcast7807(mint) } catch (_: Throwable) {}
+        }
         emit(
             Event(
                 ts = System.currentTimeMillis(),

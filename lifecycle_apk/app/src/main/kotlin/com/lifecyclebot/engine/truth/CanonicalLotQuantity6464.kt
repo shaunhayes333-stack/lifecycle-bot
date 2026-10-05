@@ -110,6 +110,8 @@ object CanonicalLotQuantity6464 {
         // laundered into a lot with bought=0 that will trip the invariant
         // check after the fact.
         val existing = lots[positionId]
+            ?.takeIf { it.confirmedBoughtQty > BigInteger.ZERO }
+            ?: repairLotFromCanonical7807(positionId, mint, filledQty)
         if (existing == null || existing.confirmedBoughtQty <= BigInteger.ZERO) {
             invariantViolations.incrementAndGet()
             try {
@@ -143,6 +145,26 @@ object CanonicalLotQuantity6464 {
                     reason = "LOT_INVARIANT_OVERSELL",
                 )
             } catch (_: Throwable) {}
+            // V5.0.7807 — a CONFIRMED sell must still reduce actual quantity
+            // even when lineage is uncertain (Field Manual L267: each partial
+            // must update the remaining quantity). The old early return left
+            // the lot's sellable qty un-reduced, so a fully sold position kept
+            // phantom sellable inventory. Re-anchor the lot's remaining to the
+            // canonical position's post-sale remaining (canonical is mutated
+            // before this hook on both live and paper paths); with no canonical
+            // row the lot is fully consumed. Learning stays quarantined above.
+            val canonicalRemaining7807 = try {
+                CanonicalPositionAuthority6441.getPosition(positionId)
+                    ?.takeIf { it.mint == mint }?.remainingQtyRaw
+            } catch (_: Throwable) { null } ?: BigInteger.ZERO
+            lots.computeIfPresent(positionId) { _, cur ->
+                cur.also {
+                    val keep7807 = canonicalRemaining7807.min(it.confirmedBoughtQty).coerceAtLeast(BigInteger.ZERO)
+                    it.confirmedSoldQty = it.confirmedBoughtQty - keep7807
+                    it.reservedPendingSellQty = BigInteger.ZERO
+                }
+            }
+            try { PipelineHealthCollector.labelInc("CANONICAL_LOT_OVERSELL_CLAMPED_CONSUMED_7807") } catch (_: Throwable) {}
             return
         }
         val lot = lots.compute(positionId) { _, cur ->
@@ -153,6 +175,40 @@ object CanonicalLotQuantity6464 {
             }
         } ?: return
         checkInvariant(lot, "onSellFilled")
+    }
+
+    /**
+     * V5.0.7807 — LOT LINEAGE REPAIR FROM CANONICAL TRUTH (Field Manual L252).
+     * Lots are in-memory only and live lots are never rebuilt on restart
+     * (rebuildPaperFromEvents6486 is paper-only); wallet-adopted canonical
+     * positions never call onBuyFilled. Every live sell after a restart or
+     * adoption therefore hit NO_MATCHING_BUY (CANONICAL_LOT_SELL_QUARANTINED_6470)
+     * and quarantined learning for a position whose lineage is in fact known.
+     * When the SAME positionId exists in CanonicalPositionAuthority6441 for the
+     * same mint with a funded original quantity, seed the lot from it. Both
+     * callers mutate canonical BEFORE this hook, so quantity sold before this
+     * fill = original - remainingNow - filledQty (floored at zero).
+     */
+    private fun repairLotFromCanonical7807(positionId: String, mint: String, filledQty: BigInteger): Lot? {
+        val pos = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null } ?: return null
+        if (pos.mint != mint || pos.originalQtyRaw <= BigInteger.ZERO) return null
+        val soldBefore = (pos.originalQtyRaw - pos.remainingQtyRaw - filledQty)
+            .coerceAtLeast(BigInteger.ZERO).min(pos.originalQtyRaw)
+        val repaired = lots.compute(positionId) { _, cur ->
+            (cur ?: Lot(positionId, mint, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO)).also {
+                it.confirmedBoughtQty = pos.originalQtyRaw
+                it.confirmedSoldQty = soldBefore
+            }
+        }
+        try {
+            PipelineHealthCollector.labelInc("CANONICAL_LOT_LINEAGE_REPAIRED_7807")
+            ForensicLogger.lifecycle(
+                "CANONICAL_LOT_LINEAGE_REPAIRED_7807",
+                "positionId=${positionId.take(28)} mint=${mint.take(10)} mode=${pos.mode} original=${pos.originalQtyRaw} " +
+                    "remainingNow=${pos.remainingQtyRaw} filled=$filledQty soldBefore=$soldBefore",
+            )
+        } catch (_: Throwable) {}
+        return repaired
     }
 
     fun hasFundedOpenLot6485(positionId: String): Boolean {

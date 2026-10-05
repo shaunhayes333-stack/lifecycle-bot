@@ -446,7 +446,11 @@ class CryptoAltActivity : AppCompatActivity() {
         try {
             com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
                 .recordHeroRender("CRYPTO", bal, equity)
-            com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+            // V5.0.7807 — the 6616 authority is PAPER-only; in live mode `bal`
+            // is the live wallet and was probed against the paper snapshot
+            // (guaranteed HERO_JOURNAL_PARITY_FAIL_CRYPTO_6616). Probe only a
+            // painted paper account. Field Manual L403: verify system mode.
+            if (!isLive && displayReady6830) com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
                 .probeHeroBinding("CRYPTO", bal, equity)
         } catch (_: Throwable) {}
     }

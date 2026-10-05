@@ -507,12 +507,31 @@ object EconomicEventSchema6464 {
      * not decisive realized events.
      */
     data class TerminalSellSnapshot6502(val mint: String, val realizedPnlSol: Double)
-    fun canonicalRealizedEvents(): List<TerminalSellSnapshot6502> =
-        events.mapNotNull { ev ->
-            (ev as? Sell)?.takeIf { !it.partial }?.let {
+    /**
+     * V5.0.7807 — PAPER LEDGER REALIZED REPLAY (root of
+     * FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504). PaperAccountLedger6430
+     * books realized GROSS (Sell.realizedPnlSol is gross since 6487) for EVERY
+     * leg, partials included, PAPER only. canonicalRealizedEvents() returned
+     * terminal legs only and LIVE rows too — so the 6502 rebuild dropped every
+     * partial leg's realized and mixed live capital into the paper ledger, and
+     * the 6504 fill-lot FIFO rebuild (paper, all legs) disagreed on every boot.
+     * Field Manual L267: each partial must update the realized result.
+     * (Terminal-only filtering remains correct for LEARNING samples, not for
+     * the capital ledger.)
+     */
+    fun paperLedgerRealizedEvents7807(): List<TerminalSellSnapshot6502> {
+        val rows = events.mapNotNull { ev ->
+            (ev as? Sell)?.takeIf { it.mode.equals("paper", true) }?.let {
                 TerminalSellSnapshot6502(mint = it.mint, realizedPnlSol = it.realizedPnlSol)
             }
         }
+        // Evicted paper legs were folded (gross) into the replay carry; the
+        // immutable fill-lot ledger still holds them, so include the carry.
+        val carry = replayCarry6489
+        return if (carry.established && kotlin.math.abs(carry.realizedPnlSol) > 1e-12)
+            rows + TerminalSellSnapshot6502(mint = "", realizedPnlSol = carry.realizedPnlSol)
+        else rows
+    }
 
     /** V5.0.6498 — repair a stale historical prefix from current canonical
      * ledger + active inventory truth. Refuses if the event stream changed

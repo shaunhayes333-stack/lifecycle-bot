@@ -793,12 +793,12 @@ class BotService : Service() {
         // specialist workers, which is what it was sized for.
         try {
             if (rapidStopLossMonitorJob?.isActive != true) {
-                rapidStopLossMonitorJob = scope.launch(Dispatchers.IO + CoroutineName("rapid-stop-6647")) { rapidStopLossMonitor() }
+                rapidStopLossMonitorJob = scope.launch(hotPathDispatcher7807 + CoroutineName("rapid-stop-6647")) { rapidStopLossMonitor() }
             }
         } catch (_: Throwable) {}
         try {
             if (openPositionTickJob?.isActive != true) {
-                openPositionTickJob = scope.launch(Dispatchers.IO + CoroutineName("open-mark-6647")) {
+                openPositionTickJob = scope.launch(hotPathDispatcher7807 + CoroutineName("open-mark-6647")) {
                     openPositionTickLoop(openPosLoopGeneration7283.incrementAndGet())
                 }
             }
@@ -847,7 +847,7 @@ class BotService : Service() {
             try { job.cancel(CancellationException("OPEN_POS_LOOP_STALLED_7283")) } catch (_: Throwable) {}
         }
         try {
-            openPositionTickJob = scope.launch(Dispatchers.IO + CoroutineName("open-mark-7283")) {
+            openPositionTickJob = scope.launch(hotPathDispatcher7807 + CoroutineName("open-mark-7283")) {
                 openPositionTickLoop(openPosLoopGeneration7283.incrementAndGet())
             }
         } catch (_: Throwable) {}
@@ -920,7 +920,9 @@ class BotService : Service() {
             if (!immediate && rec.urgency != ModeSpecificExits.ExitUrgency.URGENT) return
             if (!immediate && com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) != null) return
             val now = System.currentTimeMillis()
-            if (now - (modeExitAttemptMs7744[ts.mint] ?: 0L) < 20_000L) return
+            // V5.0.7807 — B1: IMMEDIATE (MODE_EXIT_STOP_7744) is class 3 -> 2s rung; URGENT caps at 15s (was 20s).
+            if (now - (modeExitAttemptMs7744[ts.mint] ?: 0L) <
+                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.retryDelayMs(if (immediate) "MODE_EXIT_STOP_7744" else "MODE_EXIT_7744", 1, 20_000L)) return
             modeExitAttemptMs7744[ts.mint] = now
             if (modeExitAttemptMs7744.size > 1_000) modeExitAttemptMs7744.entries.removeIf { now - it.value > 3_600_000L }
             val tag = rec.reason.uppercase().replace(Regex("[^A-Z0-9]+"), "_").trim('_').take(70)
@@ -1072,7 +1074,57 @@ class BotService : Service() {
             // by OperatorRegistry from the PumpPortal create frame.
             if (ts.tokenMap.creatorOrDevWallet.isBlank()) OperatorRegistry.getDevWallet(ts.mint)?.takeIf { it.isNotBlank() }?.let { ts.tokenMap.creatorOrDevWallet = it }
             PipelineHealthCollector.labelInc(if (m5 > 0) "POLL_FLOW_M5_WRITTEN_7758" else "POLL_FLOW_H1_FALLBACK_7758")
+            recordOpportunityTape7807(ts, pair, m5)
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7807 — "OPPORTUNITY_INTELLIGENCE_7777 observations=0": the 7777 tape's
+     * only writer was the DexScreener socket callback, and that socket is a
+     * no-op since DISABLED_7381. The pair poll carries the same five-minute tape
+     * (7758), so it feeds MarketSweep7297's bounded opportunity tape here. Only
+     * a real m5 window is recorded (a synthesised pair carries none). Local,
+     * O(1), no network, no admission authority.
+     * Field Manual L332 — record only a valid observation of the traded tape.
+     */
+    private fun recordOpportunityTape7807(ts: com.lifecyclebot.data.TokenState, pair: com.lifecyclebot.network.PairInfo, m5: Int) {
+        if (pair.buysM5 < 0 || pair.sellsM5 < 0 || !pair.volumeM5.isFinite() || !pair.priceChangeM5.isFinite()) return
+        try {
+            com.lifecyclebot.engine.market.MarketSweep7297.recordRealtime7777(
+                mint = ts.mint,
+                priceUsd = ts.lastPrice,
+                mcapUsd = ts.lastMcap,
+                liquidityUsd = ts.lastLiquidityUsd,
+                buyPressurePct = ts.lastBuyPressurePct,
+                priceChange5mPct = pair.priceChangeM5,
+                priceChange1hPct = if (pair.priceChangeH1.isFinite()) pair.priceChangeH1 else 0.0,
+                volume5mUsd = pair.volumeM5,
+                txCount5m = m5,
+            )
+            PipelineHealthCollector.labelInc("OPPORTUNITY_TAPE_FROM_POLL_7807")
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7807 — start the resident market sweep / lane hunters on the service
+     * scope (stopped in stopBot via ResidentHunterWorker7807.stop). Keys are
+     * re-read each run; the emitter reads `marketScanner` lazily so a
+     * self-healed scanner keeps receiving hunts. A helper so startBot does not grow.
+     * Field Manual L412.
+     */
+    private fun startResidentHunters7807() {
+        try {
+            com.lifecyclebot.engine.market.ResidentHunterWorker7807.start(
+                scope = scope,
+                keys = {
+                    val c = ConfigStore.load(applicationContext)
+                    c.heliusApiKey to c.jupiterApiKey
+                },
+                emitter = { snap, picks -> marketScanner?.emitResidentHunt7807(snap, picks) ?: 0 },
+            )
+        } catch (t: Throwable) {
+            ErrorLogger.warn("BotService", "RESIDENT_HUNTER_START_FAILED_7807: ${t.message}")
+        }
     }
 
     /**
@@ -1089,7 +1141,9 @@ class BotService : Service() {
     ) {
         val now = System.currentTimeMillis()
         val last = planExitAttemptMs7739[ts.mint] ?: 0L
-        if (now - last < 10_000L) return
+        // V5.0.7807 — a breached plan invalidation (STRUCTURE_STOP_7739) is a hard SL
+        // (class 3): it re-dispatches on the 2s emergency rung, not the 10s plan spacing.
+        if (now - last < com.lifecyclebot.engine.sell.ProtectiveExitClass7807.retryDelayMs(exit.reason, 1, 10_000L)) return
         planExitAttemptMs7739[ts.mint] = now
         if (planExitAttemptMs7739.size > 1_000) planExitAttemptMs7739.entries.removeIf { now - it.value > 3_600_000L }
         try {
@@ -1122,14 +1176,24 @@ class BotService : Service() {
         val prior = offLoopSellsInFlight7288[ts.mint]
         // V5.0.7392 — a profit-lock sell may be re-requested after 10 s (a hung
         // first request pinned the win for 60 s while it gave back the peak).
-        val retryMs7392 = if (reason.contains("PROFIT_LOCK") || reason.contains("PEAK")) 10_000L else OFF_LOOP_SELL_RETRY_MS_7288
+        // V5.0.7807 — B1: an emergency is never coalesced behind an in-flight
+        // request for more than its 2s first retry rung (the CloseLease still
+        // prevents a second concurrent sell); normal windows cap at 15s (was 60s).
+        // Field Manual L248.
+        val retryMs7392 = when {
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) ->
+                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.emergencyRetryDelayMs(1)
+            reason.contains("PROFIT_LOCK") || reason.contains("PEAK") -> 10_000L
+            else -> com.lifecyclebot.engine.sell.ProtectiveExitClass7807.capNormalWindowMs(OFF_LOOP_SELL_RETRY_MS_7288)
+        }
         if (prior != null && now - prior < retryMs7392) {
             try { PipelineHealthCollector.labelInc("TICK_SELL_OFF_LOOP_COALESCED_7288") } catch (_: Throwable) {}
             return
         }
         offLoopSellsInFlight7288[ts.mint] = now
         try {
-            scope.launch(Dispatchers.IO + CoroutineName("tick-sell-7288")) {
+            // V5.0.7807 — B1: emergencies run on their own pool, never behind discovery IO.
+            scope.launch(com.lifecyclebot.engine.sell.EmergencyExitDispatcher7807.forReason(reason) + CoroutineName("tick-sell-7288")) {
                 // V5.0.7290 — the tick loop's "confirmed" catastrophe only checks
                 // that the executable price agrees with the raw tick; one wrong
                 // identity feeds both. 5.0.7289: RENDER bought at $1.865 and sold
@@ -1158,6 +1222,465 @@ class BotService : Service() {
         } catch (_: Throwable) {
             offLoopSellsInFlight7288.remove(ts.mint, now)
         }
+    }
+
+    // V5.0.7807 §THE_HOT_MARK_LOOP_MAY_NOT_WAIT_ON_A_PROVIDER_CHAIN.
+    //
+    // 5.0.7805: OPEN_POS_TICK_GAP_SLOW_7270=37. The 1 Hz held-position mark
+    // loop ran the whole rescue chain inline: ParallelMarkFanout7088 (blocks up
+    // to 4 s), KeylessPriceSources6996.fillMissing (~2.4 s), the per-mint
+    // PriceResolverFallback chain (3 s budget, checked only BEFORE each mint so
+    // one slow resolve overran it) and Birdeye. Every held position that the
+    // DexScreener batch or its locked venue had ALREADY priced waited for the
+    // slowest of those before its mark was applied, and the exits read that
+    // mark. The rescue now runs on its own worker, at most one pass in flight;
+    // the tick applies only rescue marks younger than MARK_RESCUE_MAX_AGE_MS_7807
+    // and never waits for one (Field Manual L240: stale quotes and latency
+    // create adverse selection). No provider, cadence, cap or threshold changed.
+    private data class RescuedMark7807(val priceUsd: Double, val source: String, val atMs: Long)
+    private val markRescueResults7807 = java.util.concurrent.ConcurrentHashMap<String, RescuedMark7807>()
+    private val markRescueInFlight7807 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val markRescueGen7807 = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var markRescueStartedAtMs7807 = 0L
+    @Volatile private var markRescuePhaseName7807: String = "idle"
+    private val MARK_RESCUE_MAX_AGE_MS_7807 = 3_000L
+    private val MARK_RESCUE_STUCK_MS_7807 = 30_000L
+    private val markRescueExecutor7807: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newCachedThreadPool { r ->
+            Thread(r, "AATE-MarkRescue-7807").apply { isDaemon = true }
+        }
+    private val markRescueDispatcher7807: CoroutineDispatcher = markRescueExecutor7807.asCoroutineDispatcher()
+
+    // V5.0.7807 — the two latency-critical held-position loops (1 Hz mark loop
+    // and rapid stop monitor) ran on Dispatchers.IO, the same 64-thread pool
+    // that intake/discovery fills with blocking OkHttp calls (see the
+    // botLoopExecutor note: wedged JNI socket reads never yield). When intake
+    // saturated IO, the held-position loops queued for a thread behind
+    // discovery. They now own a small dedicated pool that discovery cannot
+    // reach (Field Manual L240). Cached (elastic) so an iteration the 7283
+    // supervisor abandons cannot exhaust it.
+    private val hotPathExecutor7807: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newCachedThreadPool { r ->
+            Thread(r, "AATE-HeldHotPath-7807").apply { isDaemon = true; priority = Thread.NORM_PRIORITY + 1 }
+        }
+    private val hotPathDispatcher7807: CoroutineDispatcher = hotPathExecutor7807.asCoroutineDispatcher()
+
+    private fun markRescuePhase7807(phase: String) { markRescuePhaseName7807 = phase }
+
+    /**
+     * V5.0.7807 — called once per mark-loop tick. Applies fresh rescue marks for
+     * [missingRaw] into the tick's maps, then (if anything is still missing or
+     * stale and no pass is in flight) starts one background rescue pass. Never
+     * blocks on a provider.
+     */
+    private fun applyMarkRescue7807(
+        openMints: List<String>,
+        solanaMints6970: List<String>,
+        missingRaw: List<String>,
+        priceMap: HashMap<String, Double>,
+        markSource6999: HashMap<String, String>,
+    ) {
+        if (missingRaw.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val applied = HashSet<String>()
+        for (m in missingRaw) {
+            val r = markRescueResults7807.remove(m) ?: continue
+            if (now - r.atMs > MARK_RESCUE_MAX_AGE_MS_7807) {
+                try { PipelineHealthCollector.labelInc("MARK_RESCUE_EXPIRED_7807") } catch (_: Throwable) {}
+                continue
+            }
+            if (!r.priceUsd.isFinite() || r.priceUsd <= 0.0) continue
+            priceMap[m] = r.priceUsd
+            markSource6999[m] = r.source
+            applied.add(m)
+        }
+        if (applied.isNotEmpty()) {
+            try { PipelineHealthCollector.labelInc("MARK_RESCUE_APPLIED_7807") } catch (_: Throwable) {}
+        }
+        val toRescue = missingRaw.filter { it !in applied }
+        if (toRescue.isEmpty()) return
+        if (!markRescueInFlight7807.compareAndSet(false, true)) {
+            if (now - markRescueStartedAtMs7807 < MARK_RESCUE_STUCK_MS_7807) return
+            try {
+                PipelineHealthCollector.labelInc("MARK_RESCUE_STUCK_REPLACED_7807")
+                ForensicLogger.lifecycle(
+                    "MARK_RESCUE_STUCK_REPLACED_7807",
+                    "phase=$markRescuePhaseName7807 ageMs=${now - markRescueStartedAtMs7807} action=start_new_pass_old_results_age_checked",
+                )
+            } catch (_: Throwable) {}
+        }
+        markRescueStartedAtMs7807 = now
+        val gen = markRescueGen7807.incrementAndGet()
+        val priced = HashMap<String, Double>(priceMap)
+        try {
+            scope.launch(markRescueDispatcher7807 + CoroutineName("mark-rescue-7807")) {
+                try {
+                    runMarkRescue7807(openMints, solanaMints6970, toRescue, priced)
+                } catch (_: Throwable) {
+                } finally {
+                    if (markRescueGen7807.get() == gen) markRescueInFlight7807.set(false)
+                    markRescuePhaseName7807 = "idle"
+                }
+            }
+        } catch (_: Throwable) {
+            markRescueInFlight7807.set(false)
+        }
+    }
+
+    /**
+     * V5.0.7807 — the rescue chain that used to run inline in
+     * openPositionTickLoop, moved verbatim. [priced] is the tick's price map at
+     * launch so the chain sees exactly what the inline version saw; only marks
+     * this pass produced are published to [markRescueResults7807].
+     */
+    private fun runMarkRescue7807(
+        openMints: List<String>,
+        solanaMints6970: List<String>,
+        missingBeforeKeyless6946Raw: List<String>,
+        priced: Map<String, Double>,
+    ) {
+        val priceMap = HashMap<String, Double>(priced)
+        val markSource6999 = HashMap<String, String>()
+        val tickStartedAtMs6945 = System.currentTimeMillis()
+        // V5.0.6996 §ONE_DEAD_PROVIDER_STOPPED_THE_WHOLE_BOT_TRADING.
+        //
+        // The 6946 chain below is PER-MINT and capped per tick, so with
+        // 97 open positions and DexScreener returning nothing it can
+        // only rescue a handful per second. The operator's 5.0.6993
+        // snapshot is what that looks like when the primary source is
+        // fully dead rather than patchy:
+        //
+        //     dexscreener  sr=0%  s=0  4xx=5      <- zero all session
+        //     Exit scheduler: eval=58,066  SL=0  TP=0  TRAIL=0
+        //     Open positions 97 / POSITION_HARD_CAP 100
+        //
+        // 58,066 exit evaluations fired zero stops because nothing
+        // could be priced; inventory then filled to the cap and every
+        // lane went SIZING_CHOKED. One provider took the bot out.
+        //
+        // So try BATCH keyless sources first: DefiLlama (no key, no
+        // account, entirely separate infrastructure from the DEX
+        // aggregators) then Jupiter's price surface, which was sitting
+        // at sr=96% with 217 successful calls in that same snapshot
+        // while the positions went unmarked.
+        //
+        // Whatever those two answer for is removed from the per-mint
+        // chain's workload, so the cap below is spent on genuinely
+        // hard mints instead of on the bulk.
+        var missingBeforeKeyless6946 = missingBeforeKeyless6946Raw
+        // V5.0.7088 §ASK EVERY FEED AT ONCE, BEFORE ANY SERIAL CHAIN RUNS.
+        //
+        // Operator: "dont do a fall back chain run then in parallel
+        // please. use helius again. there's too many holes."
+        //
+        // Everything below this block is serial. 6996's fillMissing runs
+        // DefiLlama then Jupiter for the remainder; 6946's loop runs
+        // PriceResolverFallback ONE MINT AT A TIME and is capped at 8
+        // (24 when boosted). With dexscreener at sr=0% and jupiter_quote
+        // at sr=20% on the 5.0.7082 device, that chain left three open
+        // positions stale for 83-159 seconds.
+        //
+        // So six feeds are asked SIMULTANEOUSLY first — DexScreener,
+        // DefiLlama, Jupiter, Raydium, Helius DAS and pump.fun — on one
+        // 4s deadline. Total latency is the slowest feed rather than the
+        // sum, a dead provider costs only its own absence, and the
+        // serial paths below keep their existing behaviour on whatever
+        // is genuinely left.
+        //
+        // The second gain matters more than the speed: agreement between
+        // independent feeds is EVIDENCE. The $822,358,177 cap that
+        // V5.0.7069 believed and turned into a 1211x could not survive
+        // five other feeds reporting $675k — it loses on count, and the
+        // outlier shows up in the spread instead of in the book.
+        if (missingBeforeKeyless6946Raw.isNotEmpty()) {
+            markRescuePhase7807("fanout")
+            try {
+                val fanoutStart7270 = System.currentTimeMillis()
+                val fanout7088 = com.lifecyclebot.network.ParallelMarkFanout7088
+                    .resolve7088(missingBeforeKeyless6946Raw)
+                try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onFanout(System.currentTimeMillis() - fanoutStart7270) } catch (_: Throwable) {}
+                if (fanout7088.isNotEmpty()) {
+                    var corroborated7088 = 0
+                    for ((m, mk) in fanout7088) {
+                        if (!mk.priceUsd.isFinite() || mk.priceUsd <= 0.0) continue
+                        // V5.0.7273 §A_MEDIAN_OF_FEEDS_THAT_DISAGREE_IS_NOT_A_MARK.
+                        //
+                        // merge7088 returns the median when every feed answered
+                        // and none agree, and says so in its own comment: "7077
+                        // will decline to qualify the mint". This loop never
+                        // asked. It wrote that median to ts.lastPrice, where the
+                        // rapid stop monitor reads it raw; with two feeds, one of
+                        // them wrong, the median is half the truth, which is a
+                        // -50% "catastrophe" on a position that did not move.
+                        // 5.0.7272: USDS, WLFI and 72QvBV bought at real prices and
+                        // sold six seconds later for 0.000 SOL. A contested pass
+                        // leaves the previous mark in place and asks for a repair;
+                        // the next pass, or a single unambiguous feed, moves it.
+                        if (mk.sourceCount >= 2 && !mk.corroborated) {
+                            try {
+                                PipelineHealthCollector.labelInc("MARK_CONTESTED_NOT_APPLIED_7273")
+                                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(m, "hot_loop_contested_7273")
+                            } catch (_: Throwable) {}
+                            continue
+                        }
+                        priceMap[m] = mk.priceUsd
+                        // The source label carries the corroboration
+                        // state so every downstream reader — and the
+                        // operator reading a row — can tell a mark two
+                        // feeds agreed on from one nobody could check.
+                        markSource6999[m] = if (mk.corroborated) {
+                            "FANOUT_CORROBORATED_7088_x${mk.agreeingCount}"
+                        } else {
+                            "FANOUT_UNCORROBORATED_7088"
+                        }
+                        if (mk.corroborated) corroborated7088++
+                    }
+                    missingBeforeKeyless6946 = missingBeforeKeyless6946Raw.filter { it !in priceMap }
+                    PipelineHealthCollector.labelInc("MARK_PARALLEL_FANOUT_7088")
+                    ForensicLogger.lifecycle(
+                        "MARK_PARALLEL_FANOUT_7088",
+                        "requested=${missingBeforeKeyless6946Raw.size} priced=${fanout7088.size} " +
+                            "corroborated=$corroborated7088 " +
+                            "stillMissing=${missingBeforeKeyless6946.size} " +
+                            "note=six_feeds_in_parallel_before_any_serial_chain",
+                    )
+                }
+            } catch (_: Throwable) { /* fail-soft: every serial path below still runs */ }
+        }
+        if (missingBeforeKeyless6946.isNotEmpty()) {
+            markRescuePhase7807("keyless_batch")
+            try {
+                val rescued6996 = com.lifecyclebot.network.KeylessPriceSources6996
+                    .fillMissing(missingBeforeKeyless6946)
+                if (rescued6996.isNotEmpty()) {
+                    for ((m, p) in rescued6996) {
+                        if (p.isFinite() && p > 0.0) {
+                            priceMap[m] = p
+                            markSource6999[m] = "KEYLESS_BATCH_6996"
+                        }
+                    }
+                    missingBeforeKeyless6946 = missingBeforeKeyless6946Raw.filter { it !in priceMap }
+                    ForensicLogger.lifecycle(
+                        "MARK_KEYLESS_BATCH_RESCUE_6996",
+                        "requested=${missingBeforeKeyless6946Raw.size} rescued=${rescued6996.size} " +
+                            "stillMissing=${missingBeforeKeyless6946.size} " +
+                            "note=batch_keyless_runs_before_the_per_mint_chain",
+                    )
+                }
+            } catch (_: Throwable) { /* fail-soft: per-mint chain still runs */ }
+        }
+
+        // V5.0.6946 §THE_KEYLESS_FALLBACK_WAS_LIVE_ONLY.
+        //
+        // Everything below this block falls back to BIRDEYE, which is
+        // 401-dead (BIRDEYE_KEY_DEAD_401_STICKY_6503, sr=0%). So a mint
+        // DexScreener does not index had no second source at all, which
+        // is why the snapshot showed quote freshness missing=371 against
+        // fresh=3, and why the exit scheduler logged eval=101151 with
+        // SL=0 CATA=0 TP=0 TRAIL=0 — it cannot evaluate what it cannot
+        // price.
+        //
+        // PriceResolverFallback already solves exactly this with six
+        // KEYLESS sources tried in measured-health order — DexScreener,
+        // Jupiter Lite, RAYDIUM, PumpFun, GeckoTerminal — and it was
+        // wired to LiveWalletReconciler only. Paper positions, which is
+        // where essentially all of this bot's inventory lives, never
+        // reached it. Raydium in particular is a first-class Solana
+        // source for graduated and fresh-launch mints and had never been
+        // contacted once: it appears nowhere in ApiHealthMonitor.
+        //
+        // Runs BEFORE the Birdeye path so the keyless chain gets first
+        // refusal and Birdeye becomes the last resort it should always
+        // have been. Capped per tick so a large missing set cannot stall
+        // the 1Hz cadence V5.0.6945 just restored; leftovers are picked
+        // up on subsequent ticks.
+        if (missingBeforeKeyless6946.isNotEmpty()) {
+            val solUsdHint6946 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            var resolved6946 = 0
+            // V5.0.6958 §THE_EXIT_PRESSURE_SIGNAL_NOBODY_POLLED.
+            //
+            // RuntimeTune6833.exitWorkerShouldBoost(openPositions, cashRatio)
+            // documents itself as "callers running the exit worker loop poll
+            // this to decide whether to raise their scheduling priority." It
+            // had ZERO callers. It fires when opens > 45 or cash ratio < 20%,
+            // and the operator's snapshot had 94 open positions — so the
+            // boost condition has been continuously TRUE while the exit path
+            // starved, and nothing ever asked.
+            //
+            // Applied to the thing that is actually the bottleneck rather
+            // than to thread priority. 6946 capped this keyless rescue at 8
+            // mints per tick to protect the 1Hz cadence. With 94 opens and
+            // 371 missing marks that is ~46 seconds to sweep the backlog
+            // once — and a position the scheduler cannot price is a position
+            // it cannot exit, which is the whole defect chain from 6945/6946.
+            //
+            // Under boost the cap rises to 24, sweeping the same backlog in
+            // ~15s. Still bounded, still leaves headroom inside the 1Hz
+            // budget (the fixed-rate delay from 6945 absorbs the extra work
+            // and the 150ms floor stops a slow pass spinning), and it only
+            // widens under exactly the condition the authority was written
+            // to detect. Raising thread priority instead was rejected: this
+            // app already has an open ANR at maxFrameGap=43s and starving
+            // the main thread further to fix an exit problem trades one
+            // failure for a worse one.
+            val keylessCap6958 = try {
+                val opens6958 = openMints.size
+                // Cash ratio = free SOL / (free SOL + SOL actually deployed
+                // in open positions). Both terms are SOL — an earlier draft
+                // of this divided SOL by a position COUNT, which is not a
+                // ratio of anything and would have made the gate fire on
+                // position count alone.
+                val cashRatio6958 = try {
+                    val freeSol6958 = if (RuntimeModeAuthority.isPaper())
+                        status.paperWalletSol else status.walletSol
+                    val deployedSol6958 = synchronized(status.tokens) {
+                        status.tokens.values
+                            .filter { it.position.isOpen }
+                            .sumOf { it.position.costSol.coerceAtLeast(0.0) }
+                    }
+                    val total6958 = freeSol6958 + deployedSol6958
+                    if (total6958 > 0.0) freeSol6958 / total6958 else 1.0
+                } catch (_: Throwable) { 1.0 }
+                if (com.lifecyclebot.engine.truth.RuntimeTune6833
+                        .exitWorkerShouldBoost(opens6958, cashRatio6958)) 24 else 8
+            } catch (_: Throwable) { 8 }
+            // V5.0.7283 — `take(cap)` from the head of the same list every
+            // tick: when the first eight could not be priced, the ninth
+            // and onward were never asked. Rotate the start each tick.
+            val chainOrder7283 = if (missingBeforeKeyless6946.size <= 1) missingBeforeKeyless6946 else {
+                val off = ((keylessChainCursor7283 % missingBeforeKeyless6946.size) + missingBeforeKeyless6946.size) % missingBeforeKeyless6946.size
+                missingBeforeKeyless6946.drop(off) + missingBeforeKeyless6946.take(off)
+            }
+            var chainWalked7283 = 0
+            for (mint in chainOrder7283.take(keylessCap6958)) {
+                // The chain is serial and each resolve may walk six providers
+                // at up to 4 s each. Past the budget the rest wait for the next
+                // tick rather than the tick — and the exits — for them.
+                if (System.currentTimeMillis() - tickStartedAtMs6945 >= KEYLESS_CHAIN_BUDGET_MS_7283) {
+                    try { PipelineHealthCollector.labelInc("MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283") } catch (_: Throwable) {}
+                    break
+                }
+                chainWalked7283++
+                markRescuePhase7807("keyless_chain:${mint.take(8)}")
+                val r = try {
+                    com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(mint, solUsdHint6946)
+                } catch (_: Throwable) { null }
+                val px = r?.priceUsd ?: 0.0
+                if (px > 0.0) {
+                    priceMap[mint] = px
+                    markSource6999[mint] = "KEYLESS_" + (r?.source?.name ?: "UNKNOWN")
+                    resolved6946++
+                    try {
+                        PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_6946_${r?.source?.name ?: "UNKNOWN"}")
+                    } catch (_: Throwable) {}
+                }
+            }
+            keylessChainCursor7283 += chainWalked7283.coerceAtLeast(1)
+            if (resolved6946 > 0) {
+                try {
+                    PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_RESOLVED_6946")
+                    ForensicLogger.lifecycle("MARK_KEYLESS_FALLBACK_6946",
+                        "missing=${missingBeforeKeyless6946.size} resolved=$resolved6946 note=paper_positions_now_use_the_keyless_chain")
+                } catch (_: Throwable) {}
+            }
+        }
+
+        // Recomputed after the keyless pass so the Birdeye path below
+        // only sees mints that are still genuinely unpriced.
+        // V5.0.6970 — Solana set only; Birdeye's price endpoint is also
+        // Solana-scoped, so cross-asset mints here were a guaranteed miss
+        // against a budget that is already 401-dead.
+        val missing = solanaMints6970.filter { it !in priceMap }
+        if (missing.isNotEmpty()) {
+            markRescuePhase7807("birdeye")
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.
+            //
+            // Operator V5.9.945 dump revealed THIS loop was the dominant
+            // CU burn source — not the V5.9.937-942 prefetch. With 55
+            // open positions and ~30 DS-missing mints per tick (mostly
+            // fresh PUMP_FUN_NEW with liq=$0.0 that DS hasn't indexed),
+            // this loop was firing ~30 Birdeye calls every 5s = ~360/min
+            // × 60min × 5CU = ~108K CU/hour, ~2.6M CU/day. Combined
+            // with prefetch = 75% monthly burn in 10 hours.
+            //
+            // The V5.9.924 cost-comment ("8 positions, 3-4 DS misses,
+            // ≤4 calls/sec") rotted as position cap grew and PUMP_FUN
+            // intake exploded. Same anti-pattern as V5.9.945 #87.23.
+            //
+            // Three discipline knobs:
+            //   1. BUDGET GATE — respect BirdeyeBudgetGate. If we're
+            //      at the daily cap, fall back to last known price
+            //      (will trip a hard SL eventually).
+            //   2. CHRONIC-MISS BACKOFF — if a mint has been DS-missing
+            //      for >60s, it's almost certainly rugged or DS-unindexed.
+            //      Slow retry to once every 60s instead of 5s. Saves
+            //      ~10× on the chronic offenders.
+            //   3. PER-TICK CAP — never burn more than 5 Birdeye calls
+            //      from a single tick. If 30 mints are missing, we'll
+            //      cycle through them across multiple ticks.
+            // ═══════════════════════════════════════════════════════════════
+            val cfg2 = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+            val key = cfg2?.birdeyeApiKey
+            if (!key.isNullOrBlank()) {
+                val birdeye = try { com.lifecyclebot.network.BirdeyeApi(key) } catch (_: Throwable) { null }
+                if (birdeye != null) {
+                    val nowMs = System.currentTimeMillis()
+                    var burnedThisTick = 0
+                    // V5.9.1123 — Birdeye emergency conservation: provider
+                    // account is ~300% over monthly. Use at most one fallback
+                    // price per tick and only through the emergency gate.
+                    val perTickCap = 1
+                    for (mint in missing) {
+                        if (burnedThisTick >= perTickCap) break
+                        val lastFb = openPosFallbackLastAttempt[mint] ?: 0L
+                        val firstMiss = openPosFallbackFirstMiss.getOrPut(mint) { nowMs }
+                        val chronicMs = nowMs - firstMiss
+                        // Cooldown: 5s normally, 60s for chronic (>60s missing)
+                        val cooldownMs = if (chronicMs > 60_000L) 60_000L else 5_000L
+                        if (nowMs - lastFb < cooldownMs) continue
+                        // Budget gate — if we're at cap, skip. Open-position
+                        // safety still has hard-SL via the position's last
+                        // known price (price will go stale → SL trips later).
+                        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordOpenPositionEmergency(1)) {
+                            com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
+                            break
+                        }
+                        openPosFallbackLastAttempt[mint] = nowMs
+                        burnedThisTick++
+                        val price = try { birdeye.getTokenPriceEmergency(mint) } catch (_: Throwable) { null }
+                        if (price != null && price > 0.0) {
+                            priceMap[mint] = price
+                            markSource6999[mint] = "BIRDEYE_PRICE_FALLBACK"
+                            // Reset chronic counter on success
+                            openPosFallbackFirstMiss.remove(mint)
+                            val tsRef = status.tokens[mint]
+                            if (tsRef != null) {
+                                synchronized(tsRef) {
+                                    tsRef.lastPriceSource = "BIRDEYE_PRICE_FALLBACK"
+                                }
+                            }
+                            ErrorLogger.info("BotService",
+                                "📡 BIRDEYE_FALLBACK: ${mint.take(8)} DS missing → birdeye price=$price")
+                        }
+                    }
+                }
+            }
+            // Clean up tracking for mints no longer in our open set
+            openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())
+        }
+        val doneAt7807 = System.currentTimeMillis()
+        for ((m, src) in markSource6999) {
+            val px = priceMap[m] ?: continue
+            if (px.isFinite() && px > 0.0) markRescueResults7807[m] = RescuedMark7807(px, src, doneAt7807)
+        }
+        try {
+            PipelineHealthCollector.labelInc("MARK_RESCUE_PASS_7807")
+            ForensicLogger.lifecycle(
+                "MARK_RESCUE_PASS_7807",
+                "requested=${missingBeforeKeyless6946Raw.size} priced=${markSource6999.size} elapsedMs=${doneAt7807 - tickStartedAtMs6945} action=published_for_next_tick",
+            )
+        } catch (_: Throwable) {}
     }
 
     private fun openPosPhase7283(phase: String) {
@@ -7309,7 +7832,7 @@ class BotService : Service() {
                             // firing under the persistent service runtime
                             // so `BG_SCAN_CB` reflects real activity, not
                             // just service loop ticks.
-                            try { markProgress("SCAN_CB") } catch (_: Throwable) {}
+                            try { markScannerProgress7807("SCAN_CB") } catch (_: Throwable) {}
                             // V5.9.623 — scanner heartbeat means raw discovery, not only
                             // post-filter enqueue. Prevents false "scan stale 9999s" while
                             // the scanner is alive but candidates are returning early.
@@ -7576,6 +8099,7 @@ class BotService : Service() {
                 )
                 ErrorLogger.info("BotService", "Starting market scanner...")
                 marketScanner?.start()
+                startResidentHunters7807()
                 addLog("🌐 Full Solana market scanner active — ${scanCfg.maxWatchlistSize} token watchlist")
                 ErrorLogger.info("BotService", "Market scanner started!")
                 // V5.9.706 — INSTANT COLD-START SEED.
@@ -9049,6 +9573,7 @@ class BotService : Service() {
         try {
             marketScanner?.stop()
         } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.stop("stopBot:$source") } catch (_: Throwable) {}
         try {
             orchestrator?.stop()
             try { ForensicLogger.lifecycle("STOP_DATAFEEDS_DISCONNECTED", "gen=$stopGeneration source=$source early=true") } catch (_: Throwable) {}
@@ -12079,333 +12604,13 @@ class BotService : Service() {
                 val missingBeforeKeyless6946Raw =
                     (solanaMints6970.filter { it !in priceMap } + staleInPriceMap7093).distinct()
 
-                // V5.0.6996 §ONE_DEAD_PROVIDER_STOPPED_THE_WHOLE_BOT_TRADING.
-                //
-                // The 6946 chain below is PER-MINT and capped per tick, so with
-                // 97 open positions and DexScreener returning nothing it can
-                // only rescue a handful per second. The operator's 5.0.6993
-                // snapshot is what that looks like when the primary source is
-                // fully dead rather than patchy:
-                //
-                //     dexscreener  sr=0%  s=0  4xx=5      <- zero all session
-                //     Exit scheduler: eval=58,066  SL=0  TP=0  TRAIL=0
-                //     Open positions 97 / POSITION_HARD_CAP 100
-                //
-                // 58,066 exit evaluations fired zero stops because nothing
-                // could be priced; inventory then filled to the cap and every
-                // lane went SIZING_CHOKED. One provider took the bot out.
-                //
-                // So try BATCH keyless sources first: DefiLlama (no key, no
-                // account, entirely separate infrastructure from the DEX
-                // aggregators) then Jupiter's price surface, which was sitting
-                // at sr=96% with 217 successful calls in that same snapshot
-                // while the positions went unmarked.
-                //
-                // Whatever those two answer for is removed from the per-mint
-                // chain's workload, so the cap below is spent on genuinely
-                // hard mints instead of on the bulk.
-                var missingBeforeKeyless6946 = missingBeforeKeyless6946Raw
-                // V5.0.7088 §ASK EVERY FEED AT ONCE, BEFORE ANY SERIAL CHAIN RUNS.
-                //
-                // Operator: "dont do a fall back chain run then in parallel
-                // please. use helius again. there's too many holes."
-                //
-                // Everything below this block is serial. 6996's fillMissing runs
-                // DefiLlama then Jupiter for the remainder; 6946's loop runs
-                // PriceResolverFallback ONE MINT AT A TIME and is capped at 8
-                // (24 when boosted). With dexscreener at sr=0% and jupiter_quote
-                // at sr=20% on the 5.0.7082 device, that chain left three open
-                // positions stale for 83-159 seconds.
-                //
-                // So six feeds are asked SIMULTANEOUSLY first — DexScreener,
-                // DefiLlama, Jupiter, Raydium, Helius DAS and pump.fun — on one
-                // 4s deadline. Total latency is the slowest feed rather than the
-                // sum, a dead provider costs only its own absence, and the
-                // serial paths below keep their existing behaviour on whatever
-                // is genuinely left.
-                //
-                // The second gain matters more than the speed: agreement between
-                // independent feeds is EVIDENCE. The $822,358,177 cap that
-                // V5.0.7069 believed and turned into a 1211x could not survive
-                // five other feeds reporting $675k — it loses on count, and the
-                // outlier shows up in the spread instead of in the book.
-                if (missingBeforeKeyless6946Raw.isNotEmpty()) {
-                    openPosPhase7283("fanout")
-                    try {
-                        val fanoutStart7270 = System.currentTimeMillis()
-                        val fanout7088 = com.lifecyclebot.network.ParallelMarkFanout7088
-                            .resolve7088(missingBeforeKeyless6946Raw)
-                        try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onFanout(System.currentTimeMillis() - fanoutStart7270) } catch (_: Throwable) {}
-                        if (fanout7088.isNotEmpty()) {
-                            var corroborated7088 = 0
-                            for ((m, mk) in fanout7088) {
-                                if (!mk.priceUsd.isFinite() || mk.priceUsd <= 0.0) continue
-                                // V5.0.7273 §A_MEDIAN_OF_FEEDS_THAT_DISAGREE_IS_NOT_A_MARK.
-                                //
-                                // merge7088 returns the median when every feed answered
-                                // and none agree, and says so in its own comment: "7077
-                                // will decline to qualify the mint". This loop never
-                                // asked. It wrote that median to ts.lastPrice, where the
-                                // rapid stop monitor reads it raw; with two feeds, one of
-                                // them wrong, the median is half the truth, which is a
-                                // -50% "catastrophe" on a position that did not move.
-                                // 5.0.7272: USDS, WLFI and 72QvBV bought at real prices and
-                                // sold six seconds later for 0.000 SOL. A contested pass
-                                // leaves the previous mark in place and asks for a repair;
-                                // the next pass, or a single unambiguous feed, moves it.
-                                if (mk.sourceCount >= 2 && !mk.corroborated) {
-                                    try {
-                                        PipelineHealthCollector.labelInc("MARK_CONTESTED_NOT_APPLIED_7273")
-                                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(m, "hot_loop_contested_7273")
-                                    } catch (_: Throwable) {}
-                                    continue
-                                }
-                                priceMap[m] = mk.priceUsd
-                                // The source label carries the corroboration
-                                // state so every downstream reader — and the
-                                // operator reading a row — can tell a mark two
-                                // feeds agreed on from one nobody could check.
-                                markSource6999[m] = if (mk.corroborated) {
-                                    "FANOUT_CORROBORATED_7088_x${mk.agreeingCount}"
-                                } else {
-                                    "FANOUT_UNCORROBORATED_7088"
-                                }
-                                if (mk.corroborated) corroborated7088++
-                            }
-                            missingBeforeKeyless6946 = missingBeforeKeyless6946Raw.filter { it !in priceMap }
-                            PipelineHealthCollector.labelInc("MARK_PARALLEL_FANOUT_7088")
-                            ForensicLogger.lifecycle(
-                                "MARK_PARALLEL_FANOUT_7088",
-                                "requested=${missingBeforeKeyless6946Raw.size} priced=${fanout7088.size} " +
-                                    "corroborated=$corroborated7088 " +
-                                    "stillMissing=${missingBeforeKeyless6946.size} " +
-                                    "note=six_feeds_in_parallel_before_any_serial_chain",
-                            )
-                        }
-                    } catch (_: Throwable) { /* fail-soft: every serial path below still runs */ }
-                }
-                if (missingBeforeKeyless6946.isNotEmpty()) {
-                    openPosPhase7283("keyless_batch")
-                    try {
-                        val rescued6996 = com.lifecyclebot.network.KeylessPriceSources6996
-                            .fillMissing(missingBeforeKeyless6946)
-                        if (rescued6996.isNotEmpty()) {
-                            for ((m, p) in rescued6996) {
-                                if (p.isFinite() && p > 0.0) {
-                                    priceMap[m] = p
-                                    markSource6999[m] = "KEYLESS_BATCH_6996"
-                                }
-                            }
-                            missingBeforeKeyless6946 = missingBeforeKeyless6946Raw.filter { it !in priceMap }
-                            ForensicLogger.lifecycle(
-                                "MARK_KEYLESS_BATCH_RESCUE_6996",
-                                "requested=${missingBeforeKeyless6946Raw.size} rescued=${rescued6996.size} " +
-                                    "stillMissing=${missingBeforeKeyless6946.size} " +
-                                    "note=batch_keyless_runs_before_the_per_mint_chain",
-                            )
-                        }
-                    } catch (_: Throwable) { /* fail-soft: per-mint chain still runs */ }
-                }
-
-                // V5.0.6946 §THE_KEYLESS_FALLBACK_WAS_LIVE_ONLY.
-                //
-                // Everything below this block falls back to BIRDEYE, which is
-                // 401-dead (BIRDEYE_KEY_DEAD_401_STICKY_6503, sr=0%). So a mint
-                // DexScreener does not index had no second source at all, which
-                // is why the snapshot showed quote freshness missing=371 against
-                // fresh=3, and why the exit scheduler logged eval=101151 with
-                // SL=0 CATA=0 TP=0 TRAIL=0 — it cannot evaluate what it cannot
-                // price.
-                //
-                // PriceResolverFallback already solves exactly this with six
-                // KEYLESS sources tried in measured-health order — DexScreener,
-                // Jupiter Lite, RAYDIUM, PumpFun, GeckoTerminal — and it was
-                // wired to LiveWalletReconciler only. Paper positions, which is
-                // where essentially all of this bot's inventory lives, never
-                // reached it. Raydium in particular is a first-class Solana
-                // source for graduated and fresh-launch mints and had never been
-                // contacted once: it appears nowhere in ApiHealthMonitor.
-                //
-                // Runs BEFORE the Birdeye path so the keyless chain gets first
-                // refusal and Birdeye becomes the last resort it should always
-                // have been. Capped per tick so a large missing set cannot stall
-                // the 1Hz cadence V5.0.6945 just restored; leftovers are picked
-                // up on subsequent ticks.
-                if (missingBeforeKeyless6946.isNotEmpty()) {
-                    val solUsdHint6946 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-                    var resolved6946 = 0
-                    // V5.0.6958 §THE_EXIT_PRESSURE_SIGNAL_NOBODY_POLLED.
-                    //
-                    // RuntimeTune6833.exitWorkerShouldBoost(openPositions, cashRatio)
-                    // documents itself as "callers running the exit worker loop poll
-                    // this to decide whether to raise their scheduling priority." It
-                    // had ZERO callers. It fires when opens > 45 or cash ratio < 20%,
-                    // and the operator's snapshot had 94 open positions — so the
-                    // boost condition has been continuously TRUE while the exit path
-                    // starved, and nothing ever asked.
-                    //
-                    // Applied to the thing that is actually the bottleneck rather
-                    // than to thread priority. 6946 capped this keyless rescue at 8
-                    // mints per tick to protect the 1Hz cadence. With 94 opens and
-                    // 371 missing marks that is ~46 seconds to sweep the backlog
-                    // once — and a position the scheduler cannot price is a position
-                    // it cannot exit, which is the whole defect chain from 6945/6946.
-                    //
-                    // Under boost the cap rises to 24, sweeping the same backlog in
-                    // ~15s. Still bounded, still leaves headroom inside the 1Hz
-                    // budget (the fixed-rate delay from 6945 absorbs the extra work
-                    // and the 150ms floor stops a slow pass spinning), and it only
-                    // widens under exactly the condition the authority was written
-                    // to detect. Raising thread priority instead was rejected: this
-                    // app already has an open ANR at maxFrameGap=43s and starving
-                    // the main thread further to fix an exit problem trades one
-                    // failure for a worse one.
-                    val keylessCap6958 = try {
-                        val opens6958 = openMints.size
-                        // Cash ratio = free SOL / (free SOL + SOL actually deployed
-                        // in open positions). Both terms are SOL — an earlier draft
-                        // of this divided SOL by a position COUNT, which is not a
-                        // ratio of anything and would have made the gate fire on
-                        // position count alone.
-                        val cashRatio6958 = try {
-                            val freeSol6958 = if (RuntimeModeAuthority.isPaper())
-                                status.paperWalletSol else status.walletSol
-                            val deployedSol6958 = synchronized(status.tokens) {
-                                status.tokens.values
-                                    .filter { it.position.isOpen }
-                                    .sumOf { it.position.costSol.coerceAtLeast(0.0) }
-                            }
-                            val total6958 = freeSol6958 + deployedSol6958
-                            if (total6958 > 0.0) freeSol6958 / total6958 else 1.0
-                        } catch (_: Throwable) { 1.0 }
-                        if (com.lifecyclebot.engine.truth.RuntimeTune6833
-                                .exitWorkerShouldBoost(opens6958, cashRatio6958)) 24 else 8
-                    } catch (_: Throwable) { 8 }
-                    // V5.0.7283 — `take(cap)` from the head of the same list every
-                    // tick: when the first eight could not be priced, the ninth
-                    // and onward were never asked. Rotate the start each tick.
-                    val chainOrder7283 = if (missingBeforeKeyless6946.size <= 1) missingBeforeKeyless6946 else {
-                        val off = ((keylessChainCursor7283 % missingBeforeKeyless6946.size) + missingBeforeKeyless6946.size) % missingBeforeKeyless6946.size
-                        missingBeforeKeyless6946.drop(off) + missingBeforeKeyless6946.take(off)
-                    }
-                    var chainWalked7283 = 0
-                    for (mint in chainOrder7283.take(keylessCap6958)) {
-                        // The chain is serial and each resolve may walk six providers
-                        // at up to 4 s each. Past the budget the rest wait for the next
-                        // tick rather than the tick — and the exits — for them.
-                        if (System.currentTimeMillis() - tickStartedAtMs6945 >= KEYLESS_CHAIN_BUDGET_MS_7283) {
-                            try { PipelineHealthCollector.labelInc("MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283") } catch (_: Throwable) {}
-                            break
-                        }
-                        chainWalked7283++
-                        openPosPhase7283("keyless_chain:${mint.take(8)}")
-                        val r = try {
-                            com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(mint, solUsdHint6946)
-                        } catch (_: Throwable) { null }
-                        val px = r?.priceUsd ?: 0.0
-                        if (px > 0.0) {
-                            priceMap[mint] = px
-                            markSource6999[mint] = "KEYLESS_" + (r?.source?.name ?: "UNKNOWN")
-                            resolved6946++
-                            try {
-                                PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_6946_${r?.source?.name ?: "UNKNOWN"}")
-                            } catch (_: Throwable) {}
-                        }
-                    }
-                    keylessChainCursor7283 += chainWalked7283.coerceAtLeast(1)
-                    if (resolved6946 > 0) {
-                        try {
-                            PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_RESOLVED_6946")
-                            ForensicLogger.lifecycle("MARK_KEYLESS_FALLBACK_6946",
-                                "missing=${missingBeforeKeyless6946.size} resolved=$resolved6946 note=paper_positions_now_use_the_keyless_chain")
-                        } catch (_: Throwable) {}
-                    }
-                }
-
-                // Recomputed after the keyless pass so the Birdeye path below
-                // only sees mints that are still genuinely unpriced.
-                // V5.0.6970 — Solana set only; Birdeye's price endpoint is also
-                // Solana-scoped, so cross-asset mints here were a guaranteed miss
-                // against a budget that is already 401-dead.
-                val missing = solanaMints6970.filter { it !in priceMap }
-                if (missing.isNotEmpty()) {
-                    openPosPhase7283("birdeye")
-                    // ═══════════════════════════════════════════════════════════════
-                    // V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.
-                    //
-                    // Operator V5.9.945 dump revealed THIS loop was the dominant
-                    // CU burn source — not the V5.9.937-942 prefetch. With 55
-                    // open positions and ~30 DS-missing mints per tick (mostly
-                    // fresh PUMP_FUN_NEW with liq=$0.0 that DS hasn't indexed),
-                    // this loop was firing ~30 Birdeye calls every 5s = ~360/min
-                    // × 60min × 5CU = ~108K CU/hour, ~2.6M CU/day. Combined
-                    // with prefetch = 75% monthly burn in 10 hours.
-                    //
-                    // The V5.9.924 cost-comment ("8 positions, 3-4 DS misses,
-                    // ≤4 calls/sec") rotted as position cap grew and PUMP_FUN
-                    // intake exploded. Same anti-pattern as V5.9.945 #87.23.
-                    //
-                    // Three discipline knobs:
-                    //   1. BUDGET GATE — respect BirdeyeBudgetGate. If we're
-                    //      at the daily cap, fall back to last known price
-                    //      (will trip a hard SL eventually).
-                    //   2. CHRONIC-MISS BACKOFF — if a mint has been DS-missing
-                    //      for >60s, it's almost certainly rugged or DS-unindexed.
-                    //      Slow retry to once every 60s instead of 5s. Saves
-                    //      ~10× on the chronic offenders.
-                    //   3. PER-TICK CAP — never burn more than 5 Birdeye calls
-                    //      from a single tick. If 30 mints are missing, we'll
-                    //      cycle through them across multiple ticks.
-                    // ═══════════════════════════════════════════════════════════════
-                    val cfg2 = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
-                    val key = cfg2?.birdeyeApiKey
-                    if (!key.isNullOrBlank()) {
-                        val birdeye = try { com.lifecyclebot.network.BirdeyeApi(key) } catch (_: Throwable) { null }
-                        if (birdeye != null) {
-                            val nowMs = System.currentTimeMillis()
-                            var burnedThisTick = 0
-                            // V5.9.1123 — Birdeye emergency conservation: provider
-                            // account is ~300% over monthly. Use at most one fallback
-                            // price per tick and only through the emergency gate.
-                            val perTickCap = 1
-                            for (mint in missing) {
-                                if (burnedThisTick >= perTickCap) break
-                                val lastFb = openPosFallbackLastAttempt[mint] ?: 0L
-                                val firstMiss = openPosFallbackFirstMiss.getOrPut(mint) { nowMs }
-                                val chronicMs = nowMs - firstMiss
-                                // Cooldown: 5s normally, 60s for chronic (>60s missing)
-                                val cooldownMs = if (chronicMs > 60_000L) 60_000L else 5_000L
-                                if (nowMs - lastFb < cooldownMs) continue
-                                // Budget gate — if we're at cap, skip. Open-position
-                                // safety still has hard-SL via the position's last
-                                // known price (price will go stale → SL trips later).
-                                if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordOpenPositionEmergency(1)) {
-                                    com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
-                                    break
-                                }
-                                openPosFallbackLastAttempt[mint] = nowMs
-                                burnedThisTick++
-                                val price = try { birdeye.getTokenPriceEmergency(mint) } catch (_: Throwable) { null }
-                                if (price != null && price > 0.0) {
-                                    priceMap[mint] = price
-                                    markSource6999[mint] = "BIRDEYE_PRICE_FALLBACK"
-                                    // Reset chronic counter on success
-                                    openPosFallbackFirstMiss.remove(mint)
-                                    val tsRef = status.tokens[mint]
-                                    if (tsRef != null) {
-                                        synchronized(tsRef) {
-                                            tsRef.lastPriceSource = "BIRDEYE_PRICE_FALLBACK"
-                                        }
-                                    }
-                                    ErrorLogger.info("BotService",
-                                        "📡 BIRDEYE_FALLBACK: ${mint.take(8)} DS missing → birdeye price=$price")
-                                }
-                            }
-                        }
-                    }
-                    // Clean up tracking for mints no longer in our open set
-                    openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())
-                }
+                // V5.0.7807 — the rescue chain (parallel fan-out, keyless batch,
+                // per-mint keyless chain, Birdeye) no longer runs inside this tick.
+                // It could hold the iteration for 4 s + 2.4 s + 3 s+ while every
+                // already-priced held position waited for its mark
+                // (OPEN_POS_TICK_GAP_SLOW_7270). It now runs on its own worker and
+                // its fresh marks are applied on the next tick (Field Manual L240).
+                applyMarkRescue7807(openMints, solanaMints6970, missingBeforeKeyless6946Raw, priceMap, markSource6999)
 
                 if (priceMap.isEmpty()) {
                     // Rate-limited or DS down. Don't bump lastPriceUpdate.
@@ -15360,7 +15565,7 @@ class BotService : Service() {
         // successful intake admit call must record an INTAKE progress
         // beacon so the BG_INTAKE counter reflects real intake activity
         // (was previously never wired, always 0 in the background dump).
-        try { markProgress("INTAKE") } catch (_: Throwable) {}
+        try { markScannerProgress7807("INTAKE") } catch (_: Throwable) {}
         val trustedMarketCapUsd6492 = MarketDataIntegrity6492.trustedMarketCapUsd(
             raw = marketCapUsd, symbol = symbol, source = source, liquidityUsd = liquidityUsd,
         ) ?: 0.0
@@ -17546,6 +17751,22 @@ class BotService : Service() {
      *    - progress >= 180s & phase NOT in activeSet → HEARTBEAT_SLOW_NO_RESCUE (still no cancel)
      *    - active job dead → RESCUE_RELAUNCHED_SERVICE_SCOPE with CAS
      *  Cheap volatile writes; safe to call from every cycle phase. */
+    /**
+     * V5.0.7807 — scanner/intake progress beacon. Off the bot-cycle thread it
+     * records only the background BG_* beacon: it may not overwrite the bot
+     * loop's currentPhase/lastProgressAtMs (which kept a wedged loop looking
+     * "active in INTAKE" to the rescue heartbeat) nor charge the loop's time to
+     * INTAKE in SlowCycleDiagnostic6437 (Field Manual L190).
+     */
+    private fun markScannerProgress7807(phase: String) {
+        if (com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.isCycleThread7807()) {
+            markProgress(phase)
+            return
+        }
+        try { PipelineHealthCollector.recordBackgroundProgress6544(phase) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("SCANNER_PROGRESS_OFF_CYCLE_THREAD_7807") } catch (_: Throwable) {}
+    }
+
     private fun markProgress(phase: String) {
         lastProgressAtMs = System.currentTimeMillis()
         currentPhase = phase
@@ -34134,7 +34355,16 @@ if (hotExitHandledSweep) {
         // the old one-shot latch check, so a refused exit is retried instead of
         // being abandoned for the life of the process.
         val sellReason6882 = "PROTECTIVE_EXIT_${kind}_6450_RISKCLOCK"
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // V5.0.7807 — B1: trigger -> broadcast is measured from the latch itself,
+        // so every refused attempt and retry spacing is inside the sample.
+        try {
+            com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteTrigger7807(
+                mint, sellReason6882,
+                com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latch(positionId)?.triggerTimestamp ?: System.currentTimeMillis(),
+            )
+        } catch (_: Throwable) {}
+        // V5.0.7807 — B1: a STOP/CATASTROPHE dispatch never queues behind discovery on IO.
+        scope.launch(com.lifecyclebot.engine.sell.EmergencyExitDispatcher7807.forReason(sellReason6882)) {
             // V5.0.7289 §A CATASTROPHE THE MARKET CONTRADICTS IS NOT ONE.
             //
             // 5.0.7288: LinkhB (wrapped Chainlink, mcap $9.6B) closed from the
@@ -34656,7 +34886,9 @@ if (hotExitHandledSweep) {
                     ts.lastPrice = ov.priceUsd
                     ts.lastPriceUpdate = System.currentTimeMillis()
                     ts.lastPriceSource = "BIRDEYE_OVERVIEW"  // V5.9.744
-                    ts.lastLiquidityUsd = ov.liquidity
+                    // V5.0.7807 — an overview without liquidity is DATA UNKNOWN,
+                    // never a 0.0 drain reading (Field Manual L190).
+                    if (ov.liquidity.isFinite() && ov.liquidity > 0.0) ts.lastLiquidityUsd = ov.liquidity
                     ts.lastMcap = ov.marketCap
                     ts.lastFdv = ov.marketCap
                     val syntheticCandle = com.lifecyclebot.data.Candle(

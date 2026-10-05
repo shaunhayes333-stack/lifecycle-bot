@@ -119,6 +119,16 @@ object OracleEdgeProof7263 {
     private val demotions = AtomicLong(0L)
     private val subscribed = AtomicBoolean(false)
     @Volatile private var tier: Tier = Tier.ADVISORY
+    // V5.0.7807 — LIVE-ONLY proof. The tallies above grade paper and live closes
+    // together, and PROVEN made REFUSE binding on LIVE entries — paper fills were
+    // authorizing live gating. Field Manual L357: keep LIVE/PAPER separate; paper
+    // does not establish live edge. In live mode the oracle stays ADVISORY until
+    // these live-only tallies pass the same checks. Paper keeps the mixed proof.
+    private val admitLive7807 = Tally()
+    private val refuseLive7807 = Tally()
+    @Volatile private var liveTier7807: Tier = Tier.ADVISORY
+    private const val KEY_ADMIT_LIVE_7807 = "tally_admit_live_7807"
+    private const val KEY_REFUSE_LIVE_7807 = "tally_refuse_live_7807"
     @Volatile private var tierReason: String = "no scored closes yet"
     @Volatile private var prefs7287: SharedPreferences? = null
     private val lastStampFlushMs7287 = AtomicLong(0L)
@@ -139,6 +149,8 @@ object OracleEdgeProof7263 {
         try {
             admit.decodeInto(p.getString(KEY_ADMIT_7287, null))
             refuse.decodeInto(p.getString(KEY_REFUSE_7287, null))
+            admitLive7807.decodeInto(p.getString(KEY_ADMIT_LIVE_7807, null))
+            refuseLive7807.decodeInto(p.getString(KEY_REFUSE_LIVE_7807, null))
             val now = System.currentTimeMillis()
             p.getString(KEY_STAMPS_7287, null)?.split(';')?.forEach { row ->
                 val f = row.split(',')
@@ -160,7 +172,9 @@ object OracleEdgeProof7263 {
     private fun persistTallies7287() {
         val p = prefs7287 ?: return
         try {
-            p.edit().putString(KEY_ADMIT_7287, admit.encode()).putString(KEY_REFUSE_7287, refuse.encode()).apply()
+            p.edit().putString(KEY_ADMIT_7287, admit.encode()).putString(KEY_REFUSE_7287, refuse.encode())
+                .putString(KEY_ADMIT_LIVE_7807, admitLive7807.encode()).putString(KEY_REFUSE_LIVE_7807, refuseLive7807.encode())
+                .apply()
         } catch (_: Throwable) {}
     }
 
@@ -186,6 +200,9 @@ object OracleEdgeProof7263 {
         stamps.clear()
         admit.clear7535()
         refuse.clear7535()
+        admitLive7807.clear7535()
+        refuseLive7807.clear7535()
+        liveTier7807 = Tier.ADVISORY
         scored.set(0L); unmatched.set(0L); staleStamps.set(0L)
         promotions.set(0L); demotions.set(0L); restored7287.set(0L)
         lastStampFlushMs7287.set(0L)
@@ -226,6 +243,8 @@ object OracleEdgeProof7263 {
     /** Score one settled trade against the forecast issued for its mint. */
     fun onEvent(event: CanonicalTradeFinalizedBus6450.Event) {
         try { FinalizedFanoutParity6459.recordConsumer("OracleEdgeProof7263") } catch (_: Throwable) {}
+        // V5.0.7807 — only clean terminal truth grades the oracle (Field Manual L357).
+        if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(event)) { stamps.remove(event.mint); return }
         val s = stamps[event.mint]
         if (s == null) { unmatched.incrementAndGet(); return }
         // V5.0.7287 — a durable replay re-publishes closes from before this
@@ -238,6 +257,12 @@ object OracleEdgeProof7263 {
         when (s.verdict) {
             PredictiveEntryOracle6915.Verdict.ADMIT -> admit.add(win, ret, s.pWin)
             PredictiveEntryOracle6915.Verdict.REFUSE -> refuse.add(win, ret, s.pWin)
+        }
+        if (event.mode.equals("LIVE", ignoreCase = true)) {
+            when (s.verdict) {
+                PredictiveEntryOracle6915.Verdict.ADMIT -> admitLive7807.add(win, ret, s.pWin)
+                PredictiveEntryOracle6915.Verdict.REFUSE -> refuseLive7807.add(win, ret, s.pWin)
+            }
         }
         scored.incrementAndGet()
         try {
@@ -260,7 +285,23 @@ object OracleEdgeProof7263 {
         return if (n >= MIN_NON_ADMIT_CLOSES_7263 && r.isFinite()) r else null
     }
 
+    /** V5.0.7807 — the proof's checks as a pure function (same bars for both books). */
+    internal fun provenFrom7807(aN: Long, aRet: Double, rN: Long, rRet: Double, aBrier: Double): Boolean =
+        aN >= MIN_ADMIT_CLOSES_7263 && rN >= MIN_NON_ADMIT_CLOSES_7263 && aRet > 0.0 &&
+            aRet >= rRet + MIN_EDGE_MARGIN_RETURN_7263 && aBrier <= MAX_ADMIT_BRIER_7263
+
+    private fun recomputeLive7807() {
+        val (aN, aRet, _) = admitLive7807.snapshot()
+        val (rN, rRet, _) = refuseLive7807.snapshot()
+        val next = if (provenFrom7807(aN, aRet, rN, rRet, admitLive7807.brier())) Tier.PROVEN else Tier.ADVISORY
+        if (next != liveTier7807) {
+            liveTier7807 = next
+            try { PipelineHealthCollector.labelInc(if (next == Tier.PROVEN) "ORACLE_EDGE_LIVE_PROVEN_7807" else "ORACLE_EDGE_LIVE_DEMOTED_7807") } catch (_: Throwable) {}
+        }
+    }
+
     private fun recompute() {
+        recomputeLive7807()
         // V5.0.7389 — win rate dropped from the proof: meme returns are fat-tailed, so a lower hit rate with a far
         // larger mean return (admit +46.1%/21% vs refuse +6.0%/23%) is a real edge; return margin + Brier decide.
         val (aN, aRet, _) = admit.snapshot()
@@ -291,7 +332,14 @@ object OracleEdgeProof7263 {
         }
     }
 
-    fun tier(): Tier = tier
+    /**
+     * V5.0.7807 — the tier that governs the CURRENT mode: live reads the
+     * live-only proof, paper the full proof (Field Manual L357).
+     */
+    fun tier(): Tier = if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }) tier else liveTier7807
+
+    /** V5.0.7807 — the mixed (paper + live) proof tier, for telemetry. */
+    fun allModesTier7807(): Tier = tier
 
     /** V5.0.7740 — the oracle's verdict for [mint] when it was stamped within [maxAgeMs], else null. */
     fun latestVerdict7740(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): PredictiveEntryOracle6915.Verdict? {
@@ -335,7 +383,7 @@ object OracleEdgeProof7263 {
     fun statusLine(): String {
         val (aN, aRet, aWr) = admit.snapshot()
         val (rN, rRet, rWr) = refuse.snapshot()
-        return "tier=${tier.name} inverted7304=${isInverted7304()} reason=$tierReason scored=${scored.get()} unmatched=${unmatched.get()} stale=${staleStamps.get()} " +
+        return "tier=${tier.name} liveTier7807=${liveTier7807.name} liveAdmitN7807=${admitLive7807.snapshot().first} liveRefuseN7807=${refuseLive7807.snapshot().first} inverted7304=${isInverted7304()} reason=$tierReason scored=${scored.get()} unmatched=${unmatched.get()} stale=${staleStamps.get()} " +
             "admit[n=$aN ret=${"%+.1f".format(aRet * 100.0)}% wr=${"%.0f".format(aWr * 100.0)}% brier=${"%.3f".format(admit.brier())}] " +
             "refuse[n=$rN ret=${"%+.1f".format(rRet * 100.0)}% wr=${"%.0f".format(rWr * 100.0)}%] " +
             "promotions=${promotions.get()} demotions=${demotions.get()} stamps=${stamps.size} " +

@@ -76,6 +76,8 @@ object ExecutableEntryAuthority6450 {
     init {
         try {
             CanonicalTradeFinalizedBus6450.subscribe { e ->
+                // V5.0.7807 — admission streaks learn from clean terminal truth only (Field Manual L357).
+                if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return@subscribe
                 val key = cohortKey(e.mode, e.entryLane)
                 when (e.outcome) {
                     CanonicalTradeFinalizedBus6450.Outcome.LOSS -> {
@@ -215,8 +217,15 @@ object ExecutableEntryAuthority6450 {
         // V5.0.7719 — the cold-start prior is the same evidence-gated ladder
         // as sizeMultiplierFor6488: silent until the lane has a sample.
         val streakPrior7181 = sizeMultiplierFor6488(lane, mode)
+        // V5.0.7807 — B9: one live loss no longer cuts a lane to 0.35x for 60 s
+        // until it has LiveRiskPolicy7807.MIN_LIVE_SAMPLE_DEEP_SHRINK_7807 live
+        // closes; below that the post-loss cool-down shrinks to 0.7x (Field Manual L357).
+        val coolingMult7807 = if (mode == "LIVE" &&
+            (try { com.lifecyclebot.engine.LaneExpectancyDamper.sameModeCloses7265(lane) } catch (_: Throwable) { 0 }) <
+            LiveRiskPolicy7807.MIN_LIVE_SAMPLE_DEEP_SHRINK_7807
+        ) LiveRiskPolicy7807.SHALLOW_LOSS_FLOOR_7807 else 0.35
         val mult = when {
-            cooling -> 0.35
+            cooling -> coolingMult7807
             learnedHasOpinion7181 -> 1.0
             else -> streakPrior7181
         }

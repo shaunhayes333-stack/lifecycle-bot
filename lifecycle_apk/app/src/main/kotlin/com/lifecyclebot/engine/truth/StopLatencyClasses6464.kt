@@ -60,6 +60,44 @@ object StopLatencyClasses6464 {
         }
     }
 
+    // V5.0.7807 — B1: trigger -> broadcast buckets, beside the intent -> confirm
+    // buckets above. Emergency-class samples are held to the operator's 3s SLA
+    // (HotExitSupervisorContract6387.UNIVERSAL_STOP_P95_TRIGGER_TO_BROADCAST_MS).
+    // Field Manual L248.
+    private const val TRIGGER_TO_BROADCAST_SLA_MS_7807 = 3_000L
+    private val broadcastBuckets7807 = Class.values().associateWith { Bucket() }.toMutableMap()
+    private val broadcastSlaBreaches7807 = AtomicLong(0L)
+
+    fun recordTriggerToBroadcast7807(cls: Class, elapsedMs: Long, emergency: Boolean) {
+        if (elapsedMs < 0L) return
+        val bucket = broadcastBuckets7807[cls] ?: return
+        synchronized(bucket) {
+            bucket.count++
+            bucket.sumMs += elapsedMs
+            if (elapsedMs < bucket.minMs) bucket.minMs = elapsedMs
+            if (elapsedMs > bucket.maxMs) bucket.maxMs = elapsedMs
+        }
+        try { PipelineHealthCollector.labelInc("STOP_TRIGGER_TO_BROADCAST_${cls.name}_7807") } catch (_: Throwable) {}
+        if (emergency && elapsedMs > TRIGGER_TO_BROADCAST_SLA_MS_7807) {
+            broadcastSlaBreaches7807.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "EMERGENCY_TRIGGER_TO_BROADCAST_SLA_BREACH_7807",
+                    "class=${cls.name} elapsedMs=$elapsedMs slaMs=$TRIGGER_TO_BROADCAST_SLA_MS_7807",
+                )
+                PipelineHealthCollector.labelInc("EMERGENCY_TRIGGER_TO_BROADCAST_SLA_BREACH_7807")
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /** V5.0.7807 — (count, avgMs, maxMs) per class for trigger -> broadcast. */
+    fun broadcastSnapshot7807(): Map<Class, Triple<Long, Long, Long>> = broadcastBuckets7807.mapValues { (_, b) ->
+        synchronized(b) {
+            val avg = if (b.count > 0) b.sumMs / b.count else 0L
+            Triple(b.count, avg, b.maxMs)
+        }
+    }
+
     fun snapshot(): Map<Class, Triple<Long, Long, Long>> = buckets.mapValues { (_, b) ->
         val avg = if (b.count > 0) b.sumMs / b.count else 0L
         Triple(b.count, avg, b.maxMs)
@@ -70,7 +108,12 @@ object StopLatencyClasses6464 {
             val avg = if (b.count > 0) b.sumMs / b.count else 0L
             "${cls.name}(n=${b.count} avg=${avg}ms max=${b.maxMs}ms)"
         }
-        return "$parts catastrophicAlerts=${alerts.get()}"
+        // V5.0.7807 — trigger -> broadcast, same layout.
+        val bParts7807 = broadcastBuckets7807.entries.joinToString(" ") { (cls, b) ->
+            val avg = if (b.count > 0) b.sumMs / b.count else 0L
+            "${cls.name}(n=${b.count} avg=${avg}ms max=${b.maxMs}ms)"
+        }
+        return "$parts catastrophicAlerts=${alerts.get()} | trigger->broadcast: $bParts7807 slaBreaches=${broadcastSlaBreaches7807.get()}"
     }
 
     internal fun resetForTest() {
@@ -78,5 +121,9 @@ object StopLatencyClasses6464 {
             b.count = 0L; b.sumMs = 0L; b.minMs = Long.MAX_VALUE; b.maxMs = 0L
         }
         alerts.set(0L)
+        for ((_, b) in broadcastBuckets7807) synchronized(b) {
+            b.count = 0L; b.sumMs = 0L; b.minMs = Long.MAX_VALUE; b.maxMs = 0L
+        }
+        broadcastSlaBreaches7807.set(0L)
     }
 }

@@ -1918,6 +1918,45 @@ object DynamicAltTokenRegistry {
         }
     }
 
+    /**
+     * V5.0.7807 — Crypto Universe hand-off from the resident market sweep
+     * (engine.market.ResidentHunterWorker7807). A Solana row a specialist lane
+     * hunted is offered here under this registry's own discovery gate
+     * (MIN_LIQ_USD / MIN_VOL_24H, as meetsQualityGate applies to Dex pairs).
+     * The sweep's market cap is not a trusted mcapSource, so it is not carried
+     * (upsert would zero it anyway); the crypto cycle refreshes the mark.
+     * Returns the canonical identity when admitted, null otherwise.
+     * Field Manual L332 — an observation is admitted only with valid identity.
+     */
+    fun ingestMarketHunt7807(
+        mint: String,
+        symbol: String,
+        name: String,
+        priceUsd: Double,
+        liquidityUsd: Double,
+        volume24hUsd: Double,
+        ageHours: Double,
+    ): String? {
+        val m = mint.trim()
+        if (m.length < 32) return null
+        if (!liquidityUsd.isFinite() || liquidityUsd < MIN_LIQ_USD) return null
+        if (!volume24hUsd.isFinite() || volume24hUsd < MIN_VOL_24H) return null
+        val sym = symbol.uppercase().trim().ifBlank { m.take(8).uppercase() }
+        upsert(
+            DynToken(
+                mint = m, tokenAddress = m, chainId = "solana",
+                symbol = sym, name = name.trim().ifBlank { sym },
+                price = priceUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+                liquidityUsd = liquidityUsd, volume24h = volume24hUsd,
+                ageHours = ageHours.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+                source = "market_hunt_7807",
+                sector = inferSector(sym),
+            )
+        )
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MARKET_HUNT_INGEST_7807") } catch (_: Throwable) {}
+        return canonicalIdentity6544("solana", m)
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private fun upsert(rawTok6492: DynToken) {

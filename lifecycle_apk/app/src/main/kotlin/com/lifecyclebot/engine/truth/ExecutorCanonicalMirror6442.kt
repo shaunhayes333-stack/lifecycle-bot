@@ -112,7 +112,29 @@ object ExecutorCanonicalMirror6442 {
         val cm = canonicalMint(mint)
         val key = modeKey(cm, paperMode)
         val existing = activePositionIdByModeMint[key]
-        if (!existing.isNullOrBlank()) return existing
+        if (!existing.isNullOrBlank()) {
+            // V5.0.7807 — STALE ACTIVE POSITION-ID. Field Manual L252: held
+            // positions reconcile against authoritative fills. The active map
+            // is cleared only by mirrorSell/abortBuy6485; a position closed or
+            // quarantined by any other canonical path left its id here, and the
+            // next BUY reused it — openPosition() then saw the already-used
+            // idempotency key (DUPLICATE, no PENDING_ENTRY row) and the landed
+            // fill was later refused (LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486).
+            // Reuse only an id whose canonical row is still live-cycle.
+            val lc7807 = try { CanonicalPositionAuthority6441.getPosition(existing)?.lifecycle } catch (_: Throwable) { null }
+            if (lc7807 == CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY ||
+                lc7807 == CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                lc7807 == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED
+            ) return existing
+            activePositionIdByModeMint.remove(key, existing)
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_STALE_ACTIVE_POSITION_ID_REALLOCATED_7807")
+                ForensicLogger.lifecycle(
+                    "CANONICAL_STALE_ACTIVE_POSITION_ID_REALLOCATED_7807",
+                    "mode=${modeName(paperMode)} mint=${cm.take(10)} staleId=${existing.take(28)} lifecycle=${lc7807?.name ?: "ABSENT"}",
+                )
+            } catch (_: Throwable) {}
+        }
         val id = "${if (paperMode) "PAPER" else "LIVE"}:$cm:$runIdHash:${positionSeq.incrementAndGet()}"
         activePositionIdByModeMint[key] = id
         return id
@@ -232,11 +254,13 @@ object ExecutorCanonicalMirror6442 {
         actualEntryPriceSource: String = "",
         actualEntryPoolAddress: String = "",
         actualEntryDex: String = "",
+        recoveryLane: String = "",
+        recoverySymbol: String = "",
     ): Boolean {
         return try {
-            val positionId = positionIdOf(mint, paperMode)
-            val result = CanonicalPositionAuthority6441.promotePendingToOpen(
-                positionId = positionId,
+            val requestedPositionId7807 = positionIdOf(mint, paperMode)
+            val promoted7807 = CanonicalPositionAuthority6441.promotePendingToOpen(
+                positionId = requestedPositionId7807,
                 actualQtyRaw = actualQtyRaw,
                 actualEntryCostSol = actualCostSol,
                 actualFeesSol = actualFeesSol,
@@ -248,6 +272,24 @@ object ExecutorCanonicalMirror6442 {
                 actualEntryPoolAddress = actualEntryPoolAddress,
                 actualEntryDex = actualEntryDex,
             )
+            // V5.0.7807 — a LIVE fill that the wallet/finality proof says landed
+            // must not stay uncommitted because the PENDING_ENTRY reservation was
+            // lost (TTL-quarantined, never created, or a stale closed id). Field
+            // Manual L39/L252: confirm actual fills and reconcile held positions
+            // against authoritative fills. PAPER keeps the strict refusal.
+            val recovered7807 = if (!paperMode &&
+                (promoted7807 == CanonicalPositionAuthority6441.MutateResult.UNKNOWN_POSITION ||
+                    promoted7807 == CanonicalPositionAuthority6441.MutateResult.LIFECYCLE_FORBIDDEN)
+            ) recoverLiveBuyCommit7807(
+                mint = mint, staleId = requestedPositionId7807, actualQtyRaw = actualQtyRaw,
+                actualCostSol = actualCostSol, actualFeesSol = actualFeesSol, tokenDecimals = tokenDecimals,
+                quantityScale = quantityScale, actualEntryPriceUsd = actualEntryPriceUsd,
+                actualEntryPriceSource = actualEntryPriceSource, actualEntryPoolAddress = actualEntryPoolAddress,
+                actualEntryDex = actualEntryDex, recoveryLane = recoveryLane, recoverySymbol = recoverySymbol,
+                originalResult = promoted7807,
+            ) else null
+            val positionId = recovered7807?.second ?: requestedPositionId7807
+            val result = recovered7807?.first ?: promoted7807
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}
@@ -270,6 +312,128 @@ object ExecutorCanonicalMirror6442 {
             mirrorFailures.incrementAndGet()
             false
         }
+    }
+
+    /**
+     * V5.0.7807 — LIVE BUY COMMIT RECOVERY (Field Manual L252, L416).
+     * Order: (1) a live PENDING_ENTRY for this mint under another id is
+     * promoted; (2) a TTL/basis-quarantined live row with no realised sell
+     * economics is recovered through the narrow 7454 surface; (3) otherwise a
+     * fresh canonical OPEN is sealed directly from the finalized proof (exact
+     * raw qty, actual cost/fees, real lane). An existing live OPEN with qty for
+     * the mint is never duplicated (openPosition's same-mode-mint guard).
+     * Returns (result, positionId actually committed).
+     */
+    @Synchronized
+    private fun recoverLiveBuyCommit7807(
+        mint: String,
+        staleId: String,
+        actualQtyRaw: BigInteger,
+        actualCostSol: Double,
+        actualFeesSol: Double,
+        tokenDecimals: Int,
+        quantityScale: Int,
+        actualEntryPriceUsd: Double,
+        actualEntryPriceSource: String,
+        actualEntryPoolAddress: String,
+        actualEntryDex: String,
+        recoveryLane: String,
+        recoverySymbol: String,
+        originalResult: CanonicalPositionAuthority6441.MutateResult,
+    ): Pair<CanonicalPositionAuthority6441.MutateResult, String> {
+        val cm = canonicalMint(mint)
+        val key = modeKey(cm, false)
+        if (actualQtyRaw.signum() <= 0 || !actualCostSol.isFinite() || actualCostSol < 0.0) {
+            return originalResult to staleId
+        }
+        val lane7807 = recoveryLane.trim().ifBlank {
+            (try { LaneAttributionLedger6427.getEntryLane(staleId) } catch (_: Throwable) { null }).orEmpty()
+        }.ifBlank { "LIVE_STANDARD" }
+        fun note(path: String, id: String, r: CanonicalPositionAuthority6441.MutateResult) {
+            try {
+                PipelineHealthCollector.labelInc("LIVE_BUY_COMMIT_RECOVERY_${path}_${r.name}_7807".take(80))
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_COMMIT_RECOVERY_7807",
+                    "mint=${cm.take(10)} path=$path staleId=${staleId.take(28)} committedId=${id.take(28)} " +
+                        "original=${originalResult.name} result=${r.name} qtyRaw=$actualQtyRaw cost=$actualCostSol lane=$lane7807",
+                )
+            } catch (_: Throwable) {}
+        }
+        // (1) live pending reservation under a different id.
+        val pending7807 = try {
+            CanonicalPositionAuthority6441.pendingEntryPositions6461().firstOrNull {
+                it.mode.equals("live", true) && it.mint == cm && it.positionId != staleId
+            }
+        } catch (_: Throwable) { null }
+        if (pending7807 != null) {
+            val r = CanonicalPositionAuthority6441.promotePendingToOpen(
+                positionId = pending7807.positionId, actualQtyRaw = actualQtyRaw,
+                actualEntryCostSol = actualCostSol, actualFeesSol = actualFeesSol,
+                tokenDecimals = tokenDecimals, paperMode = false, quantityScale = quantityScale,
+                actualEntryPriceUsd = actualEntryPriceUsd, actualEntryPriceSource = actualEntryPriceSource,
+                actualEntryPoolAddress = actualEntryPoolAddress, actualEntryDex = actualEntryDex,
+            )
+            note("PENDING", pending7807.positionId, r)
+            if (r == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
+                activePositionIdByModeMint[key] = pending7807.positionId
+                return r to pending7807.positionId
+            }
+        }
+        // (2) recoverable quarantined live row (prefer the requested id).
+        val quarantined7807 = try {
+            CanonicalPositionAuthority6441.quarantinedLivePositions7454(cm)
+                .filter {
+                    it.quarantineReason == "PENDING_ENTRY_TTL_CANCELLED_6461" &&
+                        it.soldCostBasisSol <= 1e-12 && it.realizedProceedsSol <= 1e-12
+                }
+                .sortedWith(compareByDescending<CanonicalPositionAuthority6441.Position> { it.positionId == staleId }
+                    .thenByDescending { it.lastMutationMs })
+                .firstOrNull()
+        } catch (_: Throwable) { null }
+        if (quarantined7807 != null && actualEntryPriceUsd.isFinite() && actualEntryPriceUsd > 0.0 && actualCostSol > 0.0) {
+            val r = CanonicalPositionAuthority6441.recoverQuarantinedLivePosition7454(
+                positionId = quarantined7807.positionId, actualQtyRaw = actualQtyRaw,
+                actualEntryCostSol = actualCostSol, tokenDecimals = tokenDecimals,
+                quantityScale = quantityScale, actualEntryPriceUsd = actualEntryPriceUsd,
+                actualEntryPriceSource = actualEntryPriceSource.ifBlank { "LIVE_BUY_PROOF_RECOVERY_7807" },
+                recoveredLane = recoveryLane.trim().ifBlank { quarantined7807.lane.ifBlank { lane7807 } },
+                recoveredAssetClass = quarantined7807.assetClass.takeIf { it != AssetClass.UNKNOWN } ?: AssetClass.SOLANA_TOKEN,
+                actualEntryPoolAddress = actualEntryPoolAddress, actualEntryDex = actualEntryDex,
+            )
+            note("QUARANTINE", quarantined7807.positionId, r)
+            if (r == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
+                activePositionIdByModeMint[key] = quarantined7807.positionId
+                return r to quarantined7807.positionId
+            }
+        }
+        // (3) seal a fresh canonical OPEN from the finalized buy proof.
+        val freshId = allocatePositionId(cm, false)
+        val r = CanonicalPositionAuthority6441.openPosition(
+            idempotencyKey = buyIdempotencyKey(freshId),
+            positionId = freshId,
+            mint = cm,
+            symbol = recoverySymbol.ifBlank { cm.take(6) },
+            lane = lane7807,
+            runId = runIdHash,
+            entryCostSol = actualCostSol,
+            openedQtyRaw = actualQtyRaw,
+            tokenDecimals = tokenDecimals,
+            feesSol = actualFeesSol,
+            paperMode = false,
+            entryPriceUsd = actualEntryPriceUsd,
+            entryPriceSource = actualEntryPriceSource.ifBlank { "LIVE_BUY_PROOF_RECOVERY_7807" },
+            entryPoolAddress = actualEntryPoolAddress,
+            entryDex = actualEntryDex,
+            quantityScale = quantityScale,
+        )
+        note("FRESH_OPEN", freshId, r)
+        if (r == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
+            try { LaneAttributionLedger6427.recordEntry(freshId, lane7807, strategy = lane7807, profile = lane7807) } catch (_: Throwable) {}
+            try { PositionStateLedger6427.registerOpen(cm) } catch (_: Throwable) {}
+            return r to freshId
+        }
+        if (CanonicalPositionAuthority6441.getPosition(freshId) == null) activePositionIdByModeMint.remove(key, freshId)
+        return r to staleId
     }
 
     fun abortBuy6485(mint: String, reason: String, paperMode: Boolean? = null) {

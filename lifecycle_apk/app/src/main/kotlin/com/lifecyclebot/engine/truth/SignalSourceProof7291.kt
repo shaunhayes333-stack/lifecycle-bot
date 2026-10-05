@@ -123,6 +123,8 @@ object SignalSourceProof7291 {
     }
 
     private fun onEvent(event: CanonicalTradeFinalizedBus6450.Event) {
+        // V5.0.7807 — a recovered / basis-uncertain / quarantined close is not evidence (Field Manual L357).
+        if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(event)) { stamps.remove(event.mint); return }
         val (source, at) = stamps[event.mint] ?: return
         if (event.settledAtMs < at) return
         stamps.remove(event.mint)

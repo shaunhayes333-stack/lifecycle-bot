@@ -415,6 +415,22 @@ object LaneExecutionCoordinator {
         o != null && o.authoritative && !o.eligible
     } catch (_: Throwable) { false }
 
+    /**
+     * V5.0.7807 — a lane may not win ownership of a candidate its own executor
+     * deterministically refuses. LIVE PROJECT_SNIPER reads the same launch-
+     * identity predicate Executor 7385 enforces
+     * (LaneEntryContract6342.sniperLaunchIdentityRefusal7807); before this the
+     * sniper kept winning the election, the live buy refused it late
+     * (LIVE_SNIPER_NOT_A_LAUNCH_7385), and the next cycle elected it again.
+     * Paper never had the 7385 refusal, so paper is unchanged (Field Manual L153).
+     */
+    private fun ownExecutorRefusal7807(mint: String, lane: String): String? {
+        if (!lane.equals("PROJECT_SNIPER", true)) return null
+        if (try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) return null
+        val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return null
+        return try { LaneEntryContract6342.sniperLaunchIdentityRefusal7807(ts) } catch (_: Throwable) { null }
+    }
+
     fun canRequestExecution(
         mint: String,
         lane: String,
@@ -422,6 +438,21 @@ object LaneExecutionCoordinator {
         runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
     ): Verdict {
         val laneUpper = lane.uppercase()
+        ownExecutorRefusal7807(mint, laneUpper)?.let { why7807 ->
+            try {
+                PipelineHealthCollector.labelInc("LANE_OWNERSHIP_REFUSED_OWN_EXECUTOR_7807_$laneUpper")
+                ForensicLogger.lifecycle(
+                    "LANE_OWNERSHIP_REFUSED_OWN_EXECUTOR_7807",
+                    "mint=${mint.take(10)} lane=$laneUpper why=$why7807 version=$candidateVersion action=pass_before_attempt",
+                )
+            } catch (_: Throwable) {}
+            return Verdict(
+                allowed = false,
+                reason = "LANE_EXECUTOR_WOULD_REFUSE_7807:$why7807",
+                primaryLane = "",
+                candidateVersion = candidateVersion,
+            )
+        }
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
         val mapKey = mapKey(key)
         val now = System.currentTimeMillis()
@@ -498,6 +529,7 @@ object LaneExecutionCoordinator {
             // the branch above still replaces this pre-seal election.
             val qualified7620 = qualifiedLanesFor(mint, candidateVersion, laneUpper)
                 .filter { laneCanOwnExecution6910(it) }
+                .filter { ownExecutorRefusal7807(mint, it) == null }
                 .distinct()
             // V5.0.7774 — contenders whose own evaluator refused the mint sit out;
             // if every contender refused, the contest is unchanged (no new choke).

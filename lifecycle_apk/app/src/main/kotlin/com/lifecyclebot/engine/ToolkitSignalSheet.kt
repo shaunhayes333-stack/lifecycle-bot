@@ -972,7 +972,16 @@ object ToolkitSignalSheet {
     }
 
     fun recordDeskStage(lane: String, stage: String, eventId: String = "") {
-        val l = lane.uppercase().replace("BLUE_CHIP", "BLUECHIP").replace("SHITCOIN_EXPRESS", "EXPRESS")
+        // V5.0.7807 — fold every lane alias through the ONE lane authority
+        // (DIP/SNIPER/MANIP/CASH_GEN/MOON_SHOT/... had their own funnel keys),
+        // then keep EXEC/OPEN on the owning lane of the ticket they execute
+        // (Field Manual L337: one stamped evidence snapshot per candidate).
+        val l = ticketLineageLane7807(
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(
+                lane.uppercase().replace("BLUE_CHIP", "BLUECHIP").replace("SHITCOIN_EXPRESS", "EXPRESS"),
+            ),
+            stage.uppercase(), eventId,
+        )
         if (l.isBlank()) return
         val st = stage.uppercase()
         if (eventId.isBlank()) {
@@ -1123,7 +1132,17 @@ object ToolkitSignalSheet {
                         com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
                 }
         } catch (_: Throwable) { null } else null
-        val candidateVersion6647 = sealedIntent7471?.candidateVersion ?: parsedCandidateVersion7471
+        // V5.0.7807 — EXEC/OPEN on an attemptId a real ticket was stamped on
+        // keep that ticket's sealed version when the intent is no longer active.
+        val boundLineage7807 = if (sealedIntent7471 == null) {
+            boundTicketLineage7807(attemptId, stage)?.takeIf { it.lane == lane && it.mode.equals(resolvedMode7471, true) }
+        } else null
+        // boundLineage7807 is non-null only when sealedIntent7471 is null.
+        val candidateVersion6647 = if (boundLineage7807 != null) boundLineage7807.candidateVersion
+            else sealedIntent7471?.candidateVersion ?: parsedCandidateVersion7471
+        if (stage == "TICKET" && sealedIntent7471 != null) {
+            bindTicketLineage7807(attemptId, sealedIntent7471.candidateVersion, lane, resolvedMode7471)
+        }
         // V5.0.7790 — executable size is a lifecycle stage, not advisory math.
         // If no immutable intent owns this exact mode/mint/version/lane, do not
         // feed SIZED_EXECUTABLE into the causal funnel. Sizing still occurred;
@@ -1314,6 +1333,48 @@ object ToolkitSignalSheet {
                 } catch (_: Throwable) {}
             }
         }
+    }
+
+    /**
+     * V5.0.7807 §ONE_TICKET_ONE_OWNING_LANE_RECORD.
+     *
+     * When TICKET binds to a sealed immutable intent, remember on that exact
+     * attemptId which candidate version and owning lane the ticket belongs to.
+     * EXEC and POSITION_OPENED for the SAME attemptId then join that record
+     * even if the intent was revoked/expired before the fill callback (the
+     * fallback lane/version Executor passes in that case is not the ticket's),
+     * which is what printed SPECIALIST_CAUSAL_ORPHAN_STAGE_7537 missing=NO_TICKET.
+     * Only an attemptId that a real ticket was stamped on is ever rebound; no
+     * stage is created here (Field Manual L337: one stamped evidence snapshot
+     * per candidate, shared by every specialist stage).
+     */
+    private data class TicketLineage7807(val candidateVersion: Long, val lane: String, val mode: String)
+    private val ticketLineage7807 = object : java.util.LinkedHashMap<String, TicketLineage7807>(256, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TicketLineage7807>?): Boolean = size > 4096
+    }
+
+    private fun bindTicketLineage7807(attemptId: String, candidateVersion: Long, lane: String, mode: String) {
+        if (attemptId.isBlank() || candidateVersion <= 0L || lane.isBlank()) return
+        synchronized(ticketLineage7807) { ticketLineage7807[attemptId] = TicketLineage7807(candidateVersion, lane, mode.uppercase()) }
+    }
+
+    private fun boundTicketLineage7807(attemptId: String, stage: String): TicketLineage7807? {
+        if (stage != "EXEC" && stage != "POSITION_OPENED") return null
+        if (attemptId.isBlank()) return null
+        return synchronized(ticketLineage7807) { ticketLineage7807[attemptId] }
+    }
+
+    private fun ticketLineageLane7807(lane: String, stage: String, eventId: String): String {
+        val bound = boundTicketLineage7807(eventId, stage) ?: return lane
+        if (bound.lane == lane) return lane
+        try {
+            PipelineHealthCollector.labelInc("SPECIALIST_EXEC_REBOUND_TO_TICKET_LANE_7807")
+            ForensicLogger.lifecycle(
+                "SPECIALIST_EXEC_REBOUND_TO_TICKET_LANE_7807",
+                "stage=$stage callerLane=$lane ticketLane=${bound.lane} version=${bound.candidateVersion} attemptId=${eventId.take(80)}",
+            )
+        } catch (_: Throwable) {}
+        return bound.lane
     }
 
     fun recordContributorSummary(summary: String, stage: String, eventId: String = "") {

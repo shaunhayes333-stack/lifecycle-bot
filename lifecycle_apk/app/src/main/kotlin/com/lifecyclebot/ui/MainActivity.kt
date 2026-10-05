@@ -3487,8 +3487,18 @@ for legal compliance.
                 )
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
                     .recordHeroRender("MEME", displayedCash7045, displayedEquity7045)
-                com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
-                    .probeHeroBinding("MEME", displayedCash7045, displayedEquity7045)
+                // V5.0.7807 — HERO_JOURNAL_PARITY_FAIL_6616 root cause: the MEME
+                // hero paints MARKED equity (CanonicalCapitalAuthority6450:
+                // cash + marked openMV) while the 6616 snapshot is COST-BASIS
+                // equity (cash + openCost), so every render with an open
+                // position "failed" equity parity, and a non-renderable account
+                // probed painted 0.0 against the real cash. Probe cash (the
+                // directive's cross-hero invariant; same PaperCapitalAuthority6577
+                // source) only when an account was actually painted; marked
+                // equity is asserted by HeroAccountSnapshot7045.recordRender above.
+                // Field Manual L39: a displayed mark is not executable value.
+                if (accountRenderable7045) com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+                    .probeHeroBinding("MEME", displayedCash7045, -1.0)
 
                 // V5.0.7011 — feed the render's hero: curve, ring, rail, lanes.
                 // Bound to the SAME canonical snapshot the figure above uses, so
@@ -5572,6 +5582,23 @@ for legal compliance.
         // AUDIO/POPCAT-style user assets (and frozen accounts are excluded at
         // the RPC boundary before they can reach this view).
 
+        // V5.0.7807 — every managed bag on the panel (Field Manual L252). Rows
+        // the canonical protective inventory still manages (funded LIVE
+        // QUARANTINED, or OPEN rows whose basis failed the 6636 invariant) were
+        // filtered out above, which is how the card read "Showing 1; managed
+        // total 1/3". They are shown, one per mint, with their basis state.
+        val protective7807 = try {
+            com.lifecyclebot.engine.truth.OpenPositionPanel7807.protectiveRowsNotShown7807(
+                state.tokens, alreadyRendered.toSet(), isPaperMode,
+            )
+        } catch (_: Throwable) { emptyList() }
+        if (protective7807.isNotEmpty()) {
+            merged += protective7807
+            protective7807.forEach { alreadyRendered += it.mint }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_PROTECTIVE_ROWS_SHOWN_7807") } catch (_: Throwable) {}
+        }
+        val protectiveMints7807 = protective7807.mapTo(HashSet()) { it.mint }
+
         merged.forEach { recoverRenderablePricing(it) }
 
         // V5.9.810 / V5.0.6078 — sort by current unrealized gain % descending
@@ -5588,7 +5615,8 @@ for legal compliance.
         // statement after rescuing them.
         //
         return merged.filter { ts ->
-            val canonical7253 = try {
+            // V5.0.7807 — a canonical protective-inventory row is canonical-backed.
+            val canonical7253 = ts.mint in protectiveMints7807 || try {
                 com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
                     .isRuntimeOpenEligible6636(ts.mint, ts.position)
             } catch (_: Throwable) { false }
@@ -5610,6 +5638,32 @@ for legal compliance.
      * double-counting). Returned count is what the footer label
      * reports so users can confirm none are abandoned.
      */
+    /**
+     * V5.0.7807 — footer for the Open Positions card. Null when there is
+     * nothing to say. Never claims a hidden bag is managed: it lists the
+     * wallet-held lane-map mints that have no canonical position by symbol.
+     */
+    private fun openPanelFooter7807(positions: List<TokenState>, laneHeld: Int): String? {
+        val shown = positions.mapTo(HashSet()) { it.mint }
+        val held = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldMints() } catch (_: Throwable) { emptySet<String>() }
+        val laneMints = LinkedHashSet<String>()
+        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach { laneMints.add(it.mint) } } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach { laneMints.add(it.mint) } } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach { laneMints.add(it.mint) } } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { laneMints.add(it.mint) } } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().forEach { laneMints.add(it.mint) } } catch (_: Throwable) {}
+        val notCanonical = laneMints.filter { it.isNotBlank() && it in held && it !in shown }
+        if (notCanonical.isEmpty()) {
+            return if (shown.isEmpty()) null else "All ${shown.size} managed position(s) shown (cap $OPENPOS_ROW_CAP)."
+        }
+        val names = notCanonical.take(6).joinToString(", ") { m ->
+            (try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(m)?.symbol } catch (_: Throwable) { null })
+                ?.takeIf { it.isNotBlank() } ?: m.take(6)
+        }
+        return "${shown.size} managed position(s) shown. ${notCanonical.size} wallet-held lane mint(s) have no canonical AATE position (not counted as positions): $names${if (notCanonical.size > 6) " …" else ""}" +
+            if (laneHeld > 0) " · lane cards below list their own rows." else ""
+    }
+
     private fun countLaneHeldPositions(unified: List<TokenState>): Int {
         val seen = unified.map { it.mint }.toMutableSet()
         var n = 0
@@ -5653,6 +5707,7 @@ for legal compliance.
         val barView: android.view.View,
         val dividerView: android.view.View,
         var staticHash: Int,
+        val markTv7807: android.widget.TextView? = null,
     )
     // Insertion-ordered so we can cheaply diff against the desired sort order.
     private val openPosCardCache = LinkedHashMap<String, OpenPosCard>(48)
@@ -5773,13 +5828,13 @@ for legal compliance.
                 }
                 (llOpenPositions.parent as? android.view.ViewGroup)?.addView(footer)
             }
-            val managedTileText = try { tvStatsOpenPos.text?.toString().orEmpty() } catch (_: Throwable) { "" }
-            if (laneHeld > 0 || managedTileText.contains("/")) {
-                footer.text = if (managedTileText.contains("/")) {
-                    "Showing ${positions.size}; managed total $managedTileText. Hidden/dedicated-lane positions are still managed."
-                } else {
-                    "+ $laneHeld held in lane cards below — still managed by their respective traders."
-                }
+            // V5.0.7807 — no "Showing 1; managed total 1/3". Every canonical /
+            // protective bag is a row now; the footer names exactly what is
+            // wallet-held in a lane map but has no canonical AATE position, or
+            // says that everything managed is shown (Field Manual L252).
+            val footerText7807 = openPanelFooter7807(positions, laneHeld)
+            if (footerText7807 != null) {
+                footer.text = footerText7807
                 footer.visibility = android.view.View.VISIBLE
             } else {
                 footer.visibility = android.view.View.GONE
@@ -6039,7 +6094,17 @@ for legal compliance.
             // selection. If this matches the cached card, the heavy chrome (logo,
             // symbol, entry, size rows) is identical and we ONLY mutate the live
             // numbers (PnL%/◎/USD/trail/lock + bar colour) in place — no rebuild.
+            // V5.0.7807 — basis state, lane and management state on every row,
+            // plus the live mark and its age (Field Manual L252 / L372).
+            val basis7807 = try {
+                com.lifecyclebot.engine.truth.OpenPositionPanel7807.basisFor7807(ts, invariantBroken6500)
+            } catch (_: Throwable) { com.lifecyclebot.engine.truth.OpenPositionPanel7807.BasisState7807.BASIS_UNCERTAIN }
+            val markLine7807 = com.lifecyclebot.engine.truth.OpenPositionPanel7807.markLine7807(
+                ts.ref.takeIf { it.isFinite() && it > 0.0 }?.fmtPrice() ?: "—",
+                System.currentTimeMillis(), ts.lastPriceUpdate,
+            )
             val staticHash = (
+                basis7807.ordinal * 101 +
                 ts.mint.hashCode() * 31 +
                 pos.entryPrice.hashCode() * 17 +
                 pos.costSol.hashCode() * 13 +
@@ -6057,6 +6122,7 @@ for legal compliance.
                 cached.pnlSolTv.text = if (basisTrusted) "%+.4f◎".format(pnlSol) else "—"
                 cached.pnlSolTv.setTextColor(gainCol)
                 cached.usdTv.text = if (basisTrusted && solPrice > 0) "≈\$%.2f · %s".format(valueUsd, routeTruthText6030) else "≈\$— · basis wait"
+                cached.markTv7807?.text = markLine7807
                 cached.barView.setBackgroundColor(gainCol)
                 // live trail + lock (mirror the build-path math). Never mutate peak/lock off untrusted basis.
                 if (!basisTrusted) {
@@ -6350,6 +6416,29 @@ for legal compliance.
                 setTextColor(if (invariantBroken6500) AateUi.AMBER else muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
+            // V5.0.7807 — lane · basis state · management state, then the live mark.
+            info.addView(TextView(this).apply {
+                text = com.lifecyclebot.engine.truth.OpenPositionPanel7807.statusLine7807(
+                    pos.tradingMode, basis7807,
+                    com.lifecyclebot.engine.truth.OpenPositionPanel7807.managementState7807(
+                        pos.pendingVerify, pos.entryTime, System.currentTimeMillis(),
+                    ),
+                )
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(
+                    if (basis7807 == com.lifecyclebot.engine.truth.OpenPositionPanel7807.BasisState7807.VERIFIED_BASIS) muted
+                    else AateUi.AMBER
+                )
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            var markTvRef7807: android.widget.TextView? = null
+            info.addView(TextView(this).apply {
+                text = markLine7807
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                markTvRef7807 = this
+            })
             row.addView(info)
 
             // P&L (right column)
@@ -6508,6 +6597,7 @@ for legal compliance.
                     barView = barRef,
                     dividerView = div,
                     staticHash = staticHash,
+                    markTv7807 = markTvRef7807,
                 )
             }
         }

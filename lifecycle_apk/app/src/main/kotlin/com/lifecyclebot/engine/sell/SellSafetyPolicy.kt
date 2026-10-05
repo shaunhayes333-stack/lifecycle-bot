@@ -14,6 +14,15 @@ object SellSafetyPolicy {
      */
     const val HARD_MAX_SELL_SLIPPAGE_BPS = 500
     const val EMERGENCY_MAX_SELL_SLIPPAGE_BPS = 9999
+    /** V5.0.7807 — the Jupiter route's normal emergency slippage (first emergency rung). */
+    private const val ROUTE_EMERGENCY_START_BPS_7807 = 500
+    /** V5.0.7807 — structural emergencies (rug, honeypot, LP pull, dev dump, authority) start at 15%:
+     *  a failed 5% attempt costs seconds that a draining pool does not give back (Field Manual L248). */
+    private const val STRUCTURAL_EMERGENCY_START_BPS_7807 = 1500
+
+    fun emergencyStartBps7807(reason: String?): Int =
+        if (ProtectiveExitClass7807.acceptsPoorImpact(reason)) STRUCTURAL_EMERGENCY_START_BPS_7807
+        else ROUTE_EMERGENCY_START_BPS_7807
 
     fun isManualEmergency(reason: String?): Boolean {
         val r = reason.orEmpty().uppercase()
@@ -25,7 +34,11 @@ object SellSafetyPolicy {
     }
 
     /** An exit is allowed beyond the 500bps hard cap ONLY if it is an explicit emergency. */
-    fun isEmergencyExit(reason: String?): Boolean = isHardRug(reason) || isManualEmergency(reason)
+    // V5.0.7807 — B3/B4: the shared protective emergency class (STOP / STRICT_SL /
+    // RAPID_CATASTROPHE_STOP, rug/honeypot, liquidity collapse, dev dump, authority
+    // threat, stale-but-dangerous) uses the emergency ladder (Field Manual L248).
+    fun isEmergencyExit(reason: String?): Boolean =
+        isHardRug(reason) || isManualEmergency(reason) || ProtectiveExitClass7807.isEmergency(reason)
 
     fun classify(reason: String?): ExitReason = SellReasonClassifier.fromString(reason)
 
@@ -37,7 +50,10 @@ object SellSafetyPolicy {
     fun maxSlippageBps(reason: String?): Int {
         if (isEmergencyExit(reason)) {
             logEmergencyOverride(reason)
-            return EMERGENCY_MAX_SELL_SLIPPAGE_BPS
+            // V5.0.7807 — B4: automatic emergency sells are capped at 50%. Only an
+            // operator-initiated MANUAL emergency keeps the legacy 9999bps ceiling.
+            return if (isManualEmergency(reason)) EMERGENCY_MAX_SELL_SLIPPAGE_BPS
+            else ProtectiveExitClass7807.EMERGENCY_SLIP_CAP_BPS_7807
         }
         // Every normal live exit reason is hard-capped at 500bps. No 800/1000 ladder.
         return HARD_MAX_SELL_SLIPPAGE_BPS
@@ -51,7 +67,13 @@ object SellSafetyPolicy {
         } catch (_: Throwable) {}
     }
 
-    fun initialSlippageBps(reason: String?): Int = when (classify(reason)) {
+    // V5.0.7807 — B4: every automatic emergency starts at the route's emergency rung
+    // (dev_dump / liquidity_collapse used to classify UNKNOWN and start at 200bps).
+    fun initialSlippageBps(reason: String?): Int =
+        if (ProtectiveExitClass7807.isEmergency(reason) && !isManualEmergency(reason)) emergencyStartBps7807(reason)
+        else initialSlippageBpsLegacy(reason)
+
+    private fun initialSlippageBpsLegacy(reason: String?): Int = when (classify(reason)) {
         ExitReason.PROFIT_LOCK, ExitReason.PARTIAL_TAKE_PROFIT, ExitReason.CAPITAL_RECOVERY -> 200
         ExitReason.STOP_LOSS, ExitReason.HARD_STOP, ExitReason.RUG_DRAIN, ExitReason.MANUAL_FULL_EXIT -> 500
         ExitReason.UNKNOWN -> 200
@@ -62,7 +84,19 @@ object SellSafetyPolicy {
      * 800/1000bps rungs are GONE from live mode. Emergency reasons keep the escalation
      * ladder (the override is logged via maxSlippageBps).
      */
-    fun ladder(reason: String?): List<Int> {
+    fun ladder(reason: String?): List<Int> = ladder(reason, 1)
+
+    /**
+     * V5.0.7807 — B4: per-attempt emergency escalation. [attempt] is the
+     * CloseLease attempt count (1 = first attempt). Automatic emergency exits
+     * walk route-normal emergency slippage (500bps) -> 25% -> 35% -> 50% cap,
+     * each later attempt starting one rung higher. Manual emergencies and
+     * non-emergency reasons keep their existing ladders (Field Manual L248).
+     */
+    fun ladder(reason: String?, attempt: Int): List<Int> {
+        if (ProtectiveExitClass7807.isEmergency(reason) && !isManualEmergency(reason)) {
+            return ProtectiveExitClass7807.slippageLadderBps(attempt, emergencyStartBps7807(reason))
+        }
         val max = maxSlippageBps(reason)
         val base = if (isEmergencyExit(reason)) {
             listOf(500, 1500, 3000, 5000, 7500, 9999)

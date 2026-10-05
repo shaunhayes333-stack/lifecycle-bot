@@ -131,6 +131,17 @@ object LiquidityDepthAI {
      * Call this every time you get fresh liquidity data (typically every loop cycle).
      */
     fun recordSnapshot(mint: String, liquidityUsd: Double, mcapUsd: Double = 0.0, holderCount: Int = 0) {
+        // V5.0.7807 — a 0.0 / non-finite liquidity is what a failed or absent
+        // provider read looks like (scanner rows with unknown depth pass 0.0).
+        // Recording it made the next read look like a -100% drain: getSignal
+        // then returned LIQUIDITY_COLLAPSE + DANGEROUS depth for an open
+        // position, which Executor's catastrophe backstop (liqDistress6904)
+        // accepted as corroborating NEGATIVE MARKET EVIDENCE. Unknown is not a
+        // drain (Field Manual L190); it is simply not recorded.
+        if (!isLiquidityEvidence7807(liquidityUsd)) {
+            try { PipelineHealthCollector.labelInc("LIQ_SNAPSHOT_DATA_UNKNOWN_NOT_RECORDED_7807") } catch (_: Throwable) {}
+            return
+        }
         val history = liquidityHistory.getOrPut(mint) { mutableListOf() }
         
         val snapshot = LiquiditySnapshot(
@@ -154,8 +165,13 @@ object LiquidityDepthAI {
      * Used to calculate liquidity change during hold.
      */
     fun recordEntryLiquidity(mint: String, liquidityUsd: Double) {
+        // V5.0.7807 — an unknown entry depth is not a baseline (Field Manual L190).
+        if (!isLiquidityEvidence7807(liquidityUsd)) return
         entryLiquidity[mint] = liquidityUsd
     }
+
+    /** V5.0.7807 — true only for a positive, finite liquidity reading. */
+    fun isLiquidityEvidence7807(liquidityUsd: Double): Boolean = liquidityUsd.isFinite() && liquidityUsd > 0.0
     
     /**
      * Get entry liquidity for a token (for exit comparison).
@@ -288,8 +304,11 @@ object LiquidityDepthAI {
             val entryLiq = entryLiquidity[mint]
             if (entryLiq != null && entryLiq > 0) {
                 val history = liquidityHistory[mint]
+                // V5.0.7807 — no current reading is DATA UNKNOWN, not a 100%
+                // drop. The old `?: 0.0` turned a missing history into
+                // LIQUIDITY_COLLAPSE on every open position (Field Manual L190).
                 val currentLiq = history?.lastOrNull()?.liquidityUsd ?: 0.0
-                val dropPct = ((entryLiq - currentLiq) / entryLiq) * 100
+                val dropPct = if (isLiquidityEvidence7807(currentLiq)) ((entryLiq - currentLiq) / entryLiq) * 100 else 0.0
                 
                 // Collapse detection: >30% drop from entry
                 if (dropPct > 30) {

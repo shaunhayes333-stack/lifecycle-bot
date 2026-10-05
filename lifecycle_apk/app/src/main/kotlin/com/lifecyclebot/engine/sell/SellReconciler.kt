@@ -595,6 +595,9 @@ object SellReconciler {
                     reason = if (hasSig) "RECONCILER_SELL_SIG_ZERO" else "RECONCILER_WALLET_ZERO",
                     source = "sell_reconciler_zero",
                 )
+                // V5.0.7807 — debounced wallet-zero proof retires a funded protective
+                // quarantine row; until here it stays managed (Field Manual L39).
+                try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.applyProtectiveSellFill7807(pos.mint, java.math.BigInteger.ZERO, true, "SellReconciler.walletZero") } catch (_: Throwable) {}
                 SellJobRegistry.markLanded(pos.mint, signature = sellSig)
                 // V5.9.1539 — ROOT FIX (operator spec item B + buy-handoff unblock):
                 // a reconciler zero-balance close MUST also release the CloseLease.

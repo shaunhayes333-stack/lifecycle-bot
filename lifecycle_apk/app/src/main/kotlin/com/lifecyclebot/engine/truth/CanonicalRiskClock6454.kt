@@ -113,8 +113,10 @@ object CanonicalRiskClock6454 {
                         // in live exit coverage.  Switching mode must pause the
                         // other account, not reinterpret its positions.
                         val activeMode7254 = if (RuntimeModeAuthority.isPaper()) "paper" else "live"
-                        CanonicalPositionAuthority6441.openPositions()
-                            .filter { it.mode.equals(activeMode7254, ignoreCase = true) }
+                        // V5.0.7807 — sweep the protective inventory, so a funded
+                        // LIVE quarantine keeps its stop/catastrophe cadence
+                        // (Field Manual L407).
+                        CanonicalPositionAuthority6441.protectiveInventory7807(activeMode7254)
                     } catch (_: Throwable) {
                         openReadFailures.incrementAndGet()
                         try { PipelineHealthCollector.labelInc("RISK_CLOCK_OPEN_READ_FAILED_7213") } catch (_: Throwable) {}

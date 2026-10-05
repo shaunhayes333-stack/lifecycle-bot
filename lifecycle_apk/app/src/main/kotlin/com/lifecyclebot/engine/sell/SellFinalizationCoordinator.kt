@@ -215,6 +215,11 @@ object SellFinalizationCoordinator {
                         try { PipelineHealthCollector.labelInc("LIVE_SELL_CANONICAL_SKIPPED_STILL_OPEN_7362_$why") } catch (_: Throwable) {}
                     }
                 }
+                // V5.0.7807 — a confirmed sell on a mint owned only by a funded
+                // protective quarantine row reduces/closes that row (no PnL, no
+                // learning) so it leaves protective inventory exactly when the
+                // wallet quantity does (Field Manual L39).
+                if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.applyProtectiveSellFill7807(intent.mint, actualConsumedRaw, fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED, "SellFinalizationCoordinator")) return@run
                 // No canonical row at all is not an OPEN canonical row: unchanged.
                 val canonicalPosition6522 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return@run
                 val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED

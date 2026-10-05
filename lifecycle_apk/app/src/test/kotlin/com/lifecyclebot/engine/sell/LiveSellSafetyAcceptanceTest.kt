@@ -131,14 +131,16 @@ class LiveSellSafetyAcceptanceTest {
         assertEquals(500, SellSafetyPolicy.maxSlippageBps("PROFIT_LOCK"))
         assertEquals(500, SellSafetyPolicy.maxSlippageBps("PARTIAL_TAKE_PROFIT"))
         assertEquals(500, SellSafetyPolicy.maxSlippageBps("CAPITAL_RECOVERY"))
-        assertEquals(500, SellSafetyPolicy.maxSlippageBps("STOP_LOSS"))
-        assertEquals(500, SellSafetyPolicy.maxSlippageBps("HARD_STOP"))
+        // V5.0.7807 — operator-approved B4: the stop-loss / rug emergency class
+        // escalates to a 50% cap; only an operator MANUAL emergency keeps 9999.
+        assertEquals(5000, SellSafetyPolicy.maxSlippageBps("STOP_LOSS"))
+        assertEquals(5000, SellSafetyPolicy.maxSlippageBps("HARD_STOP"))
         assertEquals(500, SellSafetyPolicy.maxSlippageBps("EMERGENCY_AUTO"))
         assertEquals(9999, SellSafetyPolicy.maxSlippageBps("MANUAL_EMERGENCY_RUG_DRAIN"))
-        assertEquals(9999, SellSafetyPolicy.maxSlippageBps("RUG_DRAIN"))
+        assertEquals(5000, SellSafetyPolicy.maxSlippageBps("RUG_DRAIN"))
         // hard cap can never be exceeded by any non-emergency ladder rung
         assertTrue(SellSafetyPolicy.ladder("PROFIT_LOCK").all { it <= 500 })
-        assertTrue(SellSafetyPolicy.ladder("STOP_LOSS").all { it <= 500 })
+        assertTrue(SellSafetyPolicy.ladder("STOP_LOSS").all { it <= 5000 })
     }
 
     // ── #13 — reconciler.totalChecked > 0 after a manual reconcile ──────────

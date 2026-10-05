@@ -92,6 +92,16 @@ object CausalFeedbackAuthority6715 {
     private val earlyLearnAcks = HashSet<String>()
     private val terminalSeen = HashSet<String>()
     private val learnedSeen = HashSet<String>()
+    // V5.0.7807 §CAUSAL_LINEAGE_RECOVERY — a reservation that was dropped
+    // BEFORE its canonical OPEN (60s TTL sweep, a same-scope terminal
+    // invalidating every pending reservation, or a newer attempt superseding
+    // it) does not stop an already-dispatched buy from filling. Its decision
+    // evidence (mode/mint/lane/stamped band) is retained here for a bounded
+    // window so onPositionOpened can bind the exposure to its real scope
+    // instead of the UNKNOWN band. Read ONLY at the OPEN boundary; it never
+    // admits, freshens or blocks anything (Field Manual L411: update exposure
+    // after fills and account for pending orders).
+    private val droppedLineage7807 = LinkedHashMap<String, Reservation>()
 
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "UNKNOWN" }
     // V5.0.7115 §ONE_LANE_IDENTITY — delegated; both folds moved to the authority.
@@ -407,6 +417,7 @@ object CausalFeedbackAuthority6715 {
                 .toList()
             if (superseded.isNotEmpty()) {
                 superseded.forEach { old ->
+                    retainDroppedLineageLocked7807(old)
                     old.scopeKeys.forEach { state(it).reservedAttempts.remove(old.attemptId) }
                     reservations.remove(old.attemptId)
                     ticketStamps.remove(old.attemptId)
@@ -437,6 +448,7 @@ object CausalFeedbackAuthority6715 {
         val stale = reservations.values.filter { nowMs - it.reservedAtMs > ttlMs }.toList()
         if (stale.isEmpty()) return
         stale.forEach { r ->
+            retainDroppedLineageLocked7807(r)
             r.scopeKeys.forEach { state(it).reservedAttempts.remove(r.attemptId) }
             reservations.remove(r.attemptId)
             ticketStamps.remove(r.attemptId)
@@ -455,11 +467,23 @@ object CausalFeedbackAuthority6715 {
             val r = reservations.values
                 .filter { it.mode == nm && it.mint == mint && it.lane == nl }
                 .maxByOrNull { it.reservedAtMs }
-            val ks = r?.scopeKeys ?: keys(nm, nl, "UNKNOWN")
+            // V5.0.7807 — no live reservation: recover the scope from the
+            // still-valid same-mode/same-mint/same-lane decision evidence
+            // before ever falling back to the UNKNOWN band.
+            val recovered7807 = if (r == null) recoverLineageLocked7807(nm, mint, nl, System.currentTimeMillis()) else null
+            val ks = r?.scopeKeys ?: recovered7807?.scopeKeys ?: keys(nm, nl, "UNKNOWN")
             if (r != null) {
                 r.scopeKeys.forEach { state(it).reservedAttempts.remove(r.attemptId) }
                 reservations.remove(r.attemptId)
                 ticketStamps.remove(r.attemptId)
+                droppedLineage7807.entries.removeIf { it.value.mode == nm && it.value.mint == mint && it.value.lane == nl }
+            } else if (recovered7807 != null) {
+                emit(
+                    "CAUSAL_LINEAGE_RECOVERED_FROM_TICKET_7807",
+                    "positionId=${positionId.take(24)} mint=${mint.take(10)} mode=$nm lane=$nl " +
+                        "attemptId=${recovered7807.attemptId.take(28)} band=${recovered7807.scoreBand} " +
+                        "ageMs=${System.currentTimeMillis() - recovered7807.reservedAtMs}",
+                )
             } else {
                 emit("CAUSAL_OPEN_WITHOUT_RESERVATION_6715", "positionId=${positionId.take(24)} mint=${mint.take(10)} mode=$nm lane=$nl")
             }
@@ -467,6 +491,48 @@ object CausalFeedbackAuthority6715 {
             positionScopes[positionId] = ks
             emit("CAUSAL_POSITION_OPENED_6715", "positionId=${positionId.take(24)} mint=${mint.take(10)} mode=$nm lane=$nl scopes=${ks.joinToString(",")}")
         }
+    }
+
+    /**
+     * V5.0.7807 §CAUSAL_LINEAGE_RECOVERY — bounded window for binding an OPEN
+     * to decision evidence whose reservation was dropped first. 180s covers the
+     * longest paper ticket TTL (PAPER_EXECUTION_TICKET_TTL_MS) and a live
+     * ticket (45s) plus on-chain confirmation; older evidence is not recovered.
+     */
+    private const val LINEAGE_RECOVERY_TTL_MS_7807 = 180_000L
+    private const val LINEAGE_RECOVERY_CAP_7807 = 512
+
+    /** Must be invoked inside `synchronized(lock)`. */
+    private fun retainDroppedLineageLocked7807(r: Reservation) {
+        val now = System.currentTimeMillis()
+        droppedLineage7807.entries.removeIf { now - it.value.reservedAtMs > LINEAGE_RECOVERY_TTL_MS_7807 }
+        droppedLineage7807.remove(r.attemptId)
+        droppedLineage7807[r.attemptId] = r
+        while (droppedLineage7807.size > LINEAGE_RECOVERY_CAP_7807) {
+            val eldest = droppedLineage7807.keys.firstOrNull() ?: break
+            droppedLineage7807.remove(eldest)
+        }
+    }
+
+    /**
+     * V5.0.7807 — newest still-valid same-mode/same-mint/same-lane evidence:
+     * a dropped reservation or a live (never-admitted) decision stamp. Returns
+     * its exact stamped scopes; never invents a band. Must be invoked inside
+     * `synchronized(lock)`.
+     */
+    private fun recoverLineageLocked7807(nm: String, mint: String, nl: String, nowMs: Long): Reservation? {
+        val fromDropped = droppedLineage7807.values
+            .filter { it.mode == nm && it.mint == mint && it.lane == nl && nowMs - it.reservedAtMs in 0..LINEAGE_RECOVERY_TTL_MS_7807 }
+            .maxByOrNull { it.reservedAtMs }
+        val fromStamp = ticketStamps.values
+            .filter { it.mode == nm && it.mint == mint && it.lane == nl && nowMs - it.stampedAtMs in 0..LINEAGE_RECOVERY_TTL_MS_7807 }
+            .maxByOrNull { it.stampedAtMs }
+            ?.let { s -> Reservation(s.attemptId, s.mode, s.mint, s.lane, s.scoreBand, keys(s.mode, s.lane, s.scoreBand), s.stampedAtMs) }
+        val chosen = listOfNotNull(fromDropped, fromStamp).maxByOrNull { it.reservedAtMs } ?: return null
+        // One OPEN consumes the dropped evidence for this triple; the live
+        // decision stamp itself is left untouched (admission still owns it).
+        droppedLineage7807.entries.removeIf { it.value.mode == nm && it.value.mint == mint && it.value.lane == nl }
+        return chosen
     }
 
     /** Canonical terminal truth advances epoch before any learner consumer order can matter. */
@@ -484,7 +550,13 @@ object CausalFeedbackAuthority6715 {
                 invalidated.addAll(s.reservedAttempts)
                 s.terminalEpoch += 1L
             }
-            invalidated.forEach { releaseAttemptLocked(it, removeStamp = true) }
+            invalidated.forEach { aid ->
+                // V5.0.7807 — the pending decision is invalidated for ADMISSION,
+                // but a buy already dispatched under it may still fill; keep its
+                // lineage for the OPEN boundary only.
+                reservations[aid]?.let { r7807 -> retainDroppedLineageLocked7807(r7807) }
+                releaseAttemptLocked(aid, removeStamp = true)
+            }
             if (invalidated.isNotEmpty()) {
                 emit("CAUSAL_PENDING_INVALIDATED_ON_TERMINAL_6715", "positionId=${env.positionId.take(24)} lane=$nl count=${invalidated.size}")
             }
@@ -750,9 +822,14 @@ object CausalFeedbackAuthority6715 {
         }
     }
 
+    /** V5.0.7807 — test read of the exact scopes an OPEN was bound to. */
+    internal fun positionScopesForTest7807(positionId: String): List<String>? =
+        synchronized(lock) { positionScopes[positionId]?.toList() }
+
     internal fun resetForTest6715() = synchronized(lock) {
         scopes.clear(); ticketStamps.clear(); reservations.clear(); positionScopes.clear()
         earlyLearnAcks.clear(); terminalSeen.clear(); learnedSeen.clear()
+        droppedLineage7807.clear()
     }
 
     private fun emit(label: String, detail: String) {
