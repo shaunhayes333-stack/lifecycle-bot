@@ -770,7 +770,33 @@ object MoonshotTraderAI {
                 val buys=((ts.lastBuyPressurePct/pr)*10.0).toInt().coerceAtLeast(0)
                 val sells=((ts.lastSellPressurePct/pr)*10.0).toInt().coerceAtLeast(0)
                 val safe=ts.safety.freezeAuthorityDisabled==true&&ts.safety.mintAuthorityDisabled==true&&ts.safety.tier!=com.lifecyclebot.engine.SafetyTier.HARD_BLOCK
-                com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.scoreCandidate(mint,symbol,marketCapUsd,liquidityObserved7389,ts.tokenMap.volume1hUsd?:0.0,sc,buys,sells,safe,false)
+                val holders7798=(ts.history.lastOrNull()?.holderCount?:0).coerceAtLeast(ts.peakHolderCount)
+                val top7798=ts.topHolderPct?:ts.safety.topHolderPct
+                val launch7798=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null}
+                val smart7798=launch7798?.smartMoneyBuyers60s?:try{com.lifecyclebot.engine.truth.SmartMoneyFeed6394.smartMoneyBuysLast60s(mint)}catch(_:Throwable){0}
+                val momentum7798=try{com.lifecyclebot.engine.MomentumPredictorAI.getMomentumScore(mint)}catch(_:Throwable){50.0}
+                val danger7798=(ts.safety.summary+" "+ts.safety.bundleReason+" "+ts.safety.hardBlockReasons.joinToString(" ")).uppercase()
+                val devSelling7798=danger7798.contains("DEV_SELL")||danger7798.contains("DEV SELL")
+                val social7798=try{
+                    val boost=com.lifecyclebot.v3.scoring.SocialVelocityAI.getBoostAmount(mint)
+                    val meta=com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(mint)
+                    val links=listOf(meta?.website.orEmpty(),meta?.twitter.orEmpty(),meta?.telegram.orEmpty()).count{it.isNotBlank()}
+                    (links*2.0 + when{boost>=1000->6.0;boost>=500->4.0;boost>=100->2.0;else->0.0}).coerceIn(0.0,12.0)
+                }catch(_:Throwable){0.0}
+                com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.scoreCandidate(
+                    mint=mint,symbol=symbol,mcapUsd=marketCapUsd,liquidityUsd=liquidityObserved7389,
+                    vol1hUsd=ts.tokenMap.volume1hUsd?:0.0,sourceCount=sc,
+                    buysLastWindow=launch7798?.buyTx60s?:buys,sellsLastWindow=launch7798?.sellTx60s?:sells,
+                    rugSafetyConfirmed=safe,holderCount=holders7798,holderGrowthPct=ts.holderGrowthRate,
+                    topHolderPct=top7798,smartMoneyBuys60s=smart7798,
+                    distinctBuyers60s=launch7798?.distinctBuyers60s?:0,
+                    largestBuyerSharePct60s=launch7798?.largestBuyerSharePct60s?:-1.0,
+                    top3BuyerSharePct60s=launch7798?.top3BuyerSharePct60s?:-1.0,
+                    momentumScore=momentum7798,bundleRisk=ts.safety.bundleRisk,
+                    firstBlockSupplyPct=ts.safety.firstBlockSupplyPct,
+                    devSelling=devSelling7798||(launch7798?.devSellTx60s?:0)>0,
+                    socialVelocityScore=social7798,emitTelemetry=false
+                )
             } else null
         } catch (_:Throwable){null}
         val hunterLift7791=when(earlyHunter7791?.tier){
