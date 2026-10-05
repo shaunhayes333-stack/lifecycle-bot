@@ -14846,4 +14846,11 @@ class GoldenTapeRegressionTest {
         assertTrue(order.indexOf("recoverDeadLiveClosing7793") in 0 until order.indexOf("recoverStaleLiveClosing7146"))
         assertTrue(led.contains("LIVE_TERMINAL_DEAD_JOB_CLOSING_RELEASED_7793"))
     }
+
+    @org.junit.Test fun sealDoesNotStampMarkRejectWithoutASealedMark7805() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        org.junit.Assert.assertTrue(gate.contains("if (markReady7803) ToolkitSignalSheet.recordDeskStage("))
+        org.junit.Assert.assertFalse(gate.contains("if (markReady7803) \"MARK_READY\" else \"MARK_REJECT\""))
+        org.junit.Assert.assertTrue(gate.contains("SPECIALIST_CANONICAL_MARK_REJECT_7803"))
+    }
 }

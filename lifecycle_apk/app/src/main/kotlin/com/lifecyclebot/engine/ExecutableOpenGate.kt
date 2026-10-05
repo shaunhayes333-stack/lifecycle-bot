@@ -462,9 +462,14 @@ object ExecutableOpenGate {
                     authoritative.executableMarkPriceUsd6613.isFinite() &&
                     authoritative.executableMarkPriceUsd6613 > 0.0 &&
                     authoritative.executableMarkSource6613.isNotBlank()
-                ToolkitSignalSheet.recordDeskStage(
+                // V5.0.7805 — only a sealed mark is stamped here. A missing
+                // mark is left for the downstream mark stage (7790) to record;
+                // stamping MARK_REJECT at seal invented a MARK stage that the
+                // 7687 funnel contract forbids (Field Manual L415: reconcile the
+                // journal with what actually happened — no fabricated stages).
+                if (markReady7803) ToolkitSignalSheet.recordDeskStage(
                     authoritative.canonicalLane,
-                    if (markReady7803) "MARK_READY" else "MARK_REJECT",
+                    "MARK_READY",
                     authoritative.attemptId,
                 )
                 PipelineHealthCollector.labelInc(
