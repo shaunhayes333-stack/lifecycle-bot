@@ -5423,6 +5423,7 @@ class Executor(
                                 com.lifecyclebot.learning.LayerVoteStore.closeoutMeme(
                                     mint = _fanoutMint, isWin = _fanoutPnlPct >= 1.0,
                                     pnlPct = _fanoutPnlPct, symbol = _fanoutSymbol,
+                                    environment = if (_fanoutIsPaper) TradeEnvironment.PAPER else TradeEnvironment.LIVE,
                                 )
                             } catch (_: Exception) {}
                         }
