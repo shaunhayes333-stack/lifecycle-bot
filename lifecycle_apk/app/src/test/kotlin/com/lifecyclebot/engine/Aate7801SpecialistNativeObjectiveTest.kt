@@ -51,6 +51,14 @@ class Aate7801SpecialistNativeObjectiveTest {
         assertTrue(s.contains("nativeDiscoveryMultiplier7801"))
     }
 
+    @Test fun coreUsesGeneralistEconomicObjectiveNotMoonshotTailObjective() {
+        val core = SpecialistObjective7801.evaluate("CORE", 12.0, 90L*60_000L)
+        val moon = SpecialistObjective7801.evaluate("MOONSHOT", 12.0, 90L*60_000L)
+        assertTrue(core.mandateSuccess)
+        assertFalse(moon.mandateSuccess)
+        assertTrue(core.utility > moon.utility)
+    }
+
     @Test fun ownershipUsesNativeThesisBeforeStaticPriority() {
         val s=File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
         assertTrue(s.contains("NATIVE THESIS OWNS THE TRADE"))
