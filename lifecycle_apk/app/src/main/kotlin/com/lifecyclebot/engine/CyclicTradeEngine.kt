@@ -193,7 +193,40 @@ object CyclicTradeEngine {
         if(ts.lastPrice<=0.0||age==null||age>90_000L)return CandidateOpinion7542(false,0,0,"PRICE_NOT_FRESH")
         if(!cyclicEntrySellabilityGuard6097(ts,"native_brain_7542",isLive))return CandidateOpinion7542(false,0,0,"SELLABILITY_REJECT")
         if(TokenBlacklist.isBlocked(ts.mint)||MemeLossStreakGuard.isBlocked(ts.mint))return CandidateOpinion7542(false,0,0,"KNOWN_BAD_MINT")
-        val score=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100);val conf=(ts.lastV3Confidence?:50).coerceIn(0,100)
+        val baseScore7802=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100)
+        val baseConf7802=(ts.lastV3Confidence?:50).coerceIn(0,100)
+
+        // V5.0.7802 — CYCLIC must prove an actual repeatable structure. Generic
+        // V3 quality is context, not the native thesis.
+        val realHist7802=try{ts.history.toList().filter{!it.synthetic&&it.priceUsd.isFinite()&&it.priceUsd>0.0}.takeLast(24)}catch(_:Throwable){emptyList()}
+        if(realHist7802.size<6)return CandidateOpinion7542(false,baseScore7802,baseConf7802,"CYCLIC_HISTORY_INSUFFICIENT_7802_n="+realHist7802.size)
+        val prices7802=realHist7802.map{it.priceUsd}
+        val diffs7802=prices7802.zipWithNext().map{it.second-it.first}
+        val turns7802=diffs7802.zipWithNext().count{(a,b)->(a>0&&b<0)||(a<0&&b>0)}
+        val lo7802=prices7802.minOrNull()?:ts.lastPrice
+        val hi7802=prices7802.maxOrNull()?:ts.lastPrice
+        val rangePct7802=if(lo7802>0.0)((hi7802/lo7802)-1.0)*100.0 else 0.0
+        val positionInRange7802=if(hi7802>lo7802)((ts.lastPrice-lo7802)/(hi7802-lo7802)).coerceIn(0.0,1.0)else 0.5
+        val vols7802=realHist7802.map{it.vol}.filter{it.isFinite()&&it>0.0}
+        val recentVol7802=vols7802.takeLast(3).takeIf{it.isNotEmpty()}?.average()?:0.0
+        val priorVol7802=vols7802.dropLast(minOf(3,vols7802.size)).takeLast(6).takeIf{it.isNotEmpty()}?.average()?:0.0
+        val volReexpand7802=recentVol7802>0.0&&priorVol7802>0.0&&recentVol7802>=priorVol7802*1.10
+        val holderStable7802=ts.holderGrowthRate>=-2.0
+        val bp7802=ts.lastBuyPressurePct.takeIf{it.isFinite()}?:50.0
+        var cycleEvidence7802=0
+        cycleEvidence7802+=when{turns7802>=4->24;turns7802>=3->18;turns7802>=2->10;else->0}
+        cycleEvidence7802+=when{rangePct7802 in 12.0..80.0->16;rangePct7802 in 6.0..<12.0->8;rangePct7802>120.0->-12;else->0}
+        cycleEvidence7802+=when{positionInRange7802 in 0.25..0.65->12;positionInRange7802<0.20->4;positionInRange7802>0.90->-10;else->6}
+        if(volReexpand7802)cycleEvidence7802+=12
+        if(holderStable7802)cycleEvidence7802+=8 else cycleEvidence7802-=10
+        if(bp7802 in 50.0..68.0)cycleEvidence7802+=8 else if(bp7802<40.0)cycleEvidence7802-=8
+        val cycleProof7802=turns7802>=2&&rangePct7802>=6.0&&rangePct7802<=120.0&&holderStable7802
+        if(!cycleProof7802){
+            try{PipelineHealthCollector.labelInc("CYCLIC_PATTERN_NOT_PROVEN_7802")}catch(_:Throwable){}
+            return CandidateOpinion7542(false,baseScore7802,baseConf7802,"CYCLIC_PATTERN_NOT_PROVEN_7802 turns="+turns7802+" range="+String.format("%.1f",rangePct7802)+" holderGrowth="+String.format("%.1f",ts.holderGrowthRate))
+        }
+        val score=(baseScore7802*0.65+cycleEvidence7802.coerceIn(0,100)*0.35).toInt().coerceIn(0,100)
+        val conf=(baseConf7802*0.60+cycleEvidence7802.coerceIn(0,100)*0.40).toInt().coerceIn(0,100)
         val bootstrap=try{com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()<0.40}catch(_:Throwable){false}
         val wr=if(cycleCount>0)winCount*100.0/cycleCount.toDouble()else 0.0;val cold=cycleCount>=3&&(wr<35.0||ringBalanceUsd<lockedFloorUsd.coerceAtLeast(RING_SIZE_USD)*0.80)
         var floor=when{cold->COLD_MIN_SCORE_TO_ENTER;bootstrap->MIN_SCORE_TO_ENTER_BOOTSTRAP;else->MIN_SCORE_TO_ENTER}
@@ -211,7 +244,8 @@ object CyclicTradeEngine {
         if(badExp||danger)try{PipelineHealthCollector.labelInc("CYCLIC_NEGATIVE_EXPECTANCY_SOFT_SHAPE_7547")}catch(_:Throwable){}
         val ok=score.toDouble()>=floor
         val memoryTag=if(badExp||danger)"_MEMORY_SHAPED" else ""
-        return CandidateOpinion7542(ok,score,conf,if (ok) "CYCLIC_NATIVE_SCORE_${score}_FLOOR_${floor.toInt()}$memoryTag" else "CYCLIC_SCORE_BELOW_FLOOR_${score}_LT_${floor.toInt()}$memoryTag")
+        val cycleTag7802="_CYCLE_t"+turns7802+"_r"+rangePct7802.toInt()+"_pos"+(positionInRange7802*100).toInt()+"_vol"+(if(volReexpand7802)1 else 0)
+        return CandidateOpinion7542(ok,score,conf,if (ok) "CYCLIC_NATIVE_SCORE_"+score+"_FLOOR_"+floor.toInt()+memoryTag+cycleTag7802 else "CYCLIC_SCORE_BELOW_FLOOR_"+score+"_LT_"+floor.toInt()+memoryTag+cycleTag7802)
     }
 
     private data class CyclicPriceVerdict(
