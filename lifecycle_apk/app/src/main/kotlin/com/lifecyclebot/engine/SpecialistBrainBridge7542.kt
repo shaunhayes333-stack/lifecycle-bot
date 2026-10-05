@@ -42,6 +42,118 @@ object SpecialistBrainBridge7542 {
     }catch(_:Throwable){};return Opinion(lane,false,0,0,0.0,"BRAIN_ERROR_${t.javaClass.simpleName}","NONE","brain_error","brain_error",gradeable=false,authoritative=false).also{lastOpinion[lane]=it}}
 
     /**
+     * V5.0.7801 — lane-native evidence shaping.
+     *
+     * Native evaluators still own ELIGIBILITY. This function can only reshape
+     * score/confidence/size/hold for an already-eligible native opinion using
+     * real cached evidence that the old bridge failed to pass into that lane.
+     */
+    private fun shapeNative7801(o: Opinion, ts: TokenState, launch: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Snapshot?): Opinion {
+        if (!o.authoritative || !o.eligible) return o
+        val lane=o.lane.uppercase()
+        val hg=ts.holderGrowthRate.takeIf{it.isFinite()}?:0.0
+        val top=ts.topHolderPct?:ts.tokenMap.topHolderConcentrationPct?:ts.safety.topHolderPct.takeIf{it>=0.0}?:25.0
+        val bp=ts.lastBuyPressurePct.takeIf{it.isFinite()}?:50.0
+        val social=try{BirdeyeMetaDataProvider.peekCached(ts.mint)?.let{listOf(it.twitter,it.telegram,it.website,it.discord).count{x->x.isNotBlank()}}?:0}catch(_:Throwable){0}
+        val smart=launch?.smartMoneyBuyers60s?:0
+        val buyers=launch?.distinctBuyers60s?:0
+        val repeat=launch?.repeatBuyerWallets60s?:0
+        val largest=launch?.largestBuyerSharePct60s?:0.0
+        val devSell=(launch?.devSellTx60s?:0)>0
+        val momentum5=ts.lastPriceChange5m.takeIf{it.isFinite()}?:0.0
+        val momentum1h=ts.lastPriceChange1h.takeIf{it.isFinite()}?:0.0
+        val regime=try{MarketRegimeAI.getCurrentRegime().label.uppercase()}catch(_:Throwable){"DEFAULT"}
+        var delta=0
+        var confDelta=0
+        var size=o.sizeMult
+        var hold=o.holdMult
+        val extra=mutableSetOf<String>()
+        when(lane){
+            "QUALITY"->{
+                if(hg>=2){delta+=6;extra+="HOLDER_GROWTH"}
+                if(top<=20){delta+=5;extra+="HOLDER_HEALTH"}
+                if(social>=2){delta+=4;extra+="SOCIAL_PERSISTENCE"}
+                if(smart>=2){delta+=5;extra+="SMART_MONEY"}
+                if(momentum1h in 2.0..25.0){delta+=4;extra+="TREND_QUALITY"}
+                if(devSell||top>=45){delta-=12;size*=0.75}
+            }
+            "BLUECHIP"->{
+                val ratio=if(ts.lastLiquidityUsd>0)ts.lastMcap/ts.lastLiquidityUsd else Double.MAX_VALUE
+                if(ts.lastLiquidityUsd>=50_000&&ratio<=100){delta+=7;extra+="DEPTH_SANITY"}
+                if(smart>=2){delta+=5;extra+="SMART_MONEY"}
+                if(social>=2){delta+=3;extra+="SOCIAL_PERSISTENCE"}
+                if(momentum1h in -5.0..20.0){delta+=4;extra+="SWING_STRUCTURE"}
+                if(regime.contains("RISK_OFF")){delta-=5;size*=0.85}
+            }
+            "SHITCOIN"->{
+                if(hg>=5){delta+=7;extra+="HOLDER_ACCEL"}
+                if(buyers>=5){delta+=7;extra+="BUYER_BREADTH"}
+                if(social>=2){delta+=5;extra+="SOCIAL_BURST"}
+                if(smart>=2){delta+=4;extra+="SMART_MONEY"}
+                if(ts.meta.curveProgress in 10.0..85.0){delta+=4;extra+="CURVE_PROGRESS"}
+                if(devSell||largest>=70){delta-=15;size*=0.70}
+            }
+            "EXPRESS"->{
+                if(launch?.accelerationRising==true){delta+=8;extra+="TX_ACCEL"}
+                if(momentum5 in 2.0..18.0){delta+=7;extra+="PRICE_ACCEL"}
+                if(bp>=58){delta+=5;extra+="ORDER_FLOW"}
+                if(hg>0){delta+=3;extra+="HOLDER_VELOCITY"}
+                if(momentum5>35||launch?.tooLateForSnipe==true){delta-=12;hold*=0.80}
+            }
+            "PROJECT_SNIPER"->{
+                val creator=try{OperatorRegistry.getDevWallet(ts.mint)}catch(_:Throwable){null}
+                val ped=try{OperatorFingerprintAI.creatorEvidence7799(creator)}catch(_:Throwable){null}
+                if(ped!=null&&ped.sampleCount>=5&&ped.winRate>=0.55){delta+=6;extra+="CREATOR_PEDIGREE"}
+                if(smart>=2){delta+=5;extra+="SMART_MONEY_EARLY"}
+                if(devSell){delta-=20;size*=0.60}
+            }
+            "DIP_HUNTER"->{
+                val hs=try{ts.history.toList().map{it.holderCount}.filter{it>0}}catch(_:Throwable){emptyList()}
+                val holderDelta=if(hs.size>=2)hs.last()-hs.first() else 0
+                if(holderDelta>=0){delta+=5;extra+="HOLDER_RETENTION"}else if(holderDelta< -10){delta-=8}
+                if(smart>=1){delta+=4;extra+="SMART_REACCUM"}
+                if(bp>=52){delta+=4;extra+="BUYER_RETURN"}
+                if(social>=2){delta+=3;extra+="NARRATIVE_PERSISTENCE"}
+                if(devSell){delta-=15;size*=0.65}
+            }
+            "MANIPULATED"->{
+                if(repeat>=2){delta+=7;extra+="REPEAT_WALLETS"}
+                if(ts.safety.firstBlockSupplyPct>=25){delta+=6;extra+="BUNDLE_STRUCTURE"}
+                if(bp>=70&&momentum5>=8){delta+=6;extra+="ENGINEERED_IGNITION"}
+                if(launch?.phase==com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION){delta+=5;extra+="FAVOURABLE_PHASE"}
+                if(devSell||launch?.phase==com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.POST_PUMP_FADE){delta-=20;hold*=0.65}
+            }
+            "TREASURY"->{
+                if(ts.lastLiquidityUsd>=50_000){delta+=7;extra+="DEEP_LIQUIDITY"}
+                if(ts.tokenMap.jupiterQuoteOk||ts.tokenMap.dexRouteOk){delta+=5;extra+="EXECUTION_QUALITY"}
+                if(kotlin.math.abs(momentum5)<=12){delta+=3;extra+="CONTROLLED_VOL"}
+                if(top>=40||devSell){delta-=15;size*=0.60}
+            }
+            "CASHGEN"->{
+                if(ts.lastLiquidityUsd>=20_000){delta+=5;extra+="LIQUIDITY"}
+                if(momentum5 in 0.5..10.0){delta+=6;extra+="SHORT_MOMENTUM"}
+                if(bp>=52){delta+=4;extra+="ORDER_FLOW"}
+                if(kotlin.math.abs(momentum1h)>35){delta-=8;hold*=0.80}
+            }
+            "CYCLIC"->{
+                val prices=try{ts.history.toList().map{it.priceUsd}.filter{it>0}.takeLast(8)}catch(_:Throwable){emptyList()}
+                val turns=if(prices.size>=6)prices.zipWithNext().map{it.second-it.first}.zipWithNext().count{(a,b)->(a>0&&b<0)||(a<0&&b>0)}else 0
+                if(turns>=2){delta+=8;extra+="REPEATING_CYCLE"}
+                if(kotlin.math.abs(momentum1h)<=12){delta+=4;extra+="RANGE_STRUCTURE"}
+                if(hg>=0){delta+=3;extra+="HOLDER_STABILITY"}
+            }
+        }
+        if(delta>0)confDelta=(delta/2).coerceAtMost(10)
+        val score=(o.score+delta).coerceIn(0,100)
+        val conf=(o.confidence+confDelta).coerceIn(0,100)
+        return o.copy(
+            score=score,confidence=conf,sizeMult=size.coerceIn(0.30,1.15),holdMult=hold.coerceIn(0.30,3.50),
+            reason=o.reason+";nativeEvidence7801="+extra.joinToString("+")+";delta="+delta,
+            tools=o.tools+extra+"NATIVE_EVIDENCE_7801"
+        )
+    }
+
+    /**
      * V5.0.7650 - read-only access for higher-order reasoning.
      * Returns only the already-evaluated specialist snapshot; never invokes a
      * trader brain or provider from the oracle/planner path.
@@ -167,6 +279,10 @@ object SpecialistBrainBridge7542 {
         out["TREASURY"]=try{val x=TreasuryBrain.evaluate(ts);val ok=x.category!="SKIP"&&x.score>=50.0;op("TREASURY",ok,x.score.toInt(),x.score.toInt(),0.0,x.reasons.joinToString(";").ifBlank{x.category},"CASHFLOW_SCALP","treasury_native_confirmed_scalp","treasury_native_bank",0.75,x.sizeMultiplier.coerceIn(0.3,1.15),0.9,setOf("TREASURY_BRAIN","MOMENTUM_5M_15M","EMA_FAN","DEPTH"))}catch(t:Throwable){err("TREASURY",t)}
         out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin);op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
         out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
+
+        out.keys.toList().forEach { lane ->
+            out[lane]?.let { original -> out[lane] = shapeNative7801(original, ts, launch) }
+        }
 
         val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
         val strongNative7801=av>=70
