@@ -475,20 +475,32 @@ object UnifiedPolicyHead {
         } catch (_: Throwable) { false }
     }
 
-    private fun trainOneOutcome6681(lane: String, x: DoubleArray, pnlPct: Double) {
-        val y = if (pnlPct > 0.0) 1.0 else 0.0
+    private fun trainOneOutcome6681(
+        lane: String,
+        x: DoubleArray,
+        pnlPct: Double,
+        holdingTimeMs: Long = 0L,
+        exitReason: String = "",
+    ) {
+        val yGlobal = if (pnlPct > 0.0) 1.0 else 0.0
+        val objective7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                lane, pnlPct, holdingTimeMs, exitReason
+            )
+        } catch (_: Throwable) { null }
+        val yLane = if (objective7801?.mandateSuccess == true) 1.0 else if (objective7801 != null) 0.0 else yGlobal
         // V5.0.7349b §A_600X_IS_NOT_ONE_WIN. The label is win/loss, so a +59,900%
         // runner taught this head exactly what a +1% scratch did — and its output
         // vetoes entries (policyVeto7260). Winning samples now carry a bounded
         // importance weight, 1 + ln(1 + pnl/100) (~1.7 at 2x, ~4.6 at 100x, ~6.4
         // at 600x), so the features of big winners pull harder. Losses keep 1.0.
-        val sampleW7349 = if (y > 0.0 && pnlPct.isFinite())
+        val sampleW7349 = if (yGlobal > 0.0 && pnlPct.isFinite())
             1.0 + kotlin.math.ln(1.0 + pnlPct.coerceIn(0.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) / 100.0)
         else 1.0
 
         // Exactly ONE global update per terminal canonical position.
         val pG = rawProbGlobal(x)
-        val errG = (pG - y) * sampleW7349
+        val errG = (pG - yGlobal) * sampleW7349
         for (i in 0 until NF) {
             val g = errG * (x[i] - featMean[i]) + L2 * w[i]
             w[i] -= LR * g
@@ -501,7 +513,12 @@ object UnifiedPolicyHead {
         // labelled as if they executed this trade.
         val h = getOrCreateLaneHead(lane)
         val pL = rawProbLane(h, x)
-        val errL = (pL - y) * sampleW7349
+        val laneSampleW7801 = when {
+            objective7801 == null -> sampleW7349
+            objective7801.mandateSuccess && pnlPct > 0.0 -> sampleW7349
+            else -> 1.0 + kotlin.math.abs(objective7801.utility).coerceIn(0.0, 2.0) * 0.25
+        }
+        val errL = (pL - yLane) * laneSampleW7801
         for (i in 0 until NF) {
             val g = errL * (x[i] - h.featMean[i]) + L2 * h.w[i]
             h.w[i] -= LR * g
@@ -525,7 +542,7 @@ object UnifiedPolicyHead {
                 "I just leveled up on $lane. Tier=$tierName at n=${h.trained}. The signals are clearer now."
             ) } catch (_: Throwable) {}
         }
-        h.brierSum += (pL - y) * (pL - y)
+        h.brierSum += (pL - yLane) * (pL - yLane)
         h.brierN += 1
         if (h.brierN > 200L) {
             h.brierSum *= (200.0 / h.brierN)
@@ -538,7 +555,14 @@ object UnifiedPolicyHead {
      * match the finalized mint and owner lane; otherwise we SKIP rather than
      * poison the model with a guessed attribution.
      */
-    fun recordOutcome6681(positionId: String, mint: String, ownerLane: String, pnlPct: Double): Boolean {
+    fun recordOutcome6681(
+        positionId: String,
+        mint: String,
+        ownerLane: String,
+        pnlPct: Double,
+        holdingTimeMs: Long = 0L,
+        exitReason: String = "",
+    ): Boolean {
         if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
         return try {
             val bound = pendingByPosition6681.remove(positionId)
@@ -577,7 +601,7 @@ object UnifiedPolicyHead {
                 true
             } else {
                 synchronized(trainingLock6681) {
-                    trainOneOutcome6681(owner, bound.features, pnlPct)
+                    trainOneOutcome6681(owner, bound.features, pnlPct, holdingTimeMs, exitReason)
                 }
                 causalOutcomeCount6681.incrementAndGet()
                 try {
