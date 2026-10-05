@@ -290,8 +290,19 @@ object PredictiveEntryOracle6915 {
         phase: String,
         emaFan: String,
         manualFoundation: FieldManual7715.FoundationPrior? = null,
+        expertFeaturePrior7813: com.lifecyclebot.engine.ExpertTraderKnowledge7813.Prior? = null,
     ): List<BrainRead> {
         val out = mutableListOf<BrainRead>()
+
+        // V5.0.7813 — canonical expert-trader feature prior. This is the same
+        // decision-time feature vocabulary the hunters and Super planner read.
+        // It is bounded inside the existing brain-network cap and has no veto.
+        expertFeaturePrior7813?.let { prior ->
+            if (prior.deltaPct.isFinite() && kotlin.math.abs(prior.deltaPct) >= 0.05) {
+                out += BrainRead(prior.label, prior.deltaPct.coerceIn(-6.0, 6.0))
+                try { PipelineHealthCollector.labelInc("EXPERT_TRADER_PRIOR_READ_7813") } catch (_: Throwable) {}
+            }
+        }
 
         // The operator's Field Manual is a cold-start prior, not measured EV.
         // It enters the same bounded SSI fusion as the learned brain opinions;
@@ -799,6 +810,7 @@ object PredictiveEntryOracle6915 {
         tactic: String = "",
         candidateConfidence: Double = 0.50,
         manualFoundation: FieldManual7715.FoundationPrior? = null,
+        expertFeaturePrior7813: com.lifecyclebot.engine.ExpertTraderKnowledge7813.Prior? = null,
     ): Forecast {
         evaluations.incrementAndGet()
         val laneKey = lane.trim().uppercase().ifBlank { "UNKNOWN" }
@@ -1021,7 +1033,7 @@ object PredictiveEntryOracle6915 {
 
             var brainDelta7261 = 0.0
             try {
-                val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan, manualFoundation)
+                val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan, manualFoundation, expertFeaturePrior7813)
                 val creatorFacts7632 = reads.filter { it.label.startsWith("creatorRugs(") }
                 val opinionReads7632 = reads.filterNot { it.label.startsWith("creatorRugs(") }
                 val fusion7632 = com.lifecyclebot.engine.SuperSsiFusion7632.fuse(
@@ -1266,7 +1278,7 @@ object PredictiveEntryOracle6915 {
         var brainAdjust6917 = 0.0
         var creatorRugAdjust7329 = 0.0
         try {
-            val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan, manualFoundation)
+            val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, volumeUsd, tokenAgeMinutes, hasGraduated, creator, edgePhase, emaFan, manualFoundation, expertFeaturePrior7813)
             val opinionVotes7632 = mutableListOf<com.lifecyclebot.engine.SuperSsiFusion7632.Vote>()
             for (r in reads) {
                 if (r.label.startsWith("creatorRugs(")) creatorRugAdjust7329 += r.deltaPct

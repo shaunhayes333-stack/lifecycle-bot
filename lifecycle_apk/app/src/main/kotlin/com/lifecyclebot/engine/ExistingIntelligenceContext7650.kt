@@ -22,6 +22,7 @@ object ExistingIntelligenceContext7650 {
         val mctsPolicy: CounterfactualReplayEngine.AlternativeKind?,
         val mctsExpectedDeltaPct: Double,
         val mctsConfidence: Double,
+        val expertPrior7813: ExpertTraderKnowledge7813.Prior,
         val sources: Set<String>,
         val estate7654: SuperIntelligenceEstate7654.Snapshot,
     ) {
@@ -117,6 +118,19 @@ object ExistingIntelligenceContext7650 {
                 sourceLearning7658, 0.60,
             )
 
+            // V5.0.7813 — shared expert-trader doctrine is one ancestry
+            // family regardless of how many downstream brains read it. This makes
+            // the existing de-correlation/ablation machinery automatically police
+            // double-counting while allowing terminal outcomes to calibrate it.
+            if (kotlin.math.abs(expertPrior7813.deltaPct) >= 0.05) {
+                observations += SuperEvidenceTopology7651.Observation(
+                    "expert_doctrine_7813",
+                    SuperEvidenceTopology7651.Family.EXPERT_DOCTRINE,
+                    (expertPrior7813.deltaPct / 2.0).coerceIn(-3.0, 3.0),
+                    expertPrior7813.confidence.coerceIn(0.05, 1.0),
+                )
+            }
+
             // Counterfactual replay is a separate empirical ancestry family.
             val mcts = mctsPolicy
             if (mcts != null && mctsConfidence > 0.0) {
@@ -172,7 +186,7 @@ object ExistingIntelligenceContext7650 {
                 mctsExpectedDeltaPct,
                 mctsConfidence,
                 sources.joinToString("+").take(80),
-            ) + " " + estate7654.tag()
+            ) + " " + expertPrior7813.label + " " + estate7654.tag()
         }
     }
 
@@ -222,6 +236,10 @@ object ExistingIntelligenceContext7650 {
             )
         } catch (_: Throwable) { null }
 
+        val expert7813 = try {
+            ExpertTraderKnowledge7813.peekPrior7813(mint, laneKey)
+        } catch (_: Throwable) { ExpertTraderKnowledge7813.Prior.NEUTRAL }
+
         val src = linkedSetOf<String>()
         if (specialist != null) src += "SpecialistBrainBridge7542"
         if (edge != null) src += "UltimateEdgeEngine"
@@ -229,6 +247,7 @@ object ExistingIntelligenceContext7650 {
         if (hypothesis != 1.0) src += "StrategyHypothesisEngine"
         if (lab != 1.0) src += "AsyncStrategyLab"
         if (mcts != null) src += "CounterfactualReplayEngine"
+        if (kotlin.math.abs(expert7813.deltaPct) >= 0.05) src += "ExpertTraderKnowledge7813"
 
         val estate7654 = try {
             SuperIntelligenceEstate7654.read(mint, symbol, laneKey, source)
@@ -249,6 +268,7 @@ object ExistingIntelligenceContext7650 {
             mctsPolicy = mcts?.policy,
             mctsExpectedDeltaPct = mcts?.expectedDeltaPct ?: 0.0,
             mctsConfidence = mcts?.confidence ?: 0.0,
+            expertPrior7813 = expert7813,
             sources = src,
             estate7654 = estate7654,
         )

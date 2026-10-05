@@ -2853,6 +2853,9 @@ object PipelineHealthCollector {
             sb.append("  Learned admission (§6909):    ").append(
                 com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.statusLine()
             ).append("\n")
+            sb.append("  Expert trader core (§7813):   ").append(
+                try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Entry conviction (§6909):     ").append(
                 com.lifecyclebot.engine.truth.EntryConvictionRegistry6909.statusLine()
             ).append("\n")

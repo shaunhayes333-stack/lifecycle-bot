@@ -171,6 +171,7 @@ object LearningPersistence {
             try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}
             try { putBlob("AUTONOMOUS_META_POLICY", com.lifecyclebot.engine.AutonomousMetaPolicy.exportState()) } catch (_: Throwable) {}  // V5.9.1260
             try { putBlob("FORWARD_OUTCOME_MODEL", com.lifecyclebot.engine.ForwardOutcomeModel.exportState()) } catch (_: Throwable) {}  // V5.9.1261
+            try { putBlob("EXPERT_TRADER_KNOWLEDGE_7813", com.lifecyclebot.engine.ExpertTraderKnowledge7813.exportState()) } catch (_: Throwable) {}
             try { putBlob("SUPER_INTELLIGENCE_CALIBRATION_7637", com.lifecyclebot.engine.SuperIntelligenceCalibration7636.exportState()) } catch (_: Throwable) {}
             try { putBlob("SUPER_POLICY_BANDIT_7644", com.lifecyclebot.engine.SuperPolicyBandit7644.exportState()) } catch (_: Throwable) {}
             try { putBlob("SUPER_CAUSAL_POLICY_7647", com.lifecyclebot.engine.SuperCausalPolicyEvaluator7647.exportState()) } catch (_: Throwable) {}
@@ -269,6 +270,7 @@ object LearningPersistence {
         try { getBlob("DAMAGE_CONTROL_WINDOW")?.let { com.lifecyclebot.engine.runtime.DamageControlGate.importState(it) } } catch (_: Throwable) {}  // V5.9.1357
         try { getBlob("AUTONOMOUS_META_POLICY")?.let { com.lifecyclebot.engine.AutonomousMetaPolicy.importState(it) } } catch (_: Throwable) {}  // V5.9.1260
         try { getBlob("FORWARD_OUTCOME_MODEL")?.let { com.lifecyclebot.engine.ForwardOutcomeModel.importState(it) } } catch (_: Throwable) {}  // V5.9.1261
+        try { getBlob("EXPERT_TRADER_KNOWLEDGE_7813")?.let { com.lifecyclebot.engine.ExpertTraderKnowledge7813.importState(it) } } catch (_: Throwable) {}
         try { getBlob("SUPER_INTELLIGENCE_CALIBRATION_7637")?.let { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.importState(it) } } catch (_: Throwable) {}
         try { getBlob("SUPER_POLICY_BANDIT_7644")?.let { com.lifecyclebot.engine.SuperPolicyBandit7644.importState(it) } } catch (_: Throwable) {}
         try { getBlob("SUPER_CAUSAL_POLICY_7647")?.let { com.lifecyclebot.engine.SuperCausalPolicyEvaluator7647.importState(it) } } catch (_: Throwable) {}
@@ -446,6 +448,7 @@ object LearningPersistence {
         z("META_COGNITION")    { com.lifecyclebot.v3.scoring.MetaCognitionAI.reset() }
         z("AUTONOMOUS_META")   { com.lifecyclebot.engine.AutonomousMetaPolicy.reset() }
         z("FORWARD_OUTCOME")   { com.lifecyclebot.engine.ForwardOutcomeModel.reset() }
+        z("EXPERT_TRADER_KNOWLEDGE_7813"){ com.lifecyclebot.engine.ExpertTraderKnowledge7813.reset() }
         z("ORACLE_EDGE_PROOF") { com.lifecyclebot.engine.truth.OracleEdgeProof7263.resetAllLearning7535() }
         z("UNIFIED_POLICY")    { com.lifecyclebot.engine.UnifiedPolicyHead.resetAllLearning7535() }
         z("SIGNAL_QUALITY")    { com.lifecyclebot.engine.SignalQualityTracker.reset() }

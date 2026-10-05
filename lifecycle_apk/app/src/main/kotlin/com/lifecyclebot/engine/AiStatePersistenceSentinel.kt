@@ -20,6 +20,7 @@ object AiStatePersistenceSentinel {
         ExpectedState("ASYNC_STRATEGY_LAB", "AsyncStrategyLab"),
         ExpectedState("SEMANTIC_PATTERN_GRAPH", "SemanticPatternGraph"),
         ExpectedState("COUNTERFACTUAL_REPLAY", "CounterfactualReplayEngine"),
+        ExpectedState("EXPERT_TRADER_KNOWLEDGE_7813", "ExpertTraderKnowledge7813"),
         ExpectedState("RESEARCH_SCOUT", "ResearchScout"),
         ExpectedState("MULTIPLIER_ATTRIBUTION", "MultiplierAttributionLedger"),
         ExpectedState("EXIT_COST_MICROBRAIN", "ExitCostMicrobrain"),

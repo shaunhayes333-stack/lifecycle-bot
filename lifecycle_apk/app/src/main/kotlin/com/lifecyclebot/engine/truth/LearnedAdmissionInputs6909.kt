@@ -294,6 +294,19 @@ object LearnedAdmissionInputs6909 {
                 }
             }
         } catch (_: Throwable) { null }
+        // V5.0.7813 — freeze the canonical expert-trader feature vector
+        // at decision time, before capital commits. The returned prior is bounded
+        // evidence only; safety, FDG and executable-entry authority remain sovereign.
+        val expertPrior7813 = try {
+            com.lifecyclebot.engine.ExpertTraderKnowledge7813.captureDecision7813(
+                ts = tsForBrains6917,
+                lane = laneKey,
+                source = sourceFamilyHint,
+                score = entryScore,
+                confidence = candidateConfidenceHint,
+            )
+        } catch (_: Throwable) { com.lifecyclebot.engine.ExpertTraderKnowledge7813.Prior.NEUTRAL }
+
         val oracle6915 = try {
             PredictiveEntryOracle6915.evaluate(
                 lane = laneKey,
@@ -320,6 +333,7 @@ object LearnedAdmissionInputs6909 {
                 tactic = tacticHint,
                 candidateConfidence = candidateConfidenceHint,
                 manualFoundation = manualFoundation7715,
+                expertFeaturePrior7813 = expertPrior7813,
             )
         } catch (_: Throwable) { null }
         if (oracle6915 != null) {
@@ -482,5 +496,5 @@ object LearnedAdmissionInputs6909 {
             "forecastResolved=${forecastResolved.get()} " +
             "aggUsed6911=${aggregateUsed6911.get()} matureCohorts6911=${matureCohorts6911.get()} " +
             "oracle6915[reads=${oracleReads6915.get()} admit=${oracleAdmit6915.get()} " +
-            "refuse=${oracleRefuse6915.get()}]"
+            "refuse=${oracleRefuse6915.get()}] expert7813=${try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.statusLine() } catch (_: Throwable) { "unavailable" }}"
 }

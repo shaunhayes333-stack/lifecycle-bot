@@ -22,6 +22,10 @@ object SuperEvidenceTopology7651 {
         LLM_COUNCIL,
         SCANNER_ENSEMBLE,
         SCANNER_SOURCE_LEARNING,
+        // V5.0.7813 — one de-correlated family for shared expert-trader doctrine.
+        // Every consumer reads the same canonical feature prior; aliases do not
+        // become independent votes.
+        EXPERT_DOCTRINE,
     }
 
     data class Observation(

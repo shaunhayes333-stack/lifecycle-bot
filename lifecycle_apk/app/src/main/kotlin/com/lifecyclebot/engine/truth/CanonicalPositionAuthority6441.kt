@@ -475,6 +475,10 @@ object CanonicalPositionAuthority6441 {
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.bindPosition(positionId, mint, lane) } catch (_: Throwable) {}
+            // V5.0.7813 — freeze the exact expert-trader feature vector that existed
+            // when this owner lane chose the entry. Terminal learning grades this
+            // position-bound snapshot, never a close-time reconstruction.
+            try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.bindPosition7813(positionId, mint, lane, canonicalMode6490) } catch (_: Throwable) {}
             // V5.0.7809 — freeze oracle / hunter / resident-book entry identity on the position (Field Manual L356).
             try { LearningAttributionBinder7809.onCanonicalOpen7809(positionId, mint, lane) } catch (_: Throwable) {}
             // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.

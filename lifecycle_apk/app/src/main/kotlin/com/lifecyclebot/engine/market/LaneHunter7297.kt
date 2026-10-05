@@ -486,7 +486,8 @@ object LaneHunter7297 {
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
                     p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
                         (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r) *
-                        commonSenseMult7797(p.lane, r) * adaptiveTimingMultiplier7812(p.lane, r)
+                        commonSenseMult7797(p.lane, r) * adaptiveTimingMultiplier7812(p.lane, r) *
+                        com.lifecyclebot.engine.ExpertTraderKnowledge7813.marketRankMultiplier7813(p.lane, r)
                 }
                 .map { it.mint }
         }

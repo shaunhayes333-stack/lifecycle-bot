@@ -145,6 +145,23 @@ object CanonicalEntryAuthority6551 {
                 ?: candidate.confidence
             (if (raw > 1.0) raw / 100.0 else raw).coerceIn(0.0, 1.0)
         } catch (_: Throwable) { 0.50 }
+        // V5.0.7813 — shared expert-trader doctrine for cross-asset
+        // candidates when this asset has a real resident TokenState. CRYPTO_ALT
+        // gets parity with the meme spine; stocks/forex/perps remain neutral
+        // unless their own canonical state can supply the same factual features.
+        val expertPrior7813 = try {
+            val ts7813 = com.lifecyclebot.engine.BotService.status.tokens[candidate.assetId]
+            if (ts7813 != null) {
+                com.lifecyclebot.engine.ExpertTraderKnowledge7813.captureDecision7813(
+                    ts = ts7813,
+                    lane = candidate.specialist.ifBlank { candidate.assetClass.tag },
+                    source = candidate.source,
+                    score = candidate.score.toInt().coerceIn(0, 100),
+                    confidence = candidateConfidence7260,
+                )
+            } else com.lifecyclebot.engine.ExpertTraderKnowledge7813.Prior.NEUTRAL
+        } catch (_: Throwable) { com.lifecyclebot.engine.ExpertTraderKnowledge7813.Prior.NEUTRAL }
+
         val oracle7259 = try {
             PredictiveEntryOracle6915.evaluate(
                 lane = candidate.specialist.ifBlank { candidate.assetClass.tag },
@@ -158,6 +175,7 @@ object CanonicalEntryAuthority6551 {
                 quality = candidate.evidence["setupQuality"].orEmpty(),
                 edgePhase = candidate.evidence["edgePhase"].orEmpty(),
                 candidateConfidence = candidateConfidence7260,
+                expertFeaturePrior7813 = expertPrior7813,
             )
         } catch (_: Throwable) { null }
         val oracleAdmitted7262 = oracle7259 != null &&

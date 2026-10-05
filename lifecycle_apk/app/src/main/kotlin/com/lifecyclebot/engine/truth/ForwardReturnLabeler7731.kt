@@ -593,6 +593,11 @@ object ForwardReturnLabeler7731 {
                 try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
                 // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
                 try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}
+                // V5.0.7813 — counterfactual entry-quality learning. The exact
+                // decision-time expert feature vector is graded whether FDG admitted
+                // or refused the candidate; this is low-weight forward evidence and
+                // never overwrites stronger canonical terminal truth.
+                try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
             }
             if (!o.done240 && age >= H240_MS_7731) {
                 o.done240 = true
