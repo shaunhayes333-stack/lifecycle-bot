@@ -105,6 +105,8 @@ object EarlyMoonshotHunter6415 {
         valuationRunwayScore: Double = 0.0,
         attentionVelocityScore: Double = 0.0,
         telegramCommunityScore: Double = 0.0,
+        valuationGrowthPctPerMin: Double = 0.0,
+        evidenceToValuationRatio: Double = 0.0,
         evidenceAheadOfValuation: Boolean = false,
         creatorSampleCount: Int = 0,
         creatorWinRate: Double = 0.5,
@@ -195,6 +197,9 @@ object EarlyMoonshotHunter6415 {
         if (evidenceAheadOfValuation) {
             fired += Signal("EVIDENCE_AHEAD_OF_VALUATION", 18.0); signals.add("EVIDENCE_AHEAD_OF_VALUATION")
         }
+        if (evidenceToValuationRatio >= 2.0 && valuationGrowthPctPerMin > 0.25) {
+            fired += Signal("EVIDENCE_LEADING_PRICE_STRONGLY", 10.0); signals.add("EVIDENCE_LEADING_PRICE_STRONGLY")
+        }
 
         // V5.0.7800 — MOONSHOT CONFLUENCE.
         // A real tail candidate should not owe its conviction to one noisy feature.
@@ -243,6 +248,8 @@ object EarlyMoonshotHunter6415 {
         if (holderGrowthPct.isFinite() && holderGrowthPct <= -5.0) negative += Signal("HOLDER_GROWTH_SHRINKING", -12.0)
         if (creatorRugCount >= 1) negative += Signal("CREATOR_RUG_HISTORY", -25.0)
         if (creatorSampleCount >= 5 && creatorWinRate < 0.20) negative += Signal("CREATOR_PEDIGREE_POOR", -18.0)
+        if (valuationGrowthPctPerMin >= 3.0 && evidenceToValuationRatio < 0.75)
+            negative += Signal("VALUATION_OUTRUNNING_EVIDENCE", -14.0)
 
         // Apply learned weights.
         var composite = 0.0
