@@ -2053,14 +2053,45 @@ object FluidLearningAI {
     // Blue Chip Layer - Quality holds
     private const val BLUECHIP_MIN_HOLD_BOOTSTRAP = 10.0    // 10 min minimum
     private const val BLUECHIP_MIN_HOLD_MATURE = 5.0        // 5 min minimum
-    private const val BLUECHIP_MAX_HOLD_BOOTSTRAP = 180.0   // 3 hours max during learning
-    private const val BLUECHIP_MAX_HOLD_MATURE = 120.0      // 2 hours max when optimized
+    private const val BLUECHIP_MAX_HOLD_BOOTSTRAP = 480.0   // V5.0.7801: native 8h swing horizon
+    private const val BLUECHIP_MAX_HOLD_MATURE = 360.0      // mature still allows 6h trends
     
     // Moonshot Layer - Let big plays ride
     private const val MOONSHOT_MIN_HOLD_BOOTSTRAP = 15.0    // 15 min minimum
     private const val MOONSHOT_MIN_HOLD_MATURE = 10.0       // 10 min minimum
     private const val MOONSHOT_MAX_HOLD_BOOTSTRAP = 300.0   // 5 hours max during learning
     private const val MOONSHOT_MAX_HOLD_MATURE = 240.0      // 4 hours max when optimized
+
+    // V5.0.7801 — native specialist fluid clocks. The holding layer used to
+    // collapse these desks into SHITCOIN/V3/TREASURY families.
+    private const val EXPRESS_MIN_HOLD_BOOTSTRAP = 0.0
+    private const val EXPRESS_MIN_HOLD_MATURE = 0.0
+    private const val EXPRESS_MAX_HOLD_BOOTSTRAP = 30.0
+    private const val EXPRESS_MAX_HOLD_MATURE = 20.0
+    private const val SNIPER_MIN_HOLD_BOOTSTRAP = 0.0
+    private const val SNIPER_MIN_HOLD_MATURE = 0.0
+    private const val SNIPER_MAX_HOLD_BOOTSTRAP = 120.0
+    private const val SNIPER_MAX_HOLD_MATURE = 90.0
+    private const val MANIP_MIN_HOLD_BOOTSTRAP = 0.0
+    private const val MANIP_MIN_HOLD_MATURE = 0.0
+    private const val MANIP_MAX_HOLD_BOOTSTRAP = 5.0
+    private const val MANIP_MAX_HOLD_MATURE = 4.0
+    private const val DIP_MIN_HOLD_BOOTSTRAP = 5.0
+    private const val DIP_MIN_HOLD_MATURE = 3.0
+    private const val DIP_MAX_HOLD_BOOTSTRAP = 360.0
+    private const val DIP_MAX_HOLD_MATURE = 240.0
+    private const val CYCLIC_MIN_HOLD_BOOTSTRAP = 3.0
+    private const val CYCLIC_MIN_HOLD_MATURE = 2.0
+    private const val CYCLIC_MAX_HOLD_BOOTSTRAP = 120.0
+    private const val CYCLIC_MAX_HOLD_MATURE = 90.0
+    private const val CASHGEN_MIN_HOLD_BOOTSTRAP = 1.0
+    private const val CASHGEN_MIN_HOLD_MATURE = 0.5
+    private const val CASHGEN_MAX_HOLD_BOOTSTRAP = 45.0
+    private const val CASHGEN_MAX_HOLD_MATURE = 30.0
+    private const val CORE_MIN_HOLD_BOOTSTRAP = 3.0
+    private const val CORE_MIN_HOLD_MATURE = 2.0
+    private const val CORE_MAX_HOLD_BOOTSTRAP = 240.0
+    private const val CORE_MAX_HOLD_MATURE = 180.0
     
     /**
      * Get fluid minimum hold time for a layer (in minutes).
@@ -2070,15 +2101,22 @@ object FluidLearningAI {
     fun getFluidMinHoldMinutes(layer: String): Double {
         return when (layer.uppercase()) {
             "TREASURY" -> lerp(TREASURY_MIN_HOLD_BOOTSTRAP, TREASURY_MIN_HOLD_MATURE)
-            "SHITCOIN", "SHITCOIN_EXPRESS", "EXPRESS" -> lerp(SHITCOIN_MIN_HOLD_BOOTSTRAP, SHITCOIN_MIN_HOLD_MATURE)
+            "CASHGEN" -> lerp(CASHGEN_MIN_HOLD_BOOTSTRAP, CASHGEN_MIN_HOLD_MATURE)
+            "SHITCOIN", "SHITCOIN_EXPRESS" -> lerp(SHITCOIN_MIN_HOLD_BOOTSTRAP, SHITCOIN_MIN_HOLD_MATURE)
+            "EXPRESS" -> lerp(EXPRESS_MIN_HOLD_BOOTSTRAP, EXPRESS_MIN_HOLD_MATURE)
+            "PROJECT_SNIPER", "PRESALE_SNIPE" -> lerp(SNIPER_MIN_HOLD_BOOTSTRAP, SNIPER_MIN_HOLD_MATURE)
+            "MANIPULATED", "MANIP" -> lerp(MANIP_MIN_HOLD_BOOTSTRAP, MANIP_MIN_HOLD_MATURE)
+            "DIP_HUNTER" -> lerp(DIP_MIN_HOLD_BOOTSTRAP, DIP_MIN_HOLD_MATURE)
+            "CYCLIC" -> lerp(CYCLIC_MIN_HOLD_BOOTSTRAP, CYCLIC_MIN_HOLD_MATURE)
+            "CORE" -> lerp(CORE_MIN_HOLD_BOOTSTRAP, CORE_MIN_HOLD_MATURE)
             "V3", "V3_QUALITY", "QUALITY" -> lerp(V3_MIN_HOLD_BOOTSTRAP, V3_MIN_HOLD_MATURE)
             "BLUECHIP", "BLUE_CHIP" -> lerp(BLUECHIP_MIN_HOLD_BOOTSTRAP, BLUECHIP_MIN_HOLD_MATURE)
-            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> 
+            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", "MOONSHOT_MARS", "MOONSHOT_JUPITER" ->
                 lerp(MOONSHOT_MIN_HOLD_BOOTSTRAP, MOONSHOT_MIN_HOLD_MATURE)
-            else -> lerp(V3_MIN_HOLD_BOOTSTRAP, V3_MIN_HOLD_MATURE)  // Default to V3
+            else -> lerp(V3_MIN_HOLD_BOOTSTRAP, V3_MIN_HOLD_MATURE)
         }
     }
-    
+
     /**
      * Get fluid maximum hold time for a layer (in minutes).
      * Bootstrap: Wider windows (learning optimal timing)
@@ -2087,15 +2125,22 @@ object FluidLearningAI {
     fun getFluidMaxHoldMinutes(layer: String): Double {
         return when (layer.uppercase()) {
             "TREASURY" -> lerp(TREASURY_MAX_HOLD_BOOTSTRAP, TREASURY_MAX_HOLD_MATURE)
-            "SHITCOIN", "SHITCOIN_EXPRESS", "EXPRESS" -> lerp(SHITCOIN_MAX_HOLD_BOOTSTRAP, SHITCOIN_MAX_HOLD_MATURE)
+            "CASHGEN" -> lerp(CASHGEN_MAX_HOLD_BOOTSTRAP, CASHGEN_MAX_HOLD_MATURE)
+            "SHITCOIN", "SHITCOIN_EXPRESS" -> lerp(SHITCOIN_MAX_HOLD_BOOTSTRAP, SHITCOIN_MAX_HOLD_MATURE)
+            "EXPRESS" -> lerp(EXPRESS_MAX_HOLD_BOOTSTRAP, EXPRESS_MAX_HOLD_MATURE)
+            "PROJECT_SNIPER", "PRESALE_SNIPE" -> lerp(SNIPER_MAX_HOLD_BOOTSTRAP, SNIPER_MAX_HOLD_MATURE)
+            "MANIPULATED", "MANIP" -> lerp(MANIP_MAX_HOLD_BOOTSTRAP, MANIP_MAX_HOLD_MATURE)
+            "DIP_HUNTER" -> lerp(DIP_MAX_HOLD_BOOTSTRAP, DIP_MAX_HOLD_MATURE)
+            "CYCLIC" -> lerp(CYCLIC_MAX_HOLD_BOOTSTRAP, CYCLIC_MAX_HOLD_MATURE)
+            "CORE" -> lerp(CORE_MAX_HOLD_BOOTSTRAP, CORE_MAX_HOLD_MATURE)
             "V3", "V3_QUALITY", "QUALITY" -> lerp(V3_MAX_HOLD_BOOTSTRAP, V3_MAX_HOLD_MATURE)
             "BLUECHIP", "BLUE_CHIP" -> lerp(BLUECHIP_MAX_HOLD_BOOTSTRAP, BLUECHIP_MAX_HOLD_MATURE)
-            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> 
+            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", "MOONSHOT_MARS", "MOONSHOT_JUPITER" ->
                 lerp(MOONSHOT_MAX_HOLD_BOOTSTRAP, MOONSHOT_MAX_HOLD_MATURE)
-            else -> lerp(V3_MAX_HOLD_BOOTSTRAP, V3_MAX_HOLD_MATURE)  // Default to V3
+            else -> lerp(V3_MAX_HOLD_BOOTSTRAP, V3_MAX_HOLD_MATURE)
         }
     }
-    
+
     /**
      * Check if a position has exceeded its optimal hold time.
      * Returns true if position should be considered for exit due to time.
