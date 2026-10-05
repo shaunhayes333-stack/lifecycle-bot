@@ -270,6 +270,9 @@ object ShitCoinExpress {
         isTrending: Boolean,
         isBoosted: Boolean,
         tokenAgeMinutes: Double,
+        holderGrowthPct: Double = 0.0,
+        distinctBuyers60s: Int = 0,
+        launchAccelerationRising: Boolean = false,
     ): ExpressSignal {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -429,7 +432,23 @@ object ShitCoinExpress {
             else -> 3
         }
         expressScore += ageScore
-        
+
+        // V5.0.7802 — Express is a velocity desk: reward independent participation
+        // and holder/buyer acceleration, not only the printed candle.
+        val participationScore7802 = when {
+            distinctBuyers60s >= 8 -> 10
+            distinctBuyers60s >= 5 -> 7
+            distinctBuyers60s >= 3 -> 4
+            else -> 0
+        } + when {
+            holderGrowthPct >= 8.0 -> 10
+            holderGrowthPct >= 2.0 -> 6
+            holderGrowthPct > 0.0 -> 3
+            holderGrowthPct <= -5.0 -> -10
+            else -> 0
+        } + if (launchAccelerationRising) 8 else 0
+        expressScore += participationScore7802
+
         // V5.9.236 build-fix: compute metaTrustMult BEFORE using it in confidence
         val metaTrustMult: Double = try {
             val metaPerf = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
@@ -492,6 +511,7 @@ object ShitCoinExpress {
                 "PRICE_5MIN"     to priceScore,
                 "TREND"          to trendScore,
                 "TOKEN_AGE"      to ageScore,
+                "PARTICIPATION_ACCEL_7802" to participationScore7802,
             ).filterValues { it > 0 }
             val (harvardNudge, harvardReason) = EducationSubLayerAI.approvalBoostFor(harvardSig)
             if (harvardNudge != 0) {
