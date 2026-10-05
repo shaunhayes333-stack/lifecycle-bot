@@ -115,6 +115,76 @@ object LaneHunter7297 {
             fits = { r -> r.liquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY },
             rank = { r -> turnover(r).coerceAtMost(3.0) * 2.0 + log10(1.0 + r.volumeH1Usd) },
         ),
+        // V5.0.7796 — the five specialists below previously had NO hunter profile.
+        // They only received generic scanner spillover / source affinity, violating
+        // the lane contract that every specialist hunts prey matching its own design.
+        // These profiles only DISCOVER + CLAIM. Native specialist brains still have
+        // to qualify the token before ownership can change.
+        Profile(
+            "EXPRESS", 1_000.0, 300_000.0,
+            fits = { r ->
+                r.priceChangeH1Pct > 1.0 && r.txCountH1 >= 4 &&
+                    r.volumeH1Usd > 0.0 && r.liquidityUsd > 0.0
+            },
+            rank = { r ->
+                // Momentum ignition / acceleration: prefer active turnover and
+                // a real positive move, but penalise already-exhausted >80% spikes.
+                val chasePenalty = if (r.priceChangeH1Pct > 80.0) 0.45 else 1.0
+                chasePenalty * (activity(r) + 2.5 * turnover(r).coerceAtMost(4.0) +
+                    r.priceChangeH1Pct.coerceIn(0.0, 40.0) / 8.0)
+            },
+        ),
+        Profile(
+            "PROJECT_SNIPER", 3_000.0, 500_000.0,
+            fits = { r ->
+                // ProjectSniperAI is explicitly a pre-ignition / first-minutes desk.
+                r.ageHours in 0.0..0.10 && r.priceChangeH1Pct in -5.0..35.0 &&
+                    r.liquidityUsd >= 1_500.0
+            },
+            rank = { r ->
+                val youth = (1.0 - (r.ageHours / 0.10)).coerceIn(0.0, 1.0) * 5.0
+                youth + activity(r) + 2.0 * turnover(r).coerceAtMost(3.0) +
+                    r.priceChangeH1Pct.coerceIn(-5.0, 15.0) / 10.0
+            },
+        ),
+        Profile(
+            "MANIPULATED", 5_000.0, 300_000.0,
+            fits = { r ->
+                // The hunter finds young, violently one-sided candidates; the
+                // native ManipulatedTraderAI still requires actual manipulation
+                // evidence (bundle/order-flow/etc.) before qualification.
+                r.ageHours in 0.0..0.20 && r.txCountH1 >= 6 &&
+                    r.priceChangeH1Pct >= 5.0 && r.liquidityUsd >= 1_500.0
+            },
+            rank = { r ->
+                3.0 * turnover(r).coerceAtMost(5.0) + activity(r) +
+                    r.priceChangeH1Pct.coerceIn(0.0, 60.0) / 6.0
+            },
+        ),
+        Profile(
+            "CYCLIC", 10_000.0, 5_000_000.0,
+            fits = { r ->
+                // Cyclic is not a first-minute sniper. Hunt sellable, active,
+                // established-enough names with turnover but without a one-way
+                // exhaustion move; its own engine decides whether the cycle exists.
+                r.ageHours >= 0.20 && r.liquidityUsd >= 5_000.0 &&
+                    r.volumeH1Usd > 0.0 && r.priceChangeH1Pct in -15.0..20.0
+            },
+            rank = { r ->
+                2.0 * turnover(r).coerceAtMost(3.0) + activity(r) -
+                    kotlin.math.abs(r.priceChangeH1Pct) / 20.0
+            },
+        ),
+        Profile(
+            "CORE", 1_500.0, 5_000_000.0,
+            fits = { r -> r.liquidityUsd > 0.0 && r.txCountH1 >= 3 },
+            rank = { r ->
+                // CORE is the ensemble/generalist desk: broad opportunity hunt,
+                // deliberately lower-specificity than dedicated specialists.
+                activity(r) + turnover(r).coerceAtMost(2.5) +
+                    r.organicScore / 100.0
+            },
+        ),
     )
 
     // ── per-lane brain ───────────────────────────────────────────────────
