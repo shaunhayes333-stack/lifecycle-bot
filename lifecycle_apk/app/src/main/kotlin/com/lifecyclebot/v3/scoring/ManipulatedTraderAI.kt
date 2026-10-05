@@ -134,6 +134,51 @@ object ManipulatedTraderAI {
         PARTIAL_TAKE,  // V5.9.168: laddered partial-sell signal
     }
 
+    enum class ManipulationPhase7802 {
+        ACCUMULATION,
+        IGNITION,
+        PUBLIC_PUMP,
+        EUPHORIA,
+        DISTRIBUTION,
+        COLLAPSE,
+        UNKNOWN,
+    }
+
+    private fun phase7802(
+        momentum: Double,
+        buyPressurePct: Double,
+        bundlePct: Double,
+        largestBuyerSharePct60s: Double,
+        top3BuyerSharePct60s: Double,
+        repeatBuyerWallets60s: Int,
+        devBuyTx60s: Int,
+        devSellTx60s: Int,
+        accelerationRising: Boolean,
+        launchPhase: String,
+    ): ManipulationPhase7802 {
+        val lp = launchPhase.uppercase()
+        val concentrated = bundlePct >= 40.0 ||
+            largestBuyerSharePct60s >= 40.0 ||
+            top3BuyerSharePct60s >= 70.0 ||
+            repeatBuyerWallets60s >= 2
+        return when {
+            devSellTx60s > 0 && (buyPressurePct < 50.0 || momentum < 0.0) ->
+                ManipulationPhase7802.COLLAPSE
+            lp.contains("POST_PUMP") || (buyPressurePct < 42.0 && momentum <= -4.0) ->
+                ManipulationPhase7802.DISTRIBUTION
+            momentum >= 15.0 && buyPressurePct >= 85.0 ->
+                ManipulationPhase7802.EUPHORIA
+            concentrated && accelerationRising && momentum in 5.0..18.0 && buyPressurePct in 62.0..85.0 ->
+                ManipulationPhase7802.PUBLIC_PUMP
+            concentrated && accelerationRising && momentum in 0.0..12.0 && buyPressurePct >= 58.0 ->
+                ManipulationPhase7802.IGNITION
+            concentrated && momentum < 8.0 && buyPressurePct in 52.0..75.0 &&
+                (repeatBuyerWallets60s >= 2 || devBuyTx60s > 0) ->
+                ManipulationPhase7802.ACCUMULATION
+            else -> ManipulationPhase7802.UNKNOWN
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
     // ═══════════════════════════════════════════════════════════════════════════
@@ -267,6 +312,13 @@ object ManipulatedTraderAI {
         ageMinutes: Double,
         rugcheckScore: Int,
         isPaper: Boolean,
+        largestBuyerSharePct60s: Double = -1.0,
+        top3BuyerSharePct60s: Double = -1.0,
+        repeatBuyerWallets60s: Int = 0,
+        devBuyTx60s: Int = 0,
+        devSellTx60s: Int = 0,
+        accelerationRising: Boolean = false,
+        launchPhase: String = "",
     ): ManipSignal {
         fun noEnter(reason: String) = ManipSignal(
             shouldEnter = false, positionSizeSol = 0.0, manipScore = 0, reason = reason
@@ -297,14 +349,39 @@ object ManipulatedTraderAI {
         // danger lane without any actual manipulation evidence.
         val knownManipulation7425 =
             bundlePct >= 40.0 ||
+            largestBuyerSharePct60s >= 40.0 ||
+            top3BuyerSharePct60s >= 70.0 ||
+            repeatBuyerWallets60s >= 2 ||
             (buyPressurePct >= 70.0 && momentum >= 10.0)
         if (!knownManipulation7425) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIPULATED_NO_KNOWN_DANGER_PROOF_7425") } catch (_: Throwable) {}
             return noEnter("NO_KNOWN_MANIPULATION_EVIDENCE_7425")
         }
 
+        val manipPhase7802 = phase7802(
+            momentum, buyPressurePct, bundlePct,
+            largestBuyerSharePct60s, top3BuyerSharePct60s, repeatBuyerWallets60s,
+            devBuyTx60s, devSellTx60s, accelerationRising, launchPhase,
+        )
+        if (manipPhase7802 == ManipulationPhase7802.DISTRIBUTION ||
+            manipPhase7802 == ManipulationPhase7802.COLLAPSE) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIPULATED_UNFAVOURABLE_PHASE_7802_${manipPhase7802.name}") } catch (_: Throwable) {}
+            return noEnter("UNFAVOURABLE_MANIP_PHASE_7802_${manipPhase7802.name}")
+        }
+
         // Calculate manipulation score
         var score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)
+        score += when (manipPhase7802) {
+            ManipulationPhase7802.ACCUMULATION -> 12
+            ManipulationPhase7802.IGNITION -> 18
+            ManipulationPhase7802.PUBLIC_PUMP -> 14
+            ManipulationPhase7802.EUPHORIA -> -18
+            else -> 0
+        }
+        if (repeatBuyerWallets60s >= 2) score += 6
+        if (accelerationRising) score += 6
+        if (largestBuyerSharePct60s in 0.0..55.0 && top3BuyerSharePct60s in 0.0..80.0) score += 4
+        score = score.coerceIn(0, 100)
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Manipulated lane).
@@ -464,7 +541,7 @@ object ManipulatedTraderAI {
             shouldEnter = true,
             positionSizeSol = positionSizeSol,
             manipScore = score,
-            reason = "MANIP_$score",
+            reason = "MANIP_$score_PHASE_${manipPhase7802.name}",
         )
     }
 
