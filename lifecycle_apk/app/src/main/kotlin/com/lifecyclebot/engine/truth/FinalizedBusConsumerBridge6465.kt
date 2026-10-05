@@ -459,11 +459,18 @@ object FinalizedBusConsumerBridge6465 {
                         pnlPct = pnlPctLearn6707,
                         peakPct = peakPct6707,
                         exitReason = env.exitReason,
+                        holdingTimeMs = env.holdingTimeMs,
                     )
                 } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("MEME_ORIGINAL_ATTRIBUTION_RESTORED_6707_${env.lane.uppercase().take(24)}") } catch (_: Throwable) {}
 
-                val win = pnlPctLearn6707 > 0.5; val loss = pnlPctLearn6707 < -0.5
+                val objective7801 = try {
+                    com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                        env.lane, pnlPctLearn6707, env.holdingTimeMs, env.exitReason
+                    )
+                } catch (_: Throwable) { null }
+                val win = objective7801?.mandateSuccess ?: (pnlPctLearn6707 > 0.5)
+                val loss = if (objective7801 != null) objective7801.utility <= -0.35 else pnlPctLearn6707 < -0.5
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)
                 com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn6707)
             } else {
@@ -496,8 +503,14 @@ object FinalizedBusConsumerBridge6465 {
 
     private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val exitReason = env.exitReason.uppercase()
+        val objective7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                env.lane, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+            )
+        } catch (_: Throwable) { null }
         val exitWasOptimal = when {
             exitReason.contains("STOP_LOSS") || exitReason.contains("STRICT_SL") || exitReason.contains("STOPLOSS") -> false
+            objective7801 != null -> objective7801.mandateSuccess
             exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true
             env.realizedReturnPct >= 2.0 -> true
             else -> false
