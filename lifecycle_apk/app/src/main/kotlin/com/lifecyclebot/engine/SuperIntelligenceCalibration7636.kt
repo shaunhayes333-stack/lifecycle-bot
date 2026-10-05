@@ -142,7 +142,13 @@ object SuperIntelligenceCalibration7636 {
         } ?: SuperWorldModel7634.Horizon.TACTICAL
         val forecast = stamp.world.forHorizon(nearest) ?: return true
 
-        val y = if (env.realizedReturnPct > 0.0) 1.0 else 0.0
+        val objective7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                stamp.lane, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+            )
+        } catch (_: Throwable) { null }
+        val mandateSuccess7801 = objective7801?.mandateSuccess ?: (env.realizedReturnPct > 0.0)
+        val y = if (mandateSuccess7801) 1.0 else 0.0
         val brier = (forecast.pWin - y) * (forecast.pWin - y)
         val evError = abs(forecast.expectedPnlPct - env.realizedReturnPct)
         val directionCorrect =
@@ -161,7 +167,7 @@ object SuperIntelligenceCalibration7636 {
         val ss = stateStats.computeIfAbsent(stamp.world.latentState) { StateStats() }
         synchronized(ss) {
             ss.n += 1
-            if (env.realizedReturnPct > 0.0) ss.wins += 1
+            if (mandateSuccess7801) ss.wins += 1
             ss.realizedSum += env.realizedReturnPct
         }
         try {
@@ -242,14 +248,14 @@ object SuperIntelligenceCalibration7636 {
                 env.realizedReturnPct <= 0.0 -> "LATENT_STATE_OVERBULLISH"
             stamp.world.latentState == SuperWorldModel7634.LatentState.DISTRIBUTING &&
                 env.realizedReturnPct > 0.0 -> "LATENT_STATE_OVERBEARISH"
-            forecast.pWin >= 0.65 && env.realizedReturnPct <= 0.0 -> "HORIZON_PROBABILITY_OVERCONFIDENT"
-            forecast.pWin <= 0.35 && env.realizedReturnPct > 0.0 -> "HORIZON_PROBABILITY_UNDERCONFIDENT"
+            forecast.pWin >= 0.65 && !mandateSuccess7801 -> "HORIZON_PROBABILITY_OVERCONFIDENT"
+            forecast.pWin <= 0.35 && mandateSuccess7801 -> "HORIZON_PROBABILITY_UNDERCONFIDENT"
             stamp.criticFragility < 0.35 && env.realizedReturnPct <= 0.0 -> "CRITIC_TOO_WEAK"
             stamp.criticFragility > 0.70 && env.realizedReturnPct > 0.0 -> "CRITIC_TOO_PESSIMISTIC"
             stamp.treePolicy == SuperPolicyTree7638.Policy.CONVICTION_RUNNER &&
-                env.realizedReturnPct <= 0.0 -> "TREE_CONVICTION_POLICY_WRONG"
+                !mandateSuccess7801 -> "TREE_CONVICTION_POLICY_WRONG"
             stamp.treePolicy == SuperPolicyTree7638.Policy.WAIT_REASSESS &&
-                env.realizedReturnPct > 0.0 -> "TREE_WAIT_POLICY_TOO_TIMID"
+                mandateSuccess7801 -> "TREE_WAIT_POLICY_TOO_TIMID"
             stamp.arbiterDominant == "MEMORY" && env.realizedReturnPct <= 0.0 -> "MEMORY_OVERTRUST"
             stamp.arbiterDominant == "TREE" && env.realizedReturnPct <= 0.0 -> "TREE_OVERTRUST"
             stamp.arbiterDominant == "CRITIC" && env.realizedReturnPct > 0.0 -> "CRITIC_OVERTRUST"

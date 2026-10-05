@@ -46,19 +46,25 @@ object BleederLaneProbation6747 {
 
     private data class Window(
         val results: ArrayDeque<Boolean> = ArrayDeque(WINDOW_SIZE + 1),
+        val utilities: ArrayDeque<Double> = ArrayDeque(WINDOW_SIZE + 1),
         var wins: Int = 0,
+        var utilitySum: Double = 0.0,
     ) {
         @Synchronized
-        fun add(win: Boolean) {
+        fun add(win: Boolean, utility: Double) {
             results.addLast(win)
+            utilities.addLast(utility)
+            utilitySum += utility
             if (win) wins++
             while (results.size > WINDOW_SIZE) {
                 val dropped = results.removeFirst()
                 if (dropped) wins--
+                utilitySum -= utilities.removeFirst()
             }
         }
         val n: Int get() = results.size
         val wr: Double get() = if (n > 0) wins.toDouble() / n.toDouble() else 0.0
+        val meanUtility: Double get() = if (n > 0) utilitySum / n.toDouble() else 0.0
     }
 
     private val windows = ConcurrentHashMap<String, Window>()
@@ -68,34 +74,39 @@ object BleederLaneProbation6747 {
 
     /** Feed a settled trade outcome. Called from TacticSwitcher.onTradeClosed
      *  and V3JournalRecorder.recordClose (already the two authoritative sinks). */
-    fun onTradeClosed(lane: String, pnlPct: Double) {
+    fun onTradeClosed(lane: String, pnlPct: Double, holdingTimeMs: Long = 0L, exitReason: String = "") {
         val laneU = canonicalLane(lane) ?: return
         if (laneU in EXEMPT_LANES) return
-        val win = pnlPct > 0.0
+        val objective7801 = try {
+            SpecialistObjective7801.evaluate(laneU, pnlPct, holdingTimeMs, exitReason)
+        } catch (_: Throwable) { null }
+        val win = objective7801?.mandateSuccess ?: (pnlPct > 0.0)
+        val utility = objective7801?.utility ?: (pnlPct / 20.0).coerceIn(-1.5, 2.0)
         val w = windows.computeIfAbsent(laneU) { Window() }
-        w.add(win)
+        w.add(win, utility)
         if (w.n < MIN_WINDOW) return
         val wr = w.wr
+        val meanUtility = w.meanUtility
         val isProbation = probationSince.containsKey(laneU)
-        if (!isProbation && wr < WR_THRESHOLD) {
+        if (!isProbation && wr < WR_THRESHOLD && meanUtility < 0.0) {
             probationSince[laneU] = System.currentTimeMillis()
             try {
                 PipelineHealthCollector.labelInc("BLEEDER_LANE_ENTERED_PROBATION_6747")
                 PipelineHealthCollector.labelInc("BLEEDER_LANE_ENTERED_PROBATION_6747|$laneU")
                 ForensicLogger.lifecycle(
                     "BLEEDER_LANE_ENTERED_PROBATION_6747",
-                    "lane=$laneU wr=${"%.3f".format(wr)} window=${w.n} threshold=${"%.2f".format(WR_THRESHOLD)} " +
+                    "lane=$laneU wr=${"%.3f".format(wr)} utility=${"%.3f".format(meanUtility)} window=${w.n} threshold=${"%.2f".format(WR_THRESHOLD)} " +
                         "action=only_probes_admitted probeMaxSol=$PROBE_SIZE_MAX_SOL",
                 )
             } catch (_: Throwable) {}
-        } else if (isProbation && wr >= WR_RECOVERY) {
+        } else if (isProbation && (wr >= WR_RECOVERY || meanUtility >= 0.15)) {
             probationSince.remove(laneU)
             try {
                 PipelineHealthCollector.labelInc("BLEEDER_LANE_EXITED_PROBATION_6747")
                 PipelineHealthCollector.labelInc("BLEEDER_LANE_EXITED_PROBATION_6747|$laneU")
                 ForensicLogger.lifecycle(
                     "BLEEDER_LANE_EXITED_PROBATION_6747",
-                    "lane=$laneU wr=${"%.3f".format(wr)} window=${w.n} recovery=${"%.2f".format(WR_RECOVERY)} " +
+                    "lane=$laneU wr=${"%.3f".format(wr)} utility=${"%.3f".format(meanUtility)} window=${w.n} recovery=${"%.2f".format(WR_RECOVERY)} " +
                         "action=admissions_restored",
                 )
             } catch (_: Throwable) {}

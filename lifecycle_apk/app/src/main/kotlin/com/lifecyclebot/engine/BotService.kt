@@ -714,6 +714,10 @@ class BotService : Service() {
     // taps are durable and Stop can cancel a deferred start without races.
     private val serviceStartQueued6516 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val serviceStartRequested6517 = java.util.concurrent.atomic.AtomicBoolean(false)
+    // V5.0.7802 — operator STOP must remain authoritative through stopSelf()/onDestroy.
+    // SharedPreferences can be raced by a still-finishing startBot coroutine; this
+    // instance latch cannot. Only an explicit user ACTION_START clears it.
+    @Volatile private var manualStopResurrectionBlocked7802: Boolean = false
     @Volatile private var serviceBootstrapFailure6517: String = ""
 
     // V5.9.1495 — async safety-refresh trigger. Must fire BEFORE FDG's
@@ -3741,7 +3745,7 @@ class BotService : Service() {
             ACTION_START -> {
                 val userRequested = intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)
                 val forceRestartConfirmed = intent.getBooleanExtra(EXTRA_FORCE_RESTART_CONFIRMED, false)
-                val manualStop = isManualStopRequested(applicationContext)
+                val manualStop = manualStopResurrectionBlocked7802 || isManualStopRequested(applicationContext)
 
                 // V5.9.1081 — every ACTION_START gets a REQUESTED breadcrumb so
                 // the next snapshot can answer "did 10 START taps create 10
@@ -3769,6 +3773,9 @@ class BotService : Service() {
                     return START_NOT_STICKY
                 }
                 if (userRequested) {
+                    // A fresh explicit Start is the only event allowed to revoke
+                    // the manual-stop resurrection block.
+                    manualStopResurrectionBlocked7802 = false
                     userStartQueuedDuringStop = stopInProgress || restartAfterStopDispatchPending6518
                     try {
                         getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
@@ -3930,6 +3937,10 @@ class BotService : Service() {
                     return START_STICKY
                 }
                 try { ForensicLogger.lifecycle("LIFECYCLE_STOP_ACCEPTED", "source=$stopSource manual=$isConfirmedManualStop") } catch (_: Throwable) {}
+                if (isConfirmedManualStop) {
+                    manualStopResurrectionBlocked7802 = true
+                    try { ForensicLogger.lifecycle("MANUAL_STOP_RESURRECTION_BLOCK_ARMED_7802", "source=$stopSource") } catch (_: Throwable) {}
+                }
                 // Close the race before launching the teardown coroutine.  The old
                 // code set this only inside stopBot(), leaving a window where an
                 // ACTION_START saw the still-active old Job and was discarded as
@@ -4262,7 +4273,10 @@ class BotService : Service() {
             getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
         } catch (_: Throwable) { false }
-        if ((status.running || onDestroyHeldCount > 0 || onDestroyWasRunning) && !isManualStopRequested(applicationContext) && !persistenceFinalizedByStop) {
+        val manualStopOnDestroy7802 =
+            manualStopResurrectionBlocked7802 || isManualStopRequested(applicationContext)
+        if ((status.running || onDestroyHeldCount > 0 || onDestroyWasRunning) &&
+            !manualStopOnDestroy7802 && !persistenceFinalizedByStop) {
             try {
                 val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                 val openCount = maxOf(tokensCopy.values.count { it.position.isOpen }, onDestroyHeldCount)
@@ -4298,10 +4312,7 @@ class BotService : Service() {
             // BELOW (EdgeLearning, positions, EntryIntelligence, ExitIntelligence)
             // MUST always run — only skip the alarm-scheduling block when the
             // operator has manually stopped.
-            val manualStopOnDestroy = try {
-                getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
-                    .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
-            } catch (_: Throwable) { false }
+            val manualStopOnDestroy = manualStopOnDestroy7802
             if (manualStopOnDestroy) {
                 try { ForensicLogger.lifecycle("CRASH_RECOVERY_RESTART_SKIPPED_MANUAL_STOP", "site=onDestroy") } catch (_: Throwable) {}
                 ErrorLogger.warn("BotService", "onDestroy: skipping restart — manual stop latch active")
@@ -4363,7 +4374,7 @@ class BotService : Service() {
         // V5.0.3789 — but NEVER re-save after a manual stop already finalized
         // persistence (PositionPersistence.clear()). Re-saving stale pre-clear
         // status.tokens here was the root of the stop/restart ledger drift.
-        if (!persistenceFinalizedByStop && !isManualStopRequested(applicationContext)) {
+        if (!persistenceFinalizedByStop && !manualStopOnDestroy7802) {
             try {
                 val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                 PositionPersistence.saveAllPositions(tokensCopy, force = true)

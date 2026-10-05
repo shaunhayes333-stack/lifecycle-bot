@@ -303,6 +303,7 @@ object MoonshotTraderAI {
         restore()
         // V5.0.4126 — fluid lane pivot. Loads recent-trade window + recomputes phase.
         try { com.lifecyclebot.engine.MoonshotAdaptiveGate.init(context) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.MoonshotSignalLearner6415.init(context) } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "🚀 MoonshotTraderAI persistence initialized | gate=${runCatching { com.lifecyclebot.engine.MoonshotAdaptiveGate.phaseTag() }.getOrDefault("init_fail")}")
     }
     
@@ -777,25 +778,61 @@ object MoonshotTraderAI {
                 val momentum7798=try{com.lifecyclebot.engine.MomentumPredictorAI.getMomentumScore(mint)}catch(_:Throwable){50.0}
                 val danger7798=(ts.safety.summary+" "+ts.safety.bundleReason+" "+ts.safety.hardBlockReasons.joinToString(" ")).uppercase()
                 val devSelling7798=danger7798.contains("DEV_SELL")||danger7798.contains("DEV SELL")
-                val social7798=try{
-                    val boost=com.lifecyclebot.v3.scoring.SocialVelocityAI.getBoostAmount(mint)
-                    val meta=com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(mint)
-                    val links=listOf(meta?.website.orEmpty(),meta?.twitter.orEmpty(),meta?.telegram.orEmpty()).count{it.isNotBlank()}
-                    (links*2.0 + when{boost>=1000->6.0;boost>=500->4.0;boost>=100->2.0;else->0.0}).coerceIn(0.0,12.0)
-                }catch(_:Throwable){0.0}
+                val meta7799=try{com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(mint)}catch(_:Throwable){null}
+                val boost7799=try{com.lifecyclebot.v3.scoring.SocialVelocityAI.getBoostAmount(mint)}catch(_:Throwable){0L}
+                val socialDepth7799=listOf(
+                    meta7799?.website.orEmpty(),meta7799?.twitter.orEmpty(),
+                    meta7799?.telegram.orEmpty(),meta7799?.discord.orEmpty()
+                ).count{it.isNotBlank()}
+                val social7798=(socialDepth7799*2.0 + when{boost7799>=1000->6.0;boost7799>=500->4.0;boost7799>=100->2.0;else->0.0}).coerceIn(0.0,12.0)
+                val telegramCommunity7800=try{
+                    com.lifecyclebot.engine.truth.TelegramCommunityVelocity7800.peekAndRefresh(
+                        mint, meta7799?.telegram
+                    )
+                }catch(_:Throwable){null}
+                val expansion7799=try{
+                    com.lifecyclebot.engine.truth.MoonshotExpansionIntelligence7799.observe(
+                        mint=mint,mcapUsd=marketCapUsd,holderCount=holders7798,
+                        boostAmount=boost7799,socialDepth=socialDepth7799,
+                        telegramPresent=meta7799?.telegram?.isNotBlank()==true,
+                        sentimentScore=ts.sentiment.score,
+                        telegramCommunityScore=telegramCommunity7800?.communityScore?:0.0
+                    )
+                }catch(_:Throwable){null}
+                val creator7799=try{com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint)}catch(_:Throwable){null}
+                val genericPedigree7799=try{com.lifecyclebot.v3.scoring.OperatorFingerprintAI.creatorEvidence7799(creator7799)}catch(_:Throwable){null}
+                val tailPedigree7799=try{com.lifecyclebot.engine.truth.MoonshotSignalLearner6415.creatorTailEvidence7799(creator7799)}catch(_:Throwable){null}
+                val creatorRugs7799=try{
+                    if(creator7799.isNullOrBlank())0 else com.lifecyclebot.engine.TradingMemory.getCreatorRugCount(creator7799)
+                }catch(_:Throwable){0}
                 com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.scoreCandidate(
                     mint=mint,symbol=symbol,mcapUsd=marketCapUsd,liquidityUsd=liquidityObserved7389,
                     vol1hUsd=ts.tokenMap.volume1hUsd?:0.0,sourceCount=sc,
                     buysLastWindow=launch7798?.buyTx60s?:buys,sellsLastWindow=launch7798?.sellTx60s?:sells,
                     rugSafetyConfirmed=safe,holderCount=holders7798,holderGrowthPct=ts.holderGrowthRate,
                     topHolderPct=top7798,smartMoneyBuys60s=smart7798,
+                    launchAgeMs=launch7798?.ageMs?:-1L,
+                    createMultiple=launch7798?.createMultiple?:-1.0,
+                    devBuyTx60s=launch7798?.devBuyTx60s?:0,
                     distinctBuyers60s=launch7798?.distinctBuyers60s?:0,
                     largestBuyerSharePct60s=launch7798?.largestBuyerSharePct60s?:-1.0,
                     top3BuyerSharePct60s=launch7798?.top3BuyerSharePct60s?:-1.0,
                     momentumScore=momentum7798,bundleRisk=ts.safety.bundleRisk,
                     firstBlockSupplyPct=ts.safety.firstBlockSupplyPct,
                     devSelling=devSelling7798||(launch7798?.devSellTx60s?:0)>0,
-                    socialVelocityScore=social7798,emitTelemetry=false
+                    socialVelocityScore=social7798,
+                    valuationRunwayScore=expansion7799?.runwayScore?:0.0,
+                    attentionVelocityScore=expansion7799?.attentionVelocityScore?:0.0,
+                    telegramCommunityScore=telegramCommunity7800?.communityScore?:0.0,
+                    valuationGrowthPctPerMin=expansion7799?.valuationGrowthPctPerMin?:0.0,
+                    evidenceToValuationRatio=expansion7799?.evidenceToValuationRatio?:0.0,
+                    evidenceAheadOfValuation=expansion7799?.evidenceAheadOfValuation?:false,
+                    creatorSampleCount=(tailPedigree7799?.weightedSamples?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+                        ?:genericPedigree7799?.sampleCount?:0),
+                    creatorWinRate=tailPedigree7799?.runnerRate?:genericPedigree7799?.winRate?:0.5,
+                    creatorScoreHint=genericPedigree7799?.scoreHint?:0,
+                    creatorRugCount=creatorRugs7799,
+                    emitTelemetry=false
                 )
             } else null
         } catch (_:Throwable){null}

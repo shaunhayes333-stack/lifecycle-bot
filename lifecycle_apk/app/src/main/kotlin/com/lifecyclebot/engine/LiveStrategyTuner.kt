@@ -128,6 +128,69 @@ object LiveStrategyTuner {
         return fresh
     }
 
+    /**
+     * V5.0.7801 — learned tuning must stay inside the specialist mandate.
+     * Raw PnL can increase/decrease conviction, but it cannot turn a speed,
+     * manipulation or cash-flow desk into a runner desk.
+     */
+    private fun specialistClamp7801(a: Adjustment): Adjustment {
+        val lane = a.lane.uppercase()
+        return when {
+            lane.contains("MOONSHOT") -> a.copy(
+                tpMult = a.tpMult.coerceIn(1.0, 1.75),
+                holdMult = a.holdMult.coerceIn(1.0, 3.20),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(1.0, 3.80),
+            )
+            lane.contains("PROJECT_SNIPER") || lane.contains("PRESALE") -> a.copy(
+                holdMult = a.holdMult.coerceIn(0.75, 1.80),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.90, 2.00),
+            )
+            lane.contains("SHITCOIN") || lane == "MEME" -> a.copy(
+                holdMult = a.holdMult.coerceIn(0.85, 2.20),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.90, 2.50),
+            )
+            lane.contains("EXPRESS") -> a.copy(
+                tpMult = a.tpMult.coerceIn(0.85, 1.25),
+                holdMult = a.holdMult.coerceIn(0.65, 1.10),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.70, 1.15),
+            )
+            lane.contains("MANIP") -> a.copy(
+                tpMult = a.tpMult.coerceIn(0.80, 1.15),
+                holdMult = a.holdMult.coerceIn(0.55, 1.00),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.65, 1.05),
+            )
+            lane.contains("DIP_HUNTER") -> a.copy(
+                tpMult = a.tpMult.coerceIn(0.85, 1.35),
+                holdMult = a.holdMult.coerceIn(0.80, 1.50),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.85, 1.40),
+            )
+            lane.contains("CYCLIC") -> a.copy(
+                tpMult = a.tpMult.coerceIn(0.85, 1.35),
+                holdMult = a.holdMult.coerceIn(0.75, 1.45),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.80, 1.35),
+            )
+            lane.contains("QUALITY") -> a.copy(
+                holdMult = a.holdMult.coerceIn(0.80, 1.75),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.85, 1.75),
+            )
+            lane.contains("BLUECHIP") || lane.contains("BLUE_CHIP") -> a.copy(
+                holdMult = a.holdMult.coerceIn(0.85, 2.00),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.90, 1.80),
+            )
+            lane.contains("TREASURY") -> a.copy(
+                tpMult = a.tpMult.coerceIn(0.85, 1.20),
+                holdMult = a.holdMult.coerceIn(0.70, 1.10),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.70, 1.10),
+            )
+            lane.contains("CASHGEN") -> a.copy(
+                tpMult = a.tpMult.coerceIn(0.85, 1.15),
+                holdMult = a.holdMult.coerceIn(0.65, 1.05),
+                partialTriggerMult = a.partialTriggerMult.coerceIn(0.65, 1.05),
+            )
+            else -> a
+        }
+    }
+
     private fun compute(): Map<String, Adjustment> {
         val paperRuntime6079 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val board = try {
@@ -139,7 +202,7 @@ object LiveStrategyTuner {
         for (m in board) {
             if (m.trades <= 0) continue
             val lane = canonical(m.strategy)
-            val adj = buildAdjustment(lane, m)
+            val adj = specialistClamp7801(buildAdjustment(lane, m))
             out[lane] = adj
             val raw = m.strategy.trim().uppercase()
             if (raw.isNotBlank()) out[raw] = adj
@@ -166,9 +229,8 @@ object LiveStrategyTuner {
         // LaneExitTuner + StrictSL + ExitCoordinator, NOT by sizing.
         val laneKey = lane.uppercase()
         val isRunnerLane = laneKey.contains("MOONSHOT") || laneKey.contains("SHITCOIN") ||
-            laneKey.contains("MEME") || laneKey.contains("EXPRESS") ||
-            laneKey.contains("MANIP") || laneKey.contains("PRESALE") ||
-            laneKey.contains("PROJECT_SNIPER") || laneKey.contains("DIP_HUNTER")
+            laneKey == "MEME" || laneKey.contains("PRESALE") ||
+            laneKey.contains("PROJECT_SNIPER")
         // V5.0.4123 — DATA-DRIVEN GATE: runner_lane_exempt was firing
         // unconditionally for runner lanes with n>=30, regardless of WR or
         // PnL. Operator report 5.0.4122 shows MOONSHOT n=166 WR=22% PnL=-0.691

@@ -104,12 +104,13 @@ object LaneExitTuner {
     // refused close's attribution on every retry: ~5,289 recorded closes from
     // 344 real ones, weighted toward the refused rows. A window built from
     // that is not a sample of this lane's exits.
-    private const val STATE_SCHEMA_7164 = 7169
+    private const val STATE_SCHEMA_7164 = 7801
 
     private data class Outcome(
         val pnlPct: Double,
         val peakPct: Double,
         val win: Boolean,
+        val specialistUtility: Double,
         val stopHit: Boolean,
     )
 
@@ -294,7 +295,7 @@ object LaneExitTuner {
         "NO_PRICE", "DEAD_TOKEN",
     )
 
-    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String) {
+    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String, holdingTimeMs: Long = 0L) {
         try {
             val reasonUpper7161 = exitReason.uppercase()
             val recoveryHay7167 = (lane + "|" + exitReason).uppercase()
@@ -323,10 +324,17 @@ object LaneExitTuner {
                 peakPct > 5000.0 -> 5000.0
                 else -> peakPct
             }
+            val cleanPnl = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct
+            val objective7801 = try {
+                com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                    key, cleanPnl, holdingTimeMs, exitReason
+                )
+            } catch (_: Throwable) { null }
             val o = Outcome(
-                pnlPct = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct,
+                pnlPct = cleanPnl,
                 peakPct = peakSane,
-                win = pnlPct > 0.0,
+                win = objective7801?.mandateSuccess ?: (cleanPnl > 0.0),
+                specialistUtility = objective7801?.utility ?: (cleanPnl / 20.0).coerceIn(-1.5, 2.0),
                 stopHit = stopHit,
             )
             synchronized(st) {
@@ -604,7 +612,7 @@ object LaneExitTuner {
                 st.window.forEach { oc ->
                     arr.put(JSONObject().apply {
                         put("p", oc.pnlPct); put("k", oc.peakPct)
-                        put("w", oc.win); put("s", oc.stopHit)
+                        put("w", oc.win); put("u", oc.specialistUtility); put("s", oc.stopHit)
                     })
                 }
                 o.put("win", arr)
@@ -663,6 +671,7 @@ object LaneExitTuner {
                                 pnlPct = e.optDouble("p", 0.0),
                                 peakPct = e.optDouble("k", 0.0),
                                 win = e.optBoolean("w", false),
+                                specialistUtility = e.optDouble("u", 0.0),
                                 stopHit = e.optBoolean("s", false),
                             ))
                         }

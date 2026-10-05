@@ -50,6 +50,16 @@ class Repair6517StartStopFunctionTest {
     }
 
     @Test
+    fun `manual stop survives onDestroy and blocks resurrection alarms`() {
+        assertTrue(service.contains("manualStopResurrectionBlocked7802"))
+        assertTrue(service.contains("MANUAL_STOP_RESURRECTION_BLOCK_ARMED_7802"))
+        assertTrue(service.contains("manualStopResurrectionBlocked7802 || isManualStopRequested(applicationContext)"))
+        assertTrue(service.contains("val manualStopOnDestroy7802"))
+        assertTrue(service.contains("!manualStopOnDestroy7802 && !persistenceFinalizedByStop"))
+        assertTrue(service.contains("if (!persistenceFinalizedByStop && !manualStopOnDestroy7802)"))
+    }
+
+    @Test
     fun `UI renders pending and failure truth and dispatch has fallback telemetry`() {
         assertTrue(main.contains("isStartPending6517()"))
         assertTrue(main.contains("Cancel Start"))

@@ -47,8 +47,10 @@ object MoonshotPivotArbiter {
         val metric = try {
             StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500).firstOrNull { it.strategy.equals("MOONSHOT", true) }
         } catch (_: Throwable) { null }
-        val cleanWr = metric?.winRatePct ?: 100.0
-        val cleanPnl = metric?.totalSolPnl ?: 0.0
+        val perf7801 = try { com.lifecyclebot.engine.truth.SpecialistPerformance7801.stat("MOONSHOT","live") } catch (_: Throwable) { null }
+        val cleanWr = (perf7801?.mandateSuccessRate?.times(100.0)) ?: metric?.winRatePct ?: 100.0
+        val cleanPnl = perf7801?.totalSolPnl ?: metric?.totalSolPnl ?: 0.0
+        val tailHealthy7801 = perf7801?.tailEconomicHealthy ?: ((metric?.trades ?: 0) < 5)
         val scoreBand = try { LosingPatternMemory.scoreBand(score.toInt()) } catch (_: Throwable) { LiveStylePivotRouter.scoreBand(score) }
         val bucket = try { LosingPatternMemory.liveStats("MOONSHOT", score.toInt()) } catch (_: Throwable) { null }
         val lossRate = bucket?.lossRatePct ?: 0.0
@@ -99,7 +101,9 @@ object MoonshotPivotArbiter {
             return Decision(PivotMode.WATCH_PROBATION, "MOONSHOT", "WATCH_PROBATION", null, false, reasons, cleanWr, cleanPnl)
         }
 
-        val normalAllowed = cleanWr >= 35.0 && cleanPnl >= 0.0 && pWin >= 0.35 &&
+        val probabilityEconomicOk7801 = p == null || p.samples < 5L ||
+            p.expectedPnlPct >= 0.0 || tailHealthy7801
+        val normalAllowed = tailHealthy7801 && probabilityEconomicOk7801 &&
             routeProof && exitCapacityUsd >= 5_000.0 && runnerProof7403 && (!dump || reclaimProof)
         if (normalAllowed) {
             emit("MOONSHOT_PIVOT_NORMAL")

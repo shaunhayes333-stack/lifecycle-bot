@@ -29,7 +29,7 @@ object BleederMemoryRouter {
         // so lanes redirect into quality routes before they bleed out.
         val provenBleeder: Boolean get() = n50 >= 8 && wr50 < 30.0 && ev50Pct < 0.0
         val weakPerformer: Boolean get() = n20 >= 5 && wr20 < 35.0 && ev20Pct < 0.0
-        val noWinsOverEight: Boolean get() = n20 >= 6 && zeroWinsRecent
+        val noWinsOverEight: Boolean get() = n20 >= 6 && zeroWinsRecent && ev20Pct < 0.0
         val repeatedDeepLoss: Boolean get() = deepLosses50 >= 2
         val requiresDefensiveProbe: Boolean get() = provenBleeder || weakPerformer || noWinsOverEight || repeatedDeepLoss || failedBasisCount > 0 || orphanCount > 0
     }
@@ -66,11 +66,15 @@ object BleederMemoryRouter {
         if (rows.isEmpty()) return emptyMap()
         return rows.groupBy { canon(it.tradingMode.ifBlank { it.reason }) }.mapValues { (lane, laneRows) ->
             fun slice(n: Int) = laneRows.takeLast(n)
+            fun mandateSuccess7801(t: com.lifecyclebot.data.Trade): Boolean {
+                val holdMs = if (t.entryTsMs > 0L && t.ts >= t.entryTsMs) t.ts - t.entryTsMs else 0L
+                return try {
+                    com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(lane,t.pnlPct,holdMs,t.reason).mandateSuccess
+                } catch (_: Throwable) { t.pnlPct > 0.5 }
+            }
             fun wr(list: List<com.lifecyclebot.data.Trade>): Double {
-                // V5.0.7764 — one outcome class for the whole bot (±0.5%, com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576).
-                val wl = list.filter { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) != com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN }
-                if (wl.isEmpty()) return 100.0
-                return wl.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN } * 100.0 / wl.size
+                if (list.isEmpty()) return 100.0
+                return list.count(::mandateSuccess7801) * 100.0 / list.size
             }
             fun ev(list: List<com.lifecyclebot.data.Trade>): Double = if (list.isEmpty()) 0.0 else list.map { it.pnlPct }.average()
             val r20 = slice(20); val r50 = slice(50); val r100 = slice(100)
@@ -83,7 +87,7 @@ object BleederMemoryRouter {
                 ev20Pct = ev(r20), ev50Pct = ev(r50), ev100Pct = ev(r100),
                 netPnl50Sol = r50.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol },
                 deepLosses50 = r50.count { it.pnlPct <= -50.0 },
-                zeroWinsRecent = r20.takeLast(8).size >= 8 && r20.takeLast(8).none { it.pnlPct >= 0.5 },
+                zeroWinsRecent = r20.takeLast(8).size >= 8 && r20.takeLast(8).none(::mandateSuccess7801),
                 failedBasisCount = r50.count { it.reason.contains("BASIS", true) || it.proofState.contains("BASIS", true) },
                 orphanCount = r50.count { it.reason.contains("ORPHAN", true) || it.proofState.contains("ORPHAN", true) },
             )

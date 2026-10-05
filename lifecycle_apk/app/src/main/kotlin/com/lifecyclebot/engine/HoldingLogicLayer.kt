@@ -110,14 +110,53 @@ object HoldingLogicLayer {
         val scaleOutAt: List<Double>,   // PnL % levels to scale out (e.g., [50, 100, 200])
     )
     
+    private data class AdaptiveBounds7801(
+        val minTp: Double,
+        val maxTp: Double,
+        val minHoldMin: Int,
+        val maxHoldMin: Int,
+    )
+
+    /**
+     * Lab/SSI may tune a specialist, but may not change what the specialist IS.
+     */
+    private fun adaptiveBounds7801(modeRaw: String): AdaptiveBounds7801 = when (modeRaw.uppercase()) {
+        "MOONSHOT" -> AdaptiveBounds7801(75.0, 5000.0, 180, 24 * 60)
+        "PROJECT_SNIPER", "PRESALE_SNIPE" -> AdaptiveBounds7801(15.0, 500.0, 1, 180)
+        "EXPRESS" -> AdaptiveBounds7801(15.0, 150.0, 1, 60)
+        "SHITCOIN" -> AdaptiveBounds7801(12.0, 1000.0, 1, 12 * 60)
+        "MANIPULATED", "MANIP" -> AdaptiveBounds7801(7.0, 30.0, 1, 8)
+        "DIP_HUNTER" -> AdaptiveBounds7801(8.0, 60.0, 10, 6 * 60)
+        "CYCLIC" -> AdaptiveBounds7801(8.0, 80.0, 10, 180)
+        "QUALITY" -> AdaptiveBounds7801(12.0, 150.0, 10, 180)
+        "BLUECHIP", "BLUE_CHIP" -> AdaptiveBounds7801(10.0, 200.0, 30, 12 * 60)
+        "TREASURY" -> AdaptiveBounds7801(2.0, 20.0, 1, 90)
+        "CASHGEN" -> AdaptiveBounds7801(2.0, 12.0, 1, 60)
+        "CORE" -> AdaptiveBounds7801(5.0, 300.0, 5, 8 * 60)
+        else -> AdaptiveBounds7801(3.0, 100.0, 15, 480)
+    }
+
     private val MODE_PARAMS = mapOf(
         "STANDARD" to ModeHoldParams("STANDARD", 30.0, -15.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(30.0, 60.0)),
-        "MOONSHOT" to ModeHoldParams("MOONSHOT", 200.0, -25.0, 15.0, 24 * 60 * 60 * 1000L, true, listOf(100.0, 300.0, 500.0)),
+        // V5.0.7801 — native specialist held-management profiles. These are the
+        // adaptive layer's starting priors; each trader's own fluid exits,
+        // LaneExitTuner, LiveStrategyTuner, profit locks and hard safety still shape them.
+        "MOONSHOT" to ModeHoldParams("MOONSHOT", 200.0, -20.0, 15.0, 24 * 60 * 60 * 1000L, true, listOf(100.0, 300.0, 500.0)),
+        "PROJECT_SNIPER" to ModeHoldParams("PROJECT_SNIPER", 75.0, -12.0, 15.0, 2 * 60 * 60 * 1000L, true, listOf(15.0, 35.0, 75.0)),
+        "EXPRESS" to ModeHoldParams("EXPRESS", 50.0, -8.0, 5.0, 60 * 60 * 1000L, true, listOf(30.0, 50.0, 100.0)),
+        "SHITCOIN" to ModeHoldParams("SHITCOIN", 50.0, -8.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(25.0, 50.0, 100.0)),
+        "MANIPULATED" to ModeHoldParams("MANIPULATED", 14.0, -11.0, 10.0, 4 * 60 * 1000L, false, listOf(14.0)),
+        "DIP_HUNTER" to ModeHoldParams("DIP_HUNTER", 25.0, -15.0, 10.0, 6 * 60 * 60 * 1000L, true, listOf(12.0, 25.0, 50.0)),
+        "QUALITY" to ModeHoldParams("QUALITY", 50.0, -12.0, 8.0, 60 * 60 * 1000L, true, listOf(20.0, 50.0, 100.0)),
+        "BLUECHIP" to ModeHoldParams("BLUECHIP", 80.0, -10.0, 5.0, 8 * 60 * 60 * 1000L, true, listOf(30.0, 80.0, 150.0)),
+        "TREASURY" to ModeHoldParams("TREASURY", 5.0, -5.0, 2.0, 60 * 60 * 1000L, false, listOf(3.0, 5.0, 10.0)),
+        "CASHGEN" to ModeHoldParams("CASHGEN", 4.0, -5.0, 2.0, 45 * 60 * 1000L, false, listOf(3.0, 4.0, 8.0)),
+        "CORE" to ModeHoldParams("CORE", 30.0, -15.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(20.0, 40.0, 80.0)),
         "PUMP_SNIPER" to ModeHoldParams("PUMP_SNIPER", 50.0, -20.0, 10.0, 30 * 60 * 1000L, true, listOf(25.0, 50.0)),
         "COPY_TRADE" to ModeHoldParams("COPY_TRADE", 40.0, -15.0, 8.0, 2 * 60 * 60 * 1000L, true, listOf(25.0, 50.0)),
         "LONG_HOLD" to ModeHoldParams("LONG_HOLD", 500.0, -30.0, 20.0, 7 * 24 * 60 * 60 * 1000L, true, listOf(100.0, 250.0, 500.0)),
         "DIAMOND_HANDS" to ModeHoldParams("DIAMOND_HANDS", 5000.0, -35.0, 35.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(250.0, 1000.0, 2500.0)),
-        "BLUE_CHIP" to ModeHoldParams("BLUE_CHIP", 100.0, -10.0, 5.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(50.0, 100.0)),
+        "BLUE_CHIP" to ModeHoldParams("BLUE_CHIP", 80.0, -10.0, 5.0, 8 * 60 * 60 * 1000L, true, listOf(30.0, 80.0, 150.0)),
         "CYCLIC" to ModeHoldParams("CYCLIC", 25.0, -12.0, 6.0, 60 * 60 * 1000L, true, listOf(15.0, 25.0)),
         "SLEEPER" to ModeHoldParams("SLEEPER", 300.0, -35.0, 20.0, 48 * 60 * 60 * 1000L, true, listOf(100.0, 200.0, 400.0)),
         "NICHE" to ModeHoldParams("NICHE", 150.0, -25.0, 12.0, 8 * 60 * 60 * 1000L, true, listOf(75.0, 150.0)),
@@ -142,6 +181,18 @@ object HoldingLogicLayer {
         ErrorLogger.info(TAG, "HoldingLogicLayer initialized with ${MODE_PARAMS.size} mode configurations")
     }
     
+    private fun staleFlatMinMinutes7801(mode: String): Long = when (mode.uppercase()) {
+        "MANIPULATED" -> 4L
+        "EXPRESS", "CASHGEN", "TREASURY" -> 12L
+        "PROJECT_SNIPER", "PRESALE_SNIPE" -> 20L
+        "SHITCOIN" -> 30L
+        "QUALITY", "CYCLIC" -> 45L
+        "DIP_HUNTER" -> 90L
+        "BLUECHIP", "BLUE_CHIP" -> 180L
+        "MOONSHOT", "DIAMOND_HANDS", "LONG_HOLD", "SLEEPER" -> Long.MAX_VALUE
+        else -> 20L
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN EVALUATION FUNCTION
     // ═══════════════════════════════════════════════════════════════════════════
@@ -180,12 +231,17 @@ object HoldingLogicLayer {
             // V5.0.6684 — exact promoted Lab strategy becomes this lane's
             // TP/SL/hold profile. It cannot loosen the existing hard stop.
             val labExit6684 = try { AdaptiveLaneReproof6684.exitStrategy(mode) } catch (_: Throwable) { null }
-            val baseTarget6684 = labExit6684?.takeProfitPct?.coerceIn(3.0, 100.0) ?: params.targetProfitPct
+            val bounds7801 = adaptiveBounds7801(mode)
+            val baseTarget6684 = labExit6684?.takeProfitPct
+                ?.coerceIn(bounds7801.minTp, bounds7801.maxTp)
+                ?: params.targetProfitPct
             val activeStopLoss6684 = maxOf(
                 params.stopLossPct,
                 labExit6684?.stopLossPct?.coerceIn(-30.0, -2.0) ?: params.stopLossPct,
             )
-            val baseMaxHoldMs6684 = labExit6684?.maxHoldMins?.coerceIn(15, 480)?.toLong()?.times(60_000L)
+            val baseMaxHoldMs6684 = labExit6684?.maxHoldMins
+                ?.coerceIn(bounds7801.minHoldMin, bounds7801.maxHoldMin)
+                ?.toLong()?.times(60_000L)
                 ?: params.maxHoldTimeMs
 
             // V5.0.7455 — close the terminal-learning → held-management loop.
@@ -356,8 +412,9 @@ object HoldingLogicLayer {
                 )
             }
             
-            // Trailing stop (after profit achieved)
-            if (position.peakGainPct > targetProfit6091 * 0.5) {
+            // True tail lanes use their own PeakDrawdownLock/runner/partial geometry.
+            val tailLane7801 = try { com.lifecyclebot.engine.truth.SpecialistObjective7801.isTailLane(mode) } catch (_: Throwable) { false }
+            if (!tailLane7801 && position.peakGainPct > targetProfit6091 * 0.5) {
                 val trailingStop = position.peakGainPct - trailingStopPct6091
                 if (currentPnlPct < trailingStop) {
                     return HoldEvaluation(
@@ -392,19 +449,19 @@ object HoldingLogicLayer {
 
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
             if (holdTimeMinutes > tunedFluidMaxHold7455) {
-                return HoldEvaluation(
-                    action = HoldAction.EXIT_NOW,
-                    reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer] tune×${"%.2f".format(holdMult7455)}",
-                    confidence = 75.0 + (holdTimeUrgency * 20.0),
-                    urgency = Urgency.HIGH,
-                )
+                if (currentPnlPct <= 0.0) {
+                    return HoldEvaluation(
+                        action = HoldAction.EXIT_NOW,
+                        reason = "Fluid hold time exceeded while non-positive: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer]",
+                        confidence = 75.0 + (holdTimeUrgency * 20.0),
+                        urgency = Urgency.HIGH,
+                    )
+                } else try { PipelineHealthCollector.labelInc("SPECIALIST_GREEN_MAX_HOLD_NOT_FORCED_7801_" + layer.uppercase().take(24)) } catch (_: Throwable) {}
             }
-            
-            // Legacy max hold time fallback
-            if (holdTimeMs > maxHoldTimeMs6091) {
+            if (holdTimeMs > maxHoldTimeMs6091 && currentPnlPct <= 0.0) {
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
-                    reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
+                    reason = "Max hold time exceeded while non-positive: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min",
                     confidence = 75.0,
                     urgency = Urgency.HIGH,
                 )
@@ -432,9 +489,11 @@ object HoldingLogicLayer {
                 val isPatientMode = stalledMode.contains("DIAMOND_HANDS") ||
                     stalledMode.contains("LONG_HOLD") ||
                     stalledMode.contains("SLEEPER") ||
+                    stalledMode.contains("MOONSHOT") ||
                     position.isLongHold
                 val flatBand = currentPnlPct in -3.0..3.0
-                val aged = holdTimeMinutes >= 15L
+                val staleMin7801 = staleFlatMinMinutes7801(stalledMode)
+                val aged = holdTimeMinutes >= staleMin7801
                 val nearTarget = currentPnlPct >= (targetProfit6091 * 0.5)
                 val weakMomentum = ts.meta.momScore < 20 && ts.meta.volScore < 15
                 val noWhale = ts.meta.whaleSummary.isBlank() && ts.meta.velocityScore < 70.0
@@ -449,7 +508,7 @@ object HoldingLogicLayer {
                     } catch (_: Throwable) {}
                     return HoldEvaluation(
                         action = HoldAction.EXIT_NOW,
-                        reason = "STALE_FLAT_CULL_6366: ${holdTimeMinutes}min flat @${currentPnlPct.toInt()}% pnl, no momentum/whale/holder growth — free the slot",
+                        reason = "STALE_FLAT_CULL_6366: ${holdTimeMinutes}min flat (nativeMin=$staleMin7801) @${currentPnlPct.toInt()}% pnl, no momentum/whale/holder growth — free the slot",
                         confidence = 55.0,
                         urgency = Urgency.NORMAL,
                     )
@@ -810,26 +869,12 @@ object HoldingLogicLayer {
      * This ensures fluid hold parameters are correctly applied per layer type.
      */
     private fun getLayerFromMode(mode: String): String {
-        return when (mode.uppercase()) {
-            // Treasury layer modes
-            "TREASURY", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
-            
-            // ShitCoin layer modes
-            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
-            
-            // V3/Quality layer modes
-            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE", 
-            "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
-            
-            // Blue Chip layer modes  
-            "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
-            
-            // Moonshot layer modes
-            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
-            "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> "MOONSHOT"
-            
-            // Default to V3 for unknown modes
-            else -> "V3"
+        // V5.0.7801 — one lane identity authority. Holding logic may classify
+        // technique modes, but it must never own a second alias table.
+        return try {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(mode)
+        } catch (_: Throwable) {
+            mode.trim().uppercase().ifBlank { "V3" }
         }
     }
 }

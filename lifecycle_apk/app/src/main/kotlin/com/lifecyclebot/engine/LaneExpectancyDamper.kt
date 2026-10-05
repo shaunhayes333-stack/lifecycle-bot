@@ -74,9 +74,10 @@ object LaneExpectancyDamper {
     private const val WR_RUNNER_MIN_TRADES = 30
     private const val WR_RUNNER_MIN_PCT = 30.0
 
+    // V5.0.7801 — true tail lanes only. Express/Manipulated/Dip have
+    // different success distributions and must not inherit Moonshot variance logic.
     private val RUNNER_LANE_KEYS = arrayOf(
-        "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS",
-        "MANIPULATED", "MANIP", "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER",
+        "MOONSHOT", "SHITCOIN", "MEME", "PRESALE", "PROJECT_SNIPER",
     )
 
     private fun isRunnerLane(strategy: String?): Boolean {
@@ -271,13 +272,20 @@ object LaneExpectancyDamper {
             val evidence6715 = maxOf(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades), labelEvidence7775)
             fun blend6715(raw: Double): Double = (1.0 + (raw - 1.0) * evidence6715).coerceIn(0.05, 1.60)
 
-            // Proven profitable asymmetric runners may be pressed, but only when
-            // the same-mode terminal ledger is actually net positive.
-            if (isRunnerLane(m.strategy) && m.totalSolPnl > 0.0 && m.winRatePct >= EARLY_WINNER_MIN_WR_PCT) {
-                val earlyEdge = ((m.winRatePct - EARLY_WINNER_MIN_WR_PCT) / 45.0).coerceIn(0.0, 1.0)
+            // V5.0.7801 — FAT-TAIL RUNNER AUTHORITY.
+            // Runner specialists are paid by payoff asymmetry, not hit rate.
+            // Requiring >=30% WR punished exactly the behaviour MOONSHOT is built
+            // for: many controlled losses plus rare +500/+1000% winners.
+            // Same-mode net PnL must still be positive, and either mean return or
+            // PF-expectancy must prove positive edge before size may expand.
+            if (isRunnerLane(m.strategy) && m.totalSolPnl > 0.0 &&
+                (m.meanPnlPct >= RUNNER_MEAN_PCT || m.pfExpectancyPp > 0.0)) {
+                val meanEdge = (m.meanPnlPct / 120.0).coerceIn(0.0, 1.0)
+                val pfEdge = (m.pfExpectancyPp / 30.0).coerceIn(0.0, 1.0)
                 val solEdge = (m.totalSolPnl / 0.08).coerceIn(0.0, 1.0)
-                val boost = (1.08 + earlyEdge * 0.14 + solEdge * 0.13).coerceIn(1.08, 1.35)
+                val boost = (1.08 + meanEdge * 0.15 + pfEdge * 0.08 + solEdge * 0.12).coerceIn(1.08, 1.38)
                 out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, blend6715(boost))
+                try { PipelineHealthCollector.labelInc("LANE_DAMPER_FAT_TAIL_EDGE_7801") } catch (_: Throwable) {}
                 continue
             }
 

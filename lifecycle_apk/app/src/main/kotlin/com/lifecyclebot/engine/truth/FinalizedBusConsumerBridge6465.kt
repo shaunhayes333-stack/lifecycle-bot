@@ -342,13 +342,15 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val band = env.scoreBand.ifBlank { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore) }
         com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(
-            env.lane, band, env.entryTactic, env.realizedReturnPct,
+            env.lane, band, env.entryTactic, env.realizedReturnPct, env.holdingTimeMs,
         )
         true
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(env.mint, env.realizedReturnPct)
+        com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(
+            env.mint, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+        )
         true
     } catch (t: Throwable) { threw7154(t) }
 
@@ -459,11 +461,18 @@ object FinalizedBusConsumerBridge6465 {
                         pnlPct = pnlPctLearn6707,
                         peakPct = peakPct6707,
                         exitReason = env.exitReason,
+                        holdingTimeMs = env.holdingTimeMs,
                     )
                 } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("MEME_ORIGINAL_ATTRIBUTION_RESTORED_6707_${env.lane.uppercase().take(24)}") } catch (_: Throwable) {}
 
-                val win = pnlPctLearn6707 > 0.5; val loss = pnlPctLearn6707 < -0.5
+                val objective7801 = try {
+                    com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                        env.lane, pnlPctLearn6707, env.holdingTimeMs, env.exitReason
+                    )
+                } catch (_: Throwable) { null }
+                val win = objective7801?.mandateSuccess ?: (pnlPctLearn6707 > 0.5)
+                val loss = if (objective7801 != null) objective7801.utility <= -0.35 else pnlPctLearn6707 < -0.5
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)
                 com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn6707)
             } else {
@@ -488,15 +497,22 @@ object FinalizedBusConsumerBridge6465 {
     // permanently dropped valid samples. 6465 runs only after the exact-event
     // check above succeeds and retries until durability is visible.
     private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(
+            env.mint, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+        )
         // Close the prediction-quality loop from the same canonical terminal.
         com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(env.mint, env.realizedReturnPct)
         true
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        val exitQuality7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.exitQuality(
+                env.lane, env.realizedReturnPct, env.mfePct, env.holdingTimeMs, env.exitReason
+            )
+        } catch (_: Throwable) { null }
         val exitReason = env.exitReason.uppercase()
-        val exitWasOptimal = when {
+        val exitWasOptimal = exitQuality7801?.optimal ?: when {
             exitReason.contains("STOP_LOSS") || exitReason.contains("STRICT_SL") || exitReason.contains("STOPLOSS") -> false
             exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true
             env.realizedReturnPct >= 2.0 -> true

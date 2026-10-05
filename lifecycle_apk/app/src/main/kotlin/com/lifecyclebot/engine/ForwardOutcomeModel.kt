@@ -387,8 +387,13 @@ object ForwardOutcomeModel {
             // V5.0.7738 — a label is a costless mark, not a close; one basis
             // artefact at +25,000% made S|PROJECT_SNIPER read E=+1245% at n=39.
             val pnl = netPct.coerceIn(-95.0, LABEL_GAIN_CEILING_PCT_7738)
-            update(fine.getOrPut(labelFineKey7734(lane, score, quality, regime, edgePhase)) { Cell() }, pnl)
-            update(coarse.getOrPut(labelCoarseKey7734(lane, score, regime)) { Cell() }, pnl)
+            val success7801 = try {
+                com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                    lane, pnl, 60L * 60_000L, "FORWARD_LABEL_60M"
+                ).mandateSuccess
+            } catch (_: Throwable) { pnl > 0.0 }
+            update(fine.getOrPut(labelFineKey7734(lane, score, quality, regime, edgePhase)) { Cell() }, pnl, success7801)
+            update(coarse.getOrPut(labelCoarseKey7734(lane, score, regime)) { Cell() }, pnl, success7801)
             labelUpdates7734 += 1
             if (labelUpdates7734 % 25L == 0L) appContext?.let { save(it) }
             PipelineHealthCollector.labelInc("FORWARD_OUTCOME_LABEL_RECORDED_7734")
@@ -516,7 +521,7 @@ object ForwardOutcomeModel {
     }
 
     /** Feed settled PnL back — updates BOTH the fine and coarse cells (Welford). */
-    fun recordOutcome(mint: String, pnlPct: Double) {
+    fun recordOutcome(mint: String, pnlPct: Double, holdingTimeMs: Long = 0L, exitReason: String = "") {
         try {
             // V5.0.6862 — an unmapped close is a LOST learning sample, not a no-op.
             // It used to return in silence, so the drop was invisible; count it so a
@@ -526,21 +531,28 @@ object ForwardOutcomeModel {
                 return
             }
             val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
-            update(fine.getOrPut(keys.first) { Cell() }, pnl)
-            update(coarse.getOrPut(keys.second) { Cell() }, pnl)
+            val parts7801 = keys.first.split("|")
+            val lane7801 = if (parts7801.firstOrNull() in setOf("P","L")) parts7801.getOrNull(1).orEmpty() else parts7801.firstOrNull().orEmpty()
+            val success7801 = try {
+                com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                    lane7801, pnl, holdingTimeMs, exitReason
+                ).mandateSuccess
+            } catch (_: Throwable) { pnl > 0.0 }
+            update(fine.getOrPut(keys.first) { Cell() }, pnl, success7801)
+            update(coarse.getOrPut(keys.second) { Cell() }, pnl, success7801)
             totalUpdates += 1
             if (totalUpdates % DECAY_EVERY == 0L) decayAll()
             if (totalUpdates % 25L == 0L) appContext?.let { save(it) }
         } catch (_: Throwable) {}
     }
 
-    private fun update(c: Cell, pnl: Double) {
+    private fun update(c: Cell, pnl: Double, mandateSuccess: Boolean? = null) {
         synchronized(c) {
             c.n += 1
             val delta = pnl - c.mean
             c.mean += delta / c.n
             c.m2 += delta * (pnl - c.mean)
-            if (pnl > 0.0) c.wins += 1
+            if (mandateSuccess ?: (pnl > 0.0)) c.wins += 1
             if (pnl <= RUG_PNL) c.rugs += 1
         }
     }

@@ -320,12 +320,18 @@ object V3JournalRecorder {
                 } catch (_: Throwable) {}
                 try {
                     com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(
-                        lane = layer, pnlPct = pnlPctLearn, peakPct = peakGainPct, exitReason = exitReason,
+                        lane = layer, pnlPct = pnlPctLearn, peakPct = peakGainPct,
+                        exitReason = exitReason, holdingTimeMs = holdMinutes * 60_000L,
                     )
                 } catch (_: Throwable) {}
                 try {
-                    val isWinL = pnlPctLearn > 0.5
-                    val isLossL = pnlPctLearn < -0.5
+                    val objective7801 = try {
+                        com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                            layer, pnlPctLearn, holdMinutes * 60_000L, exitReason
+                        )
+                    } catch (_: Throwable) { null }
+                    val isWinL = objective7801?.mandateSuccess ?: (pnlPctLearn > 0.5)
+                    val isLossL = if (objective7801 != null) objective7801.utility < 0.0 else pnlPctLearn < -0.5
                     val bandL = LosingPatternMemory.scoreBand(entryScore)
                     com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(layer, bandL, isWinL, isLossL)
                     com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(layer, bandL, isWinL, isLossL, pnlPctLearn)

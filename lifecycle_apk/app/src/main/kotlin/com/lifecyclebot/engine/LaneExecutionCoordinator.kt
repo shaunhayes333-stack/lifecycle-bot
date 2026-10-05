@@ -152,8 +152,41 @@ object LaneExecutionCoordinator {
         effectivePriority(mint, lane) - (lead * FAIRNESS_PER_LEAD).toInt()
     } catch (_: Throwable) { effectivePriority(mint, lane) }
 
+    /**
+     * V5.0.7801 — NATIVE THESIS OWNS THE TRADE.
+     *
+     * Static lane priority is a tie-breaker, not strategy authority. When the
+     * native specialist bridge has a current authoritative opinion, its
+     * conviction is the primary fresh-election signal.
+     *
+     * Rule:
+     *  1) any non-CORE specialist at >=75 native conviction excludes CORE;
+     *  2) among native-qualified desks, conviction dominates static priority;
+     *  3) CORE may compete when specialists are partial/ambiguous, matching its
+     *     ensemble mandate;
+     *  4) if native evidence is unavailable, retain the historical priority path.
+     */
+    private fun nativeConviction7801(mint: String, lane: String): Int? = try {
+        val o = com.lifecyclebot.engine.SpecialistBrainBridge7542
+            .cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())
+        if (o != null && o.authoritative && o.eligible) maxOf(o.score, o.confidence) else null
+    } catch (_: Throwable) { null }
+
     private fun pickFreshPrimary(mint: String, qualified: List<String>): String? {
         if (qualified.isEmpty()) return null
+        val native = qualified.mapNotNull { lane ->
+            nativeConviction7801(mint, lane)?.let { lane.uppercase() to it }
+        }
+        if (native.isNotEmpty()) {
+            val strongNative = native.filter { (lane, conviction) ->
+                lane != "CORE" && conviction >= 75
+            }
+            val pool = if (strongNative.isNotEmpty()) strongNative else native
+            return pool.maxWithOrNull(
+                compareBy<Pair<String,Int>> { it.second }
+                    .thenBy { claimPriority(mint, it.first, qualified) }
+            )?.first
+        }
         return qualified.maxByOrNull { claimPriority(mint, it, qualified) }
     }
 

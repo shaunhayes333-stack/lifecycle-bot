@@ -167,7 +167,9 @@ object LiveProbabilityEngine {
         val paperColdStartWinner7403 = if (liveCloses7403 == 0) try {
             val paper = StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 2_500)
                 .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
-            paper != null && paper.trades >= 100 && paper.winRatePct >= 50.0 && paper.pfExpectancyPp > 0.0
+            val sp = com.lifecyclebot.engine.truth.SpecialistPerformance7801.stat(lane,"paper")
+            paper != null && paper.trades >= 20 && paper.pfExpectancyPp > 0.0 &&
+                (sp?.tailEconomicHealthy == true || (sp != null && sp.mandateSuccessRate >= 0.50 && sp.totalSolPnl > 0.0))
         } catch (_: Throwable) { false } else false
         // V5.0.4596 — FLUID PAUSED-LANE DAMPENER (operator architectural
         // principle: "all gates are meant to be in a fluid state eventually
@@ -262,6 +264,7 @@ object LiveProbabilityEngine {
                 edgePhase.ifBlank { "UNKNOWN" },
             )
             val laneMetric = liveMetric7403
+            val specialistPerf7801 = try { com.lifecyclebot.engine.truth.SpecialistPerformance7801.current(lane) } catch (_: Throwable) { null }
             // V5.0.7403 — paper may seed ONLY before the first live close.
             val paperColdStart7403 = if ((laneMetric?.trades ?: 0) == 0) try {
                 StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 2_500)
@@ -280,6 +283,8 @@ object LiveProbabilityEngine {
                 else (paperColdStart7403?.trades?.toLong()?.coerceAtMost(40L) ?: 0L)
             }
             val lanePWin = when {
+                specialistPerf7801 != null && specialistPerf7801.n > 0 ->
+                    specialistPerf7801.mandateSuccessRate.coerceIn(0.0, 1.0)
                 laneMetric != null && (laneMetric.wins + laneMetric.losses) > 0 ->
                     laneMetric.winRatePct.coerceIn(0.0, 100.0) / 100.0
                 paperColdStart7403 != null && (paperColdStart7403.wins + paperColdStart7403.losses) > 0 ->
@@ -351,12 +356,14 @@ object LiveProbabilityEngine {
                 laneMetric != null && laneSamples >= 3L -> (lanePWin * 0.50 + pWin * 0.50).coerceIn(0.02, 0.98)
                 else -> pWin
             }
-            val lowHitRateCap = when {
+            val baseHitCap7801 = when {
                 effectiveHitP7403 < 0.28 -> 0.42
                 effectiveHitP7403 < 0.35 -> 0.68
                 effectiveHitP7403 < 0.42 -> 0.92
                 else -> 1.60
             }
+            val tailEconomicHealthy7801 = specialistPerf7801?.tailEconomicHealthy == true
+            val lowHitRateCap = if (tailEconomicHealthy7801) maxOf(baseHitCap7801,1.10) else baseHitCap7801
 
             // Candidate quality gets one independent vote. Forward pWin already
             // contributes to probabilityEdge and pRug is subtracted below; using
@@ -380,8 +387,9 @@ object LiveProbabilityEngine {
                     PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_QUALITY_BOOST_4596_${lane.uppercase()}")
                 }
             } catch (_: Throwable) {}
-            val pnlEdge = if (effectiveHitP7403 >= 0.35) (eBase / 140.0).coerceIn(-0.35, 0.35) else (eBase / 220.0).coerceIn(-0.25, 0.10)
-            val solEdge = if (effectiveHitP7403 >= 0.35) (laneSol / 0.55).coerceIn(-0.30, 0.28) else (laneSol / 0.85).coerceIn(-0.25, 0.08)
+            val economicHealthy7801 = effectiveHitP7403 >= 0.35 || tailEconomicHealthy7801
+            val pnlEdge = if (economicHealthy7801) (eBase / 140.0).coerceIn(-0.35, 0.35) else (eBase / 220.0).coerceIn(-0.25, 0.10)
+            val solEdge = if (economicHealthy7801) (laneSol / 0.55).coerceIn(-0.30, 0.28) else (laneSol / 0.85).coerceIn(-0.25, 0.08)
             val rugPenalty = fwd.pRug.coerceIn(0.0, 0.80) * 0.75
             val uncertaintyPenalty = (fwd.dispersion / 180.0).coerceIn(0.0, 0.22)
             val rawMult = (1.0 + probabilityEdge + pnlEdge + solEdge - rugPenalty - uncertaintyPenalty)
@@ -519,7 +527,7 @@ object LiveProbabilityEngine {
                     liveSnap.trades >= 5 && paperFromLifetime.trades >= 20) {
                     val liveWr = liveSnap.winRatePct
                     val paperWr = paperFromLifetime.winRatePct
-                    if (paperWr >= 30.0 && liveWr < (paperWr * 0.5) && clampedMult > 0.30) {
+                    if (!tailEconomicHealthy7801 && paperWr >= 30.0 && liveWr < (paperWr * 0.5) && clampedMult > 0.30) {
                         // V5.0.6413 — HOT-PATH EMIT THROTTLE.
                         // Report showed 8 back-to-back LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279
                         // emissions for BLUECHIP in a single tick (all with identical
@@ -632,11 +640,14 @@ object LiveProbabilityEngine {
             StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
         }
         board7052.map { row ->
+            val mode7801 = if (paperRuntime7052) "paper" else "live"
+            val sp7801 = try { com.lifecyclebot.engine.truth.SpecialistPerformance7801.stat(row.strategy,mode7801) } catch (_: Throwable) { null }
             LaneSnapshot(
                 lane = row.strategy.uppercase(),
-                sample = row.trades,
-                wins = row.wins,
-                wrPct = if (row.trades > 0) row.wins.toDouble() / row.trades.toDouble() * 100.0 else 0.0,
+                sample = sp7801?.n ?: row.trades,
+                wins = sp7801?.mandateSuccesses ?: row.wins,
+                wrPct = sp7801?.mandateSuccessRate?.times(100.0)
+                    ?: if (row.trades > 0) row.wins.toDouble()/row.trades.toDouble()*100.0 else 0.0,
                 evPct = row.meanPnlPct,
             )
         }

@@ -1,7 +1,10 @@
 package com.lifecyclebot.engine.truth
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -17,21 +20,24 @@ import java.util.concurrent.atomic.AtomicLong
  * ──────
  *   • Per-signal Bayesian W/L counters. Each signal tracks its own
  *     "when I fired 1, what happened?" outcome distribution.
- *   • Winner threshold: pnlPct >= +50% (probation-safe positive).
- *     Loser threshold: pnlPct <= -20%.
- *     Neutral: everything in between (excluded from learning to
- *     preserve signal).
+ *   • Fat-tail outcome weighting (V5.0.7799):
+ *       +50..149%  = 1 learning unit
+ *       +150..499% = 3 learning units
+ *       +500..999% = 5 learning units
+ *       +1000%+    = 8 learning units
+ *     Losses <= -20% = 1 loss unit. Neutral outcomes are excluded.
+ *     This makes the learner optimize for Moonshot's actual purpose:
+ *     exceptional asymmetric runners, not merely a high win rate.
  *   • recordOutcome() called from the sell terminal path.
  *   • signalWeight(name) returns a multiplier in [0.25, 2.0] based
  *     on win-rate lift vs baseline. Cold start = 1.0 (equal weight).
  *   • Ceiling 2.0 / floor 0.25 keeps a single bad streak from
  *     zeroing out a signal permanently.
  *
- * This module is stateful in-memory. A real persistence layer
- * (SQLite backing) lands in V5.0.6416+; for now the learner
- * accumulates during the session and resets on restart. Every
- * process gets a fresh window, which is actually helpful given
- * regime shifts in meme-market behaviour.
+ * V5.0.7799 persists the weighted signal evidence across process/build
+ * restarts. AATE is repeatedly installed/restarted during field tuning;
+ * resetting this specialist learner each time was erasing exactly the
+ * runner evidence it was meant to accumulate.
  */
 object MoonshotSignalLearner6415 {
 
@@ -46,8 +52,92 @@ object MoonshotSignalLearner6415 {
     )
 
     private val stats = ConcurrentHashMap<String, SignalStat>()
+    private val creatorStats = ConcurrentHashMap<String, SignalStat>()
     private val globalWins = AtomicLong(0L)
     private val globalLosses = AtomicLong(0L)
+    @Volatile private var prefs: SharedPreferences? = null
+
+    data class CreatorTailEvidence7799(
+        val weightedSamples: Long,
+        val weightedRunnerWins: Long,
+        val weightedLosses: Long,
+        val runnerRate: Double,
+    )
+
+    fun creatorTailEvidence7799(creator: String?): CreatorTailEvidence7799? {
+        if (creator.isNullOrBlank()) return null
+        val s = creatorStats[creator] ?: return null
+        val n = s.samples.get()
+        if (n <= 0L) return null
+        return CreatorTailEvidence7799(
+            weightedSamples = n,
+            weightedRunnerWins = s.wins.get(),
+            weightedLosses = s.losses.get(),
+            runnerRate = s.wins.get().toDouble() / n.toDouble(),
+        )
+    }
+
+    @Synchronized
+    fun init(context: Context) {
+        if (prefs != null) return
+        prefs = context.applicationContext.getSharedPreferences("moonshot_signal_learner_6415", Context.MODE_PRIVATE)
+        try {
+            val raw = prefs?.getString("state_7799", null)
+            if (!raw.isNullOrBlank()) {
+                val root = JSONObject(raw)
+                globalWins.set(root.optLong("gw", 0L))
+                globalLosses.set(root.optLong("gl", 0L))
+                val ss = root.optJSONObject("signals")
+                if (ss != null) {
+                    val it = ss.keys()
+                    while (it.hasNext()) {
+                        val name = it.next()
+                        val o = ss.optJSONObject(name) ?: continue
+                        stats[name] = SignalStat(
+                            AtomicLong(o.optLong("w", 0L)),
+                            AtomicLong(o.optLong("l", 0L)),
+                            AtomicLong(o.optLong("n", 0L)),
+                        )
+                    }
+                }
+                val cs = root.optJSONObject("creators")
+                if (cs != null) {
+                    val it = cs.keys()
+                    while (it.hasNext()) {
+                        val creator = it.next()
+                        val o = cs.optJSONObject(creator) ?: continue
+                        creatorStats[creator] = SignalStat(
+                            AtomicLong(o.optLong("w", 0L)),
+                            AtomicLong(o.optLong("l", 0L)),
+                            AtomicLong(o.optLong("n", 0L)),
+                        )
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun persist7799() {
+        val p = prefs ?: return
+        try {
+            val ss = JSONObject()
+            stats.forEach { (name, st) ->
+                ss.put(name, JSONObject().apply {
+                    put("w", st.wins.get()); put("l", st.losses.get()); put("n", st.samples.get())
+                })
+            }
+            val cs = JSONObject()
+            creatorStats.forEach { (creator, st) ->
+                cs.put(creator, JSONObject().apply {
+                    put("w", st.wins.get()); put("l", st.losses.get()); put("n", st.samples.get())
+                })
+            }
+            val root = JSONObject().apply {
+                put("gw", globalWins.get()); put("gl", globalLosses.get()); put("signals", ss); put("creators", cs)
+            }
+            p.edit().putString("state_7799", root.toString()).apply()
+        } catch (_: Throwable) {}
+    }
 
     fun recordOutcome(mint: String, symbol: String, tier: String, signalsFired: Set<String>, pnlPct: Double) {
         val classify = when {
@@ -56,17 +146,31 @@ object MoonshotSignalLearner6415 {
             else -> 0
         }
         if (classify == 0) return
-        if (classify == 1) globalWins.incrementAndGet() else globalLosses.incrementAndGet()
+        val outcomeWeight = when {
+            classify < 0 -> 1L
+            pnlPct >= 1000.0 -> 8L
+            pnlPct >= 500.0 -> 5L
+            pnlPct >= 150.0 -> 3L
+            else -> 1L
+        }
+        if (classify == 1) globalWins.addAndGet(outcomeWeight) else globalLosses.addAndGet(outcomeWeight)
         for (sig in signalsFired) {
             val s = stats.getOrPut(sig) { SignalStat() }
-            s.samples.incrementAndGet()
-            if (classify == 1) s.wins.incrementAndGet() else s.losses.incrementAndGet()
+            s.samples.addAndGet(outcomeWeight)
+            if (classify == 1) s.wins.addAndGet(outcomeWeight) else s.losses.addAndGet(outcomeWeight)
         }
+        val creator = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }
+        if (!creator.isNullOrBlank()) {
+            val cs = creatorStats.getOrPut(creator) { SignalStat() }
+            cs.samples.addAndGet(outcomeWeight)
+            if (classify == 1) cs.wins.addAndGet(outcomeWeight) else cs.losses.addAndGet(outcomeWeight)
+        }
+        persist7799()
         try {
             ForensicLogger.lifecycle(
                 "MOONSHOT_LEARNER_OUTCOME_6415",
                 "mint=${mint.take(10)} sym=$symbol tier=$tier pnlPct=${"%.1f".format(pnlPct)} " +
-                    "class=${if (classify == 1) "WIN" else "LOSS"} signals=[${signalsFired.joinToString(",")}] " +
+                    "class=${if (classify == 1) "WIN" else "LOSS"} weight=$outcomeWeight signals=[${signalsFired.joinToString(",")}] " +
                     "globalW/L=${globalWins.get()}/${globalLosses.get()}",
             )
             PipelineHealthCollector.labelInc("MOONSHOT_LEARNER_OUTCOME_6415")
@@ -106,6 +210,7 @@ object MoonshotSignalLearner6415 {
 
     internal fun resetForTest() {
         stats.clear()
+        creatorStats.clear()
         globalWins.set(0L)
         globalLosses.set(0L)
     }

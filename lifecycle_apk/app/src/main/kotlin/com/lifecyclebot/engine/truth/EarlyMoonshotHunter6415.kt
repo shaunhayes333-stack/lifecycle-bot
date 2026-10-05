@@ -94,6 +94,9 @@ object EarlyMoonshotHunter6415 {
         holderGrowthPct: Double = 0.0,
         topHolderPct: Double = -1.0,
         smartMoneyBuys60s: Int = 0,
+        launchAgeMs: Long = -1L,
+        createMultiple: Double = -1.0,
+        devBuyTx60s: Int = 0,
         distinctBuyers60s: Int = 0,
         largestBuyerSharePct60s: Double = -1.0,
         top3BuyerSharePct60s: Double = -1.0,
@@ -102,6 +105,16 @@ object EarlyMoonshotHunter6415 {
         firstBlockSupplyPct: Double = -1.0,
         devSelling: Boolean = false,
         socialVelocityScore: Double = 0.0,
+        valuationRunwayScore: Double = 0.0,
+        attentionVelocityScore: Double = 0.0,
+        telegramCommunityScore: Double = 0.0,
+        valuationGrowthPctPerMin: Double = 0.0,
+        evidenceToValuationRatio: Double = 0.0,
+        evidenceAheadOfValuation: Boolean = false,
+        creatorSampleCount: Int = 0,
+        creatorWinRate: Double = 0.5,
+        creatorScoreHint: Int = 0,
+        creatorRugCount: Int = 0,
         emitTelemetry: Boolean = true,
     ): Verdict {
         // Fast rejection: no mcap OR mcap way above 25k → NORMAL.
@@ -154,6 +167,17 @@ object EarlyMoonshotHunter6415 {
             smartMoneyBuys60s >= 2 -> { fired += Signal("SMART_MONEY_CLUSTER", 11.0); signals.add("SMART_MONEY_CLUSTER") }
             smartMoneyBuys60s == 1 -> { fired += Signal("SMART_MONEY_TOUCH", 4.0); signals.add("SMART_MONEY_TOUCH") }
         }
+        // Smart-money timing matters: early participation before price fully expands
+        // is more informative than the same wallets arriving after a vertical move.
+        if (smartMoneyBuys60s >= 2 && launchAgeMs in 0L..120_000L &&
+            (createMultiple < 0.0 || createMultiple < 1.8)) {
+            fired += Signal("SMART_MONEY_EARLY", 10.0); signals.add("SMART_MONEY_EARLY")
+        }
+        // Creator commitment is a small positive only when paired with clean
+        // distribution and no dev sell. It never cancels creator-rug evidence.
+        if (devBuyTx60s > 0 && !devSelling && topHolderPct < 35.0) {
+            fired += Signal("CREATOR_ALIGNED_EARLY_BUY", 5.0); signals.add("CREATOR_ALIGNED_EARLY_BUY")
+        }
 
         when {
             distinctBuyers60s >= 8 -> { fired += Signal("INDEPENDENT_BUYER_BREADTH_STRONG", 16.0); signals.add("INDEPENDENT_BUYER_BREADTH_STRONG") }
@@ -171,6 +195,59 @@ object EarlyMoonshotHunter6415 {
         }
 
         val bundle = bundleRisk.uppercase()
+        when {
+            valuationRunwayScore >= 24.0 -> { fired += Signal("VALUATION_RUNWAY_EXTREME", 16.0); signals.add("VALUATION_RUNWAY_EXTREME") }
+            valuationRunwayScore >= 16.0 -> { fired += Signal("VALUATION_RUNWAY_HIGH", 10.0); signals.add("VALUATION_RUNWAY_HIGH") }
+            valuationRunwayScore >= 8.0 -> { fired += Signal("VALUATION_RUNWAY_PRESENT", 5.0); signals.add("VALUATION_RUNWAY_PRESENT") }
+        }
+        when {
+            attentionVelocityScore >= 20.0 -> { fired += Signal("ATTENTION_VELOCITY_STRONG", 12.0); signals.add("ATTENTION_VELOCITY_STRONG") }
+            attentionVelocityScore >= 8.0 -> { fired += Signal("ATTENTION_VELOCITY_BUILDING", 7.0); signals.add("ATTENTION_VELOCITY_BUILDING") }
+        }
+        when {
+            telegramCommunityScore >= 18.0 -> { fired += Signal("TELEGRAM_COMMUNITY_ACCEL_STRONG", 10.0); signals.add("TELEGRAM_COMMUNITY_ACCEL_STRONG") }
+            telegramCommunityScore >= 7.0 -> { fired += Signal("TELEGRAM_COMMUNITY_ACCEL", 5.0); signals.add("TELEGRAM_COMMUNITY_ACCEL") }
+        }
+        if (evidenceAheadOfValuation) {
+            fired += Signal("EVIDENCE_AHEAD_OF_VALUATION", 18.0); signals.add("EVIDENCE_AHEAD_OF_VALUATION")
+        }
+        if (evidenceToValuationRatio >= 2.0 && valuationGrowthPctPerMin > 0.25) {
+            fired += Signal("EVIDENCE_LEADING_PRICE_STRONGLY", 10.0); signals.add("EVIDENCE_LEADING_PRICE_STRONGLY")
+        }
+
+        // V5.0.7800 — MOONSHOT CONFLUENCE.
+        // A real tail candidate should not owe its conviction to one noisy feature.
+        // Count independent pillars and reward combinations. This is the closest
+        // machine analogue to an experienced trader seeing "everything is starting
+        // to line up while valuation is still tiny".
+        var pillars = 0
+        if (valuationRunwayScore >= 16.0) pillars++
+        if (distinctBuyers60s >= 5) pillars++
+        if (holderGrowthPct >= 2.0 || holderCount >= 100) pillars++
+        if (smartMoneyBuys60s >= 2) pillars++
+        if (attentionVelocityScore >= 8.0 || telegramCommunityScore >= 7.0) pillars++
+        if (!devSelling && topHolderPct < 35.0 &&
+            bundle !in setOf("HIGH", "CRITICAL", "SEVERE") &&
+            (largestBuyerSharePct60s < 0.0 || largestBuyerSharePct60s <= 55.0)) pillars++
+        when {
+            pillars >= 6 && evidenceAheadOfValuation -> {
+                fired += Signal("MOONSHOT_CONFLUENCE_6", 22.0); signals.add("MOONSHOT_CONFLUENCE_6")
+            }
+            pillars >= 5 -> {
+                fired += Signal("MOONSHOT_CONFLUENCE_5", 15.0); signals.add("MOONSHOT_CONFLUENCE_5")
+            }
+            pillars >= 4 -> {
+                fired += Signal("MOONSHOT_CONFLUENCE_4", 8.0); signals.add("MOONSHOT_CONFLUENCE_4")
+            }
+        }
+
+        if (creatorSampleCount >= 5) {
+            when {
+                creatorWinRate >= 0.65 || creatorScoreHint >= 6 -> { fired += Signal("CREATOR_PEDIGREE_STRONG", 10.0); signals.add("CREATOR_PEDIGREE_STRONG") }
+                creatorWinRate >= 0.55 || creatorScoreHint >= 3 -> { fired += Signal("CREATOR_PEDIGREE_POSITIVE", 5.0); signals.add("CREATOR_PEDIGREE_POSITIVE") }
+            }
+        }
+
         if (bundle in setOf("LOW", "CLEAN", "NONE") && (firstBlockSupplyPct < 0.0 || firstBlockSupplyPct <= 20.0)) {
             fired += Signal("DISTRIBUTION_CLEAN", 8.0); signals.add("DISTRIBUTION_CLEAN")
         }
@@ -183,6 +260,12 @@ object EarlyMoonshotHunter6415 {
         if (largestBuyerSharePct60s >= 65.0) negative += Signal("ONE_BUYER_DOMINATES_FLOW", -16.0)
         if (top3BuyerSharePct60s >= 85.0) negative += Signal("TOP3_BUYERS_DOMINATE_FLOW", -14.0)
         if (holderGrowthPct.isFinite() && holderGrowthPct <= -5.0) negative += Signal("HOLDER_GROWTH_SHRINKING", -12.0)
+        if (creatorRugCount >= 1) negative += Signal("CREATOR_RUG_HISTORY", -25.0)
+        if (creatorSampleCount >= 5 && creatorWinRate < 0.20) negative += Signal("CREATOR_PEDIGREE_POOR", -18.0)
+        if (valuationGrowthPctPerMin >= 3.0 && evidenceToValuationRatio < 0.75)
+            negative += Signal("VALUATION_OUTRUNNING_EVIDENCE", -14.0)
+        if (createMultiple >= 3.0 && launchAgeMs in 0L..180_000L)
+            negative += Signal("EARLY_PRICE_ALREADY_EXPANDED", -10.0)
 
         // Apply learned weights.
         var composite = 0.0

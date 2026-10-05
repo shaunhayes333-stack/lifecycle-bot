@@ -267,6 +267,7 @@ object TacticSwitcher {
      */
     fun onCanonicalTradeClosed6486(
         lane: String, scoreBand: String, entryTactic: String, pnlPct: Double,
+        holdingTimeMs: Long = 0L,
     ) {
         val pnlVerdict6495 = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(
             pnlPct, "TacticSwitcher.onCanonicalTradeClosed6486/$lane/$scoreBand", emit = true,
@@ -289,19 +290,28 @@ object TacticSwitcher {
         val histKey = "${key(lane, scoreBand)}|${elected.name}"
         val row = historicalRow6567(histKey)
         row.trades.incrementAndGet()
-        // V5.0.6576 §P0-3 — canonical classifier (was pnlPct > 0.0).
-        if (com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(pnlPct)
-            == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN
-        ) row.wins.incrementAndGet()
+        val objective7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                lane, pnlPct, holdingTimeMs, "TACTIC_CLOSE"
+            )
+        } catch (_: Throwable) { null }
+        if (objective7801?.mandateSuccess == true) {
+            row.wins.incrementAndGet()
+        } else if (objective7801 == null &&
+            com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(pnlPct)
+                == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN
+        ) {
+            row.wins.incrementAndGet()
+        }
         row.pnlBps.addAndGet((pnlPct * 100).toLong())
         persistHistorical6567(histKey, row)
         try { PipelineHealthCollector.labelInc("TACTIC_HISTORICAL_OUTCOME_ATTRIBUTED_6568") } catch (_: Throwable) {}
-        if (elected.name == current) onTradeClosed(lane, scoreBand, pnlPct)
+        if (elected.name == current) onTradeClosed(lane, scoreBand, pnlPct, holdingTimeMs)
     }
 
     fun historicalOutcomeCount6486(): Int = historicalTacticOutcomes6486.values.sumOf { it.trades.get() }
 
-    fun onTradeClosed(lane: String, scoreBand: String, pnlPct: Double) {
+    fun onTradeClosed(lane: String, scoreBand: String, pnlPct: Double, holdingTimeMs: Long = 0L) {
         val pnlVerdict6495 = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(
             pnlPct, "TacticSwitcher.onTradeClosed/$lane/$scoreBand", emit = true,
         )
@@ -315,18 +325,27 @@ object TacticSwitcher {
         // V5.0.6747 §BLEEDER_LANE_PROBATION — feed the per-lane WR
         // window from the same authoritative sink the tactic tuner
         // uses so both authorities see the same terminal outcomes.
-        try { com.lifecyclebot.engine.truth.BleederLaneProbation6747.onTradeClosed(lane, pnlPct) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.BleederLaneProbation6747.onTradeClosed(lane, pnlPct, holdingTimeMs, "TACTIC_WINDOW") } catch (_: Throwable) {}
         val cell = getOrCreate(lane, scoreBand)
         cell.tradesSinceRotation.incrementAndGet()
         cell.pnlSumSinceRotation.addAndGet((pnlPct * 100).toLong())
-        // V5.0.6576 §P0-3 — canonical classifier (was pnlPct > 0.0 else LOSS).
-        val outcomeClass6576 = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(pnlPct)
-        when (outcomeClass6576) {
-            com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN -> cell.winsSinceRotation.incrementAndGet()
-            com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS -> cell.lossesSinceRotation.incrementAndGet()
-            com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN -> {
-                // Breakeven neither wins nor loses — recorded only as a trade.
-                try { PipelineHealthCollector.labelInc("TACTIC_BREAKEVEN_6576") } catch (_: Throwable) {}
+        val objective7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                lane, pnlPct, holdingTimeMs, "TACTIC_WINDOW"
+            )
+        } catch (_: Throwable) { null }
+        if (objective7801 != null) {
+            when {
+                objective7801.mandateSuccess -> cell.winsSinceRotation.incrementAndGet()
+                objective7801.utility < 0.0 -> cell.lossesSinceRotation.incrementAndGet()
+                else -> try { PipelineHealthCollector.labelInc("TACTIC_SPECIALIST_NEUTRAL_7801") } catch (_: Throwable) {}
+            }
+        } else {
+            when (com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(pnlPct)) {
+                com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN -> cell.winsSinceRotation.incrementAndGet()
+                com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS -> cell.lossesSinceRotation.incrementAndGet()
+                com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN ->
+                    try { PipelineHealthCollector.labelInc("TACTIC_BREAKEVEN_6576") } catch (_: Throwable) {}
             }
         }
 
@@ -659,7 +678,18 @@ object TacticSwitcher {
                 val a = agg.getOrPut(k) { Acc() }
                 a.n++
                 a.pnlSumBp += (t.pnlPct * 100.0).toLong()
-                if (t.pnlPct > 0.0) a.wins++ else a.losses++
+                val holdMs7801 = if (t.entryTsMs > 0L && t.ts >= t.entryTsMs) t.ts - t.entryTsMs else 0L
+                val objective7801 = try {
+                    com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                        laneNorm, t.pnlPct, holdMs7801, t.reason
+                    )
+                } catch (_: Throwable) { null }
+                if (objective7801 != null) {
+                    when {
+                        objective7801.mandateSuccess -> a.wins++
+                        objective7801.utility < 0.0 -> a.losses++
+                    }
+                } else if (t.pnlPct > 0.0) a.wins++ else a.losses++
             }
             if (agg.isEmpty()) return
             // Ensure every persisted cell exists (so its counters are overwritten),

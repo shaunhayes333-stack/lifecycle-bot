@@ -58,16 +58,16 @@ object AdvancedExitManager {
             baseTakeProfitPct = 30.0,
             baseStopLossPct = 8.0,
             baseTrailingPct = 5.0,
-            maxHoldMinutes = 10,
+            maxHoldMinutes = 30,
             chunkSellEnabled = false,
             progressiveTrailing = true,
             liquidityCollapseThreshold = 0.5,
         ),
         BLUE_CHIP(
-            baseTakeProfitPct = 40.0,
-            baseStopLossPct = 15.0,
-            baseTrailingPct = 10.0,
-            maxHoldMinutes = 120,
+            baseTakeProfitPct = 80.0,
+            baseStopLossPct = 10.0,
+            baseTrailingPct = 5.0,
+            maxHoldMinutes = 480,
             chunkSellEnabled = true,
             progressiveTrailing = true,
             liquidityCollapseThreshold = 0.6,
@@ -101,13 +101,13 @@ object AdvancedExitManager {
         // This is the compounding thesis the lane was designed for; the prior
         // shape amputated every winner at +12% and died by a thousand wick-cuts.
         TREASURY(
-            baseTakeProfitPct = 35.0,   // was 15 — let the asymmetric winner pay for the wicks
-            baseStopLossPct = 14.0,     // was 8 — survive high-vol Solana-mint noise; still inside the -15% floor
-            baseTrailingPct = 11.0,     // was 6 — give the move room instead of trailing out on noise
-            maxHoldMinutes = 90,        // was 30 — pump moves develop over more than half an hour
-            chunkSellEnabled = true,    // was false — bank partials on the way up, let a remainder ride
+            baseTakeProfitPct = 8.0,
+            baseStopLossPct = 5.0,
+            baseTrailingPct = 3.0,
+            maxHoldMinutes = 90,
+            chunkSellEnabled = true,
             progressiveTrailing = true,
-            liquidityCollapseThreshold = 0.5,
+            liquidityCollapseThreshold = 0.70,
         ),
         // V5.9.1426 — FLOOR_-15_LETRUN. Honest backtest (5.0.3427 panel 6) proved
         // the V3-main/UNKNOWN lane is the BOOK'S winner under let-run exits:
@@ -128,12 +128,66 @@ object AdvancedExitManager {
         // V2.0: New profiles
         MOONSHOT(
             baseTakeProfitPct = 200.0,
-            baseStopLossPct = 25.0,
+            baseStopLossPct = 20.0,
             baseTrailingPct = 15.0,
             maxHoldMinutes = 1440,
             chunkSellEnabled = true,
             progressiveTrailing = true,
             liquidityCollapseThreshold = 0.6,
+        ),
+        PROJECT_SNIPER(
+            baseTakeProfitPct = 75.0,
+            baseStopLossPct = 12.0,
+            baseTrailingPct = 15.0,
+            maxHoldMinutes = 120,
+            chunkSellEnabled = true,
+            progressiveTrailing = true,
+            liquidityCollapseThreshold = 0.55,
+        ),
+        MANIPULATED(
+            baseTakeProfitPct = 14.0,
+            baseStopLossPct = 11.0,
+            baseTrailingPct = 10.0,
+            maxHoldMinutes = 4,
+            chunkSellEnabled = false,
+            progressiveTrailing = true,
+            liquidityCollapseThreshold = 0.55,
+        ),
+        QUALITY(
+            baseTakeProfitPct = 50.0,
+            baseStopLossPct = 12.0,
+            baseTrailingPct = 8.0,
+            maxHoldMinutes = 60,
+            chunkSellEnabled = true,
+            progressiveTrailing = true,
+            liquidityCollapseThreshold = 0.65,
+        ),
+        CASHGEN(
+            baseTakeProfitPct = 4.0,
+            baseStopLossPct = 5.0,
+            baseTrailingPct = 2.0,
+            maxHoldMinutes = 45,
+            chunkSellEnabled = false,
+            progressiveTrailing = true,
+            liquidityCollapseThreshold = 0.70,
+        ),
+        CYCLIC(
+            baseTakeProfitPct = 25.0,
+            baseStopLossPct = 12.0,
+            baseTrailingPct = 6.0,
+            maxHoldMinutes = 90,
+            chunkSellEnabled = true,
+            progressiveTrailing = true,
+            liquidityCollapseThreshold = 0.65,
+        ),
+        CORE(
+            baseTakeProfitPct = 30.0,
+            baseStopLossPct = 15.0,
+            baseTrailingPct = 8.0,
+            maxHoldMinutes = 240,
+            chunkSellEnabled = true,
+            progressiveTrailing = true,
+            liquidityCollapseThreshold = 0.60,
         ),
         MARKETS_LEVERAGED(
             baseTakeProfitPct = 8.0,
@@ -588,13 +642,18 @@ object AdvancedExitManager {
      */
     fun profileForMode(tradingMode: String): ExitProfile = when (tradingMode.uppercase()) {
         "MOONSHOT", "LONG_HOLD", "SLEEPER", "MICRO_CAP" -> ExitProfile.MOONSHOT
-        "BLUE_CHIP", "BLUE_CHIP_TRADE"                  -> ExitProfile.BLUE_CHIP
-        "DIP_HUNTER", "LIQUIDATION_HUNTER", "REVIVAL"   -> ExitProfile.DIP_HUNTER
-        "TREASURY", "CYCLIC", "MARKET_MAKER"             -> ExitProfile.TREASURY
-        "EXPRESS", "SCALP", "PUMP_DUMP"                  -> ExitProfile.EXPRESS
-        "SHITCOIN", "PUMP_SNIPER", "PRESALE_SNIPE",
-        "COPY_TRADE", "WHALE_FOLLOW", "NICHE"            -> ExitProfile.SHITCOIN
-        "STANDARD", "MOMENTUM_SWING", "ARBITRAGE"        -> ExitProfile.V3_STANDARD
-        else                                             -> ExitProfile.V3_STANDARD
+        "PROJECT_SNIPER", "PRESALE_SNIPE" -> ExitProfile.PROJECT_SNIPER
+        "EXPRESS", "SCALP", "PUMP_DUMP" -> ExitProfile.EXPRESS
+        "SHITCOIN", "PUMP_SNIPER", "COPY_TRADE", "WHALE_FOLLOW", "NICHE" -> ExitProfile.SHITCOIN
+        "MANIPULATED", "MANIP" -> ExitProfile.MANIPULATED
+        "DIP_HUNTER", "LIQUIDATION_HUNTER", "REVIVAL" -> ExitProfile.DIP_HUNTER
+        "CYCLIC" -> ExitProfile.CYCLIC
+        "QUALITY" -> ExitProfile.QUALITY
+        "BLUECHIP", "BLUE_CHIP", "BLUE_CHIP_TRADE" -> ExitProfile.BLUE_CHIP
+        "TREASURY", "MARKET_MAKER" -> ExitProfile.TREASURY
+        "CASHGEN", "CASH_GENERATION" -> ExitProfile.CASHGEN
+        "CORE" -> ExitProfile.CORE
+        "STANDARD", "MOMENTUM_SWING", "ARBITRAGE" -> ExitProfile.V3_STANDARD
+        else -> ExitProfile.V3_STANDARD
     }
 }
