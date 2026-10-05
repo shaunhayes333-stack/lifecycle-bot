@@ -68,10 +68,12 @@ object BleederLaneProbation6747 {
 
     /** Feed a settled trade outcome. Called from TacticSwitcher.onTradeClosed
      *  and V3JournalRecorder.recordClose (already the two authoritative sinks). */
-    fun onTradeClosed(lane: String, pnlPct: Double) {
+    fun onTradeClosed(lane: String, pnlPct: Double, holdingTimeMs: Long = 0L, exitReason: String = "") {
         val laneU = canonicalLane(lane) ?: return
         if (laneU in EXEMPT_LANES) return
-        val win = pnlPct > 0.0
+        val win = try {
+            SpecialistObjective7801.evaluate(laneU, pnlPct, holdingTimeMs, exitReason).mandateSuccess
+        } catch (_: Throwable) { pnlPct > 0.0 }
         val w = windows.computeIfAbsent(laneU) { Window() }
         w.add(win)
         if (w.n < MIN_WINDOW) return
