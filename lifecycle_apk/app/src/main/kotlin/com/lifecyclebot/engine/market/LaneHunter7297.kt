@@ -281,7 +281,13 @@ object LaneHunter7297 {
 
     // ── per-lane brain ───────────────────────────────────────────────────
 
-    private class Stat { var n = 0; var sumRet = 0.0; fun mean() = if (n > 0) sumRet / n else 0.0 }
+    private class Stat {
+        var n = 0
+        var sumRet = 0.0
+        var sumUtility = 0.0
+        fun mean() = if (n > 0) sumRet / n else 0.0
+        fun meanUtility() = if (n > 0) sumUtility / n else 0.0
+    }
 
     private val stats = ConcurrentHashMap<String, ConcurrentHashMap<Int, Stat>>()
     private val claims = ConcurrentHashMap<String, Claim>()
@@ -342,7 +348,7 @@ object LaneHunter7297 {
     }
 
     private fun bucketStatsFor(lane: String): Map<Int, Pair<Int, Double>> =
-        stats[lane]?.mapValues { it.value.n to it.value.mean() } ?: emptyMap()
+        stats[lane]?.mapValues { it.value.n to it.value.meanUtility() } ?: emptyMap()
 
     private fun fluidBandFor(lane: String): Pair<Double, Double>? {
         val p = profiles.firstOrNull { it.lane == lane } ?: return null
@@ -393,7 +399,7 @@ object LaneHunter7297 {
     private fun brainMultiplier(lane: String, mcap: Double): Double {
         val s = stats[lane]?.get(bucketOf(mcap)) ?: return 1.0
         if (s.n < MIN_BUCKET_N) return 1.0
-        return (1.0 + (s.mean() * 2.0).coerceIn(-0.3, 0.3))
+        return (1.0 + (s.meanUtility() * 0.18).coerceIn(-0.30, 0.30))
     }
 
     /**
@@ -497,9 +503,13 @@ object LaneHunter7297 {
             val m = stats.getOrPut(prof.lane) { ConcurrentHashMap() }
             raw.split(';').forEach { e ->
                 val f = e.split(',')
-                if (f.size == 3) {
+                if (f.size >= 3) {
                     val b = f[0].toIntOrNull() ?: return@forEach
-                    m[b] = Stat().apply { n = f[1].toIntOrNull() ?: 0; sumRet = f[2].toDoubleOrNull() ?: 0.0 }
+                    m[b] = Stat().apply {
+                        n = f[1].toIntOrNull() ?: 0
+                        sumRet = f[2].toDoubleOrNull() ?: 0.0
+                        sumUtility = if (f.size >= 4) f[3].toDoubleOrNull() ?: 0.0 else sumRet
+                    }
                 }
             }
         }
@@ -524,15 +534,30 @@ object LaneHunter7297 {
         if (!ret.isFinite()) return
         val b = bucketOf(c.mcapAtHunt)
         if (b == Int.MIN_VALUE) return
+        val utility7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                c.lane, e.netReturnPct, e.holdingTimeMs, e.exitReason
+            )
+        } catch (_: Throwable) { null }
         val m = stats.getOrPut(c.lane) { ConcurrentHashMap() }
         synchronized(m) {
             val s = m.getOrPut(b) { Stat() }
-            s.n++; s.sumRet += ret
+            s.n++
+            s.sumRet += ret
+            s.sumUtility += utility7801?.utility ?: ret
             try {
-                prefs?.edit()?.putString(c.lane, m.entries.joinToString(";") { "${it.key},${it.value.n},${it.value.sumRet}" })?.apply()
+                prefs?.edit()?.putString(
+                    c.lane,
+                    m.entries.joinToString(";") { "${it.key},${it.value.n},${it.value.sumRet},${it.value.sumUtility}" }
+                )?.apply()
             } catch (_: Throwable) {}
         }
-        try { PipelineHealthCollector.labelInc("LANE_HUNT_7297_GRADED_${c.lane}") } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("LANE_HUNT_7297_GRADED_${c.lane}")
+            if (utility7801 != null) {
+                PipelineHealthCollector.labelInc("SPECIALIST_OBJECTIVE_7801_${utility7801.lane}_${utility7801.magnitudeClass}")
+            }
+        } catch (_: Throwable) {}
     }
 
     fun statusLine(): String = profiles.joinToString(" · ") { p ->
