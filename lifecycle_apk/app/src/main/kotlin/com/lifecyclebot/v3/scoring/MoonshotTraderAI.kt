@@ -794,7 +794,8 @@ object MoonshotTraderAI {
                     )
                 }catch(_:Throwable){null}
                 val creator7799=try{com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint)}catch(_:Throwable){null}
-                val pedigree7799=try{com.lifecyclebot.v3.scoring.OperatorFingerprintAI.creatorEvidence7799(creator7799)}catch(_:Throwable){null}
+                val genericPedigree7799=try{com.lifecyclebot.v3.scoring.OperatorFingerprintAI.creatorEvidence7799(creator7799)}catch(_:Throwable){null}
+                val tailPedigree7799=try{com.lifecyclebot.engine.truth.MoonshotSignalLearner6415.creatorTailEvidence7799(creator7799)}catch(_:Throwable){null}
                 val creatorRugs7799=try{
                     if(creator7799.isNullOrBlank())0 else com.lifecyclebot.engine.TradingMemory.getCreatorRugCount(creator7799)
                 }catch(_:Throwable){0}
@@ -814,9 +815,10 @@ object MoonshotTraderAI {
                     valuationRunwayScore=expansion7799?.runwayScore?:0.0,
                     attentionVelocityScore=expansion7799?.attentionVelocityScore?:0.0,
                     evidenceAheadOfValuation=expansion7799?.evidenceAheadOfValuation?:false,
-                    creatorSampleCount=pedigree7799?.sampleCount?:0,
-                    creatorWinRate=pedigree7799?.winRate?:0.5,
-                    creatorScoreHint=pedigree7799?.scoreHint?:0,
+                    creatorSampleCount=(tailPedigree7799?.weightedSamples?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+                        ?:genericPedigree7799?.sampleCount?:0),
+                    creatorWinRate=tailPedigree7799?.runnerRate?:genericPedigree7799?.winRate?:0.5,
+                    creatorScoreHint=genericPedigree7799?.scoreHint?:0,
                     creatorRugCount=creatorRugs7799,
                     emitTelemetry=false
                 )
