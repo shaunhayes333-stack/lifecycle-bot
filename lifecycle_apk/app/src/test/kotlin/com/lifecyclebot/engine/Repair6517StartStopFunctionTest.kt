@@ -50,6 +50,17 @@ class Repair6517StartStopFunctionTest {
     }
 
     @Test
+    fun `manual stop finalization clears stale deferred start intent before STOPPED`() {
+        val stop = service.indexOf("\"STOP_COMPLETE\",")
+        val clear = service.indexOf("MANUAL_STOP_PENDING_START_CLEARED_7801", stop)
+        val pendingClear = service.indexOf("serviceStartRequested6517.set(false)", stop)
+        val stopped = service.indexOf("BotRuntimeController.publishStopped", stop)
+        val lifecycle = service.indexOf("\"LIFECYCLE_STOP_COMPLETE\"", stop)
+        assertTrue(stop > 0 && pendingClear > stop && clear > stop)
+        assertTrue(stopped > pendingClear && lifecycle > stopped)
+    }
+
+    @Test
     fun `UI renders pending and failure truth and dispatch has fallback telemetry`() {
         assertTrue(main.contains("isStartPending6517()"))
         assertTrue(main.contains("Cancel Start"))

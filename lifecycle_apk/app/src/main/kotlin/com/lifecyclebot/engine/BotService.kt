@@ -9787,6 +9787,17 @@ class BotService : Service() {
                 if (loopJob === stoppingLoopJob) loopJob = null
             }
             stopInProgress = false
+            // V5.0.7801 — MANUAL STOP IS A TERMINAL COMMAND BARRIER.
+            // A keep-alive/ACTION_START can arrive during the long teardown and
+            // set the deferred-start latch after ACTION_STOP initially cleared it.
+            // Never publish STOPPED while stale start/restart intent survives.
+            if (liquidateOnStop && !userStartQueuedDuringStop) {
+                serviceStartRequested6517.set(false)
+                serviceStartQueued6516.set(false)
+                restartAfterStopDispatchPending6518 = false
+                userStartQueuedDuringStop = false
+                try { ForensicLogger.lifecycle("MANUAL_STOP_PENDING_START_CLEARED_7801", "source=$source") } catch (_: Throwable) {}
+            }
             BotRuntimeController.publishStopped(stopGeneration, source)
             ForensicLogger.lifecycle(
                 "LIFECYCLE_STOP_COMPLETE",
@@ -9825,6 +9836,12 @@ class BotService : Service() {
                 if (loopJob === stoppingLoopJob) loopJob = null
             }
             stopInProgress = false
+            if (liquidateOnStop && !restartQueued6518) {
+                serviceStartRequested6517.set(false)
+                serviceStartQueued6516.set(false)
+                restartAfterStopDispatchPending6518 = false
+                userStartQueuedDuringStop = false
+            }
             BotRuntimeController.publishStopped(stopGeneration, source)
             try { ForensicLogger.lifecycle("LIFECYCLE_STOP_COMPLETE", "source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions") } catch (_: Throwable) {}
             // An exception anywhere in the long teardown must not leave this old
