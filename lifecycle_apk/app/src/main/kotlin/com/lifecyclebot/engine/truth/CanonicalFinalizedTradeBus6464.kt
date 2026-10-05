@@ -232,8 +232,16 @@ object CanonicalFinalizedTradeBus6464 {
         //   Fail-silent.
         try {
             if (finalLearningEligible6831 && env.lane.isNotBlank()) {
-                val won = env.realizedPnlSol > 0.0
+                val objective7801 = try {
+                    SpecialistObjective7801.evaluate(
+                        env.lane, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+                    )
+                } catch (_: Throwable) { null }
+                val won = objective7801?.mandateSuccess ?: (env.realizedPnlSol > 0.0)
                 SelectionQualityAuthority6829.recordTerminal(env.lane, won)
+                if (objective7801 != null) try {
+                    PipelineHealthCollector.labelInc("SELECTION_SPECIALIST_OBJECTIVE_7801")
+                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
         // V5.0.6829 — release CausalDedupGate6829 claim on terminal.
