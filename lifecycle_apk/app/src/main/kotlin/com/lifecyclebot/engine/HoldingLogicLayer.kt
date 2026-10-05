@@ -181,6 +181,18 @@ object HoldingLogicLayer {
         ErrorLogger.info(TAG, "HoldingLogicLayer initialized with ${MODE_PARAMS.size} mode configurations")
     }
     
+    private fun staleFlatMinMinutes7801(mode: String): Long = when (mode.uppercase()) {
+        "MANIPULATED" -> 4L
+        "EXPRESS", "CASHGEN", "TREASURY" -> 12L
+        "PROJECT_SNIPER", "PRESALE_SNIPE" -> 20L
+        "SHITCOIN" -> 30L
+        "QUALITY", "CYCLIC" -> 45L
+        "DIP_HUNTER" -> 90L
+        "BLUECHIP", "BLUE_CHIP" -> 180L
+        "MOONSHOT", "DIAMOND_HANDS", "LONG_HOLD", "SLEEPER" -> Long.MAX_VALUE
+        else -> 20L
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN EVALUATION FUNCTION
     // ═══════════════════════════════════════════════════════════════════════════
@@ -479,7 +491,8 @@ object HoldingLogicLayer {
                     stalledMode.contains("MOONSHOT") ||
                     position.isLongHold
                 val flatBand = currentPnlPct in -3.0..3.0
-                val aged = holdTimeMinutes >= 15L
+                val staleMin7801 = staleFlatMinMinutes7801(stalledMode)
+                val aged = holdTimeMinutes >= staleMin7801
                 val nearTarget = currentPnlPct >= (targetProfit6091 * 0.5)
                 val weakMomentum = ts.meta.momScore < 20 && ts.meta.volScore < 15
                 val noWhale = ts.meta.whaleSummary.isBlank() && ts.meta.velocityScore < 70.0
@@ -494,7 +507,7 @@ object HoldingLogicLayer {
                     } catch (_: Throwable) {}
                     return HoldEvaluation(
                         action = HoldAction.EXIT_NOW,
-                        reason = "STALE_FLAT_CULL_6366: ${holdTimeMinutes}min flat @${currentPnlPct.toInt()}% pnl, no momentum/whale/holder growth — free the slot",
+                        reason = "STALE_FLAT_CULL_6366: ${holdTimeMinutes}min flat (nativeMin=$staleMin7801) @${currentPnlPct.toInt()}% pnl, no momentum/whale/holder growth — free the slot",
                         confidence = 55.0,
                         urgency = Urgency.NORMAL,
                     )
