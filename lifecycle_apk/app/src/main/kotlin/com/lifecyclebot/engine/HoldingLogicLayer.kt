@@ -112,12 +112,25 @@ object HoldingLogicLayer {
     
     private val MODE_PARAMS = mapOf(
         "STANDARD" to ModeHoldParams("STANDARD", 30.0, -15.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(30.0, 60.0)),
-        "MOONSHOT" to ModeHoldParams("MOONSHOT", 200.0, -25.0, 15.0, 24 * 60 * 60 * 1000L, true, listOf(100.0, 300.0, 500.0)),
+        // V5.0.7801 — native specialist held-management profiles. These are the
+        // adaptive layer's starting priors; each trader's own fluid exits,
+        // LaneExitTuner, LiveStrategyTuner, profit locks and hard safety still shape them.
+        "MOONSHOT" to ModeHoldParams("MOONSHOT", 200.0, -20.0, 15.0, 24 * 60 * 60 * 1000L, true, listOf(100.0, 300.0, 500.0)),
+        "PROJECT_SNIPER" to ModeHoldParams("PROJECT_SNIPER", 75.0, -12.0, 15.0, 2 * 60 * 60 * 1000L, true, listOf(15.0, 35.0, 75.0)),
+        "EXPRESS" to ModeHoldParams("EXPRESS", 50.0, -8.0, 5.0, 60 * 60 * 1000L, true, listOf(30.0, 50.0, 100.0)),
+        "SHITCOIN" to ModeHoldParams("SHITCOIN", 50.0, -8.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(25.0, 50.0, 100.0)),
+        "MANIPULATED" to ModeHoldParams("MANIPULATED", 14.0, -11.0, 10.0, 4 * 60 * 1000L, false, listOf(14.0)),
+        "DIP_HUNTER" to ModeHoldParams("DIP_HUNTER", 25.0, -15.0, 10.0, 6 * 60 * 60 * 1000L, true, listOf(12.0, 25.0, 50.0)),
+        "QUALITY" to ModeHoldParams("QUALITY", 50.0, -12.0, 8.0, 60 * 60 * 1000L, true, listOf(20.0, 50.0, 100.0)),
+        "BLUECHIP" to ModeHoldParams("BLUECHIP", 80.0, -10.0, 5.0, 8 * 60 * 60 * 1000L, true, listOf(30.0, 80.0, 150.0)),
+        "TREASURY" to ModeHoldParams("TREASURY", 5.0, -5.0, 2.0, 60 * 60 * 1000L, false, listOf(3.0, 5.0, 10.0)),
+        "CASHGEN" to ModeHoldParams("CASHGEN", 4.0, -5.0, 2.0, 45 * 60 * 1000L, false, listOf(3.0, 4.0, 8.0)),
+        "CORE" to ModeHoldParams("CORE", 30.0, -15.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(20.0, 40.0, 80.0)),
         "PUMP_SNIPER" to ModeHoldParams("PUMP_SNIPER", 50.0, -20.0, 10.0, 30 * 60 * 1000L, true, listOf(25.0, 50.0)),
         "COPY_TRADE" to ModeHoldParams("COPY_TRADE", 40.0, -15.0, 8.0, 2 * 60 * 60 * 1000L, true, listOf(25.0, 50.0)),
         "LONG_HOLD" to ModeHoldParams("LONG_HOLD", 500.0, -30.0, 20.0, 7 * 24 * 60 * 60 * 1000L, true, listOf(100.0, 250.0, 500.0)),
         "DIAMOND_HANDS" to ModeHoldParams("DIAMOND_HANDS", 5000.0, -35.0, 35.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(250.0, 1000.0, 2500.0)),
-        "BLUE_CHIP" to ModeHoldParams("BLUE_CHIP", 100.0, -10.0, 5.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(50.0, 100.0)),
+        "BLUE_CHIP" to ModeHoldParams("BLUE_CHIP", 80.0, -10.0, 5.0, 8 * 60 * 60 * 1000L, true, listOf(30.0, 80.0, 150.0)),
         "CYCLIC" to ModeHoldParams("CYCLIC", 25.0, -12.0, 6.0, 60 * 60 * 1000L, true, listOf(15.0, 25.0)),
         "SLEEPER" to ModeHoldParams("SLEEPER", 300.0, -35.0, 20.0, 48 * 60 * 60 * 1000L, true, listOf(100.0, 200.0, 400.0)),
         "NICHE" to ModeHoldParams("NICHE", 150.0, -25.0, 12.0, 8 * 60 * 60 * 1000L, true, listOf(75.0, 150.0)),
@@ -432,6 +445,7 @@ object HoldingLogicLayer {
                 val isPatientMode = stalledMode.contains("DIAMOND_HANDS") ||
                     stalledMode.contains("LONG_HOLD") ||
                     stalledMode.contains("SLEEPER") ||
+                    stalledMode.contains("MOONSHOT") ||
                     position.isLongHold
                 val flatBand = currentPnlPct in -3.0..3.0
                 val aged = holdTimeMinutes >= 15L
@@ -812,17 +826,19 @@ object HoldingLogicLayer {
     private fun getLayerFromMode(mode: String): String {
         return when (mode.uppercase()) {
             // Treasury layer modes
-            "TREASURY", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
+            "TREASURY", "CASHGEN", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
             
-            // ShitCoin layer modes
+            // Fast/degen launch specialists keep their native learning family.
+            "SHITCOIN", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED",
             "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
             
-            // V3/Quality layer modes
-            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE", 
-            "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
+            // Quality/recovery/generalist specialists.
+            "QUALITY", "DIP_HUNTER", "CORE", "STANDARD", "MOMENTUM_SWING",
+            "REVIVAL", "CYCLIC", "NICHE", "COPY_TRADE", "WHALE_FOLLOW",
+            "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
             
             // Blue Chip layer modes  
-            "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
+            "BLUECHIP", "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
             
             // Moonshot layer modes
             "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
