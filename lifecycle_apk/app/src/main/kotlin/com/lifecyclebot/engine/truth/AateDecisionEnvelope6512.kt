@@ -234,7 +234,10 @@ object AateDecisionFabric6512 {
         // require the UnifiedPolicyHead per-position observation, so they MUST
         // still run. rewardedPositions still enforces one-time delivery.
         val policyAck6713 = try {
-            UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)
+            UnifiedPolicyHead.recordOutcome6681(
+                env.positionId, env.mint, env.lane, env.realizedReturnPct,
+                env.holdingTimeMs, env.exitReason
+            )
         } catch (_: Throwable) { false }
         val memeOwner6713 = env.lane.uppercase() in setOf(
             "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
