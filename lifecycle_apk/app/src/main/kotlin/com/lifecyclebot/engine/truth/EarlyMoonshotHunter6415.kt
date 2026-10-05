@@ -104,6 +104,7 @@ object EarlyMoonshotHunter6415 {
         socialVelocityScore: Double = 0.0,
         valuationRunwayScore: Double = 0.0,
         attentionVelocityScore: Double = 0.0,
+        telegramCommunityScore: Double = 0.0,
         evidenceAheadOfValuation: Boolean = false,
         creatorSampleCount: Int = 0,
         creatorWinRate: Double = 0.5,
@@ -177,6 +178,7 @@ object EarlyMoonshotHunter6415 {
             fired += Signal("SOCIAL_VELOCITY", 7.0); signals.add("SOCIAL_VELOCITY")
         }
 
+        val bundle = bundleRisk.uppercase()
         when {
             valuationRunwayScore >= 24.0 -> { fired += Signal("VALUATION_RUNWAY_EXTREME", 16.0); signals.add("VALUATION_RUNWAY_EXTREME") }
             valuationRunwayScore >= 16.0 -> { fired += Signal("VALUATION_RUNWAY_HIGH", 10.0); signals.add("VALUATION_RUNWAY_HIGH") }
@@ -186,8 +188,38 @@ object EarlyMoonshotHunter6415 {
             attentionVelocityScore >= 20.0 -> { fired += Signal("ATTENTION_VELOCITY_STRONG", 12.0); signals.add("ATTENTION_VELOCITY_STRONG") }
             attentionVelocityScore >= 8.0 -> { fired += Signal("ATTENTION_VELOCITY_BUILDING", 7.0); signals.add("ATTENTION_VELOCITY_BUILDING") }
         }
+        when {
+            telegramCommunityScore >= 18.0 -> { fired += Signal("TELEGRAM_COMMUNITY_ACCEL_STRONG", 10.0); signals.add("TELEGRAM_COMMUNITY_ACCEL_STRONG") }
+            telegramCommunityScore >= 7.0 -> { fired += Signal("TELEGRAM_COMMUNITY_ACCEL", 5.0); signals.add("TELEGRAM_COMMUNITY_ACCEL") }
+        }
         if (evidenceAheadOfValuation) {
             fired += Signal("EVIDENCE_AHEAD_OF_VALUATION", 18.0); signals.add("EVIDENCE_AHEAD_OF_VALUATION")
+        }
+
+        // V5.0.7800 — MOONSHOT CONFLUENCE.
+        // A real tail candidate should not owe its conviction to one noisy feature.
+        // Count independent pillars and reward combinations. This is the closest
+        // machine analogue to an experienced trader seeing "everything is starting
+        // to line up while valuation is still tiny".
+        var pillars = 0
+        if (valuationRunwayScore >= 16.0) pillars++
+        if (distinctBuyers60s >= 5) pillars++
+        if (holderGrowthPct >= 2.0 || holderCount >= 100) pillars++
+        if (smartMoneyBuys60s >= 2) pillars++
+        if (attentionVelocityScore >= 8.0 || telegramCommunityScore >= 7.0) pillars++
+        if (!devSelling && topHolderPct < 35.0 &&
+            bundle !in setOf("HIGH", "CRITICAL", "SEVERE") &&
+            (largestBuyerSharePct60s < 0.0 || largestBuyerSharePct60s <= 55.0)) pillars++
+        when {
+            pillars >= 6 && evidenceAheadOfValuation -> {
+                fired += Signal("MOONSHOT_CONFLUENCE_6", 22.0); signals.add("MOONSHOT_CONFLUENCE_6")
+            }
+            pillars >= 5 -> {
+                fired += Signal("MOONSHOT_CONFLUENCE_5", 15.0); signals.add("MOONSHOT_CONFLUENCE_5")
+            }
+            pillars >= 4 -> {
+                fired += Signal("MOONSHOT_CONFLUENCE_4", 8.0); signals.add("MOONSHOT_CONFLUENCE_4")
+            }
         }
 
         if (creatorSampleCount >= 5) {
@@ -197,7 +229,6 @@ object EarlyMoonshotHunter6415 {
             }
         }
 
-        val bundle = bundleRisk.uppercase()
         if (bundle in setOf("LOW", "CLEAN", "NONE") && (firstBlockSupplyPct < 0.0 || firstBlockSupplyPct <= 20.0)) {
             fired += Signal("DISTRIBUTION_CLEAN", 8.0); signals.add("DISTRIBUTION_CLEAN")
         }
