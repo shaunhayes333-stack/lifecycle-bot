@@ -92,6 +92,10 @@ object HeldPositionPivotArbiter {
         holdTimeMs: Long,
     ): PivotResult {
         val current = ts.position.tradingMode.uppercase().ifBlank { "STANDARD" }
+        val entryOwner7802 = try {
+            com.lifecyclebot.engine.truth.EntryStrategySnapshot6450
+                .snapshot(ts.position.positionId)?.entryLane?.uppercase()?.ifBlank { current } ?: current
+        } catch (_: Throwable) { current }
         try {
             val mint = ts.mint
             val now = System.currentTimeMillis()
@@ -144,8 +148,32 @@ object HeldPositionPivotArbiter {
             if (bestLane == current || (bestScore - incumbentScore) < CONVICTION_MARGIN) {
                 return PivotResult(false, current, current, bestScore, incumbentScore, "below_margin")
             }
-            if (RunnerExitProfile7277.refusesLaneChange(current, bestLane)) {
-                return PivotResult(false, current, current, bestScore, incumbentScore, "runner_lane_kept_7369")
+            // V5.0.7802 — owner-aware management pivoting.
+            // Entry ownership never changes; only the live exit technique does.
+            // Fast specialists may graduate to patience only after exceptional proof.
+            val fastOwner7802 = entryOwner7802.contains("EXPRESS") ||
+                entryOwner7802.contains("MANIPULATED") || entryOwner7802.contains("MANIP")
+            val fatTailOwner7802 = com.lifecyclebot.engine.RunnerExitProfile7277.isFatTailLane(entryOwner7802)
+            val quickTarget7802 = bestLane in setOf("MICRO_CAP", "PUMP_SNIPER", "REVIVAL")
+            val patientTarget7802Owner = bestLane == "MOONSHOT" || bestLane == "STANDARD"
+
+            if (fastOwner7802 && patientTarget7802Owner) {
+                val exceptionalGraduation7802 =
+                    pnlPct >= 25.0 && drawFromPeak <= 5.0 &&
+                    momentum?.name in setOf("STRONG_PUMP", "PUMP_BUILDING")
+                if (!exceptionalGraduation7802) {
+                    try { PipelineHealthCollector.labelInc("HELD_PIVOT_FAST_SPECIALIST_PATIENCE_NOT_EARNED_7802") } catch (_: Throwable) {}
+                    return PivotResult(false, current, current, bestScore, incumbentScore, "fast_specialist_patience_not_earned_7802")
+                }
+            }
+            if (fatTailOwner7802 && quickTarget7802) {
+                val thesisBroken7802 =
+                    momentum?.name in setOf("WEAK", "DISTRIBUTION") ||
+                    drawFromPeak >= 18.0 || pnlPct <= -8.0
+                if (!thesisBroken7802) {
+                    try { PipelineHealthCollector.labelInc("HELD_PIVOT_FAT_TAIL_QUICK_EXIT_REFUSED_7802") } catch (_: Throwable) {}
+                    return PivotResult(false, current, current, bestScore, incumbentScore, "fat_tail_thesis_still_valid_7802")
+                }
             }
 
             // V5.0.7403 — NO THESIS LAUNDERING.
@@ -210,7 +238,7 @@ object HeldPositionPivotArbiter {
             try {
                 ForensicLogger.lifecycle(
                     "HELD_PIVOT",
-                    "mint=${mint.take(8)} sym=${ts.symbol} $current->$bestLane " +
+                    "mint=${mint.take(8)} sym=${ts.symbol} owner=$entryOwner7802 mgmt=$current->$bestLane " +
                     "score=${"%.3f".format(bestScore)} inc=${"%.3f".format(incumbentScore)} " +
                     "pnl=${pnlPct.toInt()}% peak=${peakPnlPct.toInt()}% mom=${momentum?.name ?: "?"} " +
                     "n=${pivotCount[mint]}"
