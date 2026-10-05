@@ -164,10 +164,17 @@ object HoldingLogicLayer {
         val _hldAcq = LockDiagnosticsTracker.acquired("HoldingLogicLayer.evaluatePosition")
         try {
             try {
-            val mode = position.tradingMode
-            // V5.0.7455 — one canonical mode-parameter read. The public accessor
-            // was previously dead while this hot path reached around it into the
-            // backing map, leaving two apparent authorities for the same policy.
+            // V5.0.7802 — keep specialist OBJECTIVE separate from mutable
+            // mid-hold exit TECHNIQUE. HeldPositionPivotArbiter may change
+            // Position.tradingMode; the entry specialist remains immutable.
+            val activeMode = position.tradingMode
+            val objectiveLane7802 = try {
+                com.lifecyclebot.engine.truth.PositionEntryLaneRegistry6621
+                    .entryLane6621(position.positionId)
+                    ?.takeIf { it.isNotBlank() }
+            } catch (_: Throwable) { null } ?: activeMode
+            // The active technique still owns tactical base parameters.
+            val mode = activeMode
             val params = getHoldParams(mode)
             try { PipelineHealthCollector.labelInc("HOLD_PARAMS_CANONICAL_READ_7455") } catch (_: Throwable) {}
             
@@ -197,14 +204,14 @@ object HoldingLogicLayer {
             //
             // This remains SOFT management only. Hard stop loss and AEM critical
             // exits below are not multiplied, bypassed or delayed by this tuner.
-            val exitTune7455 = try { LiveStrategyTuner.adjustment(mode) } catch (_: Throwable) { null }
+            val exitTune7455 = try { LiveStrategyTuner.adjustment(objectiveLane7802) } catch (_: Throwable) { null }
             val tpMult7455 = (exitTune7455?.tpMult ?: 1.0).coerceIn(0.75, 1.75)
             val holdMult7455 = (exitTune7455?.holdMult ?: 1.0).coerceIn(0.70, 3.20)
             val partialMult7455 = (exitTune7455?.partialTriggerMult ?: 1.0).coerceIn(0.70, 3.80)
             if (exitTune7455 != null && !exitTune7455.isNeutral) {
                 try {
                     PipelineHealthCollector.labelInc("HOLD_EXIT_TUNER_CONSUMED_7455")
-                    PipelineHealthCollector.labelInc("HOLD_EXIT_TUNER_CONSUMED_7455_${mode.uppercase().take(24)}")
+                    PipelineHealthCollector.labelInc("HOLD_EXIT_TUNER_CONSUMED_7455_${objectiveLane7802.uppercase().take(24)}")
                 } catch (_: Throwable) {}
             }
 
@@ -217,7 +224,7 @@ object HoldingLogicLayer {
             // V5.2: Get fluid hold time parameters from FluidLearningAI
             // These adapt based on learning progress and layer type
             // ─────────────────────────────────────────────────────────────────
-            val layer = getLayerFromMode(mode)
+            val layer = getLayerFromMode(objectiveLane7802)
             val fluidMinHold = FluidLearningAI.getFluidMinHoldMinutes(layer)
             val rawFluidMaxHold = FluidLearningAI.getFluidMaxHoldMinutes(layer)
             // V5.9.11: Symbolic patience — mood stretches/shrinks how long winners breathe
