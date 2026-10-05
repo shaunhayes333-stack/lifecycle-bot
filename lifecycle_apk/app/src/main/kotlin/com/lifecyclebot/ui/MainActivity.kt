@@ -705,7 +705,7 @@ class MainActivity : AppCompatActivity() {
     // Row caps live here as single source of truth (was inline magic numbers).
     private val WATCHLIST_ROW_CAP: Int = 6
     private val IDLE_ROW_CAP: Int = 3
-    private val OPENPOS_ROW_CAP: Int = 10
+    private val OPENPOS_ROW_CAP: Int = 20
     private var lastRuntimeBarForensicMs: Long = 0L
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false

@@ -57,7 +57,7 @@ class HeliusWebSocket(
     // not a permanent historical registry. Keep only the freshest launch tape and
     // explicitly unsubscribe the oldest server-side subscription when the cap rolls.
     private companion object {
-        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 192
+        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 128
         const val MAX_WALLET_SUBSCRIPTIONS_7794 = 64
         val reconnectScheduler7803: ScheduledExecutorService =
             Executors.newSingleThreadScheduledExecutor { task ->
