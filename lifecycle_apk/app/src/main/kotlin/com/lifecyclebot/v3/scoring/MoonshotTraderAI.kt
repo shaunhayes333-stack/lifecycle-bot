@@ -778,7 +778,8 @@ object MoonshotTraderAI {
                 val devSelling7798=danger7798.contains("DEV_SELL")||danger7798.contains("DEV SELL")
                 val social7798=try{
                     val boost=com.lifecyclebot.v3.scoring.SocialVelocityAI.getBoostAmount(mint)
-                    val links=listOf(ts.tokenMap.website,ts.tokenMap.twitter,ts.tokenMap.telegram).count{it.isNotBlank()}
+                    val meta=com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(mint)
+                    val links=listOf(meta?.website.orEmpty(),meta?.twitter.orEmpty(),meta?.telegram.orEmpty()).count{it.isNotBlank()}
                     (links*2.0 + when{boost>=1000->6.0;boost>=500->4.0;boost>=100->2.0;else->0.0}).coerceIn(0.0,12.0)
                 }catch(_:Throwable){0.0}
                 com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.scoreCandidate(
