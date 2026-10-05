@@ -14,6 +14,9 @@ object MoonshotExpansionIntelligence7799 {
         val runwayTo1mX: Double,
         val runwayTo5mX: Double,
         val attentionVelocityScore: Double,
+        val valuationGrowthPctPerMin: Double,
+        val evidenceVelocityScore: Double,
+        val evidenceToValuationRatio: Double,
         val holderVelocityPerMin: Double,
         val boostVelocityPerMin: Double,
         val socialDepth: Int,
@@ -57,6 +60,9 @@ object MoonshotExpansionIntelligence7799 {
             (boostAmount - prior.boostAmount).toDouble() / minutes else 0.0
         val sentimentVel = if (prior != null && minutes > 0.0)
             (sentimentScore - prior.sentimentScore) / minutes else 0.0
+        val valuationGrowthPctPerMin = if (prior != null && minutes > 0.0 &&
+            prior.mcapUsd > 0.0 && mcapUsd > 0.0)
+            (((mcapUsd / prior.mcapUsd) - 1.0) * 100.0) / minutes else 0.0
 
         var attention = 0.0
         if (holderVel >= 5.0) attention += 14.0
@@ -77,11 +83,22 @@ object MoonshotExpansionIntelligence7799 {
         else if (sentimentVel > 0.0) attention += 2.0
 
         val runway = runwayScore(mcapUsd)
+        // Compare expansion of evidence with expansion of valuation. The exact units
+        // differ, so use a bounded evidence score versus positive mcap growth rate.
+        // If valuation is already sprinting while evidence is flat, asymmetry is gone.
+        val evidenceVelocityScore =
+            (holderVel.coerceAtLeast(0.0) * 1.5 +
+                telegramCommunityScore.coerceAtLeast(0.0) * 0.7 +
+                sentimentVel.coerceAtLeast(0.0) * 0.8 +
+                (if (socialDepth >= 2) 2.0 else 0.0)).coerceIn(0.0, 60.0)
+        val positiveValuationVelocity = valuationGrowthPctPerMin.coerceAtLeast(0.0)
+        val evidenceToValuationRatio = if (positiveValuationVelocity <= 0.25)
+            evidenceVelocityScore else evidenceVelocityScore / positiveValuationVelocity
         // Paid boosts alone must not manufacture "evidence ahead of valuation".
-        // Require at least one organic acceleration channel in addition to runway.
         val organicAcceleration =
             holderVel > 0.0 || telegramCommunityScore >= 5.0 || sentimentVel > 0.0
-        val ahead = attention >= 8.0 && runway >= 12.0 && organicAcceleration
+        val ahead = attention >= 8.0 && runway >= 12.0 && organicAcceleration &&
+            (positiveValuationVelocity <= 1.0 || evidenceToValuationRatio >= 1.0)
         if (mint.isNotBlank()) {
             last[mint] = Obs(nowMs, holderCount, boostAmount, socialDepth, sentimentScore, mcapUsd)
             if (last.size > 4_000) {
@@ -99,12 +116,19 @@ object MoonshotExpansionIntelligence7799 {
             "/m boostV=" + String.format("%.1f", boostVel) +
             "/m socials=" + socialDepth + " tg=" + telegramPresent +
             " tgV=" + String.format("%.1f", telegramCommunityScore) +
-            " sentV=" + String.format("%.2f", sentimentVel) + "/m organic=" + organicAcceleration + " ahead=" + ahead
+            " sentV=" + String.format("%.2f", sentimentVel) + "/m mcapV=" +
+            String.format("%.2f", valuationGrowthPctPerMin) + "%/m evidenceV=" +
+            String.format("%.2f", evidenceVelocityScore) + " ratio=" +
+            String.format("%.2f", evidenceToValuationRatio) +
+            " organic=" + organicAcceleration + " ahead=" + ahead
         return Snapshot(
             runwayScore = runway,
             runwayTo1mX = x1,
             runwayTo5mX = x5,
             attentionVelocityScore = attention.coerceIn(0.0, 30.0),
+            valuationGrowthPctPerMin = valuationGrowthPctPerMin,
+            evidenceVelocityScore = evidenceVelocityScore,
+            evidenceToValuationRatio = evidenceToValuationRatio,
             holderVelocityPerMin = holderVel,
             boostVelocityPerMin = boostVel,
             socialDepth = socialDepth,
