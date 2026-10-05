@@ -1505,13 +1505,27 @@ object ToolkitSignalSheet {
         val r = reason.substringBefore(':').trim().uppercase().replace(Regex("[^A-Z0-9_]"), "_").take(64)
         if (l.isBlank() || r.isBlank()) return
         if (preSizeRefusals7809.size > 2_000) preSizeRefusals7809.clear()
-        preSizeRefusals7809.computeIfAbsent("$l|$r") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        preSizeRefusals7809.computeIfAbsent("${refusalMode7819()}|$l|$r") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SPECIALIST_PRE_SIZE_REFUSAL_7809_$l") } catch (_: Throwable) {}
     }
 
-    /** "REASON=n,REASON=n" (largest first, at most four) or "" when the lane recorded none. */
+    /**
+     * V5.0.7819 §A_LIVE_REFUSAL_IS_NOT_A_PAPER_REFUSAL. A paper<->live switch
+     * recreates BotService in the SAME process (BotService V5.0.7387), so this
+     * singleton kept every LIVE-era refusal — SIZE_NO_WALLET from an empty live
+     * wallet — and printed it on PAPER lanes (5.0.7813: SHITCOIN
+     * SIZE_NO_WALLET=242 with 8.83 SOL of paper cash; OrderSizeResolver6441 in
+     * paper reads PaperCapitalAuthority6577 and cannot say NO_WALLET while that
+     * cash is positive). Refusals are keyed by the runtime mode they happened
+     * in and the report reads only the current mode's (Field Manual L415:
+     * reconcile with what actually happened; L468: the reason must be true).
+     */
+    private fun refusalMode7819(): String =
+        try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "PAPER" }
+
+    /** "REASON=n,REASON=n" (largest first, at most four) or "" when the lane recorded none in the current mode. */
     private fun preSizeRefusalSummary7809(lane: String): String {
-        val prefix = "${lane.uppercase()}|"
+        val prefix = "${refusalMode7819()}|${lane.uppercase()}|"
         return preSizeRefusals7809.entries
             .filter { it.key.startsWith(prefix) }
             .sortedByDescending { it.value.get() }

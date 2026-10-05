@@ -663,9 +663,11 @@ object GlobalTradeRegistry {
             // V5.0.7475 — only DISTINCT source evidence may count as a
             // multi-scanner confirmation. Repeated callbacks from the source
             // that created probation are refreshes, not independent proof.
-            val priorSources7475 = (existingProbation.source + "," + existingProbation.addedBy)
-                .split(',').map { it.trim().uppercase() }.filter { it.isNotBlank() }.toSet()
-            val incomingSource7475 = addedBy.trim().uppercase()
+            // V5.0.7819 — demote/divert wrappers ("DEMOTED_X", "PROBATION_DEMOTE:..|X",
+            // "SOURCE_BALANCE_DIVERT:X", "X+PROBATION") are unwrapped, so the scanner
+            // that created the row is not mistaken for a second scanner (Field Manual L384).
+            val priorSources7475 = probationSourceKeys7819(existingProbation.source, existingProbation.addedBy)
+            val incomingSource7475 = normalizeProbationSource7819(addedBy)
             val distinctSource7475 = incomingSource7475.isNotBlank() && incomingSource7475 !in priorSources7475 &&
                 existingProbation.additionalScanners.add(incomingSource7475)
             for (lane in laneAffinity) existingProbation.laneAffinity.add(lane.uppercase())
@@ -900,7 +902,13 @@ object GlobalTradeRegistry {
         if (ScannerHardRejectStore.isRejected(mint)) return AddResult(false, "SCANNER_HARD_REJECT", probation = false)
         if (watchlist.containsKey(mint)) return AddResult(false, "DUPLICATE: already in watchlist")
         probation[mint]?.let { existing ->
-            existing.additionalScanners.add(addedBy)
+            // V5.0.7819 — same 7475 rule: only a DISTINCT scanner is confirmation;
+            // a re-sighting by the creating scanner made processProbation fire
+            // MULTI_CONFIRM 30s later and re-run full intake (Field Manual L384).
+            val incoming7819 = normalizeProbationSource7819(addedBy)
+            if (incoming7819.isNotBlank() && incoming7819 !in probationSourceKeys7819(existing.source, existing.addedBy)) {
+                existing.additionalScanners.add(incoming7819)
+            }
             existing.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
             existing.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
             return AddResult(false, "ALREADY_IN_PROBATION", probation = true)
@@ -1027,7 +1035,7 @@ object GlobalTradeRegistry {
             // tokens that timed out should be promoted to the watchlist
             // so V3/FDG can re-evaluate with full pipeline data instead
             // of being silently culled by an opaque 5-min cutoff.
-            if (elapsed >= PROBATION_MAX_TIME_MS) {
+            if (elapsed >= PROBATION_MAX_TIME_MS && !demotedAwaitingEvidence7819(entry, elapsed)) {
                 // V5.9.1328 — cold NO_PAIR mints are HELD (not auto-rejected) so
                 // they don't re-arrive as duplicates. See V5.9.1328 comment above.
                 //
@@ -1133,6 +1141,53 @@ object GlobalTradeRegistry {
         val initialMcap: Double = 0.0,
         val initialLiquidity: Double = 0.0,
     )
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7819 §DEMOTED_ROW_PING_PONG (Field Manual L337, L384).
+    //
+    // 5.0.7813 paper: PROBATION=2329 re-intakes of the same ~$3k pump mints
+    // (top symbols intaked 40-116 times in 20 min), each one a full
+    // admitProtectedMemeIntake hydration on the bot-loop thread (INTAKE was
+    // the worst slow-cycle phase). The loop: rebalanceHotWatchlistSources
+    // demotes a pump-only row -> the row is wrapped as addedBy="DEMOTED_X",
+    // source="PROBATION_DEMOTE:...|X" -> the next sighting from scanner X was
+    // compared against those wrapped strings, read as a NEW scanner and
+    // promoted instantly (or via MULTI_CONFIRM 30s later); with no sighting the
+    // 90s TIMEOUT_AUTO_PROMOTE returned it anyway. Then the rebalance demoted
+    // it again. Nothing about the mint changed between laps.
+    //
+    // Fixes: (1) source identity is unwrapped before the distinct-scanner test;
+    // (2) a row demoted from the hot bench needs real evidence (distinct
+    // scanner, price action, RC) to return before DEMOTED_REPROMOTE_FLOOR_MS_7819
+    // elapses; after the floor the timeout promotion still applies, so demoted
+    // rows still rotate back for re-evaluation — at ~1/6 of the old rate.
+    // ─────────────────────────────────────────────────────────────────────
+    internal const val DEMOTED_REPROMOTE_FLOOR_MS_7819 = 600_000L
+
+    /** V5.0.7819 — the scanner identity inside demote/divert/promotion wrappers. */
+    internal fun normalizeProbationSource7819(raw: String): String {
+        var s = raw.trim().uppercase()
+        if (s.contains(':')) s = s.substringAfterLast(':').trim()
+        while (s.startsWith("DEMOTED_")) s = s.removePrefix("DEMOTED_")
+        while (s.endsWith("+PROBATION")) s = s.removeSuffix("+PROBATION")
+        return s.trim()
+    }
+
+    /** V5.0.7819 — every scanner identity a probation row already carries. */
+    internal fun probationSourceKeys7819(vararg raws: String): Set<String> {
+        val out = HashSet<String>()
+        for (raw in raws) {
+            for (part in raw.split(',', '|', '+')) {
+                val n = normalizeProbationSource7819(part)
+                if (n.isNotBlank()) out.add(n)
+            }
+        }
+        return out
+    }
+
+    /** V5.0.7819 — a hot-bench demotion waits for evidence, not for a clock, until the floor. */
+    internal fun demotedAwaitingEvidence7819(entry: ProbationEntry, elapsedMs: Long): Boolean =
+        entry.addedBy.trim().uppercase().startsWith("DEMOTED_") && elapsedMs < DEMOTED_REPROMOTE_FLOOR_MS_7819
 
     /**
      * V5.0: Get probation entries.

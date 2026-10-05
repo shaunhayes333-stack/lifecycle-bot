@@ -435,6 +435,7 @@ object ExecutableOpenGate {
         // positive size, upgrade it instead of retaining a zero-sized shell.
         var created6734 = false
         var supersededPlaceholder7612: ExecutionIntent? = null
+        var supersededByPrimary7819: ExecutionIntent? = null
         val specialistOwners7612 = setOf(
             "QUALITY","BLUECHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
             "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
@@ -456,9 +457,16 @@ object ExecutableOpenGate {
                     supersededPlaceholder7612 = existing
                     intent.also { created6734 = true }
                 }
+                // V5.0.7819 — the cycle's PRIMARY specialist outranks a non-primary
+                // specialist that merely sealed first (see primaryOwnerSupersedes7819).
+                primaryOwnerSupersedes7819(existing, intent, specialistOwners7612) -> {
+                    supersededByPrimary7819 = existing
+                    intent.also { created6734 = true }
+                }
                 else -> existing
             }
         } ?: return null
+        supersededByPrimary7819?.let { old7819 -> retireSupersededIntent7819(old7819, intent) }
         supersededPlaceholder7612?.let { old7612 ->
             executionTickets.remove(old7612.attemptId, old7612)
             try {
@@ -551,6 +559,60 @@ object ExecutableOpenGate {
             ForensicLogger.lifecycle(if (created6734) "EXEC_INTENT_CREATED" else "EXEC_INTENT_REUSED_6734", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}
         return authoritative
+    }
+
+    /**
+     * V5.0.7819 §THE_INTENT_STORE_MUST_AGREE_WITH_THE_OWNER_RANK (Field Manual
+     * L356: one selected strategy owns the live trade).
+     *
+     * 5.0.7813 paper: QUALITY fdgAllow=102 ownerSelected=20 markReady=0
+     * markReject=0, BLUECHIP 66/51/0/0, TRADE_AUTH_DEFERRED_AWAIT_FDG_SEAL_7812
+     * =2000. recordFdg ranks ownership under the election lock (7189: the
+     * cycle's PRIMARY lane outranks a non-primary rescue lane that sealed
+     * first) and records that lane as ExecutionDecisionSnapshot.executionLane,
+     * which LaneExecutionCoordinator binds the election to. But the intent it
+     * then published for that primary lane hit `else -> existing` here, so the
+     * store kept the rescue lane's sealed intent for the same mode/mint/version.
+     * Result: the election says BLUECHIP (or QUALITY), the only sealed intent
+     * says QUALITY (or TREASURY), TradeAuthorizer 7812 finds no same-lane seal
+     * and defers (AWAIT_FDG_SEAL_7812), and the rescue lane loses the election —
+     * neither lane can reach MARK/SIZE/TICKET for the whole version lifetime.
+     *
+     * The primary's sealed BUY replaces the rescue intent only when every one
+     * of these holds; nothing is relaxed and no verdict changes:
+     *  - both are executable specialist owners and their lanes differ,
+     *  - the incoming lane is the recorded cycle PRIMARY for this exact
+     *    mint/version (primaryLane7189 — blank primary changes nothing),
+     *  - no attempt has claimed the one executable buy for this mint/version
+     *    (ONE_EXECUTABLE_BUY_PER_MINT_VERSION keeps an in-flight claim).
+     */
+    private fun primaryOwnerSupersedes7819(
+        existing: ExecutionIntent,
+        incoming: ExecutionIntent,
+        specialistOwners: Set<String>,
+    ): Boolean {
+        val oldLane7819 = canonicalLane(existing.canonicalLane)
+        val newLane7819 = canonicalLane(incoming.canonicalLane)
+        if (oldLane7819 == newLane7819 || oldLane7819 !in specialistOwners || newLane7819 !in specialistOwners) return false
+        if (existing.candidateVersion != incoming.candidateVersion) return false
+        val primary7819 = primaryLane7189[authorityKey6487(incoming.mint, incoming.candidateVersion)].orEmpty()
+        if (primary7819.isBlank() || canonicalLane(primary7819) != newLane7819) return false
+        val claimKey7819 = executableClaimKey6487(incoming.mode, incoming.mint, incoming.candidateVersion)
+        return !executableBuyClaim6487.containsKey(claimKey7819)
+    }
+
+    private fun retireSupersededIntent7819(old: ExecutionIntent, owner: ExecutionIntent) {
+        executionTickets.remove(old.attemptId, old)
+        try {
+            PipelineHealthCollector.labelInc("SPECIALIST_INTENT_RESEALED_TO_PRIMARY_7819")
+            PipelineHealthCollector.labelInc("SPECIALIST_INTENT_RESEALED_TO_PRIMARY_7819_" + canonicalLane(owner.canonicalLane))
+            ForensicLogger.lifecycle(
+                "SPECIALIST_INTENT_RESEALED_TO_PRIMARY_7819",
+                "mint=" + owner.mint.take(10) + " version=" + owner.candidateVersion +
+                    " oldLane=" + old.canonicalLane + " primary=" + owner.canonicalLane +
+                    " oldAttempt=" + old.attemptId.take(28) + " newAttempt=" + owner.attemptId.take(28),
+            )
+        } catch (_: Throwable) {}
     }
 
     internal fun sameDecisionContract6734(a: ExecutionIntent, b: ExecutionIntent): Boolean =

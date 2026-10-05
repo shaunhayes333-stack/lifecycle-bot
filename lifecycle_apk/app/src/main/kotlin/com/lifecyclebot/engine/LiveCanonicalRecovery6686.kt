@@ -151,9 +151,43 @@ object LiveCanonicalRecovery6686 {
         return if (trackerSaysBot || coverageSaysBot7730) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706
     }
 
+    private val healProtected7819 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /**
+     * V5.0.7819 §THE_HEAL_READ_A_CACHE_ONLY_LIVE_MODE_FILLS.
+     *
+     * 5.0.7813 PAPER: "Bot-buy coverage VIOLATION unmanagedBotMints=2 (heal
+     * kicked) protectiveInventory7807=0" and "botHealKicks7718=1
+     * botHealAdopted7718=0". LiveExitCoverageGuard7701 flags a bot holding from
+     * HostWalletTokenTracker rows (raw amount + decimals); the heal then read
+     * ONLY WalletAccountCache, which is filled solely by the live wallet
+     * reconcile (SolanaWallet token-account read). In PAPER nothing refreshes
+     * it, the 60 s read came back empty, and the heal returned
+     * (BOT_HOLDING_HEAL_NO_WALLET_SNAPSHOT_7718) before
+     * protectUnadoptedBotHoldings7807 ever ran — real tokens, no owner.
+     *
+     * The tracker row that convicted the mint is the same evidence the heal now
+     * protects it with: a LIVE QUARANTINED BASIS_UNCERTAIN row (no cash, no PnL,
+     * no learning, no paper ledger), retired later by a complete live wallet
+     * read that proves zero (Field Manual L39 reconcile remaining inventory;
+     * L403 basis-uncertain ownership; L407 protective paths must operate).
+     */
+    private fun trackerHoldings7819(mints: List<String>): Map<String, CanonicalTokenAmount> {
+        val out7819 = LinkedHashMap<String, CanonicalTokenAmount>()
+        for (m in mints) {
+            val row = try { HostWalletTokenTracker.getEntry(m) } catch (_: Throwable) { null } ?: continue
+            if (row.status == HostWalletTokenTracker.PositionStatus.CLOSED_DUST_UNROUTABLE) continue
+            val raw = try { BigInteger(row.rawAmount.trim().ifBlank { "0" }) } catch (_: Throwable) { BigInteger.ZERO }
+            if (raw <= BigInteger.ONE || row.decimals !in 0..18) continue
+            out7819[m] = CanonicalTokenAmount(raw, row.decimals)
+        }
+        if (out7819.isNotEmpty()) try { PipelineHealthCollector.labelInc("BOT_HOLDING_HEAL_FROM_TRACKER_EVIDENCE_7819") } catch (_: Throwable) {}
+        return out7819
+    }
+
     /** Operator-facing: the V5.0.7718 heal counters, appended to the adoption status line. */
     private fun healStatus7718(): String =
-        "botHealKicks7718=${healKicks7718.get()} botHealAdopted7718=${healAdopted7718.get()}" +
+        "botHealKicks7718=${healKicks7718.get()} botHealAdopted7718=${healAdopted7718.get()} botHealProtected7819=${healProtected7819.get()}" +
             (if (lastHeal7718.isNotBlank()) " lastHeal=[$lastHeal7718]" else "")
 
     /**
@@ -181,16 +215,26 @@ object LiveCanonicalRecovery6686 {
                 try {
                     val snap = try { WalletAccountCache.snapshot(ttlMs = 60_000L) } catch (_: Throwable) { null }
                     val subset = snap.orEmpty().filterKeys { it in due }.filterValues { it.raw > BigInteger.ONE }
-                    if (subset.isEmpty()) {
+                    // V5.0.7819 — see trackerHoldings7819: the guard's own evidence
+                    // stands in for the wallet cache nothing refreshes in PAPER.
+                    // A fresh COMPLETE read that omits a mint proves it gone, so the
+                    // tracker fills in only when that read is missing or partial.
+                    val completeRead7819 = snap != null &&
+                        !(try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { true })
+                    val trackerOnly7819 = if (completeRead7819) emptyMap<String, CanonicalTokenAmount>() else trackerHoldings7819(due.filter { it !in subset.keys })
+                    if (subset.isEmpty() && trackerOnly7819.isEmpty()) {
                         PipelineHealthCollector.labelInc("BOT_HOLDING_HEAL_NO_WALLET_SNAPSHOT_7718")
                         return@launch
                     }
+                    // Mark adoption stays on a fresh on-chain read only (empty map -> 0);
+                    // tracker evidence earns protective ownership, never a priced OPEN row.
                     val n = recoverWalletSnapshot(BotService.status, subset)
                     if (n > 0) healAdopted7718.addAndGet(n.toLong())
                     // V5.0.7807 — a bot holding whose basis is still unproven gets a
                     // protective BASIS_UNCERTAIN owner now instead of staying unmanaged.
-                    protectUnadoptedBotHoldings7807(subset)
-                    lastHeal7718 = "mints=${due.size} adopted=$n"
+                    val p7819 = protectUnadoptedBotHoldings7807(subset) + protectUnadoptedBotHoldings7807(trackerOnly7819)
+                    if (p7819 > 0) healProtected7819.addAndGet(p7819.toLong())
+                    lastHeal7718 = "mints=${due.size} adopted=$n protected7819=$p7819 trackerOnly7819=${trackerOnly7819.size}"
                     PipelineHealthCollector.labelInc(if (n > 0) "BOT_HOLDING_HEAL_ADOPTED_7718" else "BOT_HOLDING_HEAL_STILL_AWAITING_BASIS_7718")
                     ForensicLogger.lifecycle(
                         "BOT_HOLDING_HEAL_7718",

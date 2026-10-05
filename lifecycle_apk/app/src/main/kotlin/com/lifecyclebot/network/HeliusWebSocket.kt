@@ -65,6 +65,7 @@ class HeliusWebSocket(
         const val REQUEST_ACK_TIMEOUT_MS_7807 = 60_000L
         const val MAX_PENDING_REQUESTS_7807 = 512
         const val MAX_UNSUB_DEDUPE_7807 = 512
+        const val HEALTHY_INBOUND_WINDOW_MS_7819 = 120_000L
         val swapBuyRegex7807 = Regex("""Buy\s+([\d.]+)\s+tokens?\s+for\s+([\d.]+)\s+SOL""", RegexOption.IGNORE_CASE)
         val swapSellRegex7807 = Regex("""Sell\s+([\d.]+)\s+tokens?\s+for\s+([\d.]+)\s+SOL""", RegexOption.IGNORE_CASE)
         val reconnectScheduler7803: ScheduledExecutorService =
@@ -89,6 +90,21 @@ class HeliusWebSocket(
     // supplies the held-mint set from canonical position truth; those mints are never
     // the LRU victim, discovery mints are. Field Manual L153: stale launch data costs most.
     @Volatile private var pinnedMintsProvider7807: (() -> Set<String>)? = null
+    // V5.0.7819 — Helius is a Solana feed. The owner (DataOrchestrator) supplies the
+    // eligibility test (base58 Solana mint AND not a STOCK/FX/METAL/COMMODITY/PERPS/
+    // CRYPTO_ALT canonical row). Runtime 5.0.7813 pinned 100 of 128 slots to stock
+    // tickers (SPOT, KO, UNH): each logsSubscribe was a JSON-RPC error, released,
+    // re-armed 10 s later, and evicted a real meme mint every time (evictions=3214).
+    // Field Manual L186: every data source must refer to the same asset and market.
+    @Volatile private var mintEligibility7819: ((String) -> Boolean)? = null
+    // V5.0.7819 — liveness of the CURRENT socket, so an external "reconnect streams"
+    // request does not tear down a healthy subscription set (Field Manual L240).
+    @Volatile private var openSocket7819: WebSocket? = null
+    @Volatile private var lastInboundMs7819: Long = 0L
+    @Volatile private var everOpened7819 = false
+    // V5.0.7819 — the socket disconnect() closed on purpose; its close/failure
+    // callbacks are not a reconnect cause and must not trip the circuit breaker.
+    @Volatile private var clientClosedSocket7819: WebSocket? = null
     private var reconnectDelay = 2_000L
     private val networkRetry = NetworkRetry("HeliusWS", maxRetries = 5, baseDelayMs = 2_000L, maxDelayMs = 30_000L, failureThreshold = 3, openDurationMs = 120_000L)
 
@@ -114,8 +130,10 @@ class HeliusWebSocket(
     fun disconnect() {
         running = false
         reconnectScheduled7803.set(false)
+        clientClosedSocket7819 = ws
         ws?.close(1000, "Bot stopped")
         ws = null
+        openSocket7819 = null
         requestToMint7765.clear()
         subscriptionToMint7765.clear()
         requestToWallet7803.clear()
@@ -137,7 +155,45 @@ class HeliusWebSocket(
     fun setPinnedMintsProvider7807(provider: () -> Set<String>) { pinnedMintsProvider7807 = provider }
 
     private fun pinnedMints7807(): Set<String> =
-        try { pinnedMintsProvider7807?.invoke() ?: emptySet() } catch (_: Throwable) { emptySet() }
+        try {
+            val raw7819 = pinnedMintsProvider7807?.invoke() ?: emptySet()
+            val gate7819 = mintEligibility7819
+            if (gate7819 == null) raw7819 else raw7819.filterTo(LinkedHashSet()) { gate7819(it) }
+        } catch (_: Throwable) { emptySet() }
+
+    /** V5.0.7819 — only Solana mints may consume a Helius subscription slot. */
+    fun setMintEligibility7819(predicate: (String) -> Boolean) { mintEligibility7819 = predicate }
+
+    private fun admitMint7819(mint: String): Boolean {
+        val gate7819 = mintEligibility7819 ?: return true
+        val ok7819 = try { gate7819(mint) } catch (_: Throwable) { false }
+        if (!ok7819) {
+            HeliusSubscriptionTelemetry7807.nonSolanaRejected7819.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_NON_SOLANA_SUB_REJECTED_7819") } catch (_: Throwable) {}
+        }
+        return ok7819
+    }
+
+    /**
+     * V5.0.7819 — DataOrchestrator.reconnectStreams (network onAvailable — which
+     * Android fires on registration and on every wifi/cell handover — the inert-
+     * scanner watchdog, the freeze detector) used to disconnect()+connect() Helius
+     * unconditionally: a healthy socket was torn down and all 128 subscriptions
+     * re-sent each time. A socket that is open and has delivered a frame within
+     * [HEALTHY_INBOUND_WINDOW_MS_7819] is kept; OkHttp's 15 s ping already fails a
+     * dead socket into onFailure -> scheduleReconnect.
+     */
+    fun reconnectIfStale7819(reason: String) {
+        val now7819 = System.currentTimeMillis()
+        val open7819 = running && ws != null && openSocket7819 === ws
+        if (open7819 && now7819 - lastInboundMs7819 <= HEALTHY_INBOUND_WINDOW_MS_7819) {
+            HeliusSubscriptionTelemetry7807.noteReconnect7819("SKIPPED_HEALTHY_$reason")
+            return
+        }
+        HeliusSubscriptionTelemetry7807.noteReconnect7819(reason)
+        disconnect()
+        connect()
+    }
 
     /**
      * V5.0.7807 — housekeeping tick (DataOrchestrator, every 10 s): expire ACK-less
@@ -160,6 +216,7 @@ class HeliusWebSocket(
     /** Subscribe to all swaps for a specific token mint. */
     fun subscribeToken(mint: String) {
         if (mint.isBlank()) return
+        if (!admitMint7819(mint)) return // V5.0.7819 — Field Manual L186: Solana mints only
         expireStaleRequests7807(System.currentTimeMillis())
         val pinned = pinnedMints7807()
         var evictedMint: String? = null
@@ -264,10 +321,19 @@ class HeliusWebSocket(
         synchronized(recentUnsubscribed7807) { recentUnsubscribed7807.clear() }
         synchronized(subscriptions) { subscriptions.keys.toList().forEach { subscriptions[it] = null } }
 
-        ws = client.newWebSocket(req, object : WebSocketListener() {
+        val listener7819 = object : WebSocketListener() {
+            // V5.0.7819 — set when this socket died before newWebSocket() returned,
+            // so doConnect does not park a dead socket in `ws` (which would block
+            // every future scheduleReconnect via its `ws == null` check).
+            @Volatile var dead7819 = false
+            @Volatile var closing7819 = false
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 ws = webSocket
+                openSocket7819 = webSocket
+                lastInboundMs7819 = System.currentTimeMillis()
+                if (everOpened7819) HeliusSubscriptionTelemetry7807.reconnects7819.incrementAndGet()
+                everOpened7819 = true
                 onLog("Helius WebSocket connected")
                 networkRetry.recordSuccess()
                 reconnectDelay = 2_000L
@@ -299,21 +365,67 @@ class HeliusWebSocket(
                 // ids; never let it touch the current socket's maps.
                 val current = ws
                 if (current != null && current !== webSocket) return
+                lastInboundMs7819 = System.currentTimeMillis()
                 parseMessage(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (ws === webSocket) ws = null
+                dead7819 = true
+                if (closing7819 || webSocket === clientClosedSocket7819) return // already handled / closed by us
+                // V5.0.7819 — a superseded socket (closed by disconnect/reconnect) failing
+                // late is not a failure of the current connection: it must not trip the
+                // circuit breaker or be counted as a reconnect cause.
+                val current7819 = ws
+                if (current7819 != null && current7819 !== webSocket) return
+                ws = null
+                if (openSocket7819 === webSocket) openSocket7819 = null
+                if (!running) return
+                HeliusSubscriptionTelemetry7807.noteReconnect7819(
+                    "FAILURE_" + (if (response != null) "HTTP${response.code}_" else "") + t.javaClass.simpleName,
+                )
                 onLog("Helius WS error: ${t.message?.take(60)} — reconnecting in ${reconnectDelay/1000}s")
                 networkRetry.recordFailure()
                 scheduleReconnect()
             }
 
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (ws === webSocket) ws = null
-                if (running) scheduleReconnect()
+            // V5.0.7819 — the server's close frame. Without this override OkHttp left the
+            // socket half-closed (reader stopped, ws still non-null) until the next ping
+            // timed out; and the server's close code — the actual reason Helius dropped
+            // us — was never recorded. Complete the close and reconnect now.
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                closing7819 = true
+                dead7819 = true
+                if (webSocket === clientClosedSocket7819) return // reply to our own close
+                val current7819 = ws
+                if (current7819 != null && current7819 !== webSocket) return
+                ws = null
+                if (openSocket7819 === webSocket) openSocket7819 = null
+                try { webSocket.close(1000, null) } catch (_: Throwable) {}
+                if (!running) return
+                HeliusSubscriptionTelemetry7807.noteReconnect7819("SERVER_CLOSE_$code")
+                onLog("Helius WS closed by server code=$code ${reason.take(60)} — reconnecting")
+                scheduleReconnect()
             }
-        })
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                dead7819 = true
+                if (closing7819 || webSocket === clientClosedSocket7819) return // already handled / closed by us
+                val current7819 = ws
+                if (current7819 != null && current7819 !== webSocket) return
+                ws = null
+                if (openSocket7819 === webSocket) openSocket7819 = null
+                if (running) {
+                    HeliusSubscriptionTelemetry7807.noteReconnect7819("CLOSED_$code")
+                    scheduleReconnect()
+                }
+            }
+        }
+        val socket7819 = client.newWebSocket(req, listener7819)
+        ws = socket7819
+        if (listener7819.dead7819 && ws === socket7819) {
+            ws = null
+            scheduleReconnect()
+        }
     }
 
     // V5.0.7765 §ONE_MINT_PER_LOG_SUBSCRIPTION. logsSubscribe's `mentions` filter takes
@@ -643,11 +755,57 @@ object HeliusSubscriptionTelemetry7807 {
     internal val reconnectResubscribes = AtomicInteger(0)
     internal val expiredRequests = java.util.concurrent.atomic.AtomicLong(0L)
     internal val orphanUnsubscribes = AtomicInteger(0)
+    // V5.0.7819 — subscribe attempts refused because the id is not a Solana mint
+    // (stock/FX/metal/commodity/perps tickers, non-Solana crypto), held positions
+    // dropped from the pinned set for the same reason, socket re-opens after the
+    // first, and why each reconnect happened. Field Manual L240: measure the feed.
+    internal val nonSolanaRejected7819 = AtomicInteger(0)
+    @Volatile internal var pinnedExcludedNonSolana7819: Int = 0
+    internal val reconnects7819 = AtomicInteger(0)
+    private val reconnectReasons7819 = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
+    private const val MAX_REASON_KEYS_7819 = 24
+
+    internal fun noteReconnect7819(reason: String) {
+        val key7819 = reason.take(48)
+        val slot7819 = reconnectReasons7819[key7819]
+            ?: if (reconnectReasons7819.size < MAX_REASON_KEYS_7819) reconnectReasons7819.getOrPut(key7819) { AtomicInteger(0) }
+            else reconnectReasons7819.getOrPut("OTHER") { AtomicInteger(0) }
+        slot7819.incrementAndGet()
+    }
+
+    internal fun reconnectReasonsText7819(): String =
+        reconnectReasons7819.entries.sortedByDescending { it.value.get() }
+            .joinToString(",", "[", "]") { "${it.key}=${it.value.get()}" }
 
     fun line7807(): String =
         "desiredTokenSubs=$desiredTokenSubs serverTokenSubs=$serverTokenSubs requestMapSize=$requestMapSize " +
             "walletSubs=$walletSubs serverWalletSubs=$serverWalletSubs pinnedHeld=$pinnedHeld " +
             "evictions=${evictions.get()} lateAckUnsubscribes=${lateAckUnsubscribes.get()} " +
             "reconnectResubscribes=${reconnectResubscribes.get()} expiredRequests=${expiredRequests.get()} " +
-            "orphanUnsubscribes=${orphanUnsubscribes.get()}"
+            "orphanUnsubscribes=${orphanUnsubscribes.get()} " +
+            "nonSolanaRejected=${nonSolanaRejected7819.get()} pinnedExcludedNonSolana=$pinnedExcludedNonSolana7819 " +
+            "reconnects=${reconnects7819.get()} reconnectReasons=${reconnectReasonsText7819()}"
+}
+
+/**
+ * V5.0.7819 — Helius (WS logsSubscribe, DAS getAssetBatch, pump-curve RPC) is a
+ * Solana data source. A base58 32–44 char id is the backstop identity test: stock,
+ * FX, metal, commodity and perps tickers, `solana|`-prefixed alt identities, `cg:`
+ * ids and EVM 0x addresses all fail it. Field Manual L186.
+ */
+object HeliusSolanaScope7819 {
+    private val BASE58_SOLANA_MINT_7819 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+    fun isSolanaMint7819(id: String?): Boolean = id != null && BASE58_SOLANA_MINT_7819.matches(id)
+
+    /** Filter a batch to Solana mints; counts what was dropped. */
+    fun solanaMintsOnly7819(ids: List<String>): List<String> {
+        val kept7819 = ids.filter { isSolanaMint7819(it) }
+        val dropped7819 = ids.size - kept7819.size
+        if (dropped7819 > 0) {
+            HeliusSubscriptionTelemetry7807.nonSolanaRejected7819.addAndGet(dropped7819)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_RPC_NON_SOLANA_ID_DROPPED_7819") } catch (_: Throwable) {}
+        }
+        return kept7819
+    }
 }

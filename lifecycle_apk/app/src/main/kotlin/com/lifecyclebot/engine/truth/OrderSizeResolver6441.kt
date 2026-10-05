@@ -656,7 +656,10 @@ object OrderSizeResolver6441 {
             // operator can tell "the evidence said no" apart from "the account
             // could not fund it", which are opposite problems.
             refuseMinPromotion6909 -> "CONVICTION_REFUSED_MIN_PROMOTION_6909"
-            !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
+            // V5.0.7819 — paper never has a "wallet": an empty paper ledger is
+            // named as such so it cannot be mistaken for a live-wallet read in a
+            // paper session (Field Manual L468: the decision carries its reason).
+            !executable && authoritativeCash <= 0.0 -> if (paperMode) "PAPER_CASH_EMPTY_7819" else "NO_WALLET"
             !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
             !executable -> "BELOW_MIN_EXECUTABLE"
@@ -703,7 +706,7 @@ object OrderSizeResolver6441 {
         // never fixed at the source, because the source is here: the resolver
         // is the only thing that knows what "executable" means, and nothing
         // ever asked it.
-        if (!actuallyExec && (reason == "CAPITAL_BELOW_MIN_EXECUTABLE_6490" || reason == "NO_WALLET")) {
+        if (!actuallyExec && (reason == "CAPITAL_BELOW_MIN_EXECUTABLE_6490" || reason == "NO_WALLET" || reason == "PAPER_CASH_EMPTY_7819")) {
             capitalRefusals7194.incrementAndGet()
             lastCapitalRefusalMs7194 = System.currentTimeMillis()
         }

@@ -2821,23 +2821,8 @@ object PipelineHealthCollector {
                     com.lifecyclebot.engine.LiveCanonicalRecovery6686.adoptionStatus7706()
                 ).append("\n")
             } catch (_: Throwable) {}
-            // V5.0.7718 — the hard rule, measured: bot holdings outside canonical exit scope right now.
-            try {
-                val pk7718 = try { com.lifecyclebot.engine.WalletManager.currentPubkey() } catch (_: Throwable) { "" }
-                val d7718 = com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.assess(pk7718)
-                val line7718 = when (d7718) {
-                    is com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked ->
-                        if (d7718.reasonCode == "UNMANAGED_BOT_WALLET_HOLDING")
-                            "VIOLATION unmanagedBotMints=${d7718.mints.size} mints=${d7718.mints.joinToString(",") { it.take(8) }.take(120)} (heal kicked; see Wallet adoption line)"
-                        else "UNKNOWN ${d7718.reasonCode}"
-                    else -> "OK every bot holding is inside canonical exit scope"
-                } + try {
-                    // V5.0.7807 — the protective surface coverage is measured against.
-                    val prot7807 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live")
-                    " protectiveInventory7807=${prot7807.size} fundedQuarantined7807=${prot7807.count { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED }}"
-                } catch (_: Throwable) { "" }
-                sb.append("  Bot-buy coverage (§7718):     ").append(line7718).append("\n")
-            } catch (_: Throwable) {}
+            // V5.0.7718 — the hard rule, measured (moved out of dumpText by 7819, see botBuyCoverageSection7819).
+            try { sb.append(botBuyCoverageSection7819()) } catch (_: Throwable) {}
             // V5.0.7715 — the Field Manual's plan-card verdicts, risk caps and exit classes.
             try {
                 sb.append("  Field manual (§7715):         ").append(
@@ -4313,6 +4298,62 @@ object PipelineHealthCollector {
             sb.append(com.lifecyclebot.engine.BotService.backgroundLivenessSnapshot6544()).append("\n")
         } catch (_: Throwable) {}
 
+        return sb.toString()
+    }
+
+    /**
+     * V5.0.7718 — the hard rule, measured: bot holdings outside canonical exit
+     * scope right now. V5.0.7807 — plus the protective surface coverage is
+     * measured against.
+     *
+     * V5.0.7819 §PAPER_MODE_DOES_NOT_EMPTY_THE_LIVE_WALLET. 5.0.7813 ran PAPER
+     * while the LIVE wallet held two bot-bought tokens (BaDjVCpA, gotMd6mp)
+     * that nothing managed. The live protective exit stack is scoped to the
+     * runtime mode (BotService exit snapshot, HeldPositionSupervisor7246), so in
+     * PAPER no live sell runs by design — paper must never sign a live
+     * transaction. The heal (LiveCanonicalRecovery6686.trackerHoldings7819) now
+     * gives each such holding a protective LIVE owner, which the live exit scope
+     * picks up the moment live mode starts; until then the operator is told,
+     * by name, in one loud line (Field Manual L407: protective exit paths must
+     * be operating — and when they cannot, say so).
+     */
+    private fun botBuyCoverageSection7819(): String {
+        val pk7718 = try { com.lifecyclebot.engine.WalletManager.currentPubkey() } catch (_: Throwable) { "" }
+        val d7718 = com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.assess(pk7718)
+        val unmanaged7819: List<String> = (d7718 as? com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked)
+            ?.takeIf { it.reasonCode == "UNMANAGED_BOT_WALLET_HOLDING" }?.mints ?: emptyList()
+        val line7718 = when (d7718) {
+            is com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked ->
+                if (d7718.reasonCode == "UNMANAGED_BOT_WALLET_HOLDING")
+                    "VIOLATION unmanagedBotMints=${d7718.mints.size} mints=${d7718.mints.joinToString(",") { it.take(8) }.take(120)} (heal kicked; see Wallet adoption line)"
+                else "UNKNOWN ${d7718.reasonCode}"
+            else -> "OK every bot holding is inside canonical exit scope"
+        }
+        val prot7807 = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live")
+        } catch (_: Throwable) { emptyList() }
+        val sb = StringBuilder()
+        sb.append("  Bot-buy coverage (§7718):     ").append(line7718)
+            .append(" protectiveInventory7807=${prot7807.size} fundedQuarantined7807=${prot7807.count { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED }}")
+            .append("\n")
+        val paper7819 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        if (paper7819) sb.append(paperModeLiveHoldingsAlarm7819(unmanaged7819, prot7807.map { it.mint }.distinct()))
+        return sb.toString()
+    }
+
+    /** V5.0.7819 — the operator line for live wallet risk the PAPER runtime will not trade. "" when none. */
+    internal fun paperModeLiveHoldingsAlarm7819(unmanagedMints: List<String>, protectedLiveMints: List<String>): String {
+        val sb = StringBuilder()
+        if (unmanagedMints.isNotEmpty()) {
+            sb.append("  ⚠ LIVE WALLET HAS ${unmanagedMints.size} UNMANAGED BOT HOLDINGS — runtime is PAPER, live exits do not run; " +
+                "switch to live or sell manually: ${unmanagedMints.take(6).joinToString(",")}\n")
+        }
+        val idle7819 = protectedLiveMints.filter { it !in unmanagedMints }
+        if (idle7819.isNotEmpty()) {
+            sb.append("  ⚠ LIVE WALLET HAS ${idle7819.size} BOT HOLDINGS UNDER PROTECTIVE LIVE OWNERSHIP_7819 — runtime is PAPER, live exits idle until live starts; " +
+                "switch to live or sell manually: ${idle7819.take(6).joinToString(",")}\n")
+        }
+        if (sb.isNotEmpty()) labelInc("PAPER_MODE_LIVE_WALLET_HOLDINGS_ALARM_7819")
         return sb.toString()
     }
 

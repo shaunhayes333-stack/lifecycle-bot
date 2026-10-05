@@ -179,14 +179,34 @@ object SolanaOhlcvFeed6916 {
 
     private fun noteResponse6944(code: Int) {
         if (code == 429 || code >= 500) {
-            if (consecutiveRejects.incrementAndGet() >= 5L) {
-                cooldownUntilMs.set(System.currentTimeMillis() + COOLDOWN_MS)
+            // V5.0.7819 §BACK_OFF_LIKE_YOU_MEAN_IT (Field Manual L404). 5.0.7813:
+            // geckoterminal sr=15% 5xx=82 — a flat 60 s cooldown after five
+            // rejects let the feed walk straight back into the same wall every
+            // minute. A 429 is the host saying stop, so it cools down at once;
+            // a 5xx streak cools after three. Each consecutive cooldown doubles
+            // (60 s -> 15 min); one 2xx resets the ladder.
+            if (code == 429 || consecutiveRejects.incrementAndGet() >= 3L) {
+                val level = cooldownLevel7819.getAndIncrement()
+                cooldownUntilMs.set(System.currentTimeMillis() + escalatedCooldownMs7819(level))
                 consecutiveRejects.set(0L)
+                cooldowns7819.incrementAndGet()
             }
         } else if (code in 200..299) {
             consecutiveRejects.set(0L)
+            cooldownLevel7819.set(0L)
         }
     }
+
+    private const val MAX_COOLDOWN_MS_7819 = 15L * 60_000L
+    private val cooldownLevel7819 = AtomicLong(0L)
+    private val cooldowns7819 = AtomicLong(0L)
+    private val geckoServed7819 = AtomicLong(0L)
+    private val geckoBars7819 = AtomicLong(0L)
+    private val paprikaBars7819 = AtomicLong(0L)
+
+    /** V5.0.7819 — pure: cooldown for the [level]-th consecutive provider cooldown. */
+    fun escalatedCooldownMs7819(level: Long): Long =
+        (COOLDOWN_MS shl level.coerceIn(0L, 4L).toInt()).coerceAtMost(MAX_COOLDOWN_MS_7819)
 
     private val fetches = AtomicLong(0L)
     private val served = AtomicLong(0L)
@@ -405,6 +425,7 @@ object SolanaOhlcvFeed6916 {
                 served.incrementAndGet()
                 paprikaServed7293.incrementAndGet()
                 barsDelivered.addAndGet(paprika7293.size.toLong())
+                paprikaBars7819.addAndGet(paprika7293.size.toLong())
                 try {
                     PipelineHealthCollector.labelInc("OHLCV_DEXPAPRIKA_SERVED_7293")
                     PipelineHealthCollector.labelInc("OHLCV_KEYLESS_SERVED_6916_${timeframeLabel.uppercase()}")
@@ -476,6 +497,8 @@ object SolanaOhlcvFeed6916 {
         cache[key] = Cached(chronological, now)
         served.incrementAndGet()
         barsDelivered.addAndGet(chronological.size.toLong())
+        geckoServed7819.incrementAndGet()
+        geckoBars7819.addAndGet(chronological.size.toLong())
         try {
             PipelineHealthCollector.labelInc("OHLCV_KEYLESS_SERVED_6916")
             PipelineHealthCollector.labelInc("OHLCV_KEYLESS_SERVED_6916_${timeframeLabel.uppercase()}")
@@ -652,13 +675,20 @@ object SolanaOhlcvFeed6916 {
             "localSkips6982=${localSkips6982.get()} " +
             "minIntervalMs=$MIN_INTERVAL_MS " +
             "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size} " +
-            "terminalDisabled=${paprikaTerminalDisabled7446.get()} terminalCode=$paprikaTerminalCode7446"
+            "terminalDisabled=${paprikaTerminalDisabled7446.get()} terminalCode=$paprikaTerminalCode7446 " +
+            "| perSource7819[gecko served=${geckoServed7819.get()} bars=${geckoBars7819.get()} " +
+            "dexpaprika served=${paprikaServed7293.get()} bars=${paprikaBars7819.get()} " +
+            "heliusSwaps ${com.lifecyclebot.engine.truth.HeliusSwapCandles7819.servedBars7819()}] " +
+            "geckoBackoff7819[level=${cooldownLevel7819.get()} cooldowns=${cooldowns7819.get()} " +
+            "cooldownLeftMs=${(cooldownUntilMs.get() - System.currentTimeMillis()).coerceAtLeast(0L)}] " +
+            "note7819=rateLimited6944_is_our_own_slot_gate_not_provider_429"
 
     internal fun resetForTest() {
         cache.clear(); poolCache.clear()
         fetches.set(0L); served.set(0L); cacheHits.set(0L); emptyResults.set(0L)
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
         negativeCache.clear(); lastCallAtMs.set(0L); cooldownUntilMs.set(0L)
+        cooldownLevel7819.set(0L); cooldowns7819.set(0L); geckoServed7819.set(0L); geckoBars7819.set(0L); paprikaBars7819.set(0L)
         consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L); localSkips6982.set(0L)
         sameKeyLastAttempt7484.clear(); sameKeyCoalesced7484.set(0L)
         paprikaTerminalDisabled7446.set(false); paprikaTerminalCode7446 = 0

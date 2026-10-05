@@ -70,7 +70,14 @@ object HeldHotMarkAuthority7419 {
 
     private fun activeOpen(): List<CanonicalPositionAuthority6441.Position> {
         val mode = try { if (RuntimeModeAuthority.isPaper()) "paper" else "live" } catch (_: Throwable) { "live" }
-        return try { CanonicalPositionAuthority6441.openPositions().filter { it.mode.equals(mode, true) } } catch (_: Throwable) { emptyList() }
+        // V5.0.7819 — off-chain market rows have no held-hot provider here (the
+        // when() below has no branch for them); they were counted as a request
+        // and an UNCHANGED every pass. Their trader marks them (Field Manual L186).
+        return try {
+            CanonicalPositionAuthority6441.openPositions().filter {
+                it.mode.equals(mode, true) && !CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it)
+            }
+        } catch (_: Throwable) { emptyList() }
     }
 
     private fun runtimeTokenAgeMs(mint: String, now: Long): Long {

@@ -78,12 +78,15 @@ object LocalCandleSynthesis7055 {
         var close: Double,
         var mcap: Double,
         var ticks: Int,
+        var trades: Int = 0,
     )
 
     private val buckets = java.util.concurrent.ConcurrentHashMap<String, Bucket>()
     private val candlesEmitted = AtomicLong(0L)
     private val ticksBinned = AtomicLong(0L)
     private val skippedHasFetched = AtomicLong(0L)
+    private val tradePrints7819 = AtomicLong(0L)
+    private val tradeCandles7819 = AtomicLong(0L)
 
     /**
      * Bin one observed price. Call from the price-write path; cheap and
@@ -92,7 +95,25 @@ object LocalCandleSynthesis7055 {
      * Deliberately a no-op when a real feed has already supplied bars for this
      * mint beyond what we have synthesised — never degrade a fetched series.
      */
-    fun note(ts: TokenState, priceUsd: Double, mcapUsd: Double) {
+    fun note(ts: TokenState, priceUsd: Double, mcapUsd: Double) =
+        bin7819(ts, priceUsd, mcapUsd, System.currentTimeMillis(), trade = false)
+
+    /**
+     * V5.0.7819 — bin one executed trade print (a real swap at its real time).
+     * The Helius-decoded pump.fun TradeEvent and the PumpPortal curve trade were
+     * reaching the tape (launch flow, whales, buy pressure) but never this
+     * binner, whose only producer was the polled quote. A minute holding one
+     * real trade is a real bar, so trade buckets are not held to the two-tick
+     * rule that guards polled points (Field Manual L325: realistic data; §3.4
+     * read the tape). An out-of-order print older than the open bucket is
+     * dropped rather than rewriting a closed minute.
+     */
+    fun noteTrade7819(ts: TokenState, priceUsd: Double, mcapUsd: Double, tradeMs: Long) {
+        if (tradeMs <= 0L) return
+        bin7819(ts, priceUsd, mcapUsd, tradeMs, trade = true)
+    }
+
+    private fun bin7819(ts: TokenState, priceUsd: Double, mcapUsd: Double, atMs: Long, trade: Boolean) {
         if (!priceUsd.isFinite() || priceUsd <= 0.0) return
         val mint = ts.mint
         if (mint.isBlank()) return
@@ -105,7 +126,7 @@ object LocalCandleSynthesis7055 {
         // candidate reaches ModeRouter with hist.size=1 and can never satisfy
         // the >=8 / >=10 / >=15 archetype thresholds.
         try { if (ts.position.isOpen) return } catch (_: Throwable) {}
-        val now = System.currentTimeMillis()
+        val now = atMs
         try {
             // If the last bar came from a real OHLCV fetch, stand down. The
             // fetched series is richer (it carries volume and buy/sell counts)
@@ -126,9 +147,10 @@ object LocalCandleSynthesis7055 {
         } catch (_: Throwable) {}
 
         val start = now - (now % BUCKET_MS)
-        ticksBinned.incrementAndGet()
-
         val existing = buckets[mint]
+        if (trade && existing != null && start < existing.startMs) return
+        if (trade) tradePrints7819.incrementAndGet() else ticksBinned.incrementAndGet()
+
         if (existing == null || existing.startMs != start) {
             // Roll the completed bucket into history before opening the next.
             if (existing != null && existing.startMs < start) {
@@ -137,6 +159,7 @@ object LocalCandleSynthesis7055 {
             buckets[mint] = Bucket(
                 startMs = start, open = priceUsd, high = priceUsd,
                 low = priceUsd, close = priceUsd, mcap = mcapUsd, ticks = 1,
+                trades = if (trade) 1 else 0,
             )
             return
         }
@@ -145,6 +168,7 @@ object LocalCandleSynthesis7055 {
         existing.close = priceUsd
         if (mcapUsd.isFinite() && mcapUsd > 0.0) existing.mcap = mcapUsd
         existing.ticks += 1
+        if (trade) existing.trades += 1
     }
 
     /**
@@ -155,6 +179,14 @@ object LocalCandleSynthesis7055 {
      */
     fun fetchedKlineCovers7809(last: Candle?, nowMs: Long): Boolean {
         if (last == null || last.synthetic) return false
+        // V5.0.7819 §THE_TAPE_CANDLE_IS_NOT_A_KLINE (Field Manual L190). Every
+        // provider kline (GeckoTerminal, DexPaprika, Birdeye getCandles) leaves
+        // buy/sell counts at 0. DataOrchestrator.updateRealtimeCandle's 8 s
+        // trade-tape candle carries counts, volume and an OHLC copied from the
+        // polled lastPrice, so it passed this test and every Helius tape trade
+        // (TAPE_TRADE_FROM_HELIUS_7773, ~12k a session) switched this binner off
+        // for the next two minutes on exactly the candidates that were trading.
+        if (last.buysH1 > 0 || last.sellsH1 > 0) return false
         val hasVolume = last.volume24h > 0.0 || last.volumeH1 > 0.0
         val fullOhlc = last.openUsd > 0.0 && last.highUsd > 0.0 && last.lowUsd > 0.0
         if (!hasVolume || !fullOhlc) return false
@@ -167,7 +199,10 @@ object LocalCandleSynthesis7055 {
             // let hist.size cross the archetype thresholds on what is really
             // one observation repeated, so the count would lie about how much
             // price action the classifier actually saw.
-            if (b.ticks < 2) return
+            // V5.0.7819 — one executed trade is an observation of a real
+            // market price at that minute, not a repeated point.
+            if (b.ticks < 2 && b.trades < 1) return
+            if (b.trades > 0) tradeCandles7819.incrementAndGet()
             val candle = Candle(
                 ts = b.startMs,
                 priceUsd = b.close,
@@ -211,9 +246,12 @@ object LocalCandleSynthesis7055 {
     fun statusLine7055(): String =
         "ticksBinned=${ticksBinned.get()} candles=${candlesEmitted.get()} " +
             "openBuckets=${buckets.size} deferredToFetched=${skippedHasFetched.get()} " +
+            "tradePrints7819=${tradePrints7819.get()} tradeCandles7819=${tradeCandles7819.get()} " +
+            "| sources7819 local=${candlesEmitted.get()} heliusSwaps[${HeliusSwapCandles7819.statusLine7819()}] " +
             "read=unlocks_BREAKOUT(>=10)_REVERSAL(>=8)_PULLBACK(>=15)_and_the_lanes_behind_them"
 
     internal fun resetForTest() {
         buckets.clear(); candlesEmitted.set(0L); ticksBinned.set(0L); skippedHasFetched.set(0L)
+        tradePrints7819.set(0L); tradeCandles7819.set(0L)
     }
 }

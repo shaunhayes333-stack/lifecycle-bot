@@ -10671,6 +10671,8 @@ class BotService : Service() {
             // applyPumpTradeMark7278 and the subscription sync in the hot loop.
             com.lifecyclebot.network.PumpFunWS.setOnTrade7278 { mint, priceSol, mcapSol, _ ->
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
+                // V5.0.7819 — the curve's post-trade price is also a candle print.
+                try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
             // V5.0.7787 — the same mark from Helius-decoded pump.fun trades on held mints.
             orchestrator?.setOnHeldTradeMark7787 { mint: String, priceSol: Double ->
@@ -24248,6 +24250,33 @@ if (hotExitHandledSweep) {
         const val TTL_FAILURE_MS = 5_000L
     }
 
+    /**
+     * V5.0.7819 §OFF_CHAIN_MARKETS_ARE_NOT_SOLANA_EXITS (Field Manual L186, L412).
+     *
+     * 5.0.7813 paper held 88 positions, mostly STOCK_SPOT. This snapshot fed
+     * them to every Solana exit loop (2s hot exit -> runManageOnly ->
+     * getActualPrice, rapid monitor, universal SL sweep, 1 Hz held-mark loop)
+     * and putIfAbsent'ed a TokenState keyed by the ticker into status.tokens.
+     * No Solana mark path can price "AAPL", so each tick paid the Solana
+     * resolver for nothing (UNIVERSAL_SL_POSITION_SLOW_6402=100, hot exit units
+     * stuck up to 24s) and the risk clock counted RISK_CLOCK_BLOCKED_7001_NO_MARK
+     * 78k times. STOCK / FOREX / COMMODITY / METAL rows are owned end to end by
+     * their trader (TokenizedStockTrader/ForexTrader/... monitorPositions: own
+     * PerpsMarketDataFetcher mark, SL/TP/time exits, canonical close), so they
+     * leave the Solana exit scope. CRYPTO_ALT and Solana rows are unchanged.
+     */
+    private fun solanaExitScope7819(
+        rows: List<com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position>,
+    ): List<com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position> {
+        val kept7819 = rows.filterNot {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it)
+        }
+        if (kept7819.size != rows.size) {
+            try { PipelineHealthCollector.labelInc("EXIT_SCOPE_OFFCHAIN_TRADER_OWNED_7819") } catch (_: Throwable) {}
+        }
+        return kept7819
+    }
+
     /** V5.0.6512 — every exit sweep starts from canonical OPEN authority.
      * Mutable TokenState is projection-only. We rebind canonical quantity/basis/lane/id
      * when a token projection exists; a missing mark remains visible but non-triggering.
@@ -24264,7 +24293,9 @@ if (hotExitHandledSweep) {
         // counted a funded quarantine that this snapshot never marked or managed
         // (Field Manual L39, L407).
         val canonical = try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveExitScope7809(activeExitMode7254)
+            solanaExitScope7819(
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveExitScope7809(activeExitMode7254)
+            )
         } catch (_: Throwable) { emptyList() }
         if (canonical.isEmpty()) return emptyList()
         val tokenByMint = try { synchronized(status.tokens) { status.tokens.values.associateBy { it.mint } } } catch (_: Throwable) { emptyMap() }
@@ -25128,6 +25159,25 @@ if (hotExitHandledSweep) {
     private fun sealedEntryScore7688(decision: FinalDecisionGate.FinalDecision?, fallback: Int): Int {
         val score = decision?.effectiveEntryScore7687 ?: -1
         return if (score >= 0) score else fallback
+    }
+
+    /**
+     * V5.0.7819 — BLUECHIP's post-auth handoff stamped MARK_READY on every
+     * executable authorization, mark or no mark. MARK_READY is now stamped only
+     * when an executable mark is sealed on the attempt's own ticket; otherwise
+     * the executor's real mark stage (paperBuy MARK_READY/MARK_REJECT, live
+     * stampLiveEntryMark7790) records the verdict with its reason (Field Manual
+     * L39: a displayed mark is not necessarily executable value).
+     */
+    private fun stampBlueChipSealedMark7819(attemptId: String) {
+        val ticket7819 = try { ExecutableOpenGate.ticketForAttempt(attemptId) } catch (_: Throwable) { null }
+        val sealedMark7819 = ticket7819 != null &&
+            ticket7819.executableMarkTimestampMs6613 > 0L &&
+            ticket7819.executableMarkPriceUsd6613.isFinite() &&
+            ticket7819.executableMarkPriceUsd6613 > 0.0 &&
+            ticket7819.executableMarkSource6613.isNotBlank()
+        if (sealedMark7819) ToolkitSignalSheet.recordDeskStage("BLUECHIP", "MARK_READY", attemptId)
+        else PipelineHealthCollector.labelInc("BLUECHIP_POST_AUTH_MARK_LEFT_TO_EXECUTOR_7819")
     }
 
     private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
@@ -28693,7 +28743,7 @@ if (hotExitHandledSweep) {
                             // that will be handed to FinalExecutionPermit/Executor.
                             if (blueChipAuth6494.isExecutable() && blueChipAuth6494.attemptId.isNotBlank()) {
                                 try {
-                                    ToolkitSignalSheet.recordDeskStage("BLUECHIP", "MARK_READY", blueChipAuth6494.attemptId)
+                                    stampBlueChipSealedMark7819(blueChipAuth6494.attemptId)
                                     ToolkitSignalSheet.recordDeskStage("BLUECHIP", "SIZED_EXECUTABLE", blueChipAuth6494.attemptId)
                                     ToolkitSignalSheet.recordDeskStage("BLUECHIP", "TICKET", blueChipAuth6494.attemptId)
                                     PipelineHealthCollector.labelInc("BLUECHIP_POST_AUTH_CAUSAL_HANDOFF_7466")

@@ -130,20 +130,30 @@ object CanonicalRiskClock6454 {
                     // both read as SCHEDULER_STARVATION. This is the
                     // independent high-priority cadence the mandate asks for:
                     // nothing between the tick and this call can delay it.
+                    // V5.0.7819 — off-chain market rows (STOCK/FOREX/COMMODITY/
+                    // METAL) never get an EXIT_ECONOMIC mark and are exited by
+                    // their own trader: 78k RISK_CLOCK_BLOCKED_7001_NO_MARK and
+                    // most of the sweep budget overruns were these rows. The
+                    // scheduler is told how many rows THIS clock protects, so a
+                    // stock-only book is not an armed stall; latch pruning below
+                    // still sees the full set (Field Manual L186, L412).
+                    val riskScope7819 = open7213?.filterNot {
+                        CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it)
+                    }
                     try {
                         ProtectiveExitScheduler6450.serviceTick7213(
-                            openPositionCount = open7213?.size ?: -1,
+                            openPositionCount = riskScope7819?.size ?: -1,
                             cadenceMs = TICK_MS,
                         )
                     } catch (_: Throwable) {}
 
                     val cb = riskTickRef.get()
-                    if (cb != null && open7213 != null) {
+                    if (cb != null && riskScope7819 != null) {
                         // Stable order, so the round-robin cursor addresses the
                         // same position from one tick to the next.
                         // openPositions() is built from a ConcurrentHashMap and
                         // has no defined iteration order of its own.
-                        val ordered7213 = open7213.sortedBy { it.positionId }
+                        val ordered7213 = riskScope7819.sortedBy { it.positionId }
                         val n7213 = ordered7213.size
                         if (n7213 > 0) {
                             val deadline7213 = System.currentTimeMillis() + SWEEP_BUDGET_MS

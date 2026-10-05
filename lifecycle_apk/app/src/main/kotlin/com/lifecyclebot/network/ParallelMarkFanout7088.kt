@@ -385,9 +385,13 @@ object ParallelMarkFanout7088 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_DAS_THROTTLED_7368") } catch (_: Throwable) {}
             return emptyMap()
         }
+        // V5.0.7819 — Helius DAS is a Solana source: stock/FX/perps tickers and
+        // non-Solana ids never reach it (Field Manual L186).
+        val solMints7819 = HeliusSolanaScope7819.solanaMintsOnly7819(mints)
+        if (solMints7819.isEmpty()) return emptyMap()
         heliusDasLastMs7368 = now7368
         val out = HashMap<String, Double>()
-        mints.chunked(100).forEach { chunk ->
+        solMints7819.chunked(100).forEach { chunk ->
             try {
                 val ids = chunk.joinToString(",") { "\"$it\"" }
                 // V5.0.7188 §THE_SIXTH_FEED_HAS_NEVER_RETURNED_A_SINGLE_QUOTE.
@@ -715,7 +719,8 @@ object ParallelMarkFanout7088 {
         // V5.0.7392 — the curve account is DERIVED from the mint (canonical PDA),
         // so a mint the WS never announced, or whose remembered key was lost on
         // restart, is still read. Graduated mints are skipped (their curve is done).
-        val targets = mints.mapNotNull { m ->
+        // V5.0.7819 — Helius RPC curve reads are for base58 Solana mints only.
+        val targets = HeliusSolanaScope7819.solanaMintsOnly7819(mints).mapNotNull { m ->
             val pumpLike7392 = explicitCurve7392 || PumpCurveKeys7269.keyFor(m) != null ||
                 m.endsWith("pump", ignoreCase = true)
             if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null

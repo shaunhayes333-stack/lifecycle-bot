@@ -168,6 +168,22 @@ object TradePlan7739 {
         return byMinute.entries.map { (m, b) -> Bar(m * 60_000L, b[0], b[1], b[2], b[3]) }
     }
 
+    /**
+     * V5.0.7819 — a candidate this plan reads with fewer bars than its
+     * setups need (TOO_FEW_BARS: under MIN_BARS_7739 + 1, base/sweep need six)
+     * asks HeliusSwapCandles7819 for its last 30 minutes of swaps, binned into
+     * real one-minute bars. Asked before the paper return so a paper session
+     * builds the same history live would. Asynchronous and budgeted there; the
+     * bar requirement itself is unchanged (Field Manual L325: no fabricated
+     * data, L404: route around an unhealthy provider).
+     */
+    private fun requestBarsIfShort7819(ts: TokenState, nowMs: Long) {
+        try {
+            if (barsFrom(ts, nowMs).size > MIN_BARS_7739) return
+            HeliusSwapCandles7819.request7819(ts, nowMs)
+        } catch (_: Throwable) {}
+    }
+
     // ── setups (pure) ──
 
     private fun planned(setup: Setup, cur: Double, invalidation: Double, firstTarget: Double, target: Double, tier: Tier): Read {
@@ -256,6 +272,7 @@ object TradePlan7739 {
 
     /** Live-entry verdict: null admits (and records the plan). Paper is never refused. */
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
         val lp = try { LaunchPhaseAuthority7401.snapshot(ts, nowMs) } catch (_: Throwable) { null }
         val chop = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name == "CHOP" } catch (_: Throwable) { false }

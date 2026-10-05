@@ -111,7 +111,14 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     private val http = SharedHttpClient.builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
+        // V5.0.7819 — one whole-call deadline per attempt; connect+read alone
+        // allowed 18s+ per attempt (see fetchRugcheck, Field Manual L240).
+        .callTimeout(RUGCHECK_ATTEMPT_CAP_MS_7819, TimeUnit.MILLISECONDS)
         .build()
+
+    /** V5.0.7819 — a retry starts only while a full attempt still fits the budget. */
+    private fun rugcheckBudgetSpent7819(startedAtMs: Long): Boolean =
+        System.currentTimeMillis() - startedAtMs > RUGCHECK_TOTAL_BUDGET_MS_7819 - RUGCHECK_ATTEMPT_CAP_MS_7819
 
     private val cache = ConcurrentHashMap<String, SafetyReport>()
 
@@ -168,6 +175,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // and running its own check. Rugcheck retries top out around
         // 4-5s in the worst case so 6s is a safe ceiling.
         private const val INFLIGHT_WAIT_MS: Long = 6_000L
+        // V5.0.7819 — rugcheck wall clock: one attempt <= 8s, all attempts <= ~10s,
+        // inside the 15s supervisor worker budget (Field Manual L240).
+        private const val RUGCHECK_ATTEMPT_CAP_MS_7819: Long = 8_000L
+        private const val RUGCHECK_TOTAL_BUDGET_MS_7819: Long = 10_000L
 
         private const val TAG = "SafetyChecker"
 
@@ -1039,8 +1050,22 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report"
         val maxRetries = 3
         val retryDelayMs = 500L
+        // V5.0.7819 §RUGCHECK_HAD_NO_WALL_CLOCK (Field Manual L240). The first
+        // safety check runs synchronously inside the supervisor worker
+        // (processTokenCycle, 15s SUPERVISOR_WORKER_TIMEOUT_MS). Each attempt here
+        // could take connect 8s + read 10s, three attempts plus sleeps: ~55s for
+        // one hung host, which is a worker timeout by construction (117 in the
+        // 5.0.7813 snapshot). Fast failures (5xx/429/empty) still get their
+        // retries; a further attempt only starts while budget remains. Running
+        // out is the existing rugcheck TIMEOUT outcome (penalty / PENDING_REVIEW
+        // in live) and the report re-checks on its normal staleness.
+        val startedAt7819 = System.currentTimeMillis()
 
         repeat(maxRetries) { attempt ->
+            if (attempt > 0 && rugcheckBudgetSpent7819(startedAt7819)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUGCHECK_TOTAL_BUDGET_EXHAUSTED_7819") } catch (_: Throwable) {}
+                return null
+            }
             try {
                 val body = get(url)
                 if (body != null) {

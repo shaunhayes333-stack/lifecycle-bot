@@ -92,7 +92,8 @@ class DataOrchestrator(
 
     suspend fun reconnectStreams() {
         try {
-            heliusWs?.disconnect(); delay(1_000); heliusWs?.connect()
+            // V5.0.7819 — a healthy Helius socket is kept (no 128-sub re-send); see reconnectIfStale7819.
+            heliusWs?.reconnectIfStale7819("EXTERNAL_STREAM_RECONNECT")
             pumpWs?.disconnect();  delay(500);   pumpWs?.connect()
             dexWs?.disconnect();   delay(500);   dexWs?.connect()
         } catch (e: Exception) { onLog("Stream reconnect: ${e.message?.take(40)}", "") }
@@ -180,15 +181,38 @@ class DataOrchestrator(
      */
     private fun heldMintsForSubscriptions7807(): Set<String> {
         val out = HashSet<String>()
+        // V5.0.7819 — Helius is a Solana feed. Only SOLANA_TOKEN rows with a real
+        // base58 mint are pinned; 5.0.7813 pinned 100 of 128 slots to stock tickers
+        // and the in-memory book's cross-asset rows. Field Manual L186.
+        val nonSolana7819 = HashSet<String>()
         try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventoryMints7807().forEach { m ->
-                if (m.isNotBlank()) out.add(m)
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807().forEach { p ->
+                if (p.mint.isBlank()) return@forEach
+                if (p.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN) out.add(p.mint) else nonSolana7819.add(p.mint)
             }
         } catch (_: Throwable) {}
         try {
             status.tokens.values.forEach { ts -> if (ts.position.isOpen) out.add(ts.mint) }
         } catch (_: Throwable) {}
-        return out
+        val pinned7819 = out.filterTo(HashSet()) { it !in nonSolana7819 && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it) }
+        com.lifecyclebot.network.HeliusSubscriptionTelemetry7807.pinnedExcludedNonSolana7819 = (out + nonSolana7819).size - pinned7819.size
+        return pinned7819
+    }
+
+    /**
+     * V5.0.7819 — eligibility for any Helius subscription: a base58 Solana mint that
+     * no canonical row classifies as STOCK/FOREX/METAL/COMMODITY/PERPS/CRYPTO_ALT.
+     * (UNKNOWN is not treated as non-Solana here: a mis-tagged meme bag keeps its tape.)
+     */
+    private fun heliusMintEligible7819(mint: String): Boolean {
+        if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return false
+        return try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807().none { p ->
+                p.mint == mint &&
+                    p.assetClass != com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN &&
+                    p.assetClass != com.lifecyclebot.engine.truth.AssetClass.UNKNOWN
+            }
+        } catch (_: Throwable) { true }
     }
 
     private fun startSubscriptionHousekeeping7807() {
@@ -211,6 +235,8 @@ class DataOrchestrator(
         lastPumpPortalTradeMs7773.entries.removeIf { now - it.value > 60_000L }
         val live = HashSet<String>(status.tokens.keys)
         live.addAll(heldMintsForSubscriptions7807())
+        // V5.0.7819 — the pinned set is now Solana-only; per-mint caches still cover every held row.
+        try { live.addAll(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventoryMints7807()) } catch (_: Throwable) {}
         tokenDevWallets.keys.removeIf { it !in live }
         synchronized(pendingTrades) { pendingTrades.keys.removeIf { it !in live } }
         dexWs?.let { d -> d.subscribedMints7807().filter { it !in live }.forEach { d.unsubscribeToken(it) } }
@@ -643,6 +669,27 @@ class DataOrchestrator(
         onTapeTrade7773(mint, wallet, solAmount, isBuy, 0.0)
     }
 
+    /**
+     * V5.0.7819 §EVERY_REAL_PRINT_FEEDS_THE_BARS. A real executed trade price
+     * (SOL per token) for a watched mint — the Helius-decoded pump.fun
+     * TradeEvent here, the PumpPortal curve trade from BotService — binned at
+     * its arrival time into LocalCandleSynthesis7055. Before this the tape fed
+     * launch flow, whales and buy pressure but never the one-minute bars
+     * TradePlan7739 reads. USD at the cached SOL/USD, the mark the rest of the
+     * book uses (Field Manual L186: one basis for every source).
+     */
+    fun onTradePrint7819(mint: String, priceSolPerToken: Double) {
+        if (!priceSolPerToken.isFinite() || priceSolPerToken <= 0.0) return
+        val ts = status.tokens[mint] ?: return
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd.isFinite() || solUsd <= 0.0) return
+        try {
+            com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.noteTrade7819(
+                ts, priceSolPerToken * solUsd, ts.lastMcap, System.currentTimeMillis(),
+            )
+        } catch (_: Throwable) {}
+    }
+
     /** V5.0.7787 — (mint, SOL per token) for a held position's on-chain trade; wired by BotService. */
     @Volatile private var onHeldTradeMark7787: ((String, Double) -> Unit)? = null
 
@@ -743,6 +790,8 @@ class DataOrchestrator(
                 if (wallet.isNotBlank() && tokenAmt.isFinite() && tokenAmt > 0.0) {
                     val held7787 = try { status.tokens[mint]?.position?.isOpen == true } catch (_: Throwable) { false }
                     if (held7787) try { onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt) } catch (_: Throwable) {}
+                    // V5.0.7819 — the same executed price is a candidate's candle print.
+                    if (!held7787) onTradePrint7819(mint, safeSol / tokenAmt)
                 }
             },
             onLargeWalletMove = { wallet, mint, solAmt, isBuy ->
@@ -757,6 +806,8 @@ class DataOrchestrator(
         )
         // V5.0.7807 — held positions are subscription-priority (never the LRU victim).
         heliusWs?.setPinnedMintsProvider7807 { heldMintsForSubscriptions7807() }
+        // V5.0.7819 — Helius subscriptions are for Solana mints only (Field Manual L186).
+        heliusWs?.setMintEligibility7819 { m -> heliusMintEligible7819(m) }
         heliusWs?.connect()
     }
 
@@ -821,6 +872,10 @@ class DataOrchestrator(
                     },
                     pressScore = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
                 )
+
+                // V5.0.7819 — a live websocket pair price is an observed tick,
+                // the same kind Executor.getActualPrice bins (WS_LIVE provenance).
+                try { com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.note(ts, priceUsd, mcap) } catch (_: Throwable) {}
 
                 // V5.0.7777 — feed the existing market sweep's bounded temporal
                 // opportunity tape. This is local/cache-only; no network call

@@ -1013,6 +1013,17 @@ object CanonicalPositionAuthority6441 {
     // ─────────────────────────────────────────────────────────────────────
     fun protectiveExitScope7809(mode: String? = null): List<Position> = exitScopeOf7809(protectiveInventory7807(mode))
 
+    /**
+     * V5.0.7819 — STOCK / FOREX / COMMODITY / METAL rows: priced and exited by
+     * their owning trader, never by a Solana mark or sell path (Field Manual
+     * L186). The stored class, the positionId prefix and the lane are all read,
+     * because a pre-6592 row may still carry a defaulted SOLANA_TOKEN class.
+     */
+    fun isTraderOwnedOffChainMarket7819(p: Position): Boolean =
+        p.assetClass.isOffChainMarket ||
+            AssetClass.fromPositionIdPrefix(p.positionId).isOffChainMarket ||
+            AssetClass.fromLane(p.lane).isOffChainMarket
+
     internal fun exitScopeOf7809(rows: List<Position>): List<Position> {
         val open7809 = rows.filter { isOpenLifecycleWithQty6743(it) }
         val openMints7809 = open7809.mapTo(HashSet()) { it.mint }
