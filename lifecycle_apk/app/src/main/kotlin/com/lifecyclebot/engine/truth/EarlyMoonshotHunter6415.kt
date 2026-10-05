@@ -94,6 +94,9 @@ object EarlyMoonshotHunter6415 {
         holderGrowthPct: Double = 0.0,
         topHolderPct: Double = -1.0,
         smartMoneyBuys60s: Int = 0,
+        distinctBuyers60s: Int = 0,
+        largestBuyerSharePct60s: Double = -1.0,
+        top3BuyerSharePct60s: Double = -1.0,
         momentumScore: Double = 50.0,
         bundleRisk: String = "UNKNOWN",
         firstBlockSupplyPct: Double = -1.0,
@@ -153,6 +156,12 @@ object EarlyMoonshotHunter6415 {
         }
 
         when {
+            distinctBuyers60s >= 8 -> { fired += Signal("INDEPENDENT_BUYER_BREADTH_STRONG", 16.0); signals.add("INDEPENDENT_BUYER_BREADTH_STRONG") }
+            distinctBuyers60s >= 5 -> { fired += Signal("INDEPENDENT_BUYER_BREADTH", 11.0); signals.add("INDEPENDENT_BUYER_BREADTH") }
+            distinctBuyers60s >= 3 -> { fired += Signal("INDEPENDENT_BUYERS_BUILDING", 6.0); signals.add("INDEPENDENT_BUYERS_BUILDING") }
+        }
+
+        when {
             momentumScore >= 70.0 -> { fired += Signal("FLOW_ACCELERATION_STRONG", 10.0); signals.add("FLOW_ACCELERATION_STRONG") }
             momentumScore >= 55.0 -> { fired += Signal("FLOW_ACCELERATION_BUILDING", 5.0); signals.add("FLOW_ACCELERATION_BUILDING") }
         }
@@ -171,6 +180,8 @@ object EarlyMoonshotHunter6415 {
         if (topHolderPct >= 45.0) negative += Signal("TOP_HOLDER_DANGEROUS", -18.0)
         if (bundle in setOf("HIGH", "CRITICAL", "SEVERE")) negative += Signal("BUNDLE_CONCENTRATION", -18.0)
         if (firstBlockSupplyPct >= 40.0) negative += Signal("FIRST_BLOCK_CONCENTRATION", -15.0)
+        if (largestBuyerSharePct60s >= 65.0) negative += Signal("ONE_BUYER_DOMINATES_FLOW", -16.0)
+        if (top3BuyerSharePct60s >= 85.0) negative += Signal("TOP3_BUYERS_DOMINATE_FLOW", -14.0)
         if (holderGrowthPct.isFinite() && holderGrowthPct <= -5.0) negative += Signal("HOLDER_GROWTH_SHRINKING", -12.0)
 
         // Apply learned weights.
@@ -188,7 +199,7 @@ object EarlyMoonshotHunter6415 {
         }
         val verdict = Verdict(
             tier, composite, mcapUsd, signals,
-            "sub25k_expansion_engine holders=$holderCount hg=${"%.1f".format(holderGrowthPct)} top=${"%.1f".format(topHolderPct)} smart60=$smartMoneyBuys60s mom=${"%.0f".format(momentumScore)} bundle=$bundle devSell=$devSelling"
+            "sub25k_expansion_engine holders=$holderCount hg=${"%.1f".format(holderGrowthPct)} top=${"%.1f".format(topHolderPct)} smart60=$smartMoneyBuys60s buyers60=$distinctBuyers60s largest=${"%.0f".format(largestBuyerSharePct60s)} top3=${"%.0f".format(top3BuyerSharePct60s)} mom=${"%.0f".format(momentumScore)} bundle=$bundle devSell=$devSelling"
         )
 
         if (emitTelemetry) try {
