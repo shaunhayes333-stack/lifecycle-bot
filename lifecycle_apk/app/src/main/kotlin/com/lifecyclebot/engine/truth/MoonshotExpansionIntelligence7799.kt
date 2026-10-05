@@ -26,6 +26,7 @@ object MoonshotExpansionIntelligence7799 {
         val holderCount: Int,
         val boostAmount: Long,
         val socialDepth: Int,
+        val sentimentScore: Double,
         val mcapUsd: Double,
     )
 
@@ -43,6 +44,8 @@ object MoonshotExpansionIntelligence7799 {
         holderCount: Int,
         boostAmount: Long,
         socialDepth: Int,
+        telegramPresent: Boolean,
+        sentimentScore: Double,
         nowMs: Long = System.currentTimeMillis(),
     ): Snapshot {
         val prior = last[mint]
@@ -51,6 +54,8 @@ object MoonshotExpansionIntelligence7799 {
             (holderCount - prior.holderCount).toDouble() / minutes else 0.0
         val boostVel = if (prior != null && minutes > 0.0)
             (boostAmount - prior.boostAmount).toDouble() / minutes else 0.0
+        val sentimentVel = if (prior != null && minutes > 0.0)
+            (sentimentScore - prior.sentimentScore) / minutes else 0.0
 
         var attention = 0.0
         if (holderVel >= 5.0) attention += 14.0
@@ -61,12 +66,16 @@ object MoonshotExpansionIntelligence7799 {
         if (socialDepth >= 3) attention += 5.0
         else if (socialDepth >= 2) attention += 3.0
         else if (socialDepth == 1) attention += 1.0
+        // Telegram is a distinct community coordination surface, not just "one more link".
+        if (telegramPresent) attention += 4.0
         if (prior != null && socialDepth > prior.socialDepth) attention += 5.0
+        if (sentimentVel >= 5.0) attention += 5.0
+        else if (sentimentVel > 0.0) attention += 2.0
 
         val runway = runwayScore(mcapUsd)
         val ahead = attention >= 8.0 && runway >= 12.0
         if (mint.isNotBlank()) {
-            last[mint] = Obs(nowMs, holderCount, boostAmount, socialDepth, mcapUsd)
+            last[mint] = Obs(nowMs, holderCount, boostAmount, socialDepth, sentimentScore, mcapUsd)
             if (last.size > 4_000) {
                 val cutoff = nowMs - 24L * 60L * 60_000L
                 last.entries.removeIf { it.value.atMs < cutoff }
@@ -80,7 +89,8 @@ object MoonshotExpansionIntelligence7799 {
             "x attention=" + String.format("%.1f", attention) +
             " holderV=" + String.format("%.2f", holderVel) +
             "/m boostV=" + String.format("%.1f", boostVel) +
-            "/m socials=" + socialDepth + " ahead=" + ahead
+            "/m socials=" + socialDepth + " tg=" + telegramPresent +
+            " sentV=" + String.format("%.2f", sentimentVel) + "/m ahead=" + ahead
         return Snapshot(
             runwayScore = runway,
             runwayTo1mX = x1,
