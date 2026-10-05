@@ -28,14 +28,26 @@ class Aate7800MoonshotCommunityRunwayTest {
 
     @Test fun broadOrganicConfluenceBeatsPaidConcentratedHype() {
         val broad = EarlyMoonshotHunter6415.scoreCandidate(
-            "mint_b","RUNNER",14_000.0,5_000.0,20_000.0,3,12,4,true,
-            150,20.0,15.0,3,10,20.0,45.0,75.0,"LOW",10.0,false,8.0,
-            25.0,25.0,20.0,true,8,0.75,6,0,false
+            mint="mint_b",symbol="RUNNER",mcapUsd=14_000.0,liquidityUsd=5_000.0,
+            vol1hUsd=20_000.0,sourceCount=3,buysLastWindow=12,sellsLastWindow=4,
+            rugSafetyConfirmed=true,holderCount=150,holderGrowthPct=20.0,topHolderPct=15.0,
+            smartMoneyBuys60s=3,distinctBuyers60s=10,largestBuyerSharePct60s=20.0,
+            top3BuyerSharePct60s=45.0,momentumScore=75.0,bundleRisk="LOW",
+            firstBlockSupplyPct=10.0,devSelling=false,socialVelocityScore=8.0,
+            valuationRunwayScore=25.0,attentionVelocityScore=25.0,telegramCommunityScore=20.0,
+            evidenceAheadOfValuation=true,creatorSampleCount=8,creatorWinRate=0.75,
+            creatorScoreHint=6,creatorRugCount=0,emitTelemetry=false
         )
         val hype = EarlyMoonshotHunter6415.scoreCandidate(
-            "mint_c","HYPE",14_000.0,5_000.0,20_000.0,1,9,1,false,
-            12,0.0,60.0,0,1,90.0,98.0,75.0,"HIGH",60.0,true,10.0,
-            25.0,10.0,20.0,false,0,0.5,0,0,false
+            mint="mint_c",symbol="HYPE",mcapUsd=14_000.0,liquidityUsd=5_000.0,
+            vol1hUsd=20_000.0,sourceCount=1,buysLastWindow=9,sellsLastWindow=1,
+            rugSafetyConfirmed=false,holderCount=12,holderGrowthPct=0.0,topHolderPct=60.0,
+            smartMoneyBuys60s=0,distinctBuyers60s=1,largestBuyerSharePct60s=90.0,
+            top3BuyerSharePct60s=98.0,momentumScore=75.0,bundleRisk="HIGH",
+            firstBlockSupplyPct=60.0,devSelling=true,socialVelocityScore=10.0,
+            valuationRunwayScore=25.0,attentionVelocityScore=10.0,telegramCommunityScore=20.0,
+            evidenceAheadOfValuation=false,creatorSampleCount=0,creatorWinRate=0.5,
+            creatorScoreHint=0,creatorRugCount=0,emitTelemetry=false
         )
         assertTrue("MOONSHOT_CONFLUENCE_6" in broad.signalsFired)
         assertTrue("TELEGRAM_COMMUNITY_ACCEL_STRONG" in broad.signalsFired)
