@@ -267,6 +267,12 @@ object ManipulatedTraderAI {
         ageMinutes: Double,
         rugcheckScore: Int,
         isPaper: Boolean,
+        lifecyclePhase: String = "",
+        largestBuyerSharePct60s: Double = -1.0,
+        top3BuyerSharePct60s: Double = -1.0,
+        repeatBuyerWallets60s: Int = 0,
+        smartMoneyBuyers60s: Int = 0,
+        devSellTx60s: Int = 0,
     ): ManipSignal {
         fun noEnter(reason: String) = ManipSignal(
             shouldEnter = false, positionSizeSol = 0.0, manipScore = 0, reason = reason
@@ -295,9 +301,21 @@ object ManipulatedTraderAI {
         // V5.0.7425: risky is NOT the same as manipulated. Source+young-age alone
         // can score 20 points and used to admit ordinary fresh tokens into the
         // danger lane without any actual manipulation evidence.
+        val phase7802 = lifecyclePhase.uppercase()
+        // V5.0.7802 — MANIPULATED trades the engineered expansion phase; it does
+        // not volunteer as exit liquidity after the operator/dev starts distributing.
+        if (devSellTx60s > 0 || phase7802.contains("POST_PUMP_FADE")) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIP_NATIVE_DISTRIBUTION_REJECT_7802") } catch (_: Throwable) {}
+            return noEnter("MANIP_DISTRIBUTION_PHASE_7802 phase=$phase7802 devSell=$devSellTx60s")
+        }
+        val walletCoordination7802 =
+            repeatBuyerWallets60s >= 2 ||
+            largestBuyerSharePct60s in 35.0..80.0 ||
+            top3BuyerSharePct60s in 55.0..88.0
         val knownManipulation7425 =
             bundlePct >= 40.0 ||
-            (buyPressurePct >= 70.0 && momentum >= 10.0)
+            (buyPressurePct >= 70.0 && momentum >= 10.0) ||
+            walletCoordination7802
         if (!knownManipulation7425) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIPULATED_NO_KNOWN_DANGER_PROOF_7425") } catch (_: Throwable) {}
             return noEnter("NO_KNOWN_MANIPULATION_EVIDENCE_7425")
@@ -305,6 +323,32 @@ object ManipulatedTraderAI {
 
         // Calculate manipulation score
         var score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)
+
+        // V5.0.7802 — manipulation-cycle location + wallet geometry.
+        score += when {
+            phase7802.contains("PRE_IGNITION") -> 10
+            phase7802.contains("IGNITION") -> 12
+            phase7802.contains("EXPANDING") -> 5
+            else -> 0
+        }
+        score += when {
+            repeatBuyerWallets60s >= 4 -> 10
+            repeatBuyerWallets60s >= 2 -> 6
+            else -> 0
+        }
+        score += when {
+            largestBuyerSharePct60s in 40.0..65.0 -> 9
+            largestBuyerSharePct60s in 30.0..<40.0 -> 4
+            largestBuyerSharePct60s > 80.0 -> -14
+            else -> 0
+        }
+        score += when {
+            top3BuyerSharePct60s in 55.0..80.0 -> 7
+            top3BuyerSharePct60s > 92.0 -> -16
+            else -> 0
+        }
+        if (smartMoneyBuyers60s >= 2 && largestBuyerSharePct60s <= 65.0) score += 5
+        score = score.coerceIn(0, 100)
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Manipulated lane).
