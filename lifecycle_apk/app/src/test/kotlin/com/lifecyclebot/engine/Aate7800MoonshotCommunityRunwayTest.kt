@@ -47,7 +47,8 @@ class Aate7800MoonshotCommunityRunwayTest {
             mint="mint_b",symbol="RUNNER",mcapUsd=14_000.0,liquidityUsd=5_000.0,
             vol1hUsd=20_000.0,sourceCount=3,buysLastWindow=12,sellsLastWindow=4,
             rugSafetyConfirmed=true,holderCount=150,holderGrowthPct=20.0,topHolderPct=15.0,
-            smartMoneyBuys60s=3,distinctBuyers60s=10,largestBuyerSharePct60s=20.0,
+            smartMoneyBuys60s=3,launchAgeMs=60_000L,createMultiple=1.2,devBuyTx60s=1,
+            distinctBuyers60s=10,largestBuyerSharePct60s=20.0,
             top3BuyerSharePct60s=45.0,momentumScore=75.0,bundleRisk="LOW",
             firstBlockSupplyPct=10.0,devSelling=false,socialVelocityScore=8.0,
             valuationRunwayScore=25.0,attentionVelocityScore=25.0,telegramCommunityScore=20.0,
@@ -58,7 +59,8 @@ class Aate7800MoonshotCommunityRunwayTest {
             mint="mint_c",symbol="HYPE",mcapUsd=14_000.0,liquidityUsd=5_000.0,
             vol1hUsd=20_000.0,sourceCount=1,buysLastWindow=9,sellsLastWindow=1,
             rugSafetyConfirmed=false,holderCount=12,holderGrowthPct=0.0,topHolderPct=60.0,
-            smartMoneyBuys60s=0,distinctBuyers60s=1,largestBuyerSharePct60s=90.0,
+            smartMoneyBuys60s=0,launchAgeMs=60_000L,createMultiple=4.0,devBuyTx60s=3,
+            distinctBuyers60s=1,largestBuyerSharePct60s=90.0,
             top3BuyerSharePct60s=98.0,momentumScore=75.0,bundleRisk="HIGH",
             firstBlockSupplyPct=60.0,devSelling=true,socialVelocityScore=10.0,
             valuationRunwayScore=25.0,attentionVelocityScore=10.0,telegramCommunityScore=20.0,
@@ -67,7 +69,10 @@ class Aate7800MoonshotCommunityRunwayTest {
         )
         assertTrue("MOONSHOT_CONFLUENCE_6" in broad.signalsFired)
         assertTrue("TELEGRAM_COMMUNITY_ACCEL_STRONG" in broad.signalsFired)
+        assertTrue("SMART_MONEY_EARLY" in broad.signalsFired)
+        assertTrue("CREATOR_ALIGNED_EARLY_BUY" in broad.signalsFired)
         assertFalse("MOONSHOT_CONFLUENCE_6" in hype.signalsFired)
+        assertTrue("EARLY_PRICE_ALREADY_EXPANDED" in hype.signalsFired)
         assertTrue(broad.composite > hype.composite + 50.0)
     }
 
