@@ -26,6 +26,22 @@ class Aate7800MoonshotCommunityRunwayTest {
         assertTrue(s.evidenceAheadOfValuation)
     }
 
+    @Test fun valuationCanOutrunEvidence() {
+        MoonshotExpansionIntelligence7799.resetForTest()
+        val t0 = 2_000_000L
+        MoonshotExpansionIntelligence7799.observe(
+            mint="mint_fast",mcapUsd=14_000.0,holderCount=100,boostAmount=0,
+            socialDepth=2,telegramPresent=true,sentimentScore=50.0,telegramCommunityScore=0.0,nowMs=t0
+        )
+        val s = MoonshotExpansionIntelligence7799.observe(
+            mint="mint_fast",mcapUsd=70_000.0,holderCount=101,boostAmount=0,
+            socialDepth=2,telegramPresent=true,sentimentScore=50.0,telegramCommunityScore=0.0,
+            nowMs=t0 + 2L * 60_000L
+        )
+        assertTrue(s.valuationGrowthPctPerMin > 100.0)
+        assertFalse(s.evidenceAheadOfValuation)
+    }
+
     @Test fun broadOrganicConfluenceBeatsPaidConcentratedHype() {
         val broad = EarlyMoonshotHunter6415.scoreCandidate(
             mint="mint_b",symbol="RUNNER",mcapUsd=14_000.0,liquidityUsd=5_000.0,
