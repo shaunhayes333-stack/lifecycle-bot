@@ -251,6 +251,9 @@ object DipHunterAI {
         // V5.0.7389 — the caller's read of the chart: a higher low printed after the
         // dip low, price back above it, buy pressure >= 50 and volume present.
         bounceConfirmed: Boolean = true,
+        holderGrowthRate: Double = 0.0,
+        topHolderPct: Double = -1.0,
+        smartMoneyBuys60s: Int = 0,
     ): DipSignal {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -359,10 +362,18 @@ object DipHunterAI {
             dangerReasons.add("DEV_SELLING")
         }
         
-        // Holder exodus
+        // Holder exodus / shrinking ownership base.
         if (holderChange24h != null && holderChange24h < -10) {
             dangerScore += 20
             dangerReasons.add("HOLDER_EXIT(${holderChange24h})")
+        }
+        if (holderGrowthRate.isFinite() && holderGrowthRate <= -5.0) {
+            dangerScore += 20
+            dangerReasons.add("HOLDER_GROWTH_NEG(${holderGrowthRate.toInt()}%)")
+        }
+        if (topHolderPct >= 45.0) {
+            dangerScore += 20
+            dangerReasons.add("CONCENTRATION(${topHolderPct.toInt()}%)")
         }
         
         // Very low buy pressure during dip
@@ -435,13 +446,32 @@ object DipHunterAI {
             else -> -5
         }
         
-        // Holder stability
+        // Holder stability / recovery. Absolute change and growth rate are
+        // separate evidence; unknown stays neutral.
         qualityScore += when {
-            holderChange24h == null -> 0  // V5.0.7554 — unknown is neutral, not fake stability
-            holderChange24h >= 10 -> 10   // Growing during dip!
+            holderChange24h == null -> 0
+            holderChange24h >= 10 -> 10
             holderChange24h >= 0 -> 5
             holderChange24h >= -5 -> 0
             else -> -10
+        }
+        qualityScore += when {
+            holderGrowthRate >= 10.0 -> 10
+            holderGrowthRate >= 2.0 -> 6
+            holderGrowthRate > -1.0 -> 2
+            holderGrowthRate <= -5.0 -> -10
+            else -> -3
+        }
+        if (topHolderPct in 0.0..20.0) qualityScore += 6
+        else if (topHolderPct >= 40.0) qualityScore -= 8
+
+        // Smart-money returning during/after the dislocation is reclaim evidence,
+        // not a prerequisite. Distinct-wallet counting is owned by SmartMoneyFeed.
+        qualityScore += when {
+            smartMoneyBuys60s >= 3 -> 10
+            smartMoneyBuys60s >= 2 -> 7
+            smartMoneyBuys60s == 1 -> 3
+            else -> 0
         }
         
         // Liquidity ratio bonus
