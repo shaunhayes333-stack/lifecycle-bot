@@ -46,6 +46,7 @@ object MoonshotExpansionIntelligence7799 {
         socialDepth: Int,
         telegramPresent: Boolean,
         sentimentScore: Double,
+        telegramCommunityScore: Double = 0.0,
         nowMs: Long = System.currentTimeMillis(),
     ): Snapshot {
         val prior = last[mint]
@@ -68,12 +69,19 @@ object MoonshotExpansionIntelligence7799 {
         else if (socialDepth == 1) attention += 1.0
         // Telegram is a distinct community coordination surface, not just "one more link".
         if (telegramPresent) attention += 4.0
+        // Public Telegram velocity is much stronger than static link presence,
+        // but remains bounded and cannot by itself prove organic demand.
+        attention += telegramCommunityScore.coerceIn(0.0, 30.0) * 0.45
         if (prior != null && socialDepth > prior.socialDepth) attention += 5.0
         if (sentimentVel >= 5.0) attention += 5.0
         else if (sentimentVel > 0.0) attention += 2.0
 
         val runway = runwayScore(mcapUsd)
-        val ahead = attention >= 8.0 && runway >= 12.0
+        // Paid boosts alone must not manufacture "evidence ahead of valuation".
+        // Require at least one organic acceleration channel in addition to runway.
+        val organicAcceleration =
+            holderVel > 0.0 || telegramCommunityScore >= 5.0 || sentimentVel > 0.0
+        val ahead = attention >= 8.0 && runway >= 12.0 && organicAcceleration
         if (mint.isNotBlank()) {
             last[mint] = Obs(nowMs, holderCount, boostAmount, socialDepth, sentimentScore, mcapUsd)
             if (last.size > 4_000) {
@@ -90,7 +98,8 @@ object MoonshotExpansionIntelligence7799 {
             " holderV=" + String.format("%.2f", holderVel) +
             "/m boostV=" + String.format("%.1f", boostVel) +
             "/m socials=" + socialDepth + " tg=" + telegramPresent +
-            " sentV=" + String.format("%.2f", sentimentVel) + "/m ahead=" + ahead
+            " tgV=" + String.format("%.1f", telegramCommunityScore) +
+            " sentV=" + String.format("%.2f", sentimentVel) + "/m organic=" + organicAcceleration + " ahead=" + ahead
         return Snapshot(
             runwayScore = runway,
             runwayTo1mX = x1,
