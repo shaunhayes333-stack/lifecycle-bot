@@ -270,6 +270,9 @@ object ShitCoinExpress {
         isTrending: Boolean,
         isBoosted: Boolean,
         tokenAgeMinutes: Double,
+        holderGrowthPct: Double = 0.0,
+        distinctBuyers60s: Int = 0,
+        txAccelerationRising: Boolean = false,
     ): ExpressSignal {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -429,6 +432,22 @@ object ShitCoinExpress {
             else -> 3
         }
         expressScore += ageScore
+
+        // V5.0.7802 — Express trades immediate velocity, so use actual
+        // adoption/launch acceleration rather than only price and 1h volume.
+        val nativeFlow7802 = when {
+            txAccelerationRising && distinctBuyers60s >= 5 && holderGrowthPct >= 2.0 -> 14
+            txAccelerationRising && distinctBuyers60s >= 3 -> 9
+            txAccelerationRising -> 5
+            distinctBuyers60s >= 5 -> 4
+            else -> 0
+        } + when {
+            holderGrowthPct >= 10.0 -> 5
+            holderGrowthPct >= 2.0 -> 3
+            holderGrowthPct <= -5.0 -> -7
+            else -> 0
+        }
+        expressScore += nativeFlow7802
         
         // V5.9.236 build-fix: compute metaTrustMult BEFORE using it in confidence
         val metaTrustMult: Double = try {
