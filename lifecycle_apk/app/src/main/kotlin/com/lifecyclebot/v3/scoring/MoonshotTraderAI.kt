@@ -1853,7 +1853,8 @@ object MoonshotTraderAI {
         // V5.0.4129 — Gold-pattern tokens exempt (let proven-winner signatures ride).
         // V5.0.4160 — scratch-trap suppression now lives inside OutcomeGates
         // itself (centralised across all lanes), so per-caller check removed.
-        if (!goldenExitProtected && com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+        if (holdMinutes >= 180L &&
+            !goldenExitProtected && com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
                 layer = "MOONSHOT", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             // V5.0.7695 — a LIVE position that is still fresh (or ever showed
             // upside) is not flat-exited by a learned hold bucket. 5.0.7693:
@@ -1867,7 +1868,7 @@ object MoonshotTraderAI {
         }
         
         // 4. TRAILING STOP - locks in gains while letting it run
-        if (pnlPct > 30.0 && currentPrice <= pos.trailingStop) {
+        if (!runnerGiveBackDeferred7335 && pnlPct > 30.0 && currentPrice <= pos.trailingStop) {
             ErrorLogger.info(TAG, "🎯 TRAIL EXIT: ${pos.symbol} | +${pnlPct.fmt(1)}% | Peak was +${pos.peakPnlPct.toInt()}%")
             return ExitSignal.TRAILING_STOP
         }
@@ -1893,17 +1894,8 @@ object MoonshotTraderAI {
             return ExitSignal.TIMEOUT
         }
         
-        // V5.9.404 — DEAD POSITION FLUSH softened. Was 90min/<10% (V5.9.204).
-        // Build #1941 era let things ride — 500%+ winners often spent 2–3h
-        // flat or slightly underwater before launching. Now we only flush
-        // genuinely dead bags (180min, still under +5%, not deeply red).
-        if (holdMinutes >= timeoutMins && pnlPct < 5.0 && pnlPct > HARD_FLOOR_STOP) {
-            ErrorLogger.warn(TAG, "💀 MOONSHOT_DEAD_FLUSH_7795: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
-            return ExitSignal.FLAT_EXIT
-        }
-
         // V5.9.401 — Sentience hook #2: LLM exit override (cached, fail-open).
-        if (com.lifecyclebot.engine.SentienceHooks.shouldExit(
+        if (holdMinutes >= timeoutMins && com.lifecyclebot.engine.SentienceHooks.shouldExit(
                 symbol = pos.symbol,
                 pnlPct = pnlPct,
                 holdMinutes = holdMinutes,
@@ -1915,7 +1907,7 @@ object MoonshotTraderAI {
 
         // V5.9.402 — Lab Promoted Feed: proven LLM strategies can force-exit memes.
         try {
-            if (com.lifecyclebot.engine.lab.LabPromotedFeed.shouldExitByPromotedRule(
+            if (holdMinutes >= timeoutMins && com.lifecyclebot.engine.lab.LabPromotedFeed.shouldExitByPromotedRule(
                     asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
                     pnlPct = pnlPct,
                     holdMinutes = holdMinutes,
