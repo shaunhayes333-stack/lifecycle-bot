@@ -163,7 +163,22 @@ object SpecialistBrainBridge7542 {
         out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,ts.meta.volScore.toInt().coerceIn(0,100),bp,rug,v3.toDouble(),v3c.toDouble(),launch?.phase?.name?:ts.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
         out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
         out["DIP_HUNTER"]=try{val x=DipHunterAI.evaluate(ts.mint,ts.symbol,price,high,ts.lastMcap,ts.lastLiquidityUsd,bp,volVs,ageMin/60.0,holders,null,devSelling,bounce);op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN"))}catch(t:Throwable){err("DIP_HUNTER",t)}
-        out["MANIPULATED"]=try{val x=ManipulatedTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,mom,bp,bundle,ts.source,ageMin,rug,paper);op("MANIPULATED",x.shouldEnter,x.manipScore,x.manipScore,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","manipulated_native_pump_ride","manipulated_native_fast_exit",0.4,0.6,0.82,setOf("MANIPULATION","BUNDLE","ORDER_FLOW"))}catch(t:Throwable){err("MANIPULATED",t)}
+        out["MANIPULATED"]=try{
+            val x=ManipulatedTraderAI.evaluate(
+                mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,
+                liquidityUsd=ts.lastLiquidityUsd,momentum=mom,buyPressurePct=bp,bundlePct=bundle,
+                source=ts.source,ageMinutes=ageMin,rugcheckScore=rug,isPaper=paper,
+                largestBuyerSharePct60s=launch?.largestBuyerSharePct60s?:-1.0,
+                top3BuyerSharePct60s=launch?.top3BuyerSharePct60s?:-1.0,
+                repeatBuyerWallets60s=launch?.repeatBuyerWallets60s?:0,
+                devBuyTx60s=launch?.devBuyTx60s?:0,devSellTx60s=launch?.devSellTx60s?:0,
+                accelerationRising=launch?.accelerationRising?:false,
+                launchPhase=launch?.phase?.name?:ts.phase,
+            )
+            op("MANIPULATED",x.shouldEnter,x.manipScore,x.manipScore,x.positionSizeSol,x.reason,
+                "MANIPULATION_CYCLE","manipulated_native_phase_ride","manipulated_native_distribution_exit",
+                0.4,0.6,0.82,setOf("MANIPULATION","BUNDLE","ORDER_FLOW","BUYER_CONCENTRATION","DEV_FLOW","LAUNCH_PHASE"))
+        }catch(t:Throwable){err("MANIPULATED",t)}
         out["TREASURY"]=try{val x=TreasuryBrain.evaluate(ts);val ok=x.category!="SKIP"&&x.score>=50.0;op("TREASURY",ok,x.score.toInt(),x.score.toInt(),0.0,x.reasons.joinToString(";").ifBlank{x.category},"CASHFLOW_SCALP","treasury_native_confirmed_scalp","treasury_native_bank",0.75,x.sizeMultiplier.coerceIn(0.3,1.15),0.9,setOf("TREASURY_BRAIN","MOMENTUM_5M_15M","EMA_FAN","DEPTH"))}catch(t:Throwable){err("TREASURY",t)}
         out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin);op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
         out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
