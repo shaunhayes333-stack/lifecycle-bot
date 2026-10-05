@@ -150,4 +150,33 @@ class Aate7809EntryLastMileTest {
         val esa = src("engine/truth/ExecutionSnapshotAuthority6496.kt")
         assertTrue(esa.contains("!newerSizingDecision7809(mint, snap, resolvedOrderSizeSol)"))
     }
+
+    @Test fun executableSizingRequiresRealCausalPredecessors7810() {
+        val funnel = src("engine/truth/MemeExecutionFunnelReceivers6625.kt")
+        assertTrue(funnel.contains("fun executablePredecessorsReady7810"))
+        val sheet = src("engine/ToolkitSignalSheet.kt")
+        assertTrue(sheet.contains("EXECUTABLE_SIZE_WITHHELD_MISSING_PREDECESSOR_7810"))
+        assertTrue(sheet.contains("executablePredecessorsReady7810(key)"))
+    }
+
+    @Test fun moonshotFanoutRemainsBoundedButGetsFastLaunchBudget7810() {
+        val g = src("engine/truth/IntakeFanoutGovernor6835.kt")
+        assertTrue(g.contains("lane7265.substringBefore(':') == \"MOONSHOT\""))
+        assertTrue(g.contains("fdgCap7810"))
+    }
+
+    @Test fun heldMarksAndExitWedgeRecoveryAreBoundedToLiveRiskCadence7810() {
+        val marks = src("engine/truth/HeldHotMarkAuthority7419.kt")
+        assertTrue(marks.contains("BATCH_FANOUT_DEADLINE_MS_7510 = 1_200L"))
+        val exits = src("engine/sell/ExitHotPath7809.kt")
+        assertTrue(exits.contains("UNIT_STUCK_MS_7809 = 8_000L"))
+    }
+
+    @Test fun cryptoFreshHandoffTracksFreshAtBrainCandidate7810() {
+        val d = src("../perps/DynamicAltTokenRegistry.kt")
+        assertTrue(d.contains("freshBrainIdentityAt7810"))
+        assertTrue(d.contains("FRESH_BRAIN_CAUSAL_TTL_MS_7810"))
+        val c = src("../perps/CryptoAltTrader.kt")
+        assertTrue(c.contains("CRYPTO_CANONICAL_PREFDG_HANDOFF_7810"))
+    }
 }

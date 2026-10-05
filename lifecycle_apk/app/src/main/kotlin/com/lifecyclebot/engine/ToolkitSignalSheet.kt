@@ -1339,6 +1339,22 @@ object ToolkitSignalSheet {
                             .ensureAffinityLineage7464(key, causalStage)
                     } catch (_: Throwable) {}
                 }
+                // V5.0.7810 — SIZED_EXECUTABLE is allowed into the causal funnel
+                // only after the exact immutable record has its real predecessors.
+                // The sizing calculation still happened; only false executable
+                // progress is withheld. No predecessor is fabricated here.
+                if (stage == "SIZED_EXECUTABLE" &&
+                    !com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.executablePredecessorsReady7810(key)
+                ) {
+                    try {
+                        PipelineHealthCollector.labelInc("EXECUTABLE_SIZE_WITHHELD_MISSING_PREDECESSOR_7810")
+                        ForensicLogger.lifecycle(
+                            "EXECUTABLE_SIZE_WITHHELD_MISSING_PREDECESSOR_7810",
+                            "mint=${mint.take(10)} lane=$lane mode=$resolvedMode6858 version=$candidateVersion6647 eventId=${eventId.take(80)}",
+                        )
+                    } catch (_: Throwable) {}
+                    return
+                }
                 com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage, stage)
             } else {
                 try { PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647") } catch (_: Throwable) {}

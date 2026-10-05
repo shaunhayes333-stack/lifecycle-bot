@@ -257,6 +257,12 @@ object DynamicAltTokenRegistry {
     private val freshPoolsDiscovered6544 = AtomicLong(0L)
     private val freshReachedBrain6544 = AtomicLong(0L)
     private val freshReachedFdg6544 = AtomicLong(0L)
+    // V5.0.7810 — "fresh reaching V3/FDG" follows the same candidate that was
+    // fresh when CryptoBrain first saw it. Four-sample warmup can legitimately
+    // age beyond the 15s fresh window before canonical handoff; re-testing
+    // tok.isFresh at FDG made real continuity print as zero.
+    private val freshBrainIdentityAt7810 = ConcurrentHashMap<String, Long>()
+    private const val FRESH_BRAIN_CAUSAL_TTL_MS_7810 = 2L * 60_000L
     private val evaluationStarted6567 = AtomicLong(0L)
     private val evaluationDisposition6567 = ConcurrentHashMap<String, AtomicLong>()
     private val evaluationProgress6570 = ConcurrentHashMap<String, AtomicLong>()
@@ -902,6 +908,7 @@ object DynamicAltTokenRegistry {
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_BRAIN_EVAL_7244") } catch (_: Throwable) {}
         if (tok.isFresh6544) {
             freshReachedBrain6544.incrementAndGet()
+            freshBrainIdentityAt7810[tok.canonicalIdentity6544] = System.currentTimeMillis()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_BRAIN_6547") } catch (_: Throwable) {}
         }
     }
@@ -1148,9 +1155,18 @@ object DynamicAltTokenRegistry {
     }
 
     fun markFdgReach6544(tok: DynToken?, liveRoutable: Boolean, paperOnlyNoRoute: Boolean) {
-        if (tok?.isFresh6544 == true) {
+        val now7810 = System.currentTimeMillis()
+        val freshAtBrain7810 = tok?.canonicalIdentity6544?.let { id ->
+            val at = freshBrainIdentityAt7810[id]
+            if (at != null && now7810 - at in 0L..FRESH_BRAIN_CAUSAL_TTL_MS_7810) true
+            else {
+                if (at != null) freshBrainIdentityAt7810.remove(id, at)
+                false
+            }
+        } == true
+        if (freshAtBrain7810 || tok?.isFresh6544 == true) {
             freshReachedFdg6544.incrementAndGet()
-            // V5.0.6547 §P1-3 — same-tier counter for FDG stage.
+            // V5.0.7810 — causal fresh-at-brain continuity, not a second age test.
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_FDG_6547") } catch (_: Throwable) {}
         }
         if (liveRoutable) liveRoutable6544.incrementAndGet()

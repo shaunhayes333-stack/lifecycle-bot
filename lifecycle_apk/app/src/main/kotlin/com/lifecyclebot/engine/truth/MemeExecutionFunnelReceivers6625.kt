@@ -712,6 +712,22 @@ object SpecialistCausalFunnel6625 {
      * [fromInclusiveMs, toInclusiveMs] and that still lack DISCOVER, INTENT or
      * MARK_READY when read. The predicate is identical to laneSnapshot6647's.
      */
+    /**
+     * V5.0.7810 — executable sizing is a downstream fact, not an advisory
+     * calculator output. A SIZED_EXECUTABLE producer may stamp only when this
+     * exact immutable causal record already owns DISCOVER + INTENT + MARK_READY.
+     * This prevents advisory/resolver sizing from manufacturing executable
+     * progress and removes J_PHANTOM_SIZED_ONLY at its producer boundary.
+     */
+    fun executablePredecessorsReady7810(key: CausalKey): Boolean {
+        val rec = records[keyString(key)] ?: return false
+        return synchronized(rec) {
+            Stage.DISCOVER in rec.stages &&
+                Stage.INTENT in rec.stages &&
+                ("MARK_READY" in rec.outcomes || "MARK" in rec.outcomes)
+        }
+    }
+
     fun phantomSizedInWindow7809(lane: String, fromInclusiveMs: Long, toInclusiveMs: Long): Int {
         var n = 0
         for (r in laneRecords7480(lane)) {

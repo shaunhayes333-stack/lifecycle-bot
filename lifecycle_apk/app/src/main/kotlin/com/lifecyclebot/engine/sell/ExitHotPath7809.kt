@@ -35,7 +35,10 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ExitHotPath7809 {
 
-    const val UNIT_STUCK_MS_7809 = 30_000L
+    // V5.0.7810 — 30s exceeded the protective trigger->broadcast SLA before
+    // a wedged network unit could be replaced. Sell locks remain the economic
+    // single-flight authority, so a replacement cannot double-sell.
+    const val UNIT_STUCK_MS_7809 = 8_000L
 
     private val inFlight7809 = ConcurrentHashMap<String, Long>()
     private val dispatched7809 = AtomicLong(0L)

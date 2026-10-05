@@ -18,7 +18,10 @@ object HeldHotMarkAuthority7419 {
     private const val LOOP_MS = 750L
     private const val HOT_FRESH_MS = 3_000L
     private const val REQUEST_DEADLINE_MS = 450L
-    private const val BATCH_FANOUT_DEADLINE_MS_7510 = 2_500L
+    // V5.0.7810 — the worker runs every 750ms. A 2.5s whole-book wait let
+    // stale provider calls occupy all workers across several passes; fail fast
+    // and retry from the healthy locked-venue/fanout ladder next pass.
+    private const val BATCH_FANOUT_DEADLINE_MS_7510 = 1_200L
     private val running = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null

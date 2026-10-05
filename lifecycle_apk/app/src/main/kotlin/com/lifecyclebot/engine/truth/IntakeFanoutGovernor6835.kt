@@ -205,8 +205,14 @@ object IntakeFanoutGovernor6835 {
             c.fdgSeen.set(0L)
             try { PipelineHealthCollector.labelInc("FDG_FANOUT_BUDGET_REFILLED_7304") } catch (_: Throwable) {}
         }
+        // V5.0.7810 — MOONSHOT launch state can materially change between
+        // consecutive sub-minute observations. Give that lane four bounded
+        // evaluations per causal burst; every other lane remains at two.
+        // This changes compute opportunity only — canonical execution/finality
+        // cardinality remains unchanged.
+        val fdgCap7810 = if (lane7265.substringBefore(':') == "MOONSHOT") 4 else FDG_EVAL_CAP
         val current = c.fdgSeen.get()
-        if (current >= FDG_EVAL_CAP) {
+        if (current >= fdgCap7810) {
             c.fdgCapped.incrementAndGet()
             fdgCappedTotal.incrementAndGet()
             try {
@@ -214,7 +220,7 @@ object IntakeFanoutGovernor6835 {
                 ForensicLogger.lifecycle(
                     "FANOUT_FDG_EVAL_CAPPED_6835",
                     "mint=${mint.take(10)} causalRoot=${causalRoot.take(10)} " +
-                        "current=$current cap=$FDG_EVAL_CAP",
+                        "current=$current cap=$fdgCap7810",
                 )
             } catch (_: Throwable) {}
             return false

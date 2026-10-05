@@ -3519,6 +3519,12 @@ object CryptoAltTrader {
         }
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
+        try {
+            PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_PREFDG_HANDOFF_7810")
+            if (candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY) {
+                PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_PREFDG_BUY_7810")
+            }
+        } catch (_: Throwable) {}
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
         val disciplinePassed6647 = passesCryptoDiscipline6647(candidate)
         if (!disciplinePassed6647) {
