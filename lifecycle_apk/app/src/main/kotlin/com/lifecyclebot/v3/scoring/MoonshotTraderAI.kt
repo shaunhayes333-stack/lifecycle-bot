@@ -785,12 +785,18 @@ object MoonshotTraderAI {
                     meta7799?.telegram.orEmpty(),meta7799?.discord.orEmpty()
                 ).count{it.isNotBlank()}
                 val social7798=(socialDepth7799*2.0 + when{boost7799>=1000->6.0;boost7799>=500->4.0;boost7799>=100->2.0;else->0.0}).coerceIn(0.0,12.0)
+                val telegramCommunity7800=try{
+                    com.lifecyclebot.engine.truth.TelegramCommunityVelocity7800.peekAndRefresh(
+                        mint, meta7799?.telegram
+                    )
+                }catch(_:Throwable){null}
                 val expansion7799=try{
                     com.lifecyclebot.engine.truth.MoonshotExpansionIntelligence7799.observe(
                         mint=mint,mcapUsd=marketCapUsd,holderCount=holders7798,
                         boostAmount=boost7799,socialDepth=socialDepth7799,
                         telegramPresent=meta7799?.telegram?.isNotBlank()==true,
-                        sentimentScore=ts.sentiment.score
+                        sentimentScore=ts.sentiment.score,
+                        telegramCommunityScore=telegramCommunity7800?.communityScore?:0.0
                     )
                 }catch(_:Throwable){null}
                 val creator7799=try{com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint)}catch(_:Throwable){null}
