@@ -5,6 +5,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 
 /**
  * Helius WebSocket client — real-time Solana transaction stream.
@@ -56,10 +59,19 @@ class HeliusWebSocket(
     private companion object {
         const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 192
         const val MAX_WALLET_SUBSCRIPTIONS_7794 = 64
+        val reconnectScheduler7803: ScheduledExecutorService =
+            Executors.newSingleThreadScheduledExecutor { task ->
+                Thread(task, "AATE-HeliusWS-Reconnect").apply { isDaemon = true }
+            }
     }
-    private val subscriptions = java.util.LinkedHashMap<String, Int>(256, 0.75f, true)  // mint → sub id, access-order
-    // Wallet addresses we're tracking (dev wallets, large holders)
+    // Desired membership and server subscription identity are distinct.
+    // null means the mint is desired but the current socket has not ACKed it yet.
+    private val subscriptions = java.util.LinkedHashMap<String, Int?>(256, 0.75f, true)
     private val watchedWallets = java.util.LinkedHashSet<String>()
+    private val requestToWallet7803 = java.util.concurrent.ConcurrentHashMap<Int, String>()
+    private val subscriptionToWallet7803 = java.util.concurrent.ConcurrentHashMap<Int, String>()
+    private val walletServerSubscription7803 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val reconnectScheduled7803 = AtomicBoolean(false)
     private var reconnectDelay = 2_000L
     private val networkRetry = NetworkRetry("HeliusWS", maxRetries = 5, baseDelayMs = 2_000L, maxDelayMs = 30_000L, failureThreshold = 3, openDurationMs = 120_000L)
 
@@ -81,79 +93,90 @@ class HeliusWebSocket(
 
     fun disconnect() {
         running = false
+        reconnectScheduled7803.set(false)
         ws?.close(1000, "Bot stopped")
         ws = null
+        requestToMint7765.clear()
+        subscriptionToMint7765.clear()
+        requestToWallet7803.clear()
+        subscriptionToWallet7803.clear()
+        walletServerSubscription7803.clear()
+        synchronized(subscriptions) {
+            subscriptions.keys.toList().forEach { subscriptions[it] = null }
+        }
     }
 
     /** Subscribe to all swaps for a specific token mint. */
     fun subscribeToken(mint: String) {
         if (mint.isBlank()) return
-        var evictedId: Int? = null
         var evictedMint: String? = null
-        val id: Int
+        var evictedServerId: Int? = null
+        val requestId: Int
         synchronized(subscriptions) {
-            subscriptions[mint]?.let { return }
+            if (subscriptions.containsKey(mint)) return
             if (subscriptions.size >= MAX_TOKEN_SUBSCRIPTIONS_7794) {
-                val eldest = subscriptions.entries.iterator().let { it.takeIf { i -> i.hasNext() }?.next() }
-                if (eldest != null) {
+                val it = subscriptions.entries.iterator()
+                if (it.hasNext()) {
+                    val eldest = it.next()
                     evictedMint = eldest.key
-                    evictedId = eldest.value
-                    subscriptions.remove(eldest.key)
+                    evictedServerId = eldest.value
+                    it.remove()
                 }
             }
-            id = idCounter.getAndIncrement()
-            subscriptions[mint] = id
+            requestId = idCounter.getAndIncrement()
+            subscriptions[mint] = null
         }
-        if (evictedId != null) {
-            val oldMint = evictedMint.orEmpty()
-            requestToMint7765.entries.removeIf { it.value == oldMint }
-            subscriptionToMint7765.entries.removeIf { it.value == oldMint }
-            ws?.send(JSONObject().apply {
-                put("jsonrpc", "2.0")
-                put("id", idCounter.getAndIncrement())
-                put("method", "logsUnsubscribe")
-                put("params", JSONArray().put(evictedId))
-            }.toString())
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_TOKEN_SUB_EVICTED_7794")
-            } catch (_: Throwable) {}
+        evictedMint?.let { old ->
+            requestToMint7765.entries.removeIf { it.value == old }
+            subscriptionToMint7765.entries.removeIf { it.value == old }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_TOKEN_SUB_EVICTED_7794") } catch (_: Throwable) {}
         }
-        sendSubscribe(id, listOf(mint))
+        evictedServerId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
+        sendSubscribe(requestId, listOf(mint))
     }
 
     fun unsubscribeToken(mint: String) {
-        val id = synchronized(subscriptions) { subscriptions.remove(mint) } ?: return
+        val serverId = synchronized(subscriptions) {
+            if (!subscriptions.containsKey(mint)) return
+            subscriptions.remove(mint)
+        }
         requestToMint7765.entries.removeIf { it.value == mint }
         subscriptionToMint7765.entries.removeIf { it.value == mint }
-        ws?.send(JSONObject().apply {
-            put("jsonrpc", "2.0")
-            put("id", idCounter.getAndIncrement())
-            put("method", "logsUnsubscribe")
-            put("params", JSONArray().put(id))
-        }.toString())
+        serverId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
     }
 
     /** Track a wallet address for large moves (dev wallet, top holders). */
     fun watchWallet(address: String) {
         if (address.isBlank()) return
+        var evicted: String? = null
         val shouldSubscribe = synchronized(watchedWallets) {
             if (address in watchedWallets) false
             else {
                 if (watchedWallets.size >= MAX_WALLET_SUBSCRIPTIONS_7794) {
-                    watchedWallets.iterator().let { if (it.hasNext()) { it.next(); it.remove() } }
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_WALLET_SUB_EVICTED_7794") } catch (_: Throwable) {}
+                    val it = watchedWallets.iterator()
+                    if (it.hasNext()) {
+                        evicted = it.next()
+                        it.remove()
+                    }
                 }
                 watchedWallets.add(address)
                 true
             }
         }
-        if (!shouldSubscribe) return
-        val id = idCounter.getAndIncrement()
-        sendAccountSubscribe(id, address)
+        evicted?.let { old ->
+            requestToWallet7803.entries.removeIf { it.value == old }
+            subscriptionToWallet7803.entries.removeIf { it.value == old }
+            walletServerSubscription7803.remove(old)?.let { sendUnsubscribe7803("accountUnsubscribe", it) }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_WALLET_SUB_EVICTED_7794") } catch (_: Throwable) {}
+        }
+        if (shouldSubscribe) sendAccountSubscribe(idCounter.getAndIncrement(), address)
     }
 
     fun unwatchWallet(address: String) {
         synchronized(watchedWallets) { watchedWallets.remove(address) }
+        requestToWallet7803.entries.removeIf { it.value == address }
+        subscriptionToWallet7803.entries.removeIf { it.value == address }
+        walletServerSubscription7803.remove(address)?.let { sendUnsubscribe7803("accountUnsubscribe", it) }
     }
 
     private fun doConnect() {
@@ -163,25 +186,27 @@ class HeliusWebSocket(
         ws = client.newWebSocket(req, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                ws = webSocket
                 onLog("Helius WebSocket connected")
-            networkRetry.recordSuccess()
-            reconnectDelay = 2_000L
+                networkRetry.recordSuccess()
                 reconnectDelay = 2_000L
+                reconnectScheduled7803.set(false)
 
-                // Re-subscribe to bounded snapshots only. Never mutate a map while
-                // iterating it from an OkHttp callback thread.
-                val tokenSnapshot = synchronized(subscriptions) { subscriptions.keys.toList() }
-                tokenSnapshot.forEach { mint ->
-                    val id = idCounter.getAndIncrement()
-                    synchronized(subscriptions) { subscriptions[mint] = id }
-                    sendSubscribe(id, listOf(mint))
+                requestToMint7765.clear()
+                subscriptionToMint7765.clear()
+                requestToWallet7803.clear()
+                subscriptionToWallet7803.clear()
+                walletServerSubscription7803.clear()
+
+                val tokenSnapshot = synchronized(subscriptions) {
+                    val keys = subscriptions.keys.toList()
+                    keys.forEach { subscriptions[it] = null }
+                    keys
                 }
+                tokenSnapshot.forEach { mint -> sendSubscribe(idCounter.getAndIncrement(), listOf(mint)) }
 
-                // Re-watch wallets from a stable snapshot.
                 val walletSnapshot = synchronized(watchedWallets) { watchedWallets.toList() }
-                walletSnapshot.forEach { addr ->
-                    sendAccountSubscribe(idCounter.getAndIncrement(), addr)
-                }
+                walletSnapshot.forEach { addr -> sendAccountSubscribe(idCounter.getAndIncrement(), addr) }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -189,12 +214,14 @@ class HeliusWebSocket(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (ws === webSocket) ws = null
                 onLog("Helius WS error: ${t.message?.take(60)} — reconnecting in ${reconnectDelay/1000}s")
                 networkRetry.recordFailure()
                 scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (ws === webSocket) ws = null
                 if (running) scheduleReconnect()
             }
         })
@@ -228,6 +255,7 @@ class HeliusWebSocket(
     }
 
     private fun sendAccountSubscribe(id: Int, address: String) {
+        requestToWallet7803[id] = address
         ws?.send(JSONObject().apply {
             put("jsonrpc", "2.0")
             put("id", id)
@@ -246,11 +274,27 @@ class HeliusWebSocket(
         try {
             val msg    = JSONObject(text)
             val method = msg.optString("method", "")
-            // V5.0.7765 — a subscribe reply: request id -> server subscription id.
+            // V5.0.7803 — request id -> server subscription id. Late ACKs for
+            // evicted members are immediately unsubscribed instead of resurrected.
             if (method.isBlank() && msg.has("id") && msg.opt("result") is Number) {
-                val mint = requestToMint7765.remove(msg.optInt("id", -1)) ?: return
+                val requestId = msg.optInt("id", -1)
                 val sub = msg.optInt("result", -1)
-                if (sub >= 0) { subscriptionToMint7765[sub] = mint; subscriptions[mint] = sub }
+                requestToMint7765.remove(requestId)?.let { mint ->
+                    val wanted = synchronized(subscriptions) { subscriptions.containsKey(mint) }
+                    if (sub >= 0 && wanted) {
+                        subscriptionToMint7765[sub] = mint
+                        synchronized(subscriptions) { if (subscriptions.containsKey(mint)) subscriptions[mint] = sub }
+                    } else if (sub >= 0) sendUnsubscribe7803("logsUnsubscribe", sub)
+                    return
+                }
+                requestToWallet7803.remove(requestId)?.let { wallet ->
+                    val wanted = synchronized(watchedWallets) { wallet in watchedWallets }
+                    if (sub >= 0 && wanted) {
+                        subscriptionToWallet7803[sub] = wallet
+                        walletServerSubscription7803[wallet] = sub
+                    } else if (sub >= 0) sendUnsubscribe7803("accountUnsubscribe", sub)
+                    return
+                }
                 return
             }
             val params = msg.optJSONObject("params") ?: return
@@ -259,7 +303,10 @@ class HeliusWebSocket(
 
             when (method) {
                 "logsNotification" -> parseLogsNotification(value, subscriptionToMint7765[params.optInt("subscription", -1)].orEmpty())
-                "accountNotification" -> parseAccountNotification(value, params)
+                "accountNotification" -> parseAccountNotification(
+                    value,
+                    subscriptionToWallet7803[params.optInt("subscription", -1)].orEmpty(),
+                )
             }
         } catch (_: Exception) {}
     }
@@ -332,25 +379,31 @@ class HeliusWebSocket(
      * Parse account change notifications — detect large wallet moves.
      * We track dev wallets and large holders for early warning.
      */
-    private fun parseAccountNotification(value: JSONObject, params: JSONObject) {
-        val lamports    = value.optLong("lamports", 0L)
-        val solBalance  = lamports / 1_000_000_000.0
-        val subscription = params.optInt("subscription", -1)
+    private fun parseAccountNotification(value: JSONObject, wallet: String) {
+        if (wallet.isBlank()) return
+        val lamports = value.optLong("lamports", 0L)
+        val solBalance = lamports / 1_000_000_000.0
+        if (solBalance > 0) onLargeWalletMove(wallet, "", solBalance, false)
+    }
 
-        // Find which wallet this is for
-        val wallet = watchedWallets.firstOrNull() ?: return
-
-        // Large move = balance changed by > 0.5 SOL
-        // (we'd need to track previous balance for a proper diff — simplified here)
-        if (solBalance > 0) {
-            onLargeWalletMove(wallet, "", solBalance, false)
-        }
+    private fun sendUnsubscribe7803(method: String, serverSubscriptionId: Int) {
+        if (serverSubscriptionId < 0) return
+        ws?.send(JSONObject().apply {
+            put("jsonrpc", "2.0")
+            put("id", idCounter.getAndIncrement())
+            put("method", method)
+            put("params", JSONArray().put(serverSubscriptionId))
+        }.toString())
     }
 
     private fun scheduleReconnect() {
         if (!running) return
-        Thread.sleep(reconnectDelay)
+        if (!reconnectScheduled7803.compareAndSet(false, true)) return
+        val delay = reconnectDelay
         reconnectDelay = (reconnectDelay * 2).coerceAtMost(30_000L)
-        if (running) doConnect()
+        reconnectScheduler7803.schedule({
+            reconnectScheduled7803.set(false)
+            if (running && ws == null) doConnect()
+        }, delay, TimeUnit.MILLISECONDS)
     }
 }

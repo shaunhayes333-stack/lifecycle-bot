@@ -107,7 +107,7 @@ object SpecialistBrainBridge7542 {
     ).hashCode()
 
     fun evaluate(ts:TokenState):Snapshot{
-        val paper=try{BotRuntimeController.snapshot().paperMode}catch(_:Throwable){true};ensureInitialized(paper)
+        val paper=try{RuntimeModeAuthority.isPaper()}catch(_:Throwable){try{BotRuntimeController.snapshot().paperMode}catch(_:Throwable){true}};ensureInitialized(paper)
         val f=fp(ts,paper);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
         val hist=try{ts.history.toList().filter{it.priceUsd.isFinite()&&it.priceUsd>0}}catch(_:Throwable){emptyList()}
         val prices=hist.map{it.priceUsd};val price=ts.lastPrice.takeIf{it.isFinite()&&it>0}?:prices.lastOrNull()?:0.0

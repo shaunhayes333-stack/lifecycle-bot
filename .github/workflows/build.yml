@@ -207,18 +207,6 @@ jobs:
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AATE_v${{ steps.aate_build.outputs.version_name }}
-          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
-          # V5.0.6981 — STORE, do not deflate. GitHub wraps every artifact in a
-          # zip, and an APK is already a compressed zip, so re-deflating it at
-          # the default level 6 buys ~nothing in size while producing a slower,
-          # heavier archive for a phone to unpack. The operator hit "6976
-          # archive is corrupt" unpacking a 116 MB download on-device; a
-          # stored entry is the most robust thing a mobile unzip can be handed.
-          compression-level: 0
-
       # Legacy source-layout regression tests currently assert pre-refactor file
       # placement (for example learned exit authority in Executor.kt even though
       # it now lives in WrRecoveryPartial.kt / ExecutorPaperUtils.kt). Keep the
@@ -234,8 +222,18 @@ jobs:
             --tests '*Aate7724MissingPolicyEvidenceTest*' \
             --tests '*Aate7725AutonomousModeIsolationTest*' \
             --tests '*Aate7725PredictiveSourceEvidenceTest*' \
+            --tests '*Aate7803*' \
             --tests '*GoldenTapeRegressionTest.V5_0_7723_the_autonomous_stack_closes_its_loops_and_paper_proof_does_not_sell_live' \
             --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+
+      # V5.0.7803 — a release APK is an acceptance artifact, not merely
+      # compiler output. Publish it only after the required pipeline regressions
+      # (including resident meme + Crypto architecture) are green.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AATE_v${{ steps.aate_build.outputs.version_name }}
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
+          compression-level: 0
 
       - name: Unit regression suite (diagnostic)
         continue-on-error: true

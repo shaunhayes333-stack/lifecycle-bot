@@ -453,6 +453,24 @@ object ExecutableOpenGate {
                     "FDG_ALLOW",
                     authoritative.attemptId,
                 )
+                // V5.0.7803 — immutable mark provenance is already sealed on
+                // ExecutionIntent here. Stamp MARK on the SAME attempt before
+                // any downstream executable-size/ticket stage. This closes the
+                // measured FDG→MARK hole without fabricating a mark in telemetry.
+                val markReady7803 =
+                    authoritative.executableMarkTimestampMs6613 > 0L &&
+                    authoritative.executableMarkPriceUsd6613.isFinite() &&
+                    authoritative.executableMarkPriceUsd6613 > 0.0 &&
+                    authoritative.executableMarkSource6613.isNotBlank()
+                ToolkitSignalSheet.recordDeskStage(
+                    authoritative.canonicalLane,
+                    if (markReady7803) "MARK_READY" else "MARK_REJECT",
+                    authoritative.attemptId,
+                )
+                PipelineHealthCollector.labelInc(
+                    if (markReady7803) "SPECIALIST_CANONICAL_MARK_READY_7803"
+                    else "SPECIALIST_CANONICAL_MARK_REJECT_7803"
+                )
                 PipelineHealthCollector.labelInc("SPECIALIST_SEALED_FDG_MIRRORED_7687")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_OWNER_MIRRORED_7612")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_INTENT_MIRRORED_7607")

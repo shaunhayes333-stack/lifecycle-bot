@@ -284,7 +284,11 @@ object LaneHunter7297 {
     private class Stat { var n = 0; var sumRet = 0.0; fun mean() = if (n > 0) sumRet / n else 0.0 }
 
     private val stats = ConcurrentHashMap<String, ConcurrentHashMap<Int, Stat>>()
+    // V5.0.7803 — claims are lane+mint scoped. A mint may live on several
+    // specialist desks simultaneously; discovery no longer forces one hunter
+    // winner before any strategy has actually become executable.
     private val claims = ConcurrentHashMap<String, Claim>()
+    private fun claimKey7803(lane: String, mint: String) = "${lane.uppercase()}|$mint"
     private val hunted = ConcurrentHashMap<String, Long>()
     private val subscribed = AtomicBoolean(false)
     @Volatile private var prefs: SharedPreferences? = null
@@ -380,10 +384,12 @@ object LaneHunter7297 {
         val now = System.currentTimeMillis()
         var n = 0
         for (m in strong.take(20)) {
-            val existing = claims[m.mint]
+            val k7803 = claimKey7803("MOONSHOT", m.mint)
+            val existing = claims[k7803]
             if (existing != null && now - existing.atMs <= CLAIM_TTL_MS) continue
             val mcap = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(m.mint)?.initialMcap ?: 0.0 } catch (_: Throwable) { 0.0 }
-            claims[m.mint] = Claim("MOONSHOT", mcap, now)
+            claims[k7803] = Claim("MOONSHOT", mcap, now)
+            try { SpecialistCandidateBooks7803.publishHunt("MOONSHOT", m.mint, m.symbol, "MOMENTUM_7298") } catch (_: Throwable) {}
             n++
         }
         if (n > 0) try { PipelineHealthCollector.labelInc("LANE_HUNT_7298_MOMENTUM_CLAIMED") } catch (_: Throwable) {}
@@ -436,13 +442,18 @@ object LaneHunter7297 {
                 }
                 .map { it.mint }
         }
-        val dealt = dealRoundRobin(ranked, PICKS_PER_LANE)
+        // V5.0.7803 — DO NOT deal the market into mutually-exclusive hunter
+        // buckets. Each specialist owns a resident candidate book and may watch
+        // the same mint independently. Arbitration belongs at READY execution,
+        // not at discovery.
+        val residentPicks7803 = ranked.mapValues { (_, mints) -> mints.take(PICKS_PER_LANE) }
         val now = System.currentTimeMillis()
         claims.entries.removeIf { now - it.value.atMs > CLAIM_TTL_MS }
-        val out = dealt.mapValues { (lane, mints) ->
+        val out = residentPicks7803.mapValues { (lane, mints) ->
             mints.mapNotNull { byMint[it] }.also { rows ->
                 rows.forEach { r ->
-                    claims[r.mint] = Claim(lane, r.mcapUsd, now)
+                    claims[claimKey7803(lane, r.mint)] = Claim(lane, r.mcapUsd, now)
+                    try { SpecialistCandidateBooks7803.publishHunt(lane, r.mint, r.symbol, SOURCE_PREFIX + lane) } catch (_: Throwable) {}
                     hunted.merge(lane, 1L, Long::plus)
                     try {
                         val cs = commonSenseMult7797(lane, r)
@@ -468,16 +479,30 @@ object LaneHunter7297 {
         return out
     }
 
-    /** The lane that hunted [mint], while [currentMcap] is still inside that lane's band. */
-    fun claimFor(mint: String, currentMcap: Double): String? {
-        val c = claims[mint] ?: return null
-        if (System.currentTimeMillis() - c.atMs > CLAIM_TTL_MS) { claims.remove(mint, c); return null }
-        if (currentMcap > 0.0 && currentMcap.isFinite()) {
-            val (lo, hi) = fluidBandFor(c.lane) ?: return null
-            if (currentMcap < lo || currentMcap > hi) return null
+    /** All resident hunter lanes for [mint] that still fit their own fluid band. */
+    internal fun claimsFor7803(mint: String, currentMcap: Double): Set<String> {
+        val now = System.currentTimeMillis()
+        val out = linkedSetOf<String>()
+        claims.entries.removeIf { now - it.value.atMs > CLAIM_TTL_MS }
+        claims.values.asSequence().filter { c ->
+            val key = claimKey7803(c.lane, mint)
+            claims[key] === c
+        }.forEach { c ->
+            val inBand = if (currentMcap > 0.0 && currentMcap.isFinite()) {
+                val band = fluidBandFor(c.lane)
+                band != null && currentMcap >= band.first && currentMcap <= band.second
+            } else true
+            if (inBand) out += c.lane
         }
-        return c.lane
+        return out
     }
+
+    /**
+     * Legacy single-claim compatibility. No execution authority should depend
+     * on this after 7803; callers needing discovery ownership use claimsFor7803.
+     */
+    internal fun claimFor(mint: String, currentMcap: Double): String? =
+        claimsFor7803(mint, currentMcap).firstOrNull()
 
     fun laneFromSource(source: String?): String? {
         val s = source?.uppercase() ?: return null
@@ -514,11 +539,13 @@ object LaneHunter7297 {
     }
 
     private fun onSettled(e: CanonicalTradeFinalizedBus6450.Event) {
-        val c = claims[e.mint] ?: return
-        // V5.0.7301 — a CASHGEN hunt executes through the TREASURY book.
-        val laneMatches = e.entryLane.equals(c.lane, ignoreCase = true) ||
-            (c.lane == "CASHGEN" && e.entryLane.equals("TREASURY", ignoreCase = true))
-        if (!laneMatches) return
+        // V5.0.7803 — grade the exact resident desk+mint that produced the
+        // executed lane. Never select another mint merely because its lane matches.
+        val directLane7803 = e.entryLane.uppercase()
+        val direct7803 = claims[claimKey7803(directLane7803, e.mint)]
+        val cashgen7803 = if (directLane7803 == "TREASURY")
+            claims[claimKey7803("CASHGEN", e.mint)] else null
+        val c = listOfNotNull(direct7803, cashgen7803).maxByOrNull { it.atMs } ?: return
         if (e.settledAtMs < c.atMs) return
         val ret = e.returnFraction
         if (!ret.isFinite()) return

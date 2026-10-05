@@ -817,61 +817,112 @@ object ToolkitSignalSheet {
             )
         }
 
-        // V5.0.7448 — LaneHunter claims finally affect ownership.
-        // A claim is NOT qualification: it can only promote an already-built
-        // hypothesis for the claimed specialist, after that specialist's own
-        // setup logic produced a >=25 causal score. FDG/safety/sizing remain
-        // downstream authorities. This repairs the 7438 contradiction where
-        // DIP_HUNTER/CASHGEN hunted and claimed rows but had zero ownership.
-        val huntClaim7448 = try {
-            com.lifecyclebot.engine.market.LaneHunter7297.claimFor(
+        // V5.0.7803 — specialist hunters own RESIDENT candidate books.
+        // A mint may be watched by several lanes at once. Discovery does not elect
+        // an owner. Each resident hunter can only nudge its OWN already-qualified
+        // hypothesis; no hunter can evict another lane's candidate.
+        val candidateVersion7622 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        val residentHunterLanes7803 = try {
+            com.lifecyclebot.engine.market.LaneHunter7297.claimsFor7803(
                 ts.mint,
                 maxOf(ts.lastMcap, ts.lastFdv).takeIf { it.isFinite() } ?: 0.0,
             )
-        } catch (_: Throwable) { null }
-        if (!huntClaim7448.isNullOrBlank()) {
-            val claimLane7448 = huntClaim7448.uppercase()
+        } catch (_: Throwable) { emptySet() }
+
+        residentHunterLanes7803.forEach { claimLaneRaw ->
+            val claimLane = claimLaneRaw.uppercase()
                 .replace("BLUE_CHIP", "BLUECHIP")
                 .replace("SHITCOIN_EXPRESS", "EXPRESS")
-            val claimed7448 = deskHypotheses[claimLane7448]
-            val eligible7448 = try {
-                LaneEntryContract6342.isLaneIdentityEligible7252(ts, claimLane7448)
+            val existing = deskHypotheses[claimLane] ?: return@forEach
+            val identityEligible = try {
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, claimLane)
             } catch (_: Throwable) { false }
-            if (claimed7448 != null && eligible7448) {
-                val claimedNative7791=nativeBrains7542.opinions[claimLane7448]
-                val strongestOtherNative7791=nativeBrains7542.opinions.values.filter{it.authoritative&&it.eligible&&!it.lane.equals("CORE",true)&&!it.lane.equals(claimLane7448,true)}.maxByOrNull{maxOf(it.score,it.confidence)}
-                val claimScore7791=claimedNative7791?.let{maxOf(it.score,it.confidence)}?:claimed7448.conviction.toInt()
-                val otherScore7791=strongestOtherNative7791?.let{maxOf(it.score,it.confidence)}?:0
-                if(otherScore7791>=75||otherScore7791>=claimScore7791+8){
-                    try{PipelineHealthCollector.labelInc("LANE_HUNT_CLAIM_YIELDED_TO_STRONGER_NATIVE_7791_"+claimLane7448)}catch(_:Throwable){}
-                }else{
-                    deskHypotheses[claimLane7448]=claimed7448.copy(conviction=(claimed7448.conviction+4.0).coerceAtMost(100.0),reason=claimed7448.reason+";huntTieBreak7791="+claimLane7448)
-                    try{PipelineHealthCollector.labelInc("LANE_HUNT_CLAIM_TIEBREAK_7791_"+claimLane7448)}catch(_:Throwable){}
-                }            } else {
-                try {
-                    PipelineHealthCollector.labelInc(
-                        if (claimed7448 == null)
-                            "LANE_HUNT_CLAIM_NO_HYPOTHESIS_7448_$claimLane7448"
-                        else
-                            "LANE_HUNT_CLAIM_INELIGIBLE_7448_$claimLane7448"
-                    )
-                } catch (_: Throwable) {}
+            if (identityEligible) {
+                deskHypotheses[claimLane] = existing.copy(
+                    conviction = (existing.conviction + 4.0).coerceAtMost(100.0),
+                    reason = existing.reason + ";residentHunter7803=" + claimLane,
+                )
+                try { PipelineHealthCollector.labelInc("LANE_RESIDENT_HUNTER_TIEBREAK_7803_" + claimLane) } catch (_: Throwable) {}
             }
         }
-        // V5.0.7622 — pin one candidate generation for this entire Toolkit
-        // evaluation. Resolving candidateVersionFor() separately for the
-        // qualified-contest publish and the causal-funnel stamp could split one
-        // candidate across two generations if the 30s bucket rolled or an FDG
-        // allow latch appeared between those reads.
-        val candidateVersion7622 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-        // V5.0.7621 — publish the exact current native-qualified desk set into
-        // the election coordinator. Scanner/source affinity is useful evidence
-        // but is not equivalent to this candidate's specialist qualification.
-        try {
-            LaneExecutionCoordinator.registerQualifiedContest7621(
+
+        // V5.0.7803 audit — QUALIFIED and READY are deliberately different.
+        // Generic toolkit hypotheses may qualify a specialist for continued
+        // observation, but only that specialist's current authoritative native
+        // evaluator can publish a simultaneous pre-authorizer READY proposal.
+        // This prevents both generic-hypothesis ownership and stale READY state.
+        val nativeReady7803 = nativeBrains7542.opinions.values
+            .filter { it.authoritative && it.eligible }
+            .associateBy { it.lane.uppercase() }
+        val nativeRefused7803 = nativeBrains7542.opinions.values
+            .filter { it.authoritative && !it.eligible }
+            .map { it.lane.uppercase() }
+            .toSet()
+
+        // Advance each resident state independently. Crypto deliberately reuses
+        // this intelligence sheet, but its candidates must never contaminate the
+        // Meme Trader's resident books. Domain identity is explicit here.
+        val cryptoDesk7803 = ts.lastPriceSource.equals("CRYPTO_ALT_DESK_7391", true) ||
+            ts.source.contains("CRYPTO", true)
+        deskHypotheses.values.forEach { h ->
+            try {
+                if (cryptoDesk7803) {
+                    com.lifecyclebot.perps.CryptoStrategyCandidateBooks7803.qualify(
+                        assetKey = ts.mint,
+                        symbol = ts.symbol,
+                        strategy = "DESK_" + h.lane,
+                        candidateVersion = candidateVersion7622,
+                        score = h.conviction.toInt(),
+                        confidence = h.conviction.toInt(),
+                        reason = h.reason,
+                    )
+                } else {
+                    // Keep useful generic/native intelligence resident as QUALIFIED.
+                    // READY is stricter: the lane's own authoritative evaluator must
+                    // currently say it would enter this token.
+                    com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markQualified(
+                        lane = h.lane,
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        candidateVersion = candidateVersion7622,
+                        conviction = h.conviction,
+                        reason = h.reason,
+                    )
+                    nativeReady7803[h.lane.uppercase()]?.let { native ->
+                        com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markReady(
+                            lane = h.lane,
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            candidateVersion = candidateVersion7622,
+                            score = native.score,
+                            confidence = native.confidence.toDouble(),
+                            reason = "NATIVE_SPECIALIST_READY_7803;" + native.reason,
+                        )
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // A native refusal must invalidate a READY proposal from an earlier
+        // refresh in the same candidate generation. Otherwise READY_TTL could
+        // let a lane keep competing for up to 45 seconds after its own brain
+        // changed to should-not-enter.
+        if (!cryptoDesk7803) nativeRefused7803.forEach { lane ->
+            try {
+                com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markLost(
+                    lane, ts.mint, candidateVersion7622, "NATIVE_SPECIALIST_REFUSED_7803",
+                )
+            } catch (_: Throwable) {}
+        }
+
+        // Candidate-specific convictions are carried into the meme execution
+        // coordinator only for the Meme Trader. Crypto performs its own READY
+        // strategy reduction before entering CRYPTO_ALT canonical execution.
+        if (!cryptoDesk7803) try {
+            LaneExecutionCoordinator.registerQualifiedContest7803(
                 ts.mint,
                 candidateVersion7622,
-                deskHypotheses.keys,
+                deskHypotheses.mapValues { it.value.conviction },
             )
         } catch (_: Throwable) {}
         // V5.0.7346 / 7622 — the causal identity uses the same pinned generation

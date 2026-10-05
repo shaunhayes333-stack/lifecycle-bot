@@ -17,6 +17,11 @@ object ExecutionSpineAcceptance6647 {
         val dispatches: Long,
         val immutableIntentsForDispatches: Long,
         val terminalResultsForDispatches: Long,
+        // V5.0.7803 — additive causal Crypto fields. Defaults preserve the
+        // long-standing Observation source contract for older named test/witness
+        // constructors; production capture always supplies real values.
+        val cryptoDispatches: Long = 0L,
+        val cryptoDispatchedPending: Long = 0L,
         val cryptoOpenConfirmed: Long,
         val maxExitStartDelayCycles: Long,
         val exitStart: Long,
@@ -46,7 +51,13 @@ object ExecutionSpineAcceptance6647 {
         if (o.fdgAllowWithoutIntent != 0L) f += "FDG_ALLOW_WITHOUT_EXEC_INTENT"
         if (o.dispatches != o.immutableIntentsForDispatches) f += "DISPATCH_INTENT_CARDINALITY"
         if (o.dispatches != o.terminalResultsForDispatches) f += "DISPATCH_TERMINAL_CARDINALITY"
-        if (o.cryptoOpenConfirmed <= 0L) f += "CRYPTO_OPEN_CONFIRMED_ZERO"
+        // V5.0.7803 — causal Crypto acceptance. No Crypto traffic in a window
+        // is not an execution defect. A signed dispatch that is still awaiting
+        // wallet proof is also a valid intermediate state. Fail only when Crypto
+        // dispatched, produced no OPEN, and has no dispatched pending intent.
+        if (o.cryptoDispatches > 0L && o.cryptoOpenConfirmed <= 0L &&
+            o.cryptoDispatchedPending <= 0L
+        ) f += "CRYPTO_DISPATCH_WITHOUT_OPEN_OR_PENDING"
         if (o.maxExitStartDelayCycles > 2L) f += "EXIT_START_LATE"
         if (o.exitStart <= 0L) f += "EXIT_START_ZERO"
         // Sampling may land while exactly one coordinator sweep is in flight.
@@ -79,6 +90,7 @@ object ExecutionSpineAcceptanceWindow6647 {
         val phaseV3: Long,
         val labels: Map<String, Long>,
         val cryptoOpen: Long,
+        val cryptoDispatch: Long,
         val exitStart: Long,
         val exitDone: Long,
         val exitEvaluations: Long,
@@ -148,6 +160,9 @@ object ExecutionSpineAcceptanceWindow6647 {
             labels = watchedLabels.associateWith { key -> health?.labels?.get(key) ?: 0L },
             cryptoOpen = try {
                 CanonicalEntryAuthority6540.snapshot(CanonicalEntryAuthority6540.Venue.CRYPTO).opensConfirmed
+            } catch (_: Throwable) { 0L },
+            cryptoDispatch = try {
+                CanonicalEntryAuthority6540.snapshot(CanonicalEntryAuthority6540.Venue.CRYPTO).dispatches
             } catch (_: Throwable) { 0L },
             exitStart = exitSweepStart.get(),
             exitDone = exitSweepDone.get(),
@@ -257,6 +272,10 @@ object ExecutionSpineAcceptanceWindow6647 {
                 dispatches = cardinality?.dispatches ?: -1L,
                 immutableIntentsForDispatches = cardinality?.immutableIntentsForDispatches ?: -2L,
                 terminalResultsForDispatches = cardinality?.terminalResultsForDispatches ?: -3L,
+                cryptoDispatches = (end.cryptoDispatch - start.cryptoDispatch).coerceAtLeast(0L),
+                cryptoDispatchedPending = try {
+                    CanonicalEntryAuthority6551.dispatchedPendingCount7803(AssetClass.CRYPTO_ALT)
+                } catch (_: Throwable) { 0L },
                 // A fresh OPEN is ideal, but a bounded window can begin after Crypto
                 // has already filled its slots. Existing canonical CRYPTO_ALT
                 // positions are durable proof that the venue reached OPEN; do not
@@ -286,7 +305,7 @@ object ExecutionSpineAcceptanceWindow6647 {
             if (result.passed) {
                 emitResult6735(
                     "EXECUTION_SPINE_ACCEPTANCE_6647_OK",
-                    "windowStartMs=${start.atMs} durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations}",
+                    "windowStartMs=${start.atMs} durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoDispatch=${observation.cryptoDispatches} cryptoPending=${observation.cryptoDispatchedPending} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations}",
                 )
             } else {
                 // V5.0.6883 — the FAIL witness used to carry the failure NAMES
@@ -300,7 +319,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                     append("safety=${observation.safety} v3=${observation.v3} ")
                     append("workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} ")
                     append("dispatches=${observation.dispatches}/${observation.immutableIntentsForDispatches}/${observation.terminalResultsForDispatches} ")
-                    append("cryptoOpen=${observation.cryptoOpenConfirmed} ")
+                    append("cryptoDispatch=${observation.cryptoDispatches} cryptoPending=${observation.cryptoDispatchedPending} cryptoOpen=${observation.cryptoOpenConfirmed} ")
                     append("exit=${observation.exitStart}/${observation.exitDone} ")
                     append("canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations} ")
                     append("phantom=${observation.phantomSizedOnly}")

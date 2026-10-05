@@ -600,7 +600,7 @@ object CryptoAltTrader {
      */
     @Synchronized
     private fun syncCanonicalCryptoPositions7255(): Int {
-        val activePaperMode = isPaperMode.get()
+        val activePaperMode = authoritativePaperMode7425()
         val canonical = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                 .filter {
@@ -686,7 +686,12 @@ object CryptoAltTrader {
         val dynMint     : String? = null,
         // V5.0.6544 — raw adapter address is separate from the chain-aware key.
         val dynChainId  : String? = null,
-        val dynAssetKey  : String? = null
+        val dynAssetKey  : String? = null,
+        // V5.0.7803 — exact strategy identity survives candidate -> execution
+        // -> position reasons -> close/learning instead of collapsing to CryptoAltAI.
+        val strategy7803 : String = "CRYPTO_NATIVE",
+        val deskOverlays7803: Set<String> = emptySet(),
+        val candidateVersion7803: Long = 0L,
     ) {
         /** Real coin symbol — dynamic value when present, else the enum symbol. */
         val marketSymbol: String get() = dynSymbol ?: market.symbol
@@ -712,6 +717,10 @@ object CryptoAltTrader {
             val cfg = com.lifecyclebot.data.ConfigStore.load(context.applicationContext)
             isPaperMode.set(cfg.paperMode)
         } catch (_: Exception) {}
+        // V5.0.7803 audit — config/prefs are mirrors, never economic mode authority.
+        // Heal the mirror before any reused specialist AI is initialized so entry
+        // opinions and later dispatch cannot disagree about PAPER vs LIVE.
+        val initPaper7803 = authoritativePaperMode7425()
         scope.launch { loadPersistedState() }
         try { BehaviorAI.init(context.applicationContext) }        catch (e: Exception) { ErrorLogger.debug(TAG, "BehaviorAI: ${e.message}") }
         // V5.9.1442 — Crypto isolated brain. Initialised AFTER the legacy meme
@@ -730,12 +739,12 @@ object CryptoAltTrader {
         try { RunTracker30D.init(context.applicationContext) }     catch (e: Exception) { ErrorLogger.debug(TAG, "RunTracker30D: ${e.message}") }
         try { ShadowLearningEngine.init() }                        catch (e: Exception) { ErrorLogger.debug(TAG, "ShadowLearning: ${e.message}") }
         try { TradeHistoryStore.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "TradeHistory: ${e.message}") }
-        try { ShitCoinTraderAI.init(isPaperMode.get()) }           catch (e: Exception) { ErrorLogger.debug(TAG, "ShitCoinAI: ${e.message}") }
-        try { QualityTraderAI.init(isPaperMode.get()) }            catch (e: Exception) { ErrorLogger.debug(TAG, "QualityAI: ${e.message}") }
-        try { BlueChipTraderAI.init(isPaperMode.get()) }           catch (e: Exception) { ErrorLogger.debug(TAG, "BlueChipAI: ${e.message}") }
-        try { ShitCoinExpress.init(isPaperMode.get()) }            catch (e: Exception) { ErrorLogger.debug(TAG, "ShitCoinExpress: ${e.message}") }
-        try { MoonshotTraderAI.initialize(isPaperMode.get()) }     catch (e: Exception) { ErrorLogger.debug(TAG, "MoonshotAI: ${e.message}") }
-        try { ManipulatedTraderAI.init(isPaperMode.get()) }        catch (e: Exception) { ErrorLogger.debug(TAG, "ManipulatedAI: ${e.message}") }
+        try { ShitCoinTraderAI.init(initPaper7803) }           catch (e: Exception) { ErrorLogger.debug(TAG, "ShitCoinAI: ${e.message}") }
+        try { QualityTraderAI.init(initPaper7803) }            catch (e: Exception) { ErrorLogger.debug(TAG, "QualityAI: ${e.message}") }
+        try { BlueChipTraderAI.init(initPaper7803) }           catch (e: Exception) { ErrorLogger.debug(TAG, "BlueChipAI: ${e.message}") }
+        try { ShitCoinExpress.init(initPaper7803) }            catch (e: Exception) { ErrorLogger.debug(TAG, "ShitCoinExpress: ${e.message}") }
+        try { MoonshotTraderAI.initialize(initPaper7803) }     catch (e: Exception) { ErrorLogger.debug(TAG, "MoonshotAI: ${e.message}") }
+        try { ManipulatedTraderAI.init(initPaper7803) }        catch (e: Exception) { ErrorLogger.debug(TAG, "ManipulatedAI: ${e.message}") }
         try { PerpsLearningBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "PerpsLearningBridge: ${e.message}") }
         try { FluidLearningAI.initAltsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
 
@@ -743,7 +752,7 @@ object CryptoAltTrader {
         // this idempotent rehydrate after service bootstrap has completed.
         rehydrateCanonicalPositions6647()
         // V5.9.1: Eagerly sync real wallet balance on init (live mode)
-        if (!isPaperMode.get()) {
+        if (!initPaper7803) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val sol = WalletManager.getWallet()?.getSolBalance() ?: 0.0
@@ -751,7 +760,7 @@ object CryptoAltTrader {
                 } catch (_: Exception) {}
             }
         }
-        ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=${isPaperMode.get()} | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
+        ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=$initPaper7803 | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
     }
 
     private fun runtimeDisabledReason(): String? {
@@ -1033,6 +1042,7 @@ object CryptoAltTrader {
         val actionableLong: Boolean,
         val shadowOnlyLive: Boolean,
         val reason: String,
+        val strategy7803: String,
     )
 
     private fun dynamicCryptoTier7244(mcapUsd: Double): String = when {
@@ -1076,6 +1086,7 @@ object CryptoAltTrader {
         change24hPct: Double,
         buyPressurePct: Double,
     ): DynamicCryptoDecision7244 {
+        val paper7803 = authoritativePaperMode7425()
         DynamicAltTokenRegistry.markCryptoBrainReach7244(tok)
         val tier = dynamicCryptoTier7244(marketCapUsd)
         val brainScoreAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.scoreAdjustment() } catch (_: Throwable) { 0 }
@@ -1181,7 +1192,7 @@ object CryptoAltTrader {
         try { PipelineHealthCollector.labelInc("CRYPTO_TACTIC_CONSUMED_7443_${tactic7443.name}") } catch (_: Throwable) {}
 
         val shadowOnlyLive = try {
-            !isPaperMode.get() && com.lifecyclebot.perps.crypto.brain.CryptoBrain.shouldShadowOnly(tier, score)
+            !paper7803 && com.lifecyclebot.perps.crypto.brain.CryptoBrain.shouldShadowOnly(tier, score)
         } catch (_: Throwable) { false }
         val actionableLong = tacticEvidence7443 && score >= scoreFloor && confidence >= confFloor && !shadowOnlyLive
         val reason = "CRYPTO_BRAIN_NATIVE_7244 tier=" + tier + " score=" + score + "/" + confidence +
@@ -1189,7 +1200,10 @@ object CryptoAltTrader {
             " pullback=" + "%.2f".format(pullbackPct7443) + " rebound=" + "%.2f".format(reboundPct7443) +
             " chg=" + change24hPct + " bp=" + buyPressurePct +
             " liq=" + liquidityUsd.toLong() + " vol=" + volume24hUsd.toLong()
-        return DynamicCryptoDecision7244(score, confidence, tier, actionableLong, shadowOnlyLive, reason)
+        return DynamicCryptoDecision7244(
+            score, confidence, tier, actionableLong, shadowOnlyLive, reason,
+            tactic7443.name,
+        )
     }
     private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
         com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "SCAN_TICK")
@@ -1332,15 +1346,34 @@ object CryptoAltTrader {
                 }
                 val deskIdentity7391 = refreshed.canonicalIdentity6544.ifBlank { refreshed.mint }
                 CryptoLaneDesk7391.recordTick(deskIdentity7391, price, bandMcap7391, vol, buys24h7391, sells24h7391)
-                val desk7391 = CryptoLaneDesk7391.elect(
-                    CryptoLaneDesk7391.tokenState(
-                        identity = deskIdentity7391, symbol = refreshed.symbol, name = refreshed.name,
-                        priceUsd = price, marketCapUsd = bandMcap7391, liquidityUsd = liq,
-                        buyPressurePct = buyPct, source = refreshed.source,
-                        ageHours = refreshed.discoveryAgeHours6544,
-                        brainScore = cryptoDecision7244.score, brainConfidence = cryptoDecision7244.confidence,
-                    )
+                val cryptoDeskTs7803 = CryptoLaneDesk7391.tokenState(
+                    identity = deskIdentity7391, symbol = refreshed.symbol, name = refreshed.name,
+                    priceUsd = price, marketCapUsd = bandMcap7391, liquidityUsd = liq,
+                    buyPressurePct = buyPct, source = refreshed.source,
+                    ageHours = refreshed.discoveryAgeHours6544,
+                    brainScore = cryptoDecision7244.score, brainConfidence = cryptoDecision7244.confidence,
                 )
+                val deskCandidates7803 = CryptoLaneDesk7391.qualifyAll7803(cryptoDeskTs7803)
+                val desk7391 = deskCandidates7803.maxByOrNull { it.conviction }
+                    ?: CryptoLaneDesk7391.Election("", 0.0, "", "", 0)
+                val cryptoCv7803 = System.currentTimeMillis() / 30_000L
+                try {
+                    CryptoStrategyCandidateBooks7803.watch(
+                        deskIdentity7391, refreshed.symbol, cryptoDecision7244.strategy7803, "CRYPTO_BRAIN_DISCOVERY_7803"
+                    )
+                    CryptoStrategyCandidateBooks7803.qualify(
+                        deskIdentity7391, refreshed.symbol, cryptoDecision7244.strategy7803,
+                        cryptoCv7803, cryptoDecision7244.score, cryptoDecision7244.confidence,
+                        cryptoDecision7244.reason,
+                    )
+                    deskCandidates7803.forEach { d ->
+                        CryptoStrategyCandidateBooks7803.qualify(
+                            deskIdentity7391, refreshed.symbol, "DESK_" + d.lane,
+                            cryptoCv7803, d.conviction.toInt(), d.conviction.toInt(),
+                            "CRYPTO_DESK_7803 setup=" + d.setup,
+                        )
+                    }
+                } catch (_: Throwable) {}
                 if (cryptoDecision7244.actionableLong) {
                     dynExecutableSignals.add(AltSignal(
                         market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
@@ -1349,7 +1382,18 @@ object CryptoAltTrader {
                         layerVotes = emptyMap(), dynSymbol = refreshed.symbol, dynName = refreshed.name,
                         dynMint = refreshed.mint, dynChainId = refreshed.chainId,
                         dynAssetKey = refreshed.canonicalIdentity6544,
-                    ))
+                        strategy7803 = cryptoDecision7244.strategy7803,
+                        deskOverlays7803 = deskCandidates7803.map { "DESK_" + it.lane }.toSet(),
+                        candidateVersion7803 = cryptoCv7803,
+                    ).also { resident ->
+                        try {
+                            CryptoStrategyCandidateBooks7803.ready(
+                                deskIdentity7391, refreshed.symbol, resident.strategy7803,
+                                cryptoCv7803, resident.score, resident.confidence,
+                                "CRYPTO_NATIVE_READY_7803",
+                            )
+                        } catch (_: Throwable) {}
+                    })
                     cryptoBrainSignals7244++
                     try { PipelineHealthCollector.labelInc("CRYPTO_BRAIN_NATIVE_ACTIONABLE_7244") } catch (_: Throwable) {}
                 } else {
@@ -1403,6 +1447,7 @@ object CryptoAltTrader {
                                         market = PerpsMarket.DYN, direction = scDir,
                                         score = sig.confidence, confidence = sig.confidence, price = price,
                                         priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence} ${scDir.name}"),
+                                        strategy7803 = "DESK_SHITCOIN",
                                         layerVotes = emptyMap(),
                                         dynSymbol = tok.symbol,
                                         dynName   = tok.name,
@@ -1450,6 +1495,7 @@ object CryptoAltTrader {
                                         market = PerpsMarket.DYN, direction = bcDir,
                                         score = sig.confidence + 5, confidence = sig.confidence, price = price,
                                         priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M ${bcDir.name}"),
+                                        strategy7803 = "DESK_BLUECHIP",
                                         layerVotes = emptyMap(),
                                         dynSymbol = tok.symbol,
                                         dynName   = tok.name,
@@ -1489,6 +1535,7 @@ object CryptoAltTrader {
                                     market = PerpsMarket.DYN, direction = expressDir6554,
                                     score = sig.confidence, confidence = sig.confidence, price = price,
                                     priceChange24h = change, reasons = listOf("DynScan Express ${sig.reason} ${expressDir6554.name}"),
+                                    strategy7803 = "DESK_EXPRESS",
                                     layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
                                     dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544
                                 ))
@@ -1524,6 +1571,7 @@ object CryptoAltTrader {
                                     market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
                                     score = sig.score.coerceAtMost(95), confidence = sig.score.coerceAtMost(95), price = price,
                                     priceChange24h = change, reasons = listOf("DynScan Moonshot trending=${tok.isTrending}"),
+                                    strategy7803 = "DESK_MOONSHOT",
                                     layerVotes = emptyMap(),
                                     dynSymbol = tok.symbol,
                                     dynName   = tok.name,
@@ -1553,6 +1601,7 @@ object CryptoAltTrader {
                                     market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
                                     score = qScore, confidence = qScore, price = price,
                                     priceChange24h = change, reasons = listOf("DynScan Quality ${q.reason}"),
+                                    strategy7803 = "DESK_QUALITY",
                                     layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
                                     dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544,
                                 ))
@@ -1583,6 +1632,7 @@ object CryptoAltTrader {
                                     market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
                                     score = d.confidence, confidence = d.confidence, price = price,
                                     priceChange24h = change, reasons = listOf("DynScan DipHunter ${d.reason}"),
+                                    strategy7803 = "DESK_DIP_HUNTER",
                                     layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
                                     dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544,
                                 ))
@@ -1601,6 +1651,7 @@ object CryptoAltTrader {
                         score = coreScore7391, confidence = desk7391.conviction.toInt().coerceIn(0, 100), price = price,
                         priceChange24h = change,
                         reasons = listOf("DynScan Core ensemble voters=${desk7391.voters} setup=${desk7391.setup}"),
+                        strategy7803 = "DESK_CORE",
                         layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
                         dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544,
                     ))
@@ -1715,9 +1766,42 @@ object CryptoAltTrader {
         // Now we convert high-confidence DynToken signals into real AltSignal trades
         if (dynExecutableSignals.isNotEmpty()) {
             // V5.9.1442 — Crypto isolated brain thresholds (was FluidLearningAI.getAltsXxx).
+            // V5.0.7803 — strategy residency survives discovery. Every proposal
+            // is qualified independently; only actually executable proposals become
+            // READY. Cross-strategy reduction happens HERE, immediately before the
+            // one canonical Crypto execution spine.
             val uniqueDynSignals6567 = dynExecutableSignals
                 .groupBy { it.dynAssetKey ?: it.dynMint ?: "${it.market.name}:${it.marketSymbol}" }
-                .values.mapNotNull { rows -> rows.maxByOrNull { it.score * 1000 + it.confidence } }
+                .values.mapNotNull { rows ->
+                    val first = rows.firstOrNull() ?: return@mapNotNull null
+                    val assetKey7803 = first.dynAssetKey ?: first.dynMint ?: "${first.market.name}:${first.marketSymbol}"
+                    val cv7803 = rows.map { it.candidateVersion7803 }.firstOrNull { it > 0L }
+                        ?: (System.currentTimeMillis() / 30_000L)
+                    rows.forEach { proposal ->
+                        try {
+                            CryptoStrategyCandidateBooks7803.qualify(
+                                assetKey7803, proposal.marketSymbol, proposal.strategy7803,
+                                cv7803, proposal.score, proposal.confidence,
+                                proposal.reasons.joinToString(";").take(180),
+                            )
+                            val executableDirection7803 =
+                                proposal.direction == PerpsDirection.LONG || LEVERAGE_VENUE_AVAILABLE_7183
+                            if (executableDirection7803) {
+                                CryptoStrategyCandidateBooks7803.ready(
+                                    assetKey7803, proposal.marketSymbol, proposal.strategy7803,
+                                    cv7803, proposal.score, proposal.confidence,
+                                    "CRYPTO_EXECUTABLE_READY_7803",
+                                )
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                    val ready7803 = CryptoStrategyCandidateBooks7803.bestReady(assetKey7803, cv7803)
+                    val executableRows7803 = rows.filter {
+                        it.direction == PerpsDirection.LONG || LEVERAGE_VENUE_AVAILABLE_7183
+                    }
+                    executableRows7803.firstOrNull { it.strategy7803 == ready7803?.strategy }
+                        ?: executableRows7803.maxByOrNull { it.score * 1000 + it.confidence }
+                }
             // V5.0.6569 — specialist thresholds are features for the shared
             // authority, not a terminal pre-V3 gate. Rank continuously and bound work.
             val topDyn = uniqueDynSignals6567
@@ -1813,6 +1897,7 @@ object CryptoAltTrader {
     }
 
     private suspend fun runScanCycle() {
+        val scanPaper7803 = authoritativePaperMode7425()
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
 
@@ -1836,7 +1921,7 @@ object CryptoAltTrader {
         // diagnostic count is exactly the open `positions` map for the
         // current mode and stale symbols are evicted automatically.
         try {
-            val isPaper = isPaperMode.get()
+            val isPaper = scanPaper7803
             val bucket = if (isPaper)
                 com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
             else
@@ -1857,7 +1942,7 @@ object CryptoAltTrader {
         // prints the universe size, paper/live mode, current brain
         // maturity + thresholds, AND the live funnel snapshot.
         try {
-            val mode = if (isPaperMode.get()) "PAPER" else "LIVE"
+            val mode = if (scanPaper7803) "PAPER" else "LIVE"
             val mat = com.lifecyclebot.perps.crypto.brain.CryptoBrain.maturity().name
             val scoreFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor()
             val confFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor()
@@ -1922,7 +2007,7 @@ object CryptoAltTrader {
                 // `preferLeverage=true`. That left FLOKI/PIXEL/ANKR/PERP/ZEN/HBAR/FTM/STG/GRT
                 // (all non-Solana, non-Flash) generating live signals that could never execute.
                 // The gate now runs in EVERY live path so unreachable symbols never burn cycles.
-                val isLiveScan = !isPaperMode.get()
+                val isLiveScan = !scanPaper7803
                 if (isLiveScan) {
                     val hasMint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper
                         .resolveWrappedMint(market.symbol) != null
@@ -2033,7 +2118,7 @@ object CryptoAltTrader {
         // layers + real accuracy loop + ReflexAI that the memetrader uses.
         val v3Filtered = topSignals.mapNotNull { sig ->
             try {
-                ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=STATIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}")
+                ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=STATIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (scanPaper7803) "PAPER" else "LIVE"}")
                 // V5.9.400 — pass realistic per-tier liquidity/mcap so V3
                 // layers (LiquidityExitPath, ExecutionCost, MEV, etc.) don't
                 // mis-score every alt with `liquidity=-7`. Tier inference
@@ -2106,7 +2191,7 @@ object CryptoAltTrader {
             // and no signed perp order has ever left this app. An asset with no
             // SPOT mint is simply unroutable, and the route gate below refuses
             // it honestly instead of inventing a venue for it.
-            if (LEVERAGE_VENUE_AVAILABLE_7183 && !isPaperMode.get() && useSpot) {
+            if (LEVERAGE_VENUE_AVAILABLE_7183 && !scanPaper7803 && useSpot) {
                 val hasMint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper
                     .resolveWrappedMint(signal.market.symbol) != null
                 if (!hasMint && signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS) {
@@ -2142,7 +2227,7 @@ object CryptoAltTrader {
             } catch (_: Exception) {}
 
             if (signal.direction == PerpsDirection.SHORT && useSpot) {
-                // V5.0.7183 — this read `isPaperMode.get() || symbol in
+                // V5.0.7183 — this read `scanPaper7803 || symbol in
                 // FLASH_TRADE_PERPS_SYMBOLS`, i.e. in paper EVERY short was
                 // "perp capable" and became a fictional 3x position
                 // (CRYPTO_SHORT_REROUTED_TO_PERP_6533 = 325 in one 26-minute
@@ -2151,11 +2236,11 @@ object CryptoAltTrader {
                 // through to the existing CRYPTO_ADAPTER_UNSUPPORTED_DIRECTION
                 // refusal below — which is the truthful outcome.
                 val perpCapable6533 = LEVERAGE_VENUE_AVAILABLE_7183 &&
-                    (isPaperMode.get() || signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS)
+                    (scanPaper7803 || signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS)
                 if (perpCapable6533) {
                     useSpot = false
                     leverage = DEFAULT_LEVERAGE
-                    try { ForensicLogger.lifecycle("CRYPTO_SHORT_REROUTED_TO_PERP_6533", "symbol=${signal.market.symbol} paper=${isPaperMode.get()} leverage=$leverage") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("CRYPTO_SHORT_REROUTED_TO_PERP_6533", "symbol=${signal.market.symbol} paper=${scanPaper7803} leverage=$leverage") } catch (_: Throwable) {}
                 } else {
                     try {
                         PipelineHealthCollector.labelInc("CRYPTO_ADAPTER_UNSUPPORTED_DIRECTION_6533")
@@ -2595,7 +2680,9 @@ object CryptoAltTrader {
             price          = data.price,
             priceChange24h = change,
             reasons        = reasons,
-            layerVotes     = layerVotes
+            layerVotes     = layerVotes,
+            strategy7803   = "CRYPTO_STATIC_ANALYZE",
+            candidateVersion7803 = System.currentTimeMillis() / 30_000L,
         )
     }
 
@@ -3018,6 +3105,7 @@ object CryptoAltTrader {
     private val RECENT_BASIS_MS_7281 = 180_000L
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
+        val paper7803 = authoritativePaperMode7425()
         /**
          * V5.0.7171 §TWO WRITERS FOR ONE REFUSAL, AND ONE OF THEM COUNTED
          * CANDIDATES THAT NEVER BECAME INTENTS.
@@ -3086,7 +3174,7 @@ object CryptoAltTrader {
         // candidate, the quantity witness, the canonical open — reads the
         // shadowed signal, so the position's basis and its first mark come
         // from the same moment.
-        val wantsFreshBasis7275 = isPaperMode.get() && signal.isDynamic
+        val wantsFreshBasis7275 = paper7803 && signal.isDynamic
         val basis7275: Pair<Double, String>? =
             if (wantsFreshBasis7275) freshDynamicEntryBasis7275(signal, isSpot) else null
         if (wantsFreshBasis7275 && basis7275 == null) {
@@ -3134,7 +3222,7 @@ object CryptoAltTrader {
         // gate + EXEC_GATE finality already cover trust at the bucket level,
         // so the global strategy-trust gate is now consult-only for crypto:
         // it gives a trust multiplier (sizing) but never vetoes the trade.
-        val tradingMode = signal.reasons.firstOrNull() ?: "CryptoAltAI"
+        val tradingMode = signal.strategy7803.ifBlank { "CRYPTO_NATIVE" }
         val trustMult = try {
             com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustMultiplier(tradingMode)
         } catch (_: Throwable) { 1.0 }
@@ -3374,7 +3462,7 @@ object CryptoAltTrader {
             assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
             laneName = canonicalCryptoLane7251(signal.isDynamic, isSpot),
             walletSol = balance,
-            paperMode = isPaperMode.get(),
+            paperMode = paper7803,
             canonicalAssetId = signal.dynMint?.ifBlank { signal.market.symbol } ?: signal.market.symbol, symbol = mktSym, price = signal.price, source = "CryptoAltTrader",
         )
         if (!altSizingRes.executable) {
@@ -3404,7 +3492,7 @@ object CryptoAltTrader {
             try { PipelineHealthCollector.labelInc("CRYPTO_POST_SIZE_EXPOSURE_CAP_7400") } catch (_: Throwable) {}
             return
         }
-        if (!isPaperMode.get()) {
+        if (!paper7803) {
             val walletBal7400 = try { WalletManager.getWallet()?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
             if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", finalSize, walletBal7400)) {
                 terminalDisposition6613("POST_SIZE_LIVE_WALLET_LOCK_7400", "PRE_SUBMIT")
@@ -3449,7 +3537,7 @@ object CryptoAltTrader {
             terminalDisposition6613("PRE_SUBMIT_FDG_OR_HARD_NO:${candidate.hardNoReasons.joinToString(",")}", "PRE_SUBMIT")
             return
         }
-        try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
+        try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (paper7803) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
         // V5.0.6649a §P0-3 CRYPTO_ALT_CANDIDATE_STAMP — mark the
         //   producer stage transition at the moment the candidate
         //   is handed off to the CanonicalEntryAuthority6551.submit
@@ -3475,7 +3563,9 @@ object CryptoAltTrader {
                 specialist = "CRYPTO", score = candidate.score.toDouble(), confidence = 1.0,
                 evidence = mapOf(
                     "upstreamConfidence" to candidate.confidence.toString(), "walletSol" to balance.toString(),
-                    // V5.0.7391 — the desk lane that owns this asset.
+                    "strategy7803" to signal.strategy7803,
+                    "deskOverlays7803" to signal.deskOverlays7803.sorted().joinToString(","),
+                    // Compatibility desk label; 7803 keeps every overlay resident.
                     "deskLane7391" to CryptoLaneDesk7391.laneFromReasons(signal.reasons).ifBlank { "NONE" },
                 ),
                 requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
@@ -3547,7 +3637,7 @@ object CryptoAltTrader {
             dynMint        = signal.dynMint,
             direction      = signal.direction,
             isSpot         = isSpot,
-            isPaper        = isPaperMode.get(),
+            isPaper        = paper7803,
             canonicalAssetKey = candidate.assetKey,
             markAssetKey   = candidate.assetKey,
             markUpdatedAtMs= System.currentTimeMillis(),
@@ -3559,7 +3649,9 @@ object CryptoAltTrader {
             stopLossPrice  = sl,
             aiScore        = signal.score,
             aiConfidence   = signal.confidence,
-            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}",
+            reasons        = listOf("STRATEGY7803=" + signal.strategy7803) +
+                signal.deskOverlays7803.sorted().map { "OVERLAY7803=" + it } +
+                signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}",
             holdSetupQuality = holdSetupQuality6663,
             adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600) ?: 3_600,
         )
@@ -3762,7 +3854,7 @@ object CryptoAltTrader {
         // V5.9.320: After a successful LIVE leveraged open, look up the Flash.trade
         // position key so we can close it properly via the Flash close-position endpoint.
         // SPOT positions close via Jupiter swap (no Flash key needed).
-        if (!isPaperMode.get() && !isSpot && mktSym in MarketsLiveExecutor.FLASH_SUPPORTED_PUBLIC) {
+        if (!paper7803 && !isSpot && mktSym in MarketsLiveExecutor.FLASH_SUPPORTED_PUBLIC) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     kotlinx.coroutines.delay(3_000L) // brief delay for tx to settle on-chain
@@ -3792,7 +3884,7 @@ object CryptoAltTrader {
 
         // V5.9.171 — record in LOCAL orphan store (Turso-independent failsafe)
         // so paper capital is refundable even when the app is updated offline.
-        if (isPaperMode.get()) {
+        if (paper7803) {
             try {
                 com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
                     trader = "CryptoAlt",
@@ -4325,7 +4417,7 @@ object CryptoAltTrader {
                 // MFE profit floor, and the runner lanes' early cut. Crypto's own
                 // give-back table, hard SL/TP and fluid stop all still apply.
                 run {
-                    val deskLane7391 = CryptoLaneDesk7391.laneFromReasons(updated.reasons)
+                    val deskLane7391 = specialistLaneFromReasons7803(updated.reasons)
                     if (deskLane7391.isBlank() || !tickPnl.isFinite()) return@run
                     val ageMs7391 = (System.currentTimeMillis() - updated.openTime).coerceAtLeast(0L)
                     val fluidFloor7391 = try {
@@ -4444,7 +4536,7 @@ object CryptoAltTrader {
                     currentPnlPct   = updated.getPnlPct(),
                     peakPnlPct      = peakPnl,
                     entryConfidence = updated.aiConfidence.toDouble(),
-                    tradingMode     = updated.reasons.firstOrNull() ?: "CryptoAltAI",
+                    tradingMode     = strategyFromReasons7803(updated.reasons),
                     holdTimeSec     = holdSec,
                     priceVelocity   = priceVelocity,
                     volumeRatio     = 1.0
@@ -4829,11 +4921,11 @@ object CryptoAltTrader {
                 // no-op: scratch trades don't update persona traits
             } else if (isWin) {
                 com.lifecyclebot.engine.SentientPersonality.onTradeWin(
-                    mktSym, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", holdMs / 1000
+                    mktSym, pnlPct, strategyFromReasons7803(pos.reasons), holdMs / 1000
                 )
             } else {
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(
-                    mktSym, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", reason
+                    mktSym, pnlPct, strategyFromReasons7803(pos.reasons), reason
                 )
             }
         } catch (_: Exception) {}
@@ -4914,7 +5006,7 @@ object CryptoAltTrader {
             TradeHistoryStore.recordTrade(Trade(
                 side             = "SELL", mode = modeStr,
                 sol              = (pos.sizeSol + pnlSol).coerceAtLeast(0.0), price = pos.currentPrice,
-                ts               = timestamp, reason = "ALT:$reason",
+                ts               = timestamp, reason = "ALT:STRATEGY7803=${strategyFromReasons7803(pos.reasons)}:$reason",
                 pnlSol           = pnlSol, pnlPct = pnlPct,
                 score            = pos.aiScore.toDouble(),
                 tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
@@ -4933,7 +5025,8 @@ object CryptoAltTrader {
                     sizeSol = pos.sizeSol, pnlPct = pnlPct,
                     holdTimeSec = holdMs / 1000,
                     mode = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
-                    score = pos.aiScore, confidence = pos.aiConfidence, decision = reason
+                    score = pos.aiScore, confidence = pos.aiConfidence,
+                    decision = "STRATEGY7803=${strategyFromReasons7803(pos.reasons)};$reason"
                 )
             }
         } catch (_: Exception) {}
@@ -4941,7 +5034,7 @@ object CryptoAltTrader {
         // ── TradeLessonRecorder — StrategyTrustAI cross-learning ─────────────
         try {
             val lessonCtx = TradeLessonRecorder.captureContext(
-                strategy = "CryptoAltAI", market = "CRYPTO_ALT",
+                strategy = strategyFromReasons7803(pos.reasons), market = "CRYPTO_ALT",
                 symbol = mktSym, leverageUsed = pos.leverage,
                 executionRoute = if (paper) "PAPER" else "LIVE",
                 expectedFillPrice = pos.entryPrice
@@ -4981,6 +5074,7 @@ object CryptoAltTrader {
                 isWin = pnlPct > 0.0,
                 pnlPct = pnlPct,
                 contributingLayers = contributingLayers,
+                isPaper = paper,
             )
             ErrorLogger.debug(TAG, "🪙🧠 PerpsLearningBridge(ALT lane): ${mktSym} | pnl=${pnlPct.fmt(1)}% | cross-learn OK")
         } catch (_: Exception) {}
@@ -5466,6 +5560,8 @@ object CryptoAltTrader {
                     priceChange24h   = priceData?.priceChange24hPct ?: 0.0,
                     reasons          = listOf("LLM chat: ${reason.take(80)}"),
                     layerVotes       = emptyMap(),
+                    strategy7803     = "LLM_PROPOSED",
+                    candidateVersion7803 = System.currentTimeMillis() / 30_000L,
                     // V5.0.7183 — this is dispatched with isSpot=true, so a
                     // 3x on the signal was already contradictory; it rode
                     // along onto the position record and into getPnlPct's
@@ -5535,6 +5631,26 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "💬 LLM PERPS SELL: ${ticker} pnl=${pnlPct.fmt(1)}% | $reason")
         return LlmTradeResult.Success("📄 perps sell queued: $ticker @ ${pnlPct.fmt(1)}%")
     }
+    private fun strategyFromReasons7803(reasons: List<String>): String =
+        reasons.firstOrNull { it.startsWith("STRATEGY7803=") }
+            ?.removePrefix("STRATEGY7803=")
+            ?.takeIf { it.isNotBlank() }
+            ?: "CRYPTO_NATIVE"
+
+    /**
+     * 7803 specialist exit identity. New positions may select a DESK_* strategy
+     * directly or carry one/more DESK_* overlays. Resolve those first; retain
+     * LANE7391 only for positions opened before the resident-strategy migration.
+     */
+    private fun specialistLaneFromReasons7803(reasons: List<String>): String {
+        val strategy = strategyFromReasons7803(reasons)
+        if (strategy.startsWith("DESK_")) return strategy.removePrefix("DESK_")
+        val overlay = reasons.firstOrNull { it.startsWith("OVERLAY7803=DESK_") }
+            ?.removePrefix("OVERLAY7803=DESK_")
+            ?.takeIf { it.isNotBlank() }
+        return overlay ?: CryptoLaneDesk7391.laneFromReasons(reasons)
+    }
+
     fun hasPosition(market: PerpsMarket): Boolean = activeModePositions7256(positions.values).any { it.market == market }
     // V5.9.1472 — DYNAMIC CRYPTO: dedupe by REAL coin symbol, not the shared DYN
     // sentinel (otherwise only one DYN coin could ever be open at a time).

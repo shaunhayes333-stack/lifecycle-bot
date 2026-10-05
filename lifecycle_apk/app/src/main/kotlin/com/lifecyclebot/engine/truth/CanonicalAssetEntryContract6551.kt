@@ -405,6 +405,60 @@ object CanonicalEntryAuthority6551 {
         return pending.values.count { intentAssetClass6569(it) == assetClass && it.attemptId !in dispatchedAttempts6569 }.toLong()
     }
 
+    /** V5.0.7803 — dispatched live intents awaiting wallet/fill proof. */
+    internal fun dispatchedPendingCount7803(assetClass: AssetClass): Long {
+        expirePending6554()
+        return pending.values.count {
+            intentAssetClass6569(it) == assetClass && it.attemptId in dispatchedAttempts6569
+        }.toLong()
+    }
+
+    /**
+     * V5.0.7803 — close the exact live Crypto dispatch when wallet recovery
+     * proves the holding after an async verification-pending buy.
+     *
+     * Never guesses: confirmation is allowed only when exactly one dispatched,
+     * non-terminal LIVE CRYPTO_ALT intent matches either the canonical asset id
+     * or its symbol. Ambiguous/no-match recovery stays position-safe but leaves
+     * the intent pending for its normal timeout/forensics.
+     */
+    internal fun confirmRecoveredCryptoOpen7803(
+        assetId: String,
+        symbol: String,
+        positionId: String,
+    ): Boolean {
+        expirePending6554()
+        if (positionId.isBlank()) return false
+        val cleanSymbol = symbol.trim()
+        val matches = pending.values.filter { intent ->
+            intent.mode.equals("LIVE", true) &&
+                intentAssetClass6569(intent) == AssetClass.CRYPTO_ALT &&
+                intent.attemptId in dispatchedAttempts6569 &&
+                !terminalByAttempt6647.containsKey(intent.attemptId) &&
+                (intent.mint == assetId ||
+                    (cleanSymbol.isNotBlank() && intent.symbol.equals(cleanSymbol, true)))
+        }.distinctBy { it.attemptId }
+        if (matches.size != 1) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (matches.isEmpty()) "CRYPTO_RECOVERY_NO_PENDING_INTENT_7803"
+                    else "CRYPTO_RECOVERY_AMBIGUOUS_PENDING_INTENT_7803"
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+        val intent = matches.single()
+        markConfirmed(intent, positionId)
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_RECOVERY_PENDING_INTENT_CONFIRMED_7803")
+            ForensicLogger.lifecycle(
+                "CRYPTO_RECOVERY_PENDING_INTENT_CONFIRMED_7803",
+                "asset=${assetId.take(20)} symbol=$cleanSymbol positionId=${positionId.take(32)} attemptId=${intent.attemptId.take(48)}",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     fun findPending(assetId: String, mode: String, candidateVersion: Long? = null): ExecutableOpenGate.ExecutionIntent? {
         expirePending6554()
         val prefix = "${mode.uppercase()}:$assetId:"

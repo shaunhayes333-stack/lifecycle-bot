@@ -109,8 +109,14 @@ object CryptoLaneDesk7391 {
         return ts
     }
 
-    /** Run the meme desk on [ts] and elect its owner lane ("" when no lane qualifies). */
-    fun elect(ts: TokenState): Election {
+    /**
+     * V5.0.7803 — return EVERY currently-qualified crypto desk overlay.
+     *
+     * Crypto may reuse meme specialist intelligence, but qualification no longer
+     * collapses immediately to one owner. Each overlay remains resident as
+     * DESK_<lane> in CryptoStrategyCandidateBooks7803 until execution readiness.
+     */
+    internal fun qualifyAll7803(ts: TokenState): List<Election> {
         return try {
             val cls = ModeRouter.classify(ts)
             val sheet = ToolkitSignalSheet.build(ts, cls)
@@ -122,23 +128,36 @@ object CryptoLaneDesk7391 {
                 .filter { !it.lane.equals("CORE", true) }
                 .sortedByDescending { it.conviction }
                 .distinctBy { it.lane.uppercase() }
+
+            val out = ranked.map { h ->
+                Election(h.lane.uppercase(), h.conviction, h.setup.name, move, ranked.count { it.conviction >= 45.0 })
+            }.toMutableList()
+
+            val voters = ranked.filter { it.conviction >= 45.0 }
             val strongest = ranked.firstOrNull()
             val second = ranked.getOrNull(1)
-            val voters = ranked.filter { it.conviction >= 45.0 }
             val coreFit = strongest != null && second != null && voters.size >= 2 &&
                 strongest.conviction < 75.0 &&
                 (strongest.conviction - second.conviction <= 10.0 || strongest.conviction < 65.0) &&
                 LaneEntryContract6342.isLaneIdentityEligible7252(ts, "CORE")
-            val election = when {
-                coreFit -> Election("CORE", voters.map { it.conviction }.average(), strongest!!.setup.name, move, voters.size)
-                strongest != null -> Election(strongest.lane.uppercase(), strongest.conviction, strongest.setup.name, move, voters.size)
-                else -> Election("", 0.0, sheet.setup.name, move, 0)
+            if (coreFit) {
+                out += Election("CORE", voters.map { it.conviction }.average(), strongest!!.setup.name, move, voters.size)
             }
-            try { PipelineHealthCollector.labelInc("CRYPTO_DESK_ELECTED_7391_${election.lane.ifBlank { "NONE" }}") } catch (_: Throwable) {}
-            election
+            out.sortedByDescending { it.conviction }
         } catch (_: Throwable) {
-            Election("", 0.0, "", "", 0)
+            emptyList()
         }
+    }
+
+    /**
+     * Compatibility read for surfaces still expecting one desk label. This is
+     * not execution authority after 7803; executable arbitration is deferred.
+     */
+    internal fun elect(ts: TokenState): Election {
+        val all = qualifyAll7803(ts)
+        val election = all.maxByOrNull { it.conviction } ?: Election("", 0.0, "", "", 0)
+        try { PipelineHealthCollector.labelInc("CRYPTO_DESK_ELECTED_7391_${election.lane.ifBlank { "NONE" }}") } catch (_: Throwable) {}
+        return election
     }
 
     /** Desk lane stamped on a signal/position, or "" when none. */

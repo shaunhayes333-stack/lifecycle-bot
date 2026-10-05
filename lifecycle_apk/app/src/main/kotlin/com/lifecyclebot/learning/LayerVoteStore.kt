@@ -106,8 +106,18 @@ object LayerVoteStore {
         return true
     }
 
-    fun closeoutMeme(mint: String, isWin: Boolean, pnlPct: Double, symbol: String = "") {
+    fun closeoutMeme(mint: String, isWin: Boolean, pnlPct: Double, symbol: String = "", environment: com.lifecyclebot.engine.TradeEnvironment) {
         if (!claimCloseout6860(mint, isWin, pnlPct)) return
+        // V5.0.7803 audit — canonical trade environment is immutable terminal evidence.
+        // PAPER/SHADOW may be graded by their own paper learners, but must not mutate
+        // PerpsLearningBridge MEME trust or its 30% cross-asset PERPS live trust.
+        if (environment != com.lifecyclebot.engine.TradeEnvironment.LIVE) {
+            drainVotes(mint)
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MEME_${environment.name}_BRIDGE_SHADOW_ONLY_7803")
+            } catch (_: Throwable) {}
+            return
+        }
         // V5.9.394 — ALWAYS bump the MEME aggregate counter so the Cross-Layer
         // Bridge "Memes: N trades" stays in sync with the main UI. Previously
         // only the no-votes fallback path hit recordMemeTrade, meaning every

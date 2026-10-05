@@ -404,6 +404,12 @@ object OpenPnlSanity {
             val hadPoisonedPeak = p.peakGainPct > 0.0 || p.highestPrice > p.entryPrice || p.lastRoutePrice > 0.0
             p.peakGainPct = 0.0
             p.highestPrice = p.entryPrice.coerceAtLeast(0.0)
+            // V5.0.7803 — the independent PeakAdaptiveTrail tracker is
+            // diagnostic-only, but it must be rebased with canonical state or
+            // PEAK_AUTHORITY_DIVERGENCE becomes a known false positive.
+            try {
+                com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390.onPositionRebased7803(ts.mint, 0.0)
+            } catch (_: Throwable) {}
             p.lastRoutePrice = 0.0
             p.lastRoutePriceTs = 0L
             p.lastTickFloorBreach = false
