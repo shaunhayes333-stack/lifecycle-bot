@@ -162,7 +162,26 @@ object SpecialistBrainBridge7542 {
         out["EXPRESS"]=try{val x=ShitCoinExpress.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,expressMomentum7555,bp,volVs,ts.lastPriceChange5m,trending,boosted,ageMin);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
         out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,ts.meta.volScore.toInt().coerceIn(0,100),bp,rug,v3.toDouble(),v3c.toDouble(),launch?.phase?.name?:ts.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
         out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
-        out["DIP_HUNTER"]=try{val x=DipHunterAI.evaluate(ts.mint,ts.symbol,price,high,ts.lastMcap,ts.lastLiquidityUsd,bp,volVs,ageMin/60.0,holders,null,devSelling,bounce);op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN"))}catch(t:Throwable){err("DIP_HUNTER",t)}
+        out["DIP_HUNTER"]=try{
+            val holderDelta7802 = try {
+                val h = ts.history.filter { it.holderCount > 0 }
+                if (h.size >= 2) h.last().holderCount - h.first().holderCount else null
+            } catch (_: Throwable) { null }
+            val smart7802 = launch?.smartMoneyBuyers60s ?: try {
+                com.lifecyclebot.engine.truth.SmartMoneyFeed6394.smartMoneyBuysLast60s(ts.mint)
+            } catch (_: Throwable) { 0 }
+            val x=DipHunterAI.evaluate(
+                mint=ts.mint,symbol=ts.symbol,currentPrice=price,highPrice=high,
+                marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,buyPressurePct=bp,
+                volumeVsAvg=volVs,tokenAgeHours=ageMin/60.0,holderCount=holders,
+                holderChange24h=holderDelta7802,isDevSelling=devSelling,bounceConfirmed=bounce,
+                holderGrowthRate=ts.holderGrowthRate,topHolderPct=top,smartMoneyBuys60s=smart7802
+            )
+            op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason,
+                "PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",
+                1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,
+                setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN","HOLDER_RETENTION","SMART_MONEY_RETURN"))
+        }catch(t:Throwable){err("DIP_HUNTER",t)}
         out["MANIPULATED"]=try{
             val x=ManipulatedTraderAI.evaluate(
                 mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,
