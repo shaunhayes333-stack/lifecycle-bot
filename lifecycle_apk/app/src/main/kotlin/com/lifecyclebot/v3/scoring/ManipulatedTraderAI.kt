@@ -267,6 +267,10 @@ object ManipulatedTraderAI {
         ageMinutes: Double,
         rugcheckScore: Int,
         isPaper: Boolean,
+        launchPhase: String = "",
+        repeatBuyerWallets60s: Int = 0,
+        top3BuyerSharePct60s: Double = -1.0,
+        devSelling: Boolean = false,
     ): ManipSignal {
         fun noEnter(reason: String) = ManipSignal(
             shouldEnter = false, positionSizeSol = 0.0, manipScore = 0, reason = reason
@@ -295,9 +299,12 @@ object ManipulatedTraderAI {
         // V5.0.7425: risky is NOT the same as manipulated. Source+young-age alone
         // can score 20 points and used to admit ordinary fresh tokens into the
         // danger lane without any actual manipulation evidence.
+        val coordinatedFlow7802 =
+            repeatBuyerWallets60s >= 3 && top3BuyerSharePct60s >= 70.0
         val knownManipulation7425 =
             bundlePct >= 40.0 ||
-            (buyPressurePct >= 70.0 && momentum >= 10.0)
+            (buyPressurePct >= 70.0 && momentum >= 10.0) ||
+            coordinatedFlow7802
         if (!knownManipulation7425) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIPULATED_NO_KNOWN_DANGER_PROOF_7425") } catch (_: Throwable) {}
             return noEnter("NO_KNOWN_MANIPULATION_EVIDENCE_7425")
@@ -305,6 +312,19 @@ object ManipulatedTraderAI {
 
         // Calculate manipulation score
         var score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)
+        // V5.0.7802 — manipulation is phase-specific. Evidence of manipulation
+        // is not enough; reward the ignition/public-pump phase and punish
+        // distribution/dev-exit state.
+        score += when (launchPhase.uppercase()) {
+            "PRE_IGNITION" -> 6
+            "IGNITION" -> 10
+            "EXPANDING" -> 4
+            "POST_PUMP_FADE" -> -25
+            else -> 0
+        }
+        if (coordinatedFlow7802) score += 8
+        if (devSelling) score -= 30
+        score = score.coerceIn(0, 100)
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Manipulated lane).
