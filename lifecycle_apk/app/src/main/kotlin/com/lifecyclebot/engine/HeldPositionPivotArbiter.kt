@@ -64,12 +64,33 @@ object HeldPositionPivotArbiter {
     /** Candidate live exit techniques, expressed as tradingMode strings that the
      *  existing BotService→ModeSpecificExits switch already understands. */
     private val CANDIDATES = listOf(
-        "MOONSHOT",      // GRADUATION — let a confirmed runner run (the proven winner)
-        "PUMP_SNIPER",   // SENTIMENT_IGNITION — ride an igniting pump, tighter
-        "STANDARD",      // TREND_PULLBACK — widest patience, tightest stop (diamond-ish)
-        "REVIVAL",       // REVERSAL_RECLAIM — take first target quick on a bounce
-        "MICRO_CAP",     // FRESH_LAUNCH — fastest stop/partial for a fading fresh
+        "MOONSHOT",
+        "PUMP_SNIPER",
+        "STANDARD",
+        "REVIVAL",
+        "MICRO_CAP",
     )
+
+    // V5.0.7801 — mid-hold tactic switching preserves specialist intent.
+    // These are management styles, not new entry owners.
+    private fun pivotCompatible7801(entryMode: String, target: String): Boolean {
+        val from = entryMode.uppercase()
+        val to = target.uppercase()
+        return when (from) {
+            "MOONSHOT" -> to == "MOONSHOT"
+            "PROJECT_SNIPER", "PRESALE_SNIPE" -> to in setOf("PUMP_SNIPER", "MICRO_CAP", "MOONSHOT")
+            "EXPRESS" -> to in setOf("PUMP_SNIPER", "MICRO_CAP", "STANDARD", "MOONSHOT")
+            "SHITCOIN" -> to in setOf("MICRO_CAP", "PUMP_SNIPER", "STANDARD", "MOONSHOT")
+            "MANIPULATED", "MANIP" -> to in setOf("PUMP_SNIPER", "MICRO_CAP")
+            "DIP_HUNTER" -> to in setOf("REVIVAL", "STANDARD")
+            "CYCLIC" -> to in setOf("REVIVAL", "STANDARD")
+            "QUALITY" -> to in setOf("STANDARD", "REVIVAL")
+            "BLUECHIP", "BLUE_CHIP" -> to == "STANDARD"
+            "TREASURY", "CASHGEN" -> false
+            "CORE" -> true
+            else -> true
+        }
+    }
 
     data class PivotResult(
         val pivoted: Boolean,
@@ -132,6 +153,10 @@ object HeldPositionPivotArbiter {
             var bestReason = "incumbent"
             for (cand in CANDIDATES) {
                 if (cand == current) continue
+                if (!pivotCompatible7801(current, cand)) {
+                    try { PipelineHealthCollector.labelInc("HELD_PIVOT_INCOMPATIBLE_7801") } catch (_: Throwable) {}
+                    continue
+                }
                 val s = blendedScore(
                     lane = cand, score = score, quality = quality, regime = regime,
                     edgePhase = edgePhase, momentumBias = momentumBias,
