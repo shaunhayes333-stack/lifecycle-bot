@@ -281,7 +281,16 @@ object SpecialistBrainBridge7542 {
         out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
 
         out.keys.toList().forEach { lane ->
-            out[lane]?.let { original -> out[lane] = shapeNative7801(original, ts, launch) }
+            out[lane]?.let { original ->
+                val shaped = shapeNative7801(original, ts, launch)
+                out[lane] = shaped
+                // record() already counted the native call; update readback only.
+                lastOpinion[lane] = shaped
+                if (shaped !== original && (shaped.score != original.score || shaped.confidence != original.confidence ||
+                        shaped.sizeMult != original.sizeMult || shaped.holdMult != original.holdMult)) {
+                    try { PipelineHealthCollector.labelInc("NATIVE_BRAIN_EVIDENCE_SHAPED_7801_$lane") } catch (_: Throwable) {}
+                }
+            }
         }
 
         val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
