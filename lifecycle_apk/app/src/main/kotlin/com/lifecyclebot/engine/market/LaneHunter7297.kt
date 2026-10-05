@@ -669,9 +669,10 @@ object LaneHunter7297 {
 
     private fun onSettled(e: CanonicalTradeFinalizedBus6450.Event) {
         val c = claims[e.mint] ?: return
-        // V5.0.7301 — a CASHGEN hunt executes through the TREASURY book.
-        val laneMatches = e.entryLane.equals(c.lane, ignoreCase = true) ||
-            (c.lane == "CASHGEN" && e.entryLane.equals("TREASURY", ignoreCase = true))
+        // V5.0.7801 — CASHGEN and TREASURY are distinct specialists.
+        // They may share position mechanics, but a hunt must learn only from
+        // the lane that actually owned and executed the trade.
+        val laneMatches = e.entryLane.equals(c.lane, ignoreCase = true)
         if (!laneMatches) return
         if (e.settledAtMs < c.atMs) return
         val ret = e.returnFraction
