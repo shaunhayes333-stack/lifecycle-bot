@@ -403,6 +403,145 @@ object LaneHunter7297 {
     }
 
     /**
+     * V5.0.7801 — each hunter consumes its OWN cached evidence.
+     * No provider calls. Unknown data stays neutral. Native trader brains still
+     * qualify the candidate later; this only spends discovery attention better.
+     */
+    private fun nativeDiscoveryMultiplier7801(lane: String, r: MarketSweep7297.Row): Double {
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[r.mint] } catch (_: Throwable) { null }
+            ?: return 1.0
+        val bp = ts.lastBuyPressurePct.takeIf { it.isFinite() } ?: 50.0
+        val hg = ts.holderGrowthRate.takeIf { it.isFinite() } ?: 0.0
+        val top = ts.topHolderPct ?: ts.tokenMap.topHolderConcentrationPct
+            ?: ts.safety.topHolderPct.takeIf { it >= 0.0 } ?: 25.0
+        val mom5 = ts.lastPriceChange5m.takeIf { it.isFinite() } ?: 0.0
+        val mom1h = ts.lastPriceChange1h.takeIf { it.isFinite() } ?: r.priceChangeH1Pct
+        val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        val danger = (ts.safety.summary + " " + ts.safety.bundleReason + " " +
+            ts.safety.hardBlockReasons.joinToString(" ")).uppercase()
+        val devSell = danger.contains("DEV_SELL") || danger.contains("DEV SELL") ||
+            ((launch?.devSellTx60s ?: 0) > 0)
+        val meta = try { com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(r.mint) } catch (_: Throwable) { null }
+        val socialDepth = listOf(
+            meta?.twitter.orEmpty(), meta?.telegram.orEmpty(), meta?.website.orEmpty(), meta?.discord.orEmpty()
+        ).count { it.isNotBlank() }
+
+        val hist = try { ts.history.toList().filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 } } catch (_: Throwable) { emptyList() }
+        val prices = hist.map { it.priceUsd }
+        val current = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: prices.lastOrNull() ?: 0.0
+        val recentHigh = prices.takeLast(24).maxOrNull()?.takeIf { it > 0.0 } ?: current
+        val drawdown = if (recentHigh > 0.0 && current > 0.0) (current / recentHigh - 1.0) * 100.0 else 0.0
+        val tail = prices.takeLast(8)
+        val low = tail.minOrNull() ?: current
+        val lowIdx = tail.indexOf(low)
+        val bounce = low > 0.0 && lowIdx >= 0 && lowIdx < tail.lastIndex &&
+            current >= low * 1.02 && bp >= 50.0
+
+        val m = when (lane) {
+            "PROJECT_SNIPER" -> {
+                var x = 1.0
+                if (launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION) x *= 1.18
+                if ((launch?.distinctBuyers60s ?: 0) >= 3) x *= 1.12
+                if (launch?.accelerationRising == true) x *= 1.10
+                if ((launch?.largestBuyerSharePct60s ?: 0.0) > 65.0) x *= 0.72
+                if (devSell) x *= 0.55
+                if (ts.safety.firstBlockSupplyPct >= 40.0) x *= 0.70
+                x
+            }
+            "EXPRESS" -> {
+                var x = 1.0
+                if (mom5 in 2.0..20.0) x *= 1.15 else if (mom5 > 35.0) x *= 0.72
+                if (mom1h > 0.0) x *= 1.08
+                if (bp >= 58.0) x *= 1.10
+                if (hg > 0.0) x *= 1.06
+                if (launch?.accelerationRising == true) x *= 1.10
+                x
+            }
+            "SHITCOIN" -> {
+                var x = 1.0
+                if (ts.source.contains("PUMP", true)) x *= 1.12
+                if (ts.meta.curveProgress in 5.0..85.0) x *= 1.08
+                if (hg >= 2.0) x *= 1.10
+                if (socialDepth >= 2) x *= 1.06
+                if (bp >= 55.0) x *= 1.08
+                if (top >= 50.0 || devSell) x *= 0.62
+                x
+            }
+            "MANIPULATED" -> {
+                var x = 1.0
+                val bundled = ts.safety.firstBlockSupplyPct >= 25.0 ||
+                    ts.safety.bundleRisk.equals("HIGH", true) ||
+                    ts.safety.bundleRisk.equals("MEDIUM", true)
+                if (bundled) x *= 1.18
+                if (bp >= 70.0 && mom5 >= 8.0) x *= 1.16
+                if ((launch?.repeatBuyerWallets60s ?: 0) >= 2) x *= 1.10
+                if (launch?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.POST_PUMP_FADE || devSell) x *= 0.55
+                x
+            }
+            "DIP_HUNTER" -> {
+                var x = 1.0
+                if (drawdown in -30.0..-6.0) x *= 1.16
+                if (bounce) x *= 1.18
+                if (hg >= 0.0) x *= 1.05 else if (hg <= -5.0) x *= 0.70
+                if (bp >= 52.0) x *= 1.08
+                if (devSell || drawdown <= -45.0) x *= 0.55
+                x
+            }
+            "CYCLIC" -> {
+                var x = 1.0
+                if (tail.size >= 6) {
+                    val turns = tail.zipWithNext().map { it.second - it.first }.zipWithNext()
+                        .count { (a,b) -> (a > 0 && b < 0) || (a < 0 && b > 0) }
+                    if (turns >= 2) x *= 1.14
+                }
+                if (kotlin.math.abs(mom1h) <= 12.0) x *= 1.08
+                if (bp in 45.0..65.0) x *= 1.05
+                if (devSell) x *= 0.65
+                x
+            }
+            "QUALITY" -> {
+                var x = 1.0
+                if (r.liquidityUsd >= 15_000.0) x *= 1.10
+                if (top <= 25.0) x *= 1.10 else if (top >= 45.0) x *= 0.65
+                if (hg >= 1.0) x *= 1.08
+                if (socialDepth >= 2) x *= 1.06
+                if (bp >= 52.0) x *= 1.05
+                x
+            }
+            "BLUECHIP" -> {
+                var x = 1.0
+                val ratio = if (r.liquidityUsd > 0.0) r.mcapUsd / r.liquidityUsd else Double.MAX_VALUE
+                if (r.liquidityUsd >= 50_000.0 && ratio <= 100.0) x *= 1.14
+                if (socialDepth >= 2) x *= 1.05
+                if (top <= 20.0) x *= 1.08
+                if (mom1h in -5.0..20.0) x *= 1.05
+                x
+            }
+            "TREASURY" -> {
+                var x = 1.0
+                val vol = ts.volatility?.takeIf { it.isFinite() } ?: kotlin.math.abs(ts.meta.avgAtr)
+                if (r.liquidityUsd >= 50_000.0) x *= 1.15
+                if (vol <= 25.0) x *= 1.10 else if (vol >= 60.0) x *= 0.65
+                if (ts.tokenMap.routeStatus.contains("READY", true) || ts.tokenMap.jupiterQuoteOk || ts.tokenMap.dexRouteOk) x *= 1.08
+                if (top >= 40.0 || devSell) x *= 0.55
+                x
+            }
+            "CASHGEN" -> {
+                var x = 1.0
+                if (r.liquidityUsd >= 20_000.0) x *= 1.10
+                if (mom5 in 0.5..10.0) x *= 1.12
+                if (bp >= 52.0) x *= 1.08
+                if (kotlin.math.abs(mom1h) > 35.0) x *= 0.72
+                if (devSell) x *= 0.60
+                x
+            }
+            "CORE" -> 0.96 // native specialists should win when they have a thesis.
+            else -> 1.0
+        }
+        return m.coerceIn(0.45, 1.40)
+    }
+
+    /**
      * V5.0.7777 — specialist affinity over the market-wide opportunity rank.
      * This only changes ordering. It never filters a row or overrides a native
      * specialist opinion, preserving lane autonomy and the canonical owner/FDG.
@@ -438,7 +577,7 @@ object LaneHunter7297 {
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
                     p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
                         (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r) *
-                        commonSenseMult7797(p.lane, r)
+                        commonSenseMult7797(p.lane, r) * nativeDiscoveryMultiplier7801(p.lane, r)
                 }
                 .map { it.mint }
         }
