@@ -145,7 +145,8 @@ object ExecutionSnapshotAuthority6496 {
             // Order size drift — only reject on MATERIAL shrink beyond
             // the tolerance band. A resize UP is never drift.
             if (snap.resolvedOrderSizeSol > 0.0 &&
-                resolvedOrderSizeSol < snap.resolvedOrderSizeSol * (1.0 - SIZE_MATERIAL_DRIFT_RATIO))
+                resolvedOrderSizeSol < snap.resolvedOrderSizeSol * (1.0 - SIZE_MATERIAL_DRIFT_RATIO) &&
+                !newerSizingDecision7809(mint, snap, resolvedOrderSizeSol))
                 add("resolvedOrderSizeSol(${"%.4f".format(snap.resolvedOrderSizeSol)}->${"%.4f".format(resolvedOrderSizeSol)})")
         }
         return if (driftBits.isEmpty()) {
@@ -162,6 +163,50 @@ object ExecutionSnapshotAuthority6496 {
             } catch (_: Throwable) {}
             driftBits.joinToString("+")
         }
+    }
+
+    /**
+     * V5.0.7809 §FINALITY_COMPARED_TWO_DIFFERENT_DECISIONS.
+     *
+     * 5.0.7808 live: FINALITY_BLOCK:resolvedOrderSizeSol(0.0178->0.0112). Both
+     * numbers come from SealedOrderSizeAuthority6497: the snapshot copied the
+     * mint seal at FDG allow, and the drift check re-reads the same mint seal
+     * at finality. The seal is per MINT and is rewritten by every later sizing
+     * pass for that mint — another lane's trader (ShitCoinTraderAI via
+     * TraderSizingBridge6444) or the next FDG evaluation after the wallet
+     * moved. The executor's own order (`sol`, then LiveRiskPolicy7807 and the
+     * routable floor) was never part of the comparison; Executor
+     * liveRiskPolicyFinalSize7807 runs after finality and seals nothing.
+     *
+     * A seal written AFTER the snapshot, carrying exactly the size compared,
+     * is a newer sizing decision, not the sealed ticket shrinking:
+     *   same lane  -> the newer decision (e.g. wallet revalidation) owns the
+     *                 size; the snapshot is re-sealed to it so seal and
+     *                 snapshot agree. Executability is still judged by the
+     *                 finality minimum (meetsMinimum6491) and the executor's
+     *                 routable-minimum lift/refusal (7226/7227), which name a
+     *                 precise reason; nothing here raises the order.
+     *   other lane -> that lane's size is not this ticket's; ignored.
+     * Any other shrink (no newer seal) still blocks as before.
+     * Field Manual L243 (size from the stop, decided once), L250.
+     */
+    private fun newerSizingDecision7809(mint: String, snap: Snapshot, currentSizeSol: Double): Boolean {
+        val seal = try { SealedOrderSizeAuthority6497.sealRecord7809(mint) } catch (_: Throwable) { null } ?: return false
+        if (seal.sealedAtMs <= snap.recordedAtMs) return false
+        if (kotlin.math.abs(seal.sizeSol - currentSizeSol) > maxOf(1e-9, currentSizeSol * 1e-6)) return false
+        val sameLane = try { CanonicalLaneIdentity6506.sameLane(seal.laneName, snap.primaryLane) } catch (_: Throwable) { false }
+        if (sameLane) sealed.replace(mint, snap, snap.copy(resolvedOrderSizeSol = currentSizeSol))
+        val label = if (sameLane) "EXEC_SNAPSHOT_SIZE_RESEALED_7809" else "EXEC_SNAPSHOT_SIZE_CROSS_LANE_SEAL_IGNORED_7809"
+        try {
+            PipelineHealthCollector.labelInc(label)
+            ForensicLogger.lifecycle(
+                label,
+                "mint=${mint.take(10)} snapLane=${snap.primaryLane} sealLane=${seal.laneName} " +
+                    "snapSize=${"%.4f".format(snap.resolvedOrderSizeSol)} sealSize=${"%.4f".format(seal.sizeSol)} " +
+                    "sealAfterSnapMs=${seal.sealedAtMs - snap.recordedAtMs} action=no_drift_newer_sizing_decision",
+            )
+        } catch (_: Throwable) {}
+        return true
     }
 
     /**

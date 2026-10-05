@@ -13551,6 +13551,26 @@ class Executor(
             if (intent != null) {
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(intent, reason)
                 PipelineHealthCollector.labelInc("LIVE_FAILURE_CANONICAL_TERMINAL_7790")
+                noteLivePreSizeRefusal7809(intent.canonicalLane, intent.attemptId, reason)
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7809 — a live buy refused before its ticket used to leave the lane's
+     * funnel at MARK with no SIZE verdict, printed as a generic SIZING_CHOKED.
+     * The refusal is now named for the funnel, and a LiveRiskPolicy7807 verdict
+     * — the one live size authority — is stamped as the SIZE_REJECT it is, on
+     * the sealed intent's own attempt. Genuine policy refusals are unchanged;
+     * nothing here admits or sizes anything (Field Manual L243 / L468).
+     */
+    private fun noteLivePreSizeRefusal7809(lane: String, attemptId: String, reason: String) {
+        try {
+            ToolkitSignalSheet.recordPreSizeRefusal7809(lane, reason)
+            val sizeAuthorityVerdict = reason == "SIZE_BELOW_MIN_RISK_TOO_WIDE_7807" ||
+                reason == "COST_CONSUMES_MOVE_7807" || reason == "LANE_SLOT_CAP_7807"
+            if (sizeAuthorityVerdict && attemptId.isNotBlank()) {
+                ToolkitSignalSheet.recordDeskStage(lane, "SIZE_REJECT", attemptId)
             }
         } catch (_: Throwable) {}
     }
@@ -13651,6 +13671,10 @@ class Executor(
             true
         } catch (_: Throwable) { false }
     }
+
+    /** V5.0.7809 — precise terminal reason for a 7742 chokepoint abort (Field Manual L123). */
+    private fun chokeReason7809(refusal: String): String =
+        try { com.lifecyclebot.engine.truth.TradePlan7739.chokepointTerminalReason7809(refusal) } catch (_: Throwable) { "CHOKEPOINT_7742" }
 
     /** Final live size, or null when this candidate is passed this tick. Never raises the order. */
     private fun liveRiskPolicyFinalSize7807(
@@ -17684,10 +17708,9 @@ class Executor(
             // §THE_STAMPS_DISAGREED_ABOUT_WHICH_TRADE_THIS_IS note above for why
             // those two can carry different candidateVersions, and why the fix is
             // confined to telemetry.
-            val causalOpenAttempt6886 = sealedIntent6613?.attemptId?.takeIf { it.isNotBlank() }
-                ?: executionAttemptId6514
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", causalOpenAttempt6886)
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "POSITION_OPENED", causalOpenAttempt6886)
+            // V5.0.7809 — the attempt this fill executed (its own ticket) wins
+            // over the lane-blind version lookup; see recordEntryExecOpen7809.
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordEntryExecOpen7809(entryLane6450, executionAttemptId6514, sealedIntent6613?.attemptId)
             // V5.0.6627 §7 OPEN_POSITION_ENTRY_BASIS_INVARIANT — proactive alarm
             // at canonical OPEN transition. Fires OPEN_POSITION_ZERO_ENTRY_PRICE_
             // 6627 if the sealed entry basis is not authoritative, so the source
@@ -18271,8 +18294,13 @@ class Executor(
                 identity = identity,
                 quality = "TREASURY",
                 skipGraduated = true,
-                layerTag = "TREASURY",        // V5.9.386
-                layerTagEmoji = "💰",
+                // V5.0.7809 — the live leg ran every compounder (TREASURY, CASHGEN,
+                // CYCLIC) under the hard-coded "TREASURY" lane while the paper leg
+                // already used the caller's lane: a sealed CASHGEN intent was sized,
+                // floored and slot-counted by TREASURY's LiveRiskPolicy budget. The
+                // caller's canonical lane is the owner (Field Manual L356).
+                layerTag = paperLayerTag,
+                layerTagEmoji = paperLayerEmoji,
                 finalityPrechecked = true, attemptId = preflight.attemptId,
             )
             if (!liveOpened) return false
@@ -20518,7 +20546,7 @@ class Executor(
             } else {
                 terminalizeCanonicalPreLease7789("CHOKEPOINT_7742:${refusal7742.take(80)}")
                 liveStage("LIVE_BUY_ABORTED", "reason=CHOKEPOINT_7742 $refusal7742")
-                try { emitLiveBuyFail(ts, sol, "CHOKEPOINT_7742", refusal7742.take(120)) } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, chokeReason7809(refusal7742), refusal7742) } catch (_: Throwable) {}
                 return false
             }
         }
@@ -23024,9 +23052,9 @@ class Executor(
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
                         com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pidLive6486,
                     )
-                    val liveCausalAttempt6651 = sealedLiveIntent6613?.attemptId ?: pidLive6486
-                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "EXEC", liveCausalAttempt6651)
-                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "POSITION_OPENED", liveCausalAttempt6651)
+                    // V5.0.7809 — EXEC carries the attempt this fill executed
+                    // (attemptId/candidateVersion survive), not a positionId guess.
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordEntryExecOpen7809(liveEntryLane6568, recoveredLiveAttemptId, sealedLiveIntent6613?.attemptId ?: pidLive6486)
                     try { PipelineHealthCollector.labelInc("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pidLive6486, verifyMint, proof.amountRaw)
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
@@ -24574,6 +24602,8 @@ class Executor(
             } catch (_: Throwable) {}
             try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "TINY_PROFIT_DUST") } catch (_: Throwable) {}
             try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_TINY_PROFIT_DUST", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+            // V5.0.7809 — a deferred exit is not yet actionable: no latency stamp (Field Manual L248).
+            com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
             return SellResult.FAILED_RETRYABLE
         }
 
@@ -24596,6 +24626,7 @@ class Executor(
                 } catch (_: Throwable) {}
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "STYLE_MIN_HOLD") } catch (_: Throwable) {}
                 try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_STYLE_MIN_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+                com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
                 return SellResult.FAILED_RETRYABLE
             }
         }
@@ -24614,6 +24645,7 @@ class Executor(
                 } catch (_: Throwable) {}
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "RECONCILER_HEALTHY_HOLD") } catch (_: Throwable) {}
                 try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_RECONCILER_HEALTHY_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+                com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }

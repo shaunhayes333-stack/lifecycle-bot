@@ -48,6 +48,7 @@ object FinalizedBusConsumerBridge6465 {
                     "LEARNING_INELIGIBLE:${env.learningEligibilityReason}",
                 )
                 excluded.incrementAndGet()
+                releaseExcludedBinding7809(consumer, env)
                 PipelineHealthCollector.labelInc("FINALIZED_LEARNING_INELIGIBLE_EXCLUDED_6697")
                 ForensicLogger.lifecycle(
                     "FINALIZED_LEARNING_INELIGIBLE_EXCLUDED_6697",
@@ -75,6 +76,7 @@ object FinalizedBusConsumerBridge6465 {
                             "UNPROVABLE_EXACT_TERMINAL_ECONOMICS_6699",
                         )
                         excluded.incrementAndGet()
+                        releaseExcludedBinding7809(consumer, env)
                         // V5.0.7489 — exclusion is terminal on the canonical bus,
                         // so this pending-log identity is no longer needed after
                         // the exclusion is recorded. Keep the key only during the
@@ -112,6 +114,7 @@ object FinalizedBusConsumerBridge6465 {
             try {
                 CanonicalFinalizedTradeBus6464.exclude(consumer, env.tradeId, reason)
                 excluded.incrementAndGet()
+                releaseExcludedBinding7809(consumer, env)
                 PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_EXCLUDED_NO_MUTATION_6697")
             } catch (_: Throwable) {}
             return false
@@ -339,11 +342,39 @@ object FinalizedBusConsumerBridge6465 {
         true
     } catch (t: Throwable) { threw7154(t) }
 
+    /**
+     * V5.0.7809 — Field Manual L416. A terminal exclusion of a position-bound
+     * learner (inferred basis, quarantine, ineligible paper, unprovable
+     * economics) must also release the entry that learner froze at the
+     * canonical open, or it reads as a pending/missing causal outcome forever.
+     * Nothing is trained; the binding is simply retired.
+     */
+    private fun releaseExcludedBinding7809(consumer: String, env: CanonicalFinalizedTradeBus6464.Envelope) {
+        try {
+            when (consumer) {
+                "AatePolicyReward" -> com.lifecyclebot.engine.UnifiedPolicyHead.releasePosition7809(env.positionId)
+                "StrategyHypothesisEngine" -> com.lifecyclebot.engine.StrategyHypothesisEngine.releasePosition7809(env.positionId)
+                else -> Unit
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.7809 — TacticSwitcher tactics exist only for Solana meme entries. */
+    private val crossAssetTags7809 = setOf("STOCK", "FOREX", "COMMODITY", "METAL", "CRYPTO_ALT", "PERPS")
+
     private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        val band = env.scoreBand.ifBlank { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore) }
-        com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(
-            env.lane, band, env.entryTactic, env.realizedReturnPct,
-        )
+        // V5.0.7809 — cross-asset opens (CanonicalPaperTransaction6486.open) stamp
+        // tactic=lane ("FOREX", "STOCK_SPOT"...): no TacticSwitcher election ever
+        // happened, so the row is not an invalid meme attribution and must not be
+        // counted as TACTIC_ENTRY_ATTRIBUTION_INVALID_6568 (Field Manual L356).
+        if (env.assetClassTag.trim().uppercase() in crossAssetTags7809) {
+            try { PipelineHealthCollector.labelInc("TACTIC_NOT_APPLICABLE_CROSS_ASSET_7809") } catch (_: Throwable) {}
+        } else {
+            val band = env.scoreBand.ifBlank { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore) }
+            com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(
+                env.lane, band, env.entryTactic, env.realizedReturnPct,
+            )
+        }
         true
     } catch (t: Throwable) { threw7154(t) }
 

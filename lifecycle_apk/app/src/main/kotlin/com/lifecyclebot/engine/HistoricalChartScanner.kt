@@ -389,6 +389,13 @@ object HistoricalChartScanner {
      * Fetch history from Birdeye.
      */
     private suspend fun fetchBirdeyeHistory(mint: String): JSONObject? {
+        // V5.0.7809 — no history read on a Birdeye key latched auth-terminal
+        // (Field Manual L404); the budget was charged before a certain 401.
+        val birdeyeDead7809 = try {
+            com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                .isAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+        } catch (_: Throwable) { false }
+        if (birdeyeDead7809) return null
         // V5.9.952 — OHLCV history is a heavy call (~30 CU); gate it strictly
         if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(2)) {
             com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()

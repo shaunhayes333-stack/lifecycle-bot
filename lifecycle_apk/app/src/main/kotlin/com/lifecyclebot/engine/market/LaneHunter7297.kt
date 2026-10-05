@@ -504,6 +504,64 @@ object LaneHunter7297 {
     internal fun claimFor(mint: String, currentMcap: Double): String? =
         claimsFor7803(mint, currentMcap).firstOrNull()
 
+    // V5.0.7809 — hunter claims frozen on the canonical position at OPEN.
+    private val boundClaims7809 = ConcurrentHashMap<String, Claim>()
+    private const val KEY_BOUND_7809 = "bound_claims_7809"
+    private const val MAX_BOUND_7809 = 400
+
+    private fun laneAlias7809(raw: String): String = raw.trim().uppercase()
+        .replace("BLUE_CHIP", "BLUECHIP")
+        .replace("SHITCOIN_EXPRESS", "EXPRESS")
+
+    /**
+     * V5.0.7809 — called at the canonical OPEN (LearningAttributionBinder7809)
+     * with the position's OWNER lane. Only the owner lane's own claim is bound
+     * (TREASURY may own a CASHGEN hunt, the one pairing 7803 already grades);
+     * a contributor lane that also watched the mint is never credited.
+     */
+    fun bindPosition7809(positionId: String, mint: String, ownerLane: String): Boolean {
+        if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
+        if (boundClaims7809.containsKey(positionId)) return true
+        val lane = laneAlias7809(ownerLane)
+        val now = System.currentTimeMillis()
+        val direct = claims[claimKey7803(lane, mint)]
+        val cashgen = if (lane == "TREASURY") claims[claimKey7803("CASHGEN", mint)] else null
+        val c = listOfNotNull(direct, cashgen)
+            .filter { now - it.atMs in 0L..CLAIM_TTL_MS }
+            .maxByOrNull { it.atMs } ?: return false
+        boundClaims7809[positionId] = c
+        if (boundClaims7809.size > MAX_BOUND_7809) {
+            boundClaims7809.entries.sortedBy { it.value.atMs }
+                .take(boundClaims7809.size - MAX_BOUND_7809)
+                .forEach { boundClaims7809.remove(it.key, it.value) }
+        }
+        persistBound7809()
+        try { PipelineHealthCollector.labelInc("LANE_HUNT_7809_POSITION_BOUND_${c.lane}") } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun persistBound7809() {
+        val p = prefs ?: return
+        try {
+            val body = boundClaims7809.entries
+                .filter { !it.key.contains(',') && !it.key.contains(';') }
+                .joinToString(";") { "${it.key},${it.value.lane},${it.value.mcapAtHunt},${it.value.atMs}" }
+            p.edit().putString(KEY_BOUND_7809, body).apply()
+        } catch (_: Throwable) {}
+    }
+
+    private fun restoreBound7809(p: SharedPreferences) {
+        try {
+            p.getString(KEY_BOUND_7809, null)?.split(';')?.forEach { row ->
+                val f = row.split(',')
+                if (f.size != 4 || f[0].isBlank()) return@forEach
+                val mcap = f[2].toDoubleOrNull() ?: return@forEach
+                val at = f[3].toLongOrNull() ?: return@forEach
+                boundClaims7809.putIfAbsent(f[0], Claim(f[1], mcap, at))
+            }
+        } catch (_: Throwable) {}
+    }
+
     fun laneFromSource(source: String?): String? {
         val s = source?.uppercase() ?: return null
         val i = s.indexOf(SOURCE_PREFIX)
@@ -528,6 +586,7 @@ object LaneHunter7297 {
                 }
             }
         }
+        restoreBound7809(p)
         ensureSubscribed()
     }
 
@@ -543,11 +602,20 @@ object LaneHunter7297 {
         if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return
         // V5.0.7803 — grade the exact resident desk+mint that produced the
         // executed lane. Never select another mint merely because its lane matches.
-        val directLane7803 = e.entryLane.uppercase()
+        // V5.0.7809 — the resident book grades the owner lane that held this
+        // candidate at OPEN, exactly once per position (Field Manual L356).
+        try { SpecialistCandidateBooks7803.gradeSettled7809(e.positionId, e.outcome == CanonicalTradeFinalizedBus6450.Outcome.WIN) } catch (_: Throwable) {}
+        // V5.0.7809 — prefer the claim frozen on this position at OPEN. A claim
+        // lives CLAIM_TTL_MS (30 min) and is refreshed only while the mint stays in
+        // the lane's top picks, so by the time a held position settled the claim
+        // had usually expired or been re-stamped at a later mcap — graded=0.
+        val boundClaim7809 = boundClaims7809.remove(e.positionId)
+        if (boundClaim7809 != null) persistBound7809()
+        val directLane7803 = laneAlias7809(e.entryLane)
         val direct7803 = claims[claimKey7803(directLane7803, e.mint)]
         val cashgen7803 = if (directLane7803 == "TREASURY")
             claims[claimKey7803("CASHGEN", e.mint)] else null
-        val c = listOfNotNull(direct7803, cashgen7803).maxByOrNull { it.atMs } ?: return
+        val c = boundClaim7809 ?: listOfNotNull(direct7803, cashgen7803).maxByOrNull { it.atMs } ?: return
         if (e.settledAtMs < c.atMs) return
         val ret = e.returnFraction
         if (!ret.isFinite()) return
@@ -569,5 +637,5 @@ object LaneHunter7297 {
         val graded = stats[p.lane]?.values?.sumOf { it.n } ?: 0
         val fmt = { v: Double -> if (v >= Double.MAX_VALUE / 2) "∞" else if (v >= 1e6) "${"%.1f".format(v / 1e6)}M" else "${(v / 1e3).toInt()}k" }
         "${p.lane}[band=${fmt(lo)}-${fmt(hi)} hunted=${hunted[p.lane] ?: 0} claims=${claims.values.count { it.lane == p.lane }} graded=$graded]"
-    }
+    } + " · boundOpen7809=${boundClaims7809.size} · resident7809[${SpecialistCandidateBooks7803.gradedLine7809()}]"
 }

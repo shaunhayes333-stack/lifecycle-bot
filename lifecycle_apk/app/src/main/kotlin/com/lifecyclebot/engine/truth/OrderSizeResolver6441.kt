@@ -268,6 +268,7 @@ object OrderSizeResolver6441 {
                 com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
                     laneName, "SIZE_REJECT", causalEventId,
                 )
+                com.lifecyclebot.engine.ToolkitSignalSheet.recordPreSizeRefusal7809(laneName, "SIZE_${throughput6758.reason}")  // V5.0.7809
             } catch (_: Throwable) {}
             return blocked6758
         }
@@ -722,6 +723,8 @@ object OrderSizeResolver6441 {
             com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
                 laneName, if (res.executable) "SIZED_EXECUTABLE" else "SIZE_REJECT", causalEventId,
             )
+            // V5.0.7809 — an intent-owned refusal carries its reason to the funnel (Field Manual L468).
+            if (!res.executable) com.lifecyclebot.engine.ToolkitSignalSheet.recordPreSizeRefusal7809(laneName, "SIZE_${res.reason}")
         } catch (_: Throwable) {}
         return res
     }

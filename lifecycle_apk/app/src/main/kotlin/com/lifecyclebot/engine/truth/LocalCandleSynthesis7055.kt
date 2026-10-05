@@ -105,18 +105,26 @@ object LocalCandleSynthesis7055 {
         // candidate reaches ModeRouter with hist.size=1 and can never satisfy
         // the >=8 / >=10 / >=15 archetype thresholds.
         try { if (ts.position.isOpen) return } catch (_: Throwable) {}
+        val now = System.currentTimeMillis()
         try {
             // If the last bar came from a real OHLCV fetch, stand down. The
             // fetched series is richer (it carries volume and buy/sell counts)
             // and DataOrchestrator owns it.
-            val last = ts.history.lastOrNull()
-            if (last != null && last.volume24h > 0.0) {
+            // V5.0.7809 §A_SNAPSHOT_IS_NOT_A_KLINE (Field Manual L190: stale or
+            // dimensionally different data is unknown, not a substitute). The
+            // old test was `last.volume24h > 0`, but every DexScreener scan
+            // snapshot BotService appends (pair.candle) carries the pair's 24h
+            // volume, and so does the pump trade-tape candle that copies it. So
+            // any traded candidate switched this binner off for good, its
+            // history grew one snapshot per scan visit (~40 s), and TradePlan
+            // 7739 waited TOO_FEW_BARS. Stand down only while a real fetched
+            // kline (full OHLC, volume, not synthetic) covers the current minute.
+            if (fetchedKlineCovers7809(ts.history.lastOrNull(), now)) {
                 skippedHasFetched.incrementAndGet()
                 return
             }
         } catch (_: Throwable) {}
 
-        val now = System.currentTimeMillis()
         val start = now - (now % BUCKET_MS)
         ticksBinned.incrementAndGet()
 
@@ -137,6 +145,20 @@ object LocalCandleSynthesis7055 {
         existing.close = priceUsd
         if (mcapUsd.isFinite() && mcapUsd > 0.0) existing.mcap = mcapUsd
         existing.ticks += 1
+    }
+
+    /**
+     * V5.0.7809 — pure: true only when [last] is a fetched OHLCV kline (open,
+     * high and low present, volume present, not a synthetic/tick bar) whose
+     * minute is the current or previous one. A provider snapshot (no open/
+     * high/low) or an old seeded series never silences local bars.
+     */
+    fun fetchedKlineCovers7809(last: Candle?, nowMs: Long): Boolean {
+        if (last == null || last.synthetic) return false
+        val hasVolume = last.volume24h > 0.0 || last.volumeH1 > 0.0
+        val fullOhlc = last.openUsd > 0.0 && last.highUsd > 0.0 && last.lowUsd > 0.0
+        if (!hasVolume || !fullOhlc) return false
+        return last.ts > 0L && nowMs - last.ts < 2L * BUCKET_MS
     }
 
     private fun emit(ts: TokenState, b: Bucket) {

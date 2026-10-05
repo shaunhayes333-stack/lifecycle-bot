@@ -579,6 +579,14 @@ class BirdeyeApi(private val apiKey: String = "") {
     // ── HTTP helper ───────────────────────────────────────────────────
 
     private fun get(url: String): String? {
+        // V5.0.7809 — an auth-terminal key (401/403 latched by the circuit) is
+        // refused before the budget gate charges a call that will never be made
+        // (Field Manual L404). getRaw keeps its own check for direct callers.
+        if (try {
+                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                    .isAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+            } catch (_: Throwable) { false }
+        ) return null
         // V5.9.952 — global budget gate. Every normal BirdeyeApi call routes here.
         if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
             com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()

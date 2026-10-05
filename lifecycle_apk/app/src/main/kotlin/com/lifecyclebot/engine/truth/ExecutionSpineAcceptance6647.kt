@@ -215,6 +215,13 @@ object ExecutionSpineAcceptanceWindow6647 {
         maxStartDelayCycles.set(0L)
     }
 
+    private fun activeModeOpenCount7809(open: List<CanonicalPositionAuthority6441.Position>): Long {
+        val activeMode = try {
+            if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live"
+        } catch (_: Throwable) { return open.size.toLong() }
+        return open.count { it.mode.equals(activeMode, ignoreCase = true) }.toLong()
+    }
+
     /** Returns null while the mandatory window is still warming. */
     fun closeCompletedWindow(nowMs: Long = System.currentTimeMillis()): ExecutionSpineAcceptance6647.Result? {
         val start = baseline
@@ -246,7 +253,13 @@ object ExecutionSpineAcceptanceWindow6647 {
             val heartbeatCount = desks.count { desk ->
                 try { SpecialistRuntimeRegistry6647.snapshot(desk, nowMs).runtimeAlive } catch (_: Throwable) { false }
             }
-            val phantom = (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L)
+            // V5.0.7809 — exact window population (SIZE stamped in [start, end-10s],
+            // still missing a predecessor at close) instead of a gauge delta; the
+            // same 10s in-flight grace the dispatch cardinality uses. Field Manual L328.
+            val phantomUpToMs7809 = (end.atMs - 10_000L).coerceAtLeast(start.atMs)
+            val phantom = try {
+                desks.sumOf { SpecialistCausalFunnel6625.phantomSizedInWindow7809(it, start.atMs, phantomUpToMs7809) }.toLong()
+            } catch (_: Throwable) { (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L) }
             val forensic = try { ForensicReconciliation6635.deltas6647() } catch (_: Throwable) { null }
             // A dispatch begun at the sampling edge may still be legitimately in
             // flight; terminal-cardinality applies after a bounded grace period.
@@ -286,7 +299,12 @@ object ExecutionSpineAcceptanceWindow6647 {
                 maxExitStartDelayCycles = maxStartDelayCycles.get(),
                 exitStart = (end.exitStart - start.exitStart).coerceAtLeast(0L),
                 exitDone = (end.exitDone - start.exitDone).coerceAtLeast(0L),
-                canonicalOpen = canonicalOpenPositions.size.toLong(),
+                // V5.0.7809 — named exclusion INACTIVE_ACCOUNT_MODE_POSITIONS_7809.
+                // Exit management is account-scoped by design (7254:
+                // canonicalExitTokenSnapshot6512 manages only the active mode), so a
+                // retained PAPER row in a LIVE runtime (or vice versa) is never
+                // exit-evaluated and must not demand an exit evaluation here.
+                canonicalOpen = activeModeOpenCount7809(canonicalOpenPositions),
                 exitEvaluations = (end.exitEvaluations - start.exitEvaluations).coerceAtLeast(0L),
                 supervisorForcedLeaseReleases = delta("SUPERVISOR_LEASE_FORCE_RELEASED"),
                 cashDeltaSol = reconciledDelta(forensic?.cashSol),

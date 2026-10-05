@@ -478,10 +478,15 @@ object SpecialistCausalFunnel6625 {
     fun ensureAffinityLineage7464(key: CausalKey, downstreamStage: Stage): Boolean {
         if (key.mint.isBlank() || key.lane.isBlank()) return false
         if (downstreamStage.ordinal < Stage.OWNER.ordinal) return false
-        val laneKey = key.lane.uppercase()
+        // V5.0.7809 — compare canonical lane names on BOTH sides. Scanner/feed
+        // producers write raw aliases (CASH_GEN, BLUE_CHIP, DIP, SNIPER, ...)
+        // while the causal key is canonical, so a provenance-proven intake was
+        // reported NO_DISCOVER. Same proof, same lane — only the spelling is
+        // folded (Field Manual L415: reconcile with what actually happened).
+        val laneKey = CanonicalLaneIdentity6506.canonical(key.lane)
         val affinity = try {
             com.lifecyclebot.engine.GlobalTradeRegistry.getLaneAffinity(key.mint)
-                .map { it.uppercase() }
+                .map { CanonicalLaneIdentity6506.canonical(it) }
                 .toSet()
         } catch (_: Throwable) { emptySet() }
         if (laneKey !in affinity) {
@@ -694,6 +699,32 @@ object SpecialistCausalFunnel6625 {
             phantomSampleIntentId6883 = phantomSample6883,
             rawCounts7086 = rawCounts7086,
         )
+    }
+
+    /**
+     * V5.0.7809 §PHANTOM_WAS_A_GAUGE_DELTA (Field Manual L328 — measure the
+     * thing, not a proxy). ExecutionSpineAcceptance6647 used to subtract two
+     * laneSnapshot6647().phantomSizedOnly gauges. That gauge counts every live
+     * record, so (a) a record SIZED milliseconds before the closing sample whose
+     * MARK/INTENT stamp was still in flight counted as phantom, and (b) TTL
+     * eviction of old phantoms could net out genuinely new ones. This returns
+     * the exact population: records whose executable SIZE stamp landed inside
+     * [fromInclusiveMs, toInclusiveMs] and that still lack DISCOVER, INTENT or
+     * MARK_READY when read. The predicate is identical to laneSnapshot6647's.
+     */
+    fun phantomSizedInWindow7809(lane: String, fromInclusiveMs: Long, toInclusiveMs: Long): Int {
+        var n = 0
+        for (r in laneRecords7480(lane)) {
+            synchronized(r) {
+                val sizedAt = r.stages[Stage.SIZE]
+                val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
+                if (sizedAt != null && executableSize && sizedAt in fromInclusiveMs..toInclusiveMs) {
+                    val markReady = "MARK_READY" in r.outcomes || "MARK" in r.outcomes
+                    if (Stage.DISCOVER !in r.stages || Stage.INTENT !in r.stages || !markReady) n++
+                }
+            }
+        }
+        return n
     }
 
     /** Resolve position/finality telemetry back to the newest keyed record

@@ -330,8 +330,20 @@ object StrategyHypothesisEngine {
             } catch (_: Throwable) { 1.0 }
             try {
                 val cv7428 = candidateVersion
-                pendingByDecision7428[decisionKey7428(mint, cv7428, lane)] =
-                    AppliedDecision7428(ctx, variant, exactVariantId7428)
+                val applied7809 = AppliedDecision7428(ctx, variant, exactVariantId7428)
+                val dk7809 = decisionKey7428(mint, cv7428, lane)
+                // V5.0.7809 — Field Manual L356 (exact ownership). The executor
+                // re-reads getSizeBias with NO strategy identity for the same
+                // mint/version/lane after FDG stamped the exact playbook context.
+                // The identity-free re-read must never overwrite the exact stamp,
+                // or the position binds to the parent lane|band|regime arm.
+                if (strategyIdentity.isBlank()) {
+                    if (pendingByDecision7428.putIfAbsent(dk7809, applied7809) != null) {
+                        PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_STAMP_PRESERVED_7809")
+                    }
+                } else {
+                    pendingByDecision7428[dk7809] = applied7809
+                }
                 PipelineHealthCollector.labelInc("HYPOTHESIS_DECISION_STAMPED_7428")
             } catch (_: Throwable) {}
             (bias * reviewedLabBias * strategyVariantBias4342).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
@@ -444,7 +456,21 @@ object StrategyHypothesisEngine {
     ): String {
         if (positionId.isBlank() || mint.isBlank()) return ""
         return try {
+            // V5.0.7809 — Field Manual L356. Two production callers bind the same
+            // canonical open: AateDecisionFabric6512.attachPosition (inside
+            // CanonicalPositionAuthority6441.openPosition) and then Executor's
+            // EntryStrategySnapshot6450 construction. The second call found the
+            // decision already consumed, counted HYPOTHESIS_POSITION_BIND_MISSING
+            // and stamped entryStrategyVariantId="" into the immutable snapshot —
+            // why exact variant stamping read zero. Binding is idempotent per
+            // positionId: an already-bound position returns its own variant.
+            pendingByPosition7428[positionId]?.let { bound7809 ->
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_ALREADY_BOUND_7809")
+                return bound7809.strategyVariantId
+            }
+            if (settledPositions7428.contains(positionId)) return ""
             val applied = pendingByDecision7428.remove(decisionKey7428(mint, candidateVersion, lane))
+                ?: sameLaneDecisionFallback7809(mint, lane)
             if (applied == null) {
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_MISSING_7428")
                 ""
@@ -461,6 +487,42 @@ object StrategyHypothesisEngine {
                 applied.strategyVariantId
             }
         } catch (_: Throwable) { "" }
+    }
+
+    /**
+     * V5.0.7809 — the sealed intent / paperBuy can carry a candidateVersion one
+     * bucket apart from the FDG evaluation that stamped the decision (see the
+     * Executor 6886 note). Ownership is the lane, not the version bucket: take the
+     * newest decision this SAME owner lane stamped for this mint. Another lane's
+     * stamp is never used — a contributor lane cannot receive the terminal credit.
+     */
+    private fun sameLaneDecisionFallback7809(mint: String, lane: String): AppliedDecision7428? {
+        val prefix = "${mint.trim()}|"
+        val suffix = "|${lane.trim().uppercase()}"
+        val best = pendingByDecision7428.keys
+            .filter { it.startsWith(prefix) && it.endsWith(suffix) }
+            .maxByOrNull { it.removePrefix(prefix).removeSuffix(suffix).toLongOrNull() ?: Long.MIN_VALUE }
+            ?: return null
+        val applied = pendingByDecision7428.remove(best) ?: return null
+        try { PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_SAME_LANE_VERSION_FALLBACK_7809") } catch (_: Throwable) {}
+        return applied
+    }
+
+    /**
+     * V5.0.7809 — a closed position the canonical bus excluded from learning
+     * (inferred basis, quarantine, unprovable economics, paper ineligible) never
+     * reaches recordOutcomeForPosition7428, so its binding stayed pending forever.
+     * Release it WITHOUT training: an untrusted row teaches nothing (Field Manual L416).
+     */
+    fun releasePosition7809(positionId: String) {
+        if (positionId.isBlank()) return
+        try {
+            settledPositions7428.add(positionId)
+            if (pendingByPosition7428.remove(positionId) != null) {
+                PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_RELEASED_UNTRAINABLE_7809")
+                appContext?.let { save(it) }
+            }
+        } catch (_: Throwable) {}
     }
 
     /** Settle only the hypothesis/variant that was bound to this position. */

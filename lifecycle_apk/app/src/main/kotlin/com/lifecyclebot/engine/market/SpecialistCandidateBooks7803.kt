@@ -197,5 +197,49 @@ internal object SpecialistCandidateBooks7803 {
         "$lane[resident=${rows.size} qualified=$qual ready=$ready]"
     }
 
+    // ── V5.0.7809 — resident candidate → canonical outcome (Field Manual L356) ──
+    //
+    // The books produced candidates but nothing ever told a lane how the
+    // positions it owned settled. At the canonical OPEN the OWNER lane's resident
+    // entry (if that lane really held the mint) is frozen against the positionId;
+    // the clean finalized close (LaneHunter7297.onSettled, after
+    // CanonicalTradeFinalizedBus6450.isCleanForLearning7807) grades that lane
+    // exactly once. Other lanes that also watched the mint are not credited.
+    private class Graded7809 {
+        val n = java.util.concurrent.atomic.AtomicLong(0L)
+        val wins = java.util.concurrent.atomic.AtomicLong(0L)
+    }
+
+    private val boundOwner7809 = ConcurrentHashMap<String, String>()
+    private val graded7809 = ConcurrentHashMap<String, Graded7809>()
+    private const val MAX_BOUND_7809 = 400
+
+    internal fun bindPosition7809(positionId: String, mint: String, ownerLane: String): Boolean {
+        if (positionId.isBlank() || mint.isBlank()) return false
+        val lane = canonicalLane(ownerLane)
+        if (lane !in LANES) return false
+        books[lane]?.get(mint) ?: return false
+        boundOwner7809.putIfAbsent(positionId, lane)
+        if (boundOwner7809.size > MAX_BOUND_7809) {
+            boundOwner7809.keys.firstOrNull { it != positionId }?.let { boundOwner7809.remove(it) }
+        }
+        try { PipelineHealthCollector.labelInc("SPECIALIST_RESIDENT_POSITION_BOUND_7809_$lane") } catch (_: Throwable) {}
+        return true
+    }
+
+    internal fun gradeSettled7809(positionId: String, win: Boolean) {
+        val lane = boundOwner7809.remove(positionId) ?: return
+        val g = graded7809.getOrPut(lane) { Graded7809() }
+        g.n.incrementAndGet()
+        if (win) g.wins.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("SPECIALIST_RESIDENT_GRADED_7809_$lane") } catch (_: Throwable) {}
+    }
+
+    internal fun gradedLine7809(): String =
+        "boundOpen=${boundOwner7809.size} " + LANES.joinToString(" ") { lane ->
+            val g = graded7809[lane]
+            "$lane=${g?.n?.get() ?: 0}/${g?.wins?.get() ?: 0}W"
+        }
+
     internal fun resetForTests() = books.values.forEach { it.clear() }
 }

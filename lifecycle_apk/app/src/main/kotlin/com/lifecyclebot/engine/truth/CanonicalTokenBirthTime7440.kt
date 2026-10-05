@@ -82,9 +82,47 @@ object CanonicalTokenBirthTime7440 {
      * never fresh. Field Manual §4: an early entry needs a known start.
      */
     fun launchAgeMs7767(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =
-        resolvedAgeMs(ts, nowMs) ?: try {
+        rememberedLaunchAge7809(ts.mint, nowMs, resolvedAgeMs(ts, nowMs) ?: try {
             FreshLaunchSelector7737.unresolvedLaunchAgeMs7738(ts.source, ts.addedToWatchlistAt, ts.lastMcap, nowMs)
-        } catch (_: Throwable) { null }
+        } catch (_: Throwable) { null })
+
+    /**
+     * V5.0.7809 §BIRTH_EVIDENCE_SURVIVES_HANDOFF. 5.0.7808 live refused sniper
+     * buys as LIVE_SNIPER_NOT_A_LAUNCH_7385 (LAUNCH_AGE_UNKNOWN) on mints the
+     * coordinator had just classified as launches: the watchlist-age fallback
+     * reads mutable TokenState fields (source, watchlist insertion time) that a
+     * canonical handoff / new candidate version rewrites, so the same mint read
+     * "unknown" one step later. A birth is immutable: once any evidence yields
+     * one, it is remembered per mint and every later read uses the EARLIEST
+     * birth seen (the oldest age, never younger than any evidence — Field
+     * Manual §4 / L153). A genuinely old or unknown mint is unchanged: no
+     * evidence, no memory, still refused.
+     */
+    private val birthMemory7809 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val BIRTH_MEMORY_CAP_7809 = 8_192
+
+    private fun rememberedLaunchAge7809(mint: String, nowMs: Long, observedAgeMs: Long?): Long? {
+        val m = mint.trim()
+        if (m.isBlank()) return observedAgeMs
+        val observedBirth = observedAgeMs?.takeIf { it >= 0L }?.let { nowMs - it }
+        val prior = birthMemory7809[m]
+        val birth = when {
+            observedBirth != null && prior != null -> minOf(observedBirth, prior)
+            else -> observedBirth ?: prior
+        } ?: return observedAgeMs
+        if (prior == null || birth < prior) {
+            if (birthMemory7809.size >= BIRTH_MEMORY_CAP_7809) {
+                val cutoff = nowMs - 24L * 60L * 60_000L
+                birthMemory7809.entries.removeIf { it.value < cutoff }
+                if (birthMemory7809.size >= BIRTH_MEMORY_CAP_7809) birthMemory7809.clear()
+            }
+            birthMemory7809[m] = birth
+        }
+        if (observedAgeMs == null) {
+            try { PipelineHealthCollector.labelInc("LAUNCH_BIRTH_FROM_MEMORY_7809") } catch (_: Throwable) {}
+        }
+        return (nowMs - birth).coerceAtLeast(0L)
+    }
 
     fun resolvedAgeMinutes(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? =
         resolvedAgeMs(ts, nowMs)?.div(60_000.0)

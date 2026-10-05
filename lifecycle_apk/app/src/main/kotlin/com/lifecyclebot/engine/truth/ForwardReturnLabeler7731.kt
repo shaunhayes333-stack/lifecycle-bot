@@ -472,6 +472,38 @@ object ForwardReturnLabeler7731 {
         return if (nowMs - off.second <= MARK_MAX_AGE_MS_7731) off.first else null
     }
 
+    /**
+     * V5.0.7809 §THE_OLDEST_DEAD_MINTS_HELD_THE_BATCH. Off-watch marks are
+     * fetched fifty at a time, oldest due observation first. A mint Jupiter and
+     * the curve no longer price stays due (and oldest) until its 70-minute
+     * lost-mark deadline, so once fifty dead mints sat at the head every batch
+     * re-asked for exactly those fifty and no younger observation was ever
+     * priced: large pending/observed, booked15/60/240 near zero. A mint just
+     * asked for waits [OFFWATCH_RETRY_MS_7809] before it is asked again, so the
+     * batch rotates through every due observation.
+     */
+    private const val OFFWATCH_RETRY_MS_7809 = 90_000L
+    private const val HORIZON_GRACE_MS_7809 = LOST_GRACE_MS_7731
+    private val offWatchAttemptAt7809 = ConcurrentHashMap<String, Long>()
+    private val offWatchDeferred7809 = AtomicLong(0)
+    private val horizonMissed7809 = AtomicLong(0)
+
+    /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
+    fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
+        ageMs >= horizonMs && ageMs <= horizonMs + HORIZON_GRACE_MS_7809
+
+    private fun rotateDue7809(due: List<String>, nowMs: Long): List<String> {
+        if (offWatchAttemptAt7809.size > MAX_SEEN_7731) {
+            offWatchAttemptAt7809.entries.removeIf { nowMs - it.value > OFFWATCH_RETRY_MS_7809 }
+        }
+        val (recent, ready) = due.distinct().partition { m ->
+            val at = offWatchAttemptAt7809[m]
+            at != null && nowMs - at in 0L until OFFWATCH_RETRY_MS_7809
+        }
+        if (recent.isNotEmpty()) offWatchDeferred7809.addAndGet(recent.size.toLong())
+        return ready
+    }
+
     /** V5.0.7737 — true when [o] has reached a horizon it has not booked yet. */
     private fun dueAtHorizon7737(o: Obs, age: Long): Boolean =
         (!o.done15 && age >= H15_MS_7731) || (!o.done60 && age >= H60_MS_7731) || (!o.done240 && age >= H240_MS_7731)
@@ -482,6 +514,7 @@ object ForwardReturnLabeler7731 {
         if (!offWatchInFlight7737.compareAndSet(false, true)) return
         offWatchLastFetchMs7737 = nowMs
         val batch = due.distinct().take(OFFWATCH_BATCH_7737)
+        for (m in batch) offWatchAttemptAt7809[m] = nowMs
         try {
             Thread({
                 try {
@@ -544,7 +577,16 @@ object ForwardReturnLabeler7731 {
             val gross = (px / o.entryPrice - 1.0) * 100.0
             if (gross > o.peakPct) o.peakPct = gross
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
-            if (!o.done15 && age >= H15_MS_7731) { o.done15 = true; book(o, 15, net, gross) }
+            // V5.0.7809 — a horizon label is booked only from a mark inside its own
+            // window (Field Manual L357): a 15-minute label first priced at minute 70
+            // used to book the 70-minute move into the 15-minute cohort.
+            if (!o.done15 && age >= H15_MS_7731) { o.done15 = true; if (horizonOpen7809(age, H15_MS_7731)) book(o, 15, net, gross) else horizonMissed7809.incrementAndGet() }
+            if (!o.done60 && age >= H60_MS_7731 && !horizonOpen7809(age, H60_MS_7731)) {
+                // Restored after its 60-minute window closed: the same LOST_MARK the unpriced path books.
+                markLost(o)
+                pending.remove(key, o)
+                continue
+            }
             if (!o.done60 && age >= H60_MS_7731) {
                 o.done60 = true
                 book(o, 60, net, gross)
@@ -554,11 +596,11 @@ object ForwardReturnLabeler7731 {
             }
             if (!o.done240 && age >= H240_MS_7731) {
                 o.done240 = true
-                book(o, 240, net, gross)
+                if (horizonOpen7809(age, H240_MS_7731)) book(o, 240, net, gross) else horizonMissed7809.incrementAndGet()
                 pending.remove(key, o)
             }
         }
-        val due7737 = dueUnpriced7737.sortedBy { it.second }.map { it.first } + freshUnpriced7737
+        val due7737 = rotateDue7809(dueUnpriced7737.sortedBy { it.second }.map { it.first } + freshUnpriced7737, nowMs)
         if (due7737.isNotEmpty()) fetchOffWatchMarks7737(due7737, nowMs)
     }
 
@@ -605,7 +647,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()}] basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +

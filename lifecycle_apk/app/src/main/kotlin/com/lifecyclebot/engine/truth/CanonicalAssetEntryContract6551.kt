@@ -59,6 +59,7 @@ sealed class CanonicalAssetEntryResult6551 {
 object CanonicalEntryAuthority6551 {
     private const val PENDING_TTL_MS_6554 = 2 * 60 * 1000L
     private const val DISPATCHED_TTL_MS_7313 = 10 * 60 * 1000L
+    private const val IN_FLIGHT_CONFIRM_BUDGET_MS_7809 = 60_000L
     private val pending = ConcurrentHashMap<String, ExecutableOpenGate.ExecutionIntent>()
     private val dispatchedAttempts6569 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val immutableIntentAttempts6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -474,6 +475,10 @@ object CanonicalEntryAuthority6551 {
         }
     }
 
+    /** V5.0.7809 — true only for an attempt this authority dispatched that has no terminal yet. */
+    internal fun isDispatchedNonTerminal7809(attemptId: String): Boolean =
+        attemptId in dispatchedAttempts6569 && !terminalByAttempt6647.containsKey(attemptId)
+
     fun markConfirmed(intent: ExecutableOpenGate.ExecutionIntent, positionId: String) {
         if (terminalByAttempt6647.putIfAbsent(intent.attemptId, "CONFIRMED:$positionId") != null) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_DUPLICATE_TERMINAL_SUPPRESSED_6647") } catch (_: Throwable) {}
@@ -531,8 +536,21 @@ object CanonicalEntryAuthority6551 {
      * just before the boundary cannot be miscounted as a terminal-only event in
      * the following window. */
     fun cardinalityForWindow6647(fromInclusiveMs: Long, toInclusiveMs: Long): CardinalitySnapshot6647 {
+        // V5.0.7809 — named exclusion LIVE_DISPATCH_IN_FLIGHT_WITHIN_CONFIRM_BUDGET_7809:
+        // a LIVE attempt that is dispatched, still pending and non-terminal, and was
+        // dispatched less than IN_FLIGHT_CONFIRM_BUDGET_MS_7809 ago is a swap awaiting
+        // wallet proof (the 7803 contract's valid intermediate state), not a missing
+        // terminal. Older in-flight attempts and every PAPER attempt (paper dispatch
+        // and confirm share one lock) still count. Field Manual L238.
+        val nowMs7809 = System.currentTimeMillis()
+        val livePendingAttempts7809 = pending.values.asSequence()
+            .filter { it.mode.equals("LIVE", true) }.map { it.attemptId }.toSet()
         val attempts = dispatchedAtMs6647.entries.asSequence()
             .filter { (_, atMs) -> atMs in fromInclusiveMs..toInclusiveMs }
+            .filterNot { (attemptId, atMs) ->
+                attemptId in livePendingAttempts7809 && isDispatchedNonTerminal7809(attemptId) &&
+                    nowMs7809 - atMs < IN_FLIGHT_CONFIRM_BUDGET_MS_7809
+            }
             .map { it.key }
             .toList()
         return CardinalitySnapshot6647(

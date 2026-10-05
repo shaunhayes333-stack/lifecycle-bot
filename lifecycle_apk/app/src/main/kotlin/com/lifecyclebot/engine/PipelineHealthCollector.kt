@@ -1283,6 +1283,62 @@ object PipelineHealthCollector {
      *   - Interpretation cheat-sheet
      */
     /**
+     * V5.0.7213 §WHAT_IS_HELD_VS_WHAT_IS_PROTECTED, moved out of dumpText by
+     * V5.0.7809 (dumpText is pinned) and corrected: exit scope is the
+     * protective exit scope (OPEN rows + funded LIVE quarantines), and the
+     * quarantine count is split FUNDED vs UNFUNDED. 5.0.7808 printed
+     * quarantinedOutOfScope=17 over every quarantined row of every mode
+     * (paper, journal replay, proven-zero, dust), which read as 17 unprotected
+     * holdings. Only a funded row outside the scope is unprotected inventory,
+     * and that number is now printed on its own (must be 0). Field Manual L39, L407.
+     */
+    private fun appendExitCoverage7809(sb: StringBuilder) {
+        try {
+            val cpa = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+            val exitScope7213 = cpa.openPositions().size
+            val protectiveScope7809 = cpa.protectiveExitScope7809().size
+            val lc7213 = cpa.classifyLifecycles()
+            val lifecycleOpen7213 =
+                (lc7213.byLifecycle[com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN] ?: 0) +
+                    (lc7213.byLifecycle[com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED] ?: 0)
+            val drainedOpen7213 = (lifecycleOpen7213 - exitScope7213).coerceAtLeast(0)
+            val q7809 = cpa.quarantineAudit7809()
+            sb.append("  Exit coverage (§7213):        ")
+                .append("exitScope=").append(protectiveScope7809)
+                .append(" openRows=").append(exitScope7213)
+                .append(" lifecycleOpen=").append(lifecycleOpen7213)
+                .append(" drainedOpenOutOfScope=").append(drainedOpen7213)
+                .append(" quarantinedOutOfScope=").append(q7809.fundedOutsideExitScope)
+                .append(" ledgerTotal=").append(lc7213.total)
+                .append("\n")
+            sb.append("  Quarantine audit (§7809):     ")
+                .append("quarantined=").append(q7809.total)
+                .append(" fundedLive=").append(q7809.funded)
+                .append(" fundedOutsideExitScope=").append(q7809.fundedOutsideExitScope)
+                .append(" unfunded=").append(q7809.unfunded)
+                .append(" unfundedByKind=").append(q7809.unfundedByKind.entries.joinToString(",") { "${it.key}:${it.value}" })
+                .append("\n")
+            sb.append("  Exit hot path (§7809):        ")
+                .append(com.lifecyclebot.engine.sell.ExitHotPath7809.statusLine())
+                .append("\n")
+            val unprotected7213 = drainedOpen7213 + q7809.fundedOutsideExitScope
+            if (unprotected7213 > 0) {
+                labelInc("PROTECTIVE_EXIT_HOLDINGS_OUTSIDE_EXIT_SCOPE_7213")
+                sb.append("     ⚠️  $unprotected7213 ledger row(s) are inventory the protective exit\n")
+                sb.append("         engine cannot reach: drained-open rows carry no quantity to sell\n")
+                sb.append("         and a FUNDED quarantine outside the protective exit scope cannot\n")
+                sb.append("         latch a stop.\n")
+            }
+            if (protectiveScope7809 == 0 && lc7213.total > 0) {
+                labelInc("PROTECTIVE_EXIT_SCOPE_EMPTY_WITH_LEDGER_ROWS_7213")
+                sb.append("     ⚠️  exitScope=0 against ${lc7213.total} ledger row(s): the exit engine\n")
+                sb.append("         has NOTHING to evaluate. Read the scheduler's emptyInvTicks, not\n")
+                sb.append("         its starvations, and check admission (§6636 basis invariant).\n")
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
      * V5.0.6306 — paste-safe snapshot alias for the Copy button. Same body as
      * dumpText() (delegated below) but the distinct name lets the GoldenTape
      * regression guard specifically block direct `dumpText()` calls from UI
@@ -3060,44 +3116,7 @@ object PipelineHealthCollector {
             // the operator's "displaying dead frozen tokens ... trading like
             // utter shit or not at fucking all", and it must never again be
             // reported only as a scheduler heartbeat.
-            try {
-                val exitScope7213 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-                    .openPositions().size
-                val lc7213 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-                    .classifyLifecycles()
-                val quarantined7213 = lc7213.byLifecycle[
-                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED
-                ] ?: 0
-                val lifecycleOpen7213 =
-                    (lc7213.byLifecycle[
-                        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN
-                    ] ?: 0) +
-                        (lc7213.byLifecycle[
-                            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED
-                        ] ?: 0)
-                val drainedOpen7213 = (lifecycleOpen7213 - exitScope7213).coerceAtLeast(0)
-                sb.append("  Exit coverage (§7213):        ")
-                    .append("exitScope=").append(exitScope7213)
-                    .append(" lifecycleOpen=").append(lifecycleOpen7213)
-                    .append(" drainedOpenOutOfScope=").append(drainedOpen7213)
-                    .append(" quarantinedOutOfScope=").append(quarantined7213)
-                    .append(" ledgerTotal=").append(lc7213.total)
-                    .append("\n")
-                val unprotected7213 = drainedOpen7213 + quarantined7213
-                if (unprotected7213 > 0) {
-                    labelInc("PROTECTIVE_EXIT_HOLDINGS_OUTSIDE_EXIT_SCOPE_7213")
-                    sb.append("     ⚠️  $unprotected7213 ledger row(s) are inventory the protective exit\n")
-                    sb.append("         engine cannot reach: drained-open rows carry no quantity to sell\n")
-                    sb.append("         and QUARANTINED rows are excluded from openPositions() by\n")
-                    sb.append("         construction. Neither can latch a stop.\n")
-                }
-                if (exitScope7213 == 0 && lc7213.total > 0) {
-                    labelInc("PROTECTIVE_EXIT_SCOPE_EMPTY_WITH_LEDGER_ROWS_7213")
-                    sb.append("     ⚠️  exitScope=0 against ${lc7213.total} ledger row(s): the exit engine\n")
-                    sb.append("         has NOTHING to evaluate. Read the scheduler's emptyInvTicks, not\n")
-                    sb.append("         its starvations, and check admission (§6636 basis invariant).\n")
-                }
-            } catch (_: Throwable) {}
+            appendExitCoverage7809(sb)
             // V5.0.7264 — how long the full exit sweep actually takes. Five
             // sweeps in seventeen minutes on 7263; eight prior repairs argued
             // about liveness without this number.

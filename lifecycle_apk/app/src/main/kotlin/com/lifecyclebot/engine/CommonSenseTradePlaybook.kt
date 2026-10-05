@@ -358,7 +358,14 @@ object CommonSenseTradePlaybook {
         val style = styleRaw.ifBlank { lane }
         val score = scoreRaw.coerceIn(0.0, 100.0)
         val priceKnown = ts.lastPrice.isFinite() && ts.lastPrice > 0.0
-        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
+        // V5.0.7809 — a zero/unstamped TokenState liquidity is a missing input,
+        // not an illiquid pool: fall back to the executable token-map reserves,
+        // the same observed liquidity LiveRiskPolicy7807 and the entry snapshot
+        // (7382) price against, so the R:R verdict is not taken on a default 0
+        // (Field Manual L119 / L215: impact and cost at the actual pool).
+        val observedLiq7809: Double = try { TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
+        val liq = if (observedLiq7809.isFinite() && observedLiq7809 > 0.0) observedLiq7809
+            else (ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0)
         val liquidityKnown = liq > 0.0
         val tokenMap = try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) { ts.tokenMap }
         val liqVerdict = try { TokenMapAuthority.liquidityVerdict(ts) } catch (_: Throwable) { null }

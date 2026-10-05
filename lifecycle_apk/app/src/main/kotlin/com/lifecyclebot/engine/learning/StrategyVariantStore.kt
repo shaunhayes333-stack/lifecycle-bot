@@ -109,10 +109,33 @@ object StrategyVariantStore {
     /** The active variant for a lane (highest-expectancy ACTIVE / PROMOTED). */
     @Synchronized
     fun activeFor(lane: String): Variant? {
-        val ids = variantsByLane[lane.uppercase()] ?: return null
+        val ids = variantsByLane[lane.uppercase()] ?: seedExecutionLane7809(lane) ?: return null
         return ids.mapNotNull { variants[it] }
             .filter { it.state == State.ACTIVE || it.state == State.PROMOTED }
             .maxByOrNull { it.expectancy() }
+    }
+
+    /**
+     * V5.0.7809 — only seven lanes were ever seeded, so every EXPRESS / CORE /
+     * CYCLIC / DIP_HUNTER / PROJECT_SNIPER / CASHGEN / STANDARD decision got
+     * activeFor()=null and StrategyHypothesisEngine stamped no exact variant
+     * (STRATEGY_VARIANT_EXACT_STAMPED stayed zero for most of the book). A known
+     * execution lane now gets a neutral baseline the first time it asks: n=0,
+     * expectancy 0, so its size bias is exactly 1.0 — identity only, no behaviour
+     * change until its own closes accrue (Field Manual L356).
+     */
+    private val executionLanes7809 = setOf(
+        "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE", "MOONSHOT",
+        "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN", "STANDARD", "MEME",
+    )
+
+    private fun seedExecutionLane7809(lane: String): MutableList<String>? {
+        val key = lane.trim().uppercase()
+        if (key !in executionLanes7809) return null
+        val template = variants["UNKNOWN_BASELINE"]?.policy ?: return null
+        seed(key, template)
+        try { PipelineHealthCollector.labelInc("STRATEGY_VARIANT_LANE_BASELINE_SEEDED_7809|$key") } catch (_: Throwable) {}
+        return variantsByLane[key]
     }
 
     /** All variants for a lane (for UI / hypothesis engine introspection). */

@@ -42,7 +42,8 @@ object NarrativeDetector {
     private val MODEL = GroqRouteConfig6498.PRIMARY_MODEL
 
     // Cache: mint → (result, timestamp)
-    private val cache = mutableMapOf<String, Pair<NarrativeResult, Long>>()
+    // V5.0.7809 — concurrent: the Groq answer is now written from a worker thread.
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<NarrativeResult, Long>>()
     private val CACHE_TTL_MS = 10 * 60_000L  // 10 min cache
 
     data class NarrativeResult(
@@ -89,15 +90,58 @@ object NarrativeDetector {
             .joinToString("\n") { it.take(100) }
             .take(600)
 
-        val result = callGroq(symbol, name, mintAddress, description, socialText, groqApiKey)
-            ?: fallbackAnalysis(symbol, name, description)
+        // V5.0.7809 §NO_LIVE_ENTRY_WAITS_ON_AN_LLM. FinalDecisionGate calls this
+        // on the live entry path, and the Groq read below has a 30 s read
+        // timeout: a slow model held the entry decision for its whole reply.
+        // The LLM read now runs off-thread (single-flight per mint); until its
+        // answer is cached the deterministic pattern analysis stands, exactly as
+        // it already does when Groq is unhealthy. Field Manual L240 (latency
+        // creates adverse selection) and the operator rule: no live entry/exit
+        // depends synchronously on an LLM.
+        scheduleGroq7809(symbol, name, mintAddress, description, socialText, groqApiKey)
+        return fallbackAnalysis(symbol, name, description)
+    }
 
-        cache[mintAddress] = result to System.currentTimeMillis()
-        
-        ErrorLogger.info("NarrativeAI", 
-            "🔍 $symbol: adj=${result.confidenceAdjustment} risk=${result.riskLevel} | ${result.reasoning.take(60)}")
-        
-        return result
+    private val groqInFlight7809: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    private val groqWorker7809: java.util.concurrent.ThreadPoolExecutor by lazy {
+        java.util.concurrent.ThreadPoolExecutor(
+            1, 1, 30L, TimeUnit.SECONDS,
+            java.util.concurrent.ArrayBlockingQueue<Runnable>(32),
+            { r -> Thread(r, "narrative-groq-7809").apply { isDaemon = true } },
+            java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+        )
+    }
+
+    private fun scheduleGroq7809(
+        symbol: String,
+        name: String,
+        mintAddress: String,
+        description: String,
+        socialText: String,
+        groqApiKey: String,
+    ) {
+        if (!groqInFlight7809.add(mintAddress)) return
+        try {
+            groqWorker7809.execute {
+                try {
+                    val result = callGroq(symbol, name, mintAddress, description, socialText, groqApiKey)
+                    if (result != null) {
+                        cache[mintAddress] = result to System.currentTimeMillis()
+                        ErrorLogger.info("NarrativeAI",
+                            "🔍 $symbol: adj=${result.confidenceAdjustment} risk=${result.riskLevel} | ${result.reasoning.take(60)}")
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    groqInFlight7809.remove(mintAddress)
+                }
+            }
+            try { PipelineHealthCollector.labelInc("NARRATIVE_GROQ_ASYNC_SCHEDULED_7809") } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+            // Queue full: shed, release the gate; the next evaluation asks again.
+            groqInFlight7809.remove(mintAddress)
+            try { PipelineHealthCollector.labelInc("NARRATIVE_GROQ_ASYNC_SHED_7809") } catch (_: Throwable) {}
+        }
     }
 
     private fun callGroq(

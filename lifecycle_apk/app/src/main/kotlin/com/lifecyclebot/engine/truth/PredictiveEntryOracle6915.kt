@@ -934,7 +934,14 @@ object PredictiveEntryOracle6915 {
             }
             OracleTradeHistory7287.bookForMode7402(liveMode7402)?.let { h ->
                 if (h.n.toDouble() > (globalLevel?.n ?: 0.0)) {
-                    globalLevel = Level(if (liveMode7402) "globalLive" else "globalPaper",
+                    // V5.0.7809 — Field Manual L356. 7402 named this book-wide level
+                    // "globalLive"/"globalPaper", so the 7174 and 7329 filters
+                    // (it.name != "global") counted the WHOLE BOOK as candidate-
+                    // specific evidence: one losing book authorised
+                    // NEGATIVE_EXPECTANCY_WITH_EVIDENCE for every candidate in every
+                    // lane — the all-REFUSE degenerate oracle. It is global; the
+                    // mode stays visible in the bookHist contribution tag.
+                    globalLevel = Level("global",
                         h.meanNetPct, h.winRate.coerceIn(0.0, 1.0), h.n.toDouble())
                     contributions += (if (liveMode7402) "bookHistLIVE" else "bookHistPAPER") +
                         "(n=${h.n},E=${"%+.1f".format(h.meanNetPct)})"
@@ -1116,7 +1123,6 @@ object PredictiveEntryOracle6915 {
                     world7634, critic7635, memory7638, deliberation7646, existing7650,
                 )
                 contributions += tree7638.contributionTag()
-            try { PipelineHealthCollector.labelInc("SUPER_IMAGINATION_TREE_SEARCH_7643") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("SUPER_IMAGINATION_TREE_SEARCH_7643") } catch (_: Throwable) {}
                 val arbiter7639 = com.lifecyclebot.engine.SuperReasoningArbiter7639.arbitrate(
                     world7634, critic7635, memory7638, tree7638,

@@ -14877,4 +14877,14 @@ class GoldenTapeRegressionTest {
         org.junit.Assert.assertFalse(g.contains("ProviderEvidence7807"))
         org.junit.Assert.assertTrue(g.contains("blockReason = \"HARD_BLOCK_ZERO_LIQUIDITY\""))
     }
+
+    @org.junit.Test fun oversizedMethodVerifierBudgetIsARequiredGate7809() {
+        // 5.0.7807 VerifyError: one call added inside FinalDecisionGate.evaluate crashed boot.
+        val wf = java.io.File("../../.github/workflows/build.yml").readText()
+        org.junit.Assert.assertTrue(wf.contains("python3 ci/oversized_method_budget_7809.py"))
+        val base = java.io.File("../ci/oversized_method_budget_7809.json").readText()
+        org.junit.Assert.assertTrue(base.contains("FinalDecisionGate.kt::evaluate#0"))
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        org.junit.Assert.assertTrue(g.contains("baseEntrySignal7243 !in setOf(\"BUY\", \"EXECUTE\") && effectiveEntryScore7292 < waitFloor7266"))
+    }
 }

@@ -1100,8 +1100,13 @@ object ToolkitSignalSheet {
         // finality. If it does not exist (legacy/restored/evicted entry), keep
         // the terminal event forensic-only instead of poisoning the generic
         // entry-lineage unresolved counter.
+        // V5.0.7809 — EXIT_TRIGGER is a position event too: its required
+        // predecessor is the OPEN record, not the newest scanner record for the
+        // mint (latestCandidateVersion6647 picked a newer, never-opened
+        // candidate and counted EXIT there, or dropped it as an unresolved id
+        // when no record/version existed for a restored position).
         val terminalPositionStage7683 =
-            positionEvent6647 && stage in setOf("SELL_ATTEMPT", "SELL_CONFIRMED", "FINALIZED")
+            positionEvent6647 && stage in setOf("SELL_ATTEMPT", "SELL_CONFIRMED", "FINALIZED", "EXIT_TRIGGER")
         val terminalOpenKey7683 = if (terminalPositionStage7683 && mint.isNotBlank()) try {
             com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625
                 .latestUnfinalizedOpenKey6713(mint, lane)
@@ -1122,32 +1127,51 @@ object ToolkitSignalSheet {
             positionEvent6647 -> parts6647[0].uppercase()
             else -> try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "PAPER" }
         }
+        // V5.0.7809 §THE_ATTEMPT_OWNS_ITS_VERSION — resolution order is now
+        //   1. the attempt's OWN immutable ticket (executionTickets[attemptId]),
+        //   2. the ticket lineage bound when TICKET was stamped on this attempt
+        //      (survives terminalize/expiry; any stage, not only EXEC/OPEN),
+        //   3. the exact-version active intent, then the newest SAME-LANE intent.
+        // Before, (3) ran first and its any-version fallback picked the newest
+        // intent across ALL lanes before filtering by lane, so a newer version
+        // sealed by another specialist (or a re-sealed newer version of this
+        // lane) pulled SIZE/TICKET/EXEC of one attempt onto different records:
+        // SHITCOIN raw TICKET suppressed (TICKET_CHOKED), MOONSHOT/MANIPULATED
+        // EXEC orphaned (EXEC_CHOKED). Every source is a real sealed object for
+        // this exact mint/mode/lane — nothing is inferred (Field Manual L337:
+        // one stamped evidence snapshot per candidate, shared by every stage).
         val sealedIntent7471 = if (mint.isNotBlank()) try {
-            val exact = if (parsedCandidateVersion7471 > 0L)
-                ExecutableOpenGate.activeExecutionIntent6519(resolvedMode7471, mint, parsedCandidateVersion7471)
-            else null
-            (exact ?: ExecutableOpenGate.activeExecutionIntent6519(resolvedMode7471, mint, 0L))
-                ?.takeIf { intent ->
-                    com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent.canonicalLane) ==
-                        com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+            val canonicalLane7809 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+            fun sameAttemptScope7809(candidate7809: ExecutableOpenGate.ExecutionIntent?): ExecutableOpenGate.ExecutionIntent? =
+                candidate7809?.takeIf { intent ->
+                    intent.mint == mint && intent.mode.equals(resolvedMode7471, true) &&
+                        com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent.canonicalLane) == canonicalLane7809
                 }
+            val ownTicket7809 = if (attemptId.isNotBlank()) sameAttemptScope7809(ExecutableOpenGate.ticketForAttempt(attemptId)) else null
+            val exact = if (ownTicket7809 == null && parsedCandidateVersion7471 > 0L)
+                sameAttemptScope7809(ExecutableOpenGate.activeExecutionIntent6519(resolvedMode7471, mint, parsedCandidateVersion7471))
+            else null
+            ownTicket7809 ?: exact ?: ExecutableOpenGate.activeExecutionIntentForLane7809(resolvedMode7471, mint, canonicalLane7809)
         } catch (_: Throwable) { null } else null
-        // V5.0.7807 — EXEC/OPEN on an attemptId a real ticket was stamped on
-        // keep that ticket's sealed version when the intent is no longer active.
-        val boundLineage7807 = if (sealedIntent7471 == null) {
-            boundTicketLineage7807(attemptId, stage)?.takeIf { it.lane == lane && it.mode.equals(resolvedMode7471, true) }
+        // V5.0.7807/7809 — a stage on an attemptId a real ticket was stamped on
+        // keeps that ticket's sealed version even when the intent is gone or a
+        // newer same-lane intent exists. Not used when (1) already resolved the
+        // attempt's own ticket.
+        val boundLineage7807 = if (sealedIntent7471?.attemptId != attemptId) {
+            attemptTicketLineage7809(attemptId)?.takeIf { it.lane == lane && it.mode.equals(resolvedMode7471, true) }
         } else null
-        // boundLineage7807 is non-null only when sealedIntent7471 is null.
         val candidateVersion6647 = if (boundLineage7807 != null) boundLineage7807.candidateVersion
             else sealedIntent7471?.candidateVersion ?: parsedCandidateVersion7471
-        if (stage == "TICKET" && sealedIntent7471 != null) {
+        if (stage == "TICKET" && sealedIntent7471 != null && boundLineage7807 == null) {
             bindTicketLineage7807(attemptId, sealedIntent7471.candidateVersion, lane, resolvedMode7471)
         }
         // V5.0.7790 — executable size is a lifecycle stage, not advisory math.
         // If no immutable intent owns this exact mode/mint/version/lane, do not
         // feed SIZED_EXECUTABLE into the causal funnel. Sizing still occurred;
         // only the false execution-progress stamp is withheld.
-        if (stage == "SIZED_EXECUTABLE" && sealedIntent7471 == null) {
+        // V5.0.7809 — an attempt with a bound ticket lineage WAS sealed; its
+        // size is not advisory even after the intent was terminalized.
+        if (stage == "SIZED_EXECUTABLE" && sealedIntent7471 == null && boundLineage7807 == null) {
             try {
                 PipelineHealthCollector.labelInc("ADVISORY_SIZE_STAMP_WITHHELD_7790")
                 ForensicLogger.lifecycle("ADVISORY_SIZE_STAMP_WITHHELD_7790",
@@ -1364,6 +1388,53 @@ object ToolkitSignalSheet {
         return synchronized(ticketLineage7807) { ticketLineage7807[attemptId] }
     }
 
+    /**
+     * V5.0.7809 §EXEC_STAMPS_THE_ATTEMPT_IT_EXECUTED.
+     *
+     * Executor stamped EXEC/POSITION_OPENED on `sealedIntent?.attemptId ?:
+     * fallback`, where sealedIntent came from activeExecutionIntent6519(mode,
+     * mint, identity.fdgCandidateVersion). That lookup is lane-blind and, on a
+     * miss, returns the newest live intent for the mint — another specialist's
+     * (MANIPULATED filled through the shared shitCoinBuy transport landed on
+     * SHITCOIN's intent) or a newer re-sealed version (MOONSHOT re-evaluations),
+     * and the live path fell back to the positionId, whose version is guessed
+     * from the newest scanner record. Either way EXEC joined a record with no
+     * TICKET and the lane read EXEC_CHOKED.
+     *
+     * The executor's own attemptId IS the ticket it executed (canOpen's
+     * execKey). When that attempt still names a real ticket — live, or bound by
+     * a stamped TICKET — EXEC/OPEN go on it, on the ticket's lane. Otherwise the
+     * previous behaviour is unchanged. Nothing is stamped that did not happen:
+     * this is only the identity of a real fill (Field Manual L337).
+     */
+    fun recordEntryExecOpen7809(fallbackLane: String, ownAttemptId: String, fallbackAttemptId: String?) {
+        val own = ownAttemptId.trim()
+        val ownTicket = if (own.isNotBlank()) try { ExecutableOpenGate.ticketForAttempt(own) } catch (_: Throwable) { null } else null
+        val ownLineage = if (ownTicket == null) attemptTicketLineage7809(own) else null
+        val ticketLane = ownTicket?.let {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(it.canonicalLane.ifBlank { it.lane })
+        }?.takeIf { it.isNotBlank() } ?: ownLineage?.lane
+        val fallback = fallbackAttemptId?.takeIf { it.isNotBlank() } ?: own
+        val causalId = if (ticketLane != null) own else fallback
+        val lane = ticketLane ?: fallbackLane
+        if (ticketLane != null && causalId != fallback) try {
+            PipelineHealthCollector.labelInc("SPECIALIST_EXEC_BOUND_TO_OWN_TICKET_7809")
+            PipelineHealthCollector.labelInc("SPECIALIST_EXEC_BOUND_TO_OWN_TICKET_7809_$lane")
+            ForensicLogger.lifecycle(
+                "SPECIALIST_EXEC_BOUND_TO_OWN_TICKET_7809",
+                "lane=$lane callerLane=$fallbackLane attemptId=${own.take(80)} previous=${fallback.take(80)}",
+            )
+        } catch (_: Throwable) {}
+        recordDeskStage(lane, "EXEC", causalId)
+        recordDeskStage(lane, "POSITION_OPENED", causalId)
+    }
+
+    /** V5.0.7809 — the lineage bound on this exact attemptId, for ANY stage. */
+    private fun attemptTicketLineage7809(attemptId: String): TicketLineage7807? {
+        if (attemptId.isBlank()) return null
+        return synchronized(ticketLineage7807) { ticketLineage7807[attemptId] }
+    }
+
     private fun ticketLineageLane7807(lane: String, stage: String, eventId: String): String {
         val bound = boundTicketLineage7807(eventId, stage) ?: return lane
         if (bound.lane == lane) return lane
@@ -1398,6 +1469,51 @@ object ToolkitSignalSheet {
 
     private fun causalIssue6600(issue: String): Long = causalIssueCounts6600[issue]?.get() ?: 0L
 
+    /**
+     * V5.0.7809 §A_REFUSAL_IS_NOT_A_CHOKE.
+     *
+     * On the specialist lanes SIZE is stamped only when a ticket is published
+     * (ExecutableOpenGate.mirrorTicketPredecessors7807) or a buy opens, so every
+     * refusal between the sealed mark and the ticket — TradeAuthorizer finality,
+     * LiveRiskPolicy7807's pre-ticket/final verdicts (LANE_SLOT_CAP_7807,
+     * COST_CONSUMES_MOVE_7807, SIZE_BELOW_MIN_RISK_TOO_WIDE_7807), an
+     * OrderSizeResolver refusal, a live buy failure — reached the funnel as
+     * nothing at all and the lane read the generic SIZING_CHOKED. Genuine
+     * policy refusals stay refusals; the report now names them (Field Manual
+     * L468: the decision carries its reason; L415: reconcile with what happened).
+     */
+    private val preSizeRefusals7809 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    fun recordPreSizeRefusal7809(lane: String, reason: String) {
+        val l = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { lane.trim().uppercase() }
+        val r = reason.substringBefore(':').trim().uppercase().replace(Regex("[^A-Z0-9_]"), "_").take(64)
+        if (l.isBlank() || r.isBlank()) return
+        if (preSizeRefusals7809.size > 2_000) preSizeRefusals7809.clear()
+        preSizeRefusals7809.computeIfAbsent("$l|$r") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("SPECIALIST_PRE_SIZE_REFUSAL_7809_$l") } catch (_: Throwable) {}
+    }
+
+    /** "REASON=n,REASON=n" (largest first, at most four) or "" when the lane recorded none. */
+    private fun preSizeRefusalSummary7809(lane: String): String {
+        val prefix = "${lane.uppercase()}|"
+        return preSizeRefusals7809.entries
+            .filter { it.key.startsWith(prefix) }
+            .sortedByDescending { it.value.get() }
+            .take(4)
+            .joinToString(",") { "${it.key.removePrefix(prefix)}=${it.value.get()}" }
+    }
+
+    /**
+     * V5.0.7809 — open canonical positions per canonical lane, for liveness.
+     * A lane whose causal window (30-minute record TTL) holds no fresh DISCOVER
+     * while it still owns open positions is holding, not DEAD.
+     */
+    private fun openPositionsByLane7809(): Map<String, Int> = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+            .groupingBy { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(it.lane) }
+            .eachCount()
+    } catch (_: Throwable) { emptyMap() }
+
     fun specialistCausalFunnel6600(): String = buildString {
         appendLine("===== MEME SPECIALIST CAUSAL FUNNEL =====")
         configuredMemeDesks6599.forEach { lane ->
@@ -1431,6 +1547,8 @@ object ToolkitSignalSheet {
             // condition worth the line — and it no longer depends on a
             // predecessor stamp being present to report that a predecessor
             // stamp is absent.
+            // V5.0.7809 — refusals between the sealed mark and SIZE, by name.
+            preSizeRefusalSummary7809(lane).takeIf { it.isNotBlank() }?.let { appendLine("$lane preSizeRefusals7809=$it") }
             val raw7214 = s.rawCounts7086
             fun rawOf7214(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) =
                 raw7214[stage] ?: 0
@@ -1488,6 +1606,7 @@ object ToolkitSignalSheet {
 
     fun designatedRoleLivenessReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST ROLE LIVENESS =====")
+        val openByLane7809 = openPositionsByLane7809()
         configuredMemeDesks6599.forEach { lane ->
             val causal = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.laneSnapshot6647(lane)
             val runtime = com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.snapshot(lane)
@@ -1575,6 +1694,21 @@ object ToolkitSignalSheet {
                 finalized > 0L && learn == 0L -> "LEARNING_CHOKED"
                 else -> "ACTIVE"
             }
+            // V5.0.7809 — name what the generic labels hid (see recordPreSizeRefusal7809):
+            //   SIZING_CHOKED + an executable size outcome that failed lineage
+            //     validation -> the size happened; a predecessor stamp is missing.
+            //   SIZING_CHOKED + recorded refusals -> the exact refusal, not a choke.
+            //   DEAD + open canonical positions on the lane -> holding, not dead
+            //     (the causal window is 30 minutes; positions outlive it).
+            val refusals7809 = if (status == "SIZING_CHOKED") preSizeRefusalSummary7809(lane) else ""
+            val executableSizeOutcomes7809 = (causal.outcomes["SIZED_EXECUTABLE"] ?: 0).toLong()
+            val openOnLane7809 = openByLane7809[lane] ?: 0
+            val reportedStatus7809 = when {
+                status == "SIZING_CHOKED" && executableSizeOutcomes7809 > 0L -> "SIZE_LINEAGE_INCOMPLETE_7809"
+                refusals7809.isNotBlank() -> "REFUSED_BEFORE_SIZE_7809"
+                status == "DEAD" && openOnLane7809 > 0 -> "HOLDING_NO_FRESH_DISCOVERY_7809"
+                else -> status
+            }
             // V5.0.7214 — the contradiction, counted where both numbers are in
             // hand. A lane reported SIZING_CHOKED while the only authority that
             // decides what "executable size" means reported no refusals at all.
@@ -1635,7 +1769,7 @@ object ToolkitSignalSheet {
             val liveQuarantine7609 = try { LaneQuarantineController.isQuarantined(lane) } catch (_: Throwable) { false }
             val buyerEnabled7609 = if (lane == "MANIPULATED") try { BotService.manipulatedBuyerEnabled7609() } catch (_: Throwable) { false } else true
             val ownershipModel7609 = "SELF"
-            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$status nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
+            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }

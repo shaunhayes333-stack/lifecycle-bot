@@ -475,6 +475,8 @@ object CanonicalPositionAuthority6441 {
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.bindPosition(positionId, mint, lane) } catch (_: Throwable) {}
+            // V5.0.7809 — freeze oracle / hunter / resident-book entry identity on the position (Field Manual L356).
+            try { LearningAttributionBinder7809.onCanonicalOpen7809(positionId, mint, lane) } catch (_: Throwable) {}
             // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.
             try { positions[positionId]?.let(::lockEntryMetricsAtOpen6636) } catch (_: Throwable) {}
             muts.incrementAndGet()
@@ -989,6 +991,76 @@ object CanonicalPositionAuthority6441 {
     /** V5.0.7807 — true when a funded LIVE quarantine row protects [mint]. */
     fun hasFundedProtectiveQuarantine7807(mint: String): Boolean =
         mint.isNotBlank() && positions.values.any { it.mint == mint && isFundedProtectiveQuarantine7807(it) }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7809 §EXIT_SCOPE_IS_PROTECTIVE_INVENTORY (Field Manual L39, L407).
+    //
+    // 7807 put funded LIVE quarantines into protectiveInventory7807 and the
+    // risk clock / held supervisor read it, but BotService's exit token
+    // snapshot (hot exit runManageOnly, rapid monitor, universal sweeps and
+    // the 1 Hz held-mark loop) still read openPositions(). A funded
+    // quarantine was therefore "held" (supervisor counted it, discovery
+    // released it) yet never marked and never run through STRICT_SL /
+    // catastrophe backstop: the 1 missing held mark and a funded row outside
+    // exit authority. The exit scope is now the protective inventory, one
+    // row per mint: every OPEN row as before, plus the newest funded
+    // quarantine row of a mint that has no OPEN row (so the TokenState
+    // projection never flips between two rows of one mint).
+    // ─────────────────────────────────────────────────────────────────────
+    fun protectiveExitScope7809(mode: String? = null): List<Position> = exitScopeOf7809(protectiveInventory7807(mode))
+
+    internal fun exitScopeOf7809(rows: List<Position>): List<Position> {
+        val open7809 = rows.filter { isOpenLifecycleWithQty6743(it) }
+        val openMints7809 = open7809.mapTo(HashSet()) { it.mint }
+        val protected7809 = rows
+            .filter { it.lifecycle == Lifecycle.QUARANTINED && it.mint !in openMints7809 }
+            .groupBy { it.mint }
+            .values
+            .mapNotNull { g -> g.maxByOrNull { it.lastMutationMs } }
+        return open7809 + protected7809
+    }
+
+    /**
+     * V5.0.7809 — quarantined-row audit. FUNDED = a LIVE quarantine that still
+     * owns wallet risk ([isFundedProtectiveQuarantine7807]); everything else is
+     * historical/unfunded (paper, replay, dust, frozen, proven-zero). A funded
+     * row whose mint is outside [scopeMints] would be live inventory without
+     * protective exit authority; that number must stay 0.
+     */
+    data class QuarantineAudit7809(
+        val total: Int,
+        val funded: Int,
+        val fundedOutsideExitScope: Int,
+        val unfunded: Int,
+        val unfundedByKind: Map<String, Int>,
+    )
+
+    internal fun quarantineAuditOf7809(rows: List<Position>, scopeMints: Set<String>): QuarantineAudit7809 {
+        val q7809 = rows.filter { it.lifecycle == Lifecycle.QUARANTINED }
+        val funded7809 = q7809.filter { isFundedProtectiveQuarantine7807(it) }
+        val unfunded7809 = q7809.filterNot { isFundedProtectiveQuarantine7807(it) }
+        val kinds7809 = unfunded7809.groupingBy { p ->
+            when {
+                !p.mode.equals("live", true) -> "paper"
+                p.entryPriceSource.contains("REPLAY_QUARANTINED", true) -> "replay"
+                p.remainingQtyRaw <= BigInteger.ONE -> "zeroQty"
+                else -> p.quarantineReason.substringBefore(':').take(28).ifBlank { "noReason" }
+            }
+        }.eachCount()
+        return QuarantineAudit7809(
+            total = q7809.size,
+            funded = funded7809.size,
+            fundedOutsideExitScope = funded7809.count { it.mint !in scopeMints },
+            unfunded = unfunded7809.size,
+            unfundedByKind = kinds7809,
+        )
+    }
+
+    /** V5.0.7809 — live audit against the LIVE protective exit scope. */
+    fun quarantineAudit7809(): QuarantineAudit7809 = quarantineAuditOf7809(
+        positions.values.toList(),
+        protectiveExitScope7809("live").mapTo(HashSet()) { it.mint },
+    )
 
     /** V5.0.7807 — outcome of [ensureProtectiveLiveOwnership7807]. */
     enum class ProtectiveOwnership7807 { ALREADY_OPEN, ALREADY_PROTECTED, ATTACHED_TO_EXISTING_ROW, CREATED, REFUSED }
@@ -2031,6 +2103,21 @@ object CanonicalPositionAuthority6441 {
     fun purgeZeroQtyLifecycleOpens6752(): Int {
         val now = System.currentTimeMillis()
         var purged = 0
+        // V5.0.7809 — a LIVE zero-ledger-qty row whose mint the wallet still holds
+        // is NOT drained inventory (entry qty never parsed, or ledger drift): it is
+        // quarantined instead of stamped CLOSED, with no invented sale or terminal.
+        // That keeps it attachable by ensureProtectiveLiveOwnership7807 (coverage
+        // heal writes the real wallet qty -> funded protective row in exit scope)
+        // and marks it learning-unclean. Rows with no wallet holding remain pure
+        // bookkeeping closes (no quantity, no economics to finalize). Field Manual L39, L407.
+        val walletHeld7809 = positions.values.filter {
+            (it.lifecycle == Lifecycle.OPEN || it.lifecycle == Lifecycle.PARTIALLY_CLOSED) &&
+                it.remainingQtyRaw.signum() <= 0 && it.mode.equals("live", true)
+        }.mapNotNullTo(HashSet()) { p ->
+            val held = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(p.mint)?.uiAmount ?: 0.0 } catch (_: Throwable) { 0.0 }
+            if (held > 0.0) p.positionId else null
+        }
+        var heldQuarantined7809 = 0
         lock.lock()
         try {
             val victims = positions.values.filter {
@@ -2040,13 +2127,23 @@ object CanonicalPositionAuthority6441 {
             }.map { it.positionId }
             for (pid in victims) {
                 val prior = positions[pid] ?: continue
+                val held7809 = pid in walletHeld7809
                 positions[pid] = prior.copy(
-                    lifecycle = Lifecycle.CLOSED,
+                    lifecycle = if (held7809) Lifecycle.QUARANTINED else Lifecycle.CLOSED,
+                    quarantineReason = if (held7809) "ZERO_QTY_WALLET_HELD_7809" else prior.quarantineReason,
                     lastMutationMs = now,
                 )
+                if (held7809) heldQuarantined7809++
                 purged++
             }
         } finally { lock.unlock() }
+        if (heldQuarantined7809 > 0) try {
+            PipelineHealthCollector.labelInc("CANONICAL_ZERO_QTY_WALLET_HELD_QUARANTINED_7809")
+            ForensicLogger.lifecycle(
+                "CANONICAL_ZERO_QTY_WALLET_HELD_QUARANTINED_7809",
+                "rows=$heldQuarantined7809 action=quarantine_attachable_by_protective_ownership_no_invented_terminal",
+            )
+        } catch (_: Throwable) {}
         if (purged > 0) {
             muts.incrementAndGet()
             try {

@@ -244,6 +244,8 @@ object TradeAuthorizer {
             // outcome.  Previously release only freed the election while the
             // causal backlog stayed PENDING until the report builder deleted it.
             try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613) } catch (_: Throwable) {}
+            // V5.0.7809 — the post-election refusal, by name, for the funnel (Field Manual L468).
+            try { ToolkitSignalSheet.recordPreSizeRefusal7809(requestedBook.name, "AUTH_$reason") } catch (_: Throwable) {}
             try {
                 com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markLost(
                     requestedBook.name, mint, candidateVersion7624, reason,

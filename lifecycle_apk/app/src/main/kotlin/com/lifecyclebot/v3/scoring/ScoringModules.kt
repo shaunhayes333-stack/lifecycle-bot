@@ -129,6 +129,10 @@ class LiquidityAI : ScoringModule {
         // launch). 30+ min old AND <$3k → full -8 (it's stalled, real risk).
         val ageMin = candidate.ageMinutes
         when {
+            // V5.0.7809 — 0.0 is an unread pool, not a thin one (ProviderEvidence7807
+            // DATA_UNKNOWN; Field Manual L357). A real zero is a hard block in
+            // FinalDecisionGate, so the score need not also guess at it.
+            !candidate.liquidityUsd.isFinite() || candidate.liquidityUsd <= 0.0 -> { reasons += "Liquidity NO_DATA" }
             candidate.liquidityUsd >= 40_000 -> { score += 8; reasons += "Strong liquidity base" }
             candidate.liquidityUsd >= 15_000 -> { score += 5; reasons += "Good liquidity" }
             candidate.liquidityUsd < 3_000 && ageMin >= 30.0 -> { score -= 8; reasons += "Thin liquidity (stalled)" }
@@ -220,10 +224,12 @@ class HolderSafetyAI : ScoringModule {
         
         // Holder count - V3.2: Less punishing for missing data on fresh tokens
         when {
-            holderCount == 0 -> { 
+            holderCount == 0 -> {
                 // Don't punish harshly for missing data - it's often just not loaded yet
-                score -= 2  // Was -10, now -2
-                reasons += "Holder data pending" 
+                // V5.0.7809 — and not at all: a token always has a holder, so 0 is
+                // an unread count, which is uncertainty, not negative evidence
+                // (Field Manual L357). Concentration/bundle reads below still bite.
+                reasons += "Holder data pending"
             }
             holderCount > 80 -> { score += 4; reasons += "Healthy holder spread" }
             holderCount > 30 -> { score += 2; reasons += "Growing holder base" }

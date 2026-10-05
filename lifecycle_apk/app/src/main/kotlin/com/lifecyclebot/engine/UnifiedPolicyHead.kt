@@ -534,6 +534,43 @@ object UnifiedPolicyHead {
     }
 
     /**
+     * V5.0.7809 — Field Manual L356. The bound owner and the finalized lane are
+     * the same owner when they are the same lane under one spelling
+     * (BLUE_CHIP / BLUECHIP), or when the bound owner is the definitive
+     * LaneAttributionLedger6427 entry lane for this position. The 6747 ledger
+     * fallback in AateDecisionEnvelope6512.onFinalized binds the LEDGER owner and
+     * then settles with env.lane, so every ledger-repaired bind used to miss
+     * (UNIFIED_POLICY_CAUSAL_OUTCOME_MISSING_6681) by construction. Any other
+     * disagreement is still a miss: a contributor lane is never trained.
+     */
+    private fun laneAlias7809(lane: String): String = normalizeLane(lane).replace("BLUE_CHIP", "BLUECHIP")
+
+    private fun boundOwnerMatches7809(positionId: String, boundOwner: String, finalizedOwner: String): Boolean {
+        if (laneAlias7809(boundOwner) == laneAlias7809(finalizedOwner)) return true
+        val ledger = try {
+            com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(positionId)
+        } catch (_: Throwable) { null } ?: return false
+        val ok = laneAlias7809(ledger) == laneAlias7809(boundOwner)
+        if (ok) try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_LEDGER_OWNER_OUTCOME_7809") } catch (_: Throwable) {}
+        return ok
+    }
+
+    /**
+     * V5.0.7809 — a close the canonical bus excluded from learning never reaches
+     * recordOutcome6681, so its frozen entry stayed in pendingByPosition6681
+     * forever ("pending causal outcomes"). Release it without training.
+     */
+    fun releasePosition7809(positionId: String) {
+        if (positionId.isBlank()) return
+        try {
+            if (pendingByPosition6681.remove(positionId) != null) {
+                PipelineHealthCollector.labelInc("UNIFIED_POLICY_POSITION_RELEASED_UNTRAINABLE_7809")
+                appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
      * V5.0.6681 canonical training path. The position-bound entry snapshot must
      * match the finalized mint and owner lane; otherwise we SKIP rather than
      * poison the model with a guessed attribution.
@@ -545,8 +582,12 @@ object UnifiedPolicyHead {
             // Discard any observations accumulated while this mint was already
             // open. They were not entry causes and must not leak into re-entry.
             pending.remove(mint)
-            val owner = normalizeLane(ownerLane)
-            if (bound == null || bound.mint != mint || bound.ownerLane != owner) {
+            val finalizedOwner7809 = normalizeLane(ownerLane)
+            val ownerMatch7809 = bound != null && bound.mint == mint &&
+                boundOwnerMatches7809(positionId, bound.ownerLane, finalizedOwner7809)
+            // V5.0.7809 — on a match, train the owner the entry was bound to.
+            val owner = if (ownerMatch7809 && bound != null) bound.ownerLane else finalizedOwner7809
+            if (!ownerMatch7809 || bound == null) {
                 causalMissCount6681.incrementAndGet()
                 try {
                     ForensicLogger.lifecycle(

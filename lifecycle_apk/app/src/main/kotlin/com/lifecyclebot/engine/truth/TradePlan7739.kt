@@ -389,6 +389,24 @@ object TradePlan7739 {
     }
 
     /**
+     * V5.0.7809 — the precise terminal reason for a chokepoint refusal. 5.0.7808
+     * logged two live buy aborts as the bare LIVE_BUY_FAIL_CHOKEPOINT_7742, so
+     * the failure tile could not say which read refused them. The refusal is a
+     * real doctrine verdict (plan wait or a negative measured cell) and stays
+     * binding; its own name is now the terminal reason, e.g.
+     * CHOKEPOINT_7742_PLAN_TOO_FEW_BARS or CHOKEPOINT_7742_CELL_PROOF_NEGATIVE_7731.
+     * Field Manual L123: every refusal names its cause.
+     */
+    fun chokepointTerminalReason7809(refusal: String): String {
+        val r = refusal.trim()
+        val why = if (r.startsWith("NO_PLAN_WAIT_7739:")) {
+            "PLAN_" + r.removePrefix("NO_PLAN_WAIT_7739:").substringBefore(':')
+        } else r.substringBefore(':').substringBefore(' ')
+        val clean = why.uppercase().map { if (it.isLetterOrDigit() || it == '_') it else '_' }.joinToString("").take(48)
+        return if (clean.isBlank() || clean == "PLAN_") "CHOKEPOINT_7742_UNSPECIFIED" else "CHOKEPOINT_7742_$clean"
+    }
+
+    /**
      * V5.0.7783 — the plan the gate admitted for this mint in the last two
      * minutes (the same window the executor chokepoint honours), or null.
      */

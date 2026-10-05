@@ -4481,6 +4481,18 @@ class SolanaMarketScanner(
                 return null
             }
         } catch (_: Throwable) { /* fail-open */ }
+        // V5.0.7809 — a Birdeye key the circuit has latched auth-terminal (401/403)
+        // answers nothing until the operator rotates it; every discovery page
+        // here was still paying a round trip plus retries for a guaranteed 401.
+        // Field Manual L404: provider health is checked before relying on it.
+        if (url.contains("birdeye", ignoreCase = true) && try {
+                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                    .isAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+            } catch (_: Throwable) { false }
+        ) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_SCANNER_SKIPPED_AUTH_DEAD_7809") } catch (_: Throwable) {}
+            return null
+        }
         var lastError: Exception? = null
 
         repeat(maxRetries.coerceAtLeast(1)) { attempt ->

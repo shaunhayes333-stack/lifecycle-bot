@@ -87,6 +87,17 @@ object SealedOrderSizeAuthority6497 {
     }
 
     /**
+     * V5.0.7809 — the fresh seal record itself (size, lane, seal time), or
+     * null when absent/expired. ExecutionSnapshotAuthority6496 needs the seal
+     * time and lane to tell a newer sizing decision from a shrink of the
+     * sealed ticket (Field Manual L243: size is decided once, from the stop).
+     */
+    fun sealRecord7809(mint: String): Seal? {
+        val s = sealed[mint] ?: return null
+        return if (System.currentTimeMillis() - s.sealedAtMs > SEAL_TTL_MS) null else s
+    }
+
+    /**
      * Fold-together helper for downstream readers. Returns the sealed
      * size if it exists AND is materially larger than the local
      * value; else the local value. Emits

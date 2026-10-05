@@ -379,6 +379,52 @@ object PeakAdaptiveTrail6390 {
      */
     fun onPositionClosed6948(positionId: String) {
         peaks.remove(positionId)
+        removeIdentityKeys7809(positionId)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7809 §ONE_CANONICAL_PEAK (PEAK_AUTHORITY_DIVERGENCE_6948 repeats).
+    //
+    // The tracker was keyed by MINT and fed only by the 500 ms rapid monitor,
+    // while ts.position.peakGainPct is ratcheted by four writers (rapid
+    // monitor, 1 Hz tick loop, lifecycle strategy, UI) and replaced wholesale
+    // by position copies/re-entries. So the two drifted: a re-entry on the same
+    // mint inherited the old position's tracker peak, and a tick ratcheted
+    // into a Position object that a concurrent `ts.position = old.copy(...)`
+    // then replaced was lost from the canonical peak but kept by the tracker.
+    //
+    // Now the tracker is keyed by the exact position lifetime (mint|entryTime),
+    // seeded from the canonical peak, adopts any higher canonical peak, and
+    // whenever it holds a valid tick from THIS lifetime that the canonical peak
+    // lost, the canonical peak receives it. Trailing / profit-lock keep reading
+    // the one authority, position.peakGainPct. An intentional rebase
+    // (OpenPnlSanity) still clears the tracker first, so a poisoned peak is
+    // never restored. Field Manual L268 (trail by the setup rule, one peak).
+    // ─────────────────────────────────────────────────────────────────────
+    private const val MAX_TRACKED_7809 = 4_096
+
+    /** Exact identity of one position lifetime; a re-entry on the same mint is a new key. */
+    fun canonicalKey7809(mint: String, entryTimeMs: Long): String = "$mint|$entryTimeMs"
+
+    /**
+     * Record [tickGainPct] for [key] and reconcile with [canonicalPeakGainPct].
+     * Returns the peak the canonical position must be raised to, or null when it
+     * already holds the highest valid peak of this lifetime.
+     */
+    fun reconcileCanonical7809(key: String, tickGainPct: Double, canonicalPeakGainPct: Double): Double? {
+        if (key.isBlank() || !canonicalPeakGainPct.isFinite()) return null
+        if (peaks.size > MAX_TRACKED_7809) peaks.clear()
+        val tick7809 = if (tickGainPct.isFinite()) tickGainPct else canonicalPeakGainPct
+        val tracked7809 = peaks.compute(key) { _, prior ->
+            maxOf(prior ?: canonicalPeakGainPct, tick7809, canonicalPeakGainPct)
+        } ?: return null
+        return if (tracked7809 > canonicalPeakGainPct) tracked7809 else null
+    }
+
+    private fun removeIdentityKeys7809(mint: String) {
+        if (mint.isBlank()) return
+        val prefix7809 = "$mint|"
+        peaks.keys.removeIf { it.startsWith(prefix7809) }
     }
 
     /**
@@ -389,6 +435,8 @@ object PeakAdaptiveTrail6390 {
      */
     internal fun onPositionRebased7803(positionId: String, canonicalPeakGainPct: Double = 0.0) {
         if (positionId.isBlank()) return
+        // V5.0.7809 — callers pass the mint; drop this mint's lifetime keys too.
+        removeIdentityKeys7809(positionId)
         if (!canonicalPeakGainPct.isFinite() || canonicalPeakGainPct <= 0.0) peaks.remove(positionId)
         else peaks[positionId] = canonicalPeakGainPct
     }

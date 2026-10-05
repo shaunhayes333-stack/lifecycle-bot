@@ -513,7 +513,7 @@ object ExecutorCanonicalMirror6442 {
                     // sell here so per-class latency and terminal counters
                     // actually populate. Idempotency reservation above guards
                     // against duplicate stamping.
-                    try { ExitTelemetryStamper6732.noteExitCompleted(positionId, reason) } catch (_: Throwable) {}
+                    try { ExitTelemetryStamper6732.noteExitCompleted(positionId, reason, canonicalMint(mint)) } catch (_: Throwable) {}
                     // V5.0.6742 §PILLAR_7_WIRE — canonical SELL_CONFIRMED
                     // is the real production terminal checkpoint. Partial
                     // sells route through the else branch below with the

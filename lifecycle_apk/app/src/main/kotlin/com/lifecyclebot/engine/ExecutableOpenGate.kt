@@ -256,6 +256,23 @@ object ExecutableOpenGate {
     }
 
     /**
+     * V5.0.7809 §LANE_FILTER_BEFORE_NEWEST — the any-version fallback above
+     * picks the newest live intent for the mint ACROSS lanes; callers that then
+     * filter by lane got null whenever another specialist had sealed a newer
+     * version, and the causal funnel fell back to the callback's own version —
+     * a different record from the SIZE/MARK it belonged with (raw TICKET
+     * counted, validated TICKET suppressed). Filter by canonical lane first.
+     * Read-only (Field Manual L337: one stamped evidence snapshot per candidate).
+     */
+    fun activeExecutionIntentForLane7809(mode: String, mint: String, lane: String): ExecutionIntent? {
+        val wanted = canonicalLane(lane)
+        if (wanted.isBlank() || mint.isBlank()) return null
+        return activeExecutionIntents6519.values
+            .filter { it.mode.equals(mode, true) && it.mint == mint && ticketLive(it) && canonicalLane(it.canonicalLane) == wanted }
+            .maxByOrNull { it.candidateVersion }
+    }
+
+    /**
      * V5.0.7525 — bind FDG's PAPER approval class onto the already-sealed
      * execution authority. First non-blank writer wins; later disagreement is
      * surfaced instead of mutating the decision underneath execution.

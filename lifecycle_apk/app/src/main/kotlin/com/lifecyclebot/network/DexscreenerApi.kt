@@ -139,8 +139,10 @@ class DexscreenerApi {
         var result = best?.let { parsePair(it) }
         // Fallback only — and only to a host that is not circuit-broken.
         if (result == null && allowDexPaprika) {
+            // V5.0.7809 — also out when DexPaprika is latched terminal (401/402/403).
             val paprikaDead6894 = try {
-                com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("dexpaprika")
+                com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("dexpaprika") ||
+                    SolanaOhlcvFeed6916.paprikaTerminal7809()
             } catch (_: Throwable) { false }
             if (paprikaDead6894) {
                 try {

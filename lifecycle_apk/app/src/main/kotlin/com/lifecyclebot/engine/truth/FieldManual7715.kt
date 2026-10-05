@@ -347,7 +347,10 @@ object FieldManual7715 {
     fun regimeOf(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Regime {
         val price = ts.lastPrice
         if (!price.isFinite() || price <= 0.0) return Regime.IMPAIRED
-        if (ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate > QUOTE_MAX_AGE_MS_7715) return Regime.IMPAIRED
+        // V5.0.7809 — an old stamp whose price a fresh re-quote has just confirmed is not impaired.
+        if (ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate > QUOTE_MAX_AGE_MS_7715 &&
+            (try { QuoteRevalidation7809.confirmedAgeMs(ts.mint, price, nowMs) } catch (_: Throwable) { null }) == null
+        ) return Regime.IMPAIRED
         val candles = realCandles(ts, REGIME_LOOKBACK_7715)
         val ageMs = nowMs - ts.addedToWatchlistAt
         if (candles.size < 6) {
@@ -496,6 +499,11 @@ object FieldManual7715 {
         val identity = ts.mint.isNotBlank() && ts.lastPrice > 0.0 &&
             (ts.pairAddress.isNotBlank() || ts.lastPriceSource.isNotBlank() || ts.lastPricePoolAddr.isNotBlank())
         val quoteAge = if (ts.lastPriceUpdate > 0L) (nowMs - ts.lastPriceUpdate).coerceAtLeast(0L) else canonicalMarkAgeMs7730(ts.mint, nowMs)
+        // V5.0.7809 — a fresh re-quote that confirmed this exact price (QuoteRevalidation7809)
+        // is the freshest evidence for it; cost, impact and R:R below are recomputed on it
+        // (Field Manual L187 / L240).
+        val requoteAge7809: Long? = try { QuoteRevalidation7809.confirmedAgeMs(ts.mint, ts.lastPrice, nowMs) } catch (_: Throwable) { null }
+        val quoteAge7809 = if (requoteAge7809 != null && (quoteAge < 0L || requoteAge7809 < quoteAge)) requoteAge7809 else quoteAge
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val size = if (proposedSizeSol.isFinite()) proposedSizeSol.coerceAtLeast(0.0) else 0.0
         val sizeUsd = if (solUsd > 0.0) size * solUsd else 0.0
@@ -516,7 +524,7 @@ object FieldManual7715 {
             mandate = mandate,
             regime = regime,
             identityResolved = identity,
-            quoteAgeMs = quoteAge,
+            quoteAgeMs = quoteAge7809,
             liquidityUsd = liq,
             sizeSol = size,
             sizeUsd = sizeUsd,
@@ -598,6 +606,7 @@ object FieldManual7715 {
         val card = cardFor(ts, candidate, lane, paper, proposedSizeSol)
         val verdict = evaluate(card)
         val modeTag = if (paper) "PAPER" else "LIVE"
+        requoteIfOnlyQuoteIsOpen7809(ts, verdict)
         when (verdict.decision) {
             Decision.ENTER -> enters.incrementAndGet()
             Decision.SMALL_PROBE -> { probes.incrementAndGet(); probeByMint[ts.mint] = verdict.sizeMultiplier to System.currentTimeMillis() }
@@ -629,6 +638,24 @@ object FieldManual7715 {
             )
         } catch (_: Throwable) {}
         return verdict
+    }
+
+    /**
+     * V5.0.7809 — FIELD_MANUAL_WAIT_7715:quote on 5.0.7808 live. When a LIVE
+     * card blocks and every open question is the quote (age / freshness /
+     * stale-impaired), the setup is otherwise valid: ask for one bounded
+     * re-quote instead of letting the candidate lapse. This tick still blocks
+     * (never execute on stale price evidence); a confirmed quote makes the next
+     * card recompute cost / impact / R:R and decide again. Field Manual L187.
+     */
+    private fun requoteIfOnlyQuoteIsOpen7809(ts: TokenState, verdict: Verdict) {
+        if (verdict.card.paper || !verdict.blocks || verdict.reasons.isEmpty()) return
+        if (!verdict.reasons.all { it.startsWith("quote ") }) return
+        try {
+            if (QuoteRevalidation7809.request(ts.mint, ts.lastPrice)) {
+                PipelineHealthCollector.labelInc("FIELD_MANUAL_QUOTE_REVALIDATION_ASKED_7809")
+            }
+        } catch (_: Throwable) {}
     }
 
     /** The multiplier a SMALL_PROBE verdict left for the sizer; 1.0 when none is current. */
@@ -775,7 +802,8 @@ object FieldManual7715 {
         return "active=${active()} inactiveReads=${inactiveReads7717.get()} guard=[${try { StartupCrashGuard7717.statusLine() } catch (_: Throwable) { "?" }}] " +
             "enter=${enters.get()} probe=${probes.get()} wait=${waits.get()} pass=${passes.get()} " +
             "riskCapApplied=${riskCapApplied.get()} floorWins=${riskCapFloorWins.get()} " +
-            "exits[$exits] last=[$lastVerdictLine]"
+            "exits[$exits] last=[$lastVerdictLine] " +
+            "requote=[${try { QuoteRevalidation7809.statusLine() } catch (_: Throwable) { "?" }}]"
     }
 
     private fun fmt(v: Double): String =

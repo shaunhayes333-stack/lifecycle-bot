@@ -664,6 +664,24 @@ object ParallelMarkFanout7088 {
         return if (host.isBlank()) "solana_rpc" else "rpc_$host"
     }
 
+    /** V5.0.7809 — transport failures one curve pass tolerates before it stops walking the ladder. */
+    private const val CURVE_MAX_TRANSPORT_FAILS_7809 = 2
+
+    /**
+     * V5.0.7809 — bench a public RPC rung that threw (timeout, reset, unparseable
+     * body) on its own ApiBackoff record; 504 selects the soft 2/5/10/20/30 s
+     * ladder with a half-open probe, and the rung's next 2xx clears it. The
+     * preferred Helius rung is shared with the supply reader and the websocket,
+     * so one slow read here never benches it.
+     */
+    private fun noteCurveRungFailure7809(hostLabel: String) {
+        if (hostLabel == "helius") return
+        try {
+            com.lifecyclebot.engine.ApiBackoff.markFailure(hostLabel, 504)
+            PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_RUNG_BENCHED_7809")
+        } catch (_: Throwable) {}
+    }
+
     /**
      * V5.0.7392 — read [mints]' bonding curves directly (the caller already knows
      * these are curve positions, from the token register). Uses the derived PDA.
@@ -718,6 +736,7 @@ object ParallelMarkFanout7088 {
         val out = HashMap<String, Double>()
         var skippedComplete = 0
         var answered7279 = false
+        var transportFails7809 = 0
         for ((rungIdx, rung) in rungs7279.withIndex()) {
             if (answered7279) break
             val hostLabel = rpcHostLabel7279(rung)
@@ -807,6 +826,19 @@ object ParallelMarkFanout7088 {
             } catch (t: Throwable) {
                 PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_EXCEPTION_7278")
                 try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 0, 0L, "${t.javaClass.simpleName}:${t.message?.take(100)}") } catch (_: Throwable) {}
+                // V5.0.7809 — a timeout / reset / garbage body only reached the
+                // health table, never ApiBackoff, so a slow or dead PUBLIC rung was
+                // asked again on every pass (up to 7 s each) and the exception count
+                // climbed. It now backs off on its own record (soft ladder, half-open
+                // probe, cleared by its next success). Helius, the preferred rung,
+                // is never benched from here. Bounded: a pass stops walking after
+                // CURVE_MAX_TRANSPORT_FAILS_7809 transport failures. Field Manual L404.
+                noteCurveRungFailure7809(hostLabel)
+                transportFails7809++
+                if (transportFails7809 >= CURVE_MAX_TRANSPORT_FAILS_7809) {
+                    try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_PASS_BOUNDED_7809") } catch (_: Throwable) {}
+                    break
+                }
             }
         }
         if (!answered7279) {

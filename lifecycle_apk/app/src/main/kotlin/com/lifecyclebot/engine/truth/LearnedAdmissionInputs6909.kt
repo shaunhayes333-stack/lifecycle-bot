@@ -324,6 +324,9 @@ object LearnedAdmissionInputs6909 {
         } catch (_: Throwable) { null }
         if (oracle6915 != null) {
             oracleReads6915.incrementAndGet()
+            // V5.0.7809 — the lane-exact forecast, so the canonical open can freeze
+            // the OWNER lane's verdict for grading (Field Manual L356).
+            try { OracleEdgeProof7263.stampLane7809(mint, laneKey, oracle6915) } catch (_: Throwable) {}
             when (oracle6915.verdict) {
                 PredictiveEntryOracle6915.Verdict.REFUSE -> oracleRefuse6915.incrementAndGet()
                 PredictiveEntryOracle6915.Verdict.ADMIT -> oracleAdmit6915.incrementAndGet()

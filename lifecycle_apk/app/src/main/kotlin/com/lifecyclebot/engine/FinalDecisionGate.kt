@@ -195,7 +195,21 @@ object FinalDecisionGate {
                 causalRoot = causalRoot,
                 laneName = fanoutLane,
             )
-            if (allowed) {
+            // V5.0.7809 — the cap bounds COMPUTE, it must not discard a verdict
+            // already reached for this exact candidate (same key evaluate() caches
+            // at its verdict point: generation, mint, mode, candidate evidence,
+            // lane, side). Beyond the cap a repeat ask is answered from that
+            // cache — the owner lane's sealed setup survives the cap instead of
+            // being replaced by FDG_FANOUT_CAP_7232; with no prior verdict the
+            // cap still refuses. No new evaluation runs (Field Manual L356).
+            val priorVerdict7809 = if (allowed) null else priorVerdictForCandidate7809(ts.mint, candidateVersion)
+            if (priorVerdict7809 != null) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_FANOUT_CAP_SERVED_PRIOR_VERDICT_7809")
+                    PipelineHealthCollector.labelInc("FDG_FANOUT_CAP_SERVED_PRIOR_VERDICT_7809_" + fanoutLane)
+                } catch (_: Throwable) {}
+                priorVerdict7809
+            } else if (allowed) {
                 null
             } else {
                 try {
@@ -223,6 +237,19 @@ object FinalDecisionGate {
             null
         }
     }
+
+    /**
+     * V5.0.7809 — freshest cached verdict for this exact candidate generation
+     * (key prefix generation|mint|mode|candidateVersion|). Lives outside
+     * evaluate(): that method is at the ART verifier limit (5.0.7807 VerifyError).
+     */
+    private fun priorVerdictForCandidate7809(mint: String, candidateVersion: Long): FinalDecision? = try {
+        val prefix = "${runtimeGenerationKey()}|$mint|${RuntimeModeAuthority.isPaper()}|$candidateVersion|"
+        val now = System.currentTimeMillis()
+        fdgVerdictCache.entries
+            .filter { it.key.startsWith(prefix) && now - it.value.tsMs <= FDG_VERDICT_CACHE_TTL_MS }
+            .maxByOrNull { it.value.tsMs }?.value?.verdict
+    } catch (_: Throwable) { null }
 
     fun invalidateCandidate6734(mint: String) {
         fdgVerdictCache.keys.removeIf { it.startsWith("${runtimeGenerationKey()}|$mint|") }

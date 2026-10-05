@@ -266,7 +266,13 @@ object EmergencyExitDispatcher7807 {
         }
     private val dispatcher7807: CoroutineDispatcher = executor7807.asCoroutineDispatcher()
 
-    /** Dedicated dispatcher for a protective emergency, Dispatchers.IO otherwise. */
+    /**
+     * Dedicated dispatcher for a protective emergency. V5.0.7809 — every other
+     * exit (trailing stop, profit lock, take-profit, time exits) runs on
+     * ExitHotPath7809's normal-exit pool instead of Dispatchers.IO, so a normal
+     * stop never queues behind discovery's blocking provider calls either
+     * (Field Manual L240, L248).
+     */
     fun forReason(reason: String?): CoroutineDispatcher =
-        if (ProtectiveExitClass7807.isEmergency(reason)) dispatcher7807 else kotlinx.coroutines.Dispatchers.IO
+        if (ProtectiveExitClass7807.isEmergency(reason)) dispatcher7807 else ExitHotPath7809.normalExitDispatcher
 }

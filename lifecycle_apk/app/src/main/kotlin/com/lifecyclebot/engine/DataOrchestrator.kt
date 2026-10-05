@@ -104,6 +104,18 @@ class DataOrchestrator(
         scope.launch {
             while (isActive) {
                 delay(5 * 60_000L)
+                // V5.0.7809 — Birdeye is a history source only while its credential
+                // is healthy. A terminal 401/403 key is not polled for every token
+                // every 5 minutes (each call still charged the budget gate before
+                // the circuit refused it). Field Manual L404.
+                val birdeyeDead7809 = try {
+                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                        .isAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+                } catch (_: Throwable) { false }
+                if (birdeyeDead7809) {
+                    try { PipelineHealthCollector.labelInc("BIRDEYE_MTF_REFRESH_SKIPPED_AUTH_DEAD_7809") } catch (_: Throwable) {}
+                    continue
+                }
                 // Copy tokens list to avoid concurrent modification
                 val tokensCopy = synchronized(status.tokens) {
                     status.tokens.values.toList()
@@ -219,6 +231,47 @@ class DataOrchestrator(
 
     // ── candle seeding ────────────────────────────────────────────────
 
+    private val SEED_RETRY_FLOOR_MS_7809 = 2_600L
+    private val SEED_JITTER_MS_7809 = 1_500L
+
+    /**
+     * V5.0.7809 — one keyless OHLCV read that waits for the provider's request
+     * slot instead of being declined by it, retried at most [attempts] times.
+     * Retries are spaced past the feed's 2.5 s same-key coalesce window, and a
+     * provider in 429/5xx cooldown ends the attempt rather than queueing behind
+     * it. A provider-answered empty is negative-cached by the feed, so a retry
+     * after one costs no request. Never fabricates: empty means no bars.
+     */
+    private suspend fun keylessFetch7809(
+        mint: String,
+        timeframe: String,
+        limit: Int,
+        poolHint: String,
+        attempts: Int,
+    ): List<Candle> {
+        var tries = 0
+        while (tries < attempts) {
+            tries++
+            val slot: com.lifecyclebot.network.SolanaOhlcvFeed6916.SlotWait7809 =
+                com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809()
+            if (slot.cooldown) {
+                try { PipelineHealthCollector.labelInc("OHLCV_SEED_SKIPPED_PROVIDER_COOLDOWN_7809") } catch (_: Throwable) {}
+                return emptyList()
+            }
+            if (tries > 1 || slot.waitMs > 0L) {
+                val floor = if (tries > 1) SEED_RETRY_FLOOR_MS_7809 else 0L
+                delay(maxOf(slot.waitMs, floor) + kotlin.random.Random.nextLong(0L, SEED_JITTER_MS_7809))
+            }
+            val got = com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, timeframe, limit, poolHint)
+            if (got.isNotEmpty()) {
+                if (tries > 1) try { PipelineHealthCollector.labelInc("OHLCV_SEED_SERVED_ON_RETRY_7809") } catch (_: Throwable) {}
+                return got
+            }
+        }
+        if (attempts > 0) try { PipelineHealthCollector.labelInc("OHLCV_SEED_EMPTY_AFTER_SLOTTED_TRIES_7809_${timeframe.uppercase()}") } catch (_: Throwable) {}
+        return emptyList()
+    }
+
     private suspend fun seedCandleHistory(mint: String, symbol: String) {
         val ts = status.tokens[mint] ?: return
         var seeded = 0
@@ -256,8 +309,17 @@ class DataOrchestrator(
         } catch (_: Throwable) { "" }
         var keylessSeeded6916 = 0
         try {
-            val k1m = com.lifecyclebot.network.SolanaOhlcvFeed6916
-                .fetchCandles6916(mint, "1m", 120, poolHint6916)
+            // V5.0.7809 §THE_SEED_ASKED_THREE_TIMES_INSIDE_ONE_SLOT. The 1m/5m/15m
+            // reads went out back to back against a 2.5 s provider gate, so 5m
+            // and 15m were always declined locally, and the 1m read was declined
+            // whenever any other token had seeded in the last 2.5 s — one shot
+            // per token, never retried: thousands of "fetches", almost no bars.
+            // The 1m read (the one TradePlan7739 needs) now waits for the slot
+            // and retries a bounded number of times; 5m/15m get one slotted read
+            // only when the pool answered 1m. A provider in cooldown is never
+            // queued behind (Field Manual L404).
+            val k1m = keylessFetch7809(mint, "1m", 120, poolHint6916, attempts = 3)
+            val k1mOk7809 = k1m.size >= 2
             if (k1m.size >= 2) {
                 synchronized(ts.history) {
                     if (ts.history.size < 10) {
@@ -269,8 +331,7 @@ class DataOrchestrator(
                     }
                 }
             }
-            val k5m = com.lifecyclebot.network.SolanaOhlcvFeed6916
-                .fetchCandles6916(mint, "5m", 60, poolHint6916)
+            val k5m = keylessFetch7809(mint, "5m", 60, poolHint6916, attempts = if (k1mOk7809) 1 else 0)
             if (k5m.size >= 2) {
                 synchronized(ts.history5m) {
                     if (ts.history5m.size < 5) {
@@ -281,8 +342,7 @@ class DataOrchestrator(
                     }
                 }
             }
-            val k15m = com.lifecyclebot.network.SolanaOhlcvFeed6916
-                .fetchCandles6916(mint, "15m", 48, poolHint6916)
+            val k15m = keylessFetch7809(mint, "15m", 48, poolHint6916, attempts = if (k1mOk7809) 1 else 0)
             if (k15m.size >= 2) {
                 synchronized(ts.history15m) {
                     if (ts.history15m.size < 5) {

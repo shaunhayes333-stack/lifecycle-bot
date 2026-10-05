@@ -2558,7 +2558,10 @@ class BotService : Service() {
             )
         } catch (_: Throwable) {}
         try { hotExitJob?.cancel() } catch (_: Throwable) {}
-        hotExitJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // V5.0.7809 — the 2s exit manager runs on the held hot-path pool, not on
+        // Dispatchers.IO where discovery's blocking provider calls could leave its
+        // delay() resumption waiting for a thread (stale heartbeat, Field Manual L240).
+        hotExitJob = scope.launch(hotPathDispatcher7807) {
             try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) {}
             var tick = 0L
             while (status.running) {
@@ -2585,20 +2588,16 @@ class BotService : Service() {
                             openTokens, maxItems = 24, cursor = hotExitCoverageCursor6663,
                         )
                         managedThisTick6663.forEach { ts ->
-                            // V5.0.7251 — this timestamp is a progress heartbeat,
-                            // not merely a sweep-start timestamp. A 24-position
-                            // walk can legitimately exceed the 10s watchdog even
-                            // while every position is advancing. Refresh around
-                            // each unit so only a genuinely stuck unit can earn a
-                            // stale reset.
-                            lastTickExitSweepMs = System.currentTimeMillis()
+                            // V5.0.7251 — this timestamp is a progress heartbeat.
+                            // V5.0.7809 — each position's unit now runs on its own
+                            // single-flight worker (dispatchHotExitUnit7809): a live
+                            // sell inside runManageOnly (quote/sign/broadcast/confirm,
+                            // multi-second Thread.sleep retries) used to hold this loop
+                            // >=10s -> EXIT_COORDINATOR_STALE_RESET with only 4 open,
+                            // and every other position's stop waited behind it
+                            // (Field Manual L240, L248).
                             try {
-                                executor.runManageOnly(ts, curWallet, curSol)
-                            } catch (e: Exception) {
-                                ErrorLogger.debug(
-                                    "BotService",
-                                    "hotExit(${ts.symbol}): ${e.message}",
-                                )
+                                dispatchHotExitUnit7809(ts, curWallet, curSol)
                             } finally {
                                 lastTickExitSweepMs = System.currentTimeMillis()
                             }
@@ -2752,6 +2751,69 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "hotExitJob loop exited (status.running=${status.running})")
         }
         try { BotRuntimeController.registerJob(runtimeGeneration, "hotExit", hotExitJob) } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7809 — run one position's hot-exit manage unit off the hot loop, at
+     * most one in flight per position (ExitHotPath7809). The claim is released
+     * on job completion, including a launch into an already-cancelled scope, so
+     * a stopped bot cannot leave a mint wedged. Field Manual L240, L248.
+     */
+    private fun dispatchHotExitUnit7809(
+        ts: com.lifecyclebot.data.TokenState,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+        walletSol: Double,
+    ) {
+        val key7809 = ts.mint
+        val startedAt7809 = System.currentTimeMillis()
+        if (!com.lifecyclebot.engine.sell.ExitHotPath7809.tryBegin(key7809, startedAt7809)) {
+            try { PipelineHealthCollector.labelInc("HOT_EXIT_UNIT_COALESCED_7809") } catch (_: Throwable) {}
+            return
+        }
+        try {
+            val job7809 = scope.launch(com.lifecyclebot.engine.sell.ExitHotPath7809.unitDispatcher + CoroutineName("hot-exit-unit-7809")) {
+                try {
+                    executor.runManageOnly(ts, wallet, walletSol)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "hotExit(${ts.symbol}): ${e.message}")
+                }
+            }
+            job7809.invokeOnCompletion { com.lifecyclebot.engine.sell.ExitHotPath7809.end(key7809, startedAt7809) }
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.sell.ExitHotPath7809.end(key7809, startedAt7809)
+        }
+    }
+
+    /**
+     * V5.0.7809 — the rapid monitor's peak step: ratchet the ONE canonical peak
+     * (position.peakGainPct) with this valid tick, then reconcile the
+     * PeakAdaptiveTrail tracker keyed by the exact position lifetime. If the
+     * canonical peak lost a tick of this lifetime (a concurrent position copy),
+     * it receives it back; PEAK_AUTHORITY_DIVERGENCE_6948 now fires only if
+     * that repair cannot be applied. Field Manual L268.
+     */
+    private fun peakAuthorityTick7809(ts: com.lifecyclebot.data.TokenState, pnlPct: Double) {
+        try {
+            val pos7809 = ts.position
+            if (pnlPct.isFinite() && pnlPct > pos7809.peakGainPct) pos7809.peakGainPct = pnlPct
+            if (pos7809.entryTime <= 0L) return
+            val key7809 = com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390.canonicalKey7809(ts.mint, pos7809.entryTime)
+            val restore7809 = com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
+                .reconcileCanonical7809(key7809, pnlPct, pos7809.peakGainPct) ?: return
+            val live7809 = ts.position
+            if (live7809.entryTime == pos7809.entryTime && restore7809 > live7809.peakGainPct) {
+                live7809.peakGainPct = restore7809
+                PipelineHealthCollector.labelInc("PEAK_CANONICAL_RECEIVED_TICK_7809")
+            }
+            if (ts.position.peakGainPct + 5.0 < restore7809) {
+                ForensicLogger.lifecycle(
+                    "PEAK_AUTHORITY_DIVERGENCE_6948",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} tracked=${"%.1f".format(restore7809)}% " +
+                        "position=${"%.1f".format(ts.position.peakGainPct)}% authority=position.peakGainPct key=$key7809",
+                )
+                PipelineHealthCollector.labelInc("PEAK_AUTHORITY_DIVERGENCE_6948")
+            }
+        } catch (_: Throwable) {}
     }
 
     private var notifIdCounter = 100
@@ -11639,7 +11701,7 @@ class BotService : Service() {
                         // (peakPnlPct > 3.0) therefore never engaged in the fast path, and
                         // the sliding lock silently did nothing. Ratchet from the freshly
                         // computed pnlPct (HWM only ever climbs) BEFORE reading it.
-                        if (pnlPct > ts.position.peakGainPct) ts.position.peakGainPct = pnlPct
+                        peakAuthorityTick7809(ts, pnlPct)
                         val peakPnlPct = ts.position.peakGainPct
                         val volatility = ts.volatility ?: 50.0
 
@@ -11655,30 +11717,8 @@ class BotService : Service() {
                         // 75% via ladder rungs while a peak-slip cut protects
                         // the remaining 25% on the give-back.
                         val positionIdForPeak = ts.mint
-                        try {
-                            // V5.0.6948 — the tracker and ts.position.peakGainPct are
-                            // two independent peaks and the exit path uses only the
-                            // latter. They are NOT merged: position.peakGainPct is
-                            // deliberately zeroed (OpenPnlSanity) and rebased
-                            // (BotService:~10910), and this map is mint-keyed with no
-                            // notion of either, so a max() would resurrect a dead peak
-                            // onto a re-entry. Instead, report when they disagree —
-                            // divergence is the signal that one reset and the other
-                            // did not, which silently corrupts every trail decision.
-                            com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
-                                .recordTick(positionIdForPeak, pnlPct)
-                            com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
-                                .peakDivergence6948(positionIdForPeak, peakPnlPct)
-                                ?.let { div6948 ->
-                                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                                        "PEAK_AUTHORITY_DIVERGENCE_6948",
-                                        "mint=${ts.mint.take(10)} sym=${ts.symbol} $div6948 " +
-                                            "authority=position.peakGainPct tracked=${com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390.trackedPeakCount6948()}",
-                                    )
-                                    com.lifecyclebot.engine.PipelineHealthCollector
-                                        .labelInc("PEAK_AUTHORITY_DIVERGENCE_6948")
-                                }
-                        } catch (_: Throwable) {}
+                        // V5.0.7809 — tracker/canonical peak reconciliation moved into
+                        // peakAuthorityTick7809 (called above, before the peak is read).
                         // V5.0.6919 §FEED_THE_DETECTORS_THAT_WERE_PASSED_ZEROS.
                         //
                         // This call has always passed peakBuyVolumeUsd=0,
@@ -14377,20 +14417,20 @@ class BotService : Service() {
             // authorize while preserving an explicit operator override (which
             // the executor will still refuse rather than silently rewrite).
             val eligibleStyleLanes7252 = styleLanes.filter {
-                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it)
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it)
             }
             // V5.0.6600 — restore the pre-6599 authority: source/character/style routing
             // owns execution selection. Desk hypotheses contribute evidence but map
             // insertion/tie order must never rewrite the owner to PROJECT_SNIPER.
             val eligibleAffinity7252 = ts.laneAffinity.firstOrNull {
-                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it)
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it)
             }
             val stylePrimary = RuntimeConfigOverlay.normalizeLane(
                 forced ?: eligibleStyleLanes7252.firstOrNull() ?: eligibleAffinity7252 ?: "SHITCOIN"
             )
             val metricProposal6599 = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
             val eligibleMetricProposal7252 = if (
-                forced != null || LaneEntryContract6342.isLaneIdentityEligible7252(ts, metricProposal6599)
+                forced != null || (LaneEntryContract6342.isLaneIdentityEligible7252(ts, metricProposal6599) && cyclicPolicyAllows7809(metricProposal6599))
             ) metricProposal6599 else stylePrimary
             val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(eligibleMetricProposal7252.uppercase())) eligibleMetricProposal7252 else stylePrimary
             // V5.0.7389 — MANIPULATED is a danger signal, not a cycle owner; TREASURY
@@ -14403,6 +14443,7 @@ class BotService : Service() {
                 .filter { it.lane.uppercase() !in setOf("TREASURY", "CASHGEN") || treasuryRoleOk7389 }
                 .map { if (it.lane.equals("CASHGEN", true)) it.copy(lane = "TREASURY") else it }
                 .filter { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane) }
+                .filter { cyclicPolicyAllows7809(it.lane) }
                 .filter { it.lane.uppercase() != "PROJECT_SNIPER" || it.setup in setOf(ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE, ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE) }
             val rankedRoleHypotheses6614 = roleHypotheses6614
                 .filter { it.lane.uppercase() != "CORE" }
@@ -14442,7 +14483,7 @@ class BotService : Service() {
                     com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
                         // V5.0.7614 — CASHGEN and TREASURY are distinct canonical
                         // executable specialists. Shared mechanics must not rewrite owner identity.
-                        ?.takeIf { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) }
+                        ?.takeIf { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it) }
                 } catch (_: Throwable) { null }
             }
             if (huntClaim7297 != null) {
@@ -14483,7 +14524,7 @@ class BotService : Service() {
             val moonshotAdmitted7044 = com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044
                 .electPrimary(ts, classification, pivotedPrimary4524, forced)
             val identityEligiblePrimary7252 = if (
-                forced.isNullOrBlank() && !LaneEntryContract6342.isLaneIdentityEligible7252(ts, moonshotAdmitted7044)
+                forced.isNullOrBlank() && !(LaneEntryContract6342.isLaneIdentityEligible7252(ts, moonshotAdmitted7044) && cyclicPolicyAllows7809(moonshotAdmitted7044))
             ) {
                 val fallback7252 = rankedRoleHypotheses6614.firstOrNull()?.lane
                     ?: eligibleStyleLanes7252.firstOrNull()
@@ -14543,6 +14584,41 @@ class BotService : Service() {
             )
         } catch (_: Throwable) {}
         return attempt
+    }
+
+    /**
+     * V5.0.7809 §QUALITY_BLUECHIP_HOLDER_EVIDENCE_WAS_NOT_READ. QUALITY and
+     * BLUECHIP passed `ts.topHolderPct ?: 50.0(live)` to their scorers, so a
+     * candidate whose concentration lived only on the safety report (or the
+     * token map) was scored as if a 50% holder had been measured: QUALITY
+     * refused it outright ("Top holder too dominant: 50% > 30%") and BLUECHIP
+     * took the -15 penalty, and neither lane reached OWNER/BUY_INTENT. Read the
+     * same evidence chain CanonicalFeaturesBuilder already uses; the
+     * conservative live fallback is kept for genuinely unknown concentration
+     * (Field Manual L190 / L345: holder evidence is checked; unknown is not zero risk).
+     */
+    private fun laneTopHolderPct7809(ts: com.lifecyclebot.data.TokenState): Double =
+        ts.topHolderPct
+            ?: ts.safety.topHolderPct.takeIf { it >= 0.0 }
+            ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it >= 0.0 }
+            ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0
+
+    /**
+     * V5.0.7809 §A_DISABLED_TRADER_CANNOT_OWN_A_CYCLE. With the Cyclic ring off by
+     * operator policy (live toggle), style/affinity routing could still elect
+     * CYCLIC as the cycle primary; the primary spine then stamped FDG/intent
+     * stages for CYCLIC with no DISCOVER (no CYCLIC desk observed the token),
+     * which the funnel printed as phantom downstream stages under discovered=0.
+     * A lane whose trader can never authorize is not electable (Field Manual
+     * L356: ownership is resolved explicitly, to a strategy that can own the trade).
+     */
+    private fun cyclicPolicyAllows7809(lane: String?): Boolean {
+        val raw = lane.orEmpty()
+        val canon = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(raw) } catch (_: Throwable) { raw.uppercase() }
+        if (canon != "CYCLIC") return true
+        val enabled = try { CyclicTradeEngine.isEnabled() } catch (_: Throwable) { true }
+        if (!enabled) try { PipelineHealthCollector.labelInc("CYCLIC_DISABLED_NOT_ELECTED_7809") } catch (_: Throwable) {}
+        return enabled
     }
 
     private fun executionBookForLane6494(lane: String): TradeAuthorizer.ExecutionBook = when (RuntimeConfigOverlay.normalizeLane(lane)) {
@@ -18987,6 +19063,63 @@ class BotService : Service() {
      * promote/wipe stuck pendingVerify positions via on-chain RE-CHECK.
      * Logic identical to pre-extraction; uses Service-level state directly.
      */
+    // V5.0.7809 §LEARNING_DONE_43S_CYCLE (Field Manual L407 — the loop that owns
+    // exits must never wait on a network call it does not need). Between the
+    // LEARNING_DONE and POST_LEARNING_SANITIZE markers botLoop ran, inline and
+    // every cycle, FeeRetryQueue.drainFeeQueue + FeeAccumulator.tryFlush (each
+    // does getSolBalance and sendSol RPCs per bucket/entry) and, every 60s, the
+    // pending-verify watchdog (bulk token-account RPC plus a per-mint RPC retry
+    // inside its loop). A slow RPC parked the whole cycle at phase=LEARNING_DONE
+    // (avg 7.5s, max 43s). Both now run single-flight on the IO pool: a slow RPC
+    // delays only its own next attempt, never the bot loop. Behaviour, wallet
+    // preference (singleton first, so a paper flip cannot strand fees) and the
+    // watchdog's decisions are unchanged.
+    private val feeDrainInFlight7809 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val pendingVerifyInFlight7809 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun launchFeeDrain7809(loopWallet: SolanaWallet?) {
+        val walletPick7809: SolanaWallet? = try {
+            com.lifecyclebot.engine.WalletManager.getWallet() ?: loopWallet
+        } catch (_: Throwable) { loopWallet }
+        val liveWallet = walletPick7809 ?: return
+        if (!feeDrainInFlight7809.compareAndSet(false, true)) {
+            try { PipelineHealthCollector.labelInc("FEE_DRAIN_SKIPPED_INFLIGHT_7809") } catch (_: Throwable) {}
+            return
+        }
+        try {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    try { FeeRetryQueue.drainFeeQueue(liveWallet) }
+                    catch (e: Exception) { ErrorLogger.warn("BotService", "FeeRetryQueue drain error: ${e.message}") }
+                    try {
+                        val flushed = FeeAccumulator.tryFlush(liveWallet)
+                        if (flushed > 0.0) {
+                            try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteFlush(flushed) } catch (_: Throwable) {}
+                        }
+                    } catch (e: Exception) { ErrorLogger.warn("BotService", "FeeAccumulator flush error: ${e.message}") }
+                } finally {
+                    feeDrainInFlight7809.set(false)
+                }
+            }
+        } catch (t: Throwable) {
+            feeDrainInFlight7809.set(false)
+        }
+    }
+
+    private fun launchPendingVerifyWatchdog7809(loopWallet: SolanaWallet?) {
+        if (!pendingVerifyInFlight7809.compareAndSet(false, true)) {
+            try { PipelineHealthCollector.labelInc("PENDING_VERIFY_WATCHDOG_SKIPPED_INFLIGHT_7809") } catch (_: Throwable) {}
+            return
+        }
+        try {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try { runPendingVerifyWatchdog(loopWallet) } finally { pendingVerifyInFlight7809.set(false) }
+            }
+        } catch (t: Throwable) {
+            pendingVerifyInFlight7809.set(false)
+        }
+    }
+
     private fun runPendingVerifyWatchdog(wallet: SolanaWallet?) {
         try {
             val now = System.currentTimeMillis()
@@ -19816,22 +19949,7 @@ class BotService : Service() {
             // to paper doesn't strand fees. This is safe: FeeAccumulator only holds
             // amounts that were accrued during genuine live execution paths, and
             // sendSol is only called for buckets that exist.
-            run {
-                val liveWallet = try {
-                    // Prefer WalletManager singleton so a paper flip cannot strand fees.
-                    com.lifecyclebot.engine.WalletManager.getWallet() ?: wallet
-                } catch (_: Throwable) { wallet }
-                if (liveWallet != null) {
-                    try { FeeRetryQueue.drainFeeQueue(liveWallet) }
-                    catch (e: Exception) { ErrorLogger.warn("BotService", "FeeRetryQueue drain error: ${e.message}") }
-                    try {
-                        val flushed = FeeAccumulator.tryFlush(liveWallet)
-                        if (flushed > 0.0) {
-                            try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteFlush(flushed) } catch (_: Throwable) {}
-                        }
-                    } catch (e: Exception) { ErrorLogger.warn("BotService", "FeeAccumulator flush error: ${e.message}") }
-                }
-            }
+            launchFeeDrain7809(wallet)
 
             // V5.9.290: PendingVerify Watchdog — proactively sweep for stuck pendingVerify positions.
             // Runs every 60s. Clears any position where qtyToken>0 && pendingVerify=true && age>120s.
@@ -19846,7 +19964,7 @@ class BotService : Service() {
                 lastPendingVerifyWatchdogAt = System.currentTimeMillis()
                 // V5.9.1036 — extracted to runPendingVerifyWatchdog(wallet)
                 // to reduce botLoop bytecode (was 110 lines of inline body).
-                runPendingVerifyWatchdog(wallet)
+                launchPendingVerifyWatchdog7809(wallet)
             }
 
             // V5.9.103: periodic reconcile (was live-mode-only)
@@ -21616,7 +21734,6 @@ if (hotExitHandledSweep) {
                     val tokenStatesCopy = synchronized(status.tokens) {
                         status.tokens.toMap()
                     }
-                    executor.checkShadowPositions(tokenStatesCopy)
                     // V5.0.7307 — lane shadow proof follows FDG's unproven-lane
                     // refusals; a mark older than two minutes is not a price.
                     val nowShadow7307 = System.currentTimeMillis()
@@ -21632,6 +21749,8 @@ if (hotExitHandledSweep) {
                     com.lifecyclebot.engine.truth.ExitRegret7752.tick({ m ->
                         tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
                     }, nowShadow7307)
+                    // V5.0.7809 — moved after the label ticks: a shadow-position exception no longer skips label bookout.
+                    executor.checkShadowPositions(tokenStatesCopy)
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
                 }
@@ -23750,6 +23869,40 @@ if (hotExitHandledSweep) {
         }
     }
 
+    /**
+     * V5.0.7809 §SELF_RELEASED_WORKER_REPORTED_AS_FORCED (Field Manual L316).
+     * The safety-net watchdog cancels an overrunning worker and then waits up to
+     * 250ms for it to finish. When it does finish inside that join, its own
+     * `finally` has already released the lease (released=true) — the worker was
+     * cancelled cleanly and returned its slot itself. The watchdog nevertheless
+     * logged SUPERVISOR_LEASE_FORCE_RELEASED for it, which ExecutionSpineAcceptance
+     * counts as SUPERVISOR_FORCED_LEASE_RELEASE. Only a lease the worker could
+     * NOT release (still wedged in non-interruptible IO) is force-released now;
+     * slot return, cooldown and timeout accounting are unchanged, so the
+     * zero-saturation behaviour is preserved.
+     */
+    private fun supervisorWatchdogRelease7809(
+        selfReleased: Boolean, leaseId: Long, mint: String, cancelAck: Boolean, releaseSlot: () -> Unit,
+    ) {
+        if (selfReleased) {
+            try {
+                PipelineHealthCollector.labelInc("SUPERVISOR_WORKER_CANCEL_SELF_RELEASED_7809")
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_WORKER_CANCEL_SELF_RELEASED_7809",
+                    "leaseId=$leaseId mint=${mint.take(10)} cancelAck=$cancelAck active=${supervisorLeases.size} cooled=true",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        try {
+            ForensicLogger.lifecycle(
+                "SUPERVISOR_LEASE_FORCE_RELEASED",
+                supervisorTimeoutDetail6448(leaseId, mint) + " afterMs=${SUPERVISOR_WORKER_TIMEOUT_MS + 750L} active=${supervisorLeases.size} cooled=true cancelAck=$cancelAck",
+            )
+        } catch (_: Throwable) {}
+        releaseSlot()
+    }
+
     private fun supervisorClampIfNegative(reason: String) {
         val cur = supervisorActive.get()
         if (cur < 0 && supervisorActive.compareAndSet(cur, 0)) {
@@ -24022,13 +24175,7 @@ if (hotExitHandledSweep) {
                         try { supervisorArmTimeoutCooldown(mint) } catch (_: Throwable) {}
                         try { supervisorLifetimeWorkerTimeouts.incrementAndGet() } catch (_: Throwable) {}
                         try { supervisorNoteWorkerTimeoutForThrottle() } catch (_: Throwable) {}
-                        try {
-                            ForensicLogger.lifecycle(
-                                "SUPERVISOR_LEASE_FORCE_RELEASED",
-                                supervisorTimeoutDetail6448(leaseId, mint) + " afterMs=${SUPERVISOR_WORKER_TIMEOUT_MS + 750L} active=${supervisorLeases.size} cooled=true cancelAck=$cancelAck6448",
-                            )
-                        } catch (_: Throwable) {}
-                        releaseSlot()
+                        supervisorWatchdogRelease7809(released.get(), leaseId, mint, cancelAck6448, releaseSlot)
                     }
                 } catch (_: Throwable) {}
             }
@@ -24112,9 +24259,12 @@ if (hotExitHandledSweep) {
         // position (partial-close spam, false exitScope=1 and cross-asset mark
         // repair) while canonical LIVE inventory was actually empty.
         val activeExitMode7254 = if (RuntimeModeAuthority.isPaper()) "paper" else "live"
+        // V5.0.7809 — exit scope = protective inventory (funded LIVE quarantines
+        // included, one row per mint), not openPositions(): the held supervisor
+        // counted a funded quarantine that this snapshot never marked or managed
+        // (Field Manual L39, L407).
         val canonical = try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .filter { it.mode.equals(activeExitMode7254, ignoreCase = true) }
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveExitScope7809(activeExitMode7254)
         } catch (_: Throwable) { emptyList() }
         if (canonical.isEmpty()) return emptyList()
         val tokenByMint = try { synchronized(status.tokens) { status.tokens.values.associateBy { it.mint } } } catch (_: Throwable) { emptyMap() }
@@ -28012,6 +28162,7 @@ if (hotExitHandledSweep) {
                                     isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     finalityPrechecked = true,
                                     attemptId = treasuryAttemptId,
+                                    paperLayerTag = compounderLane7614,  // V5.0.7809 — owner lane, not literal TREASURY (Field Manual L356)
                                 )
                                 if (!treasuryOpened) {
                                     ErrorLogger.warn("BotService", "TREASURY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -28164,7 +28315,7 @@ if (hotExitHandledSweep) {
                             buyPressure = ts.lastBuyPressurePct.toInt(),
                             tokenAgeMinutes = qualityTokenAgeMinutes,
                             holderCount = qualityHolderCount,
-                            topHolderPct = ts.topHolderPct ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
+                            topHolderPct = laneTopHolderPct7809(ts),  // V5.0.7809 — Field Manual L345
                             v3Score = v3Score,
                             isMeme = false,
                         )
@@ -28425,7 +28576,7 @@ if (hotExitHandledSweep) {
                             currentPrice = ts.ref,
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            topHolderPct = ts.topHolderPct ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
+                            topHolderPct = laneTopHolderPct7809(ts),  // V5.0.7809 — Field Manual L345
                             buyPressurePct = ts.lastBuyPressurePct,
                             v3Score = v3Score,
                             v3Confidence = v3Confidence,
@@ -34581,6 +34732,10 @@ if (hotExitHandledSweep) {
                 if (!universalSlInFlight7271.add(mintKey7271)) {
                     try { PipelineHealthCollector.labelInc("UNIVERSAL_SL_EVAL_SKIPPED_INFLIGHT_7271") } catch (_: Throwable) {}
                 } else {
+                    // V5.0.7809 — this IS an exit evaluation of a canonical open; it was
+                    // never counted, so J_OPEN_WITHOUT_EXIT_EVALUATION failed in any
+                    // window where only the universal SL sweep ran. Field Manual L407.
+                    com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitEvaluation()
                     scope.launch(Dispatchers.IO) {
                         try {
                             runFallbackSafetyExit(ts, cfg, wallet)

@@ -110,6 +110,20 @@ object OracleEdgeProof7263 {
     }
 
     private val stamps = ConcurrentHashMap<String, Stamp>()
+    /**
+     * V5.0.7809 — Field Manual L356 (exact ownership). [stamps] is keyed by
+     * mint and rewritten by EVERY later evaluation of that mint — other fanout
+     * lanes, re-evaluations while the position is held — so a close graded
+     * whichever verdict happened to be issued last, not the one the entry was
+     * made on. The owner lane's forecast is kept per mint|lane and frozen onto
+     * the canonical positionId at open; the close grades that frozen verdict.
+     */
+    private val laneStamps7809 = ConcurrentHashMap<String, Stamp>()
+    private val positionStamps7809 = ConcurrentHashMap<String, Stamp>()
+    private val positionBound7809 = AtomicLong(0L)
+    private val positionGraded7809 = AtomicLong(0L)
+    private const val POSITION_KEY_PREFIX_7809 = "P#"
+    private const val MAX_POSITION_STAMPS_7809 = 600
     private val admit = Tally()
     private val refuse = Tally()
     private val scored = AtomicLong(0L)
@@ -159,6 +173,12 @@ object OracleEdgeProof7263 {
                 val v = if (f[1] == "ADMIT") PredictiveEntryOracle6915.Verdict.ADMIT
                     else PredictiveEntryOracle6915.Verdict.REFUSE
                 val at = f[3].toLongOrNull() ?: return@forEach
+                // V5.0.7809 — a position-bound entry verdict lives as long as the position.
+                if (f[0].startsWith(POSITION_KEY_PREFIX_7809)) {
+                    positionStamps7809[f[0].removePrefix(POSITION_KEY_PREFIX_7809)] = Stamp(v, f[2].toDoubleOrNull() ?: 0.5, at)
+                    restored7287.incrementAndGet()
+                    return@forEach
+                }
                 if (now - at > STAMP_TTL_MS_7263) return@forEach
                 stamps[f[0]] = Stamp(v, f[2].toDoubleOrNull() ?: 0.5, at)
                 restored7287.incrementAndGet()
@@ -186,7 +206,13 @@ object OracleEdgeProof7263 {
             val body = stamps.entries
                 .filter { now - it.value.atMs <= STAMP_TTL_MS_7263 }
                 .joinToString(";") { "${it.key},${it.value.verdict.name},${it.value.pWin},${it.value.atMs}" }
-            p.edit().putString(KEY_STAMPS_7287, body).apply()
+            val bound7809 = positionStamps7809.entries
+                .filter { !it.key.contains(',') && !it.key.contains(';') }
+                .sortedByDescending { it.value.atMs }
+                .take(MAX_POSITION_STAMPS_7809)
+                .joinToString(";") { "$POSITION_KEY_PREFIX_7809${it.key},${it.value.verdict.name},${it.value.pWin},${it.value.atMs}" }
+            val all7809 = listOf(body, bound7809).filter { it.isNotBlank() }.joinToString(";")
+            p.edit().putString(KEY_STAMPS_7287, all7809).apply()
         } catch (_: Throwable) {}
     }
 
@@ -198,6 +224,8 @@ object OracleEdgeProof7263 {
     @Synchronized
     fun resetAllLearning7535() {
         stamps.clear()
+        laneStamps7809.clear()
+        positionStamps7809.clear()
         admit.clear7535()
         refuse.clear7535()
         admitLive7807.clear7535()
@@ -230,6 +258,52 @@ object OracleEdgeProof7263 {
         persistStampsIfDue7287(now)
     }
 
+    /** V5.0.7809 — the forecast a specific lane received for [mint] (LearnedAdmissionInputs6909). */
+    fun stampLane7809(mint: String, lane: String, forecast: PredictiveEntryOracle6915.Forecast) {
+        if (mint.isBlank() || lane.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (laneStamps7809.size > MAX_STAMPS_7263) {
+            try { laneStamps7809.entries.removeIf { now - it.value.atMs > STAMP_TTL_MS_7263 } } catch (_: Throwable) {}
+        }
+        laneStamps7809["$mint|${lane.trim().uppercase()}"] =
+            Stamp(forecast.verdict, forecast.pWin.let { if (it.isFinite()) it.coerceIn(0.0, 1.0) else 0.5 }, now)
+    }
+
+    /**
+     * V5.0.7809 — freeze the entry verdict on the canonical position at OPEN
+     * (LearningAttributionBinder7809). Owner lane's stamp first, then the mint
+     * stamp; never overwritten once bound, so later re-evaluations of the same
+     * mint cannot change what grades this trade.
+     */
+    fun bindPosition7809(positionId: String, mint: String, lane: String): Boolean {
+        if (positionId.isBlank() || mint.isBlank()) return false
+        if (positionStamps7809.containsKey(positionId)) return true
+        val now = System.currentTimeMillis()
+        val laneStamp = laneStamps7809.remove("$mint|${lane.trim().uppercase()}")
+            ?.takeIf { now - it.atMs in 0L..STAMP_TTL_MS_7263 }
+        val s = laneStamp ?: stamps[mint]?.takeIf { now - it.atMs in 0L..STAMP_TTL_MS_7263 } ?: run {
+            try { PipelineHealthCollector.labelInc("ORACLE_EDGE_POSITION_BIND_NO_FORECAST_7809") } catch (_: Throwable) {}
+            return false
+        }
+        positionStamps7809.putIfAbsent(positionId, s)
+        positionBound7809.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc(
+                if (laneStamp != null) "ORACLE_EDGE_POSITION_BOUND_LANE_7809" else "ORACLE_EDGE_POSITION_BOUND_MINT_7809",
+            )
+        } catch (_: Throwable) {}
+        if (positionStamps7809.size > MAX_POSITION_STAMPS_7809 * 2) {
+            try {
+                positionStamps7809.entries.sortedBy { it.value.atMs }
+                    .take(positionStamps7809.size - MAX_POSITION_STAMPS_7809)
+                    .forEach { positionStamps7809.remove(it.key, it.value) }
+            } catch (_: Throwable) {}
+        }
+        lastStampFlushMs7287.set(0L)
+        persistStampsIfDue7287(now)
+        return true
+    }
+
     private fun ensureSubscribed() {
         if (!subscribed.compareAndSet(false, true)) return
         try {
@@ -244,14 +318,21 @@ object OracleEdgeProof7263 {
     fun onEvent(event: CanonicalTradeFinalizedBus6450.Event) {
         try { FinalizedFanoutParity6459.recordConsumer("OracleEdgeProof7263") } catch (_: Throwable) {}
         // V5.0.7807 — only clean terminal truth grades the oracle (Field Manual L357).
-        if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(event)) { stamps.remove(event.mint); return }
-        val s = stamps[event.mint]
+        if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(event)) {
+            stamps.remove(event.mint); positionStamps7809.remove(event.positionId); return
+        }
+        // V5.0.7809 — the verdict frozen on this position at OPEN grades it; the
+        // per-mint stamp is only the fallback for positions opened before 7809.
+        val bound7809 = positionStamps7809.remove(event.positionId)
+        val s = bound7809 ?: stamps[event.mint]
         if (s == null) { unmatched.incrementAndGet(); return }
         // V5.0.7287 — a durable replay re-publishes closes from before this
         // forecast existed; a close can only grade a forecast issued before it.
         if (event.settledAtMs < s.atMs) { unmatched.incrementAndGet(); return }
         stamps.remove(event.mint)
-        if (event.settledAtMs - s.atMs > STAMP_TTL_MS_7263) { staleStamps.incrementAndGet(); return }
+        // A position-bound verdict is the entry decision however long the hold.
+        if (bound7809 == null && event.settledAtMs - s.atMs > STAMP_TTL_MS_7263) { staleStamps.incrementAndGet(); return }
+        if (bound7809 != null) positionGraded7809.incrementAndGet()
         val win = event.outcome == CanonicalTradeFinalizedBus6450.Outcome.WIN
         val ret = event.returnFraction
         when (s.verdict) {
@@ -387,11 +468,13 @@ object OracleEdgeProof7263 {
             "admit[n=$aN ret=${"%+.1f".format(aRet * 100.0)}% wr=${"%.0f".format(aWr * 100.0)}% brier=${"%.3f".format(admit.brier())}] " +
             "refuse[n=$rN ret=${"%+.1f".format(rRet * 100.0)}% wr=${"%.0f".format(rWr * 100.0)}%] " +
             "promotions=${promotions.get()} demotions=${demotions.get()} stamps=${stamps.size} " +
+            "positionBound7809=${positionBound7809.get()} positionGraded7809=${positionGraded7809.get()} positionPending7809=${positionStamps7809.size} " +
             "persisted7287=${prefs7287 != null} restoredStamps7287=${restored7287.get()} " +
             "bar=admit>=$MIN_ADMIT_CLOSES_7263/refuse>=$MIN_NON_ADMIT_CLOSES_7263/margin=${MIN_EDGE_MARGIN_RETURN_7263}/brier<=$MAX_ADMIT_BRIER_7263"
     }
 
     internal fun resetForTest() {
+        laneStamps7809.clear(); positionStamps7809.clear()
         stamps.clear(); scored.set(0L); unmatched.set(0L); staleStamps.set(0L)
         promotions.set(0L); demotions.set(0L); tier = Tier.ADVISORY; tierReason = "reset"
     }

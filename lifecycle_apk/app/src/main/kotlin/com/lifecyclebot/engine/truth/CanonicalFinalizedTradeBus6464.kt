@@ -380,6 +380,31 @@ object CanonicalFinalizedTradeBus6464 {
     }
     fun consumerExcludedUnique(name: String): Int = canonicalSeen.keys.count { isExcluded(name, it) }
 
+    /** V5.0.7809 — per-POSITION parity inside an explicit position scope. */
+    data class ScopedParity7809(val busPositions: Int, val processed: Int, val excluded: Int)
+
+    /**
+     * V5.0.7809 — AcceptanceInvariantAudit6441 §4 compares canonical CLOSED
+     * positions to the bus. The bus is keyed by tradeId and can also hold
+     * envelopes whose canonical row no longer exists (paper rebuild, aborted
+     * entry), so whole-bus counts are not comparable to a position population.
+     * Count distinct positionIds inside [scope] instead; a position is
+     * processed when some envelope for it is ACKed (not excluded) by
+     * [consumer], excluded when it is explicitly EXCLUDED.
+     */
+    fun scopedParity7809(consumer: String, scope: Set<String>): ScopedParity7809 {
+        val bus = HashSet<String>(); val processed = HashSet<String>(); val excluded = HashSet<String>()
+        for ((tradeId, env) in canonicalSeen) {
+            val pid = env.positionId
+            if (pid !in scope) continue
+            bus.add(pid)
+            if (isExcluded(consumer, tradeId)) excluded.add(pid)
+            else if (consumerAcks[consumer]?.contains(tradeId) == true) processed.add(pid)
+        }
+        processed.removeAll(excluded)
+        return ScopedParity7809(bus.size, processed.size, excluded.size)
+    }
+
     data class Parity(
         val canonicalUnique: Int,
         val perConsumer: Map<String, Int>,

@@ -173,6 +173,13 @@ jobs:
       - name: FinalDecisionGate.evaluate() verifier budget
         run: python3 ci/fdg_evaluate_budget_scan.py
 
+      # V5.0.7809 — 5.0.7807 crashed on the PIN screen (VerifyError in
+      # FinalDecisionGate.evaluate) after one declaration-free call was added;
+      # the 7720 budget counts only declarations. Every oversized method is now
+      # pinned to its 5.0.7808 (device-proven) code size and may only shrink.
+      - name: Oversized method verifier budget
+        run: python3 ci/oversized_method_budget_7809.py
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

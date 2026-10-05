@@ -64,17 +64,42 @@ object AcceptanceInvariantAudit6441 {
         // while W/L/BE itself remains processed-only and unpolluted.
         val (w, l, b) = RewardPurityGate6441.canonicalCounts()
         val sessionRewardProcessed6734 = (w + l + b).toInt()
-        val rewardProcessed6699 = CanonicalFinalizedTradeBus6464.consumerUnique("RewardPurity")
-        val rewardExcluded6699 = try {
-            CanonicalFinalizedTradeBus6464.consumerExcludedUnique("RewardPurity")
-        } catch (_: Throwable) { 0 }
-        val busCanonical6699 = try { CanonicalFinalizedTradeBus6464.canonicalUnique() } catch (_: Throwable) { 0 }
-        val closedCount = CanonicalPositionAuthority6441.closedPositions().size
+        // V5.0.7809 §REWARD_POP_COUNTED_UNPUBLISHABLE_HISTORY (Field Manual L415).
+        // The strict equalities below are unchanged; the POPULATION they run
+        // over is now explicit. Excluded, by name, from canonical CLOSED:
+        //   the FinalizedLearningReconciler7423 historical reasons
+        //   (HISTORICAL_EXCLUSIONS_7809) — rows that can never be published
+        //   without inventing P&L (quarantined/protective-quarantine closes,
+        //   legacy replay, duplicates, corrupt entries, terminal proof with no
+        //   usable basis, and CLOSED rows with no durable full terminal SELL).
+        // BUS_PUBLISH_FAILED (repairable; the 7459 repair converges it) and
+        // UNKNOWN stay in scope and still FAIL. Bus envelopes are counted per
+        // positionId inside that scope, so a bus row whose canonical row was
+        // rebuilt/aborted away (BUS_ROW_WITHOUT_CANONICAL_POSITION_7809) is not
+        // compared with a position population it does not belong to; a bus row
+        // whose canonical position is still OPEN is logged as a diagnostic.
+        val scope7809 = rewardScope7809()
+        val closedCount = scope7809.closedIds.size
+        val scoped7809 = try {
+            CanonicalFinalizedTradeBus6464.scopedParity7809("RewardPurity", scope7809.closedIds)
+        } catch (_: Throwable) { CanonicalFinalizedTradeBus6464.ScopedParity7809(0, 0, 0) }
+        val rewardProcessed6699 = scoped7809.processed
+        val rewardExcluded6699 = scoped7809.excluded
+        val busCanonical6699 = scoped7809.busPositions
         val rewardHandled6699 = rewardProcessed6699 + rewardExcluded6699
+        if (scope7809.busRowsForOpenPositions.isNotEmpty()) try {
+            // Diagnostic, not a failure: protective-quarantine recovery (7454/7807)
+            // may legitimately re-open a positionId after an earlier terminal.
+            PipelineHealthCollector.labelInc("BUS_FINALIZED_BUT_CANONICAL_OPEN_7809")
+            ForensicLogger.lifecycle(
+                "BUS_FINALIZED_BUT_CANONICAL_OPEN_7809",
+                "n=${scope7809.busRowsForOpenPositions.size} ids=${scope7809.busRowsForOpenPositions.take(3).joinToString("|") { it.take(52) }}",
+            )
+        } catch (_: Throwable) {}
         val rewardParity6699 = closedCount == 0 ||
             (busCanonical6699 == closedCount && rewardHandled6699 == closedCount)
         if (rewardParity6699) {
-            passed.add("reward_terminal_pop==closed(processed=$rewardProcessed6699,excluded=$rewardExcluded6699,session=$sessionRewardProcessed6734)")
+            passed.add("reward_terminal_pop==closed(processed=$rewardProcessed6699,excluded=$rewardExcluded6699,session=$sessionRewardProcessed6734,historicalExcluded=${scope7809.historicalExcluded})")
         } else {
             // V5.0.7018 §NAME_THE_TRADE_THAT_NEVER_REACHED_THE_BUS.
             //
@@ -88,9 +113,7 @@ object AcceptanceInvariantAudit6441 {
             // the same reason: a diagnostic that reports a scalar about a set it
             // is holding in memory is withholding the answer.
             val missingFromBus7018 = try {
-                CanonicalPositionAuthority6441.closedPositions()
-                    .map { it.positionId }
-                    .toSet() - CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
+                scope7809.closedIds - CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
             } catch (_: Throwable) { emptySet<String>() }
             failed.add(
                 "reward_pop_mismatch:closed=$closedCount,bus=$busCanonical6699," +
@@ -257,6 +280,43 @@ object AcceptanceInvariantAudit6441 {
             try { PipelineHealthCollector.labelInc("ACCEPTANCE_AUDIT_OK_6441") } catch (_: Throwable) {}
         }
         return report
+    }
+
+    /** V5.0.7809 — reconciler reasons that mark a CLOSED row as unpublishable history. */
+    private val HISTORICAL_EXCLUSIONS_7809 = setOf(
+        FinalizedLearningReconciler7423.Reason.ECONOMICS_QUARANTINED,
+        FinalizedLearningReconciler7423.Reason.LEGACY_REPLAY,
+        FinalizedLearningReconciler7423.Reason.DUPLICATE,
+        FinalizedLearningReconciler7423.Reason.CORRUPT_ENTRY,
+        FinalizedLearningReconciler7423.Reason.DURABLE_TERMINAL_UNREPAIRABLE,
+        FinalizedLearningReconciler7423.Reason.HISTORICAL_NO_DURABLE_FINALITY,
+    )
+
+    private class RewardScope7809(
+        val closedIds: Set<String>,
+        val historicalExcluded: Int,
+        val busRowsForOpenPositions: List<String>,
+    )
+
+    private fun rewardScope7809(): RewardScope7809 {
+        val closedIds = try {
+            CanonicalPositionAuthority6441.closedPositions().mapTo(HashSet()) { it.positionId }
+        } catch (_: Throwable) { HashSet<String>() }
+        val historical = try {
+            FinalizedLearningReconciler7423.snapshot().missing.asSequence()
+                .filter { it.reason in HISTORICAL_EXCLUSIONS_7809 }
+                .mapTo(HashSet()) { it.positionId }
+        } catch (_: Throwable) { HashSet<String>() }
+        val busIds = try { CanonicalFinalizedTradeBus6464.canonicalPositionIds7018() } catch (_: Throwable) { emptySet<String>() }
+        val openIds = try {
+            CanonicalPositionAuthority6441.openPositions().mapTo(HashSet()) { it.positionId }
+        } catch (_: Throwable) { HashSet<String>() }
+        val inScope = closedIds - historical
+        return RewardScope7809(
+            closedIds = inScope,
+            historicalExcluded = closedIds.size - inScope.size,
+            busRowsForOpenPositions = busIds.filter { it in openIds },
+        )
     }
 
     fun statusLine(): String {

@@ -47,16 +47,26 @@ object ExitTelemetryStamper6732 {
      * intent timestamp can supply latency. Missing timestamps remain visible
      * as unknown rather than manufactured zero-millisecond measurements.
      */
-    fun noteExitCompleted(positionId: String, reason: String) {
+    fun noteExitCompleted(positionId: String, reason: String, mint: String = "") {
         if (positionId.isBlank()) return
         try {
             val intent = intents.remove(positionId)
             val cls = intent?.cls ?: classify(reason)
+            val now7809 = System.currentTimeMillis()
             if (intent == null) {
                 PipelineHealthCollector.labelInc("EXIT_TERMINAL_NO_INTENT_STAMP_6732_${cls.name}")
+            } else if (now7809 - intent.atMs > TRIGGER_STAMP_MAX_AGE_MS_7807) {
+                // V5.0.7809 — an intent stamped by a request that was deferred long
+                // ago is not this exit's latency; count it, never average it in.
+                PipelineHealthCollector.labelInc("EXIT_INTENT_STAMP_STALE_7809_${cls.name}")
             } else {
-                val elapsedMs = (System.currentTimeMillis() - intent.atMs).coerceAtLeast(0L)
+                val elapsedMs = (now7809 - intent.atMs).coerceAtLeast(0L)
                 StopLatencyClasses6464.record(cls, elapsedMs)
+            }
+            // V5.0.7809 — broadcast -> finality for the regression gate.
+            val b7809 = if (mint.isNotBlank()) lastBroadcastAtMs7809[mint] else null
+            if (b7809 != null && b7809 >= SESSION_START_MS_7809 && now7809 - b7809 <= TRIGGER_STAMP_MAX_AGE_MS_7807) {
+                StopLatencyClasses6464.recordGateBroadcastToFinality7809((now7809 - b7809).coerceAtLeast(0L))
             }
             PipelineHealthCollector.labelInc("EXIT_TERMINAL_STAMPED_6732_${cls.name}")
         } catch (_: Throwable) {}
@@ -131,6 +141,15 @@ object ExitTelemetryStamper6732 {
         if (mint.isBlank() || atMs <= 0L) return
         try {
             val now = System.currentTimeMillis()
+            // V5.0.7809 — a retry re-stamping a trigger that a broadcast already
+            // measured (the risk clock re-passes its original latch time on every
+            // redispatch) would count the same condition twice, the second time
+            // with the first attempt's whole retry history inside it.
+            val lastB7809 = lastBroadcastAtMs7809[mint]
+            if (lastB7809 != null && atMs <= lastB7809) {
+                PipelineHealthCollector.labelInc("EXIT_TRIGGER_RESTAMP_AFTER_BROADCAST_IGNORED_7809")
+                return
+            }
             val stamp = Trigger7807(
                 classify(reason), atMs.coerceAtMost(now),
                 com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason),
@@ -149,13 +168,22 @@ object ExitTelemetryStamper6732 {
     fun noteBroadcast7807(mint: String) {
         if (mint.isBlank()) return
         try {
+            val now7809 = System.currentTimeMillis()
+            // V5.0.7809 — every broadcast is remembered (finality gate, re-stamp guard).
+            if (lastBroadcastAtMs7809.size > 2_000) {
+                lastBroadcastAtMs7809.entries.removeIf { now7809 - it.value > TRIGGER_STAMP_MAX_AGE_MS_7807 }
+            }
+            lastBroadcastAtMs7809[mint] = now7809
             val t = triggers7807.remove(mint) ?: return
-            val elapsed = (System.currentTimeMillis() - t.atMs).coerceAtLeast(0L)
+            val elapsed = (now7809 - t.atMs).coerceAtLeast(0L)
             if (elapsed > TRIGGER_STAMP_MAX_AGE_MS_7807) {
                 PipelineHealthCollector.labelInc("EXIT_TRIGGER_TO_BROADCAST_STAMP_STALE_7807")
                 return
             }
             StopLatencyClasses6464.recordTriggerToBroadcast7807(t.cls, elapsed, t.emergency)
+            // V5.0.7809 — regression gate: only conditions first actionable in this
+            // session (a stamp carried from before process start is excluded).
+            if (t.atMs >= SESSION_START_MS_7809) StopLatencyClasses6464.recordGateTriggerToBroadcast7809(t.cls, elapsed)
         } catch (_: Throwable) {}
     }
 
@@ -165,9 +193,38 @@ object ExitTelemetryStamper6732 {
         try { triggers7807.remove(mint) } catch (_: Throwable) {}
     }
 
+    // ── V5.0.7809 — latency samples measure condition-first-ACTIONABLE ───────
+    // requestSell stamps its trigger before the hold gates. A non-emergency exit
+    // a hold gate then defers (style min-hold, profit dust, healthy reconciler
+    // hold) is not actionable yet; leaving its stamp put the deliberate hold time
+    // into trigger -> broadcast, and the never-expiring intent into intent ->
+    // confirm. An emergency stamp is never withdrawn. Field Manual L248.
+    // Session floor: this object loads on the first exit request of the process;
+    // the risk clock's latch (made moments before that first dispatch) is still
+    // this session, so a 60 s grace keeps it. Anything older came from restored
+    // state and never enters the gate.
+    private val SESSION_START_MS_7809: Long = System.currentTimeMillis() - 60_000L
+    private val lastBroadcastAtMs7809 = ConcurrentHashMap<String, Long>()
+
+    fun withdrawDeferred7809(mint: String, positionId: String) {
+        try {
+            var emergencyKept7809 = false
+            if (mint.isNotBlank() && triggers7807.containsKey(mint)) {
+                val kept = triggers7807.computeIfPresent(mint) { _, t -> if (t.emergency) t else null }
+                if (kept == null) {
+                    PipelineHealthCollector.labelInc("EXIT_TRIGGER_WITHDRAWN_DEFERRED_7809")
+                } else {
+                    emergencyKept7809 = true
+                }
+            }
+            if (positionId.isNotBlank() && !emergencyKept7809) intents.remove(positionId)
+        } catch (_: Throwable) {}
+    }
+
     internal fun resetForTest() {
         intents.clear()
         triggers7807.clear()
+        lastBroadcastAtMs7809.clear()
     }
 
     fun statusLine(): String = "ExitTelemetryStamper6732 pendingIntents=${intents.size}"

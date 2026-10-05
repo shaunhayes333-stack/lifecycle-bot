@@ -670,6 +670,11 @@ object PerpsExecutionEngine {
                     if (!liveOk) {
                         // Roll back — remove from PerpsTraderAI so wallet and tracker stay aligned
                         PerpsTraderAI.rollbackPosition(position.id, canonicalPerpsSize6570, isPaper = false)
+                        // V5.0.7809 — a dispatched live perp that failed must end in a terminal
+                        // FAILED, or it sits dispatched-without-terminal for the 10-min TTL
+                        // (J_DISPATCH_TERMINAL_CARDINALITY). Field Manual L39. PENDING_PROOF
+                        // is a genuinely unknown fill and is left to its TTL, never faked.
+                        if (fill6486.state == MarketsLiveExecutor.FillState6486.FAILED) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(sealedPerpIntent6570, "LIVE_PERP_FILL_FAILED_7809:${fill6486.reason.take(60)}")
                         failedExecutions.incrementAndGet()
                         ErrorLogger.warn(TAG, "⚡ LIVE OPEN FAILED (rolled back): ${signal.market.symbol}")
                         return

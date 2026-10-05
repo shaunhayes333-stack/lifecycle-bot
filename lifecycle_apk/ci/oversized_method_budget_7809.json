@@ -1,0 +1,82 @@
+{
+ "com/lifecyclebot/engine/BotService.kt::admitProtectedMemeIntake#0": {
+  "lines": 847,
+  "tokens": 7581
+ },
+ "com/lifecyclebot/engine/BotService.kt::botLoop#0": {
+  "lines": 1310,
+  "tokens": 10454
+ },
+ "com/lifecyclebot/engine/BotService.kt::onCreate#0": {
+  "lines": 935,
+  "tokens": 8025
+ },
+ "com/lifecyclebot/engine/BotService.kt::processTokenCycle#0": {
+  "lines": 5736,
+  "tokens": 51650
+ },
+ "com/lifecyclebot/engine/BotService.kt::rapidStopLossMonitor#0": {
+  "lines": 730,
+  "tokens": 6361
+ },
+ "com/lifecyclebot/engine/BotService.kt::startBot#0": {
+  "lines": 1847,
+  "tokens": 15260
+ },
+ "com/lifecyclebot/engine/ExecutableOpenGate.kt::canOpenExecutablePositionInternal#0": {
+  "lines": 1036,
+  "tokens": 8465
+ },
+ "com/lifecyclebot/engine/Executor.kt::doBuy#0": {
+  "lines": 932,
+  "tokens": 9285
+ },
+ "com/lifecyclebot/engine/Executor.kt::executeProfitLockSell#0": {
+  "lines": 786,
+  "tokens": 6475
+ },
+ "com/lifecyclebot/engine/Executor.kt::liveBuy#0": {
+  "lines": 3258,
+  "tokens": 30355
+ },
+ "com/lifecyclebot/engine/Executor.kt::liveSellInScope7314#0": {
+  "lines": 2202,
+  "tokens": 20002
+ },
+ "com/lifecyclebot/engine/Executor.kt::paperBuy#0": {
+  "lines": 1266,
+  "tokens": 11985
+ },
+ "com/lifecyclebot/engine/Executor.kt::paperSell#0": {
+  "lines": 1395,
+  "tokens": 12926
+ },
+ "com/lifecyclebot/engine/Executor.kt::recordTrade#0": {
+  "lines": 1138,
+  "tokens": 11358
+ },
+ "com/lifecyclebot/engine/Executor.kt::runManageOnly#0": {
+  "lines": 811,
+  "tokens": 7750
+ },
+ "com/lifecyclebot/engine/FinalDecisionGate.kt::evaluate#0": {
+  "lines": 3207,
+  "tokens": 28383
+ },
+ "com/lifecyclebot/engine/LifecycleStrategy.kt::evaluate#0": {
+  "lines": 667,
+  "tokens": 5971
+ },
+ "com/lifecyclebot/engine/PipelineHealthCollector.kt::dumpText#0": {
+  "lines": 2144,
+  "tokens": 22087
+ },
+ "com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt::evaluate#0": {
+  "lines": 637,
+  "tokens": 5350
+ },
+ "com/lifecyclebot/ui/MainActivity.kt::updateUi#0": {
+  "lines": 1219,
+  "tokens": 11393
+ }
+}

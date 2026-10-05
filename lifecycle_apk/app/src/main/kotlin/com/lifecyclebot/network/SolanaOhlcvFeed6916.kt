@@ -162,6 +162,21 @@ object SolanaOhlcvFeed6916 {
         return lastCallAtMs.compareAndSet(prev, now)
     }
 
+    /**
+     * V5.0.7809 — how long until the provider's request gate may open, without
+     * claiming the slot. [cooldown] true means the host is actively refusing us
+     * (429/5xx storm), so a caller must not queue behind it (Field Manual L404:
+     * check provider health before relying on its data).
+     */
+    data class SlotWait7809(val waitMs: Long, val cooldown: Boolean)
+
+    fun providerSlotWait7809(nowMs: Long = System.currentTimeMillis()): SlotWait7809 {
+        val cd = cooldownUntilMs.get() - nowMs
+        if (cd > 0L) return SlotWait7809(cd, cooldown = true)
+        val gap = MIN_INTERVAL_MS - (nowMs - lastCallAtMs.get())
+        return SlotWait7809(gap.coerceAtLeast(0L), cooldown = false)
+    }
+
     private fun noteResponse6944(code: Int) {
         if (code == 429 || code >= 500) {
             if (consecutiveRejects.incrementAndGet() >= 5L) {
@@ -497,6 +512,13 @@ object SolanaOhlcvFeed6916 {
     // app restart/provider credential change naturally gives it another probe.
     private val paprikaTerminalDisabled7446 = AtomicBoolean(false)
     @Volatile private var paprikaTerminalCode7446 = 0
+
+    /**
+     * V5.0.7809 — DexPaprika answered 401/402/403 this session (auth or paid
+     * endpoint). Other DexPaprika readers consult this so a terminal host stays
+     * out of every live path, not only OHLCV (Field Manual L404).
+     */
+    fun paprikaTerminal7809(): Boolean = paprikaTerminalDisabled7446.get()
 
     private fun paprikaGet7293(url: String): String? {
         paprikaLastCode7295 = 0

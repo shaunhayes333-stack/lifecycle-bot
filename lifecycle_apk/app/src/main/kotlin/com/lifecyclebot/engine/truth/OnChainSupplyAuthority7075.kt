@@ -182,7 +182,15 @@ object OnChainSupplyAuthority7075 {
      */
     private enum class Outcome7116 {
         RESOLVED, NO_SUPPLY, MALFORMED, RATE_LIMITED, TRANSPORT, DECLINED,
+        /** V5.0.7809 — the node cannot see the account yet (fresh launch); retried soon, not evidence. */
+        NOT_FOUND_YET_7809,
     }
+
+    /** V5.0.7809 — retry delay for an account the node cannot see yet. */
+    private const val NOT_FOUND_RETRY_MS_7809 = 20_000L
+    /** V5.0.7809 — rungs of the RPC ladder a supply read may try (Helius first). */
+    private const val SUPPLY_RUNGS_7809 = 3
+    private val notFoundYet7809 = AtomicLong(0L)
 
     private val http: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -258,9 +266,13 @@ object OnChainSupplyAuthority7075 {
         // changes no supply, no verdict and no trade. lockoutRemainingMs is used
         // rather than isLockedOut because the latter consumes the one probe
         // per lockout; the final 10s of the lockout is left to that probe.
+        // V5.0.7809 — declined only when EVERY rung of the supply ladder is
+        // locked; a Helius lockout alone now falls through to the next rung.
         if (ApiBackoff.lockoutRemainingMs(hostLabel7116()) > LOCKOUT_PROBE_WINDOW_MS_7345) {
-            skippedProviderLocked7345.incrementAndGet()
-            return
+            if (supplyRungs7809().all { ApiBackoff.lockoutRemainingMs(rungLabel7809(it)) > LOCKOUT_PROBE_WINDOW_MS_7345 }) {
+                skippedProviderLocked7345.incrementAndGet()
+                return
+            }
         }
         // V5.0.7116 — the suppression that was missing. Without this the only
         // guard was `resolved.containsKey`, which by construction never holds
@@ -359,6 +371,14 @@ object OnChainSupplyAuthority7075 {
                 // class doc. Cool down, count the reason, and do NOT let it
                 // touch `failed`, because DataLegitimacyAuthority7077 reads
                 // `failed` to decide whether its own refusals mean anything.
+                // V5.0.7809 — a launch the node cannot see yet. Not evidence about
+                // the mint, so not `failed`; asked again in seconds, not hours
+                // (Field Manual L153: launch data goes stale fastest).
+                Outcome7116.NOT_FOUND_YET_7809 -> {
+                    notFoundYet7809.incrementAndGet()
+                    retryNotBefore[mint] = System.currentTimeMillis() + NOT_FOUND_RETRY_MS_7809
+                    try { PipelineHealthCollector.labelInc("ONCHAIN_SUPPLY_NOT_VISIBLE_YET_7809") } catch (_: Throwable) {}
+                }
                 Outcome7116.RATE_LIMITED, Outcome7116.TRANSPORT, Outcome7116.DECLINED -> {
                     when (outcome) {
                         Outcome7116.RATE_LIMITED -> rateLimited.incrementAndGet()
@@ -385,9 +405,74 @@ object OnChainSupplyAuthority7075 {
      * Double round trip — the defect class this whole authority exists to stop.
      */
     private fun fetchSupply7116(mint: String): Pair<Outcome7116, Double?> {
+        // V5.0.7809 §ONE_ENDPOINT_WAS_THE_WHOLE_SUPPLY_LADDER. Only the installed
+        // RPC was ever asked, so a Helius lockout or one bad reply left the mint
+        // unverifiable (METRICS_IDENTITY / TOKEN_METRICS_UNVERIFIABLE) until the
+        // next cooldown. Walk the same preferred-first ladder the curve reader
+        // uses (Helius leads), skipping rungs in backoff, and stop at the first
+        // rung that answers about the mint. Field Manual L190 / L404.
+        var last: Pair<Outcome7116, Double?> = Outcome7116.DECLINED to null
+        for (rung in supplyRungs7809()) {
+            val label = rungLabel7809(rung)
+            if (ApiBackoff.lockoutRemainingMs(label) > LOCKOUT_PROBE_WINDOW_MS_7345) continue
+            val got = try { fetchSupplyFrom7809(mint, rung, label) } catch (_: Throwable) { Outcome7116.TRANSPORT to null }
+            when (got.first) {
+                Outcome7116.RESOLVED, Outcome7116.NO_SUPPLY, Outcome7116.NOT_FOUND_YET_7809, Outcome7116.MALFORMED -> return got
+                Outcome7116.RATE_LIMITED, Outcome7116.TRANSPORT, Outcome7116.DECLINED -> { last = got }
+            }
+        }
+        return last
+    }
+
+    /**
+     * V5.0.7809 — pure: what a JSON-RPC error object says about the mint.
+     * Every non-rate-limit error used to be NO_SUPPLY (six-hour negative cache),
+     * so a node hiccup (-32603 internal, -32000..-32016 slot/node states) or a
+     * not-yet-visible fresh account wrote "this mint has no supply" down as
+     * evidence. Only -32602 naming a non-mint is evidence; an account the node
+     * cannot find yet is retried soon; anything else is not an observation.
+     */
+    fun rpcErrorClass7809(code: Int, message: String): String {
+        val m = message.lowercase()
+        return when {
+            code == -32429 || code == -32005 || code == -32097 || code == 429 -> "RATE_LIMITED"
+            m.contains("could not find") || m.contains("not found") -> "NOT_FOUND_YET"
+            code == -32602 -> "NO_SUPPLY"
+            else -> "TRANSPORT"
+        }
+    }
+
+    private fun classifyRpcError7809(code: Int, message: String): Pair<Outcome7116, Double?> =
+        when (rpcErrorClass7809(code, message)) {
+            "RATE_LIMITED" -> Outcome7116.RATE_LIMITED to null
+            "NOT_FOUND_YET" -> Outcome7116.NOT_FOUND_YET_7809 to null
+            "NO_SUPPLY" -> Outcome7116.NO_SUPPLY to null
+            else -> Outcome7116.TRANSPORT to null
+        }
+
+    /** V5.0.7809 — the preferred-first RPC ladder for supply reads (Helius leads). */
+    private fun supplyRungs7809(): List<String> {
         val url = rpcUrl
+        if (url.isBlank()) return emptyList()
+        return (try {
+            com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates(url).take(SUPPLY_RUNGS_7809)
+        } catch (_: Throwable) { listOf(url) }).ifEmpty { listOf(url) }
+    }
+
+    /** V5.0.7809 — one health label per RPC host, matching the curve reader's. */
+    private fun rungLabel7809(url: String): String {
+        if (url.contains("helius", ignoreCase = true)) return "helius"
+        val host = try { java.net.URI(url).host?.lowercase().orEmpty() } catch (_: Throwable) { "" }
+        return if (host.isBlank()) "solana_rpc" else "rpc_$host"
+    }
+
+    private fun fetchSupplyFrom7809(mint: String, url: String, label: String): Pair<Outcome7116, Double?> {
         if (url.isBlank()) return Outcome7116.DECLINED to null
-        val payload = """{"jsonrpc":"2.0","id":1,"method":"getTokenSupply","params":["$mint"]}"""
+        // V5.0.7809 — `confirmed`, not the node default `finalized`: a launch
+        // seen on the create tape is ~13 s from finality, and asking at the
+        // default answered "could not find account" for it — which this class
+        // then remembered as NO_SUPPLY for six hours.
+        val payload = """{"jsonrpc":"2.0","id":1,"method":"getTokenSupply","params":["$mint",{"commitment":"confirmed"}]}"""
         val req = Request.Builder()
             .url(url)
             .post(payload.toRequestBody("application/json".toMediaType()))
@@ -396,7 +481,7 @@ object OnChainSupplyAuthority7075 {
         // puts the call into ApiHealthMonitor (helius read s=1 against 9,795
         // requests) and under ApiBackoff, so a sore RPC stops the storm at the
         // door instead of being hammered by it.
-        val resp = HealthAwareHttp.execute(http, req, hostLabel7116())
+        val resp = HealthAwareHttp.execute(http, req, label)
         resp.use { r ->
             // Our own backoff refusal. Nothing went on the wire, so we learned
             // nothing about this mint — the §6982 rule.
@@ -411,19 +496,17 @@ object OnChainSupplyAuthority7075 {
                 }
             }
             val body = r.body?.string() ?: return Outcome7116.TRANSPORT to null
-            val json = try { JSONObject(body) } catch (_: Throwable) { return Outcome7116.MALFORMED to null }
+            // V5.0.7809 — a body that is not JSON (proxy/HTML error page) says
+            // nothing about the mint; it was MALFORMED and cached for six hours.
+            val json = try { JSONObject(body) } catch (_: Throwable) { return Outcome7116.TRANSPORT to null }
             // A JSON-RPC error object is the provider declining, not a statement
             // that the mint has no supply. -32429/-32005 are rate limits.
             json.optJSONObject("error")?.let { err ->
-                val code = err.optInt("code", 0)
-                return if (code == -32429 || code == -32005 || code == -32097) {
-                    Outcome7116.RATE_LIMITED to null
-                } else {
-                    Outcome7116.NO_SUPPLY to null
-                }
+                return classifyRpcError7809(err.optInt("code", 0), err.optString("message", ""))
             }
+            // V5.0.7809 — a null value is an account the node cannot see yet.
             val value = json.optJSONObject("result")?.optJSONObject("value")
-                ?: return Outcome7116.NO_SUPPLY to null
+                ?: return Outcome7116.NOT_FOUND_YET_7809 to null
             val decimals = value.optInt("decimals", -1)
             if (decimals !in 0..18) return Outcome7116.MALFORMED to null
             val raw = value.optString("amount", "")
@@ -470,5 +553,6 @@ object OnChainSupplyAuthority7075 {
             "noSupply7116=${noSupply.get()} malformed7116=${malformed.get()} " +
             "rl7116=${rateLimited.get()} tx7116=${transportError.get()} dec7116=${declinedLocally.get()} " +
             "sat7116=${skippedSaturated.get()} cd7116=${skippedCooldown.get()} locked7345=${skippedProviderLocked7345.get()} " +
-            "negCached7116=${skippedNegative.get()} cooling7116=${retryNotBefore.size}"
+            "negCached7116=${skippedNegative.get()} cooling7116=${retryNotBefore.size} " +
+            "notVisibleYet7809=${notFoundYet7809.get()}"
 }

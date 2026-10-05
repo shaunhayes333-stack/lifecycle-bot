@@ -366,31 +366,7 @@ class UnifiedScorer(
             // not from watchlist recency or already-printed momentum. This lets
             // causal ignition evidence clear the data-poor launch window and
             // removes the old +15 reward from post-pump tokens first noticed late.
-            val launchPhase7401 = candidate.extraString("launchPhase7401")
-            val launchTimingComponent7401: ScoreComponent? = when {
-                candidate.extraBoolean("launchPostPumpFade7401") ->
-                    ScoreComponent(name = "fresh_launch_bonus", value = -25,
-                        reason = "📉 POST_PUMP_FADE — launch impulse already spent")
-                candidate.extraBoolean("launchIgnition7401") -> {
-                    val bundle = candidate.bundledPct ?: 0.0
-                    val bundleNudge = if (bundle in 1.0..15.0) 5 else 0
-                    val devNudge = if (candidate.extraBoolean("launchDevBuy7401")) 5 else 0
-                    ScoreComponent(name = "fresh_launch_bonus", value = 30 + bundleNudge + devNudge,
-                        reason = "🔥 IGNITION — first-minute acceleration+breadth" +
-                            (if (devNudge > 0) "+dev" else "") +
-                            (if (bundleNudge > 0) "+boundedBundle" else ""))
-                }
-                candidate.extraBoolean("launchPreIgnition7401") ->
-                    ScoreComponent(name = "fresh_launch_bonus", value = 20,
-                        reason = "⚡ PRE_IGNITION — true early launch flow")
-                candidate.extraBoolean("launchExpanding7401") ->
-                    ScoreComponent(name = "fresh_launch_bonus", value = 6,
-                        reason = "🚀 EXPANDING — move underway, timing edge reduced")
-                candidate.ageMinutes <= 1.0 && launchPhase7401.isBlank() ->
-                    ScoreComponent(name = "fresh_launch_bonus", value = 5,
-                        reason = "launch timing unresolved — minimal grace only")
-                else -> null
-            }
+            val launchTimingComponent7401: ScoreComponent? = launchTimingComponent7809(candidate)
             // Final card — no MuteBoost gate, no approvalMemory, no CrossTalk penalty
             // V5.9.344: sum is built from the weight-adjusted 20-layer components
             // so accuracy-weighted scoring flows through to finalCard.total.
@@ -1397,8 +1373,11 @@ class UnifiedScorer(
 
             // V5.0.3823 — Specialist MoE gate. This is bounded read-weighting over
             // the existing specialist components, not a veto and not a new model call.
-            val moeComponents = SpecialistMoEGate.apply(gatedComponents, candidate, ctx)
+            val moeComponents = SpecialistMoEGate.apply(gatedComponents, candidate, ctx) +
+                listOfNotNull(launchTimingComponent7809(candidate))
 
+            // V5.0.7809 — fresh-launch tape evidence reaches the UNIFIED total
+            // (it was CLASSIC-only); added after the gates exactly as CLASSIC adds it.
             val finalCard = ScoreCard(moeComponents)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED"), candidate) } catch (_: Exception) {}
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("UNIFIED", candidate, finalCard.components) } catch (_: Exception) {}
@@ -1430,6 +1409,44 @@ class UnifiedScorer(
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "UNIFIED_FALLBACK"), candidate) } catch (_: Exception) {}
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("UNIFIED_FALLBACK", candidate, fallbackCard.components) } catch (_: Exception) {}
             fallbackCard
+        }
+    }
+
+    /**
+     * V5.0.7809 — the V5.0.7401 launch-timing evidence, shared by CLASSIC and
+     * UNIFIED. It lived inline in classicScore only, while UNIFIED (the
+     * production default since V5.9.957) never added it: IGNITION / PRE_IGNITION
+     * fresh-launch flow never reached the V3 total, and neither did the
+     * POST_PUMP_FADE penalty, so a data-poor launch scored on its empty layers
+     * alone and fell to SCORE_TOO_LOW. Both signs are restored, so hard bad
+     * setups stay penalised. Field Manual L357: missing evidence is uncertainty,
+     * not negative expectancy; the tape's causal evidence is the evidence.
+     */
+    private fun launchTimingComponent7809(candidate: CandidateSnapshot): ScoreComponent? {
+        val launchPhase7401 = candidate.extraString("launchPhase7401")
+        return when {
+            candidate.extraBoolean("launchPostPumpFade7401") ->
+                ScoreComponent(name = "fresh_launch_bonus", value = -25,
+                    reason = "📉 POST_PUMP_FADE — launch impulse already spent")
+            candidate.extraBoolean("launchIgnition7401") -> {
+                val bundle = candidate.bundledPct ?: 0.0
+                val bundleNudge = if (bundle in 1.0..15.0) 5 else 0
+                val devNudge = if (candidate.extraBoolean("launchDevBuy7401")) 5 else 0
+                ScoreComponent(name = "fresh_launch_bonus", value = 30 + bundleNudge + devNudge,
+                    reason = "🔥 IGNITION — first-minute acceleration+breadth" +
+                        (if (devNudge > 0) "+dev" else "") +
+                        (if (bundleNudge > 0) "+boundedBundle" else ""))
+            }
+            candidate.extraBoolean("launchPreIgnition7401") ->
+                ScoreComponent(name = "fresh_launch_bonus", value = 20,
+                    reason = "⚡ PRE_IGNITION — true early launch flow")
+            candidate.extraBoolean("launchExpanding7401") ->
+                ScoreComponent(name = "fresh_launch_bonus", value = 6,
+                    reason = "🚀 EXPANDING — move underway, timing edge reduced")
+            candidate.ageMinutes <= 1.0 && launchPhase7401.isBlank() ->
+                ScoreComponent(name = "fresh_launch_bonus", value = 5,
+                    reason = "launch timing unresolved — minimal grace only")
+            else -> null
         }
     }
 

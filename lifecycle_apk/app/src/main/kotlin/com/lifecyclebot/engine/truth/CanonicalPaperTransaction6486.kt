@@ -464,7 +464,7 @@ object CanonicalPaperTransaction6486 {
              entryPriceSource: String = "",
              entryPoolAddress: String = "",
              entryDex: String = "",
-             executionIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null): Result = lock.withLock {
+             executionIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null): Result = settleDispatchedOpen7809(assetClass, executionIntent, mint) { lock.withLock {
         // V5.0.7388 — the pre-loop journal reconcile now runs in the background; no
         // paper OPEN before its first attempt (exits are not gated). This is the same
         // guarantee the inline call gave, without holding up the first cycle.
@@ -610,6 +610,37 @@ object CanonicalPaperTransaction6486 {
             )
         } catch (_: Throwable) {}
         Result(true, positionId, "OPEN_COMMITTED")
+    } }
+
+    /**
+     * V5.0.7809 §DISPATCHED_PAPER_OPEN_NEVER_TERMINATED (Field Manual L39 —
+     * every order you send must end in a known fill or a known failure).
+     *
+     * open() marks a non-Solana intent DISPATCHED before its validation,
+     * quantity-witness, duplicate-occupancy and cash checks. Each of those
+     * returns Result(false) without a terminal mark, and the Forex, Metals,
+     * Commodities and PerpsTraderAI callers simply `return` on !applied. The
+     * attempt stayed dispatched-but-non-terminal for the 10-minute dispatched
+     * TTL, which is exactly J_DISPATCH_TERMINAL_CARDINALITY. Settle it here:
+     * a rejected paper open whose intent this call dispatched is FAILED with
+     * the real rejection reason. Pre-dispatch rejections (missing/mismatched
+     * intent, preloop reconcile) are untouched — they were never dispatched.
+     */
+    private inline fun settleDispatchedOpen7809(
+        assetClass: AssetClass,
+        explicitIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent?,
+        mint: String,
+        block: () -> Result,
+    ): Result {
+        val result = block()
+        if (!result.applied && assetClass != AssetClass.SOLANA_TOKEN) try {
+            val intent = explicitIntent ?: CanonicalEntryAuthority6551.findPending(mint, "PAPER")
+            if (intent != null && CanonicalEntryAuthority6551.isDispatchedNonTerminal7809(intent.attemptId)) {
+                CanonicalEntryAuthority6551.markFailed(intent, result.reason)
+                PipelineHealthCollector.labelInc("PAPER_DISPATCHED_OPEN_REJECT_SETTLED_7809")
+            }
+        } catch (_: Throwable) {}
+        return result
     }
 
     fun add(positionId: String, mint: String, symbol: String, addedCostSol: Double,
