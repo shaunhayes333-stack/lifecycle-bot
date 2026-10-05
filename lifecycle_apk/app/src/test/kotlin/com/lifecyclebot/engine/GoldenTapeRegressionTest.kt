@@ -14869,4 +14869,12 @@ class GoldenTapeRegressionTest {
         org.junit.Assert.assertEquals(0.08, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.hardPerTradeRiskCapFracForTest7807(0.15), 1e-9)
         org.junit.Assert.assertEquals(0.04, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.hardPerTradeRiskCapFracForTest7807(2.0), 1e-9)
     }
+
+    @org.junit.Test fun finalDecisionGateEvaluateStaysAtThe7806BytecodeShape7808() {
+        // 5.0.7807 crashed at startup: ART rejected FinalDecisionGate (VerifyError in
+        // evaluate) after one extra call was added to that oversized method. Keep it lean.
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        org.junit.Assert.assertFalse(g.contains("ProviderEvidence7807"))
+        org.junit.Assert.assertTrue(g.contains("blockReason = \"HARD_BLOCK_ZERO_LIQUIDITY\""))
+    }
 }
