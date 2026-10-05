@@ -348,7 +348,9 @@ object FinalizedBusConsumerBridge6465 {
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(env.mint, env.realizedReturnPct)
+        com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(
+            env.mint, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+        )
         true
     } catch (t: Throwable) { threw7154(t) }
 
