@@ -128,9 +128,16 @@ object MoonshotTraderAI {
     // back catastrophic bleeds. Tightened in concert with the new
     // LosingPatternMemory predictive override below (-3/-5/-7 for buckets
     // in danger zone).
-    private const val HARD_FLOOR_STOP = -15.0        // V5.9.808: -20→-15 progressive triage
+    // V5.0.7795 — restore the build-#1941 Moonshot runway. The repository's own
+    // 5.9.316/5.9.449 history records -20% as the golden-era hard floor that let
+    // legitimate fresh-launch wicks survive long enough to produce 500%+ tails.
+    // Integrity/rug/catastrophic exits remain separate and can still close sooner.
+    private const val HARD_FLOOR_STOP = -20.0
     /** V5.0.7696 — first-phase stop while peak < +8% (was -5; see checkExit). Same tier as the ≤12-min -10. */
-    private const val EARLY_TIGHT_STOP_PCT_7696 = -10.0
+    // V5.0.7795 — the later -10% "early tight" overlay recreated the exact
+    // post-1941 regression: normal launch noise became a terminal loss before the
+    // Moonshot thesis had time to express. Keep one economic hard floor only.
+    private const val EARLY_TIGHT_STOP_PCT_7696 = HARD_FLOOR_STOP
     private const val EARLY_DEAD_EXIT_MINUTES = 20   // Dead exit window (mirrors ShitCoin's 12min)
     private const val EARLY_DEAD_EXIT_THRESHOLD = -6.0 // Dead at <-6% within early window
 
@@ -1791,8 +1798,11 @@ object MoonshotTraderAI {
         // 20min/-6%, but legit moonshots routinely dip 6–10% before
         // launching. Window halved to 12min and threshold widened to -10%
         // so genuine pre-launch noise survives.
-        if (holdMinutes <= 12 && pnlPct < -10.0) {
-            ErrorLogger.warn(TAG, "💀 MOON DEAD EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% at ${holdMinutes}min — cutting early")
+        // V5.0.7795 — no second -10% launch stop. Build #1941 history explicitly
+        // records winners wicking beyond -10% before expansion. The hard floor,
+        // rug detector and integrity/catastrophe exits already bound downside.
+        if (holdMinutes <= 12 && pnlPct <= HARD_FLOOR_STOP) {
+            ErrorLogger.warn(TAG, "💀 MOON HARD-FLOOR EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% at ${holdMinutes}min")
             return ExitSignal.STOP_LOSS
         }
 
@@ -1862,53 +1872,24 @@ object MoonshotTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. FLAT EXIT — V5.9.397 baseline (V5.9.304 era).
-        // hold ≥ maxHold/2, pnl in [-2%, +5%].
-        // V5.9.437 — extend window for winners when FLAT_EXIT historically bleeds this lane.
-        val flatExitExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
-            layer = "MOONSHOT", exitReason = "FLAT_EXIT", pnlPct = pnlPct)
-        // V5.0.4160 — SCRATCH-STREAK GUARD (now via shared ScratchStreakRegistry)
-        // See V5.0.4159 commit message for the full root-cause analysis. The
-        // streak counter now lives in engine/ScratchStreakRegistry so siblings
-        // (ShitCoin/Express/BlueChip/Quality/Manipulated/Crypto) share the
-        // same trap-detection mechanism with isolated per-lane state.
-        val scratchStreak4159 = com.lifecyclebot.engine.ScratchStreakRegistry.streakFor("MOONSHOT")
-        val flatExitMinsRaw = ((pos.spaceMode.maxHold / 2) * flatExitExt).toLong()
-        val flatExitMins = if (scratchStreak4159 >= 4) {
-            (flatExitMinsRaw * 2L).coerceAtMost(pos.spaceMode.maxHold.toLong())
-        } else {
-            flatExitMinsRaw
-        }
-        if (holdMinutes >= flatExitMins && pnlPct > -2.0 && pnlPct < 5.0) {
-            // V5.0.6383 — LIVE WINNER PROTECTION (operator directive: "paper
-            // finds huge runners live cannot"). V5.0.6382 live journal showed
-            // repeated MOONSHOT_FLAT_EXIT closes at pnl=+0 on the same mint
-            // (7GCihg × 3 flat exits, EKpQGS scratch after ~2min) — the bot was
-            // exiting positions that had NEVER been given room to develop.
-            // For LIVE positions with ANY positive peak (>+3%) OR too fresh
-            // (<15 min), suppress the flat exit and let the price action play
-            // out. Trailing stop, laddered partials, and stop-loss still fire
-            // as normal. Paper positions unchanged — paper's job is to explore.
-            val isLive = !pos.isPaperMode
-            val hadUpsideBlink = pos.peakPnlPct >= 3.0
-            val stillFresh = holdMinutes < 15L
-            if (isLive && (hadUpsideBlink || stillFresh)) {
-                ErrorLogger.info(TAG, "🛡️ LIVE_WINNER_PROTECT_6383: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min | peak=+${pos.peakPnlPct.toInt()}% (suppressing FLAT_EXIT — let it develop)")
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383") } catch (_: Throwable) {}
-                // fall through to timeout/other paths
-            } else {
-                ErrorLogger.info(TAG, "😐 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (truly flat, half-maxHold, scratchStreak=$scratchStreak4159)")
-                return ExitSignal.FLAT_EXIT
-            }
-        }
-        
+        // V5.0.7795 — MOONSHOT HAS NO MICRO-WINNER FLAT EXIT.
+        // The post-#1941 half-hold rule was closing ORBITAL positions around
+        // +0..+5% after ~22 minutes, mechanically manufacturing the "4% winner"
+        // profile. A tail lane must not call +4% success and leave. Structural,
+        // hard-safety, partial-profit, trailing and dead-position exits remain.
+
         // 6. TIMEOUT - only if not significantly profitable
         // V5.9.437 — extend for winners when TIMEOUT historically bleeds this lane.
         val timeoutExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
             layer = "MOONSHOT", exitReason = "TIMEOUT", pnlPct = pnlPct)
-        val timeoutMins = (pos.spaceMode.maxHold * timeoutExt).toLong()
-        if (holdMinutes >= timeoutMins && pnlPct < 50.0) {
-            ErrorLogger.info(TAG, "⏰ TIMEOUT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
+        // V5.0.7795 — runner incubation floor. The same file documents that the
+        // #1941-era 500%+ winners often spent 2-3h flat before expansion, so a
+        // 45-minute ORBITAL timeout is logically incompatible with the strategy.
+        // Never non-safety-timeout a Moonshot before 180 minutes; Jupiter keeps
+        // its longer native horizon. Positive developing positions are not timed out.
+        val timeoutMins = maxOf(180L, (pos.spaceMode.maxHold * timeoutExt).toLong())
+        if (holdMinutes >= timeoutMins && pnlPct < 5.0 && pnlPct > HARD_FLOOR_STOP) {
+            ErrorLogger.info(TAG, "⏰ MOONSHOT_DEAD_TIMEOUT_7795: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIMEOUT
         }
         
@@ -1916,8 +1897,8 @@ object MoonshotTraderAI {
         // Build #1941 era let things ride — 500%+ winners often spent 2–3h
         // flat or slightly underwater before launching. Now we only flush
         // genuinely dead bags (180min, still under +5%, not deeply red).
-        if (holdMinutes >= 180 && pnlPct < 5.0 && pnlPct > -50.0) {
-            ErrorLogger.warn(TAG, "💀 DEAD POS FLUSH: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
+        if (holdMinutes >= timeoutMins && pnlPct < 5.0 && pnlPct > HARD_FLOOR_STOP) {
+            ErrorLogger.warn(TAG, "💀 MOONSHOT_DEAD_FLUSH_7795: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.FLAT_EXIT
         }
 
