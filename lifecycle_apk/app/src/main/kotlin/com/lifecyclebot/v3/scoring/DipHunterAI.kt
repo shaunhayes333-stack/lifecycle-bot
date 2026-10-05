@@ -692,7 +692,7 @@ object DipHunterAI {
             return DipExitSignal.RECOVERY_TARGET
         }
         val dipHoldSec7389 = (System.currentTimeMillis() - pos.entryTime) / 1000.0
-        val dipProfitFloor7389 = FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389)
+        val dipProfitFloor7389 = FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389, lane = "DIP_HUNTER")
         if (pnlPct < dipProfitFloor7389) {
             ErrorLogger.info(TAG, "📉🔒 RECOVERY FLOOR! $mint | peak=${pos.recoveryHighPct.fmt(1)}% now=${pnlPct.fmt(1)}% < +${dipProfitFloor7389.toInt()}%")
             return DipExitSignal.RECOVERY_TARGET
