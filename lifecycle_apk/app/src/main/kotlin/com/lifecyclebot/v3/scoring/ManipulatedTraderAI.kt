@@ -638,7 +638,7 @@ object ManipulatedTraderAI {
         }
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec, lane = "MANIPULATED")
         if (pnlPct < profitFloor) return ManipExitSignal.TRAILING_STOP
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Manipulated bags
