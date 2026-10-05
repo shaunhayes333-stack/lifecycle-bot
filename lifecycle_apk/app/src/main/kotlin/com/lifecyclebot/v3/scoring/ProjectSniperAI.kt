@@ -386,6 +386,35 @@ object ProjectSniperAI {
             ts.lastLiquidityUsd in 2_000.0..50_000.0 -> 3
             else -> 0
         }
+
+        // V5.0.7802 — native project/deployer + adoption evidence.
+        val creator7802 = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(ts.mint) } catch (_: Throwable) { null }
+        val creatorEv7802 = try {
+            com.lifecyclebot.v3.scoring.OperatorFingerprintAI.creatorEvidence7799(creator7802)
+        } catch (_: Throwable) { null }
+        val creatorRugs7802 = try {
+            if (creator7802.isNullOrBlank()) 0 else com.lifecyclebot.engine.TradingMemory.getCreatorRugCount(creator7802)
+        } catch (_: Throwable) { 0 }
+        confidence += when {
+            creatorRugs7802 > 0 -> -18
+            creatorEv7802 != null && creatorEv7802.sampleCount >= 5 && creatorEv7802.winRate >= 0.65 -> 8
+            creatorEv7802 != null && creatorEv7802.sampleCount >= 5 && creatorEv7802.winRate >= 0.55 -> 4
+            else -> 0
+        }
+        confidence += when {
+            ts.holderGrowthRate >= 10.0 -> 7
+            ts.holderGrowthRate >= 2.0 -> 4
+            ts.holderGrowthRate <= -5.0 -> -8
+            else -> 0
+        }
+        val social7802 = try { com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(ts.mint) } catch (_: Throwable) { null }
+        val socialDepth7802 = listOf(
+            social7802?.twitter.orEmpty(), social7802?.telegram.orEmpty(),
+            social7802?.website.orEmpty(), social7802?.discord.orEmpty()
+        ).count { it.isNotBlank() }
+        if (socialDepth7802 >= 2) confidence += 3
+        if (launch7449.smartMoneyBuyers60s >= 2) confidence += 6
+
         confidence = confidence.coerceIn(0, 100)
 
         // ═══════════════════════════════════════════════════════════════════
