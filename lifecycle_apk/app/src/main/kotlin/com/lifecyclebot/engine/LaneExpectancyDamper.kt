@@ -74,9 +74,10 @@ object LaneExpectancyDamper {
     private const val WR_RUNNER_MIN_TRADES = 30
     private const val WR_RUNNER_MIN_PCT = 30.0
 
+    // V5.0.7801 — true tail lanes only. Express/Manipulated/Dip have
+    // different success distributions and must not inherit Moonshot variance logic.
     private val RUNNER_LANE_KEYS = arrayOf(
-        "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS",
-        "MANIPULATED", "MANIP", "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER",
+        "MOONSHOT", "SHITCOIN", "MEME", "PRESALE", "PROJECT_SNIPER",
     )
 
     private fun isRunnerLane(strategy: String?): Boolean {
