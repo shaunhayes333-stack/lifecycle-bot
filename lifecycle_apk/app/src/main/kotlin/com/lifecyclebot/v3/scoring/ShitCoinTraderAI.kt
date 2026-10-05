@@ -2001,7 +2001,7 @@ object ShitCoinTraderAI {
 
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec, lane = "SHITCOIN")
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
