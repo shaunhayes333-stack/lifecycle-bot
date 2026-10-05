@@ -1,7 +1,10 @@
 package com.lifecyclebot.engine.truth
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -31,11 +34,10 @@ import java.util.concurrent.atomic.AtomicLong
  *   • Ceiling 2.0 / floor 0.25 keeps a single bad streak from
  *     zeroing out a signal permanently.
  *
- * This module is stateful in-memory. A real persistence layer
- * (SQLite backing) lands in V5.0.6416+; for now the learner
- * accumulates during the session and resets on restart. Every
- * process gets a fresh window, which is actually helpful given
- * regime shifts in meme-market behaviour.
+ * V5.0.7799 persists the weighted signal evidence across process/build
+ * restarts. AATE is repeatedly installed/restarted during field tuning;
+ * resetting this specialist learner each time was erasing exactly the
+ * runner evidence it was meant to accumulate.
  */
 object MoonshotSignalLearner6415 {
 
@@ -52,6 +54,50 @@ object MoonshotSignalLearner6415 {
     private val stats = ConcurrentHashMap<String, SignalStat>()
     private val globalWins = AtomicLong(0L)
     private val globalLosses = AtomicLong(0L)
+    @Volatile private var prefs: SharedPreferences? = null
+
+    @Synchronized
+    fun init(context: Context) {
+        if (prefs != null) return
+        prefs = context.applicationContext.getSharedPreferences("moonshot_signal_learner_6415", Context.MODE_PRIVATE)
+        try {
+            val raw = prefs?.getString("state_7799", null)
+            if (!raw.isNullOrBlank()) {
+                val root = JSONObject(raw)
+                globalWins.set(root.optLong("gw", 0L))
+                globalLosses.set(root.optLong("gl", 0L))
+                val ss = root.optJSONObject("signals")
+                if (ss != null) {
+                    val it = ss.keys()
+                    while (it.hasNext()) {
+                        val name = it.next()
+                        val o = ss.optJSONObject(name) ?: continue
+                        stats[name] = SignalStat(
+                            AtomicLong(o.optLong("w", 0L)),
+                            AtomicLong(o.optLong("l", 0L)),
+                            AtomicLong(o.optLong("n", 0L)),
+                        )
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun persist7799() {
+        val p = prefs ?: return
+        try {
+            val ss = JSONObject()
+            stats.forEach { (name, st) ->
+                ss.put(name, JSONObject().apply {
+                    put("w", st.wins.get()); put("l", st.losses.get()); put("n", st.samples.get())
+                })
+            }
+            val root = JSONObject().apply {
+                put("gw", globalWins.get()); put("gl", globalLosses.get()); put("signals", ss)
+            }
+            p.edit().putString("state_7799", root.toString()).apply()
+        } catch (_: Throwable) {}
+    }
 
     fun recordOutcome(mint: String, symbol: String, tier: String, signalsFired: Set<String>, pnlPct: Double) {
         val classify = when {
@@ -73,6 +119,7 @@ object MoonshotSignalLearner6415 {
             s.samples.addAndGet(outcomeWeight)
             if (classify == 1) s.wins.addAndGet(outcomeWeight) else s.losses.addAndGet(outcomeWeight)
         }
+        persist7799()
         try {
             ForensicLogger.lifecycle(
                 "MOONSHOT_LEARNER_OUTCOME_6415",
