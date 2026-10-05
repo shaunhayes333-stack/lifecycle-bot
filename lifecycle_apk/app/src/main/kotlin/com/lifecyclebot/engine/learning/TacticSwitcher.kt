@@ -678,7 +678,18 @@ object TacticSwitcher {
                 val a = agg.getOrPut(k) { Acc() }
                 a.n++
                 a.pnlSumBp += (t.pnlPct * 100.0).toLong()
-                if (t.pnlPct > 0.0) a.wins++ else a.losses++
+                val holdMs7801 = if (t.entryTsMs > 0L && t.ts >= t.entryTsMs) t.ts - t.entryTsMs else 0L
+                val objective7801 = try {
+                    com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                        laneNorm, t.pnlPct, holdMs7801, t.reason
+                    )
+                } catch (_: Throwable) { null }
+                if (objective7801 != null) {
+                    when {
+                        objective7801.mandateSuccess -> a.wins++
+                        objective7801.utility < 0.0 -> a.losses++
+                    }
+                } else if (t.pnlPct > 0.0) a.wins++ else a.losses++
             }
             if (agg.isEmpty()) return
             // Ensure every persisted cell exists (so its counters are overwritten),
