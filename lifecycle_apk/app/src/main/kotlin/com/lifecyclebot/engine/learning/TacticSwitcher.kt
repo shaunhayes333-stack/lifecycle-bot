@@ -325,7 +325,7 @@ object TacticSwitcher {
         // V5.0.6747 §BLEEDER_LANE_PROBATION — feed the per-lane WR
         // window from the same authoritative sink the tactic tuner
         // uses so both authorities see the same terminal outcomes.
-        try { com.lifecyclebot.engine.truth.BleederLaneProbation6747.onTradeClosed(lane, pnlPct) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.BleederLaneProbation6747.onTradeClosed(lane, pnlPct, holdingTimeMs, "TACTIC_WINDOW") } catch (_: Throwable) {}
         val cell = getOrCreate(lane, scoreBand)
         cell.tradesSinceRotation.incrementAndGet()
         cell.pnlSumSinceRotation.addAndGet((pnlPct * 100).toLong())
