@@ -13,8 +13,8 @@ class Aate7815RecurringAuthorityRepairTest {
         fun check(lane: String, attempt: String, execCall: String) {
             val ticket = bot.indexOf("recordDeskStage(\"$lane\", \"TICKET\", $attempt)")
             val exec = bot.indexOf(execCall)
-            assertTrue(ticket >= 0, "missing ticket stamp for $lane")
-            assertTrue(exec > ticket, "$lane ticket/predecessors must be stamped before Executor")
+            assertTrue("missing ticket stamp for $lane", ticket >= 0)
+            assertTrue("$lane ticket/predecessors must be stamped before Executor", exec > ticket)
         }
         check("SHITCOIN", "shitcoinAttemptId", "val shitCoinOpened = executor.shitCoinBuy(")
         check("EXPRESS", "expressAttemptId", "val expressOpened = executor.shitCoinBuy(")

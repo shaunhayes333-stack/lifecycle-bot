@@ -27,6 +27,7 @@ ExecutionAuthorityPolicy6533	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/e
 creates	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ExistingIntelligenceContext7650.kt	False
 ExitCostMicrobrain	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ExitCostMicrobrain.kt	False
 ExitIntelligence	EXIT_LEARNED_UPSTREAM	com/lifecyclebot/engine/ExitIntelligence.kt	False
+ExpertTraderKnowledge7813	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ExpertTraderKnowledge7813.kt	False
 FdgBrainChain	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/FdgBrainChain.kt	False
 FluidLearning	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/FluidLearning.kt	False
 ForwardOutcomeModel	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ForwardOutcomeModel.kt	False
