@@ -78,6 +78,29 @@ object TreasuryBrain {
             "BEAR_FLAT" -> { score -= 6; reasons += "ema_bear_flat" }
         }
 
+        // V5.0.7802 — Treasury is capital-preservation-first: executable
+        // route quality and estimated round-trip friction are native evidence.
+        val routeReady7802 = ts.tokenMap.jupiterQuoteOk || ts.tokenMap.dexRouteOk ||
+            ts.tokenMap.routeStatus.contains("READY", true)
+        if (routeReady7802) { score += 8; reasons += "route_executable" }
+        else if (ts.tokenMap.hydrationComplete) { score -= 10; reasons += "route_not_proven" }
+
+        val solUsd7802 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val probeUsd7802 = if (solUsd7802 > 0.0) 0.10 * solUsd7802 else 20.0
+        val slip7802 = try {
+            com.lifecyclebot.v3.scoring.LiquidityExitPathAI.estimateRoundTripSlippagePct(
+                probeUsd7802, ts.lastLiquidityUsd
+            )
+        } catch (_: Throwable) { 0.0 }
+        when {
+            slip7802 <= 2.0 -> { score += 8; reasons += "low_friction" }
+            slip7802 <= 5.0 -> { score += 3; reasons += "acceptable_friction" }
+            slip7802 >= 12.0 -> { score -= 15; reasons += "high_friction" }
+        }
+        val capEff7802 = try { CapitalEfficiencyBrain.sizeMultiplier("TREASURY", ts.source) } catch (_: Throwable) { 1.0 }
+        if (capEff7802 > 1.02) { score += 5; reasons += "capital_efficiency_positive" }
+        else if (capEff7802 < 0.97) { score -= 5; reasons += "capital_efficiency_weak" }
+
         // Liquidity depth bonus (already gated by TreasuryScannerFeed)
         if (ts.lastLiquidityUsd >= 250_000.0) {
             score += 8
