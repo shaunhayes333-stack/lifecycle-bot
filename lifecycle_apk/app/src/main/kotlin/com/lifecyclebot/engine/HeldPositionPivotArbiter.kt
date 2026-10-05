@@ -92,6 +92,11 @@ object HeldPositionPivotArbiter {
         holdTimeMs: Long,
     ): PivotResult {
         val current = ts.position.tradingMode.uppercase().ifBlank { "STANDARD" }
+        val objectiveLane7802 = try {
+            com.lifecyclebot.engine.truth.PositionEntryLaneRegistry6621
+                .entryLane6621(ts.position.positionId)
+                ?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) { null } ?: current
         try {
             val mint = ts.mint
             val now = System.currentTimeMillis()
@@ -144,8 +149,11 @@ object HeldPositionPivotArbiter {
             if (bestLane == current || (bestScore - incumbentScore) < CONVICTION_MARGIN) {
                 return PivotResult(false, current, current, bestScore, incumbentScore, "below_margin")
             }
-            if (RunnerExitProfile7277.refusesLaneChange(current, bestLane)) {
-                return PivotResult(false, current, current, bestScore, incumbentScore, "runner_lane_kept_7369")
+            // V5.0.7802 — runner protection belongs to the immutable specialist
+            // objective, not whichever exit technique happened to be active after
+            // the previous pivot.
+            if (RunnerExitProfile7277.refusesLaneChange(objectiveLane7802, bestLane)) {
+                return PivotResult(false, current, current, bestScore, incumbentScore, "runner_objective_kept_7802")
             }
 
             // V5.0.7403 — NO THESIS LAUNDERING.
@@ -210,7 +218,7 @@ object HeldPositionPivotArbiter {
             try {
                 ForensicLogger.lifecycle(
                     "HELD_PIVOT",
-                    "mint=${mint.take(8)} sym=${ts.symbol} $current->$bestLane " +
+                    "mint=${mint.take(8)} sym=${ts.symbol} objective=$objectiveLane7802 technique=$current->$bestLane " +
                     "score=${"%.3f".format(bestScore)} inc=${"%.3f".format(incumbentScore)} " +
                     "pnl=${pnlPct.toInt()}% peak=${peakPnlPct.toInt()}% mom=${momentum?.name ?: "?"} " +
                     "n=${pivotCount[mint]}"
