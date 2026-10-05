@@ -17,10 +17,14 @@ import java.util.concurrent.atomic.AtomicLong
  * ──────
  *   • Per-signal Bayesian W/L counters. Each signal tracks its own
  *     "when I fired 1, what happened?" outcome distribution.
- *   • Winner threshold: pnlPct >= +50% (probation-safe positive).
- *     Loser threshold: pnlPct <= -20%.
- *     Neutral: everything in between (excluded from learning to
- *     preserve signal).
+ *   • Fat-tail outcome weighting (V5.0.7799):
+ *       +50..149%  = 1 learning unit
+ *       +150..499% = 3 learning units
+ *       +500..999% = 5 learning units
+ *       +1000%+    = 8 learning units
+ *     Losses <= -20% = 1 loss unit. Neutral outcomes are excluded.
+ *     This makes the learner optimize for Moonshot's actual purpose:
+ *     exceptional asymmetric runners, not merely a high win rate.
  *   • recordOutcome() called from the sell terminal path.
  *   • signalWeight(name) returns a multiplier in [0.25, 2.0] based
  *     on win-rate lift vs baseline. Cold start = 1.0 (equal weight).
@@ -56,17 +60,24 @@ object MoonshotSignalLearner6415 {
             else -> 0
         }
         if (classify == 0) return
-        if (classify == 1) globalWins.incrementAndGet() else globalLosses.incrementAndGet()
+        val outcomeWeight = when {
+            classify < 0 -> 1L
+            pnlPct >= 1000.0 -> 8L
+            pnlPct >= 500.0 -> 5L
+            pnlPct >= 150.0 -> 3L
+            else -> 1L
+        }
+        if (classify == 1) globalWins.addAndGet(outcomeWeight) else globalLosses.addAndGet(outcomeWeight)
         for (sig in signalsFired) {
             val s = stats.getOrPut(sig) { SignalStat() }
-            s.samples.incrementAndGet()
-            if (classify == 1) s.wins.incrementAndGet() else s.losses.incrementAndGet()
+            s.samples.addAndGet(outcomeWeight)
+            if (classify == 1) s.wins.addAndGet(outcomeWeight) else s.losses.addAndGet(outcomeWeight)
         }
         try {
             ForensicLogger.lifecycle(
                 "MOONSHOT_LEARNER_OUTCOME_6415",
                 "mint=${mint.take(10)} sym=$symbol tier=$tier pnlPct=${"%.1f".format(pnlPct)} " +
-                    "class=${if (classify == 1) "WIN" else "LOSS"} signals=[${signalsFired.joinToString(",")}] " +
+                    "class=${if (classify == 1) "WIN" else "LOSS"} weight=$outcomeWeight signals=[${signalsFired.joinToString(",")}] " +
                     "globalW/L=${globalWins.get()}/${globalLosses.get()}",
             )
             PipelineHealthCollector.labelInc("MOONSHOT_LEARNER_OUTCOME_6415")
