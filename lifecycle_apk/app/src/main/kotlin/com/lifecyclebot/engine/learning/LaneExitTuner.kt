@@ -110,6 +110,7 @@ object LaneExitTuner {
         val pnlPct: Double,
         val peakPct: Double,
         val win: Boolean,
+        val specialistUtility: Double,
         val stopHit: Boolean,
     )
 
@@ -294,7 +295,7 @@ object LaneExitTuner {
         "NO_PRICE", "DEAD_TOKEN",
     )
 
-    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String) {
+    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String, holdingTimeMs: Long = 0L) {
         try {
             val reasonUpper7161 = exitReason.uppercase()
             val recoveryHay7167 = (lane + "|" + exitReason).uppercase()
@@ -323,10 +324,17 @@ object LaneExitTuner {
                 peakPct > 5000.0 -> 5000.0
                 else -> peakPct
             }
+            val cleanPnl = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct
+            val objective7801 = try {
+                com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                    key, cleanPnl, holdingTimeMs, exitReason
+                )
+            } catch (_: Throwable) { null }
             val o = Outcome(
-                pnlPct = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct,
+                pnlPct = cleanPnl,
                 peakPct = peakSane,
-                win = pnlPct > 0.0,
+                win = objective7801?.mandateSuccess ?: (cleanPnl > 0.0),
+                specialistUtility = objective7801?.utility ?: (cleanPnl / 20.0).coerceIn(-1.5, 2.0),
                 stopHit = stopHit,
             )
             synchronized(st) {
