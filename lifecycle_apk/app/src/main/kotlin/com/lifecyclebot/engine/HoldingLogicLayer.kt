@@ -855,30 +855,12 @@ object HoldingLogicLayer {
      * This ensures fluid hold parameters are correctly applied per layer type.
      */
     private fun getLayerFromMode(mode: String): String {
-        return when (mode.uppercase()) {
-            // Native specialists stay native so FluidLearning uses the correct
-            // lane clock instead of collapsing them into a generic family.
-            "TREASURY" -> "TREASURY"
-            "CASHGEN" -> "CASHGEN"
-            "SHITCOIN" -> "SHITCOIN"
-            "EXPRESS" -> "EXPRESS"
-            "PROJECT_SNIPER" -> "PROJECT_SNIPER"
-            "MANIPULATED", "MANIP" -> "MANIPULATED"
-            "DIP_HUNTER" -> "DIP_HUNTER"
-            "CYCLIC" -> "CYCLIC"
-            "QUALITY" -> "QUALITY"
-            "CORE" -> "CORE"
-            "BLUECHIP", "BLUE_CHIP" -> "BLUECHIP"
-            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR",
-            "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> "MOONSHOT"
-
-            // Legacy management-style aliases retain their appropriate family.
-            "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
-            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
-            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "NICHE",
-            "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
-            "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
-            else -> "V3"
+        // V5.0.7801 — one lane identity authority. Holding logic may classify
+        // technique modes, but it must never own a second alias table.
+        return try {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(mode)
+        } catch (_: Throwable) {
+            mode.trim().uppercase().ifBlank { "V3" }
         }
     }
 }
