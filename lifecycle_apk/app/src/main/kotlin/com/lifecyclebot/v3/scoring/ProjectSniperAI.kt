@@ -218,15 +218,24 @@ object ProjectSniperAI {
         if (launch7449 == null || !launch7449.birthResolved) {
             return noEngage("BIRTH_METADATA_HYDRATING_7449", tokenAgeSecs, ThreatLevel.RED)
         }
-        // PROJECT_SNIPER owns BEFORE the visible expansion. Once the token is
-        // EXPANDING, Moonshot/Express continuation desks own it. This stops the
-        // old 10-minute / +80% post-pump chase behaviour.
-        if (launch7449.phase !in setOf(
-                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION,
-                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION,
-            )) {
-            try { PipelineHealthCollector.labelInc("SNIPER_PHASE_HANDOFF_7449_${launch7449.phase.name}") } catch (_: Throwable) {}
+        // V5.0.7794 — PROJECT_SNIPER is a PRE-IGNITION specialist, not the
+        // generic owner of every fresh Pump candidate. Runtime 5.0.7792 closed
+        // PROJECT_SNIPER 0/8 (EV -23%) while the forward book showed MOONSHOT
+        // positive on the same sub-$10k launch pond. Once ignition is visible,
+        // continuation ownership belongs to MOONSHOT/EXPRESS.
+        if (launch7449.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION) {
+            try { PipelineHealthCollector.labelInc("SNIPER_PHASE_HANDOFF_7794_${launch7449.phase.name}") } catch (_: Throwable) {}
             return noEngage("PHASE_HANDOFF_${launch7449.phase.name}", tokenAgeSecs, ThreatLevel.YELLOW)
+        }
+        // A pre-ignition snipe must have actual expanding demand, not just age +
+        // market-cap eligibility. This is deliberately causal flow evidence.
+        if (launch7449.distinctBuyers60s < 3 || !launch7449.accelerationRising || launch7449.buySharePct < 60.0) {
+            try { PipelineHealthCollector.labelInc("SNIPER_PREIGNITION_FLOW_NOT_PROVEN_7794") } catch (_: Throwable) {}
+            return noEngage(
+                "PREIGNITION_FLOW_NOT_PROVEN buyers=${launch7449.distinctBuyers60s} buyShare=${launch7449.buySharePct.toInt()} accel=${launch7449.accelerationRising}",
+                tokenAgeSecs,
+                ThreatLevel.YELLOW,
+            )
         }
         
         // ═══════════════════════════════════════════════════════════════════

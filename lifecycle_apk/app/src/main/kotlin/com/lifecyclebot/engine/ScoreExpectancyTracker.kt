@@ -215,15 +215,23 @@ object ScoreExpectancyTracker {
      *   - rolling mean pnlPct >= REJECT_MEAN_PNL_PCT
      */
     fun shouldReject(layer: String, score: Int): Boolean {
-        // V5.0.3847 — live entry authority is common-sense safety + route quote,
-        // not learned expectancy veto. Keep this as paper/training shaping only;
-        // live still records outcomes and reports bucket expectancy.
-        if (try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
-            try { ForensicLogger.lifecycle("LIVE_EXPECTANCY_REJECT_BYPASSED", "layer=$layer score=$score") } catch (_: Throwable) {}
-            return false
-        }
+        // V5.0.7794 — mature negative expectancy is evidence, not paper-only decoration.
+        // 5.0.7792 emitted LIVE_EXPECTANCY_REJECT_BYPASSED ~97k times while the
+        // canonical live book ran 2/31, PF 0.06. Keep bootstrap exploration:
+        // bucketMean() remains null until MIN_SAMPLES_FOR_REJECT closes, and only
+        // a mean below -8% is refused. Positive / immature bands are untouched.
         val mean = bucketMean(layer, score) ?: return false
-        return mean < REJECT_MEAN_PNL_PCT
+        val reject = mean < REJECT_MEAN_PNL_PCT
+        if (reject && (try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false })) {
+            try {
+                PipelineHealthCollector.labelInc("LIVE_EXPECTANCY_REJECT_HONOURED_7794")
+                ForensicLogger.lifecycle(
+                    "LIVE_EXPECTANCY_REJECT_HONOURED_7794",
+                    "layer=$layer score=$score n=${bucketSamples(layer, score)} mean=${"%.2f".format(mean)}% floor=$REJECT_MEAN_PNL_PCT",
+                )
+            } catch (_: Throwable) {}
+        }
+        return reject
     }
 
     /**
