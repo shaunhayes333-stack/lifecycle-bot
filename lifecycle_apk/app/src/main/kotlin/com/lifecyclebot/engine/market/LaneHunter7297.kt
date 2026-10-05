@@ -79,6 +79,73 @@ object LaneHunter7297 {
 
     private fun activity(r: MarketSweep7297.Row) = log10(1.0 + r.txCountH1) + log10(1.0 + r.volumeH1Usd)
 
+    // V5.0.7797 — CHEAT-SHEET COMMON SENSE AT DISCOVERY.
+    //
+    // TradePlan7739/CommonSenseTradePlaybook already enforce the full
+    // context-trigger-invalidation-payoff contract downstream. Hunters should not
+    // duplicate that authority, but they also should not waste their limited picks
+    // on obviously poor geometry. These helpers use ONLY the market snapshot the
+    // hunter already has: no hot-path API/LLM/network calls, no hard execution veto.
+    private fun exitability7797(r: MarketSweep7297.Row): Double {
+        if (r.liquidityUsd <= 0.0 || r.mcapUsd <= 0.0) return 0.65
+        val ratio = r.mcapUsd / r.liquidityUsd
+        return when {
+            ratio <= 8.0 -> 1.15
+            ratio <= 25.0 -> 1.08
+            ratio <= 60.0 -> 1.00
+            ratio <= 120.0 -> 0.88
+            else -> 0.72
+        }
+    }
+
+    private fun participation7797(r: MarketSweep7297.Row): Double {
+        val tx = r.txCountH1
+        val turn = turnover(r)
+        return when {
+            tx >= 80 && turn in 0.5..4.0 -> 1.15
+            tx >= 25 && turn in 0.25..5.0 -> 1.08
+            tx >= 6 && turn > 0.0 -> 1.00
+            else -> 0.82
+        }
+    }
+
+    private fun chasePenalty7797(r: MarketSweep7297.Row, runner: Boolean): Double {
+        val move = r.priceChangeH1Pct
+        return when {
+            move < -35.0 -> 0.62
+            !runner && move > 45.0 -> 0.68
+            runner && move > 120.0 -> 0.62
+            runner && move > 70.0 -> 0.78
+            else -> 1.0
+        }
+    }
+
+    private fun freshnessFit7797(r: MarketSweep7297.Row, idealMaxHours: Double): Double = when {
+        r.ageHours <= 0.0 -> 0.95
+        r.ageHours <= idealMaxHours -> 1.12
+        r.ageHours <= idealMaxHours * 4.0 -> 1.0
+        else -> 0.88
+    }
+
+    private fun commonSenseMult7797(lane: String, r: MarketSweep7297.Row): Double {
+        val runner = lane in setOf("MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "SHITCOIN")
+        var m = exitability7797(r) * participation7797(r) * chasePenalty7797(r, runner)
+        m *= when (lane) {
+            "PROJECT_SNIPER" -> freshnessFit7797(r, 0.05)
+            "EXPRESS", "MANIPULATED" -> freshnessFit7797(r, 0.20)
+            "MOONSHOT" -> freshnessFit7797(r, 1.0)
+            "SHITCOIN" -> freshnessFit7797(r, 6.0)
+            "QUALITY" -> if (r.verified) 1.08 else 0.97
+            "BLUECHIP" -> if (r.verified && r.liquidityUsd >= 25_000.0) 1.10 else 0.92
+            "DIP_HUNTER" -> if (r.priceChangeH1Pct in -25.0..-3.0) 1.10 else 0.90
+            "TREASURY", "CASHGEN" -> if (turnover(r) in 0.10..2.5) 1.08 else 0.92
+            "CYCLIC" -> if (kotlin.math.abs(r.priceChangeH1Pct) <= 12.0) 1.08 else 0.90
+            "CORE" -> 1.0
+            else -> 1.0
+        }
+        return m.coerceIn(0.45, 1.35)
+    }
+
     val profiles: List<Profile> = listOf(
         Profile(
             "SHITCOIN", ShitCoinTraderAI.MIN_MARKET_CAP_USD, ShitCoinTraderAI.MAX_MARKET_CAP_USD,
@@ -364,7 +431,8 @@ object LaneHunter7297 {
                 .sortedByDescending { r ->
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
                     p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
-                        (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r)
+                        (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r) *
+                        commonSenseMult7797(p.lane, r)
                 }
                 .map { it.mint }
         }
@@ -376,6 +444,16 @@ object LaneHunter7297 {
                 rows.forEach { r ->
                     claims[r.mint] = Claim(lane, r.mcapUsd, now)
                     hunted.merge(lane, 1L, Long::plus)
+                    try {
+                        val cs = commonSenseMult7797(lane, r)
+                        PipelineHealthCollector.labelInc(
+                            when {
+                                cs >= 1.10 -> "LANE_HUNT_COMMON_SENSE_STRONG_7797_$lane"
+                                cs < 0.80 -> "LANE_HUNT_COMMON_SENSE_WEAK_7797_$lane"
+                                else -> "LANE_HUNT_COMMON_SENSE_NEUTRAL_7797_$lane"
+                            }
+                        )
+                    } catch (_: Throwable) {}
                     if ((lane == "TREASURY" || lane == "CASHGEN") && r.volumeH24Usd >= TreasuryScannerFeed.MIN_TREASURY_24H_VOL) {
                         try {
                             TreasuryScannerFeed.publishCandidate(
