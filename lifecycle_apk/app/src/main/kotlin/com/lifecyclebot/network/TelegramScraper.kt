@@ -88,7 +88,7 @@ class TelegramScraper(private val botToken: String = "") {
             .substringBefore('/')
             .trimStart('@')
             .trim()
-        if (handle.isBlank()) return null
+        if (handle.isBlank() || handle.startsWith("+") || handle.startsWith("joinchat", true)) return null
         val html = get("https://t.me/s/$handle") ?: return null
 
         val timeRegex = Regex("datetime=\\\"([^\\\"]+)\\\"")
