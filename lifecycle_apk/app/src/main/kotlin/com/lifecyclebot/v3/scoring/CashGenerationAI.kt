@@ -630,6 +630,37 @@ object CashGenerationAI {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TREASURY_SOURCE_ROUTER_4309/${sourceBias4309.family}") } catch (_: Throwable) {}
         }
 
+        // V5.0.7802 — CASHGEN's mandate is realised P&L per unit of capital-time.
+        // Consume the existing measured capital-efficiency learner and a realistic
+        // round-trip liquidity-impact estimate. Both are soft score evidence.
+        val capEff7802 = try {
+            com.lifecyclebot.engine.CapitalEfficiencyBrain.sizeMultiplier("CASHGEN", discoverySource)
+        } catch (_: Throwable) { 1.0 }
+        treasuryScore += when {
+            capEff7802 >= 1.06 -> 8
+            capEff7802 >= 1.02 -> 4
+            capEff7802 <= 0.94 -> -8
+            capEff7802 < 0.99 -> -4
+            else -> 0
+        }
+        if (capEff7802 != 1.0) scoreReasons.add("capEff=${"%.2f".format(capEff7802)}")
+
+        val solUsd7802 = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val plannedUsd7802 = if (solUsd7802 > 0.0) MIN_POSITION_SOL * solUsd7802 else 10.0
+        val roundTripSlip7802 = try {
+            com.lifecyclebot.v3.scoring.LiquidityExitPathAI.estimateRoundTripSlippagePct(
+                plannedUsd7802, liquidityUsd
+            )
+        } catch (_: Throwable) { 0.0 }
+        treasuryScore += when {
+            roundTripSlip7802 <= 2.0 -> 6
+            roundTripSlip7802 <= 5.0 -> 2
+            roundTripSlip7802 >= 15.0 -> -12
+            roundTripSlip7802 >= 8.0 -> -6
+            else -> 0
+        }
+        scoreReasons.add("rtSlip=${"%.1f".format(roundTripSlip7802)}")
+
         val rawTreasuryConfidence = (
             (if (liquidityUsd > 10_000) 25 else if (liquidityUsd > 5_000) 15 else 5) +
                 (if (buyPressurePct > 55) 25 else if (buyPressurePct > 45) 15 else 5) +
