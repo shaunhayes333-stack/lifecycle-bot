@@ -165,11 +165,12 @@ object SuperWorldModel7634 {
                 else -> 1.0
             }
 
-            val horizonRisk = (
-                (1.0 - horizonP) * 0.55 +
-                    rug * 0.30 +
-                    dis * 0.20
-                ).coerceIn(0.0, 1.0)
+            val horizonRisk = if (runner) {
+                val negativeEvRisk = ((-horizonE) / 60.0).coerceIn(0.0,1.0)
+                (negativeEvRisk*0.45 + rug*0.40 + dis*0.20 + (1.0-conf)*0.15).coerceIn(0.0,1.0)
+            } else {
+                ((1.0-horizonP)*0.55 + rug*0.30 + dis*0.20).coerceIn(0.0,1.0)
+            }
 
             val horizonDisp = dispersion * when (h) {
                 Horizon.IMPULSE -> 0.75
@@ -209,10 +210,11 @@ object SuperWorldModel7634 {
         val thesis = forecasts.first { it.horizon == Horizon.THESIS }
         val slope = thesis.expectedPnlPct - impulse.expectedPnlPct
         val tail = (
-            (if (runner) 0.35 else 0.0) +
-                (thesis.pWin - 0.50).coerceAtLeast(0.0) * 0.8 +
-                (thesis.expectedPnlPct / 100.0).coerceIn(0.0, 0.6)
-            ).coerceIn(0.0, 1.0)
+            (if (runner) 0.20 else 0.0) +
+                (if (runner) thesis.pWin.coerceIn(0.0,0.6)*0.80
+                 else (thesis.pWin-0.50).coerceAtLeast(0.0)*0.8) +
+                (thesis.expectedPnlPct/100.0).coerceIn(0.0,0.6)
+            ).coerceIn(0.0,1.0)
         val failure = forecasts.maxOf { it.failureRisk }
 
         val latent = when {

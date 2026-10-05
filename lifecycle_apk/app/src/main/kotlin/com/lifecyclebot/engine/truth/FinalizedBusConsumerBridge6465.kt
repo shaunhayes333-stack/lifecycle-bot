@@ -497,22 +497,23 @@ object FinalizedBusConsumerBridge6465 {
     // permanently dropped valid samples. 6465 runs only after the exact-event
     // check above succeeds and retries until durability is visible.
     private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(
+            env.mint, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+        )
         // Close the prediction-quality loop from the same canonical terminal.
         com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(env.mint, env.realizedReturnPct)
         true
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        val exitReason = env.exitReason.uppercase()
-        val objective7801 = try {
-            com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
-                env.lane, env.realizedReturnPct, env.holdingTimeMs, env.exitReason
+        val exitQuality7801 = try {
+            com.lifecyclebot.engine.truth.SpecialistObjective7801.exitQuality(
+                env.lane, env.realizedReturnPct, env.mfePct, env.holdingTimeMs, env.exitReason
             )
         } catch (_: Throwable) { null }
-        val exitWasOptimal = when {
+        val exitReason = env.exitReason.uppercase()
+        val exitWasOptimal = exitQuality7801?.optimal ?: when {
             exitReason.contains("STOP_LOSS") || exitReason.contains("STRICT_SL") || exitReason.contains("STOPLOSS") -> false
-            objective7801 != null -> objective7801.mandateSuccess
             exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true
             env.realizedReturnPct >= 2.0 -> true
             else -> false

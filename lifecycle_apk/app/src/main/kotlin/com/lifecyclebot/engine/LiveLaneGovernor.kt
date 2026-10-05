@@ -238,8 +238,8 @@ object LiveLaneGovernor {
                         lane = laneU, scoreBand = "OVERALL", tactic = entrySetup ?: "MOMENTUM",
                         n = s.trades, wins = ((s.wrPct / 100.0) * s.trades).toInt(),
                         losses = s.trades - ((s.wrPct / 100.0) * s.trades).toInt(),
-                        meanReturnPct = s.wrPct - 50.0,
-                        lossSeverityPct = (s.totalSolPnl / s.trades.coerceAtLeast(1)) * 100.0,
+                        meanReturnPct = s.avgWinPct * s.wr01 + s.avgLossPct * (1.0 - s.wr01),
+                        lossSeverityPct = s.avgLossPct,
                     )
                 )
                 ForensicLogger.lifecycle(
@@ -364,8 +364,12 @@ object LiveLaneGovernor {
     /** True if this lane's live stats have earned override authority against the dampener. */
     fun isProvenWinner(lane: String): Boolean {
         val laneU = lane.uppercase()
-        val s = laneStats(laneU) ?: return false
-        return s.isProvenWinner
+        val sp = try { com.lifecyclebot.engine.truth.SpecialistPerformance7801.stat(laneU,"live") } catch (_: Throwable) { null }
+        if (sp != null && sp.n >= MIN_SAMPLES_WINNER) {
+            if (sp.tailEconomicHealthy) return true
+            if (sp.mandateSuccessRate >= WINNER_WR && sp.profitFactor >= WINNER_PF && sp.totalSolPnl > 0.0) return true
+        }
+        return laneStats(laneU)?.isProvenWinner ?: false
     }
 
     /**

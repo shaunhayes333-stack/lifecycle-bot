@@ -693,7 +693,7 @@ object LearnedAdmissionAuthority6846 {
             // Simple lower-bound: if lane's own damper × EXPRESS mult
             // (already integrated in RuntimeTune6833) × cohortShaping
             // is < minExecutableSol, deny early.
-            val cohortSizeShaping = when {
+            val cohortSizeShaping = if (inputs.expectedPnl > 0.0) 1.0 else when {
                 lanePWin < 0.10 -> 0.35
                 lanePWin < 0.20 -> 0.50
                 lanePWin < 0.30 -> 0.75

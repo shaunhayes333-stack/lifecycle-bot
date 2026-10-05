@@ -21,6 +21,19 @@ object SpecialistObjective7801 {
         val reason: String,
     )
 
+    data class ExitQuality(
+        val lane: String,
+        val optimal: Boolean,
+        val captureRatio: Double,
+        val givebackPct: Double,
+        val reason: String,
+    )
+
+    fun isTailLane(raw: String?): Boolean {
+        val lane = canon(raw.orEmpty())
+        return lane in setOf("MOONSHOT", "SHITCOIN", "PROJECT_SNIPER")
+    }
+
     private fun canon(raw: String): String = raw.trim().uppercase()
         .replace("BLUE_CHIP", "BLUECHIP")
         .replace("SHITCOIN_EXPRESS", "EXPRESS")
@@ -121,5 +134,39 @@ object SpecialistObjective7801 {
             }
         }
         return Utility(lane, u, success, cls, "$why ret=${String.format("%.1f",r)}% hold=${String.format("%.1f",mins)}m exit=${exitReason.take(40)}")
+    }
+
+    fun exitQuality(
+        laneRaw: String,
+        realizedReturnPct: Double,
+        mfePct: Double,
+        holdingTimeMs: Long,
+        exitReason: String,
+    ): ExitQuality {
+        val lane = canon(laneRaw)
+        val realized = realizedReturnPct.takeIf { it.isFinite() } ?: 0.0
+        val peak = max(mfePct.takeIf { it.isFinite() } ?: realized, realized)
+        val capture = if (peak > 0.0) (realized.coerceAtLeast(0.0) / peak).coerceIn(0.0, 1.0) else 0.0
+        val giveback = (peak - realized).coerceAtLeast(0.0)
+        val r = exitReason.uppercase()
+        val hardSafety = listOf("RUG", "LIQUIDITY", "DEV_SELL", "HARD_SAFETY", "CATASTROPH").any { r.contains(it) }
+        val stop = r.contains("STOP_LOSS") || r.contains("STRICT_SL") || r.contains("STOPLOSS")
+        val mandate = evaluate(lane, realized, holdingTimeMs, exitReason)
+        val requiredCapture = when (lane) {
+            "MOONSHOT" -> 0.55
+            "PROJECT_SNIPER", "SHITCOIN" -> 0.50
+            "EXPRESS", "MANIPULATED", "CASHGEN" -> 0.70
+            "TREASURY" -> 0.65
+            "DIP_HUNTER", "CYCLIC", "QUALITY", "BLUECHIP" -> 0.60
+            else -> 0.55
+        }
+        val optimal = when {
+            hardSafety -> true
+            stop -> false
+            peak <= 0.0 -> realized >= 0.0
+            else -> mandate.mandateSuccess && capture >= requiredCapture
+        }
+        return ExitQuality(lane, optimal, capture, giveback,
+            "mandate=${mandate.magnitudeClass} capture=${String.format("%.2f",capture)} giveback=${String.format("%.1f",giveback)}%")
     }
 }

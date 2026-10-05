@@ -49,6 +49,7 @@ object SuperIntelligencePlanner7633 {
         disagreement: Double,
         policyPWin: Double,
         hardSafetyBlocked: Boolean,
+        lane: String = "STANDARD",
         world: SuperWorldModel7634.Snapshot? = null,
         critic: SuperAdversarialCritic7635.Review? = null,
         tree: SuperPolicyTree7638.Result? = null,
@@ -59,6 +60,7 @@ object SuperIntelligencePlanner7633 {
         val conf = confidence.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
         val dis = disagreement.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 1.0
         val policy = policyPWin.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.50
+        val tailLane7801 = try { com.lifecyclebot.engine.truth.SpecialistObjective7801.isTailLane(lane) } catch (_: Throwable) { false }
 
         val uncertainty = ((1.0 - conf) * 0.55 + dis * 0.30 + abs(p - policy) * 0.30)
             .coerceIn(0.0, 1.0)
@@ -76,7 +78,10 @@ object SuperIntelligencePlanner7633 {
                 }
                 val hf = world?.forHorizon(horizon)
                 val expected = (hf?.expectedPnlPct ?: e) * exposure
-                val downside = (hf?.failureRisk ?: (1.0 - p)) * 22.0 * exposure
+                val fallbackFailure7801 = if (tailLane7801) {
+                    (((-e)/60.0).coerceIn(0.0,1.0)*0.55 + dis*0.25 + (1.0-conf)*0.20).coerceIn(0.0,1.0)
+                } else (1.0-p)
+                val downside = (hf?.failureRisk ?: fallbackFailure7801) * 22.0 * exposure
                 val worldUncertainty = hf?.uncertainty ?: uncertainty
                 val uncertaintyPenalty = worldUncertainty * 14.0 * exposure
                 val trajectoryPenalty = if (
@@ -92,7 +97,13 @@ object SuperIntelligencePlanner7633 {
                     action == Action.ENTER_REDUCED -> critic.convictionPenalty * 0.15 * criticWeight7639
                     else -> 0.0
                 }
-                val convictionPenalty = if (action == Action.ENTER_CONVICTION && p < 0.62) 8.0 else 0.0
+                val convictionPenalty = when {
+                    action != Action.ENTER_CONVICTION -> 0.0
+                    tailLane7801 && e <= 0.0 -> 8.0
+                    tailLane7801 && p < 0.05 -> 5.0
+                    !tailLane7801 && p < 0.62 -> 8.0
+                    else -> 0.0
+                }
                 val treeWeight7639 = arbiter?.treeWeight ?: 1.0
                 val treeBias = when {
                     tree == null -> 0.0

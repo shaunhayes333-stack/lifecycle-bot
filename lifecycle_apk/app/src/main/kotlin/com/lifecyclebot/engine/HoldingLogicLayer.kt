@@ -412,8 +412,9 @@ object HoldingLogicLayer {
                 )
             }
             
-            // Trailing stop (after profit achieved)
-            if (position.peakGainPct > targetProfit6091 * 0.5) {
+            // True tail lanes use their own PeakDrawdownLock/runner/partial geometry.
+            val tailLane7801 = try { com.lifecyclebot.engine.truth.SpecialistObjective7801.isTailLane(mode) } catch (_: Throwable) { false }
+            if (!tailLane7801 && position.peakGainPct > targetProfit6091 * 0.5) {
                 val trailingStop = position.peakGainPct - trailingStopPct6091
                 if (currentPnlPct < trailingStop) {
                     return HoldEvaluation(
@@ -448,19 +449,19 @@ object HoldingLogicLayer {
 
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
             if (holdTimeMinutes > tunedFluidMaxHold7455) {
-                return HoldEvaluation(
-                    action = HoldAction.EXIT_NOW,
-                    reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer] tune×${"%.2f".format(holdMult7455)}",
-                    confidence = 75.0 + (holdTimeUrgency * 20.0),
-                    urgency = Urgency.HIGH,
-                )
+                if (currentPnlPct <= 0.0) {
+                    return HoldEvaluation(
+                        action = HoldAction.EXIT_NOW,
+                        reason = "Fluid hold time exceeded while non-positive: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer]",
+                        confidence = 75.0 + (holdTimeUrgency * 20.0),
+                        urgency = Urgency.HIGH,
+                    )
+                } else try { PipelineHealthCollector.labelInc("SPECIALIST_GREEN_MAX_HOLD_NOT_FORCED_7801_" + layer.uppercase().take(24)) } catch (_: Throwable) {}
             }
-            
-            // Legacy max hold time fallback
-            if (holdTimeMs > maxHoldTimeMs6091) {
+            if (holdTimeMs > maxHoldTimeMs6091 && currentPnlPct <= 0.0) {
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
-                    reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
+                    reason = "Max hold time exceeded while non-positive: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min",
                     confidence = 75.0,
                     urgency = Urgency.HIGH,
                 )
