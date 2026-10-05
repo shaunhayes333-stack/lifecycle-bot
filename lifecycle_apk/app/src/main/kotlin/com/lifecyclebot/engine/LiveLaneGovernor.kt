@@ -261,12 +261,24 @@ object LiveLaneGovernor {
      * the lane is un-paused early. Idempotent (bails when mint wasn't a
      * bypass entry).
      */
-    fun recordBypassOutcome(mint: String, pnlPct: Double) {
+    fun recordBypassOutcome(
+        mint: String,
+        pnlPct: Double,
+        holdingTimeMs: Long = 0L,
+        exitReason: String = "",
+    ) {
         if (mint.isBlank()) return
         val lane = bypassedMints.remove(mint) ?: return
         val laneU = lane.uppercase()
         try {
-            if (pnlPct > 0.0) {
+            val objective7801 = try {
+                com.lifecyclebot.engine.truth.SpecialistObjective7801.evaluate(
+                    laneU, pnlPct, holdingTimeMs, exitReason
+                )
+            } catch (_: Throwable) { null }
+            val specialistWin7801 = objective7801?.mandateSuccess ?: (pnlPct > 0.0)
+            val specialistLoss7801 = if (objective7801 != null) objective7801.utility < 0.0 else pnlPct < 0.0
+            if (specialistWin7801) {
                 val next = (bypassWinStreak[laneU] ?: 0) + 1
                 bypassWinStreak[laneU] = next
                 try {
@@ -289,7 +301,7 @@ object LiveLaneGovernor {
                         PipelineHealthCollector.labelInc("LIVE_LANE_BYPASS_AUTO_UNPAUSE_6260")
                     } catch (_: Throwable) {}
                 }
-            } else if (pnlPct < 0.0) {
+            } else if (specialistLoss7801) {
                 // Streak broken. The AGI's confidence in this shape was
                 // misplaced for this lane — reset and let the pause window
                 // resume its natural decay.
