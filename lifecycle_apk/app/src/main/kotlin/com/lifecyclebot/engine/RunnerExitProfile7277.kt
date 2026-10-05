@@ -27,10 +27,28 @@ object RunnerExitProfile7277 {
     private val RUNNER_LANE_KEYS = arrayOf(
         "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS", "MANIPULATED", "MANIP",
         "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER", "INSIDER_SHARK", "COPY_TRADE", "WHALE_FOLLOW",
-        // V5.0.7389 — CORE is the ensemble of the lanes above (the "pocket degen"
-        // lane); it rides and cuts like them instead of scalping.
         "CORE",
     )
+
+    // V5.0.7802 — "runner-compatible" is not the same management mandate.
+    // Tail lanes exist to retain exceptional expansion; fast lanes exist to
+    // monetize velocity/phase before it decays. Keep the broad family above
+    // for ownership/pivot compatibility, but use this narrower family for
+    // delayed profit locks and TP-floor protection.
+    private val FAT_TAIL_LANE_KEYS = arrayOf(
+        "MOONSHOT", "SHITCOIN", "MEME", "PROJECT_SNIPER", "PRESALE",
+        "INSIDER_SHARK", "COPY_TRADE", "WHALE_FOLLOW",
+    )
+
+    fun isFatTailLane(lane: String?): Boolean {
+        val s = lane?.trim()?.uppercase() ?: return false
+        return FAT_TAIL_LANE_KEYS.any { s.contains(it) }
+    }
+
+    fun isFastDecayLane(lane: String?): Boolean {
+        val s = lane?.trim()?.uppercase() ?: return false
+        return s.contains("EXPRESS") || s.contains("MANIPULATED") || s.contains("MANIP")
+    }
 
     /** Peak the position must have reached before a give-back lock may arm on a runner lane. */
     const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0
@@ -87,7 +105,21 @@ object RunnerExitProfile7277 {
      */
     const val RUNNER_LOCK_ARM_PEAK_PCT_7695 = 20.0
 
-    fun giveBackArmPct7791(lane:String?):Double=if(lane?.uppercase()?.contains("MOONSHOT")==true)MIN_PEAK_FOR_GIVEBACK_LOCK_PCT else RUNNER_LOCK_ARM_PEAK_PCT_7695
+    fun giveBackArmPct7791(lane:String?):Double {
+        val s = lane?.trim()?.uppercase().orEmpty()
+        return when {
+            s.contains("MOONSHOT") -> MIN_PEAK_FOR_GIVEBACK_LOCK_PCT
+            s.contains("SHITCOIN") || s.contains("MEME") -> 30.0
+            s.contains("PROJECT_SNIPER") || s.contains("PRESALE") -> 25.0
+            // EXPRESS/MANIPULATED are velocity/phase traders. Profit protection
+            // may arm much earlier because holding decayed velocity is not the thesis.
+            s.contains("EXPRESS") || s.contains("MANIPULATED") || s.contains("MANIP") -> 8.0
+            // Dip Hunter monetises a recovery leg, not an unlimited tail.
+            s.contains("DIP_HUNTER") -> 12.0
+            s.contains("CORE") -> 20.0
+            else -> RUNNER_LOCK_ARM_PEAK_PCT_7695
+        }
+    }
 
     fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean {
         if (!isRunnerLane(lane)) return false
@@ -129,5 +161,5 @@ object RunnerExitProfile7277 {
 
     /** Lower bound the exit tuner may apply to [lane]'s take-profit multiplier. */
     fun tpMultFloor(lane: String?, tunerMin: Double): Double =
-        if (isRunnerLane(lane)) maxOf(tunerMin, TP_MULT_FLOOR) else tunerMin
+        if (isFatTailLane(lane)) maxOf(tunerMin, TP_MULT_FLOOR) else tunerMin
 }
