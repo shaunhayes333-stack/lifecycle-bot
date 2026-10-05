@@ -45,6 +45,28 @@ object OperatorFingerprintAI {
 
     private val records = ConcurrentHashMap<String, OpRecord>()
 
+    data class CreatorEvidence7799(
+        val sampleCount: Int,
+        val wins: Int,
+        val losses: Int,
+        val winRate: Double,
+        val scoreHint: Int,
+    )
+
+    /** Read-only creator pedigree for specialist brains. Unknown stays neutral. */
+    fun creatorEvidence7799(creator: String?): CreatorEvidence7799? {
+        if (creator.isNullOrBlank()) return null
+        val r = records[creator] ?: return null
+        val n = r.wins + r.losses
+        return CreatorEvidence7799(
+            sampleCount = n,
+            wins = r.wins,
+            losses = r.losses,
+            winRate = if (n > 0) r.wins.toDouble() / n else 0.5,
+            scoreHint = r.scoreHint(),
+        )
+    }
+
     /** V5.9.362 — wiring health: number of distinct creators learned (floor 5). */
     fun getWiringHealth(): Triple<Int, Int, Boolean> {
         val n = records.size
