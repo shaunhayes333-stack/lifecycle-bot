@@ -825,26 +825,28 @@ object HoldingLogicLayer {
      */
     private fun getLayerFromMode(mode: String): String {
         return when (mode.uppercase()) {
-            // Treasury layer modes
-            "TREASURY", "CASHGEN", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
-            
-            // Fast/degen launch specialists keep their native learning family.
-            "SHITCOIN", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED",
-            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
-            
-            // Quality/recovery/generalist specialists.
-            "QUALITY", "DIP_HUNTER", "CORE", "STANDARD", "MOMENTUM_SWING",
-            "REVIVAL", "CYCLIC", "NICHE", "COPY_TRADE", "WHALE_FOLLOW",
-            "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
-            
-            // Blue Chip layer modes  
-            "BLUECHIP", "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
-            
-            // Moonshot layer modes
-            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
+            // Native specialists stay native so FluidLearning uses the correct
+            // lane clock instead of collapsing them into a generic family.
+            "TREASURY" -> "TREASURY"
+            "CASHGEN" -> "CASHGEN"
+            "SHITCOIN" -> "SHITCOIN"
+            "EXPRESS" -> "EXPRESS"
+            "PROJECT_SNIPER" -> "PROJECT_SNIPER"
+            "MANIPULATED", "MANIP" -> "MANIPULATED"
+            "DIP_HUNTER" -> "DIP_HUNTER"
+            "CYCLIC" -> "CYCLIC"
+            "QUALITY" -> "QUALITY"
+            "CORE" -> "CORE"
+            "BLUECHIP", "BLUE_CHIP" -> "BLUECHIP"
+            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR",
             "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> "MOONSHOT"
-            
-            // Default to V3 for unknown modes
+
+            // Legacy management-style aliases retain their appropriate family.
+            "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
+            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
+            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "NICHE",
+            "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
+            "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
             else -> "V3"
         }
     }
