@@ -24,12 +24,17 @@ package com.lifecyclebot.engine
  * Protective stops, catastrophe exits and the MFE floors are untouched.
  */
 object RunnerExitProfile7277 {
+    // V5.0.7801 — TRUE TAIL LANES ONLY.
+    //
+    // Runner protection is a thesis, not a synonym for "meme". EXPRESS exists
+    // to bank velocity, MANIPULATED exists to escape before distribution,
+    // DIP_HUNTER manages a recovery, and CORE is a generalist. Giving those
+    // lanes Moonshot's deferred profit locks silently overwrote their native
+    // management. PROJECT_SNIPER and SHITCOIN remain tail-capable because their
+    // design explicitly retains early winners that transition into adoption.
     private val RUNNER_LANE_KEYS = arrayOf(
-        "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS", "MANIPULATED", "MANIP",
-        "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER", "INSIDER_SHARK", "COPY_TRADE", "WHALE_FOLLOW",
-        // V5.0.7389 — CORE is the ensemble of the lanes above (the "pocket degen"
-        // lane); it rides and cuts like them instead of scalping.
-        "CORE",
+        "MOONSHOT", "SHITCOIN", "MEME",
+        "PRESALE", "PROJECT_SNIPER", "INSIDER_SHARK", "COPY_TRADE", "WHALE_FOLLOW",
     )
 
     /** Peak the position must have reached before a give-back lock may arm on a runner lane. */
