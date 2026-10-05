@@ -785,7 +785,8 @@ object MoonshotTraderAI {
                 }catch(_:Throwable){0.0}
                 com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.scoreCandidate(
                     mint=mint,symbol=symbol,mcapUsd=marketCapUsd,liquidityUsd=liquidityObserved7389,
-                    vol1hUsd=ts.tokenMap.volume1hUsd?:0.0,sourceCount=sc,buysLastWindow=buys,sellsLastWindow=sells,
+                    vol1hUsd=ts.tokenMap.volume1hUsd?:0.0,sourceCount=sc,
+                    buysLastWindow=launch7798?.buyTx60s?:buys,sellsLastWindow=launch7798?.sellTx60s?:sells,
                     rugSafetyConfirmed=safe,holderCount=holders7798,holderGrowthPct=ts.holderGrowthRate,
                     topHolderPct=top7798,smartMoneyBuys60s=smart7798,
                     distinctBuyers60s=launch7798?.distinctBuyers60s?:0,
