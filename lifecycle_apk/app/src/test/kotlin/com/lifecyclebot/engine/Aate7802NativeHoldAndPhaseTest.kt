@@ -54,6 +54,12 @@ class Aate7802NativeHoldAndPhaseTest {
         assertFalse(s.contains("LiveStrategyTuner.adjustment(mode)"))
     }
 
+    @Test fun midHoldPivotPreservesEntrySpecialistRunnerObjective() {
+        val s=src("engine/HeldPositionPivotArbiter.kt")
+        assertTrue(s.contains("PositionEntryLaneRegistry6621"))
+        assertTrue(s.contains("refusesLaneChange(objectiveLane7802, bestLane)"))
+        assertTrue(s.contains("runner_objective_kept_7802"))
+    }
     @Test fun nativeProfitFloorsCarryLaneIdentity() {
         val cases=mapOf(
             "v3/scoring/MoonshotTraderAI.kt" to "lane = \"MOONSHOT\"",
