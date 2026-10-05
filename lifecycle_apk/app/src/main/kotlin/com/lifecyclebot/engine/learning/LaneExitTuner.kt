@@ -104,7 +104,7 @@ object LaneExitTuner {
     // refused close's attribution on every retry: ~5,289 recorded closes from
     // 344 real ones, weighted toward the refused rows. A window built from
     // that is not a sample of this lane's exits.
-    private const val STATE_SCHEMA_7164 = 7169
+    private const val STATE_SCHEMA_7164 = 7801
 
     private data class Outcome(
         val pnlPct: Double,
@@ -612,7 +612,7 @@ object LaneExitTuner {
                 st.window.forEach { oc ->
                     arr.put(JSONObject().apply {
                         put("p", oc.pnlPct); put("k", oc.peakPct)
-                        put("w", oc.win); put("s", oc.stopHit)
+                        put("w", oc.win); put("u", oc.specialistUtility); put("s", oc.stopHit)
                     })
                 }
                 o.put("win", arr)
@@ -671,6 +671,7 @@ object LaneExitTuner {
                                 pnlPct = e.optDouble("p", 0.0),
                                 peakPct = e.optDouble("k", 0.0),
                                 win = e.optBoolean("w", false),
+                                specialistUtility = e.optDouble("u", 0.0),
                                 stopHit = e.optBoolean("s", false),
                             ))
                         }
