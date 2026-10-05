@@ -59,6 +59,78 @@ class TelegramScraper(private val botToken: String = "") {
         return parseTelegramHtml(html, symbol, mintAddress)
     }
 
+    data class PublicChannelStats(
+        val handle: String,
+        val capturedAtMs: Long,
+        val messageCount: Int,
+        val messages30m: Int,
+        val messages2h: Int,
+        val subscriberCount: Long,
+        val avgViews: Double,
+        val maxViews: Long,
+    )
+
+    /**
+     * V5.0.7800 — keyless public-channel community telemetry.
+     *
+     * Reads only Telegram's public web preview. No login, bot token, API id/hash,
+     * phone number or private-channel access. Intended for cached/background
+     * Moonshot evidence: cadence, audience size and view participation.
+     */
+    fun scrapePublicChannelStats(channelHandle: String, nowMs: Long = System.currentTimeMillis()): PublicChannelStats? {
+        val handle = channelHandle
+            .trim()
+            .removePrefix("https://t.me/")
+            .removePrefix("http://t.me/")
+            .removePrefix("t.me/")
+            .removePrefix("s/")
+            .substringBefore('?')
+            .substringBefore('/')
+            .trimStart('@')
+            .trim()
+        if (handle.isBlank()) return null
+        val html = get("https://t.me/s/$handle") ?: return null
+
+        val timeRegex = Regex("datetime=\\\"([^\\\"]+)\\\"")
+        val times = timeRegex.findAll(html).mapNotNull {
+            try { java.time.Instant.parse(it.groupValues[1]).toEpochMilli() } catch (_: Throwable) { null }
+        }.toList()
+
+        fun parseCompactCount(raw: String): Long {
+            val x = raw.trim().replace(",", "").uppercase()
+            val mult = when {
+                x.endsWith("K") -> 1_000.0
+                x.endsWith("M") -> 1_000_000.0
+                else -> 1.0
+            }
+            return ((x.removeSuffix("K").removeSuffix("M").toDoubleOrNull() ?: 0.0) * mult).toLong()
+        }
+
+        val viewRegex = Regex("""tgme_widget_message_views[^>]*>([0-9.,]+[KkMm]?)<""")
+        val views = viewRegex.findAll(html).map { parseCompactCount(it.groupValues[1]) }.filter { it > 0L }.toList()
+
+        val memberRegexes = listOf(
+            Regex("""tgme_header_counter[^>]*>\\s*([0-9.,]+[KkMm]?)\\s*(?:subscribers|members)""", RegexOption.IGNORE_CASE),
+            Regex("""([0-9.,]+[KkMm]?)\\s+(?:subscribers|members)""", RegexOption.IGNORE_CASE),
+        )
+        val subs = memberRegexes.firstNotNullOfOrNull { rx ->
+            rx.find(html)?.groupValues?.getOrNull(1)?.let(::parseCompactCount)
+        } ?: 0L
+
+        val recent30 = times.count { nowMs - it in 0L..30L * 60_000L }
+        val recent2h = times.count { nowMs - it in 0L..2L * 60L * 60_000L }
+        return PublicChannelStats(
+            handle = handle,
+            capturedAtMs = nowMs,
+            messageCount = times.size,
+            messages30m = recent30,
+            messages2h = recent2h,
+            subscriberCount = subs,
+            avgViews = if (views.isNotEmpty()) views.average() else 0.0,
+            maxViews = views.maxOrNull() ?: 0L,
+        )
+    }
+
     /**
      * Scrape all default Solana channels for this token.
      */
