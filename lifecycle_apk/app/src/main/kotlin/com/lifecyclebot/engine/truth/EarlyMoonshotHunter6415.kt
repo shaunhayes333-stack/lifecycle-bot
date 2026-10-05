@@ -94,6 +94,9 @@ object EarlyMoonshotHunter6415 {
         holderGrowthPct: Double = 0.0,
         topHolderPct: Double = -1.0,
         smartMoneyBuys60s: Int = 0,
+        launchAgeMs: Long = -1L,
+        createMultiple: Double = -1.0,
+        devBuyTx60s: Int = 0,
         distinctBuyers60s: Int = 0,
         largestBuyerSharePct60s: Double = -1.0,
         top3BuyerSharePct60s: Double = -1.0,
@@ -163,6 +166,17 @@ object EarlyMoonshotHunter6415 {
             smartMoneyBuys60s >= 3 -> { fired += Signal("SMART_MONEY_CONVERGENCE", 16.0); signals.add("SMART_MONEY_CONVERGENCE") }
             smartMoneyBuys60s >= 2 -> { fired += Signal("SMART_MONEY_CLUSTER", 11.0); signals.add("SMART_MONEY_CLUSTER") }
             smartMoneyBuys60s == 1 -> { fired += Signal("SMART_MONEY_TOUCH", 4.0); signals.add("SMART_MONEY_TOUCH") }
+        }
+        // Smart-money timing matters: early participation before price fully expands
+        // is more informative than the same wallets arriving after a vertical move.
+        if (smartMoneyBuys60s >= 2 && launchAgeMs in 0L..120_000L &&
+            (createMultiple < 0.0 || createMultiple < 1.8)) {
+            fired += Signal("SMART_MONEY_EARLY", 10.0); signals.add("SMART_MONEY_EARLY")
+        }
+        // Creator commitment is a small positive only when paired with clean
+        // distribution and no dev sell. It never cancels creator-rug evidence.
+        if (devBuyTx60s > 0 && !devSelling && topHolderPct < 35.0) {
+            fired += Signal("CREATOR_ALIGNED_EARLY_BUY", 5.0); signals.add("CREATOR_ALIGNED_EARLY_BUY")
         }
 
         when {
@@ -250,6 +264,8 @@ object EarlyMoonshotHunter6415 {
         if (creatorSampleCount >= 5 && creatorWinRate < 0.20) negative += Signal("CREATOR_PEDIGREE_POOR", -18.0)
         if (valuationGrowthPctPerMin >= 3.0 && evidenceToValuationRatio < 0.75)
             negative += Signal("VALUATION_OUTRUNNING_EVIDENCE", -14.0)
+        if (createMultiple >= 3.0 && launchAgeMs in 0L..180_000L)
+            negative += Signal("EARLY_PRICE_ALREADY_EXPANDED", -10.0)
 
         // Apply learned weights.
         var composite = 0.0
