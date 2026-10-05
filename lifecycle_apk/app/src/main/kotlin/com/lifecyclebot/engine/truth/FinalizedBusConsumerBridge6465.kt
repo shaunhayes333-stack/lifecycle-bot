@@ -342,7 +342,7 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val band = env.scoreBand.ifBlank { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore) }
         com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(
-            env.lane, band, env.entryTactic, env.realizedReturnPct,
+            env.lane, band, env.entryTactic, env.realizedReturnPct, env.holdingTimeMs,
         )
         true
     } catch (t: Throwable) { threw7154(t) }
