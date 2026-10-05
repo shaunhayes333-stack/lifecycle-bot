@@ -97,18 +97,34 @@ object LaneEntryContract6342 {
      * 39 buy fails) and the next cycle elected the sniper again, so the token
      * never traded. One definition, read by both.
      */
-    const val SNIPER_LAUNCH_MAX_MCAP_USD_7393 = 150_000.0
-    const val SNIPER_LAUNCH_MAX_AGE_SECS_7393 = 2L * 3600L
+    // V5.0.7803 — one Project Sniper identity contract shared by election and
+    // its native trader. The old 2-hour/$150k predicate elected assets that the
+    // 3-minute PRE_IGNITION trader would deterministically refuse.
+    private const val SNIPER_LAUNCH_MIN_MCAP_USD_7803 = 3_000.0
+    internal const val SNIPER_LAUNCH_MAX_MCAP_USD_7393 = 500_000.0
+    private const val SNIPER_LAUNCH_MIN_AGE_SECS_7803 = 15L
+    internal const val SNIPER_LAUNCH_MAX_AGE_SECS_7393 = 180L
+    private const val SNIPER_LAUNCH_MIN_LIQ_USD_7803 = 2_000.0
+    private const val SNIPER_LAUNCH_MAX_LIQ_USD_7803 = 250_000.0
 
     fun isSniperLaunch7393(ts: TokenState): Boolean {
         if (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) return false
-        if (ts.lastMcap > SNIPER_LAUNCH_MAX_MCAP_USD_7393) return false
-        val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts)?.div(1000L) } catch (_: Throwable) { null }
+        if (ts.lastMcap > 0.0 && ts.lastMcap !in SNIPER_LAUNCH_MIN_MCAP_USD_7803..SNIPER_LAUNCH_MAX_MCAP_USD_7393) return false
+        if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd !in SNIPER_LAUNCH_MIN_LIQ_USD_7803..SNIPER_LAUNCH_MAX_LIQ_USD_7803) return false
+        val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts)?.div(1000L) } catch (_: Throwable) { null }
         if (age == null) {
             try { PipelineHealthCollector.labelInc("SNIPER_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
             return false
         }
-        return age <= SNIPER_LAUNCH_MAX_AGE_SECS_7393
+        if (age !in SNIPER_LAUNCH_MIN_AGE_SECS_7803..SNIPER_LAUNCH_MAX_AGE_SECS_7393) return false
+
+        val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+            ?: return false
+        if (!launch.birthResolved ||
+            launch.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION
+        ) return false
+        if (launch.distinctBuyers60s < 3 || !launch.accelerationRising || launch.buySharePct < 60.0) return false
+        return true
     }
 
     /** Liquidity each lane's BotService proof (qualityLaneProofOk) requires. */

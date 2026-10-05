@@ -245,6 +245,11 @@ object TradeAuthorizer {
             // causal backlog stayed PENDING until the report builder deleted it.
             try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613) } catch (_: Throwable) {}
             try {
+                com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markLost(
+                    requestedBook.name, mint, candidateVersion7624, reason,
+                )
+            } catch (_: Throwable) {}
+            try {
                 LaneExecutionCoordinator.releaseIfPrimary(
                     mint = mint,
                     lane = receipt?.primaryLane ?: requestedBook.name,
@@ -286,6 +291,24 @@ object TradeAuthorizer {
 
         try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "BUY_INTENT", causalAttempt6613) } catch (_: Throwable) {}
 
+        // V5.0.7803 — this is the first cross-lane arbitration boundary.
+        // Reaching TradeAuthorizer means this specialist has independently
+        // progressed from resident WATCHING/QUALIFIED to an executable proposal.
+        // Publish READY with the lane's actual score/confidence before asking
+        // LaneExecutionCoordinator to choose among simultaneous READY proposals.
+        try {
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markReady(
+                lane = requestedBook.name,
+                mint = mint,
+                symbol = symbol,
+                candidateVersion = candidateVersion7624,
+                score = score,
+                confidence = safeConfidence,
+                reason = "TRADE_AUTHORIZER_READY_7803",
+            )
+            PipelineHealthCollector.labelInc("SPECIALIST_READY_PROPOSAL_7803_" + requestedBook.name)
+        } catch (_: Throwable) {}
+
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
         // 3086 showed EXEC_OPEN_REQUEST=538 but EXEC_OPEN_BLOCKED_DUPLICATE_KEY=3423:
         // secondary lanes were reaching ExecutableOpenGate just to be rejected
@@ -301,6 +324,11 @@ object TradeAuthorizer {
         if (laneElection.allowed) try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "OWNER_SELECTED", causalAttempt6613) } catch (_: Throwable) {}
         if (!laneElection.allowed) {
             try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "SUPERSEDED", causalAttempt6613) } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markLost(
+                    requestedBook.name, mint, candidateVersion7624, "READY_ARBITRATION_LOST_7803",
+                )
+            } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
                     "LANE_PREAUTH_SUPPRESSED",

@@ -47,68 +47,87 @@ object TradeLessonRecorder {
     // RECORD — Full causal chain capture
     // ═══════════════════════════════════════════════════════════════════════
 
+    private fun paperEvidence7803(lesson: TradeLesson): Boolean =
+        lesson.strategy.startsWith("PAPER::") || lesson.executionRoute.uppercase().contains("PAPER")
+
+    private fun lessonLaneKey7803(lesson: TradeLesson, raw: String): String =
+        if (paperEvidence7803(lesson) && !raw.startsWith("PAPER::")) "PAPER::$raw" else raw
+
+    private fun normalizeLessonMode7803(lesson: TradeLesson): TradeLesson {
+        if (!paperEvidence7803(lesson)) return lesson
+        val strategy = if (lesson.strategy.startsWith("PAPER::")) lesson.strategy else "PAPER::" + lesson.strategy
+        val route = if (lesson.executionRoute.startsWith("PAPER::")) lesson.executionRoute else "PAPER::" + lesson.executionRoute
+        return if (strategy == lesson.strategy && route == lesson.executionRoute) lesson
+        else lesson.copy(strategy = strategy, executionRoute = route)
+    }
+
     fun record(lesson: TradeLesson) {
+        // V5.0.7803 audit — PAPER lessons are real learning evidence, but they
+        // are not LIVE proof. Namespace their strategy identity before any
+        // trust write and keep them out of mode-agnostic live-risk learners.
+        val isPaperEvidence7803 = paperEvidence7803(lesson)
+        val routedLesson7803 = normalizeLessonMode7803(lesson)
         synchronized(allLessons) {
-            allLessons.add(lesson)
+            allLessons.add(routedLesson7803)
             if (allLessons.size > MAX_LESSONS_PER_LANE * 6) allLessons.removeAt(0)
         }
 
         // Route to strategy lane
-        addToLane(strategyLane, lesson.strategy, lesson)
+        addToLane(strategyLane, routedLesson7803.strategy, routedLesson7803)
 
         // Route to regime lane
-        addToLane(regimeLane, lesson.entryRegime.name, lesson)
+        addToLane(regimeLane, lessonLaneKey7803(routedLesson7803, routedLesson7803.entryRegime.name), routedLesson7803)
 
         // Route to execution lane
-        addToLane(executionLane, lesson.executionRoute, lesson)
+        addToLane(executionLane, routedLesson7803.executionRoute, routedLesson7803)
 
         // Route to leverage lane
         val levKey = when {
-            lesson.leverageUsed <= 1.0 -> "SPOT"
-            lesson.leverageUsed <= 2.0 -> "LOW_LEV"
-            lesson.leverageUsed <= 5.0 -> "MED_LEV"
+            routedLesson7803.leverageUsed <= 1.0 -> "SPOT"
+            routedLesson7803.leverageUsed <= 2.0 -> "LOW_LEV"
+            routedLesson7803.leverageUsed <= 5.0 -> "MED_LEV"
             else -> "HIGH_LEV"
         }
-        addToLane(leverageLane, levKey, lesson)
+        addToLane(leverageLane, lessonLaneKey7803(routedLesson7803, levKey), routedLesson7803)
 
         // Route to narrative lane
-        val narrativeTheme = NarrativeFlowAI.getNarrativeForSymbol(lesson.symbol)?.theme
+        val narrativeTheme = NarrativeFlowAI.getNarrativeForSymbol(routedLesson7803.symbol)?.theme
         if (narrativeTheme != null) {
-            addToLane(narrativeLane, narrativeTheme, lesson)
+            addToLane(narrativeLane, lessonLaneKey7803(routedLesson7803, narrativeTheme), routedLesson7803)
         }
 
         // Route to rotation lane
-        if (lesson.leadSource != null) {
-            addToLane(rotationLane, lesson.leadSource, lesson)
+        if (routedLesson7803.leadSource != null) {
+            addToLane(rotationLane, lessonLaneKey7803(routedLesson7803, routedLesson7803.leadSource), routedLesson7803)
         }
 
         // Feed to StrategyTrustAI
-        StrategyTrustAI.recordTrade(lesson)
+        StrategyTrustAI.recordTrade(routedLesson7803)
 
         // Feed to QuantMind V2
-        try { com.lifecyclebot.engine.quant.QuantMindV2.recordTrade(lesson) } catch (_: Exception) {}
+        if (!isPaperEvidence7803) try { com.lifecyclebot.engine.quant.QuantMindV2.recordTrade(routedLesson7803) } catch (_: Exception) {}
 
         // Feed leveraged trades to LeverageSurvivalAI
-        if (lesson.leverageUsed > 1.0) {
+        if (!isPaperEvidence7803 && routedLesson7803.leverageUsed > 1.0) {
             LeverageSurvivalAI.recordLeveragedTrade(
-                leverage = lesson.leverageUsed,
-                outcomePct = lesson.outcomePct,
-                holdSec = lesson.holdSec,
-                wasLiquidated = lesson.exitReason == "LIQUIDATED",
-                maePct = lesson.maePct
+                leverage = routedLesson7803.leverageUsed,
+                outcomePct = routedLesson7803.outcomePct,
+                holdSec = routedLesson7803.holdSec,
+                wasLiquidated = routedLesson7803.exitReason == "LIQUIDATED",
+                maePct = routedLesson7803.maePct
             )
         }
 
         // V5.7.8: Persist to Turso (fire and forget)
         tursoClient?.let { client ->
             GlobalScope.launch(Dispatchers.IO) {
-                try { client.saveTradeLesson(lesson) } catch (_: Exception) {}
+                try { client.saveTradeLesson(routedLesson7803) } catch (_: Exception) {}
             }
         }
 
-        ErrorLogger.debug(TAG, "Recorded lesson: ${lesson.strategy}/${lesson.symbol} " +
-            "outcome=${String.format("%.2f", lesson.outcomePct)}% " +
-            "regime=${lesson.entryRegime} exit=${lesson.exitReason}")
+        ErrorLogger.debug(TAG, "Recorded lesson: ${routedLesson7803.strategy}/${routedLesson7803.symbol} " +
+            "outcome=${String.format("%.2f", routedLesson7803.outcomePct)}% " +
+            "regime=${routedLesson7803.entryRegime} exit=${routedLesson7803.exitReason}")
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -132,7 +151,7 @@ object TradeLessonRecorder {
             symbol = symbol,
             entryRegime = snapshot?.globalRiskMode ?: GlobalRiskMode.RISK_ON,
             entrySession = snapshot?.sessionContext ?: SessionContext.OFF_HOURS,
-            trustScore = StrategyTrustAI.getTrustScore(strategy),
+            trustScore = StrategyTrustAI.getTrustScore(if (executionRoute.uppercase().contains("PAPER")) "PAPER::$strategy" else strategy),
             fragilityScore = LiquidityFragilityAI.getFragilityScore(symbol),
             narrativeHeat = NarrativeFlowAI.getNarrativeHeat(symbol),
             portfolioHeat = PortfolioHeatAI.getPortfolioHeat(),
@@ -339,12 +358,13 @@ object TradeLessonRecorder {
         try {
             // Load trade lessons
             val lessons = client.loadRecentTradeLessons(limit = 500)
-            lessons.forEach { lesson ->
+            lessons.forEach { rawLesson ->
+                val lesson = normalizeLessonMode7803(rawLesson)
                 synchronized(allLessons) { allLessons.add(lesson) }
                 addToLane(strategyLane, lesson.strategy, lesson)
-                addToLane(regimeLane, lesson.entryRegime.name, lesson)
-                addToLane(executionLane, lesson.executionRoute, lesson)
-                // V5.9.8: Also feed into StrategyTrustAI so trust scores update from historical data
+                addToLane(regimeLane, lessonLaneKey7803(lesson, lesson.entryRegime.name), lesson)
+                addToLane(executionLane, lessonLaneKey7803(lesson, lesson.executionRoute), lesson)
+                // V5.0.7803 — restored PAPER evidence stays in PAPER trust namespace.
                 try { StrategyTrustAI.recordTrade(lesson) } catch (_: Exception) {}
             }
             ErrorLogger.info(TAG, "Loaded ${lessons.size} trade lessons from Turso")
@@ -476,23 +496,24 @@ object TradeLessonRecorder {
                         timestamp = o.optLong("timestamp", System.currentTimeMillis()),
                     )
                 } catch (_: Throwable) { continue }
+                val normalizedLesson7803 = normalizeLessonMode7803(lesson)
 
                 synchronized(allLessons) {
-                    allLessons.add(lesson)
+                    allLessons.add(normalizedLesson7803)
                     if (allLessons.size > MAX_LESSONS_PER_LANE * 6) allLessons.removeAt(0)
                 }
                 // Rebuild per-lane indexes
-                addToLane(strategyLane, lesson.strategy, lesson)
-                addToLane(regimeLane, lesson.entryRegime.name, lesson)
-                addToLane(executionLane, lesson.executionRoute, lesson)
+                addToLane(strategyLane, normalizedLesson7803.strategy, normalizedLesson7803)
+                addToLane(regimeLane, lessonLaneKey7803(normalizedLesson7803, normalizedLesson7803.entryRegime.name), normalizedLesson7803)
+                addToLane(executionLane, lessonLaneKey7803(normalizedLesson7803, normalizedLesson7803.executionRoute), normalizedLesson7803)
                 val levKey = when {
-                    lesson.leverageUsed <= 1.0 -> "SPOT"
-                    lesson.leverageUsed <= 2.0 -> "LOW_LEV"
-                    lesson.leverageUsed <= 5.0 -> "MED_LEV"
+                    normalizedLesson7803.leverageUsed <= 1.0 -> "SPOT"
+                    normalizedLesson7803.leverageUsed <= 2.0 -> "LOW_LEV"
+                    normalizedLesson7803.leverageUsed <= 5.0 -> "MED_LEV"
                     else -> "HIGH_LEV"
                 }
-                addToLane(leverageLane, levKey, lesson)
-                if (lesson.leadSource != null) addToLane(rotationLane, lesson.leadSource, lesson)
+                addToLane(leverageLane, lessonLaneKey7803(normalizedLesson7803, levKey), normalizedLesson7803)
+                if (normalizedLesson7803.leadSource != null) addToLane(rotationLane, lessonLaneKey7803(normalizedLesson7803, normalizedLesson7803.leadSource), normalizedLesson7803)
                 restored++
             }
             ErrorLogger.info(TAG, "importState: restored $restored lessons from blob")

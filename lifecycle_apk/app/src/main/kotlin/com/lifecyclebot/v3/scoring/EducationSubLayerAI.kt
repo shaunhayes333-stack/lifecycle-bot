@@ -969,8 +969,13 @@ object EducationSubLayerAI {
                 entryPhase = outcome.entryPhase,
                 stableTradeKey = outcomeDedupKey(outcome),
             )
-            AdaptiveLearningEngine.learnFromTrade(features)
-            markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            val adaptiveEnvironment7803 = when {
+                outcome.executionMode.contains("PAPER", ignoreCase = true) -> com.lifecyclebot.engine.TradeEnvironment.PAPER
+                outcome.executionMode.contains("SHADOW", ignoreCase = true) || outcome.isShadowTrade -> com.lifecyclebot.engine.TradeEnvironment.SHADOW
+                else -> com.lifecyclebot.engine.TradeEnvironment.LIVE
+            }
+            AdaptiveLearningEngine.learnFromTrade(features, adaptiveEnvironment7803)
+            markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct, isShadowTrade = adaptiveEnvironment7803 != com.lifecyclebot.engine.TradeEnvironment.LIVE, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("AdaptiveLearning: ${e.message}") }
         

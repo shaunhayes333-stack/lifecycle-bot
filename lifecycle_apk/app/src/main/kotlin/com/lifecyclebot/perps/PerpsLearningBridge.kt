@@ -1476,7 +1476,19 @@ object PerpsLearningBridge {
         isWin: Boolean,
         pnlPct: Double,
         contributingLayers: List<String> = emptyList(),
+        isPaper: Boolean,
     ) {
+        // V5.0.7803 audit — PAPER is evidence for PAPER, never authority for
+        // LIVE/ALT/PERPS trust. learnFromAssetTrade() mutates ALT trust and then
+        // bridges 30% of that delta into PERPS trust, so calling it for a paper
+        // close silently lets simulation outcomes shape live leveraged execution.
+        if (isPaper) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ALT_PAPER_BRIDGE_SHADOW_ONLY_7803")
+                ErrorLogger.debug(TAG, "🧪 ALT paper outcome shadow-only: $symbol pnl=${"%.1f".format(pnlPct)}%")
+            } catch (_: Throwable) {}
+            return
+        }
         altTrades.incrementAndGet()
         if (isWin) altWins.incrementAndGet()
         learnFromAssetTrade(

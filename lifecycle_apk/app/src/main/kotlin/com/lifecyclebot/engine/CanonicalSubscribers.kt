@@ -265,6 +265,7 @@ object CanonicalSubscribers {
                         isWin = isWin,
                         pnlPct = outcome.realizedPnlPct ?: 0.0,
                         symbol = outcome.symbol,
+                        environment = outcome.environment,
                     )
                 } catch (t: Throwable) {
                     ErrorLogger.debug(TAG, "LayerVoteStore closeout threw: ${t.message?.take(80)}")

@@ -734,7 +734,7 @@ object ShitCoinTraderAI {
                     leverageUsed = 1.0, executionConfidence = 0.6,
                     leadSource = null, expectedDelaySec = null,
                     expectedFillPrice = pos.entryPrice,
-                    executionRoute = "JUPITER_V6",
+                    executionRoute = if (pos.isPaper) "PAPER" else "JUPITER_V6",
                     captureTime = pos.entryTime
                 )
                 com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
@@ -791,7 +791,7 @@ object ShitCoinTraderAI {
                     label = label,
                     stableTradeKey = "${mint}:${pos.entryTime}",
                 )
-                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features)
+                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features, if (pos.isPaper) com.lifecyclebot.engine.TradeEnvironment.PAPER else com.lifecyclebot.engine.TradeEnvironment.LIVE)
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Lesson/Trust wiring error: ${e.message}")
             }

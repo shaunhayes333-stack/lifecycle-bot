@@ -1556,6 +1556,7 @@ object MoonshotTraderAI {
                     mint = pos.mint,
                     expectedFillPrice = pos.entryPrice,
                     captureTime = pos.entryTime,
+                    executionRoute = if (pos.isPaperMode) "PAPER" else "JUPITER_V6",
                 )
                 com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
                     context = lessonCtx,
@@ -1611,7 +1612,7 @@ object MoonshotTraderAI {
                     label = label,
                     stableTradeKey = "${mint}:${pos.entryTime}",
                 )
-                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features)
+                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features, if (pos.isPaperMode) com.lifecyclebot.engine.TradeEnvironment.PAPER else com.lifecyclebot.engine.TradeEnvironment.LIVE)
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Lesson/Trust wiring error: ${e.message}")
             }

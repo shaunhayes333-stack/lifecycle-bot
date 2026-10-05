@@ -203,6 +203,25 @@ object LiveCanonicalRecovery6686 {
      * HostWalletTokenTracker.recordSignedBuyBasis7708, is a receipt: cost,
      * entry price, signature and lane. It outranks an observed-mark adoption.
      */
+    /**
+     * V5.0.7803 — if this recovery is the delayed wallet proof for a live
+     * CryptoAlt dispatch, close the SAME immutable entry intent. The authority
+     * itself requires exactly one matching dispatched pending intent.
+     */
+    private fun confirmRecoveredCryptoIntent7803(
+        mint: String,
+        positionId: String,
+        symbol: String?,
+    ) {
+        try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.confirmRecoveredCryptoOpen7803(
+                assetId = mint,
+                symbol = symbol.orEmpty(),
+                positionId = positionId,
+            )
+        } catch (_: Throwable) {}
+    }
+
     private fun trackerSignedBuyBasis7708(mint: String): Basis? {
         val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null } ?: return null
         if (!isBotSignedRow7708(p)) return null
@@ -602,6 +621,10 @@ object LiveCanonicalRecovery6686 {
                     existingLive.add(mint)
                     repaired++
                     rehydrateRecoveredStub7370(status, mint, amount, basis)
+                    confirmRecoveredCryptoIntent7803(
+                        mint, quarantinedSameMint7454.positionId,
+                        status.tokens[mint]?.symbol ?: HostWalletTokenTracker.getEntry(mint)?.symbol,
+                    )
                     try {
                         PipelineHealthCollector.labelInc("LIVE_QUARANTINED_POSITION_RECOVERED_7454")
                         ForensicLogger.lifecycle(
@@ -685,6 +708,10 @@ object LiveCanonicalRecovery6686 {
                 if (promoted7133 == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                     existingLive.add(mint)
                     repaired++
+                    confirmRecoveredCryptoIntent7803(
+                        mint, pendingSameMint7133.positionId,
+                        status.tokens[mint]?.symbol ?: HostWalletTokenTracker.getEntry(mint)?.symbol,
+                    )
                     try {
                         ForensicLogger.lifecycle(
                             "LIVE_PENDING_ENTRY_PROMOTED_FROM_WALLET_7133",
@@ -736,6 +763,10 @@ object LiveCanonicalRecovery6686 {
                 existingLive.add(mint)
                 repaired++
                 rehydrateRecoveredStub7370(status, mint, amount, basis)
+                confirmRecoveredCryptoIntent7803(
+                    mint, positionId,
+                    status.tokens[mint]?.symbol ?: HostWalletTokenTracker.getEntry(mint)?.symbol,
+                )
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_WALLET_CANONICAL_POSITION_RECOVERED_6686",

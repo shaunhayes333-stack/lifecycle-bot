@@ -1147,11 +1147,10 @@ object CyclicTradeEngine {
                 hardNoReasons = best.safety.hardBlockReasons,
             )
         } catch (_: Throwable) {}
-        // V5.9.1227 — cyclic owns its own execution book/lane. Borrowing
-        // TREASURY made the ring inherit treasury cooldown/fatality baggage and
-        // UI showed FINALITY_EXEC_OPEN_BLOCKED_COOLDOWN_* instead of behaving
-        // like an independent compounding lane.
-        try { LaneExecutionCoordinator.canRequestExecution(best.mint, "CYCLIC") } catch (_: Throwable) {}
+        // V5.0.7803 — CYCLIC no longer touches lane ownership here.
+        // TradeAuthorizer is the single execution-election boundary for every
+        // specialist. A pre-authorizer canRequestExecution() call could seal
+        // CYCLIC before the resident READY set was arbitrated.
         // V5.9.1359 — ENTRY-PRICE SANITY. A near-zero or stale lastPrice at entry
         // makes every downstream pnl calc garbage (the fake -98% / +1.3M%
         // artifacts). Refuse to open on a bad/stale entry anchor — skip the

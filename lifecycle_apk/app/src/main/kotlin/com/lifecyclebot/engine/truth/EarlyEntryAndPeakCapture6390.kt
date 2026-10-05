@@ -382,6 +382,18 @@ object PeakAdaptiveTrail6390 {
     }
 
     /**
+     * V5.0.7803 — diagnostic tracker reset for an intentional canonical peak
+     * rebase. This does NOT become exit authority; it merely prevents a stale
+     * diagnostic peak from reporting divergence after OpenPnlSanity has proven
+     * the old basis invalid.
+     */
+    internal fun onPositionRebased7803(positionId: String, canonicalPeakGainPct: Double = 0.0) {
+        if (positionId.isBlank()) return
+        if (!canonicalPeakGainPct.isFinite() || canonicalPeakGainPct <= 0.0) peaks.remove(positionId)
+        else peaks[positionId] = canonicalPeakGainPct
+    }
+
+    /**
      * Returns a log-ready string when the independently-tracked peak disagrees
      * with the position's own by more than [tolerancePct] points, or null when
      * they agree. Divergence means one of the two reset and the other did not —

@@ -581,7 +581,14 @@ object AdaptiveLearningEngine {
     // close can never feed ALE more than once.
     private val aleSeenKeys = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-    fun learnFromTrade(features: TradeFeatures) {
+    fun learnFromTrade(features: TradeFeatures, environment: TradeEnvironment = TradeEnvironment.LIVE) {
+        // V5.0.7803 audit — this object owns one global live-driving weight/pattern
+        // state. PAPER/SHADOW evidence must learn in their isolated systems and may
+        // cross to live only through an explicit paper→live intelligence bridge.
+        if (environment != TradeEnvironment.LIVE) {
+            try { PipelineHealthCollector.labelInc("ADAPTIVE_${environment.name}_SHADOW_ONLY_7803") } catch (_: Throwable) {}
+            return
+        }
         // V5.9.723 — skip DEAD_TOKEN_NO_PRICE_EXIT. These are unpriced pump.fun
         // bonding-curve tokens that never produced a live tick; their pnl=0 / peak=0
         // is a data artifact, not a market signal. Feeding them into ALE would
@@ -1543,12 +1550,12 @@ object AdaptiveLearningEngine {
                 entryPhase = cand.entryPattern,
                 stableTradeKey = outcome.tradeId,
             )
-            learnFromTrade(features)
+            learnFromTrade(features, outcome.environment)
             // V5.9.810 — operator triage: tradeCount is now bus-driven so
             // it matches the journal (settledWins + settledLosses) 1:1
             // regardless of which path (direct Executor vs canonical) the
             // trade arrived on. Eliminates the +404 over-count.
-            tradeCount += 1
+            if (outcome.environment == TradeEnvironment.LIVE) tradeCount += 1
         } catch (e: Throwable) {
             ErrorLogger.debug("AdaptiveLearning", "onCanonicalOutcome error: ${e.message?.take(80)}")
         }

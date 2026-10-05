@@ -47,7 +47,10 @@ object LaneExecutionCoordinator {
     // V5.0.7621 — current native-qualified specialists for an exact candidate
     // generation. Source/scanner affinity is a hint; this is the actual desk
     // qualification set produced by ToolkitSignalSheet for this candidate.
-    private data class QualifiedContest7621(val lanes: Set<String>, val stampedAtMs: Long)
+    // V5.0.7803 — preserve each specialist's candidate-specific conviction.
+    // The old Set<String> discarded the very signal the specialist produced and
+    // then let a static priority table dominate ownership.
+    private data class QualifiedContest7621(val scores: Map<String, Double>, val stampedAtMs: Long)
     private val qualifiedContests7621 = ConcurrentHashMap<String, QualifiedContest7621>()
 
     // V5.9.1135 — lane election must be priority-based, not first-caller-wins.
@@ -146,25 +149,25 @@ object LaneExecutionCoordinator {
     private fun minRecentWinsAcross(lanes: Collection<String>): Int =
         lanes.minOfOrNull { recentWins(it) } ?: 0
 
-    private fun claimPriority(mint: String, lane: String, qualified: Collection<String>): Int = try {
-        val floor = minRecentWinsAcross(qualified)
-        val lead = (recentWins(lane) - floor - FAIRNESS_LEAD_GRACE).coerceAtLeast(0)
-        effectivePriority(mint, lane) - (lead * FAIRNESS_PER_LEAD).toInt()
-    } catch (_: Throwable) { effectivePriority(mint, lane) }
-
-    private fun pickFreshPrimary(mint: String, qualified: List<String>): String? {
-        if (qualified.isEmpty()) return null
-        return qualified.maxByOrNull { claimPriority(mint, it, qualified) }
-    }
-
     private fun qualifiedContestKey7621(mint: String, candidateVersion: Long): String =
         "${mint.trim()}::$candidateVersion"
 
-    fun registerQualifiedContest7621(mint: String, candidateVersion: Long, lanes: Collection<String>) {
+    /**
+     * V5.0.7803 — publish specialist conviction, not just lane membership.
+     * Values are candidate-local and do not become execution authority until
+     * TradeAuthorizer publishes READY for that same lane/mint/version.
+     */
+    internal fun registerQualifiedContest7803(
+        mint: String,
+        candidateVersion: Long,
+        laneScores: Map<String, Double>,
+    ) {
         if (mint.isBlank() || candidateVersion <= 0L) return
-        val clean = lanes.map { it.trim().uppercase() }
-            .filter { laneCanOwnExecution6910(it) }
-            .toSet()
+        val clean = laneScores.entries.mapNotNull { (laneRaw, scoreRaw) ->
+            val lane = laneRaw.trim().uppercase()
+            if (!laneCanOwnExecution6910(lane)) null
+            else lane to scoreRaw.takeIf { it.isFinite() }?.coerceIn(0.0, 100.0).orDefault7803(50.0)
+        }.toMap()
         if (clean.isEmpty()) {
             qualifiedContests7621.remove(qualifiedContestKey7621(mint, candidateVersion))
             return
@@ -173,32 +176,99 @@ object LaneExecutionCoordinator {
             QualifiedContest7621(clean, System.currentTimeMillis())
         try {
             PipelineHealthCollector.labelInc("SPECIALIST_QUALIFIED_CONTEST_PUBLISHED_7621")
-            clean.forEach { PipelineHealthCollector.labelInc("SPECIALIST_QUALIFIED_CONTEST_7621_$it") }
+            PipelineHealthCollector.labelInc("SPECIALIST_CONVICTION_CONTEST_PUBLISHED_7803")
+            clean.keys.forEach { PipelineHealthCollector.labelInc("SPECIALIST_QUALIFIED_CONTEST_7621_$it") }
         } catch (_: Throwable) {}
     }
 
-    private fun currentQualifiedContest7621(mint: String, candidateVersion: Long): Set<String> {
+    private fun Double?.orDefault7803(default: Double): Double = this ?: default
+
+    /** Legacy callers retain neutral conviction; Toolkit uses the 7803 API. */
+    internal fun registerQualifiedContest7621(mint: String, candidateVersion: Long, lanes: Collection<String>) =
+        registerQualifiedContest7803(mint, candidateVersion, lanes.associate { it to 50.0 })
+
+    private fun currentQualifiedScores7803(mint: String, candidateVersion: Long): Map<String, Double> {
         val key = qualifiedContestKey7621(mint, candidateVersion)
-        val q = qualifiedContests7621[key] ?: return emptySet()
+        val q = qualifiedContests7621[key] ?: return emptyMap()
         if (System.currentTimeMillis() - q.stampedAtMs > TTL_MS) {
             qualifiedContests7621.remove(key, q)
-            return emptySet()
+            return emptyMap()
         }
-        return q.lanes
+        return q.scores
     }
 
+    private fun currentQualifiedContest7621(mint: String, candidateVersion: Long): Set<String> =
+        currentQualifiedScores7803(mint, candidateVersion).keys
+
+    private fun readyProposalScores7803(mint: String, candidateVersion: Long): Map<String, Double> = try {
+        com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.readyFor(mint, candidateVersion)
+            .mapValues { it.value.conviction.coerceIn(0.0, 100.0) }
+    } catch (_: Throwable) { emptyMap() }
+
     private fun qualifiedLanesFor(mint: String, candidateVersion: Long, vararg contesting: String): List<String> {
-        // Native qualification is stronger than scanner/source affinity. When
-        // present for this exact candidate generation, contest only those desks.
+        // V5.0.7803 — once any specialist is actually READY, only READY desks
+        // arbitrate. WATCHING/QUALIFIED desks remain resident and keep observing;
+        // they do not steal an executable proposal merely through static priority.
+        val ready7803 = readyProposalScores7803(mint, candidateVersion)
+        if (ready7803.isNotEmpty()) return ready7803.keys.toList()
+
         val currentQualified7621 = currentQualifiedContest7621(mint, candidateVersion)
         if (currentQualified7621.isNotEmpty()) return currentQualified7621.toList()
 
-        // Bootstrap/fallback before Toolkit has published the candidate-specific
-        // set: retain 7620's affinity-based behavior.
+        // Bootstrap only: before a candidate-specific specialist opinion exists,
+        // affinity may keep the old path alive, but it is never stronger than a
+        // resident qualified/ready specialist set.
         val registryAffinity = try { GlobalTradeRegistry.getLaneAffinity(mint) } catch (_: Throwable) { emptySet() }
         val all = ((affinities[mint] ?: emptySet()) + registryAffinity + contesting.map { it.uppercase() })
             .filter { it.isNotBlank() }
         return if (all.isEmpty()) contesting.map { it.uppercase() } else all.toList()
+    }
+
+    /**
+     * V5.0.7803 — candidate-specific election score.
+     *
+     * Primary term: this lane's own current READY conviction, otherwise its
+     * current QUALIFIED conviction. Realized expectancy, affinity and fairness
+     * are bounded modifiers. The historical static priority table is a tiny
+     * deterministic tie-break only; it can no longer overpower strategy fit.
+     */
+    private fun electionScore7803(
+        mint: String,
+        candidateVersion: Long,
+        lane: String,
+        qualified: Collection<String>,
+        ready: Map<String, Double>,
+        qualifiedScores: Map<String, Double>,
+    ): Double {
+        val laneUpper = lane.uppercase()
+        val base = ready[laneUpper] ?: qualifiedScores[laneUpper] ?: 50.0
+        val expectancy = expectancyPriorityDelta6841(laneUpper).coerceIn(-8, 8).toDouble()
+        val registryAffinity = try { GlobalTradeRegistry.getLaneAffinity(mint) } catch (_: Throwable) { emptySet() }
+        val affinity = if (laneUpper in ((affinities[mint] ?: emptySet()) + registryAffinity)) 2.0 else 0.0
+        val floor = minRecentWinsAcross(qualified)
+        val lead = (recentWins(laneUpper) - floor - FAIRNESS_LEAD_GRACE).coerceAtLeast(0)
+        val fairnessPenalty = (lead * 2.0).coerceAtMost(6.0)
+        val staticTieBreak = priority(laneUpper) / 1000.0
+        return base + expectancy + affinity - fairnessPenalty + staticTieBreak
+    }
+
+    private fun pickFreshPrimary(mint: String, candidateVersion: Long, qualified: List<String>): String? {
+        if (qualified.isEmpty()) return null
+        val ready = readyProposalScores7803(mint, candidateVersion)
+        val q = currentQualifiedScores7803(mint, candidateVersion)
+        return qualified.maxByOrNull { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }
+    }
+
+    private fun secondaryFresh7803(
+        mint: String,
+        candidateVersion: Long,
+        qualified: List<String>,
+        primary: String,
+    ): String? {
+        val ready = readyProposalScores7803(mint, candidateVersion)
+        val q = currentQualifiedScores7803(mint, candidateVersion)
+        return qualified.filter { it != primary }
+            .maxByOrNull { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }
     }
 
     fun candidateVersionFor(mint: String): Long {
@@ -250,10 +320,8 @@ object LaneExecutionCoordinator {
         // canonical source/style owner. When no explicit preference exists, use the
         // existing learned/fair selector instead of insertion order.
         val explicitPreferred7619 = preferred?.uppercase()?.takeIf { it in clean }
-        val primary = explicitPreferred7619 ?: pickFreshPrimary(mint, clean) ?: "CORE"
-        val secondary = clean
-            .filter { it != primary }
-            .maxByOrNull { claimPriority(mint, it, clean) }
+        val primary = explicitPreferred7619 ?: pickFreshPrimary(mint, candidateVersion, clean) ?: "CORE"
+        val secondary = secondaryFresh7803(mint, candidateVersion, clean, primary)
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
         val mapKey = mapKey(key)
         val now = System.currentTimeMillis()
@@ -376,6 +444,24 @@ object LaneExecutionCoordinator {
             elections.remove(mapKey, existing)
             existing = null
         }
+        // V5.0.7803 — an earlier WATCHING/QUALIFIED election has no right to
+        // survive once a specialist publishes an executable READY proposal.
+        // Re-elect once from the READY set before anything is sealed.
+        val readyLanes7803 = readyProposalScores7803(mint, candidateVersion).keys
+        if (existing != null && sealedFdgOwner6679 == null && !existing.sealed &&
+            readyLanes7803.isNotEmpty()
+        ) {
+            try {
+                PipelineHealthCollector.labelInc("LANE_PRESEAL_REELECTED_FROM_READY_7803")
+                ForensicLogger.lifecycle(
+                    "LANE_PRESEAL_REELECTED_FROM_READY_7803",
+                    "mint=${mint.take(10)} version=$candidateVersion prior=${existing.primaryLane} ready=${readyLanes7803.joinToString(",")}",
+                )
+            } catch (_: Throwable) {}
+            elections.remove(mapKey, existing)
+            existing = null
+        }
+
         // V5.0.7774 — an unclaimed pre-seal election whose owner refuses the mint
         // yields to a caller whose own evaluator does not.
         val prior7774 = existing
@@ -511,6 +597,7 @@ object LaneExecutionCoordinator {
         elections.clear()
         affinities.clear()
         qualifiedContests7621.clear()
+        try { com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.resetForTests() } catch (_: Throwable) {}
         duplicateOpenSuppressed.set(0L)
         versionSeq.set(0L)
         authoritySeq6494.set(0L)
