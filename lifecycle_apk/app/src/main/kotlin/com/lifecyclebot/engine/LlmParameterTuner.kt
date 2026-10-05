@@ -170,16 +170,12 @@ object LlmParameterTuner {
      * whitelisted adjustments, return cleaned reply + change log.
      */
     // ── Phase thresholds matching FluidLearningAI ──────────────────────────────
-    // Bootstrap (0-999 trades): LLM TUNE is completely locked.
-    //   The bot is still learning the market — self-adjustments this early cause
-    //   premature gate tightening before any real data exists.
-    // Learning (1000-2999 trades): 1 adjustment allowed, step cap halved.
-    //   Slight nudges are OK but keep them gentle.
-    // Mature/Expert (3000+ trades): Full autonomy (up to 3 adjustments, full step).
-    // V5.9.408 — bootstrap end lowered 1000 → 50 to match operator's
-    // "adjustment ability from trade 50 onwards" directive. Learning end
-    // stays at 3000 to align with FreeRangeMode's tuner ramp ceiling.
-    private const val TUNE_BOOTSTRAP_END = 50
+    // V5.0.7814 — autonomous self-healing starts from the FIRST settled trade.
+    // Trade 0 remains locked because there is no realized evidence yet.
+    // Trade 1+ may apply one allowlisted adjustment with a tiny confidence-scaled
+    // step; authority ramps with FreeRangeMode.adjustmentStrength().
+    // Mature/Expert (3000+ trades): up to 3 adjustments, full bounded step.
+    private const val TUNE_BOOTSTRAP_END = 1
     private const val TUNE_LEARNING_END  = 3000
 
     fun extractAndApply(ctx: Context?, llmReply: String): Applied {
@@ -204,14 +200,14 @@ object LlmParameterTuner {
 
         if (totalTrades < TUNE_BOOTSTRAP_END) {
             // Bootstrap phase — reject ALL tune blocks silently (strip from reply but apply nothing)
-            ErrorLogger.info(TAG, "🔒 TUNE block rejected — bootstrap phase ($totalTrades/$TUNE_BOOTSTRAP_END trades). LLM cannot self-adjust until learning phase.")
-            return Applied(cleanedReply = cleaned, changes = emptyList(), rejected = listOf("locked: bootstrap phase ($totalTrades/$TUNE_BOOTSTRAP_END trades)"))
+            ErrorLogger.info(TAG, "🔒 TUNE block rejected — no settled trade evidence yet ($totalTrades trades). Autonomous tuning starts at trade 1.")
+            return Applied(cleanedReply = cleaned, changes = emptyList(), rejected = listOf("locked: requires first settled trade"))
         }
 
         // V5.9.408 — FreeRangeMode gates tuner strength. In free-range window
         // (≤3000 trades, or up to 5000 if unhealthy) the LLM gets a reduced
-        // step cap that ramps linearly from 5 % → 100 % between trade 50 and
-        // trade 3000 so the bot can gather evidence before big swings.
+        // step cap that begins at 5% on trade 1 and ramps with evidence so early
+        // self-healing is real but cannot make large blind parameter swings.
         val freeRangeScale = try { FreeRangeMode.adjustmentStrength() } catch (_: Throwable) { 1.0 }
 
         val phaseMaxAdj  = if (totalTrades < TUNE_LEARNING_END) 1 else MAX_ADJUSTMENTS_PER_CALL

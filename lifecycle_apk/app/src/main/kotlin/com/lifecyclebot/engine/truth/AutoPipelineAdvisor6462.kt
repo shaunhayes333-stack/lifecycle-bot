@@ -64,7 +64,7 @@ import java.util.concurrent.atomic.AtomicReference
  *   4. AUTO-APPLY GATE
  *      Applies via existing LlmParameterTuner (phase-gated, step-capped,
  *      allowlist-enforced, freerange-scaled). Only applies when:
- *        • config.autoPipelineAdvisorEnabled == true  (default: paper=on, live=off)
+ *        • config.autoPipelineAdvisorEnabled == true  (default: autonomous in PAPER and LIVE)
  *        • suggestion.brainAgreement >= AUTO_APPLY_MIN_AGREEMENT
  *        • suggestion.severity in {"med","high"}
  *        • no cooldown collision (min 10 min per key per session)
@@ -80,8 +80,8 @@ import java.util.concurrent.atomic.AtomicReference
  * ─────────────────
  *  • Never runs on the bot loop thread (dispatched to Dispatchers.IO).
  *  • Never blocks: rules engine + brains take < 50ms combined.
- *  • Never applies during bootstrap phase (LlmParameterTuner enforces
- *    this via FluidLearningAI.getTotalTradeCount < 50).
+ *  • Trade 0 cannot mutate parameters. From the first settled trade onward,
+ *    LlmParameterTuner permits tiny confidence-scaled bounded changes.
  *  • Every applied change emits AUTO_PIPELINE_ADVISOR_APPLIED_6462 with
  *    key/old/new/reason + brain votes for full audit.
  */
@@ -206,7 +206,7 @@ object AutoPipelineAdvisor6462 {
         val enriched = enrichWithLlm(ctx, fused)
         // 5) auto-apply eligible high-agreement ones
         val cfg = try { ConfigStore.load(ctx) } catch (_: Throwable) { null }
-        val autoEnabled = cfg?.autoPipelineAdvisorEnabled ?: (cfg?.paperMode == true)
+        val autoEnabled = cfg?.autoPipelineAdvisorEnabled ?: true
         var applied = 0
         val emitted = mutableListOf<Candidate>()
         for (c in enriched.sortedByDescending { it.brainAgreement }) {

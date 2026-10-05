@@ -82,9 +82,9 @@ data class BotConfig(
     val paperSimulatedBalance: Double = 11.76,   // ~$1000 USD starting paper balance (at ~$85 SOL)
     val autoTrade: Boolean = true,  // ENABLED BY DEFAULT - bot is autonomous
     // V5.0.6462 — AUTONOMOUS PIPELINE ADVISOR
-    // When ON (default: paper mode only), AutoPipelineAdvisor6462 consults
-    // all brains + LLM every ~2 min and auto-applies safe parameter
-    // deltas (LlmParameterTuner allowlist, step-capped, phase-gated).
+    // When ON (default true in PAPER and LIVE), AutoPipelineAdvisor6462 consults
+    // all brains + LLM every ~2 min and auto-applies eligible safe parameter
+    // deltas. V5.0.7814: actuation starts after trade 1 with tiny bounded steps.
     val autoPipelineAdvisorEnabled: Boolean = true,
     // V5.0.6463 — SOL PERPS SANDBOX (paper-only leverage toggle).
     // Substrate for future leverage support. When ON in paper mode,
