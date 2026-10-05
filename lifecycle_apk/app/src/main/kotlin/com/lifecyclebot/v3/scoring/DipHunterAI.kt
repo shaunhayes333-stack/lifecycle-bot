@@ -251,6 +251,9 @@ object DipHunterAI {
         // V5.0.7389 — the caller's read of the chart: a higher low printed after the
         // dip low, price back above it, buy pressure >= 50 and volume present.
         bounceConfirmed: Boolean = true,
+        holderGrowthPct: Double = 0.0,
+        smartMoneyBuyers60s: Int = 0,
+        reclaimStrengthPct: Double = 0.0,
     ): DipSignal {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -365,6 +368,15 @@ object DipHunterAI {
             dangerReasons.add("HOLDER_EXIT(${holderChange24h})")
         }
         
+        // V5.0.7802 — continuous holder-growth evidence. A shrinking holder
+        // base during a dip is structural weakness, not automatically capitulation.
+        if (holderGrowthPct <= -8.0) {
+            dangerScore += 20
+            dangerReasons.add("HOLDER_GROWTH_COLLAPSE(" + holderGrowthPct.toInt() + "%)")
+        } else if (holderGrowthPct <= -3.0) {
+            dangerScore += 10
+            dangerReasons.add("HOLDER_GROWTH_WEAK(" + holderGrowthPct.toInt() + "%)")
+        }
         // Very low buy pressure during dip
         if (buyPressurePct < 35) {
             dangerScore += 15
@@ -426,6 +438,25 @@ object DipHunterAI {
             else -> -10
         }
         
+        // V5.0.7802 — prove the recovery thesis, not just the depth of the fall.
+        qualityScore += when {
+            reclaimStrengthPct >= 12.0 -> 14
+            reclaimStrengthPct >= 6.0 -> 10
+            reclaimStrengthPct >= 2.0 -> 5
+            else -> 0
+        }
+        qualityScore += when {
+            holderGrowthPct >= 5.0 -> 10
+            holderGrowthPct >= 1.0 -> 6
+            holderGrowthPct >= 0.0 -> 2
+            holderGrowthPct <= -5.0 -> -10
+            else -> -4
+        }
+        qualityScore += when {
+            smartMoneyBuyers60s >= 3 -> 10
+            smartMoneyBuyers60s >= 1 -> 5
+            else -> 0
+        }
         // Volume quality (healthy volume during dip)
         qualityScore += when {
             volumeVsAvg >= 2.0 -> 15   // High interest
