@@ -178,9 +178,14 @@ object SpecialistBrainBridge7542 {
         out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
 
         val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
-        val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
+        // V5.0.7802 — CORE is the ensemble/generalist, never the default owner
+        // when a native specialist has a strong thesis.
+        val strongNative7802=a!=null&&a.lane!="CORE"&&av>=65&&a.confidence>=55
+        val ensemble=!strongNative7802&&a!=null&&b!=null&&av<75&&(av-bv<=10||av<60)
+        val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked
+        val coreOk=ensemble||fallback
         val coreScore=(if(s.isNotEmpty())s.take(4).map{maxOf(it.score,it.confidence)}.average().toInt()else v3).coerceIn(0,100)
-        out["CORE"]=op("CORE",coreOk,coreScore,coreScore,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->"CORE_YIELD_CLEAR_SPECIALIST_OWNER"},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
+        out["CORE"]=op("CORE",coreOk,coreScore,coreScore,0.0,when{strongNative7802->"CORE_YIELD_STRONG_NATIVE_${a?.lane}";ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->"CORE_YIELD_CLEAR_SPECIALIST_OWNER"},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
         return Snapshot(ts.mint,f,now,out.toMap()).also{cache[ts.mint]=Cached(it)}
     }
 }
