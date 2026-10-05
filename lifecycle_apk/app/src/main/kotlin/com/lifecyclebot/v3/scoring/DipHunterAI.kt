@@ -248,6 +248,8 @@ object DipHunterAI {
         holderCount: Int,
         holderChange24h: Int?,       // Net holder change; null = unresolved/unknown
         isDevSelling: Boolean,
+        holderGrowthRatePct: Double = 0.0,
+        socialPersistence: Int = 0,
         // V5.0.7389 — the caller's read of the chart: a higher low printed after the
         // dip low, price back above it, buy pressure >= 50 and volume present.
         bounceConfirmed: Boolean = true,
@@ -364,6 +366,15 @@ object DipHunterAI {
             dangerScore += 20
             dangerReasons.add("HOLDER_EXIT(${holderChange24h})")
         }
+        // V5.0.7802 — Dip Hunter buys dislocation in a still-alive asset.
+        when {
+            holderGrowthRatePct <= -8.0 -> {
+                dangerScore += 25; dangerReasons.add("HOLDER_GROWTH_COLLAPSE")
+            }
+            holderGrowthRatePct <= -3.0 -> {
+                dangerScore += 12; dangerReasons.add("HOLDER_GROWTH_WEAK")
+            }
+        }
         
         // Very low buy pressure during dip
         if (buyPressurePct < 35) {
@@ -389,6 +400,8 @@ object DipHunterAI {
         if (!bounceConfirmed) {
             return noDip("NO_BOUNCE_CONFIRMATION: dip=${dipDepthPct.fmt(1)}% bp=${buyPressurePct.toInt()}% vol=${volumeVsAvg.fmt(2)}x")
         }
+        if (holderGrowthRatePct > 0.0) dangerScore = (dangerScore - 8).coerceAtLeast(0)
+        if (socialPersistence >= 2) dangerScore = (dangerScore - 5).coerceAtLeast(0)
 
         // If too dangerous, reject
         if (dangerScore >= 40) {
