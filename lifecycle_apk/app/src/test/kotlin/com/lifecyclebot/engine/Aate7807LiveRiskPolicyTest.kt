@@ -160,4 +160,18 @@ class Aate7807LiveRiskPolicyTest {
         val eea = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
         assertTrue(eea.contains("cooling -> coolingMult7807"))
     }
+
+    @Test
+    fun sealedSpecialistLaneOwnsLastMileRisk7811() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("fun activeCanonicalIntentForMint7811"))
+        assertTrue(gate.contains("LaneExecutionCoordinator.currentElection6600(mint)?.primaryLane"))
+
+        val risk = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
+        assertTrue(risk.contains("activeCanonicalIntentForMint7811(\"LIVE\", mint)"))
+        assertTrue(risk.contains("val effectiveLane7811 = sealedLane7811.ifBlank { canonicalLane(lane) }"))
+        assertTrue(risk.contains("laneOpenLive = laneOpenLive(effectiveLane7811)"))
+        assertTrue(risk.contains("LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811"))
+    }
+
 }

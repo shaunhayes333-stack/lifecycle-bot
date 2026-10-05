@@ -273,6 +273,42 @@ object ExecutableOpenGate {
     }
 
     /**
+     * V5.0.7811 — last-mile lane authority for shared meme transports.
+     *
+     * A sealed specialist ticket owns the live lane. Shared transports can still
+     * arrive carrying a stale caller lane (for example PROJECT_SNIPER while a
+     * MOONSHOT ticket owns the mint). Risk/sizing must never apply the caller
+     * lane's slot cap to that sealed trade.
+     *
+     * Resolution is conservative:
+     *  1) prefer the current canonical election when it has a live sealed intent;
+     *  2) otherwise return an intent only when all live ticketed intents for the
+     *     mint agree on one canonical lane;
+     *  3) conflicting specialist lanes return null rather than guessing.
+     */
+    fun activeCanonicalIntentForMint7811(mode: String, mint: String): ExecutionIntent? {
+        if (mint.isBlank()) return null
+        val live = activeExecutionIntents6519.values
+            .filter { it.mode.equals(mode, true) && it.mint == mint && ticketLive(it) }
+        if (live.isEmpty()) return null
+
+        val elected = try {
+            canonicalLane(LaneExecutionCoordinator.currentElection6600(mint)?.primaryLane)
+        } catch (_: Throwable) { "" }
+        if (elected.isNotBlank()) {
+            live.filter { canonicalLane(it.canonicalLane) == elected }
+                .maxByOrNull { it.candidateVersion }
+                ?.let { return it }
+        }
+
+        val lanes = live.map { canonicalLane(it.canonicalLane) }.filter { it.isNotBlank() }.toSet()
+        if (lanes.size != 1) return null
+        val only = lanes.first()
+        return live.filter { canonicalLane(it.canonicalLane) == only }
+            .maxByOrNull { it.candidateVersion }
+    }
+
+    /**
      * V5.0.7525 — bind FDG's PAPER approval class onto the already-sealed
      * execution authority. First non-blank writer wins; later disagreement is
      * surfaced instead of mutating the decision underneath execution.

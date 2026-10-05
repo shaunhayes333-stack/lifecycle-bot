@@ -461,13 +461,33 @@ object LiveRiskPolicy7807 {
         nowMs: Long = System.currentTimeMillis(),
     ): Inputs {
         ensureSubscribed()
+        // V5.0.7811 — the sealed executable intent owns the lane. A shared
+        // transport label must not make a MOONSHOT ticket inherit another
+        // specialist's slot cap/risk bucket.
+        val sealedLane7811 = try {
+            com.lifecyclebot.engine.ExecutableOpenGate
+                .activeCanonicalIntentForMint7811("LIVE", mint)
+                ?.canonicalLane
+                ?.let { canonicalLane(it) }
+                .orEmpty()
+        } catch (_: Throwable) { "" }
+        val effectiveLane7811 = sealedLane7811.ifBlank { canonicalLane(lane) }
+        if (sealedLane7811.isNotBlank() && sealedLane7811 != canonicalLane(lane)) try {
+            PipelineHealthCollector.labelInc("LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811")
+            PipelineHealthCollector.labelInc("LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811_$sealedLane7811")
+            ForensicLogger.lifecycle(
+                "LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811",
+                "mint=${mint.take(10)} caller=${canonicalLane(lane)} sealed=$sealedLane7811 action=sealed_lane_owns_slot_and_risk",
+            )
+        } catch (_: Throwable) {}
+
         val equity = liveEquitySol(walletSol)
         val dd = observeEquity(equity, nowMs)
-        val ll = laneLive(lane)
+        val ll = laneLive(effectiveLane7811)
         val plan = try { TradePlan7739.freshPlan7783(mint) } catch (_: Throwable) { null }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         return Inputs(
-            lane = lane,
+            lane = effectiveLane7811,
             equitySol = equity,
             upstreamSol = upstreamSol,
             execMinSol = execMinSol,
@@ -481,11 +501,11 @@ object LiveRiskPolicy7807 {
             liveTotalNetSol = ll.totalNetSol,
             liveWrPct = ll.wrPct,
             drawdownFrac = dd,
-            laneDailyLossSol = laneDailyLossSol(lane, nowMs),
+            laneDailyLossSol = laneDailyLossSol(effectiveLane7811, nowMs),
             governorLossMult = (governorLossMult * governorShrinkFor(mint, nowMs)).coerceIn(0.0, 1.0),
             partialProviderEvidence = partialProviderEvidence,
             oracleUnproven = ll.closes < MIN_LIVE_SAMPLE_DEEP_SHRINK_7807 && plan == null,
-            laneOpenLive = laneOpenLive(lane),
+            laneOpenLive = laneOpenLive(effectiveLane7811),
         )
     }
 
