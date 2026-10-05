@@ -110,6 +110,32 @@ object HoldingLogicLayer {
         val scaleOutAt: List<Double>,   // PnL % levels to scale out (e.g., [50, 100, 200])
     )
     
+    private data class AdaptiveBounds7801(
+        val minTp: Double,
+        val maxTp: Double,
+        val minHoldMin: Int,
+        val maxHoldMin: Int,
+    )
+
+    /**
+     * Lab/SSI may tune a specialist, but may not change what the specialist IS.
+     */
+    private fun adaptiveBounds7801(modeRaw: String): AdaptiveBounds7801 = when (modeRaw.uppercase()) {
+        "MOONSHOT" -> AdaptiveBounds7801(75.0, 5000.0, 180, 24 * 60)
+        "PROJECT_SNIPER", "PRESALE_SNIPE" -> AdaptiveBounds7801(15.0, 500.0, 1, 180)
+        "EXPRESS" -> AdaptiveBounds7801(15.0, 150.0, 1, 60)
+        "SHITCOIN" -> AdaptiveBounds7801(12.0, 1000.0, 1, 12 * 60)
+        "MANIPULATED", "MANIP" -> AdaptiveBounds7801(7.0, 30.0, 1, 8)
+        "DIP_HUNTER" -> AdaptiveBounds7801(8.0, 60.0, 10, 6 * 60)
+        "CYCLIC" -> AdaptiveBounds7801(8.0, 80.0, 10, 180)
+        "QUALITY" -> AdaptiveBounds7801(12.0, 150.0, 10, 180)
+        "BLUECHIP", "BLUE_CHIP" -> AdaptiveBounds7801(10.0, 200.0, 30, 12 * 60)
+        "TREASURY" -> AdaptiveBounds7801(2.0, 20.0, 1, 90)
+        "CASHGEN" -> AdaptiveBounds7801(2.0, 12.0, 1, 60)
+        "CORE" -> AdaptiveBounds7801(5.0, 300.0, 5, 8 * 60)
+        else -> AdaptiveBounds7801(3.0, 100.0, 15, 480)
+    }
+
     private val MODE_PARAMS = mapOf(
         "STANDARD" to ModeHoldParams("STANDARD", 30.0, -15.0, 8.0, 4 * 60 * 60 * 1000L, true, listOf(30.0, 60.0)),
         // V5.0.7801 — native specialist held-management profiles. These are the
@@ -193,12 +219,17 @@ object HoldingLogicLayer {
             // V5.0.6684 — exact promoted Lab strategy becomes this lane's
             // TP/SL/hold profile. It cannot loosen the existing hard stop.
             val labExit6684 = try { AdaptiveLaneReproof6684.exitStrategy(mode) } catch (_: Throwable) { null }
-            val baseTarget6684 = labExit6684?.takeProfitPct?.coerceIn(3.0, 100.0) ?: params.targetProfitPct
+            val bounds7801 = adaptiveBounds7801(mode)
+            val baseTarget6684 = labExit6684?.takeProfitPct
+                ?.coerceIn(bounds7801.minTp, bounds7801.maxTp)
+                ?: params.targetProfitPct
             val activeStopLoss6684 = maxOf(
                 params.stopLossPct,
                 labExit6684?.stopLossPct?.coerceIn(-30.0, -2.0) ?: params.stopLossPct,
             )
-            val baseMaxHoldMs6684 = labExit6684?.maxHoldMins?.coerceIn(15, 480)?.toLong()?.times(60_000L)
+            val baseMaxHoldMs6684 = labExit6684?.maxHoldMins
+                ?.coerceIn(bounds7801.minHoldMin, bounds7801.maxHoldMin)
+                ?.toLong()?.times(60_000L)
                 ?: params.maxHoldTimeMs
 
             // V5.0.7455 — close the terminal-learning → held-management loop.
