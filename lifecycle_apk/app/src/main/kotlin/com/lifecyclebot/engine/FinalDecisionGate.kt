@@ -1203,8 +1203,15 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
         val belowCanonicalFloor7243 = effectiveEntryScore7292 < canonicalFloor7266
+        // V5.0.7843 — do not make a specialist pass TWO score floors.
+        // laneOwnScoreAdmitted7292 already means the native specialist cleared
+        // its own adaptive CanonicalEntryFloor7266. The generic WAIT floor was
+        // re-vetoing that same decision (7842: 49/49 WAIT promotions refused,
+        // ownerSelected=0 for every desk). Trunk/non-specialist WAITs still use
+        // the generic wait floor; the hard canonical floor below is unchanged.
         val weakWaitPromotion7243 =
-            baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && effectiveEntryScore7292 < waitFloor7266
+            !laneOwnScoreAdmitted7292 &&
+                baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && effectiveEntryScore7292 < waitFloor7266
         if (belowCanonicalFloor7243 || weakWaitPromotion7243) {
             val reason7243 = if (belowCanonicalFloor7243) {
                 "CANONICAL_V3_SCORE_FLOOR_7243"

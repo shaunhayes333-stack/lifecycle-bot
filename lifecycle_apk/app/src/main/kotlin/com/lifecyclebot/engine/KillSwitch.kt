@@ -59,6 +59,17 @@ object KillSwitch {
             peak.isFinite() && daily.isFinite() && peak > 0.0 && daily > 0.0 &&
             equity + 1e-8 >= peak && equity + 1e-8 >= daily
 
+    /**
+     * V5.0.7843 — persisted wallet peaks are account-history, not necessarily
+     * trading P&L. A withdrawal, funding move, or an old larger wallet must not
+     * become a synthetic 25%+ bot drawdown on the next build. One schema
+     * migration starts the live risk window from the actual realised live
+     * equity; canonical LIVE closes rebuild the loss/streak authority from
+     * there. Hard/manual kills are not silently cleared.
+     */
+    internal fun shouldRebaseLiveBaseline7843(storedSchema: Int, equity: Double): Boolean =
+        storedSchema < 7843 && equity.isFinite() && equity > 0.0
+
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
         init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance()))
@@ -162,6 +173,7 @@ object KillSwitch {
         
         canonicalOutcomes7835.addAll(prefs.getStringSet("canonical_outcomes_7835", emptySet()).orEmpty())
         outcomeBaselineAt7837 = prefs.getLong("outcome_baseline_at_7837", System.currentTimeMillis())
+        val storedSchema7843 = prefs.getInt("environment_schema", 0)
         // Load persisted state
         peakBalance = prefs.getFloat("peak_balance", currentBalance.toFloat()).toDouble()
         dailyStartBalance = prefs.getFloat("daily_start_balance", currentBalance.toFloat()).toDouble()
@@ -170,14 +182,43 @@ object KillSwitch {
         isKilled = prefs.getBoolean("is_killed", false)
         killReason = prefs.getString("kill_reason", "") ?: ""
         killTime = prefs.getLong("kill_time", 0)
-        if (prefs.getInt("environment_schema", 0) < 7835) {
+        if (storedSchema7843 < 7835) {
             // Prior baselines could contain PAPER cash. Preserve an explicit kill,
             // retire unattributable balances/streaks before live admission.
             peakBalance = currentBalance; dailyStartBalance = currentBalance
             dailyStartDate = System.currentTimeMillis(); consecutiveLosses = 0
         }
+
+        // V5.0.7843 — 7842 runtime proved the persisted peak was still acting
+        // as live P&L authority: wallet 0.2016 SOL was refused as a 39% drawdown
+        // before a single canonical live close existed. Rebase once on schema
+        // migration. A prior drawdown/daily-loss computed latch belongs to that
+        // retired baseline; manual and other explicit kill reasons remain hard.
+        if (shouldRebaseLiveBaseline7843(storedSchema7843, currentBalance)) {
+            val priorPeak7843 = peakBalance
+            val priorDaily7843 = dailyStartBalance
+            val priorReason7843 = killReason
+            peakBalance = currentBalance
+            dailyStartBalance = currentBalance
+            dailyStartDate = System.currentTimeMillis()
+            consecutiveLosses = 0
+            outcomeBaselineAt7837 = dailyStartDate
+            if (isKilled && (killReason.startsWith("MAX_DRAWDOWN:") || killReason.startsWith("MAX_DAILY_LOSS:"))) {
+                isKilled = false
+                killReason = ""
+                killTime = 0L
+            }
+            try {
+                PipelineHealthCollector.labelInc("KILL_SWITCH_ACCOUNT_BASELINE_REBASED_7843")
+                ForensicLogger.lifecycle(
+                    "KILL_SWITCH_ACCOUNT_BASELINE_REBASED_7843",
+                    "schema=$storedSchema7843 equity=$currentBalance priorPeak=$priorPeak7843 priorDaily=$priorDaily7843 " +
+                        "priorReason=${priorReason7843.take(80)} action=retire_external_account_delta_as_trading_drawdown",
+                )
+            } catch (_: Throwable) {}
+        }
         
-        if (prefs.getInt("environment_schema", 0) < 7837 && isKilled &&
+        if (storedSchema7843 < 7837 && isKilled &&
             staleBaselineLatch7837(killReason, killTime, dailyStartDate, peakBalance, dailyStartBalance, currentBalance)) {
             PipelineHealthCollector.labelInc("KILL_SWITCH_STALE_BASELINE_LATCH_REPAIRED_7837")
             ErrorLogger.info("KillSwitch", "Retired legacy latch against a replaced baseline: $killReason")
@@ -498,7 +539,7 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putInt("environment_schema", 7837)
+            putInt("environment_schema", 7843)
             putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())
             putFloat("peak_balance", peakBalance.toFloat())

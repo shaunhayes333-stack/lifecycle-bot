@@ -64,5 +64,9 @@ class Aate7837EntryRecoveryTest {
         assertFalse(KillSwitch.staleBaselineLatch7837("MAX_DRAWDOWN: real", 900L, 1000L, 0.28, 0.28, 0.21))
         assertFalse(KillSwitch.staleBaselineLatch7837("MANUAL: stopped", 900L, 1000L, 0.21, 0.21, 0.21))
         assertFalse(KillSwitch.staleBaselineLatch7837("MAX_DRAWDOWN: old", 900L, 1000L, 0.21, 0.21, Double.NaN))
+        assertTrue(KillSwitch.shouldRebaseLiveBaseline7843(7837, 0.2016))
+        assertTrue(KillSwitch.shouldRebaseLiveBaseline7843(7842, 0.2016))
+        assertFalse(KillSwitch.shouldRebaseLiveBaseline7843(7843, 0.2016))
+        assertFalse(KillSwitch.shouldRebaseLiveBaseline7843(7837, Double.NaN))
     }
 }
