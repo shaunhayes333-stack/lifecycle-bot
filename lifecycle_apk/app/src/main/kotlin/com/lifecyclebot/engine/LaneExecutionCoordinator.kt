@@ -260,6 +260,39 @@ object LaneExecutionCoordinator {
         return qualified.maxByOrNull { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }
     }
 
+    /**
+     * V5.0.7820 — native READY owner routing authority.
+     *
+     * Resident specialist brains can all qualify the same mint, but only one
+     * executable owner is allowed for a mint/version. The 7819 runtime proved
+     * that READY proposals could exist while the style/fanout lane set omitted
+     * the eventual owner, leaving residentReady>0 with ownerSelected=0.
+     *
+     * Expose the exact same learned/fair READY election used by
+     * canRequestExecution so upstream lane routing can guarantee the winning
+     * specialist is actually evaluated. This does not authorize, size, seal
+     * FDG, or execute anything; it only returns the lane that would win the
+     * existing READY contest.
+     */
+    internal fun preferredReadyOwner7820(
+        mint: String,
+        candidateVersion: Long = candidateVersionFor(mint),
+    ): String? {
+        val ready = readyProposalScores7803(mint, candidateVersion)
+        if (ready.isEmpty()) return null
+        val contenders = ready.keys
+            .filter { laneCanOwnExecution6910(it) }
+            .filter { ownExecutorRefusal7807(mint, it) == null }
+            .filterNot { nativeRefused7774(mint, it) }
+            .distinct()
+        val winner = pickFreshPrimary(mint, candidateVersion, contenders) ?: return null
+        try {
+            PipelineHealthCollector.labelInc("NATIVE_READY_OWNER_RESOLVED_7820")
+            PipelineHealthCollector.labelInc("NATIVE_READY_OWNER_RESOLVED_7820_$winner")
+        } catch (_: Throwable) {}
+        return winner
+    }
+
     private fun secondaryFresh7803(
         mint: String,
         candidateVersion: Long,

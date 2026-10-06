@@ -81,7 +81,13 @@ object AgenticStyleRouter {
 
     private fun stablePick(seed: String, count: Int): Int = if (count <= 0) 0 else ((seed.hashCode() and 0x7FF5F7FF) % count)
 
-    private fun boundedLanes(mint: String, base: Set<String>, style: Style, score: Int = 50): Set<String> {
+    private fun boundedLanes(
+        mint: String,
+        base: Set<String>,
+        style: Style,
+        score: Int = 50,
+        nativeReadyOwner7820: String = "",
+    ): Set<String> {
         // V5.9.1576 — bounded style fanout. 1575 fixed strategy monoculture
         // but unioned every style lane onto every candidate. Snapshot 5.0.3637
         // showed FDG/intake >3.2 and projected execs/day >1000. Keep variety by
@@ -90,8 +96,25 @@ object AgenticStyleRouter {
         val out = linkedSetOf<String>()
         val rapidPivot = rapidToxicRegimePivot(style, score)
         val styleLaneList = (rapidPivot + style.lanes).filter { it.isNotBlank() }.distinct()
-        val primary = LaneToxicityGuard.chooseNonToxicLane(mint, styleLaneList, score) ?: styleLaneList.firstOrNull()
-        if (!primary.isNullOrBlank()) out += primary
+
+        // V5.0.7820 — the native READY contest owns the first executable lane
+        // slot. 7819 showed dozens of READY Moonshot/Bluechip/etc proposals
+        // while ownerSelected stayed zero because bounded style routing could
+        // omit the lane that LaneExecutionCoordinator would later elect.
+        // Keep bounded fanout: the READY owner REPLACES the old style primary;
+        // it is not added as a third executable lane.
+        val readyOwner7820 = nativeReadyOwner7820.trim().uppercase()
+            .takeIf { it.isNotBlank() }
+        val primary = readyOwner7820
+            ?: LaneToxicityGuard.chooseNonToxicLane(mint, styleLaneList, score)
+            ?: styleLaneList.firstOrNull()
+        if (!primary.isNullOrBlank()) {
+            out += primary
+            if (readyOwner7820 != null) try {
+                PipelineHealthCollector.labelInc("NATIVE_READY_OWNER_ROUTED_7820")
+                PipelineHealthCollector.labelInc("NATIVE_READY_OWNER_ROUTED_7820_$readyOwner7820")
+            } catch (_: Throwable) {}
+        }
         val growthFallbackLane4557 = LiveGrowthDoctrine.growthLaneFallback(mint, out + base + style.lanes)
         val growthFallback = growthFallbackLane4557?.let { listOf(it) } ?: emptyList()
         val alternatesRaw = (styleLaneList.drop(1) + rapidPivot + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()
@@ -342,7 +365,17 @@ object AgenticStyleRouter {
     fun lanesFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
         val d = decide(ts, classification)
         val score = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
-        return boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style, score)
+        val candidateVersion7820 = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+        val nativeReadyOwner7820 = try {
+            LaneExecutionCoordinator.preferredReadyOwner7820(ts.mint, candidateVersion7820)
+        } catch (_: Throwable) { null }
+        return boundedLanes(
+            ts.mint,
+            base + d.toolkit.laneVotes,
+            d.style,
+            score,
+            nativeReadyOwner7820 = nativeReadyOwner7820.orEmpty(),
+        )
     }
 
     fun toolsFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
