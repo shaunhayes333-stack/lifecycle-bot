@@ -27,6 +27,6 @@ class Aate7821MoonshotFluidIdentityAndAttemptTest {
         assertTrue(region.contains("sealedIntent7471?.attemptId"))
         assertTrue(region.contains("boundLineage7807 != null && attemptId.isNotBlank()"))
         assertTrue(region.contains("canonicalAttempt6647 && attemptId.isNotBlank()"))
-        assertTrue(region.contains("else -> \"$mint:$candidateVersion6647:$lane\""))
+        assertTrue(region.contains("else -> \"\$mint:\$candidateVersion6647:\$lane\""))
     }
 }
