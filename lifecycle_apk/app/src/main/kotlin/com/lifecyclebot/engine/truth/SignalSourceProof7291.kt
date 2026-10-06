@@ -27,7 +27,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * books a trade; it only answers whether a source has earned live.
  */
 object SignalSourceProof7291 {
-    enum class Source { COPY, NETWORK }
+    // V5.0.7830 — LLM_SCOUT: verified mints from GroqTokenScout7830. Measured
+    // here like every other signal source; nothing reads isProven(LLM_SCOUT)
+    // for authority (Field Manual L309 — a social thesis earns nothing until proven).
+    enum class Source { COPY, NETWORK, LLM_SCOUT }
 
     private const val MIN_CLOSES = 20
     private const val MIN_PF = 1.2
@@ -50,7 +53,7 @@ object SignalSourceProof7291 {
         fun mean() = if (n > 0) sumRet / n else 0.0
     }
 
-    private val tallies = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally())
+    private val tallies = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally(), Source.LLM_SCOUT to Tally())
     // V5.0.7731 — evidence from forward labels. 5.0.7729: COPY detected 2,666
     // smart-money buys, created 339 candidates, and read n=0 PAPER_ONLY with
     // 99 pending stamps, because this proof grades only canonical closes and
@@ -59,7 +62,7 @@ object SignalSourceProof7291 {
     // paper evidence the live book cannot produce. Kept in its own tally so
     // the report shows which kind of proof a source earned.
     private const val MIN_LABELS_7731 = 50
-    private val labeled7731 = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally())
+    private val labeled7731 = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally(), Source.LLM_SCOUT to Tally())
     private val stamps = ConcurrentHashMap<String, Pair<Source, Long>>()
     private val subscribed = AtomicBoolean(false)
     @Volatile private var prefs: SharedPreferences? = null
@@ -103,6 +106,17 @@ object SignalSourceProof7291 {
         ensureSubscribed()
         stamps[mint] = source to System.currentTimeMillis()
         try { PipelineHealthCollector.labelInc("SIGNAL_SOURCE_STAMPED_7291_${source.name}") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7830 — stamp only when no live stamp from another source holds the
+     * mint, so a discovery source never steals a COPY / NETWORK attribution.
+     */
+    fun stampIfUnclaimed7830(source: Source, mint: String) {
+        if (mint.isBlank()) return
+        val cur = stamps[mint]
+        if (cur != null && cur.first != source && System.currentTimeMillis() - cur.second < STAMP_TTL_MS) return
+        stamp(source, mint)
     }
 
     @Synchronized

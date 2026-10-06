@@ -1292,6 +1292,27 @@ object PipelineHealthCollector {
      * holdings. Only a funded row outside the scope is unprotected inventory,
      * and that number is now printed on its own (must be 0). Field Manual L39, L407.
      */
+    /**
+     * V5.0.7830 — the resident discovery workers, moved out of dumpText (a
+     * pinned method may not grow): the 7807 resident hunters and the Groq
+     * compound web scout (runs, okCalls, rateLimited, candidatesReturned,
+     * verified, unverified, emitted, channelsDiscovered, lastError).
+     * Field Manual L412.
+     */
+    private fun appendResidentDiscovery7830(sb: StringBuilder) {
+        sb.append("  Resident hunters (§7807):     ").append(
+            try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
+        sb.append("  Groq web scout (§7830):       ").append(
+            try { com.lifecyclebot.engine.market.GroqTokenScout7830.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
+        // V5.0.7830 — public Telegram call sweeper: channels(active/dead), sweeps,
+        // newPosts, casExtracted, verified, emitted, topChannels, lastError.
+        sb.append("  Telegram call sweeper (§7830): ").append(
+            try { com.lifecyclebot.engine.market.TelegramCallSweeper7830.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
+    }
+
     private fun appendExitCoverage7809(sb: StringBuilder) {
         try {
             val cpa = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
@@ -2914,9 +2935,7 @@ object PipelineHealthCollector {
                 try { com.lifecyclebot.engine.market.MarketSweep7297.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             // V5.0.7807 — the resident worker that owns the sweep (Field Manual L412).
-            sb.append("  Resident hunters (§7807):     ").append(
-                try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.statusLine() } catch (_: Throwable) { "unavailable" }
-            ).append("\n")
+            appendResidentDiscovery7830(sb)
             sb.append("  Opportunity intelligence (§7777): ").append(
                 try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityStatusLine7777() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

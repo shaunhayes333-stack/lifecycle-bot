@@ -66,7 +66,9 @@ object InternetEdgeDesk {
                 }
                 val response = GeminiCopilot.rawText(
                     userPrompt = buildPrompt(trigger, context),
-                    systemPrompt = "You are AATE's internet research desk. If live web/search is available, use it. Return ONLY compact JSON. Never recommend blocking trades; provide soft style biases only.",
+                    // V5.0.7830 — truthful: this route is a plain text completion unless the
+                    // answering provider has search enabled (direct Gemini key only). Field Manual L400.
+                    systemPrompt = "You are AATE's market research desk. You may NOT have live web access on this call: only use current news/prices if you actually retrieved them; otherwise reason from the bot context given and say so in the summary. Return ONLY compact JSON. Never recommend blocking trades; provide soft style biases only.",
                     temperature = 0.15,
                     maxTokens = 700,
                 ) ?: return@launch

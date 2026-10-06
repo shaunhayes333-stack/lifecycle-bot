@@ -718,6 +718,14 @@ class SolanaMarketScanner(
         MARKET_HUNT_MANIPULATED,
         MARKET_HUNT_CYCLIC,
         MARKET_HUNT_CORE,
+        // V5.0.7830 — verified mints from GroqTokenScout7830 (Groq compound web
+        // search). Candidates only: same intake, no bonus. Field Manual L201.
+        LLM_SCOUT,
+        // V5.0.7830 — contract addresses called in public Telegram channels
+        // (engine.market.TelegramCallSweeper7830), each verified as an SPL mint
+        // with a DexScreener market before intake. Candidates only: same intake,
+        // no bonus, no bypass. Field Manual L201 / L309.
+        TELEGRAM_CALL,
     }
 
     data class ScannedToken(
@@ -2253,6 +2261,99 @@ class SolanaMarketScanner(
         val emitted = emittedCount7807.get()
         ErrorLogger.info("Scanner", "emitResidentHunt7807: rows=${snap.rows.size} picks=${picks.values.sumOf { it.size }} emitted=$emitted")
         emitted
+    }
+
+    /**
+     * V5.0.7830 — hand-off from engine.market.GroqTokenScout7830. Every row is
+     * already a verified SPL mint with a live DexScreener pair (the LLM text
+     * itself is never trusted). Here only the ordinary intake runs, exactly as
+     * for other sources: seen-but-unwatched mints are re-queued with the
+     * LLM_SCOUT scanner tag, new ones go buildScannedToken -> passesFilter ->
+     * emitWithRugcheck. No score bonus, no gate bypass. Each handed-in mint is
+     * stamped for SignalSourceProof7291.LLM_SCOUT so the source's results are
+     * measured. Field Manual L201 / L309.
+     */
+    suspend fun emitLlmScout7830(rows: List<com.lifecyclebot.engine.market.GroqTokenScout7830.Verified7830>): Int {
+        var emitted = 0
+        val now = System.currentTimeMillis()
+        for (r in rows) {
+            if (isSeen(r.mint)) {
+                val watching = try { GlobalTradeRegistry.isWatching(r.mint) } catch (_: Throwable) { true }
+                if (!watching && now - (huntRequeuedAt7301[r.mint] ?: 0L) >= 10L * 60 * 1000) {
+                    huntRequeuedAt7301[r.mint] = now
+                    try {
+                        TokenMergeQueue.enqueue(
+                            mint = r.mint,
+                            symbol = r.symbol.ifBlank { r.mint.take(6) },
+                            scanner = TokenSource.LLM_SCOUT.name,
+                            marketCapUsd = r.pair.candle.marketCap,
+                            liquidityUsd = r.pair.liquidity,
+                            volumeH1 = r.pair.candle.volumeH1,
+                        )
+                        PipelineHealthCollector.labelInc("LLM_SCOUT_REQUEUED_7830")
+                        stampLlmScout7830(r.mint)
+                        emitted++
+                    } catch (_: Throwable) {}
+                } else {
+                    try { PipelineHealthCollector.labelInc(if (watching) "LLM_SCOUT_ALREADY_WATCHED_7830" else "LLM_SCOUT_REQUEUE_COOLDOWN_7830") } catch (_: Throwable) {}
+                }
+                continue
+            }
+            val token = buildScannedToken(r.mint, r.pair, TokenSource.LLM_SCOUT)
+            if (token == null || !passesFilter(token)) {
+                try { PipelineHealthCollector.labelInc("LLM_SCOUT_FILTER_REJECTED_7830") } catch (_: Throwable) {}
+                continue
+            }
+            emitWithRugcheck(token)
+            stampLlmScout7830(r.mint)
+            emitted++
+            try { PipelineHealthCollector.labelInc("LLM_SCOUT_EMITTED_7830") } catch (_: Throwable) {}
+            ErrorLogger.info("Scanner", "LLM_SCOUT_7830 emitted ${token.symbol} ${r.mint.take(8)} narrative=${r.narrative.take(60)} src=${r.sourceUrl.take(80)}")
+        }
+        return emitted
+    }
+
+    /**
+     * V5.0.7830 — hand-off from engine.market.TelegramCallSweeper7830. [pair] is
+     * the DexScreener pair that verified [mint] as a real SPL mint (the channel
+     * text itself is never trusted). Only the ordinary intake runs: a
+     * hard-rejected mint is refused, a seen-but-unwatched mint is re-queued
+     * with the TELEGRAM_CALL tag, a new one goes buildScannedToken ->
+     * passesFilter -> emitWithRugcheck. No bonus, no bypass, no special size.
+     * Returns the outcome label the sweeper counts. Field Manual L201 / L309.
+     */
+    suspend fun emitTelegramCall7830(mint: String, pair: com.lifecyclebot.network.PairInfo): String {
+        if (ScannerHardRejectStore.isRejected(mint)) return "HARD_REJECTED"
+        if (isSeen(mint)) {
+            val watching = try { GlobalTradeRegistry.isWatching(mint) } catch (_: Throwable) { true }
+            if (watching) return "WATCHED"
+            val now = System.currentTimeMillis()
+            if (now - (huntRequeuedAt7301[mint] ?: 0L) < 10L * 60 * 1000) return "REQUEUE_COOLDOWN"
+            huntRequeuedAt7301[mint] = now
+            return try {
+                TokenMergeQueue.enqueue(
+                    mint = mint,
+                    symbol = pair.baseSymbol.ifBlank { mint.take(6) },
+                    scanner = TokenSource.TELEGRAM_CALL.name,
+                    marketCapUsd = pair.candle.marketCap,
+                    liquidityUsd = pair.liquidity,
+                    volumeH1 = pair.candle.volumeH1,
+                )
+                "REQUEUED"
+            } catch (_: Throwable) { "ERROR" }
+        }
+        val token = buildScannedToken(mint, pair, TokenSource.TELEGRAM_CALL) ?: return "NO_TOKEN"
+        if (!passesFilter(token)) return "FILTER_REJECTED"
+        emitWithRugcheck(token)
+        return "EMITTED"
+    }
+
+    private fun stampLlmScout7830(mint: String) {
+        try {
+            com.lifecyclebot.engine.truth.SignalSourceProof7291.stampIfUnclaimed7830(
+                com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.LLM_SCOUT, mint,
+            )
+        } catch (_: Throwable) {}
     }
 
     private suspend fun scanDexTrending() {
@@ -3891,6 +3992,10 @@ class SolanaMarketScanner(
             TokenSource.MARKET_HUNT_CASHGEN, TokenSource.MARKET_HUNT_EXPRESS, TokenSource.MARKET_HUNT_PROJECT_SNIPER,
             TokenSource.MARKET_HUNT_MANIPULATED, TokenSource.MARKET_HUNT_CYCLIC,
             TokenSource.MARKET_HUNT_CORE -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
+            // V5.0.7830 — every LLM_SCOUT mint carries a verified DexScreener pair.
+            TokenSource.LLM_SCOUT -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
+            // V5.0.7830 — every TELEGRAM_CALL mint carries the DexScreener pair that verified it.
+            TokenSource.TELEGRAM_CALL -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
             TokenSource.PUMP_FUN_NEW, TokenSource.PUMP_FUN_GRADUATE -> EfficiencyLayer.LiqSourceQuality.VERIFIED_PAIR
             else -> EfficiencyLayer.LiqSourceQuality.ESTIMATED_MCAP
         }

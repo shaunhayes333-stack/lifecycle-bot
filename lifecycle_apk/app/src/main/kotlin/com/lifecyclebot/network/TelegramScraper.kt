@@ -39,13 +39,21 @@ class TelegramScraper(private val botToken: String = "") {
         .build()
 
     // Default public Solana channels to always monitor
-    private val defaultChannels = listOf(
-        "pumpfunsol",
-        "solanaalpha",
-        "solana_defi_news",
-        "newsolanatoken",
-        "solananewlistings",
-    )
+    private val defaultChannels = DEFAULT_CHANNELS_7830
+
+    companion object {
+        /**
+         * V5.0.7830 — shared with engine.market.TelegramCallSweeper7830, which
+         * seeds its channel registry from these (then grows by discovery).
+         */
+        val DEFAULT_CHANNELS_7830: List<String> = listOf(
+            "pumpfunsol",
+            "solanaalpha",
+            "solana_defi_news",
+            "newsolanatoken",
+            "solananewlistings",
+        )
+    }
 
     // ── public web scraping (no auth) ─────────────────────────────────
 

@@ -1125,6 +1125,46 @@ class BotService : Service() {
         } catch (t: Throwable) {
             ErrorLogger.warn("BotService", "RESIDENT_HUNTER_START_FAILED_7807: ${t.message}")
         }
+        startGroqTokenScout7830()
+        startTelegramCallSweeper7830()
+    }
+
+    /**
+     * V5.0.7830 — the public-Telegram call sweeper starts and stops with the
+     * resident hunters (stopped in stopBot via TelegramCallSweeper7830.stop).
+     * Verified mints go to the scanner's normal intake as TELEGRAM_CALL, read
+     * lazily like the hunters' emitter. Candidates only, off the bot loop.
+     * Field Manual L201 / L412.
+     */
+    private fun startTelegramCallSweeper7830() {
+        try {
+            com.lifecyclebot.engine.market.TelegramCallSweeper7830.start(
+                context = applicationContext,
+                scope = scope,
+                emitter = { mint, pair -> marketScanner?.emitTelegramCall7830(mint, pair) ?: "NO_SCANNER" },
+            )
+        } catch (t: Throwable) {
+            ErrorLogger.warn("BotService", "TELEGRAM_SWEEPER_START_FAILED_7830: ${t.message}")
+        }
+    }
+
+    /**
+     * V5.0.7830 — the Groq compound web scout starts and stops with the
+     * resident hunters (stopped in stopBot via GroqTokenScout7830.stop). The
+     * Groq key is re-read each run; verified mints go to the scanner's normal
+     * intake, read lazily like the hunters' emitter. Candidates only, never on
+     * an entry/exit path. Field Manual L412.
+     */
+    private fun startGroqTokenScout7830() {
+        try {
+            com.lifecyclebot.engine.market.GroqTokenScout7830.start(
+                scope = scope,
+                groqKey = { ConfigStore.load(applicationContext).groqApiKey },
+                emitter = { rows -> marketScanner?.emitLlmScout7830(rows) ?: 0 },
+            )
+        } catch (t: Throwable) {
+            ErrorLogger.warn("BotService", "LLM_SCOUT_START_FAILED_7830: ${t.message}")
+        }
     }
 
     /**
@@ -9636,6 +9676,8 @@ class BotService : Service() {
             marketScanner?.stop()
         } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.stop("stopBot:$source") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.market.GroqTokenScout7830.stop("stopBot:$source") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.market.TelegramCallSweeper7830.stop("stopBot:$source") } catch (_: Throwable) {}
         try {
             orchestrator?.stop()
             try { ForensicLogger.lifecycle("STOP_DATAFEEDS_DISCONNECTED", "gen=$stopGeneration source=$source early=true") } catch (_: Throwable) {}
