@@ -493,54 +493,21 @@ class SmartSizerV3(
                     .labelInc("LIVE_FLOOR_CONCENTRATED_TO_ROUTABLE_CAPACITY_7218")
             } catch (_: Throwable) {}
         }
+        // V5.0.7831 — ROUTABILITY IS A CONSTRAINT, NOT PERMISSION TO INCREASE RISK.
+        // A live setup must independently justify at least the executable notional.
+        // If the risk-sized proposal is below that floor, do not inflate it.
         val effectiveSize = if (isLive && cappedSize > 0.0 && cappedSize < liveFloorEff7697) {
-            if (routableMinSol7127 > safeShareCap7142) {
-                // The smallest routable trade would be too large a share of this
-                // wallet. Refusing is correct: the alternative is either a route
-                // that cannot fill or a single position holding most of the
-                // balance. Named so the operator sees WHICH bound refused.
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127")
-                    // V5.0.7218 — state the wallet that WOULD work. The old row
-                    // reported every input and left the operator to do the
-                    // division; on the 7216 run that arithmetic was 0.04284 vs
-                    // 0.04018 and the answer — "you are thirty cents short" —
-                    // was nowhere in the report. A refusal that cannot say what
-                    // would clear it is a dead end, and this one fired 1050
-                    // times.
-                    val minViableWalletSol7218 =
-                        routableMinSol7127 / SINGLE_ROUTABLE_POSITION_SHARE_7399
-                    com.lifecyclebot.engine.PipelineHealthCollector
-                        .labelInc("LIVE_FLOOR_WALLET_BELOW_ROUTABLE_CAPACITY_7218")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271",
-                        "band=$band conf=$confidence tradeable=${"%.4f".format(tradeable)} floor=${"%.4f".format(liveFloorEff7697)} routableMin=${"%.4f".format(routableMinSol7127)} solUsd=${"%.2f".format(solUsd7127)} " +
-                            "routableCapacity7218=$routableCapacity7218 shareGuard7218=${"%.3f".format(shareGuard7218)} safeShareCap=${"%.4f".format(safeShareCap7142)} " +
-                            "minViableWalletSol7218=${"%.4f".format(minViableWalletSol7218)} minViableWalletUsd7218=${"%.2f".format(minViableWalletSol7218 * solUsd7127)} " +
-                            "shortfallSol7218=${"%.4f".format((minViableWalletSol7218 - tradeable).coerceAtLeast(0.0))} " +
-                            "note=wallet_cannot_carry_one_routable_position_after_execution_reserve_7399"
-                    )
-                } catch (_: Throwable) {}
-                return SizeResult(sizeSol = 0.0)
-            }
             try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_PROMOTED_6271")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_SUB_ROUTABLE_REFUSED_7831")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "SMART_SIZER_V3_DUST_PROMOTED_6271",
-                    "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} raw=${"%.4f".format(cappedSize)} promotedTo=${"%.4f".format(liveFloorEff7697)} tradeable=${"%.4f".format(tradeable)} routableMin=${"%.4f".format(routableMinSol7127)} solUsd=${"%.2f".format(solUsd7127)} sharePct=${"%.1f".format(if (tradeable > 0.0) liveFloorEff7697 / tradeable * 100.0 else 0.0)} concentration7697=${concentrationFloor7697 > liveNoDustFloor6269} note=v3_execute_gate_passed_promote_to_balance_aware_floor_7127"
+                    "SMART_SIZER_V3_SUB_ROUTABLE_REFUSED_7831",
+                    "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} " +
+                        "riskSized=${"%.5f".format(cappedSize)} required=${"%.5f".format(liveFloorEff7697)} " +
+                        "routableMin=${"%.5f".format(routableMinSol7127)} tradeable=${"%.5f".format(tradeable)} " +
+                        "action=no_trade_never_inflate_risk_to_route"
                 )
             } catch (_: Throwable) {}
-            // V5.0.7142 — the percentage arm may not exceed the safe share.
-            // Promote to the floor, but never past the concentration guard;
-            // the routable minimum has already been proven affordable above.
-            val promoted7142 = liveFloorEff7697.coerceAtMost(
-                maxOf(safeShareCap7142, routableMinSol7127),
-            )
-            if (promoted7142 < liveFloorEff7697) try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_FLOOR_CLAMPED_TO_SAFE_SHARE_7142")
-            } catch (_: Throwable) {}
-            promoted7142
+            0.0
         } else cappedSize
 
         return SizeResult(sizeSol = effectiveSize)

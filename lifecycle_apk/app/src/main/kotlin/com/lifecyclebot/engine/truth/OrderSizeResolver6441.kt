@@ -450,6 +450,12 @@ object OrderSizeResolver6441 {
         val clampCollapsed6896 = requestedLamports6491 >= minExecLamports6491 &&
             shapedCeilingLamports6896 < minExecLamports6491 &&
             canFundMinimum6600
+        // V5.0.7831 — a live executable minimum is a venue constraint, not
+        // permission to enlarge a risk decision.
+        val liveSubRoutableIntent7831 = !paperMode &&
+            requestedLamports6491 > 0L &&
+            requestedLamports6491 < minExecLamports6491
+        val liveRiskClampBelowRoutable7831 = !paperMode && clampCollapsed6896
         // V5.0.6909 §A_MINIMUM_NOTIONAL_IS_NOT_A_SECOND_OPINION.
         //
         // OPERATOR DIAGNOSIS (5.0.6908), GREG trace:
@@ -509,11 +515,30 @@ object OrderSizeResolver6441 {
         val refuseMinPromotion6909 = convictionCollapsed6909 &&
             requestedLamports6491 < minExecLamports6491
         val shapedOrMinimumLamports6600 = when {
+            liveSubRoutableIntent7831 -> 0L
+            liveRiskClampBelowRoutable7831 -> 0L
             requestedLamports6491 >= minExecLamports6491 ->
                 if (clampCollapsed6896) minExecLamports6491 else shapedCeilingLamports6896
             refuseMinPromotion6909 -> 0L
             canFundMinimum6600 -> minExecLamports6491
             else -> 0L
+        }
+        if (liveSubRoutableIntent7831 || liveRiskClampBelowRoutable7831) {
+            try {
+                PipelineHealthCollector.labelInc("LIVE_SUB_ROUTABLE_RISK_REFUSED_7831")
+                PipelineHealthCollector.labelInc(
+                    if (liveSubRoutableIntent7831)
+                        "LIVE_SUB_ROUTABLE_INTENT_REFUSED_7831"
+                    else
+                        "LIVE_RISK_CLAMP_BELOW_ROUTABLE_REFUSED_7831"
+                )
+                ForensicLogger.lifecycle(
+                    "LIVE_SUB_ROUTABLE_RISK_REFUSED_7831",
+                    "lane=$laneName mint=${mint.take(10)} requested=${fromLamports6491(requestedLamports6491)} " +
+                        "riskShaped=${fromLamports6491(shapedCeilingLamports6896)} minExec=${fromLamports6491(minExecLamports6491)} " +
+                        "action=no_trade_never_promote_live_risk"
+                )
+            } catch (_: Throwable) {}
         }
         if (refuseMinPromotion6909) {
             try {
@@ -601,6 +626,7 @@ object OrderSizeResolver6441 {
         // smaller; it loses the authority it never should have had, which is to
         // turn "trade smaller" into "do not trade".
         var liveAwareLamports6992 = shapedOrMinimumLamports6600
+        var liveAwareRefused7831 = false
         if (shapedOrMinimumLamports6600 > 0L) {
             val streakMult6992 = try {
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.sizeMultiplier(laneName, paperMode)
@@ -632,13 +658,21 @@ object OrderSizeResolver6441 {
                 // already approved. Both caps are re-checked here, so this can
                 // never manufacture an order the account cannot pay for.
                 if (liveAwareLamports6992 < minExecLamports6491 && canFundMinimum6600) {
-                    liveAwareLamports6992 = minExecLamports6491
-                    try {
-                        PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010")
-                        PipelineHealthCollector.labelInc(
-                            "LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010_${laneName.uppercase().take(20)}",
-                        )
-                    } catch (_: Throwable) {}
+                    if (paperMode) {
+                        liveAwareLamports6992 = minExecLamports6491
+                        try {
+                            PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010")
+                            PipelineHealthCollector.labelInc(
+                                "LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010_${laneName.uppercase().take(20)}",
+                            )
+                        } catch (_: Throwable) {}
+                    } else {
+                        liveAwareLamports6992 = 0L
+                        liveAwareRefused7831 = true
+                        try {
+                            PipelineHealthCollector.labelInc("LIVE_POST_RISK_BELOW_ROUTABLE_REFUSED_7831")
+                        } catch (_: Throwable) {}
+                    }
                 }
 
                 try {
@@ -652,6 +686,9 @@ object OrderSizeResolver6441 {
         val executable = boundedExecutableLamports6498 >= minExecLamports6491
         val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
         val reason = when {
+            liveSubRoutableIntent7831 -> "LIVE_SUB_ROUTABLE_INTENT_REFUSED_7831"
+            liveRiskClampBelowRoutable7831 -> "LIVE_RISK_CLAMP_BELOW_ROUTABLE_REFUSED_7831"
+            liveAwareRefused7831 -> "LIVE_POST_RISK_BELOW_ROUTABLE_REFUSED_7831"
             // V5.0.6909 — must precede the generic BELOW_MIN codes so the
             // operator can tell "the evidence said no" apart from "the account
             // could not fund it", which are opposite problems.

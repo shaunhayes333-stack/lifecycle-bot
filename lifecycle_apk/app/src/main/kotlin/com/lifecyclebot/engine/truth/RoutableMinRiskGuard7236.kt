@@ -108,17 +108,13 @@ object RoutableMinRiskGuard7236 {
         // 2 of 2, LIFT refusedWeak proof=2). A candidate above its lane's fluid floor
         // in a normal regime is lifted; "pending proof" only counts alongside a weak
         // score or a weak regime.
-        if (!weakScore && !weakRegime) {
-            if (pendingProof) {
-                try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_LIFT_ALLOWED_PENDING_PROOF_7378") } catch (_: Throwable) {}
-            }
-            allowed.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_LIFT_ALLOWED_STRONG_7236") } catch (_: Throwable) {}
-            return Decision(Verdict.ALLOW_LIFT, "STRONG_CANDIDATE score=${"%.2f".format(score)} regime=${"%.2f".format(regimeSizeMult)}")
-        }
-
+        // V5.0.7831 — no live last-mile lift is allowed. If risk sizing has
+        // already put the order below the venue minimum, increasing it here
+        // would be an admission override rather than risk management.
+        try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_LIFT_DISABLED_7831") } catch (_: Throwable) {}
         // Refuse the lift and let the DUST_REFUSED path emit the terminal.
         val reasons = buildList {
+            add("SUB_ROUTABLE_RISK_SIZE_7831")
             if (weakScore) add("SCORE=${"%.2f".format(score)}<${"%.1f".format(weakScoreBar7375)}")
             if (weakRegime) add("REGIME=${"%.2f".format(regimeSizeMult)}<${"%.2f".format(WEAK_REGIME_CEILING)}")
             if (pendingProof) add("PENDING_PROOF_PENALTY")
