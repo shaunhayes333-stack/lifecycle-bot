@@ -32517,77 +32517,16 @@ if (hotExitHandledSweep) {
         // authorize(), while the already-sealed FDG intent was looked up later.
         // That split BUY_INTENT/OWNER from MARK/SIZE/TICKET and made CORE look
         // SIZING_CHOKED even when a valid intent existed.
-        val primaryCandidateVersion7467 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
-            .takeIf { it > 0L } ?: 1L
-        // V5.0.7833 — close the specialist FDG-seal circular dependency.
-        //
-        // 5.0.7830 proved the failure directly: resident READY proposals existed
-        // for MOONSHOT/SHITCOIN/etc, CORE reached BUY_INTENT/FDG, but MARK/SIZE/
-        // TICKET stayed at zero. TradeAuthorizer requires an immutable FDG BUY
-        // intent before it may enter finality, while this primary spine only
-        // created that intent AFTER TradeAuthorizer returned executable. That is
-        // an impossible cycle: authorize waits for seal; seal waits for authorize.
-        //
-        // Resolve the already-existing seal first. If it is absent but this exact
-        // primary FDG verdict is executable, materialise the canonical intent NOW
-        // using the resolved size and the mark registry that was refreshed above.
-        // This does not loosen FDG, safety, mark, size, lane ownership or positive-
-        // EV policy; it only puts the existing authorities in causal order.
-        val primaryExistingIntent7833 = try {
-            ExecutableOpenGate.activeExecutionIntent6519(
-                if (cfg.paperMode) "PAPER" else "LIVE",
-                identity.mint,
-                primaryCandidateVersion7467,
-            )?.takeIf { intent ->
-                val sealedLane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent.canonicalLane)
-                val primaryLane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(cyclePrimaryLane)
-                sealedLane == primaryLane
-            }
-        } catch (_: Throwable) { null }
-
-        val primarySealedIntent7467 = primaryExistingIntent7833 ?: if (
-            fdgDecision.canExecute() && actualInitialSizeForAuth6649.isFinite() && actualInitialSizeForAuth6649 > 0.0
-        ) try {
-            ExecutableOpenGate.recordFdgAndGetIntent6533(
-                mint = identity.mint, symbol = identity.symbol, lane = cyclePrimaryLane,
-                canExecute = true, reason = fdgDecision.blockReason,
-                signal = "BUY",
-                rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
-                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
-                preFdgVerdict = "BUY",
-                candidateVersion = primaryCandidateVersion7467,
-                entryScore = sealedEntryScore7688(fdgDecision, ts.lastV3Score ?: ts.entryScore.toInt()),
-                tokenMapRouteStatus = tokenMap6614.routeStatus,
-                tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
-                tokenMapExpectedOut = tokenMap6614.expectedOutAmount,
-                tokenMapProviderAttempts = tokenMap6614.providerAttempts,
-                requiresSolanaTokenMap = true,
-                allowTrunkExecutionHandoff6533 = true,
-                resolvedSizeSol6558 = actualInitialSizeForAuth6649,
-            )?.takeIf { intent ->
-                val sealedLane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent.canonicalLane)
-                val primaryLane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(cyclePrimaryLane)
-                sealedLane == primaryLane && intent.fdgAllowed && intent.fdgVerdict.equals("BUY", true)
-            }
-        } catch (_: Throwable) { null } else null
-
-        when {
-            primarySealedIntent7467 == null -> try {
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_SEAL_STILL_MISSING_7833_${cyclePrimaryLane.uppercase()}")
-                ForensicLogger.lifecycle(
-                    "PRIMARY_SPINE_SEAL_STILL_MISSING_7833",
-                    "lane=$cyclePrimaryLane mint=${identity.mint.take(10)} version=$primaryCandidateVersion7467 " +
-                        "fdgCan=${fdgDecision.canExecute()} size=$actualInitialSizeForAuth6649 action=refuse_no_unsealed_execution",
-                )
-            } catch (_: Throwable) {}
-            primaryExistingIntent7833 == null -> try {
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_PREAUTH_SEAL_CREATED_7833")
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_PREAUTH_SEAL_CREATED_7833_${cyclePrimaryLane.uppercase()}")
-            } catch (_: Throwable) {}
-            else -> try {
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_SEALED_INTENT_REUSED_7467_${cyclePrimaryLane.uppercase()}")
-            } catch (_: Throwable) {}
-        }
+        val primaryCandidateVersion7467 = LaneExecutionCoordinator.candidateVersionFor(identity.mint).takeIf { it > 0L } ?: 1L
+        val primarySealedIntent7467 = SpecialistPreauthSeal7834.ensure(
+            paperMode = cfg.paperMode, mint = identity.mint, symbol = identity.symbol, lane = cyclePrimaryLane,
+            candidateVersion = primaryCandidateVersion7467, fdgCanExecute = fdgDecision.canExecute(), fdgReason = fdgDecision.blockReason,
+            resolvedSizeSol = actualInitialSizeForAuth6649, rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
+            liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
+            entryScore = sealedEntryScore7688(fdgDecision, ts.lastV3Score ?: ts.entryScore.toInt()),
+            tokenMapRouteStatus = tokenMap6614.routeStatus, tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
+            tokenMapExpectedOut = tokenMap6614.expectedOutAmount, tokenMapProviderAttempts = tokenMap6614.providerAttempts,
+        )
         val authResult = TradeAuthorizer.authorize(
             mint = mint,
             symbol = identity.symbol,
