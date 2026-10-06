@@ -633,7 +633,6 @@ object OrderSizeResolver6441 {
         // smaller; it loses the authority it never should have had, which is to
         // turn "trade smaller" into "do not trade".
         var liveAwareLamports6992 = shapedOrMinimumLamports6600
-        var liveAwareRefused7831 = false
         if (shapedOrMinimumLamports6600 > 0L) {
             val streakMult6992 = try {
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.sizeMultiplier(laneName, paperMode)
@@ -665,21 +664,23 @@ object OrderSizeResolver6441 {
                 // already approved. Both caps are re-checked here, so this can
                 // never manufacture an order the account cannot pay for.
                 if (liveAwareLamports6992 < minExecLamports6491 && canFundMinimum6600) {
-                    if (paperMode) {
-                        liveAwareLamports6992 = minExecLamports6491
-                        try {
-                            PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010")
-                            PipelineHealthCollector.labelInc(
-                                "LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010_${laneName.uppercase().take(20)}",
-                            )
-                        } catch (_: Throwable) {}
-                    } else {
-                        liveAwareLamports6992 = 0L
-                        liveAwareRefused7831 = true
-                        try {
-                            PipelineHealthCollector.labelInc("LIVE_POST_RISK_BELOW_ROUTABLE_REFUSED_7831")
-                        } catch (_: Throwable) {}
-                    }
+                    // V5.0.7841 — 7840 promoted the route minimum correctly, then
+                    // this later SOFT live-aware multiplier zeroed it again. A soft
+                    // shaper cannot revoke an executable decision. Restore the same
+                    // minimum here; LIVE re-proves hard stop/cost risk in
+                    // LiveRiskPolicy7807 before a ticket can execute.
+                    liveAwareLamports6992 = minExecLamports6491
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (paperMode) "LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010"
+                            else "LIVE_AWARE_ROUTE_MIN_RESTORED_7841"
+                        )
+                        PipelineHealthCollector.labelInc(
+                            (if (paperMode) "LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010_"
+                             else "LIVE_AWARE_ROUTE_MIN_RESTORED_7841_") +
+                                laneName.uppercase().take(20),
+                        )
+                    } catch (_: Throwable) {}
                 }
 
                 try {
@@ -693,9 +694,10 @@ object OrderSizeResolver6441 {
         val executable = boundedExecutableLamports6498 >= minExecLamports6491
         val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
         val reason = when {
-            liveSubRoutableIntent7831 -> "LIVE_SUB_ROUTABLE_INTENT_REFUSED_7831"
-            liveRiskClampBelowRoutable7831 -> "LIVE_RISK_CLAMP_BELOW_ROUTABLE_REFUSED_7831"
-            liveAwareRefused7831 -> "LIVE_POST_RISK_BELOW_ROUTABLE_REFUSED_7831"
+            // V5.0.7841 — liveSubRoutableIntent7831 and
+            // liveRiskClampBelowRoutable7831 are diagnostic facts, not vetoes
+            // after liveRouteFloorPromoted7840 has produced an executable value.
+            // The actual veto remains refuseMinPromotion6909 / hard capital caps.
             // V5.0.6909 — must precede the generic BELOW_MIN codes so the
             // operator can tell "the evidence said no" apart from "the account
             // could not fund it", which are opposite problems.
@@ -708,6 +710,7 @@ object OrderSizeResolver6441 {
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
+            liveRouteFloorPromoted7840 -> "OK_LIVE_ROUTABLE_MIN_PROMOTED_7841"
             canFundMinimum6600 && requestedLamports6491 < minExecLamports6491 -> "OK_MIN_PROMOTED_6600"
             // V5.0.6896 — distinct from OK_MIN_PROMOTED_6600: there the CALLER
             // asked for less than the minimum; here the caller asked for a legal
@@ -718,7 +721,10 @@ object OrderSizeResolver6441 {
             else -> "OK"
         }
         val actuallyExec = executable &&
-            reason in setOf("OK", "OK_MIN_PROMOTED_6600", "OK_CLAMP_COLLAPSE_FLOORED_6896")
+            reason in setOf(
+                "OK", "OK_MIN_PROMOTED_6600", "OK_CLAMP_COLLAPSE_FLOORED_6896",
+                "OK_LIVE_ROUTABLE_MIN_PROMOTED_7841",
+            )
         val res = Resolution(
             requestedSol = requested,
             riskSol = risk,

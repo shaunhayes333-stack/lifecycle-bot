@@ -62,4 +62,18 @@ class Aate7832LiveEntryQualityRepairTest {
         assertTrue(guard.contains("ROUTABLE_MIN_LIFT_DISABLED_7831"))
         assertFalse(guard.contains("return Decision(Verdict.ALLOW_LIFT"))
     }
+    @Test fun route_minimum_continuity_is_preserved_from_resolver_to_sealed_ticket() {
+        val resolver = src("engine/truth/OrderSizeResolver6441.kt")
+        val fdg = src("engine/FinalDecisionGate.kt")
+        val exec = src("engine/Executor.kt")
+        assertTrue(resolver.contains("OK_LIVE_ROUTABLE_MIN_PROMOTED_7841"))
+        assertFalse(resolver.contains("liveSubRoutableIntent7831 -> \"LIVE_SUB_ROUTABLE_INTENT_REFUSED_7831\""))
+        assertTrue(fdg.contains("currentRoutableMinimum7835"))
+        assertTrue(fdg.contains("FDG_RISK_SAFE_ROUTE_MIN_SEALED_7841"))
+        assertTrue(exec.contains("LIVE_RISK_SAFE_MIN_CONSUMED_7841"))
+        assertTrue(exec.contains("SEALED_SIZE_BELOW_CURRENT_MINIMUM_7835").not() ||
+            exec.contains("SealedExecutionSize7835.boundsRefusal"))
+    }
+
+
 }

@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.LiveRiskPolicy7807
+import com.lifecyclebot.engine.truth.OrderSizeResolver6441
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -133,6 +134,23 @@ class Aate7807LiveRiskPolicyTest {
         assertTrue(dd.sizeSol < noDd.sizeSol && dd.sizeSol > 0.0)
         val moonNoPlan = LiveRiskPolicy7807.decide(inputs(lane = "MOONSHOT", upstream = 1.0, stop = null, first = null, target = null))
         assertTrue("MOONSHOT_NO_PLAN_SIZE_7807" in moonNoPlan.labels)
+    }
+
+
+    @Test
+    fun runtime_7840_sub_routable_case_resolves_to_executable_minimum() {
+        val r = OrderSizeResolver6441.resolve(
+            requestedSol = 0.02284,
+            laneName = "CRYPTO",
+            walletSol = 0.2113,
+            paperMode = false,
+            laneRiskCapSol = 0.16906,
+            laneMinExecutableSol = 0.04137,
+            mint = "",
+        )
+        assertTrue(r.trace(), r.executable)
+        assertEquals("OK_LIVE_ROUTABLE_MIN_PROMOTED_7841", r.reason)
+        assertTrue(r.finalSizeSol >= 0.04137 - 1e-9)
     }
 
     @Test

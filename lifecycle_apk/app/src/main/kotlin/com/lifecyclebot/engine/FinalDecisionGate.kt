@@ -5861,11 +5861,22 @@ object FinalDecisionGate {
 
     private fun resolveExecutableSize7835(ts: TokenState, lane: String, requested: Double, config: BotConfig): Double {
         if (!requested.isFinite() || requested <= 0.0) return 0.0
-        val minimum = if (config.paperMode) PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
+        val configuredMinimum7835 = if (config.paperMode) PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
             else if (config.allowLiveMicroProbe) 0.005 else config.minLiveBuySol.coerceAtLeast(0.0)
         val cash = if (config.paperMode) com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
             else WalletManager.cachedSolBalance()
         val solUsd = WalletManager.lastKnownSolPrice
+        // V5.0.7841 — the immutable ticket must be born legal against the SAME
+        // current route floor the live-buy boundary will enforce. 7840 let FDG
+        // seal only against config.minLiveBuySol, then liveBuy rejected the
+        // ticket as SEALED_SIZE_BELOW_CURRENT_MINIMUM_7835 before quote/build.
+        val currentRoutableMinimum7835 = if (!config.paperMode && solUsd.isFinite() && solUsd > 0.0) try {
+            com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
+                (cash - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
+                solUsd,
+            ).routableMinSol
+        } catch (_: Throwable) { 0.0 } else 0.0
+        val minimum = maxOf(configuredMinimum7835, currentRoutableMinimum7835)
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         // A market-depth cap can reduce or refuse a proposal; an executable floor
         // must never erase it. There is no wallet-share substitute for unknown depth.
@@ -5887,7 +5898,18 @@ object FinalDecisionGate {
             val risk = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record("FDG", ts.mint, ts.symbol,
                 inputs, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs))
             if (!risk.open) return 0.0
-            riskSized = minOf(riskSized, risk.sizeSol)
+            riskSized = if (risk.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" &&
+                risk.sizeSol > riskSized) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_RISK_SAFE_ROUTE_MIN_SEALED_7841")
+                    ForensicLogger.lifecycle(
+                        "FDG_RISK_SAFE_ROUTE_MIN_SEALED_7841",
+                        "mint=${ts.mint.take(10)} lane=$lane from=${"%.6f".format(riskSized)} " +
+                            "to=${"%.6f".format(risk.sizeSol)} min=${"%.6f".format(minimum)}",
+                    )
+                } catch (_: Throwable) {}
+                risk.sizeSol
+            } else minOf(riskSized, risk.sizeSol)
         }
         if (!riskSized.isFinite() || riskSized <= 0.0) return 0.0
         val configuredCap = if (config.paperMode) maxOf(cash * 0.12, minimum) else minOf(

@@ -13520,7 +13520,9 @@ class Executor(
     private fun chokeReason7809(refusal: String): String =
         try { com.lifecyclebot.engine.truth.TradePlan7739.chokepointTerminalReason7809(refusal) } catch (_: Throwable) { "CHOKEPOINT_7742" }
 
-    /** Final live size, or null when this candidate is passed this tick. Never raises the order. */
+    /** Final live size, or null when this candidate is passed this tick.
+     * V5.0.7841: may consume the narrowly-authorized risk-safe route minimum
+     * proven by LiveRiskPolicy7807; all other paths remain shrink-only. */
     private fun liveRiskPolicyFinalSize7807(
         ts: TokenState,
         sol: Double,
@@ -13567,9 +13569,21 @@ class Executor(
                     )
                 } catch (_: Throwable) {}
             }
-            // Below the executable minimum the upstream order is kept and the
-            // existing routable-minimum lift / refusal (7226/7236) decides.
-            minOf(sol, d.sizeSol)
+            // V5.0.7841 — 7840 taught LiveRiskPolicy7807 to prove that the
+            // current route minimum fits the hard loss envelope, but this helper
+            // immediately threw that proof away with minOf(sol, d.sizeSol).
+            // Consume ONLY that named promotion; every other decision remains
+            // shrink-only.
+            if (d.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" && d.sizeSol > sol) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_RISK_SAFE_MIN_CONSUMED_7841")
+                    ForensicLogger.lifecycle(
+                        "LIVE_RISK_SAFE_MIN_CONSUMED_7841",
+                        "mint=${ts.mint.take(10)} lane=$laneKey from=${"%.6f".format(sol)} to=${"%.6f".format(d.sizeSol)}",
+                    )
+                } catch (_: Throwable) {}
+                d.sizeSol
+            } else minOf(sol, d.sizeSol)
         } catch (_: Throwable) { sol }
     }
 
