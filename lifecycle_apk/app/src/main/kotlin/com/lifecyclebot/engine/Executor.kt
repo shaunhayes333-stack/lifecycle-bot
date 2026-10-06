@@ -23991,7 +23991,7 @@ class Executor(
                 PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
             }
             onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
-            return paperSellWithFreshness7836(ts, reason, tradeId, freshnessChecked7836 = true)
+            return paperSell(ts, reason, tradeId, freshnessChecked7836 = true)
         } else if (wallet == null) {
             ErrorLogger.error("Executor", "🚨 LIVE MODE SELL BLOCKED: Wallet is NULL!")
             onLog("🚨 LIVE SELL BLOCKED: ${ts.symbol} | No wallet - position NOT cleared", tradeId.mint)
@@ -24302,28 +24302,25 @@ class Executor(
         return px to label
     }
 
-    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult =
-        paperSellWithFreshness7836(ts, reason, identity, freshnessChecked7836 = false)
+    // V5.0.7836 — direct CYCLIC/SNIPER/shutdown callers get the shared mark
+    // freshness check; doSell passes its already-checked reason so a bounded
+    // MARK_UNTRUSTED_6882 release is not re-evaluated. Kept in paperSell (not
+    // a renamed wrapper) so the ART method budget pin still applies.
+    private fun reconcileCanonicalClosedPaper7836(ts: TokenState, reason: String): Boolean {
+        if (!PaperTerminalProjectionConvergence6509.canonicalClosedNoActive(ts.mint)) return false
+        PaperTerminalProjectionConvergence6509.converge(ts.mint, ts.symbol, "CANONICAL_ALREADY_CLOSED_6509:$reason", 0)
+        ts.position = Position()
+        try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_ALREADY_CLOSED_6509") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "CANONICAL_ALREADY_CLOSED_6509") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
+        try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_CLOSED_RECONCILED_6509") } catch (_: Throwable) {}
+        return true
+    }
 
-    // Only doSell may pass its already-checked reason. Direct CYCLIC/SNIPER
-    // callers must use the public guarded entrance. Do not evaluate twice:
-    // the bounded untrusted disposition must survive into finality/learning.
-    private fun paperSellWithFreshness7836(
-        ts: TokenState, reason: String, identity: TradeIdentity?, freshnessChecked7836: Boolean,
-    ): SellResult {
+    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null, freshnessChecked7836: Boolean = false): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        fun reconcileCanonicalClosed6509(): Boolean {
-            if (!PaperTerminalProjectionConvergence6509.canonicalClosedNoActive(ts.mint)) return false
-            PaperTerminalProjectionConvergence6509.converge(ts.mint, ts.symbol, "CANONICAL_ALREADY_CLOSED_6509:$reason", 0)
-            ts.position = Position()
-            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_ALREADY_CLOSED_6509") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "CANONICAL_ALREADY_CLOSED_6509") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
-            try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_CLOSED_RECONCILED_6509") } catch (_: Throwable) {}
-            return true
-        }
-        if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
+        if (reconcileCanonicalClosedPaper7836(ts, reason)) return SellResult.ALREADY_CLOSED
         val reason = if (freshnessChecked7836) reason else
             freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE
         // V5.0.6448 — SELL mirror moved to confirmed paper fill below.
@@ -24597,7 +24594,7 @@ class Executor(
             allOpenPapers6635.firstOrNull { it.mint == ts.mint }
         }
         if (canonicalTerminalPosition6492 == null) {
-            if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
+            if (reconcileCanonicalClosedPaper7836(ts, reason)) return SellResult.ALREADY_CLOSED
             try {
                 ForensicLogger.lifecycle("PAPER_SELL_CANONICAL_POSITION_MISSING_6498", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=retry_no_projection_mutation")
                 PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_POSITION_MISSING_6498")

@@ -114,11 +114,11 @@ class Aate7835AuditBoundaryTest {
     }
     @Test fun direct_paper_sell_guards_before_pricing_but_after_closed_reconciliation() {
         val code = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(code.contains("paperSellWithFreshness7836(ts, reason, identity, freshnessChecked7836 = false)"))
-        assertTrue(code.contains("return paperSellWithFreshness7836(ts, reason, tradeId, freshnessChecked7836 = true)"))
-        val entry = code.substringAfter("private fun paperSellWithFreshness7836(")
+        assertTrue(code.contains("fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null, freshnessChecked7836: Boolean = false): SellResult {"))
+        assertTrue(code.contains("return paperSell(ts, reason, tradeId, freshnessChecked7836 = true)"))
+        val entry = code.substringAfter("fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null, freshnessChecked7836")
             .substringBefore("val price = getActualPrice(ts)")
-        val healed = entry.indexOf("if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED")
+        val healed = entry.indexOf("if (reconcileCanonicalClosedPaper7836(ts, reason)) return SellResult.ALREADY_CLOSED")
         val guarded = entry.indexOf("freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE")
         assertTrue(healed >= 0 && guarded > healed)
         assertTrue(entry.contains("val reason = if (freshnessChecked7836) reason else"))
