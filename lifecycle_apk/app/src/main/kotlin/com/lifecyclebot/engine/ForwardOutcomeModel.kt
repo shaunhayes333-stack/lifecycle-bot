@@ -209,6 +209,9 @@ object ForwardOutcomeModel {
                 val keyBand = if (hasMode) seg.getOrNull(2) else seg.getOrNull(1)
                 if (keyLane != laneTag || keyBand != bandTag) continue
                 val keyMode = if (hasMode) seg.getOrNull(0) else null
+                // 7838: forward price labels are advisory observations, not
+                // completed trades. They have a separate proof ladder in FDG.
+                if (keyMode == LABEL_TAG_7734) continue
                 val keyRegime = if (hasMode) seg.getOrNull(4) else seg.getOrNull(3)
 
                 nP += c.n; wP += c.wins; eP += c.mean * c.n; cP++
@@ -400,6 +403,11 @@ object ForwardOutcomeModel {
         "${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"
     private fun legacyCoarseKey6869(lane: String, score: Int, regime: String): String =
         "${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
+
+    /** A label forecast may shape a prior but may not impersonate terminal evidence. */
+    fun hasTerminalEvidence7838(forecast: Forecast?): Boolean = forecast != null &&
+        forecast.samples > 0L && forecast.source != "bootstrap" &&
+        !forecast.source.endsWith("_label_prior")
 
     /** Predict the outcome distribution for a candidate (no side effects). */
     fun forecast(

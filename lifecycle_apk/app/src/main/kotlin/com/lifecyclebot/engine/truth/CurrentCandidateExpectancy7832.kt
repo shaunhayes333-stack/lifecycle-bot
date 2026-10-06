@@ -3,7 +3,7 @@ package com.lifecyclebot.engine.truth
 /**
  * V5.0.7832 — current-candidate positive-expectancy fallback.
  *
- * Used only when the predictive oracle is demonstrably degenerate AND there
+ * Used when the predictive oracle has no numeric admission authority AND there
  * is no resolved forward/aggregate cohort. Missing history is never silently
  * converted to EV=0 and then used to deny the entire live universe.
  *
@@ -20,6 +20,18 @@ object CurrentCandidateExpectancy7832 {
         val positive: Boolean,
         val reason: String,
     )
+
+    // An advisory verdict cannot acquire a veto simply by exporting its number.
+    // Candidate-specific measured losses still bind, even before oracle proof.
+    fun oracleNumericAuthority7838(
+        available: Boolean, degenerate: Boolean, proven: Boolean, evidencedRefuse: Boolean,
+    ): Boolean = available && !degenerate && (proven || evidencedRefuse)
+
+    // Preserve the structural verdict as well as the arithmetic sign. A strong
+    // score cannot turn an explicit WAIT or weak setup into live permission.
+    fun admissionNetPct7838(estimate: Estimate?): Double? = estimate?.let {
+        if (it.positive && it.netExpectancyPct.isFinite()) it.netExpectancyPct else Double.NaN
+    }
 
     fun estimate(
         score: Int,

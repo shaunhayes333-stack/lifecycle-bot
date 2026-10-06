@@ -854,7 +854,7 @@ object PredictiveEntryOracle6915 {
                 laneKey, s, quality.ifBlank { "U" }.take(3),
                 regime.ifBlank { "NORMAL" }, edgePhase.ifBlank { "UNKNOWN" },
             )
-            if (exact.source != "bootstrap" && exact.samples > 0L) {
+            if (com.lifecyclebot.engine.ForwardOutcomeModel.hasTerminalEvidence7838(exact)) {
                 exactForecastHits7260.incrementAndGet()
                 val n = exact.samples.toDouble()
                 cellMean += exact.expectedPnl * n; cellN += n

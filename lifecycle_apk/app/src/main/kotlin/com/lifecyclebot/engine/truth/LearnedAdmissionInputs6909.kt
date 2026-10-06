@@ -138,9 +138,9 @@ object LearnedAdmissionInputs6909 {
         // tests in §2/§2b would have survived it, which is precisely why this
         // class of mismatch survives review.
         val expectedPnlFraction = try {
-            val raw = fwd?.expectedPnl ?: 0.0
-            if (raw.isFinite()) raw / 100.0 else 0.0
-        } catch (_: Throwable) { 0.0 }
+            val raw = if (com.lifecyclebot.engine.ForwardOutcomeModel.hasTerminalEvidence7838(fwd)) fwd!!.expectedPnl else Double.NaN
+            if (raw.isFinite()) raw / 100.0 else Double.NaN
+        } catch (_: Throwable) { Double.NaN }
 
         val laneSnap = try {
             com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
@@ -355,7 +355,8 @@ object LearnedAdmissionInputs6909 {
         val cohortSample = if (useAgg6911) {
             agg6911!!.samples.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
         } else {
-            (fwd?.samples ?: 0L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+            (if (com.lifecyclebot.engine.ForwardOutcomeModel.hasTerminalEvidence7838(fwd)) fwd!!.samples else 0L)
+                .coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
         }
         // V5.0.7207 — the lane's real terminal count, taken from the SAME
         // laneSnap already resolved at the top of this function for laneWrPct.
@@ -376,19 +377,24 @@ object LearnedAdmissionInputs6909 {
             try { OracleTradeHistory7287.lane(laneKey)?.n ?: 0 } catch (_: Throwable) { 0 },
         )
 
-        // V5.0.7828 — categorical degeneracy also removes numeric EV authority.
-        val oracleUsable7828 = oracle6915 != null && !try {
-            PredictiveEntryOracle6915.isDegenerateNow7120()
-        } catch (_: Throwable) { false }
+        // V5.0.7838 — advisory estimates need proof or candidate-specific loss evidence
+        // before their numbers can authorize or veto live admission.
+        val oracleDegenerate7838 = try { PredictiveEntryOracle6915.isDegenerateNow7120() } catch (_: Throwable) { true }
+        val oracleUsable7828 = CurrentCandidateExpectancy7832.oracleNumericAuthority7838(
+            available = oracle6915 != null,
+            degenerate = oracleDegenerate7838,
+            proven = try { OracleEdgeProof7263.tier() == OracleEdgeProof7263.Tier.PROVEN } catch (_: Throwable) { false },
+            evidencedRefuse = oracle6915?.reason == "NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915",
+        )
         if (oracle6915 != null && !oracleUsable7828) {
-            try { PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_NUMERIC_EV_BYPASSED_7828") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc(if (oracleDegenerate7838) "ORACLE_DEGENERATE_NUMERIC_EV_BYPASSED_7828" else "ORACLE_ADVISORY_NUMERIC_EV_BYPASSED_7838") } catch (_: Throwable) {}
         }
 
         // V5.0.7832 — non-binding must really mean non-binding. When both the
         // oracle and historical forward model cannot discriminate, require
         // positive expectancy from the current setup rather than fabricating 0.
         val unresolvedHistorical7832 = !useAgg6911 &&
-            (fwd == null || fwd.source == "bootstrap" || fwd.samples <= 0L)
+            !com.lifecyclebot.engine.ForwardOutcomeModel.hasTerminalEvidence7838(fwd)
         val currentCandidate7832 = if (!oracleUsable7828 && unresolvedHistorical7832) try {
             CurrentCandidateExpectancy7832.estimate(
                 score = entryScore, candidateConfidence = candidateConfidenceHint,
@@ -397,13 +403,27 @@ object LearnedAdmissionInputs6909 {
             )
         } catch (_: Throwable) { null } else null
         if (currentCandidate7832 != null) try {
-            PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_CURRENT_CANDIDATE_FALLBACK_7832")
+            PipelineHealthCollector.labelInc(if (oracleDegenerate7838) "ORACLE_DEGENERATE_CURRENT_CANDIDATE_FALLBACK_7832" else "ORACLE_ADVISORY_CURRENT_CANDIDATE_FALLBACK_7838")
             PipelineHealthCollector.labelInc(if (currentCandidate7832.positive)
                 "ORACLE_DEGENERATE_CURRENT_CANDIDATE_POSITIVE_7832" else "ORACLE_DEGENERATE_CURRENT_CANDIDATE_REFUSED_7832")
-            ForensicLogger.lifecycle("ORACLE_DEGENERATE_CURRENT_CANDIDATE_FALLBACK_7832",
+            ForensicLogger.lifecycle("ADMISSION_CURRENT_CANDIDATE_FALLBACK_7838",
                 "lane=$laneKey mint=${mint.take(10)} score=$entryScore pWin=${"%.3f".format(currentCandidate7832.pWin)} " +
                     "gross=${"%+.2f".format(currentCandidate7832.grossEdgePct)}% cost=${"%.2f".format(currentCandidate7832.executionCostPct)}% " +
                     "net=${"%+.2f".format(currentCandidate7832.netExpectancyPct)}% reason=${currentCandidate7832.reason}")
+        } catch (_: Throwable) {}
+
+        try {
+            val evSource7838 = when {
+                oracleUsable7828 -> "ORACLE_EVIDENCED"
+                currentCandidate7832 != null -> "CURRENT_SETUP"
+                useAgg6911 -> "COHORT"
+                !unresolvedHistorical7832 -> "FORWARD"
+                else -> "UNAVAILABLE"
+            }
+            PipelineHealthCollector.labelInc("ADMISSION_EV_SOURCE_7838_$evSource7838")
+            ForensicLogger.lifecycle("ADMISSION_EV_SOURCE_7838",
+                "lane=$laneKey mint=${mint.take(10)} source=$evSource7838 oracleEV=${oracle6915?.expectancyPct} " +
+                    "cohortN=$cohortSample currentEV=${CurrentCandidateExpectancy7832.admissionNetPct7838(currentCandidate7832)}")
         } catch (_: Throwable) {}
 
         return LearnedAdmissionAuthority6846.Inputs(
@@ -420,12 +440,12 @@ object LearnedAdmissionInputs6909 {
                 ?: if (useAgg6911) agg6911!!.pWin.coerceIn(0.0, 1.0)
                 else (fwd?.pWin ?: 0.0).coerceIn(0.0, 1.0),
             expectedPnl = (if (oracleUsable7828) oracle6915!!.expectancyPct.takeIf { it.isFinite() }?.div(100.0) else null)
-                ?: currentCandidate7832?.netExpectancyPct?.div(100.0)
+                ?: CurrentCandidateExpectancy7832.admissionNetPct7838(currentCandidate7832)?.div(100.0)
                 ?: if (useAgg6911) (agg6911!!.expectedPnlPct / 100.0)
                 else expectedPnlFraction,
             // Maturity now means "the hierarchy carries enough weight", not
             // "this exact cell has 8 closes". No threshold in 6846 changed.
-            cohortSample = maxOf(cohortSample, oracleEffectiveN6915),
+            cohortSample = maxOf(cohortSample, if (oracleUsable7828) oracleEffectiveN6915 else 0),
             // V5.0.7154 — carry the TRUE terminal count alongside the
             // weight-inflated one. The line above is deliberate and stays,
             // but it made the two indistinguishable downstream, and the

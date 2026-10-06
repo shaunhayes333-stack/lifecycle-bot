@@ -214,7 +214,12 @@ object CanonicalEntryAuthority6551 {
         } catch (_: Throwable) { false }
         val oracleHardSafety7287 = oracle7259?.hardSafety7287 == true
         val oracleDegenerate7828 = try { PredictiveEntryOracle6915.isDegenerateNow7120() } catch (_: Throwable) { false }
-        val forwardFallback7828 = if (oracleDegenerate7828) try {
+        val oracleNumeric7838 = CurrentCandidateExpectancy7832.oracleNumericAuthority7838(
+            available = oracle7259 != null, degenerate = oracleDegenerate7828,
+            proven = oracleProven7263,
+            evidencedRefuse = oracle7259?.reason == "NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915",
+        )
+        val forwardFallback7828 = if (!oracleNumeric7838) try {
             com.lifecyclebot.engine.ForwardOutcomeModel.forecast(
                 candidate.specialist.ifBlank { candidate.assetClass.tag },
                 candidate.score.toInt().coerceIn(0, 100),
@@ -223,8 +228,8 @@ object CanonicalEntryAuthority6551 {
                 candidate.evidence["edgePhase"].orEmpty().ifBlank { "UNKNOWN" },
             )
         } catch (_: Throwable) { null } else null
-        val forwardResolved7828 = forwardFallback7828 != null && forwardFallback7828.source != "bootstrap" && forwardFallback7828.samples > 0L
-        val currentCandidate7832 = if (oracleDegenerate7828 && !forwardResolved7828) try {
+        val forwardResolved7828 = com.lifecyclebot.engine.ForwardOutcomeModel.hasTerminalEvidence7838(forwardFallback7828)
+        val currentCandidate7832 = if (!oracleNumeric7838 && !forwardResolved7828) try {
             CurrentCandidateExpectancy7832.estimate(
                 score = candidate.score.toInt().coerceIn(0, 100), candidateConfidence = candidateConfidence7260,
                 quality = candidate.evidence["setupQuality"].orEmpty(), edgePhase = candidate.evidence["edgePhase"].orEmpty(),
@@ -238,9 +243,9 @@ object CanonicalEntryAuthority6551 {
                 "CROSS_ASSET_CURRENT_CANDIDATE_EV_POSITIVE_7832" else "CROSS_ASSET_CURRENT_CANDIDATE_EV_REFUSED_7832")
         } catch (_: Throwable) {}
         val liveExpectedPct7828 = when {
-            !oracleDegenerate7828 -> oracle7259?.expectancyPct
+            oracleNumeric7838 -> oracle7259?.expectancyPct
             forwardResolved7828 -> forwardFallback7828?.expectedPnl
-            else -> currentCandidate7832?.netExpectancyPct
+            else -> CurrentCandidateExpectancy7832.admissionNetPct7838(currentCandidate7832)
         }
         val livePositiveEv7828 = liveExpectedPct7828?.isFinite() == true && liveExpectedPct7828 > 0.0
         if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828) {
