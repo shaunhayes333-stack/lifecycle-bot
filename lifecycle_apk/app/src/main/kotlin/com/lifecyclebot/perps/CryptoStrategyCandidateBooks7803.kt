@@ -124,6 +124,44 @@ internal object CryptoStrategyCandidateBooks7803 {
 
     internal fun bestReady(assetKey:String,candidateVersion:Long): Entry? = readyFor(assetKey,candidateVersion).firstOrNull()
 
+    /**
+     * V5.0.7823 — resident discovery must be consumed by CryptoAltTrader, not
+     * merely displayed in status. Return one deduped priority row per asset
+     * across every crypto-native strategy + desk overlay.
+     *
+     * READY/QUALIFIED outrank WATCHING, then conviction and recency decide.
+     * This is scan scheduling only; it grants no FDG/route/execution authority.
+     */
+    internal fun priorityAssets7823(limit:Int = 512): List<Entry> {
+        val now = System.currentTimeMillis()
+        val all = books.keys.flatMap { strategy ->
+            prune(strategy, now)
+            books[strategy]?.values?.toList().orEmpty()
+        }
+        fun stateRank7823(s:State):Int = when(s) {
+            State.READY -> 3
+            State.QUALIFIED -> 2
+            State.WATCHING -> 1
+            State.LOST, State.EXPIRED -> 0
+        }
+        return all
+            .filter { stateRank7823(it.state) > 0 }
+            .groupBy { it.assetKey }
+            .mapNotNull { (_, rows) ->
+                rows.maxWithOrNull(
+                    compareBy<Entry> { stateRank7823(it.state) }
+                        .thenBy { it.conviction }
+                        .thenBy { it.updatedAtMs }
+                )
+            }
+            .sortedWith(
+                compareByDescending<Entry> { stateRank7823(it.state) }
+                    .thenByDescending { it.conviction }
+                    .thenByDescending { it.updatedAtMs }
+            )
+            .take(limit.coerceAtLeast(1))
+    }
+
     internal fun statusLine(): String = books.keys.sorted().joinToString(" · ") { s ->
         prune(s); val rows=books[s]?.values.orEmpty()
         "$s[resident=${rows.size} q=${rows.count{it.state==State.QUALIFIED}} ready=${rows.count{it.state==State.READY}}]"

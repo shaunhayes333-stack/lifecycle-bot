@@ -274,6 +274,12 @@ object CryptoAltTrader {
     private var monitorJob   : Job? = null
     private var dynScanJob   : Job? = null
     private var dynBatchIdx  = 0       // rotating batch cursor for dynamic token scan
+    // V5.0.7823 — scan fairness for the resident Crypto Universe. The hunter
+    // already writes strategy books; this remembers when the trader actually
+    // consumed each identity so four high-score names cannot permanently sit
+    // at the front of the resident queue.
+    private val cryptoResidentLastScanAt7823 = ConcurrentHashMap<String, Long>()
+    private const val CRYPTO_RESIDENT_SCAN_QUOTA_7823 = 64
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private const val HELD_MARK_REFRESH_COOLDOWN_MS_7251 = 15_000L
     private val heldMarkRefreshAt7251 = ConcurrentHashMap<String, Long>()
@@ -1212,19 +1218,50 @@ object CryptoAltTrader {
             return@withContext
         }
         ensureActive()
-        // V5.0.6544 — blended fresh/trending/changed/established queue.
-        // Static membership is a weak tie-breaker, never a blanket priority.
-        val allTokens = DynamicAltTokenRegistry.getBlendedOpportunityQueue6544()
-        if (allTokens.isEmpty()) return@withContext
-
-        val totalBatches = maxOf(1, (allTokens.size + DYN_BATCH_SIZE - 1) / DYN_BATCH_SIZE)
-        val batchIdx     = dynBatchIdx % totalBatches
-        val batchStart   = batchIdx * DYN_BATCH_SIZE
-        val batchEnd     = minOf(batchStart + DYN_BATCH_SIZE, allTokens.size)
+        // V5.0.7823 — consume the resident hunter/strategy books explicitly.
+        // Before this build ResidentHunterWorker7807 handed candidates into
+        // CryptoStrategyCandidateBooks7803, but DynScan ignored those books and
+        // rebuilt its scan solely from the generic registry ranking. The hunter
+        // therefore had no scheduling authority and the same high-score assets
+        // could dominate repeated generations.
+        //
+        // Keep two bounded channels:
+        //   1) resident specialist prey (max 64/200), least-recently-consumed first;
+        //   2) the rotating whole-universe queue for discovery breadth.
+        // Neither channel authorizes a buy; all existing CryptoBrain, FDG,
+        // sizing, route and finality gates remain downstream.
+        val universe7823 = DynamicAltTokenRegistry.getBlendedOpportunityQueue6544()
+        if (universe7823.isEmpty()) return@withContext
+        val residentEntries7823 = try {
+            CryptoStrategyCandidateBooks7803.priorityAssets7823(1024)
+        } catch (_: Throwable) { emptyList() }
+        val residentKeys7823 = residentEntries7823.map { it.assetKey }.toSet()
+        val residentTokens7823 = residentEntries7823
+            .mapNotNull { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it.assetKey) }
+            .distinctBy { it.canonicalIdentity6544 }
+            .sortedBy { cryptoResidentLastScanAt7823[it.canonicalIdentity6544] ?: 0L }
+        val residentSelected7823 = residentTokens7823.take(
+            minOf(CRYPTO_RESIDENT_SCAN_QUOTA_7823, DYN_BATCH_SIZE)
+        )
+        val genericUniverse7823 = universe7823.filterNot { it.canonicalIdentity6544 in residentKeys7823 }
+        val genericQuota7823 = (DYN_BATCH_SIZE - residentSelected7823.size).coerceAtLeast(1)
+        val totalBatches = maxOf(1, (genericUniverse7823.size + genericQuota7823 - 1) / genericQuota7823)
+        val batchIdx = dynBatchIdx % totalBatches
+        val batchStart = batchIdx * genericQuota7823
+        val batchEnd = minOf(batchStart + genericQuota7823, genericUniverse7823.size)
         dynBatchIdx++
 
-        val batch = allTokens.subList(batchStart, batchEnd)
-        ErrorLogger.debug(TAG, "🪙⚡ DynScan batch ${batchIdx + 1}/$totalBatches | size=${batch.size} | universe=${allTokens.size}")
+        val genericBatch7823 = if (batchStart < batchEnd) genericUniverse7823.subList(batchStart, batchEnd) else emptyList()
+        val batch = (residentSelected7823 + genericBatch7823)
+            .distinctBy { it.canonicalIdentity6544 }
+            .take(DYN_BATCH_SIZE)
+        try {
+            if (residentSelected7823.isNotEmpty()) {
+                PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_SCAN_CONSUMED_7823")
+            }
+            PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_SCAN_SLOT_7823", residentSelected7823.size.toLong())
+        } catch (_: Throwable) {}
+        ErrorLogger.debug(TAG, "🪙⚡ DynScan batch ${batchIdx + 1}/$totalBatches | size=${batch.size} resident=${residentSelected7823.size} generic=${genericBatch7823.size} | universe=${universe7823.size}")
 
         var scanned = 0
         var signals = 0  // legacy meme-specialist signals (diagnostic only)
@@ -1233,6 +1270,13 @@ object CryptoAltTrader {
 
         for (tok in batch) {
             ensureActive()
+            // V5.0.7823 — scheduling fairness is based on actual consumption,
+            // not discovery. Bound the map without affecting economic state.
+            cryptoResidentLastScanAt7823[tok.canonicalIdentity6544] = System.currentTimeMillis()
+            if (cryptoResidentLastScanAt7823.size > 16_384) {
+                val cutoff7823 = System.currentTimeMillis() - 24L * 60L * 60_000L
+                cryptoResidentLastScanAt7823.entries.removeIf { it.value < cutoff7823 }
+            }
             runtimeDisabledReason()?.let { reason ->
                 ErrorLogger.info(TAG, "CRYPTO_ALT_DYNSCAN_ABORTED reason=$reason scanned=$scanned")
                 return@withContext
