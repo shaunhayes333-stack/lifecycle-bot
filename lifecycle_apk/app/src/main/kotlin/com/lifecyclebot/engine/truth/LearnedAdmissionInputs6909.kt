@@ -384,6 +384,28 @@ object LearnedAdmissionInputs6909 {
             try { PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_NUMERIC_EV_BYPASSED_7828") } catch (_: Throwable) {}
         }
 
+        // V5.0.7832 — non-binding must really mean non-binding. When both the
+        // oracle and historical forward model cannot discriminate, require
+        // positive expectancy from the current setup rather than fabricating 0.
+        val unresolvedHistorical7832 = !useAgg6911 &&
+            (fwd == null || fwd.source == "bootstrap" || fwd.samples <= 0L)
+        val currentCandidate7832 = if (!oracleUsable7828 && unresolvedHistorical7832) try {
+            CurrentCandidateExpectancy7832.estimate(
+                score = entryScore, candidateConfidence = candidateConfidenceHint,
+                quality = qualityHint, edgePhase = edgePhaseHint, oraclePWin = oracle6915?.pWin,
+                expectedSlipPct = com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(liquidityUsdHint6917),
+            )
+        } catch (_: Throwable) { null } else null
+        if (currentCandidate7832 != null) try {
+            PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_CURRENT_CANDIDATE_FALLBACK_7832")
+            PipelineHealthCollector.labelInc(if (currentCandidate7832.positive)
+                "ORACLE_DEGENERATE_CURRENT_CANDIDATE_POSITIVE_7832" else "ORACLE_DEGENERATE_CURRENT_CANDIDATE_REFUSED_7832")
+            ForensicLogger.lifecycle("ORACLE_DEGENERATE_CURRENT_CANDIDATE_FALLBACK_7832",
+                "lane=$laneKey mint=${mint.take(10)} score=$entryScore pWin=${"%.3f".format(currentCandidate7832.pWin)} " +
+                    "gross=${"%+.2f".format(currentCandidate7832.grossEdgePct)}% cost=${"%.2f".format(currentCandidate7832.executionCostPct)}% " +
+                    "net=${"%+.2f".format(currentCandidate7832.netExpectancyPct)}% reason=${currentCandidate7832.reason}")
+        } catch (_: Throwable) {}
+
         return LearnedAdmissionAuthority6846.Inputs(
             lane = laneKey,
             mint = mint,
@@ -394,9 +416,11 @@ object LearnedAdmissionInputs6909 {
             // single cell. It is always present once anything has closed, which
             // is what ends the "pWin=0.65 EV=0.0 hardcoded prior" state.
             livePWin = (if (oracleUsable7828) oracle6915!!.pWin.takeIf { it in 0.0..1.0 } else null)
+                ?: currentCandidate7832?.pWin
                 ?: if (useAgg6911) agg6911!!.pWin.coerceIn(0.0, 1.0)
                 else (fwd?.pWin ?: 0.0).coerceIn(0.0, 1.0),
             expectedPnl = (if (oracleUsable7828) oracle6915!!.expectancyPct.takeIf { it.isFinite() }?.div(100.0) else null)
+                ?: currentCandidate7832?.netExpectancyPct?.div(100.0)
                 ?: if (useAgg6911) (agg6911!!.expectedPnlPct / 100.0)
                 else expectedPnlFraction,
             // Maturity now means "the hierarchy carries enough weight", not

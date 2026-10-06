@@ -55,6 +55,7 @@ object GroqTokenScout7830 {
     const val PRIMARY_MODEL_7830 = "groq/compound"
     const val FALLBACK_MODEL_7830 = "groq/compound-mini"
     private const val GROQ_URL_7830 = "https://api.groq.com/openai/v1/chat/completions"
+    private const val GROQ_MODELS_URL_7832 = "https://api.groq.com/openai/v1/models"
     /** ApiHealthMonitor / ApiBackoff key — separate from the "groq" text ladder's. */
     private const val HEALTH_KEY_7830 = "groq_compound"
 
@@ -113,7 +114,8 @@ object GroqTokenScout7830 {
 
     @Volatile private var job: Job? = null
     private val inFlight = AtomicBoolean(false)
-    @Volatile private var model = PRIMARY_MODEL_7830
+    // V5.0.7832 — discover an actually accessible search model before use.
+    @Volatile private var model = ""
     @Volatile private var backoffUntilMs = 0L
     @Volatile private var rateLimitStreak = 0
     @Volatile private var dayKey = 0L
@@ -284,9 +286,54 @@ Return exactly:
 At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the reason with "FALLOUT:" (they are re-assessed by the bot's own safety checks).
 """.trimIndent()
 
+    /** Pure selector: only catalogue-proven compound/search models qualify. */
+    internal fun selectCompoundModel7832(ids: List<String>): String? {
+        val compounds = ids.map { it.trim() }.filter { it.isNotBlank() && it.contains("compound", ignoreCase = true) }.distinct()
+        return compounds.minWithOrNull(compareBy<String> {
+            when {
+                it.equals(PRIMARY_MODEL_7830, true) -> 0
+                it.equals("compound", true) || it.endsWith("/compound", true) -> 1
+                it.contains("compound-mini", true) -> 2
+                else -> 3
+            }
+        }.thenBy { it.length })
+    }
+
+    private fun discoverCompoundModel7832(key: String): String? {
+        val req = Request.Builder().url(GROQ_MODELS_URL_7832).get().header("Authorization", "Bearer $key").build()
+        return try {
+            http.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    lastError = "model_catalog_http_${resp.code}"
+                    try { PipelineHealthCollector.labelInc("LLM_SCOUT_MODEL_CATALOG_HTTP_7832") } catch (_: Throwable) {}
+                    return@use null
+                }
+                val arr = try { JSONObject(body).optJSONArray("data") } catch (_: Throwable) { null }
+                val ids = ArrayList<String>()
+                if (arr != null) for (i in 0 until arr.length()) arr.optJSONObject(i)?.optString("id", "")?.takeIf { it.isNotBlank() }?.let(ids::add)
+                val chosen = selectCompoundModel7832(ids)
+                if (chosen == null) {
+                    lastError = "no_accessible_compound_model"
+                    backoffUntilMs = System.currentTimeMillis() + MAX_BACKOFF_MS_7830
+                    try { PipelineHealthCollector.labelInc("LLM_SCOUT_NO_COMPOUND_MODEL_7832") } catch (_: Throwable) {}
+                } else {
+                    model = chosen
+                    lastError = ""
+                    try { PipelineHealthCollector.labelInc("LLM_SCOUT_COMPOUND_MODEL_RESOLVED_7832") } catch (_: Throwable) {}
+                }
+                chosen
+            }
+        } catch (t: Throwable) {
+            lastError = "model_catalog_${t.javaClass.simpleName}"
+            try { PipelineHealthCollector.labelInc("LLM_SCOUT_MODEL_CATALOG_ERROR_7832") } catch (_: Throwable) {}
+            null
+        }
+    }
+
     /** One compound call. Returns the message content, or null (counters / backoff already updated). */
     private fun callCompound7830(key: String): String? {
-        val useModel = model
+        val useModel = model.takeIf { it.isNotBlank() } ?: discoverCompoundModel7832(key) ?: return null
         val payload = JSONObject()
             .put("model", useModel)
             .put("temperature", 0.2)
@@ -346,14 +393,13 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
     private fun onHttpFailure7830(code: Int, retryAfterSec: Long?, err: String, usedModel: String) {
         val now = System.currentTimeMillis()
         lastError = "http_$code:${err.replace(Regex("\\s+"), " ").take(80)}"
-        val other = if (usedModel == PRIMARY_MODEL_7830) FALLBACK_MODEL_7830 else PRIMARY_MODEL_7830
         when (code) {
             429 -> {
                 rateLimited.incrementAndGet()
                 rateLimitStreak += 1
                 backoffUntilMs = now + backoffMs7830(rateLimitStreak, retryAfterSec)
-                // Compound and compound-mini carry separate per-model limits.
-                model = other
+                // Re-resolve from the account catalogue on the next pass.
+                model = ""
                 try { PipelineHealthCollector.labelInc("LLM_SCOUT_RATE_LIMITED_7830") } catch (_: Throwable) {}
             }
             401, 403 -> {
@@ -363,9 +409,10 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
             }
             400, 404 -> {
                 httpErrors.incrementAndGet()
-                model = other
+                model = ""
                 backoffUntilMs = now + CADENCE_MS_7830
                 try { PipelineHealthCollector.labelInc("LLM_SCOUT_HTTP_${code}_7830") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("LLM_SCOUT_MODEL_INVALIDATED_7832") } catch (_: Throwable) {}
             }
             else -> {
                 httpErrors.incrementAndGet()
@@ -503,7 +550,7 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
         val now = System.currentTimeMillis()
         val age = if (lastRunAtMs > 0L) "${(now - lastRunAtMs) / 1000}s" else "never"
         val bo = if (backoffUntilMs > now) "${(backoffUntilMs - now) / 1000}s" else "0"
-        return "LLM_SCOUT_7830 running=${isRunning()} model=$model runs=${runs.get()} calls=${calls.get()} " +
+        return "LLM_SCOUT_7830 running=${isRunning()} model=${model.ifBlank { "DISCOVERING" }} runs=${runs.get()} calls=${calls.get()} " +
             "today=$callsToday/$MAX_CALLS_PER_DAY_7830 okCalls=${okCalls.get()} rateLimited=${rateLimited.get()} " +
             "httpErr=${httpErrors.get()} parseFail=${parseFailures.get()} searches=${searchesUsed.get()} " +
             "candidatesReturned=${candidatesReturned.get()} verified=${verified.get()} unverified=${unverified.get()} " +

@@ -671,8 +671,12 @@ object PipelineHealthCollector {
             "MEME_LIVE_EXEC_ENTRY" -> execLiveAttempt.incrementAndGet()
             // V5.0.7371 — each landing emits up to four of these events; count one per
             // mint per two minutes (5.0.7368 showed SELL ok=15 for 3 sells, BUY ok=8 for 4).
-            "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" ->
+            "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" ->
                 if (firstOkForMint7371(execOkSeenBuy7371, fields)) execLiveBuyOk.incrementAndGet()
+            // V5.0.7832 — wallet reconciliation proves inventory, not that this
+            // runtime executed a buy. Keep it out of current-session BUY_OK.
+            "LIVE_POSITION_CONFIRMED_FROM_WALLET" ->
+                bump(labelCounts, "LIVE_WALLET_RECONCILED_NOT_EXEC_BUY_OK_7832")
             "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED", "SELL_SIG_CONFIRMED" ->
                 if (firstOkForMint7371(execOkSeenSell7371, fields)) execLiveSellOk.incrementAndGet()
             "SELL_FINALITY_PENDING_RETRY", "SELL_VERIFY_INCONCLUSIVE_PENDING" -> execLiveSellPendingFinality.incrementAndGet()

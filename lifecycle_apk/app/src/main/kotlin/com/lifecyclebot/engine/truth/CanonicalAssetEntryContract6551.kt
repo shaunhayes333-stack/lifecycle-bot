@@ -220,7 +220,25 @@ object CanonicalEntryAuthority6551 {
                 candidate.evidence["edgePhase"].orEmpty().ifBlank { "UNKNOWN" },
             )
         } catch (_: Throwable) { null } else null
-        val liveExpectedPct7828 = if (!oracleDegenerate7828) oracle7259?.expectancyPct else forwardFallback7828?.expectedPnl
+        val forwardResolved7828 = forwardFallback7828 != null && forwardFallback7828.source != "bootstrap" && forwardFallback7828.samples > 0L
+        val currentCandidate7832 = if (oracleDegenerate7828 && !forwardResolved7828) try {
+            CurrentCandidateExpectancy7832.estimate(
+                score = candidate.score.toInt().coerceIn(0, 100), candidateConfidence = candidateConfidence7260,
+                quality = candidate.evidence["setupQuality"].orEmpty(), edgePhase = candidate.evidence["edgePhase"].orEmpty(),
+                oraclePWin = oracle7259?.pWin,
+                expectedSlipPct = com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(candidate.liquidityUsd),
+            )
+        } catch (_: Throwable) { null } else null
+        if (currentCandidate7832 != null) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_CURRENT_CANDIDATE_EV_FALLBACK_7832")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (currentCandidate7832.positive)
+                "CROSS_ASSET_CURRENT_CANDIDATE_EV_POSITIVE_7832" else "CROSS_ASSET_CURRENT_CANDIDATE_EV_REFUSED_7832")
+        } catch (_: Throwable) {}
+        val liveExpectedPct7828 = when {
+            !oracleDegenerate7828 -> oracle7259?.expectancyPct
+            forwardResolved7828 -> forwardFallback7828?.expectedPnl
+            else -> currentCandidate7832?.netExpectancyPct
+        }
         val livePositiveEv7828 = liveExpectedPct7828?.isFinite() == true && liveExpectedPct7828 > 0.0
         if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828) {
             try {

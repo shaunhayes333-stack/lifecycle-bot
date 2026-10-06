@@ -86,6 +86,11 @@ Here is what I found:
         assertTrue(GroqTokenScout7830.CALL_TIMEOUT_MS_7830 <= 45_000L)
         assertEquals("groq/compound", GroqTokenScout7830.PRIMARY_MODEL_7830)
         assertEquals("groq/compound-mini", GroqTokenScout7830.FALLBACK_MODEL_7830)
+        assertEquals("account/compound-live", GroqTokenScout7830.selectCompoundModel7832(
+            listOf("llama-3.3-70b-versatile", "account/compound-live", "account/compound-mini")
+        ))
+        assertNull("plain text models must never impersonate web search",
+            GroqTokenScout7830.selectCompoundModel7832(listOf("llama-3.3-70b-versatile", "qwen/qwen3-32b")))
         val w = src("engine/market/GroqTokenScout7830.kt")
         assertTrue(w.contains("inFlight.compareAndSet(false, true)"))
         assertTrue(w.contains("withTimeoutOrNull(EMIT_BUDGET_MS_7830) { emitter(ready) }"))
