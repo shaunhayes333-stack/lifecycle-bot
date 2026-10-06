@@ -39,7 +39,7 @@ class Aate7838AdmissionEvidenceTest {
         val lane = "LABEL7838"
         repeat(30) { ForwardOutcomeModel.recordLabel7734(lane, 85, "A", "NORMAL", "EXPANSION", -20.0) }
         val forecast = ForwardOutcomeModel.forecast(lane, 85, "A", "NORMAL", "EXPANSION")
-        assertTrue(forecast.source.endsWith("_label_prior"))
+        assertEquals("fine_label_prior_assessed6991", forecast.source)
         assertFalse(ForwardOutcomeModel.hasTerminalEvidence7838(forecast))
         assertEquals(0L, ForwardOutcomeModel.cohortEvidence6911(lane, 85).samples)
         val inputs = LearnedAdmissionInputs6909.build(
@@ -52,6 +52,10 @@ class Aate7838AdmissionEvidenceTest {
         assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, ExecutableEntryAuthority6450.gate(inputs).verdict)
         assertTrue(ForwardOutcomeModel.hasTerminalEvidence7838(forecast.copy(source = "fine")))
         assertTrue(ForwardOutcomeModel.hasTerminalEvidence7838(forecast.copy(source = "fine_paper_prior")))
+        assertTrue(ForwardOutcomeModel.hasTerminalEvidence7838(forecast.copy(source = "fine_paper_prior_assessed6991")))
+        for (source in listOf("fine_label_prior", "coarse_label_prior", "coarse_label_prior_assessed6991", "unknown")) {
+            assertFalse(ForwardOutcomeModel.hasTerminalEvidence7838(forecast.copy(source = source)))
+        }
     }
 
     @Test fun current_positive_setup_reaches_real_learned_gate_without_history() {
@@ -87,5 +91,16 @@ class Aate7838AdmissionEvidenceTest {
         assertNull(CurrentCandidateExpectancy7832.admissionNetPct7838(null))
         assertFalse(CurrentCandidateExpectancy7832.admissionNetPct7838(
             costly.copy(positive = true, netExpectancyPct = Double.NaN))!!.isFinite())
+    }
+
+    @Test fun unresolved_carry_is_not_presented_as_managed_after_settling() {
+        val panel = com.lifecyclebot.engine.truth.OpenPositionPanel7807
+        for (basis in listOf(
+            com.lifecyclebot.engine.truth.OpenPositionPanel7807.BasisState7807.BASIS_UNCERTAIN,
+            com.lifecyclebot.engine.truth.OpenPositionPanel7807.BasisState7807.QUARANTINED_ACCOUNTING,
+        )) {
+            assertEquals("BASIS REPAIR NEEDED", panel.managementState7807(false, 1L, 100_000L, basis))
+            assertEquals("VERIFYING FILL", panel.managementState7807(true, 1L, 100_000L, basis))
+        }
     }
 }

@@ -66,8 +66,12 @@ object OpenPositionPanel7807 {
         return if (ageSecs >= STALE_MARK_SECS_7807) "mark STALE ${ageSecs}s" else "mark ${ageSecs}s"
     }
 
-    fun managementState7807(pendingVerify: Boolean, entryTimeMs: Long, nowMs: Long): String = when {
+    fun managementState7807(
+        pendingVerify: Boolean, entryTimeMs: Long, nowMs: Long,
+        basis: BasisState7807 = BasisState7807.VERIFIED_BASIS,
+    ): String = when {
         pendingVerify -> "VERIFYING FILL"
+        basis == BasisState7807.BASIS_UNCERTAIN || basis == BasisState7807.QUARANTINED_ACCOUNTING -> "BASIS REPAIR NEEDED"
         entryTimeMs > 0L && nowMs - entryTimeMs in 0L..SETTLE_MS_7807 -> "SETTLING"
         else -> "MANAGED"
     }

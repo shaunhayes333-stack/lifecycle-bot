@@ -6421,7 +6421,7 @@ for legal compliance.
                 text = com.lifecyclebot.engine.truth.OpenPositionPanel7807.statusLine7807(
                     pos.tradingMode, basis7807,
                     com.lifecyclebot.engine.truth.OpenPositionPanel7807.managementState7807(
-                        pos.pendingVerify, pos.entryTime, System.currentTimeMillis(),
+                        pos.pendingVerify, pos.entryTime, System.currentTimeMillis(), basis7807,
                     ),
                 )
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity

@@ -406,8 +406,10 @@ object ForwardOutcomeModel {
 
     /** A label forecast may shape a prior but may not impersonate terminal evidence. */
     fun hasTerminalEvidence7838(forecast: Forecast?): Boolean = forecast != null &&
-        forecast.samples > 0L && forecast.source != "bootstrap" &&
-        !forecast.source.endsWith("_label_prior")
+        forecast.samples > 0L && forecast.source.removeSuffix("_assessed6991") in setOf(
+            "fine", "coarse", "fine_legacy", "coarse_legacy",
+            "fine_paper_prior", "coarse_paper_prior", "fine_live_prior", "coarse_live_prior",
+        )
 
     /** Predict the outcome distribution for a candidate (no side effects). */
     fun forecast(
