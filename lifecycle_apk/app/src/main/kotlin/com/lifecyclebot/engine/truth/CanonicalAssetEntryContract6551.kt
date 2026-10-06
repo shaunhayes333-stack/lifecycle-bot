@@ -224,8 +224,8 @@ object CanonicalEntryAuthority6551 {
         val livePositiveEv7828 = liveExpectedPct7828?.isFinite() == true && liveExpectedPct7828 > 0.0
         if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828) {
             try {
-                PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
-                if (oracleDegenerate7828) PipelineHealthCollector.labelInc("CROSS_ASSET_DEGENERATE_ORACLE_FWD_FALLBACK_7828")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
+                if (oracleDegenerate7828) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_DEGENERATE_ORACLE_FWD_FALLBACK_7828")
             } catch (_: Throwable) {}
             return blocked(candidate, venue, "LIVE_NON_POSITIVE_EXPECTANCY_7828")
         }
