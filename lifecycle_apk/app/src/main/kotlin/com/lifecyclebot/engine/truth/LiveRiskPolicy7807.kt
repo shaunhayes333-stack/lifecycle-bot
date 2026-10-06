@@ -239,6 +239,51 @@ object LiveRiskPolicy7807 {
         return HARD_PER_TRADE_RISK_CAP_FRAC_7807 + t * (SMALL_ACCOUNT_RISK_CAP_FRAC_7807 - HARD_PER_TRADE_RISK_CAP_FRAC_7807)
     }
 
+    data class RouteAwareSpendCap7842(
+        val maxSpendableSol: Double,
+        val configuredWalletCapSol: Double,
+        val routableMinSol: Double,
+        val tradeableSol: Double,
+        val routeFloorLifted: Boolean,
+    )
+
+    /**
+     * V5.0.7842 — reconcile the normal wallet-share cap with the venue route
+     * floor without globally increasing risk. On small wallets 18% can sit just
+     * below the ~$5 routable minimum (0.0380 vs 0.0414 SOL in the 7840 runtime),
+     * making "wallet can route" and "executor may spend" contradict each other.
+     *
+     * This only lifts the SPEND CEILING to the exact current route minimum when
+     * SmartSizer's own capacity guard says the wallet can carry that minimum.
+     * It grants no admission authority: LiveRiskPolicy.decide still has to prove
+     * stop+cost loss at that minimum is inside the hard per-trade risk budget.
+     */
+    fun routeAwareSpendCap7842(
+        walletSol: Double,
+        solUsd: Double,
+        maxLiveBuySol: Double,
+        walletSharePct: Double,
+    ): RouteAwareSpendCap7842 {
+        val wallet = walletSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val tradeable = (wallet - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
+        val configuredWalletCap = wallet * walletSharePct.coerceIn(0.0, 1.0)
+        val preflight = if (tradeable > 0.0 && solUsd.isFinite() && solUsd > 0.0) try {
+            com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd)
+        } catch (_: Throwable) { null } else null
+        val routableMin = preflight?.routableMinSol?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val routeFloorLifted = preflight != null && !preflight.wouldRefuse &&
+            routableMin > configuredWalletCap + 1e-12 && routableMin <= tradeable + 1e-12
+        val allowedWalletCap = maxOf(configuredWalletCap, if (routeFloorLifted) routableMin else 0.0)
+        val absoluteMax = maxLiveBuySol.takeIf { it.isFinite() && it > 0.0 } ?: Double.POSITIVE_INFINITY
+        return RouteAwareSpendCap7842(
+            maxSpendableSol = minOf(tradeable, absoluteMax, allowedWalletCap).coerceAtLeast(0.0),
+            configuredWalletCapSol = configuredWalletCap,
+            routableMinSol = routableMin,
+            tradeableSol = tradeable,
+            routeFloorLifted = routeFloorLifted,
+        )
+    }
+
     fun roundTripCostPct(sizeSol: Double, solUsd: Double, liquidityUsd: Double): Double = try {
         val usd = if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0
         if (usd > 0.0) FieldManual7715.roundTripCostPct7766(sizeSol, usd, liquidityUsd)

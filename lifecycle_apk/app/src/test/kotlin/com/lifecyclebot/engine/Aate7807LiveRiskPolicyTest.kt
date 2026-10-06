@@ -138,6 +138,21 @@ class Aate7807LiveRiskPolicyTest {
 
 
     @Test
+    fun route_floor_can_bridge_18pct_cap_without_raising_global_cap() {
+        val cap = LiveRiskPolicy7807.routeAwareSpendCap7842(
+            walletSol = 0.2113,
+            solUsd = 120.85,
+            maxLiveBuySol = 2.0,
+            walletSharePct = 0.18,
+        )
+        assertEquals(0.2113 * 0.18, cap.configuredWalletCapSol, 1e-9)
+        assertTrue(cap.routableMinSol > cap.configuredWalletCapSol)
+        assertTrue(cap.routeFloorLifted)
+        assertEquals(cap.routableMinSol, cap.maxSpendableSol, 1e-9)
+        assertTrue(cap.maxSpendableSol < 0.2113 * 0.25)
+    }
+
+    @Test
     fun runtime_7840_sub_routable_case_resolves_to_executable_minimum() {
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.02284,

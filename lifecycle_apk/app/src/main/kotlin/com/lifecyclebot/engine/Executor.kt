@@ -19686,17 +19686,23 @@ class Executor(
         val liveCfg = cfg()
         val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(0.0)
         val liveMinExecutableBuySol = if (liveCfg.allowLiveMicroProbe) 0.005 else minNonMicroLiveBuySol
-        val maxSpendableSol = minOf(
-            walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL,
-            liveCfg.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE,
-            walletSol * liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0),
+        val spendCap7842 = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.routeAwareSpendCap7842(
+            walletSol = walletSol,
+            solUsd = WalletManager.lastKnownSolPrice,
+            maxLiveBuySol = liveCfg.maxLiveBuySol,
+            walletSharePct = liveCfg.maxWalletRiskPerTradePct,
         )
-        val currentRoutable7835 = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
-            (walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
-            WalletManager.lastKnownSolPrice,
-        )
+        val maxSpendableSol = spendCap7842.maxSpendableSol
+        if (spendCap7842.routeFloorLifted) try {
+            PipelineHealthCollector.labelInc("EXEC_ROUTE_MIN_BRIDGED_WALLET_CAP_7842")
+            ForensicLogger.lifecycle(
+                "EXEC_ROUTE_MIN_BRIDGED_WALLET_CAP_7842",
+                "mint=${ts.mint.take(10)} configured=${"%.6f".format(spendCap7842.configuredWalletCapSol)} " +
+                    "routeMin=${"%.6f".format(spendCap7842.routableMinSol)} cap=${"%.6f".format(maxSpendableSol)}",
+            )
+        } catch (_: Throwable) {}
         val spendRefusal7835 = SealedExecutionSize7835.boundsRefusal(
-            sol, maxSpendableSol, maxOf(liveMinExecutableBuySol, currentRoutable7835.routableMinSol),
+            sol, maxSpendableSol, maxOf(liveMinExecutableBuySol, spendCap7842.routableMinSol),
         )
         if (spendRefusal7835 != null) {
             emitLiveBuyFail(ts, sol, spendRefusal7835)

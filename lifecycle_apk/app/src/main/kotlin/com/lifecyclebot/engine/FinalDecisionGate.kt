@@ -5912,10 +5912,23 @@ object FinalDecisionGate {
             } else minOf(riskSized, risk.sizeSol)
         }
         if (!riskSized.isFinite() || riskSized <= 0.0) return 0.0
-        val configuredCap = if (config.paperMode) maxOf(cash * 0.12, minimum) else minOf(
-            cash * config.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0),
-            config.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE,
-        )
+        val configuredCap = if (config.paperMode) maxOf(cash * 0.12, minimum) else {
+            val spendCap7842 = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.routeAwareSpendCap7842(
+                walletSol = cash,
+                solUsd = solUsd,
+                maxLiveBuySol = config.maxLiveBuySol,
+                walletSharePct = config.maxWalletRiskPerTradePct,
+            )
+            if (spendCap7842.routeFloorLifted) try {
+                PipelineHealthCollector.labelInc("FDG_ROUTE_MIN_BRIDGED_WALLET_CAP_7842")
+                ForensicLogger.lifecycle(
+                    "FDG_ROUTE_MIN_BRIDGED_WALLET_CAP_7842",
+                    "mint=${ts.mint.take(10)} lane=$lane configured=${"%.6f".format(spendCap7842.configuredWalletCapSol)} " +
+                        "routeMin=${"%.6f".format(spendCap7842.routableMinSol)} cap=${"%.6f".format(spendCap7842.maxSpendableSol)}",
+                )
+            } catch (_: Throwable) {}
+            spendCap7842.maxSpendableSol
+        }
         val resolution = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
             requestedSol = riskSized, laneName = lane, walletSol = cash, paperMode = config.paperMode,
             laneRiskCapSol = minOf(configuredCap, riskSized), laneMinExecutableSol = minimum,
