@@ -23991,7 +23991,7 @@ class Executor(
                 PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
             }
             onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
-            return paperSell(ts, reason, tradeId)
+            return paperSellWithFreshness7836(ts, reason, tradeId, freshnessChecked7836 = true)
         } else if (wallet == null) {
             ErrorLogger.error("Executor", "🚨 LIVE MODE SELL BLOCKED: Wallet is NULL!")
             onLog("🚨 LIVE SELL BLOCKED: ${ts.symbol} | No wallet - position NOT cleared", tradeId.mint)
@@ -24302,7 +24302,15 @@ class Executor(
         return px to label
     }
 
-    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
+    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult =
+        paperSellWithFreshness7836(ts, reason, identity, freshnessChecked7836 = false)
+
+    // Only doSell may pass its already-checked reason. Direct CYCLIC/SNIPER
+    // callers must use the public guarded entrance. Do not evaluate twice:
+    // the bounded untrusted disposition must survive into finality/learning.
+    private fun paperSellWithFreshness7836(
+        ts: TokenState, reason: String, identity: TradeIdentity?, freshnessChecked7836: Boolean,
+    ): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         fun reconcileCanonicalClosed6509(): Boolean {
             if (!PaperTerminalProjectionConvergence6509.canonicalClosedNoActive(ts.mint)) return false
@@ -24316,6 +24324,8 @@ class Executor(
             return true
         }
         if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
+        val reason = if (freshnessChecked7836) reason else
+            freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE
         // V5.0.6448 — SELL mirror moved to confirmed paper fill below.
         // Do not mutate canonical lifecycle at sell-attempt time with zero
         // proceeds/cost; that was the direct source of SELL invariant violations.

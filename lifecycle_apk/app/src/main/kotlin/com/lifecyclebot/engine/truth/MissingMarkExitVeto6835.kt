@@ -39,9 +39,9 @@ import java.util.concurrent.atomic.AtomicLong
  *             UNIVERSAL_PEAK_LOCK_* when signal is stale.
  *   * Does NOT block: THIN_LIQ_*, LIQ_DRAIN_*, RUG_* (these read
  *             liquidity, not mark price — different failure surface).
- *   * Does NOT block: NORMAL_STOP, TRAIL_LOCK, TARGET_HIT (these are
- *             already computed from live-price paths and the operator
- *             already reports NORMAL_STOP latency is excellent).
+ *   * Price-based STOP/SL, TRAIL and TARGET_HIT siblings share the same
+ *             freshness contract, even when computed by another exit path.
+ *   * Does NOT block: MANUAL_* (operator liquidation is independent of marks).
  *
  * WIRING — Executor.doHardStops() line 7078+ and
  *          BotService.universalExitSweep() line 19570+.
@@ -51,6 +51,10 @@ object MissingMarkExitVeto6835 {
     /** Marks are considered stale beyond this age. Operator directive
      *  cited a 60-second freshness requirement. */
     private const val MARK_MAX_AGE_MS = 60_000L
+
+    // Stop-loss aliases use SL as a complete reason token (STRICT_SL_-8,
+    // LANE_HARD_15PCT_SL_CORE), not the word STOP. Cache the classifier.
+    private val STOP_LOSS_ALIAS_7836 = Regex("(?:^|_)SL(?:_|$)")
 
     /** If MarkPriceFreshnessTelemetry6832 says the numeric price value
      *  has not changed for this long, the mark is treated as frozen
@@ -154,7 +158,10 @@ object MissingMarkExitVeto6835 {
 
         val reason = exitReason.uppercase()
         val independentSafety = listOf("MANUAL", "RUG", "LIQ_DRAIN", "THIN_LIQ").any(reason::contains)
-        val priceBased = !independentSafety && listOf("STOP", "HARD_FLOOR", "CATASTROPH", "TRAIL", "TAKE_PROFIT", "PEAK_LOCK", "PROFIT_LOCK", "TARGET_HIT").any(reason::contains)
+        val priceBased = !independentSafety && (
+            STOP_LOSS_ALIAS_7836.containsMatchIn(reason) ||
+                listOf("STOP", "HARD_FLOOR", "CATASTROPH", "TRAIL", "TAKE_PROFIT", "PEAK_LOCK", "PROFIT_LOCK", "TARGET_HIT").any(reason::contains)
+            )
         if (!priceBased) {
             allowCount.incrementAndGet()
             return Verdict(true, "NON_PRICE_REASON_7835")

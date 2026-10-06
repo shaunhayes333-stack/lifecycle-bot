@@ -88,15 +88,16 @@ class Aate7835AuthorityContinuityTest {
             lastMcap = 10_000_000.0, lastPrice = 0.01, lastPriceUpdate = System.currentTimeMillis(),
             lastPriceSource = "DEXSCREENER", lastPricePoolAddr = "Pool7835", source = "DEXSCREENER",
             safety = SafetyReport(rugcheckScore = 90))
-        val d = decision(mint, "CORE", LaneExecutionCoordinator.candidateVersionFor(mint))
+        val sealedSol = maxOf(0.08, com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() + 0.01)
+        val d = decision(mint, "CORE", LaneExecutionCoordinator.candidateVersionFor(mint)).copy(sizeSol = sealedSol)
         val result = TradeAuthorizer.authorize(mint, "TEST", 80, 80.0, "A", true,
             TradeAuthorizer.ExecutionBook.CORE, rugcheckScore = 90, liquidity = 100_000.0,
-            preResolvedSizeSol = 0.10, fdgDecision7835 = d, tokenState7835 = ts)
+            preResolvedSizeSol = sealedSol, fdgDecision7835 = d, tokenState7835 = ts)
         assertTrue(result.reason, result.isExecutable())
         val intent = requireNotNull(result.executionIntent7835)
         assertEquals("CORE", intent.canonicalLane)
         assertEquals(d.candidateVersion7835, intent.candidateVersion)
-        assertEquals(0.08, intent.resolvedSize, 1e-9)
+        assertEquals(sealedSol, intent.resolvedSize, 1e-9)
         assertEquals(intent.attemptId, result.attemptId)
         assertSame(intent, ExecutableOpenGate.ticketForAttempt(result.attemptId))
         assertEquals(10.0, com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), 1e-9)

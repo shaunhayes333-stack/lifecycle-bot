@@ -45,10 +45,19 @@ class Aate7835AuditBoundaryTest {
     private fun schedulerKind(name: String) = ProtectiveExitScheduler6450.TriggerKind.valueOf(name)
 
     @Test fun all_price_based_sibling_exits_share_freshness_while_manual_exit_remains_available() {
-        listOf("STRICT_SL_-8", "RAPID_CATASTROPHE", "TRAILING_STOP", "UNIVERSAL_HARD_FLOOR_-25").forEachIndexed { i, reason ->
-            assertFalse(reason, MissingMarkExitVeto6835.evaluate("staleExit7835_$i", 1.0, 1L, reason).allow)
-        }
-        assertTrue(MissingMarkExitVeto6835.evaluate("manual7835", 0.0, 0L, "MANUAL_CLOSE").allow)
+        MissingMarkExitVeto6835.clearForTest()
+        try {
+            listOf("STRICT_SL_-8", "STRICT_SL_-8_CACHED", "LANE_HARD_15PCT_SL_CORE", "SL_-8", "SL",
+                "CYCLIC_STRICT_SL_-8", "SNIPER_STRICT_SL_-8",
+                "RAPID_CATASTROPHE", "TRAILING_STOP", "UNIVERSAL_HARD_FLOOR_-25").forEachIndexed { i, reason ->
+                assertFalse(reason, MissingMarkExitVeto6835.evaluate("staleExit7835_$i", 1.0, 1L, reason).allow)
+                assertTrue(reason, MissingMarkExitVeto6835.evaluate("staleExit7835_$i", 1.0, System.currentTimeMillis(), reason).allow)
+                assertFalse(reason, MissingMarkExitVeto6835.evaluate("invalidExit7836_$i", Double.NaN, System.currentTimeMillis(), reason).allow)
+            }
+            listOf("MANUAL_CLOSE", "RUG_CONFIRMED", "LIQ_DRAIN", "THIN_LIQ").forEach { reason ->
+                assertTrue(reason, MissingMarkExitVeto6835.evaluate("independent7836_$reason", 0.0, 0L, reason).allow)
+            }
+        } finally { MissingMarkExitVeto6835.clearForTest() }
     }
 
     @Test fun a_reusable_close_lease_has_exactly_one_concurrent_owner() {
@@ -103,4 +112,16 @@ class Aate7835AuditBoundaryTest {
         assertEquals("SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835", SealedExecutionSize7835.boundsRefusal(0.08, 0.06, 0.04))
         assertNotNull(SealedExecutionSize7835.boundsRefusal(Double.NaN, 0.10, 0.04))
     }
+    @Test fun direct_paper_sell_guards_before_pricing_but_after_closed_reconciliation() {
+        val code = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(code.contains("paperSellWithFreshness7836(ts, reason, identity, freshnessChecked7836 = false)"))
+        assertTrue(code.contains("return paperSellWithFreshness7836(ts, reason, tradeId, freshnessChecked7836 = true)"))
+        val entry = code.substringAfter("private fun paperSellWithFreshness7836(")
+            .substringBefore("val price = getActualPrice(ts)")
+        val healed = entry.indexOf("if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED")
+        val guarded = entry.indexOf("freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE")
+        assertTrue(healed >= 0 && guarded > healed)
+        assertTrue(entry.contains("val reason = if (freshnessChecked7836) reason else"))
+    }
+
 }

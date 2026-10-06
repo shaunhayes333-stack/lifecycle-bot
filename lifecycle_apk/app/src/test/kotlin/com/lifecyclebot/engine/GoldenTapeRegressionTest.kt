@@ -14887,4 +14887,19 @@ class GoldenTapeRegressionTest {
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         org.junit.Assert.assertTrue(g.contains("baseEntrySignal7243 !in setOf(\"BUY\", \"EXECUTE\") && effectiveEntryScore7292 < waitFloor7266"))
     }
+    @Test
+    fun V5_0_7836_stop_alias_freshness_reaches_shared_sell_without_safety_override_loss() {
+        val veto = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MissingMarkExitVeto6835.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(veto.contains("STOP_LOSS_ALIAS_7836.containsMatchIn(reason)"))
+        assertTrue(executor.contains("paperSellWithFreshness7836(ts, reason, identity, freshnessChecked7836 = false)"))
+        assertTrue(executor.contains("return paperSellWithFreshness7836(ts, reason, tradeId, freshnessChecked7836 = true)"))
+        assertTrue(veto.contains("val priceBased = !independentSafety &&"))
+        assertTrue(veto.contains("markAgeMs > MARK_MAX_AGE_MS"))
+        assertTrue(executor.contains("val reason = freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE"))
+        assertTrue(executor.contains("MARK_UNTRUSTED_6882"))
+        assertTrue(executor.indexOf("val reason = freshExitReason7835(ts, reason)") <
+            executor.indexOf("PaperPositionCloseAuthority.markCloseRequested", executor.indexOf("internal fun doSell(")))
+    }
+
 }

@@ -38,13 +38,16 @@ class Aate7835ProducerWiringTest {
     }
 
     @Test fun computation_budgets_cannot_create_or_replace_a_trade_verdict() {
-        val fdg = src("engine/FinalDecisionGate.kt")
+        // A historical comment is not an executable budget or verdict.
+        fun executable(path: String) = src(path).lineSequence()
+            .filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        val fdg = executable("engine/FinalDecisionGate.kt")
         assertFalse(fdg.contains("allowFdgEval("))
         assertFalse(fdg.contains("priorVerdictForCandidate7809("))
         assertFalse(fdg.contains("FDG_FANOUT_CAP_7232"))
         assertFalse(fdg.contains("fdgStage6657"))
-        assertFalse(src("engine/AgenticStyleRouter.kt").contains("allowLaneEval("))
-        assertFalse(src("engine/BotService.kt").contains("allowLaneEval("))
+        assertFalse(executable("engine/AgenticStyleRouter.kt").contains("allowLaneEval("))
+        assertFalse(executable("engine/BotService.kt").contains("allowLaneEval("))
     }
 
     @Test fun crypto_has_one_canonical_sizer_and_keeps_explicit_route_and_refusal_evidence() {
