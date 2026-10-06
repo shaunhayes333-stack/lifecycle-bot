@@ -1259,7 +1259,7 @@ object CryptoAltTrader {
             if (residentSelected7823.isNotEmpty()) {
                 PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_SCAN_CONSUMED_7823")
             }
-            PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_SCAN_SLOT_7823", residentSelected7823.size.toLong())
+            PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_SCAN_SLOTS_${residentSelected7823.size}_7823")
         } catch (_: Throwable) {}
         ErrorLogger.debug(TAG, "🪙⚡ DynScan batch ${batchIdx + 1}/$totalBatches | size=${batch.size} resident=${residentSelected7823.size} generic=${genericBatch7823.size} | universe=${universe7823.size}")
 
