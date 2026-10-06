@@ -1946,7 +1946,7 @@ object CryptoAltTrader {
             "batch=${batch.size} scanned=$scanned cryptoBrainSignals=$cryptoBrainSignals7244 specialistSignals=$signals sharedCandidates=${dynExecutableSignals.size}"
         )
         if (signals > 0 || cryptoBrainSignals7244 > 0 || scanned % 200 == 0) {
-            ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned execSignals=${dynExecutableSignals.size} (universe=${allTokens.size})")
+            ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned execSignals=${dynExecutableSignals.size} (universe=${universe7823.size})")
         }
     }
 
