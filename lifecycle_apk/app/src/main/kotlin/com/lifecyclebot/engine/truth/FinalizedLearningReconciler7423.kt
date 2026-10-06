@@ -213,8 +213,9 @@ object FinalizedLearningReconciler7423 {
                 continue
             }
 
-            val netPnl = rich?.netRealizedPnlSol ?: (sell.realizedPnlSol - sell.exitFeesSol)
-            val netPct = rich?.netReturnPct ?: (netPnl / sell.allocatedCostBasisSol * 100.0)
+            val whole7835 = try { WholePositionEconomics7835.from(p) } catch (_: Throwable) { continue }
+            val netPnl = whole7835.netSol
+            val netPct = whole7835.returnPct
             if (!netPnl.isFinite() || !netPct.isFinite()) continue
 
             val eligibility = when {

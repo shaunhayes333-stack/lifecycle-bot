@@ -17,19 +17,10 @@ package com.lifecyclebot.engine
  * identity is stable across aliases.
  */
 object LaneAlias {
-    private val CANONICAL_MAP: Map<String, String> = mapOf(
-        "BLUE_CHIP" to "BLUECHIP",
-        "BLUECHIP" to "BLUECHIP",
-        "SHIT_COIN" to "SHITCOIN",
-        "SHITCOIN" to "SHITCOIN",
-        "MOON_SHOT" to "MOONSHOT",
-        "MOONSHOT" to "MOONSHOT",
-    )
-
     fun normalize(lane: String?): String {
         if (lane.isNullOrBlank()) return ""
         val up = lane.trim().uppercase()
-        val canonical = CANONICAL_MAP[up] ?: return up
+        val canonical = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(up)
         if (canonical != up) {
             try {
                 PipelineHealthCollector.labelInc("POSITION_ALIAS_COLLISION_MERGED_6312")

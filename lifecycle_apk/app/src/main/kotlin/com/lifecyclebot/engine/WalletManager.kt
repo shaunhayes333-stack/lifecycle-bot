@@ -583,9 +583,10 @@ class WalletManager private constructor(private val ctx: Context) {
             return jupiterPrice
         }
         
-        // Last resort: use cached price or hardcoded fallback
-        ErrorLogger.warn("Wallet", "All SOL price sources failed! Using fallback: $${lastKnownSolPrice.takeIf { it > 50 } ?: 140.0}")
-        return lastKnownSolPrice.takeIf { it > 50.0 } ?: 140.0
+        // Unknown is not an observed SOL price. Preserve a real cached value;
+        // callers must defer conversion when a cold start has no observation.
+        ErrorLogger.warn("Wallet", "All SOL price sources failed; using observed cache if available")
+        return lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
     }
     
     private fun tryCoinGecko(): Double {

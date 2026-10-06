@@ -120,7 +120,9 @@ object FinalizedBusConsumerBridge6465 {
             return false
         }
 
-        val ok = when (consumer) {
+        val ok = com.lifecyclebot.engine.LearningEnvironment7835.withMode(env.mode, canonical = true) {
+          when (consumer) {
+            "KillSwitch7835" -> com.lifecyclebot.engine.KillSwitch.recordCanonical7835(env)
             "RewardPurity"       -> deliverToRewardPurity(env)
             "LearnerRewardBridge" -> deliverToLearnerRewardBridge(env)
             "LosingStreakReflex"  -> deliverToLosingStreakReflex(env)
@@ -141,6 +143,7 @@ object FinalizedBusConsumerBridge6465 {
             "Dashboard"           -> deliverToDashboard(env)
             "OperatorFingerprint7074" -> deliverToOperatorFingerprint7074(env)
             else -> false
+          }
         }
         if (ok) delivered.incrementAndGet() else refused.incrementAndGet()
         retireIfPermanentlyRefused7169(consumer, env, ok)
@@ -268,7 +271,7 @@ object FinalizedBusConsumerBridge6465 {
     }
 
     /** Consumers that are NOT learning targets — quarantine does not gate them. */
-    private val NON_LEARNING_CONSUMERS = setOf("Dashboard", "CausalFeedback6715")
+    private val NON_LEARNING_CONSUMERS = setOf("Dashboard", "CausalFeedback6715", "KillSwitch7835")
 
     private fun deliverToCausalFeedback6715(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         CausalFeedbackAuthority6715.onTerminal(env)
@@ -525,13 +528,13 @@ object FinalizedBusConsumerBridge6465 {
         true
     } catch (t: Throwable) { threw7154(t) }
 
-    private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        val exitReason = env.exitReason.uppercase()
-        val exitWasOptimal = when {
-            exitReason.contains("STOP_LOSS") || exitReason.contains("STRICT_SL") || exitReason.contains("STOPLOSS") -> false
-            exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true
-            env.realizedReturnPct >= 2.0 -> true
-            else -> false
+    private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean { return try {
+        val exitWasOptimal = env.mfePct.isFinite() && env.mfePct > 0.0 &&
+            env.realizedReturnPct >= env.mfePct * 0.70
+        if (!env.mfePct.isFinite() || env.mfePct <= 0.0) {
+            com.lifecyclebot.engine.UnifiedExitPolicyHead.discardOutcome7835(env.mint)
+            CanonicalFinalizedTradeBus6464.exclude("UnifiedExitPolicyHead", env.tradeId, "EXIT_TIMING_LABEL_UNOBSERVABLE_7835")
+            return false
         }
         com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(env.mint, exitWasOptimal)
         try {
@@ -543,6 +546,7 @@ object FinalizedBusConsumerBridge6465 {
         } catch (_: Throwable) {}
         true
     } catch (t: Throwable) { threw7154(t) }
+    }
 
     private fun deliverToSuperIntelligenceCalibration7636(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.SuperIntelligenceCalibration7636.onFinalized(env)

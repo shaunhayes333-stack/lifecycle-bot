@@ -75,13 +75,14 @@ object ScoreExpectancyTracker {
 
     private fun keyOf(layer: String, score: Int): String {
         val s = score.coerceAtLeast(0)
-        return "${layer.uppercase()}:${s / BUCKET_WIDTH}"
+        return "${LearningEnvironment7835.mode()}|${com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(layer)}:${s / BUCKET_WIDTH}"
     }
 
     /**
      * Record the outcome of a closed trade for [layer] at [score].
      */
     fun record(layer: String, score: Int, pnlPct: Double) {
+        if (!LearningEnvironment7835.isCanonical()) return
         try {
             // V5.9.1360 P0.4 — INTAKE SANITY (defense-in-depth, single source of
             // truth). Even though V3JournalRecorder already clamps before calling,
@@ -302,6 +303,7 @@ object ScoreExpectancyTracker {
     }
     fun importState(snapshot: Map<String, List<Double>>) {
         snapshot.forEach { (k, pnls) ->
+            if (k.substringBefore('|') !in setOf("PAPER", "LIVE", "SHADOW")) return@forEach
             val sane6495 = pnls.filter { com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(it, "ScoreExpectancyTracker.import/$k", emit = false).ok }
             if (sane6495.size != pnls.size) {
                 try { PipelineHealthCollector.labelInc("SCORE_EXPECTANCY_PERSISTED_ECONOMICS_QUARANTINED_6495") } catch (_: Throwable) {}

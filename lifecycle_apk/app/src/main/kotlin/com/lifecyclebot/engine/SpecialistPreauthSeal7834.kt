@@ -1,60 +1,61 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506
 
-/**
- * V5.0.7834 — specialist seal-before-authorize closure extracted from
- * BotService.processTokenCycle so the Android verifier budget cannot regress.
- * This creates no new decision authority; it only materializes the canonical
- * intent for an FDG BUY that already passed, with the exact lane/version/size.
- */
+/** The elected specialist carries its own FDG decision into the canonical seal. */
 internal object SpecialistPreauthSeal7834 {
+    internal fun refusal(
+        decision: FinalDecisionGate.FinalDecision?, mint: String, lane: String, paper: Boolean,
+    ): String? = when {
+        decision == null -> "FDG_DECISION_MISSING_7835"
+        !decision.canExecute() -> decision.blockReason ?: decision.approvalReason.ifBlank { "FDG_NOT_EXECUTABLE_7835" }
+        decision.mint != mint -> "FDG_MINT_MISMATCH_7835"
+        (decision.mode == FinalDecisionGate.TradeMode.PAPER) != paper -> "FDG_MODE_MISMATCH_7835"
+        decision.candidateVersion7835 <= 0L -> "FDG_CANDIDATE_VERSION_MISSING_7835"
+        CanonicalLaneIdentity6506.canonical(decision.canonicalLane7835) != CanonicalLaneIdentity6506.canonical(lane) -> "FDG_LANE_MISMATCH_7835"
+        !decision.sizeSol.isFinite() || decision.sizeSol <= 0.0 -> "FDG_SIZE_NOT_EXECUTABLE_7835"
+        else -> null
+    }
+
     fun ensure(
-        paperMode: Boolean, mint: String, symbol: String, lane: String, candidateVersion: Long,
-        fdgCanExecute: Boolean, fdgReason: String?, resolvedSizeSol: Double, rugScore: Int,
-        safetyTier: String, liquidityUsd: Double, hardNoReasons: List<String>, entryScore: Int,
-        tokenMapRouteStatus: String, tokenMapHydrationComplete: Boolean, tokenMapExpectedOut: Double,
-        tokenMapProviderAttempts: Int,
+        ts: TokenState, decision: FinalDecisionGate.FinalDecision, lane: String, maximumSizeSol: Double,
     ): ExecutableOpenGate.ExecutionIntent? {
-        val mode = if (paperMode) "PAPER" else "LIVE"
+        val paper = decision.mode == FinalDecisionGate.TradeMode.PAPER
+        if (refusal(decision, ts.mint, lane, paper) != null || !maximumSizeSol.isFinite() || maximumSizeSol <= 0.0) return null
+        if (paper != RuntimeModeAuthority.isPaper()) return null
         val canonicalLane = CanonicalLaneIdentity6506.canonical(lane)
-        val existing = try {
-            ExecutableOpenGate.activeExecutionIntent6519(mode, mint, candidateVersion)
-                ?.takeIf { CanonicalLaneIdentity6506.canonical(it.canonicalLane) == canonicalLane }
-        } catch (_: Throwable) { null }
-        if (existing != null) {
-            try { PipelineHealthCollector.labelInc("PRIMARY_SPINE_SEALED_INTENT_REUSED_7467_$canonicalLane") } catch (_: Throwable) {}
-            return existing
-        }
-        if (!fdgCanExecute || !resolvedSizeSol.isFinite() || resolvedSizeSol <= 0.0) {
-            try {
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_SEAL_STILL_MISSING_7834_$canonicalLane")
-                ForensicLogger.lifecycle("PRIMARY_SPINE_SEAL_STILL_MISSING_7834",
-                    "lane=$canonicalLane mint=${mint.take(10)} version=$candidateVersion fdgCan=$fdgCanExecute size=$resolvedSizeSol action=refuse_no_unsealed_execution")
-            } catch (_: Throwable) {}
-            return null
-        }
-        val sealed = try {
-            ExecutableOpenGate.recordFdgAndGetIntent6533(
-                mint = mint, symbol = symbol, lane = canonicalLane, canExecute = true, reason = fdgReason, signal = "BUY",
-                rugScore = rugScore, safetyTier = safetyTier, liquidityUsd = liquidityUsd, hardNoReasons = hardNoReasons,
-                preFdgVerdict = "BUY", candidateVersion = candidateVersion, entryScore = entryScore,
-                tokenMapRouteStatus = tokenMapRouteStatus, tokenMapHydrationComplete = tokenMapHydrationComplete,
-                tokenMapExpectedOut = tokenMapExpectedOut, tokenMapProviderAttempts = tokenMapProviderAttempts,
-                requiresSolanaTokenMap = true, allowTrunkExecutionHandoff6533 = true, resolvedSizeSol6558 = resolvedSizeSol,
-            )?.takeIf {
+        val tokenMap = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source)
+        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.refreshFromExecutableTokenMap6614(
+            mint = ts.mint,
+            pairOrPool = tokenMap.poolAddress.ifBlank { tokenMap.pairAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } } },
+            quoteMint = tokenMap.quoteMint.ifBlank { "USD" },
+            source = ts.lastPriceSource.ifBlank { tokenMap.sourceScanner.ifBlank { ts.source } },
+            priceUsd = tokenMap.priceUsd ?: ts.lastPrice,
+            liquidityUsd = tokenMap.liquidityUsd ?: ts.lastLiquidityUsd,
+            routeStatus = tokenMap.routeStatus,
+            evidenceTimestampMs = if (tokenMap.priceUsd != null) tokenMap.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate else ts.lastPriceUpdate,
+        )
+        val size = minOf(decision.sizeSol, maximumSizeSol)
+        ExecutableOpenGate.recordPrimaryLane7835(ts.mint, decision.candidateVersion7835, canonicalLane)
+        return ExecutableOpenGate.recordFdgAndGetIntent6533(
+            mint = ts.mint, symbol = ts.symbol, lane = canonicalLane,
+            canExecute = true, reason = decision.blockReason, signal = "BUY",
+            rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
+            liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons.toList(),
+            preFdgVerdict = "BUY", candidateVersion = decision.candidateVersion7835,
+            entryScore = decision.effectiveEntryScore7687,
+            tokenMapRouteStatus = tokenMap.routeStatus, tokenMapHydrationComplete = tokenMap.hydrationComplete,
+            tokenMapExpectedOut = tokenMap.expectedOutAmount, tokenMapProviderAttempts = tokenMap.providerAttempts,
+            requiresSolanaTokenMap = true, allowTrunkExecutionHandoff6533 = true,
+            resolvedSizeSol6558 = size,
+        )?.takeIf {
+            it.mint == ts.mint && it.mode == (if (paper) "PAPER" else "LIVE")
+        }?.takeIf {
+            it.candidateVersion == decision.candidateVersion7835 &&
                 CanonicalLaneIdentity6506.canonical(it.canonicalLane) == canonicalLane &&
-                    it.fdgAllowed && it.fdgVerdict.equals("BUY", true)
-            }
-        } catch (_: Throwable) { null }
-        try {
-            if (sealed != null) {
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_PREAUTH_SEAL_CREATED_7834")
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_PREAUTH_SEAL_CREATED_7834_$canonicalLane")
-            } else {
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_SEAL_STILL_MISSING_7834_$canonicalLane")
-            }
-        } catch (_: Throwable) {}
-        return sealed
+                it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() &&
+                it.resolvedSize > 0.0 && it.resolvedSize <= size + 1e-9
+        }
     }
 }

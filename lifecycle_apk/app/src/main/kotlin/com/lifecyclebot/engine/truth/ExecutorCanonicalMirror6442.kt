@@ -477,19 +477,16 @@ object ExecutorCanonicalMirror6442 {
         terminal: Boolean = true,
         lane: String = "",
         reason: String = "SELL_CONFIRMED",
+        positionId7835: String? = null,
+        sellExecutionId7835: String = "",
     ): Boolean {
         return try {
-            val positionId = positionIdOf(mint, paperMode)
-            val idem = sellIdempotencyKey(positionId, generation)
-            val reserve = try {
-                IdempotencyKeyStore6437.checkAndReserve(idem, if (paperMode) "PAPER" else "LIVE", "sell")
-            } catch (_: Throwable) { IdempotencyKeyStore6437.InsertResult.NEW }
-            if (reserve == IdempotencyKeyStore6437.InsertResult.DUPLICATE) {
-                try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_SELL_DUP_6442") } catch (_: Throwable) {}
-                return false
-            }
+            val positionId = positionId7835 ?: positionIdOf(mint, paperMode)
+            val idem = if (sellExecutionId7835.isNotBlank()) "SELL:$positionId:$sellExecutionId7835"
+                else sellIdempotencyKey(positionId, generation)
             val posBefore = CanonicalPositionAuthority6441.getPosition(positionId)
-            val qtyToSell = if (terminal && posBefore != null && posBefore.remainingQtyRaw > BigInteger.ZERO) posBefore.remainingQtyRaw else soldQtyRaw
+            if (posBefore == null || posBefore.mint != mint || !posBefore.mode.equals(modeName(paperMode), true)) return false
+            val qtyToSell = soldQtyRaw
             val result = CanonicalPositionAuthority6441.partialSell(
                 idempotencyKey = idem,
                 positionId = positionId,
@@ -548,7 +545,7 @@ object ExecutorCanonicalMirror6442 {
                 }
             }
             try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_SELL_$result".take(60)) } catch (_: Throwable) {}
-            result == CanonicalPositionAuthority6441.MutateResult.APPLIED
+            result == CanonicalPositionAuthority6441.MutateResult.APPLIED || result == CanonicalPositionAuthority6441.MutateResult.DUPLICATE
         } catch (t: Throwable) {
             mirrorFailures.incrementAndGet()
             false

@@ -63,10 +63,51 @@ object UnifiedPolicyHead {
     // They are not statistically compatible with owner-bound training.
     private const val MODEL_VERSION_V6681 = 6681
 
-    private val w = DoubleArray(NF) { 0.0 }
-    @Volatile private var bias = 0.0
-    @Volatile private var trained = 0L
-    private val featMean = DoubleArray(NF) { 0.5 }
+    private class ModeModel7835 {
+        val w: DoubleArray = DoubleArray(NF) { 0.0 }
+        @Volatile var bias: Double = 0.0
+        @Volatile var trained: Long = 0L
+        val featMean: DoubleArray = DoubleArray(NF) { 0.5 }
+        val laneHeads: java.util.concurrent.ConcurrentHashMap<String, LaneHead> = java.util.concurrent.ConcurrentHashMap<String, LaneHead>()
+        val pending: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>> = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>()
+        val pendingByPosition6681: java.util.concurrent.ConcurrentHashMap<String, BoundEntry6681> = java.util.concurrent.ConcurrentHashMap<String, BoundEntry6681>()
+        val obsMean7389: DoubleArray = DoubleArray(NF) { 0.5 }
+        val obsVar7389: DoubleArray = DoubleArray(NF) { 0.0 }
+        val obsDupDiff7389: Array<DoubleArray> = Array(NF) { DoubleArray(NF) { 0.0 } }
+        @Volatile var obsCount7389: Long = 0L
+        @Volatile var degenerateCount7389: Int = NF
+    }
+    private val models7835 = java.util.concurrent.ConcurrentHashMap<String, ModeModel7835>()
+    private fun model7835() = models7835.computeIfAbsent(LearningEnvironment7835.mode()) { ModeModel7835() }
+    private val w: DoubleArray
+        get() = model7835().w
+    private var bias: Double
+        get() = model7835().bias
+        set(value) { model7835().bias = value }
+    private var trained: Long
+        get() = model7835().trained
+        set(value) { model7835().trained = value }
+    private val featMean: DoubleArray
+        get() = model7835().featMean
+    private val laneHeads: java.util.concurrent.ConcurrentHashMap<String, LaneHead>
+        get() = model7835().laneHeads
+    private val pending: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>
+        get() = model7835().pending
+    private val pendingByPosition6681: java.util.concurrent.ConcurrentHashMap<String, BoundEntry6681>
+        get() = model7835().pendingByPosition6681
+    private val obsMean7389: DoubleArray
+        get() = model7835().obsMean7389
+    private val obsVar7389: DoubleArray
+        get() = model7835().obsVar7389
+    private val obsDupDiff7389: Array<DoubleArray>
+        get() = model7835().obsDupDiff7389
+    private var obsCount7389: Long
+        get() = model7835().obsCount7389
+        set(value) { model7835().obsCount7389 = value }
+    private var degenerateCount7389: Int
+        get() = model7835().degenerateCount7389
+        set(value) { model7835().degenerateCount7389 = value }
+
 
     private data class LaneHead(
         val w: DoubleArray = DoubleArray(NF) { 0.0 },
@@ -83,14 +124,14 @@ object UnifiedPolicyHead {
         val features: DoubleArray,
     )
 
-    private val laneHeads = java.util.concurrent.ConcurrentHashMap<String, LaneHead>()
+
 
     // Decision-time scratchpad. Multiple desks may evaluate the same mint, but
     // these observations are NOT outcomes. At canonical open, only the elected
     // owner's feature vector is copied into pendingByPosition6681 and this map is
     // cleared for that mint.
-    private val pending = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>()
-    private val pendingByPosition6681 = java.util.concurrent.ConcurrentHashMap<String, BoundEntry6681>()
+
+
     private val trainingLock6681 = Any()
 
     private val advisoryUsageCount = java.util.concurrent.atomic.AtomicLong(0)
@@ -143,11 +184,11 @@ object UnifiedPolicyHead {
     private const val DEGEN_MAX_FEATURES_7389 = 2
     private const val DEGEN_ALPHA_7389 = 0.02
     private val degenLock7389 = Any()
-    private val obsMean7389 = DoubleArray(NF) { 0.5 }
-    private val obsVar7389 = DoubleArray(NF) { 0.0 }
-    private val obsDupDiff7389 = Array(NF) { DoubleArray(NF) { 0.0 } }
-    @Volatile private var obsCount7389 = 0L
-    @Volatile private var degenerateCount7389 = NF
+
+
+
+
+
 
     private fun observeInputs7389(x: DoubleArray) {
         if (x.size < NF) return
@@ -640,18 +681,8 @@ object UnifiedPolicyHead {
      * occurs. Production finality uses recordOutcome6681(positionId,...).
      */
     fun recordOutcome(mint: String, pnlPct: Double) {
-        try {
-            val recs = pending.remove(mint) ?: return
-            if (recs.size != 1) {
-                legacyAmbiguousDropCount6681.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_LEGACY_AMBIGUOUS_DROP_6681") } catch (_: Throwable) {}
-                return
-            }
-            val (lane, x) = recs.entries.first()
-            synchronized(trainingLock6681) { trainOneOutcome6681(normalizeLane(lane), x.copyOf(), pnlPct) }
-            try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_LEGACY_SINGLE_OUTCOME_6681") } catch (_: Throwable) {}
-            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
-        } catch (_: Throwable) {}
+        // Mint-only callbacks cannot identify the entry or the whole-position result.
+        legacyAmbiguousDropCount6681.incrementAndGet()
     }
 
     fun attachContext(context: Context) { try { appContext = context.applicationContext; load(context) } catch (_: Throwable) {} }
@@ -674,6 +705,7 @@ object UnifiedPolicyHead {
      * steering a supposedly fresh session.
      */
     fun resetAllLearning7535() {
+        models7835.clear()
         resetModelState6681()
         synchronized(degenLock7389) {
             for (i in 0 until NF) {
@@ -698,7 +730,26 @@ object UnifiedPolicyHead {
         } catch (_: Throwable) {}
     }
 
-    fun exportState(): String = try {
+    fun exportState(): String = JSONObject().apply {
+        put("environmentSchema", 7835)
+        for (mode in listOf("PAPER", "LIVE", "SHADOW")) {
+            put(mode, LearningEnvironment7835.withMode(mode) { JSONObject(exportCurrent7835()) })
+        }
+    }.toString()
+
+    fun importState(json: String) {
+        if (json.isBlank()) return
+        val root = try { JSONObject(json) } catch (_: Throwable) { return }
+        // Pre-7835 weights have no reliable environment attribution.
+        if (root.optInt("environmentSchema") != 7835) { models7835.clear(); return }
+        for (mode in listOf("PAPER", "LIVE", "SHADOW")) {
+            root.optJSONObject(mode)?.let { value ->
+                LearningEnvironment7835.withMode(mode) { importCurrent7835(value.toString()) }
+            }
+        }
+    }
+
+    private fun exportCurrent7835(): String = try {
         JSONObject().apply {
             put("modelVersion", MODEL_VERSION_V6681)
             put("trained", trained); put("bias", bias)
@@ -731,7 +782,7 @@ object UnifiedPolicyHead {
         }.toString()
     } catch (_: Throwable) { "{}" }
 
-    fun importState(json: String) {
+    private fun importCurrent7835(json: String) {
         try {
             if (json.isBlank() || json == "{}") return
             val o = JSONObject(json)

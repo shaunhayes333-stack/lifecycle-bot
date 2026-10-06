@@ -50,13 +50,17 @@ object SellExecutionLocks {
         // block a fresh sell attempt forever.
         val existing = locks[mint]
         if (existing != null && (now - existing) >= DEFAULT_TTL_MS) {
-            locks.remove(mint)
+            locks.remove(mint, existing)
         }
         // putIfAbsent returns null when the key was not present — i.e.
         // we successfully acquired. Any non-null return means another
         // (fresh) lock holder beat us to it.
         return locks.putIfAbsent(mint, now) == null
     }
+
+    fun acquiredAtMs(mint: String): Long? = locks[mint]
+
+    fun releaseOwned7835(mint: String, acquiredAtMs: Long): Boolean = locks.remove(mint, acquiredAtMs)
 
     fun release(mint: String) {
         if (mint.isNotBlank()) locks.remove(mint)
@@ -68,7 +72,7 @@ object SellExecutionLocks {
         val now = System.currentTimeMillis()
         if ((now - ts) >= DEFAULT_TTL_MS) {
             // Lazy eviction — never report a stale lock as held.
-            locks.remove(mint)
+            locks.remove(mint, ts)
             return false
         }
         return true

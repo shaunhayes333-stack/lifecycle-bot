@@ -104,7 +104,7 @@ object LaneExitTuner {
     // refused close's attribution on every retry: ~5,289 recorded closes from
     // 344 real ones, weighted toward the refused rows. A window built from
     // that is not a sample of this lane's exits.
-    private const val STATE_SCHEMA_7164 = 7169
+    private const val STATE_SCHEMA_7164 = 7835
 
     private data class Outcome(
         val pnlPct: Double,
@@ -295,6 +295,7 @@ object LaneExitTuner {
     )
 
     fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String) {
+        if (!com.lifecyclebot.engine.LearningEnvironment7835.isCanonical()) return
         try {
             val reasonUpper7161 = exitReason.uppercase()
             val recoveryHay7167 = (lane + "|" + exitReason).uppercase()
@@ -313,9 +314,9 @@ object LaneExitTuner {
                 } catch (_: Throwable) {}
                 return
             }
-            val key = canon(lane)
+            val key = "${com.lifecyclebot.engine.LearningEnvironment7835.mode()}|${canon(lane)}"
             val st = lanes.getOrPut(key) { LaneState() }
-            if (st.lane.isBlank()) st.lane = key
+            if (st.lane.isBlank()) st.lane = canon(lane)
             val stopHit = STOP_REASONS.any { exitReason.uppercase().contains(it) }
             val peakSane = when {
                 peakPct.isNaN() || peakPct.isInfinite() -> 0.0
@@ -544,25 +545,25 @@ object LaneExitTuner {
      */
     fun getTpMult(lane: String): Double = try {
         refreshReplayBiasAsync("getTpMult")
-        val key = canon(lane)
+        val key = "${com.lifecyclebot.engine.LearningEnvironment7835.mode()}|${canon(lane)}"
         val laneSt = lanes[key]
         val closedLoopMature = laneSt != null && laneSt.window.size >= MIN_SAMPLE
         if (closedLoopMature) {
             laneSt!!.tpMult
         } else {
-            replayBiasByLane[key]?.tpMult ?: 1.0
+            if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") replayBiasByLane[canon(lane)]?.tpMult ?: 1.0 else 1.0
         }
     } catch (_: Throwable) { 1.0 }
 
     fun getSlMult(lane: String): Double = try {
         refreshReplayBiasAsync("getSlMult")
-        val key = canon(lane)
+        val key = "${com.lifecyclebot.engine.LearningEnvironment7835.mode()}|${canon(lane)}"
         val laneSt = lanes[key]
         val closedLoopMature = laneSt != null && laneSt.window.size >= MIN_SAMPLE
         if (closedLoopMature) {
             laneSt!!.slMult
         } else {
-            replayBiasByLane[key]?.slMult ?: 1.0
+            if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") replayBiasByLane[canon(lane)]?.slMult ?: 1.0 else 1.0
         }
     } catch (_: Throwable) { 1.0 }
 

@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap
  * ledger insert, or UI position creation.
  *
  * ORDER:
- *   DISCOVERED -> SCORED -> PRE_FILTER -> TRADE_AUTHORIZER -> SIZE -> EXECUTE
+ *   DISCOVERED -> SCORED -> FDG/SIZE -> ELECT/SEAL -> TRADE_AUTHORIZER -> EXECUTE
  *
  * NEVER:
  *   DISCOVERED -> SCORED -> SIZE -> EXECUTE -> late block
@@ -76,6 +76,7 @@ object TradeAuthorizer {
         val candidateVersion6494: Long = 0L,
         val electionId6494: String = "",
         val authorityVersion6494: Long = 0L,
+        val executionIntent7835: ExecutableOpenGate.ExecutionIntent? = null,
     ) {
         fun isExecutable(): Boolean {
             return verdict == ExecutionVerdict.PAPER_EXECUTE || verdict == ExecutionVerdict.LIVE_EXECUTE
@@ -159,6 +160,8 @@ object TradeAuthorizer {
     // MAIN AUTHORIZATION
     // ───────────────────────────────────────────────────────────────────────────
 
+    private val admissionLocks7835 = Array(64) { Any() }
+
     fun authorize(
         mint: String,
         symbol: String,
@@ -172,12 +175,38 @@ object TradeAuthorizer {
         isBanned: Boolean = false,
         preResolvedSizeSol: Double,
         attemptId: String = "",
+        fdgDecision7835: FinalDecisionGate.FinalDecision? = null,
+        tokenState7835: com.lifecyclebot.data.TokenState? = null,
+    ): AuthorizationResult {
+        // One candidate may be proposed concurrently by scanner and watchlist callbacks.
+        // Election, seal and finality for that mint must be one serialized admission.
+        return synchronized(admissionLocks7835[(mint.hashCode() and Int.MAX_VALUE) % admissionLocks7835.size]) {
+            authorizeLocked7835(mint, symbol, score, confidence, quality, isPaperMode, requestedBook,
+                rugcheckScore, liquidity, isBanned, preResolvedSizeSol, attemptId, fdgDecision7835, tokenState7835)
+        }
+    }
+
+    private fun authorizeLocked7835(
+        mint: String,
+        symbol: String,
+        score: Int,
+        confidence: Double,
+        quality: String,
+        isPaperMode: Boolean,
+        requestedBook: ExecutionBook,
+        rugcheckScore: Int = 100,
+        liquidity: Double = 0.0,
+        isBanned: Boolean = false,
+        preResolvedSizeSol: Double,
+        attemptId: String = "",
+        fdgDecision7835: FinalDecisionGate.FinalDecision? = null,
+        tokenState7835: com.lifecyclebot.data.TokenState? = null,
     ): AuthorizationResult {
         val now = System.currentTimeMillis()
         // V5.0.7624 — pin one candidate generation at authorization entry.
         // BUY_INTENT, lane election, release and any generated attempt id must
         // refer to the same candidate even if the 30s bucket rolls mid-call.
-        val candidateVersion7624 = LaneExecutionCoordinator.candidateVersionFor(mint)
+        val candidateVersion7624 = fdgDecision7835?.candidateVersion7835 ?: 0L
         val normalizedQuality = quality.trim().uppercase()
         val safeConfidence = confidence.coerceIn(0.0, 100.0)
 
@@ -208,6 +237,14 @@ object TradeAuthorizer {
             return result
         }
 
+        SpecialistPreauthSeal7834.refusal(fdgDecision7835, mint, requestedBook.name, isPaperMode)?.let {
+            return rejectAuth4424(it, BlockLevel.SOFT, canRetry = true)
+        }
+        if (tokenState7835 == null || tokenState7835.mint != mint) {
+            return rejectAuth4424("FDG_TOKEN_CONTEXT_MISSING_7835", BlockLevel.SOFT, canRetry = true)
+        }
+
+        KillSwitch.checkEntry7835(isPaperMode)?.let { return rejectAuth4424(it, BlockLevel.HARD, canRetry = true) }
         if (RuntimeConfigOverlay.isTradingPaused()) {
             return rejectAuth4424("PREAUTH_BLOCK_RUNTIME_PAUSED", BlockLevel.HARD, canRetry = true)
         }
@@ -236,10 +273,14 @@ object TradeAuthorizer {
             }
         }
 
-        val causalAttempt6613 = attemptId.ifBlank { "${mint}:$candidateVersion7624:${requestedBook.name}" }
+        val causalAttempt6613 = ExecutableOpenGate.canonicalExecutionKey(
+            mint, mode = if (isPaperMode) "PAPER" else "LIVE", lane = requestedBook.name,
+            candidateVersion = candidateVersion7624,
+        )
         var electionReceipt6494: LaneExecutionCoordinator.Verdict? = null
         fun releasePrimaryAfterAuthFailure(reason: String) {
             val receipt = electionReceipt6494
+            ExecutableOpenGate.terminalizeAttempt6514(causalAttempt6613, mint, requestedBook.name)
             // V5.0.6653 — every created intent receives an explicit terminal
             // outcome.  Previously release only freed the election while the
             // causal backlog stayed PENDING until the report builder deleted it.
@@ -348,31 +389,25 @@ object TradeAuthorizer {
         // READY proposals without the seal are retryable pipeline deferrals, not
         // execution failures, pre-size refusals, or LOST candidates.
         val mode7812 = if (isPaperMode) "PAPER" else "LIVE"
-        val sealedIntent7812 = ExecutableOpenGate.activeExecutionIntentForLane7809(
-            mode7812, mint, requestedBook.name,
-        )?.takeIf {
-            it.candidateVersion == laneElection.candidateVersion &&
-                it.fdgAllowed && it.fdgVerdict.equals("BUY", true) && it.hardNoReasons.isEmpty()
+        val sealedIntent7812 = try {
+            SpecialistPreauthSeal7834.ensure(tokenState7835, fdgDecision7835!!, requestedBook.name, preResolvedSizeSol)
+        } catch (error: Exception) {
+            releasePrimaryAfterAuthFailure("FDG_SEAL_ERROR_7835")
+            return rejectAuth4424("FDG_SEAL_ERROR_7835:${error.javaClass.simpleName}", BlockLevel.SOFT, canRetry = true)
         }
         if (sealedIntent7812 == null) {
             try {
-                ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AWAIT_FDG_SEAL", causalAttempt6613)
-                PipelineHealthCollector.labelInc("TRADE_AUTH_DEFERRED_AWAIT_FDG_SEAL_7812")
-                PipelineHealthCollector.labelInc("TRADE_AUTH_DEFERRED_AWAIT_FDG_SEAL_7812_${requestedBook.name}")
+                ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613)
+                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835")
+                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835_${requestedBook.name}")
                 ForensicLogger.lifecycle(
-                    "TRADE_AUTH_DEFERRED_AWAIT_FDG_SEAL_7812",
+                    "TRADE_AUTH_SEAL_FAILED_7835",
                     "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} candidateVersion=${laneElection.candidateVersion} action=retry_after_exact_fdg_buy_seal",
                 )
             } catch (_: Throwable) {}
-            try {
-                LaneExecutionCoordinator.releaseIfPrimary(
-                    mint = mint, lane = laneElection.primaryLane,
-                    reason = "AWAIT_FDG_SEAL_7812",
-                    candidateVersion = laneElection.candidateVersion,
-                )
-            } catch (_: Throwable) {}
+            releasePrimaryAfterAuthFailure("FDG_SEAL_FAILED_7835")
             return rejectAuth4424(
-                reason = "AWAIT_FDG_SEAL_7812",
+                reason = "FDG_SEAL_FAILED_7835",
                 blockLevel = BlockLevel.SOFT,
                 canRetry = true,
             )
@@ -398,7 +433,7 @@ object TradeAuthorizer {
             source = "TradeAuthorizer.sealedFdg7812",
             attemptId = finalityAttemptId,
             liveLiquidityUsd = liquidity,
-            preResolvedSizeSol6490 = preResolvedSizeSol,
+            preResolvedSizeSol6490 = sealedIntent7812.resolvedSize,
             electedLane6494 = laneElection.primaryLane,
             electedCandidateVersion6494 = laneElection.candidateVersion,
             electionId6494 = laneElection.electionId,
@@ -654,6 +689,7 @@ object TradeAuthorizer {
             candidateVersion6494 = laneElection.candidateVersion,
             electionId6494 = laneElection.electionId,
             authorityVersion6494 = laneElection.authorityVersion,
+            executionIntent7835 = ExecutableOpenGate.ticketForAttempt(finality.attemptId) ?: sealedIntent7812,
         )
     }
 

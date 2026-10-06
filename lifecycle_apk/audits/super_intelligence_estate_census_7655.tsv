@@ -34,6 +34,7 @@ ForwardOutcomeModel	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ForwardOut
 HistoricalChartScanner	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/HistoricalChartScanner.kt	False
 LayerBrain	LAYER_BRAIN_LEARNED_UPSTREAM	com/lifecyclebot/engine/LayerBrain.kt	True
 LearningEligibility	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/LearningEligibility.kt	False
+LearningEnvironment7835	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/LearningEnvironment7835.kt	False
 LearningFanoutMuxSentinel	REPORT_INFRASTRUCTURE	com/lifecyclebot/engine/LearningFanoutMuxSentinel.kt	False
 LearningLifecycleBus	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/LearningLifecycleBus.kt	False
 LearningPersistence	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/LearningPersistence.kt	False
@@ -251,7 +252,7 @@ CrossMarketRegimeAI	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/v4/meta/CrossMarke
 CrossTalkFusionEngine	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/v4/meta/CrossTalkFusionEngine.kt	False
 ExecutionPathAI	EXECUTION_LEARNED_UPSTREAM	com/lifecyclebot/v4/meta/ExecutionPathAI.kt	False
 LeverageSurvivalAI	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/v4/meta/LeverageSurvivalAI.kt	False
-LiquidityFragilityAI	RISK_SHAPING_UPSTREAM	com/lifecyclebot/v4/meta/LiquidityFragilityAI.kt	False
+LiquidityFragilityAI	EXIT_EVIDENCE_UPSTREAM	com/lifecyclebot/v4/meta/LiquidityFragilityAI.kt	False
 GlobalRiskMode	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/v4/meta/MetaModels.kt	False
 NarrativeFlowAI	CRYPTO_NATIVE_UPSTREAM	com/lifecyclebot/v4/meta/NarrativeFlowAI.kt	False
 PortfolioHeatAI	RISK_SHAPING_UPSTREAM	com/lifecyclebot/v4/meta/PortfolioHeatAI.kt	False

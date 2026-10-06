@@ -268,8 +268,13 @@ object SellFinalizationCoordinator {
                         terminal = !partial,
                         lane = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.resolveExitLane(positionId, traderTag),
                         reason = intent.reason.name,
+                        positionId7835 = positionId, sellExecutionId7835 = sellSig,
                     )
                     if (!positionApplied6486) {
+                        com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.releaseFailed7835(idKey, positionId)
+                        com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.releaseFailed7835(
+                            "live", positionId, canonicalPosition6522.openedAtMs,
+                            if (!partial) com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.FULL_CLOSE_SEQUENCE_6522 else idKey.hashCode().toLong())
                         canonicalMutationFailed6486 = true
                         com.lifecyclebot.engine.truth.LearningQuarantineGate6470.quarantinePositionId(positionId, "LIVE_SELL_CANONICAL_POSITION_REJECTED_6486")
                         try { PipelineHealthCollector.labelInc("LIVE_SELL_CANONICAL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
@@ -287,21 +292,23 @@ object SellFinalizationCoordinator {
                         preRemainingCostBasisSol = intent.entrySolSpent,
                         grossProceedsSol = sellSolReceived, exitFeesSol = feesSol,
                     )
-                    val realizedPct = pnl.realizedPnlPct
                     if (!partial) {
+                        val whole7835 = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(
+                            requireNotNull(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)))
+                        val realizedPct = whole7835.returnPct
                         val settledAt6485 = System.currentTimeMillis()
                         val entrySnap6485 = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId)
                         val outcome6485 = when {
-                            pnl.realizedPnlSol > 0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
-                            pnl.realizedPnlSol < -0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
+                            whole7835.returnPct > 0.5 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
+                            whole7835.returnPct < -0.5 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
                             else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
                         }
                         com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
                             com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
                                 positionId = positionId, mint = intent.mint, outcome = outcome6485,
-                                netRealizedPnlSol = pnl.realizedPnlSol,
-                                grossRealizedPnlSol = sellSolReceived - pnl.proportionalCostBasisSol,
-                                returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = feesSol,
+                                netRealizedPnlSol = whole7835.netSol,
+                                grossRealizedPnlSol = whole7835.grossSol,
+                                returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = whole7835.feesSol,
                                 entryLane = entrySnap6485?.entryLane ?: traderTag,
                                 entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
                                 entryTactic = entrySnap6485?.entryTactic ?: "",

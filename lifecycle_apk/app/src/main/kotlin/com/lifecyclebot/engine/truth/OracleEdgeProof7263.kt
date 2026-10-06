@@ -435,8 +435,8 @@ object OracleEdgeProof7263 {
      * show no judgement, so a lopsided refuser stays advisory.
      */
     fun discriminates7740(): Boolean {
-        val (aN, aRet, _) = admit.snapshot()
-        val (rN, rRet, _) = refuse.snapshot()
+        val (aN, aRet, _) = (if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "LIVE") admitLive7807 else admit).snapshot()
+        val (rN, rRet, _) = (if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "LIVE") refuseLive7807 else refuse).snapshot()
         return aN >= MIN_NON_ADMIT_CLOSES_7263 && rN >= MIN_NON_ADMIT_CLOSES_7263 &&
             aRet.isFinite() && rRet.isFinite() && rRet <= aRet - MIN_EDGE_MARGIN_RETURN_7263
     }
@@ -455,8 +455,8 @@ object OracleEdgeProof7263 {
      * graded closes stop saying so.
      */
     fun isInverted7304(): Boolean {
-        val (aN, aRet, _) = admit.snapshot()
-        val (rN, rRet, _) = refuse.snapshot()
+        val (aN, aRet, _) = (if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "LIVE") admitLive7807 else admit).snapshot()
+        val (rN, rRet, _) = (if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "LIVE") refuseLive7807 else refuse).snapshot()
         return aN >= MIN_ADMIT_CLOSES_7263 && rN >= MIN_NON_ADMIT_CLOSES_7263 &&
             rRet >= aRet + MIN_EDGE_MARGIN_RETURN_7263
     }

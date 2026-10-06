@@ -36,9 +36,10 @@ def main() -> int:
     errors: list[str] = []
 
     try:
-        express = section(BOT, "V5.9.1570 — Express FDG verdict", "END ShitCoin Express evaluation")
+        express = section(BOT, "val expressFdg = try", "END ShitCoin Express evaluation")
         for needle in (
-            'lane = "EXPRESS"',
+            'specialistLane = "EXPRESS"',
+            'fdgDecision7835 = expressFdg, tokenState7835 = ts',
             "requestedBook = TradeAuthorizer.ExecutionBook.EXPRESS",
             'executionLane = "EXPRESS"',
             "TradeAuthorizer.ExecutionBook.EXPRESS)",
@@ -49,7 +50,7 @@ def main() -> int:
 
         manip = section(BOT, "THE MANIPULATED - Ride manipulation pumps", "END ManipulatedTraderAI evaluation")
         for needle in (
-            'recordFdg(ts.mint, ts.symbol, "MANIPULATED"',
+            'fdgDecision7835 = manipFdg, tokenState7835 = ts',
             "requestedBook = TradeAuthorizer.ExecutionBook.MANIPULATED",
             'executionLane = "MANIPULATED"',
             "TradeAuthorizer.ExecutionBook.MANIPULATED)",

@@ -146,7 +146,7 @@ object PriceResolverFallback {
         cache[mint]?.let { c ->
             if (c.priceUsd > 0.0 && resolveStarted7399 - c.tsMs <= HOT_CACHE_MS_7399) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PRICE_FALLBACK_HOT_CACHE_7399") } catch (_: Throwable) {}
-                return Resolved(c.priceUsd, Source.CACHED)
+                return null // The caller already has this observation; do not refresh its age.
             }
         }
 
@@ -200,21 +200,8 @@ object PriceResolverFallback {
                 .labelInc("PRICE_FALLBACK_ALL_LIVE_SOURCES_FAILED_6914")
         } catch (_: Throwable) {}
 
-        // 4. In-process cache (last good)
-        cache[mint]?.let { c ->
-            if (c.priceUsd > 0.0) return Resolved(c.priceUsd, Source.CACHED)
-        }
-
-        // 5. HostWalletTokenTracker entry price (last resort, prevents SL silent-fail)
-        try {
-            val tracked = HostWalletTokenTracker.getEntry(mint)
-            val cached = tracked?.currentPriceUsd?.takeIf { it > 0.0 }
-                ?: tracked?.entryPriceUsd?.takeIf { it > 0.0 }
-            if (cached != null) {
-                return Resolved(cached, Source.ENTRY)
-            }
-        } catch (_: Throwable) { /* fall through */ }
-
+        // Cached and entry prices are not new market observations. Returning
+        // either here made every caller stamp an outage as a fresh live tick.
         ErrorLogger.warn(TAG, "all price sources failed for ${mint.take(8)}… — UNKNOWN")
         return null
     }

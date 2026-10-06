@@ -74,7 +74,7 @@ object SignalSourceProof7291 {
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         } catch (_: Throwable) { return }
         prefs = p
-        Source.values().forEach { tallies.getValue(it).decode(p.getString(it.name, null)) }
+        Source.values().forEach { tallies.getValue(it).decode(p.getString("${it.name}_LIVE_7835", null)) }
         Source.values().forEach { labeled7731.getValue(it).decode(p.getString("${it.name}_LABELED_7731", null)) }
         ensureSubscribed()
     }
@@ -123,8 +123,7 @@ object SignalSourceProof7291 {
     fun isProven(source: Source): Boolean {
         val t = tallies.getValue(source)
         if (t.n >= MIN_CLOSES && t.mean() > 0.0 && t.pf() >= MIN_PF) return true
-        val l = labeled7731.getValue(source)
-        return labeledProves7731(l.n, l.mean(), l.pf())
+        return false // Forward marks and simulated fills cannot authorize live sources.
     }
 
     private fun ensureSubscribed() {
@@ -137,6 +136,7 @@ object SignalSourceProof7291 {
     }
 
     private fun onEvent(event: CanonicalTradeFinalizedBus6450.Event) {
+        if (!event.mode.equals("live", true)) return
         // V5.0.7807 — a recovered / basis-uncertain / quarantined close is not evidence (Field Manual L357).
         if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(event)) { stamps.remove(event.mint); return }
         val (source, at) = stamps[event.mint] ?: return
@@ -151,7 +151,7 @@ object SignalSourceProof7291 {
             t.sumRet += ret
             if (event.netRealizedPnlSol > 0.0) { t.wins++; t.grossWinSol += event.netRealizedPnlSol }
             else t.grossLossSol += -event.netRealizedPnlSol
-            try { prefs?.edit()?.putString(source.name, t.encode())?.apply() } catch (_: Throwable) {}
+            try { prefs?.edit()?.putString("${source.name}_LIVE_7835", t.encode())?.apply() } catch (_: Throwable) {}
         }
         try { PipelineHealthCollector.labelInc("SIGNAL_SOURCE_GRADED_7291_${source.name}") } catch (_: Throwable) {}
     }

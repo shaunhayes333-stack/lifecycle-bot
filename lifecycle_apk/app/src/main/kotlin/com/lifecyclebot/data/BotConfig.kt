@@ -389,14 +389,9 @@ object ConfigStore {
         cachedConfigMs = 0L
     }
 
+    @Synchronized
     fun save(ctx: Context, cfg: BotConfig) {
         invalidateCache() // V5.9.706 — flush stale cache on write
-        // V5.9.495z31 — publish authoritative paperMode/autoTrade to
-        // the RuntimeModeAuthority so every reader sees the same mode.
-        com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(
-            paperMode = cfg.paperMode,
-            autoTrade = cfg.autoTrade,
-        )
         secrets(ctx).edit().apply {
             putString("private_key_b58",     cfg.privateKeyB58)
             // V5.9.495z26 — treasury wallet private key (encrypted alongside trading key)
@@ -468,6 +463,7 @@ object ConfigStore {
             putFloat("sentiment_entry_boost",         cfg.sentimentEntryBoost.toFloat())
             putFloat("sentiment_exit_boost",          cfg.sentimentExitBoost.toFloat())
             putFloat("wallet_reserve_sol",            cfg.walletReserveSol.toFloat())
+            putInt("max_trades_per_hour", cfg.maxTradesPerHour)
             putFloat("max_daily_loss_pct",            cfg.maxDailyLossPct.toFloat())
             putInt("circuit_breaker_losses",          cfg.circuitBreakerLosses)
             putInt("circuit_breaker_pause_min",       cfg.circuitBreakerPauseMin)
@@ -569,8 +565,16 @@ object ConfigStore {
             putBoolean("unified_scoring_mode",         cfg.unifiedScoringMode)
             apply()
         }
+        // V5.9.495z31 — publish authoritative paperMode/autoTrade to
+        // the RuntimeModeAuthority so every reader sees the same mode.
+        com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(
+            paperMode = cfg.paperMode,
+            autoTrade = cfg.autoTrade,
+        )
+
     }
 
+    @Synchronized
     fun load(ctx: Context): BotConfig {
         // V5.9.706 — serve from cache if fresh (avoids repeated AES-GCM decryption on main thread)
         val now = System.currentTimeMillis()
@@ -631,6 +635,7 @@ object ConfigStore {
             sentimentEntryBoost         = p.getFloat("sentiment_entry_boost", 20.0f).toDouble(),
             sentimentExitBoost          = p.getFloat("sentiment_exit_boost", 10.0f).toDouble(),
             walletReserveSol            = p.getFloat("wallet_reserve_sol", 0.05f).toDouble(),
+            maxTradesPerHour            = p.getInt("max_trades_per_hour", 10),
             maxDailyLossPct             = p.getFloat("max_daily_loss_pct", 10.0f).toDouble(),
             circuitBreakerLosses        = p.getInt("circuit_breaker_losses", 5),
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
@@ -697,7 +702,7 @@ object ConfigStore {
             // V5.0.7320 — copy trading is meant to be on. There was never a
             // UI toggle, so the persisted false was written by unrelated saves,
             // not chosen; read true until the operator has an actual switch.
-            copyTradingEnabled          = p.getBoolean("copy_trading_enabled", true) || !p.getBoolean("copy_trading_default_on_7320", false),
+            copyTradingEnabled          = p.getBoolean("copy_trading_enabled", true),
             copySizeMultiplier          = p.getFloat("copy_size_multiplier", 1.0f).toDouble(),
             useTimeFilter               = p.getBoolean("use_time_filter", true),
             topUpEnabled                = p.getBoolean("top_up_enabled", true),

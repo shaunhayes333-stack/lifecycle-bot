@@ -122,6 +122,16 @@ object CanonicalEntryAuthority6540 {
         classStages6567.computeIfAbsent(classKey6567(assetClass, stage.uppercase())) { AtomicLong(0L) }.addAndGet(amount)
     }
 
+    private val preSubmitReasons7835 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    fun markPreSubmitRefusal7835(assetClass: AssetClass, reason: String) {
+        markProducerStage6569(assetClass, "PRE_SUBMIT_REFUSED")
+        val key = "${assetClass.tag}|${reason.substringBefore(':').take(80)}"
+        preSubmitReasons7835.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
+    }
+    private fun preSubmitSummary7835(assetClass: AssetClass): String = preSubmitReasons7835.entries
+        .filter { it.key.startsWith("${assetClass.tag}|") }.sortedByDescending { it.value.get() }.take(5)
+        .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }
+
     fun completeProducerWindow6569(assetClass: AssetClass, enabled: Boolean, running: Boolean, rejectSummary: String) {
         if (assetClass == AssetClass.UNKNOWN) return
         completedWindows6569.computeIfAbsent(assetClass) { AtomicLong() }.incrementAndGet()
@@ -141,7 +151,7 @@ object CanonicalEntryAuthority6540 {
 
     fun producerLivenessReport6569(): String = AssetClass.values().filter { it != AssetClass.UNKNOWN }.joinToString("\n") { c ->
         fun n(st: String) = classStages6567[classKey6567(c, st)]?.get() ?: 0L
-        "  ${c.tag}: started=${n("STARTED")} scanTick=${n("SCAN_TICK")} marketDataOk=${n("MARKET_DATA_OK")} rawSignal=${n("RAW_SIGNAL")} actionableSignal=${n("ACTIONABLE_SIGNAL")} candidateCreated=${n("CANDIDATE")} canonicalSubmit=${n("SUBMIT")} zeroCandidateWindows=${zeroCandidateWindows6569[c]?.get() ?: 0L} rejects=${lastRejectSummary6569[c].orEmpty()}"
+        "  ${c.tag}: started=${n("STARTED")} scanTick=${n("SCAN_TICK")} marketDataOk=${n("MARKET_DATA_OK")} rawSignal=${n("RAW_SIGNAL")} actionableSignal=${n("ACTIONABLE_SIGNAL")} executionSelected=${n("EXECUTION_SELECTED")} candidateCreated=${n("CANDIDATE")} canonicalSubmit=${n("SUBMIT")} preSubmitRefused=${n("PRE_SUBMIT_REFUSED")} preSubmitReasons=${preSubmitSummary7835(c)} zeroCandidateWindows=${zeroCandidateWindows6569[c]?.get() ?: 0L} rejects=${lastRejectSummary6569[c].orEmpty()}"
     }
 
     fun assetClassStats6567(): List<AssetClassStats6567> = AssetClass.values()
@@ -319,6 +329,6 @@ object CanonicalEntryAuthority6540 {
         dispatchCount.values.forEach { it.set(0L) }
         openCount.values.forEach { it.set(0L) }
         classStages6567.clear(); completedWindows6569.clear(); zeroCandidateWindows6569.clear()
-        lastCandidateAtWindow6569.clear(); lastRejectSummary6569.clear()
+        lastCandidateAtWindow6569.clear(); lastRejectSummary6569.clear(); preSubmitReasons7835.clear()
     }
 }

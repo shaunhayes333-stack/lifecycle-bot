@@ -581,6 +581,8 @@ object AdaptiveLearningEngine {
     // close can never feed ALE more than once.
     private val aleSeenKeys = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    fun learnPaperTrade7835(features: TradeFeatures) = learnFromTrade(features, TradeEnvironment.PAPER)
+
     fun learnFromTrade(features: TradeFeatures, environment: TradeEnvironment = TradeEnvironment.LIVE) {
         // V5.0.7803 audit — this object owns one global live-driving weight/pattern
         // state. PAPER/SHADOW evidence must learn in their isolated systems and may

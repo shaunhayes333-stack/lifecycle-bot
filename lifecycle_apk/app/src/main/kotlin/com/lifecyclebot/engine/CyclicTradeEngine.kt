@@ -1126,27 +1126,14 @@ object CyclicTradeEngine {
                 ),
                 config = cfg,
                 proposedSizeSol = sizeSol,
+                specialistLane = "CYCLIC",
                 brain = executor.brain,
                 tradingModeTag = try { ModeSpecificGates.fromTradingMode("CYCLIC") } catch (_: Throwable) { null },
             )
         } catch (e: Throwable) {
-            ErrorLogger.warn(TAG, "CYCLIC_FDG_ERROR ${best.symbol}: ${e.message} — fail-open to authorizer")
+            ErrorLogger.warn(TAG, "CYCLIC_FDG_ERROR ${best.symbol}: ${e.message} — entry refused")
             null
         }
-        try {
-            ExecutableOpenGate.recordFdg(
-                mint = best.mint,
-                symbol = best.symbol,
-                lane = "CYCLIC",
-                canExecute = cyclicFdg?.canExecute() ?: true,
-                reason = cyclicFdg?.blockReason,
-                signal = "BUY",
-                rugScore = best.safety.rugcheckScore,
-                safetyTier = best.safety.tier.name,
-                liquidityUsd = best.lastLiquidityUsd,
-                hardNoReasons = best.safety.hardBlockReasons,
-            )
-        } catch (_: Throwable) {}
         // V5.0.7803 — CYCLIC no longer touches lane ownership here.
         // TradeAuthorizer is the single execution-election boundary for every
         // specialist. A pre-authorizer canRequestExecution() call could seal
@@ -1167,6 +1154,7 @@ object CyclicTradeEngine {
         }
 
         val cyclicAuth = TradeAuthorizer.authorize(
+            fdgDecision7835 = cyclicFdg, tokenState7835 = best,
             mint = best.mint,
             symbol = best.symbol,
             score = cyclicScore,
@@ -1184,10 +1172,11 @@ object CyclicTradeEngine {
             ErrorLogger.info(TAG, "CYCLIC_FINALITY_BLOCKED ${best.symbol} | ${cyclicAuth.reason}")
             return
         }
-        val cyclicAttemptId = ExecutableOpenGate.recentAllowedAttemptId(best.mint, "CYCLIC") ?: cyclicAuth.attemptId
+        val cyclicAttemptId = cyclicAuth.attemptId
+        val cyclicAuthorizedSize7835 = requireNotNull(cyclicAuth.executionIntent7835).resolvedSize
         val entered = executor.treasuryBuy(
             ts          = best,
-            sizeSol     = sizeSol,
+            sizeSol     = cyclicAuthorizedSize7835,
             walletSol   = walletSol,
             takeProfitPct = tpPctEntry,
             stopLossPct   = slPctEntry,
@@ -1198,7 +1187,7 @@ object CyclicTradeEngine {
             paperLayerTag = "CYCLIC",
             paperLayerEmoji = "🔁",
             debitPaperWallet = isLiveMode,
-            maxPaperTradeSolOverride = if (isLiveMode) null else sizeSol,
+            maxPaperTradeSolOverride = if (isLiveMode) null else cyclicAuthorizedSize7835,
         )
 
         if (entered) {
@@ -1221,19 +1210,19 @@ object CyclicTradeEngine {
             currentPriceSol = entryPriceVerdict.price
             currentPnlPct = 0.0
             priceState = "ENTRY_FRESH"
-            entrySizeSol  = sizeSol
+            entrySizeSol  = cyclicAuthorizedSize7835
             entryTimeMs   = System.currentTimeMillis()
             isRunning     = true
-            statusMessage = "⏳ ${best.symbol} | Size: ${sizeSol.fmt(3)} SOL | TP${tpPctEntry.toInt()}/SL${slPctEntry.toInt()} | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
+            statusMessage = "⏳ ${best.symbol} | Size: ${cyclicAuthorizedSize7835.fmt(3)} SOL | TP${tpPctEntry.toInt()}/SL${slPctEntry.toInt()} | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
             positionHighWaterPnlPct = 0.0  // V5.9.696: reset high water on new entry
-            ErrorLogger.info(TAG, "Cycle #${cycleCount + 1} entered: ${best.symbol} | $sizeSol SOL | live=$isLiveMode | score=${best.lastV3Score ?: 0} | TP=${tpPctEntry.toInt()}% SL=${slPctEntry.toInt()}%")
+            ErrorLogger.info(TAG, "Cycle #${cycleCount + 1} entered: ${best.symbol} | $cyclicAuthorizedSize7835 SOL | live=$isLiveMode | score=${best.lastV3Score ?: 0} | TP=${tpPctEntry.toInt()}% SL=${slPctEntry.toInt()}%")
             // V5.9.451 — journal BUY via V3JournalRecorder so the cycle
             // shows in the user's Journal alongside main-bot trades and
             // feeds ScoreExpectancyTracker/HoldDurationTracker/ExitReasonTracker.
             try {
                 V3JournalRecorder.recordOpen(
                     symbol = best.symbol, mint = best.mint,
-                    entryPrice = entryPriceVerdict.price, sizeSol = sizeSol,
+                    entryPrice = entryPriceVerdict.price, sizeSol = cyclicAuthorizedSize7835,
                     isPaper = !isLiveMode, layer = "CYCLIC",
                     entryScore = best.lastV3Score ?: best.entryScore.toInt(),
                     entryReason = "RING_ENTRY_TP${tpPctEntry.toInt()}SL${slPctEntry.toInt()}",

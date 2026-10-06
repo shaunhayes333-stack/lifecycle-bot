@@ -2475,10 +2475,8 @@ class Executor(
                 val severity = com.lifecyclebot.engine.sell.SellIntentSeverity.forReason(reason)
                 com.lifecyclebot.engine.sell.CloseLease.raiseIntent(ts.mint, reason, severity)
             } catch (_: Throwable) {}
-            try { HostWalletTokenTracker.clearSellInFlight(ts.mint, "PUNCH_THROUGH_$rU") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("SELL_INFLIGHT_PUNCH_THROUGH", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason staleState=$stateReason") } catch (_: Throwable) {}
-            return false   // allow the safety sell to proceed
+            try { ForensicLogger.lifecycle("SELL_INFLIGHT_PRIORITY_RAISED_7835", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason state=$stateReason") } catch (_: Throwable) {}
+            return true // The existing worker retains its lock and consumes the raised reason.
         }
         if (stateReason != null && !com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason)) {
             // V5.9.967 — z43-D SellSpamGuard: suppress duplicate blocked-log
@@ -3110,6 +3108,39 @@ class Executor(
      *  is drifting / reconciler is stalled. 0.05 SOL per operator spec. */
     private val LEDGER_DRIFT_MAX_LIVE_SOL: Double = 0.05
 
+    private fun commitVerifiedLiveSlice7835(ts: TokenState, proof: TradeVerifier.SellResult, reason: String): com.lifecyclebot.engine.sell.SellFinalizationCoordinator.Result? {
+        if (proof.outcome != TradeVerifier.Outcome.LANDED || proof.mint != ts.mint ||
+            proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null || proof.rawTokenConsumed.signum() <= 0) return null
+        val position = liveCanonicalOpen7362(ts.mint) ?: return null
+        val intent = com.lifecyclebot.engine.sell.SellIntent.build(
+            mint = ts.mint, symbol = ts.symbol,
+            reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
+            requestedFractionBps = ((proof.rawTokenConsumed.toDouble() / proof.preTokenRaw7835.toDouble()) * 10000).toInt().coerceIn(1, 10000),
+            confirmedWalletRaw = proof.preTokenRaw7835, decimals = proof.decimals,
+            slippageBps = 0, emergencyDrain = false,
+            entrySolSpent = (position.entryCostSol - position.soldCostBasisSol).coerceAtLeast(0.0),
+            entryTokenRaw = position.remainingQtyRaw,
+        )
+        val result = com.lifecyclebot.engine.sell.SellFinalizationCoordinator.finalize(
+            intent = intent, preTokenBalanceRaw = proof.preTokenRaw7835,
+            postTokenBalanceRaw = proof.postTokenRaw7835, walletPollRaw = proof.postTokenRaw7835,
+            solReceivedLamports = proof.solReceivedLamports,
+            sellSolReceived = proof.solReceivedLamports / 1_000_000_000.0, feesSol = 0.0,
+            decimals = proof.decimals, slippageUsedBps = 0, sellSig = proof.sig,
+        )
+        if (result.pendingRetry) return null
+        val updated = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(position.positionId) ?: return null
+        synchronized(ts) {
+            ts.position = ts.position.copy(
+                qtyToken = updated.remainingQtyRaw.toBigDecimal().movePointLeft(updated.quantityScale).toDouble(),
+                costSol = (updated.entryCostSol - updated.soldCostBasisSol).coerceAtLeast(0.0),
+                partialSoldPct = if (updated.originalQtyRaw.signum() > 0)
+                    100.0 * (1.0 - updated.remainingQtyRaw.toDouble() / updated.originalQtyRaw.toDouble()) else 0.0,
+            )
+        }
+        return result
+    }
+
     private data class LiveSellAccounting(
         val pnlSol: Double,
         val pnlPct: Double,
@@ -3165,31 +3196,10 @@ class Executor(
             try { PipelineHealthCollector.labelInc("RECOVERED_SCRATCH_FORCED") } catch (_: Throwable) {}
             return LiveSellAccounting(pnlSol = 0.0, pnlPct = 0.0, netPnlSol = 0.0, feeSol = 0.0)
         }
-        var pnlSol = safeProceeds - safeCost
-        var pnlPct = pct(safeCost, safeProceeds)
-        val r = reason.uppercase()
-        val stopLike = r.contains("STOP") || r.contains("STRICT_SL") || r.contains("HARD_FLOOR") || r.contains("FALLBACK_ORPHAN_HARD_FLOOR")
-        val impossible = !pnlPct.isFinite() || pnlPct > 5_000.0 || pnlPct < -100.0001
-        val signConflict = stopLike && pnlPct > 0.5
-        if (impossible || signConflict) {
-            val priceVerdict = try { OpenPnlSanity.inspect(ts, "SELL_ACCOUNTING:$context", emit = true) } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
-            val replacementPct = when {
-                priceVerdict.ok && priceVerdict.pnlPct.isFinite() && priceVerdict.pnlPct in -100.0..5_000.0 -> priceVerdict.pnlPct
-                signConflict -> 0.0
-                else -> 0.0
-            }
-            val replacementPnl = safeCost * (replacementPct / 100.0)
-            try {
-                ForensicLogger.lifecycle(
-                    "LIVE_SELL_ACCOUNTING_REPAIRED",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} context=$context reason=$reason oldPct=${pnlPct.fmt(2)} newPct=${replacementPct.fmt(2)} oldPnl=${pnlSol.fmt(6)} newPnl=${replacementPnl.fmt(6)} cost=${safeCost.fmt(6)} proceeds=${safeProceeds.fmt(6)} basis=${priceVerdict.reason}",
-                )
-            } catch (_: Throwable) {}
-            pnlPct = replacementPct
-            pnlSol = replacementPnl
-        }
-        val pair = slippageGuard.calcNetPnl(pnlSol, safeCost)
-        return LiveSellAccounting(pnlSol, pnlPct, pair.first, pair.second)
+        // Confirmed wallet receipts already include swap/network fee deductions.
+        // An exit label or an estimated slippage charge cannot rewrite the receipt.
+        val pnlSol = safeProceeds - safeCost
+        return LiveSellAccounting(pnlSol, pct(safeCost, safeProceeds), pnlSol, 0.0)
     }
 
     /**
@@ -4877,65 +4887,7 @@ class Executor(
                 )
             }
         } catch (_: Throwable) {}
-        // V5.0.4514 — CENTRAL TERMINAL POLICY FANOUT.
-        // Pending entry heads were previously fed from specific sell paths only
-        // (~live/paper sell call sites), while recordTrade() is the actual journal
-        // choke point used by all terminal close routes. Consume pending labels here
-        // after TradeOutcomeLedger + accounting + TradeRowSanityCheck acceptance so
-        // UnifiedPolicyHead / UnifiedExitPolicyHead / ForwardOutcomeModel see every
-        // valid terminal close exactly once. These recordOutcome APIs remove pending
-        // mint state, so older downstream path calls become harmless no-ops.
-        try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
-                val terminalSnap4514 = tradeWithMint
-                val pnlForHeads4514 = terminalSnap4514.pnlPct
-                val mintForHeads4514 = terminalSnap4514.mint.ifBlank { ts.mint }
-                GlobalScope.launch(AppDispatchers.sideEffect) {
-                    try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
-                    // V5.0.6258 — PAPER→LIVE AGI REWIRE. Central-fanout StrategyHypothesisEngine
-                    // recordOutcome so BOTH paper and live closes credit the A/B arms. Prior
-                    // impl only fired inside paperSell/liveSell; any close arriving via a
-                    // different path (shadow, wallet-recovery, external route) left arms at
-                    // n=0 forever. Op-report V5.0.6257 showed 6 active hypotheses with
-                    // ctrl=0/var=0 after 1500+ closes. Idempotent: engine.recordOutcome
-                    // bails if pending[mint] is empty (already consumed by local fanout).
-                    try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
-                    // V5.0.6260 — BYPASS-WIN STREAK. Credit the outcome to
-                    // LiveLaneGovernor so a lane that keeps winning through
-                    // DNA-approved bypasses gets auto-unpaused early. Idempotent
-                    // (recordBypassOutcome bails when mint wasn't a bypass entry).
-                    try { com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
-                    // V5.0.6009 — CRITICAL BUG FIX: EXIT BRAIN TRAINED BACKWARDS.
-                    // Prior label `pnlForHeads4514 > -5.0` marked ANY exit with pnl
-                    // above -5% as "optimal" — INCLUDING -4%, -3%, -2%, -1% LOSSES.
-                    // The brain learned "small losses are optimal exits" and started
-                    // paper-handing every winner. UnifiedExitPolicyHead docstring
-                    // says the label means "banked >70% of peak or dodged a dump".
-                    //
-                    // Correct label: exit was optimal iff we banked a real win.
-                    // Real win threshold = 2% net (above trade noise / slippage).
-                    // Also credit TAKE_PROFIT / TRAILING_STOP reasons which by
-                    // definition are managed profitable exits. STOP_LOSS variants
-                    // are NEVER optimal — those are the paper-handing pattern.
-                    val exitReason = terminalSnap4514.reason.uppercase()
-                    val exitWasOptimal = when {
-                        exitReason.contains("STOP_LOSS") || exitReason.contains("STRICT_SL") || exitReason.contains("STOPLOSS") -> false
-                        exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true
-                        pnlForHeads4514 >= 2.0 -> true   // real banked win
-                        else -> false                     // scratches + all losses = not optimal
-                    }
-                    try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, exitWasOptimal) } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "UNIFIED_EXIT_POLICY_HEAD_LABEL_FIX_6009",
-                            "mint=${mintForHeads4514.take(10)} pnl=${"%.2f".format(pnlForHeads4514)}% reason=$exitReason optimal=$exitWasOptimal",
-                        )
-                    } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("CENTRAL_TERMINAL_POLICY_FANOUT_4514") } catch (_: Throwable) {}
-                }
-            }
-        } catch (_: Throwable) {}
+        // Canonical terminal delivery owns policy outcomes after all slices are committed.
 
         try {
             if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
@@ -5159,44 +5111,7 @@ class Executor(
             }
         } catch (_: Throwable) {}
 
-        // V5.9.994 — KILL SWITCH FEED (Doctrine #4 — safety guard must be fed).
-        // Audit found KillSwitch.recordTrade() had ZERO callers. The kill
-        // switch initializes in BotService and has onKillTriggered + onWarning
-        // callbacks wired, but no trade outcome flow → it would never trigger
-        // in live mode. KillSwitch.recordTrade short-circuits in paper mode
-        // (returns true immediately), so this is fail-safe for paper trading
-        // but actually arms the safety guard for live. Fail-open: any
-        // exception swallowed — never block sell finalize.
-        //
-        // V5.9.998 — operator triage: also moved to background IO coroutine
-        // (see ML block above). KillSwitch.recordTrade touches SharedPrefs
-        // and a rolling buffer; cheap individually but with 30+ sells/min
-        // it added cumulative latency to the bot tick. Async = never blocks
-        // the loop, still arms the kill switch in live mode within ms.
-        try {
-            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
-                // BotService.instance?.applicationContext — same pattern as
-                // GeminiCopilot.kt:595. solBalance comes from the canonical
-                // WalletManager state — same accessor as BotService.kt:3874
-                // (live currentBalance for kill-switch decisions).
-                val appCtx = com.lifecyclebot.engine.BotService.instance?.applicationContext
-                val currentSol = try {
-                    com.lifecyclebot.engine.BotService.walletManager.state.value.solBalance
-                } catch (_: Throwable) { 0.0 }
-                if (appCtx != null && currentSol > 0.0) {
-                    val pnlSnap = tradeWithMint.pnlPct
-                    GlobalScope.launch(AppDispatchers.sideEffect) {
-                        try {
-                            com.lifecyclebot.engine.KillSwitch.recordTrade(
-                                context        = appCtx,
-                                pnlPct         = pnlSnap,
-                                currentBalance = currentSol,
-                            )
-                        } catch (_: Throwable) { /* fail-open background */ }
-                    }
-                }
-            }
-        } catch (_: Throwable) {}
+        // KillSwitch receives one canonical whole-position close after economic commit.
 
         // V5.9.996 — COPY-TRADE OUTCOME LOOP step 2/2 (Doctrine #4 —
         // genuine learning). Audit found CopyTradeEngine.recordResult had
@@ -10337,25 +10252,10 @@ class Executor(
                 )
 
                 val sig: String
-                val solBack: Double
-                val feeSol: Double
-                val netPnl: Double
-                val livePnl: Double
-                // V5.0.4180/4182 — was `val`, must be `var` because the
-                // sell-side phantom guard below may demote liveScore (line ~5842)
-                // when an absurd booked pct on a tiny cost basis is detected.
-                // CI red on 4181: "Val cannot be reassigned" at Executor.kt:5842.
-                var liveScore: Double
                 val livePartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
                 if (pumpSig != null) {
                     sig = pumpSig
                     // Estimate solBack from current mark + sold quantity.
-                    solBack = sellSol
-                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, livePartialReason, "partial.pump")
-                    livePnl = partialAcct.pnlSol
-                    liveScore = partialAcct.pnlPct
-                    netPnl = partialAcct.netPnlSol
-                    feeSol = partialAcct.feeSol
                 } else {
                     // Fallback: full Jupiter Ultra → Metis ladder (single shot
                     // here; Jupiter dynamicSlippage handles in-route escalation).
@@ -10403,63 +10303,30 @@ class Executor(
                         )
                         rescue ?: throw jupEx
                     }
-                    // V5.9.495k — PHANTOM-aware solBack: zero out fake gains
-                    // when the rescue helper returned a PHANTOM_* sentinel sig.
-                    solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
-                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, livePartialReason, "partial.jupiter")
-                    livePnl = partialAcct.pnlSol
-                    liveScore = partialAcct.pnlPct
-                    netPnl = partialAcct.netPnlSol
-                    feeSol = partialAcct.feeSol
                 }
-                ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-                // V5.0.6325 — record the confirmed sold delta into the
-                // CanonicalPositionRegistry so canonicalRemainingQuantity
-                // decrements atomically with real on-chain proceeds. This
-                // feeds the LearningEligibility classifier + governor with
-                // authoritative wallet-delta data.
-                try {
-                    val decimalsFor6325 = decimalsForAudit.takeIf { it >= 0 } ?: 0
-                    val soldRaw6325 = expectedConsumedRawForAudit
-                    if (soldRaw6325.signum() > 0) {
-                        com.lifecyclebot.engine.CanonicalPositionRegistry.recordSold(
-                            mint = ts.mint,
-                            soldRawDelta = soldRaw6325,
-                            proceedsSol = solBack,
-                            signature = sig,
-                        )
-                    }
-                } catch (_: Throwable) {}
-                // The partial-sell toast + journal previously used
-                // pos.costSol * sellFraction, but pos.costSol carries the
-                // pre-verify heuristic when the SELL fires before the
-                // wallet-verify backfill lands. Override with the on-chain-
-                // proven solSpentNet whenever the canonical registry has
-                // a fill for this mint. Closes the "sold 25% at −31%"
-                // toast contradicting a +1564% position display.
-                val fill6321 = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
-                val canonicalCostBasis6321 = fill6321?.solSpentNet?.takeIf { it > 0.0 }
-                val livePartialCostBasisSol = (canonicalCostBasis6321 ?: pos.costSol) * sellFraction
-                if (fill6321 != null && canonicalCostBasis6321 != null && canonicalCostBasis6321 > 0.0 && pos.costSol > 0.0) {
-                    val ratio = maxOf(canonicalCostBasis6321, pos.costSol) / minOf(canonicalCostBasis6321, pos.costSol)
-                    if (ratio > 1.10) {
-                        try {
-                            ForensicLogger.lifecycle(
-                                "PARTIAL_SELL_CANONICAL_COST_OVERRIDE_6321",
-                                "mint=${ts.mint.take(10)} sym=${ts.symbol} staleCostSol=${pos.costSol} canonSolSpent=${canonicalCostBasis6321} ratio=${"%.2f".format(ratio)}× sellFrac=$sellFraction",
-                            )
-                            PipelineHealthCollector.labelInc("PARTIAL_SELL_CANONICAL_COST_OVERRIDE_6321")
-                        } catch (_: Throwable) {}
-                    }
+                if (sig.startsWith("PHANTOM_")) return false
+                TradeVerifier.beginSell(ts.mint, sig, livePartialReason)
+                val proof7835 = TradeVerifier.verifySell(wallet, sig, ts.mint, timeoutMs = 60_000L)
+                val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, livePartialReason)
+                if (settled7835 == null) {
+                    PipelineHealthCollector.labelInc("LIVE_PARTIAL_AWAIT_CANONICAL_PROOF_7835")
+                    return false
                 }
+                TradeVerifier.endSell(ts.mint)
+                val solBack = settled7835.solReceived
+                val livePartialCostBasisSol = settled7835.realizedPnl.proportionalCostBasisSol
+                val livePnl = settled7835.realizedPnl.realizedPnlSol
+                val liveScore = settled7835.realizedPnl.realizedPnlPct
+                val netPnl = livePnl
+                val feeSol = 0.0
                 val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, actualPrice,
                     System.currentTimeMillis(), livePartialReason,
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
                     mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji,
                     // V5.0.7355 — the slice basis livePnl/liveScore were computed on;
                     // ts.position was already reduced to the remainder above.
-                    entryCostSol = pos.costSol * sellFraction, entryPriceSnapshot = pos.entryPrice,
-                    soldCostBasisSol = pos.costSol * sellFraction, grossProceedsSol = solBack,
+                    entryCostSol = livePartialCostBasisSol, entryPriceSnapshot = pos.entryPrice,
+                    soldCostBasisSol = livePartialCostBasisSol, grossProceedsSol = solBack,
                     // V5.0.7807 — one economic identity + exact sold quantity on the
                     // partial leg (Field Manual L267). This row carried no positionId,
                     // so TradeHistoryStore minted "LIVE:<mint>:<entryTs>" — a
@@ -10467,12 +10334,10 @@ class Executor(
                     // soldQtyToken, so the leg's sold quantity was unknown (0).
                     positionId = pos.positionId.ifBlank { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false) },
                     entryTsMs = pos.entryTime, entryQtyToken = pos.qtyToken,
-                    soldQtyToken = sellQty, remainingQtyToken = newQty.coerceAtLeast(0.0),
-                    canonicalConsumedRaw = expectedConsumedRawForAudit,
-                    tokenDecimals = if (expectedConsumedRawForAudit.signum() > 0) decimalsForAudit else -1)
+                    soldQtyToken = proof7835.uiTokenConsumed, remainingQtyToken = ts.position.qtyToken,
+                    canonicalConsumedRaw = proof7835.rawTokenConsumed,
+                    tokenDecimals = proof7835.decimals)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
-                SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
-                LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
                 // V5.0.6041 — a finalized live partial is landed SOL movement.
                 // Do not fake-credit local SOL; force the wallet manager to pull
                 // on-chain balance immediately so the dashboard/sizers see the
@@ -10535,32 +10400,11 @@ class Executor(
                 }
                 try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
                     "mode=live mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} pct=${liveScore.fmtPctPrecise()} reason=${liveTrade.reason} sig=${sig.take(16)}") } catch (_: Throwable) {}
-                // V5.0.4180 — F6: SELL-SIDE PHANTOM GUARD.
-                // Field notifications showed +210,425% (+6.049 SOL) and +242,342%
-                // (+6.966 SOL) "wins" that never landed in the wallet (canonical
-                // PnL stayed -0.282 SOL). Root cause: quote.outAmount used as
-                // solBack is the OPTIMISTIC Jupiter quote, not the realized
-                // post-tx wallet delta. Sandwiches / thin-pool prints / failed
-                // routes inflate quote.outAmount → bot books a phantom win →
-                // TokenWinMemory + PatternMemory poisoned with ghost data →
-                // bot chases the phantom pattern → real fills are dust.
-                //
-                // Guard: if booked PnL pct is absurd (>1000%) AND the position
-                // cost basis was tiny (<0.01 SOL — i.e. real win would be tiny
-                // in absolute SOL), demote the booked values. The trade still
-                // closes (we can't undo the on-chain swap), but the LEARNING
-                // signals get the sanitized values. Sane 10x+ wins on real
-                // size are preserved (large position + large pct = legit).
-                val isPhantomSuspect = liveScore.toDouble() > 1000.0 &&
-                    livePartialCostBasisSol < 0.01
-                if (isPhantomSuspect) {
+                // Flag an unusual verified return for inspection without inventing a replacement outcome.
+                if (liveScore > 1000.0 && livePartialCostBasisSol < 0.01) {
                     try { ForensicLogger.lifecycle("PHANTOM_SELL_DETECTED",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} bookedPct=${liveScore.fmtPctPrecise()} bookedNetSol=${netPnl.fmtSignedSol()} cost=${livePartialCostBasisSol.fmtSol()} reason=ABSURD_PCT_TINY_COST action=demote_for_learning") } catch (_: Throwable) {}
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} bookedPct=${liveScore.fmtPctPrecise()} bookedNetSol=${netPnl.fmtSignedSol()} cost=${livePartialCostBasisSol.fmtSol()} reason=ABSURD_PCT_TINY_COST action=review_verified_receipt") } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("PHANTOM_SELL_DETECTED") } catch (_: Throwable) {}
-                    // Demote to a sanitised "tiny win" so downstream learning
-                    // sees something believable: cap pct at +50% (typical
-                    // partial bank), keep the SOL number as-is (audit trail).
-                    liveScore = 50.0
                 }
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ ${liveScore.fmtPctPrecise()} | " +
                       "cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} | sig=${sig.take(16)}…", ts.mint)
@@ -10904,7 +10748,7 @@ class Executor(
         }
         return ProtectiveThresholds6882(
             markPx = markPx,
-            stopPx = if (effStopPct.isFinite() && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0,
+            stopPx = if (System.currentTimeMillis() - pos.entryTime >= 45_000L && effStopPct.isFinite() && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0,
             catastrophePx = pos.entryPrice * 0.75,
             tpPx = if (effTpPct > 0.0) pos.entryPrice * (1.0 + effTpPct / 100.0) else 0.0,
             trailPx = if (pos.highestPrice > pos.entryPrice) pos.highestPrice * 0.90 else 0.0,
@@ -13994,729 +13838,22 @@ class Executor(
 
         }
 
-        // V5.9.401 — Sentience hook #7: dynamic size scaling (0.5..1.5×, default 1.0).
-        val sizeMult = try {
-            com.lifecyclebot.engine.SentienceHooks.suggestSizeMultiplier(
-                engine = "MEME", symbol = ts.symbol, regime = ts.source
-            )
-        } catch (_: Throwable) { 1.0 }
-
-        // V5.9.402 — Lab Promoted Feed: proven LLM strategies nudge live entries.
-        val labNudge = try {
-            com.lifecyclebot.engine.lab.LabPromotedFeed.entryNudge(
-                asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
-                score = score.toInt(),
-            )
-        } catch (_: Throwable) { null }
-        // V5.0.7106 §AUTO_GRANT_WITH_A_LIVE_PROOF_BAR (operator decision).
-        //
-        // In LIVE, a strategy's nudge applies only if it has cleared the live
-        // bar and is inside its rolling exposure cap. Resolved BEFORE the score
-        // floor below, because authority has to mean the same thing in both
-        // directions: a strategy not trusted to size a live trade is not
-        // trusted to veto one either.
-        //
-        // The refusal drops the NUDGE. It never drops the trade. That is the
-        // whole change from 7105, where an unauthorised strategy caused doBuy
-        // to `return` and a live entry that stood on its own merits simply did
-        // not happen, waiting on a human tap. Under a design where the app runs
-        // unattended once funded, that was the last hard stop in the live path.
-        val labNudgeEffective7106 = if (labNudge == null || isPaperRT()) labNudge else {
-            val refusal7106 = try {
-                com.lifecyclebot.engine.lab.LabPromotedFeed
-                    .liveNudgeRefusal7106(labNudge.strategyId, sol)
-            } catch (_: Throwable) { "REFUSAL_CHECK_THREW" }
-            if (refusal7106 == null) labNudge else {
-                try {
-                    PipelineHealthCollector.labelInc("LAB_LIVE_NUDGE_REFUSED_7106")
-                    PipelineHealthCollector.labelInc(
-                        "LAB_LIVE_NUDGE_REFUSED_7106_${refusal7106.substringBefore('_')}".take(60)
-                    )
-                    ForensicLogger.lifecycle(
-                        "LAB_LIVE_NUDGE_REFUSED_7106",
-                        "mint=${tradeId.mint.take(10)} symbol=${ts.symbol} score=${score.toInt()} " +
-                            "sizeSol=${"%.4f".format(sol)} strategy=${labNudge.strategyId} " +
-                            "name=${labNudge.strategyName.take(40)} refusal=$refusal7106 " +
-                            "action=nudge_dropped_entry_proceeds_on_own_merits",
-                    )
-                } catch (_: Throwable) {}
-                null
-            }
-        }
-        // If an authorised promoted Lab strategy says the score is too weak,
-        // skip the entry.
-        if (labNudgeEffective7106 != null && score.toInt() < labNudgeEffective7106.scoreFloor) {
-            onLog("🧪 LAB FLOOR: ${ts.symbol} score=${score.toInt()} < floor ${labNudgeEffective7106.scoreFloor} (${labNudgeEffective7106.strategyName})", tradeId.mint)
+        val laneTag = resolveExecutionLane(ts, identity)
+        val dispatchIntent7835 = ExecutableOpenGate.ticketForAttempt(attemptId)
+        val dispatchRefusal7835 = SealedExecutionSize7835.refusal(
+            dispatchIntent7835, ts.mint, if (isPaperRT()) "PAPER" else "LIVE", laneTag, sol,
+        )
+        if (dispatchRefusal7835 != null) {
+            try { PipelineHealthCollector.labelInc(dispatchRefusal7835) } catch (_: Throwable) {}
+            try { ExecutableOpenGate.terminalizeAttempt6514(attemptId, ts.mint, laneTag) } catch (_: Throwable) {}
             return
         }
-        // V5.0.7106 — the LIVE_ENTRY_BLOCKED_AWAITING_LAB_APPROVAL_7105 branch
-        // that stood here is gone. It queued a per-trade approval and returned,
-        // abandoning a live entry that stood on its own merits. Authority is now
-        // resolved above by liveNudgeRefusal7106, which drops the nudge instead
-        // of the trade, so nothing in the live path waits on a human.
-        //
-        // Real money directed BY a nudge is recorded against that strategy's
-        // rolling 24h cap. Only counted when the nudge actually survived, and
-        // only in live — paper spends no real money and must not consume the
-        // cap that bounds real money.
-        if (!isPaperRT() && labNudgeEffective7106 != null) {
-            try {
-                com.lifecyclebot.engine.lab.LabPromotedFeed
-                    .recordLiveSpend7106(labNudgeEffective7106.strategyId, sol)
-                PipelineHealthCollector.labelInc("LAB_LIVE_NUDGE_APPLIED_7106")
-            } catch (_: Throwable) {}
-        }
-        val labMult = labNudgeEffective7106?.sizeMultiplier ?: 1.0
-        // V5.9.1273 — LaneExpectancyDamper: shrink size on PROVEN bleeder lanes
-        // (size-only, never a veto; self-heals as the lane's live EV recovers).
-        // Lane key resolved the same way finalityLane is (layerTag→identity.source),
-        // so the haircut targets the same bin StrategyTelemetry reports.
-        val laneEvMult = try {
-            val laneForExpectancy = resolveExecutionLane(ts, identity)
-            val raw = com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneForExpectancy)
-            // V5.0.3956 — LIVE WALLET-GROWTH ALLOCATION.
-            // The old code explicitly bypassed LaneExpectancyDamper in live mode,
-            // making strategy telemetry report-only while real SOL kept flowing into
-            // EXPRESS/CYCLIC/SHITCOIN bleeders. Apply the size-only allocator live:
-            // losers become cheap probes, winners get pressed. No veto, no zero.
-            if (RuntimeModeAuthority.isLive() && raw != 1.0) {
-                try { ForensicLogger.lifecycle("LIVE_EXPECTANCY_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForExpectancy mult=$raw") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("LIVE_EXPECTANCY_SIZE_APPLIED") } catch (_: Throwable) {}
-            }
-            raw
-        } catch (_: Throwable) { 1.0 }
-        // V5.9.1329 — GLOBAL REGIME SIZE BRAKE (live snapshot 5.0.3297 fix).
-        // RegimeDetector.sizeMultiplier() was COMPUTED and shown in the health snapshot
-        // (regime=DUMP → sizeMult=0.50) but had ZERO callers — pure dead telemetry. The
-        // bot ran 3944 execs/day straight through a DUMP (regime WR 11.6%, meanPnl -9.96%)
-        // because the global brake was never wired. The 1328 BLUECHIP guard proved the
-        // pattern works (BLUECHIP stood down: 72 evals vs ~590 on every other lane) — this
-        // extends the SAME regime awareness to EVERY lane at the one global choke point all
-        // trades funnel through. Size-only, fail-open, never a veto. Meme lanes included by
-        // design (operator: regime-aware sizing is the doctrine, not a per-lane hack); the
-        // protected 500-token scanner pool and FDG veto whitelist are untouched.
-        // V5.0.4086 — RUNNER LANE EXEMPTION FROM GLOBAL REGIME (operator P0:
-        // ops snapshot showed MOONSHOT triple-stack-damped to ~0.35% of normal
-        // size: LaneExpectancyDamper×0.18 × RegimeDetector×0.10 × LiveStrategyTuner×0.35.
-        // Runner lanes already get their own per-lane tuning (LiveStrategyTuner,
-        // LaneExitTuner) and the lane-specific size cap below; stacking the global
-        // DUMP haircut on top is the actual choke. Skip the regime brake for
-        // runner lanes — the meme trader is built for asymmetric variance, the
-        // global regime signal is for mean-stable lanes. Non-runner lanes
-        // (STANDARD, BLUECHIP, etc.) keep the regime brake unchanged.
-        val laneTagForRegime = (identity?.source ?: ts.source).uppercase()
-        val isRunnerLaneForRegime = laneTagForRegime.contains("MOONSHOT") ||
-            laneTagForRegime.contains("SHITCOIN") || laneTagForRegime.contains("MEME") ||
-            laneTagForRegime.contains("EXPRESS") || laneTagForRegime.contains("MANIP") ||
-            laneTagForRegime.contains("PRESALE") || laneTagForRegime.contains("PROJECT_SNIPER") ||
-            laneTagForRegime.contains("DIP_HUNTER")
-        // V5.0.4124 — gate runner regime exemption on actual profitability.
-        // Blanket exemption let bleeding MOONSHOT bypass DUMP regime brake.
-        val runnerLaneProfitable = try {
-            val board = StrategyTelemetry.computeLiveTerminalLeaderboard()
-            val m = board.firstOrNull { it.strategy.equals(laneTagForRegime, true) }
-            m != null && m.totalSolPnl > 0.0
-        } catch (_: Throwable) { true }
-        val regimeMult = if (isRunnerLaneForRegime && runnerLaneProfitable) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.laneAwareSizeMultiplier(laneTagForRegime) } catch (_: Throwable) { 1.0 }
-        // V5.0.6290 — CHOP REGIME EXEMPTION FOR PROVEN +EV LIVE LANES.
-        // Op-report V5.0.6288 showed a "planned 0.05 SOL → actual 0.007 SOL"
-        // (86% size destruction). Root: CHOP regime × 0.35 applied globally
-        // even to lanes proven +EV on live truth (STANDARD n=143 E=+0.7%).
-        // If CleanLiveStrategyTruth shows a lane with n>=20 and E>0, the
-        // macro CHOP throttle is inappropriate — that lane has DEMONSTRATED
-        // it prints in this regime. Floor its regimeMult at 0.85 instead of
-        // taking the 0.35 crush. Downstream truth-ledger clamp still catches
-        // deteriorating lanes.
-        val regimeMultForLane = try {
-            val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                .firstOrNull { it.lane.equals(laneTagForRegime, ignoreCase = true) }
-            if (snap != null && snap.sample >= 20 && snap.evPct > 0.0) {
-                val lifted = maxOf(regimeMult, 0.85)
-                if (lifted > regimeMult) {
-                    try { ForensicLogger.lifecycle("REGIME_POS_EV_LANE_EXEMPTION_6290", "lane=${snap.lane} n=${snap.sample} E=${"%+.2f".format(snap.evPct)}% regimeMult ${"%.2f".format(regimeMult)}→${"%.2f".format(lifted)}") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("REGIME_POS_EV_LANE_EXEMPTION_6290") } catch (_: Throwable) {}
-                }
-                lifted
-            } else regimeMult
-        } catch (_: Throwable) { regimeMult }
-        // V5.0.4130 — PATTERN GOLDEN GOOSE BYPASSES DUMP-REGIME BRAKE.
-        // RegimeDetector.sizeMultiplier() returns 0.10 in DUMP regime, crushing
-        // entries to 10% of base. Operator: "make winners get real size." GOLD
-        // pattern tokens (theme_space 82% WR n=75 etc.) have demonstrated edge
-        // strong enough to override the macro regime — they're the asset-level
-        // signal, not the market-wide signal. WINNER lifts to 0.60 minimum.
-        // CATASTROPHIC/TOXIC/NEUTRAL remain on the standard brake.
-        val gooseRegimeVerdict4130 = try {
-            com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
-        } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
-        val regimeMultGoosed = when (gooseRegimeVerdict4130) {
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMultForLane, 1.00)  // full bypass
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> maxOf(regimeMultForLane, 0.60)  // partial bypass
-            else                                                    -> regimeMultForLane
-        }
-        if (regimeMultGoosed > regimeMult) {
-            try { ForensicLogger.lifecycle("REGIME_GOOSE_BYPASS_V4130", "symbol=${ts.symbol} verdict=${gooseRegimeVerdict4130.name} regimeMult=$regimeMult → $regimeMultGoosed") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("REGIME_GOOSE_BYPASS_${gooseRegimeVerdict4130.name}") } catch (_: Throwable) {}
-        }
-        // V5.9.1464 — LANE EXECUTABLE-SIZE CAP (operator strategy spec items 3/4/5).
-        // Per-lane size ceiling on the PROVEN bleeders until their rolling WR recovers.
-        // Soft-shape only — NEVER a veto, the lane stays fully executable + trainable,
-        // every rejected/probe candidate still journals. This is the "convert weak flow
-        // to smaller executable size" lever the spec asks for, on top of the 1460/1461
-        // learning weight. As LanePolicy.rollingWr climbs past the recovery threshold the
-        // cap lifts back to 1.0 automatically (fluid recovery, consistent with doctrine).
-        val laneTag = resolveExecutionLane(ts, identity)
-        if (normalizeExecutionLane(ts.position.tradingMode).isBlank() && laneTag != "STANDARD") {
-            ts.position.tradingMode = laneTag
-            try { ForensicLogger.lifecycle("EXECUTION_LANE_STAMPED_4162", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag src=${ts.source.take(60)} identitySource=${identity?.source ?: ""}") } catch (_: Throwable) {}
-        }
-        val currentRegimeForLivePolicy = try { com.lifecyclebot.engine.RegimeDetector.currentRegime() } catch (_: Throwable) { com.lifecyclebot.engine.RegimeDetector.Regime.NORMAL }
-        val dumpRegimeLive = RuntimeModeAuthority.isLive() && currentRegimeForLivePolicy == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
-        // V5.0.3913 — benchmark restore: 3868-3879 traded live in high-risk
-        // regimes. The 3895 hard paper-only branch for CYCLIC/MANIP/TREASURY
-        // killed live throughput despite FDG/executor allows. Do not veto lanes
-        // here; DUMP risk is handled by the size caps below and downstream safety.
-        val laneSizeCap = try {
-            val wr = com.lifecyclebot.engine.learning.LanePolicy.rollingWr(laneTag)  // null until enough samples
-            when {
-                // V5.0.4528 — DUMP regime should pivot/reduce, not live-dust every
-                // lane. Keep a recovery-size cap so throughput remains trainable and
-                // profitable setups can still compound after style/router pivots.
-                dumpRegimeLive && laneTag.contains("CYCLIC") -> 0.35
-                dumpRegimeLive && laneTag.contains("TREASURY") -> 0.35
-                dumpRegimeLive && (laneTag.contains("MANIPULATED") || laneTag.contains("MANIP")) -> 0.35
-                dumpRegimeLive && laneTag.contains("EXPRESS") -> 0.35
-                dumpRegimeLive && laneTag.contains("SHITCOIN") -> 0.35
-                laneTag.contains("MANIPULATED") -> if ((wr ?: 0.0) > 0.18) 1.0 else 0.30   // spec 3: 0.25-0.35 until WR>18%
-                // V5.0.3957 — WALLET GROWTH CAP RELEASE.
-                // Runtime 3954: MOONSHOT is the largest SOL contributor (+6.5 SOL),
-                // but this legacy cap forced every MOONSHOT to 0.55× forever. That
-                // directly prevents 2–5x/day compounding. If live expectancy allocator
-                // says the lane is winning (laneEvMult >= 1), release the cap; otherwise
-                // keep probe-size until it recovers.
-                laneTag.contains("MOONSHOT")    -> if (laneEvMult >= 1.0 || (wr ?: 0.0) >= 0.45) 1.0 else 0.55
-                laneTag.contains("PRESALE") || laneTag.contains("PROJECT_SNIPER") -> if (laneEvMult >= 1.0) 1.0 else 0.75
-                laneTag.contains("BLUECHIP")    -> if (laneEvMult >= 1.0) 1.0 else 0.85
-                laneTag.contains("SHITCOIN")    -> if (laneEvMult < 1.0) 0.35 else 0.65          // bleeder probes, winner still capped
-                else                            -> 1.0
-            }
-        } catch (_: Throwable) { 1.0 }
-        // Floor widened 0.4→0.30→0.22 so MANIPULATED's 0.30 cap can actually bite
-        // alongside the DUMP brake (0.40) without being clamped away.
-        // V5.0.3919 — CUMULATIVE DAMPENER FLOOR. Operator dump showed live
-        // buys landing at ~$0.005 because every multiplier shaved more off
-        // the requested size (sizeMult × labMult × laneEvMult × regimeMult ×
-        // laneSizeCap). Solana network fees + 0.5% trading fee then ate
-        // the 40%+ winners. Clamp the cumulative multiplier product to
-        // ≥0.5× of base size in NORMAL regime. DUMP regime is allowed to
-        // shrink to its 0.10 safety floor — that brake is intentional and
-        // protects against regime-shift drawdown bleed.
-        val liveFloorMult = when {
-            dumpRegimeLive -> 0.35  // V5.0.4568: executable defensive-pivot floor, never DUMP dust/zero tuition
-            RuntimeModeAuthority.isLive() && (laneEvMult < 0.50 || laneSizeCap < 0.50) -> 0.35
-            else -> 0.35
-        }
-        // V5.0.3925 — BotBrain.getRiskAdjustedSizeMultiplier wired into the
-        // multiplier product. Brain learns per (phase, emaFan, source)
-        // tuple which contexts have produced sustained drawdowns and
-        // shrinks size accordingly. Defaults to 1.0 when brain is null or
-        // context has no history — bootstrap-safe.
-        val brainSizeMult = try {
-            val raw = brain?.getRiskAdjustedSizeMultiplier(ts.phase, ts.meta.emafanAlignment, ts.source) ?: 1.0
-            // V5.0.6363 — brain floor. V5.0.6362 snapshot showed brain=0.262 crushing STANDARD
-            // lane entries to product=0.144 (14.4% of base). Rolling 50 WR dropped 80% → 32%
-            // because winning trades netted pennies while losses bled at full slippage. Floor
-            // at 0.50 so no per-context tuple can dust-crush size below half base. Hard vetoes
-            // (TOXIC/CATASTROPHIC verdicts) bypass the floor and keep the raw crush.
-            //
-            // V5.0.6853 §BRAIN_FLOOR_HARD_VETO_ESCAPE_WAS_HARDCODED_FALSE — this argument
-            // was literally `false`, so BrainMultiplierFloor6363.bypassCount() could never
-            // leave zero and the documented safety escape was dead code. The consequence
-            // ran the wrong way: in exactly the states where >=3 independent subsystems
-            // had already agreed the context is toxic (AdaptiveVetoConsensusAuthority6728
-            // hardVeto — the same verdict ExecutableOpenGate:2642 hard-blocks on), the
-            // brain's honest 0.26x crush was LIFTED back to 0.50x, nearly doubling size
-            // into a book the whole stack had just condemned. Feed it the real verdict,
-            // scoped to this mode/lane/mint so no cross-lane or paper/live contamination.
-            val brainHardVeto6853 = try {
-                com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728
-                    .evaluate(advisoryMode6734, advisoryLane6734, ts.mint).hardVeto
-            } catch (_: Throwable) { false }
-            BrainMultiplierFloor6363.apply(raw, hardVeto = brainHardVeto6853)
-        } catch (_: Throwable) { 1.0 }
-        // V5.0.4117 — WIRE AGI STACK INTO BUY SIZING.
-        // LiveStrategyTuner.sizeMult was computed per-lane but never applied
-        // to entry size (only TP rungs). ScannerSourceBrain.intakeMultiplier
-        // shaped scanner priority but not buy size. UnifiedPolicyHead.conviction
-        // only ran inside FDG, which most volume lanes bypass. All three are
-        // fail-open (1.0 in BOOTSTRAP/error) and soft-shape only — no veto.
-        val laneKeyForAgi = laneTag
-        val strategyTunerSizeMult = try {
-            LiveStrategyTuner.sizeMultiplier(laneKeyForAgi)
-        } catch (_: Throwable) { 1.0 }
-        val sourceBrainSizeMult = try {
-            ScannerSourceBrain.intakeMultiplier(ts.source)
-        } catch (_: Throwable) { 1.0 }
-        // V5.0.6292 — SCANNER × LANE COHESION MULT. Compounds source×lane
-        // affinity into the sizing stack so MOONSHOT + PUMP_FUN_NEW combos
-        // press harder (1.30×) while mismatched pairs (COINGECKO_ESTABLISHED
-        // routed to SHITCOIN) get dampened (0.75×). Full cohesion between
-        // scanner, AGI lane routing, and memetrader sizing.
-        val scannerLaneCohesionMult6292 = try {
-            ScannerSourceBrain.laneSourceCohesion(ts.source, laneTag)
-        } catch (_: Throwable) { 1.0 }
-        if (scannerLaneCohesionMult6292 != 1.0) {
-            try { ForensicLogger.lifecycle("SCANNER_LANE_COHESION_6292", "mint=${ts.mint.take(10)} sym=${ts.symbol} src=${ts.source} lane=$laneTag mult=${"%.2f".format(scannerLaneCohesionMult6292)}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("SCANNER_LANE_COHESION_6292") } catch (_: Throwable) {}
-        }
-        // V5.0.6301 — Band-loss probe damper (never zeros — honors the
-        // "weak bucket trades SMALL, not never" mandate from FDG L4598).
-        // Auto-recovers over 16hrs OR instantly on any +30% win in the band.
-        val bandDamper6301 = try {
-            val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(score.toInt())
-            BandLossVetoGuard.sizeMultiplier(laneTag, band)
-        } catch (_: Throwable) { 1.0 }
-        if (bandDamper6301 < 1.0) {
-            try { ForensicLogger.lifecycle("BAND_DAMPER_APPLIED_6301", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag mult=${"%.2f".format(bandDamper6301)}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("BAND_DAMPER_APPLIED_6301") } catch (_: Throwable) {}
-        }
-        // V5.0.6405 §19b — RUNNER FLOW BOOST.
-        // Proven-winner buckets (n>=5 AND (WR>=60% OR mean>=+50%)) get 1.5×
-        // size so real capital finally reaches the runners the paper lane
-        // has already discovered. Paper returns 1.0 (no effect).
-        val runnerBoost6405 = try {
-            com.lifecyclebot.engine.truth.PaperEvBucketGate6405.sizeMultiplier(
-                mint = ts.mint, symbol = ts.symbol, lane = laneTag,
-                scoreInt = score.toInt(), isPaper = ts.position.isPaperPosition,
-            )
-        } catch (_: Throwable) { 1.0 }
-        // Construct minimal Signals from available context for UPH conviction.
-        // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
-        // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
-        val uphConvictionMult = try {
-            val signals = UnifiedPolicyHead.Signals(
-                mlEntryConf = (score / 100.0).coerceIn(0.0, 1.0),
-                symGreenLight = 0.5,
-                evRatio = 0.5,
-                metaConviction = 0.5,
-                fwdPWin = try {
-                    com.lifecyclebot.engine.LiveProbabilityEngine.forecast(
-                        rawLane = laneKeyForAgi,
-                        score = score.toInt().coerceIn(0, 100),
-                        quality = quality.take(1).uppercase(),
-                        regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
-                    ).pWin
-                } catch (_: Throwable) { 0.5 },
-                candConf = (score / 100.0).coerceIn(0.0, 1.0),
-            )
-            UnifiedPolicyHead.conviction(laneKeyForAgi, signals)
-        } catch (_: Throwable) { 1.0 }
-        // V5.0.4197 — StrategyHypothesisEngine must shape the executor-side
-        // AGI size stack too. FDG already consumes getSizeBias(), but the high-
-        // throughput meme lanes often enter through executor-side sizing after
-        // FDG/bypass handoff. Without this, the self-directed A/B learner could
-        // show active hypotheses while most live volume never received the tested
-        // size mutation. Soft bounded [0.85,1.20], fail-open, no veto.
-        val hypothesisSizeMult = try {
-            StrategyHypothesisEngine.getSizeBias(
-                laneKeyForAgi,
-                score.toInt().coerceIn(0, 100),
-                try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
-                ts.mint,
-            )
-        } catch (_: Throwable) { 1.0 }
-        if (hypothesisSizeMult != 1.0) {
-            try {
-                ForensicLogger.lifecycle("STRATEGY_HYPOTHESIS_EXECUTOR_SIZE_SHAPED_4197", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi score=${score.toInt()} mult=${hypothesisSizeMult.fmt(2)} source=${ts.source}")
-                PipelineHealthCollector.labelInc("STRATEGY_HYPOTHESIS_EXECUTOR_SIZE_SHAPED_4197")
-            } catch (_: Throwable) {}
-        }
-        // V5.0.4262 — paper/live intelligence alignment. Paper has the high-throughput
-        // samples; live has the capital truth. Let paper shape live size softly while
-        // live evidence is thin, then fade to live-only authority. Never hard-block,
-        // never rewrite live PnL, and keep the multiplier tiny so compounding remains
-        // driven by realized live wins and the existing safety stack.
-        val paperLiveBridgeMult = try {
-            if (RuntimeModeAuthority.isLive()) {
-                val sig = PaperLiveIntelligenceBridge.liveSizeMultiplier(laneKeyForAgi)
-                if (sig.multiplier != 1.0) {
-                    try {
-                        ForensicLogger.lifecycle("PAPER_LIVE_INTEL_SIZE_SHAPED_4262", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi paper=${sig.paperTrades} live=${sig.liveTrades} wr=${sig.paperWinRatePct.fmt(1)} avg=${sig.paperAvgPnlPct.fmt(2)} mult=${sig.multiplier.fmt(3)} reason=${sig.reason}")
-                        PipelineHealthCollector.labelInc("PAPER_LIVE_INTEL_SIZE_SHAPED_4262")
-                    } catch (_: Throwable) {}
-                }
-                sig.multiplier
-            } else 1.0
-        } catch (_: Throwable) { 1.0 }
-        val shadowVariantSizeMult = try {
-            try {
-                ShadowLearningEngine.onTradeOpportunity(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    currentPrice = getActualPrice(ts),
-                    liveEntryScore = score.toInt().coerceIn(0, 100),
-                    liveEntryThreshold = score.toInt().coerceIn(0, 100),
-                    liveSizeSol = sol,
-                    phase = ts.phase,
-                )
-            } catch (_: Throwable) {}
-            ShadowLearningEngine.bestVariantSizeBias()
-        } catch (_: Throwable) { 1.0 }
-        val superBrainSizeMult = try {
-            try {
-                val signalType = when {
-                    score >= 68.0 -> "BULLISH"
-                    score <= 42.0 -> "BEARISH"
-                    else -> "NEUTRAL"
-                }
-                SuperBrainEnhancements.recordSignal(ts.mint, ts.symbol, "EXECUTOR_ENTRY_SCORE", signalType)
-            } catch (_: Throwable) {}
-            SuperBrainEnhancements.entrySizeMultiplier(ts.mint)
-        } catch (_: Throwable) { 1.0 }
-        if (superBrainSizeMult != 1.0) {
-            try {
-                ForensicLogger.lifecycle("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi score=${score.toInt()} mult=${superBrainSizeMult.fmt(3)}")
-                PipelineHealthCollector.labelInc("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265")
-            } catch (_: Throwable) {}
-        }
-        if (shadowVariantSizeMult != 1.0) {
-            try {
-                ForensicLogger.lifecycle("SHADOW_VARIANT_SIZE_SHAPED_4263", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${shadowVariantSizeMult.fmt(3)} mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"}")
-                PipelineHealthCollector.labelInc("SHADOW_VARIANT_SIZE_SHAPED_4263")
-            } catch (_: Throwable) {}
-        }
-        val metaCognitionSizeMult = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(laneKeyForAgi) } catch (_: Throwable) { 1.0 }
-        if (metaCognitionSizeMult != 1.0) {
-            try {
-                ForensicLogger.lifecycle("METACOGNITION_EXECUTOR_SIZE_SHAPED_4267", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${metaCognitionSizeMult.fmt(3)} mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"}")
-                PipelineHealthCollector.labelInc("METACOGNITION_EXECUTOR_SIZE_SHAPED_4267")
-            } catch (_: Throwable) {}
-        }
-        val regimeVolShape = try { RegimeVolatilityExecutorBridge.sizeShape(ts) } catch (_: Throwable) { RegimeVolatilityExecutorBridge.Shape(1.0, "error") }
-        // V5.0.6073 — SSI PILOT hand on the sizing stack (bounded, fail-open).
-        val ssiPilotSizeMult = try { SsiPilotCouncil.sizeMultiplierForLane(laneKeyForAgi) } catch (_: Throwable) { 1.0 }
-        if (ssiPilotSizeMult != 1.0) {
-            try {
-                ForensicLogger.lifecycle("SSI_PILOT_SIZE_SHAPED_6073", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${ssiPilotSizeMult.fmt(3)} note=${SsiPilotCouncil.pilotNote().take(80)}")
-                PipelineHealthCollector.labelInc("SSI_PILOT_SIZE_SHAPED_6073")
-            } catch (_: Throwable) {}
-        }
-        val regimeVolSizeMult = regimeVolShape.multiplier
-        if (regimeVolSizeMult != 1.0) {
-            try {
-                ForensicLogger.lifecycle("REGIME_VOL_EXECUTOR_SIZE_SHAPED_4268", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${regimeVolSizeMult.fmt(3)} ${regimeVolShape.reason}")
-                PipelineHealthCollector.labelInc("REGIME_VOL_EXECUTOR_SIZE_SHAPED_4268")
-            } catch (_: Throwable) {}
-        }
-        val capitalEfficiencySizeMult = try { CapitalEfficiencyBrain.sizeMultiplier(laneKeyForAgi, ts.source, isRunnerCandidate = laneKeyForAgi.contains("MOON") || score >= 75.0) } catch (_: Throwable) { 1.0 }
-        if (capitalEfficiencySizeMult != 1.0) {
-            try { ForensicLogger.lifecycle("CAPITAL_EFFICIENCY_SIZE_SHAPED_4281", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi source=${ts.source} mult=${capitalEfficiencySizeMult.fmt(3)}") } catch (_: Throwable) {}
-        }
-        val scoreBandWrShape4510 = try { ScoreExpectancyTracker.liveSizeShape(laneKeyForAgi, score.toInt().coerceIn(0, 100)) } catch (_: Throwable) { ScoreExpectancyTracker.LiveSizeShape(1.0, 0, 0.0, "error") }
-        val scoreBandWrSizeMult4510 = scoreBandWrShape4510.multiplier
-        if (RuntimeModeAuthority.isLive() && scoreBandWrSizeMult4510 != 1.0) {
-            try {
-                ForensicLogger.lifecycle("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi score=${score.toInt()} samples=${scoreBandWrShape4510.samples} mean=${scoreBandWrShape4510.meanPnlPct.fmt(2)} mult=${scoreBandWrSizeMult4510.fmt(2)} reason=${scoreBandWrShape4510.reason}")
-                PipelineHealthCollector.labelInc("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510")
-            } catch (_: Throwable) {}
-        }
-        // V5.0.6075 — per-lane defensive exemption (net-positive lanes not squeezed).
-        val realizedWalletCompoundMult4511 = try { RealizedWalletCompoundingGovernor.sizeMultiplierForLane(laneKeyForAgi) } catch (_: Throwable) { 1.0 }
-        if (RuntimeModeAuthority.isLive() && realizedWalletCompoundMult4511 != 1.0) {
-            try {
-                val snap4511 = RealizedWalletCompoundingGovernor.snapshot()
-                ForensicLogger.lifecycle("REALIZED_WALLET_COMPOUNDING_SHAPED_4511", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${realizedWalletCompoundMult4511.fmt(2)} clean=${snap4511.cleanPnlSol.fmt(4)} wallet=${snap4511.walletSol.fmt(4)} wr=${snap4511.wrPct.fmt(1)} pf=${snap4511.profitFactor.fmt(2)} reason=${snap4511.reason}")
-                PipelineHealthCollector.labelInc("REALIZED_WALLET_COMPOUNDING_SHAPED_4511")
-            } catch (_: Throwable) {}
-        }
-        val routeReliabilitySizeMult4518 = try { ExecutionRouteReliabilityMemory.sizeMultiplierForSource(ts.source, ts.mint) } catch (_: Throwable) { 1.0 }
-        if (RuntimeModeAuthority.isLive() && routeReliabilitySizeMult4518 != 1.0) {
-            try {
-                ForensicLogger.lifecycle("ROUTE_RELIABILITY_SIZE_SHAPED_4518", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(60)} mult=${routeReliabilitySizeMult4518.fmt(2)} status=${ExecutionRouteReliabilityMemory.statusLine()}")
-                PipelineHealthCollector.labelInc("ROUTE_RELIABILITY_SIZE_SHAPED_4518")
-            } catch (_: Throwable) {}
-        }
-        // V5.0.6853 §PORTFOLIO_HEAT_COMPUTED_AND_DISCARDED — PortfolioHeatAI runs on
-        // every open and close (addPosition/removePosition are wired from Executor,
-        // PositionPersistence, CryptoAltTrader and TokenizedStockTrader) and publishes
-        // a full report, but its four risk outputs — getNewEntryPenalty(),
-        // shouldDeRisk(), isNewEntryAllowed() and getSafetyMultiplier() — had ZERO
-        // callers tree-wide. Only getPortfolioHeat() was read, and only as a logged
-        // feature. The module whose stated purpose is "prevent correlated stupidity"
-        // could not throttle anything. Wire the safety multiplier into the sizing
-        // stack (the 6853 recalculate() fix makes it 1.0 for a diversified or small
-        // book, so this does not choke throughput) and floor it at 0.50, the same
-        // no-dust-crush doctrine BrainMultiplierFloor6363 enforces.
-        val portfolioHeatSizeMult6853 = try {
-            com.lifecyclebot.v4.meta.PortfolioHeatAI.getSafetyMultiplier().coerceIn(0.50, 1.0)
-        } catch (_: Throwable) { 1.0 }
-        if (portfolioHeatSizeMult6853 < 1.0) {
-            try {
-                val rep6853 = com.lifecyclebot.v4.meta.PortfolioHeatAI.getReport()
-                ForensicLogger.lifecycle(
-                    "PORTFOLIO_HEAT_SIZE_SHAPED_6853",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${portfolioHeatSizeMult6853.fmt(3)} " +
-                        "heat=${(rep6853?.portfolioHeat ?: 0.0).fmt(3)} cluster=${rep6853?.largestCluster ?: "NONE"} " +
-                        "clusterSize=${rep6853?.clusterSize ?: 0} corrStress=${(rep6853?.correlationStress ?: 0.0).fmt(3)} " +
-                        "deRisk=${com.lifecyclebot.v4.meta.PortfolioHeatAI.shouldDeRisk()}",
-                )
-                PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_SIZE_SHAPED_6853")
-                if (com.lifecyclebot.v4.meta.PortfolioHeatAI.shouldDeRisk()) {
-                    PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_FORCED_DERISK_6853")
-                }
-            } catch (_: Throwable) {}
-        }
-        // V5.0.6853 §FRAGILITY_HAD_NO_SIZING_VOICE — LiquidityFragilityAI's header
-        // says it "directly controls position sizing, leverage allowance, DipHunter
-        // validity, ShitCoinAI blocking". It controlled none of them: getSafetyMultiplier,
-        // getMaxSafeSize and isTradeAllowed had zero callers, and analyze() was never
-        // called so there was nothing to read anyway. With the 6853 feed in place
-        // (BotService safety-commit site) this is real per-token depth/holder/age/wick
-        // evidence. Applied as a soft size damper only — [0.2,1.0] by construction,
-        // floored at 0.50 here so a thin-but-tradable token still gets a real ticket
-        // and keeps producing learning samples.
-        val fragilitySizeMult6853 = try {
-            com.lifecyclebot.v4.meta.LiquidityFragilityAI
-                .getSafetyMultiplierFor(ts.mint, ts.symbol).coerceIn(0.50, 1.0)
-        } catch (_: Throwable) { 1.0 }
-        if (fragilitySizeMult6853 < 1.0) {
-            try {
-                val fr6853 = com.lifecyclebot.v4.meta.LiquidityFragilityAI.getReportFor(ts.mint, ts.symbol)
-                ForensicLogger.lifecycle(
-                    "LIQUIDITY_FRAGILITY_SIZE_SHAPED_6853",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${fragilitySizeMult6853.fmt(3)} " +
-                        "score=${(fr6853?.fragilityScore ?: 0.0).fmt(3)} level=${fr6853?.fragilityLevel?.name ?: "NONE"} " +
-                        "depth=${(fr6853?.depthScore ?: 0.0).fmt(2)} wickFreq=${(fr6853?.wickFrequency ?: 0.0).fmt(2)} " +
-                        "maxSafeSol=${(fr6853?.maxSafeSize ?: 0.0).fmt(2)} tradeAllowed=" +
-                        "${com.lifecyclebot.v4.meta.LiquidityFragilityAI.isTradeAllowedFor(ts.mint, ts.symbol)}",
-                )
-                PipelineHealthCollector.labelInc("LIQUIDITY_FRAGILITY_SIZE_SHAPED_6853")
-                if (!com.lifecyclebot.v4.meta.LiquidityFragilityAI.isTradeAllowedFor(ts.mint, ts.symbol)) {
-                    PipelineHealthCollector.labelInc("LIQUIDITY_FRAGILITY_CRITICAL_6853")
-                }
-            } catch (_: Throwable) {}
-        }
-        // V5.0.6878 §THE_MEME_PATH_NEVER_CONSULTED_THE_FUSION_ENGINE —
-        // CrossTalkFusionEngine.computeGatedScore has exactly two callers,
-        // CryptoAltTrader:1451 and TokenizedStockTrader:951. The meme book never
-        // asked the cross-talk engine anything, so the hive's shared view of a
-        // candidate reached perps and stocks and not the lane carrying the volume.
-        // memeShapeMultiplier6878 exposes only the channels this stack does not
-        // already hold — learned lane trust, narrative heat, cross-asset lead-lag,
-        // and the market's own perMarketCaps size cap — because portfolio heat and
-        // liquidity fragility are applied above by 6853 and stacking them twice
-        // would square the same damp.
-        val crossTalkShape6878 = try {
-            com.lifecyclebot.v4.meta.CrossTalkFusionEngine
-                .memeShapeMultiplier6878(symbol = ts.symbol, lane = laneKeyForAgi, market = "MEME")
-        } catch (_: Throwable) { 1.0 }
-        if (crossTalkShape6878 != 1.0) {
-            try {
-                ForensicLogger.lifecycle(
-                    "CROSSTALK_MEME_SHAPE_6878",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${crossTalkShape6878.fmt(3)}",
-                )
-                PipelineHealthCollector.labelInc("CROSSTALK_MEME_SHAPE_6878")
-            } catch (_: Throwable) {}
-        }
-        val sizingStackComponents4285 = linkedMapOf(
-            "sizeMult" to sizeMult,
-            "lab" to labMult,
-            "laneEv" to laneEvMult,
-            "regime" to regimeMultGoosed,
-            "laneCap" to laneSizeCap,
-            "brain" to brainSizeMult,
-            "strategyTuner" to strategyTunerSizeMult,
-            "sourceBrain" to sourceBrainSizeMult,
-            "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
-            "bandDamper6301" to bandDamper6301,
-            "runnerBoost6405" to runnerBoost6405,
-            "uph" to uphConvictionMult,
-            "hypothesis" to hypothesisSizeMult,
-            "paperLive" to paperLiveBridgeMult,
-            "shadowVariant" to shadowVariantSizeMult,
-            "superBrain" to superBrainSizeMult,
-            "metaCognition" to metaCognitionSizeMult,
-            "regimeVol" to regimeVolSizeMult,
-            "capitalEfficiency" to capitalEfficiencySizeMult,
-            "scoreBandWR4510" to scoreBandWrSizeMult4510,
-            "walletCompound4511" to realizedWalletCompoundMult4511,
-            "routeReliability4518" to routeReliabilitySizeMult4518,
-            "portfolioHeat6853" to portfolioHeatSizeMult6853,
-            "fragility6853" to fragilitySizeMult6853,
-            "crossTalk6878" to crossTalkShape6878,
-        )
-        val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
-        // V5.0.6909 §SPLIT_THE_STACK_BY_WHAT_IT_MEANS.
-        //
-        // The map above mixes two kinds of multiplier that happen to compose
-        // the same way but mean opposite things:
-        //
-        //   EVIDENCE  — a learned belief that this trade is bad (regime WR,
-        //               lane EV, brain, strategy tuner, source brain,
-        //               score-band WR, metacognition, superbrain, hypothesis,
-        //               UPH conviction, lab reproof, scanner cohesion, band
-        //               damper, adaptive sizeMult).
-        //   CAPACITY  — no room to allocate here (lane cap, portfolio heat,
-        //               fragility, crosstalk, capital efficiency, wallet
-        //               compounding, route reliability, regime volatility,
-        //               paper/live bridge, shadow variant).
-        //
-        // Downstream only ever saw the single product, so
-        // OrderSizeResolver6441 could not distinguish "the intelligence
-        // condemned this" from "we could not fund much" — and promoted both
-        // to the minimum notional. Operator GREG trace: product 0.024 ->
-        // 0.013 SOL -> OK_MIN_PROMOTED_6600 -> 0.050 SOL. Keyed off the names
-        // the stack already carries; nothing here changes any size.
-        //
-        // runnerBoost6405 is excluded from both: it is a BOOST, and folding a
-        // >1.0 term into a floor test would let a boost mask a collapse.
-        val convictionKeys6909 = setOf(
-            "sizeMult", "lab", "laneEv", "regime", "brain", "strategyTuner",
-            "sourceBrain", "scannerLaneCohesion6292", "bandDamper6301", "uph",
-            "hypothesis", "superBrain", "metaCognition", "scoreBandWR4510",
-        )
-        // V5.0.6978 §A_PRODUCT_OF_FOURTEEN_DAMPERS_IS_NOT_A_BELIEF.
-        //
-        // 6909 computed conviction as the PRODUCT of up to fourteen evidence
-        // multipliers. That is not a measure of how strongly the intelligence
-        // condemned the trade; it is a measure of how many learners happened to
-        // have an opinion. Fourteen mild 0.9s multiply to 0.23. The refusal
-        // floor is 0.15, so conviction collapse became the default state.
-        //
-        // The operator's 5.0.6972 snapshot is unambiguous:
-        //
-        //     Entry conviction (§6909): stamps=2024
-        //     ENTRY_CONVICTION_COLLAPSED_6909:            2023
-        //     ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909: 1851
-        //     Order size resolver (§6441): resolves=4019 exec=2168 skip=1851
-        //
-        // 2023 of 2024 — 99.95%. And two terms from that same snapshot are
-        // enough to prove it needs no help from the other twelve:
-        //
-        //     Regime detector:      sizeMult=0.35        (regime, global CHOP state)
-        //     LaneExpectancyDamper: CORE×0.29            (laneEv)
-        //     0.35 × 0.29 = 0.1015  <  0.15 floor
-        //
-        // Every CORE entry was condemned before any learner with an actual
-        // opinion about the token was consulted. 1851 refused sizings is the
-        // largest single kill in the funnel, and it is cap-to-dust by another
-        // name — exactly what the doctrine forbids.
-        //
-        // FIXED: conviction is the GEOMETRIC MEAN of the terms that actually
-        // voted — "how negative is the typical learner" — which is scale-free
-        // in the number of voters. A term of exactly 1.0 is no opinion and is
-        // excluded rather than counted as agreement. One learner may still
-        // condemn alone: any single term at or below SINGLE_TERM_VETO_6978
-        // becomes the conviction outright, so a real veto still lands under the
-        // floor. The floor, the refusal, and the sizing stack are unchanged.
-        val convictionVotes6978 = sizingStackComponents4285.entries
-            .filter { it.key in convictionKeys6909 }
-            .map { it.value }
-            .filter { it.isFinite() && it >= 0.0 && it < 1.0 }
-        val convictionProduct6909 = when {
-            convictionVotes6978.isEmpty() -> 1.0
-            // A single learner is allowed to condemn on its own.
-            convictionVotes6978.any {
-                it <= com.lifecyclebot.engine.truth.OrderSizeResolver6441.SINGLE_TERM_VETO_6978
-            } ->
-                (convictionVotes6978.minOrNull() ?: 1.0).coerceIn(0.0, 1.0)
-            else -> {
-                val logSum = convictionVotes6978.sumOf { Math.log(it.coerceAtLeast(1e-6)) }
-                Math.exp(logSum / convictionVotes6978.size)
-                    .let { if (it.isFinite()) it.coerceIn(0.0, 1.0) else 1.0 }
-            }
-        }
-        try {
-            com.lifecyclebot.engine.truth.EntryConvictionRegistry6909
-                .stamp6909(ts.mint, convictionProduct6909)
-            if (convictionProduct6909 < com.lifecyclebot.engine.truth.OrderSizeResolver6441
-                    .CONVICTION_PROMOTION_FLOOR_6909) {
-                PipelineHealthCollector.labelInc("ENTRY_CONVICTION_COLLAPSED_6909")
-                PipelineHealthCollector.labelInc("ENTRY_CONVICTION_COLLAPSED_6909_${laneTag.uppercase()}")
-                // Name the dampers that actually voted it down, so the operator
-                // can see WHICH learner refused rather than only that one did.
-                val collapsedEvidence6909 = sizingStackComponents4285.entries
-                    .filter { e -> e.key in convictionKeys6909 && e.value < 0.95 }
-                    .joinToString(",") { e -> "${e.key}=${"%.2f".format(e.value)}" }
-                ForensicLogger.lifecycle(
-                    "ENTRY_CONVICTION_COLLAPSED_6909",
-                    "mint=${ts.mint.take(16)} sym=${ts.symbol} lane=$laneTag score=${score.toInt()} " +
-                        "conviction=${"%.4f".format(convictionProduct6909)} " +
-                        "votes6978=${convictionVotes6978.size} " +
-                        "minVote6978=${"%.3f".format(convictionVotes6978.minOrNull() ?: 1.0)} " +
-                        "rawProduct=${"%.4f".format(multiplierProductRaw)} " +
-                        "evidence=$collapsedEvidence6909 " +
-                        "action=sub_minimum_request_will_not_be_promoted",
-                )
-            }
-        } catch (_: Throwable) {}
-        try {
-            SizingStackIntegritySentinel.inspect(
-                mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",
-                lane = laneKeyForAgi,
-                source = ts.source,
-                mint = ts.mint,
-                symbol = ts.symbol,
-                components = sizingStackComponents4285,
-                rawProduct = multiplierProductRaw,
-            )
-        } catch (_: Throwable) {}
-        try {
-            MultiplierAttributionLedger.recordEntry(
-                mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",
-                lane = laneKeyForAgi,
-                source = ts.source,
-                mint = ts.mint,
-                selectedLane = laneKeyForAgi,
-                scoringLane = laneKeyForAgi,
-                sizingLane = laneKeyForAgi,
-                symbol = ts.symbol,
-                baseSol = sol,
-                rawProduct = multiplierProductRaw,
-                components = linkedMapOf(
-                    "sizeMult" to sizeMult,
-                    "lab" to labMult,
-                    "laneEv" to laneEvMult,
-                    "regime" to regimeMultGoosed,
-                    "laneCap" to laneSizeCap,
-                    "brain" to brainSizeMult,
-                    "strategyTuner" to strategyTunerSizeMult,
-                    "sourceBrain" to sourceBrainSizeMult,
-                    "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
-            "bandDamper6301" to bandDamper6301,
-                    "uph" to uphConvictionMult,
-                    "hypothesis" to hypothesisSizeMult,
-                    "paperLive" to paperLiveBridgeMult,
-                    "shadow" to shadowVariantSizeMult,
-                    "superBrain" to superBrainSizeMult,
-                    "metaCog" to metaCognitionSizeMult,
-                    "ssiPilot" to ssiPilotSizeMult,
-                    "regimeVol" to regimeVolSizeMult,
-                    "scoreBandWR4510" to scoreBandWrSizeMult4510,
-                    "walletCompound4511" to realizedWalletCompoundMult4511,
-                    "routeReliability4518" to routeReliabilitySizeMult4518,
-                    "portfolioHeat6853" to portfolioHeatSizeMult6853,
-                    "fragility6853" to fragilitySizeMult6853,
-                    "crossTalk6878" to crossTalkShape6878,
-                ),
-            )
-        } catch (_: Throwable) {}
-
-        // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
-        // Field journal showed losses overrunning STRICT_SL_-10 to -71%
-        // realized due to thin-liq exit slippage. ExecutionCostPredictorAI
-        // already LEARNS slip per-liq-band but only adds a -6 score penalty.
-        // Now: divide entry size by (1 + slip/10). At slip=5% → size×0.91;
-        // slip=12% → size×0.71. F1-HARD-REJECT at slip ≥18% (the band has
-        // shown >18% avg slip on at least 10 samples — bot has no business
-        // entering, will overrun every time).
+        val effSol = requireNotNull(dispatchIntent7835).resolvedSize
+        // Execution checks the sealed order against current hard constraints.
+        // Learned sizing is resolved by FDG before this ticket exists.
         val expectedSlipPct = try {
             com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
         } catch (_: Throwable) { 0.0 }
-        val slipDownsizeMult = if (expectedSlipPct > 0.0) {
-            (1.0 / (1.0 + expectedSlipPct / 10.0)).coerceIn(0.30, 1.0)
-        } else 1.0
         if (expectedSlipPct >= 18.0) {
             try { ForensicLogger.lifecycle("F1_SLIP_HARD_REJECT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} expectedSlip=${expectedSlipPct.fmt(1)}% liq=${ts.lastLiquidityUsd.toInt()} action=hard_reject reason=BUY_REJECTED_PREDICTED_SLIP_${expectedSlipPct.toInt()}PCT") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("F1_SLIP_HARD_REJECT") } catch (_: Throwable) {}
@@ -14735,177 +13872,9 @@ class Executor(
             return
         }
 
-        // V5.0.4179 — F3: HIGH-CONFIDENCE SIZE CEILING BOOST.
-        // When a candidate scores ≥75 AND liquidity is healthy AND regime
-        // isn't DUMP, RAISE the upper cap on the size compound to 1.5×. This
-        // is the "money printer" lever — let the bot scale into the setups
-        // it's proven to make money on. Compound floor stays 0.25× (anti-dust).
-        // Operator: "the meme trader is meant to be a money printer".
-        val isHighConvictionWinner = try {
-            score >= 75.0
-                && ts.lastLiquidityUsd >= 10_000.0
-                && (com.lifecyclebot.engine.RegimeDetector.currentRegime() != com.lifecyclebot.engine.RegimeDetector.Regime.DUMP || (score >= 82.0 && ts.lastLiquidityUsd >= 25_000.0))
-        } catch (_: Throwable) { false }
-        val highConvBoost = if (isHighConvictionWinner) 1.50 else 1.0
-
-        // V5.0.4178 — L8 LANE PRIORITY BIAS (TIGHTENED): MOONSHOT (WR=22.7%)
-        // / STANDARD (WR=23.8%) got ×1.40, every other lane ×0.50.
-        // V5.0.7745 — retired to neutral. A win-rate snapshot from 4178 was still
-        // sizing every live entry (5.0.7741: MOONSHOT 3/13, EV -10.7%, pressed
-        // ×1.40). The truth-ledger lane arbitrage directly below (6288) sizes each
-        // lane from its own live record and is the allocation authority.
-        val laneBiasMult = 1.0
-        val multiplierProduct = run {
-            val product = multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost
-            // V5.0.6288 — LIVE ORACLE MODE: TRUTH-LEDGER LANE ARBITRAGE.
-            // Op report V5.0.6287: MOONSHOT live n=70 pWin=45% E=-4.9% sizeMult=1.32
-            //                      STANDARD live n=134 pWin=35% E=+1.5% sizeMult=0.59
-            // The bot is OVERSIZING the negative-E lane and UNDERSIZING the +E lane.
-            // Wallet went 0.5491 → 0.5250 SOL (-4.4%) as a direct result of this
-            // inverted allocation. This block queries the CleanLiveStrategyTruth
-            // via LiveProbabilityEngine snapshots and:
-            //   • lanes with live n ≥ 20 AND E < -1% → HARD CLAMP to 0.30 (stop the leak)
-            //   • lanes with live n ≥ 20 AND E > 0 AND WR ≥ 30% → LIFT floor to 0.80
-            //   • lanes with n ≥ 20 AND WR < 15% AND EV < -20% → CLAMP to 0.20
-            //     (EXPRESS 5.6% WR, LAB 44% WR EV -11%, TREASURY 14.3% WR)
-            // Every clamp is fail-open on any exception. No hard vetos. Fully bounded.
-            val truthLedgerClamp6288: Pair<Double, String>? = try {
-                val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                    .firstOrNull { it.lane.equals(laneTag, ignoreCase = true) }
-                if (snap != null && snap.sample >= 20) {
-                    val wr = snap.wrPct
-                    val eSol = snap.evPct
-                    when {
-                        // Bleeder auto-throttle: WR < 15% AND E < -20% AND n >= 15
-                        // Kills EXPRESS/LAB/TREASURY spend without needing the governor.
-                        wr < 15.0 && eSol < -20.0 -> 0.20 to "TRUTH_BLEEDER_HARD_THROTTLE_6288 lane=${snap.lane} wr=${"%.1f".format(wr)}% E=${"%+.1f".format(eSol)}% n=${snap.sample}"
-                        // Negative-E clamp: E < -1% on n >= 20 = live losing lane
-                        eSol < -1.0 -> 0.30 to "TRUTH_NEG_EV_CLAMP_6288 lane=${snap.lane} wr=${"%.1f".format(wr)}% E=${"%+.1f".format(eSol)}% n=${snap.sample}"
-                        // Positive-E lanes are handled via truthPosEvFloor6288 (floor lift),
-                        // not a clamp. Return null here so no ceiling is imposed.
-                        else -> null
-                    }
-                } else null
-            } catch (_: Throwable) { null }
-            val truthPosEvFloor6288 = try {
-                val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                    .firstOrNull { it.lane.equals(laneTag, ignoreCase = true) }
-                if (snap != null && snap.sample >= 20 && snap.evPct > 0.0 && snap.wrPct >= 30.0) {
-                    // V5.0.6290 — 500%/DAY COMPOUND UNLOCK. Floor raised
-                    // 0.80 → 0.95 for proven live +EV lanes. Op-report
-                    // showed planned 0.05 SOL crushed to 0.007 SOL actual
-                    // — the 0.80 floor still allowed 20% size destruction
-                    // stacked on top of upstream multipliers. At 0.95 the
-                    // proven +EV lane keeps 95% of its intended size.
-                    0.95  // proven live +EV winner — compounds hard
-                } else null
-            } catch (_: Throwable) { null }
-            // V5.0.6055 — P0.b: POSITIVE-EV LANE FLOOR.
-            val posEvFloor = try {
-                val healthy = if (laneEvMult >= 1.0) true else {
-                    val board = StrategyTelemetry.computeLiveTerminalLeaderboard()
-                    val m = board.firstOrNull { it.strategy.equals(laneTag, true) }
-                    m != null && m.meanPnlPct >= 5.0 && m.trades >= 8
-                }
-                val isPriorityLane6066 = laneTag.uppercase() in setOf("MOONSHOT", "STANDARD")
-                // V5.0.6290 — 500%/DAY COMPOUND UNLOCK. Every lane needs
-                // a viable strategy floor — no lane should be crushed
-                // below 55% of intended size. Priority lanes float higher,
-                // healthy lanes higher still, but the FLOOR OF THE FLOOR
-                // is 0.55× to keep all lane brains and traders live.
-                val baseFloor = when {
-                    healthy -> 0.75            // was 0.50 — proven lane presses
-                    isPriorityLane6066 -> 0.70  // was 0.45 — MOONSHOT/STANDARD floor
-                    else -> 0.55                // was 0.25 — every other lane stays live
-                }
-                // V5.0.6288 lifts the floor when live truth ledger says the lane is +EV.
-                maxOf(baseFloor, truthPosEvFloor6288 ?: 0.0)
-            } catch (_: Throwable) { 0.25 }
-            // V5.0.6090 — REINS-OFF AI STRATEGY AUTHORITY.
-            val agiAuthorityActive6090 = listOf(
-                strategyTunerSizeMult, sourceBrainSizeMult, uphConvictionMult,
-                hypothesisSizeMult, superBrainSizeMult, metaCognitionSizeMult,
-                ssiPilotSizeMult, regimeVolSizeMult, capitalEfficiencySizeMult,
-            ).any { kotlin.math.abs(it - 1.0) >= 0.03 }
-            val agiCeiling6090 = if (agiAuthorityActive6090) {
-                if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00
-            } else 1.60
-            // V5.0.6406 §1 — STACKED WINNER CEILING BUMP.
-            // V5.0.6407 §2 — extended for elite (2.0×) buckets: allow
-            // the runner + 1 tail-wind to stack up to 3.0× rather than
-            // being clamped. Baseline paper=2.50 keeps its behaviour.
-            val agiCeiling6406 = when {
-                runnerBoost6405 >= 2.0 && RuntimeModeAuthority.isLive() ->
-                    maxOf(agiCeiling6090, 3.00)
-                runnerBoost6405 > 1.0 && RuntimeModeAuthority.isLive() ->
-                    maxOf(agiCeiling6090, 2.50)
-                else -> agiCeiling6090
-            }
-            // V5.0.6288 — apply truth-ledger CLAMP as a ceiling for negative-E lanes.
-            // The clamp value is a hard ceiling on the product (never larger than clamp).
-            var baseline6090 = product.coerceIn(posEvFloor, agiCeiling6406)
-            // V5.0.6405 §19b — RUNNER BOOST FLOOR BYPASS.
-            // When PaperEvBucketGate6405.sizeMultiplier() returned 1.5×
-            // for a proven-winner bucket, other cutters (lane-bias 0.50 for
-            // non-priority lanes, band-damper, slip-downsize) can drag the
-            // combined product BELOW the boost. Enforce the boost as a
-            // hard lower floor so real capital reaches the runners the
-            // paper lane discovered. Ceiling still applies.
-            if (runnerBoost6405 > 1.0 && baseline6090 < runnerBoost6405) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "RUNNER_BOOST_FLOOR_APPLIED_6405",
-                        "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag " +
-                            "clampedBaseline=${"%.3f".format(baseline6090)} " +
-                            "runnerBoost=$runnerBoost6405 flooredTo=$runnerBoost6405",
-                    )
-                    PipelineHealthCollector.labelInc("RUNNER_BOOST_FLOOR_APPLIED_6405")
-                } catch (_: Throwable) {}
-                baseline6090 = runnerBoost6405.coerceAtMost(agiCeiling6406)
-            }
-            if (truthLedgerClamp6288 != null && RuntimeModeAuthority.isLive()) {
-                try {
-                    ForensicLogger.lifecycle("LIVE_TRUTH_LEDGER_CLAMP_6288", "mint=${ts.mint.take(10)} sym=${ts.symbol} ${truthLedgerClamp6288.second} clamp=${truthLedgerClamp6288.first} agiCeil=$agiCeiling6090")
-                    PipelineHealthCollector.labelInc("LIVE_TRUTH_LEDGER_CLAMP_6288")
-                } catch (_: Throwable) {}
-                minOf(baseline6090, truthLedgerClamp6288.first)
-            } else baseline6090
-        }
-        if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
-            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
-        }
-        try { PipelineHealthCollector.labelInc("AGI_SIZE_STACK_APPLIED") } catch (_: Throwable) {}
-        // V5.0.3958 — MEGA-PROFIT COMPOUNDING CAP. Once the live expectancy
-        // allocator marks a lane as positive edge, let the final size stack press
-        // it harder than the legacy 1.75× ceiling. Route, wallet, liquidity,
-        // reserve, zero-liq, and rug safety remain enforced by realisticEntrySize6867
-        // and upstream gates.
-        // V5.0.6082 — PAPER/LIVE COMPOUNDING SIZE PARITY.
-        // Paper is the live-money simulator. If a lane is proven edge, paper must
-        // exercise the same winner ceiling/anti-dust pressure as live or it cannot
-        // validate whether a $100 wallet can compound aggressively.
-        val moneySizingMode6082 = RuntimeModeAuthority.isLive() || RuntimeModeAuthority.isPaper()
-        val winnerMaxBoost = if (moneySizingMode6082 && laneEvMult > 1.0) 2.35 else 1.75
-        // V5.0.4129 — ABSOLUTE FLOOR + PATTERN GOLDEN GOOSE SIZE OVERRIDE.
-        // Operator: "+24,570% generated only $0.33 due to tiny entry size." The
-        // previous relative floor (liveFloorMult × sol) couldn't recover absolute
-        // size when SmartSizer's own dampers had already collapsed `sol` to dust.
-        // Now: live entries clamped to an ABSOLUTE entry floor (matched to
-        // LiveSizingProfile tiers), AND tokens that match a GOLD pattern bypass
-        // the entire compound damper cascade by lifting the floor to STRONG.
-        // The legacy `sol * winnerMaxBoost` upper cap is preserved as the
-        // baseline; GOLD/WINNER verdicts apply an ADDITIONAL multiplier on top.
         val gooseVerdict4129 = try {
             com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
-        // V5.0.4133 — RUG-MINT BLACKLIST UNIVERSAL VETO (root cause of EnsVnDQ3-style replays).
-        // RugMintBlacklist.recordClose was wired in the live-sell path (V5.0.4132) but
-        // isBlacklisted() was ONLY consulted in BotService.kt:4813 (one MEME lane). Every
-        // other lane (MOONSHOT, SHITCOIN, QUALITY, BLUECHIP, etc.) re-bought the same
-        // mints minutes after they rugged us at -50% to -98%, multiplying the bleed.
-        // The veto runs BEFORE the GOLD/WINNER goose bypass because a pattern verdict
-        // CANNOT override "this exact mint rugged us within the last 24h". The cooldown
-        // is per-mint (24h TTL); other tokens with the same pattern still trade freely.
         val rugBlacklisted4133 = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(ts.mint) } catch (_: Throwable) { false }
         if (RuntimeModeAuthority.isLive() && rugBlacklisted4133) {
             try { ForensicLogger.lifecycle("RUG_BLACKLIST_VETO_V4133", "symbol=${ts.symbol} mint=${ts.mint.take(10)} lane=$laneTag goose=${gooseVerdict4129.name} blSize=${runCatching { com.lifecyclebot.engine.RugMintBlacklist.size() }.getOrDefault(-1)}") } catch (_: Throwable) {}
@@ -14913,161 +13882,6 @@ class Executor(
             onLog("🛑 Rug-blacklist veto: ${ts.symbol} (rugged ≤24h ago)", "discipline")
             return
         }
-        // V5.0.4132 — DISCIPLINE PASS at the size chokepoint.
-        // (a) PAUSE BUTTON: if global rolling WR < 25% (DEFENSIVE), only GOLD/WINNER
-        //     verdicts trade. Lower lanes get sized DOWN via laneSizeTilt; top
-        //     performers get sized UP. Capital re-routes toward what's working.
-        // (b) LANE TIMEOUT: if this lane's rolling 30-trade WR < 20%, only GOLD/WINNER
-        //     verdicts trade IN THIS LANE. (Hysteresis: exits at 35%.)
-        val isHighEdge4132 = gooseVerdict4129 == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
-                              gooseVerdict4129 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
-        val pauseDefensive4132 = try { com.lifecyclebot.engine.LivePauseButton.isDefensive() } catch (_: Throwable) { false }
-        val laneTimedOut4132 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag) } catch (_: Throwable) { false }
-        // V5.0.4132b — UNIVERSAL SCANNER-LANE BRAIN VETO. Applies to every trader
-        // (STANDARD, BLUECHIP, SHITCOIN, QUALITY, SHITCOIN_EXPRESS, MOONSHOT,
-        // MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, CYCLIC, CASHGEN, TREASURY).
-        // doBuy is the universal chokepoint — placing the veto here makes EVERY
-        // buy across EVERY lane consult the scanner→lane bridge brain.
-        // GOLD/WINNER verdicts bypass (proven edge can override learned aversion).
-        val bridgeToxic4132 = try {
-            !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(ts.source ?: "UNKNOWN", laneTag)
-        } catch (_: Throwable) { false }
-        // V5.0.7781 — the bridge, pause and lane-timeout verdicts size the entry
-        // down in liveBuy (DISCIPLINE_RECOVERY_PROBE_4460, same three inputs);
-        // they no longer veto here. A veto latched itself: the pause only
-        // releases on new live closes, and the veto stopped every live buy, so
-        // 5.0.7779 ran DISCIPLINE_VETO_V4132=94 against EXEC=0 off a 30-close
-        // window persisted from earlier builds. Field Manual: when a lane is
-        // running cold, cut size, keep taking the A setups — never stop data.
-        if (RuntimeModeAuthority.isLive() && bridgeToxic4132 && !isHighEdge4132) {
-            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_SIZE_DOWN_7781", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")} action=sized_in_liveBuy_4460") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_SIZE_DOWN_7781") } catch (_: Throwable) {}
-        }
-        if (RuntimeModeAuthority.isLive() && !isHighEdge4132 && (pauseDefensive4132 || laneTimedOut4132)) {
-            // V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button
-            // (mirrors the liveBuy-entry bypass; see liveBuy() doc for rationale).
-            // Per-lane LaneTimeoutGate is unchanged — broken lanes stay locked.
-            val laneTopPerformer4148 = try { com.lifecyclebot.engine.LivePauseButton.isTopPerformingLane(laneTag) } catch (_: Throwable) { false }
-            val effectivePause4148 = pauseDefensive4132 && !laneTopPerformer4148
-            if (!effectivePause4148 && !laneTimedOut4132) {
-                if (pauseDefensive4132) {
-                    try { ForensicLogger.lifecycle("TOP_LANE_BYPASS_V4148", "symbol=${ts.symbol} lane=$laneTag globalPause=DEFENSIVE laneIsTopPerformer=true path=doBuy") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("TOP_LANE_BYPASS_DOBUY") } catch (_: Throwable) {}
-                }
-            } else {
-                val reason4132 = when {
-                    effectivePause4148 && laneTimedOut4132 -> "discipline_pause_and_lane_timeout"
-                    effectivePause4148                     -> "discipline_pause_global"
-                    else                                    -> "discipline_lane_timeout"
-                }
-                // V5.0.7781 — size-down in liveBuy (4460), not a veto; see above.
-                try { ForensicLogger.lifecycle("DISCIPLINE_SIZE_DOWN_7781", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")} action=sized_in_liveBuy_4460") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("DISCIPLINE_SIZE_DOWN_7781_${reason4132.uppercase()}") } catch (_: Throwable) {}
-            }
-        }
-        // (c) PERFORMING-LANE TILT: in DEFENSIVE mode, scale entries up for top
-        //     lanes (×1.30 / ×1.15) and down for unranked (×0.70). NORMAL mode = ×1.0.
-        val laneTilt4132 = try { com.lifecyclebot.engine.LivePauseButton.laneSizeTilt(laneTag) } catch (_: Throwable) { 1.0 }
-        // (d) SCANNER-LANE BRIDGE: additive score-style bias from (source, lane) brain.
-        val bridgeBias4132 = try { com.lifecyclebot.engine.ScannerLaneBridge.affinityBias(ts.source, laneTag) } catch (_: Throwable) { 0 }
-        val bridgeMult4132 = (1.0 + bridgeBias4132 / 100.0).coerceIn(0.70, 1.30)
-        val absEntryFloor4129 = when (gooseVerdict4129) {
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ->
-                com.lifecyclebot.engine.LiveSizingProfile.STRONG_ENTRY_SOL
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER ->
-                com.lifecyclebot.engine.LiveSizingProfile.DEFAULT_ENTRY_SOL
-            else ->
-                com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL
-        }
-        val gooseUpperMult4129 = when (gooseVerdict4129) {
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> 1.50  // press winners harder
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> 1.20
-            else                                                    -> 1.00
-        }
-        val absMinSol4129 = if (moneySizingMode6082 &&
-                                walletSol > absEntryFloor4129 * 2.5 &&
-                                gooseVerdict4129 != com.lifecyclebot.engine.TokenWinMemory.Verdict.TOXIC &&
-                                gooseVerdict4129 != com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
-            absEntryFloor4129
-        } else 0.0
-        val relMinSol4129 = sol * liveFloorMult
-        val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
-        val effSolRaw = MoneyModeSizeBounds6661.clamp(
-            raw = sol * multiplierProduct * laneTilt4132 * bridgeMult4132,
-            lower = maxOf(relMinSol4129, absMinSol4129),
-            upper = upperCap4129 * laneTilt4132,
-        )
-        if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
-            try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}
-        }
-        if (dumpRegimeLive) {
-            try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("DUMP_REGIME_LIVE_SIZE_SHAPED") } catch (_: Throwable) {}
-        }
-        // V5.0.6867 — one growth policy surface. This was `if (isLive())`, so paper
-        // skipped the doctrine floor/cap and every compounding lift with it. Both
-        // books now size through the same authority against their own balance.
-        // V5.0.7187 §THE_SECOND_SIZING_SURFACE_NEVER_GOT_THE_PAPER_BANKROLL.
-        //
-        // Operator: "its got the balance wrong its not reading paper balance.
-        // I havent even connected a live wallet to this install."
-        //
-        // V5.0.6689 already established that paper must size against
-        // PaperCapitalAuthority6577 rather than a wallet mirror, and wired it
-        // into CanonicalSizingBridge6532 — which is why ORDER_SIZE_RESOLVED_6441
-        // correctly reports `cashCap=9.29970 final=0.44500 exec=true`. This
-        // call is the OTHER sizing surface and it was left on the raw
-        // `walletSol` parameter, so it sized against an observed wallet that
-        // does not exist on this install.
-        //
-        // The 5.0.7186 device run, one candidate, both surfaces side by side:
-        //
-        //   ORDER_SIZE_RESOLVED_6441      cashCap=9.29970  final=0.44500  OK
-        //   LIVE_REALISTIC_SIZE_AUTHORITY wallet=0.0600 spendable=0.0480
-        //                                 requested=0.0300 -> out=0.0134
-        //   COST_EXCEEDS_EDGE_REFUSED_7162: 501
-        //
-        // 0.0134 SOL cannot clear its own round-trip fee, so 7162 refused it —
-        // correctly — five hundred and one times. The refusal was right; the
-        // number it was refusing was fiction. Paper cash was 9.2997 the whole
-        // time.
-        //
-        // Same wrong figure also reached AntiRewardHackingGuard6439 through
-        // the wallet observation: `walletSol=6.14105 highSol=11.76000` is
-        // exactly 0.06 cash + 6.08 open cost, so the 7179 equity basis was
-        // computing correctly on a phantom balance and vetoing every risk
-        // expansion (533 vetoes, 0 allows).
-        //
-        // Bound to the same authority 6689 chose, in paper only. LIVE keeps the
-        // observed wallet from the wallet/finality path, untouched — a live
-        // book must size against real SOL. Divergence is named rather than
-        // silently corrected so a future caller passing a stale mirror is
-        // visible instead of merely overridden.
-        val paperSizing7187 = !RuntimeModeAuthority.isLive()
-        val sizingWalletSol7187 = if (!paperSizing7187) walletSol else {
-            try {
-                val paperCash7187 = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577
-                    .cashSol().coerceAtLeast(0.0)
-                if (walletSol.isFinite() && kotlin.math.abs(walletSol - paperCash7187) > 0.001) {
-                    try {
-                        PipelineHealthCollector.labelInc("PAPER_ENTRY_SIZE_CASH_REBOUND_7187")
-                        ForensicLogger.lifecycle(
-                            "PAPER_ENTRY_SIZE_CASH_REBOUND_7187",
-                            "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag " +
-                                "callerWallet=${walletSol.fmt(4)} paperCash=${paperCash7187.fmt(4)} " +
-                                "action=size_against_paper_bankroll_not_wallet_mirror",
-                        )
-                    } catch (_: Throwable) {}
-                }
-                paperCash7187
-            } catch (_: Throwable) { walletSol }
-        }
-        val effSol = realisticEntrySize6867(
-            ts, effSolRaw, sizingWalletSol7187, score, identity?.source ?: ts.source,
-            if (RuntimeModeAuthority.isLive()) "doBuy.final" else "doBuy.final.paper",
-        )
-
         // V5.0.7162 — refuse a trade whose forecast edge cannot clear its own
         // round-trip cost, rather than shrinking it to dust and paying the
         // fixed leg anyway. See costExceedsEdge7162.
@@ -15079,27 +13893,6 @@ class Executor(
             try { PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_DROP_COST_EXCEEDS_EDGE_7162") } catch (_: Throwable) {}
             return
         }
-
-        try {
-            LearningLifecycleBus.sizingDecision(
-                stage = "doBuy.final",
-                lane = laneTag,
-                source = ts.source,
-                mint = ts.mint,
-                symbol = ts.symbol,
-                baseSol = sol,
-                rawMultiplier = multiplierProductRaw,
-                clampedMultiplier = multiplierProduct,
-                finalSol = effSol,
-                walletSol = walletSol,
-                liquidityUsd = ts.lastLiquidityUsd,
-                score = score,
-                components = sizingStackComponents4285,
-                reason = "goose=${gooseVerdict4129.name} regime=${currentRegimeForLivePolicy.name} laneCap=${laneSizeCap}",
-                regime = currentRegimeForLivePolicy.name,
-                style = laneTag,
-            )
-        } catch (_: Throwable) {}
 
         // V5.9.642: spine log uses a separate val so the compiler keeps
         // its smart cast on `wallet` inside the else branch (non-null guaranteed).
@@ -15195,29 +13988,12 @@ class Executor(
                 }
                 is GuardResult.Allow -> {
                     // V5.9.9: Cross-trader exposure check
-                    var liveSol = effSol
+                    val liveSol = effSol
                     if (!WalletPositionLock.canOpen("Meme", liveSol, walletSol)) {
-                        val laneCapPenalty = LiveRestoreExecutionPolicy.fromRuntimeDrift(ts.lastLiquidityUsd).combine(LiveRestoreExecutionPolicy.fromLaneCap(ts.lastLiquidityUsd))
-                        if (laneCapPenalty.reason != "NONE" && RuntimeModeAuthority.isLive()) {
-                            // V5.0.6018 — this path ran AFTER doBuy.final sizing and
-                            // collapsed live buys back to 0.01-0.025 SOL, bypassing the
-                            // compounding floor. Keep the soft penalty, but re-apply the
-                            // last-mile floor and never increase beyond effSol.
-                            val shapedSol6018 = effSol * laneCapPenalty.sizeMultiplier
-                            liveSol = com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
-                                shapedSol6018,
-                                walletSol,
-                                isPaperMode = false,
-                            ).coerceAtMost(effSol)
-                            try { ForensicLogger.lifecycle("LIVE_RESTORE_LANE_CAP_COMPOUND_FLOOR_6018", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${effSol.fmt(4)} shaped=${shapedSol6018.fmt(4)} to=${liveSol.fmt(4)} penalty=${laneCapPenalty.reason}") } catch (_: Throwable) {}
-                        } else {
-                            onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
-                            livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP", "walletExposurePct=${WalletPositionLock.getExposurePct(walletSol).toInt()}")
-                            // V5.0.7215 — second of the two sites 6073 missed.
-                            // See the note at the security-guard block above.
-                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap")
-                            return
-                        }
+                        livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP",
+                            "walletExposurePct=${WalletPositionLock.getExposurePct(walletSol).toInt()}")
+                        runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap")
+                        return
                     }
                     ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_ALLOW ${ts.symbol} | size=${liveSol.fmt(4)} | wallet=${walletSol.fmt(4)}")
                     val liveOpened = liveBuy(
@@ -16606,41 +15382,15 @@ class Executor(
         val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
         paperBuyLeaseMode6369 = if (routeIsShadow) "SHADOW" else "PAPER"
         val finalityLane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
-        // V5.0.6490 — resolve capital BEFORE PAPER ticket publication. The
-        // entry authority may down-shape a 0.05 intent, but no downstream
-        // component may manufacture a 0.021 order that can never execute.
-        val availableCashSol6511 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
-        val paperExecutableMinimumSol6511 = minConfiguredPaperTradeSol()
-        val sealedNotional6552 = try {
-            com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(ts.mint)
-        } catch (_: Throwable) { null }
-        // V5.0.6567 — preserve adaptive/risk/regime/learner authority. A
-        // downstream executable minimum may reject/shadow a reduced request, but
-        // must never inflate it back into a normal position.
-        val effectiveRequestedSol6511 = sealedNotional6552?.takeIf { it > 0.0 } ?: effectiveBuySol6451
-        val preTicketSize6490 = try {
-            com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
-                laneName = finalityLane,
-                requestedSol = effectiveRequestedSol6511,
-                walletSol = availableCashSol6511,
-                paperMode = true,
-                overrideLaneRiskCapSol = maxPaperTradeSolOverride,
-                mintForSeal = ts.mint,  // V5.0.6497 §1 seal for downstream authority
-            )
-        } catch (_: Throwable) {
-            com.lifecyclebot.engine.truth.OrderSizeResolver6441.Resolution(
-                effectiveBuySol6451, 0.0, 0.0, 0.0, 0.0, 0.0, false, "PRE_TICKET_SIZE_RESOLUTION_FAILED_6490",
-            )
-        }
-        if (!preTicketSize6490.executable) {
-            try {
-                PipelineHealthCollector.labelInc("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490")
-                ForensicLogger.lifecycle("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$finalityLane ${preTicketSize6490.trace()} action=no_exec_ticket")
-            } catch (_: Throwable) {}
-            markPaperBuyNotOpened("PRE_TICKET_SIZE_${preTicketSize6490.reason}")
+        val sealedIntent7835 = ExecutableOpenGate.ticketForAttempt(executionAttemptId6514)
+        val sizeRefusal7835 = SealedExecutionSize7835.refusal(
+            sealedIntent7835, ts.mint, paperBuyLeaseMode6369, finalityLane, sol,
+        )
+        if (sizeRefusal7835 != null) {
+            markPaperBuyNotOpened(sizeRefusal7835)
             return
         }
-        val canonicalBuyIntentSol6490 = preTicketSize6490.finalSizeSol
+        val canonicalBuyIntentSol6490 = requireNotNull(sealedIntent7835).resolvedSize
         paperBuyLeaseProcessor6369 = "PAPER_BUY_${finalityLane.uppercase()}"
         // V5.0.6369 — PAPER BUY FANOUT RACE CLAIM remains the same-mint concurrency authority.
         val paperBuyLease6369 = try {
@@ -16716,45 +15466,8 @@ class Executor(
             markPaperTicketDispatched6514()
         }
 
-        // V5.0.6552 — execution consumes the sealed notional. No WR,
-        // runner, cold-streak, lane-admission, or second resolver may mutate
-        // size after ticket dispatch. A changed market cancels/requotes.
-        val sealedOrIntentSol7280 = try {
-            com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(ts.mint)
-                ?: canonicalBuyIntentSol6490
-        } catch (_: Throwable) { canonicalBuyIntentSol6490 }
-        // V5.0.7280 §THE TICKET CANNOT OUTSIZE THE SIZER.
-        //
-        // 6567's rule for this site was "a downstream minimum may reject or
-        // shadow a reduced request, but must never inflate it back into a
-        // normal position." The sealed notional is the FDG-time figure from
-        // the lane trader and the resolver (cash cap, lane cap of 5 SOL) — it
-        // has never been through realisticEntrySize6867, where the liquidity
-        // cap, the curve exit cap, the wallet share and the boosts live. The
-        // caller's `sol` has. On 5.0.7279 the sealed figure won here at 0.6–
-        // 0.8 SOL, the confidence press below multiplied it by up to 2.5, and
-        // QUALITY put 1.538 SOL into a $22.7k launch that died 43 s later.
-        // The larger of the two may not be the ticket.
-        val requestedBound7280 = effectiveBuySol6451.takeIf { it.isFinite() && it > 0.0 }
-        val sol = if (requestedBound7280 != null && sealedOrIntentSol7280 > requestedBound7280 * 1.001) {
-            try {
-                PipelineHealthCollector.labelInc("PAPER_TICKET_BOUND_TO_REQUESTED_SIZE_7280")
-                ForensicLogger.lifecycle(
-                    "PAPER_TICKET_BOUND_TO_REQUESTED_SIZE_7280",
-                    "mint=${ts.mint.take(10)} lane=$finalityLane sealedOrIntent=${sealedOrIntentSol7280.fmt(4)} " +
-                        "requested=${requestedBound7280.fmt(4)} action=ticket_takes_the_sized_figure",
-                )
-            } catch (_: Throwable) {}
-            requestedBound7280
-        } else sealedOrIntentSol7280
-        try {
-            ForensicLogger.lifecycle(
-                "PAPER_SEALED_NOTIONAL_CONSUMED_6552",
-                "mint=${ts.mint.take(10)} lane=$finalityLane attemptId=$executionAttemptId6514 sealed=${sol.fmt(6)} source=${if (sealedNotional6552 != null) "SEALED" else "CANONICAL_INTENT"}",
-            )
-            PipelineHealthCollector.labelInc("PAPER_SEALED_NOTIONAL_CONSUMED_6552")
-        } catch (_: Throwable) {}
-
+        @Suppress("NAME_SHADOWING")
+        val sol = canonicalBuyIntentSol6490
         if (sol <= 0.0) {
             try { ForensicLogger.lifecycle("PAPER_BUY_INVALID_SIZE_REJECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$sol") } catch (_: Throwable) {}
             markPaperBuyNotOpened("SIZE_CLAMP_ZERO")
@@ -16893,9 +15606,9 @@ class Executor(
             maxPaperTradeSolOverride?.takeIf { it.isFinite() && it > 0.0 },
             realisticCap7280,
             launchChaseCapSol7280,
-        ).minOrNull()?.coerceAtLeast(minConfiguredPaperTradeSol())
+        ).minOrNull()
         if (ticketCapOverride7280 != null && realisticCap7280 != null &&
-            ticketCapOverride7280 == realisticCap7280.coerceAtLeast(minConfiguredPaperTradeSol())
+            ticketCapOverride7280 == realisticCap7280
         ) {
             try { PipelineHealthCollector.labelInc("PAPER_TICKET_CAP_FROM_REALISTIC_SIZER_7280") } catch (_: Throwable) {}
         }
@@ -16958,74 +15671,14 @@ class Executor(
             return
         }
         
-        val actualSol: Double
-        val buildPhase: Int
-        val targetBuild: Double
-
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0.6241 — FLUID CONFIDENCE-BASED SIZING (operator directive:
-        // "sizing is meant to be fluid based on confidence ... it cant
-        // compound and increase the balance into the hundreds of thousands
-        // making the same trades on low confidence lanes as the high ones.")
-        //
-        // Multiplies the FULL advisor stack (Lane×Bucket Pivot × Compound-
-        // Growth Mentality × Score-band tilt) into the REQUESTED sol before
-        // it hits clampPaperTradeSol. Result: low-confidence entries scale
-        // DOWN toward the min floor, high-confidence winner buckets scale UP
-        // toward the max ceiling (2.0 SOL). Fail-open on every read — if any
-        // advisor throws, we fall back to the raw sol.
-        // ═══════════════════════════════════════════════════════════════════
-        val fluidSol: Double = try {
-            val laneU = (layerTag.ifBlank { ts.position.tradingMode.ifBlank { "STANDARD" } }).uppercase()
-            val scoreInt = score.toInt().coerceIn(0, 100)
-            val pivotMult = try { com.lifecyclebot.engine.LaneBucketPivot.sizeMult(laneU, scoreInt) } catch (_: Throwable) { 1.0 }
-            val mentalityMult = try { com.lifecyclebot.engine.CompoundGrowthMentality.sizeAdvisory() } catch (_: Throwable) { 1.0 }
-            // V5.0.6372 — UNIVERSAL 2x-5x daily compound target. Operator directive:
-            // "2x-5x minimum wallet growth daily in any mode live or paper".
-            // Applies to every real lane, not just meme lanes. Below target it
-            // presses up to 2.50×; on-track 1.15×; at target 1.00×; above 5×
-            // shrinks to 0.85×. Product-cap of 2.5 below prevents runaway sizing.
-            val universalTargetMult6372 = try { com.lifecyclebot.engine.MemeCompoundTarget6256.sizeAdvisoryFor(laneU) } catch (_: Throwable) { 1.0 }
-            // Score-band tilt: S0 → 0.60x, S50 → 1.00x, S100 → 1.60x (linear).
-            val scoreTilt = (0.60 + (scoreInt.toDouble() / 100.0)).coerceIn(0.60, 1.60)
-            val combined = (pivotMult * mentalityMult * universalTargetMult6372 * scoreTilt).coerceIn(0.25, 2.5)
-            val shapedRaw6490 = sol * combined
-            val executableFloor6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
-            val shaped = if (sol >= executableFloor6490 && shapedRaw6490 < executableFloor6490) executableFloor6490
-                else shapedRaw6490.coerceAtLeast(0.01)
-            try {
-                ForensicLogger.lifecycle(
-                    "FLUID_SIZE_SHAPE_6241",
-                    "sym=${ts.symbol} lane=$laneU score=$scoreInt pivot=${"%.2f".format(pivotMult)} mentality=${"%.2f".format(mentalityMult)} universalTgt6372=${"%.2f".format(universalTargetMult6372)} scoreTilt=${"%.2f".format(scoreTilt)} combined=${"%.2f".format(combined)} rawSol=${"%.4f".format(sol)} shapedSol=${"%.4f".format(shaped)}"
-                )
-            } catch (_: Throwable) {}
-            shaped
-        } catch (_: Throwable) { sol }
-
-        if (skipGraduated || quality == "C") {
-            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.actual", ticketCapOverride7280)
-            buildPhase = if (quality != "C") 1 else 3
-            targetBuild = if (quality != "C") fluidSol / graduatedInitialPct(quality) else 0.0
-        } else {
-            // V5.0.6572 — MEME VOLUME REPAIR. Operator forensic
-            // ($1000+ hero balance, 27 lifetime trades, 26 SIZE_NOT_EXECUTABLE
-            // rejections, dust-sized entries poisoning learning): the
-            // graduated 35% initial tranche was the primary dust source
-            // (0.05 SOL fluid → 0.0175 SOL graduated → sub-floor reject).
-            // For paper mode, the graduated tranche is training noise —
-            // there is no real-money slippage benefit and every 35% shave
-            // is a lost learning signal. Skip graduated tranching for
-            // paper entirely and use the fluid size directly. Live
-            // execution retains graduated tranching per V5.0.6549 for
-            // slippage protection. V5.0.6550 §P0-A floor preservation
-            // remains in place as a belt-and-braces guard when the
-            // graduated code path is re-enabled elsewhere.
-            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.paperFullFluid_6572", ticketCapOverride7280)
-            try { PipelineHealthCollector.labelInc("PAPER_GRADUATED_TRANCHE_SKIPPED_6572") } catch (_: Throwable) {}
-            buildPhase = 1
-            targetBuild = fluidSol.coerceAtMost(maxConfiguredPaperTradeSol())
+        if (ticketCapOverride7280 != null && sol > ticketCapOverride7280 + 1e-9) {
+            markPaperBuyNotOpened("SEALED_SIZE_EXCEEDS_CURRENT_DEPTH_CAP_7835")
+            return
         }
-        
+        val actualSol = sol
+        val buildPhase = if (quality == "C") 3 else 1
+        val targetBuild = if (quality == "C") 0.0 else sol
+
         // V5.9.780 — EMERGENT MEME PAPER REALISM (entry side).
         // Same correction as paperSell — live Jupiter slippage on meme
         // dust is 5–15% on the entry side. Old curve was 0.4–3% which
@@ -18680,7 +17333,7 @@ class Executor(
     private fun brainAdjustedLaneScore(baseScore: Double, ts: TokenState): Double {
         val b = brain ?: return baseScore
         return try {
-            val adjusted = b.effectiveEntryThreshold(baseScore)
+            val adjusted = baseScore // Evidence score and admission threshold are different units.
             val phaseBoost = b.getPhaseBoost(ts.phase)
             val sourceBoost = b.getSourceBoost(ts.source)
             (adjusted + phaseBoost + sourceBoost).coerceIn(0.0, 100.0)
@@ -19120,6 +17773,12 @@ class Executor(
         // locally with the normalized value.
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
+        val sealedIntent7835 = ExecutableOpenGate.ticketForAttempt(attemptId)
+        val sizeRefusal7835 = SealedExecutionSize7835.refusal(sealedIntent7835, ts.mint, "LIVE", layerTag, sol)
+        if (sizeRefusal7835 != null) {
+            emitLiveBuyFail(ts, sol, sizeRefusal7835)
+            return false
+        }
         // V5.0.7257 — the authority walk lives in its own verifier-safe method.
         // This call remains before every pending-row, lease, quote and provider
         // side effect, preserving the 7256 pre-lease rejection contract.
@@ -19213,7 +17872,7 @@ class Executor(
                 return false
             }
         } catch (_: Throwable) {}
-        val entryAuthoritySol6487 = gateVerdictLive6451.recommendedSizeSol.coerceAtMost(sol)
+        val entryAuthoritySol6487 = requireNotNull(sealedIntent7835).resolvedSize
         // V5.0.6444 §1 LIVE EXECUTOR MIGRATION — mirror the live buy
         // attempt into CanonicalPositionAuthority6441 via
         // ExecutorCanonicalMirror6442. Runs at the earliest point so
@@ -19231,27 +17890,7 @@ class Executor(
             )
         } catch (_: Throwable) {}
 
-        // V5.0.6325 — GOVERNOR SIZE MULTIPLIER APPLIED AT LIVE ENTRY.
-        // Wires the 6324 governor state directly into the live buy
-        // dispatch so SOFT_TIGHT / CAUTION states materially reduce
-        // real SOL sent. This is the wire-in the operator called out:
-        // "governor at BASELINE with only size×0.96" — the multiplier
-        // now flows from currentSizeMultiplier() at every buy.
-        //
-        // V5.0.6326 — IMMEDIATE COLLAPSE GUARD WIRE-IN. On top of the
-        // governor shrink, the pre-entry ImmediateCollapseGuard runs
-        // against the signals we already have on ts (mint / freeze
-        // authority, top holder concentration, price freshness, cross-
-        // provider deviation, advisor labels). Genuine security failures
-        // (mint or freeze authority still live) HARD-BLOCK by refusing
-        // the buy outright — this is the direct profitability lever:
-        // no more full-size buys into tokens the deployer can still
-        // rug. Ordinary uncertainty soft-shrinks size + raises floor,
-        // never disables a lane.
-        @Suppress("NAME_SHADOWING")
-        val sol: Double = run {
-            val originalSol = entryAuthoritySol6487
-            val govMult = try { com.lifecyclebot.engine.LiveEntrySafetyHold.currentSizeMultiplier() } catch (_: Throwable) { 1.0 }
+        run {
             // Collapse-guard signal set. Uses defaults when a field is
             // unavailable so we never fabricate a bad signal; the guard
             // only tightens on evidence.
@@ -19307,7 +17946,7 @@ class Executor(
             // defaults) hard-blocks live-only when score >= 3. Paper
             // stays unaffected so tactic-switcher learning continues.
             try {
-                if (!ts.position.isPaperPosition) {
+                if (!RuntimeModeAuthority.isPaper()) {
                     val advisorLabels6405: List<String> = try {
                         val snap = ts.lastPolicySnapshot
                         val fromSnap = if (snap.isBlank()) emptyList<String>()
@@ -19341,111 +17980,8 @@ class Executor(
                         } catch (_: Throwable) {}
                         return false
                     }
-                    // V5.0.6405 §19 — PAPER→LIVE BUCKET-EV GATE.
-                    // Refuse LIVE entries into (lane, scoreBand) buckets whose
-                    // TacticSwitcher trade history has proven negative EV
-                    // (meanPnlPct < -15 or winrate < 20% with n >= 6).
-                    // Paper stays unaffected so exploratory samples continue
-                    // to accumulate.
-                    val evVerdict = com.lifecyclebot.engine.truth.PaperEvBucketGate6405
-                        .evaluate(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            lane = layerTag,
-                            scoreInt = ts.entryScore.toInt(),
-                            isPaper = false,
-                        )
-                    // V5.0.7807 — B9: a negative-EV score bucket is a learned
-                    // performance opinion, not a safety fact. It no longer refuses
-                    // the buy or arms a per-mint cooldown; it shrinks size through
-                    // LiveRiskPolicy7807 (floored at 0.7x until the lane has 10 live
-                    // closes). Field Manual L264, L357.
-                    if (evVerdict.block) {
-                        com.lifecyclebot.engine.truth.LiveRiskPolicy7807.noteGovernorShrink(
-                            ts.mint, 0.5, "PAPER_EV_BUCKET_SIZE_DOWN_NOT_REFUSED_7807",
-                        )
-                    }
                 }
             } catch (_: Throwable) {}
-            val guardMult = guardVerdict?.sizeMultiplier ?: 1.0
-            // V5.0.6329 — BRAIN CONSENSUS STACK. The LLM / SuperAGI / SSI /
-            // BotBrain / MetaCognition / SentienceOrchestrator brains are
-            // fused here into one geometric-mean multiplier so every
-            // intelligence surface actually shapes the buy alongside the
-            // governor and collapse guard. Never hard-blocks — that
-            // authority stays with LiveEntrySafetyHold.
-            val brainVerdict = try {
-                com.lifecyclebot.engine.BrainConsensusBridge6329.consult(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    lane = layerTag,
-                    source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
-                )
-            } catch (_: Throwable) { null }
-            val brainMult = brainVerdict?.multiplier ?: 1.0
-            // V5.0.6334 — LANE EDGE CONCENTRATOR. Per-bucket (lane × scoreBand)
-            // performance from TacticSwitcher shapes size so winning buckets
-            // attract capital and bleeders fade — self-tuning from trade 1.
-            // Never blocks; only amplifies (WINNER, up to 1.50×) or fades
-            // (BLEEDER, down to 0.60×). NEUTRAL / NO_DATA stays at 1.0.
-            val concentratorVerdict = try {
-                com.lifecyclebot.engine.LaneEdgeConcentrator6334.evaluate(
-                    lane = layerTag,
-                    score = ts.entryScore.toInt(),
-                )
-            } catch (_: Throwable) { null }
-            val concentratorMult = concentratorVerdict?.multiplier ?: 1.0
-            // V5.0.6332 — CONCENTRATED CONVICTION SIZING. Governor
-            // multiplier may exceed 1.0 (up to ~1.50 in HOLD state) so
-            // that fewer, high-conviction trades carry more capital.
-            // Defensive dampeners (guard / brain) remain confined to
-            // [0.0, 1.0] and only shrink — never amplify. The final
-            // shape is govMult * defensiveMult so a shrinking guard or
-            // brain still overrides a concentrating governor.
-            // WALLET-SAFETY VALVE: amplification (combined > 1.0) is
-            // only permitted for small trades (originalSol < 0.10 SOL)
-            // where upstream sizing hasn't saturated wallet caps. Large
-            // bluechip-lane buys stay capped at 1.0 so amplification
-            // never overflows the wallet.
-            val defensiveMult = (guardMult * brainMult).coerceIn(0.0, 1.0)
-            val amplificationEligible = originalSol > 0.0 && originalSol < 0.10
-            val ceiling = if (amplificationEligible) 2.25 else 1.0
-            // V5.0.6334 — stack concentrator with governor. Both are
-            // permitted to amplify (govMult up to 1.50, concentratorMult
-            // up to 1.50) but the joint cap of 2.25× keeps wallet safe.
-            val combinedMult = (govMult * concentratorMult * defensiveMult).coerceIn(0.0, ceiling)
-            val shaped = (originalSol * combinedMult).coerceAtLeast(0.0)
-            val shapedChanged = kotlin.math.abs(combinedMult - 1.0) > 0.01
-            if (shapedChanged && originalSol > 0.0) {
-                try {
-                    val direction = if (combinedMult > 1.0) "CONCENTRATE" else "DAMPEN"
-                    ForensicLogger.lifecycle(
-                        "LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325",
-                        "mint=${ts.mint.take(10)} sym=${ts.symbol} dir=$direction originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} govMult=${"%.2f".format(govMult)} concMult=${"%.2f".format(concentratorMult)} concClass=${concentratorVerdict?.classification ?: "NONE"} concBucket=${concentratorVerdict?.bucketKey ?: "-"} guardMult=${"%.2f".format(guardMult)} brainMult=${"%.2f".format(brainMult)} defensive=${"%.2f".format(defensiveMult)} combined=${"%.2f".format(combinedMult)} ceiling=${"%.2f".format(ceiling)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()} guardReasons=${guardVerdict?.reasons?.take(4)?.joinToString(",") ?: "-"} brainLabels=${brainVerdict?.advisorLabels?.take(3)?.joinToString(",") ?: "-"}",
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325")
-                    if (combinedMult > 1.0) PipelineHealthCollector.labelInc("LIVE_BUY_CONCENTRATED_CONVICTION_6332")
-                    if (concentratorMult > 1.0) PipelineHealthCollector.labelInc("LIVE_BUY_LANE_EDGE_AMPLIFIED_6334")
-                    if (concentratorMult < 1.0) PipelineHealthCollector.labelInc("LIVE_BUY_LANE_EDGE_FADED_6334")
-                    if (guardMult < 0.99) PipelineHealthCollector.labelInc("LIVE_BUY_COLLAPSE_GUARD_SOFT_SHAPED_6326")
-                } catch (_: Throwable) {}
-            }
-            // V5.0.6388 (S5) — probation size clamp. When the recovery state
-            // machine has authorised HOLD_PROBATION entries, ALL live buys
-            // must be strictly size-capped to 0.005–0.010 SOL (10% of normal,
-            // clamped). Runs INSIDE the size-resolution block so every
-            // downstream sizing consumer reads the clamped value.
-            val probationSized6388 = try {
-                com.lifecyclebot.engine.truth.GovernorRecovery6388.entryAuthority().probationSized
-            } catch (_: Throwable) { false }
-            // V5.0.7376 — the governor is advisory: the probation clamp (0.005-0.010
-            // SOL) sat below the 0.041 SOL routable minimum, so every governed entry
-            // was refused as dust. Recorded, not applied; size is left to the
-            // governor multiplier and the risk sizing above.
-            if (probationSized6388) {
-                try { PipelineHealthCollector.labelInc("LIVE_BUY_PROBATION_CLAMP_ADVISORY_7376") } catch (_: Throwable) {}
-            }
-            shaped
         }
 
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
@@ -19802,68 +18338,15 @@ class Executor(
             return false
         }
         val runtimePaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg().paperMode }
-        // V5.0.6381 — MODE DESYNC AUTO-PROMOTE (operator directive: "paper
-        // has no issue finding winners live shouldn't either... FIX THE
-        // LIVE TRADER"). The V5.0.6375 snapshot showed LIVE_MODE_DESYNC=34
-        // killing 79% of live buy attempts. Root cause: sub-traders build
-        // ExecutionContext at decision time; runtime mode toggles between
-        // decision and executor entry ⇒ execCtx.execMode = PAPER while
-        // runtime = LIVE. Downstream ExecutableOpenGate line 850 already
-        // hard-blocks true PAPER_REQUEST_WHILE_RUNTIME_LIVE as a safety
-        // measure. Here we auto-promote the local execMode reference so a
-        // legitimate live intent lands in the live executor instead of
-        // being aborted. Sub-trader routing bug, not a safety concern.
-        val execModeResolved = when {
-            !runtimePaper && execCtx.execMode == ExecMode.PAPER -> {
-                try { PipelineHealthCollector.labelInc("LIVE_MODE_AUTO_PROMOTE_6381") } catch (_: Throwable) {}
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_MODE_AUTO_PROMOTE_6381",
-                        "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} sym=${ts.symbol} runtimePaper=false ctxExecMode=PAPER promotedTo=LIVE",
-                    )
-                } catch (_: Throwable) {}
-                ExecMode.LIVE
-            }
-            else -> execCtx.execMode
+        val execModeResolved = execCtx.execMode
+        if (runtimePaper || execModeResolved != ExecMode.LIVE) {
+            return liveAbortDesync("runtimePaper=$runtimePaper execMode=$execModeResolved")
         }
-        if (!runtimePaper && execModeResolved != ExecMode.LIVE) return liveAbortDesync("runtime.paperMode=false execMode=$execModeResolved")
-        if (execModeResolved == ExecMode.LIVE) {
-            // V5.0.4017 — pre-open TokenState.position is a placeholder whose
-            // Position.isPaperPosition default is true. 4016 incorrectly treated
-            // that default as live/paper desync and rejected every live BUY before
-            // spend (LIVE_MODE_DESYNC=140, BUY ok=0). Only an already-open
-            // position can be authoritative about its mode; fresh entry candidates
-            // are governed by ExecutionContext + RuntimeModeAuthority until the
-            // live position is stamped after tx confirmation.
-            val alreadyOpenPosition = try { ts.position.isOpen && (ts.position.qtyToken > 0.0 || ts.position.costSol > 0.0 || ts.position.entryTime > 0L) } catch (_: Throwable) { false }
-            val paperFlag = try { alreadyOpenPosition && ts.position.isPaperPosition } catch (_: Throwable) { false }
-            val shadowFlag = try { (alreadyOpenPosition && ts.position.tradingMode.equals("SHADOW", true)) || layerTag.equals("SHADOW", true) } catch (_: Throwable) { false }
-            // V5.0.6383 — STALE PAPER/SHADOW FLAG AUTO-CLEAR (operator directive:
-            // "paper finds huge runners live cannot"). LIVE_MODE_DESYNC=795 in the
-            // V5.0.6382 snapshot was killing 92% of live BUY attempts because a
-            // mint's TokenState.position still carried a stale isPaperPosition=true
-            // (or tradingMode=SHADOW) from an earlier paper/shadow run OR a stale
-            // reconciler-adopt row that never got upgraded. When runtime authority
-            // is LIVE, a stale open PAPER/SHADOW position on the same mint is not
-            // a safety issue — it's a stale flag that must be cleared so the live
-            // buy can proceed. runtimePaper=true still hard-aborts (the real desync).
-            if (runtimePaper) return liveAbortDesync("mode=LIVE runtimePaper=true alreadyOpen=$alreadyOpenPosition positionPaper=$paperFlag shadow=$shadowFlag")
-            if (paperFlag || shadowFlag) {
-                try {
-                    synchronized(ts) {
-                        ts.position = ts.position.copy(
-                            isPaperPosition = false,
-                            tradingMode = if (ts.position.tradingMode.equals("SHADOW", true)) "" else ts.position.tradingMode,
-                        )
-                    }
-                    PipelineHealthCollector.labelInc("LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383")
-                    ForensicLogger.lifecycle(
-                        "LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383",
-                        "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} sym=${ts.symbol} priorPaperFlag=$paperFlag priorShadowFlag=$shadowFlag runtimePaper=false action=cleared_and_proceed",
-                    )
-                } catch (_: Throwable) {}
-            }
+        if (ts.position.isOpen && (ts.position.isPaperPosition || ts.position.tradingMode.equals("SHADOW", true))) {
+            return liveAbortDesync("existing_position_belongs_to_paper_or_shadow")
         }
+        // An unopened Position is a placeholder, not execution-mode authority.
+        // Its paper flag is replaced only when the actual live fill is committed.
         liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
 
         // V5.0.6342 — LANE ENTRY CONTRACT (single authoritative choke).
@@ -20570,31 +19053,8 @@ class Executor(
             }
         }
 
-        // V5.0.3908 — universal approved-handoff recovery for LIVE buys.
-        // Some older/direct callers reach liveBuy() without the lane attemptId even
-        // after TradeAuthorizer/ExecutableOpenGate already approved a specialist lane.
-        // Rechecking here as STANDARD/UNKNOWN produced FINALITY_BLOCK storms like
-        // PRIMARY_MOONSHOT_LOST_STANDARD, TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE, and
-        // STALE_CANDIDATE_VERSION_* while APIs were healthy. If any lane has a fresh
-        // allowed executable-open handoff for this mint, reuse it and skip duplicate
-        // finality. Hard safety is preserved because allowedAttempts are written only
-        // by canOpenExecutablePosition() after the finality gate has already allowed.
-        val recoveredLiveAttemptId = attemptId.ifBlank {
-            val preferredLane = canonicalRoutedLane.ifBlank { ts.position.tradingMode.ifBlank { resolvedInputLaneForPivot.ifBlank { "STANDARD" } } }
-            ExecutableOpenGate.recentAllowedAttemptId(ts.mint, preferredLane)
-                ?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)
-                ?: ""
-        }
-        val recoveredFinalityPrechecked = finalityPrechecked || recoveredLiveAttemptId.isNotBlank()
-        if (attemptId.isBlank() && recoveredLiveAttemptId.isNotBlank()) {
-            try {
-                ForensicLogger.lifecycle(
-                    "LIVE_BUY_APPROVED_HANDOFF_RECOVERED",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag attemptId=$recoveredLiveAttemptId source=liveBuy.entry",
-                )
-                PipelineHealthCollector.labelInc("LIVE_BUY_APPROVED_HANDOFF_RECOVERED")
-            } catch (_: Throwable) {}
-        }
+        val recoveredLiveAttemptId = requireNotNull(sealedIntent7835).attemptId
+        val recoveredFinalityPrechecked = finalityPrechecked
 
         // V5.0.3895 — per-mint/per-side execution lease. The global mutex only
         // serializes wallet spend; it does NOT stop one bad mint from retrying on
@@ -20961,68 +19421,6 @@ class Executor(
         try { ForensicLogger.lifecycle("EXEC_SELECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag attemptId=$recoveredLiveAttemptId") } catch (_: Throwable) {}
 
         val requestedSolForPolicy = sol
-        // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener (live).
-        // Same dampener applied in paperBuy(); duplicated here so the
-        // live and paper paths cannot drift. AGGRESSIVE → 0.5×,
-        // MODERATE → 0.75×, FLUID/OFF → 1.0× (no change).
-        // V5.0.7693 — lane-aware: runner lanes are exempt (WrRecoveryPartial.isRunnerLaneExempt7693).
-        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier(layerTag) } catch (_: Throwable) { 1.0 }
-        @Suppress("NAME_SHADOWING")
-        var sol = if (wrSizeMult < 1.0) {
-            val damped = sol * wrSizeMult
-            ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (live): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
-            damped
-        } else sol
-        if (disciplineRecoverySizeMultiplier4460 < 0.999) {
-            val beforeDisciplineSol = sol
-            sol = (sol * disciplineRecoverySizeMultiplier4460).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_DISCIPLINE_RECOVERY_SIZE_APPLIED_4460", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeDisciplineSol.fmt(4)} to=${sol.fmt(4)} mult=${disciplineRecoverySizeMultiplier4460.fmt(2)} reason=$disciplineRecoveryReason4460 lane=$layerTag") } catch (_: Throwable) {}
-        }
-        if (effectiveStyleSizeMultiplier < 0.999 || effectiveStyleSizeMultiplier > 1.001) {
-            val beforePivotSol = sol
-            sol = (sol * effectiveStyleSizeMultiplier).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_STYLE_PIVOT_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforePivotSol.fmt(4)} to=${sol.fmt(4)} mult=${effectiveStyleSizeMultiplier.fmt(2)} finalLane=$routedLaneTag finalStyle=$routedStyleTag reasons=${liveEntryDecision.reasons.joinToString("|")}") } catch (_: Throwable) {}
-        }
-        if (providerQuorumSizeMultiplier < 0.999) {
-            val beforeProviderSol = sol
-            sol = (sol * providerQuorumSizeMultiplier).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_PROVIDER_QUORUM_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeProviderSol.fmt(4)} to=${sol.fmt(4)} mult=${providerQuorumSizeMultiplier.fmt(2)}") } catch (_: Throwable) {}
-        }
-        if (laneCapitalSizeMultiplier < 0.999) {
-            val beforeCapitalSol = sol
-            sol = (sol * laneCapitalSizeMultiplier).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_LANE_CAPITAL_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeCapitalSol.fmt(4)} to=${sol.fmt(4)} mult=${laneCapitalSizeMultiplier.fmt(2)} lane=$canonicalRoutedLane") } catch (_: Throwable) {}
-        }
-        if (commonSenseSizeMultiplier4573 < 0.999) {
-            val beforeCommonSenseSol = sol
-            sol = (sol * commonSenseSizeMultiplier4573).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("COMMON_SENSE_SIZE_APPLIED_4573", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeCommonSenseSol.fmt(4)} to=${sol.fmt(4)} mult=${commonSenseSizeMultiplier4573.fmt(2)} lane=$canonicalRoutedLane style=$routedStyleTag") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("COMMON_SENSE_SIZE_APPLIED_4573") } catch (_: Throwable) {}
-        }
-
-        // V5.0.4114 — LAST-MILE ENTRY FLOOR (final guard).
-        // Operator screenshot: CHUNGUS hit +24,570% but only netted +\$0.33
-        // because the entry was dust. After all the size multipliers
-        // (wrRecovery × styleMult × providerQuorum × laneCapital × earlier
-        // SmartSizer cuts), a base 0.025 SOL can collapse to 0.003 SOL.
-        // Re-apply the live entry floor here as the SINGLE last-mile
-        // guard. Pass-through on hard block (sol==0). Operator mandate:
-        // "if it catching huge wins it needs to make big wins".
-        if (sol > 0.0) {
-            val beforeFloor = sol
-            sol = try {
-                com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
-                    baseSol = sol, walletSol = walletSol, isPaperMode = false,
-                )
-            } catch (_: Throwable) { sol }
-            if (sol > beforeFloor * 1.01) {
-                try { ForensicLogger.lifecycle(
-                    "LIVE_LAST_MILE_FLOOR_LIFTED",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeFloor.fmt(4)} to=${sol.fmt(4)} wallet=${walletSol.fmt(3)}",
-                ) } catch (_: Throwable) {}
-            }
-        }
-
         // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.
         // must NEVER be entered as a meme-target buy. Forensic report
         // showed mint=EPjFWdd5… (USDC) flowing into LIVE_BUY_START with
@@ -21271,260 +19669,32 @@ class Executor(
             return false
         }
 
-        // V5.0.3760 — LIVE BUY SOURCE CLAMP. Runtime 3759 showed valid live
-        // candidates failing before broadcast for two opposite sizing errors:
-        //   • BULL requested 0.2938 SOL with wallet 0.1716 → rejected as
-        //     INSUFFICIENT_BALANCE before the existing wallet-rent clamp could run.
-        //   • V3 probes requested 0.0004–0.0006 SOL → below real Solana/Jupiter
-        //     min executable, causing RENT_RESERVE_TOO_LOW / NO_OPEN_COMMITTED noise.
-        // Fix at the final live authority chokepoint: compute spendable wallet SOL
-        // after rent reserve, clamp oversized buys down to spendable, and promote
-        // sub-min probes to the minimum executable size when capacity exists. If
-        // capacity does not exist, reject once with a truthful low-capacity reason.
-        val liveRentReserveSol = 0.012
         val liveCfg = cfg()
         val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(0.0)
         val liveMinExecutableBuySol = if (liveCfg.allowLiveMicroProbe) 0.005 else minNonMicroLiveBuySol
-        val maxConfigLiveBuySol = liveCfg.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE
-        val walletRiskCapSol = (walletSol * liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0)).takeIf { it > 0.0 } ?: Double.MAX_VALUE
-        val maxSpendableSol = minOf(walletSol - liveRentReserveSol, maxConfigLiveBuySol, walletRiskCapSol)
-        if (maxSpendableSol < liveMinExecutableBuySol) {
-            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for non-micro live ticket (${walletSol.fmt(4)}◎ spendable=${maxSpendableSol.fmt(4)}◎ min=${liveMinExecutableBuySol.fmt(4)}◎)", ts.mint)
-            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
-            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "non_micro_min spendable=${maxSpendableSol}SOL min=${liveMinExecutableBuySol}SOL")
-            emitLiveBuyFail(ts, maxOf(maxSpendableSol, 0.0), "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "walletSol=$walletSol spendable=$maxSpendableSol minLiveBuySol=$liveMinExecutableBuySol allowMicro=${liveCfg.allowLiveMicroProbe}")
-            buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
+        val maxSpendableSol = minOf(
+            walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL,
+            liveCfg.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE,
+            walletSol * liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0),
+        )
+        val currentRoutable7835 = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
+            (walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
+            WalletManager.lastKnownSolPrice,
+        )
+        val spendRefusal7835 = SealedExecutionSize7835.boundsRefusal(
+            sol, maxSpendableSol, maxOf(liveMinExecutableBuySol, currentRoutable7835.routableMinSol),
+        )
+        if (spendRefusal7835 != null) {
+            emitLiveBuyFail(ts, sol, spendRefusal7835)
+            buyTerminalFail(spendRefusal7835)
             return false
         }
-        if (sol > maxSpendableSol) {
-            val old = sol
-            sol = maxSpendableSol
-            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_CLAMPED_TO_WALLET", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol rentReserve=$liveRentReserveSol maxConfig=$maxConfigLiveBuySol walletRiskCap=$walletRiskCapSol") } catch (_: Throwable) {}
+        val assumedSolUsd = WalletManager.lastKnownSolPrice
+        if (!assumedSolUsd.isFinite() || assumedSolUsd <= 0.0) {
+            emitLiveBuyFail(ts, sol, "SOL_USD_MISSING_7835")
+            buyTerminalFail("SOL_USD_MISSING_7835")
+            return false
         }
-        if (sol < liveMinExecutableBuySol) {
-            val old = sol
-            sol = liveMinExecutableBuySol
-            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol allowMicro=${liveCfg.allowLiveMicroProbe}") } catch (_: Throwable) {}
-        }
-        // V5.0.6293 — LIVE ORACLE COMPOUND FIX. The 0.35 pending-proof clamp
-        // was destroying 65% of intended size on every "unknown auth" token,
-        // effectively strangling wallet growth. Op-report V5.0.6292 showed
-        // MANNY sized 0.06 → 0.0073 (88% crush). Fix:
-        //   • Exempt proven live +EV lanes (n>=20 E>0 WR>=30%) — they earn
-        //     the size floor, pending-proof is RPC race noise not real risk
-        //   • Non-exempt clamp softened 0.35 → 0.65 so the token still buys
-        //     at a meaningful notional while proof resolves
-        val truthLivePosEvExempt6293 = try {
-            val laneKey6293 = layerTag.ifBlank { identity?.source ?: ts.source }
-            val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                .firstOrNull { it.lane.equals(laneKey6293, ignoreCase = true) }
-            snap != null && snap.sample >= 20 && snap.evPct > 0.0 && snap.wrPct >= 30.0
-        } catch (_: Throwable) { false }
-        if (livePendingProofPenalty && !truthLivePosEvExempt6293) {
-            val old = sol
-            val clampMult6293 = 0.65  // was 0.35 — 35% dampening instead of 65% crush
-            val shaped = (sol * clampMult6293).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
-            sol = if (!liveCfg.allowLiveMicroProbe && shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
-            try {
-                ForensicLogger.lifecycle(
-                    "LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol clamp=${clampMult6293} detail=${livePendingProofPenaltyDetail.take(120)}"
-                )
-                PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP")
-            } catch (_: Throwable) {}
-        } else if (livePendingProofPenalty && truthLivePosEvExempt6293) {
-            try {
-                ForensicLogger.lifecycle("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag reason=proven_pos_ev_lane sol=$sol")
-                PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293")
-            } catch (_: Throwable) {}
-        }
-        val baseRealisticSol = realisticEntrySize6867(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
-        // Unknown proof lowers confidence and learned risk until proof arrives;
-        // it does not force every live buy into a fixed micro cap.
-        // V5.0.6293 — matching 0.35 → 0.65 dampening for the realistic size path.
-        val realisticClampMult6293 = if (truthLivePosEvExempt6293) 1.0 else 0.65
-        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * realisticClampMult6293 else baseRealisticSol
-        val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
-        if (livePendingProofPenalty && realisticSol < baseRealisticSol) {
-            val old = baseRealisticSol
-            sol = realisticSol.coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_RISK_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol detail=${livePendingProofPenaltyDetail.take(120)}") } catch (_: Throwable) {}
-        } else if (realisticSol > maxSpendableSol) {
-            val old = realisticSol
-            sol = maxSpendableSol
-            try { ForensicLogger.lifecycle("LIVE_REALISTIC_SIZE_CLAMPED_TO_SPENDABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol") } catch (_: Throwable) {}
-        } else {
-            sol = realisticSol
-        }
-        // V5.0.7807 — LiveRiskPolicy7807 final shape, after the last-mile floor that
-        // erased every earlier live shrink: invalidation-based size, learned shrink,
-        // lane cap, re-entry plan check (Field Manual L243, L250).
-        sol = liveRiskPolicyFinalSize7807(ts, sol, walletSol, layerTag.ifBlank { canonicalRoutedLane }, liveMinExecutableBuySol, disciplineRecoverySizeMultiplier4460, providerQuorumSizeMultiplier < 0.999)
-            ?: run { buyTerminalFail("BUY_TERMINAL_LIVE_RISK_POLICY_7807"); return false }
-        // V5.0.6687 — FINAL EXECUTABLE SIZE INVARIANT. No downstream shaper may
-        // leave a positive LIVE order below the executable floor. Earlier code
-        // raised to the floor, then pending-proof realistic sizing could shrink it
-        // again (runtime 6686: finalSol=0.0048 < minLiveBuySol=0.0050). Restore the
-        // floor exactly once at the true last mile. maxSpendable was already proven
-        // >= floor above, so this never manufactures unavailable capital.
-        if (sol > 0.0 && sol < liveMinExecutableBuySol && maxSpendableSol >= liveMinExecutableBuySol) {
-            val beforeFloor6687 = sol
-            sol = liveMinExecutableBuySol
-            try {
-                ForensicLogger.lifecycle(
-                    "LIVE_FINAL_EXECUTABLE_FLOOR_RESTORED_6687",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=$beforeFloor6687 to=$sol min=$liveMinExecutableBuySol spendable=$maxSpendableSol",
-                )
-                PipelineHealthCollector.labelInc("LIVE_FINAL_EXECUTABLE_FLOOR_RESTORED_6687")
-            } catch (_: Throwable) {}
-        }
-        // V5.0.7226 §THE_SIZER_REFUSED_DUST_AND_THE_EXECUTOR_BOUGHT_IT_ANYWAY.
-        //
-        // Operator 5.0.7225, LIVE, wallet 0.0973 SOL. LivePreflight7222 printed
-        // ROUTABLE_CAPACITY REFUSE (tradeable=0.0473 routableMin=0.0428
-        // safeShareCap=0.0118) and SmartSizerV3's live floor never fired once
-        // (LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127=0). Yet two live buys
-        // landed at 0.007 SOL — about eighty cents — and both sold at -28%,
-        // which at that notional is fees. They never met the sizer: this chain
-        // is the second live sizing authority, and its floors are
-        //   liveMinExecutableBuySol = 0.005 (allowLiveMicroProbe)
-        //   maxSpendableSol        = min(wallet - rent, 2.0, wallet x 0.18)
-        // On a 0.0973 wallet the 18% cap is 0.0175 SOL and the routable
-        // minimum is 0.0428, so every live order this path can produce is
-        // sub-routable by construction, and the 0.005 floor lets it through.
-        // Two authorities, two answers: the sizer says "fewer, larger, or not
-        // at all" (7218) and this path says "dust". The operator's words were
-        // "fewer larger positions. its meant to have a system that checks and
-        // does this itself". It does — one screen away, and this screen
-        // ignored it.
-        //
-        // Fix, in two halves so they can be judged separately:
-        //   LIFT  — if the order is below the routable minimum and the wallet
-        //           CAN carry it under the sizer's own concentration guard
-        //           (capacity >= 2, share <= 50%), raise it to the routable
-        //           minimum. Larger, fewer, and bounded by the same guard the
-        //           sizer uses. This deliberately outranks the 18% cap, because
-        //           on a small wallet that cap is the thing manufacturing dust.
-        //   REFUSE — if the wallet CANNOT carry a routable position, refuse,
-        //           naming the minimum viable wallet and the shortfall. 7226
-        //           shipped this branch as measure-only; the operator's answer
-        //           was "common sense. apply it" and 7227 made it a refusal —
-        //           the same verdict SmartSizerV3 already gives for the same
-        //           inputs, so both authorities now say one thing.
-        // Nothing here reduces any order. It lifts, or it declines to send
-        // an order that can only lose to fees.
-        try {
-            val routableReserve7226 =
-                com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL
-            val solUsd7226 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-            val routable7226 = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
-                (walletSol - routableReserve7226).coerceAtLeast(0.0), solUsd7226,
-            )
-            if (sol > 0.0 && sol < routable7226.routableMinSol) {
-                val liftCeiling7226 = minOf(
-                    (walletSol - liveRentReserveSol).coerceAtLeast(0.0),
-                    maxConfigLiveBuySol,
-                    routable7226.safeShareCapSol,
-                )
-                val minViableWallet7226 = routable7226.minViableTradeableSol + routableReserve7226
-                val lane7226 = layerTag.ifBlank { canonicalRoutedLane }.uppercase().take(20)
-                // V5.0.7236 §ROUTABLE_MIN_RISK_GUARD — do NOT lift a
-                // distrusted candidate back to routableMin. 5.0.7234
-                // evidence: score=6 candidate lifted to 0.04445 SOL then
-                // closed −64.44%; score=6–16 lifts produced most
-                // observed losses. The lift path became the dominant
-                // loss producer because it defeats every upstream
-                // shrink (CHOP regime, pending-proof penalty, low
-                // score). Refusing the lift on weak candidates and
-                // taking the DUST_REFUSED branch fixes the sizing
-                // contradiction at source.
-                // V5.0.7305 — "pending proof" means no live closes yet, which
-                // is every lane on a new live wallet. A lane whose recorded
-                // net history (paper and live, OracleTradeHistory7287) is
-                // proven positive is not an unproven signal; its lift is
-                // judged on score alone. Unproven and bleeding lanes are
-                // unchanged.
-                val laneProven7305 = livePendingProofPenalty && try {
-                    val k7305 = lane7226.uppercase()
-                    com.lifecyclebot.engine.truth.LiveSlotPriority7304.isProven(
-                        com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(k7305)
-                            ?: if (k7305 == "PROJECT_SNIPER") com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane("PRESALE_SNIPE") else null,
-                    ) || com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378(k7305)
-                } catch (_: Throwable) { false }
-                if (laneProven7305) {
-                    try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_PROOF_PENALTY_WAIVED_PROVEN_LANE_7305") } catch (_: Throwable) {}
-                }
-                // V5.0.7308 — a lane-score admission (proven or the single
-                // exploration slot) is judged on that score, not the V3 one.
-                val laneAdmission7308 = try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.forMint(ts.mint) } catch (_: Throwable) { null }
-                val pendingProof7305 = livePendingProofPenalty && !laneProven7305 && laneAdmission7308 == null
-                val guardDecision7236 = try {
-                    com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.evaluate(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        lane = lane7226,
-                        score = maxOf(score, laneAdmission7308?.score ?: 0.0),
-                        // livePendingProofPenalty already dampens size by
-                        // 0.65 upstream; represent that as the effective
-                        // regime multiplier we can see at this site.
-                        regimeSizeMult = if (pendingProof7305) 0.65 else 1.0,
-                        livePendingProofPenalty = pendingProof7305,
-                        riskSizedSol = sol,
-                        routableMinSol = routable7226.routableMinSol,
-                    )
-                } catch (_: Throwable) {
-                    com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.Decision(
-                        com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.Verdict.ALLOW_LIFT,
-                        "GUARD_ERR_FALLBACK_ALLOW",
-                    )
-                }
-                val guardBlocksLift7236 = guardDecision7236.verdict ==
-                    com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.Verdict.REFUSE_LIFT_WEAK
-                if (!routable7226.wouldRefuse && routable7226.routableMinSol <= liftCeiling7226 && !guardBlocksLift7236) {
-                    val beforeLift7226 = sol
-                    sol = routable7226.routableMinSol
-                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226")
-                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226_$lane7226")
-                    ForensicLogger.lifecycle(
-                        "LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane7226 from=${beforeLift7226.fmt(4)} to=${sol.fmt(4)} " +
-                            "walletSol=${walletSol.fmt(4)} tradeable=${routable7226.tradeableSol.fmt(4)} routableMin=${routable7226.routableMinSol.fmt(5)} " +
-                            "capacity=${routable7226.capacity} shareGuard=${routable7226.shareGuard.fmt(3)} safeShareCap=${routable7226.safeShareCapSol.fmt(5)} " +
-                            "walletRiskCap18pct=${walletRiskCapSol.fmt(5)} liftCeiling=${liftCeiling7226.fmt(5)} solUsd=${solUsd7226.fmt(2)} " +
-                            "note=fewer_larger_positions_bounded_by_SmartSizerV3_concentration_guard",
-                    )
-                } else {
-                    // V5.0.7227 — operator, on being shown the MEASURE branch:
-                    // "common sense. apply it." A sub-routable order is a
-                    // guaranteed loss to fees; 7225 proved it twice at -28%
-                    // each. The sizer already refuses this exact case and
-                    // names the wallet that would clear it. So does this
-                    // path now, with the same numbers, so the operator sees
-                    // ONE verdict from both authorities instead of a refusal
-                    // upstream and a dust fill downstream. Same terminal
-                    // bucket as the existing thin-size refusals, so no
-                    // lease, counter or journal path is new.
-                    val detail7227 =
-                        "sol=${sol.fmt(4)} solUsd=${(sol * solUsd7226).fmt(2)}USD " +
-                            "walletSol=${walletSol.fmt(4)} tradeable=${routable7226.tradeableSol.fmt(4)} routableMin=${routable7226.routableMinSol.fmt(5)} " +
-                            "capacity=${routable7226.capacity} shareGuard=${routable7226.shareGuard.fmt(3)} safeShareCap=${routable7226.safeShareCapSol.fmt(5)} " +
-                            "wouldRefuse=${routable7226.wouldRefuse} liftCeiling=${liftCeiling7226.fmt(5)} " +
-                            "minViableWalletSol=${minViableWallet7226.fmt(4)} shortfallSol=${(minViableWallet7226 - walletSol).coerceAtLeast(0.0).fmt(4)} " +
-                            "note=fund_wallet_to_minViableWalletSol_to_trade_live"
-                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227")
-                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227_$lane7226")
-                    ForensicLogger.lifecycle(
-                        "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane7226 $detail7227",
-                    )
-                    onLog("⚠️ ${ts.symbol}: live buy refused — ${sol.fmt(4)}◎ is below the routable minimum ${routable7226.routableMinSol.fmt(4)}◎ and this wallet cannot carry a routable position (need ${minViableWallet7226.fmt(4)}◎, have ${walletSol.fmt(4)}◎)", ts.mint)
-                    emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REFUSED_SUB_ROUTABLE_DUST_7227", detail7227)
-                    buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SUB_ROUTABLE_DUST_7227")
-                    return false
-                }
-            }
-        } catch (_: Throwable) {}
-        val assumedSolUsd = 200.0
         // V5.0.4020 — IMPACT CALC LIQUIDITY CASCADE (operator P0: "stabilise
         // our data providers AND fix this issue at the source"). The previous
         // line read ts.lastLiquidityUsd directly and fell to 999% impact
@@ -22312,7 +20482,7 @@ class Executor(
                 plannedSol = requestedSolForPolicy,
                 finalSol = sol,
                 reasons = liveEntryDecision.reasons + listOf(
-                    "wr=${wrSizeMult.fmt(2)}",
+                    "sizeAuthority=SEALED_INTENT_7835",
                     "style=${effectiveStyleSizeMultiplier.fmt(2)}",
                     "provider=${providerQuorumSizeMultiplier.fmt(2)}",
                     "laneCap=${laneCapitalSizeMultiplier.fmt(2)}",
@@ -25364,6 +23534,7 @@ class Executor(
                     // (operator: "I still want the sell verified and that the
                     // tokens clear the wallet and return the sol").
                     var verifiedSolReceived: Long = -1L
+                    var verifiedSlice7835: TradeVerifier.SellResult? = null
                     run {
                         if (finalSig.startsWith("PHANTOM_")) return@run
                         val sellQtyHere = pos.qtyToken * pct
@@ -25381,6 +23552,7 @@ class Executor(
                         when (vsr?.outcome) {
                             TradeVerifier.Outcome.LANDED -> {
                                 verifiedSolReceived = vsr.solReceivedLamports
+                                verifiedSlice7835 = vsr
                                 LiveTradeLogStore.log(
                                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                                     LiveTradeLogStore.Phase.SELL_TX_PARSE_OK,
@@ -25453,46 +23625,24 @@ class Executor(
                     }
                     TradeVerifier.endSell(ts.mint)
                     
-                    val solBack: Double = when {
-                        finalSig.startsWith("PHANTOM_") -> 0.0
-                        verifiedSolReceived > 0L -> verifiedSolReceived / 1_000_000_000.0
-                        else -> quote.outAmount / 1_000_000_000.0
-                    }
-                    val livePnl = solBack - pos.costSol * pct
-                    val liveScore = pct(pos.costSol * pct, solBack)
-                    val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * pct)
-                    
-                    // Update position
-                    ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-                    
-                    // V5.0.6321 — canonical partial cost basis (§8 continued).
-                    val fill6321b = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
-                    val canonCost6321b = fill6321b?.solSpentNet?.takeIf { it > 0.0 }
-                    val livePartialCostBasisSol = (canonCost6321b ?: pos.costSol) * pct
-                    if (fill6321b != null && canonCost6321b != null && pos.costSol > 0.0) {
-                        val ratio = maxOf(canonCost6321b, pos.costSol) / minOf(canonCost6321b, pos.costSol)
-                        if (ratio > 1.10) {
-                            try {
-                                PipelineHealthCollector.labelInc("PARTIAL_SELL_CANONICAL_COST_OVERRIDE_6321")
-                            } catch (_: Throwable) {}
-                        }
-                    }
-                    // V5.0.6458 §P0 — live partial-sell side derived from
-                    // post-remaining semantic. Full exit journals SELL,
-                    // not PARTIAL_SELL with FULL_EXIT_100PCT reason.
-                    val liveSideBySemantics6458 = if (newSoldPct >= 99.9) "SELL" else "PARTIAL_SELL"
-                    val liveTrade = Trade(liveSideBySemantics6458, "live", livePartialCostBasisSol, currentPrice,
+                    val proof7835 = verifiedSlice7835 ?: return
+                    val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return
+                    val solBack = settled7835.solReceived
+                    val livePartialCostBasisSol = settled7835.realizedPnl.proportionalCostBasisSol
+                    val livePnl = settled7835.realizedPnl.realizedPnlSol
+                    val liveScore = settled7835.realizedPnl.realizedPnlPct
+                    val netPnl = livePnl
+                    val feeSol = 0.0
+                    val liveTrade = Trade(if (settled7835.remainingRaw.signum() == 0) "SELL" else "PARTIAL_SELL", "live", livePartialCostBasisSol, currentPrice,
                         System.currentTimeMillis(), if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                         livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
                         mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji,
                         // V5.0.7355 — cost of THIS slice; ts.position already holds only the remainder.
-                        entryCostSol = pos.costSol * pct, entryPriceSnapshot = pos.entryPrice,
-                        soldCostBasisSol = pos.costSol * pct, grossProceedsSol = solBack)
+                        entryCostSol = livePartialCostBasisSol, entryPriceSnapshot = pos.entryPrice,
+                        soldCostBasisSol = livePartialCostBasisSol, grossProceedsSol = solBack)
 
                     recordTrade(ts, liveTrade)
                     security.recordTrade(liveTrade)
-                    SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
-                    LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
                     // V5.9.109: FAIRNESS — partial sell #2 pays same 0.5% fee.
                     try {
                         val feeAmountSol = (pos.costSol * pct) * MEME_TRADING_FEE_PERCENT
@@ -25661,9 +23811,19 @@ class Executor(
             MoonbagRunner7322.Action.PASS
     } catch (_: Throwable) { false }
 
+    private fun freshExitReason7835(ts: TokenState, reason: String): String? {
+        val verdict = com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.evaluate(
+            ts.mint, ts.lastPrice, ts.lastPriceUpdate, reason)
+        if (!verdict.allow) return null
+        return if (verdict.markUntrusted6882 && !reason.contains("MARK_UNTRUSTED_6882"))
+            "$reason|MARK_UNTRUSTED_6882" else reason
+    }
+
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
+        val reason = freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE
+
         val paperCloseAuthorityActive = ts.position.isPaperPosition
         if (paperCloseAuthorityActive) {
             val guard = PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, reason)
@@ -25736,9 +23896,10 @@ class Executor(
         // V5.9.756 — TTL-backed acquire (20 s stale-release watchdog).
         if (!acquireSellLock(ts.mint)) {
             onLog("⚠️ SELL SKIPPED: sell already in-progress for ${ts.symbol}", tradeId.mint)
-            return SellResult.ALREADY_CLOSED
+            return SellResult.FAILED_RETRYABLE
         }
 
+        var executionLockStamp7835: Long? = null
         try {
 
         // V5.9.475 — REHYDRATE before the isOpen check so sub-trader positions
@@ -25854,6 +24015,7 @@ class Executor(
                         "SELL_BLOCKED_ALREADY_IN_PROGRESS full reason=$reason", traderTag = "MEME")
                 return SellResult.FAILED_RETRYABLE
             }
+            executionLockStamp7835 = com.lifecyclebot.engine.sell.SellExecutionLocks.acquiredAtMs(ts.mint)
             onLog("💰 Routing to liveSell", tradeId.mint)
             val result = liveSell(ts, reason, wallet, walletSol, tradeId)
             // V5.7.7 FIX: Auto-requeue on retryable failure so SL/TP never gets silently dropped
@@ -25895,7 +24057,7 @@ class Executor(
         } finally {
             // Always release the sell guards after the sell/verify lifecycle returns.
             releaseSellLock(ts.mint)
-            com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+            executionLockStamp7835?.let { com.lifecyclebot.engine.sell.SellExecutionLocks.releaseOwned7835(ts.mint, it) }
         }
     }
 
@@ -27428,7 +25590,7 @@ class Executor(
                 entryPhase = ts.position.entryPhase,
                 stableTradeKey = "${ts.mint}:${ts.position.entryTime}",
             )
-            AdaptiveLearningEngine.learnFromTrade(features)
+            AdaptiveLearningEngine.learnPaperTrade7835(features)
             
             if (shouldLearnAsWin || shouldLearnAsLoss) {
                 val tokenAgeHours = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
@@ -30133,24 +28295,11 @@ class Executor(
                     }
                     ?: java.math.BigDecimal(pos.qtyToken).movePointRight(decFinal).toBigInteger()
                         .max(java.math.BigInteger.ONE)
-                val consumedRawFinal6486 = txSellTruth6486?.rawTokenConsumed
-                val preTokenRawFinal = if (consumedRawFinal6486 != null && consumedRawFinal6486.signum() > 0)
-                    entryTokenRawFinal.max(consumedRawFinal6486)
-                else java.math.BigDecimal(pos.qtyToken).movePointRight(decFinal).toBigInteger().max(java.math.BigInteger.ONE)
-                val postTokenRawFinal = if (consumedRawFinal6486 != null && consumedRawFinal6486.signum() > 0) {
-                    preTokenRawFinal.subtract(consumedRawFinal6486).max(java.math.BigInteger.ZERO)
-                } else {
-                    val postUiFinal = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0 } catch (_: Throwable) { -1.0 }
-                    if (postUiFinal < 0.0) {
-                        try {
-                            ForensicLogger.lifecycle("SELL_FINALITY_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=MISSING_POST_BALANCE_PROOF_FINAL sig=${sig.take(16)} action=no_close_no_journal_no_learning_keep_lease")
-                            com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
-                            com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
-                        } catch (_: Throwable) {}
-                        return SellResult.FAILED_RETRYABLE
-                    }
-                    try { java.math.BigDecimal(postUiFinal.coerceAtLeast(0.0)).movePointRight(decFinal).toBigInteger() }
-                    catch (_: Throwable) { java.math.BigInteger.ZERO }
+                val preTokenRawFinal = txSellTruth6486?.preTokenRaw7835
+                val postTokenRawFinal = txSellTruth6486?.postTokenRaw7835
+                if (preTokenRawFinal == null || postTokenRawFinal == null) {
+                    PipelineHealthCollector.labelInc("SELL_FINALITY_MISSING_TX_QUANTITIES_7835")
+                    return SellResult.FAILED_RETRYABLE
                 }
                 val intentFinal = com.lifecyclebot.engine.sell.SellIntent.build(
                     mint = ts.mint,
@@ -30655,7 +28804,7 @@ class Executor(
                 entryPhase = pos.entryPhase,
                 stableTradeKey = "${ts.mint}:${pos.entryTime}",
             )
-            AdaptiveLearningEngine.learnFromTrade(features)
+            AdaptiveLearningEngine.learnFromTrade(features, environment = com.lifecyclebot.engine.TradeEnvironment.LIVE)
             
             if (shouldLearnAsWin || shouldLearnAsLoss) {
                 val tokenAgeHours2 = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0

@@ -106,6 +106,7 @@ object CloseLease {
     // by activeBlockingLeaseCount() on every read so the reap happens lazily
     // wherever the signal is consumed (RuntimeStateSnapshot, doctor, admission).
     private const val RESIDUE_REAP_MS: Long = 60_000L
+    @Synchronized
     private fun reapResidue() {
         val now = System.currentTimeMillis()
         val it = leases.entries.iterator()
@@ -128,11 +129,12 @@ object CloseLease {
     }
     fun isLeased(mint: String): Boolean = current(mint) != null
 
+    @Synchronized
     private fun current(mint: String): Lease? {
         if (mint.isBlank()) return null
         val l = leases[mint] ?: return null
         if (System.currentTimeMillis() - l.acquiredMs >= LEASE_TTL_MS) {
-            leases.remove(mint)
+            leases.remove(mint, l)
             l.finalityPending = false
             try {
                 ForensicLogger.lifecycle("SELL_LEASE_STALE_CLEARED",
@@ -143,6 +145,7 @@ object CloseLease {
         return l
     }
 
+    @Synchronized
     fun acquire(mint: String, symbol: String, rawReason: String): Lease? {
         if (mint.isBlank()) return null
         // V5.0.3746 — operator spec items 1, 4, 7: WAITING_BALANCE_PROOF must never
@@ -209,6 +212,7 @@ object CloseLease {
         return lease
     }
 
+    @Synchronized
     fun recordRetry(mint: String, failureCode: String): Int {
         val l = current(mint) ?: return 0
         l.closeAttemptCount += 1
@@ -233,6 +237,7 @@ object CloseLease {
      * Jupiter 503/429, Pump 0x1787, etc. each get their own escalating cooldown so a
      * release never re-enters the same dead route on the next tick. Caps at 60s.
      */
+    @Synchronized
     fun scheduleBackoff(mint: String, errorClass: String): Long {
         val l = current(mint) ?: return 0L
         l.lastErrorClass = errorClass
@@ -279,8 +284,13 @@ object CloseLease {
      * more-urgent exit reason raises priority on the existing lease; returns true if
      * raised. The active worker reads intentPriority to escalate slippage/route.
      */
+    @Synchronized
     fun raiseIntent(mint: String, reason: String, priority: Int): Boolean {
         val l = current(mint) ?: return false
+        if (ProtectiveExitClass7807.isEmergency(reason)) {
+            l.emergencyReason7807 = ProtectiveExitClass7807.effectiveReason(
+                l.emergencyReason7807 ?: l.originalExitReason, canonicalReason(reason))
+        }
         if (priority > l.intentPriority) {
             l.intentPriority = priority
             l.lastTouchMs = System.currentTimeMillis()
@@ -293,6 +303,7 @@ object CloseLease {
         return false
     }
 
+    @Synchronized
     fun release(mint: String, terminal: String) {
         val l = leases.remove(mint) ?: return
         try {

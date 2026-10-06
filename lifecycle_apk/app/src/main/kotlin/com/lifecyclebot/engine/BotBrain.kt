@@ -375,8 +375,8 @@ class BotBrain(
                 if (pt.size >= 8) {
                     val pWr = pt.count { it.isWin == true }.toDouble() / pt.size
                     newPhaseBoosts[phase] = when {
-                        pWr >= 0.75 -> -5.0
-                        pWr <= 0.40 ->  8.0
+                        pWr >= 0.75 -> 5.0
+                        pWr <= 0.40 -> -8.0
                         else        ->  0.0
                     }
                 }
@@ -389,7 +389,7 @@ class BotBrain(
             // used the phase convention instead of the source convention, and the
             // two are OPPOSITE in this class:
             //   phaseBoosts is an entry-THRESHOLD delta, so negative = good. Line
-            //     1443 reads `phaseBoost <= -5.0 -> mult *= 1.2  // Winning phase`.
+            //     1443 reads `phaseBoost >= 5.0 -> mult *= 1.2  // Winning phase`.
             //   sourceBoosts is a discovery-SCORE delta, so positive = good. Line
             //     1449 reads `sourceBoost >= 10.0 -> mult *= 1.15 // Good source`,
             //     the live update at 1265 assigns +10 for wr>=0.70 and -10 below
@@ -510,15 +510,15 @@ class BotBrain(
             when {
                 wr >= 75 && avgPnl > 80 -> {
                     // Excellent — lower threshold to catch more
-                    newPhaseBoosts[phase] = -5.0
+                    newPhaseBoosts[phase] = 5.0
                     report.appendLine("  ✅ $phase: ${wr.toInt()}% WR avg +${avgPnl.toInt()}% → boost entry")
-                    changes.add("$phase threshold -5")
+                    changes.add("$phase score +5")
                 }
                 wr <= 40 && phaseTrades.size >= 10 -> {
                     // Struggling — raise threshold to be more selective
-                    newPhaseBoosts[phase] = +8.0
+                    newPhaseBoosts[phase] = -8.0
                     report.appendLine("  ❌ $phase: ${wr.toInt()}% WR → tighten entry")
-                    changes.add("$phase threshold +8")
+                    changes.add("$phase score -8")
                 }
                 else -> {
                     newPhaseBoosts[phase] = 0.0
@@ -1269,10 +1269,10 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             val recentPhaseWinRate = getRecentPhaseWinRate(phase)
             if (recentPhaseWinRate != null) {
                 val newBoost = when {
-                    recentPhaseWinRate >= 0.70 -> -5.0  // Lower entry bar = more aggressive
+                    recentPhaseWinRate >= 0.70 -> 5.0  // Lower entry bar = more aggressive
                     recentPhaseWinRate >= 0.55 -> 0.0   // Neutral
-                    recentPhaseWinRate >= 0.40 -> 5.0   // Raise entry bar = more selective
-                    else -> 10.0                         // High bar = very selective
+                    recentPhaseWinRate >= 0.40 -> -5.0   // Raise entry bar = more selective
+                    else -> -10.0                        // Negative score evidence
                 }
                 phaseBoosts = phaseBoosts.toMutableMap().apply { put(phase, newBoost) }
             }
@@ -1473,8 +1473,8 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // Adjust for phase performance
         val phaseBoost = phaseBoosts[phase] ?: 0.0
         when {
-            phaseBoost <= -5.0 -> mult *= 1.2  // Winning phase = bigger size
-            phaseBoost >= 8.0 -> mult *= 0.6   // Losing phase = smaller size
+            phaseBoost >= 5.0 -> mult *= 1.2  // Winning phase = bigger size
+            phaseBoost <= -8.0 -> mult *= 0.6   // Losing phase = smaller size
         }
         
         // Adjust for source performance
@@ -1517,7 +1517,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         
         val riskFactors = listOf(
             suppressionPenalty > 50,  // raised threshold
-            phaseBoost >= 15,         // raised threshold
+            phaseBoost <= -15,         // raised threshold
             sourceBoost <= -20,       // raised threshold
             currentRegime == "DANGER",  // only block on DANGER, not BEAR
         ).count { it }

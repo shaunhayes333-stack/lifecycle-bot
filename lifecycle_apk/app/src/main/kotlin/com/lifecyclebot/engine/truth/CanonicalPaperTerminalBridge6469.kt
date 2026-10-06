@@ -284,6 +284,7 @@ object CanonicalPaperTerminalBridge6469 {
                     terminal = terminal,
                     lane = lane,
                     reason = exitReason,
+                    positionId7835 = positionId, sellExecutionId7835 = sellSig,
                 )
             }
             if (!positionApplied6486) {
@@ -491,8 +492,9 @@ object CanonicalPaperTerminalBridge6469 {
 
         var busPublished = false
         if (terminal && !suppressLearningFanout6490) try {
-            val realizedSol = grossProceedsSol - soldCostBasisSol - feesSol
-            val realizedPct = if (soldCostBasisSol > 0.0) (realizedSol / soldCostBasisSol) * 100.0 else 0.0
+            val whole7835 = WholePositionEconomics7835.from(requireNotNull(CanonicalPositionAuthority6441.getPosition(positionId)))
+            val realizedSol = whole7835.netSol
+            val realizedPct = whole7835.returnPct
             val settledAt6485 = System.currentTimeMillis()
             val entrySnap6485 = EntryStrategySnapshot6450.snapshot(positionId)
             val outcome6485 = when (CanonicalOutcomeClassifier6576.classifyReadonly(realizedPct)) {
@@ -502,8 +504,8 @@ object CanonicalPaperTerminalBridge6469 {
             }
             val finalizedEvent6653 = CanonicalTradeFinalizedBus6450.Event(
                 positionId = positionId, mint = mint, outcome = outcome6485,
-                netRealizedPnlSol = realizedSol, grossRealizedPnlSol = grossProceedsSol - soldCostBasisSol,
-                returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = feesSol,
+                netRealizedPnlSol = realizedSol, grossRealizedPnlSol = whole7835.grossSol,
+                returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = whole7835.feesSol,
                 entryLane = entrySnap6485?.entryLane ?: lane,
                 entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
                 entryTactic = entrySnap6485?.entryTactic ?: "",

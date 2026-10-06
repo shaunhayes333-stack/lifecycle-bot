@@ -153,7 +153,7 @@ object StrategyHypothesisEngine {
         score >= 20 -> "S20"; else -> "S00"
     }
     private fun ctxKey(lane: String, score: Int, regime: String) =
-        "${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
+        "${LearningEnvironment7835.mode()}|${com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)}|${band(score)}|${regime.uppercase().take(10)}"
 
     // V5.0.7430 — exact strategy identity is part of the experiment context.
     // The previous lane|band|regime key blended materially different playbooks
@@ -566,37 +566,8 @@ object StrategyHypothesisEngine {
 
     /** Feed settled PnL → accrue to the assigned arm, evaluate, maybe promote/retire. */
     fun recordOutcome(mint: String, pnlPct: Double) {
-        try {
-            // V5.0.6747 — per-candidate dedup. A second settle event
-            // for the same mint (recovery replay, terminal reducer
-            // duplicate) must not double-count as new evidence.
-            if (!settledOnceGuard6747.add(mint)) {
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_OUTCOME_DEDUPED_PER_CANDIDATE_6747") } catch (_: Throwable) {}
-                pending.remove(mint)
-                return
-            }
-            val a = pending.remove(mint) ?: return
-            val ctx = a.first; val variant = a.second
-            val h = active[ctx] ?: return
-            outcomeUpdates6512 += 1L
-            val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
-            if (variant) h.variant.update(pnl) else h.control.update(pnl)
-            // Legacy mint-only outcome path intentionally does not credit
-            // StrategyVariantStore; canonical bus uses position-bound 7428.
-            try { PipelineHealthCollector.labelInc("HYPOTHESIS_LEGACY_MINT_OUTCOME_7428") } catch (_: Throwable) {}
-
-            maybeResolve(ctx, h)
-            // V5.0.6264 — persist active arms on every close. Prior impl only
-            // saved when promotions/retirements % 5 == 0, so most recordOutcome
-            // calls didn't touch disk and app-restart wiped all in-flight arms.
-            // Op-report V5.0.6263 caught this: 18 active arms with n=8 crashed
-            // back to 1 arm/n=0 after restart, throwing away the entire day's
-            // learning. Save on every close now; SharedPreferences.apply() is
-            // async so no main-thread cost. Skip if arm total ends in a hot
-            // multiple to reduce write pressure (every 3 closes).
-            if (((h.control.n + h.variant.n) % 3L) == 0L) appContext?.let { save(it) }
-            if ((promotions + retirements) % 5L == 0L) appContext?.let { save(it) }
-        } catch (_: Throwable) {}
+        // Position-bound canonical finality is the only hypothesis outcome authority.
+        pending.remove(mint)
     }
 
     private fun maybeResolve(ctx: String, h: Hypothesis) {
@@ -709,53 +680,13 @@ object StrategyHypothesisEngine {
      * empty (control.n == 0).
      */
     fun seedControlArmsFromHistory() {
-        try {
-            val recent = try {
-                TradeHistoryStore.getRecentValidClosedTrades(limit = 200, includePartials = false)
-            } catch (_: Throwable) { emptyList() }
-            if (recent.isEmpty()) return
-            // V5.0.6251 — MULTI-REGIME SEED. Prior seed keyed every trade to
-            // regime="NORMAL", but snapshot 6249 showed active hypotheses under
-            // regime="ALL"/"CHOP"/"BULL" — the seed was populating orphan keys
-            // that no live decision was ever attributed to. Seed under every
-            // regime label the engine currently has active PLUS "NORMAL", so
-            // cold arms receive real historical outcomes regardless of which
-            // regime string the caller stamps.
-            val regimeLabels = HashSet<String>().apply {
-                add("NORMAL")
-                active.keys.forEach { k ->
-                    val parts = k.split('|')
-                    if (parts.size >= 3) add(parts[2])
-                }
-            }
-            var seeded = 0
-            for (t in recent) {
-                if (!t.side.equals("SELL", true)) continue
-                val lane = t.tradingMode.trim().uppercase().ifBlank { "STANDARD" }
-                val scoreInt = t.score.toInt().coerceIn(0, 100)
-                for (regime in regimeLabels) {
-                    val ctx = ctxKey(lane, scoreInt, regime)
-                    if (suppressVariantForContext(lane, scoreInt, regime)) continue
-                    val h = active.getOrPut(ctx) { spawn(ctx) }
-                    if (h.control.n >= MIN_ARM.toLong()) continue
-                    h.control.update(t.pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */)
-                    seeded += 1
-                }
-            }
-            if (seeded > 0) {
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "HYPOTHESIS_ENGINE_COLD_START_SEEDED_6057",
-                        "closes=$seeded contexts=${active.size} regimes=${regimeLabels.joinToString(",")} note=control_arms_warmed_from_trade_history"
-                    )
-                    PipelineHealthCollector.labelInc("HYPOTHESIS_ENGINE_COLD_START_SEEDED_6057")
-                } catch (_: Throwable) {}
-            }
-        } catch (_: Throwable) { /* seed must never break attach */ }
+        // Raw closes have no immutable hypothesis arm attribution. Canonical
+        // position-bound outcomes are the only training source.
     }
 
     fun exportState(): String = try {
         JSONObject().apply {
+            put("environmentSchema", 7835)
             put("promotions", promotions); put("retirements", retirements)
             val b = JSONObject(); baseline.forEach { (k,v) -> b.put(k, v) }; put("baseline", b)
             val sb = JSONObject(); stopBaseline.forEach { (k,v) -> sb.put(k, v) }; put("stopBaseline", sb)
@@ -801,6 +732,9 @@ object StrategyHypothesisEngine {
             settledPositions7428.clear()
             settledOnceGuard6747.clear()
             val o = JSONObject(json)
+            if (o.optInt("environmentSchema") != 7835) {
+                active.clear(); baseline.clear(); stopBaseline.clear(); return
+            }
             promotions = o.optLong("promotions", 0L); retirements = o.optLong("retirements", 0L)
             o.optJSONObject("baseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); baseline[k] = b.optDouble(k, 1.0) } }
             o.optJSONObject("stopBaseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); stopBaseline[k] = b.optDouble(k, 1.0) } }

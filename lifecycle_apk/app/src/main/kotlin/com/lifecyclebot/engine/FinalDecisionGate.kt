@@ -3,6 +3,10 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.CandidateDecision
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.data.allowLiveMicroProbe
+import com.lifecyclebot.data.maxLiveBuySol
+import com.lifecyclebot.data.maxPoolImpactPct
+import com.lifecyclebot.data.maxWalletRiskPerTradePct
 import com.lifecyclebot.data.minLiveBuySol
 import com.lifecyclebot.engine.quant.EVCalculator
 import com.lifecyclebot.engine.sell.LiveBuyAdmissionGate
@@ -32,6 +36,8 @@ object FinalDecisionGate {
         val approvalReason: String,
         val gateChecks: List<GateCheck>,
         val effectiveEntryScore7687: Int = -1,
+        val candidateVersion7835: Long = 0L,
+        val canonicalLane7835: String = "",
     ) {
         // V5.9.1368 — PROBE_ONLY is an APPROVED dust-size buy, NOT a veto. The lane
         // wait-override path (BotService ~7616/7640) deliberately returns
@@ -138,7 +144,10 @@ object FinalDecisionGate {
             ts.safety.hardBlockReasons.sorted().joinToString(","),
             if (ts.lastLiquidityUsd > 0.0) "LIQUID" else "NO_LIQ",
             ts.lastLiquidityUsd, ts.lastPriceUpdate, ts.lastPriceSource,
-            candidate.aiConfidence, candidate.edgeVeto,
+            candidate.aiConfidence, candidate.edgeVeto, candidate.entryScore,
+            candidate.finalQuality, candidate.setupQuality, candidate.edgeQuality, candidate.qualityPenalty,
+            candidate.phase, candidate.edgePhase, candidate.edgeConfidence, candidate.isOptimalEntry,
+            candidate.shouldTrade, ts.tokenMap.routeStatus, ts.tokenMap.updatedAtMs,
         ).joinToString("|")
     }
 
@@ -146,8 +155,8 @@ object FinalDecisionGate {
         BotRuntimeController.currentGeneration().toString()
     } catch (_: Throwable) { "0" }
 
-    private fun fdgCacheKey(ts: TokenState, candidate: CandidateDecision, lane: String, side: String, laneScore: Double, candidateVersion: Long): String =
-        "${runtimeGenerationKey()}|${ts.mint}|${RuntimeModeAuthority.isPaper()}|${candidateVersionOf(ts, candidate, laneScore, candidateVersion)}|${lane.uppercase()}|${side.uppercase()}"
+    internal fun fdgCacheKey(ts: TokenState, candidate: CandidateDecision, lane: String, side: String, laneScore: Double, candidateVersion: Long, proposedSizeSol: Double): String =
+        "${proposedSizeSol}|${runtimeGenerationKey()}|${ts.mint}|${RuntimeModeAuthority.isPaper()}|${candidateVersionOf(ts, candidate, laneScore, candidateVersion)}|${lane.uppercase()}|${side.uppercase()}"
 
     private fun cachedFdgVerdict(key: String): FinalDecision? {
         val now = System.currentTimeMillis()
@@ -169,90 +178,8 @@ object FinalDecisionGate {
         return verdict
     }
 
-    /**
-     * V5.0.7629 — keep fanout accounting out of the giant evaluate() method.
-     *
-     * Runtime smoke on API 30 rejected FinalDecisionGate.evaluate with ART
-     * VerifyError (register/type merge conflict). This is the same structural
-     * failure class repaired in 7417. Preserve the exact current fanout policy,
-     * but compile its locals/branches in a separate method.
-     */
-    private fun fanoutCapVerdict7629(
-        ts: TokenState,
-        candidate: CandidateDecision,
-        config: BotConfig,
-        specialistLane: String?,
-        fanoutRole: String,
-        candidateVersion: Long,
-    ): FinalDecision? {
-        return try {
-            val causalRoot = candidateVersion.toString()
-            val fanoutLane =
-                (specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "TRUNK") +
-                    (fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { ":" + it } ?: "")
-            val allowed = com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowFdgEval(
-                mint = ts.mint,
-                causalRoot = causalRoot,
-                laneName = fanoutLane,
-            )
-            // V5.0.7809 — the cap bounds COMPUTE, it must not discard a verdict
-            // already reached for this exact candidate (same key evaluate() caches
-            // at its verdict point: generation, mint, mode, candidate evidence,
-            // lane, side). Beyond the cap a repeat ask is answered from that
-            // cache — the owner lane's sealed setup survives the cap instead of
-            // being replaced by FDG_FANOUT_CAP_7232; with no prior verdict the
-            // cap still refuses. No new evaluation runs (Field Manual L356).
-            val priorVerdict7809 = if (allowed) null else priorVerdictForCandidate7809(ts.mint, candidateVersion)
-            if (priorVerdict7809 != null) {
-                try {
-                    PipelineHealthCollector.labelInc("FDG_FANOUT_CAP_SERVED_PRIOR_VERDICT_7809")
-                    PipelineHealthCollector.labelInc("FDG_FANOUT_CAP_SERVED_PRIOR_VERDICT_7809_" + fanoutLane)
-                } catch (_: Throwable) {}
-                priorVerdict7809
-            } else if (allowed) {
-                null
-            } else {
-                try {
-                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232")
-                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232_" + fanoutLane)
-                } catch (_: Throwable) {}
-                FinalDecision(
-                    shouldTrade = false,
-                    mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = candidate.aiConfidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "FDG_FANOUT_CAP_7232",
-                    blockLevel = BlockLevel.EDGE,
-                    sizeSol = 0.0,
-                    tags = listOf("FDG_FANOUT_CAP_7232", "mint:" + ts.mint.take(8)),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "cap 2 FDG evals per (mint,causalRoot); this is beyond cap",
-                    gateChecks = emptyList(),
-                )
-            }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    /**
-     * V5.0.7809 — freshest cached verdict for this exact candidate generation
-     * (key prefix generation|mint|mode|candidateVersion|). Lives outside
-     * evaluate(): that method is at the ART verifier limit (5.0.7807 VerifyError).
-     */
-    private fun priorVerdictForCandidate7809(mint: String, candidateVersion: Long): FinalDecision? = try {
-        val prefix = "${runtimeGenerationKey()}|$mint|${RuntimeModeAuthority.isPaper()}|$candidateVersion|"
-        val now = System.currentTimeMillis()
-        fdgVerdictCache.entries
-            .filter { it.key.startsWith(prefix) && now - it.value.tsMs <= FDG_VERDICT_CACHE_TTL_MS }
-            .maxByOrNull { it.value.tsMs }?.value?.verdict
-    } catch (_: Throwable) { null }
-
     fun invalidateCandidate6734(mint: String) {
-        fdgVerdictCache.keys.removeIf { it.startsWith("${runtimeGenerationKey()}|$mint|") }
+        fdgVerdictCache.keys.removeIf { it.contains("|${runtimeGenerationKey()}|$mint|") }
         FdgReEvalThrottle.invalidate(mint)
     }
 
@@ -1048,8 +975,7 @@ object FinalDecisionGate {
         val u = t.lowercase()
         return u == "train_first_micro_probe" || u == "bcg_train_first_micro_probe" ||
             u.contains("proven_dead") || u.startsWith("starve:") ||
-            u == "copy_trade_live_micro_probe" || u == "rc_timeout_live_probe" ||
-            u.startsWith("lane_policy:")
+            u == "copy_trade_live_micro_probe" || u == "rc_timeout_live_probe"
     }
 
     fun evaluate(
@@ -1100,17 +1026,6 @@ object FinalDecisionGate {
         } catch (_: Throwable) {
             System.currentTimeMillis() / 30_000L
         }
-        // V5.0.7629 — preserve the 7232/7265 fanout policy while
-        // keeping its branch-heavy bytecode out of evaluate() for ART verifier
-        // compatibility. The candidate generation remains the pinned 7623 value.
-        fanoutCapVerdict7629(
-            ts = ts,
-            candidate = candidate,
-            config = config,
-            specialistLane = specialistLane,
-            fanoutRole = fanoutRole,
-            candidateVersion = candidateVersion7623,
-        )?.let { return it }
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
         var blockLevel: BlockLevel? = null
@@ -1347,43 +1262,11 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
-        val laneName = tradingModeTag?.name ?: "STANDARD"
-        // V5.0.6658 §SPECIALIST_LANE_STAMP_ALIGNMENT — operator dump Feb
-        //   2026 (build 5.0.6657, 3140s uptime):
-        //     QUALITY sizedN=0 phantomSizedOnly=0
-        //     BLUECHIP sizedN=6 phantomSizedOnly=117
-        //     SHITCOIN sizedN=81 phantomSizedOnly=532
-        //
-        //   Root cause found via source-level authority convergence:
-        //     * BUY_INTENT / OWNER_SELECTED / MARK_READY / TICKET / EXEC /
-        //       POSITION_OPENED stamps use the ExecutionBook name
-        //       ({QUALITY, BLUECHIP, SHITCOIN, PROJECT_SNIPER, ...}) —
-        //       these ARE the specialist funnel desk labels.
-        //     * FDG_ALLOW / FDG_BLOCK / SIZED_EXECUTABLE stamps used
-        //       `tradingModeTag.name` from ModeSpecificGates.TradingModeTag
-        //       which has no QUALITY at all and spells BLUECHIP as
-        //       BLUE_CHIP (underscore). The stamps therefore landed on
-        //       lane="STANDARD" or lane="BLUE_CHIP" records that the
-        //       specialist funnel never reads back — QUALITY silently
-        //       loses every SIZE stamp; BLUECHIP loses most of them and
-        //       accrues 117 phantoms; SHITCOIN survives only because
-        //       "SHITCOIN" happens to spell identically in both enums.
-        //
-        //   Resolve the ExecutionBook-aligned primary lane once at FDG
-        //   entry and reuse it for every specialist funnel stamp
-        //   emitted from this gate. Behaviour is preserved for lanes
-        //   that already agree (SHITCOIN/MOONSHOT/MANIPULATED); only
-        //   mislabeled lanes converge onto the right causal record.
-        //   `tradingModeTag.name` still drives every non-funnel
-        //   caller (cache keys, logging labels, per-lane multipliers).
-        val canonicalPrimaryLane6658 = specialistLane?.uppercase()?.takeIf { it.isNotBlank() }
-            ?: try {
-                com.lifecyclebot.engine.LaneExecutionCoordinator
-                    .currentElection6600(ts.mint)?.primaryLane?.uppercase()?.takeIf { it.isNotBlank() }
-            } catch (_: Throwable) { null }
-            ?: laneName
+        val canonicalPrimaryLane6658 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(
+            specialistLane?.takeIf { it.isNotBlank() } ?: tradingModeTag?.name ?: "CORE")
+        val laneName = canonicalPrimaryLane6658
         val fdgSide = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
-        val fdgCacheKey = fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore, candidateVersion7623)
+        val fdgCacheKey = fdgCacheKey(ts, candidate, canonicalPrimaryLane6658, fdgSide, laneScore, candidateVersion7623, proposedSizeSol)
         cachedFdgVerdict(fdgCacheKey)?.let { return it }
 
         if (mode == TradeMode.LIVE && !KeyValidator.isLive("helius")) {
@@ -5232,7 +5115,8 @@ object FinalDecisionGate {
                             com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.isDegenerateNow7120()
                         } catch (_: Throwable) { true }
                         val evidenceObjections7380 = report.objections.count {
-                            it.startsWith("FORWARD_NEGATIVE") || it.startsWith("LIVE_PROB_NEGATIVE") ||
+                            it.startsWith("FORWARD_COMPONENT_NEGATIVE") || it.startsWith("FUSED_LIVE_NEGATIVE") ||
+                                it.startsWith("REALISED_LIVE_NEGATIVE") || it.startsWith("META_POLICY_NEGATIVE") ||
                                 it.startsWith("LOSING_PATTERN_DANGER_ZONE") || it.startsWith("PROVEN_DEAD_CONTEXT") ||
                                 it.startsWith("LEARNED_TOXIC_LANE")
                         }
@@ -5858,34 +5742,10 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
-        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:$candidateVersion7623") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc(if (shouldTradeFinal) "FDG_POLICY_ALLOW_7835" else "FDG_POLICY_BLOCK_7835") } catch (_: Throwable) {}
         if (shouldTradeFinal) try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.confirm7772(ts.mint) } catch (_: Throwable) {}
-        // V5.0.6657 §FDG_STAMP_FANOUT — operator dump Feb 2026:
-        //   QUALITY buyIntent=287 fdg=0 (FDG_CHOKED). Root cause:
-        //   line 4857 only stamps the cycle-primary lane. Every
-        //   specialist desk hypothesis (QUALITY as a shadow desk on
-        //   a PROJECT_SNIPER primary tick, etc.) got BUY_INTENT
-        //   recorded upstream but its FDG stamp never landed, so
-        //   MEME_SPECIALIST_ROLE_LIVENESS shows fdgN=0 and the
-        //   status flips FDG_CHOKED. Line 4864-4865 already fans
-        //   out a "FDG" stage stamp per hypothesis — extend that
-        //   same iteration to emit the FDG_ALLOW/FDG_BLOCK stamp so
-        //   the specialist funnel counters converge with the
-        //   primary-lane stamp. Idempotency: recordDeskStage dedupes
-        //   on (lane|stage|eventId) via deskStageOnce6599 so repeat
-        //   fan-outs for the same intent produce one stamp per lane.
-        try {
-            val fdgCvers6657 = candidateVersion7623
-            val fdgStage6657 = if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK"
-            com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses.values.forEach { h ->
-                if (!h.lane.equals(canonicalPrimaryLane6658, true) && h.lane.isNotBlank()) {
-                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
-                        h.lane, fdgStage6657, "${ts.mint}:$fdgCvers6657",
-                    )
-                }
-            }
-        } catch (_: Throwable) {}
-
+        // Contributing desks supply evidence; only the sealed elected owner
+        // emits FDG_ALLOW. A proposal cannot stamp approvals for other lanes.
         val aateEnvelope6512 = try {
             val hardReason6512 = blockReasonFinal?.uppercase().orEmpty()
             val trueHard6512 = listOf("CONFIRMED_RUG", "RUGCHECK_100", "RC_SCORE_0", "NO_EXECUTABLE_ROUTE", "TRUE_ZERO_LIQUIDITY", "DUPLICATE_OPEN", "MINT_AUTHORITY_RETAINED", "FREEZE_AUTHORITY_RETAINED", "MANUAL_LIQUIDATION")
@@ -5966,74 +5826,82 @@ object FinalDecisionGate {
             TradeMode.LIVE -> approvalClass == ApprovalClass.LIVE
             TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK
         }
-        if (shouldTradeFinal && canonicalEconomicApproval7548 &&
-            aateEnvelope6512?.action != "BLOCK" && finalSize >= 0.005 && ts.mint.isNotBlank()) {
-            try {
-                val paperMinimum6653 = if (config.paperMode)
-                    PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
-                else 0.001
-                // V5.0.6827 §LIVE_SIZE_SEALED_OFF_PAPER_LEDGER — PaperCapitalAuthority6577
-                // reads PaperAccountLedger6430 and never mirrors the live wallet, yet this
-                // value was used unconditionally as walletSol AND as the 12% lane risk cap.
-                // In live mode the resolver sets authoritativeCash = walletSol
-                // (OrderSizeResolver6441:210), so both caps came from paper cash:
-                //   paper 10 SOL / real wallet 0.4 SOL -> seals ~0.70 SOL and the executor
-                //   attempts a swap the wallet cannot fund
-                //   live-only run with an uninitialised paper ledger -> cash 0 -> NO_WALLET
-                //   and no seal is ever produced
-                // Size live off the live wallet, paper off the paper ledger.
-                val sizingCash6653 = if (config.paperMode) {
-                    try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
-                } else {
-                    try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
-                }
-                val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
-                    requestedSol = finalSize,
-                    laneName = canonicalPrimaryLane6658,
-                    walletSol = sizingCash6653,
-                    paperMode = config.paperMode,
-                    // A configured executable minimum and a smaller percentage
-                    // cap are mutually impossible.  Fund the minimum only when
-                    // canonical cash can afford it; all portfolio/slot/safety
-                    // gates remain upstream and unchanged.
-                    laneRiskCapSol = maxOf(sizingCash6653 * 0.12, paperMinimum6653),
-                    laneMinExecutableSol = paperMinimum6653,
-                    // V5.0.7403 — forward asset identity into the canonical
-                    // resolver. Without mint, EntryConvictionRegistry6909 is
-                    // invisible here and an evidence-collapsed size can be
-                    // promoted back to the executable minimum as if the shrink
-                    // came from capacity. This is the final FDG sizing call, so
-                    // it must see the same conviction as every other sizing path.
-                    mint = ts.mint,
-                    // V5.0.6651 — telemetry identity only: SIZE must join
-                    // the same candidate record as intent/FDG/mark.
-                    // Stamp SIZE only at executable handoff, after the causal
-                    // DISCOVER/INTENT/MARK predecessors are known.
-                    causalEventId = "",
-                )
-                if (sealed6552.executable) com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, sealed6552, laneName)
-            } catch (_: Throwable) {}
-        }
+        val executableSize7835 = if (shouldTradeFinal && canonicalEconomicApproval7548 &&
+            aateEnvelope6512?.action != "BLOCK") {
+            resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config)
+        } else 0.0
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal &&
                 canonicalEconomicApproval7548 &&
-                aateEnvelope6512?.action != "BLOCK",
+                aateEnvelope6512?.action != "BLOCK" && executableSize7835 > 0.0,
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,
             confidence = adjustedConfidence,
             edge = edgeVerdict,
-            blockReason = blockReasonFinal,
+            blockReason = blockReasonFinal ?: when {
+                aateEnvelope6512?.action == "BLOCK" -> "CANONICAL_ENVELOPE_BLOCK_7835"
+                shouldTradeFinal && !canonicalEconomicApproval7548 -> "NON_ECONOMIC_APPROVAL_7835"
+                shouldTradeFinal && executableSize7835 <= 0.0 -> "SIZE_NOT_EXECUTABLE_7835"
+                else -> null
+            },
             blockLevel = blockLevelFinal,
-            sizeSol = finalSize,
+            sizeSol = executableSize7835,
             tags = tags,
             mint = ts.mint,
             symbol = ts.symbol,
             approvalReason = approvalReason,
             gateChecks = checks,
             effectiveEntryScore7687 = effectiveGateScore6025.toInt().coerceIn(0, 100),
+            candidateVersion7835 = candidateVersion7623,
+            canonicalLane7835 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(canonicalPrimaryLane6658),
         ))
+    }
+
+    private fun resolveExecutableSize7835(ts: TokenState, lane: String, requested: Double, config: BotConfig): Double {
+        if (!requested.isFinite() || requested <= 0.0) return 0.0
+        val minimum = if (config.paperMode) PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
+            else if (config.allowLiveMicroProbe) 0.005 else config.minLiveBuySol.coerceAtLeast(0.0)
+        val cash = if (config.paperMode) com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
+            else WalletManager.cachedSolBalance()
+        val solUsd = WalletManager.lastKnownSolPrice
+        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        // A market-depth cap can reduce or refuse a proposal; an executable floor
+        // must never erase it. There is no wallet-share substitute for unknown depth.
+        val depthCap = if (solUsd.isFinite() && solUsd > 0.0 && liq > 0.0)
+            com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(
+                liq * 0.5 * config.maxPoolImpactPct.coerceIn(0.0, 100.0) / 100.0, solUsd) else 0.0
+        val onCurve = try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) != null ||
+            com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) } catch (_: Throwable) { false }
+        val curveCap = if (onCurve && ts.lastMcap > 0.0 && solUsd > 0.0)
+            com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(ts.lastMcap, solUsd) * 0.01 else Double.MAX_VALUE
+        var riskSized = minOf(requested, depthCap, curveCap)
+        if (!config.paperMode) {
+            val inputs = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.runtimeInputs(
+                mint = ts.mint, lane = lane, walletSol = cash, upstreamSol = riskSized,
+                execMinSol = minimum, liquidityUsd = liq,
+                governorLossMult = LiveEntrySafetyHold.currentSizeMultiplier().coerceIn(0.0, 1.0),
+                partialProviderEvidence = ts.safety.softPenalties.isNotEmpty(),
+            )
+            val risk = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record("FDG", ts.mint, ts.symbol,
+                inputs, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs))
+            if (!risk.open) return 0.0
+            riskSized = minOf(riskSized, risk.sizeSol)
+        }
+        if (!riskSized.isFinite() || riskSized <= 0.0) return 0.0
+        val configuredCap = if (config.paperMode) maxOf(cash * 0.12, minimum) else minOf(
+            cash * config.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0),
+            config.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE,
+        )
+        val resolution = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
+            requestedSol = riskSized, laneName = lane, walletSol = cash, paperMode = config.paperMode,
+            laneRiskCapSol = minOf(configuredCap, riskSized), laneMinExecutableSol = minimum,
+            mint = ts.mint, causalEventId = "",
+        )
+        if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9) return 0.0
+        com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
+        return resolution.finalSizeSol
     }
 
     fun logBlockedTrade(decision: FinalDecision, onLog: (String) -> Unit) {

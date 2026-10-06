@@ -132,7 +132,7 @@ object FieldManual7715 {
     ) {
         val blocks: Boolean get() = decision == Decision.WAIT || decision == Decision.PASS
         val blockReason: String get() = when (decision) {
-            Decision.PASS -> "FIELD_MANUAL_PASS_7715:" + reasons.firstOrNull().orEmpty()
+            Decision.PASS -> "FIELD_MANUAL_DECLINE_7835:" + reasons.firstOrNull().orEmpty()
             Decision.WAIT -> "FIELD_MANUAL_WAIT_7715:" + reasons.firstOrNull().orEmpty()
             else -> ""
         }

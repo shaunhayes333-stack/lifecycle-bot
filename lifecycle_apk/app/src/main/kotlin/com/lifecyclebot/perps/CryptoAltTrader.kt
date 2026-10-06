@@ -329,10 +329,6 @@ object CryptoAltTrader {
         if (coverage is com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked) {
             return requested to "CRYPTO_LIVE_BLOCKED_UNMANAGED_BOT_HOLD_7708:${coverage.reasonCode}:${coverage.mints.size}"
         }
-        if (requested < floor) {
-            try { PipelineHealthCollector.labelInc("CRYPTO_LIVE_SIZE_LIFTED_TO_DOCTRINE_7708") } catch (_: Throwable) {}
-            return floor to null
-        }
         return requested to null
     }
 
@@ -1913,15 +1909,6 @@ object CryptoAltTrader {
                 val terminalTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                 try {
-                    // V5.0.7398 — this comment promised a producer CANDIDATE stamp,
-                    // but the call was absent. That made live diagnostics report
-                    // actionableSignal>0 with candidateCreated=0 even while
-                    // executeSignal was being invoked. Stamp the actual bounded,
-                    // deduped handoff here; canonical SUBMIT is stamped only when
-                    // CanonicalEntryAuthority6551.submit is reached below.
-                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
-                        com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
-                    )
                     executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
                 } catch (e: CancellationException) {
                     throw e
@@ -3156,6 +3143,9 @@ object CryptoAltTrader {
     private val RECENT_BASIS_MS_7281 = 180_000L
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "EXECUTION_SELECTED",
+        )
         val paper7803 = authoritativePaperMode7425()
         /**
          * V5.0.7171 §TWO WRITERS FOR ONE REFUSAL, AND ONE OF THEM COUNTED
@@ -3207,6 +3197,9 @@ object CryptoAltTrader {
                     // candidate minus submit. Counted under its own name so
                     // the evidence survives without inflating dispatchReject.
                     "PRE_SUBMIT" -> {
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markPreSubmitRefusal7835(
+                            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, reason,
+                        )
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_REFUSED_BEFORE_INTENT_7171")
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                             "CRYPTO_REFUSED_BEFORE_INTENT_7171_" + reason.substringBefore(':').take(40),
@@ -3498,86 +3491,14 @@ object CryptoAltTrader {
         // "spreading capital way too wide" the operator named, from a lane
         // that had not been told the doctrine. Live crypto entries now clear
         // the same four checks before any SOL moves. Paper is untouched.
-        val requestedFinalSize = if (authoritativePaperMode7425()) requestedFinalSize0 else {
-            val gate7708 = liveCryptoEntryGate7708(balance, requestedFinalSize0)
-            val refusal7708 = gate7708.second
-            if (refusal7708 != null) {
-                terminalDisposition6613(refusal7708, "PRE_SUBMIT")
-                try {
-                    PipelineHealthCollector.labelInc(refusal7708.substringBefore(':').take(60))
-                    ForensicLogger.lifecycle("CRYPTO_LIVE_DOCTRINE_REFUSED_7708", "symbol=$mktSym requested=${"%.4f".format(requestedFinalSize0)} balance=${"%.4f".format(balance)} reason=$refusal7708")
-                } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(signal.dynMint ?: signal.market.symbol, "CRYPTO", "CRYPTO_LIVE_DOCTRINE_REFUSED_7708") } catch (_: Throwable) {}
-                return
-            }
-            gate7708.first
-        }
-        // V5.0.6540 §ONE_EXECUTION_AUTHORITY — CryptoAlt specialist must
-        // announce its candidate to the canonical entry funnel BEFORE it
-        // consults sizing. Route to MARKETS_SPOT/MARKETS_PERPS venue by
-        // spot capability + leverage. This keeps the operator's funnel
-        // telemetry (candidate → submit → allow → sized → intent →
-        // dispatch → open) coherent per venue and enables the P0
-        // acceptance-invariant fail-build guard.
-        val venue6540 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.routeVenue(
-            isLong = signal.direction == PerpsDirection.LONG,
-            isSpotCapable = isSpot,
-            leveraged = !isSpot,
-        )
-        try {
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markCandidate(
-                venue = venue6540, symbol = mktSym,
-                note = "isSpot=$isSpot lev=$lev score=${signal.score} conf=${signal.confidence}",
-            )
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthSubmit(
-                venue = venue6540, symbol = mktSym,
-                note = "requestedSol=$requestedFinalSize",
-            )
-        } catch (_: Throwable) {}
-        // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
-        val altSizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
-            requestedSol = requestedFinalSize,
-            assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
-            laneName = canonicalCryptoLane7251(signal.isDynamic, isSpot),
-            walletSol = balance,
-            paperMode = paper7803,
-            canonicalAssetId = signal.dynMint?.ifBlank { signal.market.symbol } ?: signal.market.symbol, symbol = mktSym, price = signal.price, source = "CryptoAltTrader",
-        )
-        if (!altSizingRes.executable) {
-            try {
-                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthBlock(
-                    venue = venue6540, symbol = mktSym,
-                    reason = "SIZE_NOT_EXECUTABLE:${altSizingRes.reason}",
-                )
-            } catch (_: Throwable) {}
-            terminalDisposition6613("PRE_SUBMIT_SIZE_NOT_EXECUTABLE:${altSizingRes.reason}", "PRE_SUBMIT")
-            ErrorLogger.warn(TAG, "🪙 sizing gate declined ${mktSym}: ${altSizingRes.reason}")
-            return
-        }
-        val finalSize = altSizingRes.finalSizeSol
+        val livePreflight7835 = if (paper7803) requestedFinalSize0 to null
+            else liveCryptoEntryGate7708(balance, requestedFinalSize0)
+        val requestedFinalSize = livePreflight7835.first
 
-        // V5.0.7400 — now enforce exposure/cross-trader capital on the SEALED size.
-        // These remain real portfolio guards; only their authority ordering changed.
-        var totalRisk7400 = activeModePositions7256(positions.values).sumOf { it.sizeSol }
-        val maxRisk7400 = (balance + totalRisk7400) * 0.80
-        if (signal.isDynamic && totalRisk7400 + finalSize > maxRisk7400) {
-            if (rotateWeakPaperExposure7244(signal.score)) {
-                totalRisk7400 = activeModePositions7256(positions.values).sumOf { it.sizeSol }
-            }
-        }
-        if (totalRisk7400 + finalSize > maxRisk7400) {
-            terminalDisposition6613("POST_SIZE_EXPOSURE_CAP_7400", "PRE_SUBMIT")
-            try { PipelineHealthCollector.labelInc("CRYPTO_POST_SIZE_EXPOSURE_CAP_7400") } catch (_: Throwable) {}
-            return
-        }
-        if (!paper7803) {
-            val walletBal7400 = try { WalletManager.getWallet()?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
-            if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", finalSize, walletBal7400)) {
-                terminalDisposition6613("POST_SIZE_LIVE_WALLET_LOCK_7400", "PRE_SUBMIT")
-                try { PipelineHealthCollector.labelInc("CRYPTO_POST_SIZE_LIVE_WALLET_LOCK_7400") } catch (_: Throwable) {}
-                return
-            }
-        }
+        // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
+        val finalSize = requestedFinalSize
+        val totalRisk7835 = activeModePositions7256(positions.values).sumOf { it.sizeSol }
+        val remainingExposure7835 = ((balance + totalRisk7835) * 0.80 - totalRisk7835).coerceAtLeast(0.0)
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095")
             ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")
@@ -3605,38 +3526,8 @@ object CryptoAltTrader {
         } catch (_: Throwable) {}
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
         val disciplinePassed6647 = passesCryptoDiscipline6647(candidate)
-        if (!disciplinePassed6647) {
-            com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(false)
-            try {
-                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthBlock(
-                    venue = venue6540, symbol = mktSym,
-                    reason = "FDG_OR_HARD_NO:${candidate.hardNoReasons}",
-                )
-            } catch (_: Throwable) {}
-            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${mktSym} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
-            // V5.9.1317 (P0-5) — release the primary-lane lease on the CRYPTO book so a
-            // blocked candidate does not suppress follow-up CRYPTO attempts for the same
-            // asset until TTL. CRYPTO lane is isolated; this never touches Meme lanes.
-            try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_EXEC_BLOCKED") } catch (_: Throwable) {}
-            terminalDisposition6613("PRE_SUBMIT_FDG_OR_HARD_NO:${candidate.hardNoReasons.joinToString(",")}", "PRE_SUBMIT")
-            return
-        }
-        try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (paper7803) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
-        // V5.0.6649a §P0-3 CRYPTO_ALT_CANDIDATE_STAMP — mark the
-        //   producer stage transition at the moment the candidate
-        //   is handed off to the CanonicalEntryAuthority6551.submit
-        //   spine so the crypto funnel counter shows CANDIDATE
-        //   -> ACTIONABLE_SIGNAL -> EXECUTE_BUY explicitly for
-        //   every crypto candidate. BuildRepair6581CoverageTest
-        //   asserts the literal source pair below.
-        try {
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
-                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
-            )
-        } catch (_: Throwable) {}
-        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
-            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "SUBMIT"
-        )
+        // Submission owns the refusal, sizing and seal. A selected candidate never
+        // disappears behind a separate local sizing gate before this boundary.
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = candidate.assetKey, symbol = mktSym,
@@ -3648,13 +3539,18 @@ object CryptoAltTrader {
                 evidence = mapOf(
                     "upstreamConfidence" to candidate.confidence.toString(), "walletSol" to balance.toString(),
                     "strategy7803" to signal.strategy7803,
+                    "laneRiskCapSol" to minOf(1.0, remainingExposure7835).toString(),
                     "deskOverlays7803" to signal.deskOverlays7803.sorted().joinToString(","),
                     // Compatibility desk label; 7803 keeps every overlay resident.
                     "deskLane7391" to CryptoLaneDesk7391.laneFromReasons(signal.reasons).ifBlank { "NONE" },
                 ),
                 requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
-                routeAvailable = authoritativePaperMode7425() || candidate.executionAdapter != "NONE",
-                hardSafetyReasons = candidate.hardNoReasons, candidateVersion = candidate.candidateVersion,
+                routeAvailable = paper7803 || candidate.executionAdapter == "CRYPTO_UNIVERSE_EXECUTOR",
+                hardSafetyReasons = candidate.hardNoReasons + listOfNotNull(
+                    livePreflight7835.second,
+                    if (!disciplinePassed6647) "CRYPTO_DISCIPLINE_REFUSED_7835" else null,
+                    if (remainingExposure7835 <= 0.0) "CRYPTO_EXPOSURE_CAP_7835" else null,
+                ), candidateVersion = candidate.candidateVersion,
                 diagnosticSignal = candidate.preFdgVerdict.name,
             )
         )
@@ -3662,11 +3558,11 @@ object CryptoAltTrader {
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
-                terminalDisposition6613("CANONICAL_BLOCKED:${canonicalCryptoAdmission6565.reason}", "PRE_SUBMIT")
+                terminalDisposition6613("CANONICAL_BLOCKED:${canonicalCryptoAdmission6565.reason}", "AUTHORITY")
                 return
             }
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
-                terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}", "PRE_SUBMIT")
+                terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}", "AUTHORITY")
                 return
             }
         }
@@ -3693,6 +3589,12 @@ object CryptoAltTrader {
         if (!canonicalFinalSize6570.isFinite() || canonicalFinalSize6570 <= 0.0) {
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "INVALID_SEALED_SIZE_6570")
             terminalDisposition6613("CANONICAL_INVALID_SEALED_SIZE", "AUTHORITY")
+            return
+        }
+        if (!paper7803 && !com.lifecyclebot.engine.WalletPositionLock.canOpen(
+                "CryptoAlt", canonicalFinalSize6570, WalletManager.cachedSolBalance())) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "LIVE_WALLET_LOCK_7835")
+            terminalDisposition6613("LIVE_WALLET_LOCK_7835", "AUTHORITY")
             return
         }
         val holdSetupQuality6663 = when {

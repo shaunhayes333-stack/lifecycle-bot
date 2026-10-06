@@ -1,6 +1,6 @@
 {
-  "all_kotlin": 1282,
-  "intelligence_candidates": 257,
+  "all_kotlin": 1287,
+  "intelligence_candidates": 258,
   "classifications": {
     "BACKGROUND_RESEARCH_REVIEW": 5,
     "CACHE_OR_READBACK_REVIEW": 69,
@@ -10,18 +10,19 @@
     "CRYPTO_SOURCE_SELECTION_UPSTREAM": 1,
     "DIRECT_SUPER_OR_CACHE": 3,
     "EXECUTION_LEARNED_UPSTREAM": 1,
+    "EXIT_EVIDENCE_UPSTREAM": 1,
     "EXIT_LEARNED_UPSTREAM": 2,
     "LAYER_BRAIN_LEARNED_UPSTREAM": 16,
     "PROVIDER_BACKED_REVIEW": 9,
     "REPORT_INFRASTRUCTURE": 23,
     "REPRESENTED_BY_AGGREGATOR": 53,
-    "RISK_SHAPING_UPSTREAM": 2,
+    "RISK_SHAPING_UPSTREAM": 1,
     "SAFETY_SOVEREIGN_REVIEW": 3,
     "SOURCE_SELECTION_UPSTREAM": 1,
     "STRATEGY_LEARNED_UPSTREAM": 1,
     "SUPER_UPSTREAM_ROOT": 4,
-    "UNCLASSIFIED_INTELLIGENCE_REVIEW": 60
+    "UNCLASSIFIED_INTELLIGENCE_REVIEW": 61
   },
-  "unclassified": 60,
+  "unclassified": 61,
   "source_reviewed_with_consumer_proof": 12
 }

@@ -38,7 +38,57 @@ object KillSwitch {
     private const val PAPER_MAX_TRADES_PER_HOUR = 999
     
     // Paper mode flag
-    var isPaperMode: Boolean = false
+    var isPaperMode: Boolean
+        get() = RuntimeModeAuthority.isPaper()
+        set(@Suppress("UNUSED_PARAMETER") value) { /* RuntimeModeAuthority owns this fact. */ }
+    private var context7835: Context? = null
+    private var initializedLive7835 = false
+    private var config7835 = com.lifecyclebot.data.BotConfig()
+    private val canonicalOutcomes7835 = mutableSetOf<String>()
+
+    fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
+        config7835 = config
+        init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance()))
+    }
+
+    @Synchronized
+    fun checkEntry7835(paper: Boolean, config: com.lifecyclebot.data.BotConfig? = null): String? {
+        if (paper) return null
+        if (RuntimeModeAuthority.isPaper()) return "LIVE_ENTRY_WHILE_RUNTIME_PAPER_7835"
+        if (config != null) config7835 = config
+        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance())
+        if (!equity.isFinite() || equity <= 0.0) return "KILL_SWITCH_EQUITY_UNAVAILABLE_7835"
+        if (!initializedLive7835) context7835?.let { init(it, equity) }
+        val now = System.currentTimeMillis()
+        if (!isSameDay(dailyStartDate, now)) { dailyStartBalance = equity; dailyStartDate = now }
+        if (isKilled && killReason.startsWith("MAX_CONSECUTIVE_LOSSES") &&
+            now - killTime >= config7835.circuitBreakerPauseMin.coerceAtLeast(1) * 60_000L) {
+            isKilled = false; killReason = ""; consecutiveLosses = 0
+            context7835?.let { save(it) }
+        }
+        val verdict = canTrade(equity, maxDailyLossPct = config7835.maxDailyLossPct,
+            maxConsecutiveLosses = config7835.circuitBreakerLosses,
+            maxTradesPerHour = config7835.maxTradesPerHour)
+        return if (verdict.first) null else "KILL_SWITCH_7835:${verdict.second}"
+    }
+
+    @Synchronized
+    fun recordCanonical7835(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        if (!env.mode.equals("LIVE", true) || !env.terminal) return true
+        val ctx = context7835 ?: return false
+        if (!initializedLive7835) initLive7835(ctx, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance()))
+        val key = env.economicEventId.ifBlank { env.tradeId }
+        if (key.isBlank()) return false
+        if (key in canonicalOutcomes7835) return true
+        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance())
+        recordTrade(ctx, env.realizedReturnPct, equity,
+            maxDailyLossPct = config7835.maxDailyLossPct,
+            maxConsecutiveLosses = config7835.circuitBreakerLosses,
+            paperOutcome7835 = false)
+        canonicalOutcomes7835.add(key)
+        save(ctx)
+        return true
+    }
     
     // State tracking
     private var peakBalance: Double = 0.0
@@ -76,9 +126,19 @@ object KillSwitch {
     /**
      * Initialize with current balance
      */
+    @Synchronized
     fun init(context: Context, currentBalance: Double) {
+        context7835 = context.applicationContext
+        if (RuntimeModeAuthority.isPaper()) return
+        initLive7835(context, currentBalance)
+    }
+
+    @Synchronized
+    private fun initLive7835(context: Context, currentBalance: Double) {
+        initializedLive7835 = true
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         
+        canonicalOutcomes7835.addAll(prefs.getStringSet("canonical_outcomes_7835", emptySet()).orEmpty())
         // Load persisted state
         peakBalance = prefs.getFloat("peak_balance", currentBalance.toFloat()).toDouble()
         dailyStartBalance = prefs.getFloat("daily_start_balance", currentBalance.toFloat()).toDouble()
@@ -87,6 +147,12 @@ object KillSwitch {
         isKilled = prefs.getBoolean("is_killed", false)
         killReason = prefs.getString("kill_reason", "") ?: ""
         killTime = prefs.getLong("kill_time", 0)
+        if (prefs.getInt("environment_schema", 0) < 7835) {
+            // Prior baselines could contain PAPER cash. Preserve an explicit kill,
+            // retire unattributable balances/streaks before live admission.
+            peakBalance = currentBalance; dailyStartBalance = currentBalance
+            dailyStartDate = System.currentTimeMillis(); consecutiveLosses = 0
+        }
         
         // Update peak if current balance is higher
         if (currentBalance > peakBalance) {
@@ -116,6 +182,7 @@ object KillSwitch {
      * Record a trade result
      * @return true if trading should continue, false if killed
      */
+    @Synchronized
     fun recordTrade(
         context: Context,
         pnlPct: Double,
@@ -123,11 +190,11 @@ object KillSwitch {
         maxDailyLossPct: Double = DEFAULT_MAX_DAILY_LOSS_PCT,
         maxDrawdownPct: Double = DEFAULT_MAX_DRAWDOWN_PCT,
         maxConsecutiveLosses: Int = DEFAULT_MAX_CONSECUTIVE_LOSSES,
+        paperOutcome7835: Boolean = isPaperMode,
     ): Boolean {
         
         // V5.7.8: Paper mode — never kill, always continue
-        if (isPaperMode) {
-            tradesThisHour++
+        if (paperOutcome7835) {
             return true
         }
         
@@ -400,6 +467,8 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
+            putInt("environment_schema", 7835)
+            putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())
             putFloat("peak_balance", peakBalance.toFloat())
             putFloat("daily_start_balance", dailyStartBalance.toFloat())
             putLong("daily_start_date", dailyStartDate)

@@ -96,7 +96,7 @@ object CanonicalFinalizedTradeBus6464 {
         "ForwardOutcomeModel", "UnifiedExitPolicyHead", "CausalFeedback6715", "SuperIntelligenceCalibration7636", "QuantMetrics7665", "Dashboard",
         // V5.0.7074 — operator/deployer reputation. See
         // FinalizedBusConsumerBridge6465.deliverToOperatorFingerprint7074.
-        "OperatorFingerprint7074",
+        "OperatorFingerprint7074", "KillSwitch7835",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 

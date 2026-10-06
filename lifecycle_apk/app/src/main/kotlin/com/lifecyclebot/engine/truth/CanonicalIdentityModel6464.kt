@@ -49,18 +49,6 @@ object CanonicalIdentityModel6464 {
     private val rewriteRefused = AtomicLong(0L)
     private val aliasNormalized = AtomicLong(0L)
 
-    // Alias table — extend as ops observes.
-    private val aliases: Map<String, String> = mapOf(
-        "PRESALE_SNIPE" to "RESALE_SNIPE",
-        "PRE_SALE_SNIPE" to "RESALE_SNIPE",
-        "BLUECHIP" to "BLUE_CHIP",
-        "BLUE_CHIPS" to "BLUE_CHIP",
-        "MOMENTUMSWING" to "MOMENTUM_SWING",
-        "WHALEFOLLOW" to "WHALE_FOLLOW",
-        "COPY_TRADE" to "COPYTRADE",
-        "CYCLIC_TREND" to "CYCLIC",
-    )
-
     /**
      * Normalize a raw lane string to its canonical form. Emits
      * IDENTITY_ALIAS_NORMALIZED_6464 for observability. Unknown labels
@@ -69,7 +57,7 @@ object CanonicalIdentityModel6464 {
     fun normalizeLane(raw: String?): String {
         val clean = (raw ?: "").trim().uppercase().replace("-", "_")
         if (clean.isBlank()) return "UNKNOWN"
-        val canonical = aliases[clean] ?: clean
+        val canonical = CanonicalLaneIdentity6506.canonical(clean)
         if (canonical != clean) {
             aliasNormalized.incrementAndGet()
             try { PipelineHealthCollector.labelInc("IDENTITY_ALIAS_NORMALIZED_6464") } catch (_: Throwable) {}

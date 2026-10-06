@@ -577,7 +577,7 @@ object PipelineHealthCollector {
         if (phaseTag == "FDG") {
             // ExecutableOpenGate emits BLOCK for non-executable outcomes and the
             // final sealed verdict otherwise; this is the authoritative population.
-            val allowed7685 = !verdict.equals("BLOCK", ignoreCase = true)
+            val allowed7685 = verdict.equals("BUY", ignoreCase = true)
             if (allowed7685) fdgFinalAllow7685.incrementAndGet() else fdgFinalBlock7685.incrementAndGet()
             val eventMode7685 = extractModeFromText(reason)
             val effMode7685 = when (eventMode7685) {

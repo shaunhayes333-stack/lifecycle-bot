@@ -8520,7 +8520,7 @@ class BotService : Service() {
         
         // Initialize KillSwitch for account protection
         val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-        KillSwitch.init(applicationContext, effectiveBalance)
+        KillSwitch.initConfigured7835(applicationContext, cfg)
         // V5.7.8: Paper mode — disable all daily limits for maximum learning
         KillSwitch.isPaperMode = cfg.paperMode
         KillSwitch.onKillTriggered = { reason ->
@@ -10347,7 +10347,7 @@ class BotService : Service() {
         // to restart no matter how many times the user tapped Start.
         //
         // V5.9.5: Close all Markets positions then stop all traders when main bot stops
-        try {
+        if (liquidateOnStop) try {
             com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions()
             com.lifecyclebot.perps.CommoditiesTrader.closeAllPositions()
             com.lifecyclebot.perps.MetalsTrader.closeAllPositions()
@@ -10365,7 +10365,7 @@ class BotService : Service() {
             com.lifecyclebot.perps.CryptoAltTrader.stop()
             com.lifecyclebot.perps.DynamicAltTokenRegistry.stopBackgroundDiscovery()
             com.lifecyclebot.perps.PerpsExecutionEngine.stop()
-            ErrorLogger.info("BotService", "All Markets traders stopped + positions closed alongside main bot")
+            ErrorLogger.info("BotService", "All Markets traders stopped; liquidationRequested=$liquidateOnStop")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Error stopping markets traders: ${e.message}", e)
         }
@@ -10430,13 +10430,14 @@ class BotService : Service() {
         try { wifiLock6032?.let { if (it.isHeld) it.release() } } catch (_: Throwable) {}
         wifiLock6032 = null
         
-        addLog("Bot stopped. All positions closed. Wallet remains connected.")
+        val stopSummary7835 = if (liquidateOnStop) "Liquidation requested; pending closes retain their proof state." else "Positions preserved."
+        addLog("Bot stopped. $stopSummary7835 Wallet remains connected.")
         
         // Show Toast on UI thread for immediate feedback
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             android.widget.Toast.makeText(
                 applicationContext,
-                "🛑 Bot Stopped\nAll positions closed",
+                "🛑 Bot Stopped\n$stopSummary7835",
                 android.widget.Toast.LENGTH_LONG
             ).show()
         }
@@ -10444,7 +10445,7 @@ class BotService : Service() {
         // Send Telegram notification for bot stop
         sendTradeNotif(
             "🛑 Bot Stopped",
-            "All positions closed. Wallet remains connected.",
+            "$stopSummary7835 Wallet remains connected.",
             NotificationHistory.NotifEntry.NotifType.INFO
         )
         } finally {
@@ -11638,7 +11639,7 @@ class BotService : Service() {
                             // close lease retryable/non-terminal, and wake the reconciler/sell path.
                             ErrorLogger.warn("BotService",
                                 "⏳ ZOMBIE_CATASTROPHE_PENDING_RETRY: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s attempts=$zombieAttempts — no local close without sell finality proof")
-                            try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.sell.CloseLease.raiseIntent(ts.mint, "ZOMBIE_CATASTROPHE_PENDING_RETRY", 100) } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ZOMBIE_CATASTROPHE_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageMs=$posAgeForNet pnl=${pnlPct.toInt()} attempts=$zombieAttempts action=no_local_close_no_slot_release") } catch (_: Throwable) {}
@@ -13209,9 +13210,7 @@ class BotService : Service() {
                                 // -10/-12/-13 inside the band their lane holds through.
                                 // MANIPULATED/SHITCOIN/EXPRESS keep their one-strike -10.
                                 val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
-                                if (planExit7739 != null) {
-                                    planTickExit7739(ts, com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime), planExit7739, pnlPctNow, peakPct)
-                                } else if ((moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) &&
+                                if ((moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) &&
                                     !planOwnsExit7754(ts, true, catastrophicConfirmed4485, "TICK_FLOOR", stopSide = true)) {
                                     if (moonshotLaneStop7389) try { PipelineHealthCollector.labelInc("TICK_MOONSHOT_LANE_STOP_7389") } catch (_: Throwable) {}
                                     ErrorLogger.warn("BotService",
@@ -13239,6 +13238,8 @@ class BotService : Service() {
                                             else "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
                                             walletTick, balTick)
                                     } catch (_: Throwable) {}
+                                } else if (planExit7739 != null) {
+                                    planTickExit7739(ts, com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime), planExit7739, pnlPctNow, peakPct)
                                 } else {
                                     // ─── Guard 2: TICK_PROFIT_LOCK (UI high-lock parity) ───
                                     // Use FluidLearningAI's high-lock floor — the same value
@@ -14593,44 +14594,6 @@ class BotService : Service() {
     }
 
     /**
-     * V5.0.7468 — shared sealed-attempt reuse for dedicated meme specialists.
-     *
-     * These lanes already run ExecutableOpenGate.recordFdg(...) before
-     * TradeAuthorizer. Omitting attemptId at authorization created a second
-     * causal record after FDG/mark sealing. Reuse only when BOTH candidate
-     * version and canonical lane match; otherwise return blank and leave the
-     * mismatch visible to the existing authorizer/funnel diagnostics.
-     */
-    private fun sealedSpecialistAttempt7468(mint: String, lane: String, paper: Boolean): String {
-        if (mint.isBlank() || lane.isBlank()) return ""
-        val version = try { LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { 0L }
-        if (version <= 0L) return ""
-        val canonicalLane = try {
-            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
-        } catch (_: Throwable) { lane.uppercase() }
-        val intent = try {
-            ExecutableOpenGate.activeExecutionIntent6519(
-                if (paper) "PAPER" else "LIVE",
-                mint,
-                version,
-            )
-        } catch (_: Throwable) { null }
-        val sealedLane = try {
-            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(intent?.canonicalLane.orEmpty())
-        } catch (_: Throwable) { intent?.canonicalLane.orEmpty().uppercase() }
-        val attempt = intent?.attemptId?.takeIf { it.isNotBlank() && sealedLane == canonicalLane }.orEmpty()
-        try {
-            PipelineHealthCollector.labelInc(
-                if (attempt.isNotBlank())
-                    "SPECIALIST_SEALED_ATTEMPT_REUSED_7468_${canonicalLane}"
-                else
-                    "SPECIALIST_SEALED_ATTEMPT_MISSING_OR_MISMATCH_7468_${canonicalLane}"
-            )
-        } catch (_: Throwable) {}
-        return attempt
-    }
-
-    /**
      * V5.0.7809 §QUALITY_BLUECHIP_HOLDER_EVIDENCE_WAS_NOT_READ. QUALITY and
      * BLUECHIP passed `ts.topHolderPct ?: 50.0(live)` to their scorers, so a
      * candidate whose concentration lived only on the safety report (or the
@@ -15142,38 +15105,6 @@ class BotService : Service() {
                 try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_CONTRIBUTOR_ONLY_6599_$l") } catch (_: Throwable) {}
             }
             if (l in fullMemeTraderRing) {
-                // V5.0.7235 §LANE_FANOUT_CAP — operator diagnosis 7227:
-                //   laneEval/intake = 29.51.  Cap distinct lane
-                //   evaluations per (mint, causalRoot) at 2 so the same
-                //   intake candidate cannot fan out through every meme
-                //   trader.  causalRoot uses candidateVersion6533 which
-                //   LaneExecutionCoordinator increments on genuinely
-                //   fresh intakes, so a new opportunity on the same
-                //   mint is unaffected.
-                //
-                //   NOTE: the guard runs BEFORE LaneAutoPauseGuard so a
-                //   paused-lane observation still counts toward the cap
-                //   surface (governor observes intent, not paused-lane
-                //   opportunity cost).  Skipping caller returns early
-                //   without re-entering FDG.
-                val laneFanoutOk7235 = try {
-                    com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowLaneEval(
-                        mint = ts.mint,
-                        causalRoot = candidateVersion6533.toString(),
-                        laneName = l,
-                    )
-                } catch (_: Throwable) { true }
-                if (!laneFanoutOk7235) {
-                    try {
-                        PipelineHealthCollector.labelInc("LANE_EVAL_SUPPRESSED_FANOUT_CAP_7235")
-                        PipelineHealthCollector.labelInc("LANE_EVAL_SUPPRESSED_FANOUT_CAP_7235_$l")
-                        ForensicLogger.lifecycle(
-                            "LANE_EVAL_SUPPRESSED_FANOUT_CAP_7235",
-                            "mint=${ts.mint.take(10)} lane=$l causalRoot=$candidateVersion6533 action=refuse_extra_lane_eval",
-                        )
-                    } catch (_: Throwable) {}
-                    return false
-                }
                 // V5.0.4598 — RESPECT LaneAutoPauseGuard IN OWNER-LANE BYPASS.
                 // Field V5.0.4597 exposed the MANIPULATED bleed source: this
                 // owner-lane / all-lane-contribution path lets any ring lane
@@ -26775,76 +26706,6 @@ if (hotExitHandledSweep) {
         }
     }
     val cyclePrimaryLane = canonicalCycleLaneFor(ts, modeClassification)
-    if (!ts.position.isOpen) {
-        val candidateVersion6487 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
-        val preEntry6487 = try {
-            // V5.0.6909 — the PRIMARY admission producer. This decision is
-            // cached into ExecutableOpenGate via recordEntryAuthority6487
-            // below and is what the exec gate later reads, so routing it
-            // through the learned overload is what actually gives
-            // LearnedAdmissionAuthority6846 a vote. It had none: this site
-            // called the 3-arg gate(), which only consults the losing-streak
-            // damper. See LearnedAdmissionInputs6909.
-            com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.gate(
-                lane = cyclePrimaryLane,
-                mint = identity.mint,
-                requestedSizeSol = 1.0,
-                // V5.0.7108 — this is the PRE-FDG gate, so for a fresh launch
-                // ExecutableOpenGate has no stamped state and its score reads
-                // "unknown" (-1). The real score is already on `ts`: line ~23495
-                // of this same function wrote `ts.entryScore = result.entryScore`
-                // from strategy.evaluateWithDecision, 185 lines above this call.
-                // It was being discarded and replaced with 0, which is band S00 —
-                // see entryScoreFor6909's note for what that did to the oracle.
-                // Prefer the sealed gate score when one exists; otherwise use the
-                // score this cycle just computed.
-                entryScore = ExecutableOpenGate.entryScoreFor6909(identity.mint)
-                    .takeIf { it >= 0 }
-                    ?: ts.entryScore.toInt().coerceIn(0, 100),
-                minExecutableSol = 0.0,
-                probeSizeSol = 1.0,
-                // V5.0.6915 — see ExecutableOpenGate's matching call.
-                sourceFamilyHint = ts.source,
-                // V5.0.7260 — do not collapse the five-dimensional forward
-                // model into lane+score by throwing away fields already known
-                // on this candidate.
-                qualityHint = ts.meta.setupQuality,
-                edgePhaseHint = ts.phase,
-                candidateConfidenceHint =
-                    ((ts.lastV3Confidence ?: 50).coerceIn(0, 100) / 100.0),
-                foundationCandidate = decision,
-                paperMode = cfg.paperMode,
-                // `requestedSizeSol=1.0` above is a pre-sizing placeholder.
-                // Price the manual's setup prior at the smallest venue-routable
-                // size so the fusion does not call a valid launch PASS merely
-                // because the placeholder position is ~25x larger.
-                foundationSizeSol = try {
-                    val px = WalletManager.lastKnownSolPrice
-                    if (px > 0.0) com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(
-                        com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_ROUTABLE_MIN_USD_7127, px,
-                    ).coerceIn(
-                        com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127,
-                        com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127,
-                    ) else com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127
-                } catch (_: Throwable) {
-                    com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127
-                },
-            )
-        } catch (_: Throwable) {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
-                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed_6487",
-            )
-        }
-        // V5.0.7189 — pass the cycle's elected PRIMARY lane as a field, not as
-        // text inside decision.reason. ExecutableOpenGate's ownership rank uses
-        // it to stop a non-primary rescue lane taking a candidate purely by
-        // sealing first — the defect that left BLUECHIP with 162 buy intents
-        // and 21 ownerSelected.
-        ExecutableOpenGate.recordEntryAuthority6487(
-            identity.mint, candidateVersion6487, preEntry6487,
-            primaryLane7189In = cyclePrimaryLane,
-        )
-    }
     try {
         ForensicLogger.lifecycle(
             "CYCLE_PRIMARY_LANE",
@@ -27513,49 +27374,6 @@ if (hotExitHandledSweep) {
                         PipelineHealthCollector.labelInc("V3_CANONICAL_HANDOFF_PENDING_6533")
                         ForensicLogger.lifecycle("V3_CANONICAL_HANDOFF_PENDING_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$cyclePrimaryLane action=real_fdg_then_one_immutable_intent")
                     } catch (_: Throwable) {}
-                    // V5.0.6534 §V3_EXECUTABLE_TRUNK_HANDOFF — operator audit
-                    // Feb 2026: V3 Execute was leaving a stale cached
-                    // preFdgVerdict (often NO_BUY/WATCH from the prior tick)
-                    // so the downstream STANDARD/V3 doBuy() precheck dropped
-                    // the buy as EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY. The
-                    // V3_CANONICAL_HANDOFF_PENDING_6533 telemetry above only
-                    // announced the intent — it didn't refresh the gate.
-                    // Fix: refresh ExecutableOpenGate's FDG verdict with V3's
-                    // own BUY authority on the primary/rescue lane so
-                    // finality reads a fresh BUY and the immutable execution
-                    // ticket downstream carries V3's approval. Boolean
-                    // fdgCan/hardNo/liquidity/safety-tier rails from the
-                    // canonical FDG payload are preserved on the elected
-                    // lane's snapshot — this only refreshes the string
-                    // verdict so the executor sees V3's decision, not a
-                    // stale prior-tick record.
-                    // V5.0.7389 — no V3 BUY stamp on a QUALITY/BLUECHIP-owned lane (its evaluator decides).
-                    if (!(cyclePrimaryLane.uppercase() in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP") && LaneEntryContract6342.specialistCanBuy7389(ts, cyclePrimaryLane))) try {
-                        ExecutableOpenGate.recordFdg(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            lane = cyclePrimaryLane.uppercase(),
-                            canExecute = true,
-                            reason = "V3_EXECUTE_HANDOFF_6534",
-                            signal = "BUY",
-                            rugScore = ts.safety.rugcheckScore,
-                            safetyTier = "V3",
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            hardNoReasons = emptyList(),
-                            preFdgVerdict = "BUY",
-                            // V5.0.6620 §9 — canonical candidateVersion
-                            //   authority. Was `System.currentTimeMillis()`
-                            //   raw wall-clock; that created a second
-                            //   version authority that never matched the
-                            //   executor's LaneExecutionCoordinator bucket.
-                            candidateVersion = try {
-                                com.lifecyclebot.engine.LaneExecutionCoordinator
-                                    .candidateVersionFor(ts.mint)
-                            } catch (_: Throwable) { 0L },
-                        )
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620") } catch (_: Throwable) {}
-                        PipelineHealthCollector.labelInc("V3_EXECUTABLE_TRUNK_HANDOFF_6534")
-                    } catch (_: Throwable) {}
                     // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
                     try {
                         com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
@@ -28147,7 +27965,6 @@ if (hotExitHandledSweep) {
                     allow = treasuryFdgCanExecute6663,
                     reason = (treasuryFdgReason6663) + " path=$compounderLane7614")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, compounderLane7614, treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = sealedEntryScore7688(treasuryFdg, ts.entryScore.toInt()), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
                             val trsFdgStructural = !treasuryFdgCanExecute6663 &&
                                 (treasuryFdg == null || treasuryFdgReason6663.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") })
@@ -28163,6 +27980,7 @@ if (hotExitHandledSweep) {
 
 
                             val authResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = treasuryFdg, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 score = treasuryScore,  // V5.2: Use Treasury's score
@@ -28174,7 +27992,6 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = adjustedSize,
-                                attemptId = sealedSpecialistAttempt7468(ts.mint, compounderLane7614, cfg.paperMode),
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -28195,6 +28012,7 @@ if (hotExitHandledSweep) {
                                 // can self-report DUPLICATE_EXECUTION_KEY on the same approved
                                 // lane handoff. Fallback keeps old behavior if telemetry is absent.
                                 val treasuryAttemptId = authResult.attemptId
+                                val adjustedSize = requireNotNull(authResult.executionIntent7835).resolvedSize
                             
                                 // Try to acquire execution permit
                                 val canExecute = FinalExecutionPermit.tryAcquireExecution(
@@ -28445,7 +28263,7 @@ if (hotExitHandledSweep) {
                                     specialistLane = "QUALITY",
                                 )
                             } catch (fdgEx: Exception) {
-                                ErrorLogger.warn("BotService", "⭐ [QUALITY] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                ErrorLogger.warn("BotService", "⭐ [QUALITY] FDG error: ${fdgEx.message} — entry refused")
                                 null
                             }
                             // V5.9.689 — bump FDG forensic counter for QUALITY path
@@ -28456,7 +28274,7 @@ if (hotExitHandledSweep) {
                 // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                    allow = qualityFdg?.canExecute() ?: true,
+                    allow = qualityFdg?.canExecute() == true,
                     reason = (qualityFdg?.let { v7213 ->
                         // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
                         // canExecute() is false whenever shouldTrade is false, even with
@@ -28470,7 +28288,6 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=QUALITY")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = sealedEntryScore7688(qualityFdg, ts.entryScore.toInt()), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Quality signals
                             val qualityFdgStructural = qualityFdg != null && !qualityFdg.canExecute() &&
                                 qualityFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -28490,6 +28307,7 @@ if (hotExitHandledSweep) {
                                 RejectionTelemetry.record("QUALITY_FDG_PROBE", qualityFdg?.blockReason ?: "fdg_caution")
                             }
                             val qualityAuth6494 = TradeAuthorizer.authorize(
+                                fdgDecision7835 = qualityFdg, tokenState7835 = ts,
                                 mint = ts.mint, symbol = ts.symbol,
                                 score = qualitySignal6022.qualityScore,
                                 confidence = qualitySignal6022.qualityScore.toDouble(),
@@ -28497,13 +28315,13 @@ if (hotExitHandledSweep) {
                                 requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
                                 preResolvedSizeSol = qualitySize7389,
-                                attemptId = sealedSpecialistAttempt7468(ts.mint, "QUALITY", cfg.paperMode),
                             )
+                            val qualityAuthorizedSize7835 = qualityAuth6494.executionIntent7835?.resolvedSize ?: 0.0
                             val canExecute = qualityAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "QUALITY",
-                                sizeSol = qualitySize7389,
+                                sizeSol = qualityAuthorizedSize7835,
                                 attemptId = qualityAuth6494.attemptId,
                                 finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
@@ -28517,7 +28335,7 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService", "⭐ [QUALITY] ${ts.symbol} | ENTER | " +
                                     "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
                                     "score=${qualitySignal6022.qualityScore} | " +
-                                    "size=${qualitySize7389.fmt(3)} SOL")
+                                    "size=${qualityAuthorizedSize7835.fmt(3)} SOL")
                                 
                                 // V5.9.189: Use QualityTraderAI's own fluid TP (15-50%)
                                 // NOT 4-8% overrides — those make losses > wins structurally
@@ -28529,7 +28347,7 @@ if (hotExitHandledSweep) {
                                 // Execute Quality buy (reuse BlueChip executor pattern)
                                 val qualityOpened = executor.blueChipBuy(
                                     ts = ts,
-                                    sizeSol = qualitySize7389,
+                                    sizeSol = qualityAuthorizedSize7835,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = qualityTp,
                                     stopLossPct = qualitySignal6022.stopLossPct,
@@ -28565,7 +28383,7 @@ if (hotExitHandledSweep) {
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         entryPrice = ts.ref,
-                                        entrySol = qualitySize7389,
+                                        entrySol = qualityAuthorizedSize7835,
                                         entryTime = System.currentTimeMillis(),
                                         entryMcap = ts.lastMcap,
                                         takeProfitPct = qualityTp,
@@ -28707,7 +28525,7 @@ if (hotExitHandledSweep) {
                                     specialistLane = "BLUECHIP",
                                 )
                             } catch (fdgEx: Exception) {
-                                ErrorLogger.warn("BotService", "🔵 [BLUECHIP] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                ErrorLogger.warn("BotService", "🔵 [BLUECHIP] FDG error: ${fdgEx.message} — entry refused")
                                 null
                             }
                             // V5.9.689 — bump FDG forensic counter for BLUECHIP path
@@ -28718,7 +28536,7 @@ if (hotExitHandledSweep) {
                 // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                    allow = blueChipFdg?.canExecute() ?: true,
+                    allow = blueChipFdg?.canExecute() == true,
                     reason = (blueChipFdg?.let { v7213 ->
                         // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
                         // canExecute() is false whenever shouldTrade is false, even with
@@ -28732,7 +28550,6 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=BLUECHIP")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = sealedEntryScore7688(blueChipFdg, ts.entryScore.toInt()), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, BlueChip signals
                             val bcFdgStructural = blueChipFdg != null && !blueChipFdg.canExecute() &&
                                 blueChipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -28751,26 +28568,9 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_caution"} | probe trade")
                                 RejectionTelemetry.record("BLUECHIP_FDG_PROBE", blueChipFdg?.blockReason ?: "fdg_caution")
                             }
-                            // V5.0.7466 P0-3 — BLUECHIP must carry the SAME immutable
-                            // FDG attempt into TradeAuthorizer. The dedicated sub-trader
-                            // previously passed a blank attemptId, so authorize() generated
-                            // a second execution attempt after FDG/mark had already been
-                            // sealed. That split BUY_INTENT/OWNER from MARK/SIZE/TICKET.
-                            val blueChipCandidateVersion7466 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-                            val blueChipSealedIntent7466 = try {
-                                ExecutableOpenGate.activeExecutionIntent6519(
-                                    if (cfg.paperMode) "PAPER" else "LIVE",
-                                    ts.mint,
-                                    blueChipCandidateVersion7466,
-                                )
-                            } catch (_: Throwable) { null }
-                            if (blueChipSealedIntent7466 == null) {
-                                try { PipelineHealthCollector.labelInc("BLUECHIP_SEALED_INTENT_MISSING_BEFORE_AUTH_7466") } catch (_: Throwable) {}
-                            } else {
-                                try { PipelineHealthCollector.labelInc("BLUECHIP_SEALED_INTENT_REUSED_FOR_AUTH_7466") } catch (_: Throwable) {}
-                            }
                             // V5.0.6494: one immutable election receipt from auth through permit.
                             val blueChipAuth6494 = TradeAuthorizer.authorize(
+                                fdgDecision7835 = blueChipFdg, tokenState7835 = ts,
                                 mint = ts.mint, symbol = ts.symbol,
                                 score = blueChipSignal6022.confidence,
                                 confidence = blueChipSignal6022.confidence.toDouble(),
@@ -28778,7 +28578,6 @@ if (hotExitHandledSweep) {
                                 requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
                                 preResolvedSizeSol = bcSize7389,
-                                attemptId = blueChipSealedIntent7466?.attemptId.orEmpty(),
                             )
                             // The authorizer has now passed the executable-open finality
                             // gate. Record the proven downstream stages on the exact attempt
@@ -28791,11 +28590,12 @@ if (hotExitHandledSweep) {
                                     PipelineHealthCollector.labelInc("BLUECHIP_POST_AUTH_CAUSAL_HANDOFF_7466")
                                 } catch (_: Throwable) {}
                             }
+                            val blueChipAuthorizedSize7835 = blueChipAuth6494.executionIntent7835?.resolvedSize ?: 0.0
                             val canExecute = blueChipAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "BLUE_CHIP",
-                                sizeSol = bcSize7389,
+                                sizeSol = blueChipAuthorizedSize7835,
                                 attemptId = blueChipAuth6494.attemptId,
                                 finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
@@ -28815,13 +28615,13 @@ if (hotExitHandledSweep) {
 
                                 ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
                                     "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
-                                    "size=${bcSize7389.fmt(3)} SOL | " +
+                                    "size=${blueChipAuthorizedSize7835.fmt(3)} SOL | " +
                                     "TP=$blueChipTp% (conf=$v3Confidence)")
 
                                 // Execute Blue Chip buy
                                 val blueChipOpened = executor.blueChipBuy(
                                     ts = ts,
-                                    sizeSol = bcSize7389,
+                                    sizeSol = blueChipAuthorizedSize7835,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = blueChipTp,
                                     stopLossPct = blueChipSignal6022.stopLossPct,
@@ -28849,7 +28649,7 @@ if (hotExitHandledSweep) {
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         entryPrice = ts.ref.takeIf { it > 0 } ?: ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice,
-                                        entrySol = bcSize7389,
+                                        entrySol = blueChipAuthorizedSize7835,
                                         entryTime = System.currentTimeMillis(),
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
@@ -28876,7 +28676,7 @@ if (hotExitHandledSweep) {
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 
                                 addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
-                                    "${bcSize7389.fmt(3)} SOL | " +
+                                    "${blueChipAuthorizedSize7835.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
@@ -29125,7 +28925,6 @@ if (hotExitHandledSweep) {
                                     ErrorLogger.warn("BotService", "🚀 [MOONSHOT] FDG error: ${fdgEx.message} — proceeding without FDG veto")
                                     null // null = no veto, proceed
                                 }
-                                ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MOONSHOT", moonshotFdgDecision?.canExecute() ?: true, moonshotFdgDecision?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = sealedEntryScore7688(moonshotFdgDecision, ts.entryScore.toInt()), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
 
                                 // V5.9.691 — FDG is MODULATOR not KILLER for sub-traders.
                                 // Perpetual-learning architecture: FDG adjusts size when it disagrees,
@@ -29180,6 +28979,7 @@ if (hotExitHandledSweep) {
                                     ?: legacyMoonshotSize.coerceIn(0.01, moonshotScore.suggestedSizeSol.coerceAtLeast(0.01))
                                 // V5.2: Authorize through TradeAuthorizer
                                 val authResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = moonshotFdgDecision, tokenState7835 = ts,
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     score = moonshotScore.score,
@@ -29190,13 +28990,13 @@ if (hotExitHandledSweep) {
                                     rugcheckScore = ts.safety.rugcheckScore,
                                     liquidity = ts.lastLiquidityUsd,
                                     preResolvedSizeSol = msEffectiveSize,
-                                    attemptId = sealedSpecialistAttempt7468(ts.mint, "MOONSHOT", cfg.paperMode),
                                 )
                                 
                                 if (!authResult.isExecutable()) {
                                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | AUTH_DENIED | ${authResult.reason}")
                                 } else {
                                     val moonshotAttemptId = authResult.attemptId
+                                val msEffectiveSize = requireNotNull(authResult.executionIntent7835).resolvedSize
                                     // Acquire final execution permit
                                     // V5.9.691 — apply FDG probe reduction if FDG disagreed
                                     // V5.9.1575 — obey FDG final size exactly when present.
@@ -29745,7 +29545,7 @@ if (hotExitHandledSweep) {
                                     specialistLane = "SHITCOIN",
                                 )
                             } catch (fdgEx: Exception) {
-                                ErrorLogger.warn("BotService", "💩 [SHITCOIN] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                ErrorLogger.warn("BotService", "💩 [SHITCOIN] FDG error: ${fdgEx.message} — entry refused")
                                 null
                             }
                             // V5.9.689 — bump FDG forensic counter for SHITCOIN path
@@ -29756,7 +29556,7 @@ if (hotExitHandledSweep) {
                 // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                    allow = shitCoinFdg?.canExecute() ?: true,
+                    allow = shitCoinFdg?.canExecute() == true,
                     reason = (shitCoinFdg?.let { v7213 ->
                         // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
                         // canExecute() is false whenever shouldTrade is false, even with
@@ -29770,7 +29570,6 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=SHITCOIN")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = sealedEntryScore7688(shitCoinFdg, ts.entryScore.toInt()), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                             // V5.9.1201 — FDG is a HARD VETO for ShitCoin too.
                             // Runtime log 03:27 showed direct SHITCOIN paper buys
                             // after V3/FDG state was WATCH/HARD_NO_BUY. The old
@@ -29834,21 +29633,8 @@ if (hotExitHandledSweep) {
                                 }
                             }
 
-                            // V5.0.7389 — lane-owned causal attemptId (mirrors PROJECT_SNIPER 6842)
-                            // so INTENT/MARK/SIZE/TICKET join on one CausalKey for SHITCOIN.
-                            val shitCoinAttemptId7389 = sealedSpecialistAttempt7468(
-                                ts.mint, "SHITCOIN", cfg.paperMode,
-                            ).ifBlank {
-                                try { ExecutableOpenGate.nextAttemptId(ts.mint, "SHITCOIN") } catch (_: Throwable) { "" }
-                            }
-                            try {
-                                PipelineHealthCollector.labelInc(
-                                    if (shitCoinAttemptId7389.isNotBlank())
-                                        "SHITCOIN_AUTH_ATTEMPT_BOUND_7469"
-                                    else "SHITCOIN_AUTH_ATTEMPT_MISSING_7469"
-                                )
-                            } catch (_: Throwable) {}
                             val authResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = shitCoinFdg, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 score = ts.lastV3Score ?: shitCoinSignal.confidence,
@@ -29860,7 +29646,6 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = adjustedSize,
-                                attemptId = shitCoinAttemptId7389,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -29873,6 +29658,7 @@ if (hotExitHandledSweep) {
                             } else {
                                 // AUTHORIZED - proceed with execution
                                 val shitcoinAttemptId = authResult.attemptId
+                                val adjustedSize = requireNotNull(authResult.executionIntent7835).resolvedSize
                             
                                 // V4.0: Try to acquire execution permit
                                 val canExecute = FinalExecutionPermit.tryAcquireExecution(
@@ -30141,7 +29927,7 @@ if (hotExitHandledSweep) {
                                 specialistLane = "MANIPULATED",
                             )
                         } catch (fdgEx: Exception) {
-                            ErrorLogger.warn("BotService", "🎭 [MANIP] FDG error: ${fdgEx.message} — proceeding fail-open")
+                            ErrorLogger.warn("BotService", "🎭 [MANIP] FDG error: ${fdgEx.message} — entry refused")
                             null
                         }
                         // V5.9.689 — bump FDG forensic counter for MANIP path
@@ -30152,7 +29938,7 @@ if (hotExitHandledSweep) {
                             // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
                             // gate reason so onGate still does the per-lane accounting.
                             ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                                allow = manipFdg?.canExecute() ?: true,
+                                allow = manipFdg?.canExecute() == true,
                                 reason = (manipFdg?.let { v7213 ->
                         // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
                         // canExecute() is false whenever shouldTrade is false, even with
@@ -30166,7 +29952,6 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=MANIP")
                         } catch (_: Throwable) {}
-                        ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = sealedEntryScore7688(manipFdg, ts.entryScore.toInt()), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                         // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
                         val manipFdgStructural = manipFdg != null && !manipFdg.canExecute() &&
                             manipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -30180,6 +29965,7 @@ if (hotExitHandledSweep) {
                             RejectionTelemetry.record("MANIP_FDG_PROBE", manipFdg?.blockReason ?: "fdg_caution")
                         }
                         val manipAuthResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = manipFdg, tokenState7835 = ts,
                             mint = ts.mint,
                             symbol = ts.symbol,
                             score = manipSignal.manipScore,
@@ -30191,7 +29977,6 @@ if (hotExitHandledSweep) {
                             liquidity = ts.lastLiquidityUsd,
                             isBanned = BannedTokens.isBanned(ts.mint),
                             preResolvedSizeSol = manipSignal.positionSizeSol,
-                            attemptId = sealedSpecialistAttempt7468(ts.mint, "MANIPULATED", cfg.paperMode),
                         )
 
                         if (!manipAuthResult.isExecutable()) {
@@ -30199,17 +29984,18 @@ if (hotExitHandledSweep) {
                             if (!manipAuthResult.isShadowOnly()) RejectionTelemetry.record("MANIP", manipAuthResult.reason)
                         } else {
                             val manipAttemptId = manipAuthResult.attemptId
+                                val manipAuthorizedSize7835 = requireNotNull(manipAuthResult.executionIntent7835).resolvedSize
                             ErrorLogger.info("BotService", "☠️ [MANIP] ${ts.symbol} | ENTER | " +
                                 "score=${manipSignal.manipScore} | " +
                                 "bundle=${manipBundlePct.toInt()}% | " +
                                 "bp=${ts.lastBuyPressurePct.toInt()}% | " +
                                 "mom=${(ts.momentum ?: 0.0).toInt()}% | " +
-                                "size=${String.format("%.4f", manipSignal.positionSizeSol)} SOL | " +
+                                "size=${String.format("%.4f", manipAuthorizedSize7835)} SOL | " +
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}")
 
                             val manipOpened = executor.shitCoinBuy(
                                 ts = ts,
-                                sizeSol = manipSignal.positionSizeSol,
+                                sizeSol = manipAuthorizedSize7835,
                                 walletSol = effectiveBalance,
                                 // V5.0.4214 — match ManipulatedTraderAI achievable geometry.
                                 takeProfitPct = 14.0,
@@ -30240,7 +30026,7 @@ if (hotExitHandledSweep) {
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     entryPrice = actualManipEntry,
-                                    entrySol = manipSignal.positionSizeSol,
+                                    entrySol = manipAuthorizedSize7835,
                                     entryTime = System.currentTimeMillis(),
                                     // V5.0.4214 — match ManipulatedTraderAI's achievable
                                     // bounce geometry. Stale 25/-5 here overrode the class-level
@@ -30443,7 +30229,7 @@ if (hotExitHandledSweep) {
                                     specialistLane = "EXPRESS",
                                 )
                             } catch (fdgEx: Exception) {
-                                ErrorLogger.warn("BotService", "🚂 [EXPRESS] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                ErrorLogger.warn("BotService", "🚂 [EXPRESS] FDG error: ${fdgEx.message} — entry refused")
                                 null
                             }
                             // V5.9.689 — bump FDG forensic counter for EXPRESS path
@@ -30454,7 +30240,7 @@ if (hotExitHandledSweep) {
                 // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                    allow = expressFdg?.canExecute() ?: true,
+                    allow = expressFdg?.canExecute() == true,
                     reason = (expressFdg?.let { v7213 ->
                         // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
                         // canExecute() is false whenever shouldTrade is false, even with
@@ -30472,60 +30258,13 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on EXPRESS: ${ts.symbol} | ${expressFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("EXPRESS_FDG", expressFdg.blockReason ?: "fdg_block")
                             } else {
-                            // V5.9.1570 — Express FDG verdict must be written before
-                            // TradeAuthorizer/ExecutableOpenGate finality. The 6dc6f73a
-                            // log showed FDG path=EXPRESS can=true immediately followed
-                            // by EXPRESS finality_exec_open_dropped_pre_fdg_not_buy_watch
-                            // dominating RejectStats (631/766). Cause: Express called
-                            // FDG for telemetry but never recordFdg(), so finality read
-                            // the old V3 WATCH state. Write the executable verdict now.
-                            try {
-                                ExecutableOpenGate.recordFdg(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    // V5.0.6664 — preserve the lane identity created by
-                                    // the Express specialist.  The original 1570 repair
-                                    // accidentally sealed the FDG intent as SHITCOIN,
-                                    // while TradeAuthorizer and the executor requested
-                                    // EXPRESS below.  Final bind correctly refused that
-                                    // contradictory tuple as a missing immutable intent.
-                                    lane = "EXPRESS",
-                                    canExecute = expressFdg?.canExecute() ?: true,
-                                    reason = expressFdg?.blockReason ?: "EXPRESS_OK",
-                                    signal = "BUY",
-                                    rugScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                                    safetyTier = ts.safety.tier.name,
-                                    liquidityUsd = ts.lastLiquidityUsd,
-                                    hardNoReasons = emptyList(),
-                                    preFdgVerdict = if (expressFdg?.canExecute() == false) "NO_BUY" else "BUY",
-                                    entryScore = sealedEntryScore7688(expressFdg, expressSignal.confidence),
-                                    tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
-                                    tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
-                                    tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
-                                    tokenMapProviderAttempts = ts.tokenMap.providerAttempts,
-                                )
-                            } catch (w: Throwable) {
-                                ErrorLogger.warn("BotService", "EXPRESS recordFdg failed: ${w.message} — continuing to auth")
-                            }
                             // Seal the exact size before authorization. The same value
                             // is passed unchanged to the executor below.
                             val expressFinalSize = expressFdg?.sizeSol
                                 ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
-                            // V5.0.7389 — lane-owned causal attemptId (mirrors PROJECT_SNIPER 6842).
-                            val expressAttemptId7389 = sealedSpecialistAttempt7468(
-                                ts.mint, "EXPRESS", cfg.paperMode,
-                            ).ifBlank {
-                                try { ExecutableOpenGate.nextAttemptId(ts.mint, "EXPRESS") } catch (_: Throwable) { "" }
-                            }
-                            try {
-                                PipelineHealthCollector.labelInc(
-                                    if (expressAttemptId7389.isNotBlank())
-                                        "EXPRESS_AUTH_ATTEMPT_BOUND_7469"
-                                    else "EXPRESS_AUTH_ATTEMPT_MISSING_7469"
-                                )
-                            } catch (_: Throwable) {}
                             val authResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = expressFdg, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 // V5.0.7389 — the lane's own score/confidence (0-100), not the
@@ -30539,13 +30278,13 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = expressFinalSize,
-                                attemptId = expressAttemptId7389,
                             )
                             if (!authResult.isExecutable()) {
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
                                 if (!authResult.isShadowOnly()) RejectionTelemetry.record("EXPRESS", authResult.reason)
                             } else {
                                 val expressAttemptId = authResult.attemptId
+                                val expressFinalSize = requireNotNull(authResult.executionIntent7835).resolvedSize
                                 // V5.9.1574 — Express must obey FDG's learned size.
                                 // Runtime log 20:55 showed FDG_POLICY micro-sizing SHITCOIN
                                 // to 0.010, but Express still executed/boarded at raw
@@ -30813,27 +30552,13 @@ if (hotExitHandledSweep) {
                         }
 
                         if (assessment.shouldEngage && !_sniperBlocked6072 && !sniperOracleRefused7406 && sniperSizedSol7054 > 0.0) {
-                            // V5.0.6842 §SNIPER_CAUSAL_IDENTITY_FRAGMENTED — the standalone
-                            // sniper path left authorize()'s attemptId at its "" default, so
-                            // TradeAuthorizer minted a 3-part "mint:candidateVersion:LANE"
-                            // event id for INTENT while MARK and SIZE were stamped with the
-                            // canonical 7-part attemptId from the execution spine. The funnel
-                            // only counts a stage when DISCOVER, INTENT, MARK_READY and SIZE
-                            // all share ONE CausalKey (MemeExecutionFunnelReceivers6625:391),
-                            // and candidateVersion is a wall-clock 30s bucket captured at a
-                            // different moment, so the stages could never join.
-                            // That is why the operator saw PROJECT_SNIPER report
-                            // markReady=76 sizedExecutable=0 ticket=0 exec=0 with
-                            // phantomSizedOnly=42 and status=SIZING_CHOKED, while StrategyTruth
-                            // simultaneously reported n=20 WR=45% PnL=+2.7422 SOL. The lane was
-                            // trading and profitable the whole time — the funnel was
-                            // mis-joining its own telemetry, and the resulting "0 executions"
-                            // is what made the book's best lane look dead.
-                            val sniperAttemptId6842 = try {
-                                ExecutableOpenGate.nextAttemptId(ts.mint, "PROJECT_SNIPER")
-                            } catch (_: Throwable) { "" }
                             // Authorize with TradeAuthorizer
                             val authResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = FinalDecisionGate.evaluate(
+                                    ts = ts, candidate = laneQualifiedBuyDecision(decision, "PROJECT_SNIPER", confidenceFloor = assessment.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    config = cfg, proposedSizeSol = sniperSizedSol7054, brain = executor.brain,
+                                    specialistLane = "PROJECT_SNIPER", laneScore = assessment.confidence.toDouble(),
+                                ), tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 score = assessment.confidence,
@@ -30845,11 +30570,11 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = sniperSizedSol7054,  // V5.0.7054 shaped
-                                attemptId = sniperAttemptId6842,
                             )
                             
                             if (authResult.isExecutable()) {
                                 val projectSniperAttemptId = authResult.attemptId
+                                val sniperSizedSol7054 = requireNotNull(authResult.executionIntent7835).resolvedSize
                                 // V5.0.7324 — the sniper path never passes FDG; it
                                 // already requires its OWN score >= 30 above, then the
                                 // executor re-judged the trade on the generic V3 score
@@ -31062,7 +30787,7 @@ if (hotExitHandledSweep) {
                                     specialistLane = "DIP_HUNTER",
                                 )
                             } catch (fdgEx: Exception) {
-                                ErrorLogger.warn("BotService", "📉 [DIPHUNTER] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                ErrorLogger.warn("BotService", "📉 [DIPHUNTER] FDG error: ${fdgEx.message} — entry refused")
                                 null
                             }
                             // V5.9.689 — bump FDG forensic counter for DIPHUNTER path
@@ -31073,7 +30798,7 @@ if (hotExitHandledSweep) {
                 // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                    allow = dipFdg?.canExecute() ?: true,
+                    allow = dipFdg?.canExecute() == true,
                     reason = (dipFdg?.let { v7213 ->
                         // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
                         // canExecute() is false whenever shouldTrade is false, even with
@@ -31087,7 +30812,6 @@ if (hotExitHandledSweep) {
                         v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                     } ?: "FDG_VERDICT_ABSENT_7213") + " path=DIPHUNTER")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = sealedEntryScore7688(dipFdg, ts.entryScore.toInt()), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, DipHunter signals
                             val dipFdgStructural = dipFdg != null && !dipFdg.canExecute() &&
                                 dipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -31102,6 +30826,7 @@ if (hotExitHandledSweep) {
                             }
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             val authResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = dipFdg, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 score = dipSignal.confidence,
@@ -31113,7 +30838,6 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = dipSignal.positionSizeSol,
-                                attemptId = sealedSpecialistAttempt7468(ts.mint, "DIP_HUNTER", cfg.paperMode),
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -31121,10 +30845,11 @@ if (hotExitHandledSweep) {
                                 if (!authResult.isShadowOnly()) RejectionTelemetry.record("DIP", authResult.reason)
                             } else {
                                 val dipHunterAttemptId = authResult.attemptId
+                                val dipAuthorizedSize7835 = requireNotNull(authResult.executionIntent7835).resolvedSize
                                 ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
                                     "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
                                     "dip=${dipSignal.dipDepthPct.fmt(1)}% | " +
-                                    "size=${dipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "size=${dipAuthorizedSize7835.fmt(3)} SOL | " +
                                     "target=+${dipSignal.expectedRecoveryPct.toInt()}%")
                                 
                                 // V5.9.738 — paper-mode leak fix.
@@ -31137,7 +30862,7 @@ if (hotExitHandledSweep) {
                                 // quote/finality/size attempts, choking live volume.
                                 val dipOpened = executor.dipHunterBuy(
                                     ts = ts,
-                                    sizeSol = dipSignal.positionSizeSol,
+                                    sizeSol = dipAuthorizedSize7835,
                                     score = dipSignal.confidence.toDouble(),
                                     wallet = wallet,
                                     walletSol = effectiveBalance,
@@ -31158,7 +30883,7 @@ if (hotExitHandledSweep) {
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     entryPrice = ts.ref,
-                                    entrySol = dipSignal.positionSizeSol,
+                                    entrySol = dipAuthorizedSize7835,
                                     highPrice = recentHigh,
                                     dipDepthPct = dipSignal.dipDepthPct,
                                     marketCapUsd = ts.lastMcap,
@@ -31293,43 +31018,7 @@ if (hotExitHandledSweep) {
                         }
 
                         // V5.2: MUST check TradeAuthorizer BEFORE any execution
-                        val authResult = TradeAuthorizer.authorize(
-                            mint = ts.mint,
-                            symbol = identity.symbol,
-                            score = result.score,
-                            confidence = result.confidence.toDouble(),
-                            quality = decision.finalQuality,
-                            isPaperMode = cfg.paperMode,
-                            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
-                            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                            liquidity = ts.lastLiquidityUsd,
-                            isBanned = BannedTokens.isBanned(ts.mint),
-                            preResolvedSizeSol = result.sizeSol,
-                        )
-                        
-                        if (!authResult.isExecutable()) {
-                            // NOT AUTHORIZED - log and skip execution
-                            if (authResult.isShadowOnly()) {
-                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
-                                // Track for shadow learning
-                                ShadowLearningEngine.onFdgBlockedTrade(
-                                    mint = ts.mint,
-                                    symbol = identity.symbol,
-                                    blockReason = "V3_AUTH_SHADOW_${authResult.reason}",
-                                    blockLevel = "TRADE_AUTHORIZER",
-                                    currentPrice = ts.ref,
-                                    proposedSizeSol = result.sizeSol,
-                                    quality = decision.finalQuality,
-                                    confidence = result.confidence.toDouble(),
-                                    phase = decision.phase,
-                                )
-                            } else {
-                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | REJECTED | ${authResult.reason}")
-                                RejectionTelemetry.record("V3_AUTH", authResult.reason)
-                            }
-                        } else {
-                            // AUTHORIZED - proceed with execution
-                            // V3 CONTROLS EXECUTION
+                        run {
                             val v3SizeSol = result.sizeSol
                             val v3Thesis = "V3 score=${result.score} band=${result.band}"
                             
@@ -31511,26 +31200,18 @@ if (hotExitHandledSweep) {
                                 specialistLane = cyclePrimaryLane,
                                 fanoutRole = "V3_EXEC",
                             )
-                            val v3CandidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-                            val v3Intent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533(
-                                mint = ts.mint, symbol = ts.symbol, lane = cyclePrimaryLane,
-                                canExecute = v3Fdg6533.canExecute(), reason = v3Fdg6533.blockReason,
-                                signal = if (v3Fdg6533.canExecute()) "BUY" else "NO_BUY",
-                                rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
-                                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
-                                preFdgVerdict = if (v3Fdg6533.canExecute()) (v3Fdg6533.blockReason ?: "BUY") else "NO_BUY",
-                                candidateVersion = v3CandidateVersion6533,
-                                entryScore = sealedEntryScore7688(v3Fdg6533, result.score),
-                                tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
-                                tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
-                                tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
-                                tokenMapProviderAttempts = ts.tokenMap.providerAttempts,
-                                requiresSolanaTokenMap = true,
-                                allowTrunkExecutionHandoff6533 = true,
-                                resolvedSizeSol6558 = proposedSize,
+                            val v3CandidateVersion6533 = v3Fdg6533.candidateVersion7835
+                            val authResult = TradeAuthorizer.authorize(
+                                mint = ts.mint, symbol = ts.symbol, score = result.score,
+                                confidence = result.confidence.toDouble(), quality = decision.finalQuality,
+                                isPaperMode = cfg.paperMode, requestedBook = executionBookForLane6494(cyclePrimaryLane),
+                                rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint), preResolvedSizeSol = proposedSize,
+                                fdgDecision7835 = v3Fdg6533, tokenState7835 = ts,
                             )
+                            val v3Intent6533 = authResult.executionIntent7835
                             if (!v3Fdg6533.canExecute() || v3Intent6533 == null) {
-                                val explicitReason6533 = v3Fdg6533.blockReason ?: "FDG_ALLOW_WITHOUT_EXEC_INTENT"
+                                val explicitReason6533 = v3Fdg6533.blockReason ?: authResult.reason
                                 try {
                                     PipelineHealthCollector.labelInc("V3_EXECUTE_EXPLICIT_REJECT_6533")
                                     if (v3Fdg6533.canExecute()) PipelineHealthCollector.labelInc("V3_ALLOW_EXPLICIT_REJECT_NO_INTENT_6533")
@@ -32517,16 +32198,6 @@ if (hotExitHandledSweep) {
         // authorize(), while the already-sealed FDG intent was looked up later.
         // That split BUY_INTENT/OWNER from MARK/SIZE/TICKET and made CORE look
         // SIZING_CHOKED even when a valid intent existed.
-        val primaryCandidateVersion7467 = LaneExecutionCoordinator.candidateVersionFor(identity.mint).takeIf { it > 0L } ?: 1L
-        val primarySealedIntent7467 = SpecialistPreauthSeal7834.ensure(
-            paperMode = cfg.paperMode, mint = identity.mint, symbol = identity.symbol, lane = cyclePrimaryLane,
-            candidateVersion = primaryCandidateVersion7467, fdgCanExecute = fdgDecision.canExecute(), fdgReason = fdgDecision.blockReason,
-            resolvedSizeSol = actualInitialSizeForAuth6649, rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
-            liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
-            entryScore = sealedEntryScore7688(fdgDecision, ts.lastV3Score ?: ts.entryScore.toInt()),
-            tokenMapRouteStatus = tokenMap6614.routeStatus, tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
-            tokenMapExpectedOut = tokenMap6614.expectedOutAmount, tokenMapProviderAttempts = tokenMap6614.providerAttempts,
-        )
         val authResult = TradeAuthorizer.authorize(
             mint = mint,
             symbol = identity.symbol,
@@ -32539,118 +32210,13 @@ if (hotExitHandledSweep) {
             liquidity = ts.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(mint),
             preResolvedSizeSol = actualInitialSizeForAuth6649,
-            attemptId = primarySealedIntent7467?.attemptId.orEmpty(),
+            fdgDecision7835 = fdgDecision, tokenState7835 = ts,
         )
         
         ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
 
-        // V5.0.6614 — every counted specialist BUY intent receives one
-        // same-identity FDG terminal outcome before any SHADOW/REJECT return.
-        val candidateVersion6614 = authResult.candidateVersion6494.takeIf { it > 0L }
-            ?: primarySealedIntent7467?.candidateVersion?.takeIf { it > 0L }
-            ?: primaryCandidateVersion7467
-        val specialistCausalId6614 = authResult.attemptId.ifBlank {
-            // V5.0.6673 §SPECIALIST_CAUSAL_ID_CANONICAL_FORMAT (Fire C).
-            // Previously the fallback emitted 3-part "gen:ver:lane" which the
-            // ToolkitSignalSheet parser at line 617 mis-decoded: it treated
-            // the generation as mint and the lane as an untyped tail. Every
-            // SIZED_EXECUTABLE / TICKET / EXEC stamp after that indexed into
-            // a bogus record whose mint was the generation number — so the
-            // laneSnapshot6647 invariant (SIZE requires DISCOVER+INTENT+MARK
-            // on the SAME record) always failed and sizedN reported 0 even
-            // though trades sized/ticketed/executed correctly. Every meme
-            // specialist role liveness line showed SIZING_CHOKED even while
-            // finalizedN > 0. Fix: emit the same 7-part canonical execution
-            // key that the primary path uses so the parser recovers the real
-            // mint and version. Now sizedN/ticketN reflect real state.
-            ExecutableOpenGate.canonicalExecutionKey(
-                mint = identity.mint,
-                mode = if (cfg.paperMode) "PAPER" else "LIVE",
-                side = "BUY",
-                lane = cyclePrimaryLane,
-                candidateVersion = candidateVersion6614,
-            )
-        }
-        val effectiveCandidateVersion6614 = authResult.candidateVersion6494.takeIf { it > 0L }
-            ?: candidateVersion6614
-        var specialistIntent6614 = ExecutableOpenGate.activeExecutionIntent6519(
-            if (cfg.paperMode) "PAPER" else "LIVE", identity.mint, effectiveCandidateVersion6614,
-        )
-        if (authResult.isExecutable() && specialistIntent6614 == null) {
-            specialistIntent6614 = ExecutableOpenGate.recordFdgAndGetIntent6533(
-                mint = identity.mint, symbol = identity.symbol, lane = cyclePrimaryLane,
-                canExecute = fdgDecision.canExecute(), reason = fdgDecision.blockReason,
-                signal = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
-                rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
-                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
-                preFdgVerdict = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
-                candidateVersion = effectiveCandidateVersion6614,
-                entryScore = sealedEntryScore7688(fdgDecision, ts.lastV3Score ?: ts.entryScore.toInt()),
-                tokenMapRouteStatus = tokenMap6614.routeStatus,
-                tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
-                tokenMapExpectedOut = tokenMap6614.expectedOutAmount,
-                tokenMapProviderAttempts = tokenMap6614.providerAttempts,
-                requiresSolanaTokenMap = true,
-                allowTrunkExecutionHandoff6533 = true,
-                resolvedSizeSol6558 = actualInitialSizeForAuth6649,
-            )
-        }
-        // V5.0.6658 §TICKET_STAMP_RETRIEVAL_PARITY — operator dump Feb 2026:
-        //   BLUECHIP/SHITCOIN buyIntent, fdg, size, mark all non-zero,
-        //   ticketN=0 (TICKET_CHOKED). Root cause: TICKET is only stamped
-        //   inside `recordFdgAndGetIntent6533` (ExecutableOpenGate.kt:895).
-        //   When an ExecutionIntent was already materialised in a prior
-        //   phase — the primary path publishes it via
-        //   `publishFdgIntent6519` inside recordFdg() at
-        //   ExecutableOpenGate.kt:1089 without a TICKET stamp — the retrieve
-        //   at line above returns non-null and the `recordFdgAndGetIntent6533`
-        //   branch (which does the TICKET stamp) never runs. The specialist
-        //   causal record therefore never sees a TICKET stage even though a
-        //   valid sealed ticket exists and downstream EXEC has been fired.
-        //   Same-lane stamp with the intent's canonical attemptId; the
-        //   recordDeskStage (lane|stage|eventId) dedupe still enforces one
-        //   stamp per intent so a subsequent retrieve is a no-op.
-        val ticketStampIntent6658 = specialistIntent6614
-        // V5.0.7467 — never fabricate post-FDG stages from object existence.
-        // TradeAuthorizer.isExecutable means executable-open finality, minimum
-        // notional and ownership checks actually passed. The sealed intent must
-        // also carry a real mark and positive size before those stages are written.
-        val postAuthIntent7467 = ticketStampIntent6658?.takeIf {
-            authResult.isExecutable() &&
-                authResult.attemptId.isNotBlank() &&
-                it.attemptId == authResult.attemptId &&
-                it.resolvedSize.isFinite() && it.resolvedSize > 0.0 &&
-                it.executableMarkTimestampMs6613 > 0L &&
-                it.executableMarkPriceUsd6613.isFinite() && it.executableMarkPriceUsd6613 > 0.0
-        }
-        if (postAuthIntent7467 != null) try {
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "POOL", postAuthIntent7467.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "BUY_INTENT", postAuthIntent7467.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", postAuthIntent7467.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "SIZED_EXECUTABLE", postAuthIntent7467.attemptId)
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "TICKET", postAuthIntent7467.attemptId)
-            PipelineHealthCollector.labelInc("PRIMARY_SPINE_POST_AUTH_CAUSAL_HANDOFF_7467_${cyclePrimaryLane.uppercase()}")
-        } catch (_: Throwable) {}
-        if (authResult.isExecutable() && ticketStampIntent6658 != null && postAuthIntent7467 == null) {
-            try {
-                PipelineHealthCollector.labelInc("PRIMARY_SPINE_POST_AUTH_PROOF_INCOMPLETE_7467_${cyclePrimaryLane.uppercase()}")
-                ForensicLogger.lifecycle(
-                    "PRIMARY_SPINE_POST_AUTH_PROOF_INCOMPLETE_7467",
-                    "lane=$cyclePrimaryLane mint=${identity.mint.take(10)} authAttempt=${authResult.attemptId.take(32)} intentAttempt=${ticketStampIntent6658.attemptId.take(32)} size=${ticketStampIntent6658.resolvedSize} markTs=${ticketStampIntent6658.executableMarkTimestampMs6613} markPx=${ticketStampIntent6658.executableMarkPriceUsd6613}",
-                )
-            } catch (_: Throwable) {}
-        }
-        val specialistFdgAllowed6614 = specialistIntent6614?.fdgAllowed == true || fdgDecision.canExecute()
-        try {
-            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, if (specialistFdgAllowed6614) "FDG_ALLOW" else "FDG_BLOCK", specialistCausalId6614)
-        } catch (_: Throwable) {}
-        if (authResult.isExecutable() && (useV3Decision || fdgDecision.canExecute()) && specialistIntent6614 == null) {
-            try {
-                ToolkitSignalSheet.recordCausalIssue6600("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME", cyclePrimaryLane, "id=$specialistCausalId6614 mint=${identity.mint.take(10)}")
-                ForensicLogger.lifecycle("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME", "lane=$cyclePrimaryLane id=$specialistCausalId6614 mint=${identity.mint.take(10)} action=explicit_reject_no_bypass")
-            } catch (_: Throwable) {}
-            return
-        }
+        val specialistIntent6614 = authResult.executionIntent7835
+        if (authResult.isExecutable() && specialistIntent6614 == null) return
 
         // If TradeAuthorizer says SHADOW_ONLY, track but don't execute
         if (authResult.isShadowOnly()) {
@@ -32692,15 +32258,11 @@ if (hotExitHandledSweep) {
             // ═══════════════════════════════════════════════════════════════════
             val finalSize = finalSizeForAuth6649
             val isGraduated = isGraduatedForAuth6649
-            val actualInitialSize = actualInitialSizeForAuth6649
+            val actualInitialSize = specialistIntent6614?.resolvedSize ?: return
             
             // Determine approval class and confidence
-            val approvalClass = if (useV3Decision) {
-                FinalDecisionGate.ApprovalClass.LIVE  // V3 decisions are always "live"
-            } else {
-                fdgDecision.approvalClass
-            }
-            
+            val approvalClass = fdgDecision.approvalClass
+
             val quality = if (useV3Decision) "V3" else fdgDecision.quality
             val confidence = if (useV3Decision) 85.0 else fdgDecision.confidence
             

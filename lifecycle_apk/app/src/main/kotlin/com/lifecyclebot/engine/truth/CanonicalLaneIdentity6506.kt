@@ -70,6 +70,13 @@ object CanonicalLaneIdentity6506 {
     private val aliases: Map<String, String> = mapOf(
         // BLUECHIP identity fragmentation
         "BLUE_CHIP" to "BLUECHIP",
+        "BLUE_CHIPS" to "BLUECHIP",
+        "RESALE_SNIPE" to "PROJECT_SNIPER",
+        "PRE_SALE_SNIPE" to "PROJECT_SNIPER",
+        "MOMENTUMSWING" to "MOMENTUM_SWING",
+        "WHALEFOLLOW" to "WHALE_FOLLOW",
+        "COPY_TRADE" to "COPYTRADE",
+        "CYCLIC_TREND" to "CYCLIC",
         // Historical MOONSHOT variants
         "MOON_SHOT" to "MOONSHOT",
         // Historical PROJECT_SNIPER variants

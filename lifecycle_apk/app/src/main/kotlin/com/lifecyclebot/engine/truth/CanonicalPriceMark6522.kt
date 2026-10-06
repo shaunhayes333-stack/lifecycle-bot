@@ -225,7 +225,7 @@ object CanonicalPriceMarkRegistry6522 {
         // separates legitimate parabolic moves (rare 3-4×) from the
         // 3-6-decade skews the operator observed.
         val currentMark6727 = marks[key]
-        if (currentMark6727 != null) {
+        if (currentMark6727 != null && mark.timestampMs - currentMark6727.timestampMs in 0L..MARK_FRESHNESS_WINDOW_MS_6739) {
             val currentP6727 = try { currentMark6727.priceUsd.value.toDouble() } catch (_: Throwable) { 0.0 }
             val newP6727 = rawPrice6697
             if (currentP6727 > 0.0 && newP6727 > 0.0 && newP6727.isFinite()) {

@@ -112,6 +112,10 @@ object TerminalSellIdempotency6464 {
         return Consume.DUPLICATE_IGNORED
     }
 
+    internal fun releaseFailed7835(key: String, positionId: String) {
+        records[key]?.takeIf { it.positionId == positionId }?.let { records.remove(key, it) }
+    }
+
     fun statusLine(): String =
         "tracked=${records.size} firstConfirms=${firstConfirms.get()} duplicates=${duplicates.get()} blanks=${blanks.get()}"
 

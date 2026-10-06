@@ -31,31 +31,31 @@
   },
   {
     "path": "com/lifecyclebot/v4/meta/LiquidityFragilityAI.kt",
-    "classification": "RISK_SHAPING_UPSTREAM",
-    "reason": "Existing toolkit analysis and executor sizing own fragility; do not add a separate alpha vote.",
+    "classification": "EXIT_EVIDENCE_UPSTREAM",
+    "reason": "Toolkit analysis feeds mint-matched fragility evidence consumed by SymbolicExitReasoner; duplicate executor size shaping is retired.",
     "consumers": [
       {
         "path": "com/lifecyclebot/engine/ToolkitSignalSheet.kt",
         "call": "LiquidityFragilityAI.analyze("
       },
       {
-        "path": "com/lifecyclebot/engine/Executor.kt",
-        "call": "LiquidityFragilityAI.getReportFor("
+        "path": "com/lifecyclebot/engine/SymbolicExitReasoner.kt",
+        "call": "LiquidityFragilityAI.getFragilityScoreFor("
       }
     ]
   },
   {
     "path": "com/lifecyclebot/v4/meta/PortfolioHeatAI.kt",
     "classification": "RISK_SHAPING_UPSTREAM",
-    "reason": "Canonical position updates and executor safety multiplier already consume portfolio exposure.",
+    "reason": "Position updates feed portfolio exposure consumed by FinalDecisionGate before sealing; duplicate executor safety sizing is retired.",
     "consumers": [
       {
         "path": "com/lifecyclebot/engine/Executor.kt",
         "call": "PortfolioHeatAI.addPosition("
       },
       {
-        "path": "com/lifecyclebot/engine/Executor.kt",
-        "call": "PortfolioHeatAI.getSafetyMultiplier("
+        "path": "com/lifecyclebot/engine/FinalDecisionGate.kt",
+        "call": "PortfolioHeatAI.getNewEntryPenalty("
       }
     ]
   },

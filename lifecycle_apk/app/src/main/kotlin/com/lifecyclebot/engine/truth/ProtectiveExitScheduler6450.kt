@@ -248,7 +248,7 @@ object ProtectiveExitScheduler6450 {
         // V5.0.6452 §P0-#9 — markPx=0 is a heartbeat-only ping (caller has
         // no fresh mark). Bump heartbeat above but skip trigger logic —
         // NEVER latch on a zero/placeholder price.
-        if (markPx <= 0.0) {
+        if (!markPx.isFinite() || markPx <= 0.0 || quoteAgeMs !in 0L..60_000L) {
             // V5.0.7067 §A_COUNTER_THAT_MERGES_TWO_THINGS_REPORTS_NEITHER.
             //
             // `noMark` read 173,194 on the operator's 5.0.7065 report against
@@ -272,7 +272,6 @@ object ProtectiveExitScheduler6450 {
             }
             return null
         }
-        if (latches.containsKey(positionId)) return latches[positionId]?.kind
         // V5.0.7027 — a priced ping with four zero thresholds is not an
         // evaluation either; it cannot breach anything. Counted apart from a
         // real comparison so "armed" means what its name says.
@@ -295,14 +294,26 @@ object ProtectiveExitScheduler6450 {
         if (kind != null) {
             latchTrigger(positionId, kind, markPx, quoteAgeMs)
         }
-        return kind
+        return latches[positionId]?.kind ?: kind
     }
 
     fun latchTrigger(positionId: String, kind: TriggerKind, mark: Double, quoteAgeMs: Long = 0L): Latch {
         val epoch = System.currentTimeMillis()
         val latch = Latch(positionId, epoch, kind, mark, epoch, quoteAgeMs)
-        val prior = latches.putIfAbsent(positionId, latch)
-        if (prior == null) {
+        var advanced7835 = false
+        val effective7835 = latches.compute(positionId) { _, old ->
+            fun priority(k: TriggerKind) = when (k) {
+                TriggerKind.CATASTROPHE -> 4
+                TriggerKind.STOP_LOSS -> 3
+                TriggerKind.TRAILING_STOP -> 2
+                TriggerKind.TAKE_PROFIT -> 1
+            }
+            if (old == null || priority(kind) > priority(old.kind)) {
+                advanced7835 = true
+                latch
+            } else old
+        }!!
+        if (advanced7835) {
             // V5.0.7176 — seed the dispatch clock at the moment of latching.
             //
             // Every path that latches dispatches its own sell immediately after:
@@ -331,7 +342,7 @@ object ProtectiveExitScheduler6450 {
                 PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_LATCHED_6450_$kind")
             } catch (_: Throwable) {}
         }
-        return prior ?: latch
+        return effective7835
     }
 
     fun isTriggered(positionId: String): Boolean = latches.containsKey(positionId)

@@ -261,8 +261,7 @@ object LaneAutoPauseGuard {
      *  key saw half the sample and quarantines latched twice as slow. All
      *  guard reads/aggregation collapse to PRESALE_SNIPE. */
     private fun canonLane(l: String): String {
-        val u = l.uppercase()
-        return if (u == "PROJECT_SNIPER" || u.contains("PRESALE")) "PRESALE_SNIPE" else u
+        return com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(l)
     }
 
     fun statusFor(lane: String?): PauseState? {

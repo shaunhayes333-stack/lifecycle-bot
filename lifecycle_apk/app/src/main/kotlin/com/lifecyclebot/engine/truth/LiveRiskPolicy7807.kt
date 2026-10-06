@@ -340,12 +340,7 @@ object LiveRiskPolicy7807 {
         if (i.upstreamSol > 0.0 && size > i.upstreamSol) size = i.upstreamSol
 
         if (i.execMinSol > 0.0 && size < i.execMinSol) {
-            val costAtMin = roundTripCostPct(i.execMinSol, i.solUsd, i.liquidityUsd)
-            if (!executableMinRiskOk(i.execMinSol, stop, costAtMin, i.equitySol)) {
-                return Decision(false, 0.0, "SIZE_BELOW_MIN_RISK_TOO_WIDE_7807", labels, stop, costAtMin, total)
-            }
-            labels += "EXECUTABLE_MIN_RISK_WITHIN_CAP_7807"
-            size = i.execMinSol
+            return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, cost1, total)
         }
         return Decision(true, size, "OPEN_7807", labels, stop, cost1, total)
     }
@@ -438,10 +433,9 @@ object LiveRiskPolicy7807 {
     } catch (_: Throwable) { 0 }
 
     /** Cash plus cost basis still deployed in open live positions (realised equity; marks excluded). */
-    private fun liveEquitySol(walletSol: Double): Double {
+    internal fun liveEquitySol(walletSol: Double): Double {
         val deployed = try {
-            CanonicalPositionAuthority6441.openPositions()
-                .filter { it.mode.equals("live", ignoreCase = true) }
+            CanonicalPositionAuthority6441.protectiveInventory7807("live")
                 .sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
         } catch (_: Throwable) { 0.0 }
         val w = if (walletSol.isFinite()) walletSol.coerceAtLeast(0.0) else 0.0
@@ -461,25 +455,9 @@ object LiveRiskPolicy7807 {
         nowMs: Long = System.currentTimeMillis(),
     ): Inputs {
         ensureSubscribed()
-        // V5.0.7811 — the sealed executable intent owns the lane. A shared
-        // transport label must not make a MOONSHOT ticket inherit another
-        // specialist's slot cap/risk bucket.
-        val sealedLane7811 = try {
-            com.lifecyclebot.engine.ExecutableOpenGate
-                .activeCanonicalIntentForMint7811("LIVE", mint)
-                ?.canonicalLane
-                ?.let { canonicalLane(it) }
-                .orEmpty()
-        } catch (_: Throwable) { "" }
-        val effectiveLane7811 = sealedLane7811.ifBlank { canonicalLane(lane) }
-        if (sealedLane7811.isNotBlank() && sealedLane7811 != canonicalLane(lane)) try {
-            PipelineHealthCollector.labelInc("LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811")
-            PipelineHealthCollector.labelInc("LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811_$sealedLane7811")
-            ForensicLogger.lifecycle(
-                "LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811",
-                "mint=${mint.take(10)} caller=${canonicalLane(lane)} sealed=$sealedLane7811 action=sealed_lane_owns_slot_and_risk",
-            )
-        } catch (_: Throwable) {}
+        // The caller carries the canonical decision lane. Never substitute a
+        // different candidate's active intent while resolving a new proposal.
+        val effectiveLane7811 = canonicalLane(lane)
 
         val equity = liveEquitySol(walletSol)
         val dd = observeEquity(equity, nowMs)

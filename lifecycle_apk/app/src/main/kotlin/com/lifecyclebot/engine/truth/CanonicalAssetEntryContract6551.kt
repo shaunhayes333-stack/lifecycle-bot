@@ -102,6 +102,9 @@ object CanonicalEntryAuthority6551 {
         CanonicalEntryAuthority6540.markCandidateFor6551(candidate.assetClass, candidate.symbol, venue)
         CanonicalEntryAuthority6540.markSubmitFor6551(candidate.assetClass, candidate.symbol, candidate.source)
 
+        com.lifecyclebot.engine.KillSwitch.checkEntry7835(candidate.mode.equals("PAPER", true))?.let {
+            return blocked(candidate, venue, it)
+        }
         if (candidate.assetId.isBlank()) return blocked(candidate, venue, "INVALID_CANONICAL_ASSET_ID")
         if (!candidate.price.isFinite() || candidate.price <= 0.0)
             return blocked(candidate, venue, "INVALID_OR_STALE_PRICE")

@@ -182,7 +182,7 @@ object TacticSwitcher {
     private val mutex = Any()
 
     private fun key(lane: String, scoreBand: String): String =
-        "${lane.uppercase().take(24)}|${scoreBand.uppercase().take(8)}"
+        "${com.lifecyclebot.engine.LearningEnvironment7835.mode()}|${com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)}|${scoreBand.uppercase().take(8)}"
 
     private fun getOrCreate(lane: String, scoreBand: String): Cell {
         val k = key(lane, scoreBand)
@@ -236,7 +236,11 @@ object TacticSwitcher {
     fun rotateForLanePressure(lane: String, score: Int, reason: String): Tactic {
         val band = try { LosingPatternMemory.scoreBand(score) } catch (_: Throwable) { "UNKNOWN" }
         val cell = getOrCreate(lane, band)
-        rotate(lane, band, cell, "lane-local-pressure:$reason")
+        synchronized(mutex) {
+            if (cell.tradesSinceRotation.get() > 0 && System.currentTimeMillis() - cell.trialStartedAt.get() >= 60_000L) {
+                rotate(lane, band, cell, "lane-local-pressure:$reason")
+            }
+        }
         return Tactic.values()[cell.tactic.get()]
     }
 
@@ -268,6 +272,7 @@ object TacticSwitcher {
     fun onCanonicalTradeClosed6486(
         lane: String, scoreBand: String, entryTactic: String, pnlPct: Double,
     ) {
+        if (!com.lifecyclebot.engine.LearningEnvironment7835.isCanonical()) return
         val pnlVerdict6495 = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(
             pnlPct, "TacticSwitcher.onCanonicalTradeClosed6486/$lane/$scoreBand", emit = true,
         )
@@ -502,8 +507,8 @@ object TacticSwitcher {
         val keys = cells.keys().toList()
         for (k in keys) {
             val parts = k.split("|")
-            if (parts.size != 2) continue
-            try { maybeRotateFromMemory(parts[0], parts[1]) } catch (_: Throwable) {}
+            if (parts.size != 3 || parts[0] != com.lifecyclebot.engine.LearningEnvironment7835.mode()) continue
+            try { maybeRotateFromMemory(parts[1], parts[2]) } catch (_: Throwable) {}
         }
     }
 
@@ -631,61 +636,8 @@ object TacticSwitcher {
      * Fail-safe: any exception is swallowed. This is a repair, not a hard init.
      */
     fun rederiveFromRawJournal6382() {
-        try {
-            val rawSells = try {
-                // V5.0.6382 — read straight from SQLite so we get the FULL lifetime
-                // persisted history (in-memory list may still be loading at boot).
-                com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
-                    .asSequence()
-                    .filter { it.side.equals("SELL", true) || it.side.equals("PARTIAL_SELL", true) }
-                    .filter { com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(it) }
-                    .filter { com.lifecyclebot.engine.LearningPnlSanitizer.inspectTrade(it, "TacticSwitcher.rederive6495", emit = false).ok }
-                    .toList()
-            } catch (_: Throwable) { emptyList() }
-            if (rawSells.isEmpty()) return
-            // Group by (lane, band). Lane uses the persisted mode name (uppercased,
-            // truncated to 24 chars) to match `key()`. Band uses LosingPatternMemory.scoreBand.
-            data class Acc(var n: Int = 0, var pnlSumBp: Long = 0L, var wins: Int = 0, var losses: Int = 0)
-            val agg = HashMap<String, Acc>(64)
-            for (t in rawSells) {
-                if (!t.pnlPct.isFinite()) continue
-                val laneNorm = try {
-                    com.lifecyclebot.engine.TradeHistoryStore.normalizeTradeModeName(t.tradingMode)
-                } catch (_: Throwable) { t.tradingMode }
-                if (laneNorm.isBlank()) continue
-                val band = try { LosingPatternMemory.scoreBand(t.score.toInt()) } catch (_: Throwable) { "" }
-                if (band.isBlank()) continue
-                val k = key(laneNorm, band)
-                val a = agg.getOrPut(k) { Acc() }
-                a.n++
-                a.pnlSumBp += (t.pnlPct * 100.0).toLong()
-                if (t.pnlPct > 0.0) a.wins++ else a.losses++
-            }
-            if (agg.isEmpty()) return
-            // Ensure every persisted cell exists (so its counters are overwritten),
-            // then overwrite. New cells are created for buckets that had journal
-            // history but no cell yet (fresh boot after V5.0.6373d expectancy fix).
-            var repaired = 0
-            for ((k, a) in agg) {
-                val parts = k.split("|")
-                if (parts.size != 2) continue
-                val cell = getOrCreate(parts[0], parts[1])
-                val priorN = cell.tradesSinceRotation.get()
-                val priorSum = cell.pnlSumSinceRotation.get()
-                cell.tradesSinceRotation.set(a.n)
-                cell.pnlSumSinceRotation.set(a.pnlSumBp)
-                cell.winsSinceRotation.set(a.wins)
-                cell.lossesSinceRotation.set(a.losses)
-                // Preserve tactic + trialStartedAt (rotation state).
-                if (priorN != a.n || priorSum != a.pnlSumBp) repaired++
-                persist(k, cell)
-            }
-            try {
-                ErrorLogger.info(TAG, "🔧 TACTIC_REDERIVE_6382 cells=${agg.size} repaired=$repaired rawSells=${rawSells.size}")
-                PipelineHealthCollector.labelInc("TACTIC_REDERIVE_6382_CELLS_${agg.size}")
-                PipelineHealthCollector.labelInc("TACTIC_REDERIVE_6382_REPAIRED_${repaired}")
-            } catch (_: Throwable) {}
-        } catch (_: Throwable) { /* fail-soft */ }
+        // Raw journal legs cannot reconstruct the entry tactic's trial or its mode.
+        // Persisted canonical outcome cells are the sole training authority.
     }
 
     private fun scoreBandToMidScore(band: String): Int = when (band.uppercase()) {

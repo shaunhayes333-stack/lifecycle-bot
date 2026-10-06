@@ -69,6 +69,8 @@ object TradeVerifier {
         val solReceivedLamports: Long,    // wallet system-account positive delta net of fees
         val tokenAccountClosedFullExit: Boolean, // true when post entry missing AND pre existed (full exit)
         val txErr: String?,
+        val preTokenRaw7835: BigInteger? = null,
+        val postTokenRaw7835: BigInteger? = null,
     )
 
     // ─────────────────────────────────────────────────────────────────────
@@ -187,6 +189,7 @@ object TradeVerifier {
                     return SellResult(
                         Outcome.LANDED, sig, mint, rawConsumed, ui, parsed.decimals,
                         solReceived, tokenAccountClosed, null,
+                        preTokenRaw7835 = parsed.rawBefore, postTokenRaw7835 = parsed.rawAfter,
                     )
                 }
                 // Half-proven (only one side). Keep polling; do NOT declare

@@ -74,7 +74,7 @@ object HeldHotMarkAuthority7419 {
         // when() below has no branch for them); they were counted as a request
         // and an UNCHANGED every pass. Their trader marks them (Field Manual L186).
         return try {
-            CanonicalPositionAuthority6441.openPositions().filter {
+            CanonicalPositionAuthority6441.protectiveInventory7807().filter {
                 it.mode.equals(mode, true) && !CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it)
             }
         } catch (_: Throwable) { emptyList() }
@@ -283,22 +283,8 @@ object HeldHotMarkAuthority7419 {
                 try { PipelineHealthCollector.labelInc("HELD_HOT_MARK_TIMEOUT") } catch (_: Throwable) {}
             }
 
-            if (!(px.isFinite() && px > 0.0)) {
-                val cached = try {
-                    CanonicalPriceMarkRegistry6522.getFresh6734(
-                        p.mint, CanonicalMarkPurpose6570.EXIT_ECONOMIC, now
-                    )
-                } catch (_: Throwable) { null }
-                if (cached != null && cached.baseMint.equals(p.mint, true)) {
-                    px = try { cached.priceUsd.value.toDouble() } catch (_: Throwable) { 0.0 }
-                    source = cached.source.ifBlank { "HELD_HOT_FALLBACK_7419" }
-                    if (px.isFinite() && px > 0.0) {
-                        fallbacks.incrementAndGet()
-                        try { PipelineHealthCollector.labelInc("HELD_HOT_MARK_FALLBACK") } catch (_: Throwable) {}
-                    }
-                }
-            }
-
+            // No provider observation means no publication. The prior canonical
+            // mark keeps its original timestamp and can age into the stale path.
             if (!(px.isFinite() && px > 0.0)) {
                 unchanged.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("HELD_HOT_MARK_UNCHANGED") } catch (_: Throwable) {}
@@ -331,11 +317,13 @@ object HeldHotMarkAuthority7419 {
 
             if (publishOk) {
                 try {
-                    synchronized(BotService.status.tokens) {
-                        BotService.status.tokens[p.mint]?.let { ts ->
+                    val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[p.mint] }
+                    val publishedAt7835 = currentCanonicalTs(p.mint)
+                    if (ts != null) synchronized(ts) {
+                        if (publishedAt7835 >= ts.lastPriceUpdate) {
                             ts.lastPrice = px
                             ts.lastPriceSource = source
-                            ts.lastPriceUpdate = System.currentTimeMillis()
+                            ts.lastPriceUpdate = publishedAt7835
                         }
                     }
                 } catch (_: Throwable) {}

@@ -73,10 +73,31 @@ object UnifiedExitPolicyHead {
         "MOONSHOT"   to -0.40,  // keep MOONSHOT's winning stance explicit
     )
 
-    private val w = DoubleArray(NF) { 0.0 }
-    @Volatile private var bias = 0.0
-    @Volatile private var trained = 0L
-    private val featMean = DoubleArray(NF) { 0.5 }
+    private class ModeModel7835 {
+        val w: DoubleArray = DoubleArray(NF) { 0.0 }
+        @Volatile var bias: Double = 0.0
+        @Volatile var trained: Long = 0L
+        val featMean: DoubleArray = DoubleArray(NF) { 0.5 }
+        val laneHeads: java.util.concurrent.ConcurrentHashMap<String, LaneExitHead> = java.util.concurrent.ConcurrentHashMap<String, LaneExitHead>()
+        val pending: java.util.concurrent.ConcurrentHashMap<String, Pair<String, DoubleArray>> = java.util.concurrent.ConcurrentHashMap<String, Pair<String, DoubleArray>>()
+    }
+    private val models7835 = java.util.concurrent.ConcurrentHashMap<String, ModeModel7835>()
+    private fun model7835() = models7835.computeIfAbsent(LearningEnvironment7835.mode()) { ModeModel7835() }
+    private val w: DoubleArray
+        get() = model7835().w
+    private var bias: Double
+        get() = model7835().bias
+        set(value) { model7835().bias = value }
+    private var trained: Long
+        get() = model7835().trained
+        set(value) { model7835().trained = value }
+    private val featMean: DoubleArray
+        get() = model7835().featMean
+    private val laneHeads: java.util.concurrent.ConcurrentHashMap<String, LaneExitHead>
+        get() = model7835().laneHeads
+    private val pending: java.util.concurrent.ConcurrentHashMap<String, Pair<String, DoubleArray>>
+        get() = model7835().pending
+
 
     private data class LaneExitHead(
         val w: DoubleArray = DoubleArray(NF) { 0.0 },
@@ -87,8 +108,8 @@ object UnifiedExitPolicyHead {
         var brierN: Long = 0L,
     )
 
-    private val laneHeads = java.util.concurrent.ConcurrentHashMap<String, LaneExitHead>()
-    private val pending = java.util.concurrent.ConcurrentHashMap<String, Pair<String, DoubleArray>>()
+
+
     private val advisoryHits = java.util.concurrent.atomic.AtomicLong(0)
     private val authHits = java.util.concurrent.atomic.AtomicLong(0)
     private val calibrationDemotes = java.util.concurrent.atomic.AtomicLong(0)
@@ -253,33 +274,9 @@ object UnifiedExitPolicyHead {
     enum class VetoDecision { VETO, HONOR }
 
     fun shouldVetoStopLoss(lane: String, pnlPctNow: Double, s: ExitSignals): VetoDecision {
-        return try {
-            val laneKey = normalizeLane(lane)
-            // Quarantined lane? Never veto.
-            val quarantined = try { LaneQuarantineController.isQuarantined(laneKey) } catch (_: Throwable) { false }
-            if (quarantined) return VetoDecision.HONOR
-            // Guard: don't veto catastrophic drops or rug patterns.
-            if (pnlPctNow <= VETO_MIN_PNL_PCT) return VetoDecision.HONOR
-            // Guard: lane must have proven authority.
-            val auth = currentAuthority(laneKey)
-            if (auth != AuthorityTier.LEARNED && auth != AuthorityTier.AUTHORITATIVE) return VetoDecision.HONOR
-            // Guard: brain must be calibrated tight enough.
-            val h = laneHeads[laneKey] ?: return VetoDecision.HONOR
-            val brier = if (h.brierN >= 10L) h.brierSum / h.brierN else 1.0
-            if (brier > VETO_BRIER_MAX) return VetoDecision.HONOR
-            // Guard: bias must strongly favor holding.
-            val bias = exitBias(laneKey, s)
-            if (bias < VETO_MIN_BIAS) return VetoDecision.HONOR
-            // All guards passed — VETO the SL.
-            try {
-                ForensicLogger.lifecycle(
-                    "UNIFIED_EXIT_POLICY_HEAD_STOP_LOSS_VETO_6006",
-                    "lane=$laneKey pnlPct=${"%.1f".format(pnlPctNow)}% auth=${auth.name} brier=${"%.3f".format(brier)} exitBias=${"%.2f".format(bias)} note=agi_authority_hold",
-                )
-                PipelineHealthCollector.labelInc("UNIFIED_EXIT_POLICY_HEAD_STOP_LOSS_VETO_6006_$laneKey")
-            } catch (_: Throwable) {}
-            VetoDecision.VETO
-        } catch (_: Throwable) { VetoDecision.HONOR }
+        // Peak capture does not establish the counterfactual payoff of ignoring
+        // a stop. Timing predictions cannot override the risk exit.
+        return VetoDecision.HONOR
     }
 
     /**
@@ -288,7 +285,10 @@ object UnifiedExitPolicyHead {
      * Heuristic for "right call" set by caller — typically pnlAtExit
      * vs peakPnl (banked >70% of peak = right call).
      */
+    fun discardOutcome7835(mint: String) { pending.remove(mint) }
+
     fun recordOutcome(mint: String, exitWasOptimal: Boolean) {
+        if (!LearningEnvironment7835.isCanonical()) return
         try {
             val rec = pending.remove(mint) ?: return
             val (lane, x) = rec
@@ -338,7 +338,26 @@ object UnifiedExitPolicyHead {
 
     fun attachContext(context: Context) { try { appContext = context.applicationContext; load(context) } catch (_: Throwable) {} }
 
-    fun exportState(): String = try {
+    fun exportState(): String = JSONObject().apply {
+        put("environmentSchema", 7835)
+        for (mode in listOf("PAPER", "LIVE", "SHADOW")) {
+            put(mode, LearningEnvironment7835.withMode(mode) { JSONObject(exportCurrent7835()) })
+        }
+    }.toString()
+
+    fun importState(json: String) {
+        if (json.isBlank()) return
+        val root = try { JSONObject(json) } catch (_: Throwable) { return }
+        // Pre-7835 weights have no reliable environment attribution.
+        if (root.optInt("environmentSchema") != 7835) { models7835.clear(); return }
+        for (mode in listOf("PAPER", "LIVE", "SHADOW")) {
+            root.optJSONObject(mode)?.let { value ->
+                LearningEnvironment7835.withMode(mode) { importCurrent7835(value.toString()) }
+            }
+        }
+    }
+
+    private fun exportCurrent7835(): String = try {
         JSONObject().apply {
             // V5.0.6009 — model version tag for poisoned-state reset.
             put("modelVersion", MODEL_VERSION_V6009)
@@ -356,7 +375,7 @@ object UnifiedExitPolicyHead {
         }.toString()
     } catch (_: Throwable) { "{}" }
 
-    fun importState(json: String) {
+    private fun importCurrent7835(json: String) {
         try {
             if (json.isBlank() || json == "{}") return
             val o = JSONObject(json)

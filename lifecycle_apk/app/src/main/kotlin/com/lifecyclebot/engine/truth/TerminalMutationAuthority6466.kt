@@ -96,6 +96,11 @@ object TerminalMutationAuthority6466 {
         }
     }
 
+    internal fun releaseFailed7835(mode: String, positionId: String, generation: Long, sequence: Long) {
+        val key = buildKey(mode, positionId, generation, sequence)
+        records[key]?.let { records.remove(key, it) }
+    }
+
     fun statusLine(): String =
         "tracked=${records.size} claims=${claims.get()} alreadyFinalized=${alreadyFinalized.get()} blanks=${blanks.get()}"
 

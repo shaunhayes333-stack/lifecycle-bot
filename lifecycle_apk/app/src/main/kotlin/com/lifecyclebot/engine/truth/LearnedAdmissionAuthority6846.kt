@@ -296,6 +296,19 @@ object LearnedAdmissionAuthority6846 {
                 try { PipelineHealthCollector.labelInc("CANONICAL_HIGH_EV_ORACLE_MISSING_REVIEWED_7426") } catch (_: Throwable) {}
         }
 
+        // V5.0.7828 — real LIVE capital follows positive net expectancy only.
+        // WR is intentionally absent: fat-tail lanes survive whenever mean EV > 0.
+        val liveMode7828 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { true }
+        if (liveMode7828 && (!inputs.expectedPnl.isFinite() || inputs.expectedPnl <= 0.0)) {
+            return deny(
+                "LIVE_NON_POSITIVE_EXPECTANCY_7828", inputs,
+                "ev=" + "%.5f".format(inputs.expectedPnl) +
+                    " rawCellN=" + inputs.oracleRawCohortN7154 +
+                    " rawLaneN=" + inputs.oracleRawLaneN7207 +
+                    " oracle=" + inputs.oracleVerdict6915,
+            )
+        }
+
         val oracleBinding7287 = oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN && !try {
             PredictiveEntryOracle6915.isDegenerateNow7120()
         } catch (_: Throwable) { false }
@@ -339,19 +352,6 @@ object LearnedAdmissionAuthority6846 {
         // Bootstrap grace — we don't deny cohorts we have not seen enough of.
         val cohortMature = inputs.cohortSample >= MATURITY_MIN_N
         val sourceMature = inputs.sourceSample >= MATURITY_MIN_N
-
-        // V5.0.7828 — real LIVE capital follows positive net expectancy only.
-        // WR is intentionally absent: fat-tail lanes survive whenever mean EV > 0.
-        val liveMode7828 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { true }
-        if (liveMode7828 && (!inputs.expectedPnl.isFinite() || inputs.expectedPnl <= 0.0)) {
-            return deny(
-                "LIVE_NON_POSITIVE_EXPECTANCY_7828", inputs,
-                "ev=" + "%.5f".format(inputs.expectedPnl) +
-                    " rawCellN=" + inputs.oracleRawCohortN7154 +
-                    " rawLaneN=" + inputs.oracleRawLaneN7207 +
-                    " oracle=" + inputs.oracleVerdict6915,
-            )
-        }
 
         // §2 — DUMP regime, mature negative cohort → DENY normal
         val laneLossRate = inputs.laneLossRatePct / 100.0

@@ -246,7 +246,7 @@ object ExecutableOpenGate {
         "${mode.uppercase()}:${mint.trim()}:$candidateVersion"
 
     fun activeExecutionIntent6519(mode: String, mint: String, candidateVersion: Long = 0L): ExecutionIntent? {
-        if (candidateVersion > 0L) activeExecutionIntents6519[intentKey6519(mode, mint, candidateVersion)]?.let { return it }
+        if (candidateVersion > 0L) return activeExecutionIntents6519[intentKey6519(mode, mint, candidateVersion)]?.takeIf { ticketLive(it) }
         // V5.0.7321 — the any-version fallback handed a DEAD (expired) intent
         // to every later allow on the mint, which was then rejected as a stale
         // ticket, forever (EXPIRED_TICKET_ECONOMIC_REJECT_6614 = 167).
@@ -765,6 +765,10 @@ object ExecutableOpenGate {
      * valid one. So it is threaded as a field.
      */
     private val primaryLane7189 = ConcurrentHashMap<String, String>()
+
+    internal fun recordPrimaryLane7835(mint: String, candidateVersion: Long, lane: String) {
+        primaryLane7189[authorityKey6487(mint, candidateVersion)] = canonicalLane(lane)
+    }
 
     fun recordEntryAuthority6487(
         mint: String,
@@ -1609,6 +1613,8 @@ object ExecutableOpenGate {
         openRequests.clear()
         blockedCooldowns.clear()
         entryAuthority6487.clear()
+        primaryLane7189.clear()
+        fdgDedupLastMs6743.clear()
         executableBuyClaim6487.clear()
         resealedTickets7488.clear()
     }
@@ -1797,36 +1803,9 @@ object ExecutableOpenGate {
         // identity telemetry. None of those secondary stores may erase the
         // mandatory immutable intent if they throw under runtime contention.
         // V5.0.7321 — a fresh FDG allow never inherits an expired intent.
-        val intent = activeExecutionIntent6519(mode, mint, candidateVersion)?.takeIf { ticketLive(it) } ?: run {
-            val verdict = preFdgVerdict.uppercase()
-            if (hardNoReasons.isEmpty() && verdict == "BUY" &&
-                resolvedSizeSol6558.isFinite() && resolvedSizeSol6558 > 0.0
-            ) registerCanonicalIntent6554(
-                ExecutionIntent(
-                    attemptId = canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane, candidateVersion = candidateVersion),
-                    candidateId = "$mint:$candidateVersion", candidateVersion = candidateVersion,
-                    // V5.0.7115 — canonicalLane(), not uppercase(). The field is
-                    // named canonicalLane and resolveSealedIntent6613 compares it
-                    // against canonicalLane(requestedLane); sealing it with a bare
-                    // uppercase meant the producer and the consumer of this one
-                    // field ran two different functions over the same string.
-                    mint = mint, mode = mode, canonicalLane = canonicalLane(lane),
-                    fdgVerdict = verdict, fdgAllowed = true, authorityVersion = 0L,
-                    resolvedSize = resolvedSizeSol6558, createdAt = System.currentTimeMillis(), symbol = symbol,
-                    effectiveEntryScore7256 = entryScore,
-                    authoritativeSignal = "BUY", safetyVerdict = safetyTier,
-                    fdgReason = reason, diagnosticSignal = signal, safetyTier = safetyTier,
-                    liquidityUsd = liquidityUsd, rugScore = rugScore, hardNoReasons = emptyList(),
-                    requiresSolanaTokenMap = requiresSolanaTokenMap,
-                    finalDecision6613 = if (verdict == "PROBE_ONLY") CanonicalFinalDecision6613.PROBE_ONLY else CanonicalFinalDecision6613.BUY,
-                    decisionAuthorityId6613 = "FDG_FALLBACK:$candidateVersion",
-                    fdgDecisionId6613 = "$mode:$mint:$candidateVersion:${canonicalLane(lane)}",
-                    fdgEvidence6613 = "fdgCan=true;preFdg=$verdict;safety=$safetyTier;hardNo=0;fallback=secondary_projection_failure",
-                    expiresAtMs6613 = System.currentTimeMillis() + if (mode == "PAPER")
-                        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
-                    else LIVE_EXECUTION_TICKET_TTL_MS,
-                )
-            ) else null
+        val intent = activeExecutionIntent6519(mode, mint, candidateVersion)?.takeIf {
+            it.candidateVersion == candidateVersion && canonicalLane(it.canonicalLane) == canonicalLane(lane) &&
+                it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty()
         }
         if (intent == null) try {
             PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
@@ -2009,7 +1988,7 @@ object ExecutableOpenGate {
                 else -> 1
             }
             val sameVersion = old != null && old.candidateVersion == candidateVersion
-            val keepOld = sameVersion &&
+            val keepOld = sameVersion && canonicalLane(old?.selectedLane.orEmpty()) == canonicalLane(lane) &&
                 !finalVerdict.equals("HARD_NO_BUY", true) &&
                 rank(old?.preFdgVerdict) >= rank(finalVerdict)
             val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
@@ -2195,7 +2174,7 @@ object ExecutableOpenGate {
                                 verdict = winner.preFdgVerdict, executionLane = winner.selectedLane,
                                 score = winner.entryScore.toDouble(), generatedAtMs = System.currentTimeMillis(),
                                 authoritativeSignal = "BUY", safetyVerdict = winner.safetyTier,
-                                resolvedSizeSol = try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0 } catch (_: Throwable) { 0.0 },
+                                resolvedSizeSol = resolvedSizeSol6558,
                             )
                         )
                     } catch (t: Throwable) {
@@ -2214,10 +2193,8 @@ object ExecutableOpenGate {
                     // caller may already hold a valid resolved size. Do not
                     // manufacture a zero-size intent merely because no seal was
                     // written in this direct/test/admission path.
-                    val resolvedSize6519 = immutableAuthority6519?.resolvedSizeSol
-                        ?.takeIf { it > 0.0 }
-                        ?: try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint)?.takeIf { it > 0.0 } } catch (_: Throwable) { null }
-                        ?: resolvedSizeSol6558.takeIf { it.isFinite() && it > 0.0 }
+                    val resolvedSize6519 = resolvedSizeSol6558.takeIf { it.isFinite() && it > 0.0 }
+                        ?: immutableAuthority6519?.resolvedSizeSol?.takeIf { it > 0.0 }
                         ?: 0.0
                     // V5.0.7115 — see the note on canonicalLane(). This is the
                     // second of the two sites that sealed an intent's lane with a
@@ -2338,8 +2315,12 @@ object ExecutableOpenGate {
             // verdict. ForensicLogger.decision() had ZERO callers, which is why the funnel
             // always showed verdicts produced=0 despite FDG running. phase() bumps phaseCounts;
             // decision() bumps verdictCounts — both are needed.
-            val executableFdg = winningState6512?.fdgCan == true && winningState6512.hardNoReasons.isEmpty() && winningState6512.preFdgVerdict == "BUY"
-            val verdictLabel = if (executableFdg) finalVerdict else "BLOCK"
+            val sealedFdg7835 = activeExecutionIntent6519(if (paperRuntime) "PAPER" else "LIVE", mint, candidateVersion)
+            val executableFdg = canExecute && finalVerdict == "BUY" && sealedFdg7835?.let {
+                    canonicalLane(it.canonicalLane) == canonicalLane(lane) && it.fdgAllowed &&
+                        it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty()
+                } == true
+            val verdictLabel = if (executableFdg) "BUY" else "BLOCK"
             try { ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel, 0, 0, reason ?: finalHardNo.firstOrNull() ?: verdictLabel) } catch (_: Throwable) {}
             if (executableFdg) {
                 ErrorLogger.info("FDG", "FDG_ALLOW $symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=[] safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion")
@@ -2353,10 +2334,7 @@ object ExecutableOpenGate {
                 // canonicalOccupancy, resolvedOrderSizeSol). Volatile
                 // market data refreshes rather than rejects.
                 try {
-                    val resolvedSizeForSeal = try {
-                        com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497
-                            .sealedSize(mint) ?: 0.0
-                    } catch (_: Throwable) { 0.0 }
+                    val resolvedSizeForSeal = sealedFdg7835?.resolvedSize ?: 0.0
                     com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.record(
                         mint = mint,
                         primaryLane = winningState6512?.selectedLane ?: lane.uppercase(),
@@ -3841,18 +3819,8 @@ object ExecutableOpenGate {
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE,
             )) {
-            if (liveSealedFdgBuy7778 && !liveLearnedMature7778) {
-                try {
-                    PipelineHealthCollector.labelInc("LIVE_UNPROVEN_ENTRY_AUTHORITY_ADVISORY_7778")
-                    ForensicLogger.lifecycle(
-                        "LIVE_UNPROVEN_ENTRY_AUTHORITY_ADVISORY_7778",
-                        "mint=${mint.take(10)} lane=$canonicalSelectedLane liveN=$liveLaneCloses7778 learned=${effectiveEntryDecision6487.verdict} reason=${effectiveEntryDecision6487.reason.take(100)} action=sealed_fdg_buy_continues",
-                    )
-                } catch (_: Throwable) {}
-            } else {
-                try { PipelineHealthCollector.labelInc("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487") } catch (_: Throwable) {}
-                return blocked("EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY_6487", effectiveEntryDecision6487.reason, shadow = true)
-            }
+            try { PipelineHealthCollector.labelInc("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487") } catch (_: Throwable) {}
+            return blocked("EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY_6487", effectiveEntryDecision6487.reason, shadow = true)
         }
         if (isShadowReadOnlyLane6487(lane) && immutableAuthority6513 == null) {
             return blocked("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487", "${lane.uppercase()}_READ_ONLY", shadow = true)

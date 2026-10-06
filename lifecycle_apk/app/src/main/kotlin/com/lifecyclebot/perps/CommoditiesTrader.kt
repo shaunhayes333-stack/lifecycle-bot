@@ -635,25 +635,42 @@ object CommoditiesTrader {
         // V5.9.93: fluid sizing — scale base 5% by conviction (0.45x..2.00x)
         val sizeMult = PerpsFluidSizing.sizeMultiplier(signal.score, signal.confidence)
         val requestedSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0 * sizeMult).coerceAtLeast(0.01)
-        // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
-        val sizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
-            requestedSol = requestedSizeSol,
-            assetClass = com.lifecyclebot.engine.truth.AssetClass.COMMODITY,
-            laneName = "COMMODITIES",
-            walletSol = balance,
-            paperMode = isPaperMode.get(),
-            canonicalAssetId = signal.market.symbol, symbol = signal.market.symbol, price = signal.price, source = "CommoditiesTrader",
+        val paper7835 = isPaperMode.get()
+        val admission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
+            com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
+                assetId = signal.market.symbol, symbol = signal.market.symbol,
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.COMMODITY,
+                mode = if (paper7835) "PAPER" else "LIVE", direction = signal.direction.name, requestedVenue = if (paper7835) "PAPER_COMMODITIES" else "MARKETS_SPOT",
+                adapter = "CommoditiesTrader", source = "CommoditiesTrader", specialist = "COMMODITIES",
+                score = signal.score.toDouble(), confidence = 1.0,
+                evidence = mapOf("upstreamConfidence" to signal.confidence.toString(), "walletSol" to balance.toString()),
+                requestedSizeSol = requestedSizeSol, price = signal.price, routeAvailable = paper7835 || TokenizedAssetRegistry.mintFor(signal.market.symbol) != null,
+                candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol),
+                diagnosticSignal = "BUY",
+            )
         )
-        if (!sizingRes.executable) {
-            ErrorLogger.warn(TAG, "🛢️ sizing gate declined ${signal.market.symbol}: ${sizingRes.reason}")
+        val executionIntent6565 = when (admission6565) {
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> admission6565.intent
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> admission6565.intent
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                ErrorLogger.warn(TAG, "OPEN AUTH REJECTED: ${signal.market.symbol} ${admission6565.reason}")
+                return
+            }
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
+                ErrorLogger.warn(TAG, "OPEN AUTH DEFERRED: ${signal.market.symbol} ${admission6565.reason}")
+                return
+            }
+        }
+        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() != paper7835) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "MODE_CHANGED_BEFORE_DISPATCH_7835")
             return
         }
-        val positionSizeSol = sizingRes.finalSizeSol
+        val positionSizeSol = executionIntent6565.resolvedSize
         if (balance < positionSizeSol) {
-            ErrorLogger.warn(TAG, "🛢️ Insufficient balance for ${signal.market.symbol}")
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "INSUFFICIENT_CURRENT_BALANCE_7835")
             return
         }
-        
+
         // V5.9.114: REMOVED the V5.9.110 early-return live branch so live
         // uses the same sizing/TP/SL pipeline as paper. Live swap fires
         // below at the capital-move branch (paper-matched sizing).
@@ -695,40 +712,15 @@ object CommoditiesTrader {
             stopLoss = sl,
             reasons = signal.reasons,
             // V5.9.742 — stamp open-mode for correct close routing later.
-            isPaper = isPaperMode.get(),
+            isPaper = paper7835,
         )
         
         // Add to appropriate map
         
         // V5.9.114: UNIFIED capital move. Paper debits paper; live fires
         // Jupiter swap at same positionSizeSol. Live failure rolls back.
-        if (isPaperMode.get()) {
+        if (paper7835) {
             try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, signal.market.symbol, "lane=MARKETS_COMMODITIES source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
-            val admission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
-                com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
-                    assetId = position.market.symbol, symbol = position.market.symbol,
-                    assetClass = com.lifecyclebot.engine.truth.AssetClass.COMMODITY,
-                    mode = "PAPER", direction = signal.direction.name, requestedVenue = "PAPER_COMMODITIES",
-                    adapter = "CommoditiesTrader", source = "CommoditiesTrader", specialist = "COMMODITIES",
-                    score = signal.score.toDouble(), confidence = 1.0,
-                    evidence = mapOf("upstreamConfidence" to signal.confidence.toString(), "walletSol" to balance.toString()),
-                    requestedSizeSol = positionSizeSol, price = signal.price, routeAvailable = true,
-                    candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(position.market.symbol),
-                    diagnosticSignal = "BUY",
-                )
-            )
-            val executionIntent6565 = when (admission6565) {
-                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> admission6565.intent
-                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> admission6565.intent
-                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
-                    ErrorLogger.warn(TAG, "PAPER OPEN AUTH REJECTED: ${position.market.symbol} ${admission6565.reason}")
-                    return
-                }
-                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
-                    ErrorLogger.warn(TAG, "PAPER OPEN AUTH DEFERRED: ${position.market.symbol} ${admission6565.reason}")
-                    return
-                }
-            }
                         val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
                 lane = "COMMODITIES", source = "CommoditiesTrader",
@@ -741,6 +733,7 @@ object CommoditiesTrader {
                 executionIntent = executionIntent6565,
             )
             if (!canonicalOpen6486.applied) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, canonicalOpen6486.reason)
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")
                 return
             }
@@ -757,14 +750,25 @@ com.lifecyclebot.engine.FluidLearning.recordPaperBuy("CommoditiesTrader", positi
         } else {
             // V5.9.600: This branch is unreachable — commodities return early in live mode (no on-chain routes).
             // Kept to satisfy compiler; executeLiveTradeAtSize is a dead call.
-            val liveOk = executeLiveTradeAtSize(position.id, signal, positionSizeSol)
-            if (!liveOk) {
+            if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "MODE_CHANGED_BEFORE_DISPATCH_7835")
+                return
+            }
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(executionIntent6565)
+            val liveFill7835 = executeLiveTradeAtSize(position.id, signal, positionSizeSol)
+            if (liveFill7835.state == MarketsLiveExecutor.FillState6486.PENDING_PROOF) {
+                // Submission already owns a canonical pending position. Keep its reservation.
+                return
+            }
+            if (!liveFill7835.confirmed) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "LIVE_DISPATCH_NOT_CONFIRMED_7835")
                 if (signal.tradeType == TradeType.SPOT) spotPositions.remove(position.id)
                 else leveragePositions.remove(position.id)
                 persistCommodityPositions()
                 ErrorLogger.warn(TAG, "🔴 LIVE commodity trade failed: ${signal.market.symbol} — rolled back")
                 return
             }
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(executionIntent6565, position.id)
         }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
@@ -797,13 +801,13 @@ if (signal.tradeType == TradeType.SPOT) {
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
     /** V5.9.114: LIVE swap at caller-supplied size (paper-matched). */
-    private suspend fun executeLiveTradeAtSize(positionId: String, signal: CommoditySignal, sizeSol: Double): Boolean {
+    private suspend fun executeLiveTradeAtSize(positionId: String, signal: CommoditySignal, sizeSol: Double): MarketsLiveExecutor.MarketsFill6486 {
         ErrorLogger.info(TAG, "🔴 LIVE COMMODITY TRADE: ${signal.direction.emoji} ${signal.market.symbol} size=${sizeSol.fmt(4)}◎")
         val fill6486 = MarketsLiveExecutor.executeLiveTradeProof6486(
             positionId = positionId,
             market = signal.market,
             direction = signal.direction,
-            sizeSol = sizeSol.coerceAtLeast(0.01),
+            sizeSol = sizeSol,
             leverage = if (signal.tradeType == TradeType.SPOT) 1.0 else signal.tradeType.leverage,
             priceUsd = signal.price,
             traderType = "Commodities",
@@ -819,9 +823,9 @@ if (signal.tradeType == TradeType.SPOT) {
                 val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
                 updateLiveBalance(newBalance)
             } catch (_: Exception) {}
-            return true
+            return fill6486
         }
-        return false
+        return fill6486
     }
 
 
