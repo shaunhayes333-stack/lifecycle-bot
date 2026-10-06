@@ -280,6 +280,16 @@ object CryptoAltTrader {
     // at the front of the resident queue.
     private val cryptoResidentLastScanAt7823 = ConcurrentHashMap<String, Long>()
     private const val CRYPTO_RESIDENT_SCAN_QUOTA_7823 = 64
+
+    // V5.0.7825 — identity-level anti-churn. CryptoAlt previously had no
+    // post-close re-entry memory, so the same few high-ranked coins could be
+    // closed and immediately win the next 30s generation again. This is not a
+    // blacklist: a materially high-edge setup can escape the cooldown.
+    private val cryptoLastClosedAt7825 = ConcurrentHashMap<String, Long>()
+    private const val CRYPTO_REENTRY_COOLDOWN_MS_7825 = 10L * 60_000L
+    private const val CRYPTO_REENTRY_ESCAPE_SCORE_7825 = 70
+    private const val CRYPTO_REENTRY_ESCAPE_COMBINED_7825 = 155
+
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private const val HELD_MARK_REFRESH_COOLDOWN_MS_7251 = 15_000L
     private val heldMarkRefreshAt7251 = ConcurrentHashMap<String, Long>()
@@ -3258,6 +3268,33 @@ object CryptoAltTrader {
         // hardcoded enum coins it's market.symbol. ALL learning/record/log calls
         // below MUST use mktSym so per-coin learning isn't collapsed into "DYN".
         val mktSym = signal.marketSymbol
+
+        // V5.0.7825 — prevent four-token churn from becoming the de-facto
+        // Crypto Universe. Apply after exact identity resolution but before any
+        // canonical submit/sizing/route work. A genuinely exceptional changed
+        // setup may re-enter; ordinary repeated signals wait their turn while
+        // resident hunters and universe rotation surface alternatives.
+        val reentryKey7825 = cryptoAssetKey(signal, isSpot).trim()
+        val lastClose7825 = cryptoLastClosedAt7825[reentryKey7825] ?: 0L
+        val reentryAge7825 = System.currentTimeMillis() - lastClose7825
+        val escape7825 = signal.score >= CRYPTO_REENTRY_ESCAPE_SCORE_7825 &&
+            (signal.score + signal.confidence) >= CRYPTO_REENTRY_ESCAPE_COMBINED_7825
+        if (lastClose7825 > 0L && reentryAge7825 in 0 until CRYPTO_REENTRY_COOLDOWN_MS_7825 && !escape7825) {
+            terminalDisposition6613("CRYPTO_REENTRY_COOLDOWN_7825", "PRE_SUBMIT")
+            try {
+                PipelineHealthCollector.labelInc("CRYPTO_REENTRY_COOLDOWN_7825")
+                ForensicLogger.lifecycle(
+                    "CRYPTO_REENTRY_COOLDOWN_7825",
+                    "symbol=${mktSym} asset=${reentryKey7825.take(32)} ageMs=${reentryAge7825} " +
+                        "score=${signal.score} conf=${signal.confidence} action=rotate_to_other_crypto_candidates",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        if (lastClose7825 > 0L && reentryAge7825 in 0 until CRYPTO_REENTRY_COOLDOWN_MS_7825 && escape7825) {
+            try { PipelineHealthCollector.labelInc("CRYPTO_REENTRY_HIGH_EDGE_ESCAPE_7825") } catch (_: Throwable) {}
+        }
+
         // V5.9.198: Trust gate
         // V5.9.1452: Crypto-isolated bypass — the meme-side StrategyTrustAI was
         // accumulating "DISTRUSTED" verdicts on generic reason strings (e.g.
@@ -4988,6 +5025,20 @@ object CryptoAltTrader {
             realizedPnl   = pnlSol
         )
         closedPositions.add(0, closedPos)
+        // V5.0.7825 — close-time stamp belongs to the exact canonical identity,
+        // not ticker, so same-symbol assets on different chains do not suppress
+        // one another. This feeds only the entry scheduling cooldown above.
+        try {
+            val closedKey7825 = pos.canonicalAssetKey.trim().ifBlank { pos.dynMint.orEmpty().trim() }
+            if (closedKey7825.isNotBlank()) {
+                cryptoLastClosedAt7825[closedKey7825] = timestamp
+                if (cryptoLastClosedAt7825.size > 8_192) {
+                    val cutoff7825 = timestamp - 24L * 60L * 60_000L
+                    cryptoLastClosedAt7825.entries.removeIf { it.value < cutoff7825 }
+                }
+                PipelineHealthCollector.labelInc("CRYPTO_REENTRY_CLOSE_STAMPED_7825")
+            }
+        } catch (_: Throwable) {}
         if (closedPositions.size > MAX_CLOSED_HISTORY) {
             closedPositions.subList(MAX_CLOSED_HISTORY, closedPositions.size).clear()
         }
