@@ -112,34 +112,15 @@ object TraderSizingBridge6444 {
                 walletSol
             }
         }
-        // V5.0.6630 §D SPECIALIST_MISROUTE_DIAGNOSTIC (operator Feb 2026:
-        //   "SHITCOIN/MOONSHOT/BLUECHIP and the other specialist lanes must
-        //    NOT be routed through TraderSizingBridge6444 as generic traders.
-        //    The generic TraderSizingBridge remains for genuinely generic/
-        //    non-specialist trading only.")
-        // Alarm-only diagnostic: increment SPECIALIST_GENERIC_BRIDGE_
-        // MISROUTE_6630 when a known meme specialist lane hits the generic
-        // bridge. The full refactor (routing every specialist through
-        // CanonicalSizingBridge6532 with per-asset-class shaping) is a
-        // follow-up; the alarm makes the misroute grep-visible today.
+        // V5.0.7828 — specialists use CanonicalSizingBridge6532 as their primary route.
+        // The old "generic misroute -> auto-reroute" wording/counters described a fixed
+        // architecture as a fault on every call and hid real last-mile failures.
         try {
             if (laneKey in SPECIALIST_LANE_KEYS_6630) {
-                com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelInc("SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630")
-                com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelInc("SPECIALIST_GENERIC_BRIDGE_MISROUTE_${laneKey}_6630")
-                // V5.0.6633 §P0-K SPECIALIST_AUTO_REROUTE (operator Feb 2026:
-                //   "BLUECHIP/MOONSHOT/EXPRESS/... must use ONE common
-                //    canonical mark/sizing resolver."). Auto-reroute the
-                //   misroute through CanonicalSizingBridge6532 so a
-                //   specialist lane accidentally hitting the generic bridge
-                //   is still resolved by the correct authority. Alarm-only
-                //   diagnostic (previous behaviour) is preserved via the
-                //   two labels above.
-                val classForRoute6633 = AssetClass.fromLane(laneKey)
-                val rerouted6633 = CanonicalSizingBridge6532.resolve(
+                val classForRoute7828 = AssetClass.fromLane(laneKey)
+                val canonical7828 = CanonicalSizingBridge6532.resolve(
                     requestedSol = requestedSol,
-                    assetClass = classForRoute6633,
+                    assetClass = classForRoute7828,
                     laneName = laneKey,
                     walletSol = walletSol7226,
                     paperMode = paperMode,
@@ -147,16 +128,14 @@ object TraderSizingBridge6444 {
                     laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,
                     canonicalAssetId = mintForSeal,
                     symbol = mintForSeal.ifBlank { laneKey },
-                    source = "TraderSizingBridge6444.auto_reroute_6633",
+                    source = "TraderSizingBridge6444.specialist_primary_7828",
                 )
-                com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelInc("SPECIALIST_AUTO_REROUTED_TO_CANONICAL_6633")
-                com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelInc("SPECIALIST_AUTO_REROUTED_${laneKey}_6633")
-                if (mintForSeal.isNotBlank() && rerouted6633.executable) {
-                    try { SealedOrderSizeAuthority6497.sealFor(mintForSeal, rerouted6633, laneKey) } catch (_: Throwable) {}
+                PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_SIZING_ROUTE_7828")
+                PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_SIZING_ROUTE_7828_" + laneKey)
+                if (mintForSeal.isNotBlank() && canonical7828.executable) {
+                    try { SealedOrderSizeAuthority6497.sealFor(mintForSeal, canonical7828, laneKey) } catch (_: Throwable) {}
                 }
-                return rerouted6633
+                return canonical7828
             }
         } catch (_: Throwable) {}
         val dynamicWalletCap = (walletSol7226.coerceAtLeast(0.0) * walletRiskPct.coerceIn(0.0, 1.0))

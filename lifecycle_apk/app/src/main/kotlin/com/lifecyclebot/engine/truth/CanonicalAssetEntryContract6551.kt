@@ -210,7 +210,27 @@ object CanonicalEntryAuthority6551 {
                 !PredictiveEntryOracle6915.isDegenerateNow7120()
         } catch (_: Throwable) { false }
         val oracleHardSafety7287 = oracle7259?.hardSafety7287 == true
-        val advisoryPass7263 = !oracleProven7263 && !oracleHardSafety7287
+        val oracleDegenerate7828 = try { PredictiveEntryOracle6915.isDegenerateNow7120() } catch (_: Throwable) { false }
+        val forwardFallback7828 = if (oracleDegenerate7828) try {
+            com.lifecyclebot.engine.ForwardOutcomeModel.forecast(
+                candidate.specialist.ifBlank { candidate.assetClass.tag },
+                candidate.score.toInt().coerceIn(0, 100),
+                candidate.evidence["setupQuality"].orEmpty().ifBlank { "U" },
+                try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                candidate.evidence["edgePhase"].orEmpty().ifBlank { "UNKNOWN" },
+            )
+        } catch (_: Throwable) { null } else null
+        val liveExpectedPct7828 = if (!oracleDegenerate7828) oracle7259?.expectancyPct else forwardFallback7828?.expectedPnl
+        val livePositiveEv7828 = liveExpectedPct7828?.isFinite() == true && liveExpectedPct7828 > 0.0
+        if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828) {
+            try {
+                PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
+                if (oracleDegenerate7828) PipelineHealthCollector.labelInc("CROSS_ASSET_DEGENERATE_ORACLE_FWD_FALLBACK_7828")
+            } catch (_: Throwable) {}
+            return blocked(candidate, venue, "LIVE_NON_POSITIVE_EXPECTANCY_7828")
+        }
+        val advisoryPass7263 = !oracleProven7263 && !oracleHardSafety7287 &&
+            (!candidate.mode.equals("LIVE", true) || livePositiveEv7828)
         if (advisoryPass7263) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_ADVISORY_PASS_7263")
@@ -312,8 +332,9 @@ object CanonicalEntryAuthority6551 {
                     .labelInc("ADVISORY_SIZE_STAMP_WITHHELD_6892")
             } catch (_: Throwable) {}
         }
-        val sizing = OrderSizeResolver6441.resolve(
+        val sizing = CanonicalSizingBridge6532.resolve(
             requestedSol = shapedSize,
+            assetClass = candidate.assetClass,
             laneName = candidate.specialist.ifBlank { candidate.assetClass.tag },
             // V5.0.7211 §AN_ABSENT_WALLET_IS_NOT_AN_INFINITE_WALLET.
             //
@@ -351,8 +372,11 @@ object CanonicalEntryAuthority6551 {
             paperMode = candidate.mode.equals("PAPER", true),
             laneRiskCapSol = candidate.evidence["laneRiskCapSol"]?.toDoubleOrNull() ?: OrderSizeResolver6441.DEFAULT_LANE_RISK_CAP_SOL,
             laneMinExecutableSol = candidate.evidence["laneMinExecutableSol"]?.toDoubleOrNull() ?: 0.001,
-            applyPaperMemeMinimum = candidate.assetClass == AssetClass.SOLANA_TOKEN,
-            mint = candidate.assetId,
+            canonicalAssetId = candidate.assetId,
+            symbol = candidate.symbol,
+            price = candidate.price,
+            candidateVersion = candidate.candidateVersion,
+            source = "CanonicalAssetEntryContract6551",
             causalEventId = sizingCausalEventId6892,
         )
         if (!sizing.executable) return blocked(candidate, venue, "SIZE_NOT_EXECUTABLE:${sizing.reason}")

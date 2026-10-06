@@ -1787,19 +1787,16 @@ object CryptoAltTrader {
                     val freshTapeSamples7472 = try {
                         CryptoLaneDesk7391.prices(deskIdentity7391).size
                     } catch (_: Throwable) { 0 }
-                    if (refreshed.isFresh6544 && freshTapeSamples7472 < 4) {
-                        DynamicAltTokenRegistry.releaseEvaluationForRetry7418(
-                            refreshed, "CRYPTO_FRESH_TAPE_WARMUP_7472",
-                        )
+                    if (refreshed.isFresh6544) {
+                        val retryReason7828 = if (freshTapeSamples7472 < 4)
+                            "CRYPTO_FRESH_TAPE_WARMUP_7472"
+                        else "CRYPTO_FRESH_NO_ACTIONABLE_RETRY_7828"
+                        DynamicAltTokenRegistry.releaseEvaluationForRetry7418(refreshed, retryReason7828)
                         try {
-                            PipelineHealthCollector.labelInc("CRYPTO_FRESH_TAPE_WARMUP_7472")
+                            PipelineHealthCollector.labelInc(retryReason7828)
                             PipelineHealthCollector.labelInc("CRYPTO_FRESH_TAPE_WARMUP_SAMPLE_${freshTapeSamples7472}_7472")
                         } catch (_: Throwable) {}
                     } else {
-                        // V5.0.7244 — CryptoBrain was already consulted above.
-                        // Specialist silence is observation only, never a fabricated executable score.
-                        // V5.0.7443 — once evidence is mature, NO_ACTIONABLE is terminal
-                        // for this exact immutable market-data generation.
                         DynamicAltTokenRegistry.markEvaluationDisposition6567(
                             refreshed, "CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244",
                         )

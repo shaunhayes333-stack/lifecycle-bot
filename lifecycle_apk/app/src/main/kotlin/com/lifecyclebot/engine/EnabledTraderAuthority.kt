@@ -89,6 +89,12 @@ object EnabledTraderAuthority {
      */
     private val enabled = AtomicReference<Set<Trader>>(emptySet())
 
+    private val MEME_SPECIALISTS_7828 = setOf(
+        Trader.SHITCOIN, Trader.MOONSHOT, Trader.EXPRESS, Trader.QUALITY,
+        Trader.TREASURY, Trader.CASHGEN, Trader.BLUECHIP, Trader.MANIPULATED,
+        Trader.DIP_HUNTER, Trader.PROJECT_SNIPER, Trader.CYCLIC,
+    )
+
     /** Publish the canonical enabled set. Idempotent. */
     fun publish(set: Set<Trader>) {
         enabled.set(set.toSet())
@@ -124,7 +130,9 @@ object EnabledTraderAuthority {
         // learning samples on every surface. Live mode still respects the
         // user's configured trader set.
         if (com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode) return true
-        return t in enabled.get()
+        val live = enabled.get()
+        if (t in MEME_SPECIALISTS_7828 && Trader.MEME in live) return true
+        return t in live
     }
     fun snapshot(): Set<Trader> = enabled.get()
     fun snapshotStr(): String = enabled.get().joinToString(",") { it.name }
@@ -147,7 +155,9 @@ object EnabledTraderAuthority {
      */
     fun effectiveSnapshot(): Set<Trader> {
         val paper = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { false }
-        return if (paper) Trader.values().toSet() else enabled.get()
+        if (paper) return Trader.values().toSet()
+        val live = enabled.get()
+        return if (Trader.MEME in live) live + MEME_SPECIALISTS_7828 else live
     }
 
     /**
@@ -176,7 +186,7 @@ object EnabledTraderAuthority {
         val internalMemeLayers = setOf(
             Trader.SHITCOIN, Trader.MOONSHOT, Trader.EXPRESS, Trader.QUALITY,
             Trader.TREASURY, Trader.CASHGEN, Trader.BLUECHIP, Trader.MANIPULATED,
-            Trader.DIP_HUNTER, Trader.PROJECT_SNIPER,
+            Trader.DIP_HUNTER, Trader.PROJECT_SNIPER, Trader.CYCLIC,
         )
         val laneSet = set - Trader.CRYPTO_ALT - internalMemeLayers
         return laneSet.size == 1 && Trader.MEME in laneSet

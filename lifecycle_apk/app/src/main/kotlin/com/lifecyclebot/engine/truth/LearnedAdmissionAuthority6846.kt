@@ -340,6 +340,19 @@ object LearnedAdmissionAuthority6846 {
         val cohortMature = inputs.cohortSample >= MATURITY_MIN_N
         val sourceMature = inputs.sourceSample >= MATURITY_MIN_N
 
+        // V5.0.7828 — real LIVE capital follows positive net expectancy only.
+        // WR is intentionally absent: fat-tail lanes survive whenever mean EV > 0.
+        val liveMode7828 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { true }
+        if (liveMode7828 && (!inputs.expectedPnl.isFinite() || inputs.expectedPnl <= 0.0)) {
+            return deny(
+                "LIVE_NON_POSITIVE_EXPECTANCY_7828", inputs,
+                "ev=" + "%.5f".format(inputs.expectedPnl) +
+                    " rawCellN=" + inputs.oracleRawCohortN7154 +
+                    " rawLaneN=" + inputs.oracleRawLaneN7207 +
+                    " oracle=" + inputs.oracleVerdict6915,
+            )
+        }
+
         // §2 — DUMP regime, mature negative cohort → DENY normal
         val laneLossRate = inputs.laneLossRatePct / 100.0
         val lanePWin = inputs.laneWrPct / 100.0

@@ -180,9 +180,20 @@ object StartupCrashGuard7717 {
             System.currentTimeMillis() - lastCrashMs <= CRASH_LOOP_WINDOW_MS_7719 &&
             lastCrashUptimeMs in 0..STARTUP_WINDOW_MS_7717
 
-    /** The last crash in operator-readable form for the login screen, or null when none in the last day. */
+    /** V5.0.7828 — prior-build crashes stay forensic but are not operator-current. */
+    private fun crashIsOperatorCurrent7828(): Boolean {
+        if (!loaded || lastCrashMs <= 0L) return false
+        val ageMs = System.currentTimeMillis() - lastCrashMs
+        if (ageMs < 0L || ageMs > DISPLAY_WINDOW_MS_7719) return false
+        if (lastCrashBuild.isNotBlank() && thisBuild.isNotBlank() && lastCrashBuild != thisBuild &&
+            uptimeMs() > STARTUP_WINDOW_MS_7717
+        ) return false
+        return true
+    }
+
+    /** The last crash in operator-readable form for the login screen, or null when not current/recent. */
     fun crashForDisplay(): String? {
-        if (!loaded || lastCrashMs <= 0L) return null
+        if (!crashIsOperatorCurrent7828()) return null
         val ageMs = System.currentTimeMillis() - lastCrashMs
         if (ageMs > DISPLAY_WINDOW_MS_7719) return null
         val kind = if (lastCrashUptimeMs in 0..STARTUP_WINDOW_MS_7717) "startup crash" else "crash"
@@ -208,6 +219,7 @@ object StartupCrashGuard7717 {
     fun lastCrashSummary(): String {
         if (!loaded) return "guard not initialised"
         if (lastCrashMs <= 0L) return "none recorded"
+        if (!crashIsOperatorCurrent7828()) return "none recent"
         val ageMin = (System.currentTimeMillis() - lastCrashMs) / 60_000L
         val kind = if (lastCrashUptimeMs in 0..STARTUP_WINDOW_MS_7717) "STARTUP_CRASH" else "RUNTIME_CRASH"
         val sup = if (suppressUntilMs > System.currentTimeMillis()) " manualSuppressedForMin=${(suppressUntilMs - System.currentTimeMillis()) / 60_000L}" else ""

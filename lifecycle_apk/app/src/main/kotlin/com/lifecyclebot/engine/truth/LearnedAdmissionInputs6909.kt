@@ -376,6 +376,14 @@ object LearnedAdmissionInputs6909 {
             try { OracleTradeHistory7287.lane(laneKey)?.n ?: 0 } catch (_: Throwable) { 0 },
         )
 
+        // V5.0.7828 — categorical degeneracy also removes numeric EV authority.
+        val oracleUsable7828 = oracle6915 != null && !try {
+            PredictiveEntryOracle6915.isDegenerateNow7120()
+        } catch (_: Throwable) { false }
+        if (oracle6915 != null && !oracleUsable7828) {
+            try { PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_NUMERIC_EV_BYPASSED_7828") } catch (_: Throwable) {}
+        }
+
         return LearnedAdmissionAuthority6846.Inputs(
             lane = laneKey,
             mint = mint,
@@ -385,10 +393,10 @@ object LearnedAdmissionInputs6909 {
             // V5.0.6915 — the oracle's blended estimate is preferred over any
             // single cell. It is always present once anything has closed, which
             // is what ends the "pWin=0.65 EV=0.0 hardcoded prior" state.
-            livePWin = oracle6915?.pWin?.takeIf { it in 0.0..1.0 }
+            livePWin = (if (oracleUsable7828) oracle6915!!.pWin.takeIf { it in 0.0..1.0 } else null)
                 ?: if (useAgg6911) agg6911!!.pWin.coerceIn(0.0, 1.0)
                 else (fwd?.pWin ?: 0.0).coerceIn(0.0, 1.0),
-            expectedPnl = oracle6915?.expectancyPct?.takeIf { it.isFinite() }?.div(100.0)
+            expectedPnl = (if (oracleUsable7828) oracle6915!!.expectancyPct.takeIf { it.isFinite() }?.div(100.0) else null)
                 ?: if (useAgg6911) (agg6911!!.expectedPnlPct / 100.0)
                 else expectedPnlFraction,
             // Maturity now means "the hierarchy carries enough weight", not

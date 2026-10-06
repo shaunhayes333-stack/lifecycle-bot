@@ -968,6 +968,7 @@ object DynamicAltTokenRegistry {
         val s = state.uppercase()
         return s.contains("CRYPTO_BRAIN_OBSERVE_7244") ||
             s.contains("CRYPTO_FRESH_TAPE_WARMUP_7472") ||
+            s.contains("CRYPTO_FRESH_NO_ACTIONABLE_RETRY_7828") ||
             s.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") ||
             s.contains("PRICE_UNAVAILABLE")
     }

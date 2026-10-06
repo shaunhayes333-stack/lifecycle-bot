@@ -159,13 +159,27 @@ object CanonicalSizingBridge6532 {
             minOf(laneMinExecutableSol, 0.005)
         else
             laneMinExecutableSol
+        val liveRoutableMin7828 = if (!paperMode &&
+            assetClass in setOf(AssetClass.SOLANA_TOKEN, AssetClass.CRYPTO_ALT)
+        ) try {
+            val solUsd7828 = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            if (solUsd7828.isFinite() && solUsd7828 > 0.0)
+                com.lifecyclebot.v3.sizing.SmartSizerV3
+                    .routableCapacityPreflight7224(effectiveWalletSol6689, solUsd7828).routableMinSol
+            else 0.0
+        } catch (_: Throwable) { 0.0 } else 0.0
+        val effectiveMinSol7828 = maxOf(effectiveMinSol6542, liveRoutableMin7828)
+        if (liveRoutableMin7828 > effectiveMinSol6542) try {
+            PipelineHealthCollector.labelInc("CANONICAL_LIVE_ROUTABLE_MIN_APPLIED_7828")
+            PipelineHealthCollector.labelInc("CANONICAL_LIVE_ROUTABLE_MIN_APPLIED_7828_" + assetClass.tag)
+        } catch (_: Throwable) {}
         val res = OrderSizeResolver6441.resolve(
             requestedSol = requestedSol,
             laneName = laneName,
             walletSol = effectiveWalletSol6689,
             paperMode = paperMode,
             laneRiskCapSol = laneRiskCapSol,
-            laneMinExecutableSol = effectiveMinSol6542,
+            laneMinExecutableSol = effectiveMinSol7828,
             applyPaperMemeMinimum = assetClass == AssetClass.SOLANA_TOKEN,
             causalEventId = resolvedCausalEventId6674,
             // V5.0.6911 — forward the asset identity so the resolver can read

@@ -49,7 +49,7 @@ class Aate7815RecurringRootCauseRepairTest {
 
     @Test fun native_liveness_reports_global_fanout_scope() {
         val s = src("engine/ToolkitSignalSheet.kt")
-        assertTrue(s.contains("nativeScope7815=GLOBAL_FANOUT_LAST_TOKEN"))
+        assertTrue(s.contains("nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828"))
         assertTrue(s.contains("residentOwnLane7815="))
         assertTrue(s.contains("residentReady7815="))
     }

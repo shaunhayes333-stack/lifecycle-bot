@@ -73,6 +73,23 @@ object HardRugPreFilter {
      * an absence recorded as a rug.
      */
     fun filter(ts: TokenState, isPaperMode: Boolean = false, spendAuthorization: Boolean = false): PreFilterResult {
+        // V5.0.7828 — confirmed trash dies before grace/V3; unknown hydration is not trash.
+        val earlyLiquidity7828 = try { TokenMapAuthority.liquidityVerdict(ts) } catch (_: Throwable) { null }
+        if (ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() ||
+            ts.safety.rugcheckScore == 0 || earlyLiquidity7828?.hardZero == true
+        ) {
+            try { PipelineHealthCollector.labelInc("PRE_V3_CONFIRMED_TRASH_BLOCK_7828") } catch (_: Throwable) {}
+            return PreFilterResult(
+                pass = false,
+                reason = when {
+                    ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() -> "CONFIRMED_HARD_SAFETY_7828"
+                    ts.safety.rugcheckScore == 0 -> "CONFIRMED_RUGCHECK_ZERO_7828"
+                    else -> "TRUE_ZERO_LIQUIDITY_7828"
+                },
+                severity = FilterSeverity.HARD_FAIL,
+            )
+        }
+
         // V5.6.29d: GRACE PERIOD FOR NEW TOKENS
         // Tokens just added to watchlist may not have liquidity data yet because:
         // 1. Scanner didn't populate it (async race condition - now fixed to be sync)

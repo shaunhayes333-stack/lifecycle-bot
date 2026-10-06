@@ -25,8 +25,8 @@ class Aate6630SpecialistMisrouteCoverageTest {
         val src = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/TraderSizingBridge6444.kt"
         ).readText()
-        assertTrue("V5.0.6630 §D: TraderSizingBridge6444 must stamp SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630",
-            src.contains("SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630"))
+        assertTrue("V5.0.6630 §D: TraderSizingBridge6444 must stamp SPECIALIST_CANONICAL_SIZING_ROUTE_7828",
+            src.contains("SPECIALIST_CANONICAL_SIZING_ROUTE_7828"))
         assertTrue("V5.0.6630 §D: alarm must cover the 12 meme specialist lane keys",
             src.contains("SPECIALIST_LANE_KEYS_6630") &&
                 src.contains("\"SHITCOIN\"") && src.contains("\"MOONSHOT\"") &&

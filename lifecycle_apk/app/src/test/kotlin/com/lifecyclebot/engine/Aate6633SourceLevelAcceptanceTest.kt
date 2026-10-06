@@ -114,10 +114,10 @@ class Aate6633SourceLevelAcceptanceTest {
     @Test fun p0k_specialist_lanes_auto_reroute_to_canonical_sizing_bridge() {
         val src = read("engine/truth/TraderSizingBridge6444.kt")
         assertTrue("specialist misroute diagnostic still present",
-            src.contains("SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630"))
+            src.contains("SPECIALIST_CANONICAL_SIZING_ROUTE_7828"))
         assertTrue("specialist auto-reroute to CanonicalSizingBridge6532 must be wired",
             src.contains("CanonicalSizingBridge6532.resolve(") &&
-            src.contains("SPECIALIST_AUTO_REROUTED_TO_CANONICAL_6633"))
+            src.contains("SPECIALIST_CANONICAL_SIZING_ROUTE_7828"))
     }
 
     @Test fun p0g_h_i_cross_asset_raw_signal_receipt_wired() {

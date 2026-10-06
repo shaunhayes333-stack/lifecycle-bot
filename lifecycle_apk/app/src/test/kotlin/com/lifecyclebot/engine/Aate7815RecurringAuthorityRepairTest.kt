@@ -41,7 +41,7 @@ class Aate7815RecurringAuthorityRepairTest {
 
     @Test fun specialistDiagnosticsSeparateGlobalBrainFanoutFromResidentOwnership() {
         val sheet = src("engine/ToolkitSignalSheet.kt")
-        assertTrue(sheet.contains("nativeScope7815=GLOBAL_FANOUT_LAST_TOKEN"))
+        assertTrue(sheet.contains("nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828"))
         assertTrue(sheet.contains("residentOwnLane7815"))
         assertTrue(sheet.contains("residentReady7815"))
     }
