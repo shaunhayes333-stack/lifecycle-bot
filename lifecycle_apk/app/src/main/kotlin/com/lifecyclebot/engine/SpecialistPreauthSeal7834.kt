@@ -38,24 +38,49 @@ internal object SpecialistPreauthSeal7834 {
         )
         val size = minOf(decision.sizeSol, maximumSizeSol)
         ExecutableOpenGate.recordPrimaryLane7835(ts.mint, decision.candidateVersion7835, canonicalLane)
-        return ExecutableOpenGate.recordFdgAndGetIntent6533(
-            mint = ts.mint, symbol = ts.symbol, lane = canonicalLane,
-            canExecute = true, reason = decision.blockReason, signal = "BUY",
-            rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
-            liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons.toList(),
-            preFdgVerdict = "BUY", candidateVersion = decision.candidateVersion7835,
-            entryScore = decision.effectiveEntryScore7687,
-            tokenMapRouteStatus = tokenMap.routeStatus, tokenMapHydrationComplete = tokenMap.hydrationComplete,
-            tokenMapExpectedOut = tokenMap.expectedOutAmount, tokenMapProviderAttempts = tokenMap.providerAttempts,
-            requiresSolanaTokenMap = true, allowTrunkExecutionHandoff6533 = true,
-            resolvedSizeSol6558 = size,
-        )?.takeIf {
-            it.mint == ts.mint && it.mode == (if (paper) "PAPER" else "LIVE")
-        }?.takeIf {
-            it.candidateVersion == decision.candidateVersion7835 &&
-                CanonicalLaneIdentity6506.canonical(it.canonicalLane) == canonicalLane &&
-                it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() &&
-                it.resolvedSize > 0.0 && it.resolvedSize <= size + 1e-9
-        }
+        fun sealOnce7840(): ExecutableOpenGate.ExecutionIntent? =
+            ExecutableOpenGate.recordFdgAndGetIntent6533(
+                mint = ts.mint, symbol = ts.symbol, lane = canonicalLane,
+                canExecute = true, reason = decision.blockReason, signal = "BUY",
+                rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
+                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons.toList(),
+                preFdgVerdict = "BUY", candidateVersion = decision.candidateVersion7835,
+                entryScore = decision.effectiveEntryScore7687,
+                tokenMapRouteStatus = tokenMap.routeStatus, tokenMapHydrationComplete = tokenMap.hydrationComplete,
+                tokenMapExpectedOut = tokenMap.expectedOutAmount, tokenMapProviderAttempts = tokenMap.providerAttempts,
+                requiresSolanaTokenMap = true, allowTrunkExecutionHandoff6533 = true,
+                resolvedSizeSol6558 = size,
+            )?.takeIf {
+                it.mint == ts.mint && it.mode == (if (paper) "PAPER" else "LIVE")
+            }?.takeIf {
+                it.candidateVersion == decision.candidateVersion7835 &&
+                    CanonicalLaneIdentity6506.canonical(it.canonicalLane) == canonicalLane &&
+                    it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() &&
+                    it.resolvedSize > 0.0 && it.resolvedSize <= size + 1e-9
+            }
+
+        val first7840 = sealOnce7840()
+        if (first7840 != null) return first7840
+
+        // V5.0.7840 — a same-decision retry closes the measured seal race
+        // without borrowing another lane/version and without fabricating an
+        // intent after a hard safety revoke. recordFdgAndGetIntent6533 remains
+        // the authority on both attempts; if the facts now hard-block, both
+        // attempts return null.
+        try {
+            PipelineHealthCollector.labelInc("SPECIALIST_FDG_SEAL_RETRY_7840")
+            ForensicLogger.lifecycle(
+                "SPECIALIST_FDG_SEAL_RETRY_7840",
+                "mint=${ts.mint.take(10)} lane=$canonicalLane version=${decision.candidateVersion7835} action=same_decision_idempotent_retry",
+            )
+        } catch (_: Throwable) {}
+        val retry7840 = sealOnce7840()
+        try {
+            PipelineHealthCollector.labelInc(
+                if (retry7840 != null) "SPECIALIST_FDG_SEAL_RETRY_HEALED_7840"
+                else "SPECIALIST_FDG_SEAL_RETRY_FAILED_7840"
+            )
+        } catch (_: Throwable) {}
+        return retry7840
     }
 }

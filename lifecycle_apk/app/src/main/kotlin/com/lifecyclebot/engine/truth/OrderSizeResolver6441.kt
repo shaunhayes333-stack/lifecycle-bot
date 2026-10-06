@@ -514,29 +514,36 @@ object OrderSizeResolver6441 {
             conviction6909 < CONVICTION_PROMOTION_FLOOR_6909
         val refuseMinPromotion6909 = convictionCollapsed6909 &&
             requestedLamports6491 < minExecLamports6491
+        // V5.0.7840 — the $5 live route floor is an execution constraint, not a
+        // second admission veto. 7831 zeroed every otherwise valid request below
+        // the floor even when the wallet/lane could fund the minimum and the
+        // evidence stack had NOT expressed a low-conviction refusal. That made
+        // small live wallets structurally incapable of reaching execution.
+        //
+        // Promotion here is deliberately narrow:
+        //   * learned conviction below §6909 still refuses;
+        //   * cash and lane caps must fund the minimum;
+        //   * the downstream LiveRiskPolicy7807 independently proves the
+        //     promoted minimum stays inside the hard loss budget before open.
         val shapedOrMinimumLamports6600 = when {
-            liveSubRoutableIntent7831 -> 0L
-            liveRiskClampBelowRoutable7831 -> 0L
-            requestedLamports6491 >= minExecLamports6491 ->
-                if (clampCollapsed6896) minExecLamports6491 else shapedCeilingLamports6896
             refuseMinPromotion6909 -> 0L
+            requestedLamports6491 >= minExecLamports6491 ->
+                if (clampCollapsed6896 && canFundMinimum6600) minExecLamports6491 else shapedCeilingLamports6896
             canFundMinimum6600 -> minExecLamports6491
             else -> 0L
         }
-        if (liveSubRoutableIntent7831 || liveRiskClampBelowRoutable7831) {
+        val liveRouteFloorPromoted7840 = !paperMode &&
+            (liveSubRoutableIntent7831 || liveRiskClampBelowRoutable7831) &&
+            shapedOrMinimumLamports6600 >= minExecLamports6491
+        if (liveRouteFloorPromoted7840) {
             try {
-                PipelineHealthCollector.labelInc("LIVE_SUB_ROUTABLE_RISK_REFUSED_7831")
-                PipelineHealthCollector.labelInc(
-                    if (liveSubRoutableIntent7831)
-                        "LIVE_SUB_ROUTABLE_INTENT_REFUSED_7831"
-                    else
-                        "LIVE_RISK_CLAMP_BELOW_ROUTABLE_REFUSED_7831"
-                )
+                PipelineHealthCollector.labelInc("LIVE_ROUTABLE_MIN_CAPACITY_PROMOTED_7840")
+                PipelineHealthCollector.labelInc("LIVE_ROUTABLE_MIN_CAPACITY_PROMOTED_7840_${laneName.uppercase()}")
                 ForensicLogger.lifecycle(
-                    "LIVE_SUB_ROUTABLE_RISK_REFUSED_7831",
+                    "LIVE_ROUTABLE_MIN_CAPACITY_PROMOTED_7840",
                     "lane=$laneName mint=${mint.take(10)} requested=${fromLamports6491(requestedLamports6491)} " +
                         "riskShaped=${fromLamports6491(shapedCeilingLamports6896)} minExec=${fromLamports6491(minExecLamports6491)} " +
-                        "action=no_trade_never_promote_live_risk"
+                        "conviction=${"%.4f".format(conviction6909)} action=promote_then_reprove_hard_risk_7807"
                 )
             } catch (_: Throwable) {}
         }

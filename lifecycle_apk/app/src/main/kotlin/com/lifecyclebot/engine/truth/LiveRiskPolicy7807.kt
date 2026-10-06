@@ -340,7 +340,19 @@ object LiveRiskPolicy7807 {
         if (i.upstreamSol > 0.0 && size > i.upstreamSol) size = i.upstreamSol
 
         if (i.execMinSol > 0.0 && size < i.execMinSol) {
-            return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, cost1, total)
+            // V5.0.7840 — prove the venue minimum against the REAL hard-risk
+            // envelope instead of rejecting merely because adaptive sizing
+            // landed below it. This is the last-mile counterpart to the shared
+            // resolver's capacity promotion: no safety/EV veto is bypassed.
+            val minCost7840 = roundTripCostPct(i.execMinSol, i.solUsd, i.liquidityUsd)
+            val minFundable7840 = i.execMinSol <= laneCap + 1e-12 && i.execMinSol <= liqCap + 1e-12
+            val minRiskSafe7840 = minFundable7840 &&
+                executableMinRiskOk(i.execMinSol, stop, minCost7840, i.equitySol)
+            if (minRiskSafe7840) {
+                labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
+                return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total)
+            }
+            return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, minCost7840, total)
         }
         return Decision(true, size, "OPEN_7807", labels, stop, cost1, total)
     }

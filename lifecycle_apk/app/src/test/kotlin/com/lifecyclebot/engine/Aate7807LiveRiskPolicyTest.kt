@@ -118,6 +118,14 @@ class Aate7807LiveRiskPolicyTest {
         val atMin = LiveRiskPolicy7807.decide(inputs(equity = 0.15, upstream = 0.027, execMin = 0.025, stop = 8.0, first = 30.0))
         assertTrue(atMin.open)
         assertEquals(0.025, atMin.sizeSol, 1e-9)
+        val safeRouteFloor = LiveRiskPolicy7807.decide(inputs(
+            lane = "MOONSHOT", equity = 0.2113, upstream = 0.02274,
+            execMin = 0.0414, stop = 8.0, first = 30.0, target = 40.0, liq = 100_000.0,
+        ))
+        assertTrue(safeRouteFloor.reason, safeRouteFloor.open)
+        assertEquals("OPEN_RISK_SAFE_MIN_PROMOTED_7840", safeRouteFloor.reason)
+        assertEquals(0.0414, safeRouteFloor.sizeSol, 1e-9)
+        assertTrue("RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840" in safeRouteFloor.labels)
         val big = LiveRiskPolicy7807.decide(inputs(equity = 10.0, upstream = 0.05, n = 40, mean = 40.0, net = 2.0, wr = 60.0))
         assertTrue(big.open && big.sizeSol <= 0.05 + 1e-12)
         val dd = LiveRiskPolicy7807.decide(inputs(equity = 1.0, upstream = 1.0, dd = 0.30))

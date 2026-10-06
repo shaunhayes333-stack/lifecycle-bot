@@ -49,12 +49,16 @@ class Aate7832LiveEntryQualityRepairTest {
         assertTrue(block.contains("LIVE_WALLET_RECONCILED_NOT_EXEC_BUY_OK_7832"))
     }
 
-    @Test fun live_sub_routable_promotions_remain_disabled() {
+    @Test fun sub_routable_live_size_is_promoted_only_through_canonical_risk_reproof() {
         val smart = src("v3/sizing/SmartSizerV3.kt")
         val resolver = src("engine/truth/OrderSizeResolver6441.kt")
+        val risk = src("engine/truth/LiveRiskPolicy7807.kt")
         val guard = src("engine/truth/RoutableMinRiskGuard7236.kt")
-        assertTrue(smart.contains("SMART_SIZER_V3_SUB_ROUTABLE_REFUSED_7831"))
-        assertTrue(resolver.contains("LIVE_SUB_ROUTABLE_INTENT_REFUSED_7831"))
+        assertTrue(smart.contains("LIVE_ROUTABLE_MIN_USD_7127 = 5.0"))
+        assertTrue(resolver.contains("LIVE_ROUTABLE_MIN_CAPACITY_PROMOTED_7840"))
+        assertTrue(resolver.contains("refuseMinPromotion6909 -> 0L"))
+        assertTrue(risk.contains("RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"))
+        assertTrue(risk.contains("executableMinRiskOk(i.execMinSol"))
         assertTrue(guard.contains("ROUTABLE_MIN_LIFT_DISABLED_7831"))
         assertFalse(guard.contains("return Decision(Verdict.ALLOW_LIFT"))
     }
