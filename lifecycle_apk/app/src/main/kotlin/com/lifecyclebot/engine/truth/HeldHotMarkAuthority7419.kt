@@ -124,7 +124,21 @@ object HeldHotMarkAuthority7419 {
 
     private fun refreshPass() {
         val now = System.currentTimeMillis()
-        val stale = activeOpen().filter { runtimeTokenAgeMs(it.mint, now) > HOT_FRESH_MS }
+        // V5.0.7822 — the risk clock consumes CanonicalPriceMarkRegistry6522
+        // EXIT_ECONOMIC marks. TokenState.lastPriceUpdate can be refreshed by
+        // discovery/scanner observations without publishing an exit-economic
+        // mark; using only runtimeTokenAge let a position look "fresh" here while
+        // the risk clock logged NO_MARK thousands of times. Refresh whenever
+        // EITHER surface is stale, and always when the canonical exit mark is absent.
+        val stale = activeOpen().filter { p ->
+            val runtimeStale7822 = runtimeTokenAgeMs(p.mint, now) > HOT_FRESH_MS
+            val canonicalTs7822 = currentCanonicalTs(p.mint)
+            val canonicalStale7822 = canonicalTs7822 <= 0L || now - canonicalTs7822 > HOT_FRESH_MS
+            if (!runtimeStale7822 && canonicalStale7822) {
+                try { PipelineHealthCollector.labelInc("HELD_HOT_CANONICAL_MARK_GAP_7822") } catch (_: Throwable) {}
+            }
+            runtimeStale7822 || canonicalStale7822
+        }
         if (stale.isEmpty()) return
 
         // V5.0.7510 — held Solana positions are a book, not N independent

@@ -87,19 +87,34 @@ object PositionRegistryParityAudit6464 {
         }
         val canonicalMints = canonicalByMint.keys
 
-        val registryMap: Map<String, EmergentGuardrails.RegistryEntry> = try {
+        val legacyRegistryRaw7822: Map<String, EmergentGuardrails.RegistryEntry> = try {
             EmergentGuardrails.snapshot()
         } catch (_: Throwable) { emptyMap() }
-        val registryByState = registryMap.values.groupingBy { it.state }.eachCount()
+
+        // V5.0.7822 — EmergentGuardrails is a legacy PAPER registry. Its close
+        // path still marks occupancy with mode="paper". Comparing it to LIVE
+        // canonical inventory manufactured the exact persistent delta seen in
+        // 7820: live canonical=4 versus registry=31, i.e. the 27 paper opens.
+        // Never auto-heal a paper projection from live state. In LIVE the registry
+        // is explicitly out-of-scope for parity; canonical LIVE remains authority.
+        val registryComparable7822 = activeMode6490 == "paper"
+        val registryMap: Map<String, EmergentGuardrails.RegistryEntry> =
+            if (registryComparable7822) legacyRegistryRaw7822 else emptyMap()
+        val registryByState = if (registryComparable7822) {
+            registryMap.values.groupingBy { it.state }.eachCount()
+        } else {
+            if (legacyRegistryRaw7822.isEmpty()) emptyMap()
+            else mapOf("LEGACY_PAPER_OUT_OF_SCOPE" to legacyRegistryRaw7822.size)
+        }
         val registryMints = registryMap.keys
 
-        val missingFromRegistry = canonicalMints.filter { it !in registryMints }
-        val missingFromCanonical = registryMints.filter { it !in canonicalMints }
+        val missingFromRegistry = if (registryComparable7822) canonicalMints.filter { it !in registryMints } else emptyList()
+        val missingFromCanonical = if (registryComparable7822) registryMints.filter { it !in canonicalMints } else emptyList()
 
         val stateMismatch = mutableListOf<String>()
         val qtyMismatch = mutableListOf<String>()
         val costBasisMismatch = mutableListOf<String>()
-        val common = canonicalMints.intersect(registryMints)
+        val common = if (registryComparable7822) canonicalMints.intersect(registryMints) else emptySet()
         for (mint in common) {
             val c = canonicalByMint[mint] ?: continue
             val r = registryMap[mint] ?: continue
@@ -115,8 +130,8 @@ object PositionRegistryParityAudit6464 {
             canonicalByState = canonicalByState,
             registryByState = registryByState,
             canonicalCount = canonicalByMint.size,
-            registryCount = registryMap.size,
-            delta = canonicalByMint.size - registryMap.size,
+            registryCount = if (registryComparable7822) registryMap.size else 0,
+            delta = if (registryComparable7822) canonicalByMint.size - registryMap.size else 0,
             missingFromCanonical = missingFromCanonical.take(20).map { it.take(12) },
             missingFromRegistry = missingFromRegistry.take(20).map { it.take(12) },
             stateMismatch = stateMismatch.take(20),
@@ -125,9 +140,14 @@ object PositionRegistryParityAudit6464 {
         )
         lastSnapshot.set(snap)
         if (inputRevision7477.isNotBlank()) lastInputRevision7477.set(inputRevision7477)
-        val diverged = snap.missingFromCanonical.isNotEmpty() || snap.missingFromRegistry.isNotEmpty() ||
-                       snap.stateMismatch.isNotEmpty() || snap.qtyMismatch.isNotEmpty() ||
-                       snap.costBasisMismatch.isNotEmpty()
+        val diverged = registryComparable7822 && (
+            snap.missingFromCanonical.isNotEmpty() || snap.missingFromRegistry.isNotEmpty() ||
+                snap.stateMismatch.isNotEmpty() || snap.qtyMismatch.isNotEmpty() ||
+                snap.costBasisMismatch.isNotEmpty()
+        )
+        if (!registryComparable7822) {
+            try { PipelineHealthCollector.labelInc("POSITION_PARITY_LEGACY_PAPER_OUT_OF_SCOPE_7822") } catch (_: Throwable) {}
+        }
         if (diverged) {
             divergences.incrementAndGet()
             val streak = consecutiveDivergences.incrementAndGet()
@@ -166,10 +186,17 @@ object PositionRegistryParityAudit6464 {
      * legacy registry match the source of truth.
      */
     fun rebuildFromCanonical6475() {
+        // V5.0.7822 — this registry is paper-only. A LIVE parity pass must never
+        // rewrite it from live canonical positions.
+        val paperMode7822 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+        if (!paperMode7822) {
+            try { PipelineHealthCollector.labelInc("POSITION_PARITY_AUTO_HEAL_SKIPPED_LIVE_7822") } catch (_: Throwable) {}
+            return
+        }
         autoHeals.incrementAndGet()
         try {
             val canonical = try {
-                val mode6490 = if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) "paper" else "live"
+                val mode6490 = "paper"
                 CanonicalPositionAuthority6441.openPositions().filter { it.mode == mode6490 }
             } catch (_: Throwable) { emptyList() }
             val canonicalMints = canonical.map { it.mint }.toSet()

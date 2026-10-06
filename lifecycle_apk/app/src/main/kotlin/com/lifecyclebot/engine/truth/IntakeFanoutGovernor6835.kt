@@ -99,6 +99,24 @@ object IntakeFanoutGovernor6835 {
     private fun keyFor(mint: String, causalRoot: String): String =
         "${mint.trim().take(24)}::${causalRoot.trim().take(24)}"
 
+    /**
+     * V5.0.7822 — source callbacks are observations of one candidate generation,
+     * not separate permissions to re-run the complete lane/FDG stack.
+     *
+     * 7820 produced 5,936 active lane evaluations from 695 scanner callbacks
+     * (8.54x fanout) because PUMP_PORTAL, probation, watchlist and market-hunt
+     * roots each received independent budgets for the same mint/version/lane.
+     * Bind the compute budget to the canonical candidate version when available;
+     * fall back to the supplied root only before a version exists.
+     */
+    private fun opportunityKey7822(mint: String, causalRoot: String): String {
+        val version = try {
+            com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
+        } catch (_: Throwable) { 0L }
+        return if (version > 0L) "${mint.trim().take(24)}::V${version}"
+        else keyFor(mint, causalRoot)
+    }
+
     private fun cleanupIfStale() {
         val now = System.currentTimeMillis()
         val keysToDrop = chains.entries
@@ -134,7 +152,7 @@ object IntakeFanoutGovernor6835 {
         // Each lane gets at most LANE_EVAL_CAP evaluations per burst; another
         // lane cannot spend its allowance. This mirrors the per-lane FDG repair
         // from 7265 and preserves bounded compute without caller-order bias.
-        val key = keyFor(mint, causalRoot) + "::LANE::" + lane.take(20)
+        val key = opportunityKey7822(mint, causalRoot) + "::LANE::" + lane.take(20)
         val c = chains.computeIfAbsent(key) { LaneCounters() }
         val now7610 = System.currentTimeMillis()
         val last7610 = c.lastLaneEvalMs7610.get()
@@ -196,8 +214,9 @@ object IntakeFanoutGovernor6835 {
         }
         cleanupIfStale()
         val lane7265 = laneName.trim().uppercase()
-        val key = if (lane7265.isBlank()) keyFor(mint, causalRoot)
-            else keyFor(mint, causalRoot) + "::" + lane7265.take(20)
+        val opportunity7822 = opportunityKey7822(mint, causalRoot)
+        val key = if (lane7265.isBlank()) opportunity7822
+            else opportunity7822 + "::" + lane7265.take(20)
         val c = chains.computeIfAbsent(key) { LaneCounters() }
         val now7304 = System.currentTimeMillis()
         val last7304 = c.lastFdgMs7304.get()

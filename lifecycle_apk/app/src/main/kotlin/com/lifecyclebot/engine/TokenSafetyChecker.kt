@@ -174,11 +174,19 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // for the first caller's check() to finish before giving up
         // and running its own check. Rugcheck retries top out around
         // 4-5s in the worst case so 6s is a safe ceiling.
-        private const val INFLIGHT_WAIT_MS: Long = 6_000L
-        // V5.0.7819 — rugcheck wall clock: one attempt <= 8s, all attempts <= ~10s,
-        // inside the 15s supervisor worker budget (Field Manual L240).
-        private const val RUGCHECK_ATTEMPT_CAP_MS_7819: Long = 8_000L
-        private const val RUGCHECK_TOTAL_BUDGET_MS_7819: Long = 10_000L
+        // V5.0.7822 — a follower must not wait longer than the entire bounded
+        // RugCheck owner call; otherwise duplicate intake can still consume most
+        // of a supervisor lease while doing no useful work.
+        private const val INFLIGHT_WAIT_MS: Long = 4_000L
+        // V5.0.7822 — RugCheck is safety evidence, not the owner of the entire
+        // supervisor lease. 7820 accumulated 124 supervisor worker timeouts even
+        // after 7819 because a 10s RugCheck budget left only ~5s for mint proof,
+        // token-map hydration, scoring and all specialist work. Keep one bounded
+        // attempt under 3.5s and the complete retry envelope under 4.5s. Fast
+        // failures can still retry; slow/unknown responses use the existing
+        // TIMEOUT/PENDING_REVIEW soft/deferred path instead of killing the worker.
+        private const val RUGCHECK_ATTEMPT_CAP_MS_7819: Long = 3_500L
+        private const val RUGCHECK_TOTAL_BUDGET_MS_7819: Long = 4_500L
 
         private const val TAG = "SafetyChecker"
 
