@@ -201,12 +201,22 @@ object LaneEntryContract6342 {
             ts.lastMcap < blueChipMcapFloor7389()) return false
         if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && ts.lastLiquidityUsd > 0.0 &&
             ts.lastLiquidityUsd < BLUECHIP_MIN_LIQ_7389) return false
-        // V5.0.7389 — MOONSHOT's designed band is MoonshotTraderAI's own $10k-$5M.
-        // A known mcap outside it cannot pass the lane's scorer, so election must not
-        // mint a MOONSHOT ticket for it. Unknown mcap (0) is left to the lane.
-        if (lane == "MOONSHOT" && ts.lastMcap > 0.0 &&
-            (ts.lastMcap < com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD ||
-                ts.lastMcap > com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD)) return false
+        // V5.0.7821 — election must read the SAME fluid Moonshot floor as the
+        // native Moonshot scorer. 7719 intentionally restored bootstrap hunting
+        // down to ~$1.5k and walks toward the mature $10k floor with learning.
+        // The old static MIN_MARKET_CAP_USD check here overruled that scorer:
+        // 7820 NIMBUS was admitted runner-shaped at ~$3.3k, then election rejected
+        // MOONSHOT and rewrote ownership to SHITCOIN. One lane, one threshold authority.
+        if (lane == "MOONSHOT" && ts.lastMcap > 0.0) {
+            val moonshotMin7821 = try {
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()
+            } catch (_: Throwable) {
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD
+            }
+            if (ts.lastMcap < moonshotMin7821 ||
+                ts.lastMcap > com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
+            ) return false
+        }
         return true
     }
 

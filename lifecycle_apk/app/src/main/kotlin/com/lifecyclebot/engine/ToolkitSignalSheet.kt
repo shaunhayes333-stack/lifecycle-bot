@@ -1278,7 +1278,21 @@ object ToolkitSignalSheet {
                     } catch (_: Throwable) {}
                 }
             } else if (mint.isNotBlank() && candidateVersion6647 > 0L) {
-                val expectedIntentId6647 = "$mint:$candidateVersion6647:$lane"
+                // V5.0.7821 — downstream executable stages must join the actual
+                // immutable attempt that produced FDG/MARK, not a synthetic
+                // mint:version:lane alias. 7820 proved the economics were real
+                // (resolver executable, MARK_READY present) while SIZE/TICKET
+                // vanished because the causal recorder looked up a different
+                // intent id. Prefer the sealed ticket's own attempt id; when a
+                // ticket lineage is already bound, the callback attempt id is
+                // that immutable identity. Legacy pre-seal stages retain the
+                // compact alias until a real sealed attempt exists.
+                val expectedIntentId6647 = when {
+                    sealedIntent7471?.attemptId?.isNotBlank() == true -> sealedIntent7471.attemptId
+                    boundLineage7807 != null && attemptId.isNotBlank() -> attemptId
+                    canonicalAttempt6647 && attemptId.isNotBlank() -> attemptId
+                    else -> "$mint:$candidateVersion6647:$lane"
+                }
                 val resolvedMode6858 = resolvedMode7471
                 // V5.0.6858 §THE_CANONICAL_STAGES_ORPHANED_THEMSELVES — the reuse
                 // test used to carry `!canonicalAttempt6647`, so a stage arriving on
