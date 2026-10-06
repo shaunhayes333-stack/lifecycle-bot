@@ -348,9 +348,7 @@ object FieldManual7715 {
         val price = ts.lastPrice
         if (!price.isFinite() || price <= 0.0) return Regime.IMPAIRED
         // V5.0.7809 — an old stamp whose price a fresh re-quote has just confirmed is not impaired.
-        if (ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate > QUOTE_MAX_AGE_MS_7715 &&
-            (try { QuoteRevalidation7809.confirmedAgeMs(ts.mint, price, nowMs) } catch (_: Throwable) { null }) == null
-        ) return Regime.IMPAIRED
+        if (quoteAgeMs7837(ts, nowMs) > QUOTE_MAX_AGE_MS_7715) return Regime.IMPAIRED
         val candles = realCandles(ts, REGIME_LOOKBACK_7715)
         val ageMs = nowMs - ts.addedToWatchlistAt
         if (candles.size < 6) {
@@ -478,13 +476,40 @@ object FieldManual7715 {
      * registry's timestamp is the provider's; a mint with no mark at all is
      * still unknown and still waits.
      */
-    private fun canonicalMarkAgeMs7730(mint: String, nowMs: Long): Long = try {
-        val mark = CanonicalPriceMarkRegistry6522.get(mint)
-        if (mark != null && mark.timestampMs > 0L) {
-            try { PipelineHealthCollector.labelInc("FIELD_MANUAL_QUOTE_AGE_FROM_CANONICAL_MARK_7730") } catch (_: Throwable) {}
-            (nowMs - mark.timestampMs).coerceAtLeast(0L)
-        } else -1L
-    } catch (_: Throwable) { -1L }
+    /** Only evidence for this price can refresh this card; never splice a new
+     * timestamp onto a different price. Both regime and card use this resolver. */
+    internal fun quoteAgeMs7837(ts: TokenState, nowMs: Long): Long {
+        val ages = ArrayList<Long>(3)
+        if (ts.lastPriceUpdate > 0L && ts.lastPriceUpdate <= nowMs)
+            ages += nowMs - ts.lastPriceUpdate
+        try {
+            val mark = CanonicalPriceMarkRegistry6522.get(ts.mint)
+            if (mark != null && mark.baseMint == ts.mint && mark.timestampMs > 0L && mark.timestampMs <= nowMs &&
+                pricesAgree7837(ts.lastPrice, mark.priceUsd.value.toDouble())) {
+                ages += nowMs - mark.timestampMs
+            }
+        } catch (_: Throwable) {}
+        try { QuoteRevalidation7809.confirmedAgeMs(ts.mint, ts.lastPrice, nowMs)?.let { ages += it } } catch (_: Throwable) {}
+        return ages.minOrNull() ?: -1L
+    }
+
+    internal fun pricesAgree7837(cardPrice: Double, observedPrice: Double): Boolean =
+        cardPrice.isFinite() && cardPrice > 0.0 && observedPrice.isFinite() && observedPrice > 0.0 &&
+            kotlin.math.abs(observedPrice - cardPrice) / cardPrice <= 0.03
+
+    /** The same candle-derived setup as the entry planner, not a second
+     * mandatory pattern inferred solely from the lane's name. */
+    internal fun mandateFromRead7837(base: LaneMandate, read: TradePlan7739.Read): LaneMandate {
+        if (!isAmmPriced(base.setup) || read.setup == null || !read.stopPct.isFinite() || read.stopPct <= 0.0 ||
+            !read.firstTargetPct.isFinite() || read.firstTargetPct <= 0.0) return base
+        val setup = when (read.setup) {
+            TradePlan7739.Setup.PULLBACK_RECLAIM -> SetupFamily.TREND_PULLBACK
+            TradePlan7739.Setup.BASE_BREAKOUT -> SetupFamily.BASE_BREAKOUT
+            TradePlan7739.Setup.SWEEP_RECLAIM -> SetupFamily.SWEEP_RECLAIM
+            TradePlan7739.Setup.LAUNCH_EARLY -> SetupFamily.LAUNCH
+        }
+        return base.copy(setup = setup, expectedGrossPct = read.firstTargetPct, invalidationPct = read.stopPct)
+    }
 
     fun cardFor(
         ts: TokenState,
@@ -494,16 +519,14 @@ object FieldManual7715 {
         proposedSizeSol: Double,
         nowMs: Long = System.currentTimeMillis(),
     ): PlanCard {
-        val mandate = mandateFor(lane)
+        val baseMandate = mandateFor(lane)
+        val planRead = TradePlan7739.readForEntry7837(ts, nowMs)
+        val mandate = mandateFromRead7837(baseMandate, planRead)
+        val observedSetup = mandate !== baseMandate
         val regime = regimeOf(ts, nowMs)
         val identity = ts.mint.isNotBlank() && ts.lastPrice > 0.0 &&
             (ts.pairAddress.isNotBlank() || ts.lastPriceSource.isNotBlank() || ts.lastPricePoolAddr.isNotBlank())
-        val quoteAge = if (ts.lastPriceUpdate > 0L) (nowMs - ts.lastPriceUpdate).coerceAtLeast(0L) else canonicalMarkAgeMs7730(ts.mint, nowMs)
-        // V5.0.7809 — a fresh re-quote that confirmed this exact price (QuoteRevalidation7809)
-        // is the freshest evidence for it; cost, impact and R:R below are recomputed on it
-        // (Field Manual L187 / L240).
-        val requoteAge7809: Long? = try { QuoteRevalidation7809.confirmedAgeMs(ts.mint, ts.lastPrice, nowMs) } catch (_: Throwable) { null }
-        val quoteAge7809 = if (requoteAge7809 != null && (quoteAge < 0L || requoteAge7809 < quoteAge)) requoteAge7809 else quoteAge
+        val quoteAge7809 = quoteAgeMs7837(ts, nowMs)
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val size = if (proposedSizeSol.isFinite()) proposedSizeSol.coerceAtLeast(0.0) else 0.0
         val sizeUsd = if (solUsd > 0.0) size * solUsd else 0.0
@@ -513,7 +536,8 @@ object FieldManual7715 {
         val ammPriced = isAmmPriced(mandate.setup)
         val cost = if (ammPriced) allInCostPct(sizeUsd, liq) else BASE_ROUND_TRIP_COST_PCT_7715
         val impact = if (ammPriced) impactRoundTripPct(sizeUsd, liq) else 0.0
-        val (trig, note) = triggerFor(mandate.setup, ts, candidate, regime)
+        val (trig, note) = if (observedSetup) true to "candle plan ${planRead.setup}: ${planRead.why}"
+            else triggerFor(mandate.setup, ts, candidate, regime)
         val gross = mandate.expectedGrossPct
         val inval = mandate.invalidationPct
         return PlanCard(

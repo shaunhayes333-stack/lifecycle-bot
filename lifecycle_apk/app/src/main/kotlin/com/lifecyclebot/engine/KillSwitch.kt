@@ -45,6 +45,19 @@ object KillSwitch {
     private var initializedLive7835 = false
     private var config7835 = com.lifecyclebot.data.BotConfig()
     private val canonicalOutcomes7835 = mutableSetOf<String>()
+    private var outcomeBaselineAt7837 = 0L
+
+    internal fun outcomeIsCurrent7837(atMs: Long, baselineMs: Long, nowMs: Long): Boolean =
+        atMs >= baselineMs && atMs <= nowMs && atMs > 0L
+
+    /** Repair only a legacy computed latch whose own baseline was reset after
+     * it fired and whose current equity has fully recovered that baseline. */
+    internal fun staleBaselineLatch7837(reason: String, killedAt: Long, baselineAt: Long,
+        peak: Double, daily: Double, equity: Double): Boolean =
+        (reason.startsWith("MAX_DRAWDOWN:") || reason.startsWith("MAX_DAILY_LOSS:")) &&
+            killedAt > 0L && baselineAt > killedAt && equity.isFinite() && equity > 0.0 &&
+            peak.isFinite() && daily.isFinite() && peak > 0.0 && daily > 0.0 &&
+            equity + 1e-8 >= peak && equity + 1e-8 >= daily
 
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
@@ -76,11 +89,19 @@ object KillSwitch {
     fun recordCanonical7835(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.mode.equals("LIVE", true) || !env.terminal) return true
         val ctx = context7835 ?: return false
-        if (!initializedLive7835) initLive7835(ctx, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance()))
+        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance())
+        if (!equity.isFinite() || equity <= 0.0) return false
+        if (!initializedLive7835) initLive7835(ctx, equity)
         val key = env.economicEventId.ifBlank { env.tradeId }
         if (key.isBlank()) return false
         if (key in canonicalOutcomes7835) return true
-        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance())
+        // Durable bus replay teaches learners, but is not a new loss streak or
+        // an hourly trade in today's risk window. Equity checks run at entry.
+        if (!outcomeIsCurrent7837(env.atMs, outcomeBaselineAt7837, System.currentTimeMillis())) {
+            PipelineHealthCollector.labelInc("KILL_SWITCH_HISTORICAL_REPLAY_EXCLUDED_7837")
+            return true
+        }
+        if (!env.realizedReturnPct.isFinite()) return false
         recordTrade(ctx, env.realizedReturnPct, equity,
             maxDailyLossPct = config7835.maxDailyLossPct,
             maxConsecutiveLosses = config7835.circuitBreakerLosses,
@@ -135,10 +156,12 @@ object KillSwitch {
 
     @Synchronized
     private fun initLive7835(context: Context, currentBalance: Double) {
+        if (initializedLive7835 || !currentBalance.isFinite() || currentBalance <= 0.0) return
         initializedLive7835 = true
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         
         canonicalOutcomes7835.addAll(prefs.getStringSet("canonical_outcomes_7835", emptySet()).orEmpty())
+        outcomeBaselineAt7837 = prefs.getLong("outcome_baseline_at_7837", System.currentTimeMillis())
         // Load persisted state
         peakBalance = prefs.getFloat("peak_balance", currentBalance.toFloat()).toDouble()
         dailyStartBalance = prefs.getFloat("daily_start_balance", currentBalance.toFloat()).toDouble()
@@ -154,6 +177,13 @@ object KillSwitch {
             dailyStartDate = System.currentTimeMillis(); consecutiveLosses = 0
         }
         
+        if (prefs.getInt("environment_schema", 0) < 7837 && isKilled &&
+            staleBaselineLatch7837(killReason, killTime, dailyStartDate, peakBalance, dailyStartBalance, currentBalance)) {
+            PipelineHealthCollector.labelInc("KILL_SWITCH_STALE_BASELINE_LATCH_REPAIRED_7837")
+            ErrorLogger.info("KillSwitch", "Retired legacy latch against a replaced baseline: $killReason")
+            isKilled = false; killReason = ""; killTime = 0L
+        }
+
         // Update peak if current balance is higher
         if (currentBalance > peakBalance) {
             peakBalance = currentBalance
@@ -386,6 +416,7 @@ object KillSwitch {
         dailyStartDate = System.currentTimeMillis()
         tradesThisHour = 0
         hourStart = System.currentTimeMillis()
+        outcomeBaselineAt7837 = hourStart
         
         save(context)
         ErrorLogger.info("KillSwitch", "Reset with balance $${newBalance.toInt()}")
@@ -467,7 +498,8 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putInt("environment_schema", 7835)
+            putInt("environment_schema", 7837)
+            putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())
             putFloat("peak_balance", peakBalance.toFloat())
             putFloat("daily_start_balance", dailyStartBalance.toFloat())

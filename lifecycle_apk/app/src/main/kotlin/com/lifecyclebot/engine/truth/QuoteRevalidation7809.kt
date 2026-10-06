@@ -127,6 +127,14 @@ object QuoteRevalidation7809 {
             try { PipelineHealthCollector.labelInc("QUOTE_REVALIDATION_UNANSWERED_7809") } catch (_: Throwable) {}
             return
         }
+        // Retain the observed quote even when the old card has moved. It can
+        // confirm only a subsequent card at that observed price, never the old
+        // price. Invalidate the old verdict so hydration gets a real retry.
+        confirmed[mint] = Confirmed(fresh, now)
+        if (confirmed.size > MAP_CAP_7809) {
+            confirmed.entries.removeIf { now - it.value.confirmedAtMs > FieldManual7715.QUOTE_MAX_AGE_MS_7715 }
+        }
+        try { onConfirmed7809(mint) } catch (_: Throwable) {}
         val drift = kotlin.math.abs(fresh - cardPriceUsd) / cardPriceUsd
         if (drift > CONFIRM_TOLERANCE_7809) {
             moved.incrementAndGet()
@@ -135,14 +143,10 @@ object QuoteRevalidation7809 {
                 ForensicLogger.lifecycle(
                     "QUOTE_REVALIDATION_PRICE_MOVED_7809",
                     "mint=${mint.take(10)} cardPrice=$cardPriceUsd freshQuote=$fresh drift=${"%.1f".format(drift * 100.0)}% " +
-                        "action=keep_wait_card_price_is_stale",
+                        "action=old_card_waits_reconsider_after_price_refresh",
                 )
             } catch (_: Throwable) {}
             return
-        }
-        confirmed[mint] = Confirmed(fresh, now)
-        if (confirmed.size > MAP_CAP_7809) {
-            confirmed.entries.removeIf { now - it.value.confirmedAtMs > FieldManual7715.QUOTE_MAX_AGE_MS_7715 }
         }
         confirmedCount.incrementAndGet()
         try {
@@ -153,7 +157,6 @@ object QuoteRevalidation7809 {
                     "action=reconsider_with_fresh_quote",
             )
         } catch (_: Throwable) {}
-        try { onConfirmed7809(mint) } catch (_: Throwable) {}
     }
 
     /**

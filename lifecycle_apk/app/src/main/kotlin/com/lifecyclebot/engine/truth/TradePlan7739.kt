@@ -268,15 +268,21 @@ object TradePlan7739 {
         return reads.firstOrNull { !it.why.endsWith("TOO_FEW_BARS") && !it.why.startsWith("NO_") } ?: reads.first()
     }
 
+    /** Shared current-data read for the field manual and entry planner. No
+     * stored plan is reused, and a read alone never authorizes execution. */
+    fun readForEntry7837(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Read {
+        val lp = try { LaunchPhaseAuthority7401.snapshot(ts, nowMs) } catch (_: Throwable) { null }
+        val chop = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name == "CHOP" } catch (_: Throwable) { false }
+        return analyze(barsFrom(ts, nowMs), tierFor(ts.lastMcap), chop, lp?.buyTx60s ?: 0, lp?.sellTx60s ?: 0)
+    }
+
     // ── entry ──
 
     /** Live-entry verdict: null admits (and records the plan). Paper is never refused. */
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
-        val lp = try { LaunchPhaseAuthority7401.snapshot(ts, nowMs) } catch (_: Throwable) { null }
-        val chop = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name == "CHOP" } catch (_: Throwable) { false }
-        val read = analyze(barsFrom(ts, nowMs), tierFor(ts.lastMcap), chop, lp?.buyTx60s ?: 0, lp?.sellTx60s ?: 0)
+        val read = readForEntry7837(ts, nowMs)
         val setup = read.setup
         if (setup == null && barsPermitLaunch7742(read.why)) {
             val lr = try { FreshLaunchSelector7737.launchRead7742(ts, LAUNCH_COST_PCT_7742, nowMs) } catch (_: Throwable) { null }
@@ -318,7 +324,7 @@ object TradePlan7739 {
             ForensicLogger.lifecycle(
                 "PLAN_ADMITTED_7739",
                 "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane setup=${setup.name} stop=-${"%.1f".format(read.stopPct)}% " +
-                    "first=+${"%.1f".format(read.firstTargetPct)}% target=+${"%.1f".format(read.targetPct)}% R=${"%.1f".format(read.r)} chop=$chop",
+                    "first=+${"%.1f".format(read.firstTargetPct)}% target=+${"%.1f".format(read.targetPct)}% R=${"%.1f".format(read.r)}",
             )
         } catch (_: Throwable) {}
         return null
