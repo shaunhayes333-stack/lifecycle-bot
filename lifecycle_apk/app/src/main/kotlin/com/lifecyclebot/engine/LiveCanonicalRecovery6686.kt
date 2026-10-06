@@ -224,6 +224,18 @@ object LiveCanonicalRecovery6686 {
                     val trackerOnly7819 = if (completeRead7819) emptyMap<String, CanonicalTokenAmount>() else trackerHoldings7819(due.filter { it !in subset.keys })
                     if (subset.isEmpty() && trackerOnly7819.isEmpty()) {
                         PipelineHealthCollector.labelInc("BOT_HOLDING_HEAL_NO_WALLET_SNAPSHOT_7718")
+                        // V5.0.7844 — do not burn the one-minute heal lease when this
+                        // first attempt races wallet-account indexing after a signed buy.
+                        // The next pass may retry immediately; LiveWalletReconciler now
+                        // performs canonical recovery from its authoritative snapshot.
+                        due.forEach { healKickedAt7718.remove(it) }
+                        try {
+                            com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(
+                                WalletManager.getWallet(),
+                                "BOT_HOLDING_HEAL_RETRY_7844",
+                            )
+                            PipelineHealthCollector.labelInc("BOT_HOLDING_HEAL_RETRY_ARMED_7844")
+                        } catch (_: Throwable) {}
                         return@launch
                     }
                     // Mark adoption stays on a fresh on-chain read only (empty map -> 0);

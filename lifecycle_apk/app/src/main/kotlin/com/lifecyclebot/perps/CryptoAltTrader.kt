@@ -3798,6 +3798,12 @@ object CryptoAltTrader {
                         liveResult7434.signature, canonicalCryptoLane7251(signal.isDynamic, isSpot))
                     com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(
                         WalletManager.getWallet(), "CRYPTO_SIGNED_VERIFY_PENDING_7434")
+                    // V5.0.7844 — arm the ownership repair immediately as well.
+                    // If token-account indexing has not caught up yet, the heal lease
+                    // is released so the next reconciler pass can adopt without delay.
+                    com.lifecyclebot.engine.LiveCanonicalRecovery6686.requestAdoptionAsync7718(
+                        listOf(liveResult7434.mint)
+                    )
                 } catch (_: Throwable) {}
                 return // Canonical dispatch remains pending, never an OPEN claim.
             }

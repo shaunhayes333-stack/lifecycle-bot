@@ -390,7 +390,14 @@ internal object LiveExitCoverageGuard7701 {
                     !p.buySignature.isNullOrBlank())
                 val raw = runCatching { java.math.BigInteger(p.rawAmount.trim().ifBlank { "0" }) }
                     .getOrDefault(java.math.BigInteger.ZERO)
-                val positive = raw > java.math.BigInteger.ONE || (p.uiAmount.isFinite() && p.uiAmount > 0.0)
+                // V5.0.7844 — a complete wallet observation outranks tracker hydration lag.
+                // 7843 proved two signed bot buys could be visible in the wallet while
+                // tracker raw/ui was still zero, so botHeld stayed empty and recovery
+                // falsely reported coverage OK.
+                val walletObservedPositive7844 = p.mint in observedWalletMints
+                val positive = raw > java.math.BigInteger.ONE ||
+                    (p.uiAmount.isFinite() && p.uiAmount > 0.0) ||
+                    walletObservedPositive7844
                 // A positive wallet balance outranks a historical terminal label.
                 // Sell/reconcile races can stamp CLOSED before the next wallet read;
                 // do not let that label hide tokens that are still physically held.

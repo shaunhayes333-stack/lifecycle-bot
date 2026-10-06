@@ -216,6 +216,28 @@ object LiveWalletReconciler {
         } catch (_: Throwable) {}
         val trackedOpenBeforeSnapshot = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
         try { com.lifecyclebot.engine.HostWalletTokenTracker.applyWalletSnapshot(balances) } catch (_: Throwable) {}
+
+        // V5.0.7844 — the always-on reconciler must promote wallet-proven bot buys
+        // into canonical LIVE inventory. Previously only the legacy reconciler called
+        // LiveCanonicalRecovery6686, leaving accepted CryptoAlt buys visible in the
+        // wallet but absent from HeldPositionSupervisor / risk clock / exit scheduling.
+        val canonicalRecovered7844 = try {
+            com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoverWalletSnapshot(
+                com.lifecyclebot.engine.BotService.status,
+                balances,
+            )
+        } catch (_: Throwable) { 0 }
+        if (canonicalRecovered7844 > 0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_RECONCILER_CANONICAL_RECOVERY_7844")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "LIVE_RECONCILER_CANONICAL_RECOVERY_7844",
+                    "recovered=$canonicalRecovered7844 reason=$reason walletMints=${balances.size} action=wallet_proof_to_canonical_held_exit_scope",
+                )
+                com.lifecyclebot.engine.HeldPositionSupervisor7246.reconcileDiscoveryResidency()
+                com.lifecyclebot.engine.sell.SellReconciler.requestImmediateTick()
+            } catch (_: Throwable) {}
+        }
         // V5.0.3758 — diagnostics/source fix: a healthy non-empty wallet snapshot
         // also checks tracked positions that are ABSENT from the wallet map. Counting
         // only returned positive token accounts made Recon.totalChecked stay 0 while

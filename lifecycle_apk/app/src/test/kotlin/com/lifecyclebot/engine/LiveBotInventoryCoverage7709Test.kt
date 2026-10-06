@@ -13,6 +13,7 @@ class LiveBotInventoryCoverage7709Test {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
 
         assertTrue(gate.contains("botSource && positive"))
+        assertTrue(gate.contains("walletObservedPositive7844 = p.mint in observedWalletMints"))
         assertTrue(gate.contains("canonicalRawByMint = canonicalRows.groupBy { it.mint }"))
         assertTrue(gate.contains("walletRaw > canonicalRaw + java.math.BigInteger.ONE"))
         assertTrue(gate.contains("val unmanaged = botHeld.filter { mint ->"))
@@ -98,4 +99,19 @@ class LiveBotInventoryCoverage7709Test {
             ),
         )
     }
+    @Test
+    fun wallet_proven_signed_buys_are_promoted_to_live_exit_management_7844() {
+        val live = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveWalletReconciler.kt").readText()
+        val recovery = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+
+        assertTrue(live.contains("LiveCanonicalRecovery6686.recoverWalletSnapshot"))
+        assertTrue(live.contains("LIVE_RECONCILER_CANONICAL_RECOVERY_7844"))
+        assertTrue(live.contains("HeldPositionSupervisor7246.reconcileDiscoveryResidency()"))
+        assertTrue(live.contains("SellReconciler.requestImmediateTick()"))
+        assertTrue(recovery.contains("healKickedAt7718.remove(it)"))
+        assertTrue(recovery.contains("BOT_HOLDING_HEAL_RETRY_ARMED_7844"))
+        assertTrue(crypto.contains("LiveCanonicalRecovery6686.requestAdoptionAsync7718"))
+    }
+
 }
