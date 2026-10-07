@@ -32174,20 +32174,20 @@ if (hotExitHandledSweep) {
         
         // Resolve the immutable size before authorization. No authorization
         // may own a token lock from a SIZE_PENDING safety-only verdict.
-        var finalSizeForAuth6649 = if (useV3Decision && v3SizeSol > 0) {
+        val finalSizeForAuth6649 = if (useV3Decision && v3SizeSol > 0) {
             v3SizeSol
         } else {
             fdgDecision.sizeSol
         }
-        if (!useV3Decision) {
-            modeConf?.let { finalSizeForAuth6649 *= it.positionSizeMultiplier }
+        // V5.0.7853 — no post-verdict size shaping. AutoMode quiet-hour
+        // (PAUSED 0.35x / DEFENSIVE 0.5x) and graduated-initial cuts used to
+        // rescale FDG's size here; the seal then took the minimum and a legal
+        // ticket was born below the route minimum. FDG's size is the one size.
+        val isGraduatedForAuth6649 = false
+        if (!useV3Decision && (modeConf?.positionSizeMultiplier ?: 1.0) != 1.0) {
+            try { PipelineHealthCollector.labelInc("AUTOMODE_SIZE_ADVISORY_POST_FDG_7853_" + (modeConf?.mode?.name ?: "NONE")) } catch (_: Throwable) {}
         }
-        val isGraduatedForAuth6649 = !useV3Decision && decision.setupQuality in listOf("A+", "B")
-        val actualInitialSizeForAuth6649 = if (isGraduatedForAuth6649) {
-            executor.graduatedInitialSize(finalSizeForAuth6649, decision.setupQuality)
-        } else {
-            finalSizeForAuth6649
-        }
+        val actualInitialSizeForAuth6649 = fdgDecision.sizeSol
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.0: TRADE AUTHORIZER - Check BEFORE any execution

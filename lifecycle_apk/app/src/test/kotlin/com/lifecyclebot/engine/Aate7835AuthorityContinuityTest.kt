@@ -38,6 +38,26 @@ class Aate7835AuthorityContinuityTest {
         effectiveEntryScore7687 = 80, candidateVersion7835 = version, canonicalLane7835 = lane,
     )
 
+    @Test fun post_fdg_size_rewrite_cannot_shrink_the_sealed_ticket_7853() {
+        val mint = "Authority7853_SIZE"
+        val ts = TokenState(mint, symbol = "TEST", lastLiquidityUsd = 100_000.0,
+            safety = SafetyReport(rugcheckScore = 90))
+        val d = decision(mint, "MOONSHOT", 7853L)
+        // A quiet-hour 0.35x or 0.01 SOL bridge figure after the verdict is evidence only.
+        val intent = SpecialistPreauthSeal7834.ensure(ts, d, "MOONSHOT", 0.01)
+        assertNotNull(intent)
+        assertEquals(d.sizeSol, intent!!.resolvedSize, 1e-9)
+    }
+
+    @Test fun bot_service_passes_fdg_size_unshaped_to_authorizer_7853() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("val actualInitialSizeForAuth6649 = fdgDecision.sizeSol"))
+        assertFalse(bot.contains("modeConf?.let { finalSizeForAuth6649 *= it.positionSizeMultiplier }"))
+        assertFalse(bot.contains("executor.graduatedInitialSize(finalSizeForAuth6649"))
+        val seal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpecialistPreauthSeal7834.kt").readText()
+        assertFalse(seal.contains("minOf(decision.sizeSol, maximumSizeSol)"))
+    }
+
     @Test fun every_specialist_seals_the_exact_decision_and_size() {
         val lanes = listOf("QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
             "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN")

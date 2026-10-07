@@ -36,7 +36,13 @@ internal object SpecialistPreauthSeal7834 {
             routeStatus = tokenMap.routeStatus,
             evidenceTimestampMs = if (tokenMap.priceUsd != null) tokenMap.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate else ts.lastPriceUpdate,
         )
-        val size = minOf(decision.sizeSol, maximumSizeSol)
+        // V5.0.7853 ONE_AUTHORITATIVE_SIZE: FDG's size already carries live risk
+        // policy, depth caps and the current route minimum. A caller figure
+        // reshaped after the verdict (AutoMode quiet-hour 0.35x, graduated
+        // 0.35-0.5x, V3/bridge sizes) is evidence only; taking the minimum
+        // turned legal tickets sub-routable. liveBuy still re-checks bounds.
+        val size = decision.sizeSol
+        if (maximumSizeSol < size - 1e-9) postFdgRewriteIgnored7853(ts.mint, lane, size, maximumSizeSol)
         ExecutableOpenGate.recordPrimaryLane7835(ts.mint, decision.candidateVersion7835, canonicalLane)
         fun sealOnce7840(): ExecutableOpenGate.ExecutionIntent? =
             ExecutableOpenGate.recordFdgAndGetIntent6533(
@@ -83,4 +89,17 @@ internal object SpecialistPreauthSeal7834 {
         } catch (_: Throwable) {}
         return retry7840
     }
+
+    internal fun postFdgRewriteIgnored7853(mint: String, lane: String, sealed: Double, proposed: Double) {
+        try {
+            PipelineHealthCollector.labelInc("POST_FDG_SIZE_REWRITE_IGNORED_7853")
+            if (ForensicEmitRateLimiter6356.shouldEmit("POST_FDG_SIZE_REWRITE_IGNORED_7853", mint)) {
+                ForensicLogger.lifecycle(
+                    "POST_FDG_SIZE_REWRITE_IGNORED_7853",
+                    "mint=${mint.take(10)} lane=$lane sealed=${"%.6f".format(sealed)} proposed=${"%.6f".format(proposed)} action=fdg_size_is_authoritative",
+                )
+            }
+        } catch (_: Throwable) {}
+    }
+
 }
