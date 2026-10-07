@@ -15177,7 +15177,13 @@ class Executor(
         // the ticket was sealed; re-running ExecutableEntryAuthority here can
         // only contradict the exact candidate that reached execution.
         try { PipelineHealthCollector.labelInc("PAPER_ENTRY_AUTH_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
-        val effectiveBuySol6451 = requireNotNull(sealedIntent7835).resolvedSize
+        // V5.0.7852 — the ticket bound at dispatch (ticket6513) is the one
+        // sealed intent; the later SealedExecutionSize7835 check re-reads the
+        // same attempt. A missing ticket is a refusal, never a crash.
+        val effectiveBuySol6451 = ticket6513?.resolvedSize ?: run {
+            markPaperBuyNotOpened("EXECUTION_TICKET_MISSING_7835")
+            return
+        }
         // V5.0.6475 — do not mutate position/capital authorities at BUY
         // attempt time. Every downstream gate after this point may reject the
         // entry; reservation/open/cash mutation is now deferred to the confirmed

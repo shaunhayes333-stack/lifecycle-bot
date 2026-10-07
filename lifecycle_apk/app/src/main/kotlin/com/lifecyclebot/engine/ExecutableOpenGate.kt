@@ -2748,7 +2748,7 @@ object ExecutableOpenGate {
 
     /** V5.0.7847 — immutable entry authority read kept outside ART-pinned finality method. */
     private fun sealedEntryAuthority7846(
-        immutable: com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.Snapshot?,
+        immutable: com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot?,
         ticket: ExecutionIntent?,
     ): Boolean = immutable != null || ticket?.let { validSealedDecision6613(it) } == true
 

@@ -18,9 +18,10 @@ class Aate7849ExecutorSealConsumptionTest {
 
     @Test fun live_executor_never_mutates_sealed_notional() {
         val risk = src("engine/Executor.kt").substringAfter("private fun liveRiskPolicyFinalSize7807(").substringBefore("private fun emitLiveBuyFail")
-        assertTrue(risk.contains("LIVE_RISK_SIZE_CHANGED_AFTER_SEAL_7849"))
-        assertTrue(risk.contains("kotlin.math.abs(d.sizeSol - sol) > 1e-9"))
-        assertTrue(risk.contains("fresh_decision_required"))
+        // 7850: the executor no longer re-runs live risk policy at all; it returns the sealed notional.
+        assertTrue(risk.contains("LIVE_FINAL_SIZE_CONSUMED_SEALED_7850"))
+        assertTrue(risk.contains("return sol"))
+        assertFalse(risk.contains("LiveRiskPolicy7807.decide("))
     }
 
     @Test fun common_sense_non_hard_is_advisory_after_seal() {

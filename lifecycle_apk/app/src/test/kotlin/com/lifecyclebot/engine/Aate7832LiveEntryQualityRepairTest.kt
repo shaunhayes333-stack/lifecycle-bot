@@ -70,7 +70,10 @@ class Aate7832LiveEntryQualityRepairTest {
         assertFalse(resolver.contains("liveSubRoutableIntent7831 -> \"LIVE_SUB_ROUTABLE_INTENT_REFUSED_7831\""))
         assertTrue(fdg.contains("currentRoutableMinimum7835"))
         assertTrue(fdg.contains("FDG_RISK_SAFE_ROUTE_MIN_SEALED_7841"))
-        assertTrue(exec.contains("LIVE_RISK_SAFE_MIN_CONSUMED_7841"))
+        // 7850: the route minimum is sealed once by FDG; the executor consumes it and
+        // re-checks only the current bounds, it does not re-promote.
+        assertFalse(exec.contains("LIVE_RISK_SAFE_MIN_CONSUMED_7841"))
+        assertTrue(exec.contains("LIVE_FINAL_SIZE_CONSUMED_SEALED_7850"))
         assertTrue(exec.contains("SEALED_SIZE_BELOW_CURRENT_MINIMUM_7835").not() ||
             exec.contains("SealedExecutionSize7835.boundsRefusal"))
     }
