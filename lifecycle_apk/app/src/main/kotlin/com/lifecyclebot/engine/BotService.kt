@@ -4318,7 +4318,7 @@ class BotService : Service() {
                 } catch (t: Throwable) {
                     serviceBootstrapSucceeded6516 = false
                     try { CanonicalBootstrapTimeline7557.mark("SERVICE_BOOTSTRAP_FAILED") } catch (_: Throwable) {}
-                    serviceBootstrapFailure6517 = "${t.javaClass.simpleName}: ${t.message.orEmpty().take(120)}"
+                    serviceBootstrapFailure6517 = "${t.javaClass.simpleName}: ${t.message.orEmpty().take(1800)}"
                     bootFailure7855(t)
                     try {
                         ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_FAILED_6516", "type=${t.javaClass.simpleName} msg=${t.message?.take(120)} durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516}")
@@ -6025,7 +6025,7 @@ class BotService : Service() {
             if (!serviceBootstrapSucceeded6516) {
                 serviceStartRequested6517.set(false)
                 try {
-                    ForensicLogger.lifecycle("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516", "failure=${serviceBootstrapFailure6517.take(120)} action=surface_failure")
+                    ForensicLogger.lifecycle("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516", "failure=${serviceBootstrapFailure6517.take(1800)} action=surface_failure")
                     PipelineHealthCollector.labelInc("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516")
                 } catch (_: Throwable) {}
                 return true
