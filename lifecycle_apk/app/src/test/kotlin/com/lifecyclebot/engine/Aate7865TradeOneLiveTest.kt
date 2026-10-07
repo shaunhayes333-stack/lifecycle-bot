@@ -39,4 +39,9 @@ class Aate7865TradeOneLiveTest {
         assertFalse(fdg.contains("tags.add(\"rc_timeout_live_probe\")"))
         assertTrue(fdg.contains("tags.add(\"rugcheck_timeout_fallback\")"))
     }
+
+    @Test fun browserSearchScoutRunsAtLowReasoningEffortInsideTheCallBudget() {
+        val scout = File("src/main/kotlin/com/lifecyclebot/engine/market/GroqTokenScout7830.kt").readText()
+        assertTrue(scout.contains("payload.put(\"reasoning_effort\", \"low\")"))
+    }
 }

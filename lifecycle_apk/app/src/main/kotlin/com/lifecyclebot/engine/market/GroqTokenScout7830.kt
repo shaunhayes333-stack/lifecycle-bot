@@ -358,7 +358,13 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
                     .put(JSONObject().put("role", "system").put("content", systemPrompt7830()))
                     .put(JSONObject().put("role", "user").put("content", userPrompt7830())),
             )
-        if (usesBrowserSearchTool7864(useModel)) payload.put("tools", JSONArray().put(JSONObject().put("type", "browser_search")))
+        if (usesBrowserSearchTool7864(useModel)) {
+            payload.put("tools", JSONArray().put(JSONObject().put("type", "browser_search")))
+            // V5.0.7865 — 7864 live: gpt-oss-120b + browser_search ran past the
+            // 45 s call ceiling (InterruptedIOException). Low reasoning effort
+            // keeps the search agentic but answers inside the budget.
+            payload.put("reasoning_effort", "low")
+        }
         val req = Request.Builder()
             .url(GROQ_URL_7830)
             .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
