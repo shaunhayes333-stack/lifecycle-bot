@@ -34,4 +34,14 @@ class Aate7867TokenSelectionTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
         assertFalse(src.contains("val market = markets.optJSONObject(0)"))
     }
+
+    @Test fun heliusResubscribesHeldThenNewestFirst() {
+        val order = com.lifecyclebot.network.resubscribeOrder7867(listOf("old", "held", "mid", "new"), setOf("held"))
+        assertEquals(listOf("held", "new", "mid", "old"), order)
+    }
+
+    @Test fun relativeStrengthLeaderNeedsLiveTape() {
+        val sweep = File("src/main/kotlin/com/lifecyclebot/engine/market/MarketSweep7297.kt").readText()
+        assertTrue(sweep.contains("relative >= 8.0 && r.priceChangeH1Pct > 0.0 && latestRt != null -> \"RELATIVE_STRENGTH_LEADER\""))
+    }
 }

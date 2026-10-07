@@ -364,7 +364,14 @@ class HeliusWebSocket(
 
                 // V5.0.7807 — re-register only members with no request already queued
                 // on this socket: one registration per desired mint/wallet.
-                val tokenSnapshot = synchronized(subscriptions) { subscriptions.keys.toList() }
+                // V5.0.7867 — held positions first, then newest-first. The access-ordered
+                // map iterates eldest first, so on a flapping mobile socket (5.0.7866:
+                // 9 SocketTimeout reconnects in 330 s, 8 of 128 subs acked) the freshest
+                // launches — the ones whose tape decides an entry — were re-sent last
+                // and lost to the next drop.
+                val tokenSnapshot = resubscribeOrder7867(
+                    synchronized(subscriptions) { subscriptions.keys.toList() }, pinnedMints7807(),
+                )
                 tokenSnapshot.forEach { mint ->
                     if (!requestToMint7765.containsValue(mint)) {
                         HeliusSubscriptionTelemetry7807.reconnectResubscribes.incrementAndGet()
@@ -831,4 +838,10 @@ object HeliusSolanaScope7819 {
         }
         return kept7819
     }
+}
+
+/** V5.0.7867 — pure: held mints first, then the rest newest-first ([eldestFirst] is map order). */
+internal fun resubscribeOrder7867(eldestFirst: List<String>, held: Set<String>): List<String> {
+    val newestFirst = eldestFirst.asReversed()
+    return newestFirst.filter { it in held } + newestFirst.filterNot { it in held }
 }

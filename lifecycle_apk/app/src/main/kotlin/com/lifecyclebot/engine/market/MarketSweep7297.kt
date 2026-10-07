@@ -400,7 +400,10 @@ object MarketSweep7297 {
                 price5 >= 2.0 && bp >= 58.0 && volAccel >= 1.35 -> "EARLY_MOMENTUM_IGNITION"
                 price5 >= 5.0 && relative >= 5.0 -> "BREAKOUT_EXPANSION"
                 liqDelta >= 12.0 && bp >= 52.0 -> "LIQUIDITY_EXPANSION"
-                relative >= 8.0 && r.priceChangeH1Pct > 0.0 -> "RELATIVE_STRENGTH_LEADER"
+                // V5.0.7867 — a leader needs live tape. 5.0.7866's top ranks were
+                // "Transforme"/"ChatGPT"/"NVIDIA" at rs=+1000 with v5=0 and volx=1.0:
+                // a 1h % from a minutes-old launch's first print, no realtime row.
+                relative >= 8.0 && r.priceChangeH1Pct > 0.0 && latestRt != null -> "RELATIVE_STRENGTH_LEADER"
                 r.priceChangeH1Pct >= 3.0 && price5 > 0.0 && bp >= 52.0 -> "CONTINUATION"
                 else -> "OBSERVING"
             }
