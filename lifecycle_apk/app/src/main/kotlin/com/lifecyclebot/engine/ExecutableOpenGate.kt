@@ -2746,6 +2746,18 @@ object ExecutableOpenGate {
         )
     }
 
+    /** V5.0.7847 — immutable entry authority read kept outside ART-pinned finality method. */
+    private fun sealedEntryAuthority7846(
+        immutable: com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.Snapshot?,
+        ticket: ExecutionIntent?,
+    ): Boolean = immutable != null || ticket?.let { validSealedDecision6613(it) } == true
+
+    private val sealedEntryAllow7846 = com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
+        com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
+        1.0,
+        "sealed_execution_intent_authority_7846",
+    )
+
     private fun canOpenExecutablePositionInternal(
         mint: String,
         symbol: String,
@@ -3771,22 +3783,10 @@ object ExecutableOpenGate {
         //     against the cohort it actually belongs to.
         val cachedEntryDecision6909 = entryAuthority6487[authorityKey6487(mint, candidateVersion)]
         val scoreNow6909 = entryScoreFor6909(mint)
-        val cachedIsAllow6909 = cachedEntryDecision6909?.verdict ==
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW
         val mustReevaluate6909 = cachedEntryDecision6909 == null ||
-            (cachedIsAllow6909 && scoreNow6909 > 0)
-        // V5.0.7846 — once immutable FDG/intent authority exists, learned
-        // admission has already had its chance upstream. Re-running it here can
-        // only contradict the sealed BUY and create EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY.
-        val sealedEntryAuthority7846 = immutableAuthority6513 != null ||
-            ticketAuthority6564?.let { validSealedDecision6613(it) } == true
-        val effectiveEntryDecision6487 = if (sealedEntryAuthority7846) {
-            try { PipelineHealthCollector.labelInc("EXEC_ENTRY_AUTH_CONSUMED_SEALED_7846") } catch (_: Throwable) {}
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
-                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
-                1.0,
-                "sealed_execution_intent_authority_7846",
-            )
+            (cachedEntryDecision6909?.verdict == com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW && scoreNow6909 > 0)
+        val effectiveEntryDecision6487 = if (sealedEntryAuthority7846(immutableAuthority6513, ticketAuthority6564)) {
+            sealedEntryAllow7846
         } else if (!mustReevaluate6909) {
             cachedEntryDecision6909!!
         } else try {

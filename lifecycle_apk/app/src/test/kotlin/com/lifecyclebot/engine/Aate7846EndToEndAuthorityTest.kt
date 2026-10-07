@@ -22,8 +22,8 @@ class Aate7846EndToEndAuthorityTest {
     @Test
     fun sealed_intent_cannot_be_redecided_by_entry_authority() {
         val s = src("engine/ExecutableOpenGate.kt")
-        assertTrue(s.contains("val sealedEntryAuthority7846 = immutableAuthority6513 != null"))
-        assertTrue(s.contains("EXEC_ENTRY_AUTH_CONSUMED_SEALED_7846"))
+        assertTrue(s.contains("private fun sealedEntryAuthority7846("))
+        assertTrue(s.contains("sealedEntryAuthority7846(immutableAuthority6513, ticketAuthority6564)"))
         assertTrue(s.contains("sealed_execution_intent_authority_7846"))
     }
 
