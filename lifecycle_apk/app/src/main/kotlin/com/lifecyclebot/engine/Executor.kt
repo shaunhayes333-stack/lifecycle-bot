@@ -13364,10 +13364,45 @@ class Executor(
     private fun pendingProofBind7868(intent: ExecutableOpenGate.ExecutionIntent?) {
         buyPhase("BUY_PENDING_BALANCE_PROOF")
         if (intent != null && intent.mode.equals("LIVE", true)) {
-            LivePendingAttempt7868.bind(intent.mint, intent.attemptId, intent.canonicalLane.ifBlank { intent.lane })
+            val lane7871 = intent.canonicalLane.ifBlank { intent.lane }
+            LivePendingAttempt7868.bind(intent.mint, intent.attemptId, lane7871, entry7871 = pendingEntrySnapshot7871(intent, lane7871))
             WalletCapacitySeal7868.release(intent.mint)
         }
     }
+
+    /**
+     * V5.0.7871 — the §6450 entry snapshot for a live buy waiting on balance proof.
+     * 5.0.7868 read "Entry snapshot (§6450): positions=2 writes=0": both live buys
+     * were opened by wallet promotion (LIVE_PENDING_ENTRY_PROMOTED_FROM_WALLET_7133),
+     * which never wrote one, so terminal learning had no entry identity to learn
+     * from. Frozen here from the sealed intent and the token at broadcast; the
+     * promotion path stamps it under the promoted positionId.
+     */
+    private fun pendingEntrySnapshot7871(
+        intent: ExecutableOpenGate.ExecutionIntent,
+        lane: String,
+    ): com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot? = try {
+        val ts = try { BotService.status.tokens[intent.mint] } catch (_: Throwable) { null }
+        val policy = ts?.position?.entryPolicySnapshot.orEmpty()
+        com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+            positionId = "", mint = intent.mint, entryLane = lane, entryStrategyPid = "",
+            entryTactic = policyField6568(policy, "entryTactic").ifBlank { "UNKNOWN" },
+            entryRiskProfile = "", entryExitProfile = "",
+            entrySource = ts?.source.orEmpty(),
+            entryScore = intent.effectiveEntryScore7256.takeIf { it >= 0 } ?: (ts?.position?.entryScore?.toInt() ?: 0),
+            entryLiquiditySol = 0.0,
+            entryMarketCapUsd = ts?.lastMcap ?: 0.0,
+            entryTimestampMs = System.currentTimeMillis(),
+            entryThresholdSnapshot = policy,
+            entryPolicySnapshotId = "${intent.attemptId}:7871", entryTacticVersion = "6568",
+            v3Components = "score=${ts?.lastV3Score ?: intent.effectiveEntryScore7256};phase=${ts?.phase.orEmpty()}",
+            policyAuthority = policyField6568(policy, "policyAuthority").ifBlank { "BOOTSTRAP" },
+            entryLiquidityUsd = intent.liquidityUsd.takeIf { it > 0.0 } ?: (ts?.lastLiquidityUsd ?: 0.0),
+            entryRugEvidence = "rug=${intent.rugScore};safety=${intent.safetyVerdict}",
+            entryPriceUsd = ts?.lastPrice ?: 0.0,
+            authorizationReason = "FDG:${intent.fdgVerdict};attempt=${intent.attemptId}",
+        )
+    } catch (_: Throwable) { null }
 
     /**
      * V5.0.7868 — the live meme intent is the sealed ExecutableOpenGate intent.
@@ -26153,7 +26188,24 @@ class Executor(
                 } catch (_: Throwable) {}
             }
         }
+        if (result == SellResult.CONFIRMED) liveSellConfirmedStage7871(ts.mint)
         return result
+    }
+
+    /**
+     * V5.0.7871 — the specialist funnel's SELL stage for a confirmed LIVE exit.
+     * Only paperSell stamped SELL_CONFIRMED; once 7870 resolved FINALIZED onto
+     * the position's causal record, every live close read finalize>sell and
+     * CausalAuthorityRepair6627 raised FINALIZE_EXCEEDS_SELL
+     * (CAUSAL_COUNTER_CORRUPTION_6627=2 on 5.0.7868). Stamped only on a chain-
+     * confirmed sell, keyed by the closed canonical positionId.
+     */
+    private fun liveSellConfirmedStage7871(mint: String) {
+        try {
+            val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint, false)
+            val lane = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)?.lane.orEmpty()
+            if (lane.isNotBlank()) ToolkitSignalSheet.recordDeskStage(lane, "SELL_CONFIRMED", pid)
+        } catch (_: Throwable) {}
     }
 
     private val liveSellReservedPid7317 = ThreadLocal<String?>()

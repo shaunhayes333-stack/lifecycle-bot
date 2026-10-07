@@ -500,12 +500,22 @@ object CausalFeedbackAuthority6715 {
      * ticket (45s) plus on-chain confirmation; older evidence is not recovered.
      */
     private const val LINEAGE_RECOVERY_TTL_MS_7807 = 180_000L
+    /**
+     * V5.0.7868 — a LIVE fill proven by balance proof or wallet promotion
+     * (LIVE_PENDING_ENTRY_PROMOTED_FROM_WALLET_7133) lands minutes after its
+     * decision; at 180 s its reservation lineage had expired and the OPEN was
+     * counted CAUSAL_OPEN_WITHOUT_RESERVATION_6715 (=2 on 5.0.7868). LIVE keeps
+     * its exact same-mode/mint/lane lineage for 15 min; PAPER is unchanged.
+     */
+    private const val LIVE_LINEAGE_RECOVERY_TTL_MS_7868 = 15L * 60_000L
+    internal fun lineageRecoveryTtlMs7868(mode: String): Long =
+        if (mode.equals("LIVE", true)) LIVE_LINEAGE_RECOVERY_TTL_MS_7868 else LINEAGE_RECOVERY_TTL_MS_7807
     private const val LINEAGE_RECOVERY_CAP_7807 = 512
 
     /** Must be invoked inside `synchronized(lock)`. */
     private fun retainDroppedLineageLocked7807(r: Reservation) {
         val now = System.currentTimeMillis()
-        droppedLineage7807.entries.removeIf { now - it.value.reservedAtMs > LINEAGE_RECOVERY_TTL_MS_7807 }
+        droppedLineage7807.entries.removeIf { now - it.value.reservedAtMs > lineageRecoveryTtlMs7868(it.value.mode) }
         droppedLineage7807.remove(r.attemptId)
         droppedLineage7807[r.attemptId] = r
         while (droppedLineage7807.size > LINEAGE_RECOVERY_CAP_7807) {
@@ -522,10 +532,10 @@ object CausalFeedbackAuthority6715 {
      */
     private fun recoverLineageLocked7807(nm: String, mint: String, nl: String, nowMs: Long): Reservation? {
         val fromDropped = droppedLineage7807.values
-            .filter { it.mode == nm && it.mint == mint && it.lane == nl && nowMs - it.reservedAtMs in 0..LINEAGE_RECOVERY_TTL_MS_7807 }
+            .filter { it.mode == nm && it.mint == mint && it.lane == nl && nowMs - it.reservedAtMs in 0..lineageRecoveryTtlMs7868(nm) }
             .maxByOrNull { it.reservedAtMs }
         val fromStamp = ticketStamps.values
-            .filter { it.mode == nm && it.mint == mint && it.lane == nl && nowMs - it.stampedAtMs in 0..LINEAGE_RECOVERY_TTL_MS_7807 }
+            .filter { it.mode == nm && it.mint == mint && it.lane == nl && nowMs - it.stampedAtMs in 0..lineageRecoveryTtlMs7868(nm) }
             .maxByOrNull { it.stampedAtMs }
             ?.let { s -> Reservation(s.attemptId, s.mode, s.mint, s.lane, s.scoreBand, keys(s.mode, s.lane, s.scoreBand), s.stampedAtMs) }
         val chosen = listOfNotNull(fromDropped, fromStamp).maxByOrNull { it.reservedAtMs } ?: return null

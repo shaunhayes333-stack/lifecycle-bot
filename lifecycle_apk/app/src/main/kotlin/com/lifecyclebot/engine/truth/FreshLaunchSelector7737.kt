@@ -412,6 +412,15 @@ object FreshLaunchSelector7737 {
         return LaunchRead(v, s.key, why)
     }
 
+    /**
+     * V5.0.7871 — the setup key and a copy of its measured cell for a fresh
+     * launch (null when the token is not one), for LaunchEntryShaping7871.
+     */
+    fun shapingRead7871(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Pair<String, Cell?>? {
+        val s = setupFor(ts, nowMs) ?: return null
+        return s.key to cellSnapshot(s.key)
+    }
+
     fun statusLine(): String {
         val top = cells.entries.mapNotNull { (k, c) -> cellSnapshot(k)?.let { k to it } }
             .filter { it.second.n >= 5 }

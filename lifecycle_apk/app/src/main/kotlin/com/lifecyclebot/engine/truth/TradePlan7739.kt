@@ -310,6 +310,17 @@ object TradePlan7739 {
                 else -> {}
             }
         }
+        // V5.0.7871 — TOO_FEW_BARS is uncertainty on a young tape, not a danger
+        // shape (5.0.7868: PLANWAIT_TOO_FEW_BARS n=106 net +11.7%). With every
+        // other quality read clean it is planned LAUNCH_EARLY at reduced size;
+        // its forward labels keep measuring it under its own key.
+        if (setup == null && read.why == "TOO_FEW_BARS" && LaunchEntryShaping7871.admitTooFewBars(ts, nowMs)) {
+            plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -LAUNCH_STOP_PCT_7742, LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
+            admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()
+            launchAdmits7742.computeIfAbsent("TOO_FEW_BARS_REDUCED") { AtomicLong(0) }.incrementAndGet()
+            try { ForwardReturnLabeler7731.observe(ts, "PLANADMIT_TOO_FEW_BARS_7871", true, null, nowMs) } catch (_: Throwable) {}
+            return null
+        }
         if (setup == null) {
             waited.incrementAndGet()
             waitReasons.computeIfAbsent(read.why) { AtomicLong(0) }.incrementAndGet()
@@ -509,5 +520,5 @@ object TradePlan7739 {
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
-            "waitProof7757=${waitProofLine7757()}"
+            "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()}"
 }

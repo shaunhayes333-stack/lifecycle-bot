@@ -14,14 +14,27 @@ import java.util.concurrent.ConcurrentHashMap
  * promotion path stamps EXEC/OPEN on the same causal record as the TICKET.
  */
 internal object LivePendingAttempt7868 {
-    data class Binding(val attemptId: String, val lane: String, val atMs: Long)
+    data class Binding(
+        val attemptId: String,
+        val lane: String,
+        val atMs: Long,
+        // V5.0.7871 — the entry evidence frozen at broadcast, written as the
+        // immutable §6450 snapshot when wallet recovery promotes the reservation.
+        val entry7871: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot? = null,
+    )
 
     private const val TTL_MS = 30L * 60_000L
     private val byMint = ConcurrentHashMap<String, Binding>()
 
-    fun bind(mint: String, attemptId: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
+    fun bind(
+        mint: String,
+        attemptId: String,
+        lane: String,
+        nowMs: Long = System.currentTimeMillis(),
+        entry7871: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot? = null,
+    ) {
         if (mint.isBlank() || attemptId.isBlank() || lane.isBlank()) return
-        byMint[mint] = Binding(attemptId, lane, nowMs)
+        byMint[mint] = Binding(attemptId, lane, nowMs, entry7871)
         if (byMint.size > 500) byMint.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
     }
 

@@ -5940,7 +5940,11 @@ object FinalDecisionGate {
             com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) } catch (_: Throwable) { false }
         val curveCap = if (onCurve && ts.lastMcap > 0.0 && solUsd > 0.0)
             com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(ts.lastMcap, solUsd) * 0.01 else Double.MAX_VALUE
-        var riskSized = minOf(requested, depthCap, curveCap)
+        // V5.0.7871 — bounded learned launch shaping (fresh-launch -15% ladder cell,
+        // flow bucket, TOO_FEW_BARS reduced admission), before every cap and the seal.
+        val shaped7871 = com.lifecyclebot.engine.truth.LaunchEntryShaping7871.shapedSize(
+            requested, com.lifecyclebot.engine.truth.LaunchEntryShaping7871.sizeMult(ts, config.paperMode), minimum)
+        var riskSized = minOf(shaped7871, depthCap, curveCap)
         if (!config.paperMode) {
             val inputs = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.runtimeInputs(
                 mint = ts.mint, lane = lane, walletSol = cash, upstreamSol = riskSized,

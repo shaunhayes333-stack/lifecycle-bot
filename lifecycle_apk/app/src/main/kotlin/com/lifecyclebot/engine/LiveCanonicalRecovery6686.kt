@@ -862,6 +862,14 @@ object LiveCanonicalRecovery6686 {
                     LivePendingAttempt7868.take(mint)?.let { b7868 ->
                         try { ToolkitSignalSheet.recordEntryExecOpen7809(b7868.lane, b7868.attemptId, b7868.attemptId) } catch (_: Throwable) {}
                         try { PipelineHealthCollector.labelInc("SPECIALIST_EXEC_FROM_WALLET_PROMOTION_7868") } catch (_: Throwable) {}
+                        // V5.0.7871 — the immutable entry snapshot for the promoted position.
+                        promotedEntrySnapshot7871(b7868.entry7871, pendingSameMint7133.positionId, basis.entryPriceUsd)?.let { snap ->
+                            try {
+                                if (com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(snap)) {
+                                    PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_FROM_WALLET_PROMOTION_7871")
+                                }
+                            } catch (_: Throwable) {}
+                        }
                     }
                     confirmRecoveredCryptoIntent7803(
                         mint, pendingSameMint7133.positionId,
@@ -1258,4 +1266,19 @@ object LiveCanonicalRecovery6686 {
             identity = liveBuys.first().lotId.ifBlank { "lot" },
         )
     }
+}
+
+/**
+ * V5.0.7871 — the §6450 snapshot frozen at broadcast, re-keyed to the promoted
+ * positionId with the entry price the buy itself stamped. Null when the binding
+ * carried no snapshot (nothing is inferred after the fact).
+ */
+internal fun promotedEntrySnapshot7871(
+    frozen: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot?,
+    positionId: String,
+    entryPriceUsd: Double,
+): com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot? {
+    if (frozen == null || positionId.isBlank()) return null
+    val price = if (entryPriceUsd.isFinite() && entryPriceUsd > 0.0) entryPriceUsd else frozen.entryPriceUsd
+    return frozen.copy(positionId = positionId, entryPriceUsd = price)
 }
