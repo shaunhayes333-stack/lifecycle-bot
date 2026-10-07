@@ -474,6 +474,8 @@ object TradeAuthorizer {
                 ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613)
                 PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835")
                 PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835_${requestedBook.name}")
+                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_REASON_7871_" +
+                    SpecialistPreauthSeal7834.failureReason7871(tokenState7835, fdgDecision7835, requestedBook.name, isPaperMode))
                 ForensicLogger.lifecycle(
                     "TRADE_AUTH_SEAL_FAILED_7835",
                     "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} candidateVersion=$candidateVersion7624 action=retry_after_exact_fdg_buy_seal",

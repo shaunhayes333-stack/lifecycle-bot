@@ -1790,6 +1790,36 @@ object ExecutableOpenGate {
         return canonicalLane(owner.canonicalLane).takeIf { it.isNotBlank() && it != canonicalLane(lane) }
     }
 
+    /**
+     * V5.0.7871 — the immutable intent FDG already sealed for this exact
+     * candidate and lane, consumed instead of re-sealed. 5.0.7868 read
+     * TRADE_AUTH_SEAL_FAILED_7835=20 (MOONSHOT 13, BLUECHIP 7): TradeAuthorizer
+     * re-ran the seal and required the fresh intent's size to equal FDG's to
+     * 1e-9, so a live intent sealed for the same candidate at a smaller size
+     * (a later FDG pass re-sized against the reserved wallet) failed both
+     * attempts. Reuse requires the same mode/mint/version/lane, a live ticket,
+     * BUY with no hard-no (also on the latest state), and a sealed size no
+     * larger than FDG's.
+     */
+    internal fun reuseSealedIntent7871(mode: String, mint: String, candidateVersion: Long, lane: String, maxSizeSol: Double): ExecutionIntent? {
+        if (candidateVersion <= 0L) return null
+        val st = states[mint]
+        if (st?.candidateVersion == candidateVersion &&
+            (st.preFdgVerdict.equals("HARD_NO_BUY", true) || st.hardNoReasons.isNotEmpty())) return null
+        val intent = activeExecutionIntent6519(mode, mint, candidateVersion)?.takeIf {
+            canonicalLane(it.canonicalLane) == canonicalLane(lane) && it.mode.equals(mode, true) &&
+                it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() &&
+                it.resolvedSize > 0.0 && it.resolvedSize <= maxSizeSol + 1e-9
+        } ?: return null
+        try {
+            if (!mirrorExistingTicket7807(intent)) {
+                ToolkitSignalSheet.recordDeskStage(canonicalLane(intent.canonicalLane.ifBlank { lane }), "TICKET", intent.attemptId)
+            }
+            PipelineHealthCollector.labelInc("SPECIALIST_FDG_SEAL_REUSED_7871")
+        } catch (_: Throwable) {}
+        return intent
+    }
+
     private fun noteFdgAllowWithoutOwnIntent7868(mode: String, mint: String, symbol: String, lane: String, candidateVersion: Long) {
         val owner = try { ownerLaneOfLiveIntent7868(mode, mint, candidateVersion, lane) } catch (_: Throwable) { null }
         try {

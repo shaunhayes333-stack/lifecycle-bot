@@ -44,6 +44,9 @@ internal object SpecialistPreauthSeal7834 {
         val size = decision.sizeSol
         if (maximumSizeSol < size - 1e-9) postFdgRewriteIgnored7853(ts.mint, lane, size, maximumSizeSol)
         ExecutableOpenGate.recordPrimaryLane7835(ts.mint, decision.candidateVersion7835, canonicalLane)
+        ExecutableOpenGate.reuseSealedIntent7871(
+            if (paper) "PAPER" else "LIVE", ts.mint, decision.candidateVersion7835, canonicalLane, size,
+        )?.let { return it }
         fun sealOnce7840(): ExecutableOpenGate.ExecutionIntent? =
             ExecutableOpenGate.recordFdgAndGetIntent6533(
                 mint = ts.mint, symbol = ts.symbol, lane = canonicalLane,
@@ -103,4 +106,24 @@ internal object SpecialistPreauthSeal7834 {
         } catch (_: Throwable) {}
     }
 
+
+    /**
+     * V5.0.7871 — why ensure() returned null, named, so TRADE_AUTH_SEAL_FAILED_7835
+     * stops being one bucket for different causes (Field Manual L123).
+     */
+    internal fun failureReason7871(ts: TokenState, decision: FinalDecisionGate.FinalDecision?, lane: String, paper: Boolean): String {
+        refusal(decision, ts.mint, lane, paper)?.let { r ->
+            return r.uppercase().map { if (it.isLetterOrDigit() || it == '_') it else '_' }.joinToString("").take(48)
+        }
+        if (paper != RuntimeModeAuthority.isPaper()) return "RUNTIME_MODE_CHANGED"
+        if (ts.safety.hardBlockReasons.isNotEmpty()) return "HARD_NO_AFTER_FDG"
+        val d = decision ?: return "FDG_DECISION_MISSING_7835"
+        val live = ExecutableOpenGate.activeExecutionIntent6519(if (paper) "PAPER" else "LIVE", ts.mint, d.candidateVersion7835)
+        return when {
+            live == null -> "NO_LIVE_TICKET_FOR_VERSION"
+            CanonicalLaneIdentity6506.canonical(live.canonicalLane) != CanonicalLaneIdentity6506.canonical(lane) -> "TICKET_OWNED_BY_OTHER_LANE"
+            live.resolvedSize > d.sizeSol + 1e-9 -> "TICKET_SIZE_ABOVE_FDG"
+            else -> "TICKET_NOT_BUY"
+        }
+    }
 }

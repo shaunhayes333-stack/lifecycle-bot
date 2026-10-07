@@ -75,4 +75,14 @@ class Aate7871EntryShapingTest {
         assertEquals("CONFIDENCE", LaunchEntryShaping7871.tooFewBarsRefusal(8_000.0, 0, "FLOW_OK", "CONC_BROAD", null, false))
         assertTrue(src("engine/truth/TradePlan7739.kt").contains("read.why == \"TOO_FEW_BARS\" && LaunchEntryShaping7871.admitTooFewBars(ts, nowMs)"))
     }
+
+    @Test fun specialistSealReusesTheFdgIntentAndNamesFailures() {
+        val seal = src("engine/SpecialistPreauthSeal7834.kt")
+        val ensure = seal.substringAfter("fun ensure(").substringBefore("fun sealOnce7840")
+        assertTrue(ensure.contains("ExecutableOpenGate.reuseSealedIntent7871("))
+        val reuse = src("engine/ExecutableOpenGate.kt").substringAfter("internal fun reuseSealedIntent7871").substringBefore("private fun noteFdgAllowWithoutOwnIntent7868")
+        assertTrue(reuse.contains("it.resolvedSize <= maxSizeSol + 1e-9"))
+        assertTrue(reuse.contains("st.hardNoReasons.isNotEmpty()"))
+        assertTrue(src("engine/TradeAuthorizer.kt").contains("TRADE_AUTH_SEAL_FAILED_REASON_7871_"))
+    }
 }
