@@ -2858,6 +2858,12 @@ class BotService : Service() {
 
     private var notifIdCounter = 100
 
+    /** V5.0.7855 — device log carries the full ART verifier text (method, dex pc, reason). */
+    private fun bootFailure7855(t: Throwable) {
+        ErrorLogger.crash("BotService", "SERVICE_BOOTSTRAP_FAILED_6516: ${t.javaClass.simpleName}: ${t.message}", t)
+        try { android.util.Log.e("AATE_BOOT_FAIL_7855", "${t.javaClass.name}: ${t.message.orEmpty().take(3000)}", t) } catch (_: Throwable) {}
+    }
+
     override fun onCreate() {
         super.onCreate()
         android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=ENTERED")
@@ -4313,7 +4319,7 @@ class BotService : Service() {
                     serviceBootstrapSucceeded6516 = false
                     try { CanonicalBootstrapTimeline7557.mark("SERVICE_BOOTSTRAP_FAILED") } catch (_: Throwable) {}
                     serviceBootstrapFailure6517 = "${t.javaClass.simpleName}: ${t.message.orEmpty().take(120)}"
-                    ErrorLogger.crash("BotService", "SERVICE_BOOTSTRAP_FAILED_6516: ${t.javaClass.simpleName}: ${t.message}", t)
+                    bootFailure7855(t)
                     try {
                         ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_FAILED_6516", "type=${t.javaClass.simpleName} msg=${t.message?.take(120)} durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516}")
                         PipelineHealthCollector.labelInc("SERVICE_BOOTSTRAP_FAILED_6516")
