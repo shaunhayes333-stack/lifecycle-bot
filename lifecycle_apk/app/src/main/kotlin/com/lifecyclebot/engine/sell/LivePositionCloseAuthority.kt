@@ -351,6 +351,13 @@ object LivePositionCloseAuthority {
         if (mint.isBlank()) return false
         val st = states[mint] ?: return false
         if (st.state == State.CLOSED || st.state == State.CLOSING_CONFIRMED) return false
+        // V5.0.7874 — already open: nothing to release (5.0.7873 re-emitted this for
+        // all 11 held mints on every reconciler tick).
+        if (st.state == State.OPEN_CONFIRMED) return false
+        // V5.0.7874 — a sell in flight still shows its tokens in the wallet until it
+        // settles; releasing it on the wallet snapshot re-armed the same exit while
+        // its transaction was confirming (sellJobsActive=11 held=11 openTracked=5).
+        if (sellInFlight7874(mint, st, System.currentTimeMillis())) return false
         if (runCatching { PositionCloseLedger.isClosed(mint, mode = "LIVE") }.getOrDefault(false)) return false
         val stillHeld = provenHeld || runCatching {
             val p = HostWalletTokenTracker.snapshot().firstOrNull { it.mint == mint }
@@ -369,6 +376,18 @@ object LivePositionCloseAuthority {
         emit("LIVE_CLOSE_RELEASED_ON_WALLET_PROOF_7146", mint, st.symbol, "reason=$reason action=closing_to_open_confirmed")
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_CLOSE_RELEASED_ON_WALLET_PROOF_7146") } catch (_: Throwable) {}
         return true
+    }
+
+    /** V5.0.7874 — a signed close younger than the settle window, or a sell job still working. */
+    internal const val SIG_SETTLE_MS_7874 = 90_000L
+
+    internal fun sellInFlight7874(mint: String, st: CloseState, nowMs: Long): Boolean {
+        // Past the closing TTL nothing counts as in flight: the TTL path must still release.
+        if (nowMs - st.updatedAtMs >= CLOSING_TTL_MS) return false
+        if (!st.signature.isNullOrBlank() && nowMs - st.updatedAtMs in 0L until SIG_SETTLE_MS_7874) return true
+        val job = runCatching { SellJobRegistry.get(mint) }.getOrNull() ?: return false
+        return job.status == SellJobStatus.BUILDING || job.status == SellJobStatus.BROADCASTING ||
+            job.status == SellJobStatus.CONFIRMING || job.status == SellJobStatus.VERIFYING
     }
 
     /**

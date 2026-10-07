@@ -121,7 +121,30 @@ object CanonicalCapitalAuthority6450 {
      * returns current SOL market value for a mint (0.0 = mark unknown, use
      * costBasis fallback so unrealized reads as 0 rather than -100%).
      */
-    fun snapshot(markProvider: (String) -> Double = markProviderRef.get() ?: { 0.0 }): Snapshot {
+    /**
+     * V5.0.7874 — the installed-provider snapshot, memoised for one second while
+     * the canonical book and paper cash are unchanged. 5.0.7873 ran it about once
+     * a second from ~14 callers (hero, gates, report): MARK_QUOTE_7060_UNAVAILABLE_
+     * NO_TOKEN_STATE = PAPER_MARK_UNPRICED_6508 = 769,712 over 4.8 h, each a full
+     * pass over every paper mint, with the report builder timing out at 8 s.
+     * A caller supplying its own mark provider is never served from the memo.
+     */
+    private data class MemoKey7874(val muts: Long, val cash: Double, val openCost: Double, val realized: Double, val fees: Double)
+    private const val SNAPSHOT_MEMO_MS_7874 = 1_000L
+    @Volatile private var memo7874: Triple<MemoKey7874, Long, Snapshot>? = null
+
+    fun snapshot(): Snapshot {
+        val key = MemoKey7874(
+            CanonicalPositionAuthority6441.mutationCount7387(), PaperCapitalAuthority6577.cashSol(),
+            PaperCapitalAuthority6577.openCostBasisSol(), PaperCapitalAuthority6577.realizedPnlSol(),
+            PaperCapitalAuthority6577.feesSol(),
+        )
+        val now = System.currentTimeMillis()
+        memo7874?.let { (k, at, snap) -> if (k == key && now - at in 0L until SNAPSHOT_MEMO_MS_7874) return snap }
+        return snapshot(markProviderRef.get() ?: { 0.0 }).also { memo7874 = Triple(key, now, it) }
+    }
+
+    fun snapshot(markProvider: (String) -> Double): Snapshot {
         // V5.0.6487 — PaperAccountLedger is the sole capital read authority.
         // Replay is parity diagnostics only and may never replace wallet surfaces.
         val startingCash = PaperCapitalAuthority6577.startingCashSol()
