@@ -1,53 +1,10 @@
 package com.lifecyclebot.v3
 
-import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.v3.core.TradingContext
-import com.lifecyclebot.v3.core.TradingConfigV3
-import com.lifecyclebot.v3.core.V3BotMode
-import com.lifecyclebot.v3.scanner.CandidateSnapshot
-import com.lifecyclebot.v3.scanner.SourceType
 import com.lifecyclebot.v3.scoring.FluidLearningAI
-import com.lifecyclebot.v3.scoring.UnifiedScorer
-import com.lifecyclebot.v3.scoring.ScoreCard
-import kotlin.math.abs
 
-/**
- * V5.9.346 — MemeUnifiedScorerBridge.
- *
- * Lifts the 79%-WR architecture from PerpsUnifiedScorerBridge / Crypto-Alts
- * trader into the meme trader. Four structural advantages re-deployed:
- *
- *   1) Technical-analysis pre-filter — composite TA score computed BEFORE
- *      V3 ever scores. Only TA-validated candidates reach V3.
- *
- *   2) Synthetic minimum floors on liquidity / mcap / age — the V3 layers
- *      score the candidate as an "established asset", not as fresh-launch
- *      noise. Real values are still used for sizing and execution; this
- *      only affects the V3 scoring stage.
- *
- *   3) 60/40 blend — TA primary (60%), V3 advisory (40%) with a bounded
- *      AITrustNetworkAI trust multiplier.
- *
- *   4) Bootstrap-adaptive floor — at 0% learning the floor is permissive
- *      so the bot trades from first start; at 100% it tightens.
- */
+/** Technical confluence over the current canonical V3 decision; never rescores invented market data. */
 object MemeUnifiedScorerBridge {
-
-    private const val TAG = "MemeBridge"
-
-    // Single shared scorer instance — UnifiedScorer is a class with all
-    // dependencies defaulted, so no-args constructor is safe and reuse
-    // avoids re-creating sub-AIs per candidate.
-    private val sharedScorer by lazy { UnifiedScorer() }
-
-    private val defaultCtx by lazy {
-        TradingContext(
-            config = TradingConfigV3(),
-            mode = V3BotMode.PAPER,
-            marketRegime = "NEUTRAL",
-        )
-    }
 
     data class MemeVerdict(
         val techScore: Int,
@@ -64,77 +21,17 @@ object MemeUnifiedScorerBridge {
     /**
      * Compute the meme trader's blended verdict for a candidate.
      */
-    fun scoreForEntry(ts: TokenState): MemeVerdict {
-        // 1) TA composite (0-100)
+    fun scoreForEntry(ts: TokenState, decision: V3Decision? = null): MemeVerdict {
         val techScore = computeTechnicalScore(ts)
-
-        // 2) Synthetic CandidateSnapshot with permissive memetoken floors
-        //    (liq ≥ $2K, mcap ≥ $20K, age ≥ 5min per user 3a).
-        val nowMs = System.currentTimeMillis()
-        val realAgeMin = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs)
-            ?: return MemeVerdict(
-                techScore = techScore,
-                v3Score = 0,
-                blendedScore = techScore,
-                trustMultiplier = 1.0,
-                techFloor = 30,
-                blendedFloor = 25,
-                shouldEnter = false,
-                topReasons = listOf("birth_metadata_hydrating_7441"),
-                rejectReason = "birth_metadata_hydrating_7441",
-            )
-        val syntheticAgeMin = realAgeMin.coerceAtLeast(5.0)
-        val histLast = ts.history.lastOrNull()
-        val holders = (histLast?.holderCount ?: 0).takeIf { it > 0 } ?: 50
-
-        val snap = CandidateSnapshot(
-            mint = ts.mint,
-            symbol = ts.symbol,
-            source = SourceType.DEX_TRENDING,
-            discoveredAtMs = nowMs - (syntheticAgeMin * 60_000.0).toLong(),
-            ageMinutes = syntheticAgeMin,
-            liquidityUsd = ts.lastLiquidityUsd.coerceAtLeast(2_000.0),
-            marketCapUsd = ts.lastMcap.coerceAtLeast(20_000.0),
-            buyPressurePct = ts.lastBuyPressurePct.coerceIn(0.0, 100.0),
-            volume1mUsd = ts.lastLiquidityUsd * 0.02,
-            volume5mUsd = ts.lastLiquidityUsd * 0.08,
-            holders = holders,
-            topHolderPct = ts.topHolderPct,
-            bundledPct = null,
-            hasIdentitySignals = false,
-            isSellable = true,
-            rawRiskScore = null,
-            extra = mapOf(
-                "techScore" to techScore,
-                "realAgeMin" to realAgeMin,
-            ),
-        )
-
-        // 3) V3 score (advisory) via UnifiedScorer.score
-        val card: ScoreCard = try {
-            sharedScorer.score(snap, defaultCtx)
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "V3 scoring failed for ${ts.symbol}: ${e.message}")
-            return MemeVerdict(
-                techScore = techScore,
-                v3Score = 0,
-                blendedScore = techScore,
-                trustMultiplier = 1.0,
-                techFloor = 30,
-                blendedFloor = 25,
-                shouldEnter = techScore >= 30,
-                topReasons = listOf("v3_failed_TA_fallback"),
-                rejectReason = if (techScore < 30) "tech_score<30_after_v3_fail" else null,
-            )
+        val v3Score = when (decision) {
+            is V3Decision.Execute -> decision.score
+            is V3Decision.Watch -> decision.score
+            is V3Decision.ShadowOnly -> decision.score
+            else -> return MemeVerdict(techScore, 0, techScore, 1.0, 30, 25,
+                false, listOf("canonical_v3_score_unavailable"), "canonical_v3_score_unavailable")
         }
-
-        val v3Score = card.components.sumOf { it.value }
-        val trustMult = card.components
-            .firstOrNull { it.name.equals("AITrustNetworkAI", ignoreCase = true) }
-            ?.let { 1.0 + (it.value / 50.0).coerceIn(-0.20, 0.30) } ?: 1.0
-
-        // V3 normalised onto 0-100 axis (classicScore total typically ±40 → map [-40,+40] → [0,100])
-        val v3Normalised = ((v3Score + 40) * 1.25).coerceIn(0.0, 100.0).toInt()
+        val trustMult = 1.0 // Already included in the canonical score.
+        val v3Normalised = v3Score.coerceIn(0, 100).toDouble()
 
         // 4) 60/40 blend with bounded trust multiplier
         val blended = ((techScore * 0.60) + (v3Normalised * 0.40 * trustMult))
@@ -159,10 +56,7 @@ object MemeUnifiedScorerBridge {
             else           -> null
         }
 
-        val topReasons = card.components
-            .sortedByDescending { abs(it.value) }
-            .take(4)
-            .map { "${it.name}=${it.value}" }
+        val topReasons = listOf("canonical_v3=$v3Score", "technical=$techScore")
 
         return MemeVerdict(
             techScore = techScore,

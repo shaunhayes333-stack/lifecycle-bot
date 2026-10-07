@@ -127,6 +127,8 @@ object PipelineHealthCollector {
 
     fun resetModeCountersForRuntime(mode: String) {
         modeSnapshot = mode
+        canonicalBuySeen7863.clear()
+        executionCounterStart7863 = System.currentTimeMillis()
         fdgLiveAllow.set(0L)
         fdgLiveBlock.set(0L)
         fdgPaperAllow.set(0L)
@@ -175,10 +177,15 @@ object PipelineHealthCollector {
     fun fdgLiveBlockCount(): Long = fdgLiveBlock.get()
     fun execLiveAttemptCount(): Long = execLiveAttempt.get()
     fun execLiveBuyOkCount(): Long = execLiveBuyOk.get()
-    fun execLiveSellOkCount(): Long = execLiveSellOk.get()
+    fun execLiveSellOkCount(): Long = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("LIVE", executionCounterStart7863).size.toLong()
     fun execLiveSellFailCount(): Long = execLiveSellFail.get()
     fun execLiveSellPendingFinalityCount(): Long = execLiveSellPendingFinality.get()
-    private val execLiveSellOk   = AtomicLong(0L)
+    private val execLiveSellOk   = AtomicLong(0L) // Legacy reset field; success reads canonical terminal positions.
+    private val canonicalBuySeen7863 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var executionCounterStart7863 = System.currentTimeMillis()
+    fun onCanonicalBuyCommitted7863(positionId: String, paperMode: Boolean) {
+        if (!paperMode && positionId.isNotBlank() && canonicalBuySeen7863.add(positionId)) execLiveBuyOk.incrementAndGet()
+    }
     private val execLiveSellFail = AtomicLong(0L)
     private val execLiveSellPendingFinality = AtomicLong(0L)
     private val execPaperAttempt = AtomicLong(0L)
@@ -191,6 +198,7 @@ object PipelineHealthCollector {
      *  need real-time analytics in the pipeline dump. 30-s stale is fine. */
     @Volatile private var perfAnalyticsCache: String? = null
     @Volatile private var perfAnalyticsCacheAt: Long = 0L
+    @Volatile private var perfAnalyticsKey7863: String = ""
 
     // V5.0.3843 — report mux authority: PerformanceAnalytics must consume the
     // same canonical journal rows as Journal Summary / TradeHistoryStore stats.
@@ -209,7 +217,6 @@ object PipelineHealthCollector {
                 .asSequence()
                 .filter { sellLike(it.side) }
                 .filter { it.mode.equals(currentMode6651, true) }
-                .filter { com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.classify(it) == com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME }
                 .map { t ->
                     val entryTs = t.entryTsMs.takeIf { it > 0L } ?: t.ts
                     val entryPrice = t.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: t.price
@@ -623,14 +630,14 @@ object PipelineHealthCollector {
         // those finer-grained actions are wired by callers.
         val eventMode = modeFromExec(action, fields)
         when {
-            action.startsWith("LIVE_BUY_OK")      -> execLiveBuyOk.incrementAndGet()
+            action.startsWith("LIVE_BUY_OK")      -> Unit // Proof commit owns success.
             action.startsWith("LIVE_BUY_FAIL")    -> {
                 execLiveBuyFail.incrementAndGet()
                 bump(liveBuyFailReasonCounts, liveBuyFailReason(fields))
             }
             action.startsWith("LIVE_BUY_ATTEMPT") -> execLiveAttempt.incrementAndGet()
             action.startsWith("LIVE_BUY")         -> execLiveAttempt.incrementAndGet()  // existing emit site fires this at attempt time
-            action.startsWith("LIVE_SELL_OK")     -> execLiveSellOk.incrementAndGet()
+            action.startsWith("LIVE_SELL_OK")     -> Unit // Canonical terminal bus owns success.
             action.startsWith("LIVE_SELL_FAIL")   -> execLiveSellFail.incrementAndGet()
             // PAPER OK counters are journal-attributed in recordExec(); PAPER_BUY/PAPER_SELL
             // exec labels are attempts and must not inflate successful journal rows.
@@ -638,18 +645,6 @@ object PipelineHealthCollector {
             eventMode == "PAPER" && action.contains("BUY", ignoreCase = true) -> execPaperAttempt.incrementAndGet()
         }
         appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
-    }
-
-    private val execOkSeenBuy7371 = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val execOkSeenSell7371 = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val mintField7371 = Regex("mint=([A-Za-z0-9]+)")
-
-    private fun firstOkForMint7371(seen: java.util.concurrent.ConcurrentHashMap<String, Long>, fields: String): Boolean {
-        val mint = mintField7371.find(fields)?.groupValues?.get(1) ?: return true
-        val now = System.currentTimeMillis()
-        val prev = seen.put(mint, now)
-        if (seen.size > 2_000) seen.clear()
-        return prev == null || now - prev > 120_000L
     }
 
     fun onLifecycle(event: String, fields: String) {
@@ -669,16 +664,11 @@ object PipelineHealthCollector {
         // execution in the per-mode block.
         when (event) {
             "MEME_LIVE_EXEC_ENTRY" -> execLiveAttempt.incrementAndGet()
-            // V5.0.7371 — each landing emits up to four of these events; count one per
-            // mint per two minutes (5.0.7368 showed SELL ok=15 for 3 sells, BUY ok=8 for 4).
-            "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" ->
-                if (firstOkForMint7371(execOkSeenBuy7371, fields)) execLiveBuyOk.incrementAndGet()
+            // Signatures and duplicate lifecycle labels do not prove another fill.
             // V5.0.7832 — wallet reconciliation proves inventory, not that this
             // runtime executed a buy. Keep it out of current-session BUY_OK.
             "LIVE_POSITION_CONFIRMED_FROM_WALLET" ->
                 bump(labelCounts, "LIVE_WALLET_RECONCILED_NOT_EXEC_BUY_OK_7832")
-            "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED", "SELL_SIG_CONFIRMED" ->
-                if (firstOkForMint7371(execOkSeenSell7371, fields)) execLiveSellOk.incrementAndGet()
             "SELL_FINALITY_PENDING_RETRY", "SELL_VERIFY_INCONCLUSIVE_PENDING" -> execLiveSellPendingFinality.incrementAndGet()
         }
         // V5.9.1046 — V3 reject reason histogram. Extract the normalised
@@ -1585,12 +1575,13 @@ object PipelineHealthCollector {
                 val c = com.lifecyclebot.engine.truth.RootCauseClassifier6471.classify()
                 if (c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.ECONOMIC_INTEGRITY ||
                     c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.EXECUTION_FINALITY ||
-                    c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.ENTRY_FINALITY) {
+                    c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.ENTRY_FINALITY ||
+                    c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.RUNTIME_STALL) {
                     rootCauses.add(0, "${c.tier.name}/${c.label} (n=${c.supportingCount})".take(160))
                 }
             } catch (_: Throwable) {}
             if (rootCauses.isEmpty()) rootCauses.add("HEALTHY — mechanics and recent performance within deterministic bands")
-            sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ").take(220)}\n")
+            sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ")}\n")
         } catch (_: Throwable) {}
         sb.append("\n")
 
@@ -1916,7 +1907,7 @@ object PipelineHealthCollector {
             sb.append("\n")
         }
         sb.append("  BUY ok/fail:          ${execLiveBuyOk.get()} / ${execLiveBuyFail.get()}\n")
-        sb.append("  SELL ok/fail/pending: ${execLiveSellOk.get()} / ${execLiveSellFail.get()} / ${execLiveSellPendingFinality.get()}\n")
+        sb.append("  SELL ok/fail/pending: ${execLiveSellOkCount()} / ${execLiveSellFail.get()} / ${execLiveSellPendingFinality.get()}\n")
         val topLiveBuyFailReasons = s.liveBuyFailReasonCounts.entries.sortedByDescending { it.value }.take(8)
         if (topLiveBuyFailReasons.isNotEmpty()) {
             sb.append("  Top BUY fail reasons: ")
@@ -3161,10 +3152,7 @@ object PipelineHealthCollector {
                     .append(" byProvider=[").append(byProvider7225.ifBlank { "none" }).append("]")
                     .append("\n")
                 if (falseOk7225 > advanced7225 && falseOk7225 >= 20L) {
-                    labelInc("EXIT_MARK_REFRESH_DOORS_STILL_CLOSED_7225")
-                    sb.append("     ⚠️  most top-ups still advance nothing: every provider in the\n")
-                    sb.append("         fallback cascade is refusing. Read the API health table for\n")
-                    sb.append("         birdeye/dexscreener/pumpfun before reading anything else here.\n")
+                    sb.append("     ⚠️  refresh attempts often return no newer observation; inspect provider results and cache age.\n")
                 }
             } catch (_: Throwable) {}
             sb.append("  Post-learn offloader (§6450): ").append(
@@ -3563,7 +3551,8 @@ object PipelineHealthCollector {
         try {
             val cached = perfAnalyticsCache
             val now = System.currentTimeMillis()
-            if (cached != null && (now - perfAnalyticsCacheAt) < 30_000L) {
+            val key7863 = "${RuntimeModeAuthority.isPaper()}|${com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.canonicalRevision7493()}"
+            if (cached != null && key7863 == perfAnalyticsKey7863 && (now - perfAnalyticsCacheAt) < 30_000L) {
                 sb.append(cached)
             } else {
                 val perfTrades = canonicalPerformanceTrades()
@@ -3571,16 +3560,16 @@ object PipelineHealthCollector {
                     val stats = com.lifecyclebot.engine.PerformanceAnalytics.analyze(perfTrades)
                     val block = buildString {
                         appendLine()
-                        appendLine("===== Performance analytics (last 1000 closed) =====")
+                        appendLine("===== STRATEGY-ELIGIBLE PERFORMANCE (current mode, last 1000 completed positions) =====")
                         append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
                         appendLine()
                         try {
                             val liveMaturity = com.lifecyclebot.engine.LiveMaturityAuthority.snapshot()
                             val phaseTag = liveMaturity.phase
                             val floor = liveMaturity.doctrineFloorLabel
-                            appendLine("===== Separated WR metrics (V5.9.1378) =====")
+                            appendLine("===== WR COHORTS (strategy window and historical all-mode totals are separate) =====")
                             appendLine("  Phase:        $phaseTag  (live terminal closes=${liveMaturity.liveTerminalCloses}; lifetime closes=${liveMaturity.lifetimeCloses}; doctrine floor=$floor)")
-                            appendLine("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)")
+                            appendLine("  Strategy WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)")
                             // V5.0.7205 — print BOTH denominators side by side.
                             // Every WR above is counted per banked sell EVENT,
                             // which on 5.0.7204 read 66% against a per-POSITION
@@ -3592,13 +3581,13 @@ object PipelineHealthCollector {
                             try {
                                 val lt7205 = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
                                 appendLine(
-                                    "  Per-position: ${"%.1f".format(lt7205.terminalWinRate7205)}% " +
+                                    "  Historical all-mode per-position: ${"%.1f".format(lt7205.terminalWinRate7205)}% " +
                                         "(${lt7205.terminalWins7205}W/${lt7205.terminalLosses7205}L/" +
                                         "${lt7205.terminalScratches7205}S over ${lt7205.terminalCloses7205} closes) " +
                                         "avgWin=${"%+.1f".format(lt7205.terminalAvgWinPct7205)}%",
                                 )
                                 appendLine(
-                                    "  Per-sell-row: ${"%.1f".format(lt7205.winRate)}% " +
+                                    "  Historical all-mode per-sell-row: ${"%.1f".format(lt7205.winRate)}% " +
                                         "(${lt7205.totalWins}W/${lt7205.totalLosses}L/" +
                                         "${lt7205.totalScratches}S over ${lt7205.totalSells} banked rows) " +
                                         "avgWin=${"%+.1f".format(lt7205.avgWinPct)}%",
@@ -3628,6 +3617,7 @@ object PipelineHealthCollector {
                     }
                     perfAnalyticsCache = block
                     perfAnalyticsCacheAt = now
+                    perfAnalyticsKey7863 = key7863
                     sb.append(block)
                 }
             }
@@ -3743,7 +3733,7 @@ object PipelineHealthCollector {
         else if (fdgBlock > fdgAllow * 2)
             sb.append("  ⚠ FDG blocking majority — check DANGER_ZONE, edge veto rate, or brain state.\n")
         else if (fdgAllow > 0)
-            sb.append("  ✅ FDG passing $fdgAllow / ${fdgTotal} evaluations.\n")
+            sb.append("  FDG sealed outcomes: $fdgAllow allows / $fdgBlock rejects; pre-seal refusals are reported separately.\n")
 
         // V5.9.915 — per-mode FDG / EXEC breakdown so operator (and
         // forensics consumers like Base44) can disambiguate at a glance
@@ -3767,7 +3757,7 @@ object PipelineHealthCollector {
             sb.append(s.liveBuyFailReasonCounts.entries.sortedByDescending { it.value }.take(8).joinToString(" · ") { "${it.key}:${it.value}" })
             sb.append("\n")
         }
-        sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}  EXEC_LIVE_SELL_PENDING_FINALITY=${execLiveSellPendingFinality.get()}\n")
+        sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOkCount()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}  EXEC_LIVE_SELL_PENDING_FINALITY=${execLiveSellPendingFinality.get()}\n")
         sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}  EXEC_PAPER_PARTIAL_OK=${execPaperPartialOk.get()}\n")
         sb.append("    PAPER_JOURNAL_ROWS=$paperJournalRows  PAPER_QUARANTINED_ROWS=$paperQuarantinedRows\n")
         val liveFdgAllowForDiag7685 = if (finalPerModeN7685 > 0L) fdgFinalLiveAllow7685.get() else fdgLiveAllow.get()
@@ -3921,7 +3911,7 @@ object PipelineHealthCollector {
         val recentExecCount = s.recentExecs.size.toLong()
         val acceptedJournalRows = (s.phaseCounts["TRADEJRNL_REC"] ?: s.labelCounts["TRADEJRNL_REC"] ?: 0L)
         sb.append("  intake callbacks:     $totalIntake (sum of scanner-source events; repeats allowed)\n")
-        sb.append("  unique intake symbols:$uniqueIntakeCandidates6564 (candidate-normalized denominator)\n")
+        sb.append("  unique intake symbols:$uniqueIntakeCandidates6564 (symbols only; not unique candidate identities)\n")
         sb.append("  pre-V3 returns:       $totalPreV3Returns6564${if (preV3Returns6564.isEmpty()) "" else " [" + preV3Returns6564.entries.sortedByDescending { it.value }.take(8).joinToString { "${it.key.removePrefix("PRE_V3_RETURN_") }=${it.value}" } + "]"}\n")
         sb.append("  lane evaluations:     $totalLaneEval active (${s.laneEvalSuppressedCounts.values.sum()} suppressed by QUALITY-only policy, ${s.laneEvalShadowReadOnlyCounts.values.sum()} shadow/read-only)\n")
         sb.append("  V3 evaluations:       ${v3Allow + v3Skipped}\n")
@@ -3937,10 +3927,6 @@ object PipelineHealthCollector {
         if (totalIntake > 0L) {
             val callbackToEval6564 = totalLaneEval.toDouble() / totalIntake * 100.0
             sb.append("  raw callback → eval:  ${"%.1f".format(callbackToEval6564)}%  (diagnostic only; callbacks repeat)\n")
-        }
-        if (uniqueIntakeCandidates6564 > 0L) {
-            val uniqueToV36564 = (v3Allow + v3Skipped).toDouble() / uniqueIntakeCandidates6564.toDouble() * 100.0
-            sb.append("  unique intake → V3:   ${"%.1f".format(uniqueToV36564)}%  (${v3Allow + v3Skipped}/$uniqueIntakeCandidates6564; use PRE_V3 reasons for genuine loss)\n")
         }
         if (totalLaneEval > 0L) {
             // V5.9.1343 — HONEST PER-TOKEN RATIO. LANE_EVAL is counted PER LANE (each
@@ -3959,7 +3945,7 @@ object PipelineHealthCollector {
         val v3Total = v3Allow + v3Skipped
         if (v3Total > 0L) {
             val v3AllowPct = (v3Allow.toDouble() / v3Total * 100.0)
-            sb.append("  V3 allow rate:        ${"%.1f".format(v3AllowPct)}%  (target >30%; <15% = audit V3_SKIPPED reasons below)\n")
+            sb.append("  V3 recorded allow/skip ratio:        ${"%.1f".format(v3AllowPct)}%  (does not include all fatal returns; see V3 rejects above)\n")
         }
         // Top 5 block reasons — usually one or two dominate.
         val topBlocks = s.blockReasonCounts.entries.sortedByDescending { it.value }.take(5)
@@ -3969,20 +3955,11 @@ object PipelineHealthCollector {
                 sb.append("    • $reason: $n\n")
             }
         }
-        // Throughput rate — project from accepted journal rows, not the 30-row recentExec ring.
-        val uptimeMs = (s.nowMs - s.startedAtMs).coerceAtLeast(1L)
-        val uptimeHr = uptimeMs / 3_600_000.0
-        if (uptimeHr >= 0.1 && acceptedJournalRows > 0) {
-            val execsPerHour = acceptedJournalRows / uptimeHr
-            val execsPerDay = execsPerHour * 24.0
-            val band = when {
-                execsPerDay in 500.0..1000.0 -> "✅ ON TARGET (500-1000/day band)"
-                execsPerDay > 1000.0 -> "🔴 ABOVE TARGET BAND (>1000/day; verify quality/FDG finality and churn)"
-                execsPerDay >= 200.0 -> "⚠ BELOW TARGET (need 500+/day; audit selector/slot/lane-eval choke)"
-                else -> "🛑 CRITICAL (need 500+/day; check lifecycle uptime + scanner pool)"
-            }
-            sb.append("  projected execs/day:  ${"%.0f".format(execsPerDay)}  $band (journalRows=$acceptedJournalRows, not 30-row ring)\n")
-        }
+        val sessionCloses7863 = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464
+            .terminalEnvelopes7863(if (RuntimeModeAuthority.isLive()) "LIVE" else "PAPER", s.startedAtMs).size
+        sb.append("  Unique session completed positions: $sessionCloses7863 (canonical terminal proof)\n")
+        sb.append("  Journal writes: $acceptedJournalRows (includes replay/repair; not executions)\n")
+        sb.append("  Daily execution projection: not estimated from a short session or journal writes\n")
 
         // ── V5.9.915 — Self-healing tier surface (H1+H2+H3) ──────────────
         // Show operator: which API hosts are healthy, which keys are flagged
@@ -4104,9 +4081,9 @@ object PipelineHealthCollector {
                         sb.append("     transfer cannot re-create it; the bucket keeps accruing and sends once it can.\n")
                     }
                 } catch (_: Throwable) {}
-                sb.append("  dust payouts (sent anyway, under the cost floor): $dust7213\n")
-                sb.append("  minSendablePerBucket: ${"%.5f".format(0.0002)} SOL")
-                    .append("  (a bucket under this cannot be transferred)\n")
+                sb.append("  small-bucket flush attempts (payment counts above): $dust7213\n")
+                sb.append("  low-balance split minimum: ${"%.5f".format(0.0002)} SOL")
+                    .append("  (normal funded buckets may transfer below this; not a network minimum)\n")
                 if (sent7212 + split7212 == 0L) {
                     sb.append("  ⚠ NOTHING has been paid out this session — read the cause counts above.\n")
                 }
@@ -4384,6 +4361,8 @@ object PipelineHealthCollector {
     /** Reset all counters — operator-triggered "fresh capture" for export. */
     fun reset() {
         phaseCounts.clear()
+        canonicalBuySeen7863.clear()
+        executionCounterStart7863 = System.currentTimeMillis()
         phaseAllow.clear()
         phaseBlock.clear()
         verdictCounts.clear()

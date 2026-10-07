@@ -36,9 +36,9 @@ object ProviderInferenceHealth6727 {
         val s = rows.count { it.ok }.toLong(); val f = rows.size.toLong() - s
         val last = rows.lastOrNull()
         val ratio = if (rows.isEmpty()) 1.0 else s.toDouble() / rows.size
-        val hardCapacity = last != null && !last.ok && last.reason in setOf("HTTP_401", "HTTP_403", "HTTP_429")
+        val hardCapacity = last != null && !last.ok && last.reason in setOf("HTTP_401", "HTTP_402", "HTTP_403", "HTTP_429")
         return Health(p, s, f, ratio, last?.at ?: 0L,
-            !hardCapacity && (rows.size < MIN_SAMPLES || ratio >= 0.30))
+            !hardCapacity && (rows.isEmpty() || (s > 0L && (rows.size < MIN_SAMPLES || ratio >= 0.30))))
     }
     fun isHealthy(provider: String): Boolean = health(provider).isHealthy
     fun shouldReprobe(provider: String): Boolean {

@@ -52,6 +52,12 @@ object RootCauseClassifier6471 {
 
     // Prioritised probe list: (tier, label). First hit wins.
     private val probes: List<Pair<Tier, String>> = listOf(
+        Tier.ECONOMIC_INTEGRITY to "MEME_SPECIALIST_CAUSAL_LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT",
+        Tier.ECONOMIC_INTEGRITY to "CANONICAL_EVENT_STORE_COMMIT_UNKNOWN_ID_6635",
+        Tier.ECONOMIC_INTEGRITY to "TOKEN_META_EVICTED_DIRTY_UNFLUSHED_7215",
+        Tier.EXECUTION_FINALITY to "EMERGENCY_TRIGGER_TO_BROADCAST_SLA_BREACH_7807",
+        Tier.EXECUTION_FINALITY to "PROTECTIVE_EXIT_ARMED_STALL_7213",
+        Tier.RUNTIME_STALL to "SUPERVISOR_WORKER_TIMEOUT",
         Tier.ECONOMIC_INTEGRITY to "CAPITAL_IDENTITY_BREACH_6470",
         Tier.ECONOMIC_INTEGRITY to "PAPER_EQUITY_CONSERVATION_VIOLATION_6467",
         Tier.ECONOMIC_INTEGRITY to "CAPITAL_CONSERVATION_DELTA",
@@ -95,7 +101,7 @@ object RootCauseClassifier6471 {
     fun classify(): Classification {
         classifications.incrementAndGet()
         val paper7858 = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
-        for ((tier, label) in probes) {
+        for ((tier, label) in probes.sortedBy { it.first.ordinal }) {
             if (!belongsToAccount7858(label, paper7858)) continue
             // V5.0.6496 §3 — consult freshness authority. Historical
             // (lifetime > 0 but no delta within the 60s window) counters

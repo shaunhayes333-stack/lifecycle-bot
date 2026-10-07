@@ -218,6 +218,11 @@ object FinalizedBusConsumerBridge6465 {
                 .computeIfAbsent(key) { java.util.concurrent.atomic.AtomicInteger(0) }
                 .incrementAndGet()
             if (n < REFUSALS_BEFORE_RETIRE_7169) return
+            // A temporary dependency failure is not a permanent exclusion.
+            // Only legacy entry-bound learners with no immutable entry can be retired.
+            if (consumer !in setOf("MemeCausalLearning6568", "UnifiedExitPolicyHead") ||
+                EntryStrategySnapshot6450.snapshot(env.positionId) != null ||
+                System.currentTimeMillis() - env.atMs < EXACT_EVENT_GRACE_MS_6699) return
             CanonicalFinalizedTradeBus6464.exclude(
                 consumer, env.tradeId, "CONSUMER_REFUSED_${n}_TIMES_7169",
             )

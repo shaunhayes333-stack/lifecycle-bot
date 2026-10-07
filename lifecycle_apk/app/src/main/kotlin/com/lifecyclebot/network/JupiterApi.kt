@@ -976,10 +976,13 @@ class JupiterApi(
         if (quoteLockedOut) ExitHttpScope7314.noteBypass("JUPITER_QUOTE_PRECHECK")
 
         var lastErr: RuntimeException = RuntimeException("Jupiter GET failed")
-        for (attempt in 0..1) {
+        for (attempt in 0..(if (ExitQuoteBudget7863.remainingMs() != null) 0 else 1)) {
             if (attempt > 0) Thread.sleep(300L * attempt.toLong())
             try {
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter_quote").use { resp ->
+                val quoteClient7863 = ExitQuoteBudget7863.remainingMs()?.let { remaining ->
+                    http.newBuilder().callTimeout(remaining, TimeUnit.MILLISECONDS).build()
+                } ?: http
+                com.lifecyclebot.engine.HealthAwareHttp.execute(quoteClient7863, req, host = "jupiter_quote").use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {

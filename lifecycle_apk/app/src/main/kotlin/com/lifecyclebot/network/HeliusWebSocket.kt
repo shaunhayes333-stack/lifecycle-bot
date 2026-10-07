@@ -45,10 +45,32 @@ class HeliusWebSocket(
     private val client = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
+        .callTimeout(0, TimeUnit.SECONDS)
         .pingInterval(15, TimeUnit.SECONDS)
         .build()
 
-    private var ws: WebSocket? = null
+    // Keep user callbacks off the socket reader: ACK/pong progress must not
+    // wait for downstream token processing. One ordered, bounded worker.
+    private val callbacks7863 = java.util.concurrent.ThreadPoolExecutor(
+        1, 1, 30L, TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(256),
+        java.util.concurrent.ThreadFactory { r -> Thread(r, "HeliusCallbacks7863").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+    ).apply { allowCoreThreadTimeOut(true) }
+
+    private fun dispatchCallback7863(callback: () -> Unit) {
+        val socket = ws
+        try {
+            callbacks7863.execute {
+                if (running && ws === socket) try { callback() } catch (_: Throwable) {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_CALLBACK_FAILED_7863")
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_CALLBACK_QUEUE_FULL_7863")
+        }
+    }
+
+    @Volatile private var ws: WebSocket? = null
     @Volatile private var running = false
     private val idCounter = AtomicInteger(1)
     // V5.0.7794 — bounded subscription authority.
@@ -129,6 +151,7 @@ class HeliusWebSocket(
 
     fun disconnect() {
         running = false
+        callbacks7863.queue.clear()
         reconnectScheduled7803.set(false)
         clientClosedSocket7819 = ws
         ws?.close(1000, "Bot stopped")
@@ -598,7 +621,7 @@ class HeliusWebSocket(
             val tokenAmt = u64le7765(b, 48) / 1_000_000.0
             val isBuy = (b[56].toInt() and 0xFF) == 1
             val wallet = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(57, 89)) } catch (_: Throwable) { "" }
-            if (solAmt > 0.0) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig); return }
+            if (solAmt > 0.0) { dispatchCallback7863 { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }; return }
         }
 
         // Detect swap direction from log messages
@@ -621,14 +644,14 @@ class HeliusWebSocket(
                 val tokenAmt = buyMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = buyMatch.groupValues[2].toDoubleOrNull() ?: continue
                 // V5.0.7765 — the mint is known from the subscription.
-                onSwap(mint, true, solAmt, tokenAmt, "", sig)
+                dispatchCallback7863 { onSwap(mint, true, solAmt, tokenAmt, "", sig) }
                 return
             }
             val sellMatch = sellPattern.find(log)
             if (sellMatch != null) {
                 val tokenAmt = sellMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = sellMatch.groupValues[2].toDoubleOrNull() ?: continue
-                onSwap(mint, false, solAmt, tokenAmt, "", sig)
+                dispatchCallback7863 { onSwap(mint, false, solAmt, tokenAmt, "", sig) }
                 return
             }
         }
@@ -648,7 +671,7 @@ class HeliusWebSocket(
         if (wallet.isBlank()) return
         val lamports = value.optLong("lamports", 0L)
         val solBalance = lamports / 1_000_000_000.0
-        if (solBalance > 0) onLargeWalletMove(wallet, "", solBalance, false)
+        if (solBalance > 0) dispatchCallback7863 { onLargeWalletMove(wallet, "", solBalance, false) }
     }
 
     /** V5.0.7807 — drop a desired mint whose subscribe was refused/never ACKed, if still unfilled. */

@@ -287,16 +287,18 @@ object PaperEconomicAtomicCommit6632 {
     /**
      * Sweep entries whose only one side is stamped and whose age
      * exceeds `ttlMs`.  Emits the appropriate half-write counter for
-     * each and removes the entry from the ring.  Called from the
+     * each while retaining receipts for delayed completion. Called from the
      * BotService loop and reconciler watchdog.
      */
+    private val reportedUnpaired7863 = ConcurrentHashMap.newKeySet<String>()
+
     fun sweepUnpaired6632(ttlMs: Long = DEFAULT_UNPAIRED_TTL_MS) {
         val now = System.currentTimeMillis()
         val victims = mutableListOf<Entry>()
         for ((_, e) in entries) {
             if (e.committedAtMs > 0L) continue
             val age = now - e.createdAtMs
-            if (age < ttlMs) continue
+            if (age < ttlMs || !reportedUnpaired7863.add(e.key)) continue
             victims.add(e)
         }
         for (e in victims) {
@@ -329,14 +331,15 @@ object PaperEconomicAtomicCommit6632 {
                 }
                 else -> { /* both zero — impossible: entry only exists via a stamp */ }
             }
-            entries.remove(e.key)
+            // Retain the first receipt so a delayed counterpart can complete it.
         }
     }
 
     private fun maybeEvictOldest() {
         if (entries.size <= CAP) return
-        val oldest = entries.entries.minByOrNull { it.value.createdAtMs }?.key ?: return
+        val oldest = entries.entries.filter { it.value.committedAtMs > 0L }.minByOrNull { it.value.createdAtMs }?.key ?: return
         entries.remove(oldest)
+        reportedUnpaired7863.remove(oldest)
     }
 
     fun isCommitted(key: String): Boolean = entries[key]?.committedAtMs?.let { it > 0L } ?: false
@@ -352,6 +355,7 @@ object PaperEconomicAtomicCommit6632 {
 
     internal fun resetForTest() {
         entries.clear()
+        reportedUnpaired7863.clear()
         ledgerStamps.set(0L); journalStamps.set(0L); commits.set(0L)
         duplicateLedger.set(0L); duplicateJournal.set(0L)
         blankLedger.set(0L); blankJournal.set(0L)

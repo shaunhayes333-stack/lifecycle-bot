@@ -53,8 +53,8 @@ object RuntimeHealthPanel7234 {
         sb.append("│        cacheHits=${pad(mr.cacheHits)} stale=${pad(mr.cacheMissesStale)} size=${mr.cacheSize}\n")
         sb.append("│ LIFT   allowed=${pad(rg.liftAllowed)} refusedWeak=${pad(rg.totalRefused)}\n")
         sb.append("│        (score=${rg.refusedWeakScore},regime=${rg.refusedWeakRegime},proof=${rg.refusedPendingProof},cmpst=${rg.refusedComposite})\n")
-        sb.append("│ LIVE   terminal=${pad(lt.totalTerminal)} exclBroadcast=${pad(lt.excludedBroadcast)}\n")
-        sb.append("│        exclUnknown=${pad(lt.excludedUnknown)}\n")
+        sb.append("│ LIVE   terminal=${pad(CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("LIVE").size.toLong())} broadcastReads=${pad(lt.excludedBroadcast)}\n")
+        sb.append("│        unknownReads=${pad(lt.excludedUnknown)}\n")
         sb.append("│ FREEZE allowed=${pad(fz.allowed)} blockActive=${pad(fz.blockedActive)}\n")
         sb.append("│        blockUnverified=${pad(fz.blockedUnverified)}\n")
         sb.append("│ SCORE floor=${ms.floor.toInt()} allowed=${pad(ms.allowed)} blocked=${pad(ms.blocked)}\n")
@@ -82,7 +82,7 @@ object RuntimeHealthPanel7234 {
             "markSup=${mi.executionSuppressed} " +
             "repairOk=${mr.succeeded}/${mr.requested} " +
             "liftRefWeak=${rg.totalRefused} " +
-            "liveExclBroadcast=${lt.excludedBroadcast} " +
+            "broadcastPredicateReads=${lt.excludedBroadcast} " +
             "freezeBlock=${fz.totalBlocked} " +
             "scoreFloorBlock=${ms.blocked} " +
             "fanoutFdgCap=${fo.fdgCappedEvents}"

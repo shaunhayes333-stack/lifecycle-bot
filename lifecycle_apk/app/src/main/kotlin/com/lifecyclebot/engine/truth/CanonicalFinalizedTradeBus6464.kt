@@ -259,8 +259,11 @@ object CanonicalFinalizedTradeBus6464 {
      */
     private val deliveryInFlight6734 = ConcurrentHashMap.newKeySet<Pair<String, String>>()
 
+    private val retryAfter7863 = ConcurrentHashMap<Pair<String, String>, Long>()
+
     private fun deliverOne6734(name: String, env: Envelope, deliver: (String, Envelope) -> Boolean) {
         val key = name to env.tradeId
+        if ((retryAfter7863[key] ?: 0L) > System.currentTimeMillis()) return
         if (!deliveryInFlight6734.add(key)) return
         try {
             val acks = consumerAcks[name] ?: return
@@ -271,13 +274,15 @@ object CanonicalFinalizedTradeBus6464 {
             }
             val ok = try { deliver(name, env) } catch (_: Throwable) { false }
             when {
-                isExcluded(name, env.tradeId) -> acks.remove(env.tradeId)
+                isExcluded(name, env.tradeId) -> { retryAfter7863.remove(key); acks.remove(env.tradeId) }
                 ok -> {
+                    retryAfter7863.remove(key)
                     acks.add(env.tradeId)
                     CanonicalFinalityPersistence6486.recordAck6486(name, env.tradeId)
                     try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_ACKED_${name}_6475") } catch (_: Throwable) {}
                 }
                 else -> {
+                    retryAfter7863[key] = System.currentTimeMillis() + 30_000L
                     acks.remove(env.tradeId)
                     try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_DELIVERY_FAILED_${name}_6465") } catch (_: Throwable) {}
                 }
@@ -334,6 +339,14 @@ object CanonicalFinalizedTradeBus6464 {
     }
 
     fun canonicalUnique(): Int = canonicalSeen.size
+
+    /** Unique completed positions, never predicate-read or replay counters. */
+    fun terminalEnvelopes7863(mode: String, sinceMs: Long = 0L): List<Envelope> =
+        canonicalSeen.values.asSequence().filter {
+            it.terminal && it.mode.equals(mode, true) && it.atMs >= sinceMs &&
+                it.realizedPnlSol.isFinite() && it.realizedReturnPct.isFinite()
+        }.sortedByDescending { it.atMs }.distinctBy { it.positionId.ifBlank { it.tradeId } }.toList()
+
 
     /**
      * V5.0.7018 — the positionIds this bus has actually seen.
@@ -463,6 +476,7 @@ object CanonicalFinalizedTradeBus6464 {
     }
 
     internal fun resetForTest() {
+        retryAfter7863.clear()
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
         publishes.set(0L); duplicates.set(0L); canonicalRevision7493.set(0L)
         consumerParityRevision7494.set(0L); parityCache7494.set(null); canonicalProjectionCache7497.set(null)

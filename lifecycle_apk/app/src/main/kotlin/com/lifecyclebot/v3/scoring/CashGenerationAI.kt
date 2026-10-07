@@ -858,6 +858,7 @@ object CashGenerationAI {
         // Using maxOf(wallet, treasury) in live mode caused 20 SOL position sizes on
         // a 0.07 SOL wallet (treasury=2169 SOL → effectiveBalance=2169 → size=20 SOL capped).
         // In paper mode compounding from the virtual treasury is fine and intentional.
+        if (!isPaperMode) lastKnownWalletBalance = com.lifecyclebot.engine.BotService.status.walletSol.coerceAtLeast(0.0)
         val effectiveBalance = if (isPaperMode) {
             maxOf(lastKnownWalletBalance, treasuryBalance)
         } else {

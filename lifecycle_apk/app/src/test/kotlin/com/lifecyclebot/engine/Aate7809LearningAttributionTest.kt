@@ -26,10 +26,11 @@ class Aate7809LearningAttributionTest {
         assertEquals(first, second)
     }
 
-    @Test fun same_owner_lane_binds_across_a_version_bucket_but_a_contributor_lane_never_does() {
+    @Test fun only_the_exact_candidate_version_and_owner_lane_bind() {
         StrategyHypothesisEngine.reset()
         StrategyHypothesisEngine.getSizeBias("QUALITY", 70, "NORMAL", "Mint7809B", "", 20L)
-        assertEquals("QUALITY_BASELINE", StrategyHypothesisEngine.bindExecutedPosition7428("pos7809B", "Mint7809B", 21L, "QUALITY"))
+        assertEquals("", StrategyHypothesisEngine.bindExecutedPosition7428("pos7809B", "Mint7809B", 21L, "QUALITY"))
+        assertEquals("QUALITY_BASELINE", StrategyHypothesisEngine.bindExecutedPosition7428("pos7809B", "Mint7809B", 20L, "QUALITY"))
         StrategyHypothesisEngine.getSizeBias("CORE", 70, "NORMAL", "Mint7809C", "", 30L)
         assertEquals("", StrategyHypothesisEngine.bindExecutedPosition7428("pos7809C", "Mint7809C", 30L, "QUALITY"))
     }
@@ -77,8 +78,9 @@ class Aate7809LearningAttributionTest {
 
     @Test fun book_wide_history_level_stays_global_so_it_cannot_authorise_refusals() {
         val oracle = read("engine/truth/PredictiveEntryOracle6915.kt")
-        assertFalse(oracle.contains("\"globalLive\""))
-        assertFalse(oracle.contains("\"globalPaper\""))
+        // Inspect Level construction, not the comment documenting the retired names.
+        assertFalse(Regex("Level\\s*\\(\\s*\"global(?:Live|Paper)\"").containsMatchIn(oracle))
+        assertTrue(Regex("Level\\s*\\(\\s*\"global\"").containsMatchIn(oracle))
         assertTrue(oracle.contains("levels.filter { it.name != \"global\" }"))
     }
 

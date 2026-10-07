@@ -186,13 +186,13 @@ class DataOrchestrator(
         // and the in-memory book's cross-asset rows. Field Manual L186.
         val nonSolana7819 = HashSet<String>()
         try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807().forEach { p ->
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807(if (RuntimeModeAuthority.isPaper()) "paper" else "live").forEach { p ->
                 if (p.mint.isBlank()) return@forEach
                 if (p.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN) out.add(p.mint) else nonSolana7819.add(p.mint)
             }
         } catch (_: Throwable) {}
         try {
-            status.tokens.values.forEach { ts -> if (ts.position.isOpen) out.add(ts.mint) }
+            status.tokens.values.forEach { ts -> if (ts.position.isOpen && ts.position.isPaperPosition == RuntimeModeAuthority.isPaper()) out.add(ts.mint) }
         } catch (_: Throwable) {}
         val pinned7819 = out.filterTo(HashSet()) { it !in nonSolana7819 && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it) }
         com.lifecyclebot.network.HeliusSubscriptionTelemetry7807.pinnedExcludedNonSolana7819 = (out + nonSolana7819).size - pinned7819.size

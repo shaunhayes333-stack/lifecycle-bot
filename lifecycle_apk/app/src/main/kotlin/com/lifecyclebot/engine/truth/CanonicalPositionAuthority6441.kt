@@ -257,6 +257,7 @@ object CanonicalPositionAuthority6441 {
         // string. Defaults to SOLANA_TOKEN (backwards-compatible with
         // pre-6525 callers).
         assetClass: AssetClass = AssetClass.SOLANA_TOKEN,
+        candidateVersion7863: Long = 0L,
     ): MutateResult {
         lock.lock()
         try {
@@ -473,14 +474,9 @@ object CanonicalPositionAuthority6441 {
                 assetClass = effectiveAssetClass6592,
             )
             markKeyUsed(idempotencyKey)
-            try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.bindPosition(positionId, mint, lane) } catch (_: Throwable) {}
-            // V5.0.7813 — freeze the exact expert-trader feature vector that existed
-            // when this owner lane chose the entry. Terminal learning grades this
-            // position-bound snapshot, never a close-time reconstruction.
-            try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.bindPosition7813(positionId, mint, lane, canonicalMode6490) } catch (_: Throwable) {}
-            // V5.0.7809 — freeze oracle / hunter / resident-book entry identity on the position (Field Manual L356).
-            try { LearningAttributionBinder7809.onCanonicalOpen7809(positionId, mint, lane) } catch (_: Throwable) {}
+            if (lifecycle == Lifecycle.OPEN || lifecycle == Lifecycle.PARTIALLY_CLOSED) {
+                positions[positionId]?.let { bindOpenLearning7863(it, candidateVersion7863) }
+            }
             // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.
             try { positions[positionId]?.let(::lockEntryMetricsAtOpen6636) } catch (_: Throwable) {}
             muts.incrementAndGet()
@@ -499,6 +495,21 @@ object CanonicalPositionAuthority6441 {
      * Idempotent: subsequent calls overwrite qty/cost with the observed fill.
      * Callers that never went through openPosition first are auto-upgraded.
      */
+    private fun bindOpenLearning7863(p: Position, candidateVersion7863: Long = 0L) {
+        val positionId = p.positionId
+        val mint = p.mint
+        val lane = p.lane
+        val canonicalMode6490 = p.mode
+        try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane, candidateVersion7863) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.bindPosition(positionId, mint, lane) } catch (_: Throwable) {}
+        // V5.0.7813 — freeze the exact expert-trader feature vector that existed
+        // when this owner lane chose the entry. Terminal learning grades this
+        // position-bound snapshot, never a close-time reconstruction.
+        try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.bindPosition7813(positionId, mint, lane, canonicalMode6490) } catch (_: Throwable) {}
+        // V5.0.7809 — freeze oracle / hunter / resident-book entry identity on the position (Field Manual L356).
+        try { LearningAttributionBinder7809.onCanonicalOpen7809(positionId, mint, lane) } catch (_: Throwable) {}
+    }
+
     fun promotePendingToOpen(
         positionId: String,
         actualQtyRaw: BigInteger,
@@ -511,6 +522,7 @@ object CanonicalPositionAuthority6441 {
         actualEntryPriceSource: String = "",
         actualEntryPoolAddress: String = "",
         actualEntryDex: String = "",
+        candidateVersion7863: Long = 0L,
     ): MutateResult {
         lock.lock()
         try {
@@ -528,7 +540,7 @@ object CanonicalPositionAuthority6441 {
             if (prev.lifecycle == Lifecycle.CLOSED || (prev.lifecycle == Lifecycle.QUARANTINED && !protective7807)) {
                 return MutateResult.LIFECYCLE_FORBIDDEN
             }
-            if (actualQtyRaw <= BigInteger.ZERO || actualEntryCostSol < 0.0) {
+            if (actualQtyRaw <= BigInteger.ZERO || !actualEntryCostSol.isFinite() || actualEntryCostSol < 0.0 || !actualFeesSol.isFinite() || actualFeesSol < 0.0 || quantityScale !in 0..18) {
                 invariantViolations.incrementAndGet()
                 return MutateResult.INVARIANT_VIOLATION
             }
@@ -574,10 +586,22 @@ object CanonicalPositionAuthority6441 {
                     return MutateResult.INVARIANT_VIOLATION
                 }
             }
+            // A late buy proof must not resurrect a partial already sold.
+            if (prev.mode.equals("paper", true) != paperMode || prev.quantityScale !in 0..18) return MutateResult.INVARIANT_VIOLATION
+            val soldRaw7863 = try {
+                (prev.originalQtyRaw - prev.remainingQtyRaw).max(BigInteger.ZERO)
+                    .toBigDecimal().movePointLeft(prev.quantityScale).movePointRight(quantityScale).toBigIntegerExact()
+            } catch (_: ArithmeticException) { return MutateResult.INVARIANT_VIOLATION }
+            if (actualQtyRaw < soldRaw7863 || actualEntryCostSol + 1e-12 < prev.soldCostBasisSol) {
+                invariantViolations.incrementAndGet()
+                return MutateResult.INVARIANT_VIOLATION
+            }
+            val remainingRaw7863 = actualQtyRaw - soldRaw7863
+            val exitFees7863 = (prev.realizedProceedsSol - prev.soldCostBasisSol - prev.realizedPnlSol).coerceAtLeast(0.0)
             // Cash adjustment — refund the placeholder debit and re-debit actual.
             if (paperMode) {
                 val cash = paperCashSol.get()
-                val netDelta = (prev.entryCostSol + prev.feesSol) - (actualEntryCostSol + actualFeesSol)
+                val netDelta = (prev.entryCostSol + (prev.feesSol - exitFees7863).coerceAtLeast(0.0)) - (actualEntryCostSol + actualFeesSol)
                 val newCash = cash + netDelta
                 if (newCash < 0.0) {
                     invariantViolations.incrementAndGet()
@@ -587,9 +611,9 @@ object CanonicalPositionAuthority6441 {
             }
             val promoted = prev.copy(
                 entryCostSol = actualEntryCostSol,
-                remainingQtyRaw = actualQtyRaw,
+                remainingQtyRaw = remainingRaw7863,
                 originalQtyRaw = actualQtyRaw,
-                feesSol = actualFeesSol,
+                feesSol = actualFeesSol + exitFees7863,
                 tokenDecimals = tokenDecimals,
                 quantityScale = quantityScale,
                 // V5.0.6753 §BUY_ZERO_QTY_FORCE_CLOSE — operator directive
@@ -599,10 +623,13 @@ object CanonicalPositionAuthority6441 {
                 // truncation edge, or degraded provider fill) and used
                 // to stamp Lifecycle.OPEN unconditionally — creating
                 // exactly the phantom slot the 6752 purge chases. Fix:
-                // if the fill has zero raw quantity, stamp CLOSED
-                // immediately with a diagnostic label. Never opens a
-                // slot that cannot generate revenue and cannot be exited.
-                lifecycle = if (actualQtyRaw.signum() > 0) Lifecycle.OPEN else Lifecycle.CLOSED,
+                // A late proof may arrive after a partial consumed the whole fill.
+                // Preserve that terminal inventory instead of reopening sold units.
+                lifecycle = when {
+                    remainingRaw7863.signum() == 0 -> Lifecycle.CLOSED
+                    soldRaw7863.signum() > 0 -> Lifecycle.PARTIALLY_CLOSED
+                    else -> Lifecycle.OPEN
+                },
                 lastMutationMs = System.currentTimeMillis(),
                 quarantineReason = if (protective7807) "" else prev.quarantineReason,
                 // The verified fill is the final entry authority. This is
@@ -615,6 +642,9 @@ object CanonicalPositionAuthority6441 {
                 entryDex = actualEntryDex.ifBlank { prev.entryDex },
             )
             positions[positionId] = promoted
+            if (promoted.lifecycle == Lifecycle.OPEN || promoted.lifecycle == Lifecycle.PARTIALLY_CLOSED) {
+                bindOpenLearning7863(promoted, candidateVersion7863)
+            }
             // V5.0.6636 root fix: normal Executor buys take this promotion
             // branch, so lock the final fill here, not only in openPosition().
             try { lockEntryMetricsAtOpen6636(promoted) } catch (_: Throwable) {}

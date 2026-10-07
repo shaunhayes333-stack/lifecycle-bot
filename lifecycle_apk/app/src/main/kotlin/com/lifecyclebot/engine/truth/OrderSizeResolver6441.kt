@@ -503,9 +503,11 @@ object OrderSizeResolver6441 {
         // Explicit parameter wins; otherwise read the registry the sizing site
         // stamped for this mint. Absent/stale resolves to 1.0 (unknown), never
         // to 0.0, so a missing signal can never become a refusal.
+        val localConviction7863 = (ssiMult6684 * labMult6684 * expressAdmissionMult6833).coerceIn(0.0, 1.0)
+        EntryConvictionRegistry6909.stamp6909(mint, localConviction7863, laneName, if (paperMode) "PAPER" else "LIVE")
         val conviction6909 = when {
             convictionMultiplier6909.isFinite() && convictionMultiplier6909 < 1.0 -> convictionMultiplier6909
-            mint.isNotBlank() -> try { EntryConvictionRegistry6909.convictionFor6909(mint) } catch (_: Throwable) { 1.0 }
+            mint.isNotBlank() -> localConviction7863
             else -> 1.0
         }
         val convictionKnown6909 = conviction6909.isFinite() &&

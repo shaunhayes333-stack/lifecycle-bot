@@ -256,6 +256,7 @@ object ExecutorCanonicalMirror6442 {
         actualEntryDex: String = "",
         recoveryLane: String = "",
         recoverySymbol: String = "",
+        candidateVersion7863: Long = 0L,
     ): Boolean {
         return try {
             val requestedPositionId7807 = positionIdOf(mint, paperMode)
@@ -270,7 +271,7 @@ object ExecutorCanonicalMirror6442 {
                 actualEntryPriceUsd = actualEntryPriceUsd,
                 actualEntryPriceSource = actualEntryPriceSource,
                 actualEntryPoolAddress = actualEntryPoolAddress,
-                actualEntryDex = actualEntryDex,
+                actualEntryDex = actualEntryDex, candidateVersion7863 = candidateVersion7863,
             )
             // V5.0.7807 — a LIVE fill that the wallet/finality proof says landed
             // must not stay uncommitted because the PENDING_ENTRY reservation was
@@ -286,13 +287,14 @@ object ExecutorCanonicalMirror6442 {
                 quantityScale = quantityScale, actualEntryPriceUsd = actualEntryPriceUsd,
                 actualEntryPriceSource = actualEntryPriceSource, actualEntryPoolAddress = actualEntryPoolAddress,
                 actualEntryDex = actualEntryDex, recoveryLane = recoveryLane, recoverySymbol = recoverySymbol,
-                originalResult = promoted7807,
+                originalResult = promoted7807, candidateVersion7863 = candidateVersion7863,
             ) else null
             val positionId = recovered7807?.second ?: requestedPositionId7807
             val result = recovered7807?.first ?: promoted7807
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}
+                PipelineHealthCollector.onCanonicalBuyCommitted7863(positionId, paperMode)
                 // V5.0.6742 §PILLAR_7_WIRE — the canonical BUY commit
                 // is the real production entry checkpoint for round-trip
                 // verification. Not a manual test helper. Lane is looked
@@ -340,6 +342,7 @@ object ExecutorCanonicalMirror6442 {
         recoveryLane: String,
         recoverySymbol: String,
         originalResult: CanonicalPositionAuthority6441.MutateResult,
+        candidateVersion7863: Long,
     ): Pair<CanonicalPositionAuthority6441.MutateResult, String> {
         val cm = canonicalMint(mint)
         val key = modeKey(cm, false)
@@ -372,6 +375,7 @@ object ExecutorCanonicalMirror6442 {
                 tokenDecimals = tokenDecimals, paperMode = false, quantityScale = quantityScale,
                 actualEntryPriceUsd = actualEntryPriceUsd, actualEntryPriceSource = actualEntryPriceSource,
                 actualEntryPoolAddress = actualEntryPoolAddress, actualEntryDex = actualEntryDex,
+                candidateVersion7863 = candidateVersion7863,
             )
             note("PENDING", pending7807.positionId, r)
             if (r == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
@@ -424,7 +428,7 @@ object ExecutorCanonicalMirror6442 {
             entryPriceSource = actualEntryPriceSource.ifBlank { "LIVE_BUY_PROOF_RECOVERY_7807" },
             entryPoolAddress = actualEntryPoolAddress,
             entryDex = actualEntryDex,
-            quantityScale = quantityScale,
+            quantityScale = quantityScale, candidateVersion7863 = candidateVersion7863,
         )
         note("FRESH_OPEN", freshId, r)
         if (r == CanonicalPositionAuthority6441.MutateResult.APPLIED) {

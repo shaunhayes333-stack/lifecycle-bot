@@ -48,6 +48,13 @@ object CanonicalSizingBridge6532 {
         source: String = "specialist",
         causalEventId: String = "",
     ): OrderSizeResolver6441.Resolution {
+        // Foreign chain identifiers cannot be executable Solana proposals.
+        if (!paperMode && assetClass == AssetClass.SOLANA_TOKEN &&
+            (canonicalAssetId.contains('|') || canonicalAssetId.contains(':') || canonicalAssetId.startsWith("0x"))) {
+            PipelineHealthCollector.labelInc("SPECIALIST_NON_SOLANA_SIZE_REFUSED_7863")
+            return OrderSizeResolver6441.Resolution(requestedSol, 0.0, 0.0,
+                walletSol, laneRiskCapSol, 0.0, false, "NON_SOLANA_EXECUTION_IDENTITY_7863")
+        }
         // V5.0.6620 §MEME_SOURCE_LEVEL_EXECUTION_PROVENANCE §9 —
         // candidateVersion authority MUST be LaneExecutionCoordinator's
         // bucket authority, never raw wall-clock milliseconds.

@@ -2722,6 +2722,16 @@ object TradeHistoryStore {
         com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.stampJournal(
             key, trade.mint, side, "TradeHistoryStore.SQLite.durable6641",
         )
+        // This is a durable projection of an existing terminal ledger receipt,
+        // not a new economic event with four missing store commits.
+        if (trade.reason == "JOURNAL_REBUILT_FROM_RECEIPT_7360" &&
+            key.startsWith("REBUILT7360:") &&
+            com.lifecyclebot.engine.truth.EconomicEventSchema6464.fullTerminalSellsByPosition7500()[trade.positionId]
+                ?.any { it.mode.equals("paper", true) && it.mint == trade.mint &&
+                    "REBUILT7360:${it.idempotencyKey}" == key } == true) {
+            PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_PROJECTION_DURABLE_7863")
+            return
+        }
         com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.markCommitted(
             key, com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.JOURNAL,
             "TradeHistoryStore.SQLite.durable6641",

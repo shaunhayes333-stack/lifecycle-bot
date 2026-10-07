@@ -207,8 +207,8 @@ object StrategyHypothesisEngine {
         } catch (_: Throwable) {}
     }
 
-    private fun decisionKey7428(mint: String, candidateVersion: Long, lane: String): String =
-        "${mint.trim()}|$candidateVersion|${lane.trim().uppercase()}"
+    private fun decisionKey7428(mint: String, candidateVersion: Long, lane: String, mode: String = LearningEnvironment7835.mode()): String =
+        "${mode.uppercase()}|${mint.trim()}|$candidateVersion|${lane.trim().uppercase()}"
 
     private fun suppressVariantForContext(lane: String, score: Int, regime: String): Boolean {
         val l = lane.uppercase()
@@ -453,6 +453,7 @@ object StrategyHypothesisEngine {
         mint: String,
         candidateVersion: Long,
         lane: String,
+        mode7863: String = LearningEnvironment7835.mode(),
     ): String {
         if (positionId.isBlank() || mint.isBlank()) return ""
         return try {
@@ -469,8 +470,8 @@ object StrategyHypothesisEngine {
                 return bound7809.strategyVariantId
             }
             if (settledPositions7428.contains(positionId)) return ""
-            val applied = pendingByDecision7428.remove(decisionKey7428(mint, candidateVersion, lane))
-                ?: sameLaneDecisionFallback7809(mint, lane)
+            val applied = pendingByDecision7428.remove(decisionKey7428(mint, candidateVersion, lane, mode7863))
+
             if (applied == null) {
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_MISSING_7428")
                 ""
@@ -487,25 +488,6 @@ object StrategyHypothesisEngine {
                 applied.strategyVariantId
             }
         } catch (_: Throwable) { "" }
-    }
-
-    /**
-     * V5.0.7809 — the sealed intent / paperBuy can carry a candidateVersion one
-     * bucket apart from the FDG evaluation that stamped the decision (see the
-     * Executor 6886 note). Ownership is the lane, not the version bucket: take the
-     * newest decision this SAME owner lane stamped for this mint. Another lane's
-     * stamp is never used — a contributor lane cannot receive the terminal credit.
-     */
-    private fun sameLaneDecisionFallback7809(mint: String, lane: String): AppliedDecision7428? {
-        val prefix = "${mint.trim()}|"
-        val suffix = "|${lane.trim().uppercase()}"
-        val best = pendingByDecision7428.keys
-            .filter { it.startsWith(prefix) && it.endsWith(suffix) }
-            .maxByOrNull { it.removePrefix(prefix).removeSuffix(suffix).toLongOrNull() ?: Long.MIN_VALUE }
-            ?: return null
-        val applied = pendingByDecision7428.remove(best) ?: return null
-        try { PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_SAME_LANE_VERSION_FALLBACK_7809") } catch (_: Throwable) {}
-        return applied
     }
 
     /**

@@ -86,33 +86,25 @@ object AateDecisionFabric6512 {
         emitPolicy(sealed); return sealed
     }
 
-    fun attachPosition(positionId: String, mode: String, mint: String, lane: String): Boolean {
+    fun attachPosition(positionId: String, mode: String, mint: String, lane: String, candidateVersion7863: Long = 0L): Boolean {
         if (positionId.isBlank() || mint.isBlank() || lane.isBlank()) return false
 
-        // V5.0.6681 §CAUSAL_POLICY_POSITION_BINDING — the canonical open itself
-        // is sufficient authority to freeze the owner-lane entry sample. Do this
-        // BEFORE the AATE envelope lookup: envelope attribution can be missing
-        // (specialistLearningMissing), but that must not poison/skip the primary
-        // entry learner for an otherwise valid canonical position.
-        var policyBound6681 = try { UnifiedPolicyHead.bindPosition6681(positionId, mint, lane) } catch (_: Throwable) { false }
-        try {
-            PipelineHealthCollector.labelInc(if (policyBound6681) "AATE_POLICY_POSITION_BOUND_6681" else "AATE_POLICY_POSITION_BIND_MISSING_6681")
-        } catch (_: Throwable) {}
-
+        byPosition[positionId]?.let { return it.context.mode.equals(mode, true) && it.context.mint == mint && it.context.primaryStrategy.equals(lane, true) }
         val e = byAuthority.values.asSequence()
             .filter { it.context.runtimeGeneration == BotRuntimeController.currentGeneration() }
             .filter { it.context.mode.equals(mode, true) && it.context.mint == mint && it.context.primaryStrategy.equals(lane, true) }
+            .filter { candidateVersion7863 <= 0L || it.context.candidateVersion == candidateVersion7863 }
             .maxByOrNull { it.revision }
         if (e == null) {
             try { PipelineHealthCollector.labelInc("AATE_POSITION_ATTRIBUTION_MISSING_6681") } catch (_: Throwable) {}
             return false
         }
-        if (!policyBound6681) {
+        run {
             val weight6713 = e.contributors.sumOf { it.weight }.coerceAtLeast(0.0001)
             val effect6713 = e.contributors.sumOf {
                 ((it.effect + 1.0) * 0.5).coerceIn(0.0, 1.0) * it.weight
             } / weight6713
-            policyBound6681 = try {
+            try {
                 UnifiedPolicyHead.bindDecisionFallback6713(
                     positionId = positionId,
                     mint = mint,
@@ -137,7 +129,7 @@ object AateDecisionFabric6512 {
                 positionId = positionId,
                 mint = mint,
                 candidateVersion = e.context.candidateVersion,
-                lane = e.context.primaryStrategy,
+                lane = e.context.primaryStrategy, mode7863 = e.context.mode,
             )
         } catch (_: Throwable) { "" }
         try {
@@ -155,8 +147,9 @@ object AateDecisionFabric6512 {
 
     fun onFinalized(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (rewardedPositions.contains(env.positionId)) return true
-        val e = byPosition[env.positionId] ?: byAuthority.values.asSequence()
-            .filter { it.context.mint == env.mint && it.context.primaryStrategy.equals(env.lane, true) }.maxByOrNull { it.revision }
+        val e = byPosition[env.positionId]?.takeIf {
+            it.context.mode.equals(env.mode, true) && it.context.mint == env.mint
+        }
         try { ToolkitSignalSheet.recordDeskStage(env.lane, "FINALIZED", env.positionId) } catch (_: Throwable) {}
         if (e == null && env.lane.uppercase() in setOf("QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE","MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN")) {
             try { ToolkitSignalSheet.recordCausalIssue6600("specialistLearningMissing", env.lane, "positionId=${env.positionId.take(18)}") } catch (_: Throwable) {}

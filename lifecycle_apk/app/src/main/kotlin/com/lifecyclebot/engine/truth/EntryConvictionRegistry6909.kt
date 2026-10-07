@@ -51,12 +51,13 @@ object EntryConvictionRegistry6909 {
     }
 
     /** Record the evidence-only conviction product for an in-flight entry. */
-    fun stamp6909(mint: String, conviction: Double) {
-        val key = mint.trim()
-        if (key.isEmpty()) return
+    fun stamp6909(mint: String, conviction: Double, lane: String, mode: String) {
+        val key = "${mode.uppercase()}|${CanonicalLaneIdentity6506.canonical(lane)}|${mint.trim()}"
+        if (mint.isBlank()) return
         if (!conviction.isFinite() || conviction < 0.0) return
         val now = System.currentTimeMillis()
         try { sweep(now) } catch (_: Throwable) {}
+        if (byMint.size >= MAX_KEYS && !byMint.containsKey(key)) byMint.entries.minByOrNull { it.value.atMs }?.let { byMint.remove(it.key, it.value) }
         byMint[key] = Stamp(conviction.coerceIn(0.0, 1.0), now)
         stamps.incrementAndGet()
     }
@@ -69,9 +70,9 @@ object EntryConvictionRegistry6909 {
      * missing signal into a refusal and choke every caller that does not
      * participate in this registry.
      */
-    fun convictionFor6909(mint: String): Double {
-        val key = mint.trim()
-        if (key.isEmpty()) return 1.0
+    fun convictionFor6909(mint: String, lane: String, mode: String): Double {
+        val key = "${mode.uppercase()}|${CanonicalLaneIdentity6506.canonical(lane)}|${mint.trim()}"
+        if (mint.isBlank()) return 1.0
         reads.incrementAndGet()
         val s = byMint[key] ?: return 1.0
         if (System.currentTimeMillis() - s.atMs > TTL_MS) return 1.0

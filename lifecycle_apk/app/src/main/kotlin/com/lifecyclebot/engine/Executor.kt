@@ -14388,14 +14388,8 @@ class Executor(
     private val DUST_UNROUTABLE_MIN_FAILURES_7714: Int = 2
 
     /** V5.0.7714 — inventory the bot adopted from the wallet rather than entered on a signal. */
-    private fun isRecoveredInventory7714(p: com.lifecyclebot.data.Position): Boolean {
-        if (p.tradingMode.equals("WALLET_RECOVERED", ignoreCase = true)) return true
-        val phase = p.entryPhase.lowercase()
-        if (phase.startsWith("wallet_recovery") || phase == "adopted_from_wallet" || phase == "recovered_basis_7370") return true
-        val src = p.entryPriceSource.uppercase()
-        return src.contains("OBSERVED_MARK_ADOPTION_7706") || src.contains("HOST_TRACKER_SIGNED_BUY_7708") ||
-            src.startsWith("WALLET_RECOVERY") || src.startsWith("WALLET_ADOPT") || src.contains("BASIS_UNKNOWN")
-    }
+    private fun isRecoveredInventory7714(p: com.lifecyclebot.data.Position): Boolean =
+        p.tradingMode.equals("WALLET_RECOVERED", ignoreCase = true)
 
     /** V5.0.7714 — see runManageOnly. Quarantines the canonical row, stamps the tracker, releases the token state. */
     private fun terminalizeDustUnroutable7714(ts: TokenState, why: String) {
@@ -14659,8 +14653,10 @@ class Executor(
     private val entryRepriceLastMs7361 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val ENTRY_REPRICE_COOLDOWN_MS_7361 = 30_000L
 
-    private fun requireMintEntryMarketSnapshot(ts: TokenState, reason: String): MintEntryMarketSnapshot? {
-        val snap = mintEntryMarketSnapshot(ts)
+    private fun requireMintEntryMarketSnapshot(ts: TokenState, reason: String,
+        intent: ExecutableOpenGate.ExecutionIntent? = null): MintEntryMarketSnapshot? {
+        val cached7863 = mintEntryMarketSnapshot(ts)
+        val snap = SealedEntryContinuity7863.marketSnapshot(ts, intent, cached = cached7863) ?: cached7863
         if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
 
         // V5.0.7789 — LAST-MILE MARKET SNAPSHOT CONTINUITY.
@@ -17759,6 +17755,7 @@ class Executor(
             emitLiveBuyFail(ts, sol, sizeRefusal7835)
             return false
         }
+        val entryEvidence7863 = LiveEntryEvidence7863.capture(ts, requireNotNull(sealedIntent7835))
         // V5.0.7257 — the authority walk lives in its own verifier-safe method.
         // This call remains before every pending-row, lease, quote and provider
         // side effect, preserving the 7256 pre-lease rejection contract.
@@ -17838,8 +17835,8 @@ class Executor(
         // even a downstream reject leaves a canonical PENDING_ENTRY
         // trace with the SQLite idempotency key reserved. The mirror is
         // no-op on failure so a bug never breaks the live path.
-        try {
-            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
+        val canonicalAttemptPosition7863 = try {
+            val reserved = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
                 mint = ts.mint,
                 symbol = ts.symbol.ifBlank { ts.mint.take(6) },
                 lane = layerTag.uppercase().take(24).ifBlank { "LIVE_STANDARD" },
@@ -17847,7 +17844,8 @@ class Executor(
                 estimatedFeesSol = 0.0,
                 paperMode = false,
             )
-        } catch (_: Throwable) {}
+            if (reserved) com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false) else ""
+        } catch (_: Throwable) { "" }
 
         run {
             // Collapse-guard signal set. Uses defaults when a field is
@@ -18822,7 +18820,7 @@ class Executor(
             } catch (_: Throwable) {}
         }
 
-        val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy")
+        val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy", sealedIntent7835)
         if (entryMarketSnapshot == null) {
             stampLiveEntryMark7790(ts, false, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             terminalizeCanonicalPreLease7789("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
@@ -20297,127 +20295,9 @@ class Executor(
                     ?: 0.0
             }
 
-            if (ts.position.isOpen) {
-                // V5.0.4576 — SOURCE FIX, not just telemetry. This idempotent
-                // success path used to return true before the normal BUY journal /
-                // LIVE_POSITION_STAMPED section. That made real confirmed/open buys
-                // show up as ok/proofed while missing from journal-derived rows.
-                // Backfill exactly one BUY row per signature, then terminal-ok the
-                // attempt. This preserves duplicate safety while making the buy real
-                // to StrategyTruthLedger / learning / reports.
-                onLog("✅ Position opened during confirmation wait — late-confirm success (idempotent)", ts.mint)
-                // V5.0.7393b — the reconciler opened this placeholder at whatever mark it
-                // had; the fill is SOL spent over tokens received. A stamp more than 1.5x
-                // off the fill (2c7Azo: 13.8x, a wrong/stale pair) is replaced by the fill
-                // before it is journaled, so exits, P&L and learning read the real basis.
-                try {
-                    val su7393 = WalletManager.lastKnownSolPrice
-                    val p7393 = ts.position
-                    if (p7393.qtyToken > 0.0 && p7393.costSol > 0.0 && su7393 in 20.0..2_000.0) {
-                        val fill7393 = p7393.costSol * su7393 / p7393.qtyToken
-                        if (fill7393.isFinite() && fill7393 > 0.0 &&
-                            (p7393.entryPrice <= 0.0 || (p7393.entryPrice / fill7393) !in (1.0 / 1.5)..1.5)
-                        ) {
-                            ForensicLogger.lifecycle(
-                                "LIVE_ENTRY_RESTAMPED_FROM_FILL_7393",
-                                "mint=${ts.mint.take(10)} sym=${ts.symbol} stamped=${p7393.entryPrice} fill=$fill7393 " +
-                                    "cost=${p7393.costSol} qty=${p7393.qtyToken} solUsd=$su7393",
-                            )
-                            PipelineHealthCollector.labelInc("LIVE_ENTRY_RESTAMPED_FROM_FILL_7393")
-                            ts.position = p7393.copy(entryPrice = fill7393)
-                        }
-                    }
-                } catch (_: Throwable) {}
-                val existingPos4576 = ts.position
-                // V5.0.7305 — the wallet reconciler can see the tokens land
-                // before this confirmation returns and open a placeholder
-                // position under WALLET_RECOVERED. The signature is ours, so
-                // the lane that bought it owns it: without this every live
-                // close taught WALLET_RECOVERED instead of the buying lane,
-                // and the 15-minute recovered-hold grace muted our own exits.
-                val ownLane7305 = routedLaneTag.ifBlank { layerTag }
-                if (ownLane7305.isNotBlank() && sig.isNotBlank() &&
-                    existingPos4576.tradingMode.uppercase() in setOf("", "WALLET_RECOVERED", "STANDARD")
-                ) {
-                    val placeholder7305 = existingPos4576.tradingMode
-                    existingPos4576.tradingMode = ownLane7305
-                    existingPos4576.tradingModeEmoji = layerTagEmoji.ifBlank { existingPos4576.tradingModeEmoji }
-                    try { RecoveredHoldGuard.clearOnFullExit(ts.mint) } catch (_: Throwable) {}
-                    try {
-                        PipelineHealthCollector.labelInc("LIVE_BUY_LANE_RECLAIMED_FROM_RECOVERY_7305")
-                        ForensicLogger.lifecycle(
-                            "LIVE_BUY_LANE_RECLAIMED_FROM_RECOVERY_7305",
-                            "mint=${ts.mint.take(10)} sig=${sig.take(16)} from=${placeholder7305.ifBlank { "BLANK" }} to=$ownLane7305",
-                        )
-                    } catch (_: Throwable) {}
-                }
-                val journalKey4576 = sig.ifBlank { "${ts.mint}:${existingPos4576.entryTime}:${existingPos4576.costSol}" }
-                if (!existingPos4576.pendingVerify &&
-                    existingPos4576.qtyToken > 0.0 &&
-                    liveBuyJournaledSigs4576.add(journalKey4576)
-                ) {
-                    val recoveredBuy4576 = Trade(
-                        side = "BUY",
-                        mode = "live",
-                        sol = existingPos4576.costSol.takeIf { it > 0.0 } ?: sol,
-                        price = existingPos4576.entryPrice.takeIf { it > 0.0 } ?: price,
-                        ts = existingPos4576.entryTime.takeIf { it > 0L } ?: System.currentTimeMillis(),
-                        score = existingPos4576.entryScore.takeIf { it > 0.0 } ?: score,
-                        sig = sig,
-                        tradingMode = existingPos4576.tradingMode.ifBlank { routedLaneTag.ifBlank { layerTag.ifBlank { "STANDARD" } } },
-                        tradingModeEmoji = existingPos4576.tradingModeEmoji.ifBlank { layerTagEmoji.ifBlank { "📈" } },
-                        entryPriceSnapshot = existingPos4576.entryPrice.takeIf { it > 0.0 } ?: price,
-                        entryMcapUsd = existingPos4576.entryMcap.takeIf { it > 0.0 } ?: entryMarketSnapshot.marketCapUsd,
-                        entryCostSol = existingPos4576.costSol.takeIf { it > 0.0 } ?: sol,
-                        entryQtyToken = existingPos4576.qtyToken.takeIf { it > 0.0 } ?: finalQty,
-                        remainingQtyToken = existingPos4576.qtyToken.takeIf { it > 0.0 } ?: finalQty,
-                        entryPriceSource = existingPos4576.entryPriceSource.ifBlank { entryMarketSnapshot.priceSource },
-                        entryPoolAddress = existingPos4576.entryPoolAddress.ifBlank { entryMarketSnapshot.poolAddress },
-                        reason = "BUY_ALREADY_OPEN_AT_CONFIRM_BACKFILL_4576",
-                    )
-                    recordTrade(ts, recoveredBuy4576)
-                    security.recordTrade(recoveredBuy4576)
-                    liveStage("JOURNAL_WRITE_OK", "alreadyOpenAtConfirm=true signature=${sig.take(16)} lane=${recoveredBuy4576.tradingMode}")
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_BACKFILLED_4576")
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_POSITION_STAMPED")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "LIVE_BUY_JOURNAL_BACKFILLED_4576",
-                            "attemptId=${execCtx.attemptId} symbol=${ts.symbol} mint=${ts.mint.take(10)} sig=${sig.take(16)} lane=${recoveredBuy4576.tradingMode} sol=${recoveredBuy4576.sol} reason=POSITION_ALREADY_OPEN_AT_CONFIRM"
-                        )
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "LIVE_POSITION_STAMPED",
-                            "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${recoveredBuy4576.sol.fmt(4)} route=$routerLabel signature=${sig.take(16)} reason=already_open_backfill_4576"
-                        )
-                    } catch (_: Throwable) { }
-                } else if (existingPos4576.pendingVerify) {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_DEFERRED_PENDING_PROOF_6637")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "LIVE_BUY_JOURNAL_DEFERRED_PENDING_PROOF_6637",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)}",
-                        )
-                    } catch (_: Throwable) {}
-                } else {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_BACKFILL_DUP_SUPPRESSED_4576")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_JOURNAL_BACKFILL_DUP_SUPPRESSED_4576", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)}")
-                    } catch (_: Throwable) { }
-                }
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BUY_OK_LATE_CONFIRMED")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_POSITION_ALREADY_OPEN_AT_CONFIRM_4576")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "BUY_OK_LATE_CONFIRMED",
-                        "attemptId=${execCtx.attemptId} symbol=${ts.symbol} mint=${ts.mint.take(8)} reason=POSITION_ALREADY_OPEN_AT_CONFIRM action=journal_backfilled_terminal_ok"
-                    )
-                    buyAttemptTrace4576("POSITION_ALREADY_OPEN_AT_CONFIRM", "pendingVerify=${ts.position.pendingVerify} qty=${ts.position.qtyToken}")
-                } catch (_: Throwable) { }
-                liveStage("POSITION_TRACKED", "alreadyOpenAtConfirm=true signature=${sig.take(16)} pendingVerify=${ts.position.pendingVerify}")
-                buyTerminalOk("BUY_TERMINAL_OK:POSITION_ALREADY_OPEN_AT_CONFIRM")
-                return true
-            }
-
+            // Confirmation racing wallet reconciliation follows the SAME proof,
+            // canonical commit and learning path as an ordinary fill. An open
+            // projection alone is not a completed buy and must not return here.
             val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
             val hasWhales = ts.meta.whaleSummary.isNotBlank()
             val currentMode = try {
@@ -20455,7 +20335,11 @@ class Executor(
                 extra = "decision=${liveEntryDecision.decision};attempt=${recoveredLiveAttemptId.ifBlank { finalityVerdict?.attemptId ?: "" }}",
             )
             ts.lastPolicySnapshot = livePolicySnapshot
-            ts.position = Position(
+            ts.position = if (ts.position.isOpen) ts.position.copy(
+                tradingMode = requireNotNull(sealedIntent7835).canonicalLane,
+                entryScore = score,
+                entryPolicySnapshot = livePolicySnapshot,
+            ) else Position(
                 qtyToken     = finalQty,
                 entryPrice   = price,
                 entryTime    = System.currentTimeMillis(),
@@ -20951,7 +20835,10 @@ class Executor(
                     } catch (_: Throwable) {}
 
                     val promoted = ts.position.copy(
-                        qtyToken = qtyUi,
+                        qtyToken = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                            .getPosition(canonicalPositionId6636)?.let {
+                                it.remainingQtyRaw.toBigDecimal().movePointLeft(it.quantityScale).toDouble()
+                            } ?: qtyUi,
                         pendingVerify = false,
                         positionId = canonicalPositionId6636,
                     )
@@ -21028,6 +20915,14 @@ class Executor(
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486", "mint=${verifyMint.take(10)} stage=$stage reason=${validated6486.reason}") } catch (_: Throwable) {}
                         protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), candidateProof, 0.0, 0.0, verifySig, "PROOF_INCOMPLETE:$stage")
                         return false
+                    }
+                    if (canonicalAttemptPosition7863.isNotBlank() &&
+                        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(canonicalAttemptPosition7863)
+                            ?.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED &&
+                        com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("LIVE")
+                            .any { it.positionId == canonicalAttemptPosition7863 }) {
+                        PipelineHealthCollector.labelInc("LIVE_BUY_PROOF_ALREADY_CLOSED_7863")
+                        return true // The exact reservation has already completed its exit.
                     }
                     val proof = com.lifecyclebot.engine.sell.BalanceProof(
                         mint = verifyMint, owner = verifyWallet.publicKeyB58, ata = candidateProof.ata,
@@ -21126,9 +21021,9 @@ class Executor(
                         actualEntryPriceSource = ts.position.entryPriceSource,
                         actualEntryPoolAddress = ts.position.entryPoolAddress,
                         actualEntryDex = ts.position.entryDex,
-                        recoveryLane = ExecutableOpenGate.activeExecutionIntent6519("LIVE", tradeId.mint, tradeId.fdgCandidateVersion)?.canonicalLane
-                            ?: ts.position.tradingMode.uppercase(),
+                        recoveryLane = requireNotNull(sealedIntent7835).canonicalLane,
                         recoverySymbol = verifySymbol,
+                        candidateVersion7863 = sealedIntent7835.candidateVersion,
                     )
                     val pidLive6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false)
                     if (!canonicalOpen6486) {
@@ -21136,7 +21031,7 @@ class Executor(
                         protectLandedLiveBuy7807(ts, pidLive6486, proof, actualCostSol6486, ts.position.entryPrice, verifySig, "CANONICAL_COMMIT_REJECTED_6486")
                         return false
                     }
-                    val sealedLiveIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("LIVE", tradeId.mint, tradeId.fdgCandidateVersion)
+                    val sealedLiveIntent6613 = sealedIntent7835
                     val sealedLiveDecision6613 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(tradeId.mint, tradeId.fdgCandidateVersion, "LIVE")
                     val liveEntryLane6568 = sealedLiveIntent6613?.canonicalLane
                         ?: sealedLiveDecision6613?.executionLane
@@ -21145,7 +21040,7 @@ class Executor(
                         ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT", liveEntryLane6568, "mint=${tradeId.mint.take(10)} positionId=${pidLive6486.take(18)}")
                         if (sealedLiveDecision6613 == null) ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE", liveEntryLane6568, "mint=${tradeId.mint.take(10)}")
                     } catch (_: Throwable) {}
-                    val liveDeskHypothesis6599 = try { com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses[liveEntryLane6568] } catch (_: Throwable) { null }
+                    val liveDeskHypothesis6599 = entryEvidence7863.desk
                     liveDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
                     com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
@@ -21154,24 +21049,24 @@ class Executor(
                                 try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
                             },
                             entryRiskProfile = liveDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
-                            entryExitProfile = liveDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(), entrySource = ts.source,
+                            entryExitProfile = liveDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(), entrySource = entryEvidence7863.source,
                             entryScore = ts.position.entryScore.toInt(), entryLiquiditySol = 0.0,
                             entryMarketCapUsd = ts.position.entryMcap, entryTimestampMs = ts.position.entryTime,
                             entryThresholdSnapshot = ts.position.entryPolicySnapshot,
-                            entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                            entryMarketRegime = entryEvidence7863.regime,
                             entryPolicySnapshotId = "$pidLive6486:6568", entryTacticVersion = "6568",
-                            v3Components = "score=${ts.lastV3Score ?: ts.position.entryScore.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
+                            v3Components = entryEvidence7863.v3,
                             brainConsensusVerdict = policyField6568(ts.position.entryPolicySnapshot, "brainConsensus"),
-                            brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),
-                            brainConsensusObjections = ts.lastConsensusObjections.joinToString("+").take(240),
+                            brainConsensusConfidence = entryEvidence7863.consensusConfidence,
+                            brainConsensusObjections = entryEvidence7863.objections,
                             policyAuthority = policyField6568(ts.position.entryPolicySnapshot, "policyAuthority"),
                             policyProbability = policyField6568(ts.position.entryPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
-                            metaPolicyContext = "phase=${ts.phase};mode=$liveEntryLane6568;ema=${ts.meta.emafanAlignment}",
-                            specialistContributions = com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts).ifBlank { "lane=$liveEntryLane6568;tools=${ts.toolAffinity.joinToString("+")}" },
-                            entryLiquidityUsd = ts.position.entryLiquidityUsd, entryVolumeVelocity = ts.meta.volScore,
-                            entryBuyPressurePct = ts.lastBuyPressurePct, entrySellPressurePct = ts.lastSellPressurePct,
-                            entryHolderConcentrationPct = ts.topHolderPct ?: ts.safety.topHolderPct,
-                            entryRugEvidence = "rug=${ts.safety.rugcheckStatus};hard=${ts.safety.hardBlockReasons.joinToString("+").take(120)}",
+                            metaPolicyContext = entryEvidence7863.meta,
+                            specialistContributions = entryEvidence7863.contributions,
+                            entryLiquidityUsd = ts.position.entryLiquidityUsd, entryVolumeVelocity = entryEvidence7863.velocity,
+                            entryBuyPressurePct = entryEvidence7863.buyPressure, entrySellPressurePct = entryEvidence7863.sellPressure,
+                            entryHolderConcentrationPct = entryEvidence7863.holderPct,
+                            entryRugEvidence = entryEvidence7863.rug,
                             entryTokenAgeMs = (ts.position.entryTime - ts.addedToWatchlistAt).coerceAtLeast(0L), entryPriceUsd = ts.position.entryPrice,
                             forwardPWin = policyField6568(ts.position.entryPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
                             sizingMultipliers = ts.position.entryPolicySnapshot.substringAfter("sizeMult=", "").take(240),
@@ -21181,15 +21076,15 @@ class Executor(
                             entryStyle = policyField6568(ts.position.entryPolicySnapshot, "style"),
                             entryEntryStyle = liveDeskHypothesis6599?.entryStyle ?: policyField6568(ts.position.entryPolicySnapshot, "entryStyle7427"),
                             entryExitStyle = liveDeskHypothesis6599?.exitStyle ?: policyField6568(ts.position.entryPolicySnapshot, "exitStyle7427"),
-                            entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pidLive6486, verifyMint, tradeId.fdgCandidateVersion, liveEntryLane6568),
+                            entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pidLive6486, verifyMint, requireNotNull(sealedLiveIntent6613).candidateVersion, liveEntryLane6568, mode7863 = "LIVE"),
                         )
                     )
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
-                        com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pidLive6486,
+                        entryEvidence7863.contributions, "POSITION_INFLUENCE", pidLive6486,
                     )
                     // V5.0.7809 — EXEC carries the attempt this fill executed
                     // (attemptId/candidateVersion survive), not a positionId guess.
-                    com.lifecyclebot.engine.ToolkitSignalSheet.recordEntryExecOpen7809(liveEntryLane6568, recoveredLiveAttemptId, sealedLiveIntent6613?.attemptId ?: pidLive6486)
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordEntryExecOpen7809(liveEntryLane6568, requireNotNull(sealedLiveIntent6613).attemptId, sealedLiveIntent6613.attemptId)
                     try { PipelineHealthCollector.labelInc("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pidLive6486, verifyMint, proof.amountRaw)
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
@@ -26616,7 +26511,9 @@ class Executor(
             // wallet snapshot. Never convert it to sell authority for recovered rows.
             var walletReadIndeterminate = false
             var onChainBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
-                wallet.getTokenAccountsWithDecimalsBounded(5_000L)
+                com.lifecyclebot.engine.sell.SellAmountAuthority.emergencyWalletSnapshotBalance7730(ts.mint, reason)
+                    ?.let { mapOf(ts.mint to com.lifecyclebot.engine.truth.CanonicalTokenAmount(it.rawAmount, it.decimals)) }
+                    ?: wallet.getTokenAccountsWithDecimalsBounded(5_000L)
             } catch (e: Throwable) {
                 walletReadIndeterminate = true
                 try { ForensicLogger.lifecycle("SELL_WALLET_READ_INDETERMINATE_NO_RESCUE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} err=${e.message?.take(120)} action=wait_current_wallet_proof") } catch (_: Throwable) {}
@@ -26664,8 +26561,8 @@ class Executor(
                 val retryCount = zeroBalanceRetries.merge(retryCountKey, 1) { old, _ -> old + 1 } ?: 1
                 var recovered = false
                 try {
-                    Thread.sleep(150)  // brief breathing room before re-poll
-                    val retryBalances = wallet.getTokenAccountsWithDecimalsBounded()
+                    val retryBalances = if (com.lifecyclebot.engine.sell.SellAmountAuthority.isEmergencyExitReason(reason))
+                        emptyMap() else wallet.getTokenAccountsWithDecimalsBounded(2_000L)
                     if (retryBalances.isNotEmpty()) {
                         // Rebind so the rest of this block sees the recovered map.
                         onChainBalances = retryBalances
@@ -27022,11 +26919,17 @@ class Executor(
                 } catch (_: Throwable) {}
             }
 
+            val quoteLadderDeadline7863 = System.nanoTime() + 6_000_000_000L
+            val confirmedJupiterPlan7863 by lazy {
+                recalcSellPlanForProcessor(ts, wallet, "JUPITER_ULTRA_METIS", confirmedSellUiQty,
+                    exitReason = reason, sellTradeKey = sellTradeKey, traderTag = "MEME")
+            }
             var jupiterProviderClassFailure7228 = false
             // V5.0.7807 — B4: a funded emergency that already failed once skips the
             // aggregator quote ladder and goes straight to the direct routes.
             jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || emergencyRouteEscalated7807(ts, reason)) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
+                    if (System.nanoTime() >= quoteLadderDeadline7863) break@jupiterLadder7228
                     try {
                         onLog("SELL: Quote attempt slippage=${slipLevel}bps try=$attempt...", tradeId.mint)
                         // V5.9.456 — forensics: emit SELL_QUOTE_TRY before Jupiter
@@ -27039,14 +26942,7 @@ class Executor(
                             slippageBps = slipLevel,
                             traderTag = "MEME",
                         )
-                        val jupiterPlan = recalcSellPlanForProcessor(
-                            ts = ts,
-                            wallet = wallet,
-                            processor = "JUPITER_ULTRA_METIS",
-                            requestedUiQty = confirmedSellUiQty,
-                            sellTradeKey = sellTradeKey,
-                            traderTag = "MEME",
-                        ) ?: return SellResult.FAILED_RETRYABLE
+                        val jupiterPlan = confirmedJupiterPlan7863 ?: return SellResult.FAILED_RETRYABLE
                         tokenUnits = jupiterPlan.rawAmount
                         quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                            tokenUnits, slipLevel,
@@ -29704,12 +29600,9 @@ class Executor(
             // silently in buildSwapTx. Now we request the binding order at
             // quote time when we have the taker pubkey, so RFQ rejections
             // surface as SELL_QUOTE_FAIL rather than ghosting the trade.
-            return if (!sellTaker.isNullOrBlank()) {
-                jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
-            } else {
-                // Legacy callers that don't have the taker — keep old behaviour
-                // (quote-only). Adds no regression risk.
-                jupiter.getQuote(inMint, outMint, amount, slippageBps)
+            return com.lifecyclebot.network.ExitQuoteBudget7863.run {
+                if (!sellTaker.isNullOrBlank()) jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
+                else jupiter.getQuote(inMint, outMint, amount, slippageBps)
             }
         }
         // V5.0.7241 — SOURCE FIX for the exact sibling of the V5.9.468 sell

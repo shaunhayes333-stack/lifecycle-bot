@@ -116,40 +116,16 @@ object PaperLiveParityCreed6439 {
          */
         val inheritsFromPaper: Boolean = false,
     ) {
-        /**
-         * Paper has learned something that live will not inherit.
-         *
-         * V5.0.7035 §THE_PARITY_GUARD_COULD_NOT_BE_SATISFIED_EXCEPT_BY_GOING_LIVE.
-         *
-         * This was `paperKeys > 0 && liveKeys == 0`, which does not test
-         * inheritance at all — it tests whether live has any keys YET, and in
-         * a paper-only session that is false for every learner by definition,
-         * forever, no matter how well its fallback works.
-         *
-         * So the snapshot printed RESETS_ON_FLIP against all three learners on
-         * every run, including the two that had already been repaired:
-         * ForwardOutcomeModel reads the other-mode cell as a thin-evidence
-         * prior (6869) and shrinks its strength (6991), and ColdStreakDamper
-         * seeds its loss streak through PaperSeededPrior6991 (6991). The 6991
-         * source comment says so outright — "my V5.0.6988 note claiming this
-         * model resolves to zero samples on the flip was wrong; it does not" —
-         * and this line kept asserting the retracted claim anyway.
-         *
-         * It cost real work: the label sent me at two already-correct learners
-         * and would have sent anyone else the same way. A guard that fires on
-         * every session cannot distinguish a fault from a normal Tuesday.
-         */
-        val resetsOnFlip: Boolean get() = paperKeys > 0 && liveKeys == 0 && !inheritsFromPaper
+        /** Having only PAPER evidence does not imply that switching modes deletes it. */
+        val hasOnlyPaperEvidence: Boolean get() = paperKeys > 0 && liveKeys == 0 && !inheritsFromPaper
     }
 
     fun census6988(): List<LearnerCensus6988> {
         val out = ArrayList<LearnerCensus6988>(3)
         try {
             val (p, l) = com.lifecyclebot.engine.ForwardOutcomeModel.modeCensus6988()
-            // Inherits: forecast() falls through to the other-mode fine/coarse
-            // cell ("fine_paper_prior" / "coarse_paper_prior") when its own has
-            // fewer than MIN_SAMPLES, at a strength damped by 6991.
-            out.add(LearnerCensus6988("ForwardOutcomeModel.signatures", p, l, inheritsFromPaper = true))
+            // Evidence stays in its observed account mode.
+            out.add(LearnerCensus6988("ForwardOutcomeModel.signatures", p, l, inheritsFromPaper = false))
         } catch (_: Throwable) {}
         try {
             val (p, l) = ExecutableEntryAuthority6450.modeCensus6988()
@@ -157,13 +133,12 @@ object PaperLiveParityCreed6439 {
             // streak and cooldown from PAPER through PaperSeededPrior6991.
             // Before 7035 this was the only one of the three that genuinely
             // reset, and it was the one nobody looked at.
-            out.add(LearnerCensus6988("ExecutableEntryAuthority6450.streakCohorts", p, l, inheritsFromPaper = true))
+            out.add(LearnerCensus6988("ExecutableEntryAuthority6450.streakCohorts", p, l, inheritsFromPaper = false))
         } catch (_: Throwable) {}
         try {
-            // Inherits: effectiveLossStreak6991 seeds the live streak from the
-            // paper streak via PaperSeededPrior6991.seedProtective.
+            // Loss streaks are isolated by account mode.
             val (p, l) = com.lifecyclebot.engine.runtime.ColdStreakDamper.modeCensus6988()
-            out.add(LearnerCensus6988("ColdStreakDamper.laneStreaks", p, l, inheritsFromPaper = true))
+            out.add(LearnerCensus6988("ColdStreakDamper.laneStreaks", p, l, inheritsFromPaper = false))
         } catch (_: Throwable) {}
         return out
     }
@@ -177,22 +152,22 @@ object PaperLiveParityCreed6439 {
         val rows = census6988()
         var gated = 0
         for (r in rows) {
-            if (!r.resetsOnFlip) continue
+            if (!r.hasOnlyPaperEvidence) continue
             gated++
             try {
-                PipelineHealthCollector.labelInc("PARITY_LEARNER_MODE_GATED_6988")
+                PipelineHealthCollector.labelInc("PARITY_LEARNER_MODE_ISOLATED_7863")
                 ForensicLogger.lifecycle(
-                    "PARITY_LEARNER_MODE_GATED_6988",
+                    "PARITY_LEARNER_MODE_ISOLATED_7863",
                     "learner=${r.learner} paperKeys=${r.paperKeys} liveKeys=${r.liveKeys} " +
                         "effect=this_learning_does_not_transfer_on_paper_to_live_flip " +
-                        "creed=PaperLiveParityCreed6439_declares_mode_gated_stores_a_bug",
+                        "reason=paper_results_do_not_authorize_live_risk",
                 )
             } catch (_: Throwable) {}
         }
         try {
             ForensicLogger.lifecycle(
                 "PAPER_LIVE_PARITY_VERIFIED_6988",
-                "learnersChecked=${rows.size} modeGated=$gated " +
+                "learnersChecked=${rows.size} paperOnlyEvidence=$gated " +
                     "artefactsDeclaredButUnverified=${ARTEFACTS.size} " +
                     "read=declared_is_not_measured_only_the_census_is_evidence",
             )
@@ -209,11 +184,11 @@ object PaperLiveParityCreed6439 {
             // V5.0.7035 — say which it is. "paper=14 live=0" alone reads as a
             // fault; "paper=14 live=0 SEEDS_LIVE" reads as the design working.
             "${r.learner.substringBefore('.')}[paper=${r.paperKeys} live=${r.liveKeys}" +
-                (if (r.resetsOnFlip) " RESETS_ON_FLIP"
-                 else if (r.inheritsFromPaper) " SEEDS_LIVE" else "") + "]"
+                (if (r.hasOnlyPaperEvidence) " PAPER_EVIDENCE_ONLY"
+                 else if (r.inheritsFromPaper) " SEEDS_LIVE" else " MODE_ISOLATED") + "]"
         }
-        val gated = rows.count { it.resetsOnFlip }
+        val gated = rows.count { it.hasOnlyPaperEvidence }
         return "artefactsDeclared=${ARTEFACTS.size}(unverified) measuredLearners=${rows.size} " +
-            "modeGated=$gated · $detail"
+            "paperOnlyEvidence=$gated · $detail"
     }
 }

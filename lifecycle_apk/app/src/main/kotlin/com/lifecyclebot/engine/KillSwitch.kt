@@ -83,7 +83,7 @@ object KillSwitch {
 
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
-        init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance()))
+        init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol))
     }
 
     @Synchronized
@@ -91,7 +91,7 @@ object KillSwitch {
         if (paper) return null
         if (RuntimeModeAuthority.isPaper()) return "LIVE_ENTRY_WHILE_RUNTIME_PAPER_7835"
         if (config != null) config7835 = config
-        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance())
+        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)
         if (!equity.isFinite() || equity <= 0.0) return "KILL_SWITCH_EQUITY_UNAVAILABLE_7835"
         if (!initializedLive7835) context7835?.let { init(it, equity) }
         val now = System.currentTimeMillis()
@@ -107,11 +107,23 @@ object KillSwitch {
         return if (verdict.first) null else "KILL_SWITCH_7835:${verdict.second}"
     }
 
+    /** Same limits as entry, without changing the risk state during report generation. */
+    @Synchronized
+    fun preflight7863(): Pair<Boolean, String> {
+        if (RuntimeModeAuthority.isPaper()) return true to "PAPER_MODE"
+        if (!initializedLive7835) return false to "RISK_STATE_NOT_INITIALIZED"
+        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)
+        if (!equity.isFinite() || equity <= 0.0) return false to "EQUITY_UNAVAILABLE"
+        return canTrade(equity, maxDailyLossPct = config7835.maxDailyLossPct,
+            maxConsecutiveLosses = config7835.circuitBreakerLosses,
+            maxTradesPerHour = config7835.maxTradesPerHour)
+    }
+
     @Synchronized
     fun recordCanonical7835(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.mode.equals("LIVE", true) || !env.terminal) return true
         val ctx = context7835 ?: return false
-        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance())
+        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)
         if (!equity.isFinite() || equity <= 0.0) return false
         if (!initializedLive7835) initLive7835(ctx, equity)
         val key = env.economicEventId.ifBlank { env.tradeId }

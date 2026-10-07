@@ -428,8 +428,10 @@ object UnifiedPolicyHead {
      * V5.0.6681 — freeze the exact entry observation against the canonical
      * position ID. This is called only after an executable position exists.
      */
+    @Synchronized
     fun bindPosition6681(positionId: String, mint: String, ownerLane: String): Boolean {
         if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
+        pendingByPosition6681[positionId]?.let { return it.mint == mint && it.ownerLane == normalizeLane(ownerLane) }
         return try {
             val observations = pending.remove(mint)
             if (observations == null || observations.isEmpty()) {
@@ -443,10 +445,6 @@ object UnifiedPolicyHead {
                 for (k in ownerFeatureCandidateKeys6681(owner)) {
                     val x = observations[k]
                     if (x != null) { selected = x.copyOf(); sourceLane = k; break }
-                }
-                if (selected == null && observations.size == 1) {
-                    val only = observations.entries.first()
-                    selected = only.value.copyOf(); sourceLane = only.key
                 }
                 if (selected == null) {
                     causalMissCount6681.incrementAndGet()
@@ -474,6 +472,7 @@ object UnifiedPolicyHead {
      * transient UnifiedPolicy scratchpad observation was lost before position
      * binding. Inputs come only from the immutable pre-open AATE decision.
      */
+    @Synchronized
     fun bindDecisionFallback6713(
         positionId: String,
         mint: String,
@@ -485,7 +484,7 @@ object UnifiedPolicyHead {
         contributorEffect01: Double,
     ): Boolean {
         if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
-        if (pendingByPosition6681.containsKey(positionId)) return true
+        pendingByPosition6681[positionId]?.let { return it.mint == mint && it.ownerLane == normalizeLane(ownerLane) }
         return try {
             val owner = normalizeLane(ownerLane)
             val score01 = (scoreFinal / 100.0).coerceIn(0.0, 1.0)

@@ -207,6 +207,7 @@ object CanonicalPaperTransaction6486 {
         ) return ""
 
         val eventId = "PAPER6486:OPEN:${position.positionId}"
+        if (CanonicalEconomicEvent6635.isCommitted(eventId) && TradeHistoryStore.isDurableEconomicEvent7371(eventId)) return eventId
         val event = CanonicalEconomicEvent6635.Event(
             economicEventId = eventId,
             positionId = position.positionId,
@@ -220,7 +221,7 @@ object CanonicalPaperTransaction6486 {
             qtyRaw = position.originalQtyRaw,
             decimals = position.quantityScale,
             executionPriceUsd = position.entryPriceUsd,
-            executionPriceSol = position.entryPriceUsd,
+            executionPriceSol = position.entryCostSol / position.originalQtyRaw.toBigDecimal().movePointLeft(position.quantityScale).toDouble(),
             notionalSol = position.entryCostSol,
             feeSol = position.feesSol,
             cashDeltaSol = -(position.entryCostSol + position.feesSol),

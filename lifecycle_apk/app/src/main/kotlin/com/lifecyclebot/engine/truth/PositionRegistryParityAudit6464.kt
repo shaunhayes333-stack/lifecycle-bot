@@ -59,7 +59,7 @@ object PositionRegistryParityAudit6464 {
     fun audit(): Snapshot {
         val inputRevision7477 = try {
             CanonicalPositionAuthority6441.mutationCount7387().toString() + "|" +
-                AuthoritySnapshotVersion6464.snapshotVersion().toString()
+                AuthoritySnapshotVersion6464.snapshotVersion().toString() + "|" + com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
         } catch (_: Throwable) { "" }
         val prior7477 = lastSnapshot.get()
         if (prior7477 != null && inputRevision7477.isNotBlank() &&
@@ -221,7 +221,7 @@ object PositionRegistryParityAudit6464 {
     }
 
     fun formatForPipelineDump(): String {
-        val s = lastSnapshot.get() ?: return "PositionParity6464: (no audit yet)"
+        val s = audit()
         val sb = StringBuilder("PositionParity6464:\n")
         sb.append("  canonicalCount=${s.canonicalCount} registryCount=${s.registryCount} delta=${s.delta}\n")
         sb.append("  canonicalByState=").append(

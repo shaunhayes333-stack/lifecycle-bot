@@ -14460,6 +14460,7 @@ class BotService : Service() {
         return try {
             val forced = RuntimeConfigOverlay.forcedPrimaryLane()?.takeIf { it.isNotBlank() }
             val deskSheet6599 = ToolkitSignalSheet.snapshot(ts, classification)
+            val executableLanes7863 = deskSheet6599.executableLanes7863
             val styleLanes = AgenticStyleRouter.lanesFor(ts, classification, laneAffinityForTradeType(classification.tradeType)).toList()
             // V5.0.7252 — lane identity is an election constraint, not an
             // executor surprise. 5.0.7250 elected a Pump.fun mint as BLUECHIP,
@@ -14469,31 +14470,31 @@ class BotService : Service() {
             // authorize while preserving an explicit operator override (which
             // the executor will still refuse rather than silently rewrite).
             val eligibleStyleLanes7252 = styleLanes.filter {
-                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it)
+                it.uppercase() in executableLanes7863 && LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it)
             }
             // V5.0.6600 — restore the pre-6599 authority: source/character/style routing
             // owns execution selection. Desk hypotheses contribute evidence but map
             // insertion/tie order must never rewrite the owner to PROJECT_SNIPER.
             val eligibleAffinity7252 = ts.laneAffinity.firstOrNull {
-                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it)
+                it.uppercase() in executableLanes7863 && LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it)
             }
             val stylePrimary = RuntimeConfigOverlay.normalizeLane(
                 forced ?: eligibleStyleLanes7252.firstOrNull() ?: eligibleAffinity7252 ?: "SHITCOIN"
             )
             val metricProposal6599 = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
             val eligibleMetricProposal7252 = if (
-                forced != null || (LaneEntryContract6342.isLaneIdentityEligible7252(ts, metricProposal6599) && cyclicPolicyAllows7809(metricProposal6599))
+                forced != null || (metricProposal6599.uppercase() in executableLanes7863 && LaneEntryContract6342.isLaneIdentityEligible7252(ts, metricProposal6599) && cyclicPolicyAllows7809(metricProposal6599))
             ) metricProposal6599 else stylePrimary
             val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(eligibleMetricProposal7252.uppercase())) eligibleMetricProposal7252 else stylePrimary
             // V5.0.7389 — MANIPULATED is a danger signal, not a cycle owner; TREASURY
-            // (with CASHGEN folded into it) owns only tokens at its designed $1M mcap /
+            // and CASHGEN retain independent owners at their designed $1M mcap /
             // $50k liquidity role floor — electing it on memes its own gate rejects
             // left every other lane contributor-only (TREASURY/CASHGEN 0 intents).
             val treasuryRoleOk7389 = ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP && ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
             val roleHypotheses6614 = deskSheet6599.deskHypotheses.values
                 .filter { it.lane.uppercase() in setOf("CORE", "EXPRESS", "DIP_HUNTER", "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "MOONSHOT", "PROJECT_SNIPER") }
                 .filter { it.lane.uppercase() !in setOf("TREASURY", "CASHGEN") || treasuryRoleOk7389 }
-                .map { if (it.lane.equals("CASHGEN", true)) it.copy(lane = "TREASURY") else it }
+                .filter { it.lane.uppercase() in executableLanes7863 }
                 .filter { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane) }
                 .filter { cyclicPolicyAllows7809(it.lane) }
                 .filter { it.lane.uppercase() != "PROJECT_SNIPER" || it.setup in setOf(ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE, ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE) }
@@ -14515,7 +14516,7 @@ class BotService : Service() {
             val ensembleVoters7389 = rankedRoleHypotheses6614
                 .filter { it.conviction >= 45.0 }
                 .distinctBy { it.lane.uppercase() }
-            val ensembleCoreFit6614 = strongestRole6614 != null && secondRole6614 != null &&
+            val ensembleCoreFit6614 = "CORE" in executableLanes7863 && strongestRole6614 != null && secondRole6614 != null &&
                 ensembleVoters7389.size >= 2 &&
                 // A lane at >= 75 conviction is a clear specialist call and keeps the token.
                 strongestRole6614.conviction < 75.0 &&
@@ -14535,7 +14536,7 @@ class BotService : Service() {
                     com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
                         // V5.0.7614 — CASHGEN and TREASURY are distinct canonical
                         // executable specialists. Shared mechanics must not rewrite owner identity.
-                        ?.takeIf { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it) }
+                        ?.takeIf { it.uppercase() in executableLanes7863 && LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) && cyclicPolicyAllows7809(it) }
                 } catch (_: Throwable) { null }
             }
             if (huntClaim7297 != null) {
@@ -14576,7 +14577,7 @@ class BotService : Service() {
             val moonshotAdmitted7044 = com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044
                 .electPrimary(ts, classification, pivotedPrimary4524, forced)
             val identityEligiblePrimary7252 = if (
-                forced.isNullOrBlank() && !(LaneEntryContract6342.isLaneIdentityEligible7252(ts, moonshotAdmitted7044) && cyclicPolicyAllows7809(moonshotAdmitted7044))
+                forced.isNullOrBlank() && !(moonshotAdmitted7044.uppercase() in executableLanes7863 && LaneEntryContract6342.isLaneIdentityEligible7252(ts, moonshotAdmitted7044) && cyclicPolicyAllows7809(moonshotAdmitted7044))
             ) {
                 val fallback7252 = rankedRoleHypotheses6614.firstOrNull()?.lane
                     ?: eligibleStyleLanes7252.firstOrNull()
@@ -27258,7 +27259,7 @@ if (hotExitHandledSweep) {
             // without bypassing V3 — V3 still controls. Pure additive nudge.
             val memeBridgeVerdict: com.lifecyclebot.v3.MemeUnifiedScorerBridge.MemeVerdict? =
                 if (!ts.position.isOpen) {
-                    try { com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts) }
+                    try { com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts, v3Decision) }
                     catch (e: Exception) {
                         ErrorLogger.debug("BotService", "🌉 Bridge scoring error for ${ts.symbol}: ${e.message}")
                         null
@@ -34283,7 +34284,7 @@ if (hotExitHandledSweep) {
         try {
             val cfg2 = ConfigStore.load(applicationContext)
             val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
-            if (ov != null && ov.priceUsd > 0) {
+            if (ov != null && ov.priceUsd.isFinite() && ov.priceUsd > 0) {
                 synchronized(ts) {
                     ts.lastPrice = ov.priceUsd
                     ts.lastPriceUpdate = System.currentTimeMillis()
@@ -34320,7 +34321,7 @@ if (hotExitHandledSweep) {
                 val priceUsd = kotlinx.coroutines.withTimeoutOrNull(2000L) {
                     com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
                 }
-                if (priceUsd != null && priceUsd > 0) {
+                if (priceUsd != null && priceUsd.isFinite() && priceUsd > 0) {
                     synchronized(ts) {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = System.currentTimeMillis()
@@ -34341,7 +34342,7 @@ if (hotExitHandledSweep) {
                 val priceUsd = kotlinx.coroutines.withTimeoutOrNull(2000L) {
                     com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
                 }
-                if (priceUsd != null && priceUsd > 0) {
+                if (priceUsd != null && priceUsd.isFinite() && priceUsd > 0) {
                     synchronized(ts) {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = System.currentTimeMillis()
@@ -34410,7 +34411,7 @@ if (hotExitHandledSweep) {
                         // marks and the 100-position hard cap. See PumpFunPriceUnits7017
                         // for the arithmetic straight off that snapshot.
                         val priceUsd = com.lifecyclebot.engine.PumpFunPriceUnits7017.priceUsd(json)
-                        if (mcap > 0) {
+                        if (mcap.isFinite() && mcap > 0 && priceUsd.isFinite() && priceUsd > 0) {
                             synchronized(ts) {
                                 ts.lastPrice = priceUsd
                                 ts.lastPriceUpdate = System.currentTimeMillis()
@@ -34418,7 +34419,7 @@ if (hotExitHandledSweep) {
                                 ts.lastPriceDex = "PUMP_FUN"
                                 ts.lastMcap = mcap
                                 ts.lastFdv = mcap
-                                ts.lastLiquidityUsd = mcap * 0.1
+                                // Market cap is not liquidity; retain independently observed depth.
                                 val syntheticCandle = com.lifecyclebot.data.Candle(
                                     ts = System.currentTimeMillis(), priceUsd = priceUsd,
                                     marketCap = mcap, volumeH1 = 0.0, volume24h = 0.0,

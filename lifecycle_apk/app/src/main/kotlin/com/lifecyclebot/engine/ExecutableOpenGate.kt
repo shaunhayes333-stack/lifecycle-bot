@@ -800,7 +800,7 @@ object ExecutableOpenGate {
             // floor when cycles are healthy.
             com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
         else LIVE_EXECUTION_TICKET_TTL_MS
-        return now - ticket.createdAtMs <= ttl
+        return now - ticket.createdAtMs in 0..ttl && (ticket.expiresAtMs6613 <= 0L || now < ticket.expiresAtMs6613)
     }
 
     // V5.0.7488 — this is a reseal-attempt tombstone, not execution
@@ -914,6 +914,13 @@ object ExecutableOpenGate {
             ForensicLogger.lifecycle("EXPIRED_TICKET_REVALIDATED_RESEALED_6613", "old=${intent.attemptId.take(24)} new=${replacement.attemptId.take(24)} mint=${intent.mint.take(10)} lane=${intent.canonicalLane} size=$size")
         } catch (_: Throwable) {}
         return replacement
+    }
+
+    fun pendingForLane7863(lane: String, mode: String): Int {
+        val canonical = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+        return executionTickets.values.count {
+            it.mode.equals(mode, true) && it.canonicalLane == canonical && ticketLive(it)
+        }
     }
 
     fun ticketForAttempt(attemptId: String): ExecutionIntent? = executionTickets[attemptId]?.takeIf { ticketLive(it) }

@@ -123,6 +123,7 @@ object ToolkitSignalSheet {
         val deskHypotheses: Map<String, DeskHypothesis>,
         val toolVotes: Set<String>,
         val reasons: List<String>,
+        val executableLanes7863: Set<String> = emptySet(),
     ) {
         val compactReason: String get() = reasons.take(5).joinToString(";")
     }
@@ -922,7 +923,7 @@ object ToolkitSignalSheet {
             LaneExecutionCoordinator.registerQualifiedContest7803(
                 ts.mint,
                 candidateVersion7622,
-                deskHypotheses.mapValues { it.value.conviction },
+                deskHypotheses.filterKeys { it in nativeReady7803 }.mapValues { it.value.conviction },
             )
         } catch (_: Throwable) {}
         // V5.0.7346 / 7622 — the causal identity uses the same pinned generation
@@ -930,7 +931,7 @@ object ToolkitSignalSheet {
         val causalId6647 = "${ts.mint}:$candidateVersion7622"
         deskHypotheses.values.forEach { h ->
             recordDeskStage(h.lane, "POOL", causalId6647)
-            recordDeskStage(h.lane, "QUALIFIED", causalId6647)
+            if (cryptoDesk7803 || h.lane.uppercase() in nativeReady7803) recordDeskStage(h.lane, "QUALIFIED", causalId6647)
         }
         // V5.0.6609 §RESTORE_SPECIALIST_LIVENESS (operator directive Feb 2026:
         //   "Every enabled specialist: taskAlive=true, poolAlive=true,
@@ -965,6 +966,7 @@ object ToolkitSignalSheet {
             sizeMult = best.size.coerceIn(0.30, 1.15),
             tpMult = best.tp.coerceIn(0.60, 1.70),
             laneVotes = deskHypotheses.keys,
+            executableLanes7863 = nativeReady7803.keys,
             deskHypotheses = deskHypotheses,
             toolVotes = best.tools,
             reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "riskOffBias=${riskOffSetupBias(best.setup, defensiveRisk).toInt()}", "regime=${regime?.regime ?: "unknown"}", internetRiskMode),
@@ -1554,6 +1556,7 @@ object ToolkitSignalSheet {
      */
     private fun openPositionsByLane7809(): Map<String, Int> = try {
         com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mode.equals(if (RuntimeModeAuthority.isPaper()) "paper" else "live", true) }
             .groupingBy { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(it.lane) }
             .eachCount()
     } catch (_: Throwable) { emptyMap() }
@@ -1744,12 +1747,12 @@ object ToolkitSignalSheet {
             //   SIZING_CHOKED + recorded refusals -> the exact refusal, not a choke.
             //   DEAD + open canonical positions on the lane -> holding, not dead
             //     (the causal window is 30 minutes; positions outlive it).
-            val refusals7809 = if (status == "SIZING_CHOKED") preSizeRefusalSummary7809(lane) else ""
+            val refusals7809 = preSizeRefusalSummary7809(lane)
             val executableSizeOutcomes7809 = (causal.outcomes["SIZED_EXECUTABLE"] ?: 0).toLong()
             val openOnLane7809 = openByLane7809[lane] ?: 0
             val reportedStatus7809 = when {
                 status == "SIZING_CHOKED" && executableSizeOutcomes7809 > 0L -> "SIZE_LINEAGE_INCOMPLETE_7809"
-                refusals7809.isNotBlank() -> "REFUSED_BEFORE_SIZE_7809"
+                status == "SIZING_CHOKED" && refusals7809.isNotBlank() -> "REFUSED_BEFORE_SIZE_7809"
                 status == "DEAD" && openOnLane7809 > 0 -> "HOLDING_NO_FRESH_DISCOVERY_7809"
                 else -> status
             }
@@ -1807,7 +1810,7 @@ object ToolkitSignalSheet {
                     PipelineHealthCollector.labelInc("FDG_ALLOW_EXPLICIT_CANCEL_7221_$lane")
                 }
             } catch (_: Throwable) {}
-            val executionEligible = ticket > 0L && exec > 0L
+            val executionEligible = ExecutableOpenGate.pendingForLane7863(lane, if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE") > 0
             val native7608 = try { SpecialistBrainBridge7542.laneRuntime7542(lane) } catch (_: Throwable) { null }
             val nativeReason7608 = native7608?.reason?.replace("\n", " ")?.take(120).orEmpty()
             val liveQuarantine7609 = try { LaneQuarantineController.isQuarantined(lane) } catch (_: Throwable) { false }
@@ -1824,7 +1827,7 @@ object ToolkitSignalSheet {
             val residentReady7815 = resident7815.count {
                 it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY
             }
-            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
+            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=${if (!buyerEnabled7609) "BUYER_DISABLED" else if (intent == 0L && residentReady7815 == 0) "OBSERVING_NO_READY_CANDIDATE" else reportedStatus7809} rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }
@@ -1851,7 +1854,7 @@ object ToolkitSignalSheet {
         configuredMemeDesks6599.forEach { lane ->
             val owned = positions.filter { it.lane.equals(lane, true) || (lane == "BLUECHIP" && it.lane.equals("BLUE_CHIP", true)) }
             val used = owned.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
-            val pending = (deskCount6599(lane, "BUY_INTENT") - deskCount6599(lane, "EXEC")).coerceAtLeast(0L)
+            val pending = ExecutableOpenGate.pendingForLane7863(lane, if (paperMode6686) "PAPER" else "LIVE").toLong()
             val targetPct = (weights.getValue(lane) / weightSum * 100.0).coerceIn(0.0, 100.0)
             val targetSol = sharedEquity * (targetPct / 100.0)
             // V5.0.6912 §THE_REPORT_MUST_SHOW_WHAT_ACTUALLY_GATES.

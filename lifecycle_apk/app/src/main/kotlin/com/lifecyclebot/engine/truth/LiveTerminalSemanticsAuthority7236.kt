@@ -64,6 +64,11 @@ object LiveTerminalSemanticsAuthority7236 {
         val m = mode.trim().lowercase()
         val ps = proofState.trim().uppercase()
 
+        // Explicit account mode wins over contradictory proof metadata.
+        if ((m == "live" && ps == "PAPER_SIMULATED") || (m == "paper" && ps.startsWith("LIVE_"))) {
+            excludedUnknown.incrementAndGet()
+            return false
+        }
         // Paper is always terminal (deterministic simulator).
         if (m == "paper") {
             terminalPaper.incrementAndGet()
@@ -79,7 +84,7 @@ object LiveTerminalSemanticsAuthority7236 {
         // Live proof states.
         if (m == "live" || ps.startsWith("LIVE_")) {
             when (ps) {
-                "LIVE_FINALIZED" -> {
+                "LIVE_FINALIZED", "LIVE_RECONCILED" -> {
                     terminalLiveFinalized.incrementAndGet()
                     return true
                 }
@@ -145,7 +150,7 @@ object LiveTerminalSemanticsAuthority7236 {
 
     fun statusLine(): String {
         val s = summary()
-        return "LiveTerminalSemanticsAuthority7236 terminal=${s.totalTerminal} " +
+        return "LiveTerminalSemanticsAuthority7236 predicateAcceptedReads=${s.totalTerminal} " +
             "(paper=${s.terminalPaper},finalized=${s.terminalLiveFinalized}," +
             "balance=${s.terminalLiveBalance},sig=${s.terminalLiveSig}) " +
             "excluded=${s.totalExcluded} " +

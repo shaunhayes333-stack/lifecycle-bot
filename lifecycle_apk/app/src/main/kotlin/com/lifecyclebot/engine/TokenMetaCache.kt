@@ -82,6 +82,7 @@ class TokenMetaCache private constructor(ctx: Context) :
 
     private val live = ConcurrentHashMap<String, Entry>(8192)
     private val dirty = ConcurrentHashMap.newKeySet<String>()
+    private val flushing7863 = ConcurrentHashMap.newKeySet<String>()
     private val writeLock = Any()
     private val loaded = AtomicBoolean(false)
     private val totalReadHits = AtomicLong(0L)
@@ -294,7 +295,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                         supplyTokens = c.getDouble(19),
                         supplyCapturedAtMs = c.getLong(20),
                     )
-                    live[keyMint7215] = e
+                    live.putIfAbsent(keyMint7215, e)
                     hydrated++
                 }
             }
@@ -321,6 +322,7 @@ class TokenMetaCache private constructor(ctx: Context) :
      * Null/blank fields are IGNORED so partial updates don't stomp richer
      * data from prior sources.
      */
+    @Synchronized
     fun register(
         mint: String,
         symbol: String? = null,
@@ -394,7 +396,7 @@ class TokenMetaCache private constructor(ctx: Context) :
         }
         e.lastSeenMs = now
         e.hitCount += 1L
-        if (changed || (e.hitCount % FLUSH_EVERY_N_HITS == 0L)) dirty.add(key)
+        if (created7483 || changed || (e.hitCount % FLUSH_EVERY_N_HITS == 0L)) dirty.add(key)
         if (completenessChanged7483) bumpCompletenessRevision7483()
     }
 
@@ -407,6 +409,7 @@ class TokenMetaCache private constructor(ctx: Context) :
      * quantity that lets price and market cap verify each other, which is the
      * whole point of storing it.
      */
+    @Synchronized
     fun upsertSupply7069(mint: String, supplyTokens: Double) {
         val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
         if (key.isEmpty()) return
@@ -448,16 +451,21 @@ class TokenMetaCache private constructor(ctx: Context) :
     /** Persist all dirty rows. Safe from any thread. Returns rows flushed. */
     fun flushNow(): Int {
         if (dirty.isEmpty()) return 0
-        val snapshot = HashSet(dirty)
-        dirty.removeAll(snapshot)
         var written = 0
         synchronized(writeLock) {
+            // Claim immutable row copies while writers are excluded. A later
+            // mutation marks the mint dirty again and survives this commit.
+            val snapshot = synchronized(this) {
+                val rows = dirty.mapNotNull { live[it]?.copy() }
+                dirty.removeAll(rows.map { it.mint }.toSet())
+                flushing7863.addAll(rows.map { it.mint })
+                rows
+            }
             try {
                 val db = writableDatabase
                 db.beginTransaction()
                 try {
-                    for (mint in snapshot) {
-                        val e = live[mint] ?: continue
+                    for (e in snapshot) {
                         val cv = ContentValues().apply {
                             put("mint", e.mint)
                             put("symbol", e.symbol)
@@ -481,12 +489,12 @@ class TokenMetaCache private constructor(ctx: Context) :
                             put("supply_tokens", e.supplyTokens)
                             put("supply_captured_ms", e.supplyCapturedAtMs)
                         }
-                        db.insertWithOnConflict("token_meta", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+                        check(db.insertWithOnConflict("token_meta", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "token_meta insert failed" }
                         written++
                     }
                     db.setTransactionSuccessful()
                 } finally {
-                    try { db.endTransaction() } catch (_: Throwable) {}
+                    db.endTransaction()
                 }
             } catch (t: Throwable) {
                 // V5.0.7215 §A_CACHE_THAT_CANNOT_PERSIST_LOOKED_LIKE_ONE_WITH_
@@ -515,8 +523,10 @@ class TokenMetaCache private constructor(ctx: Context) :
                     )
                 } catch (_: Throwable) {}
                 ErrorLogger.warn(TAG, "flushNow failed (${snapshot.size} rows): ${t.message}")
-                dirty.addAll(snapshot)
+                synchronized(this) { dirty.addAll(snapshot.map { it.mint }) }
                 return 0
+            } finally {
+                flushing7863.removeAll(snapshot.map { it.mint }.toSet())
             }
         }
         if (written > 0) totalWrites.addAndGet(written.toLong())
@@ -535,110 +545,29 @@ class TokenMetaCache private constructor(ctx: Context) :
      * whose pool/dex/decimals/creation time we most want on the next
      * encounter, and the one whose loss costs a full provider rebuild.
      */
+    @Synchronized
     fun pruneStale(ageMs: Long = 7L * 24L * 3600_000L, minHitsToKeep: Long = 5L): Int {
-        var removed = 0
         val cutoff = System.currentTimeMillis() - ageMs
-        val victims = live.values.asSequence()
-            .filter { it.lastInteractedMs <= 0L && it.lastSeenMs < cutoff && it.hitCount < minHitsToKeep }
-            .map { it.mint }
-            .toList()
-        for (m in victims) { live.remove(m); dirty.remove(m); removed++ }
-        synchronized(writeLock) {
-            try {
-                val db = writableDatabase
-                db.delete("token_meta",
-                    "last_interacted_ms <= 0 AND last_seen_ms < ? AND hit_count < ?",
-                    arrayOf(cutoff.toString(), minHitsToKeep.toString()))
-            } catch (t: Throwable) {
-                ErrorLogger.warn(TAG, "pruneStale failed: ${t.message}")
-            }
-        }
-        if (live.size > MAX_LIVE_ROWS) {
-            // Interacted rows are kept ahead of the cap, then the warmest of
-            // the rest fill the remainder.
-            val interacted = live.values.asSequence().filter { it.lastInteractedMs > 0L }.map { it.mint }.toSet()
-            val room = (MAX_LIVE_ROWS - interacted.size).coerceAtLeast(0)
-            val keep = interacted + live.values.asSequence()
-                .filter { it.lastInteractedMs <= 0L }
-                .sortedByDescending { it.lastSeenMs }
-                .take(room)
-                .map { it.mint }
-                .toSet()
-            val drops = live.keys.filter { it !in keep }
-            for (m in drops) { live.remove(m); dirty.remove(m); removed++ }
-        }
-        if (removed > 0) {
-            bumpCompletenessRevision7483()
-            ErrorLogger.info(TAG, "pruneStale removed $removed rows")
-        }
-        return removed
+        val victims = live.values.filter {
+            it.lastInteractedMs <= 0L && it.lastSeenMs < cutoff && it.hitCount < minHitsToKeep &&
+                it.mint !in dirty && it.mint !in flushing7863
+        }.map { it.mint }
+        victims.forEach { live.remove(it) }
+        if (victims.isNotEmpty()) bumpCompletenessRevision7483()
+        return victims.size + evictColdSoft(MAX_LIVE_ROWS, Long.MAX_VALUE)
     }
 
-    /**
-     * V5.9.1470 (spec item 10) — SOFT COLD EVICTION. The hard 50k cap rarely fires;
-     * the operator wants cold rows evicted sooner once the live set grows past a soft
-     * threshold so the cache stays warm-and-relevant rather than bloated. Evicts the
-     * coldest (oldest lastSeen) low-hit rows down toward softMax. NEVER touches the
-     * protected 500-token scanner intake pool (that is GlobalTradeRegistry, a different
-     * store) and never drops high-hit (frequently-reused) rows. Best-effort, memory-only
-     * plus a cheap DB delete; safe to call on the 60s flush tick.
-     */
+    /** Evict only persisted, unmodified memory rows; retain the durable archive. */
+    @Synchronized
     fun evictColdSoft(softMax: Int = 2500, minHitsToKeep: Long = 3L): Int {
-        if (live.size <= softMax) return 0
-        val excess = live.size - softMax
-        // Candidates: low-hit rows only, coldest first. High-hit rows are sticky.
-        val victims = live.values.asSequence()
-            // V5.0.6908 — never evict a mint AATE has executed against. Same
-            // exemption as pruneStale; this path runs on the 60s flush tick
-            // with softMax=2500, so it was by far the likelier of the two to
-            // delete a traded token's archived pool/dex/decimals.
-            .filter { it.lastInteractedMs <= 0L && it.hitCount < minHitsToKeep }
-            .sortedBy { it.lastSeenMs }
-            .take(excess)
-            .map { it.mint }
-            .toList()
-        if (victims.isEmpty()) return 0
-        // V5.0.7215 §AN_EVICTION_THAT_DISCARDED_WHAT_WAS_NEVER_WRITTEN.
-        //
-        // `dirty.remove(m)` beside `live.remove(m)` throws away a row's
-        // unflushed state. That is correct for a row being deleted from SQLite
-        // in the same breath — but the 5.0.7212 snapshot has 4818 dirty rows
-        // against 32 total writes, i.e. essentially the whole archive was
-        // unpersisted, and this runs on the SAME 60s tick as the flush, right
-        // after it. So on any tick where the flush fails or does not reach a
-        // row, its identity — pool address, dex, decimals, creation time — is
-        // dropped from memory and from disk, and the app re-earns it from
-        // providers on the next encounter. That is the mechanism behind
-        // "decimals known: 270/4818 (5.6%)" and "pair addr known: 3.8%" on a
-        // cache holding 4818 rows.
-        //
-        // Count it. This is silent data loss in the one store whose whole
-        // purpose is to stop paying providers twice for the same immutable
-        // facts, and the report had no way to show it was happening.
-        val dirtyVictims7215 = victims.count { it in dirty }
-        if (dirtyVictims7215 > 0) {
-            try {
-                PipelineHealthCollector.labelInc("TOKEN_META_EVICTED_DIRTY_UNFLUSHED_7215")
-                ForensicLogger.lifecycle(
-                    "TOKEN_META_EVICTED_DIRTY_UNFLUSHED_7215",
-                    "rows=$dirtyVictims7215 ofEvicted=${victims.size} dirtyBefore=${dirty.size} " +
-                        "live=${live.size} softMax=$softMax " +
-                        "note=unpersisted_identity_discarded_will_be_re_earned_from_providers",
-                )
-            } catch (_: Throwable) {}
-        }
-        for (m in victims) { live.remove(m); dirty.remove(m) }
-        synchronized(writeLock) {
-            try {
-                val db = writableDatabase
-                val chunk = victims.joinToString(",") { "'" + it.replace("'", "") + "'" }
-                if (chunk.isNotBlank()) db.execSQL("DELETE FROM token_meta WHERE mint IN ($chunk)")
-            } catch (t: Throwable) {
-                ErrorLogger.warn(TAG, "evictColdSoft db delete failed: ${t.message}")
-            }
-        }
-        bumpCompletenessRevision7483()
-        ErrorLogger.info(TAG, "evictColdSoft removed ${victims.size} cold rows (live=${live.size} softMax=$softMax)")
+        val excess = (live.size - softMax).coerceAtLeast(0)
+        if (excess == 0) return 0
+        val victims = live.values.asSequence().filter {
+            it.lastInteractedMs <= 0L && it.hitCount < minHitsToKeep &&
+                it.mint !in dirty && it.mint !in flushing7863
+        }.sortedBy { it.lastSeenMs }.take(excess).map { it.mint }.toList()
+        victims.forEach { live.remove(it) }
+        if (victims.isNotEmpty()) bumpCompletenessRevision7483()
         return victims.size
     }
 

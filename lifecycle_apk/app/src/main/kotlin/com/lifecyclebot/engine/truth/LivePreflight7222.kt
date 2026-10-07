@@ -89,6 +89,10 @@ object LivePreflight7222 {
                 Check("WALLET_READ", Verdict.UNKNOWN, "walletSol=$walletSol — not yet read, or zero; every sizing check below inherits this")
         }
 
+        checks += check("KILL_SWITCH") {
+            val risk = com.lifecyclebot.engine.KillSwitch.preflight7863()
+            Check("KILL_SWITCH", if (risk.first) Verdict.PASS else Verdict.REFUSE, risk.second)
+        }
         // 2. SOL/USD price present — the routing floor is a USD figure.
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         checks += check("SOL_PRICE") {
