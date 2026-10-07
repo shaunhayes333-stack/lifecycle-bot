@@ -13532,59 +13532,12 @@ class Executor(
         disciplineMult4460: Double,
         partialProviderEvidence: Boolean,
     ): Double? {
-        if (isPaperRT() || !sol.isFinite() || sol <= 0.0) return sol
-        return try {
-            val laneKey = lane.ifBlank { ts.source }
-            // B10 — a re-entry after a stop needs a fresh plan (its new invalidation).
-            val reentryThesis = MintReEntryCooldown.reentryAfterStopThesis7807(ts.mint)
-            if (reentryThesis != null && com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783(ts.mint) == null) {
-                try { PipelineHealthCollector.labelInc("REENTRY_AFTER_STOP_NO_FRESH_PLAN_7807") } catch (_: Throwable) {}
-                emitLiveBuyFail(ts, sol, "REENTRY_AFTER_STOP_NO_FRESH_PLAN_7807", reentryThesis)
-                return null
-            }
-            val inputs = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.runtimeInputs(
-                mint = ts.mint,
-                lane = laneKey,
-                walletSol = walletSol,
-                upstreamSol = sol,
-                execMinSol = liveRiskExecMin7807(walletSol, configuredMinSol),
-                liquidityUsd = liveRiskLiquidityUsd7807(ts),
-                governorLossMult = disciplineMult4460,
-                partialProviderEvidence = partialProviderEvidence,
-            )
-            val d = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record(
-                "FINAL", ts.mint, ts.symbol, inputs,
-                com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs),
-            )
-            if (!d.open) {
-                emitLiveBuyFail(ts, sol, d.reason, "stage=final lane=$laneKey stop=${d.stopPct.fmt(1)} cost=${d.costPct.fmt(1)}")
-                return null
-            }
-            if (reentryThesis != null) {
-                try {
-                    PipelineHealthCollector.labelInc("REENTRY_AFTER_STOP_7807")
-                    ForensicLogger.lifecycle(
-                        "REENTRY_AFTER_STOP_7807",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey priorThesis=$reentryThesis newPositionId=allocated_at_fill",
-                    )
-                } catch (_: Throwable) {}
-            }
-            // V5.0.7849 — immutable-size contract. FDG already resolved
-            // LiveRiskPolicy before sealing. Executor may revalidate current
-            // hard constraints but may not mutate the sealed notional.
-            if (!d.sizeSol.isFinite() || kotlin.math.abs(d.sizeSol - sol) > 1e-9) {
-                try {
-                    PipelineHealthCollector.labelInc("LIVE_RISK_SIZE_CHANGED_AFTER_SEAL_7849")
-                    ForensicLogger.lifecycle(
-                        "LIVE_RISK_SIZE_CHANGED_AFTER_SEAL_7849",
-                        "mint=${ts.mint.take(10)} lane=$laneKey sealed=${"%.6f".format(sol)} now=${"%.6f".format(d.sizeSol)} reason=${d.reason} action=fresh_decision_required",
-                    )
-                } catch (_: Throwable) {}
-                emitLiveBuyFail(ts, sol, "LIVE_RISK_SIZE_CHANGED_AFTER_SEAL_7849", "lane=$laneKey now=${d.sizeSol}")
-                return null
-            }
-            sol
-        } catch (_: Throwable) { sol }
+        // V5.0.7850 — exact sealed notional is already risk-resolved upstream.
+        // Re-evaluating lane/history/governor policy here creates a second
+        // sizing/entry authority and can starve a valid immutable intent.
+        if (!sol.isFinite() || sol <= 0.0) return null
+        try { PipelineHealthCollector.labelInc("LIVE_FINAL_SIZE_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
+        return sol
     }
 
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
@@ -15219,34 +15172,12 @@ class Executor(
                 )
             } catch (_: Throwable) {}
         }
-        val gateVerdict6451 = try {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLane6451, ts.mint, sol)
-        } catch (_: Throwable) {
-            // V5.0.6454 §P0 — ENTRY AUTHORITY FAIL CLOSED. Gate exceptions
-            // must NEVER allow the BUY to proceed. Prior behaviour returned
-            // ALLOW on gate_error, which was a fail-open. Now we deny.
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_FAIL_CLOSED_6454")
-            } catch (_: Throwable) {}
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
-                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed",
-            )
-        }
-        val effectiveBuySol6451 = when (gateVerdict6451.verdict) {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW -> gateVerdict6451.recommendedSizeSol
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE -> gateVerdict6451.recommendedSizeSol
-            else -> {
-                try {
-                    ForensicLogger.lifecycle(
-                        "PAPER_BUY_DENIED_ENTRY_AUTHORITY_6451",
-                        "mint=${ts.mint.take(10)} lane=$gateLane6451 verdict=${gateVerdict6451.verdict} reason=${gateVerdict6451.reason}",
-                    )
-                    PipelineHealthCollector.labelInc("PAPER_BUY_DENIED_ENTRY_AUTHORITY_6451")
-                } catch (_: Throwable) {}
-                markPaperBuyNotOpened("ENTRY_AUTHORITY_${gateVerdict6451.reason}")
-                return
-            }
-        }
+        // V5.0.7850 — PAPER consumes the same immutable execution
+        // intent contract as LIVE. Entry learning/scoring already resolved before
+        // the ticket was sealed; re-running ExecutableEntryAuthority here can
+        // only contradict the exact candidate that reached execution.
+        try { PipelineHealthCollector.labelInc("PAPER_ENTRY_AUTH_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
+        val effectiveBuySol6451 = requireNotNull(sealedIntent7835).resolvedSize
         // V5.0.6475 — do not mutate position/capital authorities at BUY
         // attempt time. Every downstream gate after this point may reject the
         // entry; reservation/open/cash mutation is now deferred to the confirmed
@@ -17806,7 +17737,10 @@ class Executor(
         ) ?: return false
         // V5.0.7807 — LiveRiskPolicy7807 pre-ticket: lane slot cap, net-of-cost
         // move and executable-minimum risk, before any lease (Field Manual L215, L243).
-        if (liveRiskPolicyPreTicketRefused7807(ts, layerTag, sol, walletSol)) return false
+        // V5.0.7850 — FDG already applied LiveRiskPolicy before sealing.
+        // The executor cannot ask the same learned/risk policy to decide the
+        // trade again. Current route/safety/finality checks below remain hard.
+        try { PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("COMMON_SENSE_RR_POST_SEAL_ADVISORY_7849") } catch (_: Throwable) {}
         // V5.0.7849 — immutable execution intent is the entry verdict.
         // Executor consumes it; learned/history authorities may not re-decide it.
