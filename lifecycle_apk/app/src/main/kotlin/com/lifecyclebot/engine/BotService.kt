@@ -1022,7 +1022,7 @@ class BotService : Service() {
      * limit (5.0.7754 CI: MethodTooLargeException) and may not grow.
      */
     private fun moonshotExitSignal7755(ts: com.lifecyclebot.data.TokenState, currentPrice: Double): com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal {
-        val sig = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
+        val sig = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
         val hold = com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD
         if (sig == hold) return sig
         val protective = sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS ||
@@ -5834,15 +5834,16 @@ class BotService : Service() {
                     ?: tp.entryPrice
                 ErrorLogger.info("BotService", "👆 MANUAL SELL [Treasury]: ${tp.symbol} @ \$${price}")
                 addLog("👆 Manual SELL (Treasury): ${tp.symbol}")
-                // If we also have a TokenState, run the swap; close the
-                // treasury bookkeeping regardless so the card disappears.
-                val realTs = ts
-                val sellResult = if (realTs != null) {
-                    try { executor.doSell(realTs, "MANUAL_TREASURY", w, walletSol).name } catch (_: Exception) { "TREASURY_BOOKKEEP_ONLY" }
-                } else "TREASURY_BOOKKEEP_ONLY (no TokenState)"
+                val realTs = ts ?: return false to "Treasury position retained: token state is unavailable"
+                val sellResult = executor.doSell(realTs, "MANUAL_TREASURY", w, walletSol)
+                if (sellResult !in setOf(Executor.SellResult.CONFIRMED,
+                        Executor.SellResult.PAPER_CONFIRMED, Executor.SellResult.ALREADY_CLOSED)) {
+                    return false to "Treasury position retained: ${sellResult.name}"
+                }
                 com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                    mint, price, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT)
-                return true to "Treasury position closed ($sellResult)"
+                    mint, price, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT,
+                    isPaper = tp.isPaper)
+                return true to "Treasury position closed (${sellResult.name})"
             }
         } catch (e: Exception) {
             ErrorLogger.warn("BotService", "manualSell Treasury check error: ${e.message}")
@@ -23244,7 +23245,7 @@ if (hotExitHandledSweep) {
                         if (dust && (p.qtyToken > 0.0 || p.costSol > 0.0)) {
                             try { ts.position = com.lifecyclebot.data.Position() } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
-                            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_SLOT_DUST_CLOSED", 0) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_SLOT_DUST_CLOSED", 0, mode = "PAPER") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SLOT_DUST_CLOSED") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_FORCED_ROW_CLEARED_DUST") } catch (_: Throwable) {}
                             try { ForensicLogger.lifecycle("PAPER_FORCED_ROW_CLEARED_DUST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol}") } catch (_: Throwable) {}
@@ -23270,7 +23271,7 @@ if (hotExitHandledSweep) {
                             if (ghost6373c) {
                                 try { ts.position = com.lifecyclebot.data.Position() } catch (_: Throwable) {}
                                 try { com.lifecyclebot.engine.PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
-                                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_GHOST_PURGED_6373C_NO_BUY_ROW", 0) } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_GHOST_PURGED_6373C_NO_BUY_ROW", 0, mode = "PAPER") } catch (_: Throwable) {}
                                 try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_GHOST_PURGED_6373C_NO_BUY_ROW") } catch (_: Throwable) {}
                                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_GHOST_PURGED_6373C_NO_BUY_ROW") } catch (_: Throwable) {}
                                 try { ForensicLogger.lifecycle("PAPER_GHOST_PURGED_6373C_NO_BUY_ROW", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol} reason=no_recent_buy_row_in_TradeHistoryStore") } catch (_: Throwable) {}
@@ -23351,12 +23352,13 @@ if (hotExitHandledSweep) {
 
     /** V5.9.1567 — keep forced-open ghost eviction out of botLoop/reaper transform bulk. */
     private fun evictSubTraderGhost(mint: String) {
-        try { com.lifecyclebot.v3.scoring.CashGenerationAI.evictGhost(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.evictGhost(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evictGhost(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.v3.scoring.QualityTraderAI.evictGhost(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.evictGhost(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evictGhost(mint) } catch (_: Throwable) {}
+        val paper7858 = RuntimeModeAuthority.isPaper()
+        try { com.lifecyclebot.v3.scoring.CashGenerationAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.QualityTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.DipHunterAI.evictGhost(mint) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(mint) } catch (_: Throwable) {}
     }
@@ -26641,8 +26643,8 @@ if (hotExitHandledSweep) {
     // global entry authority. Its 1.35x score / 0.35x size policy shapes below.
     if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) {
         try {
-            PipelineHealthCollector.labelInc("AUTOMODE_PAUSED_CURRENT_EPOCH_SHAPED_6485")
-            ForensicLogger.lifecycle("AUTOMODE_PAUSED_CURRENT_EPOCH_SHAPED_6485", "mint=${mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=continue_to_strategy")
+            PipelineHealthCollector.labelInc("AUTOMODE_CAUTION_CURRENT_EPOCH_SHAPED_7858")
+            ForensicLogger.lifecycle("AUTOMODE_CAUTION_CURRENT_EPOCH_SHAPED_7858", "mint=${mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=continue_to_strategy sizeMultiplier=${modeConf?.positionSizeMultiplier ?: 1.0}")
         } catch (_: Throwable) {}
     }
 
@@ -28110,6 +28112,7 @@ if (hotExitHandledSweep) {
                                     takeProfitPct = effectiveTpPct,   // V5.2.8: Use effective (non-zero) TP
                                     stopLossPct = effectiveSlPct,     // V5.2.8: Use effective SL
                                     entryScore = treasurySignal6022.entryScore,  // V5.9.436
+                                    isPaper = ts.position.isPaperPosition,
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards of new position
@@ -31208,32 +31211,28 @@ if (hotExitHandledSweep) {
                             )
                             val v3CandidateVersion6533 = v3Fdg6533.candidateVersion7835
                             val authResult = TradeAuthorizer.authorize(
-                                mint = ts.mint, symbol = ts.symbol, score = result.score,
-                                confidence = result.confidence.toDouble(), quality = decision.finalQuality,
-                                isPaperMode = cfg.paperMode, requestedBook = executionBookForLane6494(cyclePrimaryLane),
+                                mint = ts.mint, symbol = ts.symbol, score = v3Fdg6533.effectiveEntryScore7687,
+                                confidence = v3Fdg6533.confidence, quality = v3Fdg6533.quality,
+                                isPaperMode = cfg.paperMode, requestedBook = executionBookForLane6494(v3Fdg6533.canonicalLane7835),
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
-                                isBanned = BannedTokens.isBanned(ts.mint), preResolvedSizeSol = proposedSize,
+                                isBanned = BannedTokens.isBanned(ts.mint), preResolvedSizeSol = v3Fdg6533.sizeSol,
                                 fdgDecision7835 = v3Fdg6533, tokenState7835 = ts,
                             )
                             val v3Intent6533 = authResult.executionIntent7835
-                            if (!v3Fdg6533.canExecute() || v3Intent6533 == null) {
+                            if (!authResult.isExecutable() || !v3Fdg6533.canExecute() || v3Intent6533 == null) {
                                 val explicitReason6533 = v3Fdg6533.blockReason ?: authResult.reason
                                 try {
                                     PipelineHealthCollector.labelInc("V3_EXECUTE_EXPLICIT_REJECT_6533")
                                     if (v3Fdg6533.canExecute()) PipelineHealthCollector.labelInc("V3_ALLOW_EXPLICIT_REJECT_NO_INTENT_6533")
                                     ForensicLogger.lifecycle("V3_EXECUTE_EXPLICIT_REJECT_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$cyclePrimaryLane reason=$explicitReason6533 version=$v3CandidateVersion6533")
                                 } catch (_: Throwable) {}
-                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_FDG_REJECT_6533", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
-                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, cyclePrimaryLane, "V3_FDG_REJECT_6533") } catch (_: Throwable) {}
-                                // V5.0.7768 — authorize() already published a ticket and took the
-                                // mint-version buy claim. Left held, the next pass on this mint was
-                                // refused as ONE_EXECUTABLE_BUY_PER_MINT_VERSION (13 on 5.0.7767) by
-                                // an attempt that never ran. Field Manual §12: one live owner per
-                                // trade, and a refused attempt owns nothing.
-                                try { ExecutableOpenGate.releaseAttemptNonTerminal6514(authResult.attemptId, ts.mint, cyclePrimaryLane, "V3_FDG_REJECT_7768") } catch (_: Throwable) {}
+                                // Refusal is terminal; it must not create a PAPER retry owner.
+                                try { ExecutableOpenGate.terminalizeAttempt6514(authResult.attemptId, ts.mint, cyclePrimaryLane) } catch (_: Throwable) {}
+                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_FDG_REJECT_6533",
+                                    isPaperMode = cfg.paperMode, attemptId7858 = authResult.attemptId) } catch (_: Throwable) {}
                                 return
                             }
-                            if (v3Fdg6533.sizeSol > 0.0) proposedSize = v3Fdg6533.sizeSol
+                            proposedSize = v3Intent6533.resolvedSize
                             val v3AttemptId = v3Intent6533.attemptId
                             // V5.0.7271 — CORE is the V3 trunk lane, and 7270 taught only
                             // QUALITY and BLUECHIP to decline a peg. 5.0.7270 shows CORE
@@ -31246,8 +31245,8 @@ if (hotExitHandledSweep) {
                             if (peggedCore7271) {
                                 com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped(cyclePrimaryLane.ifBlank { "CORE" }, ts.symbol)
                                 try { ExecutableOpenGate.terminalizeAttempt6514(v3AttemptId, ts.mint, cyclePrimaryLane) } catch (_: Throwable) {}
-                                try { TradeAuthorizer.releasePosition(ts.mint, "PEGGED_ASSET_7271", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
-                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, cyclePrimaryLane, "PEGGED_ASSET_7271") } catch (_: Throwable) {}
+                                try { TradeAuthorizer.releasePosition(ts.mint, "PEGGED_ASSET_7271", isPaperMode = cfg.paperMode, attemptId7858 = v3AttemptId) } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, v3Intent6533.canonicalLane, "PEGGED_ASSET_7271", candidateVersion = v3Intent6533.candidateVersion) } catch (_: Throwable) {}
                                 ErrorLogger.debug("BotService", "[V3|PEGGED] ${identity.symbol} | declined | PEGGED_ASSET_7271")
                                 return
                             }
@@ -31261,14 +31260,14 @@ if (hotExitHandledSweep) {
                                 ts = ts,
                             sizeSol = proposedSize,
                             walletSol = effectiveBalance,
-                            v3Score = result.score,
-                            v3Band = result.band,
-                            v3Confidence = result.confidence,
+                            v3Score = v3Intent6533.effectiveEntryScore7256,
+                            v3Band = v3Fdg6533.quality,
+                            v3Confidence = v3Fdg6533.confidence,
                             wallet = wallet,
                             lastSuccessfulPollMs = lastSuccessfulPollMs,
                             openPositionCount = status.openPositionCount,
                             totalExposureSol = status.totalExposureSol,
-                            finalityPrechecked = false,
+                            finalityPrechecked = true,
                             attemptId = v3AttemptId,
                         )
                         
@@ -31792,19 +31791,9 @@ if (hotExitHandledSweep) {
             null
         }
         
-        // V5.9.1372 — FDG RE-EVAL THROTTLE (doctor spec #1/#6: kill FDG_FANOUT_EXPLOSION).
-        // Root cause of FDG/intake=11.6 (>3.0 trips the invariant): the SAME
-        // watchlisted mint re-runs the full FinalDecisionGate.evaluate() on
-        // EVERY tick it re-proposes, even though (a) V3 — not FDG — is the
-        // execution authority here (FDG is comparison-logging only when
-        // v3ControlsExecution), and (b) the inputs barely move tick-to-tick.
-        // We cache the last FDG verdict per mint for a short window and reuse it
-        // instead of recomputing, UNLESS the proposed entry score moved
-        // materially (>=5 pts) — a real signal change deserves a fresh verdict.
-        // BUY-capable verdicts are NEVER cached (we always want a live re-eval on
-        // an executable candidate). This does NOT loosen any gate: the cached
-        // verdict is the SAME verdict the gate just produced, only reused briefly
-        // to avoid redundant compute. Throughput-positive, doctrine rule #3.
+        // Cache one FDG verdict per candidate, lane and evidence version.
+        // Both approvals and refusals retain the same decision identity; updated
+        // evidence creates a new evaluation and execution claims prevent duplicates.
         val fdgScoreNow: Int = try { decision.entryScore.toInt() } catch (_: Throwable) { 0 }
         val fdgCandidateVersion6653 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
         val fdgEvidenceVersion6653 = listOf(
@@ -31861,7 +31850,7 @@ if (hotExitHandledSweep) {
                 // V5.0.7362 — when this price was observed, not "now". A 0 stamp
                 // (never observed) is correctly too old to become executable.
                 evidenceTimestampMs = if (tokenMap6614.priceUsd != null)
-                    tokenMap6614.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate
+                    tokenMap6614.priceObservedAtMs7858
                 else ts.lastPriceUpdate,
             )
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "TOKEN_MAP_MARK_REFRESH_EXCEPTION", identity = identity.mint) }
@@ -31924,487 +31913,89 @@ if (hotExitHandledSweep) {
             }
         } catch (_: Throwable) {}
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3 ENGINE: PRIMARY DECISION AUTHORITY
-        // 
-        // V3 MIGRATION: V3 is now the ONLY decision maker when enabled.
-        // FDG is kept for comparison logging only.
-        // 
-        // Decision flow:
-        //   1. V3 scores the candidate (includes all penalties)
-        //   2. V3 outputs: EXECUTE_AGGRESSIVE, EXECUTE_STANDARD, EXECUTE_SMALL, WATCH, REJECT, BLOCK
-        //   3. Only V3 decision matters for execution
-        //   4. FDG result is logged for comparison tracking only
-        // ═══════════════════════════════════════════════════════════════════
-        var useV3Decision = false
-        var v3SizeSol = 0.0
-        var v3Thesis = ""
-        var v3ControlsExecution = false  // V3 is the boss when enabled
-        
-        if (cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
-            v3ControlsExecution = !cfg.v3ShadowMode  // V3 controls execution unless shadow mode
-            
-            try {
-                // Log legacy decision for comparison
-                val legacyShouldTrade = decision.shouldTrade
-                val legacyPenalty = suppressionPenalty
-                
-                val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
-                    ts = ts,
-                    walletSol = effectiveBalance,
-                    totalExposureSol = status.totalExposureSol,
-                    openPositions = status.openPositionCount,
-                    recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
-                    recentTradeCount = botBrain?.getTradeCount() ?: 0,
-                    marketRegime = modeConf?.mode?.name ?: "NEUTRAL"
-                )
-                
-                when (val result = v3Decision) {
-                    is com.lifecyclebot.v3.V3Decision.Execute -> {
-                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                        val legacyTag = if (legacyShouldTrade) "legacy:✓" else "legacy:✗"
-                        
-                        // V3 UNIFIED LOG: Shows score, confidence, band, size
-                        ErrorLogger.info("BotService", "⚡ V3 EXECUTE: ${identity.symbol} | " +
-                            "band=${result.band} | score=${result.score} | " +
-                            "conf=${result.confidence.toInt()}% | size=${result.sizeSol.fmt(4)} SOL | " +
-                            "$legacyTag $fdgTag")
-                        
-                        // Track V3 vs legacy comparison
-                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                            v3Decision = "EXECUTE",
-                            fdgWouldExecute = fdgDecision.canExecute()
-                        )
-                        
-                        // V5.9.687 — FDG is a HARD VETO on V3 EXECUTE.
-                        // Previously V3 EXECUTE was unconditional — FDG result
-                        // was logged as a tag but never blocked the trade.
-                        // Half of all winners on Moonshot + ShitCoin were killed
-                        // by V3 WATCH/REJECT overrides while FDG was green, or
-                        // entered when FDG was red and immediately hit stop loss.
-                        // Now: V3 EXECUTE only proceeds when FDG also approves.
-                        // V3 WATCH / REJECT still block regardless (V3 owns downside).
-                        if (v3ControlsExecution) {
-                            if (!fdgDecision.canExecute()) {
-                                // FDG veto — log clearly so operator can see it
-                                ErrorLogger.info("BotService", "🚫 FDG VETO on V3-EXECUTE: ${identity.symbol} | ${fdgDecision.blockReason ?: "no reason"} | conf=${fdgDecision.confidence.toInt()}%")
-                                addLog("🚫 FDG VETO: ${identity.symbol} | ${fdgDecision.blockReason ?: "fdg_block"}", mint)
-                                try {
-                                    ForensicLogger.gate(
-                                        ForensicLogger.PHASE.FDG, identity.symbol,
-                                        allow = false,
-                                        reason = "FDG_VETO_V3_EXECUTE: ${fdgDecision.blockReason ?: "no reason"}"
-                                    )
-                                } catch (_: Throwable) {}
-                                // useV3Decision stays false — no trade
-                            } else {
-                                useV3Decision = true
-                                v3SizeSol = result.sizeSol
-                                v3Thesis = "V3 score=${result.score} band=${result.band}"
-                                addLog("⚡ V3+FDG: ${identity.symbol} | ${result.band} | " +
-                                    "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
-                            }
-                        } else {
-                            // Shadow mode - log only
-                            addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band} | " +
-                                "${result.sizeSol.fmt(4)} SOL ($fdgTag)", mint)
-                        }
-                    }
-                    
-                    is com.lifecyclebot.v3.V3Decision.Watch -> {
-                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                        
-                        ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
-                            "score=${result.score} | conf=${result.confidence} | $fdgTag")
-                        
-                        // Track comparison
-                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                            v3Decision = "WATCH",
-                            fdgWouldExecute = fdgDecision.canExecute()
-                        )
-                        
-                        // ═════════════════════════════════════════════════════
-                        // V5.9.812 — OPERATOR DOCTRINE "help, don't hinder"
-                        // ─────────────────────────────────────────────────────
-                        // V3 WATCH is NOT a stupid-decision veto — it's V3
-                        // saying "score is below my EXECUTE floor but above
-                        // watchScoreMin". Previously this hard-blocked the
-                        // trade even when FDG approved.
-                        //
-                        // V5.9.687 comment was explicit: "Half of all winners
-                        // on Moonshot + ShitCoin were killed by V3 WATCH/
-                        // REJECT overrides while FDG was green."
-                        //
-                        // NEW BEHAVIOR: If FDG approves AND V3 didn't hit a
-                        // stupid-decision gate (BlockFatal), let FDG decide
-                        // sizing with a bounded shrink multiplier. V3's
-                        // concern reduces size to a probe — it doesn't
-                        // veto. The stupid-decision gates (FDG HARD blocks,
-                        // V3 BlockFatal) still kill trades.
-                        //
-                        // Shrink: 0.5× FDG-suggested size (probe tier).
-                        // Bridge fallback still runs in paper as before.
-                        // ═════════════════════════════════════════════════════
-                        if (v3ControlsExecution) {
-                            if (fdgDecision.canExecute() && fdgDecision.sizeSol > 0.0) {
-                                val rawProbeSize = (fdgDecision.sizeSol * 0.5).coerceAtLeast(0.003)
-                                val probeSize = if (!cfg.paperMode) {
-                                    com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
-                                        rawProbeSize,
-                                        effectiveBalance,
-                                        isPaperMode = false,
-                                    )
-                                } else rawProbeSize
-                                useV3Decision = true
-                                v3SizeSol = probeSize
-                                v3Thesis = "V3-WATCH-COMPOUND-FLOOR score=${result.score} conf=${result.confidence} (FDG=green, V3 shrunk then floor-aware)"
-                                ErrorLogger.info("BotService", "⚡ V3 WATCH→COMPOUND: ${identity.symbol} | size=${probeSize.fmt(4)} SOL raw=${rawProbeSize.fmt(4)} (FDG approved)")
-                                addLog("⚡ V3 WATCH→COMPOUND: ${identity.symbol} | score=${result.score} | ${probeSize.fmt(4)} SOL", mint)
-                            } else {
-                                addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} | FDG also declined (no trade)", mint)
-                                useV3Decision = false
-                            }
-                        }
-                    }
-                    
-                    is com.lifecyclebot.v3.V3Decision.Rejected -> {
-                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-
-                        ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | " +
-                            "${result.reason} | $fdgTag")
-                        RejectionTelemetry.record("V3", result.reason)
-
-                        // Track comparison
-                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                            v3Decision = "REJECT",
-                            fdgWouldExecute = fdgDecision.canExecute()
-                        )
-
-                        // ═════════════════════════════════════════════════════
-                        // V5.0.3703 — terminal V3 reject cannot become an FDG probe.
-                        // The previous SCORE_TOO_LOW probe path directly produced
-                        // the operator dump contradiction: REJECTED_FATAL_V3/SCORE_TOO_LOW
-                        // followed by FDG_ALLOW/EXEC_GATE_ALLOW. If V3 controls
-                        // execution, a reject is a reject. Paper can still learn from
-                        // accepted probes; it must not execute rows the gate labelled
-                        // terminal.
-                        // ═════════════════════════════════════════════════════
-                        val isTerminalV3Reject = result.reason.contains("SCORE_TOO_LOW", ignoreCase = true)
-                            || result.reason.contains("TRUE_ZERO_LIQUIDITY", ignoreCase = true)
-                            || result.reason.contains("LOW_LIQUIDITY", ignoreCase = true)
-                            || result.reason.contains("INELIGIBLE", ignoreCase = true)
-                            || result.reason.contains("TOO_OLD", ignoreCase = true)
-                            || result.reason.contains("NO_PAIR", ignoreCase = true)
-                        if (v3ControlsExecution) {
-                            addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                            useV3Decision = false
-                            try { ForensicLogger.lifecycle("V3_REJECT_EXEC_SUPPRESSED", "mint=${identity.mint.take(10)} symbol=${identity.symbol} reason=${result.reason} fdgCan=${fdgDecision.canExecute()}") } catch (_: Throwable) {}
-                        }
-
-                        // ═════════════════════════════════════════════════════
-                        // V5.9.346 — MEME UNIFIED SCORER BRIDGE (paper-only fallback)
-                        // The alts trader's 79% WR architecture: TA pre-filter
-                        // + synthetic floors + 60/40 blend bypassing FDG. When
-                        // V3 rejects in paper mode, the bridge gets a second
-                        // look. If it says shouldEnter we override V3 with
-                        // a small position. Live mode still defers to V3.
-                        // ═════════════════════════════════════════════════════
-                        val bridgeAllowed = !useV3Decision && !isTerminalV3Reject && cfg.paperMode
-                        if (bridgeAllowed) {
-                            try {
-                                val verdict = com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts)
-                                if (verdict.shouldEnter) {
-                                    // V5.9.687 — Bridge also requires FDG approval.
-                                    // Bridge was overriding both V3 AND FDG,
-                                    // entering on rugged / edge-vetoed tokens.
-                                    if (!fdgDecision.canExecute()) {
-                                        ErrorLogger.info("BotService", "🌉 BRIDGE FDG VETO: ${identity.symbol} | ${fdgDecision.blockReason ?: "fdg_block"}")
-                                    } else {
-                                    // Tiny bridge size — bridge entries are
-                                    // bootstrap learning trades; the meme
-                                    // trader's adaptive sizing kicks in once
-                                    // the layer-accuracy data accumulates.
-                                    val bridgeSize = if (cfg.paperMode) 0.05 else 0.01
-                                    useV3Decision = true
-                                    v3SizeSol = bridgeSize
-                                    v3Thesis  = "MemeBridge tech=${verdict.techScore} v3=${verdict.v3Score} blend=${verdict.blendedScore} mult=${"%.2f".format(verdict.trustMultiplier)} mode=${if (cfg.paperMode) "paper" else "live-learning"}"
-                                    ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3-REJECT: ${identity.symbol} | $v3Thesis")
-                                    addLog("🌉 Bridge BUY: ${identity.symbol} | tech=${verdict.techScore} blend=${verdict.blendedScore} | ${bridgeSize} SOL", mint)
-                                    }
-                                } else {
-                                    ErrorLogger.debug("BotService", "🌉 Bridge declined ${identity.symbol}: ${verdict.rejectReason}")
-                                }
-                            } catch (be: Exception) {
-                                ErrorLogger.debug("BotService", "🌉 Bridge error on ${identity.symbol}: ${be.message}")
-                            }
-                        }
-                    }
-                    
-                    is com.lifecyclebot.v3.V3Decision.Blocked -> {
-                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                        
-                        ErrorLogger.info("BotService", "⚡ V3 BLOCK (FATAL): ${identity.symbol} | " +
-                            "${result.reason} | $fdgTag")
-                        
-                        // Track comparison
-                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                            v3Decision = "BLOCK",
-                            fdgWouldExecute = fdgDecision.canExecute()
-                        )
-                        
-                        // V3 BLOCK = FATAL, DO NOT EXECUTE
-                        if (v3ControlsExecution) {
-                            addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${result.reason}", mint)
-                            return  // V3 says BLOCK = exit
-                        }
-                    }
-                    
-                    else -> {
-                        // Error or NotReady - fall back to FDG only if V3 is not controlling
-                        ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - ${if (v3ControlsExecution) "SKIPPING" else "using FDG"}")
-                        if (v3ControlsExecution) {
-                            // V3 is supposed to control but failed - don't trade on uncertainty
-                            return
-                        }
-                    }
-                }
-                
-            } catch (v3e: Exception) {
-                ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
-                if (v3ControlsExecution) {
-                    // V3 controls but errored - don't fall back to legacy
-                    return
-                }
-            }
-        }
-        
-        // Resolve the immutable size before authorization. No authorization
-        // may own a token lock from a SIZE_PENDING safety-only verdict.
-        val finalSizeForAuth6649 = if (useV3Decision && v3SizeSol > 0) {
-            v3SizeSol
-        } else {
-            fdgDecision.sizeSol
-        }
-        // V5.0.7853 — no post-verdict size shaping. AutoMode quiet-hour
-        // (PAUSED 0.35x / DEFENSIVE 0.5x) and graduated-initial cuts used to
-        // rescale FDG's size here; the seal then took the minimum and a legal
-        // ticket was born below the route minimum. FDG's size is the one size.
-        val isGraduatedForAuth6649 = false
-        if (!useV3Decision && (modeConf?.positionSizeMultiplier ?: 1.0) != 1.0) {
-            try { PipelineHealthCollector.labelInc("AUTOMODE_SIZE_ADVISORY_POST_FDG_7853_" + (modeConf?.mode?.name ?: "NONE")) } catch (_: Throwable) {}
-        }
+        // V5.0.7858 — FDG has consumed the candidate's strategy and risk evidence.
+        // A second V3 evaluation here used to return WATCH/BLOCK or a different
+        // size after FDG_ALLOW. Carry that exact decision to the authorizer.
         val actualInitialSizeForAuth6649 = fdgDecision.sizeSol
-
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0: TRADE AUTHORIZER - Check BEFORE any execution
-        // This is the unified gate that prevents post-execution gating drift
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0.7467 P0-4 — carry the exact primary/CORE FDG intent into
-        // TradeAuthorizer. The old path generated a fresh attempt inside
-        // authorize(), while the already-sealed FDG intent was looked up later.
-        // That split BUY_INTENT/OWNER from MARK/SIZE/TICKET and made CORE look
-        // SIZING_CHOKED even when a valid intent existed.
         val authResult = TradeAuthorizer.authorize(
             mint = mint,
             symbol = identity.symbol,
-            score = ts.lastV3Score ?: 0,
+            score = fdgDecision.effectiveEntryScore7687,
             confidence = fdgDecision.confidence,
             quality = fdgDecision.quality,
             isPaperMode = cfg.paperMode,
-            requestedBook = executionBookForLane6494(cyclePrimaryLane),
+            requestedBook = executionBookForLane6494(fdgDecision.canonicalLane7835),
             rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
             liquidity = ts.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(mint),
             preResolvedSizeSol = actualInitialSizeForAuth6649,
             fdgDecision7835 = fdgDecision, tokenState7835 = ts,
         )
-        
-        ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
-
         val specialistIntent6614 = authResult.executionIntent7835
-        if (authResult.isExecutable() && specialistIntent6614 == null) return
-
-        // If TradeAuthorizer says SHADOW_ONLY, track but don't execute
+        // If TradeAuthorizer says SHADOW_ONLY, track but don't execute.
         if (authResult.isShadowOnly()) {
-            ErrorLogger.info("BotService", "[V3|TRADE_AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
-            // Track as shadow avoid for learning
             com.lifecyclebot.v3.learning.ShadowLearningEngine.recordShadowAvoid(
-                mint = mint,
-                symbol = identity.symbol,
-                price = ts.ref,
-                aiConfidence = fdgDecision.confidence.toInt(),
-                setupQuality = fdgDecision.quality,
+                mint = mint, symbol = identity.symbol, price = ts.ref,
+                aiConfidence = fdgDecision.confidence.toInt(), setupQuality = fdgDecision.quality,
                 regime = botBrain?.currentRegime ?: "UNKNOWN",
                 mode = if (cfg.paperMode) "PAPER" else "LIVE",
-                blockReason = "TRADE_AUTH_${authResult.reason}"
+                blockReason = "TRADE_AUTH_${authResult.reason}",
             )
-            return // Skip execution entirely
         }
-        
-        // If TradeAuthorizer says REJECT, skip entirely
         if (!authResult.isExecutable()) {
-            ErrorLogger.debug("BotService", "[V3|TRADE_AUTH] ${identity.symbol} | REJECTED | ${authResult.reason}")
-            return // Skip execution entirely
+            ErrorLogger.info("BotService", "MEME_SPINE AUTH ${identity.symbol} reason=${authResult.reason}")
+            return
         }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // EXECUTION PATH: Use V3 decision if active, otherwise FDG
-        // ═══════════════════════════════════════════════════════════════════
-        val shouldExecute = useV3Decision || fdgDecision.canExecute()
-        
-        if (shouldExecute) {
-            // ═══════════════════════════════════════════════════════════════════
-            // RECORD PROPOSAL: Track that we proposed (for dedupe)
-            // Moved here from before FDG to prevent self-blocking
-            // ═══════════════════════════════════════════════════════════════════
-            TradeLifecycle.recordProposal(identity.mint)
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // COMPUTE FINAL SIZE: Use V3 size if available, otherwise FDG size
-            // ═══════════════════════════════════════════════════════════════════
-            val finalSize = finalSizeForAuth6649
-            val isGraduated = isGraduatedForAuth6649
-            val actualInitialSize = specialistIntent6614?.resolvedSize ?: return
-            
-            // Determine approval class and confidence
-            val approvalClass = fdgDecision.approvalClass
-
-            val quality = if (useV3Decision) "V3" else fdgDecision.quality
-            val confidence = if (useV3Decision) 85.0 else fdgDecision.confidence
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // TRADE IDENTITY: Mark as approved with ACTUAL initial size
-            // ═══════════════════════════════════════════════════════════════════
-            identity.approved(actualInitialSize, quality, confidence)
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // LIFECYCLE: APPROVED → SIZED
-            // ═══════════════════════════════════════════════════════════════════
-            TradeLifecycle.fdgApproved(
-                identity.mint, 
-                quality, 
-                confidence,
-                approvalClass.name
-            )
-            TradeLifecycle.recordApproval(identity.mint)  // Track for dedupe
-            TradeLifecycle.sized(identity.mint, actualInitialSize, "medium")
-            
-            // Log approval (V3 or FDG)
-            if (useV3Decision) {
-                addLog("⚡ V3 APPROVED: ${identity.symbol} | size=${actualInitialSize.fmt(4)} SOL | thesis: $v3Thesis", mint)
-                ErrorLogger.info("BotService", "⚡ V3 APPROVED: ${identity.symbol} | " +
-                    "size=${actualInitialSize.fmt(4)} SOL")
-            } else {
-                FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
-                ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
-                    "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
-                    "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
-                    "size=${actualInitialSize.fmt(4)} SOL" +
-                    if (isGraduated) " (grad: target=${finalSize.fmt(4)})" else "")
-            }
-            
-            // V5.9.173 — paper mode bypasses the pause guard. Learning
-            // must never stop in paper. Live stays gated for safety.
-            val pauseBlocks = !cfg.paperMode && cbState.isPaused
-            if (!cbState.isHalted && !pauseBlocks) {
-                ErrorLogger.info("BotService", "🧬 MEME_SPINE EXECUTOR_ROUTE ${identity.symbol} | paper=${cfg.paperMode} | v3=$useV3Decision | size=${actualInitialSize.fmt(4)} | wallet=${effectiveBalance.fmt(4)} | auto=${cfg.autoTrade}")
-                // V5.9.683 — wire EXEC forensic counter so PipelineHealth EXEC tile is non-zero.
-                // Was always 0 because ForensicLogger.exec() existed but was never called.
-                try {
-                    ForensicLogger.exec(
-                        action = if (cfg.paperMode) "PAPER_BUY" else "LIVE_BUY",
-                        symbol = identity.symbol,
-                        fields = "size=${actualInitialSize.fmt(4)} v3=$useV3Decision conf=${if (useV3Decision) 0 else fdgDecision.confidence.toInt()}"
-                    )
-                } catch (_: Throwable) {}
-                executor.maybeActWithDecision(
-                    ts                 = ts,
-                    decision           = decision,
-                    walletSol          = effectiveBalance,
-                    wallet             = wallet,
-                    lastPollMs         = lastSuccessfulPollMs,
-                    openPositionCount  = status.openPositionCount,
-                    totalExposureSol   = status.totalExposureSol,
-                    modeConfig         = null,  // Don't pass mode config - already applied above
-                    fdgApprovedSize    = actualInitialSize,  // Use final computed size
-                    walletTotalTrades  = try {
-                        com.lifecyclebot.engine.BotService.walletManager
-                            ?.state?.value?.totalTrades ?: 0
-                    } catch (_: Exception) { 0 },
-                    tradeIdentity      = identity,  // Pass canonical identity
-                    fdgApprovalClass   = approvalClass,  // Pass approval class for learning
-                    // V5.0.7771 — preserve the exact executable ticket already
-                    // issued by TradeAuthorizer/ExecutableOpenGate.
-                    finalityPrechecked = true,
-                    attemptId          = authResult.attemptId,
-                )
-                
-                // Record V3 position opened
-                if (useV3Decision) {
-                    com.lifecyclebot.v3.V3EngineManager.setCooldown(identity.mint, 60_000L)
-                }
-            }
-        } else {
-            // ═══════════════════════════════════════════════════════════════════
-            // RECORD PROPOSAL: Track that we proposed (for dedupe), even if blocked
-            // This prevents spam re-proposals of the same token
-            // ═══════════════════════════════════════════════════════════════════
-            TradeLifecycle.recordProposal(identity.mint)
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // TRADE IDENTITY: Mark as blocked
-            // ═══════════════════════════════════════════════════════════════════
-            identity.blocked(
-                fdgDecision.blockReason ?: "UNKNOWN",
-                fdgDecision.blockLevel?.name ?: "UNKNOWN",
-                fdgDecision.quality,
-                fdgDecision.confidence
-            )
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // LIFECYCLE: FDG_BLOCKED (using identity for consistency)
-            // ═══════════════════════════════════════════════════════════════════
-            TradeLifecycle.fdgBlocked(
-                identity.mint, 
-                fdgDecision.blockReason ?: "UNKNOWN",
-                fdgDecision.blockLevel?.name ?: "UNKNOWN"
-            )
-            
-            FinalDecisionGate.logBlockedTrade(fdgDecision) { addLog(it, mint) }
-            
-            ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${identity.symbol} | " +
-                "reason=${fdgDecision.blockReason} | level=${fdgDecision.blockLevel}")
-            RejectionTelemetry.record("FDG", fdgDecision.blockReason ?: "UNKNOWN")
-            
-            // Record this for learning (simulation only, no execution)
-            executor.brain?.recordBlockedTrade(
-                mint = identity.mint,
-                phase = identity.phase,
-                source = identity.source,
-                blockReason = fdgDecision.blockReason ?: "UNKNOWN",
-                quality = fdgDecision.quality,
-                confidence = fdgDecision.confidence,
-            )
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // PAPER MODE LEARNING: Shadow track blocked trades
-            // Track what WOULD have happened if we traded this opportunity
-            // This enables learning whether the FDG is too strict or appropriate
-            // ═══════════════════════════════════════════════════════════════════
-            if (cfg.paperMode) {
-                ShadowLearningEngine.onFdgBlockedTrade(
-                    mint = identity.mint,
-                    symbol = identity.symbol,
-                    blockReason = fdgDecision.blockReason ?: "UNKNOWN",
-                    blockLevel = fdgDecision.blockLevel?.name ?: "UNKNOWN",
-                    currentPrice = ts.ref,
-                    proposedSizeSol = proposedSize,
-                    quality = fdgDecision.quality,
-                    confidence = fdgDecision.confidence,
-                    phase = identity.phase,
-                )
-            }
+        if (specialistIntent6614 == null) {
+            val missingReason7858 = "AUTH_EXECUTABLE_INTENT_MISSING_7858"
+            ExecutableOpenGate.terminalizeAttempt6514(authResult.attemptId, mint, fdgDecision.canonicalLane7835)
+            TradeAuthorizer.releasePosition(mint, missingReason7858,
+                executionBookForLane6494(fdgDecision.canonicalLane7835), isPaperMode = cfg.paperMode,
+                attemptId7858 = authResult.attemptId)
+            LaneExecutionCoordinator.releaseIfPrimary(mint, fdgDecision.canonicalLane7835,
+                missingReason7858, candidateVersion = fdgDecision.candidateVersion7835)
+            try {
+                ToolkitSignalSheet.recordDeskStage(fdgDecision.canonicalLane7835, "AUTH_REJECT", authResult.attemptId)
+                PipelineHealthCollector.labelInc(missingReason7858)
+            } catch (_: Throwable) {}
+            return
         }
+        // A runtime halt is an explicit safety cancellation, not a strategy rewrite.
+        if (cbState.isHalted || (!cfg.paperMode && cbState.isPaused)) {
+            val haltReason7858 = if (cbState.isHalted) "RUNTIME_HALTED_7858" else "RUNTIME_PAUSED_7858"
+            ExecutableOpenGate.terminalizeAttempt6514(authResult.attemptId, mint, specialistIntent6614.canonicalLane)
+            TradeAuthorizer.releasePosition(mint, haltReason7858,
+                executionBookForLane6494(specialistIntent6614.canonicalLane), isPaperMode = cfg.paperMode,
+                attemptId7858 = authResult.attemptId)
+            LaneExecutionCoordinator.releaseIfPrimary(mint, specialistIntent6614.canonicalLane,
+                haltReason7858, candidateVersion = specialistIntent6614.candidateVersion)
+            ToolkitSignalSheet.recordDeskStage(specialistIntent6614.canonicalLane, "AUTH_REJECT", authResult.attemptId)
+            PipelineHealthCollector.labelInc("FDG_ALLOW_EXPLICIT_CANCEL_7221_$haltReason7858")
+            return
+        }
+        val actualInitialSize = specialistIntent6614.resolvedSize
+        identity.approved(actualInitialSize, fdgDecision.quality, fdgDecision.confidence)
+        TradeLifecycle.recordProposal(identity.mint)
+        TradeLifecycle.fdgApproved(identity.mint, fdgDecision.quality, fdgDecision.confidence, fdgDecision.approvalClass.name)
+        TradeLifecycle.recordApproval(identity.mint)
+        TradeLifecycle.sized(identity.mint, actualInitialSize, "medium")
+        FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
+        try {
+            ForensicLogger.exec(
+                action = if (cfg.paperMode) "PAPER_BUY" else "LIVE_BUY",
+                symbol = identity.symbol,
+                fields = "size=$actualInitialSize lane=${specialistIntent6614.canonicalLane} attempt=${authResult.attemptId}",
+            )
+        } catch (_: Throwable) {}
+        executor.maybeActWithDecision(
+            ts = ts, decision = decision, walletSol = effectiveBalance, wallet = wallet,
+            lastPollMs = lastSuccessfulPollMs, openPositionCount = status.openPositionCount,
+            totalExposureSol = status.totalExposureSol, modeConfig = null,
+            fdgApprovedSize = actualInitialSize,
+            walletTotalTrades = try { BotService.walletManager?.state?.value?.totalTrades ?: 0 } catch (_: Exception) { 0 },
+            tradeIdentity = identity, fdgApprovalClass = fdgDecision.approvalClass,
+            finalityPrechecked = true, attemptId = authResult.attemptId,
+        )
     } else if (ts.position.isOpen || (ts.position.qtyToken > 0.0 && ts.position.pendingVerify)) {
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.290 FIX: CRITICAL — exit management fires for ANY position
@@ -32640,7 +32231,7 @@ if (hotExitHandledSweep) {
         // checkExit would have fired immediately. Source of truth is
         // CashGenerationAI.activePositions; the flag is now only a
         // supplementary hint.
-        val treasuryOwns = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint) != null
+        val treasuryOwns = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint, isPaper = ts.position.isPaperPosition) != null
         if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY" || treasuryOwns) {
             // V5.2.12: Debug - entering Treasury exit check
             ErrorLogger.debug("BotService", "💰 [TREASURY ENTER] ${ts.symbol} | isTreasury=${ts.position.isTreasuryPosition} | mode=${ts.position.tradingMode}")
@@ -32653,7 +32244,7 @@ if (hotExitHandledSweep) {
                 "entryPrice=${ts.position.entryPrice} | USING=$currentPrice")
             
             // V5.2: Debug - verify checkExit is being called
-            var treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
+            var treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint, isPaper = ts.position.isPaperPosition)
             if (treasuryPos == null && ts.position.isOpen) {
                 // V5.5 RECOVERY: CashGenerationAI's in-memory map is empty after restart.
                 // Re-register the position from persisted ts.position data so checkExit works.
@@ -32668,9 +32259,10 @@ if (hotExitHandledSweep) {
                     entryPrice = recEntryPrice,
                     positionSol = ts.position.costSol,
                     takeProfitPct = recTpPct,
-                    stopLossPct = recSlPct
+                    stopLossPct = recSlPct,
+                    isPaper = ts.position.isPaperPosition,
                 )
-                treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
+                treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint, isPaper = ts.position.isPaperPosition)
                 ErrorLogger.warn("BotService",
                     "💰 [TREASURY RECOVERY] ${ts.symbol} | Re-registered in CashGenerationAI | " +
                     "entry=${ts.position.entryPrice} tp=$recTpPct% sl=$recSlPct%")
@@ -32776,7 +32368,7 @@ if (hotExitHandledSweep) {
                 }
             }
             
-            val exitSignal = com.lifecyclebot.v3.scoring.CashGenerationAI.checkExit(ts.mint, currentPrice)
+            val exitSignal = com.lifecyclebot.v3.scoring.CashGenerationAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
             
             if (exitSignal != com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD) {
                 ErrorLogger.info("BotService", "💰 [TREASURY EXIT] ${ts.symbol} | " +
@@ -32938,7 +32530,7 @@ if (hotExitHandledSweep) {
                     "💩 [SHITCOIN RECOVERY] ${ts.symbol} | Re-registered | " +
                     "entry=${ts.position.entryPrice} tp=${recTp.toInt()}% sl=${recSl.toInt()}% peak=+${scRecoveredPeak.toInt()}%")
             }
-            val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
+            val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "ShitCoin:${exitSignal.name}") } catch (_: Exception) {}
 
@@ -32964,8 +32556,8 @@ if (hotExitHandledSweep) {
                         walletBalance = effectiveBalance,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_SHITCOIN") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25) // V5.9.705
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint, isPaper = ts.position.isPaperPosition)
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 SHITCOIN PARTIAL: ${ts.symbol} | sold 25%, riding 75%", ts.mint)
                     return
@@ -33078,7 +32670,7 @@ if (hotExitHandledSweep) {
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint)) {
             val currentPrice = resolveLivePrice(ts)
-            val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice)
+            val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Manipulated:${exitSignal.name}") } catch (_: Exception) {}
             if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
@@ -33092,7 +32684,7 @@ if (hotExitHandledSweep) {
                         walletBalance = effectiveBalance,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MANIP") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
+                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                  // V5.9.705
                     addLog("💰 MANIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
@@ -33222,7 +32814,7 @@ if (hotExitHandledSweep) {
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MOONSHOT") } catch (_: Throwable) {}; return }
                     // onPartialSell advances rung/firstTake only after canonical receipt.
-                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct) // V5.9.705
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
                     return
@@ -33307,7 +32899,8 @@ if (hotExitHandledSweep) {
             }
             
             val exitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.checkExit(
-                ts.mint, currentPrice, currentMcap
+                ts.mint, currentPrice, currentMcap,
+                isPaper = ts.position.isPaperPosition,
             )
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Quality:${exitSignal.name}") } catch (_: Exception) {}
@@ -33333,7 +32926,7 @@ if (hotExitHandledSweep) {
                         walletBalance = effectiveBalance,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_QUALITY") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.QualityTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("💰 QUALITY PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
@@ -33440,7 +33033,7 @@ if (hotExitHandledSweep) {
             ts.position.tradingMode.uppercase() in setOf("BLUE_CHIP", "BLUECHIP")) {  // V5.0.7389 — lane stamps BLUECHIP
             val currentPrice = resolveLivePrice(ts)
             
-            val exitSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.checkExit(ts.mint, currentPrice)
+            val exitSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "BlueChip:${exitSignal.name}") } catch (_: Exception) {}
             
@@ -33465,7 +33058,7 @@ if (hotExitHandledSweep) {
                         walletBalance = effectiveBalance,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_BLUECHIP") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 BLUECHIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
@@ -34460,7 +34053,7 @@ if (hotExitHandledSweep) {
 
             // ── ShitCoinTraderAI delegation ─────────────────────────────
             if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint)) {
-                val sig = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, price)
+                val sig = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, price, isPaper = ts.position.isPaperPosition)
                 if (sig != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
                     ErrorLogger.warn("BotService",
                         "🛡️ [FALLBACK_EXIT][SHITCOIN] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
@@ -34471,8 +34064,8 @@ if (hotExitHandledSweep) {
                             wallet = wallet, walletBalance = effectiveBalance,
                         )
                         if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_SHITCOIN") } catch (_: Throwable) {}; return }
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25) // V5.9.705
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint, isPaper = ts.position.isPaperPosition)
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     } else {
                         val fbScResult = executor.requestSell(
@@ -34492,7 +34085,7 @@ if (hotExitHandledSweep) {
 
             // ── MoonshotTraderAI delegation ─────────────────────────────
             if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint)) {
-                val sig = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, price)
+                val sig = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, price, isPaper = ts.position.isPaperPosition)
                 if (sig != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD) {
                     ErrorLogger.warn("BotService",
                         "🛡️ [FALLBACK_EXIT][MOONSHOT] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
@@ -34504,7 +34097,7 @@ if (hotExitHandledSweep) {
                             wallet = wallet, walletBalance = effectiveBalance,
                         )
                         if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_MOONSHOT") } catch (_: Throwable) {}; return }
-                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct) // V5.9.705
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     } else {
                         val fbMsResult = executor.requestSell(

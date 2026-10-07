@@ -1337,7 +1337,10 @@ object FinalDecisionGate {
         val laneConsensusScore6025 = laneScore.coerceIn(0.0, 100.0)
         val policyAuthority6025 = try { UnifiedPolicyHead.currentAuthority(laneName) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
         val metaCogMult6025 = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(laneName) } catch (_: Throwable) { 1.0 }
-        val cleanStats6025 = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+        val liveMode6025 = !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val cleanStats6025 = try {
+            TradeHistoryStore.getCleanStatsSnapshot4517(mode = if (liveMode6025) "LIVE" else "PAPER")
+        } catch (_: Throwable) { null }
         val cleanPerfSupportsFluid6025 = cleanStats6025 == null || cleanStats6025.totalTrades < 5 ||
             cleanStats6025.totalPnlSol >= 0.0 || cleanStats6025.profitFactor >= 1.0 || cleanStats6025.winRate >= 35.0
         val laneScoreDelta6025 = laneConsensusScore6025 - rawCandidateGateScore6025
@@ -1380,17 +1383,17 @@ object FinalDecisionGate {
         // V5.0.7706 — the learning-deficit dampers below read live closes only
         // while the runtime is live; the blended journal is paper-dominated
         // (see TradeHistoryStore.liveDecisive7706).
-        val liveDecisive7706 = if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) try {
+        val liveDecisive7706 = if (liveMode6025) try {
             TradeHistoryStore.liveDecisive7706()
-        } catch (_: Throwable) { null } else null
-        val canonicalLearning = if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() || liveDecisive7706 != null) null else try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        } catch (_: Throwable) { TradeHistoryStore.ModeDecisive7706(0, 0, 0) } else null
+        val canonicalLearning = if (liveMode6025) null else try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
         val canonicalWins7706 = liveDecisive7706?.wins ?: canonicalLearning?.totalWins ?: 0
         val canonicalDecisive = canonicalWins7706 + (liveDecisive7706?.losses ?: canonicalLearning?.totalLosses ?: 0)
         val canonicalWr = if (canonicalDecisive > 0)
             canonicalWins7706.toDouble() * 100.0 / canonicalDecisive.toDouble()
         else 50.0
         val canonicalRollingWr = try {
-            if (liveDecisive7706 != null) TradeHistoryStore.rollingWinRatePctLive7706(50) else TradeHistoryStore.rollingWinRatePct(50)
+            if (liveMode6025) TradeHistoryStore.rollingWinRatePctLive7706(50) else TradeHistoryStore.rollingWinRatePct(50)
         } catch (_: Throwable) { -1.0 }
         val canonicalTargetWr = try { FreeRangeMode.phaseTargetWr(canonicalDecisive) } catch (_: Throwable) { 0.0 }
         val deepLearningDeficit = !com.lifecyclebot.engine.WrRecoveryPartial.isRunnerLaneExempt7693(specialistLane) &&

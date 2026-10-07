@@ -1584,7 +1584,8 @@ object PipelineHealthCollector {
             try {
                 val c = com.lifecyclebot.engine.truth.RootCauseClassifier6471.classify()
                 if (c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.ECONOMIC_INTEGRITY ||
-                    c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.EXECUTION_FINALITY) {
+                    c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.EXECUTION_FINALITY ||
+                    c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.ENTRY_FINALITY) {
                     rootCauses.add(0, "${c.tier.name}/${c.label} (n=${c.supportingCount})".take(160))
                 }
             } catch (_: Throwable) {}

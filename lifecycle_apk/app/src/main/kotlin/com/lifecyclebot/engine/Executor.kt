@@ -4176,7 +4176,7 @@ class Executor(
                 // NOT suppress the first real row. Instead, allow exactly one
                 // terminal journal row per fresh closeId, then suppress later rows
                 // for that same mint-close finality regardless of lane/sig drift.
-                val existingCloseId4561 = try { com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint) } catch (_: Throwable) { null }
+                val existingCloseId4561 = try { com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint, mode = if (ts.position.isPaperPosition) "PAPER" else "LIVE") } catch (_: Throwable) { null }
                 if (!existingCloseId4561.isNullOrBlank() && !terminalSellJournaledCloseIds4561.add(existingCloseId4561)) {
                     try {
                         ForensicLogger.lifecycle(
@@ -12212,34 +12212,49 @@ class Executor(
             } catch (_: Throwable) {}
         }
         
+        val exactTicket7858 = attemptId.takeIf { it.isNotBlank() }
+            ?.let { ExecutableOpenGate.ticketForAttempt(it) }
+            ?.takeIf { it.mint == ts.mint && it.mode == (if (isPaperRT()) "PAPER" else "LIVE") &&
+                it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() }
+        if (finalityPrechecked && !ts.position.isOpen && exactTicket7858 == null) {
+            // The expired/missing attempt owns no authority to cancel a newer one.
+            ExecutableOpenGate.terminalizeAttempt6514(attemptId, ts.mint, "")
+            for (paperMode7858 in listOf(false, true)) {
+                TradeAuthorizer.releasePosition(ts.mint, "EXECUTOR_EXACT_TICKET_MISSING_7858",
+                    isPaperMode = paperMode7858, attemptId7858 = attemptId)
+            }
+            try {
+                PipelineHealthCollector.labelInc("EXECUTOR_EXACT_TICKET_MISSING_7858")
+                ForensicLogger.lifecycle("FDG_ALLOW_EXPLICIT_CANCEL_7858",
+                    "mint=${ts.mint} attempt=$attemptId reason=EXECUTOR_EXACT_TICKET_MISSING_7858")
+            } catch (_: Throwable) {}
+            return
+        }
+        fun cancelEntry7858(reason: String) {
+            val ticket = exactTicket7858 ?: return
+            ExecutableOpenGate.terminalizeAttempt6514(ticket.attemptId, ticket.mint, ticket.canonicalLane)
+            TradeAuthorizer.releasePosition(ticket.mint, reason, isPaperMode = ticket.mode == "PAPER",
+                attemptId7858 = ticket.attemptId)
+            LaneExecutionCoordinator.releaseIfPrimary(ticket.mint, ticket.canonicalLane,
+                reason, candidateVersion = ticket.candidateVersion)
+            try {
+                ToolkitSignalSheet.recordDeskStage(ticket.canonicalLane, "AUTH_REJECT", ticket.attemptId)
+                ForensicLogger.lifecycle("FDG_ALLOW_EXPLICIT_CANCEL_7858",
+                    "mint=${ticket.mint} attempt=${ticket.attemptId} lane=${ticket.canonicalLane} reason=$reason")
+            } catch (_: Throwable) {}
+        }
         val cbState = security.getCircuitBreakerState()
-        if (cbState.isHalted) {
+        if (cbState.isHalted && !ts.position.isOpen) {
+            cancelEntry7858("EXECUTOR_HALTED")
             onLog("🛑 Halted: ${cbState.haltReason}", identity.mint)
             return
         }
 
-        // ── V5.9.893 — restore checkDataFreshness on maybeActWithDecision path ──
-        // The OLDER maybeAct() function (line 4762) calls
-        // security.checkDataFreshness(lastPollMs) and blocks trades if the
-        // last successful market poll is >60s stale. maybeActWithDecision()
-        // was added later (the V3-decision-routed path) and accepts
-        // lastPollMs in its signature — but the freshness check was NEVER
-        // wired through. Two BotService callers (L13650, L14951) pass
-        // lastPollMs correctly, expecting the gate to fire, but the gate
-        // was silently absent.
-        //
-        // Net effect: data-stale (RPC down, network drop, scanner stuck)
-        // BUYS could go through on the modern path even though the
-        // SecurityGuard had explicitly marked the data as untrustworthy.
-        // Classic memory lesson #3.8: when a function gets a sibling, the
-        // safety checks don't auto-migrate.
-        //
-        // This commit restores the original semantic. Block is a soft
-        // return (no buy / no sell action) — matches maybeAct behavior
-        // exactly. No new veto; this is RESTORING an existing veto that
-        // was silently dropped.
+        // Entry data freshness never suppresses protective exit dispatch.
+        // Additional exposure below still requires fresh data and an active circuit.
         val freshness = security.checkDataFreshness(lastPollMs)
-        if (freshness is GuardResult.Block) {
+        if (freshness is GuardResult.Block && !ts.position.isOpen) {
+            cancelEntry7858("EXECUTOR_DATA_STALE:${freshness.reason}")
             onLog("⚠ ${freshness.reason}", identity.mint)
             return
         }
@@ -12291,7 +12306,7 @@ class Executor(
                     isPaperMode = isPaperRT(),
                 )
                 
-                if (holdEval.action == HoldingLogicLayer.HoldAction.ADD_MORE && cfg().autoTrade) {
+                if (holdEval.action == HoldingLogicLayer.HoldAction.ADD_MORE && cfg().autoTrade && !cbState.isHalted && !cbState.isPaused && freshness !is GuardResult.Block) {
                     try {
                         ForensicLogger.lifecycle(
                             "HOLDING_LOGIC_ADD_MORE_TOPUP_6091",
@@ -12463,7 +12478,7 @@ class Executor(
             }
             
             val autonomousTopUp6091b = autonomousTopUpSignal6091(ts, decision.entryScore, decision.exitScore, decision.meta.emafanAlignment, decision.meta.volScore, decision.meta.exhaustion)
-            if (cfg().autoTrade && (decision.meta.topUpReady || autonomousTopUp6091b)) {
+            if (cfg().autoTrade && !cbState.isHalted && !cbState.isPaused && freshness !is GuardResult.Block && (decision.meta.topUpReady || autonomousTopUp6091b)) {
                 val topUpReady = shouldTopUp(
                     ts = ts,
                     entryScore = decision.entryScore,
@@ -12478,7 +12493,7 @@ class Executor(
                 }
             }
             
-            if (isPaperRT() && !ts.position.isFullyBuilt) {
+            if (isPaperRT() && !cbState.isHalted && freshness !is GuardResult.Block && !ts.position.isFullyBuilt) {
                 val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), decision.meta.volScore)
                 if (result != null) {
                     val (addSol, newPhase) = result
@@ -12492,6 +12507,7 @@ class Executor(
         val shouldActOnBuy = isPaperRT() || cfg().autoTrade
         ExecutionRootCauseTrace.buy("DO_EXECUTE_BUY_DECISION", ts, "shouldAct=$shouldActOnBuy autoTrade=${cfg().autoTrade} paper=${isPaperRT()} shouldTrade=${decision.shouldTrade} signal=${decision.signal} final=${decision.finalSignal} score=${decision.entryScore} conf=${decision.aiConfidence} quality=${decision.finalQuality} block=${decision.blockReason.take(80)}")
         if (!shouldActOnBuy) {
+            cancelEntry7858("EXECUTOR_AUTO_DISABLED")
             ExecutionRootCauseTrace.buy("BUY_ABORT_AUTO_DISABLED", ts, "autoTrade=${cfg().autoTrade} paper=${isPaperRT()}")
             ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Buy skipped - autoTrade disabled")
             return
@@ -12558,9 +12574,9 @@ class Executor(
         run {
             val bearish = SmartChartCache.getBearishConfidence(ts.mint)
             if (bearish != null && bearish >= 80.0) {
-                if (!isPaper) {
-                    ErrorLogger.info("Executor", "📉 SMARTCHART_ADVISORY: ${ts.symbol} | bearish=${bearish.toInt()}% — live FDG-approved path continues with downstream hard gates")
-                    liveAdvisoryNotTerminal(ts, "MOMENTUM_AVOID", "smartChartBearish=${bearish.toInt()}")
+                if (!isPaper || exactTicket7858 != null) {
+                    ErrorLogger.info("Executor", "📉 SMARTCHART_ADVISORY: ${ts.symbol} | bearish=${bearish.toInt()}% — sealed FDG-approved path continues with downstream hard gates")
+                    if (!isPaper) liveAdvisoryNotTerminal(ts, "MOMENTUM_AVOID", "smartChartBearish=${bearish.toInt()}")
                 } else {
                     ErrorLogger.info("Executor", "🚫 SMARTCHART_BLOCK: ${ts.symbol} | bearish=${bearish.toInt()}% — skipping LONG entry")
                     onLog("🚫 ${ts.symbol}: SmartChart ${bearish.toInt()}% bearish — skip entry", ts.mint)
@@ -12577,9 +12593,9 @@ class Executor(
                 val velocityPct = ((priceEnd - priceStart) / priceStart) * 100
                 
                 if (velocityPct < -5.0) {
-                    if (!isPaper) {
-                        ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY_ADVISORY: Price dropping ${velocityPct.toInt()}% rapidly — live FDG-approved path continues")
-                        liveAdvisoryNotTerminal(ts, "MOMENTUM_AVOID", "velocityPct=${velocityPct.fmt(2)}")
+                    if (!isPaper || exactTicket7858 != null) {
+                        ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY_ADVISORY: Price dropping ${velocityPct.toInt()}% rapidly — sealed FDG-approved path continues")
+                        if (!isPaper) liveAdvisoryNotTerminal(ts, "MOMENTUM_AVOID", "velocityPct=${velocityPct.fmt(2)}")
                     } else {
                         ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY BLOCK: Price dropping ${velocityPct.toInt()}% rapidly")
                         onLog("⚡ ${ts.symbol}: Price dropping ${velocityPct.toInt()}% - waiting for stabilization", ts.mint)
@@ -12604,7 +12620,7 @@ class Executor(
         
         TradeStateMachine.setState(ts.mint, TradeState.ENTER, "executing buy via unified decision")
         
-        var size = fdgApprovedSize ?: buySizeSol(
+        var size = exactTicket7858?.resolvedSize ?: fdgApprovedSize ?: buySizeSol(
             entryScore = decision.entryScore,
             walletSol = walletSol,
             currentOpenPositions = openPositionCount,
@@ -12620,7 +12636,7 @@ class Executor(
             ts = ts,  // V5.9.69: enable PatternClassifier
         )
         
-        if (fdgApprovedSize == null) {
+        if (exactTicket7858 == null && fdgApprovedSize == null) {
             if (decision.qualityPenalty < 1.0 && decision.qualityPenalty > 0.0) {
                 val oldSize = size
                 size *= decision.qualityPenalty
@@ -12665,7 +12681,7 @@ class Executor(
             phase = decision.phase,
         )
         
-        val skipGraduated = fdgApprovedSize != null
+        val skipGraduated = exactTicket7858 != null || fdgApprovedSize != null
 
         // V5.0.7525 — PAPER is the live-rehearsal account, not the exploration
         // laboratory. FDG already classifies these decisions; preserve that
@@ -12713,7 +12729,9 @@ class Executor(
         }
 
         doBuy(
-            ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality, skipGraduated,
+            ts, size, exactTicket7858?.effectiveEntryScore7256?.toDouble() ?: decision.entryScore,
+            wallet, walletSol, identity,
+            if (exactTicket7858 != null) identity.fdgQuality else decision.setupQuality, skipGraduated,
             finalityPrechecked = finalityPrechecked,
             attemptId = attemptId,
         )
@@ -16429,7 +16447,7 @@ class Executor(
         // legitimately re-bought mint trades again cleanly (the duplicate-suppress guard
         // in paperSell only blocks a SELL while a live close stamp exists; a real new BUY
         // is the signal to clear it).
-        try { com.lifecyclebot.engine.PositionCloseLedger.reopen(tradeId.mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.PositionCloseLedger.reopen(tradeId.mint, mode = "PAPER") } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.PaperPositionCloseAuthority.reopen("PAPER", tradeId.mint) } catch (_: Throwable) {}
         
         try {
@@ -16562,17 +16580,24 @@ class Executor(
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         val effectiveAttemptId = attemptId
         val exactIntent6533 = effectiveAttemptId.takeIf { it.isNotBlank() }?.let { ExecutableOpenGate.ticketForAttempt(it) }
-        if (exactIntent6533 == null || exactIntent6533.mint != ts.mint || !exactIntent6533.fdgAllowed ||
-            exactIntent6533.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY")) {
+        if (exactIntent6533 == null || exactIntent6533.mint != ts.mint ||
+            exactIntent6533.mode != (if (isPaper) "PAPER" else "LIVE") ||
+            !exactIntent6533.fdgAllowed || exactIntent6533.hardNoReasons.isNotEmpty() ||
+            exactIntent6533.fdgVerdict.uppercase() !in (if (isPaper) setOf("BUY", "PROBE_ONLY") else setOf("BUY"))) {
             try {
                 PipelineHealthCollector.labelInc("V3_EXPLICIT_REJECT_NO_EXACT_INTENT_6533")
                 ForensicLogger.lifecycle("V3_BUY_REJECTED_NO_EXACT_INTENT_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} attemptId=${effectiveAttemptId.take(48)} action=no_economic_side_effect")
             } catch (_: Throwable) {}
-            try { TradeAuthorizer.releasePosition(ts.mint, "V3_NO_EXACT_INTENT_6533", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
+            try { ExecutableOpenGate.terminalizeAttempt6514(effectiveAttemptId, ts.mint, "CORE") } catch (_: Throwable) {}
+            try { TradeAuthorizer.releasePosition(ts.mint, "V3_NO_EXACT_INTENT_6533",
+                isPaperMode = isPaper, attemptId7858 = effectiveAttemptId) } catch (_: Throwable) {}
             return
         }
-        val effectiveFinalityPrechecked = false
-        identity.executed(getActualPrice(ts), sizeSol, isPaper)
+        val effectiveFinalityPrechecked = finalityPrechecked
+        val sealedSize7858 = exactIntent6533.resolvedSize
+        val sealedScore7858 = exactIntent6533.effectiveEntryScore7256
+        val sealedQuality7858 = v3Band
+        identity.fdgQuality = sealedQuality7858
 
         // ── V5.9.844 — observability for 3 silently-dropped v3Buy params ──
         // lastSuccessfulPollMs, openPositionCount, totalExposureSol have
@@ -16615,35 +16640,37 @@ class Executor(
         val openedByV3Buy4462: Boolean = if (isPaper) {
             paperBuy(
                 ts = ts,
-                sol = sizeSol,
-                score = v3Score.toDouble(),
+                sol = sealedSize7858,
+                score = sealedScore7858.toDouble(),
                 identity = identity,
-                quality = v3Band,
+                quality = sealedQuality7858,
                 skipGraduated = true,
                 wallet = wallet,
                 walletSol = walletSol,
                 finalityPrechecked = effectiveFinalityPrechecked,
                 attemptId = effectiveAttemptId,
+                layerTag = exactIntent6533.canonicalLane,
             )
-            true
+            ts.position.isPaperPosition && ts.position.isOpen && ts.position.qtyToken > 0.0
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "[V3] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
-                try { TradeAuthorizer.releasePosition(ts.mint, "V3_LIVE_BUY_NO_WALLET_PREOPEN") } catch (_: Throwable) {}
-                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, ts.position.tradingMode.ifBlank { "CORE" }, "V3_LIVE_BUY_NO_WALLET_PREOPEN") } catch (_: Throwable) {}
+                try { ExecutableOpenGate.terminalizeAttempt6514(effectiveAttemptId, ts.mint, exactIntent6533.canonicalLane) } catch (_: Throwable) {}
+                try { TradeAuthorizer.releasePosition(ts.mint, "V3_LIVE_BUY_NO_WALLET_PREOPEN", isPaperMode = false, attemptId7858 = effectiveAttemptId) } catch (_: Throwable) {}
+                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, exactIntent6533.canonicalLane, "V3_LIVE_BUY_NO_WALLET_PREOPEN", candidateVersion = exactIntent6533.candidateVersion) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("LIVE_BUY_PREOPEN_RELEASE_NO_WALLET") } catch (_: Throwable) {}
                 return
             }
             liveBuy(
                 ts = ts,
-                sol = sizeSol,
-                score = v3Score.toDouble(),
+                sol = sealedSize7858,
+                score = sealedScore7858.toDouble(),
                 wallet = wallet,
                 walletSol = walletSol,
                 identity = identity,
-                quality = v3Band,
+                quality = sealedQuality7858,
                 skipGraduated = true,
-                layerTag = resolveExecutionLane(ts, identity).takeIf { it.isNotBlank() && it != "STANDARD" } ?: "",
+                layerTag = exactIntent6533.canonicalLane,
                 finalityPrechecked = effectiveFinalityPrechecked,
                 attemptId = effectiveAttemptId,
             )
@@ -16659,8 +16686,8 @@ class Executor(
                 mint = ts.mint,
                 symbol = ts.symbol,
                 entryPrice = getActualPrice(ts),
-                sizeSol = sizeSol,
-                v3Score = v3Score,
+                sizeSol = sealedSize7858,
+                v3Score = sealedScore7858,
                 v3Band = v3Band,
                 v3Confidence = v3Confidence,
                 source = ts.source,
@@ -16686,7 +16713,7 @@ class Executor(
                         source = ts.source.ifBlank { "UNKNOWN" },
                         liquidityUsd = ts.lastLiquidityUsd,
                         marketSentiment = marketSentiment,
-                        entryScore = v3Score,
+                        entryScore = sealedScore7858,
                         confidence = v3Confidence.toInt(),
                         pnlPct = 0.0,
                         holdMins = 0.0,
@@ -16760,7 +16787,7 @@ class Executor(
             lane = convergedLane,
             source = source,
             attemptId = attemptId.ifBlank {
-                ExecutableOpenGate.recentAllowedAttemptId(ts.mint, convergedLane)
+                ExecutableOpenGate.recentAllowedAttemptId(ts.mint, convergedLane, if (isPaper) "PAPER" else "LIVE")
                     ?: ExecutableOpenGate.nextAttemptId(ts.mint, convergedLane)
             },
         )
@@ -17342,7 +17369,7 @@ class Executor(
     ): Double? {
         val scoreAttempt = explicitAttemptId.takeIf { it.isNotBlank() }
             ?: contextAttemptId?.takeIf { it.isNotBlank() }
-            ?: try { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint) } catch (_: Throwable) { null }
+            ?: try { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE") } catch (_: Throwable) { null }
         val sealedTicket = scoreAttempt?.let {
             try { ExecutableOpenGate.ticketForAttempt(it) } catch (_: Throwable) { null }
         }
@@ -18804,7 +18831,7 @@ class Executor(
             // next cycle (with a fresh mark) is not refused as a duplicate buy.
             try {
                 val deferredAttempt7356 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
-                    .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint).orEmpty() }
+                    .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() }
                 ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7356, ts.mint, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             } catch (_: Throwable) {}
             return false
@@ -19066,7 +19093,7 @@ class Executor(
             ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "TOKEN_MAP_PENDING_DEFERRED_7371")
             try {
                 val deferredAttempt7371 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
-                    .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint).orEmpty() }
+                    .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() }
                 ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7371, ts.mint, "TOKEN_MAP_PENDING_DEFERRED_7371")
             } catch (_: Throwable) {}
             buyTerminalRecorded = true
@@ -19098,7 +19125,7 @@ class Executor(
                 ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, commonSense.reason)
                 try {
                     val deferredAttempt7432 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
-                        .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint).orEmpty() }
+                        .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() }
                     ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7432, ts.mint, commonSense.reason)
                 } catch (_: Throwable) {}
                 buyTerminalRecorded = true
@@ -22388,7 +22415,7 @@ class Executor(
         val canon = liveCanonicalOpen7362(ts.mint) ?: return
         val sig = listOfNotNull(
             com.lifecyclebot.engine.sell.LivePositionCloseAuthority.signatureOf7362(ts.mint),
-            try { PositionCloseLedger.recordOf(ts.mint)?.sellSig } catch (_: Throwable) { null },
+            try { PositionCloseLedger.recordOf(ts.mint, mode = "LIVE")?.sellSig } catch (_: Throwable) { null },
         ).firstOrNull { it.isNotBlank() && !it.startsWith("PHANTOM_") && it !in resumeUnusableSigs7362 }
         if (sig != null) {
             liveClosedNoSigFirstSeenMs7362.remove(canon.positionId)
@@ -23815,7 +23842,7 @@ class Executor(
             // PAPER_SELL_DUPLICATE_SUPPRESSED=367 because doSell acquired the
             // general lock, then paperSell discovered the mint was already CLOSED.
             // Duplicate closed rows are not sell attempts; never churn sell locks.
-            val existingCloseId = try { com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint) } catch (_: Throwable) { null }
+            val existingCloseId = try { com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint, mode = if (ts.position.isPaperPosition) "PAPER" else "LIVE") } catch (_: Throwable) { null }
             if (existingCloseId != null) {
                 try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason stage=pre_sell_lock") } catch (_: Throwable) {}
                 return SellResult.ALREADY_CLOSED
@@ -24256,27 +24283,10 @@ class Executor(
         return true
     }
 
-    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null, freshnessChecked7836: Boolean = false): SellResult {
-        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        if (reconcileCanonicalClosedPaper7836(ts, reason)) return SellResult.ALREADY_CLOSED
-        val reason = if (freshnessChecked7836) reason else
-            freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE
-        // V5.0.6448 — SELL mirror moved to confirmed paper fill below.
-        // Do not mutate canonical lifecycle at sell-attempt time with zero
-        // proceeds/cost; that was the direct source of SELL invariant violations.
-        // V5.0.6507 §P0 EXIT FINALITY — changed to `var` so the heal path
-        // in QTY_DIVERGES_FROM_CANONICAL can rebind after copying with
-        // lot-truth qty (see line ~19460).
-        var pos   = ts.position
-        val price = getActualPrice(ts)
-        if (!pos.isOpen) {
-            PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")
-            return SellResult.ALREADY_CLOSED
-        }
-        if (price == 0.0) {
-            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")
-            return SellResult.FAILED_RETRYABLE
-        }
+    // Keep these separate from the terminal transaction frame: paperSell was
+    // rejected by ART with a conflicting reference register in its giant frame.
+    @androidx.annotation.Keep
+    private fun paperSellMarkRefusal7858(ts: TokenState, pos: Position, price: Double, reason: String): SellResult? {
         // V5.0.7271 §TWO_TRADES_BOOKED_THE_SAME_10.51x_IN_FIVE_SECONDS.
         //
         // 5.0.7270: HTmQz7 bought 03:15:46 at $0.00070 (cap $692,705), sold
@@ -24456,6 +24466,85 @@ class Executor(
                 } catch (_: Throwable) {}
             }
         }
+        return null
+    }
+
+    @androidx.annotation.Keep
+    private fun paperSellCanonicalProjection7858(
+        ts: TokenState, pos: Position,
+        canonicalTerminalPosition6492: com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position,
+        terminalPid6455: String, reason: String,
+    ): Position? {
+        // V5.0.6600 — canonical position authority already passed the 6570 exit
+        // eligibility contract above. Heal the mutable TokenState projection from
+        // that authority; never veto a genuine canonical close because a journal or
+        // legacy projection index is stale.
+        val canonicalQtyToken6600 = try {
+            java.math.BigDecimal(canonicalTerminalPosition6492.remainingQtyRaw)
+                .movePointLeft(canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)).toDouble()
+        } catch (_: Throwable) { 0.0 }
+        val canonicalCost6600 = (canonicalTerminalPosition6492.entryCostSol - canonicalTerminalPosition6492.soldCostBasisSol).coerceAtLeast(0.0)
+        val canonicalEntry6600 = canonicalTerminalPosition6492.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: pos.entryPrice
+        if (canonicalQtyToken6600.isFinite() && canonicalQtyToken6600 > 0.0 && canonicalCost6600.isFinite() && canonicalCost6600 > 0.0 && canonicalEntry6600.isFinite() && canonicalEntry6600 > 0.0) {
+            val projectionDrift6600 = pos.positionId != canonicalTerminalPosition6492.positionId ||
+                !pos.tradingMode.equals(canonicalTerminalPosition6492.lane, true) ||
+                kotlin.math.abs(pos.qtyToken - canonicalQtyToken6600) > maxOf(1e-9, canonicalQtyToken6600 * 0.000001) ||
+                kotlin.math.abs(pos.costSol - canonicalCost6600) > maxOf(1e-9, canonicalCost6600 * 0.000001)
+            if (projectionDrift6600) {
+                val healed = pos.copy(
+                    qtyToken = canonicalQtyToken6600, entryPrice = canonicalEntry6600,
+                    entryTime = canonicalTerminalPosition6492.openedAtMs, costSol = canonicalCost6600,
+                    entryPriceSource = canonicalTerminalPosition6492.entryPriceSource,
+                    entryPoolAddress = canonicalTerminalPosition6492.entryPoolAddress,
+                    entryDex = canonicalTerminalPosition6492.entryDex,
+                    isPaperPosition = true, tradingMode = canonicalTerminalPosition6492.lane,
+                    positionId = canonicalTerminalPosition6492.positionId,
+                )
+                ts.position = healed
+                try {
+                    PipelineHealthCollector.labelInc("SELL_CANONICAL_PROJECTION_HEALED_6600")
+                    ForensicLogger.lifecycle("SELL_CANONICAL_PROJECTION_HEALED_6600", "positionId=${canonicalTerminalPosition6492.positionId} mint=${ts.mint.take(10)} lane=${canonicalTerminalPosition6492.lane} qty=$canonicalQtyToken6600 cost=$canonicalCost6600 action=continue_canonical_close")
+                } catch (_: Throwable) {}
+                return healed
+            }
+        } else {
+            try {
+                PipelineHealthCollector.labelInc("SELL_BLOCKED_CANONICAL_POSITION_MALFORMED_6600")
+                ForensicLogger.lifecycle("SELL_BLOCKED_CANONICAL_POSITION_MALFORMED_6600", "positionId=${canonicalTerminalPosition6492.positionId} mint=${ts.mint.take(10)} qty=$canonicalQtyToken6600 cost=$canonicalCost6600 entry=$canonicalEntry6600 action=retry_no_terminal_abandon")
+            } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.PositionStateLedger6454.abandonTerminalSell(terminalPid6455, "canonical_position_malformed_6600") } catch (_: Throwable) {}
+            try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "CANONICAL_POSITION_MALFORMED_6600:$reason") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_POSITION_MALFORMED_6600") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "CANONICAL_POSITION_MALFORMED_6600") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
+            try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
+            return null
+        }
+
+        return pos
+    }
+
+    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null, freshnessChecked7836: Boolean = false): SellResult {
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        if (reconcileCanonicalClosedPaper7836(ts, reason)) return SellResult.ALREADY_CLOSED
+        val reason = if (freshnessChecked7836) reason else
+            freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE
+        // V5.0.6448 — SELL mirror moved to confirmed paper fill below.
+        // Do not mutate canonical lifecycle at sell-attempt time with zero
+        // proceeds/cost; that was the direct source of SELL invariant violations.
+        // Snapshot the projection before canonical repair; async consumers below
+        // capture the repaired immutable reference, never a mutable boxed local.
+        val initialProjection7858 = ts.position
+        val price = getActualPrice(ts)
+        if (!initialProjection7858.isOpen) {
+            PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")
+            return SellResult.ALREADY_CLOSED
+        }
+        if (!price.isFinite() || price <= 0.0) {
+            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")
+            return SellResult.FAILED_RETRYABLE
+        }
+        paperSellMarkRefusal7858(ts, initialProjection7858, price, reason)?.let { return it }
         // V5.0.6920 — the exit brain's only stamp site was unreachable for
         // paper positions, so recordOutcome had nothing pending to train on
         // and every lane exit head stayed at trained=0 forever. Stamp here,
@@ -24466,7 +24555,7 @@ class Executor(
         // SELL: do NOT journal, train, or re-occupy the slot. Fixes the same-mint
         // multi-sell storm (Fsnx8Y / 7AUvsp) the operator observed.
         run {
-            val existingCloseId = com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint)
+            val existingCloseId = com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint, mode = "PAPER")
             if (existingCloseId != null) {
                 PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "LEDGER_ALREADY_CLOSED:$reason", existingCloseId)
                 try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason") } catch (_: Throwable) {}
@@ -24529,7 +24618,7 @@ class Executor(
         } else {
             // Legacy: no positionId attached. Retain old mint-scan but count separately.
             try { PipelineHealthCollector.labelInc("PAPER_SELL_LOOKUP_MISSING_PID_6635") } catch (_: Throwable) {}
-            allOpenPapers6635.firstOrNull { it.mint == ts.mint }
+            allOpenPapers6635.filter { it.mint == ts.mint }.singleOrNull()
         }
         if (canonicalTerminalPosition6492 == null) {
             if (reconcileCanonicalClosedPaper7836(ts, reason)) return SellResult.ALREADY_CLOSED
@@ -24555,15 +24644,9 @@ class Executor(
         // independent of on-chain mint decimals. Using tokenDecimals here produced
         // exact ×10^12 SELL journal corruption when paper scale=12 and mint metadata=0.
         val terminalDecimals6492 = canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)
-        val terminalRemainingRaw6492 = canonicalTerminalPosition6492?.remainingQtyRaw
-            ?.takeIf { it > java.math.BigInteger.ZERO }
-            ?: try {
-                java.math.BigDecimal.valueOf(pos.qtyToken.coerceAtLeast(0.0))
-                    .multiply(java.math.BigDecimal.TEN.pow(terminalDecimals6492))
-                    .setScale(0, java.math.RoundingMode.HALF_UP).toBigInteger()
-            } catch (_: Throwable) { java.math.BigInteger.ZERO }
-        val terminalRemainingCost6492 = canonicalTerminalPosition6492?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
-            ?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol.coerceAtLeast(0.0)
+        val terminalRemainingRaw6492 = canonicalTerminalPosition6492.remainingQtyRaw
+        val terminalRemainingCost6492 = (canonicalTerminalPosition6492.entryCostSol -
+            canonicalTerminalPosition6492.soldCostBasisSol).coerceAtLeast(0.0)
         val reserveResult6455 = com.lifecyclebot.engine.truth.PositionStateLedger6454
             .reserveTerminalSell(terminalPid6455, reason)
         if (reserveResult6455 != com.lifecyclebot.engine.truth.PositionStateLedger6454.ReserveResult.RESERVED) {
@@ -24597,52 +24680,9 @@ class Executor(
         try { ForensicLogger.lifecycle("PAPER_SELL_START", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
         try { ToolkitSignalSheet.recordDeskStage(ts.position.tradingMode, "SELL_ATTEMPT", "${ts.position.positionId}:$reason") } catch (_: Throwable) {}
 
-        // V5.0.6600 — canonical position authority already passed the 6570 exit
-        // eligibility contract above. Heal the mutable TokenState projection from
-        // that authority; never veto a genuine canonical close because a journal or
-        // legacy projection index is stale.
-        run {
-            val canonicalQtyToken6600 = try {
-                java.math.BigDecimal(canonicalTerminalPosition6492.remainingQtyRaw)
-                    .movePointLeft(canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)).toDouble()
-            } catch (_: Throwable) { 0.0 }
-            val canonicalCost6600 = (canonicalTerminalPosition6492.entryCostSol - canonicalTerminalPosition6492.soldCostBasisSol).coerceAtLeast(0.0)
-            val canonicalEntry6600 = canonicalTerminalPosition6492.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: pos.entryPrice
-            if (canonicalQtyToken6600.isFinite() && canonicalQtyToken6600 > 0.0 && canonicalCost6600.isFinite() && canonicalCost6600 > 0.0 && canonicalEntry6600.isFinite() && canonicalEntry6600 > 0.0) {
-                val projectionDrift6600 = pos.positionId != canonicalTerminalPosition6492.positionId ||
-                    !pos.tradingMode.equals(canonicalTerminalPosition6492.lane, true) ||
-                    kotlin.math.abs(pos.qtyToken - canonicalQtyToken6600) > maxOf(1e-9, canonicalQtyToken6600 * 0.000001) ||
-                    kotlin.math.abs(pos.costSol - canonicalCost6600) > maxOf(1e-9, canonicalCost6600 * 0.000001)
-                if (projectionDrift6600) {
-                    pos = pos.copy(
-                        qtyToken = canonicalQtyToken6600, entryPrice = canonicalEntry6600,
-                        entryTime = canonicalTerminalPosition6492.openedAtMs, costSol = canonicalCost6600,
-                        entryPriceSource = canonicalTerminalPosition6492.entryPriceSource,
-                        entryPoolAddress = canonicalTerminalPosition6492.entryPoolAddress,
-                        entryDex = canonicalTerminalPosition6492.entryDex,
-                        isPaperPosition = true, tradingMode = canonicalTerminalPosition6492.lane,
-                        positionId = canonicalTerminalPosition6492.positionId,
-                    )
-                    ts.position = pos
-                    try {
-                        PipelineHealthCollector.labelInc("SELL_CANONICAL_PROJECTION_HEALED_6600")
-                        ForensicLogger.lifecycle("SELL_CANONICAL_PROJECTION_HEALED_6600", "positionId=${canonicalTerminalPosition6492.positionId} mint=${ts.mint.take(10)} lane=${canonicalTerminalPosition6492.lane} qty=$canonicalQtyToken6600 cost=$canonicalCost6600 action=continue_canonical_close")
-                    } catch (_: Throwable) {}
-                }
-            } else {
-                try {
-                    PipelineHealthCollector.labelInc("SELL_BLOCKED_CANONICAL_POSITION_MALFORMED_6600")
-                    ForensicLogger.lifecycle("SELL_BLOCKED_CANONICAL_POSITION_MALFORMED_6600", "positionId=${canonicalTerminalPosition6492.positionId} mint=${ts.mint.take(10)} qty=$canonicalQtyToken6600 cost=$canonicalCost6600 entry=$canonicalEntry6600 action=retry_no_terminal_abandon")
-                } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.truth.PositionStateLedger6454.abandonTerminalSell(terminalPid6455, "canonical_position_malformed_6600") } catch (_: Throwable) {}
-                try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "CANONICAL_POSITION_MALFORMED_6600:$reason") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_POSITION_MALFORMED_6600") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "CANONICAL_POSITION_MALFORMED_6600") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
-                try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
-                return SellResult.FAILED_RETRYABLE
-            }
-        }
+        val pos = paperSellCanonicalProjection7858(ts, initialProjection7858,
+            canonicalTerminalPosition6492, terminalPid6455, reason)
+            ?: return SellResult.FAILED_RETRYABLE
 
         // FIX: these were missing and caused your compile failure
         // V5.9.83: guard against unset entryTime (would make holdTime = now-epoch = 56 yrs).
@@ -25096,7 +25136,7 @@ class Executor(
             // opened the mint.  CORE was a stale hard-coded default and left
             // specialist locks behind.  Full-terminal inventory is mint
             // canonical, so clear every residual book for this mint.
-            try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason") } catch (_: Exception) {}
+            try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", isPaperMode = true) } catch (_: Exception) {}
             onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
             return SellResult.PAPER_CONFIRMED
         }
@@ -25167,21 +25207,21 @@ class Executor(
             } else {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
             }
-            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(ts.mint, price, treasurySignal)
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(ts.mint, price, treasurySignal, isPaper = true)
             
             val shitcoinSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT
             } else {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS
             }
-            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, shitcoinSignal)
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, shitcoinSignal, isPaper = true)
             
             val bluechipSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT
             } else {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS
             }
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, price, bluechipSignal)
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, price, bluechipSignal, isPaper = true)
 
             // V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (paperSell win/loss path).
             // Pre-fix only CashGen/ShitCoin/BlueChip got closePosition() here.
@@ -25195,17 +25235,17 @@ class Executor(
             try {
                 val mEx = if (isWin) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT
                           else com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, mEx)
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, mEx, isPaper = true)
             } catch (_: Exception) {}
             try {
                 val qEx = if (isWin) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT
                           else com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, price, qEx)
+                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, price, qEx, isPaper = true)
             } catch (_: Exception) {}
             try {
                 val manEx = if (isWin) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT
                             else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, price, manEx)
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, price, manEx, isPaper = true)
             } catch (_: Exception) {}
             try {
                 val dipEx = if (isWin) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
@@ -25269,6 +25309,7 @@ class Executor(
             TradeAuthorizer.releasePosition(
                 mint = ts.mint,
                 reason = "SELL_$reason",
+                isPaperMode = true,
             )
             ErrorLogger.debug("Executor", "🔓 TERMINAL BOOK LOCKS RELEASED: ${ts.symbol}")
         } catch (e: Exception) {
@@ -25933,7 +25974,7 @@ class Executor(
                     com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TIME_EXIT
                 else -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD
             }
-            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, price, treasuryExitSignal)
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, price, treasuryExitSignal, isPaper = true)
         } catch (_: Exception) {}
         
         try {
@@ -25948,7 +25989,7 @@ class Executor(
                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TIME_EXIT
                 else -> com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.HOLD
             }
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, price, blueChipExitSignal)
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, price, blueChipExitSignal, isPaper = true)
         } catch (_: Exception) {}
 
         // V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (paperSell reason-keyword path).
@@ -25961,17 +26002,17 @@ class Executor(
         try {
             val mEx = if (isProfit6) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT
                       else com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS
-            com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, price, mEx)
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, price, mEx, isPaper = true)
         } catch (_: Exception) {}
         try {
             val qEx = if (isProfit6) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT
                       else com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
-            com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, price, qEx)
+            com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, price, qEx, isPaper = true)
         } catch (_: Exception) {}
         try {
             val manEx = if (isProfit6) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT
                         else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
-            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, price, manEx)
+            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, price, manEx, isPaper = true)
         } catch (_: Exception) {}
         try {
             val dipEx = if (isProfit6) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
@@ -26325,7 +26366,7 @@ class Executor(
                     // PendingSellQueue every loop and kept EXIT_COORDINATOR_STALE_RESET
                     // climbing. This is not a fake close: it only terminally clears the
                     // local TokenState when host/ledger already says closed.
-                    val ledgerClosed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint) } catch (_: Throwable) { false }
+                    val ledgerClosed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint, mode = if (ts.position.isPaperPosition) "PAPER" else "LIVE") } catch (_: Throwable) { false }
                     val hostAuthoritativeClosed = hostRow != null && (
                         hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE ||
                         hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP ||
@@ -28303,7 +28344,8 @@ class Executor(
                             mint = ts.mint, reason = finalSellReason, pnlPct = pnlPctInt, sellSig = fSig,
                             soldQtyRaw = tokenUnits, remainingQtyRaw = postRaw, dustAmount = postUi,
                             realizedSol = solBack, realizedPnl = pnl, source = "HELIUS",
-                        )
+                            mode = "LIVE",
+            )
                         try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, finalSellReason) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, fSig) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.sell.RecoveryLockTracker.forceUnlock(ts.mint) } catch (_: Throwable) {}
@@ -29025,21 +29067,21 @@ class Executor(
             } else {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
             }
-            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, exitPrice, treasurySignal)
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, exitPrice, treasurySignal, isPaper = false)
             
             val shitcoinSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT
             } else {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS
             }
-            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(tradeId.mint, exitPrice, shitcoinSignal)
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(tradeId.mint, exitPrice, shitcoinSignal, isPaper = false)
             
             val bluechipSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT
             } else {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS
             }
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, exitPrice, bluechipSignal)
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, exitPrice, bluechipSignal, isPaper = false)
 
             // V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (liveSell path).
             // Same fix as paperSell: close the 6 missing sub-trader maps so
@@ -29047,17 +29089,17 @@ class Executor(
             try {
                 val mEx = if (isWin) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT
                           else com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, exitPrice, mEx)
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, exitPrice, mEx, isPaper = false)
             } catch (_: Exception) {}
             try {
                 val qEx = if (isWin) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT
                           else com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, exitPrice, qEx)
+                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, exitPrice, qEx, isPaper = false)
             } catch (_: Exception) {}
             try {
                 val manEx = if (isWin) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT
                             else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, exitPrice, manEx)
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, exitPrice, manEx, isPaper = false)
             } catch (_: Exception) {}
             try {
                 val dipEx = if (isWin) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
@@ -29082,6 +29124,7 @@ class Executor(
             TradeAuthorizer.releasePosition(
                 mint = tradeId.mint,
                 reason = "SELL_$reason",
+                isPaperMode = false,
             )
             
             ErrorLogger.debug("Executor", "🔓 LIVE SELL: Released all locks for ${ts.symbol}")

@@ -34,7 +34,7 @@ internal object SpecialistPreauthSeal7834 {
             priceUsd = tokenMap.priceUsd ?: ts.lastPrice,
             liquidityUsd = tokenMap.liquidityUsd ?: ts.lastLiquidityUsd,
             routeStatus = tokenMap.routeStatus,
-            evidenceTimestampMs = if (tokenMap.priceUsd != null) tokenMap.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate else ts.lastPriceUpdate,
+            evidenceTimestampMs = if (tokenMap.priceUsd != null) tokenMap.priceObservedAtMs7858 else ts.lastPriceUpdate,
         )
         // V5.0.7853 ONE_AUTHORITATIVE_SIZE: FDG's size already carries live risk
         // policy, depth caps and the current route minimum. A caller figure
@@ -56,6 +56,7 @@ internal object SpecialistPreauthSeal7834 {
                 tokenMapExpectedOut = tokenMap.expectedOutAmount, tokenMapProviderAttempts = tokenMap.providerAttempts,
                 requiresSolanaTokenMap = true, allowTrunkExecutionHandoff6533 = true,
                 resolvedSizeSol6558 = size,
+                authoritativeFdgDecision7858 = decision,
             )?.takeIf {
                 it.mint == ts.mint && it.mode == (if (paper) "PAPER" else "LIVE")
             }?.takeIf {

@@ -186,7 +186,15 @@ object AcceptanceInvariantAudit6441 {
                 hits.values.any { it > 0L }
             }
         } catch (_: Throwable) { 0 }
-        if (allPositions.isEmpty() || bridgeSitesSeen >= 1) passed.add("E_sizing_bridge_visited_$bridgeSitesSeen")
+        // V5.0.7858 — the specialist bridge was consolidated through
+        // TraderSizingBridge6444 → CanonicalSizingBridge6532. The old audit
+        // only counted six cross-asset call sites, so a healthy Solana
+        // specialist route with canonical sizing still failed this invariant.
+        val specialistBridgeVisits7858 = try {
+            PipelineHealthCollector.labelCountSnapshot("SPECIALIST_CANONICAL_SIZING_ROUTE_7828")
+        } catch (_: Throwable) { 0L }
+        if (allPositions.isEmpty() || bridgeSitesSeen >= 1 || specialistBridgeVisits7858 > 0L)
+            passed.add("E_sizing_bridge_visited_${bridgeSitesSeen}_specialist=$specialistBridgeVisits7858")
         else failed.add("E_no_specialized_trader_routed_through_sizing_bridge")
 
         // F. Provider degradation must soft-defer, not manufacture hard zero liquidity.

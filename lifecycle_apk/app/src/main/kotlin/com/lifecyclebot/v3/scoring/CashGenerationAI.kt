@@ -1132,6 +1132,7 @@ object CashGenerationAI {
         takeProfitPct: Double,
         stopLossPct: Double,
         entryScore: Int = 0,  // V5.9.436 — for outcome attribution
+        isPaper: Boolean = isPaperMode,
     ) {
         val targetPrice = entryPrice * (1 + takeProfitPct / 100)
         val stopPrice = entryPrice * (1 + stopLossPct / 100)
@@ -1153,13 +1154,14 @@ object CashGenerationAI {
             stopPrice = stopPrice,
             highWaterMark = entryPrice,
             trailingStop = stopPrice,
-            isPaper = isPaperMode,
+            isPaper = isPaper,
             entryScore = entryScore,
         )
 
-        synchronized(activePositions) {
-            activePositions[mint] = position
-            try { TreasuryCashflowMissionReport.recordOpened(mint, symbol, isPaperMode, positionSol, entryScore) } catch (_: Throwable) {}
+        val entryPositions7858 = if (isPaper) paperPositions else livePositions
+        synchronized(entryPositions7858) {
+            entryPositions7858[mint] = position
+            try { TreasuryCashflowMissionReport.recordOpened(mint, symbol, isPaper, positionSol, entryScore) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.TreasuryOpportunityEngine.recordDeployment(mint, symbol, positionSol, entryPrice, "TREASURY") } catch (_: Throwable) {}  // V5.0.4339 ledger-only; CashGen executed the buy
             try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "TREASURY", "TREASURY_OPEN", entryScore.coerceIn(0, 100), "open_size_${positionSol.fmt(4)}") } catch (_: Throwable) {}
             ErrorLogger.info(
@@ -1192,11 +1194,9 @@ object CashGenerationAI {
         ErrorLogger.warn(TAG, "💰 TREASURY RESTORED: ${position.symbol} | entry=${position.entryPrice.fmt(8)} | ${if (isPaper) "PAPER" else "LIVE"}")
     }
 
-    fun getActivePosition(mint: String): TreasuryPosition? {
-        // V5.9.456 — find the position wherever it lives (either map).
-        synchronized(activePositions) { activePositions[mint]?.let { return it } }
-        val otherMap = if (isPaperMode) livePositions else paperPositions
-        return synchronized(otherMap) { otherMap[mint] }
+    fun getActivePosition(mint: String, isPaper: Boolean = isPaperMode): TreasuryPosition? {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions[mint] }
     }
 
     /**
@@ -1252,14 +1252,9 @@ object CashGenerationAI {
     }
 
     /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
-    fun evictGhost(mint: String): Boolean {
-        var removed = false
-        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
-        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
-        currentPrices.remove(mint)
-        lastPriceUpdate.remove(mint)
-        if (removed) ErrorLogger.info(TAG, "💰 GHOST_EVICT Treasury ${mint.take(10)}")
-        return removed
+    fun evictGhost(mint: String, isPaper: Boolean = isPaperMode): Boolean {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions.remove(mint) != null }
     }
 
     fun checkAllPositionsForExit(): List<Pair<String, ExitSignal>> {
@@ -1336,41 +1331,11 @@ object CashGenerationAI {
     private fun cashGenCanonicalPnl6038(entryPrice: Double, currentPrice: Double, context: String): Double =
         try { com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice, currentPrice, context = context, emit = true).takeIf { it.ok }?.pnlPct ?: 0.0 } catch (_: Throwable) { 0.0 }
 
-    fun checkExit(mint: String, currentPrice: Double): ExitSignal {
+    fun checkExit(mint: String, currentPrice: Double, isPaper: Boolean = isPaperMode): ExitSignal {
+        val exitPositions7858 = if (isPaper) paperPositions else livePositions
         updatePrice(mint, currentPrice)
 
-        // V5.9.456 — MODE-COHERENCE SELL FIX (expert RCA, live money bug).
-        // Previously this only looked in the current-mode map. When the
-        // config flipped between PAPER and LIVE (deliberately or via a UI
-        // state race), every position that had been opened in the OTHER
-        // mode became invisible here — checkExit returned HOLD, the tick
-        // never called executor.requestSell, and LIVE positions ran past
-        // TP / SL indefinitely (grok hit +31.8% on a +4% target with no
-        // sell firing). Fallback: if we don't find the mint in the active
-        // map, search the other map and honour the exit signal anyway.
-        var pos = synchronized(activePositions) { activePositions[mint] }
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = synchronized(otherMap) { otherMap[mint] }
-            if (pos != null) {
-                ErrorLogger.warn(
-                    TAG,
-                    "💰⚠ TREASURY MODE MISMATCH: ${pos.symbol} found in " +
-                        "${if (isPaperMode) "LIVE" else "PAPER"} map while cfg.paperMode=$isPaperMode " +
-                        "— evaluating exit from OTHER map so TP/SL can still fire.",
-                )
-            }
-        }
-
-        if (pos == null) {
-            ErrorLogger.warn(
-                TAG,
-                "💰 TREASURY CHECK: Position NOT FOUND for ${mint.take(8)}... | " +
-                    "paper.size=${paperPositions.size} live.size=${livePositions.size}",
-            )
-            return ExitSignal.HOLD
-        }
-
+        val pos = synchronized(exitPositions7858) { exitPositions7858[mint] } ?: return ExitSignal.HOLD
         val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_secondary_6038/${pos.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000
         val isAboveTarget = currentPrice >= pos.targetPrice
@@ -1504,7 +1469,7 @@ object CashGenerationAI {
             if (mint !in walletMints) {
                 synchronized(livePositions) { livePositions.remove(mint) }
                 try {
-                    com.lifecyclebot.engine.TradeAuthorizer.releasePosition(mint)
+                    com.lifecyclebot.engine.TradeAuthorizer.releasePosition(mint, book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.TREASURY, isPaperMode = false)
                 } catch (_: Exception) {}
                 cleared.add("${pos.symbol}(${mint.take(6)}…)")
             }
@@ -1519,32 +1484,20 @@ object CashGenerationAI {
         return cleared.size
     }
 
-    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
-        // V5.9.456 — MODE-COHERENCE CLOSE FIX.
-        // If the position lives in the OTHER mode's map (because cfg was
-        // toggled after entry), activePositions.remove() would have found
-        // nothing and closePosition would silently no-op — leaving the
-        // orphan position open forever. Search both maps and remove from
-        // wherever it actually lives.
-        var pos = synchronized(activePositions) { activePositions.remove(mint) }
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = synchronized(otherMap) { otherMap.remove(mint) }
-            if (pos != null) {
-                ErrorLogger.warn(
-                    TAG,
-                    "💰⚠ TREASURY CLOSE MODE MISMATCH: ${pos.symbol} removed from " +
-                        "${if (isPaperMode) "LIVE" else "PAPER"} map (cfg.paperMode=$isPaperMode)",
-                )
-            }
-        }
-        if (pos == null) return
+    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal, isPaper: Boolean = isPaperMode) {
+        // Close only the account identified by the confirmed sell.
+        val closePositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(closePositions7858) { closePositions7858[mint] } ?: return
+        if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
+        if (!closePositions7858.remove(mint, pos)) return
+
 
         try {
             com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
                 mint = mint,
                 reason = "TREASURY_${exitReason.name}",
                 book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.TREASURY,
+                isPaperMode = isPaper
             )
             ErrorLogger.debug(TAG, "💰🔓 TREASURY LOCK RELEASED: ${pos.symbol} | reason=$exitReason")
         } catch (e: Exception) {

@@ -847,6 +847,7 @@ class DataOrchestrator(
                 if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) ts.lastLiquidityUsd = liquidity
                 // Keep the token-map observation coherent with the same stamped mark.
                 ts.tokenMap.priceUsd = priceUsd.takeIf { it.isFinite() && it > 0.0 }
+                ts.tokenMap.priceObservedAtMs7858 = ts.lastPriceUpdate
                 ts.tokenMap.poolAddress = dexPair6701
                 ts.tokenMap.pairAddress = ts.tokenMap.pairAddress.ifBlank { dexPair6701 }
                 ts.tokenMap.dexId = ts.lastPriceDex

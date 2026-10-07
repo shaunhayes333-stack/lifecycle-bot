@@ -19,7 +19,7 @@ object PaperTerminalProjectionConvergence6509 {
 
     fun converge(mint: String, symbol: String, reason: String, pnlPct: Int, ops: Ops = productionOps(mint, symbol, reason, pnlPct)): Result {
         val failed = linkedSetOf<String>()
-        var closeId = PositionCloseLedger.closeIdOf(mint).orEmpty()
+        var closeId = PositionCloseLedger.closeIdOf(mint, mode = "PAPER").orEmpty()
         try { closeId = ops.closeLedger().ifBlank { closeId } } catch (t: Throwable) { failed += "LEDGER"; emit("POST_CLOSE_LEDGER_STAMP_FAIL_6509", mint, t) }
         try { ops.paperAuthority(closeId) } catch (t: Throwable) { failed += "PAPER_AUTH"; emit("POST_CLOSE_PAPER_AUTH_FAIL_6509", mint, t) }
         try { ops.guardrail() } catch (t: Throwable) { failed += "GUARDRAIL"; emit("POST_CLOSE_GUARDRAIL_REMOVE_FAIL_6509", mint, t) }
@@ -33,7 +33,7 @@ object PaperTerminalProjectionConvergence6509 {
     }
 
     private fun productionOps(mint: String, symbol: String, reason: String, pnlPct: Int) = Ops(
-        closeLedger = { PositionCloseLedger.markClosed(mint, reason, pnlPct) },
+        closeLedger = { PositionCloseLedger.markClosed(mint, reason, pnlPct, mode = "PAPER") },
         paperAuthority = { id -> PaperPositionCloseAuthority.markClosed("PAPER", mint, symbol, reason, id) },
         guardrail = { EmergentGuardrails.unregisterPosition(mint) },
         globalRegistry = { GlobalTradeRegistry.closePosition(mint); Unit },

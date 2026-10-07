@@ -51,7 +51,7 @@ object LivePositionCloseAuthority {
     fun stateOf(mint: String): State? {
         pruneMint(mint)
         if (mint.isBlank()) return null
-        if (runCatching { PositionCloseLedger.isClosed(mint) }.getOrDefault(false)) return State.CLOSED
+        if (runCatching { PositionCloseLedger.isClosed(mint, mode = "LIVE") }.getOrDefault(false)) return State.CLOSED
         return states[mint]?.state
     }
 
@@ -67,7 +67,7 @@ object LivePositionCloseAuthority {
         if (mint.isBlank()) return Guard(false, "blank", null)
         pruneMint(mint)
         val reopened7318 = releaseStaleCloseForOpenPosition7318(mint, symbol, wallet)
-        if (runCatching { PositionCloseLedger.isClosed(mint) }.getOrDefault(false)) {
+        if (runCatching { PositionCloseLedger.isClosed(mint, mode = "LIVE") }.getOrDefault(false)) {
             purgeSellResidue(mint, "PRESELL_LEDGER_CLOSED")
             return Guard(true, "LEDGER_CLOSED", State.CLOSED)
         }
@@ -118,7 +118,7 @@ object LivePositionCloseAuthority {
      */
     private fun releaseStaleCloseForOpenPosition7318(mint: String, symbol: String, wallet: SolanaWallet?): Boolean {
         val st = states[mint]?.state
-        val ledgerClosed = runCatching { PositionCloseLedger.isClosed(mint) }.getOrDefault(false)
+        val ledgerClosed = runCatching { PositionCloseLedger.isClosed(mint, mode = "LIVE") }.getOrDefault(false)
         val trackerClosed = runCatching {
             HostWalletTokenTracker.snapshot().firstOrNull { it.mint == mint }?.status in setOf(
                 HostWalletTokenTracker.PositionStatus.CLOSED,
@@ -137,7 +137,7 @@ object LivePositionCloseAuthority {
         if (!canonicalOpen || wallet == null) return false
         val held = runCatching { SellAmountAuthority.resolve(mint, wallet) }.getOrNull()
         if (held !is SellAmountAuthority.Resolution.Confirmed || held.rawAmount.signum() <= 0) return false
-        runCatching { PositionCloseLedger.reopen(mint) }
+        runCatching { PositionCloseLedger.reopen(mint, mode = "LIVE") }
         if (st == State.CLOSED) states.remove(mint)
         emit("LIVE_STALE_CLOSE_RELEASED_7318", mint, symbol,
             "ledgerClosed=$ledgerClosed state=$st trackerClosed=$trackerClosed raw=${held.rawAmount} action=sell_allowed")
@@ -204,7 +204,7 @@ object LivePositionCloseAuthority {
         source: String = "live_close_authority",
     ): String {
         if (mint.isBlank()) return ""
-        val existing = PositionCloseLedger.closeIdOf(mint)
+        val existing = PositionCloseLedger.closeIdOf(mint, mode = "LIVE")
         if (existing != null) {
             setClosedState(mint, symbol, signature, reason)
             purgeSellResidue(mint, "FINALIZE_ALREADY_LEDGER_CLOSED")
@@ -239,9 +239,10 @@ object LivePositionCloseAuthority {
                 realizedSol = 0.0,
                 realizedPnl = safeRealizedPnl,
                 source = source,
+                mode = "LIVE",
             )
         } else {
-            PositionCloseLedger.markClosed(mint, "CONFIRMED_ZERO_LIVE_CLOSE_$reason", pnlPct)
+            PositionCloseLedger.markClosed(mint, "CONFIRMED_ZERO_LIVE_CLOSE_$reason", pnlPct, mode = "LIVE")
         }
         setClosedState(mint, symbol, signature, reason)
         try {
@@ -350,7 +351,7 @@ object LivePositionCloseAuthority {
         if (mint.isBlank()) return false
         val st = states[mint] ?: return false
         if (st.state == State.CLOSED || st.state == State.CLOSING_CONFIRMED) return false
-        if (runCatching { PositionCloseLedger.isClosed(mint) }.getOrDefault(false)) return false
+        if (runCatching { PositionCloseLedger.isClosed(mint, mode = "LIVE") }.getOrDefault(false)) return false
         val stillHeld = provenHeld || runCatching {
             val p = HostWalletTokenTracker.snapshot().firstOrNull { it.mint == mint }
             p != null && p.uiAmount > 0.0 && p.status !in setOf(
@@ -384,10 +385,10 @@ object LivePositionCloseAuthority {
         val st = states[mint]
         if (st != null && !st.signature.isNullOrBlank()) return false
         if (st != null && st.state != State.CLOSED && st.state != State.CLOSING_UNKNOWN) return false
-        val ledgerSig = runCatching { PositionCloseLedger.recordOf(mint)?.sellSig.orEmpty() }.getOrDefault("")
+        val ledgerSig = runCatching { PositionCloseLedger.recordOf(mint, mode = "LIVE")?.sellSig.orEmpty() }.getOrDefault("")
         if (ledgerSig.isNotBlank()) return false
         states.remove(mint)
-        runCatching { PositionCloseLedger.reopen(mint) }
+        runCatching { PositionCloseLedger.reopen(mint, mode = "LIVE") }
         emit("LIVE_UNSIGNED_CLOSE_RELEASED_WALLET_HELD_7373", mint, symbol, "action=sell_allowed")
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_UNSIGNED_CLOSE_RELEASED_WALLET_HELD_7373") } catch (_: Throwable) {}
         return true

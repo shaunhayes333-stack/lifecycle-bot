@@ -141,7 +141,10 @@ object ManipulatedTraderAI {
     @Volatile var isPaperMode: Boolean = true
     @Volatile private var initialized = false
 
-    val activePositions = ConcurrentHashMap<String, ManipulatedPosition>()
+    private val paperPositions = ConcurrentHashMap<String, ManipulatedPosition>()
+    private val livePositions = ConcurrentHashMap<String, ManipulatedPosition>()
+    val activePositions: ConcurrentHashMap<String, ManipulatedPosition>
+        get() = if (isPaperMode) paperPositions else livePositions
 
     private val _dailyWins = AtomicInteger(0)
     private val _dailyLosses = AtomicInteger(0)
@@ -473,7 +476,7 @@ object ManipulatedTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
 
     fun addPosition(pos: ManipulatedPosition) {
-        activePositions[pos.mint] = pos
+        (if (pos.isPaper) paperPositions else livePositions)[pos.mint] = pos
         _totalManipCaught.incrementAndGet()
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MANIPULATED", "MANIP_OPEN", pos.manipScore.coerceIn(0, 100), "open_size_${String.format(java.util.Locale.US, "%.4f", pos.entrySol)}") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "☠️ POSITION ADDED: ${pos.symbol} | " +
@@ -493,21 +496,21 @@ object ManipulatedTraderAI {
     }
 
     /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
-    fun evictGhost(mint: String): Boolean {
-        val removed = activePositions.remove(mint) != null
-        if (removed) ErrorLogger.info(TAG, "☠️ GHOST_EVICT Manipulated ${mint.take(10)}")
-        return removed
+    fun evictGhost(mint: String, isPaper: Boolean = isPaperMode): Boolean {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions.remove(mint) != null }
     }
 
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */
-    fun onPartialSell(mint: String, soldFraction: Double) {
+    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
+        val partialPositions7858 = if (isPaper) paperPositions else livePositions
         val frac = soldFraction.coerceIn(0.0, 1.0)
         if (frac <= 0.0) return
-        val pos = activePositions[mint] ?: return
+        val pos = partialPositions7858[mint] ?: return
         val updated = pos.copy(entrySol = pos.entrySol * (1.0 - frac))
-        activePositions[mint] = updated
+        partialPositions7858[mint] = updated
         ErrorLogger.debug(TAG, "🎭🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
     }
 
@@ -516,8 +519,9 @@ object ManipulatedTraderAI {
     // EXIT CHECK — called every tick for open positions
     // ═══════════════════════════════════════════════════════════════════════════
 
-    fun checkExit(mint: String, currentPrice: Double): ManipExitSignal {
-        val pos = activePositions[mint] ?: return ManipExitSignal.HOLD
+    fun checkExit(mint: String, currentPrice: Double, isPaper: Boolean = isPaperMode): ManipExitSignal {
+        val exitPositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = exitPositions7858[mint] ?: return ManipExitSignal.HOLD
 
         val pnlPct = if (pos.entryPrice > 0) {
             com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "ManipulatedTraderAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
@@ -598,8 +602,11 @@ object ManipulatedTraderAI {
         return ManipExitSignal.HOLD
     }
 
-    fun closePosition(mint: String, exitPrice: Double, reason: ManipExitSignal) {
-        val pos = activePositions.remove(mint) ?: return
+    fun closePosition(mint: String, exitPrice: Double, reason: ManipExitSignal, isPaper: Boolean = isPaperMode) {
+        val closePositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(closePositions7858) { closePositions7858[mint] } ?: return
+        if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
+        if (!closePositions7858.remove(mint, pos)) return
 
         val pnlPct = if (pos.entryPrice > 0) {
             (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0
@@ -686,7 +693,8 @@ object ManipulatedTraderAI {
     }
 
     fun clearAll() {
-        activePositions.clear()
+        paperPositions.clear()
+        livePositions.clear()
         ErrorLogger.info(TAG, "☠️ ManipulatedTraderAI — all positions cleared")
     }
     

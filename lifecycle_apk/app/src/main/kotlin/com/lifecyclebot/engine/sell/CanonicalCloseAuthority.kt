@@ -105,7 +105,7 @@ object CanonicalCloseAuthority {
         }
 
         // (d) — all invariants pass; stamp the ledger atomically and return id.
-        val cid = PositionCloseLedger.markClosed(mint, reason, pnlPct)
+        val cid = PositionCloseLedger.markClosed(mint, reason, pnlPct, mode = "LIVE")
         log(mint, symbol, "CLOSE_CONFIRMED_AUTHORITATIVE",
             "closeId=$cid balance=${walletBalanceUi} sig=${sellSignature!!.take(12)} reason=$reason")
         return CloseDecision(Verdict.CLOSE_CONFIRMED, closeId = cid,
@@ -124,7 +124,7 @@ object CanonicalCloseAuthority {
         if (sellSignature.isNullOrBlank()) {
             return CloseDecision(Verdict.NO_CONFIRMED_SIGNATURE, detail = "dust-no-sig")
         }
-        val cid = PositionCloseLedger.markClosed(mint, "${reason}_DUST", pnlPct)
+        val cid = PositionCloseLedger.markClosed(mint, "${reason}_DUST", pnlPct, mode = "LIVE")
         log(mint, symbol, "DUST_REMAINING_ACCEPTED",
             "residual=$residualUi closeId=$cid sig=${sellSignature.take(12)}")
         return CloseDecision(Verdict.CLOSE_CONFIRMED, closeId = cid, detail = "dust-accepted")

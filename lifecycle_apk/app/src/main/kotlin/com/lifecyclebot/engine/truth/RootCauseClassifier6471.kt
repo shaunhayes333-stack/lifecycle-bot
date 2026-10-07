@@ -86,9 +86,17 @@ object RootCauseClassifier6471 {
     private val classifications = AtomicLong(0L)
     private val lastResult = AtomicReference<Classification?>(null)
 
+    // These producers reconcile the PAPER account, even when the runtime is LIVE.
+    // Keep their diagnostics; do not present them as the live entry blocker.
+    internal fun belongsToAccount7858(label: String, paper: Boolean): Boolean = paper ||
+        !(label.startsWith("PAPER_") || label.startsWith("CANONICAL_PAPER_") ||
+            label in setOf("ECONOMIC_TRUTH_DIVERGENCE_6501", "LEDGER_VS_JOURNAL_DIVERGENCE_6502"))
+
     fun classify(): Classification {
         classifications.incrementAndGet()
+        val paper7858 = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
         for ((tier, label) in probes) {
+            if (!belongsToAccount7858(label, paper7858)) continue
             // V5.0.6496 §3 — consult freshness authority. Historical
             // (lifetime > 0 but no delta within the 60s window) counters
             // MUST NOT surface as active root cause. Only ACTIVE deltas

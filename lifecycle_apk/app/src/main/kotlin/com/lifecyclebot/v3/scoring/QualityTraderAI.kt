@@ -591,18 +591,11 @@ object QualityTraderAI {
         mint: String,
         currentPrice: Double,
         currentMcap: Double = 0.0,
+        isPaper: Boolean = isPaperMode,
     ): ExitSignal {
-        // V5.9.457 — mode-orphan fix: search both maps.
-        var pos = activePositions[mint]
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = otherMap[mint]
-            if (pos != null) {
-                ErrorLogger.warn(TAG, "📊⚠ QUALITY MODE MISMATCH: ${pos.symbol} found in " +
-                    "${if (isPaperMode) "LIVE" else "PAPER"} map — evaluating exit anyway")
-            }
-        }
-        if (pos == null) return ExitSignal.HOLD
+        val exitPositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(exitPositions7858) { exitPositions7858[mint] } ?: return ExitSignal.HOLD
+
         val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "QualityTraderAI.checkExit/${pos.symbol}/${mint.take(8)}")
         if (!pnlVerdict.ok) return ExitSignal.HOLD
         pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L, trusted basis only
@@ -760,7 +753,7 @@ object QualityTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun addPosition(position: QualityPosition) {
-        activePositions[position.mint] = position
+        (if (position.isPaper) paperPositions else livePositions)[position.mint] = position
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, "QUALITY", "QUALITY_OPEN", position.entryScore.coerceIn(0, 100), "open_size_${position.entrySol.fmt(4)}") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "📊 QUALITY OPENED: ${position.symbol} | " +
             "entry=${position.entryPrice} | TP=${position.takeProfitPct}% SL=${position.stopLossPct}%")
@@ -772,18 +765,13 @@ object QualityTraderAI {
         ErrorLogger.warn(TAG, "📊 QUALITY RESTORED: ${position.symbol} | mode=${if (isPaper) "PAPER" else "LIVE"} | entry=${position.entryPrice}")
     }
     
-    fun closePosition(mint: String, exitPrice: Double, exitSignal: ExitSignal) {
-        // V5.9.457 — mode-orphan fix: fall back to other map.
-        var pos = activePositions.remove(mint)
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = otherMap.remove(mint)
-            if (pos != null) {
-                ErrorLogger.warn(TAG, "📊⚠ QUALITY CLOSE MODE MISMATCH: ${pos.symbol} " +
-                    "removed from ${if (isPaperMode) "LIVE" else "PAPER"} map")
-            }
-        }
-        if (pos == null) return
+    fun closePosition(mint: String, exitPrice: Double, exitSignal: ExitSignal, isPaper: Boolean = isPaperMode) {
+        val closePositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(closePositions7858) { closePositions7858[mint] } ?: return
+        if (exitSignal !in setOf(ExitSignal.PROMOTE_BLUECHIP, ExitSignal.PROMOTE_MOONSHOT) &&
+            !com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
+        if (!closePositions7858.remove(mint, pos)) return
+
 
         // V5.0.6828 §PROMOTION_BOOKED_UNSOLD_PNL — PROMOTE_BLUECHIP and
         // PROMOTE_MOONSHOT are a HANDOFF, not a close. BotService calls this with
@@ -880,24 +868,21 @@ object QualityTraderAI {
     }
 
     /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
-    fun evictGhost(mint: String): Boolean {
-        var removed = false
-        synchronized(activePositions) { removed = activePositions.remove(mint) != null || removed }
-        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
-        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
-        if (removed) ErrorLogger.info(TAG, "⭐ GHOST_EVICT Quality ${mint.take(10)}")
-        return removed
+    fun evictGhost(mint: String, isPaper: Boolean = isPaperMode): Boolean {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions.remove(mint) != null }
     }
 
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */
-    fun onPartialSell(mint: String, soldFraction: Double) {
+    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
+        val partialPositions7858 = if (isPaper) paperPositions else livePositions
         val frac = soldFraction.coerceIn(0.0, 1.0)
         if (frac <= 0.0) return
-        val pos = activePositions[mint] ?: return
+        val pos = partialPositions7858[mint] ?: return
         val updated = pos.copy(entrySol = pos.entrySol * (1.0 - frac))
-        activePositions[mint] = updated
+        partialPositions7858[mint] = updated
         ErrorLogger.debug(TAG, "🔷🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
     }
 

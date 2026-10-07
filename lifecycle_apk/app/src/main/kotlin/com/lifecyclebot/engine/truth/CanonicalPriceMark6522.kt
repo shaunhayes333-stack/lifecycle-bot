@@ -489,7 +489,7 @@ object CanonicalPriceMarkRegistry6522 {
                         liquidityUsd = map7471.liquidityUsd ?: 0.0,
                         routeStatus = map7471.routeStatus,
                         nowMs = nowMs,
-                        evidenceTimestampMs = map7471.updatedAtMs,
+                        evidenceTimestampMs = map7471.priceObservedAtMs7858,
                     )
                 } catch (_: Throwable) {
                     PromotionResult6613(null, "TOKEN_MAP_MATERIALIZE_EXCEPTION_7471", identity = mint)
@@ -552,8 +552,8 @@ object CanonicalPriceMarkRegistry6522 {
         // V5.0.7362 — when the price was actually observed. Stamping `nowMs` made
         // an intake-time price look seconds old, so a stale price could become an
         // EXECUTABLE_ENTRY_QUOTE and a live buy could size on it. Callers pass the
-        // observation time; the default keeps any caller not yet updated as before.
-        evidenceTimestampMs: Long = nowMs,
+        // observation time; missing evidence must remain unverified.
+        evidenceTimestampMs: Long = 0L,
     ): PromotionResult6613 {
         if (routeStatus.uppercase() !in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE"))
             return PromotionResult6613(null, "TOKEN_MAP_ROUTE_NOT_EXECUTABLE", source, priceUsd, identity = mint)

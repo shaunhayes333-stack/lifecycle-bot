@@ -106,6 +106,8 @@ object TokenMapAuthority {
     fun cachedForExit6513(mint: String, maxAgeMs: Long = 90_000L): CanonicalTokenMap? {
         val snap = canonicalResultByMint6492[mint] ?: return null
         if (snap.updatedAtMs <= 0L || System.currentTimeMillis() - snap.updatedAtMs > maxAgeMs) return null
+        if (snap.priceObservedAtMs7858 <= 0L ||
+            System.currentTimeMillis() - snap.priceObservedAtMs7858 !in -5_000L..maxAgeMs) return null
         if ((snap.priceUsd ?: 0.0) <= 0.0) return null
         return detached6492(snap)
     }
@@ -164,7 +166,11 @@ object TokenMapAuthority {
         tm.dexId = normalizeVenue(ts.lastPriceDex.ifBlank { sourceScanner.ifBlank { tm.dexId } })
         tm.venue = tm.dexId
         tm.liquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: tm.liquidityUsd
-        tm.priceUsd = ts.lastPrice.takeIf { it > 0.0 } ?: tm.priceUsd
+        if (ts.lastPrice.isFinite() && ts.lastPrice > 0.0 &&
+            ts.lastPriceUpdate > 0L && ts.lastPriceUpdate >= tm.priceObservedAtMs7858) {
+            tm.priceUsd = ts.lastPrice
+            tm.priceObservedAtMs7858 = ts.lastPriceUpdate
+        }
         tm.marketCap = ts.lastMcap.takeIf { it > 0.0 } ?: tm.marketCap
         tm.fdv = ts.lastFdv.takeIf { it > 0.0 } ?: tm.fdv
         tm.topHolderConcentrationPct = ts.topHolderPct ?: tm.topHolderConcentrationPct
@@ -177,7 +183,8 @@ object TokenMapAuthority {
             val pending = cached6492.routeStatus in setOf("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", "ROUTE_STALE_RECHECK", "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER")
             val ttl = if (pending) PENDING_RESULT_RETRY_MS_6492 else ROUTE_TTL_MS
             val strongerLocalEvidence = (tm.pairAddress.isNotBlank() && cached6492.pairAddress.isBlank()) ||
-                (tm.poolAddress.isNotBlank() && cached6492.poolAddress.isBlank()) || tm.jupiterQuoteOk || tm.dexRouteOk
+                (tm.poolAddress.isNotBlank() && cached6492.poolAddress.isBlank()) ||
+                tm.priceObservedAtMs7858 > cached6492.priceObservedAtMs7858 || tm.jupiterQuoteOk || tm.dexRouteOk
             if (!strongerLocalEvidence && cached6492.updatedAtMs > 0L && now - cached6492.updatedAtMs < ttl) {
                 tokenMapComplete.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("TOKEN_MAP_SHARED_RESULT_HIT_6492") } catch (_: Throwable) {}

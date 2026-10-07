@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
  * sell lock releases, so a later exit pass can re-see the mint as sellable before
  * all derived sets (forcedOpen, memeOpen, hotExit queue) drop it.
  *
- * THE FIX: one authoritative, thread-safe close ledger keyed by mint. paperSell
+ * THE FIX: one authoritative, thread-safe close ledger keyed by account mode and mint. paperSell
  * stamps a closeId + closedAt the instant a position finalizes; every place that
  * decides "is this mint open / should I sell it / should I keep its slot" consults
  * isClosed(mint) first. This is the single source of truth the spec demands.
@@ -42,9 +42,13 @@ object PositionCloseLedger {
         val realizedSol: Double = 0.0,
         val realizedPnl: Double = 0.0,
         val source: String = "",
+        val mode: String = "PAPER",
     )
 
     private val closed = ConcurrentHashMap<String, CloseRecord>()
+    private fun currentMode7858() = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+    private fun key7858(mode: String, mint: String) = "${mode.uppercase()}:$mint"
+
 
     /** TTL after which a close record is pruned so the mint can be freshly re-bought
      *  without carrying stale close metadata forever. 10 min is comfortably longer
@@ -56,7 +60,7 @@ object PositionCloseLedger {
      * TTL, returns the EXISTING closeId (so a duplicate finalize attempt is detectable
      * by the caller comparing the returned id to a freshly-minted one).
      */
-    fun markClosed(mint: String, reason: String, pnlPct: Int): String {
+    fun markClosed(mint: String, reason: String, pnlPct: Int, mode: String = currentMode7858()): String {
         if (mint.isBlank()) return ""
         if (isRejectedCloseReason(reason)) {
             // V5.0.6727 §CLOSE_LEDGER_REJECTED_REASON_BREAKDOWN — 6726
@@ -91,13 +95,13 @@ object PositionCloseLedger {
             return ""
         }
         val now = System.currentTimeMillis()
-        val existing = closed[mint]
+        val existing = closed[key7858(mode, mint)]
         if (existing != null && (now - existing.closedAtMs) < CLOSE_TTL_MS) {
             return existing.closeId
         }
-        val id = "C${now}_${mint.take(6)}"
-        closed[mint] = CloseRecord(mint, id, now, reason.take(40), pnlPct)
-        try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", mint) } catch (_: Throwable) {}
+        val id = "C${mode.uppercase()}_${now}_${mint.take(6)}"
+        closed[key7858(mode, mint)] = CloseRecord(mint, id, now, reason.take(40), pnlPct, mode = mode.uppercase())
+        try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(mode.lowercase(), mint) } catch (_: Throwable) {}
         // V5.0.6454 §P0 — ONE SETTLEMENT, ONE REWARD EVENT. Deleted the
         // compact 0.05-SOL realizedPnL PROXY (operator: "PositionCloseLedger
         // may not invent financial values"). The compact markClosed is
@@ -115,6 +119,7 @@ object PositionCloseLedger {
         mint: String, reason: String, pnlPct: Int, sellSig: String,
         soldQtyRaw: Long, remainingQtyRaw: Long, dustAmount: Double,
         realizedSol: Double, realizedPnl: Double, source: String,
+        mode: String = currentMode7858(),
     ): String {
         if (mint.isBlank()) return ""
         if (sellSig.isBlank() || isRejectedCloseReason(reason)) {
@@ -122,16 +127,16 @@ object PositionCloseLedger {
             return ""
         }
         val now = System.currentTimeMillis()
-        val existing = closed[mint]
+        val existing = closed[key7858(mode, mint)]
         if (existing != null && (now - existing.closedAtMs) < CLOSE_TTL_MS) return existing.closeId
-        val id = "C${now}_${mint.take(6)}"
-        closed[mint] = CloseRecord(
+        val id = "C${mode.uppercase()}_${now}_${mint.take(6)}"
+        closed[key7858(mode, mint)] = CloseRecord(
             mint = mint, closeId = id, closedAtMs = now, reason = reason.take(40), pnlPct = pnlPct,
             sellSig = sellSig.take(96), soldQtyRaw = soldQtyRaw, remainingQtyRaw = remainingQtyRaw,
             dustAmount = dustAmount, realizedSol = realizedSol, realizedPnl = realizedPnl,
-            source = source.take(24),
+            source = source.take(24), mode = mode.uppercase(),
         )
-        try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(mode.lowercase(), mint) } catch (_: Throwable) {}
         // V5.0.6453 §P0-#6 — the direct GrowthAlignedRewardShaper6439.shape
         // call has been DELETED from this path (obsolete writer). Reward
         // shaping now fires from the CanonicalTradeFinalizedBus6450
@@ -152,8 +157,8 @@ object PositionCloseLedger {
     /** Spec rehydration rule: hard-closed = CLOSED in ledger AND fresh wallet balance
      *  is dust. null balance = unknown → NOT hard-closed (never hide a genuinely-held
      *  bag on an RPC blip). */
-    fun isHardClosed(mint: String, walletBalanceUi: Double?, dustUi: Double = 1.0): Boolean {
-        if (!isClosed(mint)) return false
+    fun isHardClosed(mint: String, walletBalanceUi: Double?, dustUi: Double = 1.0, mode: String = currentMode7858()): Boolean {
+        if (!isClosed(mint, mode)) return false
         if (walletBalanceUi == null) return false
         return walletBalanceUi <= dustUi
     }
@@ -169,13 +174,12 @@ object PositionCloseLedger {
     private fun clearIfCanonicallyReopened6699(mint: String, rec: CloseRecord): Boolean {
         val freshOpen = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { p ->
-                p.mint == mint && p.openedAtMs > rec.closedAtMs && p.remainingQtyRaw > java.math.BigInteger.ZERO
+                p.mode.equals(rec.mode, true) && p.mint == mint && p.openedAtMs > rec.closedAtMs && p.remainingQtyRaw > java.math.BigInteger.ZERO
             }
         } catch (_: Throwable) { false }
         if (!freshOpen) return false
-        if (!closed.remove(mint, rec)) return false
-        try { PaperPositionCloseAuthority.reopen("PAPER", mint) } catch (_: Throwable) {}
-        try { PaperPositionCloseAuthority.reopen("LIVE", mint) } catch (_: Throwable) {}
+        if (!closed.remove(key7858(rec.mode, mint), rec)) return false
+        try { PaperPositionCloseAuthority.reopen(rec.mode, mint) } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_CANONICAL_REOPEN_6699")
             ForensicLogger.lifecycle(
@@ -187,31 +191,30 @@ object PositionCloseLedger {
     }
 
     /** True if this mint has a live (within-TTL) close stamp. */
-    fun isClosed(mint: String): Boolean {
+    fun isClosed(mint: String, mode: String = currentMode7858()): Boolean {
         if (mint.isBlank()) return false
-        val rec = closed[mint] ?: return false
+        val rec = closed[key7858(mode, mint)] ?: return false
         if (clearIfCanonicallyReopened6699(mint, rec)) return false
         if (System.currentTimeMillis() - rec.closedAtMs >= CLOSE_TTL_MS) {
-            closed.remove(mint, rec)
+            closed.remove(key7858(mode, mint), rec)
             return false
         }
         return true
     }
 
     /** The existing close id for a mint, or null. */
-    fun closeIdOf(mint: String): String? = if (isClosed(mint)) closed[mint]?.closeId else null
+    fun closeIdOf(mint: String, mode: String = currentMode7858()): String? = if (isClosed(mint, mode)) closed[key7858(mode, mint)]?.closeId else null
 
-    fun recordOf(mint: String): CloseRecord? = if (isClosed(mint)) closed[mint] else null
+    fun recordOf(mint: String, mode: String = currentMode7858()): CloseRecord? = if (isClosed(mint, mode)) closed[key7858(mode, mint)] else null
 
     /**
      * Clear the close stamp — call ONLY when a mint is legitimately re-opened
      * (fresh BUY confirmed). Lets the same mint trade again after its cooldown.
      */
-    fun reopen(mint: String) {
+    fun reopen(mint: String, mode: String = currentMode7858()) {
         if (mint.isBlank()) return
-        closed.remove(mint)
-        try { PaperPositionCloseAuthority.reopen("PAPER", mint) } catch (_: Throwable) {}
-        try { PaperPositionCloseAuthority.reopen("LIVE", mint) } catch (_: Throwable) {}
+        closed.remove(key7858(mode, mint))
+        try { PaperPositionCloseAuthority.reopen(mode, mint) } catch (_: Throwable) {}
     }
 
     /** Prune expired records. Cheap; safe to call each cycle. */
@@ -259,14 +262,14 @@ object PositionCloseLedger {
         // row; stamping the old close onto it made the new position unsellable.
         val openMints7318 = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .filter { it.remainingQtyRaw > java.math.BigInteger.ZERO }
+                .filter { it.mode.equals(mode, true) && it.remainingQtyRaw > java.math.BigInteger.ZERO }
                 .map { it.mint }.toSet()
         } catch (_: Throwable) { emptySet() }
         var stamped = 0
         for (p in recent) {
             val mint = p.mint
             if (mint.isBlank()) continue
-            if (closed.containsKey(mint)) continue
+            if (closed.containsKey(key7858(mode, mint))) continue
             if (mint in openMints7318) {
                 try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_RECONSTRUCT_SKIPPED_REOPENED_7318") } catch (_: Throwable) {}
                 continue
@@ -275,11 +278,11 @@ object PositionCloseLedger {
             // does not swallow it. Carries the canonical positionId so
             // downstream forensic tools can trace the reconstruction.
             val reason = "CANONICAL_TERMINAL_RECONSTRUCT_6743:${p.positionId.take(12)}"
-            val id = "R${p.lastMutationMs}_${mint.take(6)}"
-            closed[mint] = CloseRecord(
+            val id = "R${mode.uppercase()}_${p.lastMutationMs}_${mint.take(6)}"
+            closed[key7858(mode, mint)] = CloseRecord(
                 mint = mint, closeId = id, closedAtMs = p.lastMutationMs,
                 reason = reason.take(40), pnlPct = 0,
-                source = "CANONICAL_RECONSTRUCT_6743",
+                source = "CANONICAL_RECONSTRUCT_6743", mode = mode.uppercase(),
             )
             try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(mode.lowercase(), mint) } catch (_: Throwable) {}
             stamped++

@@ -296,44 +296,32 @@ object BlueChipTraderAI {
         get() = if (isPaperMode) paperPositions else livePositions
     
     /**
-     * V5.9.1498 — GHOST EVICTION. Pure map removal from BOTH live and paper maps
+     * V5.9.1498 — GHOST EVICTION. Account-scoped map removal
      * for a mint already closed elsewhere (close ledger CLOSED). No PnL / no
      * learning — the real close already recorded the outcome. Stops the ghost
      * being re-emitted into forcedOpen and permanently parking entry admission.
      */
-    fun evictGhost(mint: String): Boolean {
-        val a = synchronized(livePositions) { livePositions.remove(mint) != null }
-        val b = synchronized(paperPositions) { paperPositions.remove(mint) != null }
-        return a || b
+    fun evictGhost(mint: String, isPaper: Boolean = isPaperMode): Boolean {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions.remove(mint) != null }
     }
 
     fun getActivePositions(): List<BlueChipPosition> {
-        // V5.9.218: Auto-purge zombie positions (held > 2x MAX_HOLD_MINUTES with no monitor)
-        val now = System.currentTimeMillis()
-        val staleThresholdMs = MAX_HOLD_MINUTES * 2 * 60_000L
-        synchronized(activePositions) {
-            val stale = activePositions.values.filter { (now - it.entryTime) > staleThresholdMs }
-            if (stale.isNotEmpty()) {
-                stale.forEach { pos ->
-                    activePositions.remove(pos.mint)
-                    ErrorLogger.warn(TAG, "🔵🧹 ZOMBIE PURGE: ${pos.symbol} | held ${(now - pos.entryTime)/60000}min, no monitor")
-                }
-            }
-        }
-        return synchronized(activePositions) {
-            activePositions.values.toList()
-        }
+        // A read cannot retire inventory. Canonical finality owns removal.
+        val positions = activePositions
+        return synchronized(positions) { positions.values.toList() }
     }
 
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */
-    fun onPartialSell(mint: String, soldFraction: Double) {
+    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
+        val partialPositions7858 = if (isPaper) paperPositions else livePositions
         val frac = soldFraction.coerceIn(0.0, 1.0)
         if (frac <= 0.0) return
-        val pos = activePositions[mint] ?: return
+        val pos = partialPositions7858[mint] ?: return
         val updated = pos.copy(entrySol = pos.entrySol * (1.0 - frac))
-        activePositions[mint] = updated
+        partialPositions7858[mint] = updated
         ErrorLogger.debug(TAG, "💎🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
     }
 
@@ -372,8 +360,9 @@ object BlueChipTraderAI {
     }
     
     fun addPosition(position: BlueChipPosition) {
-        synchronized(activePositions) {
-            activePositions[position.mint] = position
+        val entryPositions7858 = if (position.isPaper) paperPositions else livePositions
+        synchronized(entryPositions7858) {
+            entryPositions7858[position.mint] = position
         }
         dailyTradeCount.incrementAndGet()
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, "BLUECHIP", "BLUECHIP_OPEN", position.entryScore.coerceIn(0, 100), "open_size_${position.entrySol.fmt(4)}") } catch (_: Throwable) {}
@@ -391,20 +380,13 @@ object BlueChipTraderAI {
         ErrorLogger.warn(TAG, "🔵 BLUE CHIP RESTORED: ${position.symbol} | mode=${if (isPaper) "PAPER" else "LIVE"} | entry=${position.entryPrice}")
     }
     
-    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
-        // V5.9.457 — mode-orphan fix: if mint isn't in the current-mode
-        // map, fall back to the OTHER map so the actual close happens
-        // even when cfg was toggled between paper/live after entry.
-        var pos = synchronized(activePositions) { activePositions.remove(mint) }
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = synchronized(otherMap) { otherMap.remove(mint) }
-            if (pos != null) {
-                ErrorLogger.warn(TAG, "🔵⚠ BLUECHIP CLOSE MODE MISMATCH: ${pos.symbol} " +
-                    "removed from ${if (isPaperMode) "LIVE" else "PAPER"} map (cfg.paperMode=$isPaperMode)")
-            }
-        }
-        if (pos == null) return
+    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal, isPaper: Boolean = isPaperMode) {
+        // Close only the account identified by the confirmed sell.
+        val closePositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(closePositions7858) { closePositions7858[mint] } ?: return
+        if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
+        if (!closePositions7858.remove(mint, pos)) return
+
         
         // ═══════════════════════════════════════════════════════════════════
         // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
@@ -414,7 +396,8 @@ object BlueChipTraderAI {
             com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
                 mint = mint,
                 reason = "BLUECHIP_${exitReason.name}",
-                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.BLUECHIP
+                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.BLUECHIP,
+                isPaperMode = isPaper
             )
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release BlueChip lock: ${e.message}")
@@ -519,19 +502,10 @@ object BlueChipTraderAI {
     // EXIT CHECKING - V5.2.12: Added proper exit logic for BlueChip layer
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun checkExit(mint: String, currentPrice: Double): ExitSignal {
-        // V5.9.457 — mode-orphan fix: search both maps so TP/SL still fire
-        // on positions opened in the opposite mode.
-        var pos = synchronized(activePositions) { activePositions[mint] }
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = synchronized(otherMap) { otherMap[mint] }
-            if (pos != null) {
-                ErrorLogger.warn(TAG, "🔵⚠ BLUECHIP MODE MISMATCH: ${pos.symbol} found in " +
-                    "${if (isPaperMode) "LIVE" else "PAPER"} map — evaluating exit anyway")
-            }
-        }
-        if (pos == null) return ExitSignal.HOLD
+    fun checkExit(mint: String, currentPrice: Double, isPaper: Boolean = isPaperMode): ExitSignal {
+        val exitPositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(exitPositions7858) { exitPositions7858[mint] } ?: return ExitSignal.HOLD
+
         pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
 
         val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "BlueChipTraderAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0

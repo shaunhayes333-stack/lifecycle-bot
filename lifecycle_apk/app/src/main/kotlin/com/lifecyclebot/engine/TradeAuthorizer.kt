@@ -117,12 +117,14 @@ object TradeAuthorizer {
         val book: ExecutionBook,
         val lockedAt: Long,
         val lastDecisionEpoch: Long,
+        val attemptId7858: String = "",
     )
 
     private val tokenLocks = ConcurrentHashMap<String, TokenLock>()
     private var currentEpoch = 0L
 
-    private fun lockKey(mint: String, book: ExecutionBook): String = "$mint:${book.name}"
+    private fun lockKey(mint: String, book: ExecutionBook, isPaperMode: Boolean = RuntimeModeAuthority.isPaper()): String =
+        "${if (isPaperMode) "PAPER" else "LIVE"}:$mint:${book.name}"
 
     // V5.0.3936 — AUTH-LOCK TRUTH PRUNE.
     // authorize() historically wrote PAPER_OPEN/LIVE_OPEN before the executor
@@ -141,7 +143,8 @@ object TradeAuthorizer {
 
     private fun isAuthoritativeOpenLock(lock: TokenLock, isPaperMode: Boolean): Boolean {
         if (!isOpenState(lock.state)) return false
-        if (lock.state == TokenState.PAPER_OPEN || isPaperMode) return true
+        if ((lock.state == TokenState.PAPER_OPEN) != isPaperMode) return false
+        if (isPaperMode) return true
         val ageMs = System.currentTimeMillis() - lock.lockedAt
         if (ageMs <= LIVE_AUTH_LOCK_GRACE_MS) return true
         if (liveWalletThinksOpen(lock.mint)) return true
@@ -152,7 +155,7 @@ object TradeAuthorizer {
             )
             PipelineHealthCollector.labelInc("STALE_AUTH_LOCK_PRUNED")
         } catch (_: Throwable) {}
-        tokenLocks.remove(lockKey(lock.mint, lock.book), lock)
+        tokenLocks.remove(lockKey(lock.mint, lock.book, isPaperMode), lock)
         return false
     }
 
@@ -218,6 +221,7 @@ object TradeAuthorizer {
             blockLevel: BlockLevel? = null,
             canRetry: Boolean = false,
             attemptIdForResult: String = "",
+            stampCausal7858: Boolean = true,
         ): AuthorizationResult {
             val result = AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
@@ -230,7 +234,7 @@ object TradeAuthorizer {
             try {
                 PipelineHealthCollector.labelInc("TRADE_AUTH_PRE_EXEC_REFUSED_7857_${requestedBook.name}")
                 PipelineHealthCollector.labelInc("TRADE_AUTH_REFUSAL_7857|$reason")
-                if (fdgDecision7835?.canExecute() == true) {
+                if (stampCausal7858 && fdgDecision7835?.canExecute() == true) {
                     val key = ExecutableOpenGate.canonicalExecutionKey(mint,
                         mode = if (isPaperMode) "PAPER" else "LIVE", lane = requestedBook.name,
                         candidateVersion = candidateVersion7624)
@@ -285,6 +289,85 @@ object TradeAuthorizer {
                 } catch (_: Throwable) {}
                 return rejectAuth4424("DEFER_SLOT_HEALTH_${sh.reason}", BlockLevel.SOFT, canRetry = true)
             }
+        }
+
+        // Check existing account ownership before touching a candidate seal.
+        // A duplicate callback must not revoke the first callback's live ticket.
+        // GATE 4: same-book lock
+        val sameBookLock = tokenLocks[lockKey(mint, requestedBook, isPaperMode)]
+        if (sameBookLock != null) {
+            when (sameBookLock.state) {
+                TokenState.PAPER_OPEN, TokenState.LIVE_OPEN -> {
+                    if (isAuthoritativeOpenLock(sameBookLock, isPaperMode)) {
+                        ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${requestedBook.name}")
+                        return rejectAuth4424(
+                            reason = "ALREADY_OPEN",
+                            blockLevel = BlockLevel.SOFT,
+                            canRetry = false, stampCausal7858 = false,
+                        )
+                    }
+                }
+
+                TokenState.SHADOW_TRACKING -> {
+                    ErrorLogger.debug(TAG, "⬆️ $symbol: Upgrading SHADOW -> ${requestedBook.name}")
+                }
+
+                else -> {
+                    // allow overwrite of stale/non-open states
+                }
+            }
+        }
+
+        val otherBooks = ExecutionBook.values()
+            .filter { it != requestedBook && it != ExecutionBook.SHADOW }
+            .filter { book ->
+                val lock = tokenLocks[lockKey(mint, book, isPaperMode)]
+                lock != null && isAuthoritativeOpenLock(lock, isPaperMode)
+            }
+
+        // ══════════════════════════════════════════════════════════════════
+        // V5.9.1377 — ONE-MINT-ONE-POSITION (P0 #5). Previously this block only
+        // LOGGED "Multi-book authorization" and let the open proceed, so the SAME
+        // mint could be opened simultaneously in MOONSHOT + SHITCOIN + TREASURY +…
+        // A single rugging token then bought 3-4× across lanes and stop-lossed 3-4×,
+        // multiplying the bleed and inflating the loss count / streak (snapshot showed
+        // the same mints re-bought repeatedly). One physical token = one position.
+        //
+        // RULE: if the mint is already OPEN in any OTHER real execution book, REJECT.
+        // EXCEPTIONS (kept intentionally):
+        //   • SHADOW is already excluded above (shadow→real upgrade handled at GATE 4).
+        //   • CYCLIC and CRYPTO are SEPARATE UNIVERSES from the meme spine; a cross
+        //     between {CYCLIC,CRYPTO} and a meme book is allowed because they model
+        //     different strategies on what is, in practice, never the same mint — but
+        //     two MEME books (or two of the SAME universe) double-opening one mint is
+        //     the bleed bug and is blocked.
+        if (otherBooks.isNotEmpty()) {
+            val memeBooks = setOf(
+                ExecutionBook.CORE, ExecutionBook.TREASURY, ExecutionBook.CASHGEN, ExecutionBook.QUALITY,
+                ExecutionBook.SHITCOIN, ExecutionBook.EXPRESS, ExecutionBook.PROJECT_SNIPER,
+                ExecutionBook.BLUECHIP, ExecutionBook.MOONSHOT,
+                ExecutionBook.DIP_HUNTER, ExecutionBook.MANIPULATED,
+            )
+            val requestedIsMeme = requestedBook in memeBooks
+            val conflictingBook = otherBooks.firstOrNull { existing ->
+                // Block when BOTH are meme-universe books (the real duplicate-open bug),
+                // OR when the existing open is in the SAME universe class as the request.
+                (requestedIsMeme && existing in memeBooks) ||
+                    existing == requestedBook
+            }
+            if (conflictingBook != null) {
+                ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${conflictingBook.name} (one-mint-one-position; requested=${requestedBook.name})")
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUPLICATE_OPEN_SUPPRESSED", "mint=${mint.take(10)} symbol=$symbol requested=${requestedBook.name} existing=${conflictingBook.name}") } catch (_: Throwable) {}
+                return rejectAuth4424(
+                    reason = "ALREADY_OPEN_CROSS_BOOK",
+                    blockLevel = BlockLevel.SOFT,
+                    canRetry = false, stampCausal7858 = false,
+                )
+            }
+            ErrorLogger.debug(
+                TAG,
+                "✅ $symbol: Cross-universe authorization | existing=${otherBooks.joinToString { it.name }} requested=${requestedBook.name}"
+            )
         }
 
         val causalAttempt6613 = ExecutableOpenGate.canonicalExecutionKey(
@@ -362,6 +445,37 @@ object TradeAuthorizer {
             PipelineHealthCollector.labelInc("SPECIALIST_READY_PROPOSAL_7803_" + requestedBook.name)
         } catch (_: Throwable) {}
 
+        // V5.0.7858 — seal the approved owner before asking the coordinator
+        // to claim it. Otherwise the coordinator can elect a merely qualified
+        // lane and suppress the lane whose exact FDG BUY reached this boundary.
+        // V5.0.7812 — only an exact immutable FDG BUY may enter executable finality.
+        // READY proposals without the seal are retryable pipeline deferrals, not
+        // execution failures, pre-size refusals, or LOST candidates.
+        val mode7812 = if (isPaperMode) "PAPER" else "LIVE"
+        val sealedIntent7812 = try {
+            SpecialistPreauthSeal7834.ensure(tokenState7835, fdgDecision7835!!, requestedBook.name, preResolvedSizeSol)
+        } catch (error: Exception) {
+            releasePrimaryAfterAuthFailure("FDG_SEAL_ERROR_7835")
+            return rejectAuth4424("FDG_SEAL_ERROR_7835:${error.javaClass.simpleName}", BlockLevel.SOFT, canRetry = true)
+        }
+        if (sealedIntent7812 == null) {
+            try {
+                ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613)
+                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835")
+                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835_${requestedBook.name}")
+                ForensicLogger.lifecycle(
+                    "TRADE_AUTH_SEAL_FAILED_7835",
+                    "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} candidateVersion=$candidateVersion7624 action=retry_after_exact_fdg_buy_seal",
+                )
+            } catch (_: Throwable) {}
+            releasePrimaryAfterAuthFailure("FDG_SEAL_FAILED_7835")
+            return rejectAuth4424(
+                reason = "FDG_SEAL_FAILED_7835",
+                blockLevel = BlockLevel.SOFT,
+                canRetry = true,
+            )
+        }
+
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
         // 3086 showed EXEC_OPEN_REQUEST=538 but EXEC_OPEN_BLOCKED_DUPLICATE_KEY=3423:
         // secondary lanes were reaching ExecutableOpenGate just to be rejected
@@ -392,34 +506,6 @@ object TradeAuthorizer {
                 reason = "PREAUTH_${laneElection.reason}",
                 blockLevel = BlockLevel.SOFT,
                 canRetry = false,
-            )
-        }
-
-        // V5.0.7812 — only an exact immutable FDG BUY may enter executable finality.
-        // READY proposals without the seal are retryable pipeline deferrals, not
-        // execution failures, pre-size refusals, or LOST candidates.
-        val mode7812 = if (isPaperMode) "PAPER" else "LIVE"
-        val sealedIntent7812 = try {
-            SpecialistPreauthSeal7834.ensure(tokenState7835, fdgDecision7835!!, requestedBook.name, preResolvedSizeSol)
-        } catch (error: Exception) {
-            releasePrimaryAfterAuthFailure("FDG_SEAL_ERROR_7835")
-            return rejectAuth4424("FDG_SEAL_ERROR_7835:${error.javaClass.simpleName}", BlockLevel.SOFT, canRetry = true)
-        }
-        if (sealedIntent7812 == null) {
-            try {
-                ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613)
-                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835")
-                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835_${requestedBook.name}")
-                ForensicLogger.lifecycle(
-                    "TRADE_AUTH_SEAL_FAILED_7835",
-                    "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} candidateVersion=${laneElection.candidateVersion} action=retry_after_exact_fdg_buy_seal",
-                )
-            } catch (_: Throwable) {}
-            releasePrimaryAfterAuthFailure("FDG_SEAL_FAILED_7835")
-            return rejectAuth4424(
-                reason = "FDG_SEAL_FAILED_7835",
-                blockLevel = BlockLevel.SOFT,
-                canRetry = true,
             )
         }
 
@@ -543,87 +629,6 @@ object TradeAuthorizer {
             try { ForensicLogger.lifecycle("INTAKE_SIZE_REDUCED", "symbol=$symbol mint=${mint.take(10)} liq=${liquidity.toInt()} stage=TradeAuthorizer") } catch (_: Throwable) {}
         }
 
-        // GATE 4: same-book lock
-        val sameBookLock = tokenLocks[lockKey(mint, requestedBook)]
-        if (sameBookLock != null) {
-            when (sameBookLock.state) {
-                TokenState.PAPER_OPEN, TokenState.LIVE_OPEN -> {
-                    if (isAuthoritativeOpenLock(sameBookLock, isPaperMode)) {
-                        ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${requestedBook.name}")
-                        releasePrimaryAfterAuthFailure("ALREADY_OPEN")
-                        return AuthorizationResult(
-                            verdict = ExecutionVerdict.REJECT,
-                            reason = "ALREADY_OPEN",
-                            blockLevel = BlockLevel.SOFT,
-                            canRetry = false,
-                        )
-                    }
-                }
-
-                TokenState.SHADOW_TRACKING -> {
-                    ErrorLogger.debug(TAG, "⬆️ $symbol: Upgrading SHADOW -> ${requestedBook.name}")
-                }
-
-                else -> {
-                    // allow overwrite of stale/non-open states
-                }
-            }
-        }
-
-        val otherBooks = ExecutionBook.values()
-            .filter { it != requestedBook && it != ExecutionBook.SHADOW }
-            .filter { book ->
-                val lock = tokenLocks[lockKey(mint, book)]
-                lock != null && isAuthoritativeOpenLock(lock, isPaperMode)
-            }
-
-        // ══════════════════════════════════════════════════════════════════
-        // V5.9.1377 — ONE-MINT-ONE-POSITION (P0 #5). Previously this block only
-        // LOGGED "Multi-book authorization" and let the open proceed, so the SAME
-        // mint could be opened simultaneously in MOONSHOT + SHITCOIN + TREASURY +…
-        // A single rugging token then bought 3-4× across lanes and stop-lossed 3-4×,
-        // multiplying the bleed and inflating the loss count / streak (snapshot showed
-        // the same mints re-bought repeatedly). One physical token = one position.
-        //
-        // RULE: if the mint is already OPEN in any OTHER real execution book, REJECT.
-        // EXCEPTIONS (kept intentionally):
-        //   • SHADOW is already excluded above (shadow→real upgrade handled at GATE 4).
-        //   • CYCLIC and CRYPTO are SEPARATE UNIVERSES from the meme spine; a cross
-        //     between {CYCLIC,CRYPTO} and a meme book is allowed because they model
-        //     different strategies on what is, in practice, never the same mint — but
-        //     two MEME books (or two of the SAME universe) double-opening one mint is
-        //     the bleed bug and is blocked.
-        if (otherBooks.isNotEmpty()) {
-            val memeBooks = setOf(
-                ExecutionBook.CORE, ExecutionBook.TREASURY, ExecutionBook.CASHGEN, ExecutionBook.QUALITY,
-                ExecutionBook.SHITCOIN, ExecutionBook.EXPRESS, ExecutionBook.PROJECT_SNIPER,
-                ExecutionBook.BLUECHIP, ExecutionBook.MOONSHOT,
-                ExecutionBook.DIP_HUNTER, ExecutionBook.MANIPULATED,
-            )
-            val requestedIsMeme = requestedBook in memeBooks
-            val conflictingBook = otherBooks.firstOrNull { existing ->
-                // Block when BOTH are meme-universe books (the real duplicate-open bug),
-                // OR when the existing open is in the SAME universe class as the request.
-                (requestedIsMeme && existing in memeBooks) ||
-                    existing == requestedBook
-            }
-            if (conflictingBook != null) {
-                ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${conflictingBook.name} (one-mint-one-position; requested=${requestedBook.name})")
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUPLICATE_OPEN_SUPPRESSED", "mint=${mint.take(10)} symbol=$symbol requested=${requestedBook.name} existing=${conflictingBook.name}") } catch (_: Throwable) {}
-                releasePrimaryAfterAuthFailure("ALREADY_OPEN_CROSS_BOOK")
-                return AuthorizationResult(
-                    verdict = ExecutionVerdict.REJECT,
-                    reason = "ALREADY_OPEN_CROSS_BOOK",
-                    blockLevel = BlockLevel.SOFT,
-                    canRetry = false,
-                )
-            }
-            ErrorLogger.debug(
-                TAG,
-                "✅ $symbol: Cross-universe authorization | existing=${otherBooks.joinToString { it.name }} requested=${requestedBook.name}"
-            )
-        }
-
         // V5.0.7851 — the promotion gate is pre-seal strategy opinion.
         // Once SpecialistPreauthSeal7834 has produced the immutable BUY,
         // quality/confidence cannot become a second entry authority here.
@@ -647,16 +652,17 @@ object TradeAuthorizer {
         val verdict = if (isPaperMode) ExecutionVerdict.PAPER_EXECUTE else ExecutionVerdict.LIVE_EXECUTE
         val newState = if (isPaperMode) TokenState.PAPER_OPEN else TokenState.LIVE_OPEN
 
-        tokenLocks[lockKey(mint, requestedBook)] = TokenLock(
+        tokenLocks[lockKey(mint, requestedBook, isPaperMode)] = TokenLock(
             mint = mint,
             state = newState,
             book = requestedBook,
             lockedAt = now,
             lastDecisionEpoch = currentEpoch,
+            attemptId7858 = finality.attemptId,
         )
 
         // Clear shadow lock on successful real execution
-        tokenLocks.remove(lockKey(mint, ExecutionBook.SHADOW))
+        tokenLocks.remove(lockKey(mint, ExecutionBook.SHADOW, isPaperMode))
 
         ErrorLogger.info(
             TAG,
@@ -740,19 +746,16 @@ object TradeAuthorizer {
         mint: String,
         reason: String = "CLOSED",
         book: ExecutionBook? = null,
+        isPaperMode: Boolean = RuntimeModeAuthority.isPaper(),
+        attemptId7858: String? = null,
     ) {
-        if (book != null) {
-            val removed = tokenLocks.remove(lockKey(mint, book))
-            if (removed != null) {
-                ErrorLogger.debug(TAG, "🔓 Released $mint from ${removed.book.name}: $reason")
-            }
-            return
-        }
-
-        ExecutionBook.values().forEach { b ->
-            val removed = tokenLocks.remove(lockKey(mint, b))
-            if (removed != null) {
-                ErrorLogger.debug(TAG, "🔓 Released $mint from ${removed.book.name}: $reason")
+        val books = if (book != null) listOf(book) else ExecutionBook.values().toList()
+        books.forEach { b ->
+            val key = lockKey(mint, b, isPaperMode)
+            val owned = tokenLocks[key] ?: return@forEach
+            if (attemptId7858 != null && owned.attemptId7858 != attemptId7858) return@forEach
+            if (tokenLocks.remove(key, owned)) {
+                ErrorLogger.debug(TAG, "🔓 Released $mint from ${owned.book.name}: $reason")
             }
         }
     }
@@ -778,7 +781,7 @@ object TradeAuthorizer {
         live: Boolean = true,
         ageMs: Long = LIVE_AUTH_LOCK_GRACE_MS + 1_000L,
     ) {
-        tokenLocks[lockKey(mint, book)] = TokenLock(
+        tokenLocks[lockKey(mint, book, !live)] = TokenLock(
             mint = mint,
             state = if (live) TokenState.LIVE_OPEN else TokenState.PAPER_OPEN,
             book = book,
@@ -788,38 +791,40 @@ object TradeAuthorizer {
     }
 
     internal fun forceAgeOpenLockForTests(mint: String, book: ExecutionBook, ageMs: Long = LIVE_AUTH_LOCK_GRACE_MS + 1_000L) {
-        val key = lockKey(mint, book)
-        val old = tokenLocks[key] ?: return
-        tokenLocks[key] = old.copy(lockedAt = System.currentTimeMillis() - ageMs)
+        for (paper in listOf(false, true)) {
+            val key = lockKey(mint, book, paper)
+            val old = tokenLocks[key] ?: continue
+            tokenLocks[key] = old.copy(lockedAt = System.currentTimeMillis() - ageMs)
+        }
     }
 
     fun isShadowOnly(mint: String): Boolean {
         return tokenLocks[lockKey(mint, ExecutionBook.SHADOW)]?.state == TokenState.SHADOW_TRACKING
     }
 
-    fun hasOpenPosition(mint: String): Boolean {
+    fun hasOpenPosition(mint: String, isPaperMode: Boolean = RuntimeModeAuthority.isPaper()): Boolean {
         return ExecutionBook.values().any { b ->
-            val lock = tokenLocks[lockKey(mint, b)]
-            lock != null && isAuthoritativeOpenLock(lock, isPaperMode = false)
+            val lock = tokenLocks[lockKey(mint, b, isPaperMode)]
+            lock != null && isAuthoritativeOpenLock(lock, isPaperMode = isPaperMode)
         }
     }
 
-    fun hasOpenPositionInBook(mint: String, book: ExecutionBook): Boolean {
-        val lock = tokenLocks[lockKey(mint, book)] ?: return false
-        return isAuthoritativeOpenLock(lock, isPaperMode = false)
+    fun hasOpenPositionInBook(mint: String, book: ExecutionBook, isPaperMode: Boolean = RuntimeModeAuthority.isPaper()): Boolean {
+        val lock = tokenLocks[lockKey(mint, book, isPaperMode)] ?: return false
+        return isAuthoritativeOpenLock(lock, isPaperMode = isPaperMode)
     }
 
-    fun getTokensInBook(book: ExecutionBook): List<String> {
+    fun getTokensInBook(book: ExecutionBook, isPaperMode: Boolean = RuntimeModeAuthority.isPaper()): List<String> {
         return tokenLocks
-            .filter { it.key.endsWith(":${book.name}") }
+            .filter { it.key.startsWith(if (isPaperMode) "PAPER:" else "LIVE:") && it.key.endsWith(":${book.name}") }
             .values
             .map { it.mint }
             .distinct()
     }
 
-    fun getOpenPositions(): List<String> {
+    fun getOpenPositions(isPaperMode: Boolean = RuntimeModeAuthority.isPaper()): List<String> {
         return tokenLocks.values
-            .filter { isAuthoritativeOpenLock(it, isPaperMode = false) }
+            .filter { isAuthoritativeOpenLock(it, isPaperMode) }
             .map { it.mint }
             .distinct()
     }

@@ -274,7 +274,7 @@ object PaperPositionCloseAuthority {
         if (mint.isBlank()) return
         val k = key(mode, mint)
         val now = System.currentTimeMillis()
-        val cid = closeId.ifBlank { runCatching { PositionCloseLedger.closeIdOf(mint) }.getOrNull() ?: "PAPER_${mint.take(10)}_${now}" }
+        val cid = closeId.ifBlank { runCatching { PositionCloseLedger.closeIdOf(mint, mode = mode) }.getOrNull() ?: "PAPER_${mint.take(10)}_${now}" }
         val priorStateForRecoveryTelemetry6547 = states[k]?.state
         val priorStuckRetryCountForRecoveryTelemetry6547 = states[k]?.stuckRetryCount ?: 0
         states.compute(k) { _, old ->
@@ -373,13 +373,13 @@ object PaperPositionCloseAuthority {
             }
         }.getOrDefault(false)
         if (!canonicalOpen) return
-        runCatching { PositionCloseLedger.reopen(mint) }
+        runCatching { PositionCloseLedger.reopen(mint, mode = mode) }
         states.remove(k)
         emit("PAPER_STALE_CLOSE_RELEASED_7340", mint, symbol, "action=exit_allowed_canonical_open")
     }
 
     private fun syncLedger(mode: String, mint: String, symbol: String) {
-        val cid = runCatching { PositionCloseLedger.closeIdOf(mint) }.getOrNull() ?: return
+        val cid = runCatching { PositionCloseLedger.closeIdOf(mint, mode = mode) }.getOrNull() ?: return
         val k = key(mode, mint)
         val now = System.currentTimeMillis()
         states.compute(k) { _, old ->

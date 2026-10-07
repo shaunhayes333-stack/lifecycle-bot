@@ -481,6 +481,8 @@ data class CanonicalTokenMap(
     var virtualSolReserves: Double? = null,
     var realSolReserves: Double? = null,
     var priceUsd: Double? = null,
+    // Price observation time; route/cache refreshes must never advance it.
+    var priceObservedAtMs7858: Long = 0L,
     var marketCap: Double? = null,
     var fdv: Double? = null,
     var volume5mUsd: Double? = null,
@@ -621,6 +623,7 @@ data class TokenState(
             tokenMap.venue = tokenMap.dexId
             tokenMap.liquidityUsd = lastLiquidityUsd.takeIf { it > 0.0 }
             tokenMap.priceUsd = lastPrice.takeIf { it > 0.0 }
+            tokenMap.priceObservedAtMs7858 = lastPriceUpdate
             tokenMap.marketCap = lastMcap.takeIf { it > 0.0 }
             tokenMap.fdv = lastFdv.takeIf { it > 0.0 }
             tokenMap.updatedAtMs = System.currentTimeMillis()

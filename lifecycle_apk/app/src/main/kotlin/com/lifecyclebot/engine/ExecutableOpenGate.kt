@@ -918,16 +918,17 @@ object ExecutableOpenGate {
 
     fun ticketForAttempt(attemptId: String): ExecutionIntent? = executionTickets[attemptId]?.takeIf { ticketLive(it) }
 
-    /** V5.0.6514 — revoke every transient ticket/allowed-attempt residue after dispatch. */
+    /** Revoke only the named attempt; mint/lane alone cannot identify an owner. */
     private fun revokeAttempt6514(attemptId: String, mint: String, lane: String) {
-        if (attemptId.isNotBlank()) executionTickets.remove(attemptId)
-        allowedAttempts.entries.removeIf { (attemptId.isNotBlank() && it.value.first == attemptId) ||
-            it.key == mint.trim() || it.key == laneKey(mint, lane) }
+        if (attemptId.isBlank()) return
+        executionTickets.remove(attemptId)
+        allowedAttempts.entries.removeIf { it.value.first == attemptId }
         restorePenalties.remove(attemptId)
-        executableBuyClaim6487.entries.removeIf { (attemptId.isNotBlank() && it.value.startsWith("$attemptId:")) ||
-            it.key.contains(":${mint.trim()}:") }
-        // V5.0.7321 — revoked intents were never removed from the active map.
-        if (attemptId.isNotBlank()) activeExecutionIntents6519.entries.removeIf { it.value.attemptId == attemptId }
+        openRequests.remove(attemptId)
+        executableBuyClaim6487.entries.removeIf {
+            it.value == attemptId || it.value.startsWith("$attemptId:")
+        }
+        activeExecutionIntents6519.entries.removeIf { it.value.attemptId == attemptId }
     }
 
     // V5.0.6548 §P0-A — RETRY-PENDING OWNERSHIP.
@@ -965,8 +966,11 @@ object ExecutableOpenGate {
         return entry
     }
 
-    fun clearRetryPending6548(mint: String, reason: String) {
-        retryPending6548.remove(mint.trim())?.let { prior ->
+    fun clearRetryPending6548(mint: String, reason: String, attemptId: String) {
+        val key = mint.trim()
+        val prior = retryPending6548[key] ?: return
+        if (prior.attemptId != attemptId || !retryPending6548.remove(key, prior)) return
+        run {
             try {
                 ForensicLogger.lifecycle(
                     "PAPER_TICKET_RETRY_PENDING_CLEARED_6548",
@@ -1006,19 +1010,21 @@ object ExecutableOpenGate {
         // Only prune per-lane residues and the specific attempt lease.
         val retainedTicket6548 = if (attemptId.isNotBlank()) executionTickets[attemptId] else null
         val retryStampMs6548 = System.currentTimeMillis()
-        // Remove only a conflicting lane residue. Never delete the very ticket
-        // this retry slot is supposed to own.
-        allowedAttempts.entries.removeIf { entry ->
-            entry.key == laneKey(mint, lane) &&
-                (attemptId.isBlank() || entry.value.first != attemptId)
-        }
-        if (retainedTicket6548 != null && ticketLive(retainedTicket6548, retryStampMs6548)) {
-            executionTickets[attemptId] = retainedTicket6548
-            activeExecutionIntents6519[intentKey6519(
+        // A deferred callback may arrive after another owner was published.
+        // Never delete that owner or overwrite its lane/active-intent indexes.
+        if (retainedTicket6548 == null || retainedTicket6548.mode != "PAPER" ||
+            !ticketLive(retainedTicket6548, retryStampMs6548)) return
+        if (executionTickets[attemptId] !== retainedTicket6548) return
+        run {
+            activeExecutionIntents6519.putIfAbsent(intentKey6519(
                 retainedTicket6548.mode, retainedTicket6548.mint, retainedTicket6548.candidateVersion,
-            )] = retainedTicket6548
-            allowedAttempts[laneKey(mint, retainedTicket6548.canonicalLane)] = attemptId to retryStampMs6548
-            allowedAttempts[mint.trim()] = attemptId to retryStampMs6548
+            ), retainedTicket6548)
+            for (indexKey7858 in listOf(laneKey(mint, retainedTicket6548.canonicalLane), mint.trim())) {
+                allowedAttempts.compute(indexKey7858) { _, existing ->
+                    if (existing == null || existing.first == attemptId) attemptId to retryStampMs6548
+                    else existing
+                }
+            }
             try {
                 PipelineHealthCollector.labelInc("PAPER_TICKET_AUTHORITY_RETAINED_6692")
                 ForensicLogger.lifecycle(
@@ -1034,7 +1040,13 @@ object ExecutableOpenGate {
         executableBuyClaim6487.entries.removeIf { attemptId.isNotBlank() && (it.value == attemptId || it.value.startsWith("$attemptId:")) }
         val key = mint.trim()
         if (key.isNotEmpty()) {
-            retryPending6548[key] = RetryPending6548(attemptId, key, lane, reason)
+            val pending7858 = RetryPending6548(attemptId, key, lane, reason)
+            val retained7858 = retryPending6548.compute(key) { _, existing ->
+                if (existing == null || existing.attemptId == attemptId ||
+                    retryStampMs6548 - existing.stampedAtMs > effectiveRetryPendingTtlMs6692()) pending7858
+                else existing
+            }
+            if (retained7858 !== pending7858) return
             try { PipelineHealthCollector.labelInc("PAPER_TICKET_RETRY_PENDING_6548") } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
@@ -1045,14 +1057,14 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
         try { PipelineHealthCollector.labelInc("PAPER_TICKET_NONTERMINAL_RELEASE_6514") } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("PAPER_TICKET_NONTERMINAL_RELEASE_6514", "attemptId=$attemptId mint=${mint.take(10)} lane=$lane reason=$reason ticketReleased=true retryPending6548=true") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PAPER_TICKET_NONTERMINAL_RELEASE_6514", "attemptId=$attemptId mint=${mint.take(10)} lane=$lane reason=$reason ticketRetained=true retryPending6548=true") } catch (_: Throwable) {}
     }
 
     fun terminalizeAttempt6514(attemptId: String, mint: String, lane: String) {
         revokeAttempt6514(attemptId, mint, lane)
         try { com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.releaseAttempt(attemptId) } catch (_: Throwable) {}
-        // Terminal outcomes clear the retry-pending owner as well.
-        retryPending6548.remove(mint.trim())
+        // A late terminal callback must not clear a newer retry owner.
+        clearRetryPending6548(mint, "ATTEMPT_TERMINAL_7858", attemptId)
     }
 
     private fun publishTicket(ticket: ExecutionIntent) {
@@ -1677,28 +1689,25 @@ object ExecutableOpenGate {
     private val sealingRaceDeferrals7219 = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private const val MAX_SEALING_RACE_DEFERRALS_7219 = 3
 
-    fun recentAllowedAttemptId(mint: String, lane: String): String? {
-        val now = System.currentTimeMillis()
-        allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
-        return allowedAttempts[laneKey(mint, lane)]?.takeIf { now - it.second <= ALLOWED_ATTEMPT_TTL_MS }?.first
-    }
+    fun recentAllowedAttemptId(
+        mint: String,
+        lane: String,
+        mode: String = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE",
+    ): String? = recentAllowedTicket7858(mint, mode, canonicalLane(lane))?.attemptId
 
-    // V5.0.3731 — lane-agnostic approved handoff lookup.
-    // Runtime 5.0.3730 showed FDG/TradeAuthorizer approving MOONSHOT for BANNED
-    // (candidateVersion=59383825), then the V3 executor looked only for CORE/V3 and
-    // fell into a blank/STANDARD attempt, producing candidateVersion=0 and
-    // NO_FINAL_BUY_CANDIDATE. When an approved lane exists for the same mint inside
-    // the handoff TTL, downstream V3/liveBuy must reuse it instead of inventing a
-    // STANDARD/WATCH candidate.
-    fun recentAllowedAttemptIdAnyLane(mint: String): String? {
+    fun recentAllowedAttemptIdAnyLane(
+        mint: String,
+        mode: String = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE",
+    ): String? = recentAllowedTicket7858(mint, mode, null)?.attemptId
+
+    private fun recentAllowedTicket7858(mint: String, mode: String, lane: String?): ExecutionIntent? {
         val now = System.currentTimeMillis()
-        allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
-        val sanitized = sanitizeMintForKey(mint)
-        return allowedAttempts.entries
-            .asSequence()
-            .filter { (_, v) -> now - v.second <= ALLOWED_ATTEMPT_TTL_MS }
-            .map { it.value.first }
-            .firstOrNull { it.contains(":${sanitized}:BUY:") }
+        // Resolve the ticket itself, never a substring of an attempt ID or a
+        // mint-only alias that another account can overwrite.
+        return executionTickets.values.asSequence()
+            .filter { it.mint == mint.trim() && it.mode == mode.uppercase() &&
+                (lane == null || it.canonicalLane == lane) && it.fdgAllowed && ticketLive(it, now) }
+            .maxByOrNull { it.createdAt }
     }
 
 
@@ -1768,12 +1777,13 @@ object ExecutableOpenGate {
         requiresSolanaTokenMap: Boolean = true,
         allowTrunkExecutionHandoff6533: Boolean = false,
         resolvedSizeSol6558: Double = 0.0,
+        authoritativeFdgDecision7858: FinalDecisionGate.FinalDecision? = null,
     ): ExecutionIntent? {
         recordFdg(mint, symbol, lane, canExecute, reason, signal, rugScore, safetyTier, liquidityUsd,
             hardNoReasons, preFdgVerdict, candidateVersion, entryScore, tokenMapRouteStatus,
             tokenMapHydrationComplete, tokenMapExpectedOut, tokenMapProviderAttempts, requiresSolanaTokenMap,
             allowTrunkExecutionHandoff6533,
-            resolvedSizeSol6558)
+            resolvedSizeSol6558, authoritativeFdgDecision7858)
         val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
 
         // V5.0.7433 — the post-record canonical state is authoritative for
@@ -1870,6 +1880,7 @@ object ExecutableOpenGate {
         requiresSolanaTokenMap: Boolean = true,
         allowTrunkExecutionHandoff6533: Boolean = false,
         resolvedSizeSol6558: Double = 0.0,
+        authoritativeFdgDecision7858: FinalDecisionGate.FinalDecision? = null,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         // V5.0.6743 §FDG_PRE_DECISION_DEDUP — skip repeat evaluations
@@ -1891,7 +1902,20 @@ object ExecutableOpenGate {
             return
         }
         val preEntry6487 = entryAuthority6487[authorityKey6487(mint, candidateVersion)]
-        if (preEntry6487 != null && preEntry6487.verdict !in setOf(
+        val exactFdgBuy7858 = authoritativeFdgDecision7858?.let { decision ->
+            SpecialistPreauthSeal7834.refusal(decision, mint, lane, paperRuntime) == null &&
+                decision.candidateVersion7835 == candidateVersion &&
+                kotlin.math.abs(decision.sizeSol - resolvedSizeSol6558) <= 1e-9
+        } == true
+        val advisoryPreEntry7858 = exactFdgBuy7858 && preEntry6487?.verdict in setOf(
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK,
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_COOLDOWN,
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LEARNED_NEGATIVE_6846,
+        )
+        if (advisoryPreEntry7858) try {
+            PipelineHealthCollector.labelInc("PREFDG_OPINION_SUPERSEDED_BY_EXACT_FDG_7858")
+        } catch (_: Throwable) {}
+        if (!advisoryPreEntry7858 && preEntry6487 != null && preEntry6487.verdict !in setOf(
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE,
             )) {
@@ -3343,7 +3367,7 @@ object ExecutableOpenGate {
             // UNKNOWN/bucket) while the requester IS a real specialist — it is the
             // lane actually trying to open and nothing else holds authority, so let
             // it proceed. Otherwise this is genuine lane contention → dedup.
-            val primaryHasAllowedHandoff = try { recentAllowedAttemptId(mint, canonicalSelectedLane) != null } catch (_: Throwable) { false }
+            val primaryHasAllowedHandoff = try { recentAllowedAttemptId(mint, canonicalSelectedLane, modeUpper) != null } catch (_: Throwable) { false }
             val rescueRequester = isRealExecutionLane(requestedLane) && (
                 !isRealExecutionLane(rawSelectedLane) ||
                     // V5.9.1559 — unchoke: if lane election picked a primary but that
@@ -4130,7 +4154,8 @@ object ExecutableOpenGate {
             if (causalAdmission6715.forceRevalidate) {
                 // Re-evaluate the owner policy, not the previously cached verdict.
                 FinalDecisionGate.invalidateCandidate6734(mint)
-                clearRetryPending6548(mint, "CAUSAL_REVALIDATION_6734")
+                clearRetryPending6548(mint, "CAUSAL_REVALIDATION_6734", execKey)
+                clearRetryPending6548(mint, "CAUSAL_REVALIDATION_6734", fdgIntent6519.attemptId)
                 allowedAttempts.entries.removeIf { it.value.first == execKey || it.value.first == fdgIntent6519.attemptId }
                 executionTickets.remove(fdgIntent6519.attemptId)
                 executionTickets.remove(execKey)

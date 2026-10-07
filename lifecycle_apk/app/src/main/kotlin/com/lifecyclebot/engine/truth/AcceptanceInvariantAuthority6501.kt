@@ -98,7 +98,7 @@ object AcceptanceInvariantAuthority6501 {
                     "ECONOMIC_TRUTH_DIVERGENCE_6501",
                     "reported(cash=${"%.4f".format(cash)}+open=${"%.4f".format(openMv)}+treasury=${"%.4f".format(treasury7398)}=${"%.4f".format(reported)}) " +
                         "canonical(${"%.4f".format(canonical)}) equityΔ=${"%.4f".format(equityDelta)} " +
-                        "canonicalRealized=${"%.4f".format(canonicalRealized)} " +
+                        "account=PAPER canonicalRealized=${"%.4f".format(canonicalRealized)} " +
                         (if (journalRealizedSol != null) "journalRealized=${"%.4f".format(journalRealizedSol)} realizedΔ=${"%.4f".format(realizedDelta)} " else "") +
                         "tolerance=${TOLERANCE_SOL} reason=$reason",
                 )
@@ -136,7 +136,7 @@ object AcceptanceInvariantAuthority6501 {
             try {
                 ForensicLogger.lifecycle(
                     "LEDGER_VS_JOURNAL_DIVERGENCE_6502",
-                    "canonicalRealized=${"%.4f".format(canonicalRealized)} journalTerminalSum=${"%.4f".format(journalTerminalSumSol)} delta=${"%.4f".format(delta)} tolerance=${TOLERANCE_SOL}",
+                    "account=PAPER canonicalRealized=${"%.4f".format(canonicalRealized)} journalTerminalSum=${"%.4f".format(journalTerminalSumSol)} delta=${"%.4f".format(delta)} tolerance=${TOLERANCE_SOL}",
                 )
                 PipelineHealthCollector.labelInc("LEDGER_VS_JOURNAL_DIVERGENCE_6502")
             } catch (_: Throwable) {}

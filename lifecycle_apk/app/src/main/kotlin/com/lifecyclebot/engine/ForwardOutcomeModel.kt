@@ -117,9 +117,8 @@ object ForwardOutcomeModel {
      * weather.
      *
      * So this exposes an aggregate across regime / quality / edgePhase for one
-     * (lane, band), pooling Welford means by sample weight. It adds no new
-     * storage and no new key format; the forecasting path is untouched and
-     * still uses the exact per-regime cells.
+     * (mode, lane, band), pooling own-mode Welford means by sample weight. It
+     * adds no new storage or key format; forecasting still reads exact cells.
      */
     data class CohortEvidence6911(
         val samples: Long,
@@ -128,12 +127,11 @@ object ForwardOutcomeModel {
         val cells: Int,
         /**
          * V5.0.7103 — WHICH cohort answered. "regime_mode" is own-mode and
-         * regime-conditioned, "mode" is own-mode across regimes, "pooled" is the
-         * pre-7103 behaviour (every mode, every regime). A caller that reports
+         * regime-conditioned; "mode" is own-mode across regimes. A caller that reports
          * this is saying how specific its evidence actually was, which is the
          * difference between a prediction and an average.
          */
-        val level: String = "pooled",
+        val level: String = "none",
     )
 
     /**
@@ -170,12 +168,11 @@ object ForwardOutcomeModel {
      *
      *     regime_mode  own mode, this regime      most specific
      *     mode         own mode, any regime
-     *     pooled       any mode, any regime       exactly the pre-7103 answer
+     *     none         no qualifying evidence in this mode
      *
-     * STRICTLY A REFINEMENT. The worst case returns precisely what 6911
-     * returned, so no caller can end up with less evidence than it has today.
-     * The default `regime = ""` keeps every existing caller on the pooled
-     * answer until it passes one.
+     * Evidence is strictly mode-scoped. A thin cohort may fall back from
+     * regime-specific to the same mode's lane/band cohort, but never to the
+     * other account mode or pre-mode legacy data.
      *
      * Matching is now done by SEGMENT rather than by substring. The old needle
      * carried a documented fragility — "the leading pipe is required, not
@@ -196,14 +193,14 @@ object ForwardOutcomeModel {
         // Accumulate the three tiers in ONE pass over the map rather than three.
         var nR = 0L; var wR = 0L; var eR = 0.0; var cR = 0
         var nM = 0L; var wM = 0L; var eM = 0.0; var cM = 0
-        var nP = 0L; var wP = 0L; var eP = 0.0; var cP = 0
+        var otherModeCells = 0
         try {
             for ((k, c) in fine) {
                 if (c.n <= 0L) continue
                 val seg = k.split('|')
                 // New shape: mode|lane|band|quality|regime|edgePhase (6 parts).
-                // Legacy pre-6869 shape has no mode prefix (5 parts) and is kept
-                // readable as a prior rather than silently dropped.
+                // Legacy pre-6869 shape has no mode prefix and cannot authorize
+                // a mode-specific admission decision.
                 val hasMode = seg.size >= 6
                 val keyLane = if (hasMode) seg.getOrNull(1) else seg.getOrNull(0)
                 val keyBand = if (hasMode) seg.getOrNull(2) else seg.getOrNull(1)
@@ -213,8 +210,8 @@ object ForwardOutcomeModel {
                 // completed trades. They have a separate proof ladder in FDG.
                 if (keyMode == LABEL_TAG_7734) continue
                 val keyRegime = if (hasMode) seg.getOrNull(4) else seg.getOrNull(3)
+                if (keyMode != ownMode) otherModeCells++
 
-                nP += c.n; wP += c.wins; eP += c.mean * c.n; cP++
                 if (keyMode == ownMode) {
                     nM += c.n; wM += c.wins; eM += c.mean * c.n; cM++
                     if (regimeTag.isNotBlank() && keyRegime == regimeTag) {
@@ -234,60 +231,9 @@ object ForwardOutcomeModel {
             )
         if (nR >= MIN_SAMPLES) return build(nR, wR, eR, cR, "regime_mode")
         if (nM >= MIN_SAMPLES) return build(nM, wM, eM, cM, "mode")
-        // V5.0.7160 §PAPER'S LOSSES WERE VETOING LIVE ENTRIES AT FULL WEIGHT.
-        //
-        // The accumulator above is unconditional — `nP += c.n` runs for EVERY
-        // mode — and this line used to return that raw blend as "pooled" on as
-        // little as nP > 0. One sample, from the other mode, decided a live
-        // entry.
-        //
-        // Operator's 5.0.7155 oracle contribution list, the refusal that fired
-        // 802 times:
-        //
-        //   cellScoreExp(n=5,E=-45.9) cellFwd(pooled,n=1,E=-9.8,pW=0.00)
-        //   lane(n=14,E=-28.x)
-        //
-        // cellFwd is this function. n=1, "pooled". And the parity line shows
-        // why it is always this branch: ForwardOutcomeModel[paper=51 live=3].
-        // Live evidence never reaches MIN_SAMPLES, so live decisions are made
-        // on paper's record at full strength — the exact thing
-        // PaperSeededPrior6991 exists to prevent, on a path that never
-        // consulted it.
-        //
-        // Two corrections, both conservative:
-        //
-        // 1. A pooled verdict needs a real sample. One observation is not a
-        //    cohort; below the floor this returns "none" and the caller treats
-        //    it as no evidence rather than as a prediction.
-        //
-        // 2. Cross-mode evidence is SHRUNK toward neutral by the share that is
-        //    actually own-mode. With 3 live against 51 paper the shrink is
-        //    ~0.06, so a -29% paper expectancy speaks as ~-1.7% — present, but
-        //    not decisive. It earns its voice back as live samples accumulate,
-        //    which is what a self-improving system should do instead of
-        //    inheriting another mode's history wholesale.
-        //
-        // In PAPER mode ownMode IS the pooled majority, so the shrink is ~1.0
-        // and paper behaviour is unchanged. This only ever loosens a refusal
-        // built on the other mode's evidence; it cannot manufacture optimism,
-        // because shrinking toward zero moves a negative expectancy UP toward
-        // neutral and a positive one DOWN toward neutral alike.
-        val POOLED_MIN_SAMPLES_7160 = 3L
-        if (nP >= POOLED_MIN_SAMPLES_7160) {
-            val ownShare7160 = if (nP > 0L) (nM.toDouble() / nP.toDouble()).coerceIn(0.0, 1.0) else 0.0
-            val pooled7160 = build(nP, wP, eP, cP, "pooled")
-            if (ownShare7160 >= 0.999) return pooled7160
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FWD_POOLED_CROSS_MODE_SHRUNK_7160")
-            } catch (_: Throwable) {}
-            return pooled7160.copy(
-                // Shrink expectancy toward 0 and pWin toward the 0.5 prior by
-                // the own-mode share. Sample count is reported honestly.
-                expectedPnlPct = pooled7160.expectedPnlPct * ownShare7160,
-                pWin = (0.5 + (pooled7160.pWin - 0.5) * ownShare7160).coerceIn(0.0, 1.0),
-                level = "pooled_shrunk_7160",
-            )
-        }
+        if (otherModeCells > 0) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FWD_CROSS_MODE_EVIDENCE_REFUSED_7858")
+        } catch (_: Throwable) {}
         return CohortEvidence6911(0L, 0.5, 0.0, 0, "none")
     }
     @Volatile private var totalUpdates = 0L
@@ -404,9 +350,7 @@ object ForwardOutcomeModel {
 
     /** A label forecast may shape a prior but may not impersonate terminal evidence. */
     fun hasTerminalEvidence7838(forecast: Forecast?): Boolean = forecast != null &&
-        forecast.samples > 0L && forecast.source in setOf(
-            "fine", "coarse",
-        )
+        forecast.samples > 0L && forecast.source.removeSuffix("_assessed6991") in setOf("fine", "coarse")
 
     /** Predict the outcome distribution for a candidate (no side effects). */
     fun forecast(

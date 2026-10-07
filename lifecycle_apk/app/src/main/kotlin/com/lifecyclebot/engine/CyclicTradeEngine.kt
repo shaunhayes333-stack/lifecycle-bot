@@ -1286,6 +1286,7 @@ object CyclicTradeEngine {
         reason: String,
         solPrice: Double
     ) {
+        val closingPaper7858 = !isLiveMode
         val deployedSizeSol = entrySizeSol.takeIf { it > 0.0 } ?: ringBalanceSol
         val pnlSol = deployedSizeSol * (pnlPct / 100.0)
 
@@ -1303,7 +1304,7 @@ object CyclicTradeEngine {
                 // Reconcile local occupancy without inventing a second PnL outcome.
                 try { PipelineHealthCollector.labelInc("CYCLIC_ALREADY_CLOSED_RECONCILED_6566") } catch (_: Throwable) {}
                 clearLocalCycleState6566()
-                try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_ALREADY_CLOSED", TradeAuthorizer.ExecutionBook.CYCLIC) } catch (_: Throwable) {}
+                try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_ALREADY_CLOSED", TradeAuthorizer.ExecutionBook.CYCLIC, isPaperMode = closingPaper7858) } catch (_: Throwable) {}
                 try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CYCLIC", "CYCLIC_ALREADY_CLOSED") } catch (_: Throwable) {}
                 save(context)
                 return
@@ -1371,7 +1372,7 @@ object CyclicTradeEngine {
             )
         } catch (_: Throwable) {}
 
-        try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_$reason", TradeAuthorizer.ExecutionBook.CYCLIC) } catch (_: Throwable) {}
+        try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_$reason", TradeAuthorizer.ExecutionBook.CYCLIC, isPaperMode = closingPaper7858) } catch (_: Throwable) {}
         try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CYCLIC", "CYCLIC_$reason") } catch (_: Throwable) {}
 
         clearLocalCycleState6566()

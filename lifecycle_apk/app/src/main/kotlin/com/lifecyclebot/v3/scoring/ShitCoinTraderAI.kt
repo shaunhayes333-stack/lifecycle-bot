@@ -447,10 +447,9 @@ object ShitCoinTraderAI {
         synchronized(livePositions) { livePositions[mint]?.lastSeenPrice = price }
     }
     // Called by BotService after executing a PARTIAL_TAKE sell to confirm the flag is set
-    fun markFirstTakeDone(mint: String) {
-        synchronized(activePositions) { activePositions[mint] }?.firstTakeDone = true
-        val otherMap = if (isPaperMode) livePositions else paperPositions
-        synchronized(otherMap) { otherMap[mint] }?.firstTakeDone = true
+    fun markFirstTakeDone(mint: String, isPaper: Boolean = isPaperMode) {
+        val positions = if (isPaper) paperPositions else livePositions
+        synchronized(positions) { positions[mint]?.firstTakeDone = true }
     }
 
     /**
@@ -459,19 +458,15 @@ object ShitCoinTraderAI {
      * restores the correct remaining size (not the original full size), and so
      * subsequent closePosition P&L accounting is correct.
      */
-    fun onPartialSell(mint: String, soldFraction: Double) {
+    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
+        val partialPositions7858 = if (isPaper) paperPositions else livePositions
         val frac = soldFraction.coerceIn(0.0, 1.0)
         if (frac <= 0.0) return
-        // Update whichever map actually holds this mint
-        val active  = synchronized(activePositions) { activePositions[mint] }
-        val otherMap = if (isPaperMode) livePositions else paperPositions
-        val other   = synchronized(otherMap) { otherMap[mint] }
-        val pos = active ?: other ?: return
+        val pos = synchronized(partialPositions7858) { partialPositions7858[mint] } ?: return
         val newEntrySol = pos.entrySol * (1.0 - frac)
         // ShitCoinPosition uses var for mutable fields; entrySol is val, so we replace the entry
         val updated = pos.copy(entrySol = newEntrySol)
-        if (active != null)  synchronized(activePositions) { activePositions[mint] = updated }
-        if (other  != null)  synchronized(otherMap)        { otherMap[mint]        = updated }
+        synchronized(partialPositions7858) { partialPositions7858[mint] = updated }
         ErrorLogger.debug(TAG, "💩🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol.fmt(4)} → ${newEntrySol.fmt(4)} (sold ${(frac*100).toInt()}%)")
     }
 
@@ -489,17 +484,15 @@ object ShitCoinTraderAI {
     }
 
     /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
-    fun evictGhost(mint: String): Boolean {
-        var removed = false
-        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
-        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
-        if (removed) ErrorLogger.info(TAG, "💩 GHOST_EVICT ShitCoin ${mint.take(10)}")
-        return removed
+    fun evictGhost(mint: String, isPaper: Boolean = isPaperMode): Boolean {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions.remove(mint) != null }
     }
     
     fun addPosition(position: ShitCoinPosition) {
-        synchronized(activePositions) {
-            activePositions[position.mint] = position
+        val entryPositions7858 = if (position.isPaper) paperPositions else livePositions
+        synchronized(entryPositions7858) {
+            entryPositions7858[position.mint] = position
         }
         try { ShitCoinDecisionMatrixReport.recordOpened(position.mint, position.symbol, position.launchPlatform.name, position.isPaper, position.entrySol, position.entryScore) } catch (_: Throwable) {}
         dailyTradeCount.incrementAndGet()
@@ -521,47 +514,15 @@ object ShitCoinTraderAI {
             "TP=${position.takeProfitPct.fmt(0)}% SL=${position.stopLossPct.fmt(0)}%")
     }
     
-    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
-        // V5.9.457 — mode-orphan fix: fall back to other map so closes
-        // actually happen across paper/live mode toggles.
-        var pos = synchronized(activePositions) { activePositions.remove(mint) }
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = synchronized(otherMap) { otherMap.remove(mint) }
-            if (pos != null) {
-                ErrorLogger.warn(TAG, "💩⚠ SHITCOIN CLOSE MODE MISMATCH: ${pos.symbol} " +
-                    "removed from ${if (isPaperMode) "LIVE" else "PAPER"} map (cfg.paperMode=$isPaperMode)")
-            }
-        }
-        if (pos == null) return
+    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal, isPaper: Boolean = isPaperMode) {
+        // Close only the account identified by the confirmed sell.
+        val closePositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(closePositions7858) { closePositions7858[mint] } ?: return
+        if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
+        if (!closePositions7858.remove(mint, pos)) return
 
-        // V5.9.1408 — direct sub-trader settle-in guard. ShitCoin can close and
-        // journal directly without going through Executor.requestSell(), which is
-        // why EGOD still closed at -10.7% after RAPID_ENTRY_WARMUP_HOLD. In paper,
-        // delay all non-hard-floor red closes for the first 30s so price/spread
-        // discovery can settle. The unconditional -15% floor remains immediate.
-        val nowForSettle = System.currentTimeMillis()
-        val pnlPctForSettle = if (pos.entryPrice > 0.0) (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
-        val ageMsForSettle = nowForSettle - pos.entryTime
-        
-        // V5.9.1412 — FIX: use paper-adjusted threshold (-45%) for the settle-in so paper slippage (-27%) doesn't instantly bypass the choke.
-        // V5.9.1418 — align sub-trader settle-in (was 30s) with the central
-        // BotService 60s entry-protection window. A 30s window let ShitCoin
-        // close as a rapid stop at 31-60s — exactly the churn band the central
-        // monitor now holds. Match 60s so no lane shakes a fresh paper token out
-        // on entry noise. -15% hard floor stays immediate (pnl > -45 paper-adj guard).
-        if (pos.isPaper && ageMsForSettle in 0L until 40_000L && pnlPctForSettle <= 0.0 && pnlPctForSettle > -45.0) {  // V5.9.1429 60s->40s, kept aligned with BotService central settle-in
-            synchronized(activePositions) { activePositions[mint] = pos }
-            try {
-                ErrorLogger.info(TAG, "💩⏳ SETTLE-IN HOLD: ${pos.symbol} | ${pnlPctForSettle.fmt(1)}% age=${ageMsForSettle}ms reason=${exitReason.name} (floor=-15%)")
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "SHITCOIN_SETTLE_IN_EXIT_DELAYED",
-                    "mint=${mint.take(10)} symbol=${pos.symbol} pnl=${"%.1f".format(pnlPctForSettle)} ageMs=$ageMsForSettle reason=${exitReason.name}"
-                )
-            } catch (_: Throwable) {}
-            return
-        }
-        
+
+        // Canonical finality has already occurred; never resurrect the projection.
         // V4.1.3: Stop rug monitoring
         UltraFastRugDetectorAI.stopMonitoring(mint)
         
@@ -594,7 +555,8 @@ object ShitCoinTraderAI {
             com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
                 mint = mint,
                 reason = "${immutableLanePrefix6613}_${exitReason.name}",
-                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.SHITCOIN
+                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.SHITCOIN,
+                isPaperMode = isPaper
             )
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release ShitCoin lock: ${e.message}")
@@ -1794,18 +1756,10 @@ object ShitCoinTraderAI {
     // EXIT CHECKING
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun checkExit(mint: String, currentPrice: Double): ExitSignal {
-        // V5.9.457 — mode-orphan fix: search both maps so TP/SL still fire.
-        var pos = synchronized(activePositions) { activePositions[mint] }
-        if (pos == null) {
-            val otherMap = if (isPaperMode) livePositions else paperPositions
-            pos = synchronized(otherMap) { otherMap[mint] }
-            if (pos != null) {
-                ErrorLogger.warn(TAG, "💩⚠ SHITCOIN MODE MISMATCH: ${pos.symbol} found in " +
-                    "${if (isPaperMode) "LIVE" else "PAPER"} map — evaluating exit anyway")
-            }
-        }
-        if (pos == null) return ExitSignal.HOLD
+    fun checkExit(mint: String, currentPrice: Double, isPaper: Boolean = isPaperMode): ExitSignal {
+        val exitPositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(exitPositions7858) { exitPositions7858[mint] } ?: return ExitSignal.HOLD
+
         val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "ShitCoinTraderAI.checkExit/${pos.symbol}/${mint.take(8)}")
         if (!pnlVerdict.ok) return ExitSignal.HOLD
         // V5.9.392 — stash latest trusted price for unified open-positions card.

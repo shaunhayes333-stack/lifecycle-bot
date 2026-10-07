@@ -66,6 +66,9 @@ class Aate6607RepairCFCoverageTest {
             audit.contains("labelSnapshotByPrefix6607(classPrefix)") &&
                 audit.contains("CANONICAL_SIZING_BRIDGE_6532|CLASS=\$klass|LANE=")
         )
+        assertTrue("7858: the specialist canonical sizing bridge must satisfy the acceptance audit",
+            audit.contains("SPECIALIST_CANONICAL_SIZING_ROUTE_7828") &&
+                audit.contains("specialistBridgeVisits7858 > 0L"))
         assertTrue(
             "V5.0.6607: hard-coded PERPS_SOL/PERPS_BTC/PERPS_ETH exact list must be removed",
             !audit.contains("listOf(\"PERPS_SOL\", \"PERPS_BTC\", \"PERPS_ETH\", \"PERPS\")")

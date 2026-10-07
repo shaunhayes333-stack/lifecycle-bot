@@ -1764,7 +1764,7 @@ object HostWalletTokenTracker {
                 p.uiAmount = 0.0
                 p.activeSellAttemptId = null
                 p.notes.add("startup close: independent zero finality already recorded")
-                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_CONFIRMED_ZERO_STARTUP", 0) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_CONFIRMED_ZERO_STARTUP", 0, mode = "LIVE") } catch (_: Throwable) {}
                 try {
                     for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER")) {
                         com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "CLOSED_BY_CONFIRMED_ZERO_STARTUP")
@@ -1815,7 +1815,7 @@ object HostWalletTokenTracker {
                 p.activeSellAttemptId = null
                 p.sellAttemptStartedMs = 0L
                 p.notes.add("explicit raw-zero close: authoritative wallet lookup")
-                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_EXPLICIT_RAW_ZERO_7228", 0) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_EXPLICIT_RAW_ZERO_7228", 0, mode = "LIVE") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "CLOSED_BY_EXPLICIT_RAW_ZERO_7228") } catch (_: Throwable) {}
                 try {
@@ -1867,7 +1867,7 @@ object HostWalletTokenTracker {
             p.activeSellAttemptId = null
             p.notes.add("confirmed-finality reap: zero wallet balance with sell/zero finality")
             try {
-                com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, if (p.sellSignature.isNullOrBlank()) "CLOSED_BY_CONFIRMED_ZERO" else "CLOSED_BY_CONFIRMED_SELL", 0)
+                com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, if (p.sellSignature.isNullOrBlank()) "CLOSED_BY_CONFIRMED_ZERO" else "CLOSED_BY_CONFIRMED_SELL", 0, mode = "LIVE")
             } catch (_: Throwable) {}
             // V5.9.1505 — a reaped dead position must (1) release any lane-primary
             // election it still holds so the slot frees, and (2) arm a re-entry
@@ -1904,7 +1904,7 @@ object HostWalletTokenTracker {
             p.activeSellAttemptId = null
             p.sellAttemptStartedMs = 0L
             p.notes.add("closed stale recovery: no current held proof after TTL")
-            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_STALE_RECOVERY_UNHELD", 0) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_STALE_RECOVERY_UNHELD", 0, mode = "LIVE") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "CLOSED_STALE_RECOVERY_UNHELD") } catch (_: Throwable) {}
             emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
@@ -2072,11 +2072,11 @@ object HostWalletTokenTracker {
                     mint = mint, symbol = p.symbol ?: "?",
                     sellSignature = p.sellSignature, signatureConfirmed = true,
                     walletBalanceUi = 0.0, reason = "RECONCILER_ZERO_$reason", pnlPct = pnlPct,
-                ).closeId ?: com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "RECONCILER_ZERO_$reason", pnlPct)
+                ).closeId ?: com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "RECONCILER_ZERO_$reason", pnlPct, mode = "LIVE")
             } else {
                 // No sig — only independent zero finality may stamp closed.
                 if (p.zeroBalanceConfirmedByTwoProviders) {
-                    com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "CLOSED_BY_CONFIRMED_ZERO_$reason", pnlPct)
+                    com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "CLOSED_BY_CONFIRMED_ZERO_$reason", pnlPct, mode = "LIVE")
                 } else ""
             }
             ForensicLogger.lifecycle(

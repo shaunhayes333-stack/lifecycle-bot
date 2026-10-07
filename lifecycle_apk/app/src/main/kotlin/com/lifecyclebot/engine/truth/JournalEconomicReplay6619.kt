@@ -958,6 +958,18 @@ object JournalEconomicReplay6619 {
         val displayQty = try { openRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
         val entryPx = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }
             ?: seed.price.takeIf { it.isFinite() && it > 0.0 } ?: return skip("NO_ENTRY_PRICE")
+        // The ledger already committed these receipts. Rebuilding their journal
+        // projection needs the matching witness for this derived event ID; without
+        // it insertTradeAsync rejects every rebuild as JOURNAL_WITHOUT_LEDGER.
+        if (receipts.any { !it.mode.equals("paper", true) || it.positionId != positionId || it.mint != seed.mint }) {
+            return skip("RECEIPT_IDENTITY_MISMATCH_7858")
+        }
+        val rebuiltEventId7858 = "REBUILT7360:${terminal.idempotencyKey}"
+        if (TradeHistoryStore.isDurableEconomicEvent7371(rebuiltEventId7858)) return skip("REBUILD_ALREADY_DURABLE_7858")
+        PaperEconomicAtomicCommit6632.stampLedger(
+            rebuiltEventId7858, seed.mint, PaperEconomicAtomicCommit6632.Side.SELL,
+            "JournalEconomicReplay6619.receiptProjection7858",
+        )
         TradeHistoryStore.recordTrade(Trade(
             side = "SELL", mode = "paper", sol = gross,
             price = entryPx,
@@ -973,13 +985,13 @@ object JournalEconomicReplay6619 {
             soldQtyToken = displayQty, remainingQtyToken = 0.0,
             canonicalConsumedRaw = openRaw, remainingRawQty = java.math.BigInteger.ZERO,
             tokenDecimals = scale, soldCostBasisSol = openBasis,
-            grossProceedsSol = gross, economicEventId = "REBUILT7360:${terminal.idempotencyKey}",
+            grossProceedsSol = gross, economicEventId = rebuiltEventId7858,
             partialSequence = (allJournalSells7367.maxOfOrNull { it.partialSequence } ?: -1L) + 1L,
         ))
         try {
-            PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_REBUILT_7360")
+            PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_REBUILD_ENQUEUED_7858")
             ForensicLogger.lifecycle(
-                "JOURNAL_RECEIPT_REBUILT_7360",
+                "JOURNAL_RECEIPT_REBUILD_ENQUEUED_7858",
                 "positionId=${positionId.take(24)} mint=${seed.mint.take(10)} receipts=${missing.size} " +
                     "gross=${"%.6f".format(gross)} fees=${"%.6f".format(fees)} basis=${"%.6f".format(openBasis)} " +
                     "pnl=${"%+.6f".format(pnl)} action=terminal_row_from_ledger_receipts",

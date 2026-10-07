@@ -172,6 +172,7 @@ object RouteTruthHydrator {
         // 5. Helius/account proof equivalent already present: real price+liq+provider.
         if (ts.lastPrice > 0.0 && ts.lastLiquidityUsd > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())) {
             tm.priceUsd = ts.lastPrice
+            tm.priceObservedAtMs7858 = ts.lastPriceUpdate
             tm.liquidityUsd = ts.lastLiquidityUsd
             tm.marketCap = ts.lastMcap.takeIf { it > 0.0 }
             tm.routeStatus = "ROUTE_TRUTH_PROVIDER_PRICE_LIQ_PENDING_EXEC_ROUTE"

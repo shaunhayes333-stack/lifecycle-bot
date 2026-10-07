@@ -1270,10 +1270,11 @@ object MoonshotTraderAI {
      * Reduces the sub-trader's tracked entrySol so rehydratePositionFromSubTraders
      * restores the correct remaining size, not the original full size.
      */
-    fun onPartialSell(mint: String, soldFraction: Double) {
+    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
+        val partialPositions7858 = if (isPaper) paperPositions else livePositions
         val frac = soldFraction.coerceIn(0.0, 1.0)
         if (frac <= 0.0) return
-        val pos = synchronized(activePositions) { activePositions[mint] } ?: return
+        val pos = synchronized(partialPositions7858) { partialPositions7858[mint] } ?: return
         val newEntrySol = pos.entrySol * (1.0 - frac)
         val updated = pos.copy(
             entrySol = newEntrySol,
@@ -1281,7 +1282,7 @@ object MoonshotTraderAI {
             firstTakeDone = true,
             partialSellPct = (pos.partialSellPct + frac).coerceAtMost(1.0),
         )
-        synchronized(activePositions) { activePositions[mint] = updated }
+        synchronized(partialPositions7858) { partialPositions7858[mint] = updated }
         ErrorLogger.debug(TAG, "🌙🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${newEntrySol} (sold ${(frac*100).toInt()}%)")
     }
 
@@ -1300,18 +1301,15 @@ object MoonshotTraderAI {
     }
 
     /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
-    fun evictGhost(mint: String): Boolean {
-        var removed = false
-        synchronized(activePositions) { removed = activePositions.remove(mint) != null || removed }
-        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
-        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
-        if (removed) ErrorLogger.info(TAG, "🌙 GHOST_EVICT Moonshot ${mint.take(10)}")
-        return removed
+    fun evictGhost(mint: String, isPaper: Boolean = isPaperMode): Boolean {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions.remove(mint) != null }
     }
     
     fun addPosition(position: MoonshotPosition) {
-        synchronized(activePositions) {
-            activePositions[position.mint] = position
+        val entryPositions7858 = if (position.isPaperMode) paperPositions else livePositions
+        synchronized(entryPositions7858) {
+            entryPositions7858[position.mint] = position
         }
         
         val targetMap = if (position.isPaperMode) paperPositions else livePositions
@@ -1364,14 +1362,13 @@ object MoonshotTraderAI {
         } catch (_: Throwable) {}
     }
     
-    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
-        val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
-        
-        val targetMap = if (pos.isPaperMode) paperPositions else livePositions
-        synchronized(targetMap) {
-            targetMap.remove(mint)
-        }
-        
+    fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal, isPaper: Boolean = isPaperMode) {
+        // Close only the account identified by the confirmed sell.
+        val closePositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(closePositions7858) { closePositions7858[mint] } ?: return
+        if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
+        if (!closePositions7858.remove(mint, pos)) return
+
         // ═══════════════════════════════════════════════════════════════════
         // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
         // This allows the token to be re-entered or promoted to another layer
@@ -1380,7 +1377,8 @@ object MoonshotTraderAI {
             com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
                 mint = mint,
                 reason = "MOONSHOT_${exitReason.name}",
-                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.MOONSHOT
+                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.MOONSHOT,
+                isPaperMode = isPaper
             )
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release Moonshot lock: ${e.message}")
@@ -1641,8 +1639,9 @@ object MoonshotTraderAI {
     // EXIT CHECKING - LET WINNERS RIDE!
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun checkExit(mint: String, currentPrice: Double): ExitSignal {
-        val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+    fun checkExit(mint: String, currentPrice: Double, isPaper: Boolean = isPaperMode): ExitSignal {
+        val exitPositions7858 = if (isPaper) paperPositions else livePositions
+        val pos = synchronized(exitPositions7858) { exitPositions7858[mint] } ?: return ExitSignal.HOLD
         val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MoonshotTraderAI.checkExit/${pos.symbol}/${mint.take(8)}")
         if (!pnlVerdict.ok) return ExitSignal.HOLD
         // V5.9.392 — stash latest trusted price so the unified open-positions card

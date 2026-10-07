@@ -2479,8 +2479,14 @@ object TradeHistoryStore {
      * evidence. This gives reports/UI a clean cache target without deleting or
      * mutating historical duplicate/recovered/partial forensic rows.
      */
-    fun getCleanStatsSnapshot4517(limit: Int = 2_500): StatsSnapshot {
-        val raw = try { getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
+    internal fun modeRows4517(rows: List<Trade>, mode: String?): List<Trade> =
+        if (mode.isNullOrBlank()) rows else rows.filter { it.mode.equals(mode, true) }
+
+    fun getCleanStatsSnapshot4517(limit: Int = 2_500, mode: String? = null): StatsSnapshot {
+        val raw = modeRows4517(
+            try { getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() },
+            mode,
+        )
         val clean = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
             .filter { it.side.equals("SELL", true) }
         val cutoff24h = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
