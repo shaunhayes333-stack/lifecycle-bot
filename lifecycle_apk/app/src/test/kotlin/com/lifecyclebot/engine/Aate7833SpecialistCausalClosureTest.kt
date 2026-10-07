@@ -17,9 +17,16 @@ class Aate7833SpecialistCausalClosureTest {
         assertFalse(block.contains("activeExecutionIntent6519("))
     }
 
-    @Test fun authorizer_elects_then_seals_the_exact_decision() {
+    @Test fun authorizer_seals_exact_fdg_owner_then_elects_before_finality() {
         val h = src("engine/TradeAuthorizer.kt")
-        assertTrue(h.indexOf("LaneExecutionCoordinator.canRequestExecution(") < h.indexOf("SpecialistPreauthSeal7834.ensure("))
+        val sealAt = h.indexOf("SpecialistPreauthSeal7834.ensure(")
+        val electionAt = h.indexOf("LaneExecutionCoordinator.canRequestExecution(")
+        val finalityAt = h.indexOf("ExecutableOpenGate.canOpenExecutablePosition(")
+        assertTrue("the exact FDG owner must be sealed before election", sealAt >= 0 && electionAt > sealAt)
+        assertTrue("election must still precede finality side effects", finalityAt > electionAt)
+        val sealToElection = h.substring(sealAt, electionAt)
+        assertTrue(sealToElection.contains("if (sealedIntent7812 == null)"))
+        assertTrue(sealToElection.contains("return rejectAuth4424("))
         assertTrue(h.contains("fdgDecision7835?.candidateVersion7835"))
         assertFalse(h.contains("activeExecutionIntentForLane7809("))
         val seal = src("engine/SpecialistPreauthSeal7834.kt")
