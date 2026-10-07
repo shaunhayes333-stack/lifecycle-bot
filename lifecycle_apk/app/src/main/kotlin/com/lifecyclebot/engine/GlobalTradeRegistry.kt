@@ -934,6 +934,13 @@ object GlobalTradeRegistry {
      */
     fun promoteFromProbation(mint: String, reason: String): AddResult {
         val entry = probation.remove(mint) ?: return AddResult(false, "NOT_IN_PROBATION")
+        // V5.0.7868 — the same ownership barrier addToWatchlist enforces: a held
+        // mint belongs to the held supervisor, never back in discovery (5.0.7866/7
+        // HELD discoveryResident=1 came through this unguarded promotion).
+        if (try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("HELD_PROBATION_PROMOTION_BLOCKED_7868") } catch (_: Throwable) {}
+            return AddResult(false, "HELD_POSITION_SUPERVISOR_7246", probation = false)
+        }
 
         // Add to watchlist
         val now = System.currentTimeMillis()

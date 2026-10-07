@@ -608,6 +608,20 @@ object PipelineHealthCollector {
         ))
     }
 
+    /**
+     * V5.0.7868 — "executor not firing" only when NO buy is proven anywhere: the
+     * journal mirror (EXEC_BUY), canonical live finality, or a paper fill.
+     * 5.0.7867 printed it beside two confirmed live buys.
+     */
+    private fun noBuys7868(): Boolean =
+        (labelCounts["EXEC_BUY"]?.get() ?: 0L) == 0L && execLiveBuyOk.get() == 0L && execPaperBuyOk.get() == 0L
+
+    /** V5.0.7868 — pure: a live buy refusal that retries the same intent (not a terminal failure). */
+    internal fun isNonTerminalBuyDeferral7868(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("DEFERRED") || r.contains("_DEFER_") || r.endsWith("_DEFER") || r == "WALLET_BALANCE_ZERO_TRANSIENT"
+    }
+
     private fun liveBuyFailReason(fields: String): String {
         val raw = fields.substringAfter("reason=", "").trim()
         val token = raw.takeWhile { !it.isWhitespace() }.ifBlank { "UNKNOWN" }
@@ -632,8 +646,13 @@ object PipelineHealthCollector {
         when {
             action.startsWith("LIVE_BUY_OK")      -> Unit // Proof commit owns success.
             action.startsWith("LIVE_BUY_FAIL")    -> {
-                execLiveBuyFail.incrementAndGet()
-                bump(liveBuyFailReasonCounts, liveBuyFailReason(fields))
+                // V5.0.7868 — a deferral retries the same intent; it is not a terminal failure.
+                val reason7868 = liveBuyFailReason(fields)
+                if (isNonTerminalBuyDeferral7868(reason7868)) bump(labelCounts, "LIVE_BUY_DEFERRED_NOT_FAIL_7868|$reason7868")
+                else {
+                    execLiveBuyFail.incrementAndGet()
+                    bump(liveBuyFailReasonCounts, reason7868)
+                }
             }
             action.startsWith("LIVE_BUY_ATTEMPT") -> execLiveAttempt.incrementAndGet()
             action.startsWith("LIVE_BUY")         -> execLiveAttempt.incrementAndGet()  // existing emit site fires this at attempt time
@@ -3676,8 +3695,8 @@ object PipelineHealthCollector {
             sb.append("  ⚠ SAFETY>0 but V3=0 — V3 engine not receiving scored tokens; check V3EngineEnabled or liquid bucket routing.\n")
         if (v3 > 0 && laneEval == 0L)
             sb.append("  ⚠ V3>0 but LANE_EVAL=0 — V3 short-circuiting before lane routing; check V3EngineEnabled flag.\n")
-        if (laneEval > 0 && execBuy == 0L)
-            sb.append("  ⚠ LANE_EVAL>0 but EXEC_BUY=0 — executor not firing; FDG may be blocking all (see below) or cbState.isPaused.\n")
+        if (laneEval > 0 && noBuys7868())
+            sb.append("  ⚠ LANE_EVAL>0 but no canonical buy (journal, live finality or paper fill) — executor not firing; FDG may be blocking all (see below) or cbState.isPaused.\n")
 
         // ── INTAKE gate ─────────────────────────────────────────────────
         sb.append("\n  [INTAKE GATE]  block=$intakeBlock\n")

@@ -1596,6 +1596,9 @@ object ToolkitSignalSheet {
             // stamp is absent.
             // V5.0.7809 — refusals between the sealed mark and SIZE, by name.
             preSizeRefusalSummary7809(lane).takeIf { it.isNotBlank() }?.let { appendLine("$lane preSizeRefusals7809=$it") }
+            // V5.0.7868 — a ticket that does not execute ends in ONE named terminal
+            // (EXEC_REFUSED on the same attempt); ticket - exec - execRefused = in flight.
+            deskCount6599(lane, "EXEC_REFUSED").takeIf { it > 0L }?.let { appendLine("$lane execRefused7868=$it") }
             val raw7214 = s.rawCounts7086
             fun rawOf7214(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) =
                 raw7214[stage] ?: 0

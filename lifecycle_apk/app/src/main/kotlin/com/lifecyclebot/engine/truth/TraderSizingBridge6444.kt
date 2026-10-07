@@ -118,6 +118,13 @@ object TraderSizingBridge6444 {
         try {
             if (laneKey in SPECIALIST_LANE_KEYS_6630) {
                 val classForRoute7828 = AssetClass.fromLane(laneKey)
+                val memoKey7868 = sizingMemoKey7868(laneKey, mintForSeal, paperMode, requestedSol, walletSol7226, overrideLaneRiskCapSol)
+                memoHit7868(memoKey7868)?.let { hit ->
+                    if (mintForSeal.isNotBlank() && hit.executable) {
+                        try { SealedOrderSizeAuthority6497.sealFor(mintForSeal, hit, laneKey) } catch (_: Throwable) {}
+                    }
+                    return hit
+                }
                 val canonical7828 = CanonicalSizingBridge6532.resolve(
                     requestedSol = requestedSol,
                     assetClass = classForRoute7828,
@@ -130,6 +137,7 @@ object TraderSizingBridge6444 {
                     symbol = mintForSeal.ifBlank { laneKey },
                     source = "TraderSizingBridge6444.specialist_primary_7828",
                 )
+                memoPut7868(memoKey7868, canonical7828)
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_SIZING_ROUTE_7828")
                 PipelineHealthCollector.labelInc("SPECIALIST_CANONICAL_SIZING_ROUTE_7828_" + laneKey)
                 if (mintForSeal.isNotBlank() && canonical7828.executable) {
@@ -205,4 +213,26 @@ object TraderSizingBridge6444 {
 
     /** Dynamic cap policy for pipeline health inspection. */
     fun declaredCaps(): String = "walletPct=$DEFAULT_WALLET_RISK_PCT_6552 portfolioCapSol=$DEFAULT_PORTFOLIO_CAP_SOL_6552"
+
+    // V5.0.7868 — 5.0.7866 ran SPECIALIST_CANONICAL_SIZING_ROUTE_7828=11126 and
+    // ORDER_SIZE_RESOLVED_6441=10168 in ~24 min for ~8 executable entries: every
+    // advisory lane evaluation re-ran the full resolver for identical inputs in
+    // the same cycle. Identical inputs inside 2 s return the same resolution.
+    private const val SIZING_MEMO_TTL_MS_7868 = 2_000L
+    private val sizingMemo7868 = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, OrderSizeResolver6441.Resolution>>()
+
+    internal fun sizingMemoKey7868(lane: String, mint: String, paper: Boolean, requestedSol: Double, walletSol: Double, cap: Double?): String =
+        "$lane|$mint|$paper|${"%.6f".format(java.util.Locale.ROOT, requestedSol)}|${"%.6f".format(java.util.Locale.ROOT, walletSol)}|${cap?.let { "%.6f".format(java.util.Locale.ROOT, it) } ?: "-"}"
+
+    private fun memoHit7868(key: String, nowMs: Long = System.currentTimeMillis()): OrderSizeResolver6441.Resolution? {
+        val e = sizingMemo7868[key] ?: return null
+        if (nowMs - e.first > SIZING_MEMO_TTL_MS_7868) return null
+        try { PipelineHealthCollector.labelInc("SPECIALIST_SIZING_MEMO_HIT_7868") } catch (_: Throwable) {}
+        return e.second
+    }
+
+    private fun memoPut7868(key: String, r: OrderSizeResolver6441.Resolution, nowMs: Long = System.currentTimeMillis()) {
+        sizingMemo7868[key] = nowMs to r
+        if (sizingMemo7868.size > 1_000) sizingMemo7868.entries.removeIf { nowMs - it.value.first > SIZING_MEMO_TTL_MS_7868 }
+    }
 }

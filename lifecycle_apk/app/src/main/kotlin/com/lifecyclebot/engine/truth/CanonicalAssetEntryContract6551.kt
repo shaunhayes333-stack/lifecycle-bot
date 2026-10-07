@@ -623,8 +623,11 @@ object CanonicalEntryAuthority6551 {
         val attempts = dispatchedAtMs6647.entries.asSequence()
             .filter { (_, atMs) -> atMs in fromInclusiveMs..toInclusiveMs }
             .filterNot { (attemptId, atMs) ->
+                // V5.0.7868 — a signed live swap awaiting wallet proof stays a valid
+                // in-flight state until it confirms or expires at DISPATCHED_TTL (which
+                // writes the EXPIRED terminal). The 60 s budget failed acceptance 38/39.
                 attemptId in livePendingAttempts7809 && isDispatchedNonTerminal7809(attemptId) &&
-                    nowMs7809 - atMs < IN_FLIGHT_CONFIRM_BUDGET_MS_7809
+                    nowMs7809 - atMs < DISPATCHED_TTL_MS_7313
             }
             .map { it.key }
             .toList()

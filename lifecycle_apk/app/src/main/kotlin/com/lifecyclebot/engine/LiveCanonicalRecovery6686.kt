@@ -269,6 +269,12 @@ object LiveCanonicalRecovery6686 {
         val covered7807 = try { CanonicalPositionAuthority6441.protectiveInventoryMints7807("live") } catch (_: Throwable) { emptySet<String>() }
         var n7807 = 0
         for ((mint, amount) in subset) {
+            // V5.0.7868 — a covered mint can still be under-covered (wallet > canonical
+            // qty): reconcile a never-sold OPEN row's receipt-sized gap to the wallet.
+            if (mint in covered7807 && amount.raw > BigInteger.ONE) {
+                if (CanonicalPositionAuthority6441.reconcileOpenQtyToWallet7868(mint, amount.raw, "BOT_HOLDING_HEAL_7718")) n7807++
+                continue
+            }
             if (mint.isBlank() || mint in covered7807 || amount.raw <= BigInteger.ONE) continue
             if (isDustUnroutable7714(mint)) continue
             val row7807 = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
@@ -847,6 +853,10 @@ object LiveCanonicalRecovery6686 {
                 if (promoted7133 == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                     existingLive.add(mint)
                     repaired++
+                    // V5.0.7868 — the bot's own reserved buy, proven by the wallet, is a
+                    // landed canonical LIVE buy; count it on the one success counter
+                    // (5.0.7867 read "BUY ok/fail 0 / 53" with two confirmed buys).
+                    PipelineHealthCollector.onCanonicalBuyCommitted7863(pendingSameMint7133.positionId, false)
                     confirmRecoveredCryptoIntent7803(
                         mint, pendingSameMint7133.positionId,
                         status.tokens[mint]?.symbol ?: HostWalletTokenTracker.getEntry(mint)?.symbol,

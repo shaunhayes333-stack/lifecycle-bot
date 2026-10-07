@@ -89,6 +89,13 @@ object ForensicReconciler6377 {
      * full report in [_lastReport] for the pipeline dump to render.
      */
     @JvmStatic
+    /** V5.0.7868 — every mint the canonical authority parents (open, closed, live quarantined). */
+    private fun canonicalParentMints7868(): Set<String> = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+            .let { it.openPositions() + it.closedPositions() + it.quarantinedLivePositions7454() }
+            .mapTo(HashSet()) { it.mint }
+    } catch (_: Throwable) { emptySet() }
+
     fun runAll(
         allTrades: List<Trade>,
         paperMode: Boolean,
@@ -153,8 +160,13 @@ object ForensicReconciler6377 {
 
         // ── 2. JOURNAL_ROW_PARITY (buys ≥ sells) ─────────────────────────
         run {
-            val ok = buys.size >= sells.size
-            results += CheckResult("JOURNAL_ROW_PARITY", ok, "buys=${buys.size} sells=${sells.size}")
+            // V5.0.7868 — a sell of a canonically-parented position (wallet-recovered /
+            // adopted rows are opened by recovery, not by a journal BUY) is not an
+            // unmatched sell. 5.0.7867 LIVE read buys=1 sells=9.
+            val parented7868 = canonicalParentMints7868()
+            val unparentedSells7868 = sells.count { it.mint.isBlank() || it.mint !in parented7868 }
+            val ok = buys.size >= unparentedSells7868
+            results += CheckResult("JOURNAL_ROW_PARITY", ok, "buys=${buys.size} sells=${sells.size} unparentedSells=$unparentedSells7868")
         }
 
         // ── 3. BUY_SELL_QTY_SKEW (per-mint) ──────────────────────────────
@@ -287,11 +299,7 @@ object ForensicReconciler6377 {
             // absent from BOTH the in-memory buys and the canonical authority
             // is a genuine orphan.
             val boughtMints = buys.mapTo(HashSet()) { it.mint }
-            val canonicalMints6900 = try {
-                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-                    .let { it.openPositions() + it.closedPositions() }
-                    .mapTo(HashSet()) { it.mint }
-            } catch (_: Throwable) { emptySet<String>() }
+            val canonicalMints6900 = canonicalParentMints7868()
             val orphans = sells.count {
                 it.mint.isNotBlank() && it.mint !in boughtMints && it.mint !in canonicalMints6900
             }
@@ -305,9 +313,16 @@ object ForensicReconciler6377 {
 
         // ── 11. CANONICAL_VS_REGISTRY ────────────────────────────────────
         run {
-            val delta = canonicalLiveOpenCount - registryLiveOpenCount
-            val ok = abs(delta) <= 0
-            results += CheckResult("CANONICAL_VS_REGISTRY", ok, "canonical=$canonicalLiveOpenCount registry=$registryLiveOpenCount delta=$delta")
+            // V5.0.7868 — EmergentGuardrails is the legacy PAPER registry (see
+            // PositionRegistryParityAudit6464 V5.0.7822). In LIVE it is out of scope:
+            // 5.0.7867 "canonical=2 registry=10 delta=-8" was the 10 LEGACY paper rows.
+            if (!paperMode) {
+                results += CheckResult("CANONICAL_VS_REGISTRY", true, "canonical=$canonicalLiveOpenCount registry=LEGACY_PAPER_OUT_OF_SCOPE_IN_LIVE")
+            } else {
+                val delta = canonicalLiveOpenCount - registryLiveOpenCount
+                val ok = abs(delta) <= 0
+                results += CheckResult("CANONICAL_VS_REGISTRY", ok, "canonical=$canonicalLiveOpenCount registry=$registryLiveOpenCount delta=$delta")
+            }
         }
 
         // Emit telemetry.

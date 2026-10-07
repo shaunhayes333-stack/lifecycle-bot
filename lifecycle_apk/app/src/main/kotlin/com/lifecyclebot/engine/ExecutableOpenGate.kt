@@ -1773,6 +1773,40 @@ object ExecutableOpenGate {
         return false
     }
 
+    /**
+     * V5.0.7868 — the candidate already has ONE live BUY intent owned by another
+     * lane (intents are keyed mode+mint+candidateVersion: one owner per
+     * candidate). 5.0.7867 counted every later specialist's FDG BUY on that
+     * candidate as FDG_ALLOW_WITHOUT_EXEC_INTENT (=8) and its authorization as
+     * TRADE_AUTH_SEAL_FAILED_7835 (=28), although the outcome was a normal
+     * ownership decision. That FDG BUY now terminates with a named
+     * supersession under its own lane; the orphan alarm stays for the real case
+     * (no live intent for the candidate at all).
+     */
+    internal fun ownerLaneOfLiveIntent7868(mode: String, mint: String, candidateVersion: Long, lane: String): String? {
+        if (candidateVersion <= 0L) return null
+        val owner = activeExecutionIntent6519(mode, mint, candidateVersion) ?: return null
+        if (!owner.fdgAllowed || owner.fdgVerdict != "BUY" || owner.hardNoReasons.isNotEmpty()) return null
+        return canonicalLane(owner.canonicalLane).takeIf { it.isNotBlank() && it != canonicalLane(lane) }
+    }
+
+    private fun noteFdgAllowWithoutOwnIntent7868(mode: String, mint: String, symbol: String, lane: String, candidateVersion: Long) {
+        val owner = try { ownerLaneOfLiveIntent7868(mode, mint, candidateVersion, lane) } catch (_: Throwable) { null }
+        try {
+            if (owner != null) {
+                PipelineHealthCollector.labelInc("FDG_ALLOW_SUPERSEDED_BY_OWNER_LANE_7868")
+                ToolkitSignalSheet.recordPreSizeRefusal7809(canonicalLane(lane), "OWNED_BY_${owner}_7868")
+                ForensicLogger.lifecycle(
+                    "FDG_ALLOW_SUPERSEDED_BY_OWNER_LANE_7868",
+                    "mint=${mint.take(10)} symbol=$symbol lane=$lane owner=$owner version=$candidateVersion action=named_terminal_one_owner",
+                )
+            } else {
+                PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
+                ForensicLogger.lifecycle("FDG_ALLOW_WITHOUT_EXEC_INTENT", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=explicit_reject")
+            }
+        } catch (_: Throwable) {}
+    }
+
     fun recordFdgAndGetIntent6533(
         mint: String, symbol: String, lane: String, canExecute: Boolean, reason: String?,
         signal: String = "BUY", rugScore: Int = -1, safetyTier: String = "UNKNOWN",
@@ -1825,10 +1859,7 @@ object ExecutableOpenGate {
             it.candidateVersion == candidateVersion && canonicalLane(it.canonicalLane) == canonicalLane(lane) &&
                 it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty()
         }
-        if (intent == null) try {
-            PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
-            ForensicLogger.lifecycle("FDG_ALLOW_WITHOUT_EXEC_INTENT", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=explicit_reject")
-        } catch (_: Throwable) {}
+        if (intent == null) noteFdgAllowWithoutOwnIntent7868(mode, mint, symbol, lane, candidateVersion)
         // V5.0.7807 — was recordDeskStage(lane, ...) with the RAW requested lane,
         // so an alias (DIP, SNIPER, MANIP, CASH_GEN, ...) put TICKET in a funnel
         // lane the intent's EXEC/OPEN never reach. Stamp on the intent's own

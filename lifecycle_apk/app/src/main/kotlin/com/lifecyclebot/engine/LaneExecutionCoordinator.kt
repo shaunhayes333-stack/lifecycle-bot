@@ -656,15 +656,10 @@ object LaneExecutionCoordinator {
             }
         }
         if (current == null) {
-            ChokeReliefBus.launch("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4421", mint) {
-                try { PipelineHealthCollector.labelInc("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419_MISSING_ELECTION") } catch (_: Throwable) {}
-                try {
-                    ForensicLogger.lifecycle(
-                        "LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419",
-                        "mint=${mint.take(10)} lane=$laneUpper candidateVersion=$candidateVersion reason=$reason outcome=MISSING_ELECTION via=ChokeReliefBus"
-                    )
-                } catch (_: Throwable) {}
-            }
+            // V5.0.7868 — no election held for this candidate: there is nothing to
+            // release. A rejected candidate that never elected an owner used to
+            // launch a coroutine + forensic row per lane per cycle
+            // (LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419 MISSING_ELECTION fan-out).
             return false
         }
         if (current.primaryLane != laneUpper) {

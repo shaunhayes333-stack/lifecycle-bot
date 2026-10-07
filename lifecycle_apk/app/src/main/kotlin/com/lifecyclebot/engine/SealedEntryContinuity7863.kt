@@ -15,7 +15,12 @@ internal object SealedEntryContinuity7863 {
             intent.finalDecision6613 != ExecutableOpenGate.CanonicalFinalDecision6613.BUY ||
             (intent.expiresAtMs6613 > 0L && nowMs >= intent.expiresAtMs6613)) return null
         val observedAt = intent.executableMarkTimestampMs6613
-        if (observedAt <= 0L || nowMs - observedAt !in -5_000L..120_000L) return null
+        if (observedAt <= 0L) return null
+        // V5.0.7868 — a sealed mark past its 120 s execution freshness is
+        // REVALIDATED, not dropped: a fresh canonical mark within
+        // REVALIDATE_MAX_MOVE_FRAC_7868 of the sealed price carries the entry; a
+        // material move refuses by name (5.0.7867 ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED=3).
+        if (nowMs - observedAt !in -5_000L..120_000L) return revalidated7868(ts, intent, nowMs)
         if (cached != null && cached.valid && cached.capturedAtMs == observedAt &&
             cached.priceUsd == intent.executableMarkPriceUsd6613 && cached.liquidityUsd == intent.liquidityUsd &&
             cached.priceSource == intent.executableMarkSource6613) return cached
@@ -28,5 +33,32 @@ internal object SealedEntryContinuity7863 {
             dex = "UNKNOWN",
             capturedAtMs = observedAt,
         ).takeIf { it.valid }
+    }
+
+    internal const val REVALIDATE_MAX_MOVE_FRAC_7868 = 0.15
+
+    /** Pure: does a fresh price revalidate the sealed one? */
+    internal fun withinRevalidationBand7868(sealedPx: Double, freshPx: Double): Boolean =
+        sealedPx.isFinite() && sealedPx > 0.0 && freshPx.isFinite() && freshPx > 0.0 &&
+            kotlin.math.abs(freshPx / sealedPx - 1.0) <= REVALIDATE_MAX_MOVE_FRAC_7868
+
+    private fun revalidated7868(ts: TokenState, intent: ExecutableOpenGate.ExecutionIntent, nowMs: Long): MintEntryMarketSnapshot? {
+        val fresh = listOf(
+            com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+            com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+        ).firstNotNullOfOrNull { purpose ->
+            try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(ts.mint, purpose, nowMs) } catch (_: Throwable) { null }
+        } ?: return null
+        val freshPx = fresh.priceUsd.value.toDouble()
+        if (!withinRevalidationBand7868(intent.executableMarkPriceUsd6613, freshPx)) {
+            try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_STALE_PRICE_MOVED_7868") } catch (_: Throwable) {}
+            return null
+        }
+        val snap = MintEntryMarketSnapshot.fromCanonicalMark6735(
+            ts.mint, fresh, ts.lastMcap, ts.lastPriceDex.ifBlank { "UNKNOWN" }, nowMs,
+            observedLiquidityUsd7321 = intent.liquidityUsd,
+        ) ?: return null
+        try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_REVALIDATED_7868") } catch (_: Throwable) {}
+        return snap
     }
 }

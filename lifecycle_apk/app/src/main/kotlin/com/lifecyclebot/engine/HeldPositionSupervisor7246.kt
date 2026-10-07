@@ -61,10 +61,26 @@ object HeldPositionSupervisor7246 {
 
     /** Held-only roster for the existing Solana mark-refresh worker. */
     fun solanaHeldPositions(): List<CanonicalPositionAuthority6441.Position> = try {
+        reconcileDiscoveryResidencyThrottled7868()
         currentModeOpenPositions().filter {
             it.assetClass == AssetClass.SOLANA_TOKEN
         }
     } catch (_: Throwable) { emptyList() }
+
+    /**
+     * V5.0.7868 — handoff is enforced continuously, not only on restart and on
+     * certain reconciler paths: positions opened by wallet recovery/adoption
+     * never ran the fresh-open hook and stayed discovery-resident
+     * (discoveryResident=1). Cheap and idempotent; at most every 5 s.
+     */
+    @Volatile private var lastResidencyReconcileMs7868 = 0L
+
+    private fun reconcileDiscoveryResidencyThrottled7868() {
+        val now = System.currentTimeMillis()
+        if (now - lastResidencyReconcileMs7868 < 5_000L) return
+        lastResidencyReconcileMs7868 = now
+        try { reconcileDiscoveryResidency() } catch (_: Throwable) {}
+    }
 
     /**
      * Recovery/startup reconciliation: canonical OPEN ownership wins even when

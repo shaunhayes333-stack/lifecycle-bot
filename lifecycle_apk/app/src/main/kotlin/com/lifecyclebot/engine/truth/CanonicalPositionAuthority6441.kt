@@ -1225,6 +1225,48 @@ object CanonicalPositionAuthority6441 {
     }
 
     /**
+     * V5.0.7868 — an OPEN bot position that has never sold holds what its buy
+     * actually received. 5.0.7867: "Bot-buy coverage VIOLATION unmanagedBotMints=1
+     * (CKFpfymq)" — the canonical row carried the buy's expected quantity, the
+     * wallet held slightly more, the coverage guard is quantity-aware (wallet >
+     * canonical + 1 raw), and the heal skipped the mint because it was ALREADY_OPEN.
+     * The SOL cost is the real spend; the wallet is the quantity authority (Field
+     * Manual L39). Only a never-sold row and a receipt-sized gap (<= 10%) are
+     * reconciled; a larger gap (duplicate buy, external transfer) is left to the
+     * protective path and stays visible.
+     */
+    internal fun receiptVarianceOk7868(canonicalRaw: BigInteger, walletRaw: BigInteger): Boolean =
+        canonicalRaw > BigInteger.ONE && walletRaw > canonicalRaw + BigInteger.ONE &&
+            walletRaw.multiply(BigInteger.valueOf(100)) <= canonicalRaw.multiply(BigInteger.valueOf(110))
+
+    fun reconcileOpenQtyToWallet7868(mint: String, walletRaw: BigInteger, source: String): Boolean {
+        if (mint.isBlank() || walletRaw <= BigInteger.ONE) return false
+        var changed: Position? = null
+        lock.lock()
+        try {
+            val open = positions.values.filter {
+                it.mint == mint && it.mode.equals("live", true) && isOpenLifecycleWithQty6743(it)
+            }
+            val row = open.singleOrNull() ?: return false
+            if (row.soldCostBasisSol > 1e-12 || row.realizedProceedsSol > 1e-12) return false
+            if (!receiptVarianceOk7868(row.remainingQtyRaw, walletRaw)) return false
+            val updated = row.copy(remainingQtyRaw = walletRaw, originalQtyRaw = walletRaw, lastMutationMs = System.currentTimeMillis())
+            positions[row.positionId] = updated
+            muts.incrementAndGet()
+            changed = updated
+        } finally { lock.unlock() }
+        val c = changed ?: return false
+        try {
+            PipelineHealthCollector.labelInc("OPEN_QTY_RECONCILED_TO_WALLET_7868")
+            ForensicLogger.lifecycle(
+                "OPEN_QTY_RECONCILED_TO_WALLET_7868",
+                "positionId=${c.positionId.take(40)} mint=${mint.take(12)} raw=$walletRaw source=$source action=wallet_is_quantity_authority",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
      * V5.0.7807 — a confirmed LIVE sell (or a debounced wallet-zero proof) on a
      * mint whose only canonical owner is a funded protective quarantine row.
      * Reduces that row's quantity (no PnL, no cash, no learning) and closes it

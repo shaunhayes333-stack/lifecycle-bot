@@ -13435,6 +13435,11 @@ class Executor(
                 reason == "COST_CONSUMES_MOVE_7807" || reason == "LANE_SLOT_CAP_7807"
             if (sizeAuthorityVerdict && attemptId.isNotBlank()) {
                 ToolkitSignalSheet.recordDeskStage(lane, "SIZE_REJECT", attemptId)
+            } else if (attemptId.isNotBlank() && ExecutableOpenGate.ticketForAttempt(attemptId) != null) {
+                // V5.0.7868 — a sealed ticket refused at the executor terminates by
+                // name on its own attempt and lane (spec: TICKET => EXEC or named
+                // terminal; 5.0.7867 MOONSHOT ticket=33 exec=0 had no terminal).
+                ToolkitSignalSheet.recordDeskStage(lane, "EXEC_REFUSED", attemptId)
             }
         } catch (_: Throwable) {}
     }
@@ -19636,16 +19641,9 @@ class Executor(
             walletSharePct = liveCfg.maxWalletRiskPerTradePct,
         )
         val maxSpendableSol = spendCap7842.maxSpendableSol
-        if (spendCap7842.routeFloorLifted) try {
-            PipelineHealthCollector.labelInc("EXEC_ROUTE_MIN_BRIDGED_WALLET_CAP_7842")
-            ForensicLogger.lifecycle(
-                "EXEC_ROUTE_MIN_BRIDGED_WALLET_CAP_7842",
-                "mint=${ts.mint.take(10)} configured=${"%.6f".format(spendCap7842.configuredWalletCapSol)} " +
-                    "routeMin=${"%.6f".format(spendCap7842.routableMinSol)} cap=${"%.6f".format(maxSpendableSol)}",
-            )
-        } catch (_: Throwable) {}
-        val spendRefusal7835 = SealedExecutionSize7835.boundsRefusal(
-            sol, maxSpendableSol, maxOf(liveMinExecutableBuySol, spendCap7842.routableMinSol),
+        WalletCapacitySeal7868.noteRouteBridge(ts.mint, spendCap7842)
+        val spendRefusal7835 = WalletCapacitySeal7868.executionRefusal(
+            ts.mint, sol, walletSol, maxSpendableSol, maxOf(liveMinExecutableBuySol, spendCap7842.routableMinSol),
         )
         if (spendRefusal7835 != null) {
             emitLiveBuyFail(ts, sol, spendRefusal7835)
@@ -26124,6 +26122,19 @@ class Executor(
 
     private val liveSellReservedPid7317 = ThreadLocal<String?>()
 
+    /**
+     * V5.0.7868 — protective sell balance read: the sold mint first (bounded
+     * ~2.5 s, cache-first), the whole-wallet scan only when that is unanswered.
+     */
+    private fun sellWalletBalances7868(wallet: SolanaWallet, ts: TokenState): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> {
+        val one = try { wallet.getSingleMintBalanceBounded7868(ts.mint) } catch (_: Throwable) { null }
+        if (one != null) {
+            try { PipelineHealthCollector.labelInc("SELL_SINGLE_MINT_BALANCE_7868") } catch (_: Throwable) {}
+            return mapOf(ts.mint to one)
+        }
+        return wallet.getTokenAccountsWithDecimalsBounded(5_000L)
+    }
+
     private fun liveSellInScope7314(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
                          identity: TradeIdentity? = null): SellResult {
@@ -26513,7 +26524,7 @@ class Executor(
             var onChainBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
                 com.lifecyclebot.engine.sell.SellAmountAuthority.emergencyWalletSnapshotBalance7730(ts.mint, reason)
                     ?.let { mapOf(ts.mint to com.lifecyclebot.engine.truth.CanonicalTokenAmount(it.rawAmount, it.decimals)) }
-                    ?: wallet.getTokenAccountsWithDecimalsBounded(5_000L)
+                    ?: sellWalletBalances7868(wallet, ts)
             } catch (e: Throwable) {
                 walletReadIndeterminate = true
                 try { ForensicLogger.lifecycle("SELL_WALLET_READ_INDETERMINATE_NO_RESCUE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} err=${e.message?.take(120)} action=wait_current_wallet_proof") } catch (_: Throwable) {}

@@ -5989,6 +5989,7 @@ object FinalDecisionGate {
         )
         if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9) return 0.0
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
+        if (!config.paperMode) WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd)
         return resolution.finalSizeSol
     }
 

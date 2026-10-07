@@ -1242,6 +1242,35 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     /**
+     * V5.0.7868 — the ONE mint a protective sell needs, bounded. 5.0.7866: a
+     * normal stop took 7.6 s trigger->broadcast; the sell path waited on the
+     * whole-wallet two-program scan (5 s ceiling, then the known-mints
+     * fallback up to 6 s more). A fresh cache hit is instant; otherwise one
+     * mint-filtered getTokenAccountsByOwner (cheap, served by public nodes).
+     * Returns null when not answered or not positive — the caller keeps the
+     * existing whole-wallet path and its indeterminate semantics.
+     */
+    fun getSingleMintBalanceBounded7868(mint: String, timeoutMs: Long = 2_500L): CanonicalTokenAmount? {
+        if (mint.isBlank()) return null
+        try {
+            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L)?.get(mint)
+                ?.takeIf { it.raw > java.math.BigInteger.ONE }?.let { return it }
+        } catch (_: Throwable) {}
+        val fut = try {
+            boundedRpcExecutor().submit(java.util.concurrent.Callable {
+                readKnownMints7374(listOf(mint), System.currentTimeMillis() + timeoutMs - 100L)
+            })
+        } catch (_: Throwable) { return null }
+        return try {
+            fut.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS).first[mint]
+                ?.takeIf { it.raw > java.math.BigInteger.ONE }
+        } catch (_: Throwable) {
+            try { fut.cancel(true) } catch (_: Throwable) {}
+            null
+        }
+    }
+
+    /**
      * V5.0.7374 — when the whole-wallet scan fails, read the mints the bot already
      * knows about, one at a time. getTokenAccountsByOwner over a whole token
      * program is one of the heaviest reads there is; public nodes refuse it (403)

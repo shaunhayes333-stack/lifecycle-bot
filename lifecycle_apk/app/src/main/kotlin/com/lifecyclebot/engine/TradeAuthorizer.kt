@@ -459,6 +459,16 @@ object TradeAuthorizer {
             return rejectAuth4424("FDG_SEAL_ERROR_7835:${error.javaClass.simpleName}", BlockLevel.SOFT, canRetry = true)
         }
         if (sealedIntent7812 == null) {
+            // V5.0.7868 — another lane already owns this candidate's one live BUY
+            // intent: a named ownership terminal, not a seal failure.
+            val owner7868 = try {
+                ExecutableOpenGate.ownerLaneOfLiveIntent7868(mode7812, mint, candidateVersion7624, requestedBook.name)
+            } catch (_: Throwable) { null }
+            if (owner7868 != null) {
+                try { PipelineHealthCollector.labelInc("TRADE_AUTH_OWNED_BY_OTHER_LANE_7868") } catch (_: Throwable) {}
+                releasePrimaryAfterAuthFailure("OWNED_BY_${owner7868}_7868")
+                return rejectAuth4424(reason = "OWNED_BY_${owner7868}_7868", blockLevel = BlockLevel.SOFT, canRetry = false)
+            }
             try {
                 ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613)
                 PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835")
