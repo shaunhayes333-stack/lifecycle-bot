@@ -44,7 +44,9 @@ internal object SpecialistPreauthSeal7834 {
         val size = decision.sizeSol
         if (maximumSizeSol < size - 1e-9) postFdgRewriteIgnored7853(ts.mint, lane, size, maximumSizeSol)
         ExecutableOpenGate.recordPrimaryLane7835(ts.mint, decision.candidateVersion7835, canonicalLane)
-        ExecutableOpenGate.reuseSealedIntent7871(
+        // V5.0.7872 — reuse only on clean current safety facts; a new hard fact
+        // goes through the seal, which revokes the same-version ticket.
+        if (ts.safety.hardBlockReasons.isEmpty()) ExecutableOpenGate.reuseSealedIntent7871(
             if (paper) "PAPER" else "LIVE", ts.mint, decision.candidateVersion7835, canonicalLane, size,
         )?.let { return it }
         fun sealOnce7840(): ExecutableOpenGate.ExecutionIntent? =
