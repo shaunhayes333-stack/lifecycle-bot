@@ -201,20 +201,29 @@ object WhaleDetector {
         val buySol = buys.sumOf { it.sol }
         val sellSol = sells.sumOf { it.sol }
         val totalSol = buySol + sellSol
-        val dev = devWallet?.takeIf { it.isNotBlank() }
-        val walletBuySol7450 = buys.asSequence()
-            .filter { it.wallet.isNotBlank() }
+        val dev = (devWallet ?: try { OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null })
+            ?.takeIf { it.isNotBlank() }
+        // V5.0.7867 — buyer concentration is measured over buyers OTHER than the
+        // creator. On a pump.fun launch the creator's own seed buy is most of the
+        // first minute's volume, so counting it labelled ordinary launches
+        // "ONE_WALLET_PUMP" (5.0.7866: every measured fresh-launch cell was
+        // CONC_ONE, including the best one, PRE_IGNITION|FLOW_OK n=17 tp=53%
+        // ev15=+17.5%, and 37 live refusals). The creator's risk is a dev SELL,
+        // read separately (devSellTx60s). Field Manual L201: verify the
+        // market structure — here, who besides the creator is buying.
+        val crowdBuys7867 = buys.filter { it.wallet.isNotBlank() && it.wallet != dev }
+        val crowdBuySol7867 = crowdBuys7867.sumOf { it.sol }
+        val walletBuySol7450 = crowdBuys7867.asSequence()
             .groupBy { it.wallet }
             .mapValues { (_, rows) -> rows.sumOf { it.sol } }
         val rankedWalletSol7450 = walletBuySol7450.values.sortedDescending()
-        val largestBuyerShare7450 = if (buySol > 0.0)
-            ((rankedWalletSol7450.firstOrNull() ?: 0.0) / buySol * 100.0).coerceIn(0.0, 100.0)
+        val largestBuyerShare7450 = if (crowdBuySol7867 > 0.0)
+            ((rankedWalletSol7450.firstOrNull() ?: 0.0) / crowdBuySol7867 * 100.0).coerceIn(0.0, 100.0)
         else 0.0
-        val top3BuyerShare7450 = if (buySol > 0.0)
-            (rankedWalletSol7450.take(3).sum() / buySol * 100.0).coerceIn(0.0, 100.0)
+        val top3BuyerShare7450 = if (crowdBuySol7867 > 0.0)
+            (rankedWalletSol7450.take(3).sum() / crowdBuySol7867 * 100.0).coerceIn(0.0, 100.0)
         else 0.0
-        val repeatBuyerWallets7450 = buys.asSequence()
-            .filter { it.wallet.isNotBlank() }
+        val repeatBuyerWallets7450 = crowdBuys7867.asSequence()
             .groupingBy { it.wallet }.eachCount().values.count { it >= 2 }
 
         return LaunchFlow(
@@ -222,7 +231,7 @@ object WhaleDetector {
             sellTx60s = sells.size,
             buySol60s = buySol,
             sellSol60s = sellSol,
-            distinctBuyers60s = buys.map { it.wallet }.filter { it.isNotBlank() }.toSet().size,
+            distinctBuyers60s = crowdBuys7867.map { it.wallet }.toSet().size,
             devBuyTx60s = if (dev == null) 0 else buys.count { it.wallet == dev },
             devSellTx60s = if (dev == null) 0 else sells.count { it.wallet == dev },
             buyTx15s = r15.count { it.isBuy },

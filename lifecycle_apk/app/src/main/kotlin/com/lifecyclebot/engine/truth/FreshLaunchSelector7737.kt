@@ -68,6 +68,8 @@ object FreshLaunchSelector7737 {
     private const val MAX_PENDING_7737 = 3_000
     private const val MAX_CELLS_7737 = 300
     private const val PREFS_7737 = "fresh_launch_selector_7737"
+    /** V5.0.7867 — cells re-keyed: concentration and phase now exclude the creator's own buys. */
+    internal const val CELLS_KEY_7867 = "cells_7867"
 
     data class Setup(val key: String, val structuralRefusal: String?, val ageMs: Long, val detail: String)
 
@@ -126,7 +128,7 @@ object FreshLaunchSelector7737 {
         val p = try { context.applicationContext.getSharedPreferences(PREFS_7737, Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         prefs = p
         try {
-            p.getString("cells", null)?.split(';')?.forEach { row ->
+            p.getString(CELLS_KEY_7867, null)?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
                 val c = Cell()
@@ -141,7 +143,7 @@ object FreshLaunchSelector7737 {
         if (!force && now - lastPersistMs < 60_000L) return
         lastPersistMs = now
         try {
-            p.edit().putString("cells", cells.entries.joinToString(";") { (k, c) -> "$k=${synchronized(c) { c.encode() }}" }).apply()
+            p.edit().putString(CELLS_KEY_7867, cells.entries.joinToString(";") { (k, c) -> "$k=${synchronized(c) { c.encode() }}" }).apply()
         } catch (_: Throwable) {}
     }
 

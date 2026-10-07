@@ -485,7 +485,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 // V5.0.7384 — liquidity on a pump.fun bonding curve is held by the
                 // program, not an LP a dev can pull; "LP unlocked" does not apply there.
                 val onCurve7384 = try {
-                    rugcheck.optJSONArray("markets")?.optJSONObject(0)?.optString("marketType", "").orEmpty()
+                    rugcheck.optJSONArray("markets")?.let { primaryMarket7867(it) }?.optString("marketType", "").orEmpty()
                         .equals("pump_fun", ignoreCase = true)
                 } catch (_: Throwable) { false }
                 if (onCurve7384) lpUnlockedRisk = false
@@ -570,7 +570,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
             val markets = rugcheck.optJSONArray("markets")
             if (markets != null && markets.length() > 0) {
-                val market = markets.optJSONObject(0)
+                val market = primaryMarket7867(markets)
                 val lp = market?.optJSONObject("lp")
                 // V5.0.7384 — a pump.fun bonding curve has no LP token to lock, and
                 // rugcheck reports it as 0% locked. Read literally, that hard-blocked
@@ -1218,4 +1218,20 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     } catch (_: Exception) {
         null
     }
+}
+
+/**
+ * V5.0.7867 — the market whose LP lock decides rug risk is the token's DEEPEST
+ * pool (largest base+quote USD in rugcheck's lp block), not whichever market
+ * rugcheck happens to list first. A shallow side pool reported as 0% locked was
+ * hard-blocking live entries whose main pool LP is burned, while a dev can only
+ * pull what sits in the side pool. Falls back to markets[0] when no market
+ * carries a USD depth.
+ */
+internal fun primaryMarket7867(markets: org.json.JSONArray): JSONObject? {
+    fun depth(m: JSONObject): Double = m.optJSONObject("lp")?.let { lp ->
+        listOf(lp.optDouble("baseUSD", 0.0), lp.optDouble("quoteUSD", 0.0)).filter { it.isFinite() }.sum()
+    } ?: 0.0
+    val deepest = (0 until markets.length()).mapNotNull { markets.optJSONObject(it) }.maxByOrNull { depth(it) }
+    return if (deepest != null && depth(deepest) > 0.0) deepest else markets.optJSONObject(0)
 }
