@@ -13569,21 +13569,21 @@ class Executor(
                     )
                 } catch (_: Throwable) {}
             }
-            // V5.0.7841 — 7840 taught LiveRiskPolicy7807 to prove that the
-            // current route minimum fits the hard loss envelope, but this helper
-            // immediately threw that proof away with minOf(sol, d.sizeSol).
-            // Consume ONLY that named promotion; every other decision remains
-            // shrink-only.
-            if (d.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" && d.sizeSol > sol) {
+            // V5.0.7849 — immutable-size contract. FDG already resolved
+            // LiveRiskPolicy before sealing. Executor may revalidate current
+            // hard constraints but may not mutate the sealed notional.
+            if (!d.sizeSol.isFinite() || kotlin.math.abs(d.sizeSol - sol) > 1e-9) {
                 try {
-                    PipelineHealthCollector.labelInc("LIVE_RISK_SAFE_MIN_CONSUMED_7841")
+                    PipelineHealthCollector.labelInc("LIVE_RISK_SIZE_CHANGED_AFTER_SEAL_7849")
                     ForensicLogger.lifecycle(
-                        "LIVE_RISK_SAFE_MIN_CONSUMED_7841",
-                        "mint=${ts.mint.take(10)} lane=$laneKey from=${"%.6f".format(sol)} to=${"%.6f".format(d.sizeSol)}",
+                        "LIVE_RISK_SIZE_CHANGED_AFTER_SEAL_7849",
+                        "mint=${ts.mint.take(10)} lane=$laneKey sealed=${"%.6f".format(sol)} now=${"%.6f".format(d.sizeSol)} reason=${d.reason} action=fresh_decision_required",
                     )
                 } catch (_: Throwable) {}
-                d.sizeSol
-            } else minOf(sol, d.sizeSol)
+                emitLiveBuyFail(ts, sol, "LIVE_RISK_SIZE_CHANGED_AFTER_SEAL_7849", "lane=$laneKey now=${d.sizeSol}")
+                return null
+            }
+            sol
         } catch (_: Throwable) { sol }
     }
 
@@ -17807,35 +17807,11 @@ class Executor(
         // V5.0.7807 — LiveRiskPolicy7807 pre-ticket: lane slot cap, net-of-cost
         // move and executable-minimum risk, before any lease (Field Manual L215, L243).
         if (liveRiskPolicyPreTicketRefused7807(ts, layerTag, sol, walletSol)) return false
-        if (commonSenseRiskRewardPreTicketRefused7807(ts, layerTag, score, sol)) return false
-        // V5.0.6451 §ENTRY_GATE — one authority for live BUYs too.
+        try { PipelineHealthCollector.labelInc("COMMON_SENSE_RR_POST_SEAL_ADVISORY_7849") } catch (_: Throwable) {}
+        // V5.0.7849 — immutable execution intent is the entry verdict.
+        // Executor consumes it; learned/history authorities may not re-decide it.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }
-        val gateVerdictLive6451 = try {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLaneLive6451, ts.mint, sol)
-        } catch (_: Throwable) {
-            // V5.0.6454 §P0 — ENTRY AUTHORITY FAIL CLOSED. Live BUY too.
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_FAIL_CLOSED_LIVE_6454")
-            } catch (_: Throwable) {}
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
-                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed",
-            )
-        }
-        when (gateVerdictLive6451.verdict) {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK,
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_COOLDOWN,
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_DAILY_LOSS_CAP -> {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_BUY_DENIED_ENTRY_AUTHORITY_6451",
-                        "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 verdict=${gateVerdictLive6451.verdict} reason=${gateVerdictLive6451.reason}",
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_BUY_DENIED_ENTRY_AUTHORITY_6451")
-                } catch (_: Throwable) {}
-                return false
-            }
-            else -> {}
-        }
+        try { PipelineHealthCollector.labelInc("LIVE_ENTRY_AUTH_CONSUMED_SEALED_7849") } catch (_: Throwable) {}
         // V5.0.7310 — no new live entries while any held position's exit is
         // failing. 02:57-02:58: TTP's stop could not get a signature for over
         // a minute while the bot bought AQVcP67E and tried 8 other buys.
@@ -19216,12 +19192,12 @@ class Executor(
                         antiChokeSoftening = try { AntiChokeManager.isSoftening() } catch (_: Throwable) { false },
                     )
                 } catch (_: Throwable) { null }
-                if (!commonSenseHard6026 && commonSenseBrain6026?.softenSoftBlocks == true) {
-                    commonSenseSizeMultiplier4573 = minOf(0.65, commonSenseBrain6026.sizeMultiplier).coerceIn(0.25, 0.75)
+                if (!commonSenseHard6026) {
+                    // V5.0.7849 — non-hard post-seal objections are telemetry only.
+                    // Verdict and notional are immutable; fresh hard evidence may veto.
                     try {
-                        ForensicLogger.lifecycle("COMMON_SENSE_PREBUY_SOFTENED_6026", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$routedLaneTag reason=${commonSense.reason} sizeMult=${"%.2f".format(commonSenseSizeMultiplier4573)} ${commonSenseBrain6026.compact}")
-                        PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_SOFTENED_6026")
-                        PipelineHealthCollector.labelInc("FDG_BRAIN_COMMON_SENSE_SOFTEN_6026")
+                        ForensicLogger.lifecycle("COMMON_SENSE_POST_SEAL_ADVISORY_7849", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$routedLaneTag reason=${commonSense.reason} action=no_redecision_no_resize")
+                        PipelineHealthCollector.labelInc("COMMON_SENSE_POST_SEAL_ADVISORY_7849")
                     } catch (_: Throwable) {}
                 } else {
                     if (commonSense.reason == "RISK_REWARD_POOR" || commonSense.reason == "LIFECYCLE_DANGER_NON_MANIPULATED_7425") try {
