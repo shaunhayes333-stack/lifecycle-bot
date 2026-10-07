@@ -752,8 +752,8 @@ object QualityTraderAI {
     // POSITION MANAGEMENT
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun addPosition(position: QualityPosition) {
-        (if (position.isPaper) paperPositions else livePositions)[position.mint] = position
+    fun addPosition(position: QualityPosition, isPaper: Boolean = isPaperMode) {
+        (if (isPaper) paperPositions else livePositions)[position.mint] = position
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, "QUALITY", "QUALITY_OPEN", position.entryScore.coerceIn(0, 100), "open_size_${position.entrySol.fmt(4)}") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "📊 QUALITY OPENED: ${position.symbol} | " +
             "entry=${position.entryPrice} | TP=${position.takeProfitPct}% SL=${position.stopLossPct}%")

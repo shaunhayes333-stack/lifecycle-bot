@@ -28398,7 +28398,8 @@ if (hotExitHandledSweep) {
                                         takeProfitPct = qualityTp,
                                         stopLossPct = qualitySignal6022.stopLossPct,
                                         entryScore = qualitySignal6022.qualityScore,  // V5.9.436
-                                    )
+                                    ),
+                                    isPaper = ts.position.isPaperPosition,
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
