@@ -857,6 +857,12 @@ object LiveCanonicalRecovery6686 {
                     // landed canonical LIVE buy; count it on the one success counter
                     // (5.0.7867 read "BUY ok/fail 0 / 53" with two confirmed buys).
                     PipelineHealthCollector.onCanonicalBuyCommitted7863(pendingSameMint7133.positionId, false)
+                    // V5.0.7868 — the specialist funnel's EXEC/OPEN for this landed buy,
+                    // on the sealed attempt + lane that produced the reservation.
+                    LivePendingAttempt7868.take(mint)?.let { b7868 ->
+                        try { ToolkitSignalSheet.recordEntryExecOpen7809(b7868.lane, b7868.attemptId, b7868.attemptId) } catch (_: Throwable) {}
+                        try { PipelineHealthCollector.labelInc("SPECIALIST_EXEC_FROM_WALLET_PROMOTION_7868") } catch (_: Throwable) {}
+                    }
                     confirmRecoveredCryptoIntent7803(
                         mint, pendingSameMint7133.positionId,
                         status.tokens[mint]?.symbol ?: HostWalletTokenTracker.getEntry(mint)?.symbol,

@@ -13355,6 +13355,35 @@ class Executor(
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7868 — the buy is now pending balance proof: record the phase and bind
+     * the reservation (by mint) to the sealed attempt + lane, so whichever path
+     * later proves the fill (TradeVerifier LANDED or wallet promotion 7133) stamps
+     * EXEC/OPEN on the specialist record that holds the TICKET.
+     */
+    private fun pendingProofBind7868(intent: ExecutableOpenGate.ExecutionIntent?) {
+        buyPhase("BUY_PENDING_BALANCE_PROOF")
+        if (intent != null && intent.mode.equals("LIVE", true)) {
+            LivePendingAttempt7868.bind(intent.mint, intent.attemptId, intent.canonicalLane.ifBlank { intent.lane })
+        }
+    }
+
+    /**
+     * V5.0.7868 — the live meme intent is the sealed ExecutableOpenGate intent.
+     * CanonicalEntryAuthority6551.pending is filled only by cross-asset submit(),
+     * so findPending() was null for every live meme buy: MARK_READY was never
+     * stamped (the funnel then invalidated EXEC/OPEN for want of MARK_READY) and
+     * live refusals never reached the lane. Canonical pending first, sealed gate
+     * intent second.
+     */
+    private fun liveIntentFor7868(mint: String): ExecutableOpenGate.ExecutionIntent? {
+        val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
+        return com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(mint, "LIVE", cv)
+            ?: com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(mint, "LIVE")
+            ?: ExecutableOpenGate.activeExecutionIntent6519("LIVE", mint, cv)
+            ?: ExecutableOpenGate.activeExecutionIntent6519("LIVE", mint)
+    }
+
     private fun buyPhase(label: String) {
         try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
     }
@@ -13416,6 +13445,13 @@ class Executor(
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(intent, reason)
                 PipelineHealthCollector.labelInc("LIVE_FAILURE_CANONICAL_TERMINAL_7790")
                 noteLivePreSizeRefusal7809(intent.canonicalLane, intent.attemptId, reason)
+            } else {
+                // V5.0.7868 — live meme buys run on the sealed gate intent (see
+                // liveIntentFor7868): name the refusal on that lane and attempt.
+                liveIntentFor7868(ts.mint)?.let { gate ->
+                    PipelineHealthCollector.labelInc("LIVE_FAILURE_GATE_INTENT_TERMINAL_7868")
+                    noteLivePreSizeRefusal7809(gate.canonicalLane, gate.attemptId, reason)
+                }
             }
         } catch (_: Throwable) {}
     }
@@ -13446,9 +13482,7 @@ class Executor(
 
     private fun stampLiveEntryMark7790(ts: TokenState, ready: Boolean, detail: String = "") {
         try {
-            val cv = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-            val intent = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE", cv)
-                ?: com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE")
+            val intent = liveIntentFor7868(ts.mint)
             if (intent != null && intent.attemptId.isNotBlank()) {
                 ToolkitSignalSheet.recordDeskStage(intent.canonicalLane, if (ready) "MARK_READY" else "MARK_REJECT", intent.attemptId)
                 PipelineHealthCollector.labelInc(if (ready) "LIVE_MARK_READY_CAUSAL_7790" else "LIVE_MARK_REJECT_CAUSAL_7790")
@@ -20407,7 +20441,7 @@ class Executor(
             } catch (_: Throwable) {}
             liveStage("POSITION_PENDING_PROOF", "signature=${sig.take(16)} qty=$finalQty")
             buyAttemptTrace4576("POSITION_PENDING_PROOF", "route=$routerLabel signature=${sig.take(16)}")
-            buyPhase("BUY_PENDING_BALANCE_PROOF")
+            pendingProofBind7868(sealedIntent7835)
             
             fun commitVerifiedLiveBuySideEffects6637(
                 qtyUi: Double,
