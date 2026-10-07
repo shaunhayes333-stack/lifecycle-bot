@@ -5255,7 +5255,9 @@ class Executor(
                                 mode = mode,
                                 pnlPct = _fanoutPnlPct,
                                 mint = _fanoutMint,
-                                symbol = _fanoutSymbol
+                                symbol = _fanoutSymbol,
+                                // event-local mode, not the runtime snapshot
+                                isPaper = !trade.mode.equals("live", ignoreCase = true),
                             )
                         } catch (_: Exception) {}
                     }

@@ -106,6 +106,7 @@ object ToxicModeCircuitBreaker {
     
     // Mode -> freeze end timestamp
     private val frozenModes = ConcurrentHashMap<String, Long>()
+    internal const val PAPER_SCOPE_7853 = "PAPER|"
     
     // Mode -> list of recent loss percentages with timestamps
     private data class LossRecord(val pnlPct: Double, val timestamp: Long)
@@ -340,7 +341,12 @@ object ToxicModeCircuitBreaker {
     fun recordLoss(mode: String, pnlPct: Double, mint: String, symbol: String, isPaper: Boolean = true) {
         if (pnlPct >= 0) return  // Not a loss
         
-        val modeUpper = mode.uppercase()
+        // V5.0.7853 — a PAPER loss must never freeze the LIVE lane. Losses and
+        // freezes were keyed by lane only, the fanout caller never passed
+        // isPaper (default true), so paper stop-outs froze LIVE entries via
+        // frozenModes[lane] and real live losses got the 10-min paper freeze.
+        // Paper keeps its own scope (telemetry only in check()).
+        val modeUpper = if (isPaper) PAPER_SCOPE_7853 + mode.uppercase() else mode.uppercase()
         val now = System.currentTimeMillis()
         
         // V5.9.1055: paper = 10 min (operator directive — not real money, needs to learn)

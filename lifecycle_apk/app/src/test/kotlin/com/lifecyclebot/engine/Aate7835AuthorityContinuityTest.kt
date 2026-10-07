@@ -49,6 +49,18 @@ class Aate7835AuthorityContinuityTest {
         assertEquals(d.sizeSol, intent!!.resolvedSize, 1e-9)
     }
 
+    @Test fun paper_losses_never_freeze_the_live_lane_7853() {
+        ToxicModeCircuitBreaker.resetForTests()
+        ToxicModeCircuitBreaker.recordLoss("MOONSHOT", -45.0, "Paper7853", "P", isPaper = true)
+        assertFalse(ToxicModeCircuitBreaker.isModeFrozen("MOONSHOT"))
+        assertTrue(ToxicModeCircuitBreaker.isModeFrozen(ToxicModeCircuitBreaker.PAPER_SCOPE_7853 + "MOONSHOT"))
+        ToxicModeCircuitBreaker.recordLoss("MOONSHOT", -45.0, "Live7853", "L", isPaper = false)
+        assertTrue(ToxicModeCircuitBreaker.isModeFrozen("MOONSHOT"))
+        ToxicModeCircuitBreaker.resetForTests()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("isPaper = !trade.mode.equals(\"live\", ignoreCase = true),"))
+    }
+
     @Test fun bot_service_passes_fdg_size_unshaped_to_authorizer_7853() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("val actualInitialSizeForAuth6649 = fdgDecision.sizeSol"))
