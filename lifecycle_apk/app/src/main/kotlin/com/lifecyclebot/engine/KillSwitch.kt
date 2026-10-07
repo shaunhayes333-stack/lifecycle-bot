@@ -81,6 +81,21 @@ object KillSwitch {
     ): Boolean = storedSchema < 7857 && reason.startsWith("MAX_DAILY_LOSS:") &&
         equity.isFinite() && equity > 0.0
 
+    /**
+     * V5.0.7864 — operator doctrine "never pause trading; size down instead"
+     * (FIELD_MANUAL §risk: drawdown cuts size, it does not stop the desk).
+     * 5.0.7863 live proved the computed latch halting every lane
+     * (KILL_SWITCH_7835 on MOONSHOT/BLUECHIP/CASHGEN/TREASURY/SHITCOIN) on a
+     * "40% drawdown" while LiveRiskPolicy7807's own rolling peak read ~18%.
+     * Drawdown, daily loss and loss streaks are already priced into size by
+     * LiveRiskPolicy7807 (drawdownMultiplier → 0.35x floor, lane daily-loss
+     * cap → 0.3x, expectancy shrink). Here they are warnings only; manual /
+     * explicit kills, the hourly rate limit and missing equity stay hard.
+     */
+    internal fun computedLimitLatch7864(reason: String): Boolean =
+        reason.startsWith("MAX_DRAWDOWN:") || reason.startsWith("MAX_DAILY_LOSS:") ||
+            reason.startsWith("MAX_CONSECUTIVE_LOSSES:")
+
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
         init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol))
@@ -241,6 +256,20 @@ object KillSwitch {
             } catch (_: Throwable) {}
         }
 
+        if (isKilled && computedLimitLatch7864(killReason)) {
+            val priorReason7864 = killReason
+            isKilled = false; killReason = ""; killTime = 0L
+            peakBalance = currentBalance
+            try {
+                PipelineHealthCollector.labelInc("KILL_SWITCH_COMPUTED_LATCH_RETIRED_SIZE_DOWN_7864")
+                ForensicLogger.lifecycle(
+                    "KILL_SWITCH_COMPUTED_LATCH_RETIRED_SIZE_DOWN_7864",
+                    "schema=$storedSchema7843 equity=$currentBalance priorReason=${priorReason7864.take(80)} " +
+                        "action=size_down_via_LiveRiskPolicy7807_not_halt",
+                )
+            } catch (_: Throwable) {}
+        }
+
         if (shouldRebasePaperContaminatedDailyLatch7857(storedSchema7843, killReason, currentBalance)) {
             val priorDaily7857 = dailyStartBalance
             val priorReason7857 = killReason
@@ -359,9 +388,8 @@ object KillSwitch {
         } else 0.0
         
         if (dailyPnlPct <= -maxDailyLossPct) {
-            triggerKill(context, "MAX_DAILY_LOSS", 
+            sizeDownNotice7864("MAX_DAILY_LOSS",
                 "Daily loss ${dailyPnlPct.toInt()}% exceeded limit -${maxDailyLossPct.toInt()}%")
-            return false
         }
         
         // 2. Max Drawdown
@@ -370,16 +398,14 @@ object KillSwitch {
         } else 0.0
         
         if (drawdownPct >= maxDrawdownPct) {
-            triggerKill(context, "MAX_DRAWDOWN",
+            sizeDownNotice7864("MAX_DRAWDOWN",
                 "Drawdown ${drawdownPct.toInt()}% exceeded limit ${maxDrawdownPct.toInt()}%")
-            return false
         }
         
         // 3. Max Consecutive Losses
         if (consecutiveLosses >= maxConsecutiveLosses) {
-            triggerKill(context, "MAX_CONSECUTIVE_LOSSES",
+            sizeDownNotice7864("MAX_CONSECUTIVE_LOSSES",
                 "$consecutiveLosses consecutive losses exceeded limit $maxConsecutiveLosses")
-            return false
         }
         
         // ════════════════════════════════════════════════════════════════
@@ -416,7 +442,7 @@ object KillSwitch {
             return Pair(true, "PAPER_MODE: no limits")
         }
         
-        if (isKilled) {
+        if (isKilled && !computedLimitLatch7864(killReason)) {
             return Pair(false, "KILLED: $killReason")
         }
         
@@ -431,8 +457,9 @@ object KillSwitch {
             ((currentBalance - dailyStartBalance) / dailyStartBalance) * 100
         } else 0.0
         
-        if (dailyPnlPct <= -maxDailyLossPct * 0.9) {  // 90% of limit = block new trades
-            return Pair(false, "DAILY_LOSS_NEAR_LIMIT: ${dailyPnlPct.toInt()}% (limit -${maxDailyLossPct.toInt()}%)")
+        val notes7864 = ArrayList<String>(3)
+        if (dailyPnlPct <= -maxDailyLossPct * 0.9) {
+            notes7864 += "DAILY_LOSS ${dailyPnlPct.toInt()}%/-${maxDailyLossPct.toInt()}%"
         }
         
         // Check drawdown
@@ -440,16 +467,18 @@ object KillSwitch {
             ((peakBalance - currentBalance) / peakBalance) * 100
         } else 0.0
         
-        if (drawdownPct >= maxDrawdownPct * 0.9) {  // 90% of limit
-            return Pair(false, "DRAWDOWN_NEAR_LIMIT: ${drawdownPct.toInt()}% (limit ${maxDrawdownPct.toInt()}%)")
+        if (drawdownPct >= maxDrawdownPct * 0.9) {
+            notes7864 += "DD ${drawdownPct.toInt()}%/${maxDrawdownPct.toInt()}%"
         }
         
         // Check consecutive losses
-        if (consecutiveLosses >= maxConsecutiveLosses - 1) {  // One away from limit
-            return Pair(false, "LOSSES_NEAR_LIMIT: $consecutiveLosses consecutive (limit $maxConsecutiveLosses)")
+        if (consecutiveLosses >= maxConsecutiveLosses - 1) {
+            notes7864 += "LOSSES $consecutiveLosses/$maxConsecutiveLosses"
         }
         
-        return Pair(true, "OK")
+        // Limits reached are priced into size by LiveRiskPolicy7807; never a halt.
+        return if (notes7864.isEmpty()) Pair(true, "OK")
+        else Pair(true, "SIZE_DOWN_NOT_HALT_7864: ${notes7864.joinToString(" | ")}")
     }
     
     /**
@@ -509,6 +538,12 @@ object KillSwitch {
     // Private helpers
     // ════════════════════════════════════════════════════════════════
     
+    private fun sizeDownNotice7864(reason: String, details: String) {
+        try { PipelineHealthCollector.labelInc("KILL_SWITCH_LIMIT_SIZE_DOWN_7864:$reason") } catch (_: Throwable) {}
+        ErrorLogger.warn("KillSwitch", "⚠️ $reason: $details — sizing down (LiveRiskPolicy7807), not halting")
+        onWarning?.invoke("$reason: $details (size down)")
+    }
+
     private fun triggerKill(context: Context, reason: String, details: String) {
         isKilled = true
         killReason = "$reason: $details"
@@ -581,7 +616,7 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putInt("environment_schema", 7857)
+            putInt("environment_schema", 7864)
             putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())
             putFloat("peak_balance", peakBalance.toFloat())

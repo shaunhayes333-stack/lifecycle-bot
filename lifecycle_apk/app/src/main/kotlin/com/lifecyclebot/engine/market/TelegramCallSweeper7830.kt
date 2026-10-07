@@ -48,7 +48,9 @@ object TelegramCallSweeper7830 {
     private const val CADENCE_MS_7830 = 60_000L
     private const val FIRST_RUN_DELAY_MS_7830 = 20_000L
     internal const val CHANNELS_PER_PASS_7830 = 15
-    private const val REQUEST_TIMEOUT_S_7830 = 8L
+    // V5.0.7864 — 8 s produced fetch:InterruptedIOException on every 5.0.7863
+    // live channel (0 posts). Mobile TLS to t.me routinely needs longer.
+    private const val REQUEST_TIMEOUT_S_7830 = 15L
     private const val POLITE_DELAY_MS_7830 = 450L
     internal const val MAX_REGISTRY_7830 = 300
     internal const val DEAD_AFTER_SWEEPS_7830 = 6
@@ -529,9 +531,17 @@ object TelegramCallSweeper7830 {
     private const val FETCH_THROTTLED_7830 = 2
     private const val FETCH_FAILED_7830 = 3
 
+    /** t.me first; on a transport failure the same public preview via telegram.me (V5.0.7864). */
     private fun fetchPreview7830(name: String): Fetch7830 {
+        val f = fetchPreviewFrom7864("https://t.me/s/$name")
+        if (f.kind != FETCH_FAILED_7830) return f
+        try { PipelineHealthCollector.labelInc("TELEGRAM_SWEEPER_MIRROR_RETRY_7864") } catch (_: Throwable) {}
+        return fetchPreviewFrom7864("https://telegram.me/s/$name")
+    }
+
+    private fun fetchPreviewFrom7864(url: String): Fetch7830 {
         fetches.incrementAndGet()
-        val req = Request.Builder().url("https://t.me/s/$name")
+        val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (compatible; AATE/1.0)")
             .get().build()
         return try {

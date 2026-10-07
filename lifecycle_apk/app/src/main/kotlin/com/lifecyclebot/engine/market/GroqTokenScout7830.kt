@@ -299,6 +299,18 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
         }.thenBy { it.length })
     }
 
+    /**
+     * V5.0.7864 — 5.0.7863 live: `no_accessible_compound_model`, scout dead for
+     * the day. Groq also serves server-side web search on the gpt-oss models via
+     * the built-in `browser_search` tool. Pure selector over the account catalogue.
+     */
+    internal fun selectBrowserSearchModel7864(ids: List<String>): String? {
+        val set = ids.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        return listOf("openai/gpt-oss-120b", "openai/gpt-oss-20b").firstOrNull { it in set }
+    }
+
+    internal fun usesBrowserSearchTool7864(model: String): Boolean = model.startsWith("openai/gpt-oss", ignoreCase = true)
+
     private fun discoverCompoundModel7832(key: String): String? {
         val req = Request.Builder().url(GROQ_MODELS_URL_7832).get().header("Authorization", "Bearer $key").build()
         return try {
@@ -312,7 +324,9 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
                 val arr = try { JSONObject(body).optJSONArray("data") } catch (_: Throwable) { null }
                 val ids = ArrayList<String>()
                 if (arr != null) for (i in 0 until arr.length()) arr.optJSONObject(i)?.optString("id", "")?.takeIf { it.isNotBlank() }?.let(ids::add)
-                val chosen = selectCompoundModel7832(ids)
+                val chosen = selectCompoundModel7832(ids) ?: selectBrowserSearchModel7864(ids)?.also {
+                    try { PipelineHealthCollector.labelInc("LLM_SCOUT_BROWSER_SEARCH_FALLBACK_7864") } catch (_: Throwable) {}
+                }
                 if (chosen == null) {
                     lastError = "no_accessible_compound_model"
                     backoffUntilMs = System.currentTimeMillis() + MAX_BACKOFF_MS_7830
@@ -344,6 +358,7 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
                     .put(JSONObject().put("role", "system").put("content", systemPrompt7830()))
                     .put(JSONObject().put("role", "user").put("content", userPrompt7830())),
             )
+        if (usesBrowserSearchTool7864(useModel)) payload.put("tools", JSONArray().put(JSONObject().put("type", "browser_search")))
         val req = Request.Builder()
             .url(GROQ_URL_7830)
             .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
