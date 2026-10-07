@@ -1383,7 +1383,7 @@ object FinalDecisionGate {
         val liveDecisive7706 = if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) try {
             TradeHistoryStore.liveDecisive7706()
         } catch (_: Throwable) { null } else null
-        val canonicalLearning = if (liveDecisive7706 != null) null else try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        val canonicalLearning = if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() || liveDecisive7706 != null) null else try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
         val canonicalWins7706 = liveDecisive7706?.wins ?: canonicalLearning?.totalWins ?: 0
         val canonicalDecisive = canonicalWins7706 + (liveDecisive7706?.losses ?: canonicalLearning?.totalLosses ?: 0)
         val canonicalWr = if (canonicalDecisive > 0)
@@ -1393,8 +1393,10 @@ object FinalDecisionGate {
             if (liveDecisive7706 != null) TradeHistoryStore.rollingWinRatePctLive7706(50) else TradeHistoryStore.rollingWinRatePct(50)
         } catch (_: Throwable) { -1.0 }
         val canonicalTargetWr = try { FreeRangeMode.phaseTargetWr(canonicalDecisive) } catch (_: Throwable) { 0.0 }
-        val deepLearningDeficit = canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < (canonicalTargetWr * 0.85)
-        val moderateLearningDeficit = canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < canonicalTargetWr
+        val deepLearningDeficit = !com.lifecyclebot.engine.WrRecoveryPartial.isRunnerLaneExempt7693(specialistLane) &&
+            canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < (canonicalTargetWr * 0.85)
+        val moderateLearningDeficit = !com.lifecyclebot.engine.WrRecoveryPartial.isRunnerLaneExempt7693(specialistLane) &&
+            canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < canonicalTargetWr
 
         // V5.9.1136 — cheap non-executable signal guard. 3102 showed 3k+ FDG/Signal
         // blocks, meaning WAIT candidates were still walking the full expensive FDG
@@ -5872,22 +5874,25 @@ object FinalDecisionGate {
             TradeMode.LIVE -> approvalClass == ApprovalClass.LIVE
             TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK
         }
-        val executableSize7835 = if (shouldTradeFinal && canonicalEconomicApproval7548 &&
-            aateEnvelope6512?.action != "BLOCK") {
+        // V5.0.7848 — PolicySynthesizer is a contributor, not a second
+        // entry authority after a specialist owner has already been selected.
+        // Non-specialist/trunk paths retain its BLOCK semantics.
+        val policyAllows7848 = specialistLane?.isNotBlank() == true || aateEnvelope6512?.action != "BLOCK"
+        val executableSize7835 = if (shouldTradeFinal && canonicalEconomicApproval7548 && policyAllows7848) {
             resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config)
         } else 0.0
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal &&
                 canonicalEconomicApproval7548 &&
-                aateEnvelope6512?.action != "BLOCK" && executableSize7835 > 0.0,
+                policyAllows7848 && executableSize7835 > 0.0,
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,
             confidence = adjustedConfidence,
             edge = edgeVerdict,
             blockReason = blockReasonFinal ?: when {
-                aateEnvelope6512?.action == "BLOCK" -> "CANONICAL_ENVELOPE_BLOCK_7835"
+                !policyAllows7848 -> "CANONICAL_ENVELOPE_BLOCK_7835"
                 shouldTradeFinal && !canonicalEconomicApproval7548 -> "NON_ECONOMIC_APPROVAL_7835"
                 shouldTradeFinal && executableSize7835 <= 0.0 -> "SIZE_NOT_EXECUTABLE_7835"
                 else -> null

@@ -21,7 +21,7 @@ import java.util.TimeZone
  *             Larger position size, higher score thresholds relaxed.
  * DEFENSIVE   Circuit breaker history, low-activity hours, market-wide selloff.
  *             Smaller positions, tighter stops, higher entry bar.
- * PAUSED      Time-of-day filter active. No new entries, existing exits normally.
+ * PAUSED      Legacy label for quiet-hour CAUTION. It shapes entries; it is not runtime STOPPED.
  *
  * AUTO-SWITCH TRIGGERS:
  * ─────────────────────
@@ -29,7 +29,7 @@ import java.util.TimeZone
  * → RANGE      token age > 15 min AND rangePct < 12% over 12 candles
  * → AGGRESSIVE whale score ≥ 70 OR (trending rank ≤ 2 AND pre-grad)
  * → DEFENSIVE  ≥ 2 losses in last 10 trades OR UTC hour in dead zone
- * → PAUSED     UTC 01:00–07:00 (low volume, high rug rate)
+ * → PAUSED     quiet-hour CAUTION profile (runtime remains ACTIVE)
  * → COPY       copy wallet detected buy (overrides everything)
  *
  * PARAMETER ADJUSTMENTS PER MODE:
@@ -255,7 +255,7 @@ class AutoModeEngine(
         }
         BotMode.DEFENSIVE  -> "Loss streak detected"
         BotMode.COPY       -> "Copy wallet triggered"
-        BotMode.PAUSED     -> "Quiet hours UTC $utcHour:00 (low activity)"
+        BotMode.PAUSED     -> "Quiet-hour caution UTC $utcHour:00 (runtime ACTIVE)"
     }
 
     // ── mode configs ──────────────────────────────────────────────────
@@ -373,7 +373,7 @@ class AutoModeEngine(
         positionSizeMultiplier = 0.35,
         minHoldMins            = 1.0,
         maxHoldMins            = 60.0,
-        reason                 = "$reason | AUTO_PAUSED_RECOVERY_PROBE_4422",
+        reason                 = "$reason | AUTO_CAUTION_CONTINUE_TO_STRATEGY_7848",
     )
 
     private fun utcHour(): Int {
