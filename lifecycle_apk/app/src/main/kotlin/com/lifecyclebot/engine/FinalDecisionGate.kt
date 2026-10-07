@@ -828,6 +828,46 @@ object FinalDecisionGate {
     } catch (_: Throwable) { null }
 
     /**
+     * V5.0.7845 — ONE OWNER, ONE VERDICT.
+     *
+     * When a caller explicitly supplies a specialistLane, the lane has already
+     * produced the strategy thesis. Field Manual, TradePlan and Council become
+     * advisory/readback layers only; they may not independently downgrade the
+     * selected BUY. For non-specialist/trunk calls they retain their prior
+     * blocking semantics.
+     */
+    private fun specialistAdvisoryBlock7845(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        specialistLane: String?,
+        laneName: String,
+        laneScore: Double,
+        paper: Boolean,
+        proposedSizeSol: Double,
+        mode: TradeMode,
+    ): FinalDecision? {
+        if (specialistLane.isNullOrBlank()) {
+            return fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
+                ?: tradePlanBlock7739(ts, candidate, specialistLane, laneName, paper, mode)
+                ?: councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)
+        }
+        try {
+            val manual = fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
+            if (manual != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_FIELD_MANUAL_7845")
+        } catch (_: Throwable) {}
+        try {
+            val plan = tradePlanBlock7739(ts, candidate, specialistLane, laneName, paper, mode)
+            if (plan != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_TRADE_PLAN_7845")
+        } catch (_: Throwable) {}
+        try {
+            val council = councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)
+            if (council != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_COUNCIL_7845")
+        } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("FDG_SPECIALIST_OWNER_VERDICT_PRESERVED_7845") } catch (_: Throwable) {}
+        return null
+    }
+
+    /**
      * V5.0.7731 — CellProofLadder7731: a LIVE entry whose cell (source | lane |
      * market-cap band | age band) has a hundred forward labels with negative
      * net expectancy is refused here. Paper is never refused. Same shape as
@@ -1360,7 +1400,7 @@ object FinalDecisionGate {
         // blocks, meaning WAIT candidates were still walking the full expensive FDG
         // stack before being rejected. This does NOT prune scanner intake or lane eval;
         // it just local-blocks non-BUY candidates before ML/BCG/social/EV work.
-        if (candidate.blockReason.startsWith("Signal is ") && candidate.blockReason.endsWith(", not BUY")) {
+        if (specialistLane.isNullOrBlank() && candidate.blockReason.startsWith("Signal is ") && candidate.blockReason.endsWith(", not BUY")) {
             return FinalDecision(
                 shouldTrade = false,
                 mode = mode,
@@ -1379,15 +1419,14 @@ object FinalDecisionGate {
             )
         }
 
-        // V5.0.7715/7720 — the Field Manual's verdict. The whole block lives in
-        // fieldManualBlock7715: this method is at the ART verifier's register
-        // limit (7415 post-login crash, 7417 VerifyError, 7629 VerifyError,
-        // 7715 post-login crash) and must not gain locals or branches.
-        fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }
+        // V5.0.7845 — explicit specialist ownership is authoritative for strategy
+        // interpretation. Generic doctrine/plan/council layers still run and emit
+        // telemetry, but they cannot rewrite an owner lane's BUY into WAIT/PASS.
+        // Measured negative expectancy (cell proof), launch structural/learned
+        // negative evidence, runtime disablement and hard safety remain binding.
+        specialistAdvisoryBlock7845(ts, candidate, specialistLane, laneName, laneScore, config.paperMode, proposedSizeSol, mode)?.let { return it }
         cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
         freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
-        tradePlanBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
-        councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, config.paperMode, mode)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
