@@ -31,16 +31,38 @@ class ImmutableTicketOwnership6548Test {
     private val mintBar = "MintBar_6548_ownership_test"
     private val lane = "STANDARD"
 
+    private fun clearOwnedRetry(mint: String) {
+        val owner = ExecutableOpenGate.retryPendingFor6548(mint) ?: return
+        ExecutableOpenGate.terminalizeAttempt6514(owner.attemptId, mint, owner.lane)
+    }
+
+    // Retry ownership starts from an existing sealed PAPER ticket, not a bare ID.
+    private fun sealedPaperAttempt(mint: String): String {
+        val id = ExecutableOpenGate.canonicalExecutionKey(mint, mode = "PAPER", lane = lane)
+        val ticket = ExecutableOpenGate.ExecutionIntent(
+            attemptId = id, candidateId = id, candidateVersion = 1L,
+            mint = mint, mode = "PAPER", canonicalLane = lane,
+            fdgVerdict = "BUY", fdgAllowed = true, authorityVersion = 1L,
+            resolvedSize = 0.05, createdAt = System.currentTimeMillis(), symbol = "TEST",
+        )
+        val field = ExecutableOpenGate::class.java.getDeclaredField("executionTickets")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val tickets = field.get(ExecutableOpenGate) as java.util.concurrent.ConcurrentHashMap<String, ExecutableOpenGate.ExecutionIntent>
+        tickets[id] = ticket
+        return id
+    }
+
     @Before
     fun setUp() {
         // Ensure clean state for each test.
-        ExecutableOpenGate.clearRetryPending6548(mintFoo, "test_setup")
-        ExecutableOpenGate.clearRetryPending6548(mintBar, "test_setup")
+        clearOwnedRetry(mintFoo)
+        clearOwnedRetry(mintBar)
     }
 
     @Test
     fun nonterminal_release_preserves_attempt_id_for_next_cycle() {
-        val id1 = ExecutableOpenGate.nextAttemptId(mintFoo, lane)
+        val id1 = sealedPaperAttempt(mintFoo)
         assertTrue("attemptId must be non-blank", id1.isNotBlank())
 
         ExecutableOpenGate.releaseAttemptNonTerminal6514(id1, mintFoo, lane, "SOL_USD_MISSING_6509")
@@ -54,7 +76,7 @@ class ImmutableTicketOwnership6548Test {
 
     @Test
     fun terminal_release_clears_retry_slot() {
-        val id1 = ExecutableOpenGate.nextAttemptId(mintBar, lane)
+        val id1 = sealedPaperAttempt(mintBar)
         ExecutableOpenGate.releaseAttemptNonTerminal6514(id1, mintBar, lane, "TOKEN_MAP_PENDING")
         assertNotNull(ExecutableOpenGate.retryPendingFor6548(mintBar))
 
@@ -66,12 +88,23 @@ class ImmutableTicketOwnership6548Test {
     }
 
     @Test
+    fun late_cleanup_cannot_remove_another_attempts_retry() {
+        val owner = sealedPaperAttempt(mintFoo)
+        ExecutableOpenGate.releaseAttemptNonTerminal6514(owner, mintFoo, lane, "TOKEN_MAP_PENDING")
+        val other = sealedPaperAttempt(mintFoo)
+        ExecutableOpenGate.clearRetryPending6548(mintFoo, "STALE_CALLBACK", other)
+        ExecutableOpenGate.terminalizeAttempt6514(other, mintFoo, lane)
+        assertEquals(owner, ExecutableOpenGate.retryPendingFor6548(mintFoo)?.attemptId)
+        assertNotNull(ExecutableOpenGate.ticketForAttempt(owner))
+    }
+
+    @Test
     fun explicit_clear_removes_slot() {
-        val id1 = ExecutableOpenGate.nextAttemptId(mintFoo, lane)
+        val id1 = sealedPaperAttempt(mintFoo)
         ExecutableOpenGate.releaseAttemptNonTerminal6514(id1, mintFoo, lane, "TOKEN_MAP_PENDING")
         assertNotNull(ExecutableOpenGate.retryPendingFor6548(mintFoo))
 
-        ExecutableOpenGate.clearRetryPending6548(mintFoo, "COMMITTED")
+        ExecutableOpenGate.clearRetryPending6548(mintFoo, "COMMITTED", id1)
         assertNull(
             "retry-pending slot must be empty after explicit clear",
             ExecutableOpenGate.retryPendingFor6548(mintFoo),
@@ -83,7 +116,7 @@ class ImmutableTicketOwnership6548Test {
         // Simulates: paperBuy attempt #1 defers → next cycle looks up
         // retryPendingFor6548, resumes SAME id → attempt #2 also defers
         // → next cycle still resumes SAME id. Immutable across N cycles.
-        val id1 = ExecutableOpenGate.nextAttemptId(mintFoo, lane)
+        val id1 = sealedPaperAttempt(mintFoo)
         ExecutableOpenGate.releaseAttemptNonTerminal6514(id1, mintFoo, lane, "SOL_USD_MISSING_6509")
 
         val resumeId = ExecutableOpenGate.retryPendingFor6548(mintFoo)?.attemptId
@@ -98,8 +131,8 @@ class ImmutableTicketOwnership6548Test {
 
     @Test
     fun different_mints_get_independent_slots() {
-        val idA = ExecutableOpenGate.nextAttemptId(mintFoo, lane)
-        val idB = ExecutableOpenGate.nextAttemptId(mintBar, lane)
+        val idA = sealedPaperAttempt(mintFoo)
+        val idB = sealedPaperAttempt(mintBar)
         assertNotEquals("distinct mints must get distinct attempt ids", idA, idB)
 
         ExecutableOpenGate.releaseAttemptNonTerminal6514(idA, mintFoo, lane, "TOKEN_MAP_PENDING")
@@ -109,7 +142,7 @@ class ImmutableTicketOwnership6548Test {
         assertEquals(idB, ExecutableOpenGate.retryPendingFor6548(mintBar)?.attemptId)
 
         // Clearing one does not affect the other.
-        ExecutableOpenGate.clearRetryPending6548(mintFoo, "test")
+        ExecutableOpenGate.clearRetryPending6548(mintFoo, "test", idA)
         assertNull(ExecutableOpenGate.retryPendingFor6548(mintFoo))
         assertNotNull(ExecutableOpenGate.retryPendingFor6548(mintBar))
     }
