@@ -178,6 +178,9 @@ object TradeAuthorizer {
         fdgDecision7835: FinalDecisionGate.FinalDecision? = null,
         tokenState7835: com.lifecyclebot.data.TokenState? = null,
     ): AuthorizationResult {
+        // Count invocation before every refusal. A zero here must mean no caller,
+        // never a kill-switch refusal before the ownership stage.
+        try { PipelineHealthCollector.labelInc("TRADE_AUTHORIZE_ENTERED_7003_${requestedBook.name}") } catch (_: Throwable) {}
         // One candidate may be proposed concurrently by scanner and watchlist callbacks.
         // Election, seal and finality for that mint must be one serialized admission.
         return synchronized(admissionLocks7835[(mint.hashCode() and Int.MAX_VALUE) % admissionLocks7835.size]) {
@@ -224,6 +227,17 @@ object TradeAuthorizer {
                 attemptId = attemptIdForResult,
             )
             val taxonomy = result.rejectTaxonomy
+            try {
+                PipelineHealthCollector.labelInc("TRADE_AUTH_PRE_EXEC_REFUSED_7857_${requestedBook.name}")
+                PipelineHealthCollector.labelInc("TRADE_AUTH_REFUSAL_7857|$reason")
+                if (fdgDecision7835?.canExecute() == true) {
+                    val key = ExecutableOpenGate.canonicalExecutionKey(mint,
+                        mode = if (isPaperMode) "PAPER" else "LIVE", lane = requestedBook.name,
+                        candidateVersion = candidateVersion7624)
+                    ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", key)
+                    ToolkitSignalSheet.recordPreSizeRefusal7809(requestedBook.name, reason)
+                }
+            } catch (_: Throwable) {}
             ChokeReliefBus.launch("TRADE_AUTH_REJECT_TAXONOMY_4424", mint) {
                 try { RejectTaxonomyLedger.record(taxonomy, requestedBook.name, reason) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TRADE_AUTH_REJECT_TAXONOMY_4424_${taxonomy.category.name}") } catch (_: Throwable) {}
@@ -328,10 +342,6 @@ object TradeAuthorizer {
         //
         //   TREASURY reads 0  -> the block is genuinely upstream of authorize
         //   TREASURY reads ~94 -> the funnel's keying is the bug, not the lane
-        try {
-            PipelineHealthCollector.labelInc("TRADE_AUTHORIZE_ENTERED_7003_${requestedBook.name}")
-        } catch (_: Throwable) {}
-
         try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "BUY_INTENT", causalAttempt6613) } catch (_: Throwable) {}
 
         // V5.0.7803 — this is the first cross-lane arbitration boundary.

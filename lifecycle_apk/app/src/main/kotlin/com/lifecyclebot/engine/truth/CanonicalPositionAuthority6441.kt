@@ -2085,6 +2085,12 @@ object CanonicalPositionAuthority6441 {
      */
     data class LifecycleClassification(val total: Int, val byLifecycle: Map<Lifecycle, Int>, val unaccounted: Int)
 
+    fun classifyLifecyclesForMode7857(mode: String): LifecycleClassification {
+        val rows = positions.values.toList().filter { it.mode.equals(mode, true) }
+        val counts = Lifecycle.values().associateWith { life -> rows.count { it.lifecycle == life } }
+        return LifecycleClassification(rows.size, counts, rows.size - counts.values.sum())
+    }
+
     fun classifyLifecycles(): LifecycleClassification {
         val classification = positionViews7496().classification
         if (classification.unaccounted != 0) {

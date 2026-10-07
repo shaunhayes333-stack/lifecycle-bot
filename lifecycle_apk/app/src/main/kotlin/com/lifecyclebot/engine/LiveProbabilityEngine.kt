@@ -155,9 +155,7 @@ object LiveProbabilityEngine {
         metaConviction: Double = 0.50,
     ): Edge {
         val lane = canonical(rawLane)
-        // V5.0.7403 — PAPER/LIFETIME IS COLD-START PRIOR ONLY.
-        // A live lane with any real terminal evidence must not be un-paused or
-        // up-weighted because a larger historical/paper book once worked.
+        // V5.0.7857 — live lane state is derived only from canonical LIVE closes.
         val liveMetric7403 = try {
             StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
                 .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
@@ -262,32 +260,25 @@ object LiveProbabilityEngine {
                 edgePhase.ifBlank { "UNKNOWN" },
             )
             val laneMetric = liveMetric7403
-            // V5.0.7403 — paper may seed ONLY before the first live close.
-            val paperColdStart7403 = if ((laneMetric?.trades ?: 0) == 0) try {
+            // PAPER-only prior: never expose this sample to LIVE outputs.
+            val paperColdStart7403 = if (!liveRuntime7408 && (laneMetric?.trades ?: 0) == 0) try {
                 StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 2_500)
                     .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
             } catch (_: Throwable) { null } else null
 
-            // V5.0.7408 — PAPER is a bounded prior for LIVE, never synthetic
-            // live evidence. Shrink it strongly toward neutral until the wallet
-            // produces its own closes. Paper mode still consumes paper normally.
+            // PAPER may use its own cold-start history; live never does.
             val paperRawP7408 = paperColdStart7403?.winRatePct?.coerceIn(0.0, 100.0)?.div(100.0) ?: 0.5
-            val paperPriorP7408 = 0.5 + (paperRawP7408 - 0.5) * 0.25
-            val paperPriorE7408 = (paperColdStart7403?.meanPnlPct ?: 0.0).coerceIn(-40.0, 40.0) * 0.25
             val laneSamples = (laneMetric?.trades?.toLong() ?: 0L).let { liveN ->
                 if (liveN > 0L) liveN
-                else if (liveRuntime7408) (paperColdStart7403?.trades?.toLong()?.coerceAtMost(8L) ?: 0L)
                 else (paperColdStart7403?.trades?.toLong()?.coerceAtMost(40L) ?: 0L)
             }
             val lanePWin = when {
                 laneMetric != null && (laneMetric.wins + laneMetric.losses) > 0 ->
                     laneMetric.winRatePct.coerceIn(0.0, 100.0) / 100.0
-                paperColdStart7403 != null && (paperColdStart7403.wins + paperColdStart7403.losses) > 0 ->
-                    if (liveRuntime7408) paperPriorP7408 else paperRawP7408
+                paperColdStart7403 != null && (paperColdStart7403.wins + paperColdStart7403.losses) > 0 -> paperRawP7408
                 else -> 0.5
             }
-            val laneE = laneMetric?.meanPnlPct
-                ?: if (liveRuntime7408) paperPriorE7408 else (paperColdStart7403?.meanPnlPct ?: 0.0)
+            val laneE = laneMetric?.meanPnlPct ?: (paperColdStart7403?.meanPnlPct ?: 0.0)
             val laneSol = laneMetric?.totalSolPnl ?: 0.0
             try {
                 if (laneMetric != null && laneMetric.trades > 0) {

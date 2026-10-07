@@ -22,7 +22,7 @@ internal object SpecialistPreauthSeal7834 {
         ts: TokenState, decision: FinalDecisionGate.FinalDecision, lane: String, maximumSizeSol: Double,
     ): ExecutableOpenGate.ExecutionIntent? {
         val paper = decision.mode == FinalDecisionGate.TradeMode.PAPER
-        if (refusal(decision, ts.mint, lane, paper) != null || !maximumSizeSol.isFinite() || maximumSizeSol <= 0.0) return null
+        if (refusal(decision, ts.mint, lane, paper) != null) return null
         if (paper != RuntimeModeAuthority.isPaper()) return null
         val canonicalLane = CanonicalLaneIdentity6506.canonical(lane)
         val tokenMap = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source)
@@ -62,7 +62,7 @@ internal object SpecialistPreauthSeal7834 {
                 it.candidateVersion == decision.candidateVersion7835 &&
                     CanonicalLaneIdentity6506.canonical(it.canonicalLane) == canonicalLane &&
                     it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() &&
-                    it.resolvedSize > 0.0 && it.resolvedSize <= size + 1e-9
+                    it.resolvedSize > 0.0 && kotlin.math.abs(it.resolvedSize - size) <= 1e-9
             }
 
         val first7840 = sealOnce7840()

@@ -327,17 +327,15 @@ object ForwardOutcomeModel {
      * The stack already has a considered position on paper→live transfer and this
      * was not it. PaperLiveIntelligenceBridge lets "paper shape live size softly
      * while live evidence is thin, then fade to live-only authority" — a weighted
-     * blend that decays. Raw pooling gave paper permanent, unweighted, equal
-     * authority over live's predicted win rate forever.
+     * blend that decays. Raw pooling let simulated outcomes masquerade as
+     * realized account evidence and influence live admission.
      *
-     * Keys are now mode-scoped, and forecast() applies that same fade: own-mode
-     * cell when it has samples, other-mode cell as the thin-evidence prior, and
-     * legacy unprefixed cells stay readable so nothing already learned is thrown
-     * away.
+     * Keys are mode-scoped. LIVE forecasts read only LIVE terminal cells;
+     * PAPER forecasts may still consult legacy cells as priors.
      */
     private fun modeTag6869(isPaper: Boolean): String = if (isPaper) "P" else "L"
     private fun currentIsPaper6869(): Boolean =
-        try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+        try { LearningEnvironment7835.mode() == "PAPER" } catch (_: Throwable) { true }
 
     private fun fineKey(lane: String, score: Int, quality: String, regime: String, edgePhase: String, isPaper: Boolean = currentIsPaper6869()): String =
         "${modeTag6869(isPaper)}|${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"
@@ -406,9 +404,8 @@ object ForwardOutcomeModel {
 
     /** A label forecast may shape a prior but may not impersonate terminal evidence. */
     fun hasTerminalEvidence7838(forecast: Forecast?): Boolean = forecast != null &&
-        forecast.samples > 0L && forecast.source.removeSuffix("_assessed6991") in setOf(
-            "fine", "coarse", "fine_legacy", "coarse_legacy",
-            "fine_paper_prior", "coarse_paper_prior", "fine_live_prior", "coarse_live_prior",
+        forecast.samples > 0L && forecast.source in setOf(
+            "fine", "coarse",
         )
 
     /** Predict the outcome distribution for a candidate (no side effects). */
@@ -416,10 +413,8 @@ object ForwardOutcomeModel {
         lane: String, score: Int, quality: String, regime: String, edgePhase: String
     ): Forecast {
         return try {
-            // V5.0.6869 — own-mode first, other-mode as the thin-evidence prior,
-            // legacy pooled cells last. This is the PaperLiveIntelligenceBridge fade
-            // applied to the forward model: live leans on paper only while its own
-            // evidence is thin, and stops consulting it the moment it is not.
+            // V5.0.7857 — LIVE evidence is account-scoped. Cross-mode and legacy
+            // cells remain available as PAPER priors only.
             val isPaper = currentIsPaper6869()
             val fc = fine[fineKey(lane, score, quality, regime, edgePhase, isPaper)]
             val cc = coarse[coarseKey(lane, score, regime, isPaper)]
@@ -436,10 +431,10 @@ object ForwardOutcomeModel {
             when {
                 fc != null && fc.n >= MIN_SAMPLES -> { cell = fc; src = "fine" }
                 cc != null && cc.n >= MIN_SAMPLES -> { cell = cc; src = "coarse" }
-                lfc != null && lfc.n >= MIN_SAMPLES -> { cell = lfc; src = "fine_legacy" }
-                lcc != null && lcc.n >= MIN_SAMPLES -> { cell = lcc; src = "coarse_legacy" }
-                ofc != null && ofc.n >= MIN_SAMPLES -> { cell = ofc; src = if (isPaper) "fine_live_prior" else "fine_paper_prior" }
-                occ != null && occ.n >= MIN_SAMPLES -> { cell = occ; src = if (isPaper) "coarse_live_prior" else "coarse_paper_prior" }
+                isPaper && lfc != null && lfc.n >= MIN_SAMPLES -> { cell = lfc; src = "fine_legacy" }
+                isPaper && lcc != null && lcc.n >= MIN_SAMPLES -> { cell = lcc; src = "coarse_legacy" }
+                isPaper && ofc != null && ofc.n >= MIN_SAMPLES -> { cell = ofc; src = if (isPaper) "fine_live_prior" else "fine_paper_prior" }
+                isPaper && occ != null && occ.n >= MIN_SAMPLES -> { cell = occ; src = if (isPaper) "coarse_live_prior" else "coarse_paper_prior" }
                 lfs7734 != null && lfs7734.n >= MIN_SAMPLES -> { cell = lfs7734; src = "fine_label_prior" }
                 lcs7734 != null && lcs7734.n >= MIN_SAMPLES -> { cell = lcs7734; src = "coarse_label_prior" }
                 else -> return Forecast(0.5, 0.0, 0.0, 0.0, (fc?.n ?: 0L) + (cc?.n ?: 0L), 1.0, "bootstrap")

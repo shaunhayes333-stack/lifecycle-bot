@@ -132,36 +132,9 @@ object ColdStreakDamper {
         return mult
     }
 
-    /**
-     * V5.0.6991 — the loss streak live should act on, seeded from paper.
-     *
-     * key(lane, isPaper) scopes every streak to its mode, so a flip to live
-     * started each lane at zero losses and a neutral 1.00 size multiplier,
-     * however hard that lane had been bleeding in paper.
-     *
-     * A loss streak is PROTECTIVE evidence and simulation understates live
-     * costs, so it transfers whole (PaperSeededPrior6991): live opens guarded
-     * and the damper is already trimming size on the first real trade in a
-     * lane paper knows is bad.
-     *
-     * The WIN streak is deliberately NOT seeded — see currentWinStreak. Live
-     * losses accumulate into the live streak directly, so once live has its
-     * own view maxOf selects it.
-     */
+    /** A streak is account-scoped: PAPER outcomes never enter LIVE sizing. */
     fun effectiveLossStreak6991(lane: String, isPaper: Boolean): Int {
-        val own = get(lane, isPaper).lossStreak.get()
-        if (isPaper) return own
-        val paper = streaks[key(lane, true)]?.lossStreak?.get() ?: 0
-        if (paper <= own) return own
-        val seeded = com.lifecyclebot.engine.truth.PaperSeededPrior6991.seedProtectiveLiveAware(lane.trim().uppercase(), paper, own)
-        if (seeded > own) {
-            try {
-                com.lifecyclebot.engine.truth.PaperSeededPrior6991.noteProtectiveSeed(
-                    "ColdStreakDamper.lossStreak[$lane]", paper, own,
-                )
-            } catch (_: Throwable) {}
-        }
-        return seeded
+        return get(lane, isPaper).lossStreak.get()
     }
 
     /** Per-lane current loss streak (for UI / snapshot). */

@@ -69,4 +69,17 @@ class Aate7837EntryRecoveryTest {
         assertFalse(KillSwitch.shouldRebaseLiveBaseline7843(7843, 0.2016))
         assertFalse(KillSwitch.shouldRebaseLiveBaseline7843(7837, Double.NaN))
     }
+
+    @Test fun paperContaminatedDailyLossMigratesAgainstLiveEquityOnly() {
+        assertTrue(KillSwitch.shouldRebasePaperContaminatedDailyLatch7857(
+            7856, "MAX_DAILY_LOSS: Daily loss 22%", 0.1988))
+        assertFalse(KillSwitch.shouldRebasePaperContaminatedDailyLatch7857(
+            7857, "MAX_DAILY_LOSS: Daily loss 22%", 0.1988))
+        assertFalse(KillSwitch.shouldRebasePaperContaminatedDailyLatch7857(
+            7856, "MAX_DRAWDOWN: real", 0.1988))
+        assertFalse(KillSwitch.shouldRebasePaperContaminatedDailyLatch7857(
+            7856, "MANUAL: operator stop", 0.1988))
+        assertFalse(KillSwitch.shouldRebasePaperContaminatedDailyLatch7857(
+            7856, "MAX_DAILY_LOSS: Daily loss 22%", Double.NaN))
+    }
 }

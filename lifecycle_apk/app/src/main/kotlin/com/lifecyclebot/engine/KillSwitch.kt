@@ -70,6 +70,17 @@ object KillSwitch {
     internal fun shouldRebaseLiveBaseline7843(storedSchema: Int, equity: Double): Boolean =
         storedSchema < 7843 && equity.isFinite() && equity > 0.0
 
+    /**
+     * V5.0.7857 — a persisted daily-loss latch from the shared PAPER/LIVE
+     * baseline is not live loss evidence. Retire only that computed latch on
+     * migration and anchor the new daily window to observed LIVE equity.
+     * Manual and drawdown kills remain latched.
+     */
+    internal fun shouldRebasePaperContaminatedDailyLatch7857(
+        storedSchema: Int, reason: String, equity: Double,
+    ): Boolean = storedSchema < 7857 && reason.startsWith("MAX_DAILY_LOSS:") &&
+        equity.isFinite() && equity > 0.0
+
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
         init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance()))
@@ -214,6 +225,25 @@ object KillSwitch {
                     "KILL_SWITCH_ACCOUNT_BASELINE_REBASED_7843",
                     "schema=$storedSchema7843 equity=$currentBalance priorPeak=$priorPeak7843 priorDaily=$priorDaily7843 " +
                         "priorReason=${priorReason7843.take(80)} action=retire_external_account_delta_as_trading_drawdown",
+                )
+            } catch (_: Throwable) {}
+        }
+
+        if (shouldRebasePaperContaminatedDailyLatch7857(storedSchema7843, killReason, currentBalance)) {
+            val priorDaily7857 = dailyStartBalance
+            val priorReason7857 = killReason
+            dailyStartBalance = currentBalance
+            dailyStartDate = System.currentTimeMillis()
+            outcomeBaselineAt7837 = dailyStartDate
+            isKilled = false
+            killReason = ""
+            killTime = 0L
+            try {
+                PipelineHealthCollector.labelInc("KILL_SWITCH_PAPER_DAILY_LATCH_REBASED_7857")
+                ForensicLogger.lifecycle(
+                    "KILL_SWITCH_PAPER_DAILY_LATCH_REBASED_7857",
+                    "schema=$storedSchema7843 liveEquity=$currentBalance priorDaily=$priorDaily7857 " +
+                        "priorReason=${priorReason7857.take(80)} action=rebase_daily_loss_to_live_equity",
                 )
             } catch (_: Throwable) {}
         }
@@ -539,7 +569,7 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putInt("environment_schema", 7843)
+            putInt("environment_schema", 7857)
             putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())
             putFloat("peak_balance", peakBalance.toFloat())

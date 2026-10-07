@@ -67,7 +67,14 @@ object ExecutionDecisionSnapshot6510 {
     fun record(snapshot: ExecutionDecisionSnapshot): ExecutionDecisionSnapshot {
         val sealed = if (snapshot.authorityVersion > 0L) snapshot else snapshot.copy(authorityVersion = authoritySeq6513.incrementAndGet())
         val k = key(sealed.mint, sealed.candidateVersion, sealed.executionLane, sealed.runtimeGeneration, sealed.mode)
-        byAuthorityKey[k] = sealed
+        val existing = byAuthorityKey.putIfAbsent(k, sealed)
+        if (existing != null) {
+            if (existing.verdict != sealed.verdict || existing.authoritativeSignal != sealed.authoritativeSignal ||
+                existing.resolvedSizeSol != sealed.resolvedSizeSol || existing.score != sealed.score) {
+                try { PipelineHealthCollector.labelInc("SEALED_DECISION_REWRITE_REFUSED_7857") } catch (_: Throwable) {}
+            }
+            return existing
+        }
         byMint7346.computeIfAbsent(mintKey7346(sealed.runtimeGeneration, sealed.mode, sealed.mint)) {
             ConcurrentHashMap.newKeySet()
         }.add(k)

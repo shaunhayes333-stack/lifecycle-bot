@@ -196,19 +196,23 @@ object LivePreflight7222 {
 
         // 7. Exit engine can see what is held.
         checks += check("EXIT_SCOPE") {
-            val scope = CanonicalPositionAuthority6441.openPositions().size
-            val lc = CanonicalPositionAuthority6441.classifyLifecycles()
-            val quarantined = lc.byLifecycle[CanonicalPositionAuthority6441.Lifecycle.QUARANTINED] ?: 0
-            val lifecycleOpen = (lc.byLifecycle[CanonicalPositionAuthority6441.Lifecycle.OPEN] ?: 0) +
-                (lc.byLifecycle[CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED] ?: 0)
+            val account = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live"
+            val inventory = CanonicalPositionAuthority6441.protectiveInventory7807(account)
+            val scope = inventory.size
+            val classification = CanonicalPositionAuthority6441.classifyLifecyclesForMode7857(account)
+            val quarantined = classification.byLifecycle[CanonicalPositionAuthority6441.Lifecycle.QUARANTINED] ?: 0
+            val lifecycleOpen = (classification.byLifecycle[CanonicalPositionAuthority6441.Lifecycle.OPEN] ?: 0) +
+                (classification.byLifecycle[CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED] ?: 0)
             val drained = (lifecycleOpen - scope).coerceAtLeast(0)
-            val detail = "exitScope=$scope lifecycleOpen=$lifecycleOpen drainedOutOfScope=$drained quarantined=$quarantined ledger=${lc.total} (§7213)"
+            val detail = "account=$account exitScope=$scope lifecycleOpen=$lifecycleOpen drainedOutOfScope=$drained quarantined=$quarantined (§7213)"
             if (drained == 0) Check("EXIT_SCOPE", Verdict.PASS, detail)
             else Check("EXIT_SCOPE", Verdict.REFUSE, "$drained open row(s) carry no quantity and cannot latch a stop; $detail")
         }
         checks += check("EXIT_SCHEDULER") {
             val age = ProtectiveExitScheduler6450.heartbeatAgeMs()
-            if (age == Long.MAX_VALUE) Check("EXIT_SCHEDULER", Verdict.UNKNOWN, "never serviced — risk clock not started yet")
+            if (com.lifecyclebot.engine.BotRuntimeController.state.value.state != com.lifecyclebot.engine.BotRuntimeController.RuntimeState.RUNNING)
+                Check("EXIT_SCHEDULER", Verdict.INFO, "runtime stopped; serviceAgeMs=$age (post-stop, not an active scheduler fault)")
+            else if (age == Long.MAX_VALUE) Check("EXIT_SCHEDULER", Verdict.UNKNOWN, "never serviced — risk clock not started yet")
             else if (age < 15_000L) Check("EXIT_SCHEDULER", Verdict.PASS, "serviceAgeMs=$age")
             else Check("EXIT_SCHEDULER", Verdict.REFUSE, "serviceAgeMs=$age ≥ 15000 — the independent risk clock is not running (§7213)")
         }
