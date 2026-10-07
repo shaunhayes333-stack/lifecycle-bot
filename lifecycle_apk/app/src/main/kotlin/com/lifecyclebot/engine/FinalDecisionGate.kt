@@ -2727,7 +2727,6 @@ object FinalDecisionGate {
                         "Rugcheck $rugcheckStatus for ${ts.symbol}, allowing as PROBE (relaxed 4185 fallback): buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3 singleStrong=$hasSingleStrong"
                     )
                     tags.add("rugcheck_timeout_fallback")
-                    tags.add("rc_timeout_live_probe")
                 } else {
                     // V5.0.4190 — pending/timeout rugcheck is a penalty/size-shape,
                     // not a hard veto. Confirmed rug score 0 remains fatal above;

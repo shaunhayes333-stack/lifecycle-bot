@@ -51,6 +51,8 @@ object WrRecoveryPartial {
     // live wallet and amputate runners. This is only a floor: actual bands
     // below are fluid and expectancy/MFE-driven per lane.
     private const val MIN_PARTIAL_GAIN_PCT = 50.0
+    /** V5.0.7865 — pre-evidence training wheels are a size cut, not a score floor. */
+    internal const val BOOTSTRAP_SIZE_MULT_7865 = 0.75
 
     // V5.9.1473 — PERFORMING: the bot is AT or ABOVE its phase WR target.
     // Pre-1473, this state mapped to Band.OFF, which reverted the partial
@@ -74,6 +76,8 @@ object WrRecoveryPartial {
         val rollingWr: Double,        // last 50 settled
         val predictive: Boolean,      // rolling-50 below target × 0.90
         val rollingCollapse: Boolean = false, // rolling-50 is catastrophically below target
+        /** V5.0.7865 — fewer than 50 decisive closes in scope: no WR evidence yet. */
+        val bootstrap: Boolean = false,
     ) {
         val active: Boolean get() = band != Band.OFF
     }
@@ -117,11 +121,19 @@ object WrRecoveryPartial {
         // V5.0.3963 no longer maps that to tiny +9/+35/+60% scraps. The band
         // feeds learnedExitRungs(), which applies the same StrategyTelemetry
         // expectancy/MFE table shown in reports and floors first profit at +50%.
-        if (total < 25.0) {
-            return State(Band.AGGRESSIVE, 0.0, 0.0, total.toInt(), -1.0, false)
-        }
+        //
+        // V5.0.7865 — "trade 1 state of mind" (operator, 5.0.7863 live): with
+        // under 50 decisive closes there is no win-rate to recover. Mapping
+        // "no evidence" to AGGRESSIVE (deep deficit) put every non-runner lane
+        // behind a 45 score floor, CashGen's anti-FOMO refusal and FDG's x0.55
+        // conf penalty, so SHITCOIN candidates "failed all quality gates" and
+        // died as refused dust probes — the bot could never collect the live
+        // closes that would let it self-adjust. Field Manual §8.3 L265: a small
+        // number of live outcomes gives a wide uncertainty interval; L329: do
+        // not call noise edge. Training wheels from trade 1 stay, as SIZE
+        // (bootstrap 0.75x) and the FLUID partial ladder, never as refusal.
         if (total < 50.0) {
-            return State(Band.MODERATE, 0.0, 0.0, total.toInt(), -1.0, false)
+            return State(Band.FLUID, 0.0, 0.0, total.toInt(), -1.0, false, bootstrap = true)
         }
 
         val currentWR = if (total > 0) (wins / total) * 100.0 else 0.0
@@ -350,6 +362,7 @@ object WrRecoveryPartial {
             return 1.0
         }
         val s = stateNow()
+        if (s.bootstrap) return BOOTSTRAP_SIZE_MULT_7865
         return when (s.band) {
             Band.AGGRESSIVE -> 0.5
             Band.MODERATE   -> 0.75

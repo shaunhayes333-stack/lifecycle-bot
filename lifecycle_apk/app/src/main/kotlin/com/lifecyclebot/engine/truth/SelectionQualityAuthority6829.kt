@@ -49,10 +49,27 @@ object SelectionQualityAuthority6829 {
     private val recorded = AtomicLong(0L)
     private val queries = AtomicLong(0L)
 
-    fun recordTerminal(lane: String, won: Boolean) {
+    /**
+     * V5.0.7865 — rings are per MODE. 5.0.7863 live: SHITCOIN carried a +15
+     * floor from "wr=6.9" with zero live SHITCOIN closes in the session — the
+     * rolling record was paper closes (and their boot replay) refusing LIVE
+     * entries. Audit pattern 4 / Field Manual L329: evidence must come from
+     * the book it judges. Readers resolve the runtime mode.
+     */
+    internal fun ringKey7865(mode: String, lane: String): String {
+        val m = if (mode.equals("LIVE", true)) "LIVE" else "PAPER"
+        return "$m|${lane.trim().uppercase()}"
+    }
+
+    private fun runtimeMode7865(): String =
+        try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "LIVE" else "PAPER" } catch (_: Throwable) { "PAPER" }
+
+    fun recordTerminal(lane: String, won: Boolean) = recordTerminal(runtimeMode7865(), lane, won)
+
+    fun recordTerminal(mode: String, lane: String, won: Boolean) {
         if (lane.isBlank()) return
         try {
-            val key = lane.trim().uppercase()
+            val key = ringKey7865(mode, lane)
             rings.computeIfAbsent(key) { Ring() }.add(won)
             recorded.incrementAndGet()
         } catch (_: Throwable) {}
@@ -61,7 +78,7 @@ object SelectionQualityAuthority6829 {
     /** Returns rolling WR% for a lane, or -1.0 if under-sampled. */
     fun rollingWr(lane: String): Double {
         if (lane.isBlank()) return -1.0
-        return rings[lane.trim().uppercase()]?.wr() ?: -1.0
+        return rings[ringKey7865(runtimeMode7865(), lane)]?.wr() ?: -1.0
     }
 
     fun scoreFloorDelta(lane: String): Double {
