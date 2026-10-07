@@ -183,7 +183,10 @@ object FinalExecutionPermit {
         // true, so this is the last universal pre-side-effect choke point.
         val finalityAttemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(mint, layer, candidateVersion7628) }
         val sizeFinalityTicketPresent6491 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId) != null
-        if (!finalityPrechecked || !sizeFinalityTicketPresent6491) {
+        // V5.0.7846 — an existing immutable ticket is the finality receipt.
+        // Never re-run mutable finality over a sealed decision; only unsealed
+        // callers need canOpenExecutablePosition to create/validate a ticket.
+        if (!sizeFinalityTicketPresent6491) {
             val finality = ExecutableOpenGate.canOpenExecutablePosition(
                 mint = mint,
                 symbol = symbol,
@@ -212,6 +215,23 @@ object FinalExecutionPermit {
         if (executionTicket6494 == null || executionTicket6494.mint != mint) {
             recordPermitFalseReturn4416("IMMUTABLE_EXEC_TICKET_MISSING_6494")
             return false
+        }
+        if (!paperMode) {
+            val sizeRefusal7846 = SealedExecutionSize7835.refusal(
+                executionTicket6494, mint, "LIVE", layer, sizeSol,
+            )
+            if (sizeRefusal7846 != null) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_PERMIT_SEALED_SIZE_REFUSED_7846")
+                    ForensicLogger.lifecycle(
+                        "LIVE_PERMIT_SEALED_SIZE_REFUSED_7846",
+                        "mint=${mint.take(10)} symbol=$symbol lane=$layer requested=$sizeSol sealed=${executionTicket6494.resolvedSize} reason=$sizeRefusal7846",
+                    )
+                } catch (_: Throwable) {}
+                recordPermitFalseReturn4416(sizeRefusal7846)
+                return false
+            }
+            try { PipelineHealthCollector.labelInc("LIVE_PERMIT_EXACT_SEALED_SIZE_7846") } catch (_: Throwable) {}
         }
         val currentVersion6513 = candidateVersion7628
         if (executionTicket6494.primaryLane != executionTicket6494.lane ||

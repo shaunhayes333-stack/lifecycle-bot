@@ -3775,7 +3775,19 @@ object ExecutableOpenGate {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW
         val mustReevaluate6909 = cachedEntryDecision6909 == null ||
             (cachedIsAllow6909 && scoreNow6909 > 0)
-        val effectiveEntryDecision6487 = if (!mustReevaluate6909) {
+        // V5.0.7846 — once immutable FDG/intent authority exists, learned
+        // admission has already had its chance upstream. Re-running it here can
+        // only contradict the sealed BUY and create EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY.
+        val sealedEntryAuthority7846 = immutableAuthority6513 != null ||
+            ticketAuthority6564?.let { validSealedDecision6613(it) } == true
+        val effectiveEntryDecision6487 = if (sealedEntryAuthority7846) {
+            try { PipelineHealthCollector.labelInc("EXEC_ENTRY_AUTH_CONSUMED_SEALED_7846") } catch (_: Throwable) {}
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
+                1.0,
+                "sealed_execution_intent_authority_7846",
+            )
+        } else if (!mustReevaluate6909) {
             cachedEntryDecision6909!!
         } else try {
             val oracleToken7260 = try { BotService.status.tokens[mint] } catch (_: Throwable) { null }

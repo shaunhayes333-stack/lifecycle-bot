@@ -384,39 +384,15 @@ object ExecutableEntryAuthority6450 {
     }
 
     /**
-     * V5.0.6991 — live inherits paper's LOSS STREAK, at full strength.
+     * V5.0.7846 — MODE-PURE ENTRY HISTORY.
      *
-     * This used to read only its own mode's cohort, so a flip to live reported
-     * zero consecutive losses for every lane no matter how badly paper had
-     * bled. The defensive reflex, its score-floor delta and its size
-     * multiplier all started neutral at the exact moment the money was real.
-     *
-     * A loss streak is PROTECTIVE evidence, and paper understates rather than
-     * overstates how bad live will be — live adds slippage, partial fills and
-     * failed routes that a simulation never charges. So it transfers whole,
-     * per PaperSeededPrior6991: live takes the worse of the two views and
-     * starts guarded. The opposite direction, a paper WIN streak, is not
-     * seeded anywhere — that would size up real money on simulated wins.
-     *
-     * Once live has its own cohort the live value wins on its own merits,
-     * because maxOf picks it as soon as it is the larger one, and live losses
-     * accumulate into it directly.
+     * LIVE admission may only be shaped by canonical LIVE outcomes. PAPER loss
+     * streaks remain useful to PAPER/replay learning but cannot suppress or size
+     * real-money entries. This removes the old 6991 cross-mode protective seed.
      */
     fun consecutiveLossesFor6488(lane: String, mode: String = currentMode()): Long {
-        val own = cohortLosses[cohortKey(mode, lane)]?.get() ?: 0L
-        val isLive = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
-        if (!isLive) return own
-        val paper = cohortLosses[cohortKey("PAPER", lane)]?.get() ?: 0L
-        if (paper <= own) return own
-        val seeded = PaperSeededPrior6991.seedProtectiveLiveAware(normalizedLane(lane), paper, own)
-        if (seeded > own) {
-            try {
-                PaperSeededPrior6991.noteProtectiveSeed(
-                    "ExecutableEntryAuthority6450.lossStreak[$lane]", paper, own,
-                )
-            } catch (_: Throwable) {}
-        }
-        return seeded
+        val normalizedMode7846 = mode.trim().uppercase().ifBlank { currentMode() }
+        return cohortLosses[cohortKey(normalizedMode7846, lane)]?.get() ?: 0L
     }
 
     fun defensiveActiveFor6488(lane: String, mode: String = currentMode()): Boolean =
@@ -447,12 +423,19 @@ object ExecutableEntryAuthority6450 {
     // journal (n>=20, mean>0), then the score-band tracker, which survives a clear.
     private fun lanePaysEv7334(lane: String): Boolean = try {
         val u = lane.uppercase()
-        com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+        val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        val liveSnap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
             .firstOrNull { it.lane.equals(lane, true) && it.sample >= 10 }
-            ?.let { it.evPct > 0.0 }
-            ?: OracleTradeHistory7287.lane(u)?.takeIf { it.n >= 20 }?.let { it.meanNetPct > 0.0 }
-            ?: (com.lifecyclebot.engine.ScoreExpectancyTracker.laneStats7380(u)
-                ?.let { it.first >= 20 && it.third > 0.0 } == true)
+        if (live) {
+            // V5.0.7846 — LIVE cannot fall back to combined/paper-derived
+            // OracleTradeHistory or ScoreExpectancyTracker evidence.
+            liveSnap?.evPct?.let { it > 0.0 } ?: false
+        } else {
+            liveSnap?.evPct?.let { it > 0.0 }
+                ?: OracleTradeHistory7287.lane(u)?.takeIf { it.n >= 20 }?.let { it.meanNetPct > 0.0 }
+                ?: (com.lifecyclebot.engine.ScoreExpectancyTracker.laneStats7380(u)
+                    ?.let { it.first >= 20 && it.third > 0.0 } == true)
+        }
     } catch (_: Throwable) { false }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -481,11 +464,17 @@ object ExecutableEntryAuthority6450 {
     /** True once the lane has enough decisive closes for a streak to mean anything. */
     fun laneHasEvidence7719(lane: String): Boolean = try {
         val u = lane.uppercase()
-        val probe = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+        val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        val liveN = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
             .firstOrNull { it.lane.equals(lane, true) }?.sample ?: 0
-        val oracle = OracleTradeHistory7287.lane(u)?.n ?: 0
-        val score = com.lifecyclebot.engine.ScoreExpectancyTracker.laneStats7380(u)?.first ?: 0
-        maxOf(probe, oracle, score) >= STREAK_EVIDENCE_MIN_CLOSES_7719
+        if (live) {
+            // V5.0.7846 — no PAPER/combined sample can mature a LIVE streak.
+            liveN >= STREAK_EVIDENCE_MIN_CLOSES_7719
+        } else {
+            val oracle = OracleTradeHistory7287.lane(u)?.n ?: 0
+            val score = com.lifecyclebot.engine.ScoreExpectancyTracker.laneStats7380(u)?.first ?: 0
+            maxOf(liveN, oracle, score) >= STREAK_EVIDENCE_MIN_CLOSES_7719
+        }
     } catch (_: Throwable) { false }
 
     private fun streakShapingActive7719(lane: String, mode: String): Boolean {
