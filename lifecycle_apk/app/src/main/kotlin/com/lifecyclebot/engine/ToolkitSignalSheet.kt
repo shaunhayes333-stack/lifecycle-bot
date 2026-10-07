@@ -973,7 +973,29 @@ object ToolkitSignalSheet {
         )
     }
 
-    fun recordDeskStage(lane: String, stage: String, eventId: String = "") {
+    /**
+     * V5.0.7868 — terminal position stages resolve their mint from a
+     * "MODE:mint:..." position event. Protective/recovered/adopted positions carry
+     * other id shapes (LIVE_PROTECT_7807:..., observed-mark ids), so FINALIZED /
+     * SELL_* / EXIT_TRIGGER for them were dropped as DESK_STAGE_DROPPED_NO_MINT_IN_KEY
+     * and the specialist never received its terminal lifecycle. Normalise through
+     * the canonical position (the immutable mint/mode of that exact position).
+     */
+    internal fun normalizeTerminalEventId7868(stage: String, eventId: String): String {
+        if (stage.uppercase() !in setOf("SELL_ATTEMPT", "SELL_CONFIRMED", "FINALIZED", "EXIT_TRIGGER")) return eventId
+        val head = eventId.substringBefore(':').uppercase()
+        if (head == "LIVE" || head == "PAPER") return eventId
+        val pos = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(eventId)
+                ?: com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(eventId.substringBeforeLast(':'))
+        } catch (_: Throwable) { null } ?: return eventId
+        if (pos.mint.isBlank()) return eventId
+        return "${pos.mode.uppercase()}:${pos.mint}:$eventId"
+    }
+
+    fun recordDeskStage(lane: String, stage: String, eventId: String = "") = recordDeskStageResolved7868(lane, stage, normalizeTerminalEventId7868(stage, eventId))
+
+    private fun recordDeskStageResolved7868(lane: String, stage: String, eventId: String) {
         // V5.0.7807 — fold every lane alias through the ONE lane authority
         // (DIP/SNIPER/MANIP/CASH_GEN/MOON_SHOT/... had their own funnel keys),
         // then keep EXEC/OPEN on the owning lane of the ticket they execute

@@ -231,6 +231,7 @@ object TradeAuthorizer {
                 attemptId = attemptIdForResult,
             )
             val taxonomy = result.rejectTaxonomy
+            if (!isPaperMode) WalletCapacitySeal7868.release(mint) // V5.0.7868 — refused: release the seal's reserved SOL
             try {
                 PipelineHealthCollector.labelInc("TRADE_AUTH_PRE_EXEC_REFUSED_7857_${requestedBook.name}")
                 PipelineHealthCollector.labelInc("TRADE_AUTH_REFUSAL_7857|$reason")

@@ -5917,7 +5917,7 @@ object FinalDecisionGate {
         val configuredMinimum7835 = if (config.paperMode) PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
             else if (config.allowLiveMicroProbe) 0.005 else config.minLiveBuySol.coerceAtLeast(0.0)
         val cash = if (config.paperMode) com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
-            else WalletManager.cachedSolBalance()
+            else WalletCapacitySeal7868.freeCashFor(ts.mint, WalletManager.cachedSolBalance())
         val solUsd = WalletManager.lastKnownSolPrice
         // V5.0.7841 — the immutable ticket must be born legal against the SAME
         // current route floor the live-buy boundary will enforce. 7840 let FDG

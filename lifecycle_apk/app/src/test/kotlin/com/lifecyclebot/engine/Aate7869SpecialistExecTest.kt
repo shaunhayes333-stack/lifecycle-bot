@@ -37,4 +37,19 @@ class Aate7869SpecialistExecTest {
         assertTrue(rec.contains("ToolkitSignalSheet.recordEntryExecOpen7809(b7868.lane, b7868.attemptId, b7868.attemptId)"))
         assertFalse(rec.contains("recordEntryExecOpen7809(\"STANDARD\""))
     }
+
+    @Test fun terminalStageIdsAreNormalisedToPositionEvents() {
+        assertEquals("LIVE:mint:abc", ToolkitSignalSheet.normalizeTerminalEventId7868("FINALIZED", "LIVE:mint:abc"))
+        assertEquals("attempt-x", ToolkitSignalSheet.normalizeTerminalEventId7868("TICKET", "attempt-x"))
+        // Unknown position id stays as is (no fabrication).
+        assertEquals("LIVE_PROTECT_7807:zzz", ToolkitSignalSheet.normalizeTerminalEventId7868("FINALIZED", "LIVE_PROTECT_7807:zzz"))
+    }
+
+    @Test fun otherCandidatesReservationsReduceFreeCash() {
+        val now = 100_000L
+        val all = mapOf("A" to (0.0427 to now - 1_000L), "B" to (0.0427 to now - 200_000L))
+        assertEquals(0.0427, WalletCapacitySeal7868.reservedExcluding(all, "C", now), 1e-12)
+        assertEquals(0.0, WalletCapacitySeal7868.reservedExcluding(all, "A", now), 1e-12)
+        assertTrue(src("engine/FinalDecisionGate.kt").contains("WalletCapacitySeal7868.freeCashFor(ts.mint, WalletManager.cachedSolBalance())"))
+    }
 }

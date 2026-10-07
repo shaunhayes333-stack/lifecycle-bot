@@ -13365,6 +13365,7 @@ class Executor(
         buyPhase("BUY_PENDING_BALANCE_PROOF")
         if (intent != null && intent.mode.equals("LIVE", true)) {
             LivePendingAttempt7868.bind(intent.mint, intent.attemptId, intent.canonicalLane.ifBlank { intent.lane })
+            WalletCapacitySeal7868.release(intent.mint)
         }
     }
 
@@ -13601,6 +13602,7 @@ class Executor(
 
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         terminalizeCanonicalLiveFailure7790(ts, reason)
+        WalletCapacitySeal7868.release(ts.mint)
         try {
             val r = reason.uppercase()
             when {
