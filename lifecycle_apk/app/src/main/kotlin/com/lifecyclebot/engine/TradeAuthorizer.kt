@@ -614,49 +614,23 @@ object TradeAuthorizer {
             )
         }
 
-        // GATE 5: promotion gate
+        // V5.0.7851 — the promotion gate is pre-seal strategy opinion.
+        // Once SpecialistPreauthSeal7834 has produced the immutable BUY,
+        // quality/confidence cannot become a second entry authority here.
         val promotion = checkPromotionGate(
             symbol = symbol,
             quality = normalizedQuality,
             confidence = safeConfidence,
             isPaperMode = isPaperMode,
         )
-
         if (!promotion.allow) {
-            // V5.9.495z52 — operator directive: "it should never create paper
-            // positions while running in live mode that's stupid as fuck!!"
-            // SHADOW_TRACKING is a paper-mode learning tool. Writing a SHADOW
-            // lock during a live run was the source of phantom-position
-            // contamination (the operator's `UNKNOWN_QUALITY_MARS` SHADOW_ONLY
-            // log line wrote a tokenLock that polluted ALREADY_OPEN /
-            // CONCURRENT_CAP forever). In live mode, a failed promotion gate
-            // is a clean REJECT — no position record, no lock, no shadow.
-            if (isPaperMode) {
-                ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotion.reason}")
-                releasePrimaryAfterAuthFailure("SHADOW_ONLY")
-                tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
-                    mint = mint,
-                    state = TokenState.SHADOW_TRACKING,
-                    book = ExecutionBook.SHADOW,
-                    lockedAt = now,
-                    lastDecisionEpoch = currentEpoch,
+            try {
+                PipelineHealthCollector.labelInc("TRADE_AUTH_PROMOTION_POST_SEAL_ADVISORY_7851")
+                ForensicLogger.lifecycle(
+                    "TRADE_AUTH_PROMOTION_POST_SEAL_ADVISORY_7851",
+                    "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${promotion.reason} action=sealed_buy_preserved",
                 )
-                return AuthorizationResult(
-                    verdict = ExecutionVerdict.SHADOW_ONLY,
-                    reason = promotion.reason,
-                    blockLevel = BlockLevel.SOFT,
-                    canRetry = true,
-                )
-            }
-            // Live: clean reject, no lock written.
-            ErrorLogger.info(TAG, "❌ REJECT $symbol: ${promotion.reason} (live, no shadow track)")
-            releasePrimaryAfterAuthFailure("PROMOTION_REJECT")
-            return AuthorizationResult(
-                verdict = ExecutionVerdict.REJECT,
-                reason = promotion.reason,
-                blockLevel = BlockLevel.SOFT,
-                canRetry = true,
-            )
+            } catch (_: Throwable) {}
         }
 
         // PASS: authorize execution
