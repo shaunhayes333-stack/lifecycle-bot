@@ -11,8 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Aate7877LiveEdgeAndExitRegretTest {
-    private fun cell(n: Int, mean: Double, se: Double, n240: Int = 0, mean240: Double = 0.0) =
-        CellStat(key = "K", n60 = n, meanNet60Pct = mean, winRate60 = 0.2, runnerRate60 = 0.05,
+    private fun cell(n: Int, mean: Double, se: Double, n240: Int = 0, mean240: Double = 0.0, run: Double = 0.05) =
+        CellStat(key = "K", n60 = n, meanNet60Pct = mean, winRate60 = 0.2, runnerRate60 = run,
             stderr60Pct = se, lost = 0, n240 = n240, meanNet240Pct = mean240)
 
     @Test fun liveTradesOnlyWherePredictedEdgeClearsTheMargin() {
@@ -66,5 +66,20 @@ class Aate7877LiveEdgeAndExitRegretTest {
         assertFalse(LiveEdgeGate7877.judge(launchRefused, laneProven = false).allow)
         assertTrue(LiveEdgeGate7877.runnerCohortAllows(launchRefused))
         assertFalse(LiveEdgeGate7877.runnerCohortAllows(sellDominant))
+    }
+
+    @Test fun fatTailCohortTradesOnItsMeanWhenTheRunnersAreMeasured() {
+        // 5.0.7878 on device: LAUNCH_REFUSED n=1043 mean +3.1% runner-rate 15% was overruled 0 times —
+        // the runners that make the mean also make the standard error wider than the mean.
+        val launchRefusedFatTail = cell(1043, 3.1, 4.5, run = 0.15)
+        assertTrue(LiveEdgeGate7877.runnerCohortAllows(launchRefusedFatTail))
+        assertTrue(LiveEdgeGate7877.judgeRunner(null, listOf(launchRefusedFatTail), laneProven = false).allow)
+        // Positive mean without a measured tail, or too few labels: not enough.
+        assertFalse(LiveEdgeGate7877.runnerCohortAllows(cell(1043, 3.1, 4.5, run = 0.04)))
+        assertFalse(LiveEdgeGate7877.runnerCohortAllows(cell(60, 3.1, 4.5, run = 0.20)))
+        // A tail never rescues a negative mean (SELL_DOMINANT_TAPE: run 9%, net -24.3%).
+        assertFalse(LiveEdgeGate7877.runnerCohortAllows(cell(222, -24.3, 4.0, run = 0.09)))
+        // Non-runner lanes are unaffected.
+        assertFalse(LiveEdgeGate7877.judge(launchRefusedFatTail, laneProven = false).allow)
     }
 }

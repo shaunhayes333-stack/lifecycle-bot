@@ -45,6 +45,18 @@ object LiveEdgeGate7877 {
      */
     private const val RUNNER_MARGIN_PCT = 0.0
     private const val PROVEN_NEGATIVE_PCT = -2.0
+    /**
+     * V5.0.7879 — the tail test. 5.0.7878 on device: PLANWAIT_LAUNCH_REFUSED
+     * (n=1043, mean +3.1% net, runner-rate 15%) was overruled 0 times, and
+     * MOONSHOT was refused 1,233 times, because mean minus one standard error
+     * could not clear zero: the +500% runners that make the mean also blow up
+     * the standard error. For a low-win-rate, big-tail lane that is the profile,
+     * not noise. A cohort with [TAIL_MIN_N]+ labels, a positive net mean and at
+     * least [TAIL_MIN_RUNNER_RATE] of its tokens reaching +50% inside the hour
+     * is tradeable on its point estimate.
+     */
+    private const val TAIL_MIN_N = 100
+    private const val TAIL_MIN_RUNNER_RATE = 0.10
 
     enum class Source { CELL, LANE, NONE }
 
@@ -94,13 +106,25 @@ object LiveEdgeGate7877 {
         }
         val measured = (listOf(cell) + cohorts).filterNotNull().filter { it.n60 >= CELL_MIN_N }
         if (measured.isEmpty()) return judge(null, laneProven, RUNNER_MARGIN_PCT)
-        val best = measured.map { judge(it, false, RUNNER_MARGIN_PCT) }.maxByOrNull { it.edgePct }!!
+        val verdicts = measured.map { runnerVerdict(it) }
+        val best = verdicts.firstOrNull { it.allow } ?: verdicts.maxByOrNull { it.edgePct }!!
         return best.copy(why = "RUNNER_" + best.why)
+    }
+
+    /** Pure: one measured cohort under the runner bar — mean-se, or the tail test. */
+    private fun runnerVerdict(stat: ForwardReturnLabeler7731.CellStat): Verdict {
+        val v = judge(stat, false, RUNNER_MARGIN_PCT)
+        if (v.allow) return v
+        if (stat.n60 >= TAIL_MIN_N && stat.meanNet60Pct > RUNNER_MARGIN_PCT && stat.runnerRate60 >= TAIL_MIN_RUNNER_RATE) {
+            return Verdict(true, Source.CELL, stat.meanNet60Pct,
+                "TAIL_EV_${"%.1f".format(stat.meanNet60Pct)}PCT_RUN${(stat.runnerRate60 * 100).toInt()}")
+        }
+        return v
     }
 
     /** Pure: a runner lane's plan-wait cohort is evidence enough to overrule that wait. */
     fun runnerCohortAllows(stat: ForwardReturnLabeler7731.CellStat?): Boolean =
-        stat != null && stat.n60 >= CELL_MIN_N && judge(stat, false, RUNNER_MARGIN_PCT).allow
+        stat != null && stat.n60 >= CELL_MIN_N && runnerVerdict(stat).allow
 
     /** Side-effect-free read for sizing and diagnostics. */
     fun verdictFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Verdict {
