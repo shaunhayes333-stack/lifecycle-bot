@@ -23792,6 +23792,9 @@ class Executor(
     } catch (_: Throwable) { false }
 
     private fun freshExitReason7835(ts: TokenState, reason: String): String? {
+        // V5.0.7897 — Cortex v3: an ordinary exit of a winner is held while the exit
+        // cortex's PROVEN read says holding pays (never stops/emergencies/operator).
+        if (com.lifecyclebot.engine.cortex.CortexExit7897.holdVeto(ts, reason)) return null
         val verdict = com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.evaluate(
             ts.mint, ts.lastPrice, ts.lastPriceUpdate, reason)
         if (!verdict.allow) return null

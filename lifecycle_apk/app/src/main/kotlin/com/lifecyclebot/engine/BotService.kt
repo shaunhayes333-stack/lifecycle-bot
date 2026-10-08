@@ -993,6 +993,8 @@ class BotService : Service() {
             val pos = ts.position
             val now = System.currentTimeMillis()
             val plan = com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime)
+            // V5.0.7897 — Cortex v3 samples the position (every 3 min) for the exit cortex.
+            try { com.lifecyclebot.engine.cortex.CortexExit7897.observe(ts, pnlPctNow, peakPct, now) } catch (_: Throwable) {}
             com.lifecyclebot.engine.truth.TradePlan7739.exitFor(
                 plan, pnlPctNow, peakPct, now - pos.entryTime,
                 plan != null && com.lifecyclebot.engine.truth.TradePlan7739.trailBroken(ts, now),
@@ -1000,7 +1002,10 @@ class BotService : Service() {
                 RunnerExitProfile7277.isRunnerLane(pos.tradingMode),
                 com.lifecyclebot.engine.truth.TradePlan7739.underwaterMsFor7877(pos.tradingMode),
                 if (pos.isPaperPosition) 1.0 else com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(),
-            )
+            ) ?: com.lifecyclebot.engine.cortex.CortexExit7897.sellReason(ts, now)?.let {
+                // V5.0.7897 — the exit cortex's own proven SELL read, through the plan-exit path.
+                com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
+            }
         } catch (_: Throwable) { null }
     }
 
