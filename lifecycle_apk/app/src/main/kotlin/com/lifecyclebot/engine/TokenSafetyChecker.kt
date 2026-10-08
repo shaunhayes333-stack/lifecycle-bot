@@ -968,7 +968,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // V5.0.7881 — the analysis reads the token's latest 80 transactions, which
         // contain its launch block only while it is young; past ~30 minutes every
         // 100-credit call returned a first block that was not the first block.
-        if (bundle7763 == null && ageMinutes <= BundleDetector.LAUNCH_VISIBLE_MINUTES_7881) {
+        // V5.0.7885 — and only while the Cortex measures first-block evidence as paying.
+        if (bundle7763 == null && ageMinutes <= BundleDetector.LAUNCH_VISIBLE_MINUTES_7881 &&
+            com.lifecyclebot.engine.cortex.Cortex7885.enrichmentWorth(com.lifecyclebot.engine.cortex.CortexVoters7885.FIRST_BLOCK_SUPPLY)) {
             try { BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey) } catch (_: Throwable) {}
         }
         val bundleRisk = bundle7763?.bundleRisk?.name ?: "UNKNOWN"

@@ -143,6 +143,7 @@ object Cortex7885 {
             val rule = constitutionRefusal(a, ts, paper, proven)
             if (rule == null) {
                 if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) inc(if (paper) "SHADOW_REFUSE_PAPER" else "SHADOW_REFUSE_LIVE")
+                noteEntryRead(ts.mint, paper, a)
                 return null
             }
             val mode = if (paper) "PAPER" else "LIVE"
@@ -182,6 +183,54 @@ object Cortex7885 {
             } catch (_: Throwable) {}
             true
         } catch (_: Throwable) { false }
+    }
+
+    // ── progressive enrichment (plan v2 §B): buy a paid feature only while it pays ──
+
+    private const val ENRICH_LEARNING_SCORES = 300
+    private const val ENRICH_EXPLORE_RATE = 0.10
+
+    /**
+     * Should a paid feature backing [voterId] still be fetched? Yes while it is
+     * being learned (< 300 graded scores across lanes) or while any lane seats
+     * it. Once it has been measured and seats nowhere, only a 10% exploration
+     * slice is bought, so it can earn its way back. Fails open.
+     */
+    fun enrichmentWorth(voterId: String): Boolean {
+        return try {
+            ensureLoaded()
+            val worth = synchronized(this) {
+                val mine = ledger.seats.entries.filter { it.key.startsWith("$voterId|") }
+                val scored = mine.sumOf { it.value.scored }
+                scored < ENRICH_LEARNING_SCORES || mine.any { it.value.authority() > 0.0 }
+            }
+            if (worth) true else {
+                val explore = kotlin.random.Random.nextDouble() < ENRICH_EXPLORE_RATE
+                inc(if (explore) "ENRICH_EXPLORE_$voterId" else "ENRICH_SKIPPED_$voterId")
+                explore
+            }
+        } catch (_: Throwable) { true }
+    }
+
+    // ── OutcomeTruth cross-check: entry verdict -> whole-position close ──
+
+    private val entryReads = ConcurrentHashMap<String, Assessment>()   // mint|MODE
+    private const val ENTRY_READ_MATCH_MS = 15L * 60_000L
+
+    private fun noteEntryRead(mint: String, paper: Boolean, a: Assessment) {
+        if (entryReads.size > 4_000) entryReads.entries.removeIf { System.currentTimeMillis() - it.value.atMs > PENDING_TTL_MS * 4 }
+        entryReads["$mint|${if (paper) "PAPER" else "LIVE"}"] = a
+    }
+
+    /** CanonicalFinalizedTradeBus6464 publish: one whole-position outcome (all legs, fees once). */
+    fun onCanonicalClose(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
+        if (!env.terminal || !env.realizedReturnPct.isFinite()) return
+        val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return
+        val a = entryReads.remove("${env.mint}|$mode") ?: return
+        val entryAt = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
+        if (kotlin.math.abs(entryAt - a.atMs) > ENTRY_READ_MATCH_MS) { inc("REALIZED_UNMATCHED"); return }
+        synchronized(this) { board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct) }
+        inc("REALIZED_${mode}")
     }
 
     // ── persistence ──
@@ -233,7 +282,11 @@ object Cortex7885 {
                 "      seated (authority): ${seated.take(12).joinToString(" · ") { (k, s, a) -> "$k a=${"%.2f".format(a)} skill=${"%.1f".format(s.skill() * 100)}% n=${s.scored}" }.ifBlank { "none yet — a seat needs ${CortexLedger7885.MIN_SCORED} graded predictions beating the lane mean out-of-sample" }}\n" +
                 "      best skill per voter: ${bestByVoter.take(10).joinToString(" · ") { (k, s, _) -> "$k ${"%+.1f".format(s.skill() * 100)}%/n${s.scored}" }.ifBlank { "-" }}\n" +
                 "      voter failures: ${voterFailures.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "0" }}\n" +
-                laneLines.ifBlank { "      lanes: no graded decisions yet" }
+                laneLines.ifBlank { "      lanes: no graded decisions yet" } + "\n" +
+                "      realised whole-position outcome by entry verdict: " +
+                board.realized.entries.sortedBy { it.key }.joinToString(" · ") { (k, arr) ->
+                    "$k refuse=${fmtStat(arr[0])} neutral=${fmtStat(arr[1])} strong=${fmtStat(arr[2])}"
+                }.ifBlank { "none yet" }
         }
     }
 }

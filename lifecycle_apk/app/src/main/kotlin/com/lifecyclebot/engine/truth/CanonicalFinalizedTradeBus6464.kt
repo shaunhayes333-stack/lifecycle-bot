@@ -185,6 +185,8 @@ object CanonicalFinalizedTradeBus6464 {
         try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_6464") } catch (_: Throwable) {}
         // V5.0.7752 — the token's price after a live close (did the exit keep the edge).
         try { ExitRegret7752.onClose(env) } catch (_: Throwable) {}
+        // V5.0.7885 — Cortex OutcomeTruth cross-check: realised outcome by entry verdict.
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) } catch (_: Throwable) {}
         // V5.0.7232 §SELL_OK_TRUTH — record the unique finality at the
         //   canonical publish point. Redispatch handled in the prev != null
         //   branch above.

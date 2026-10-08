@@ -85,6 +85,19 @@ class Aate7885CortexTest {
         assertEquals(led.lanes["SHITCOIN"]!!.mean(), back.lanes["SHITCOIN"]!!.mean(), 1e-9)
     }
 
+    @Test fun aPaidFeatureIsBoughtWhileItIsBeingLearned() {
+        assertTrue(com.lifecyclebot.engine.cortex.Cortex7885.enrichmentWorth("VOTER_NEVER_GRADED_7885"))
+    }
+
+    @Test fun theSymbolicMoodLayerIsObservationOnly() {
+        SymbolicContext.emotionalState = "PANIC"
+        assertEquals(1.0, SymbolicContext.getSizeAdjustment(), 1e-12)
+        assertEquals(1.0, SymbolicContext.getEntryAdjustment(), 1e-12)
+        assertEquals(1.0, SymbolicContext.getHoldPatience(), 1e-12)
+        assertEquals(0.5, SymbolicContext.getEntryGreenLight(), 1e-12)
+        SymbolicContext.emotionalState = "NEUTRAL"
+    }
+
     @Test fun everyVoterHasAUniqueIdAndAscendingEdges() {
         assertEquals(CortexVoters7885.IDS.size, CortexVoters7885.IDS.toSet().size)
         for (v in CortexVoters7885.ALL) for (i in 1 until v.edges.size) assertTrue(v.id, v.edges[i] > v.edges[i - 1])

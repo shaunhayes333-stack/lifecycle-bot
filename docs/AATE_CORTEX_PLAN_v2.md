@@ -118,9 +118,9 @@ ShapeBook changes are binding for the lane that owns them. Generic layers may re
 | 2 (5.0.7883) | Trade-shape learner (§C) + lane-hint fix + double-count removal | pushed |
 | 3 (5.0.7884) | v1 Phase 0 data-truth items, verified against current code (marks, exit priority, accounting) — see §G | pushed |
 | 4 (5.0.7885) | v1 Phase 1: snapshot, opinions, voter registry (36 voters), scoreboard | pushed |
-| 5 | Progressive enrichment (§B next) on the snapshot | |
+| 5 (5.0.7886) | Progressive enrichment: paid bundle fetch bought only while its Cortex seat is learning or earning (10% exploration otherwise); realised whole-position outcome filed by entry verdict | pushed (first feature) |
 | 6 (5.0.7885) | v1 Phase 2: outcome truth (forward labels) + authority ledger (prequential skill, evidence and error-correlation discount) | pushed |
-| 7 (5.0.7885) | v1 Phase 3: Constitution (refuse-only, named rules C1–C3) | pushed; migrating scattered vetoes still open |
+| 7 (5.0.7885–7886) | v1 Phase 3: Constitution (refuse-only, named rules C1–C3); SymbolicContext mood layer made observation-only (7886) | pushed; migrating scattered vetoes still open |
 | 8, 10 (5.0.7885) | Fusion decides paper refusals and live refusals/overrules on bar V1 evidence | pushed |
 | 9 | Single sizing/exit authority (Phase 5) | open |
 | 11 | v1 Phase 7: clean-up | |

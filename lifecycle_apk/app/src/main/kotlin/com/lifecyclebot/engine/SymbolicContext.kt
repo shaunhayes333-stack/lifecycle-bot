@@ -49,7 +49,13 @@ object SymbolicContext {
 
     // V5.9.14: A/B toggle — when true, refresh() freezes to neutral state
     // and persistence is skipped. Used by BacktestActivity.
-    @Volatile var bypassMode: Boolean = false
+    // V5.0.7885 — Cortex Phase 3: neutral (observation-only) BY DEFAULT. The layer
+    // was a global mood multiplier on entry score, size, thresholds and hold time,
+    // and refresh(symbol, mint) wrote one token's channels into the global state
+    // every other token then read for two seconds. Its replacement is the Cortex
+    // Constitution (named, refuse-only rules) and earned-authority fusion. Only
+    // the backtest A/B arm turns it on, and it restores the prior value after.
+    @Volatile var bypassMode: Boolean = true
 
     // V5.9.14: Lazy application context for save/load
     @Volatile private var appContext: Context? = null
@@ -65,6 +71,7 @@ object SymbolicContext {
 
     /** Load last persisted symbolic state (called from init). */
     fun load(context: Context) {
+        if (bypassMode) return
         try {
             val p = prefs(context) ?: return
             overallRisk       = p.getFloat(K_RISK,      0.3f).toDouble()
@@ -254,6 +261,7 @@ object SymbolicContext {
      * <1.0 = lower entry bar (be more aggressive)
      */
     fun getEntryAdjustment(): Double {
+        if (bypassMode) return 1.0
         val base = when {
             emotionalState == "PANIC"       -> 1.6   // Almost nothing passes
             emotionalState == "FEARFUL"     -> 1.35
@@ -280,6 +288,7 @@ object SymbolicContext {
      * <1.0 = reduce size, >1.0 = increase size, 1.0 = neutral
      */
     fun getSizeAdjustment(): Double {
+        if (bypassMode) return 1.0
         val base = when {
             emotionalState == "PANIC"      -> 0.25
             emotionalState == "FEARFUL"    -> 0.55
@@ -307,6 +316,7 @@ object SymbolicContext {
      * >1.0 = more patient (let winners run), <1.0 = cut faster
      */
     fun getHoldPatience(): Double {
+        if (bypassMode) return 1.0
         val base = when {
             emotionalState == "PANIC"      -> 0.4
             isHighRisk()                   -> 0.6
@@ -358,6 +368,7 @@ object SymbolicContext {
      * Returns 0.0-1.0. Higher = more universe agreement that conditions are right.
      */
     fun getEntryGreenLight(): Double {
+        if (bypassMode) return 0.5
         val circuitScore = getSignal("DrawdownCircuitAgg", 1.0).coerceIn(0.0, 1.0)
         val collectScore = getSignal("CollectiveConsensus", 0.5).coerceIn(0.0, 1.0)
         val execScore    = getSignal("ExecConfidence", 0.5).coerceIn(0.0, 1.0)

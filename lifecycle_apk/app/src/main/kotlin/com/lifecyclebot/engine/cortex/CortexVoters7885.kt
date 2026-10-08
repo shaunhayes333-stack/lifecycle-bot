@@ -28,6 +28,8 @@ object CortexVoters7885 {
         val read: (TokenState, String, Long) -> Double?,
     )
 
+    const val FIRST_BLOCK_SUPPLY = "FIRST_BLOCK_SUPPLY"
+
     private fun e(vararg v: Double) = v
     private val SCORE = e(30.0, 45.0, 60.0, 75.0)
     private val CONF = e(30.0, 50.0, 70.0, 85.0)
@@ -125,6 +127,11 @@ object CortexVoters7885 {
         },
         Voter("TOP_HOLDER_PCT", "SAFETY", e(10.0, 20.0, 30.0, 50.0), setOf("holders")) { ts, _, _ ->
             ts.safety.topHolderPct.takeIf { it >= 0.0 && it.isFinite() }
+        },
+        // V5.0.7885 — a paid feature (BundleDetector, 100 Helius credits): its seat
+        // decides whether the fetch keeps being bought (Cortex7885.enrichmentWorth).
+        Voter(FIRST_BLOCK_SUPPLY, "SAFETY", e(5.0, 15.0, 30.0, 50.0), setOf("bundle")) { ts, _, _ ->
+            ts.safety.firstBlockSupplyPct.takeIf { it >= 0.0 && it.isFinite() }
         },
         Voter("SAFETY_PENALTY", "SAFETY", e(1.0, 10.0, 25.0), setOf("safety")) { ts, _, _ ->
             ts.safety.entryScorePenalty.toDouble()

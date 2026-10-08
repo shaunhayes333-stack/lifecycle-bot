@@ -104,6 +104,36 @@ class CortexScoreboard7885 {
         return overruleProven(b.byBucket[Bucket.STRONG.ordinal])
     }
 
-    fun encode(): org.json.JSONObject = org.json.JSONObject().also { o -> books.forEach { (k, v) -> o.put(k, v.encode()) } }
-    fun decode(o: org.json.JSONObject) { for (k in o.keys()) books[k] = Book().also { it.decode(o.optString(k)) } }
+    /**
+     * OutcomeTruth cross-check (v1 §2.7): the whole-position realised return of
+     * every canonical close, filed by the Cortex verdict at its entry, per mode.
+     * Forward labels grade selection; this shows whether that selection survives
+     * real fills and real exits.
+     */
+    val realized = HashMap<String, Array<CortexLedger7885.Stat>>()   // MODE|lane
+
+    fun recordRealized(mode: String, lane: String, bucket: Bucket, returnPct: Double) {
+        if (!returnPct.isFinite()) return
+        val a = realized.getOrPut("${mode.uppercase()}|$lane") { Array(Bucket.values().size) { CortexLedger7885.Stat() } }
+        a[bucket.ordinal].add(returnPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), returnPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+    }
+
+    fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->
+        books.forEach { (k, v) -> o.put(k, v.encode()) }
+        o.put("_realized", org.json.JSONObject().also { j -> realized.forEach { (k, v) -> j.put(k, v.joinToString("|") { it.encode() }) } })
+    }
+
+    fun decode(o: org.json.JSONObject) {
+        for (k in o.keys()) {
+            if (k == "_realized") continue
+            books[k] = Book().also { it.decode(o.optString(k)) }
+        }
+        o.optJSONObject("_realized")?.let { j ->
+            for (k in j.keys()) {
+                val f = j.optString(k).split('|')
+                if (f.size != Bucket.values().size) continue
+                realized[k] = Array(f.size) { i -> CortexLedger7885.Stat().also { it.decode(f[i]) } }
+            }
+        }
+    }
 }
