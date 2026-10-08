@@ -10909,8 +10909,7 @@ class BotService : Service() {
         try {
             if (cfg.heliusApiKey.isNotBlank()) {
                 val whaleAddrs = try {
-                    (com.lifecyclebot.perps.InsiderWalletTracker.getTrackedWallets()
-                        .map { it.address } +
+                    (com.lifecyclebot.perps.InsiderWalletTracker.streamPriorityAddresses7881() +
                         // V5.0.7277 — the copy list rides the same subscription.
                         try { copyTradeEngine.getWallets().filter { it.isActive && !it.isPaused }.map { it.address } } catch (_: Throwable) { emptyList() })
                         .filter { it.isNotBlank() }
@@ -10971,7 +10970,7 @@ class BotService : Service() {
                         copyEngine = { try { copyTradeEngine } catch (_: Throwable) { null } },
                         onWatchlistChanged = { copyWallets7277 ->
                             val insider7277 = try {
-                                com.lifecyclebot.perps.InsiderWalletTracker.getTrackedWallets().map { it.address }
+                                com.lifecyclebot.perps.InsiderWalletTracker.streamPriorityAddresses7881()
                             } catch (_: Throwable) { emptyList() }
                             com.lifecyclebot.network.HeliusEnhancedWS.updateWatchlist((insider7277 + copyWallets7277).filter { it.isNotBlank() }.distinct())
                         },

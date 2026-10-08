@@ -1,0 +1,138 @@
+# AATE Cortex — plan v2
+
+v2 keeps v1 (snapshot → voters → fusion → constitution → action authority → outcome truth →
+calibration) and adds the three things v1 was missing:
+
+1. A data economy, so intelligence is bought where it pays.
+2. Trade-shape learning, so the bot changes *how* it trades rather than *how much*.
+3. Respect for the route minimum, which v1's sizing ignored.
+
+Evidence comes from the 5.0.7876–7880 snapshots and the tuning-stack audit of 08 Oct 2026.
+
+---
+
+## A. What the audit changed
+
+| Finding | Consequence for the design |
+|---|---|
+| About 20 outcome-driven size multipliers chain on every live entry. With a 0.0435 SOL route minimum on a 0.16–0.20 SOL wallet, each one either gets promoted back to the minimum (no effect) or refuses (a hidden veto). | Size is **not** a learning lever until equity is ≥ 3× the route minimum per open slot. Below that, learning acts through admission and trade shape only. |
+| No learner changes entry timing. TradePlan setups are fixed rules. TacticSwitcher nudges the score ±6–8 on SHITCOIN only. | Timing becomes a learned per-lane shape parameter (§C). |
+| Tokenomics knowledge (ExpertTraderKnowledge7813 feature stats, e.g. `SHITCOIN HOLDER_QUALITY POS -18.6%`) is computed, but only ranking reads it. | Feature stats become shape-rule updates with authority (§C). |
+| No loss is attributed to a cause. | Cause attribution is the core of §C. |
+| Generic layers overwrite lane logic: TradePlan's stop/target, one Field Manual mandate for all runner lanes, the streak floor, the 7807 ×0.6 Moonshot cut. | Lane logic owns its trade. Generic layers become Constitution rules (refuse/constrain) or voters, never silent overrides. |
+| Sample mismatch: TacticSwitcher reacts at 2–8 closes; oracle and policy heads need 30–100 live closes. | Every learner uses hierarchical shrinkage toward the cheat-sheet base, weighted by n/(n+k). Forward labels count as evidence, so learning starts from trade one. |
+| Loss evidence is double-counted (ColdStreak ×2, drawdown ×2). | One outcome truth (v1 §2.7); each piece of evidence is counted once (v1 §2.4). |
+
+---
+
+## B. Data economy (Build 1 = 5.0.7881, live)
+
+**Shipped.**
+
+- **Meter.** Every Helius call is priced by method from Helius's published table. Websocket bytes are metered too.
+- **Tiers.** EXECUTION and DECISION are never refused. ENRICHMENT runs on a paced daily budget, with each consumer's share scaled by the measured value of its signal. Proven signals can borrow; measured losers keep only a trickle.
+- **Snapshot section.** "Helius credit economy".
+
+**Next: progressive enrichment (value of information).** This is the "smarter, not limited" step.
+
+1. Every snapshot feature declares its **cost** (credits and latency) and its **state** (`OBSERVED | UNKNOWN | STALE`). This extends v1 §2.1.
+2. Voters run in tiers:
+   - **Free tier first:** scanner payload, PumpPortal stream, cached marks, cached safety.
+   - **Cheap tier next:** RPC reads at 1 credit.
+   - **Expensive tier last:** Enhanced or DAS calls at 10–100 credits, and LLM calls.
+3. After each tier, the Cortex computes the fused edge and its uncertainty. An expensive feature is fetched only when:
+   - the candidate's fused edge is within the feature's historical swing of the admission threshold, i.e. **the answer could flip the decision**; and
+   - the feature's measured predictive power (AuthorityLedger, per lane) justifies its price.
+   - Otherwise the decision is made without it, and the skipped fetch is logged as a saving.
+4. **Immutable data is bought once.** Launch block, creator history and confirmed transactions are cached by content: launch-block analysis for 6h, creator for 7 days, transactions for good.
+5. **Streams are sized by value.** The smart-money stream already is (7881). Mint log subscriptions should cover held and decision-stage mints, not the whole watchlist.
+6. **Accounting.** Credits per decision, credits per trade, and credits per unit of decision value appear on the scoreboard. A feed whose credits per decision value doesn't fall over a week is demoted to a smaller share automatically.
+
+---
+
+## C. Trade-shape learning (Build 2)
+
+**Goal.** A loss changes the *rule that made the trade*, in the lane that made it, within bounds around the lane's educated base.
+
+### C.1 ShapeBook per lane
+
+Each lane exposes its own trade shape as named, bounded parameters with a cheat-sheet base value:
+
+- **Entry gates:** minimum liquidity, market-cap band, maximum top-holder %, minimum buy pressure, maximum run-up from create, maximum token age, minimum volume.
+- **Timing:** `ENTER_ON_SIGNAL | WAIT_PULLBACK | WAIT_BREAKOUT | WAIT_RECLAIM`, plus a pullback-depth band.
+- **Exit:** stop distance, first-target %, partial %, trail distance, trail-arm %, maximum hold.
+
+The lane's TraderAI reads these values instead of constants. Base values are today's constants, so day one behaves exactly as today.
+
+### C.2 Trade record
+
+For every live close **and** every forward label (refused candidates included, so learning starts at trade one), store:
+
+- the entry feature vector the lane's own logic used;
+- the path: MAE, MFE, time to MFE, time to MAE;
+- the exit that fired;
+- what the price did afterwards (ExitRegret7752).
+
+### C.3 Attribution
+
+Per lane, compare winners and losers on each shape parameter's feature:
+
+- **Entry features.** If losers concentrate where `topHolder > 25%` (lift with confidence interval), the lane's `maxTopHolder` moves toward 25%. ExpertTraderKnowledge7813 already computes the per-feature stats; this gives them authority.
+- **Timing.** Compare forward labels of "entered at signal" with "would-have-entered at first pullback of X%". If the pullback entry dominates net of missed trades, the lane switches to `WAIT_PULLBACK`. This needs a counterfactual pullback label, which is a small extension of ForwardReturnLabeler7731.
+- **Stop.** Set the stop just beyond the 80th percentile of winners' MAE, never inside normal noise. ExitRegret7752 already proves the current stops cut runners: realised -5.2%, price +24.9% after the exit.
+- **Targets and trail.** Set them from the winners' MFE distribution and time to MFE.
+
+### C.4 Bounds and learning rate
+
+- Each parameter moves at most one step per K closes, within `[base × 0.5, base × 2]`, shrunk toward the base by n/(n + k).
+- Every change is logged with its evidence.
+- Every change is reversible by the same evidence.
+
+### C.5 Authority
+
+ShapeBook changes are binding for the lane that owns them. Generic layers may refuse a trade (Constitution) but may not rewrite a lane's shape.
+
+### C.6 Fixes included in this build
+
+- **Lane hint.** `AgenticStyleRouter.decide` at `BotService.kt:26378` passes no lane hint, so every lane reads the SHITCOIN tactic. It will pass the lane.
+- **Double counting.** ColdStreakDamper and drawdown count once.
+- **Size below the route minimum.** Size multipliers stop acting below 3× the route minimum. The pressure they carried moves into admission (LiveEdgeGate7877) and shape.
+
+---
+
+## D. Sizing (replaces v1 §2.6 sizing)
+
+`size = clamp(riskBudget(wallet, lane) × f(fusedEdge, uncertainty) ÷ (stop + cost), routeMin, laneCap)`
+
+- **Below the route minimum,** the choice is binary: trade at the minimum, or don't trade. That choice belongs to admission.
+- **Kelly fraction** is capped at 0.25 once edge is proven. Before that, the route minimum applies.
+- **Floors only refuse.** No shrink-then-floor reversal.
+
+---
+
+## E. Phase order (v2)
+
+| Build | Content | Status |
+|---|---|---|
+| 1 (5.0.7881) | Data economy: meter, tiered value-paced purse, stream sizing, bundle waste removed | pushed |
+| 2 | Trade-shape learner (§C) + lane-hint fix + double-count removal | next |
+| 3 | v1 Phase 0 data-truth items, verified against current code (marks, exit priority, accounting) | |
+| 4 | v1 Phase 1: CandidateSnapshot (with cost/state per feature), Opinion, VoterRegistry, scoreboard — shadow | |
+| 5 | Progressive enrichment (§B next) on the snapshot | |
+| 6 | v1 Phase 2: OutcomeTruth + AuthorityLedger (calibration, correlation discount) | |
+| 7 | v1 Phase 3: Constitution | |
+| 8–10 | v1 Phases 4–6: fusion decides in paper → single sizing/exit authority → live on evidence | |
+| 11 | v1 Phase 7: clean-up | |
+
+Each build is one green CI run on main, followed by a snapshot review.
+
+## F. Decisions taken (operator: "fix it all")
+
+- **Phase order:** as table E. The data economy goes first because it was burning money.
+- **Promotion bar:**
+  - The v1 default stands for voters to gain live authority.
+  - Forward labels count at shrinkage weight for shape learning only, never for voter authority.
+- **Sizing:** §D (fractional Kelly ≤ 0.25 once proven; route minimum before).
+- **Paper:** the shadow book stays the paper surface while live; Cortex decides in paper in Build 8.
+- **Retiring voters:** zero-authority voters stay in shadow at the free tier only. They lose any paid data budget (§B.6).
+- **Collective (Turso):** a voter on other instances' LIVE rows only, deduplicated. Zero authority until calibrated.

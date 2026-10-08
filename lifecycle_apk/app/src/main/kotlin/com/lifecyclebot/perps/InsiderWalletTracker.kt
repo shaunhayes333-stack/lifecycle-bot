@@ -264,10 +264,32 @@ object InsiderWalletTracker {
             ),
         )
 
+        // V5.0.7881 — these seeds are programs (Jupiter v6, Raydium authority),
+        // exchanges, market makers, token mints and treasuries: every swap through
+        // them streamed as a "smart money buy". Kept for the UI, inactive; the
+        // operator's trader watchlist is what is watched.
         defaults.forEach { wallet ->
-            insiderWallets.putIfAbsent(wallet.address, wallet)
+            insiderWallets.putIfAbsent(wallet.address, wallet.copy(isActive = false))
+        }
+        com.lifecyclebot.engine.truth.OperatorWatchlist7881.TRADERS.forEachIndexed { i, a ->
+            insiderWallets[a] = InsiderWallet(
+                address = a,
+                label = "Operator trader #${i + 1}",
+                category = InsiderCategory.SMART_MONEY,
+                description = "Operator watchlist (V5.0.7881)",
+            )
         }
     }
+
+    /**
+     * V5.0.7881 — what the smart-money stream subscribes to, in priority order:
+     * the operator's traders first, then other ACTIVE wallets. Inactive seeds
+     * (programs, exchanges, mints) are never streamed.
+     */
+    fun streamPriorityAddresses7881(): List<String> =
+        com.lifecyclebot.engine.truth.OperatorWatchlist7881.prioritise(
+            insiderWallets.values.filter { it.isActive }.map { it.address }
+        )
 
     private fun loadCustomWallets() {
         prefs?.let { sp ->

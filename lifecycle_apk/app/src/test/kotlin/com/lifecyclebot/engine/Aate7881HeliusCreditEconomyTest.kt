@@ -53,4 +53,13 @@ class Aate7881HeliusCreditEconomyTest {
         // By the end of the day the full allowance is open.
         assertTrue(HeliusCreditEconomy7881.admits(b, 0.99, 1.0, 0.10, 149_000.0, 149_000.0, 900_000.0, 100.0))
     }
+
+    @Test fun operatorTradersAreStreamedFirstAndInfrastructureNever() {
+        val jupiterProgram = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+        val p = com.lifecyclebot.engine.truth.OperatorWatchlist7881.prioritise(listOf("someOtherActive", jupiterProgram))
+        assertEquals(com.lifecyclebot.engine.truth.OperatorWatchlist7881.TRADERS, p.take(25))
+        assertEquals(25, com.lifecyclebot.engine.truth.OperatorWatchlist7881.TRADERS.distinct().size)
+        assertTrue(p.indexOf("someOtherActive") > 24)
+        assertFalse(jupiterProgram in p)
+    }
 }

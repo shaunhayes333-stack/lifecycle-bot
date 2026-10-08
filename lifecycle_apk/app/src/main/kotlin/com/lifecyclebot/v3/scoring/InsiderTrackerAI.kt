@@ -440,7 +440,22 @@ object InsiderTrackerAI {
     // WALLET MANAGEMENT
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getAllWallets(): List<TrackedWallet> = TRACKED_WALLETS + customWallets.values
+    /**
+     * V5.0.7881 — the built-in list is programs, exchanges, market makers, mints
+     * and treasuries (each scan 100 credits, each a non-trader). They stay listed
+     * but inactive; the operator's traders are scanned, ALPHA first.
+     */
+    private val OPERATOR_WALLETS_7881: List<TrackedWallet> =
+        com.lifecyclebot.engine.truth.OperatorWatchlist7881.TRADERS.mapIndexed { i, a ->
+            TrackedWallet(address = a, label = "Operator trader #${i + 1}", category = WalletCategory.WHALE,
+                riskLevel = RiskLevel.ALPHA, notes = "Operator watchlist (V5.0.7881)")
+        }
+
+    fun getAllWallets(): List<TrackedWallet> =
+        OPERATOR_WALLETS_7881 +
+            TRACKED_WALLETS.filter { !com.lifecyclebot.engine.truth.OperatorWatchlist7881.isOperatorTrader(it.address) }
+                .map { it.copy(isActive = false) } +
+            customWallets.values
     
     fun getWalletsByCategory(category: WalletCategory): List<TrackedWallet> =
         getAllWallets().filter { it.category == category }
