@@ -114,6 +114,19 @@ class Aate7868RuntimeRepairTest {
         assertFalse(block.contains("ChokeReliefBus.launch"))
     }
 
+    @Test fun forensicSellParityRequiresSameMintParent() {
+        val forensic = src("engine/ForensicReconciler6377.kt")
+        assertTrue(forensic.contains("val journalBoughtMints = buys.mapTo(HashSet()) { it.mint }"))
+        assertTrue(forensic.contains("it.mint !in parented7868 && it.mint !in journalBoughtMints"))
+        assertTrue(forensic.contains("val ok = unparentedSells7868 == 0"))
+    }
+
+    @Test fun releaseCannotRemoveNewerSpecialistCandidateVersion() {
+        val coordinator = src("engine/LaneExecutionCoordinator.kt")
+        val release = coordinator.substringAfter("fun releaseIfPrimary(").substringBefore("fun resetForTests()")
+        assertTrue(release.contains("e.key.candidateVersion == candidateVersion"))
+    }
+
     @Test fun ticketRefusedAtExecutorTerminatesByName() {
         assertTrue(src("engine/Executor.kt").contains("ToolkitSignalSheet.recordDeskStage(lane, \"EXEC_REFUSED\", attemptId)"))
     }
