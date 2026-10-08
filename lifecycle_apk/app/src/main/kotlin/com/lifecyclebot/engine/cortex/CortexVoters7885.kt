@@ -354,13 +354,33 @@ object CortexVoters7885 {
 
     private fun regime(): String = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
 
+    // V5.0.7909 — per-voter time budget (v1 §2.9). Each voter's read time is
+    // tracked (EW mean); a voter averaging over SLOW_MS is read on a 10% sample
+    // only, so one slow component cannot hold every assessment hostage.
+    private const val SLOW_MS = 4.0
+    private val readMs = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val slowSkips = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    fun slowLine(): String = readMs.entries.filter { it.value > SLOW_MS }.sortedByDescending { it.value }.take(6)
+        .joinToString(",") { "${it.key}=${"%.1f".format(it.value)}ms/skip${slowSkips[it.key]?.get() ?: 0}" }.ifBlank { "none" }
+
     /** Read every voter for (ts, lane). Index-aligned with [ALL]; NaN = abstained or failed. */
     fun readAll(ts: TokenState, lane: String, nowMs: Long, failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>? = null): DoubleArray =
         DoubleArray(ALL.size) { i ->
             val v = ALL[i]
-            try { v.read(ts, lane, nowMs)?.takeIf { it.isFinite() } ?: Double.NaN } catch (_: Throwable) {
-                failures?.computeIfAbsent(v.id) { java.util.concurrent.atomic.AtomicLong(0) }?.incrementAndGet()
+            val avg = readMs[v.id] ?: 0.0
+            if (avg > SLOW_MS && kotlin.random.Random.nextDouble() > 0.10) {
+                slowSkips.computeIfAbsent(v.id) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
                 Double.NaN
+            } else {
+                val t0 = System.nanoTime()
+                val r = try { v.read(ts, lane, nowMs)?.takeIf { it.isFinite() } ?: Double.NaN } catch (_: Throwable) {
+                    failures?.computeIfAbsent(v.id) { java.util.concurrent.atomic.AtomicLong(0) }?.incrementAndGet()
+                    Double.NaN
+                }
+                val ms = (System.nanoTime() - t0) / 1_000_000.0
+                readMs[v.id] = avg * 0.9 + ms * 0.1
+                r
             }
         }
 }

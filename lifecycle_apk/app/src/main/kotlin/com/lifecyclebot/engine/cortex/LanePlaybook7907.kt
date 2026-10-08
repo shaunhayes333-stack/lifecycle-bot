@@ -194,8 +194,19 @@ object LanePlaybook7907 {
     }
 
     /** The setup this candidate is traded as: the matching setup with the best record, or NO_TRIGGER. */
+    private val classifyCache = ConcurrentHashMap<String, Pair<Long, String?>>()
+
     fun classify(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
         val lane = canon(laneRaw)
+        val ck = "${ts.mint}|$lane"
+        classifyCache[ck]?.let { (at, v) -> if (nowMs - at in 0L..15_000L) return v }
+        val v = classifyNow(ts, lane, nowMs)
+        if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.first > 15_000L }
+        classifyCache[ck] = nowMs to v
+        return v
+    }
+
+    private fun classifyNow(ts: TokenState, lane: String, nowMs: Long): String? {
         val m = matches(lane, features(ts, nowMs)) ?: return null
         if (m.isEmpty()) return NO_TRIGGER
         ensureLoaded()

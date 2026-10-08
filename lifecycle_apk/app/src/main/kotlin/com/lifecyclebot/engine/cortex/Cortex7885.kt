@@ -115,9 +115,44 @@ object Cortex7885 {
         return a
     }
 
+    // ── v1 §2.9 compute model (V5.0.7909): voters run off the decision path ──
+    //
+    // 5.0.7891: 1,073 assessments at 25.7 ms each, inline on the FDG thread. The
+    // gate now only READS a fresh cached assessment; a miss schedules one on a
+    // small bounded worker pool and the gate proceeds without a Cortex opinion
+    // this cycle (the candidate is re-evaluated next cycle). Capture runs on the
+    // pool too; its label still starts at the observation time.
+    private val pool: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
+        1, 2, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(256),
+        { r -> Thread(r, "cortex-7909").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
+        java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy(),
+    )
+    private val scheduled = ConcurrentHashMap.newKeySet<String>()
+
+    private fun submit(tag: String, job: () -> Unit) {
+        try {
+            pool.execute { try { job() } catch (_: Throwable) {} }
+            inc("ASYNC_$tag")
+        } catch (_: Throwable) { inc("ASYNC_REJECTED") }
+    }
+
+    /** The fresh cached assessment, or null after scheduling one (never computes inline). */
+    private fun cachedOrSchedule(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {
+        if (ts.mint.isBlank() || laneRaw.isBlank()) return null
+        val key = "${ts.mint}|${canon(laneRaw)}"
+        assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
+        if (scheduled.add(key)) submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key) } }
+        else inc("ASYNC_ALREADY_SCHEDULED")
+        return null
+    }
+
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
+        submit("CAPTURE") { captureNow(ts, labelLane, admitted, nowMs, reason) }
+    }
+
+    private fun captureNow(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?) {
         val a = assess(ts, labelLane, nowMs) ?: return
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
@@ -231,7 +266,7 @@ object Cortex7885 {
      */
     fun entryRefusal(ts: TokenState, laneRaw: String, paper: Boolean): String? {
         return try {
-            val a = assess(ts, laneRaw) ?: return null
+            val a = cachedOrSchedule(ts, laneRaw) ?: return null
             val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) && consistent(a.lane) }
             val rule = constitutionRefusal(a, ts, paper, proven)
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
@@ -262,7 +297,7 @@ object Cortex7885 {
      */
     fun overrulesEdgeRefusal(ts: TokenState, laneRaw: String, refusal: String): Boolean {
         return try {
-            val a = assess(ts, laneRaw) ?: return false
+            val a = cachedOrSchedule(ts, laneRaw) ?: return false
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
             if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
             val proven = synchronized(this) { board.overruleAuthority(a.lane) && consistent(a.lane) }
@@ -449,6 +484,7 @@ object Cortex7885 {
             }
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size}+V3modules assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
+                "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
                 "      lane playbooks (§7907): ${try { LanePlaybook7907.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      calibration v7 (§7901): slope=${calibration.line()}\n" +
