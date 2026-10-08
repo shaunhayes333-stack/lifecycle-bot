@@ -179,7 +179,14 @@ object CanonicalPaperReplay6464 {
                         (perMintQty[e.mint] ?: BigInteger.ZERO) -
                             (trackedMintQty6734[e.mint] ?: BigInteger.ZERO)
                     )
-                    if (e.soldQty > currentRaw6522 || (!e.partial && e.soldQty != currentRaw6522)) {
+                    // V5.0.7925 — a terminal close that leaves only dust (<= 2% of the lot,
+                    // fees/rounding) closes the lot and writes the dust off. Requiring an
+                    // exact match quarantined such closes whole, so their proceeds and
+                    // realised P&L never reached paper cash (565 quarantines on 5.0.7914).
+                    val dust7925 = currentRaw6522 - e.soldQty
+                    val dustOk7925 = !e.partial && e.soldQty > BigInteger.ZERO && dust7925 > BigInteger.ZERO &&
+                        dust7925 * BigInteger.valueOf(50L) <= currentRaw6522
+                    if (e.soldQty > currentRaw6522 || (!e.partial && e.soldQty != currentRaw6522 && !dustOk7925)) {
                         invalid++
                         try {
                             PipelineHealthCollector.labelInc("PAPER_REPLAY_QTY_DECIMAL_SKEW_QUARANTINED_6522")
@@ -189,15 +196,17 @@ object CanonicalPaperReplay6464 {
                     }
                     val canonicalGrossRealized6487 = e.grossProceedsSol - e.allocatedCostBasisSol
                     if (kotlin.math.abs(canonicalGrossRealized6487) > 30.0) { invalid++; continue }
+                    val closedQty7925 = if (dustOk7925) currentRaw6522 else e.soldQty
+                    if (dustOk7925) try { PipelineHealthCollector.labelInc("PAPER_REPLAY_TERMINAL_DUST_WRITTEN_OFF_7925") } catch (_: Throwable) {}
                     if (positionQty6734.containsKey(e.positionId)) {
-                        positionQty6734[e.positionId] = currentRaw6522 - e.soldQty
-                        trackedMintQty6734.merge(e.mint, e.soldQty.negate()) { a, b -> a + b }
+                        positionQty6734[e.positionId] = currentRaw6522 - closedQty7925
+                        trackedMintQty6734.merge(e.mint, closedQty7925.negate()) { a, b -> a + b }
                     }
                     cash += e.netProceedsSol
                     openCost = (openCost - e.allocatedCostBasisSol).coerceAtLeast(0.0)
                     realized += canonicalGrossRealized6487
                     fees += e.exitFeesSol
-                    perMintQty.merge(e.mint, e.soldQty.negate()) { a, b -> (a + b).coerceAtLeast(BigInteger.ZERO) }
+                    perMintQty.merge(e.mint, closedQty7925.negate()) { a, b -> (a + b).coerceAtLeast(BigInteger.ZERO) }
                     perMintCost.merge(e.mint, -e.allocatedCostBasisSol) { a, b -> (a + b).coerceAtLeast(0.0) }
                     if (e.positionId.isNotBlank() && perPositionCost7474.containsKey(e.positionId)) {
                         perPositionCost7474[e.positionId] =

@@ -1682,7 +1682,10 @@ object FluidLearningAI {
         val progress = getLearningProgress()
         
         // Base stop from mode default, adjusted by learning
-        val baseStop = getFluidStopLoss(modeDefaultStop)
+        // V5.0.7925 — getFluidStopLoss takes a NEGATIVE stop (its bootstrap clamp is
+        // maxOf(stop, -15)); callers pass a positive magnitude here, which skipped the
+        // clamp (a 25% stop stayed 25% during bootstrap). Normalise in, magnitude out.
+        val baseStop = kotlin.math.abs(getFluidStopLoss(-kotlin.math.abs(modeDefaultStop)))
         
         // ═══════════════════════════════════════════════════════════════
         // PHASE 1: ENTRY PROTECTION (first 60s)

@@ -10356,7 +10356,7 @@ class GoldenTapeRegressionTest {
         assertTrue(peak.contains("if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false"))
         assertTrue(tuner.contains("st.tpMult = shrunkTp7186.coerceIn(tpFloor7277, TP_MAX)"))
         assertTrue(bot.contains("} else if (!storedFloor7392.isNaN() && storedFloor7392 > 0.0 && !runnerLockDeferred7277) {"))
-        assertTrue(bot.contains("oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369"))
+        assertTrue(bot.contains("moonshotLaneStop7389 || runnerEarlyCut7277 || (pnlPctNow <= tickFloor7887(ts) && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerFloor7330 || genericTwoStrike7369))"))
         assertTrue(bot.contains("else if (runnerEarlyCut7277) \"RUNNER_EARLY_CUT_\${laneName4588}_\${pnlPctNow.toInt()}PCT_7277\""))
         assertTrue(runner.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
 
@@ -10427,7 +10427,7 @@ class GoldenTapeRegressionTest {
         assertTrue(health.contains("fun noteLastError(host: String, errorMessage: String?) {"))
 
         // Fast lane: second pass only when the first did not open the position.
-        assertTrue(bot.contains("if (status.running && !alreadyOpen7278) processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())"))
+        assertTrue(bot.contains("if (status.running && !alreadyOpen7278 && fastLaneSemaphore7277.tryAcquire()) {"))
 
         assertTrue(phc.contains("\"PUMP_TRADE_MARK_APPLIED_7278\","))
         assertTrue(phc.contains("\"ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278\","))
@@ -11494,7 +11494,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7330_runner_stops_fire_at_the_runner_floor() {
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("private const val RUNNER_LANE_FLOOR_PCT_7330 = -15.0"))
-        assertTrue(bs.contains("runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369"))
+        assertTrue(bs.contains("oneStrikeCatastrophic4588 || runnerFloor7330 || genericTwoStrike7369"))
         assertFalse(bs.contains("pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)"))
         val pa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
         assertTrue(pa.contains("\"CATASTROPHE\", \"CATASTROPHIC\", \"ZOMBIE\""))
@@ -13300,7 +13300,7 @@ class GoldenTapeRegressionTest {
         // Seam 2: the one sizing authority applies the risk cap and the probe multiplier as ceilings.
         val osr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
         assertTrue(osr.contains("FieldManual7715.riskCapSol(laneName, paperMode, authoritativeCash)"))
-        assertTrue(osr.contains("if (mint.isNotBlank()) FieldManual7715.probeSizeMultiplier(mint) else 1.0"))
+        assertTrue(osr.contains("if (mint.isNotBlank() && !alreadyShaped7925) FieldManual7715.probeSizeMultiplier(mint) else 1.0"))
         assertTrue(osr.contains("val cashClamped1 = (cashClamped0 * probeMult7715).coerceAtMost(manualCap7715)"))
         assertTrue(osr.contains("val cashClamped = cashClamped1"))
         assertTrue(osr.indexOf("val cashClamped = cashClamped1") < osr.indexOf("val laneClamped = cashClamped.coerceAtMost(laneRiskCapSol)"))
@@ -13479,7 +13479,7 @@ class GoldenTapeRegressionTest {
         assertFalse(hc.contains("states.getOrPut(host) { HostState() }"))
         val ms = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/MarketSweep7297.kt").readText()
         assertTrue(ms.contains("private const val LITE_TOKENS_DEAD_MS_7719 = 30L * 60_000L"))
-        assertTrue(ms.contains("if (fail == \"HTTP_401\" || fail == \"HTTP_403\" || fail == \"HTTP_404\") {"))
+        assertTrue(ms.contains("if (fail == \"HTTP_401\" || fail == \"HTTP_403\" || fail == \"HTTP_404\" || fail == \"LOCAL_CIRCUIT\") {"))
         assertTrue(ms.contains("MARKET_SWEEP_LITE_TOKENS_DEAD_LATCHED_7719"))
 
         // A watched insider wallet is a tracked copy wallet.

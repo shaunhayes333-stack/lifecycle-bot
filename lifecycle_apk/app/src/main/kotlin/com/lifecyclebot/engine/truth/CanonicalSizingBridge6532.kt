@@ -32,6 +32,20 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  * caller's own SIGNAL_SKIPPED_BELOW_MINIMUM telemetry).
  */
 object CanonicalSizingBridge6532 {
+    // V5.0.7925 — mints whose proposal already went through OrderSizeResolver6441's shaping.
+    private val shapedAt7925 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val SHAPED_TTL_MS_7925 = 30_000L
+
+    private fun noteShaped7925(mint: String) {
+        val now = System.currentTimeMillis()
+        if (shapedAt7925.size > 2_000) shapedAt7925.entries.removeIf { now - it.value > SHAPED_TTL_MS_7925 }
+        shapedAt7925[mint] = now
+    }
+
+    /** FinalDecisionGate.resolveExecutableSize7835: was this mint's proposal shaped by the resolver in the last 30 s? */
+    fun shapedRecently7925(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        mint.isNotBlank() && (shapedAt7925[mint]?.let { nowMs - it <= SHAPED_TTL_MS_7925 } == true)
+
 
     fun resolve(
         requestedSol: Double,
@@ -202,6 +216,8 @@ object CanonicalSizingBridge6532 {
             // min-promotion refusal therefore never fired once.
             mint = canonicalAssetId,
         )
+        // V5.0.7925 — FinalDecisionGate re-resolves this proposal; it must not shape it twice.
+        if (canonicalAssetId.isNotBlank()) noteShaped7925(canonicalAssetId)
         // V5.0.7458 — bind the specialist capital proposal to the same
         // canonical asset + lane that produced this resolution. Multiple
         // specialist desks may legitimately propose the same mint.

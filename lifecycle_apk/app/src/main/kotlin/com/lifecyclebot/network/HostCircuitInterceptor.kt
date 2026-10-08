@@ -73,7 +73,10 @@ object HostCircuitInterceptor : Interceptor {
      * token lists answer to their own label now.
      */
     private fun providerLabelFor(host: String, path: String): String =
-        if (host.endsWith("jup.ag", ignoreCase = true) && path.startsWith("/tokens/")) "jupiter_tokens"
+        // V5.0.7925 — the keyed host (api.jup.ag) has its own label: a keyless lite-api
+        // refusal used to open the shared circuit and lock out the keyed fallback too.
+        if (host.endsWith("jup.ag", ignoreCase = true) && path.startsWith("/tokens/"))
+            (if (host.startsWith("lite-api", ignoreCase = true)) "jupiter_tokens" else "jupiter_tokens_keyed")
         else providerLabel(host)
 
     private fun providerLabel(host: String): String = when {

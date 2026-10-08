@@ -139,7 +139,7 @@ object LaunchTape7921 {
     /** Pure: the educated prior bar ("a crowd is forming"). */
     fun priorPass(f: Feat): Boolean =
         f.ageMin >= 1.0 && f.ageMin <= 20.0 && f.crowdBuyers >= 15 && f.crowdNetSol >= 3.0 && f.buySharePct >= 60.0 &&
-            f.largestBuyerPct <= 30.0 && f.top3Pct <= 55.0 && !f.devSold && f.fromPeakPct >= -35.0
+            f.largestBuyerPct <= 30.0 && f.top3Pct <= 55.0 && !f.devSold && f.fromPeakPct.isFinite() && f.fromPeakPct >= -35.0
 
     /** Pure: is a graded record proven positive / negative? */
     fun provenPositive(s: CortexLedger7885.Stat): Boolean =
@@ -163,7 +163,7 @@ object LaunchTape7921 {
                 buyersPerMin = crowd / ageMin.coerceAtLeast(1.0), buySharePct = share,
                 largestBuyerPct = largest, top3Pct = top3, devSold = r.devSold,
                 fromFirstPct = if (r.firstPx > 0.0 && r.lastPx > 0.0) (r.lastPx / r.firstPx - 1.0) * 100.0 else Double.NaN,
-                fromPeakPct = if (r.peakPx > 0.0 && r.lastPx > 0.0) (r.lastPx / r.peakPx - 1.0) * 100.0 else 0.0,
+                fromPeakPct = if (r.peakPx > 0.0 && r.lastPx > 0.0) (r.lastPx / r.peakPx - 1.0) * 100.0 else Double.NaN,
                 heat = heatOf(crowd, ageMin, share, largest, r.devSold),
             )
         }
@@ -180,7 +180,9 @@ object LaunchTape7921 {
             (priorPass(f) && !provenNegative(priorBook)) to (binBook[binOf(f.heat)]?.let { provenPositive(it) } == true && !f.devSold)
         }
         if (!prior && !learned) return
-        r.promotedAtMs = nowMs
+        // V5.0.7925 — claim the promotion once (two feeds can deliver the same trade burst).
+        val claimed = synchronized(r) { if (r.promotedAtMs > 0L) false else { r.promotedAtMs = nowMs; true } }
+        if (!claimed) return
         val why = if (learned) "LEARNED_HEAT_BIN" else "PRIOR_CROWD_FORMING"
         inc("PROMOTED_$why")
         try {
@@ -194,6 +196,14 @@ object LaunchTape7921 {
         try { onPromote?.invoke(mint, r.symbol, r.name) } catch (_: Throwable) {}
     }
 
+    /** Heat without the full feature build (no sort) — for the eviction scan. */
+    private fun quickHeat(r: Rec, nowMs: Long): Double = synchronized(r) {
+        val total = r.crowdBuySol
+        val largest = if (total > 0.0) (r.buyerSol.values.maxOrNull() ?: 0.0) / total * 100.0 else 0.0
+        val share = if (total + r.sellSol > 0.0) total / (total + r.sellSol) * 100.0 else 50.0
+        heatOf(r.buyerSol.size, (nowMs - r.birthMs) / 60_000.0, share, largest, r.devSold)
+    }
+
     /** Was this mint promoted (protect it from Helius eviction; voters read it)? */
     fun promoted(mint: String): Boolean = (recs[mint]?.promotedAtMs ?: 0L) > 0L
 
@@ -205,7 +215,7 @@ object LaunchTape7921 {
         candidates.asSequence()
             .map { m -> m to recs[m] }
             .filter { (_, r) -> r == null || (nowMs - r.birthMs > EVICT_GRACE_MS && r.promotedAtMs == 0L) }
-            .minByOrNull { (m, r) -> if (r == null) -1.0 else features(m, nowMs)?.heat ?: 0.0 }
+            .minByOrNull { (_, r) -> if (r == null) -1.0 else quickHeat(r, nowMs) }
             ?.first
 
     /** ExitRegret7752.tick clock: checkpoints at 3 min, grades at +15 min, expiry. */

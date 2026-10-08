@@ -55,8 +55,11 @@ object HeliusSwapCandles7819 {
     private const val PAGE_LIMIT = 100
     private const val MAX_PAGES = 2
     private const val MAX_IN_FLIGHT = 2
-    private const val MAX_JOBS_PER_MIN = 3
-    private const val MAX_JOBS_PER_HOUR = 60
+    // V5.0.7925 — 3/min, 60/h starved the bars every setup and plan reads (5.0.7914:
+    // 24 jobs ran, 654 skipped on budget, keyless OHLCV delivered 0 bars) while Helius
+    // spend sat near 10% of its daily budget. Doubled+ within that headroom.
+    private const val MAX_JOBS_PER_MIN = 8
+    private const val MAX_JOBS_PER_HOUR = 180
     private const val MINT_RETRY_MS = 5L * 60_000L
     private const val EMPTY_RETRY_MS = 15L * 60_000L
     private const val KEY_TTL_MS = 5L * 60_000L

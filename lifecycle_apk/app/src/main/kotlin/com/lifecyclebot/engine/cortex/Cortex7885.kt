@@ -252,6 +252,8 @@ object Cortex7885 {
         }
     }
 
+    private val sourceGraded = ConcurrentHashMap<String, Long>()   // mint -> decision time (ScannerSourceBrain once per mint)
+
     /** ForwardReturnLabeler7731.tick: a horizon label booked for (mint, labelLane). */
     fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double) {
         ensureLoaded()
@@ -266,8 +268,11 @@ object Cortex7885 {
         // intake by each source's record, but learned only from closed trades (a
         // handful a day). Every graded decision now teaches it what that source's
         // tokens actually did, from trade one.
-        if (p.source.isNotBlank()) {
+        // V5.0.7925 — once per mint (several lanes label the same token), and only
+        // for decisions not traded: a traded token's close already teaches the brain.
+        if (p.source.isNotBlank() && !p.legacyAdmitted && sourceGraded.putIfAbsent(mint, p.atMs) == null) {
             try { com.lifecyclebot.engine.ScannerSourceBrain.recordOutcome(p.source, netPct.coerceIn(-100.0, 200.0)) } catch (_: Throwable) {}
+            if (sourceGraded.size > 6_000) sourceGraded.entries.removeIf { p.atMs - it.value > PENDING_TTL_MS }
         }
         synchronized(this) {
             ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
@@ -612,8 +617,12 @@ object Cortex7885 {
         if (!env.terminal || !env.realizedReturnPct.isFinite()) return
         val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return
         val a = entryReads.remove("${env.mint}|$mode") ?: return
-        val entryAt = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
-        if (kotlin.math.abs(entryAt - a.atMs) > ENTRY_READ_MATCH_MS) { inc("REALIZED_UNMATCHED"); return }
+        // V5.0.7925 — many envelopes carry holdingTimeMs=0; then the entry time is unknown
+        // and the read is matched on mint+mode alone (it is removed at the first close).
+        if (env.holdingTimeMs > 0L) {
+            val entryAt = env.atMs - env.holdingTimeMs
+            if (kotlin.math.abs(entryAt - a.atMs) > ENTRY_READ_MATCH_MS) { inc("REALIZED_UNMATCHED"); return }
+        } else if (env.atMs - a.atMs > PENDING_TTL_MS * 4) { inc("REALIZED_UNMATCHED"); return }
         val wasChosen = mode == "PAPER" && chosen.remove(env.mint) != null
         synchronized(this) {
             board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct)

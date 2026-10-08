@@ -527,7 +527,8 @@ object MarketSweep7297 {
         if (now >= liteTokensDeadUntil7719) {
             getBody("$JUP$path", provider)?.trim()?.takeIf { it.startsWith("[") }?.let { lastFail7301.remove(provider); return it }
             val fail = lastFail7301[provider].orEmpty()
-            if (fail == "HTTP_401" || fail == "HTTP_403" || fail == "HTTP_404") {
+            // V5.0.7925 — a local circuit on the keyless host means it is refusing: go keyed.
+            if (fail == "HTTP_401" || fail == "HTTP_403" || fail == "HTTP_404" || fail == "LOCAL_CIRCUIT") {
                 liteTokensDeadUntil7719 = now + LITE_TOKENS_DEAD_MS_7719
                 try { PipelineHealthCollector.labelInc("MARKET_SWEEP_LITE_TOKENS_DEAD_LATCHED_7719") } catch (_: Throwable) {}
             }

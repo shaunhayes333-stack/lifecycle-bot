@@ -235,7 +235,7 @@ object CanonicalFinalizedTradeBus6464 {
         try {
             if (finalLearningEligible6831 && env.lane.isNotBlank()) {
                 val won = env.realizedPnlSol > 0.0
-                SelectionQualityAuthority6829.recordTerminal(env.mode, env.lane, won)
+                SelectionQualityAuthority6829.recordTerminal(env.mode, env.lane, won, env.atMs)
             }
         } catch (_: Throwable) {}
         // V5.0.6829 — release CausalDedupGate6829 claim on terminal.

@@ -43,7 +43,9 @@ object StopAuthority7887 {
     /** Pure: the stop magnitude from its parts. */
     fun compose(planStopPct: Double?, laneBasePct: Double, learnedMult: Double, runnerLane: Boolean): Double {
         if (planStopPct != null && planStopPct.isFinite() && planStopPct < 0.0) {
-            return kotlin.math.abs(planStopPct).coerceIn(MIN_STOP_PCT, MAX_STOP_PCT)
+            // V5.0.7925 — the runner floor is an invariant for plan stops too.
+            val planMag = kotlin.math.abs(planStopPct).coerceIn(MIN_STOP_PCT, MAX_STOP_PCT)
+            return if (runnerLane) planMag.coerceAtLeast(RUNNER_FLOOR_PCT) else planMag
         }
         val mult = if (learnedMult.isFinite() && learnedMult > 0.0) learnedMult else 1.0
         var mag = (laneBasePct * mult).coerceIn(MIN_STOP_PCT, MAX_STOP_PCT)

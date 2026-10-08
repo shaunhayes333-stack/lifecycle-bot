@@ -29,7 +29,10 @@ object TokenMapAuthority {
         ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
         val tm = ts.tokenMap
         tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
-        val sol = (tm.realSolReserves ?: tm.liquiditySol)?.takeIf { it.isFinite() && it > 0.0 } ?: return 0.0
+        // V5.0.7925 — a 0.0 realSolReserves is not "unknown": it hid liquiditySol, so a
+        // curve with no real reserves read yet came back as $0 (ZERO_LIQUIDITY rejects).
+        val sol = (tm.realSolReserves?.takeIf { it.isFinite() && it > 0.0 } ?: tm.liquiditySol)
+            ?.takeIf { it.isFinite() && it > 0.0 } ?: return 0.0
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         return if (solUsd.isFinite() && solUsd > 0.0) sol * solUsd else 0.0
     }

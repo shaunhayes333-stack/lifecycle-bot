@@ -23,7 +23,7 @@ class Aate7865TradeOneLiveTest {
 
     @Test fun busFeedsTheRingWithTheEnvelopeMode() {
         val bus = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
-        assertTrue(bus.contains("SelectionQualityAuthority6829.recordTerminal(env.mode, env.lane, won)"))
+        assertTrue(bus.contains("SelectionQualityAuthority6829.recordTerminal(env.mode, env.lane, won, env.atMs)"))
     }
 
     @Test fun noEvidenceIsBootstrapSizeNotDeepDeficitFloor() {

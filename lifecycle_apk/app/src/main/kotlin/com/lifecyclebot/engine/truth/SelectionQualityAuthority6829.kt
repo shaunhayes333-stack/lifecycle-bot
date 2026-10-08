@@ -32,15 +32,22 @@ object SelectionQualityAuthority6829 {
     private const val WINDOW_PER_LANE = 40
     private const val MIN_SAMPLES = 6
 
-    private data class Ring(val wins: ArrayDeque<Boolean> = ArrayDeque()) {
-        @Synchronized fun add(won: Boolean) {
-            wins.addLast(won)
-            while (wins.size > WINDOW_PER_LANE) wins.removeFirst()
+    // V5.0.7925 — only closes from the last [MAX_AGE_MS] count. The ring was refilled
+    // at every boot from the all-time finalized bus with no recency bound, so a lane
+    // carried a +15 floor from closes days old (5.0.7914: LIVE|SHITCOIN wr=0 from
+    // replayed history refused every fresh launch at the SELECTION_QUALITY_FLOOR).
+    private const val MAX_AGE_MS = 3L * 24L * 60L * 60_000L
+
+    private data class Ring(val wins: ArrayDeque<Boolean> = ArrayDeque(), val at: ArrayDeque<Long> = ArrayDeque()) {
+        @Synchronized fun add(won: Boolean, atMs: Long) {
+            wins.addLast(won); at.addLast(atMs)
+            while (wins.size > WINDOW_PER_LANE) { wins.removeFirst(); at.removeFirst() }
         }
-        @Synchronized fun wr(): Double {
-            if (wins.size < MIN_SAMPLES) return -1.0
-            val w = wins.count { it }
-            return w.toDouble() * 100.0 / wins.size.toDouble()
+        @Synchronized fun wr(nowMs: Long = System.currentTimeMillis()): Double {
+            var n = 0; var w = 0
+            for (i in wins.indices) if (nowMs - at[i] <= MAX_AGE_MS) { n++; if (wins[i]) w++ }
+            if (n < MIN_SAMPLES) return -1.0
+            return w.toDouble() * 100.0 / n.toDouble()
         }
         @Synchronized fun size(): Int = wins.size
     }
@@ -66,11 +73,11 @@ object SelectionQualityAuthority6829 {
 
     fun recordTerminal(lane: String, won: Boolean) = recordTerminal(runtimeMode7865(), lane, won)
 
-    fun recordTerminal(mode: String, lane: String, won: Boolean) {
+    fun recordTerminal(mode: String, lane: String, won: Boolean, atMs: Long = System.currentTimeMillis()) {
         if (lane.isBlank()) return
         try {
             val key = ringKey7865(mode, lane)
-            rings.computeIfAbsent(key) { Ring() }.add(won)
+            rings.computeIfAbsent(key) { Ring() }.add(won, if (atMs > 0L) atMs else System.currentTimeMillis())
             recorded.incrementAndGet()
         } catch (_: Throwable) {}
     }

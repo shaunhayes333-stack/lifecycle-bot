@@ -248,7 +248,16 @@ object CortexExit7897 {
             val entry = ts.position.entryPrice
             val px = ts.lastPrice
             if (entry <= 0.0 || px <= 0.0 || nowMs - ts.lastPriceUpdate > MARK_MAX_AGE_MS) return false
-            if ((px / entry - 1.0) * 100.0 <= 0.0) return false
+            // V5.0.7925 — break-even is NET of the round trip (fees, priority, slippage,
+            // impact): +2% gross on a 4% trip is a loss, and is never held.
+            val costPct7925 = try {
+                val sizeSol = ts.position.costSol
+                val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(
+                    sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd,
+                ).takeIf { it.isFinite() } ?: 0.0
+            } catch (_: Throwable) { 0.0 }
+            if ((px / entry - 1.0) * 100.0 <= costPct7925) return false
             val r = freshRead(ts, nowMs) ?: return false
             if (r.bucket != Bucket.HOLD_STRONG) return false
             val key = posKey(ts)

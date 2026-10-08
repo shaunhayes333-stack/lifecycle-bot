@@ -121,6 +121,8 @@ object ExitRegret7752 {
             synchronized(this) {
                 byLane.getOrPut(p.lane) { Agg() }.add(p.realizedPct, hold, after)
                 byFamily.getOrPut(p.family) { Agg() }.add(p.realizedPct, hold, after)
+                // V5.0.7925 — the lane's STOP exits on their own: the stop multiplier reads these.
+                if (isStopFamily7925(p.family)) byLane.getOrPut("${p.lane}|STOP") { Agg() }.add(p.realizedPct, hold, after)
             }
             pending.remove(id)
             recorded.incrementAndGet()
@@ -238,9 +240,22 @@ object ExitRegret7752 {
         }
     }
 
-    /** LIVE stop multiplier for [lane]: the lane's own regret when it has enough closes, else stop-family regret. */
+    /** Pure: is this exit family a stop (loss-side) exit? */
+    fun isStopFamily7925(f: String): Boolean =
+        f.contains("STOP") || f.endsWith("SL") || f.contains("_SL_") || f.contains("FLOOR") || f.startsWith("EARLY_CUT") || f.contains("CATASTROPHE")
+
+    /**
+     * LIVE stop multiplier for [lane]: the lane's own STOP exits' regret when it has
+     * enough of them, else stop-family regret across lanes. V5.0.7925: the own-lane
+     * read used to aggregate every exit (trails, profit locks, TPs, time stops), so a
+     * lane whose profit trails sold early widened its STOPS.
+     */
     fun stopMultFor(lane: String): Double = try {
-        val own = laneRead(lane)
+        val own = run {
+            ensureLoaded()
+            val key = "${CanonicalLaneIdentity6506.canonical(lane)}|STOP"
+            synchronized(this) { read(byLane[key]) }
+        }
         val r = if (own != null && own.n >= REGRET_MIN_N_7877) own
             else familyRead("HARD_STOP", "STRICT_SL", "RAPID_CATASTROPHE_STOP", "STOP_LOSS", "STRUCTURE_STOP")
         val m = stopMult7877(r)

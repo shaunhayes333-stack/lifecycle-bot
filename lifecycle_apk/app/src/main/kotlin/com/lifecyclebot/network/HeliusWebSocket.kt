@@ -256,8 +256,9 @@ class HeliusWebSocket(
                 // V5.0.7807 — eldest NON-held mint is the victim; discovery goes first.
                 // V5.0.7921 — the coldest launch past its 2-minute grace goes first (hot tapes stay).
                 val evictable7921 = subscriptions.keys.filter { it !in pinned }
+                // A promoted or in-grace launch is never the fallback victim of a non-held mint.
                 val victim = (try { com.lifecyclebot.engine.market.LaunchTape7921.evictionVictim(evictable7921) } catch (_: Throwable) { null })
-                    ?: evictable7921.firstOrNull()
+                    ?: if (mint in pinned) evictable7921.firstOrNull() else null
                 if (victim != null) {
                     evictedMint = victim
                     evictedServerId = subscriptions.remove(victim)

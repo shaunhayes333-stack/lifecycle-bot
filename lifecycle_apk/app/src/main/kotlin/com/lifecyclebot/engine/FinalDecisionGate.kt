@@ -2112,18 +2112,9 @@ object FinalDecisionGate {
             if (mode == TradeMode.LIVE) try {
                 PipelineHealthCollector.labelInc("FDG_INVENTORY_PRESSURE_EVAL_7432")
             } catch (_: Throwable) {}
-            // V5.0.6838 §LEARNED_EXPECTANCY_MUST_GATE_ADMISSION — third term: the
-            // lane's own realised terminal expectancy. LaneExpectancyDamper had only
-            // a sizeMultiplier() API, so its conclusion could shrink a ticket but
-            // never refuse one. On 5.0.6835 that produced the core contradiction in
-            // the operator diagnostic: entry authority gates=3506 allows=3506
-            // denies=0 while the damper held EXPRESS x0.18 and EXPRESS still took 31
-            // executions at 3.8% WR / -62% avg. Learning that can only resize is not
-            // an admission authority.
-            val expectancyDelta6838 = try {
-                com.lifecyclebot.engine.LaneExpectancyDamper
-                    .admissionScoreFloorDelta(laneKeyForFloor6830)
-            } catch (_: Throwable) { 0.0 }
+            // V5.0.7925 — LaneExpectancyDamper.admissionScoreFloorDelta (6838) already
+            // raises this lane's SCORE floor (CanonicalEntryFloor7266); adding it to the
+            // confidence floor here raised two bars for one verdict. Counted once there.
             // V5.0.6853 §CORRELATED_STUPIDITY_HAD_NO_VOICE_AT_ADMISSION — fourth term:
             // portfolio correlation heat. PortfolioHeatAI's whole stated purpose is
             // "you may think you have 5 positions but really you have one bet — throttle
@@ -2136,7 +2127,7 @@ object FinalDecisionGate {
                 com.lifecyclebot.v4.meta.PortfolioHeatAI.getNewEntryPenalty()
                     .coerceIn(0.0, 1.0) * 20.0
             } catch (_: Throwable) { 0.0 }
-            val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830 + expectancyDelta6838 + heatDelta6853
+            val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830 + heatDelta6853
             // V5.0.6847 §BASE_CONFIDENCE_FLOOR_WAS_A_NO_OP — the guard used to read
             // `effectiveFloor6830 > 22.0 && confidence < effectiveFloor6830`, so the
             // 22.0 base was only ever applied when one of the three deltas happened to
@@ -2158,7 +2149,7 @@ object FinalDecisionGate {
                 blockReason = "SELECTION_QUALITY_FLOOR_6830 lane=$laneKeyForFloor6830 " +
                     "conf=${confidence.toInt()}% floor=${"%.1f".format(effectiveFloor6830)} " +
                     "qDelta=${"%.1f".format(qualityDelta6830)} pDelta=${"%.1f".format(pressureDelta6830)} " +
-                    "eDelta=${"%.1f".format(expectancyDelta6838)} hDelta=${"%.1f".format(heatDelta6853)} " +
+                    "hDelta=${"%.1f".format(heatDelta6853)} " +
                     "heat=${"%.2f".format(com.lifecyclebot.v4.meta.PortfolioHeatAI.getPortfolioHeat())} " +
                     "laneMult=${"%.2f".format(com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneKeyForFloor6830))} " +
                     "wr=${"%.1f".format(com.lifecyclebot.engine.truth.SelectionQualityAuthority6829.rollingWr(laneKeyForFloor6830))} " +
@@ -4240,7 +4231,11 @@ object FinalDecisionGate {
             1.0
         }
 
-        if (winMemoryMultiplier != 1.0) {
+        // V5.0.7925 — a negative memory read already shrank size via the memory
+        // penalty (tags memory_penalized / memory_negative_soft_shape_4298); it is
+        // not applied a second time here. The boost side is unchanged.
+        if (winMemoryMultiplier != 1.0 && !(winMemoryMultiplier < 1.0 &&
+                ("memory_penalized" in tags || "memory_negative_soft_shape_4298" in tags))) {
             val originalSize = finalSize
             finalSize = (finalSize * winMemoryMultiplier).coerceAtLeast(0.01)
             if (winMemoryMultiplier > 1.0) {
@@ -4329,82 +4324,10 @@ object FinalDecisionGate {
             }
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.9.931 — COLLECTIVE BRAIN soft-shape (the biggest dropped-AGI gap).
-        //
-        // Operator deep-audit V5.9.929: CollectiveLearning UPLOADS every
-        // pattern outcome to Turso and DOWNLOADS them back into cachedPatterns
-        // every 15 min — but ONLY isBlacklisted (binary veto) was ever
-        // consulted. Every other AATE instance in the swarm has been pooling
-        // win/loss patterns for months, this bot pulled them down, never
-        // read from the cache. Pure write-mostly intelligence.
-        //
-        // Wire-up: at the same composition point as AICrossTalk's shape,
-        // ask the collective whether this candidate's pattern signature
-        // (entryPhase_tradingMode × discoverySource × liquidityBucket ×
-        // emaTrend) has won or lost across the swarm. Only act on RELIABLE
-        // patterns (≥10 swarm trades, CollectivePattern.isReliable).
-        //
-        // The signature tuple is SYMMETRIC with what V3EngineManager.
-        // recordOutcome uploads (V3EngineManager.kt:681), so the swarm
-        // wisdom we read back is in the same shape we contribute.
-        //
-        // Shape (per doctrine #86 — soft-shape only, no veto):
-        //   wr ≥ 65 (strong winner pattern) → size × 1.20
-        //   wr ≥ 55                         → size × 1.10
-        //   wr ≤ 35 (losing pattern)        → size × 0.80
-        //   wr ≤ 25 (strong loser)          → size × 0.60
-        //   else (35..55)                   → 1.00 (no opinion)
-        //
-        // Bounded floor 0.01 SOL; never blocks. Fail-open per FDG doctrine.
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
-                val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
-                val entryPhase = ts.phase.ifBlank { "idle" }.uppercase()
-                val patternType = "${entryPhase}_${tradingMode}"
-                val discoverySource = ts.source.ifBlank { "UNKNOWN" }
-                val liquidityBucket = when {
-                    ts.lastLiquidityUsd < 5_000 -> "MICRO"
-                    ts.lastLiquidityUsd < 25_000 -> "SMALL"
-                    ts.lastLiquidityUsd < 100_000 -> "MID"
-                    else -> "LARGE"
-                }
-                val emaTrend = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
-
-                val pattern = com.lifecyclebot.collective.CollectiveLearning.getPatternStats(
-                    patternType = patternType,
-                    discoverySource = discoverySource,
-                    liquidityBucket = liquidityBucket,
-                    emaTrend = emaTrend,
-                )
-
-                if (pattern != null && pattern.isReliable) {
-                    val wr = pattern.winRate
-                    val collectiveMult = when {
-                        wr >= 65.0 -> 1.20
-                        wr >= 55.0 -> 1.10
-                        wr <= 25.0 -> 0.60
-                        wr <= 35.0 -> 0.80
-                        else        -> 1.00
-                    }
-                    if (collectiveMult != 1.00) {
-                        val originalSize = finalSize
-                        finalSize = (finalSize * collectiveMult).coerceAtLeast(0.01)
-                        val direction = if (collectiveMult > 1.0) "boosted" else "reduced"
-                        tags.add("size_${direction}_collective")
-                        checks.add(
-                            GateCheck(
-                                "collective_brain",
-                                true,
-                                "Swarm $direction ${originalSize.format(3)} → ${finalSize.format(3)} " +
-                                "(wr=${wr.format(0)}% n=${pattern.totalTrades} sig=$patternType/$discoverySource/$liquidityBucket/$emaTrend)"
-                            )
-                        )
-                    }
-                }
-            }
-        } catch (_: Throwable) { /* fail-open — collective is soft-shape only */ }
+        // V5.0.7925 — the V5.9.931 swarm block that stood here read the same
+        // CollectiveLearning pattern (phase x mode x source x liquidity x trend)
+        // as getPatternScoreAdjustment above and shrank size a second time
+        // (WR <= 20%: 0.7 x 0.6 = 0.42). The pattern is counted once, above.
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.934 — AI STARTUP COORDINATOR soft-shape (4th dormant subsystem).
@@ -5306,7 +5229,10 @@ object FinalDecisionGate {
                                 evidenceId = "BCG:${report.objections.sorted().joinToString("+").take(80)}",
                             )
                         } catch (_: Throwable) {}
-                        val hasDanger = report.objections.any { it.contains("LOSING_PATTERN_DANGER_ZONE") }
+                        // V5.0.7925 — the same LosingPatternMemory bucket already shrank size above
+                        // (toxic_pattern_tactic_pivot / learned_bucket); it is not damped again here.
+                        val hasDanger = report.objections.any { it.contains("LOSING_PATTERN_DANGER_ZONE") } &&
+                            "toxic_pattern_tactic_pivot" !in tags && checks.none { it.name == "learned_bucket" }
                         val originalSize = finalSize
                         // V5.0.4089 — RE-EDUCATE damp (operator: "don't disable,
                         // re-educate, 2x-5x daily wallet growth"). Pre-4089 the
@@ -5546,7 +5472,12 @@ object FinalDecisionGate {
                         val authConv = UnifiedPolicyHead.authoritativeConviction(learningOwnerLane7534, uphSignals)
                         if (authConv != null) {
                             val before = finalSize
-                            finalSize = (finalSize * authConv).coerceAtLeast(0.01)
+                            // V5.0.7925 — the head already weighs the meta conviction and the forward
+                            // model's pWin (its inputs above), so their own multipliers are divided
+                            // back out: the evidence counts once, through the head that earned it.
+                            finalSize = (finalSize / (conv.coerceAtLeast(0.05) *
+                                (if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") fwd.convictionNudge.coerceAtLeast(0.05) else 1.0)) *
+                                authConv).coerceAtLeast(0.01)
                             tags.add("agi_auth:${learningOwnerLane7534}:${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name}:${"%.2f".format(authConv)}")
                             checks.add(GateCheck("agi_authority_head", true, "lane=$learningOwnerLane7534 tier=${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name} pWin=${(UnifiedPolicyHead.predictWinProb(learningOwnerLane7534, uphSignals)*100).toInt()}% mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(learningOwnerLane7534))} size ${before.format(3)}→${finalSize.format(3)} (rule-stack soft damps superseded)"))
                             try {
@@ -6079,6 +6010,11 @@ object FinalDecisionGate {
             requestedSol = riskSized, laneName = lane, walletSol = cash, paperMode = config.paperMode,
             laneRiskCapSol = minOf(configuredCap, riskSized), laneMinExecutableSol = minimum,
             mint = ts.mint, causalEventId = "",
+            // V5.0.7925 — every path into the FDG already applied the streak reflex
+            // (SmartSizer on the generic path, the trader's own resolve on specialist
+            // paths); a specialist proposal was also already shaped (incl. the bridge).
+            streakAlreadyApplied7925 = true,
+            alreadyShaped7925 = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
         )
         if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9) return 0.0
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)

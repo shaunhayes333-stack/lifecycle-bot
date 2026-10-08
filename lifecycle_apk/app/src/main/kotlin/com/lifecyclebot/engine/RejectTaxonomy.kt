@@ -40,6 +40,12 @@ object RejectTaxonomy {
             r.contains("ALREADY_OPEN") || r.contains("DUPLICATE") || r.contains("ONE-MINT") -> Category.DUPLICATE_POSITION
             r.contains("RUG") || r.contains("BANNED") || r.contains("FINALITY") || r.contains("SAFETY") || r.contains("RUNTIME_PAUSED") || r.contains("LP_UNLOCK") || blockLevel == TradeAuthorizer.BlockLevel.PERMANENT -> Category.HARD_SAFETY
             r.contains("LANE_TELEMETRY") || r.contains("QUALITY_ONLY") || r.contains("ADVISORY") || blockLevel == TradeAuthorizer.BlockLevel.SOFT -> Category.ADVISORY
+            // V5.0.7925 — learned/quality refusals are trainable evidence, not unknowns.
+            // 5.0.7914: 2,078 SELECTION_QUALITY_FLOOR_6830 refusals fell to UNKNOWN_REVIEW
+            // (trainable=false), so every one of them was excluded from learning.
+            blockLevel != TradeAuthorizer.BlockLevel.HARD && (r.contains("QUALITY_FLOOR") || r.contains("CONFIDENCE") || r.contains("SCORE_FLOOR") ||
+                r.contains("PLAYBOOK_") || r.contains("CORTEX_") || r.contains("PROVEN_LOSING") || r.contains("NO_TRIGGER") ||
+                r.contains("EDGE_7877") || r.contains("FRESH_LAUNCH_") || r.contains("CELL_PROOF") || r.contains("NO_PLAN")) -> Category.ADVISORY
             blockLevel == TradeAuthorizer.BlockLevel.HARD -> Category.HARD_SAFETY
             else -> Category.UNKNOWN_REVIEW
         }

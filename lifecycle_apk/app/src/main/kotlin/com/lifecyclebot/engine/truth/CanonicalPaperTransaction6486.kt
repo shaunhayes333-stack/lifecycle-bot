@@ -17,6 +17,8 @@ object CanonicalPaperTransaction6486 {
     private val syntheticUnit = BigInteger.valueOf(1_000_000_000L)
     private val lastCanonicalHistoryRepair6692Ms = AtomicLong(0L)
     private const val CANONICAL_HISTORY_REPAIR_CADENCE_6692_MS = 60_000L
+    private const val STUCK_REPAIR_BACKOFF_MS_7925 = 30L * 60_000L
+    @Volatile private var lastRepairDivergence7925 = Double.NaN
 
     /** Background startup reconciliation. Scalars move only after durable
      * journal and canonical raw lots agree exactly. */
@@ -29,10 +31,17 @@ object CanonicalPaperTransaction6486 {
         val nowRepair6692 = System.currentTimeMillis()
         val divergence6692 = kotlin.math.abs(JournalEconomicReplay6619.latestLedgerDivergenceSol())
         val lastRepair6692 = lastCanonicalHistoryRepair6692Ms.get()
-        if ((lastRepair6692 == 0L || divergence6692 > 0.001) &&
+        // V5.0.7925 — a divergence the last repair did not move is not repaired again
+        // every minute: 5.0.7914 re-ran it on a stuck 0.0077 SOL drift and re-stamped
+        // the same events (PAPER_ATOMIC_COMMIT_LEDGER_DUPLICATE_6632=3773 in LIVE).
+        // An unchanged divergence retries every 30 minutes instead.
+        val stuck7925 = lastRepair6692 != 0L && kotlin.math.abs(divergence6692 - lastRepairDivergence7925) < 1e-6 &&
+            nowRepair6692 - lastRepair6692 < STUCK_REPAIR_BACKOFF_MS_7925
+        if ((lastRepair6692 == 0L || divergence6692 > 0.001) && !stuck7925 &&
             nowRepair6692 - lastRepair6692 >= CANONICAL_HISTORY_REPAIR_CADENCE_6692_MS &&
             lastCanonicalHistoryRepair6692Ms.compareAndSet(lastRepair6692, nowRepair6692)
         ) {
+            lastRepairDivergence7925 = divergence6692
             repairCryptoHistory6659()
             if (!awaitJournalBoundary6669("post_canonical_history_reprojection_6692")) return@withLock false
         }

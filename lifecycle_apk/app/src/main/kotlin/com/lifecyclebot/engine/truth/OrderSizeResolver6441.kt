@@ -221,6 +221,17 @@ object OrderSizeResolver6441 {
         // bridge itself, so it passes true here to avoid double-counting.
         bridgeAlreadyApplied6992: Boolean = false,
         liquidityUsd6992: Double = Double.NaN,
+        // V5.0.7925 — the request already passed through this resolver upstream
+        // (a specialist trader's CanonicalSizingBridge6532 resolve) and is being
+        // re-resolved by FinalDecisionGate. Its shaping multipliers (SSI, lab
+        // reproof, inventory pressure, lane redistribution, EXPRESS admission,
+        // contributor merge, Field Manual probe) were applied the first time;
+        // applying them again squared every one (MOONSHOT 0.67 -> 0.45, pressure
+        // 0.5 -> 0.25). Caps, floors and the minimum still apply.
+        alreadyShaped7925: Boolean = false,
+        // V5.0.7925 — ColdStreakDamper already ran upstream (SmartSizer on the generic
+        // path, the trader's own resolve on specialist paths); count it once.
+        streakAlreadyApplied7925: Boolean = false,
     ): Resolution {
         totalResolves.incrementAndGet()
 
@@ -298,7 +309,7 @@ object OrderSizeResolver6441 {
         val laneRedistMult6833 = try {
             com.lifecyclebot.engine.truth.RuntimeTune6833.laneCapacityMultiplier(laneName)
         } catch (_: Throwable) { 1.0 }
-        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * pressureMult6830 * laneRedistMult6833).coerceIn(0.20, 2.50)
+        val adaptiveMult6684 = if (alreadyShaped7925) 1.0 else (ssiMult6684 * labMult6684 * pressureMult6830 * laneRedistMult6833).coerceIn(0.20, 2.50)
         // V5.0.6833 §EXPRESS_ADMISSION_BLEED — operator directive Feb 2026:
         //   "liveP<0.30 => PROBE_ONLY; expectedPnl<0 AND liveP<0.30 => NO_BUY;
         //    raw score MUST NOT override strongly negative learned edge."
@@ -307,7 +318,7 @@ object OrderSizeResolver6441 {
         // lanes carry a 1.0 admission multiplier and are unaffected.
         val expressAdmissionMult6833 = try {
             val laneKey = laneName.trim().uppercase()
-            if (laneKey == "EXPRESS") {
+            if (laneKey == "EXPRESS" && !alreadyShaped7925) {
                 val snap = com.lifecyclebot.engine.LiveProbabilityEngine
                     .laneSnapshots().firstOrNull { it.lane == "EXPRESS" }
                 if (snap != null && snap.sample >= 20) {
@@ -331,7 +342,7 @@ object OrderSizeResolver6441 {
         // runner ladder so subsequent hard caps (risk/cash/lane/ladder) can
         // still clip it — the merge cannot break sealed authority.
         val contribMult6612 = try {
-            if (mint.isNotBlank())
+            if (mint.isNotBlank() && !alreadyShaped7925)
                 com.lifecyclebot.engine.truth.SpecialistContributorMerge6612
                     .boundedSizeMultiplier6612(mint)
             else 1.0
@@ -367,7 +378,7 @@ object OrderSizeResolver6441 {
             FieldManual7715.riskCapSol(laneName, paperMode, authoritativeCash)
         } catch (_: Throwable) { Double.POSITIVE_INFINITY }
         val probeMult7715 = try {
-            if (mint.isNotBlank()) FieldManual7715.probeSizeMultiplier(mint) else 1.0
+            if (mint.isNotBlank() && !alreadyShaped7925) FieldManual7715.probeSizeMultiplier(mint) else 1.0
         } catch (_: Throwable) { 1.0 }
         val cashClamped1 = (cashClamped0 * probeMult7715).coerceAtMost(manualCap7715)
         if (cashClamped1 < cashClamped0 - 1e-9) {
@@ -651,10 +662,10 @@ object OrderSizeResolver6441 {
             // The Executor.doBuy path (bridgeAlreadyApplied6992) already ran
             // SmartSizer, which applies ColdStreakDamper; applying it here too
             // squared the streak penalty (0.75 → 0.56, 0.50 → 0.25).
-            val streakMult6992 = if (bridgeAlreadyApplied6992) 1.0 else try {
+            val streakMult6992 = if (bridgeAlreadyApplied6992 || alreadyShaped7925 || streakAlreadyApplied7925) 1.0 else try {
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.sizeMultiplier(laneName, paperMode)
             } catch (_: Throwable) { 1.0 }
-            val bridgeMult6992 = if (bridgeAlreadyApplied6992 || paperMode) 1.0 else try {
+            val bridgeMult6992 = if (bridgeAlreadyApplied6992 || alreadyShaped7925 || paperMode) 1.0 else try {
                 val sig = com.lifecyclebot.engine.PaperLiveIntelligenceBridge.liveSizeMultiplier(laneName)
                 PaperSeededPrior6991.assess(
                     paperValue = sig.multiplier,

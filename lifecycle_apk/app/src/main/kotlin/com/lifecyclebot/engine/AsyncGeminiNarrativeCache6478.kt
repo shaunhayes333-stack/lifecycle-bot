@@ -24,6 +24,17 @@ object AsyncGeminiNarrativeCache6478 {
 
 
     /**
+     * V5.0.7925 — cache-only readback for ONE token (symbol AND name). Pump.fun
+     * tickers collide ("bird"), so a symbol-only read could hand one token's
+     * analysis to another; the Cortex LLM voters read this.
+     */
+    fun peekExact7925(symbol: String, name: String): Entry? {
+        if (symbol.isBlank()) return null
+        val e = cache[key(symbol, name.ifBlank { symbol })] ?: return null
+        return e.takeIf { System.currentTimeMillis() - it.updatedAtMs <= TTL_MS }
+    }
+
+    /**
      * V5.0.7654 - cache-only LLM council readback for Super reasoning.
      * This deliberately does NOT schedule a refresh or call a provider.
      */

@@ -62,6 +62,7 @@ object FreshLaunchSelector7737 {
     private const val QUICK_TAKE_SECOND_PCT_7737 = 100.0
     private const val LEARNED_MIN_N_7737 = 20
     private const val OVERTURN_MIN_N_7737 = 30
+    private const val EARLY_OVERTURN_N_7925 = 15
     private const val HORIZON_MS_7737 = 60L * 60_000L
     private const val LOST_GRACE_MS_7737 = 10L * 60_000L
     private const val MARK_MAX_GAP_MS_7737 = 120_000L
@@ -159,6 +160,10 @@ object FreshLaunchSelector7737 {
 
     fun concentrationBucket(largestBuyerPct: Double, buyers: Int): String = when {
         buyers <= 0 -> "CONC_NA"
+        // V5.0.7925 — one crowd buyer is 100% of the crowd by arithmetic: that is a
+        // launch seconds old, not a one-wallet pump (5.0.7914: 63 refusals while the
+        // selector's own best cell, PRE_IGNITION|FLOW_OK|CONC_ONE, ran ev15 +26%).
+        buyers == 1 -> "CONC_EARLY"
         largestBuyerPct >= 60.0 && buyers < 4 -> "CONC_ONE"
         largestBuyerPct >= 40.0 -> "CONC_HIGH"
         else -> "CONC_BROAD"
@@ -217,7 +222,11 @@ object FreshLaunchSelector7737 {
     }
 
     /** Pure: does a measured cell overturn a structural refusal? */
-    fun cellOverturns(c: Cell?): Boolean = c != null && c.n >= OVERTURN_MIN_N_7737 && c.tpRate >= 0.30 && c.tpFirst > c.stopFirst
+    fun cellOverturns(c: Cell?): Boolean = c != null && (
+        (c.n >= OVERTURN_MIN_N_7737 && c.tpRate >= 0.30 && c.tpFirst > c.stopFirst) ||
+            // V5.0.7925 — a cell running take-profit-first at twice its stops overturns sooner.
+            (c.n >= EARLY_OVERTURN_N_7925 && c.tpRate >= 0.40 && c.tpFirst >= 2 * c.stopFirst)
+        )
 
     /** Pure: does a measured cell refuse its setup? */
     fun cellRefuses(c: Cell?): Boolean = c != null && c.n >= LEARNED_MIN_N_7737 && c.stopRate >= 0.45 && c.stopFirst >= 1.5 * c.tpFirst

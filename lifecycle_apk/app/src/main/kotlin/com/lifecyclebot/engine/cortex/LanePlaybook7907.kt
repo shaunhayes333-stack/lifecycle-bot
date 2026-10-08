@@ -273,13 +273,27 @@ object LanePlaybook7907 {
             com.lifecyclebot.engine.OperatorRegistry.getDevWallet(ts.mint)?.let { com.lifecyclebot.network.HeliusCreatorHistory.peek7895(it) }
         } catch (_: Throwable) { null }
         val narrative = try { com.lifecyclebot.v4.meta.NarrativeFlowAI.getNarrativeForSymbol(ts.symbol) } catch (_: Throwable) { null }
+        // V5.0.7925 — a default is not a reading. Buy pressure sits at its 50/50
+        // default until a tape or DexScreener writes it; price changes sit at 0 and
+        // peak/drawdown/run-up read 1.0/0/0 on a one-point history. Those defaults
+        // satisfied setups (e.g. VOLUME_CONTINUATION on a token with no data), so a
+        // candidate with no evidence escaped the NO_TRIGGER refusal. Unobserved = NaN.
+        val shapeKnown = ts.history.size >= 3
+        val bpRaw = s?.buyPressurePct ?: ts.lastBuyPressurePct
+        val bpKnown = !(bpRaw == 50.0 && ts.lastSellPressurePct == 50.0)
+        val chgKnown = ts.history.size >= 2 || ts.lastPriceChange5m != 0.0 || ts.lastPriceChange1h != 0.0
         return F(
-            age = nn(s?.ageMin), runup = nn(s?.runupFromLocalLowPct), pxPeak = pos(s?.currentVsPeak), dd = nn(s?.drawdownFromPeakPct),
-            bp = nn(s?.buyPressurePct ?: ts.lastBuyPressurePct), liq = pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
-            top = nn(s?.topHolderPct), chg5m = ts.lastPriceChange5m.takeIf { it.isFinite() } ?: Double.NaN,
-            chg1h = ts.lastPriceChange1h.takeIf { it.isFinite() } ?: Double.NaN,
+            age = nn(s?.ageMin),
+            runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else Double.NaN,
+            pxPeak = if (shapeKnown) pos(s?.currentVsPeak) else Double.NaN,
+            dd = if (shapeKnown) nn(s?.drawdownFromPeakPct) else Double.NaN,
+            bp = if (bpKnown) nn(bpRaw) else Double.NaN, liq = pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
+            top = nn(s?.topHolderPct),
+            chg5m = if (chgKnown) ts.lastPriceChange5m.takeIf { it.isFinite() } ?: Double.NaN else Double.NaN,
+            chg1h = if (chgKnown) ts.lastPriceChange1h.takeIf { it.isFinite() } ?: Double.NaN else Double.NaN,
             holderGrowth = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() } ?: Double.NaN,
-            volAccel = volAcc?.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
+            // V5.0.7925 — 0 is a real reading (flat or falling volume), not "unknown".
+            volAccel = volAcc?.takeIf { it.isFinite() } ?: Double.NaN,
             planSetup = plan.orEmpty(), launchPhase = phase.orEmpty(),
             crowdForming = try {
                 com.lifecyclebot.engine.market.LaunchTape7921.promoted(ts.mint) ||
@@ -311,7 +325,7 @@ object LanePlaybook7907 {
             devRugRate = creator?.takeIf { it.tokensCreated > 0 }?.rugRate ?: Double.NaN,
             devKnownRugger = creator?.isKnownRugger == true,
             holders = ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 }?.toDouble() ?: Double.NaN,
-            insider = try { com.lifecyclebot.v3.scoring.InsiderTrackerAI.getInsiderScore(ts.mint).takeIf { it > 0 }?.toDouble() } catch (_: Throwable) { null } ?: Double.NaN,
+            insider = try { com.lifecyclebot.v3.scoring.InsiderTrackerAI.accumulationScore7925(ts.mint).takeIf { it > 0 }?.toDouble() } catch (_: Throwable) { null } ?: Double.NaN,
             narrativeHeat = narrative?.narrativeHeat ?: Double.NaN,
             narrativeExhaustion = narrative?.themeExhaustion ?: Double.NaN,
             bundleLargest = try {
@@ -420,7 +434,8 @@ object LanePlaybook7907 {
     fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long) {
         val lane = canon(laneRaw)
         val setup = classify(ts, lane, nowMs) ?: return
-        if (pending.size > 8_000) pending.clear()
+        // V5.0.7925 — shed half, not all: clearing dropped every pending label at once.
+        if (pending.size > 8_000) pending.keys.take(pending.size / 2).forEach { pending.remove(it) }
         val fired = matchCache["${ts.mint}|$lane"].orEmpty().filter { it != setup }
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to (if (fired.isEmpty()) setup else setup + ";" + fired.joinToString(","))
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()

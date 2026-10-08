@@ -803,6 +803,34 @@ object InsiderTrackerAI {
             it.isRecent 
         }
     
+    /**
+     * V5.0.7925 — insider BUYING only: accumulation, pre-tweet and front-run signals,
+     * and 0 when any recent signal on the mint is a sale (DISTRIBUTION / TRANSFER_OUT).
+     * getInsiderScore counts every signal type, so an insider selling scored as heat.
+     */
+    fun accumulationScore7925(tokenMint: String): Int {
+        val recent = getSignalsByToken(tokenMint).filter { it.isRecent }
+        if (recent.isEmpty()) return 0
+        if (recent.any { it.signalType.name == "DISTRIBUTION" || it.signalType.name == "TRANSFER_OUT" }) return 0
+        var score = 0
+        for (signal in recent) {
+            val typeScore = when (signal.signalType) {
+                InsiderSignalType.PRE_TWEET -> 25
+                InsiderSignalType.ACCUMULATION -> 15
+                InsiderSignalType.FRONT_RUN -> 20
+                else -> 0
+            }
+            if (typeScore == 0) continue
+            score += typeScore + when (signal.wallet.riskLevel) {
+                RiskLevel.ALPHA -> 30
+                RiskLevel.HIGH -> 20
+                RiskLevel.MEDIUM -> 10
+                RiskLevel.LOW -> 5
+            } + (if (signal.isFresh) 10 else 0)
+        }
+        return score.coerceIn(0, 100)
+    }
+
     fun getInsiderScore(tokenMint: String): Int {
         val signals = getSignalsByToken(tokenMint)
         if (signals.isEmpty()) return 0

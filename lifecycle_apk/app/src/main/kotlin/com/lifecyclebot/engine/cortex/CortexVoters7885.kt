@@ -401,7 +401,7 @@ object CortexVoters7885 {
         try { com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, now) } catch (_: Throwable) { null }
 
     private fun llmNarrative(ts: TokenState) =
-        try { com.lifecyclebot.engine.AsyncGeminiNarrativeCache6478.peekBySymbol7654(ts.symbol) } catch (_: Throwable) { null }
+        try { com.lifecyclebot.engine.AsyncGeminiNarrativeCache6478.peekExact7925(ts.symbol, ts.name) } catch (_: Throwable) { null }
 
     private val V3_MODULE_EDGES = e(-10.0, -3.0, 0.0, 3.0, 10.0)
 

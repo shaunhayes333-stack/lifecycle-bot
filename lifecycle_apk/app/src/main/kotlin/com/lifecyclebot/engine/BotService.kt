@@ -13291,7 +13291,7 @@ class BotService : Service() {
                                 // -10/-12/-13 inside the band their lane holds through.
                                 // MANIPULATED/SHITCOIN/EXPRESS keep their one-strike -10.
                                 val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
-                                if ((moonshotLaneStop7389 || (pnlPctNow <= tickFloor7887(ts) && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) &&
+                                if ((moonshotLaneStop7389 || runnerEarlyCut7277 || (pnlPctNow <= tickFloor7887(ts) && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerFloor7330 || genericTwoStrike7369))) &&
                                     !planOwnsExit7754(ts, true, catastrophicConfirmed4485, "TICK_FLOOR", stopSide = true)) {
                                     if (moonshotLaneStop7389) try { PipelineHealthCollector.labelInc("TICK_MOONSHOT_LANE_STOP_7389") } catch (_: Throwable) {}
                                     ErrorLogger.warn("BotService",
@@ -14854,7 +14854,9 @@ class BotService : Service() {
         val metricFit = try { TokenMetricStageRouter.laneFit(ts, l) } catch (_: Throwable) { TokenMetricStageRouter.LaneFit(true, l, TokenMetricStageRouter.Stage.UNKNOWN, "fit_error") }
         if (RuntimeModeAuthority.isLive() && !metricFit.allowed) {
             try {
-                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} ${metricFit.reason}")
+                // V5.0.7925 — one forensic row per (mint, lane, stage), not per cycle (32,549 rows in 8 min).
+                if (ForensicEmitRateLimiter6356.shouldEmit("STAGE_SOFT_MISMATCH_4162", "${ts.mint}|$l|${metricFit.stage.name}"))
+                    ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} ${metricFit.reason}")
                 PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_${metricFit.stage.name}")
             } catch (_: Throwable) {}
             // V5.0.4162 — stage mismatch is not a lane veto. Runtime showed
@@ -25180,6 +25182,11 @@ if (hotExitHandledSweep) {
     /** V5.0.7921 — LaunchTape7921 promotion: re-admit if needed, then evaluate now. */
     private fun promoteHotLaunch7921(mint: String, symbol: String, name: String, streamGeneration: Long) {
         if (mint.isBlank() || !status.running) return
+        // V5.0.7925 — off the tape thread (config load + intake are not socket work).
+        scope.launch(Dispatchers.IO) { promoteHotLaunchNow7921(mint, symbol, name, streamGeneration) }
+    }
+
+    private fun promoteHotLaunchNow7921(mint: String, symbol: String, name: String, streamGeneration: Long) {
         try {
             val cfg = ConfigStore.load(applicationContext)
             if (!status.tokens.containsKey(mint)) {
@@ -25208,10 +25215,15 @@ if (hotExitHandledSweep) {
                 return@launch
             }
             val t0 = System.currentTimeMillis()
+            // V5.0.7925 — the permit is not held through the 1.5 s pause between
+            // passes (it caused FAST_LANE_SATURATED); the second pass re-acquires.
+            var held7925 = true
             try {
                 PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277")
                 PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277_$origin")
                 processTokenCycle(mint, cfg, wallet, t0)
+                fastLaneSemaphore7277.release()
+                held7925 = false
                 delay(1_500L)
                 // V5.0.7278 — the second pass is for a token the first pass could
                 // only hydrate; when the first pass already opened it, a second
@@ -25219,7 +25231,10 @@ if (hotExitHandledSweep) {
                 val alreadyOpen7278 = try {
                     com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint) != null
                 } catch (_: Throwable) { false }
-                if (status.running && !alreadyOpen7278) processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())
+                if (status.running && !alreadyOpen7278 && fastLaneSemaphore7277.tryAcquire()) {
+                    held7925 = true
+                    processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())
+                }
                 val ms = System.currentTimeMillis() - t0
                 ForensicLogger.lifecycle(
                     "FAST_LANE_EVALUATED_7277",
@@ -25229,7 +25244,7 @@ if (hotExitHandledSweep) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 ErrorLogger.debug("BotService", "fast lane ${mint.take(8)}: ${t.message?.take(100)}")
             } finally {
-                fastLaneSemaphore7277.release()
+                if (held7925) fastLaneSemaphore7277.release()
                 scope.launch(Dispatchers.IO) { delay(60_000L); fastLaneOnce7277.remove(mint) }
             }
         }
@@ -27969,7 +27984,6 @@ if (hotExitHandledSweep) {
                             val _trsExpectancyReject = try {
                                 com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("TREASURY", _trsScore)
                             } catch (_: Throwable) { false }
-                            val _trsExpectancyMult = if (_trsExpectancyReject) 0.25 else 1.0
                             // V5.9.1257 — calibration-aware shrink (net-negative band).
                             val _trsCalMult = try {
                                 com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("TREASURY", _trsScore)
@@ -28008,7 +28022,7 @@ if (hotExitHandledSweep) {
                                     PipelineHealthCollector.labelInc("TREASURY_BRAIN_VERDICT_5999_${brainVerdict.category}")
                                 } catch (_: Throwable) {}
                             }
-                            val adjustedSize = (treasurySignal6022.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult * brainVerdict.sizeMultiplier).coerceAtLeast(treasuryMinSize)
+                            val adjustedSize = (treasurySignal6022.positionSizeSol * bootstrapMultiplier * dangerSizeMult * brainVerdict.sizeMultiplier).coerceAtLeast(treasuryMinSize)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
@@ -29071,12 +29085,9 @@ if (hotExitHandledSweep) {
 
                                 // Resolve and seal the exact Moonshot size before
                                 // authorization; downstream execution reuses it.
-                                val _msCalMult = try {
-                                    com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("MOONSHOT", moonshotScore.score)
-                                } catch (_: Throwable) { 1.0 }
                                 val legacyMoonshotSize = ((if (fdgReducedSize)
                                     (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
-                                else moonshotScore.suggestedSizeSol) * _msCalMult).coerceAtLeast(0.01)
+                                else moonshotScore.suggestedSizeSol)).coerceAtLeast(0.01)
                                 // V5.0.7335 — in PAPER a non-structural FDG refusal also
                                 // carries sizeSol=0, so the V5.9.691 half-size probe went
                                 // out as a 0 SOL order (MOONSHOT sizedExecutable=2 ticket=0
@@ -29626,11 +29637,7 @@ if (hotExitHandledSweep) {
                             val bootstrapMultiplier = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier() else 1.0
                             // V5.9.619 — apply MemeEdgeAI size multiplier (bounded 0.70..1.40).
                             val edgeSizeMult = shitCoinEdge.sizeMultiplier
-                            // V5.9.1257 — calibration-aware shrink (net-negative band).
-                            val _shitCalMult = try {
-                                com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("SHITCOIN", shitCoinSignal.entryScore)
-                            } catch (_: Throwable) { 1.0 }
-                            var adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * _shitCalMult * strategyDistrustSizeMult4230).coerceAtLeast(0.01)
+                            var adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * strategyDistrustSizeMult4230).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             val shitcoinEffectiveTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct
