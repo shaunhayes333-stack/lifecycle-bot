@@ -965,6 +965,21 @@ object FinalDecisionGate {
      * the Cortex reads it STRONG on a lane whose STRONG record is proven
      * (Cortex7885.paperChoice). Hard, mode and size blocks are never touched.
      */
+    /** V5.0.7308 — carry the admission score to the executor's pre-lease floor (moved out of evaluate in 7932). */
+    private fun recordLaneAdmission7932(ts: TokenState, lane: String, score: Double, exploration: Boolean) {
+        try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(ts.mint, lane, score, exploration = exploration) } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7932 — the generic V3 score floor is a prior; a launch in a cell the
+     * fresh-launch ladder has PROVEN (measured, net of cost) is not refused by it.
+     */
+    private fun ladderProvenAdmit7932(ts: TokenState): Boolean {
+        val proven = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.ladderProven7932(ts)
+        if (proven) try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_OVERRULED_BY_LADDER_7932") } catch (_: Throwable) {}
+        return proven
+    }
+
     private fun cortexPaperChoice7915(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -1306,13 +1321,7 @@ object FinalDecisionGate {
         }
         // V5.0.7308 — carry the admission score to the executor so its
         // pre-lease floor judges the trade on the score FDG admitted it on.
-        if (!config.paperMode && laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) {
-            try {
-                com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(
-                    ts.mint, floorLane7266, laneEvidenceScore7243, exploration = exploration7308,
-                )
-            } catch (_: Throwable) {}
-        }
+        if (!config.paperMode && laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) recordLaneAdmission7932(ts, floorLane7266, laneEvidenceScore7243, exploration7308)
         val effectiveEntryScore7292 = if (laneOwnScoreAdmitted7292) laneEvidenceScore7243 else canonicalV3Score7243
         if (laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) {
             try {
@@ -1330,7 +1339,7 @@ object FinalDecisionGate {
         val weakWaitPromotion7243 =
             !laneOwnScoreAdmitted7292 &&
                 baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && effectiveEntryScore7292 < waitFloor7266
-        if (belowCanonicalFloor7243 || weakWaitPromotion7243) {
+        if ((belowCanonicalFloor7243 || weakWaitPromotion7243) && !ladderProvenAdmit7932(ts)) {
             val reason7243 = if (belowCanonicalFloor7243) {
                 "CANONICAL_V3_SCORE_FLOOR_7243"
             } else {

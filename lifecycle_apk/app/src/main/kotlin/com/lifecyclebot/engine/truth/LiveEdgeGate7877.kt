@@ -150,6 +150,9 @@ object LiveEdgeGate7877 {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         try { TradeShapeLearner7883.shapeRefusal(ts, l) }
             catch (_: Throwable) { null }?.let { return Verdict(false, Source.CELL, 0.0, it) }
+        // V5.0.7932 — a launch the ladder has proven is judged on the ladder (the trade
+        // the plan will actually run), not on 60-minute hold cohorts.
+        if (FreshLaunchSelector7737.ladderProven7932(ts, nowMs)) return Verdict(true, Source.CELL, 0.0, "LAUNCH_LADDER_PROVEN_7932")
         val cell = try { ForwardReturnLabeler7731.cellStatFor(ts, l, nowMs) } catch (_: Throwable) { null }
         val laneProven = try {
             LivePivotAuthority7876.laneVerdict(l, nowMs) == LivePivotAuthority7876.Evidence.PROVEN

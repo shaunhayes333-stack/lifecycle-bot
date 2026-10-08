@@ -412,6 +412,18 @@ object FreshLaunchSelector7737 {
      * bars: not fresh, refused on a structural crash shape its cell has not
      * overturned, or the -15% ladder's verdict for its setup.
      */
+    /**
+     * V5.0.7932 — is this launch in a cell the selector's own ladder (+50 / -15 in
+     * 15 min, net of the round trip at this liquidity) has PROVEN? That is the only
+     * measured positive edge in the book (5.0.7930: PRE_IGNITION|FLOW_OK|CONC_ONE
+     * n15=27 ev15 +21.1%, EXPANDING|FLOW_NONE n15=30 +21.8%), and it was being
+     * refused by 60-minute hold cohorts and the generic V3 score floor, which
+     * measure a different trade (no ladder exit).
+     */
+    fun ladderProven7932(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        launchRead7742(ts, FieldManual7715.allInCostPct(10.0, ts.lastLiquidityUsd), nowMs).verdict == LaunchVerdict.PROVEN
+    } catch (_: Throwable) { false }
+
     fun launchRead7742(ts: TokenState, costPct: Double, nowMs: Long = System.currentTimeMillis()): LaunchRead {
         val s = setupFor(ts, nowMs) ?: return LaunchRead(LaunchVerdict.NOT_FRESH, "", "NOT_FRESH")
         val c = cellSnapshot(s.key)
