@@ -187,7 +187,8 @@ object Cortex7885 {
 
     private fun lastSlot(ts: TokenState): Boolean = try {
         val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-        val routeMin = if (solUsd.isFinite() && solUsd > 0.0) ROUTE_MIN_USD / solUsd else ROUTE_MIN_FALLBACK_SOL
+        val routeMin = com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(ROUTE_MIN_USD, solUsd)
+            .takeIf { it.isFinite() && it > 0.0 } ?: ROUTE_MIN_FALLBACK_SOL
         val free = com.lifecyclebot.engine.WalletCapacitySeal7868.freeCashFor(ts.mint, com.lifecyclebot.engine.BotService.status.walletSol)
         free.isFinite() && free >= routeMin && free < 2.0 * routeMin
     } catch (_: Throwable) { false }
