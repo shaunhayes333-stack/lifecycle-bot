@@ -511,8 +511,12 @@ object StrategyHypothesisEngine {
     }
 
     /** Exact position-bound learning proof. Absence is not a successful training outcome. */
-    fun hasPositionBinding7877(positionId: String): Boolean =
-        positionId.isNotBlank() && pendingByPosition7428.containsKey(positionId)
+    fun hasPositionBinding7877(positionId: String): Boolean {
+        if (positionId.isBlank()) return false
+        val binding = pendingByPosition7428[positionId] ?: return false
+        // An arm whose persisted context was lost cannot safely receive reward.
+        return active.containsKey(binding.context)
+    }
 
     /** Settle only the hypothesis/variant that was bound to this position. */
     /**
@@ -539,8 +543,13 @@ object StrategyHypothesisEngine {
             taken7876 = applied
             val h = active[applied.context]
             if (h == null) {
+                // A restored position without its exact experiment context is
+                // untrainable. Keep its binding available for a bounded bus retry
+                // instead of ACKing a reward that was never applied.
+                settledPositions7428.remove(positionId)
+                pendingByPosition7428.putIfAbsent(positionId, applied)
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_CONTEXT_MISSING_7428")
-                return true
+                return false
             }
             val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
             outcomeUpdates6512 += 1L
