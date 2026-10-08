@@ -359,20 +359,25 @@ object LaneExecutionCoordinator {
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
         val mapKey = mapKey(key)
         val now = System.currentTimeMillis()
-        val old = elections[mapKey]
-        if (old != null && now - old.createdAtMs <= TTL_MS) return old
-        val authorityVersion6494 = authoritySeq6494.incrementAndGet()
-        val e = Election(
-            key = key,
-            primaryLane = primary,
-            secondaryTelemetryLane = secondary,
-            createdAtMs = now,
-            electionId = "${runtimeGeneration}:${candidateVersion}:$authorityVersion6494",
-            authorityVersion = authorityVersion6494,
-        )
-        elections[mapKey] = e
+        // The earlier get/put pair let two specialist threads each observe
+        // "no election" and independently publish different primary owners.
+        // A mint/version/generation election is now atomic.
+        val winner = elections.compute(mapKey) { _, old ->
+            if (old != null && now - old.createdAtMs <= TTL_MS) old
+            else {
+                val authorityVersion6494 = authoritySeq6494.incrementAndGet()
+                Election(
+                    key = key,
+                    primaryLane = primary,
+                    secondaryTelemetryLane = secondary,
+                    createdAtMs = now,
+                    electionId = "${runtimeGeneration}:${candidateVersion}:$authorityVersion6494",
+                    authorityVersion = authorityVersion6494,
+                )
+            }
+        } ?: error("election compute returned no owner")
         prune(now)
-        return e
+        return winner
     }
 
     fun currentElection6600(
@@ -612,23 +617,29 @@ object LaneExecutionCoordinator {
             )
         }
 
-        val allowed = e.primaryLane == laneUpper
-        val finalElection6494 = if (allowed && !e.sealed) {
-            recordPrimaryWin(e.primaryLane)
-            try {
-                PipelineHealthCollector.labelInc("LANE_PRIMARY_FAIR_WIN_RECORDED_7620")
-                PipelineHealthCollector.labelInc("LANE_PRIMARY_FAIR_WIN_RECORDED_7620_" + e.primaryLane)
-            } catch (_: Throwable) {}
-            e.copy(sealed = true).also { elections[mapKey] = it }
-        } else e
+        // Seal only if the election still matches the instance we examined.
+        // A superseded/released election cannot be resurrected by a late caller.
+        if (e.primaryLane == laneUpper && !e.sealed) {
+            val sealed = e.copy(sealed = true)
+            if (elections.replace(mapKey, e, sealed)) {
+                recordPrimaryWin(e.primaryLane)
+                try {
+                    PipelineHealthCollector.labelInc("LANE_PRIMARY_FAIR_WIN_RECORDED_7620")
+                    PipelineHealthCollector.labelInc("LANE_PRIMARY_FAIR_WIN_RECORDED_7620_" + e.primaryLane)
+                } catch (_: Throwable) {}
+            }
+        }
+        val finalElection6494 = elections[mapKey]
+        val allowed = finalElection6494?.primaryLane == laneUpper &&
+            finalElection6494.key == key && finalElection6494.sealed
         if (!allowed) duplicateOpenSuppressed.incrementAndGet()
         return Verdict(
             allowed = allowed,
-            reason = if (allowed) "LANE_PRIMARY_ELECTED" else "LANE_TELEMETRY_ONLY primary=${finalElection6494.primaryLane}",
-            primaryLane = finalElection6494.primaryLane,
-            candidateVersion = finalElection6494.key.candidateVersion,
-            electionId = finalElection6494.electionId,
-            authorityVersion = finalElection6494.authorityVersion,
+            reason = if (allowed) "LANE_PRIMARY_ELECTED" else "LANE_TELEMETRY_ONLY primary=${finalElection6494?.primaryLane ?: "NONE"}",
+            primaryLane = finalElection6494?.primaryLane ?: "",
+            candidateVersion = finalElection6494?.key?.candidateVersion ?: candidateVersion,
+            electionId = finalElection6494?.electionId ?: "",
+            authorityVersion = finalElection6494?.authorityVersion ?: 0L,
         )
     }
 
