@@ -456,7 +456,10 @@ object StrategyHypothesisEngine {
         mode7863: String = LearningEnvironment7835.mode(),
     ): String {
         if (positionId.isBlank() || mint.isBlank()) return ""
-        return try {
+        // Two callers may bind the same position concurrently. The decision
+        // remove and position bind must be one critical section; otherwise the
+        // second caller can observe neither map and record a false missing bind.
+        return synchronized(pendingByPosition7428) { try {
             // V5.0.7809 — Field Manual L356. Two production callers bind the same
             // canonical open: AateDecisionFabric6512.attachPosition (inside
             // CanonicalPositionAuthority6441.openPosition) and then Executor's
@@ -487,7 +490,7 @@ object StrategyHypothesisEngine {
                 }
                 applied.strategyVariantId
             }
-        } catch (_: Throwable) { "" }
+        } catch (_: Throwable) { "" } }
     }
 
     /**
