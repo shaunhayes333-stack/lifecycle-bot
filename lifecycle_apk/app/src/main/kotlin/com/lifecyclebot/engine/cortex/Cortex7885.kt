@@ -68,6 +68,8 @@ object Cortex7885 {
         return if (c.isBlank()) lane.trim().uppercase() else c
     }
 
+    private fun credits7888(): Double = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.creditsToday7888() } catch (_: Throwable) { 0.0 }
+
     private fun fmtStat(s: CortexLedger7885.Stat): String = if (s.n < 1.0) "-" else "n${s.n.toInt()}/${"%+.1f".format(s.mean())}%"
 
     private fun isRunner(lane: String): Boolean =
@@ -278,6 +280,7 @@ object Cortex7885 {
             }
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
+                "      data economy (§B.6): creditsToday=${"%.0f".format(credits7888())} perAssessedDecision=${if (n > 0) "%.1f".format(credits7888() / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits7888() / graded.get()) else "-"}\n" +
                 "      stop authority (§7887): ${try { StopAuthority7887.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
                 "      seated (authority): ${seated.take(12).joinToString(" · ") { (k, s, a) -> "$k a=${"%.2f".format(a)} skill=${"%.1f".format(s.skill() * 100)}% n=${s.scored}" }.ifBlank { "none yet — a seat needs ${CortexLedger7885.MIN_SCORED} graded predictions beating the lane mean out-of-sample" }}\n" +

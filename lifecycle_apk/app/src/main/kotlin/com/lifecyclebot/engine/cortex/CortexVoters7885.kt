@@ -142,6 +142,22 @@ object CortexVoters7885 {
         Voter("CHANGE_1H", "MARKET", e(-20.0, -5.0, 5.0, 30.0, 100.0), setOf("price_action")) { ts, _, _ -> fin(ts.lastPriceChange1h) },
         Voter("LIQUIDITY_USD", "MARKET", e(3_000.0, 10_000.0, 50_000.0, 250_000.0), setOf("liquidity")) { ts, _, _ -> pos(ts.lastLiquidityUsd) },
         Voter("MARKET_CAP_USD", "MARKET", e(10_000.0, 50_000.0, 250_000.0, 1_000_000.0, 5_000_000.0), setOf("mcap")) { ts, _, _ -> pos(ts.lastMcap) },
+        // ── V5.0.7888 timing / tokenomics (the trade-shape features, as votes) ──
+        Voter("AGE_MIN", "TIMING", e(3.0, 15.0, 60.0, 240.0, 1_440.0), setOf("timing_age")) { ts, _, now ->
+            stage(ts, now)?.ageMin?.takeIf { it >= 0.0 && it.isFinite() }
+        },
+        Voter("RUNUP_PCT", "TIMING", e(25.0, 70.0, 150.0, 400.0), setOf("timing_runup")) { ts, _, now ->
+            stage(ts, now)?.runupFromLocalLowPct?.takeIf { it >= 0.0 && it.isFinite() }
+        },
+        Voter("PEAK_POSITION", "TIMING", e(0.5, 0.7, 0.88), setOf("timing_peak")) { ts, _, now ->
+            stage(ts, now)?.currentVsPeak?.takeIf { it > 0.0 && it.isFinite() }
+        },
+        Voter("DRAWDOWN_PCT", "TIMING", e(10.0, 25.0, 50.0), setOf("timing_peak")) { ts, _, now ->
+            stage(ts, now)?.drawdownFromPeakPct?.takeIf { it >= 0.0 && it.isFinite() }
+        },
+        Voter("MCAP_TO_LIQ", "TOKENOMICS", e(3.0, 8.0, 25.0, 85.0), setOf("valuation")) { ts, _, now ->
+            stage(ts, now)?.takeIf { it.liquidityUsd > 0.0 && it.marketCapUsd > 0.0 }?.mcapToLiq?.takeIf { it.isFinite() }
+        },
         Voter("SENTIMENT", "MARKET", e(-0.3, -0.05, 0.05, 0.3), setOf("sentiment")) { ts, _, _ ->
             ts.sentiment.takeIf { it.confidence > 0.0 }?.score?.let { fin(it) }
         },
@@ -149,6 +165,16 @@ object CortexVoters7885 {
 
     val IDS: List<String> = ALL.map { it.id }
     val EDGES: List<DoubleArray> = ALL.map { it.edges }
+
+    // One stage snapshot per (mint, read time) — five timing voters share it.
+    @Volatile private var stageMemo: Triple<String, Long, com.lifecyclebot.engine.TokenMetricStageRouter.Snapshot>? = null
+
+    private fun stage(ts: TokenState, now: Long): com.lifecyclebot.engine.TokenMetricStageRouter.Snapshot? {
+        stageMemo?.let { (m, t, snap) -> if (m == ts.mint && t == now) return snap }
+        val snap = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { return null }
+        stageMemo = Triple(ts.mint, now, snap)
+        return snap
+    }
 
     private fun regime(): String = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
 

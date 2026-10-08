@@ -150,6 +150,12 @@ object HeliusCreditEconomy7881 {
         }
     }
 
+    /** V5.0.7888 — credits metered so far this UTC day (Cortex scoreboard: credits per decision). */
+    fun creditsToday7888(nowMs: Long = System.currentTimeMillis()): Double {
+        rollIfNewDay(nowMs)
+        return synchronized(this) { total }
+    }
+
     /** Metered call, from HeliusCreditMeterInterceptor7881. Never refuses. */
     fun meter(host: String, path: String, methods: List<String>, nowMs: Long = System.currentTimeMillis()) {
         try {
