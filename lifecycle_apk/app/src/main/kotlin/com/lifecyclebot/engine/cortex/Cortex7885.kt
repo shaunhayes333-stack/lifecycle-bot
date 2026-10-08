@@ -47,7 +47,7 @@ object Cortex7885 {
         val atMs: Long,
     )
 
-    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long)
+    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null)
 
     private val ledger = CortexLedger7885()
     private val board = CortexScoreboard7885()
@@ -99,12 +99,13 @@ object Cortex7885 {
     }
 
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
-    fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis()) {
+    fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
         val a = assess(ts, labelLane, nowMs) ?: return
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs)
+        val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto)
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
     }
 
@@ -119,10 +120,29 @@ object Cortex7885 {
         synchronized(this) {
             ledger.grade(p.a.lane, CortexVoters7885.IDS, CortexVoters7885.EDGES, p.a.raws, netPct, grossPct)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
+            p.vetoRule?.let { r ->
+                vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
+                    .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+            }
         }
         graded.incrementAndGet()
         if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
     }
+
+    // ── veto audit (Constitution Phase 3): every existing refusal, graded ──
+    //
+    // The stack's scattered vetoes each name a reason; the forward label of the
+    // candidate they refused shows whether that rule refused losers or winners.
+    // A rule whose refused set is PROVEN positive (n >= 40, mean - SE > +2%) is
+    // flagged as refusing winners. Nothing is relaxed automatically: this is the
+    // evidence for moving each veto into the Constitution or retiring it.
+    private val vetoBook = HashMap<String, CortexLedger7885.Stat>()
+
+    /** Pure: a stable rule id from a refusal reason (leading upper-case words, max 4). */
+    fun vetoRuleOf(reason: String): String =
+        reason.trim().split('_', ':', ' ').filter { w -> w.isNotEmpty() && !w.all { it.isDigit() } }
+            .takeWhile { w -> w.all { it.isUpperCase() || it.isDigit() } }
+            .take(4).joinToString("_").ifBlank { "UNNAMED" }
 
     // ── Constitution (refuse-only; every refusal names its rule) ──
 
@@ -246,6 +266,7 @@ object Cortex7885 {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("board")?.let { board.decode(it) }
+                o.optJSONObject("vetoes")?.let { j -> for (k in j.keys()) vetoBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
             } catch (_: Throwable) {}
         }
     }
@@ -253,7 +274,8 @@ object Cortex7885 {
     private fun persist() {
         try {
             val json = synchronized(this) {
-                org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).toString()
+                org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode())
+                    .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } }).toString()
             }
             LearningPersistence.save(PERSIST_KEY, json)
         } catch (_: Throwable) {}
@@ -287,6 +309,12 @@ object Cortex7885 {
                 "      best skill per voter: ${bestByVoter.take(10).joinToString(" · ") { (k, s, _) -> "$k ${"%+.1f".format(s.skill() * 100)}%/n${s.scored}" }.ifBlank { "-" }}\n" +
                 "      voter failures: ${voterFailures.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "0" }}\n" +
                 laneLines.ifBlank { "      lanes: no graded decisions yet" } + "\n" +
+                "      veto audit (refused candidates' forward return): " +
+                vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(12).joinToString(" · ") { (r, st) ->
+                    val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
+                    val flag = if (st.n >= 40.0 && st.mean() - se > 2.0) " REFUSING_WINNERS" else if (st.n >= 40.0 && st.mean() + se < -2.0) " ok" else ""
+                    "$r ${fmtStat(st)}$flag"
+                }.ifBlank { "none yet" } + "\n" +
                 "      realised whole-position outcome by entry verdict: " +
                 board.realized.entries.sortedBy { it.key }.joinToString(" · ") { (k, arr) ->
                     "$k refuse=${fmtStat(arr[0])} neutral=${fmtStat(arr[1])} strong=${fmtStat(arr[2])}"

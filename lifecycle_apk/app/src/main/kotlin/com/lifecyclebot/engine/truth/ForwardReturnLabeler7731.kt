@@ -406,7 +406,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
         try { TradeShapeLearner7883.capture(ts, l, nowMs) } catch (_: Throwable) {}
         // V5.0.7885 — the Cortex snapshot + every voter's opinion at this decision.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.capture(ts, l, admitted, nowMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.capture(ts, l, admitted, nowMs, reason) } catch (_: Throwable) {}
         // V5.0.7737 — a fresh launch is also followed by first touch (+50% / -30%).
         try { FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs) } catch (_: Throwable) {}
         if (lastSeenAt.size > MAX_SEEN_7731) {

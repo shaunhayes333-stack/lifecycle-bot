@@ -85,6 +85,11 @@ class Aate7885CortexTest {
         assertEquals(led.lanes["SHITCOIN"]!!.mean(), back.lanes["SHITCOIN"]!!.mean(), 1e-9)
     }
 
+    @Test fun vetoReasonsMapToStableRuleIds() {
+        assertEquals("EDGE_NO_PREDICTED_EDGE", com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("EDGE_7877_NO_PREDICTED_EDGE_SHITCOIN"))
+        assertEquals("UNNAMED", com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("lowercase reason"))
+    }
+
     @Test fun aPaidFeatureIsBoughtWhileItIsBeingLearned() {
         assertTrue(com.lifecyclebot.engine.cortex.Cortex7885.enrichmentWorth("VOTER_NEVER_GRADED_7885"))
     }
