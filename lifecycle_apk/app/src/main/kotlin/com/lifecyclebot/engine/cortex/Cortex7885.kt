@@ -419,7 +419,7 @@ object Cortex7885 {
             val n = assessed.get()
             val avgMs = if (n > 0) assessNanos.get() / n / 1_000_000.0 else 0.0
             val seats: List<Triple<String, CortexLedger7885.Seat, Double>> = ledger.seats.entries
-                .filter { !it.key.contains('@') }
+                .filter { !it.key.contains('@') && !it.key.endsWith("|${CortexLedger7885.GLOBAL}") }
                 .map { (k, s) -> Triple(k, s, s.authority()) }
             val seated = seats.filter { it.third > 0.0 }.sortedByDescending { it.third }
             val bestByVoter = seats.groupBy { it.first.substringBefore('|') }

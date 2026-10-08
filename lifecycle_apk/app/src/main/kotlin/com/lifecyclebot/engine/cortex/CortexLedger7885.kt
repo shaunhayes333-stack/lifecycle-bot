@@ -23,6 +23,7 @@ class CortexLedger7885 {
     companion object {
         const val SHRINK_K = 20.0
         const val REGIME_K = 30.0
+        const val GLOBAL = "*"
         const val DECAY = 0.998
         const val MIN_SCORED = 60
         const val MIN_SKILL = 0.005
@@ -123,7 +124,11 @@ class CortexLedger7885 {
         val bin = binOf(edges, raw)
         val b = st?.bins?.getOrNull(bin)
         val n = b?.n ?: 0.0
-        var pred = ((b?.sum ?: 0.0) + SHRINK_K * m) / (n + SHRINK_K)
+        // V5.0.7905 — Cortex v10: hierarchical prior (cell -> lane -> global). A
+        // thin lane borrows the voter's cross-lane bin deviation, so what a voter
+        // learned on every lane informs a new one from its first decisions.
+        val prior = m + globalDeviation(voterId, bin, b, lanes[lane])
+        var pred = ((b?.sum ?: 0.0) + SHRINK_K * prior) / (n + SHRINK_K)
         var runner = ((b?.runners ?: 0.0) + SHRINK_K * lr) / (n + SHRINK_K)
         if (regime.isNotBlank()) {
             val rb = seats["$voterId|$lane@$regime"]?.bins?.getOrNull(bin)
@@ -133,6 +138,22 @@ class CortexLedger7885 {
             }
         }
         return Prediction(pred, runner, st?.authority() ?: 0.0, n)
+    }
+
+    /**
+     * Shrunk deviation of [voterId]'s [bin] from the mean of the OTHER lanes
+     * (this lane's own cell is subtracted out, so its evidence is not counted twice).
+     */
+    private fun globalDeviation(voterId: String, bin: Int, laneBin: Stat?, laneStat: Stat?): Double {
+        val g = lanes[GLOBAL] ?: return 0.0
+        val gb = seats["$voterId|$GLOBAL"]?.bins?.getOrNull(bin) ?: return 0.0
+        val n = gb.n - (laneBin?.n ?: 0.0)
+        if (n <= 0.5) return 0.0
+        val sum = gb.sum - (laneBin?.sum ?: 0.0)
+        val gn = g.n - (laneStat?.n ?: 0.0)
+        if (gn <= 0.5) return 0.0
+        val gMean = (g.sum - (laneStat?.sum ?: 0.0)) / gn
+        return (sum - n * gMean) / (n + SHRINK_K)
     }
 
     data class Prediction(val netPct: Double, val runnerRate: Double, val authority: Double, val binN: Double)
@@ -169,6 +190,15 @@ class CortexLedger7885 {
         }
         l.add(y, runner)
         if (regime.isNotBlank()) lane("$lane@$regime").add(y, runner)
+        // V5.0.7905 — the all-lane cell every voter's bins also feed.
+        if (lane != GLOBAL) {
+            for (i in voterIds.indices) {
+                val raw = raws.getOrNull(i) ?: continue
+                if (!raw.isFinite()) continue
+                seat(voterIds[i], GLOBAL, edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner)
+            }
+            lane(GLOBAL).add(y, runner)
+        }
         // Error co-movement between seasoned voters (v1 §2.4): voters that are
         // wrong together are one opinion, not two.
         for (a in residuals.indices) for (b in a + 1 until residuals.size) {
