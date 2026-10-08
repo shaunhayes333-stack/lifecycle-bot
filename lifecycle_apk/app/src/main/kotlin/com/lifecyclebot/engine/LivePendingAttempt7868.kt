@@ -21,6 +21,8 @@ internal object LivePendingAttempt7868 {
         // V5.0.7871 — the entry evidence frozen at broadcast, written as the
         // immutable §6450 snapshot when wallet recovery promotes the reservation.
         val entry7871: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot? = null,
+        // V5.0.7876 — the sealed candidate version, for the hypothesis binding on promotion.
+        val candidateVersion7876: Long = 0L,
     )
 
     private const val TTL_MS = 30L * 60_000L
@@ -32,9 +34,10 @@ internal object LivePendingAttempt7868 {
         lane: String,
         nowMs: Long = System.currentTimeMillis(),
         entry7871: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot? = null,
+        candidateVersion7876: Long = 0L,
     ) {
         if (mint.isBlank() || attemptId.isBlank() || lane.isBlank()) return
-        byMint[mint] = Binding(attemptId, lane, nowMs, entry7871)
+        byMint[mint] = Binding(attemptId, lane, nowMs, entry7871, candidateVersion7876)
         if (byMint.size > 500) byMint.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
     }
 

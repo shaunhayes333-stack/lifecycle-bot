@@ -508,22 +508,32 @@ object StrategyHypothesisEngine {
     }
 
     /** Settle only the hypothesis/variant that was bound to this position. */
-    fun recordOutcomeForPosition7428(positionId: String, pnlPct: Double) {
-        if (positionId.isBlank()) return
+    /**
+     * V5.0.7876 — returns false only when the outcome could not be applied and a
+     * retry could succeed (an exception, with the settle mark rolled back). A
+     * duplicate, or a position with no bound arm, is a terminal answer (true),
+     * each with its own counter; the bridge no longer acknowledges a throw.
+     */
+    fun recordOutcomeForPosition7428(positionId: String, pnlPct: Double): Boolean {
+        if (positionId.isBlank()) return true
+        var claimed7876 = false
+        var taken7876: AppliedDecision7428? = null
         try {
             if (!settledPositions7428.add(positionId)) {
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_DEDUPED_7428")
-                return
+                return true
             }
+            claimed7876 = true
             val applied = pendingByPosition7428.remove(positionId)
             if (applied == null) {
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_MISSING_7428")
-                return
+                return true
             }
+            taken7876 = applied
             val h = active[applied.context]
             if (h == null) {
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_CONTEXT_MISSING_7428")
-                return
+                return true
             }
             val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
             outcomeUpdates6512 += 1L
@@ -543,7 +553,16 @@ object StrategyHypothesisEngine {
             if (((h.control.n + h.variant.n) % 3L) == 0L) appContext?.let { save(it) }
             if ((promotions + retirements) % 5L == 0L) appContext?.let { save(it) }
             PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_7428")
-        } catch (_: Throwable) {}
+            return true
+        } catch (_: Throwable) {
+            // Roll back so the bus retry can apply it exactly once.
+            if (claimed7876) {
+                settledPositions7428.remove(positionId)
+                taken7876?.let { pendingByPosition7428.putIfAbsent(positionId, it) }
+            }
+            try { PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_OUTCOME_RETRY_7876") } catch (_: Throwable) {}
+            return false
+        }
     }
 
     /** Feed settled PnL → accrue to the assigned arm, evaluate, maybe promote/retire. */

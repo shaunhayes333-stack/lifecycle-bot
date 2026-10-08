@@ -863,7 +863,17 @@ object LiveCanonicalRecovery6686 {
                         try { ToolkitSignalSheet.recordEntryExecOpen7809(b7868.lane, b7868.attemptId, b7868.attemptId) } catch (_: Throwable) {}
                         try { PipelineHealthCollector.labelInc("SPECIALIST_EXEC_FROM_WALLET_PROMOTION_7868") } catch (_: Throwable) {}
                         // V5.0.7871 — the immutable entry snapshot for the promoted position.
-                        promotedEntrySnapshot7871(b7868.entry7871, pendingSameMint7133.positionId, basis.entryPriceUsd)?.let { snap ->
+                        // V5.0.7876 — the exact hypothesis arm for the promoted position: only the
+                        // LANDED path bound it, so wallet-promoted buys read
+                        // HYPOTHESIS_POSITION_OUTCOME_MISSING at close. Idempotent per positionId.
+                        val variant7876 = if (b7868.candidateVersion7876 > 0L) try {
+                            StrategyHypothesisEngine.bindExecutedPosition7428(
+                                pendingSameMint7133.positionId, mint, b7868.candidateVersion7876, b7868.lane, mode7863 = "LIVE",
+                            )
+                        } catch (_: Throwable) { "" } else ""
+                        promotedEntrySnapshot7871(b7868.entry7871, pendingSameMint7133.positionId, basis.entryPriceUsd)
+                            ?.let { if (variant7876.isNotBlank()) it.copy(entryStrategyVariantId = variant7876) else it }
+                            ?.let { snap ->
                             try {
                                 if (com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(snap)) {
                                     PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_FROM_WALLET_PROMOTION_7871")

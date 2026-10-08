@@ -416,7 +416,6 @@ object FinalizedBusConsumerBridge6465 {
             env.positionId,
             env.realizedReturnPct,
         )
-        true
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToExactStrategyPerformance7429(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

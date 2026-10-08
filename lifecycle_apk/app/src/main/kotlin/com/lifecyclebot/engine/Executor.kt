@@ -13365,7 +13365,7 @@ class Executor(
         buyPhase("BUY_PENDING_BALANCE_PROOF")
         if (intent != null && intent.mode.equals("LIVE", true)) {
             val lane7871 = intent.canonicalLane.ifBlank { intent.lane }
-            LivePendingAttempt7868.bind(intent.mint, intent.attemptId, lane7871, entry7871 = pendingEntrySnapshot7871(intent, lane7871))
+            LivePendingAttempt7868.bind(intent.mint, intent.attemptId, lane7871, entry7871 = pendingEntrySnapshot7871(intent, lane7871), candidateVersion7876 = intent.candidateVersion)
             WalletCapacitySeal7868.release(intent.mint)
         }
     }

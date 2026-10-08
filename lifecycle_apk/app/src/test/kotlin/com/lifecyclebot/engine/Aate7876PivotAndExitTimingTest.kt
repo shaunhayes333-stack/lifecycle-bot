@@ -62,4 +62,25 @@ class Aate7876PivotAndExitTimingTest {
         assertEquals(1000.0, relativeStrength7876(5_000.0, 3.0, 0.0), 1e-9)
         assertEquals(8.0, relativeStrength7876(10.0, 0.0, 2.0), 1e-9) // unknown age keeps the old read
     }
+
+    @Test fun firstLiveCloseTrainsTheBoundHypothesisExactlyOnce() {
+        StrategyHypothesisEngine.reset()
+        StrategyHypothesisEngine.getSizeBias("QUALITY", 70, "NORMAL", "Mint7876H", "", 76L)
+        StrategyHypothesisEngine.bindExecutedPosition7428("pos7876H", "Mint7876H", 76L, "QUALITY")
+        val before = StrategyHypothesisEngine.outcomeUpdateCount6512()
+        assertTrue(StrategyHypothesisEngine.recordOutcomeForPosition7428("pos7876H", 12.0))
+        assertEquals(before + 1L, StrategyHypothesisEngine.outcomeUpdateCount6512())
+        // A bus retry of the same terminal is answered, not trained twice.
+        assertTrue(StrategyHypothesisEngine.recordOutcomeForPosition7428("pos7876H", 12.0))
+        assertEquals(before + 1L, StrategyHypothesisEngine.outcomeUpdateCount6512())
+    }
+
+    @Test fun walletPromotionBindsTheHypothesisAndBridgeReportsTheRealResult() {
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(rec.contains("StrategyHypothesisEngine.bindExecutedPosition7428("))
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        val fn = bridge.substringAfter("private fun deliverToStrategyHypothesis").substringBefore("private fun deliverToExactStrategyPerformance7429")
+        assertTrue(fn.contains("recordOutcomeForPosition7428("))
+        assertTrue(!fn.contains("        true\n"))
+    }
 }
