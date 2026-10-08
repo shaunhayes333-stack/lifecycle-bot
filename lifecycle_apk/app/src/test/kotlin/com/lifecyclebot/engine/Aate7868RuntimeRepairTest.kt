@@ -136,6 +136,22 @@ class Aate7868RuntimeRepairTest {
         assertTrue(binding.contains("pendingByPosition7428[positionId] = applied"))
     }
 
+    @Test fun historicalOrphanSellIsLearningQuarantinedByPositionOnly() {
+        val mint = "orphan-proof-${System.nanoTime()}"
+        val pid = "live-orphan-position-$mint"
+        val trade = com.lifecyclebot.data.Trade(
+            side = "SELL", mode = "LIVE", sol = 0.1, price = 0.1,
+            ts = 200L, mint = mint, positionId = pid, soldQtyToken = 100.0,
+            reason = "TEST_UNPARENTED"
+        )
+        ForensicReconciler6377.runAll(
+            listOf(trade), paperMode = false, paperWalletSol = 0.0,
+            startCapitalSol = 0.0, canonicalLiveOpenCount = 0, registryLiveOpenCount = 0
+        )
+        assertTrue(com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(pid, null))
+        assertFalse(com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(null, mint))
+    }
+
     @Test fun unrelatedBuyCannotParentAnotherMintsLiveSell() {
         val unique = System.nanoTime().toString()
         val trades = listOf(
