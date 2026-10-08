@@ -163,12 +163,95 @@ object ExitRegret7752 {
         } catch (_: Throwable) {}
     }
 
+    // ── V5.0.7877 §THE_EXITS_LEARN_FROM_WHAT_HAPPENED_AFTER ──
+    //
+    // Operator: "ensure we are capturing that 60% post sell runs the bot is
+    // missing ... the bot is meant to see these things and automatically change
+    // itself in real time." 5.0.7876: HARD_STOP n=48 realised -5.2% while
+    // holding to sixty minutes would have returned +21.2% (price +24.9% after
+    // our exit, hold beat the stop 21/48); MEME n=51 realised -9.2% vs hold
+    // +16.2%. This file measured that and changed nothing. It now steers:
+    //   * stopMultFor(lane): the stop widens when the stops that fired on this
+    //     lane (or, while the lane is thin, stop-family exits overall) were
+    //     followed by the price running; it tightens slightly when they saved
+    //     money. Bounded [STOP_MULT_MIN, STOP_MULT_MAX]; every lane hard floor
+    //     and catastrophe exit still applies downstream.
+    //   * underwaterHoldMs(lane): the 45-minute underwater time stop waits out
+    //     the hour when underwater exits were followed by recovery.
+    // Both re-read the live aggregates on every call, so each booked label
+    // moves them; nothing is fixed at build time.
+    private const val REGRET_MIN_N_7877 = 10
+    const val STOP_MULT_MIN_7877 = 0.90
+    const val STOP_MULT_MAX_7877 = 1.50
+    private const val UNDERWATER_EXTENDED_MS_7877 = 120L * 60_000L
+
+    data class Read7877(val n: Int, val meanRealized: Double, val meanHold: Double, val meanAfter: Double, val holdBeatShare: Double)
+
+    private fun read(a: Agg?): Read7877? =
+        if (a == null || a.n <= 0) null
+        else Read7877(a.n, a.sumRealized / a.n, a.sumHold / a.n, a.sumAfter / a.n, a.holdBeat.toDouble() / a.n)
+
+    /** Pure: the stop multiplier a regret read justifies (1.0 = no evidence either way). */
+    fun stopMult7877(r: Read7877?): Double {
+        if (r == null || r.n < REGRET_MIN_N_7877) return 1.0
+        if (r.holdBeatShare >= 0.40 && r.meanAfter >= 5.0 && r.meanHold > r.meanRealized) {
+            return (1.0 + r.meanAfter / 50.0).coerceIn(1.0, STOP_MULT_MAX_7877)
+        }
+        if (r.meanAfter <= -5.0 && r.holdBeatShare < 0.30) return STOP_MULT_MIN_7877
+        return 1.0
+    }
+
+    /** Pure: true when exits of this kind were followed by the position recovering. */
+    fun holdingPaid7877(r: Read7877?): Boolean =
+        r != null && r.n >= REGRET_MIN_N_7877 && r.holdBeatShare >= 0.40 && r.meanHold > r.meanRealized && r.meanAfter > 0.0
+
+    private fun laneRead(lane: String): Read7877? {
+        ensureLoaded()
+        val l = CanonicalLaneIdentity6506.canonical(lane)
+        return synchronized(this) { read(byLane[l]) }
+    }
+
+    private fun familyRead(vararg families: String): Read7877? {
+        ensureLoaded()
+        return synchronized(this) {
+            val parts = families.mapNotNull { byFamily[it] }.filter { it.n > 0 }
+            if (parts.isEmpty()) null else {
+                val m = Agg()
+                for (p in parts) { m.n += p.n; m.sumRealized += p.sumRealized; m.sumHold += p.sumHold; m.sumAfter += p.sumAfter; m.holdBeat += p.holdBeat }
+                read(m)
+            }
+        }
+    }
+
+    /** LIVE stop multiplier for [lane]: the lane's own regret when it has enough closes, else stop-family regret. */
+    fun stopMultFor(lane: String): Double = try {
+        val own = laneRead(lane)
+        val r = if (own != null && own.n >= REGRET_MIN_N_7877) own
+            else familyRead("HARD_STOP", "STRICT_SL", "RAPID_CATASTROPHE_STOP", "STOP_LOSS", "STRUCTURE_STOP")
+        val m = stopMult7877(r)
+        if (m != 1.0) {
+            try { PipelineHealthCollector.labelInc(if (m > 1.0) "EXIT_REGRET_STOP_WIDENED_7877" else "EXIT_REGRET_STOP_TIGHTENED_7877") } catch (_: Throwable) {}
+        }
+        m
+    } catch (_: Throwable) { 1.0 }
+
+    /** The underwater time-stop horizon for [lane]: extended when underwater exits were followed by recovery. */
+    fun underwaterHoldMs(lane: String, defaultMs: Long): Long = try {
+        val own = laneRead(lane)
+        val r = if (own != null && own.n >= REGRET_MIN_N_7877) own else familyRead("UNDERWATER_TIME_STOP")
+        if (holdingPaid7877(r)) {
+            try { PipelineHealthCollector.labelInc("EXIT_REGRET_UNDERWATER_EXTENDED_7877") } catch (_: Throwable) {}
+            maxOf(defaultMs, UNDERWATER_EXTENDED_MS_7877)
+        } else defaultMs
+    } catch (_: Throwable) { defaultMs }
+
     fun statusLine(): String {
         ensureLoaded()
         return synchronized(this) {
             "tracked=${pending.size} booked=${recorded.get()} noExitMark=${noExitMark.get()} lost=${lost.get()}\n" +
                 "      byExit: ${byFamily.entries.sortedByDescending { it.value.n }.take(8).joinToString(" · ") { it.value.line(it.key) }.ifBlank { "-" }}\n" +
                 "      byLane: ${byLane.entries.sortedByDescending { it.value.n }.take(8).joinToString(" · ") { it.value.line(it.key) }.ifBlank { "-" }}\n" +
+                "      steering7877: stopMult[HARD_STOP-family]=${"%.2f".format(stopMult7877(familyRead("HARD_STOP", "STRICT_SL", "RAPID_CATASTROPHE_STOP", "STOP_LOSS", "STRUCTURE_STOP")))} underwaterExtended=${holdingPaid7877(familyRead("UNDERWATER_TIME_STOP"))}\n" +
                 "      read: after>0 = the price kept rising after we sold (exit cut a winner); hold>realized = holding to 60m would have paid more"
         }
     }

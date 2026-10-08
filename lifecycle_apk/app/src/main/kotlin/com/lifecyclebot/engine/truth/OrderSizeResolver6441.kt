@@ -514,7 +514,15 @@ object OrderSizeResolver6441 {
             conviction6909 >= 0.0 && conviction6909 < 1.0
         val convictionCollapsed6909 = convictionKnown6909 &&
             conviction6909 < CONVICTION_PROMOTION_FLOOR_6909
-        val refuseMinPromotion6909 = convictionCollapsed6909 &&
+        // V5.0.7877 — one sizing rule. A live request whose risk-sized amount is
+        // below the route minimum is promoted to that minimum ONLY when the bot
+        // measurably predicts the trade pays (LiveEdgeGate7877); otherwise it is
+        // refused, not inflated. 5.0.7876 promoted 2,730 sub-minimum requests
+        // at conviction 0.54 into 3-4x their risk-sized bet with no edge behind them.
+        val edgeRefusesPromotion7877 = !paperMode &&
+            requestedLamports6491 < minExecLamports6491 &&
+            !liveEdgeAllows7877(mint, laneName)
+        val refuseMinPromotion6909 = (convictionCollapsed6909 || edgeRefusesPromotion7877) &&
             requestedLamports6491 < minExecLamports6491
         // V5.0.7840 — the $5 live route floor is an execution constraint, not a
         // second admission veto. 7831 zeroed every otherwise valid request below
@@ -548,6 +556,9 @@ object OrderSizeResolver6441 {
                         "conviction=${"%.4f".format(conviction6909)} action=promote_then_reprove_hard_risk_7807"
                 )
             } catch (_: Throwable) {}
+        }
+        if (edgeRefusesPromotion7877) {
+            try { PipelineHealthCollector.labelInc("ORDER_SIZE_NO_EDGE_REFUSED_MIN_PROMOTION_7877_${laneName.uppercase()}") } catch (_: Throwable) {}
         }
         if (refuseMinPromotion6909) {
             try {
@@ -861,4 +872,15 @@ object OrderSizeResolver6441 {
             "liveMaxWalletSol=${"%.4f".format(liveMax7217)} " +
             "read=a_LIVE_resolve_showing_the_paper_bankroll_is_the_7211_latch_in_a_third_consumer"
     }
+
+    /** V5.0.7877 — side-effect-free predicted-edge read for the route-minimum promotion. */
+    private fun liveEdgeAllows7877(mint: String, laneName: String): Boolean = try {
+        val ts = if (mint.isBlank()) null else com.lifecyclebot.engine.BotService.status.tokens[mint]
+        if (ts != null) {
+            LiveEdgeGate7877.verdictFor(ts, laneName).allow
+        } else {
+            val l = CanonicalLaneIdentity6506.canonical(laneName).uppercase()
+            LiveEdgeGate7877.judge(null, LivePivotAuthority7876.laneVerdict(l) == LivePivotAuthority7876.Evidence.PROVEN).allow
+        }
+    } catch (_: Throwable) { false }
 }

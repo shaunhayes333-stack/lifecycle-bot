@@ -32,6 +32,8 @@ object LaneExitTuner {
     private const val TP_MAX = 1.40
     private const val SL_MIN = 0.70
     private const val SL_MAX = 1.30
+    /** V5.0.7877 — exit-regret evidence may widen past the closed loop's own cap. */
+    private const val SL_REGRET_MAX_7877 = 1.60
     private const val STEP   = 0.04
 
     // V5.0.6044 — LOWERED FROM 20 TO 8 (operator throughput doctrine).
@@ -557,14 +559,21 @@ object LaneExitTuner {
 
     fun getSlMult(lane: String): Double = try {
         refreshReplayBiasAsync("getSlMult")
-        val key = "${com.lifecyclebot.engine.LearningEnvironment7835.mode()}|${canon(lane)}"
+        val mode7877 = com.lifecyclebot.engine.LearningEnvironment7835.mode()
+        val key = "$mode7877|${canon(lane)}"
         val laneSt = lanes[key]
         val closedLoopMature = laneSt != null && laneSt.window.size >= MIN_SAMPLE
-        if (closedLoopMature) {
+        val base = if (closedLoopMature) {
             laneSt!!.slMult
         } else {
-            if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") replayBiasByLane[canon(lane)]?.slMult ?: 1.0 else 1.0
+            if (mode7877 == "PAPER") replayBiasByLane[canon(lane)]?.slMult ?: 1.0 else 1.0
         }
+        // V5.0.7877 — the closed loop above only sees how a stop exit ended, not
+        // what the price did next, so a lane whose stops cut runners (5.0.7876
+        // HARD_STOP: realised -5.2%, price +24.9% after) was TIGHTENED to 0.75.
+        // ExitRegret7752 measures the after; in LIVE it now overrules that.
+        if (mode7877 == "PAPER") base
+        else (base * com.lifecyclebot.engine.truth.ExitRegret7752.stopMultFor(lane)).coerceIn(SL_MIN, SL_REGRET_MAX_7877)
     } catch (_: Throwable) { 1.0 }
 
     fun formatForPipelineDump(): String {

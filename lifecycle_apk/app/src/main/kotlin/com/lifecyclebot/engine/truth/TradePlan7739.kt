@@ -284,6 +284,8 @@ object TradePlan7739 {
         if (paper) return null
         // V5.0.7876 — under a breached loss limit only evidence-positive lanes stay live.
         LivePivotAuthority7876.liveRefusal(lane, paper, nowMs)?.let { return it }
+        // V5.0.7877 — always on: live only where a measured, net-of-cost prediction says it pays.
+        LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs)?.let { return it }
         val read = readForEntry7837(ts, nowMs)
         val setup = read.setup
         if (setup == null && barsPermitLaunch7742(read.why)) {
@@ -475,7 +477,7 @@ object TradePlan7739 {
      * trail (it would shake a runner out on its first pullback). Field Manual
      * §8: scale out, let the runner run on a trail that fits it.
      */
-    fun exitFor(plan: Plan?, pnlPct: Double, peakPct: Double, holdMs: Long, trailBroken: Boolean, costPct: Double, runner: Boolean = false): Exit? {
+    fun exitFor(plan: Plan?, pnlPct: Double, peakPct: Double, holdMs: Long, trailBroken: Boolean, costPct: Double, runner: Boolean = false, underwaterMs: Long = UNDERWATER_MS_7739): Exit? {
         if (plan != null) {
             if (pnlPct <= plan.stopPnlPct) return Exit(ExitKind.FULL, "STRUCTURE_STOP_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
             if (!runner && pnlPct >= plan.targetPnlPct) return Exit(ExitKind.FULL, "PLAN_TARGET_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
@@ -489,9 +491,17 @@ object TradePlan7739 {
                 return Exit(ExitKind.FULL, "THESIS_TIME_STOP_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
             }
         }
-        if (holdMs >= UNDERWATER_MS_7739 && pnlPct < 0.0) return Exit(ExitKind.FULL, "UNDERWATER_TIME_STOP_7739_${pnlPct.toInt()}PCT")
+        if (holdMs >= underwaterMs && pnlPct < 0.0) return Exit(ExitKind.FULL, "UNDERWATER_TIME_STOP_7739_${pnlPct.toInt()}PCT")
         return null
     }
+
+    /**
+     * V5.0.7877 — the underwater horizon for a position in [lane]: 45 minutes, or
+     * the full hour-plus when ExitRegret7752 has measured that underwater exits
+     * were followed by recovery (5.0.7876: 100 UNDERWATER_TIME_STOP_7739 exits).
+     */
+    fun underwaterMsFor7877(lane: String?): Long =
+        try { ExitRegret7752.underwaterHoldMs(lane ?: "", UNDERWATER_MS_7739) } catch (_: Throwable) { UNDERWATER_MS_7739 }
 
     /** True when the current bar closed under the lowest low of the three completed bars before it. */
     fun trailBroken(ts: TokenState, nowMs: Long): Boolean {
@@ -522,5 +532,5 @@ object TradePlan7739 {
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
-            "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()} pivot7876=${LivePivotAuthority7876.statusLine()}"
+            "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()} pivot7876=${LivePivotAuthority7876.statusLine()} edge7877=${LiveEdgeGate7877.statusLine()}"
 }

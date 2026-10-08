@@ -991,6 +991,7 @@ class BotService : Service() {
                 plan != null && com.lifecyclebot.engine.truth.TradePlan7739.trailBroken(ts, now),
                 planCostPct7766(ts),
                 RunnerExitProfile7277.isRunnerLane(pos.tradingMode),
+                com.lifecyclebot.engine.truth.TradePlan7739.underwaterMsFor7877(pos.tradingMode),
             )
         } catch (_: Throwable) { null }
     }

@@ -846,6 +846,10 @@ object FinalDecisionGate {
         proposedSizeSol: Double,
         mode: TradeMode,
     ): FinalDecision? {
+        // V5.0.7877 — hard on every live path, specialist-owned included: the
+        // plan/council below are advisory for a specialist owner (7845), which
+        // let unpredicted buys through. A buy with no measured edge stays paper.
+        liveEdgeBlock7877(ts, candidate, specialistLane, laneName, paper, mode)?.let { return it }
         if (specialistLane.isNullOrBlank()) {
             return fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
                 ?: tradePlanBlock7739(ts, candidate, specialistLane, laneName, paper, mode)
@@ -943,6 +947,35 @@ object FinalDecisionGate {
      * the verdict is WAIT; the next cycle re-reads the tape. Paper is never
      * refused. Field Manual §4/§9: no trigger and invalidation, no trade.
      */
+    /** V5.0.7877 — LiveEdgeGate7877 as a FinalDecision; built outside evaluate() (verifier budget 7720). */
+    private fun liveEdgeBlock7877(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        specialistLane: String?,
+        laneName: String,
+        paper: Boolean,
+        mode: TradeMode,
+    ): FinalDecision? = try {
+        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
+        val reason = com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper)
+        if (reason == null) null else FinalDecision(
+            shouldTrade = false,
+            mode = mode,
+            approvalClass = ApprovalClass.BLOCKED,
+            quality = candidate.setupQuality,
+            confidence = candidate.aiConfidence,
+            edge = EdgeVerdict.SKIP,
+            blockReason = reason,
+            blockLevel = BlockLevel.EDGE,
+            sizeSol = 0.0,
+            tags = listOf("live_edge_7877", "lane:$lane"),
+            mint = ts.mint,
+            symbol = ts.symbol,
+            approvalReason = "LIVE_EDGE_7877: no measured net-of-cost edge for this live entry",
+            gateChecks = listOf(GateCheck("live_edge_7877", false, "lane=$lane $reason")),
+        )
+    } catch (_: Throwable) { null }
+
     private fun tradePlanBlock7739(
         ts: TokenState,
         candidate: CandidateDecision,
