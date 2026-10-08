@@ -648,7 +648,7 @@ object LaneExecutionCoordinator {
         if (current == null) {
             val now = System.currentTimeMillis()
             val active = elections.entries
-                .filter { (_, e) -> e.key.runtimeGeneration == runtimeGeneration && e.key.mint == mint && now - e.createdAtMs <= TTL_MS }
+                .filter { (_, e) -> e.key.runtimeGeneration == runtimeGeneration && e.key.mint == mint && e.key.candidateVersion == candidateVersion && now - e.createdAtMs <= TTL_MS }
                 .maxByOrNull { it.value.createdAtMs }
             if (active != null) {
                 mapKey = active.key
