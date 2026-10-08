@@ -408,14 +408,27 @@ object FinalizedBusConsumerBridge6465 {
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToStrategyHypothesis(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // V5.0.7429 — terminal credit follows the exact strategy/variant that
-        // was sealed to the position at entry. The legacy mint-only path can
-        // be overwritten by later fanout evaluations of the same mint and
-        // therefore cannot be canonical learning authority.
-        com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcomeForPosition7428(
-            env.positionId,
-            env.realizedReturnPct,
-        )
+        // Never ACK a missing binding as if a hypothesis actually trained.
+        // A canonical open may still be restoring its immutable decision. Retry
+        // within the exact-event grace period; exclude unsupported historical
+        // positions after that period rather than inventing an arm attribution.
+        val learner = com.lifecyclebot.engine.StrategyHypothesisEngine
+        if (!learner.hasPositionBinding7877(env.positionId)) {
+            if ((System.currentTimeMillis() - env.atMs).coerceAtLeast(0L) < EXACT_EVENT_GRACE_MS_6699) {
+                PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_BINDING_AWAIT_RETRY_7877")
+                false
+            } else {
+                CanonicalFinalizedTradeBus6464.exclude(
+                    "StrategyHypothesisEngine", env.tradeId, "NO_PROVEN_ENTRY_HYPOTHESIS_BINDING_7877",
+                )
+                learner.releasePosition7809(env.positionId)
+                excluded.incrementAndGet()
+                PipelineHealthCollector.labelInc("HYPOTHESIS_NO_BINDING_EXCLUDED_NOT_TRAINED_7877")
+                false
+            }
+        } else {
+            learner.recordOutcomeForPosition7428(env.positionId, env.realizedReturnPct)
+        }
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToExactStrategyPerformance7429(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
