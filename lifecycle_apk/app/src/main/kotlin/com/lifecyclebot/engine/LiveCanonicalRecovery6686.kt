@@ -424,7 +424,7 @@ object LiveCanonicalRecovery6686 {
         if (priceUsd == null || !solUsd.isFinite() || solUsd <= 0.0) {
             adoptionAwaitingMark7706.incrementAndGet()
             try { PipelineHealthCollector.labelInc("LIVE_WALLET_ADOPTION_AWAITING_MARK_7706") } catch (_: Throwable) {}
-            if (priceUsd == null) requestMarkAsync7707(mint)
+            if (priceUsd == null) requestMarkAsync7707(mint, amount)
             return null
         }
         val valueUsd = qty * priceUsd
@@ -488,7 +488,7 @@ object LiveCanonicalRecovery6686 {
     private val markRequestedAt7707 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** Resolve through independent market feeds off-thread; at most once per two minutes per mint. */
-    private fun requestMarkAsync7707(mint: String) {
+    private fun requestMarkAsync7707(mint: String, amount7876: CanonicalTokenAmount? = null) {
         val now = System.currentTimeMillis()
         val last = markRequestedAt7707[mint] ?: 0L
         if (now - last < MARK_REQUEST_MIN_INTERVAL_MS_7707) return
@@ -511,7 +511,18 @@ object LiveCanonicalRecovery6686 {
                             "mint=${mint.take(12)} priceUsd=$px source=${mark.sources} sourceCount=${mark.sourceCount} corroborated=${mark.corroborated}",
                         )
                     } else {
-                        PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_MARK_UNAVAILABLE_7709")
+                        // V5.0.7876 — no feed prices it: the sell quote for the exact
+                        // wallet quantity is the holding's executable value (5.0.7875:
+                        // awaitingMark=158, an unmanaged bot holding never adopted).
+                        val ex7876 = amount7876?.let {
+                            com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.quoteSellPriceUsd7876(mint, it.raw, it.decimals)
+                        }
+                        if (ex7876 != null) {
+                            HostWalletTokenTracker.recordPriceUpdate(mint, ex7876, 0.0)
+                            PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_EXECUTABLE_MARK_7876")
+                        } else {
+                            PipelineHealthCollector.labelInc("LIVE_WALLET_HOLDING_MARK_UNAVAILABLE_7709")
+                        }
                     }
                 } catch (_: Throwable) {}
             }

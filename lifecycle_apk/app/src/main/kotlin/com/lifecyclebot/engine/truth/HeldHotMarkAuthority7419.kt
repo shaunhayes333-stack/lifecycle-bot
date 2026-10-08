@@ -377,6 +377,17 @@ object HeldHotMarkAuthority7419 {
         return px.takeIf { it.isFinite() && it > 0.0 }
     }
 
+    /** V5.0.7876 — blocking executable sell-quote price for [rawQty] of [mint] (callers run it off the main thread). */
+    internal fun quoteSellPriceUsd7876(mint: String, rawQty: java.math.BigInteger, decimals: Int): Double? {
+        val bare = mint.removePrefix("solana|").trim()
+        if (bare.isBlank() || bare.contains('|') || rawQty.signum() <= 0 || rawQty.bitLength() > 62) return null
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val q = try {
+            quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, rawQty.toLong(), 300)
+        } catch (_: Throwable) { null } ?: return null
+        return sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd)
+    }
+
     /** (price or null, timed out). Debounced per mint; bounded on the held-mark pool. */
     private fun executableHeldMark7876(p: CanonicalPositionAuthority6441.Position, now: Long): Pair<Double?, Boolean> {
         val bare = p.mint.removePrefix("solana|").trim()
