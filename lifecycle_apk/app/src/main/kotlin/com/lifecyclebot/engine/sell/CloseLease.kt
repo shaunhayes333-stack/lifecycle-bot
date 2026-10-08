@@ -171,8 +171,17 @@ object CloseLease {
             // 2/3/5/8/10s cadence from the last attempt; an in-flight attempt is
             // still never doubled (Field Manual L248).
             val emergency7807 = ProtectiveExitClass7807.isEmergency(rawReason)
+            val previousPriority7807 = ProtectiveExitClass7807.of(existing.emergencyReason7807 ?: existing.originalExitReason)
+            val escalation7807 = emergency7807 &&
+                ProtectiveExitClass7807.of(rawReason).rank < previousPriority7807.rank
+            // On escalation, a completed softer exit's retry delay is not a safety
+            // reason to hold the emergency. Never start a second in-flight sale.
             val emergencyEligible7807 = emergency7807 && !existing.inFlight &&
-                now - existing.lastTouchMs >= ProtectiveExitClass7807.emergencyRetryDelayMs(existing.closeAttemptCount - 1)
+                (escalation7807 ||
+                    now - existing.lastTouchMs >= ProtectiveExitClass7807.emergencyRetryDelayMs(existing.closeAttemptCount - 1))
+            if (escalation7807 && emergencyEligible7807) try {
+                PipelineHealthCollector.labelInc("EMERGENCY_RETRY_BACKOFF_PREEMPTED_7877")
+            } catch (_: Throwable) {}
             if (emergency7807) {
                 val prior7807 = existing.emergencyReason7807 ?: existing.originalExitReason
                 existing.emergencyReason7807 = ProtectiveExitClass7807.effectiveReason(prior7807, canonicalReason(rawReason))
