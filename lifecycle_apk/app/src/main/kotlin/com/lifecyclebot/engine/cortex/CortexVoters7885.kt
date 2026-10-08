@@ -273,7 +273,8 @@ object CortexVoters7885 {
         Voter("REGIME_TRANSITION", "UNUSED_TECH", e(-3.0, -0.5, 0.5, 3.0), setOf("regime_transition")) { ts, _, _ ->
             com.lifecyclebot.v3.scoring.RegimeTransitionAI.getActiveTransitions().firstOrNull { it.first == ts.mint }?.second?.let { sig ->
                 val bear = sig.type.name in setOf("RUG_FORMING", "TREND_EXHAUSTION", "DISTRIBUTION_PHASE", "LIQUIDITY_DRAIN")
-                (if (bear) -1.0 else 1.0) * sig.type.alphaPotential * sig.confidence / 100.0
+                // Bearish types carry alphaPotential 0; score them by urgency instead.
+                (if (bear) -sig.type.urgency.toDouble() else sig.type.alphaPotential.toDouble()) * sig.confidence / 100.0
             }
         },
         Voter("SCANNER_SOURCE_PNL", "UNUSED_TECH", e(-10.0, -3.0, 0.0, 3.0, 10.0), setOf("source_cohort")) { ts, _, _ ->
@@ -308,7 +309,7 @@ object CortexVoters7885 {
             com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getSignalsForSymbol(ts.symbol).filter { it.direction != null }
                 .takeIf { it.isNotEmpty() }?.map { (if (it.direction == "SHORT") -1.0 else 1.0) * it.confidence }?.average()
         },
-        Voter("V4_GLOBAL_RISK_MODE", "V4", e(0.5, 1.5, 2.5), setOf("v4_regime")) { _, _, _ ->
+        Voter("V4_GLOBAL_RISK_MODE", "V4", e(0.5, 1.5, 2.5, 3.5, 4.5), setOf("v4_regime")) { _, _, _ ->
             com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getCurrentRegime().ordinal.toDouble()
         },
         Voter("V4_PORTFOLIO_HEAT", "V4", e(0.2, 0.4, 0.6, 0.8), setOf("v4_portfolio")) { _, _, _ ->
@@ -331,7 +332,7 @@ object CortexVoters7885 {
         return comps.entries.sortedBy { it.key }.take(80).map { (name, v) ->
             val id = "V3M_" + name.uppercase().filter { it.isLetterOrDigit() || it == '_' }.take(32)
             CortexLedger7885.Vote(id, V3_MODULE_EDGES, v.toDouble(), setOf("v3_module_$id"))
-        }
+        }.distinctBy { it.voterId }
     }
 
     val IDS: List<String> = ALL.map { it.id }
