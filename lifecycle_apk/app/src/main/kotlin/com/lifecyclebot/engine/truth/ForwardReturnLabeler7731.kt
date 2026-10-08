@@ -403,6 +403,8 @@ object ForwardReturnLabeler7731 {
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score, "U", regime, "UNKNOWN", px, cost.coerceIn(0.0, 60.0), nowMs)
             .also { it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0 }
         lastSeenAt[key] = nowMs
+        // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
+        try { TradeShapeLearner7883.capture(ts, l, nowMs) } catch (_: Throwable) {}
         // V5.0.7737 — a fresh launch is also followed by first touch (+50% / -30%).
         try { FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs) } catch (_: Throwable) {}
         if (lastSeenAt.size > MAX_SEEN_7731) {
@@ -590,6 +592,7 @@ object ForwardReturnLabeler7731 {
             if (!o.done60 && age >= H60_MS_7731) {
                 o.done60 = true
                 book(o, 60, net, gross)
+                try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
                 try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
                 // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
                 try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}

@@ -148,6 +148,8 @@ object LiveEdgeGate7877 {
     /** Side-effect-free read for sizing and diagnostics. */
     fun verdictFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Verdict {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        try { TradeShapeLearner7883.shapeRefusal(ts, l) }
+            catch (_: Throwable) { null }?.let { return Verdict(false, Source.CELL, 0.0, it) }
         val cell = try { ForwardReturnLabeler7731.cellStatFor(ts, l, nowMs) } catch (_: Throwable) { null }
         val laneProven = try {
             LivePivotAuthority7876.laneVerdict(l, nowMs) == LivePivotAuthority7876.Evidence.PROVEN
@@ -164,6 +166,14 @@ object LiveEdgeGate7877 {
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         if (paper) return null
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        // V5.0.7883 — a learned shape rule of this lane (tokenomics/timing bin it
+        // has proven to lose in) refuses before the cohort read.
+        val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }
+        if (shape != null) {
+            TradeShapeLearner7883.noteRefusal(l, shape)
+            refused.computeIfAbsent("$l|SHAPE") { AtomicLong(0) }.incrementAndGet()
+            return "EDGE_7877_$shape"
+        }
         val v = verdictFor(ts, l, nowMs)
         if (v.allow) {
             allowed.computeIfAbsent("$l|${v.source.name}") { AtomicLong(0) }.incrementAndGet()

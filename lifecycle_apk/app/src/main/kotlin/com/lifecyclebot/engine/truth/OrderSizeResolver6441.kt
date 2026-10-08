@@ -647,7 +647,11 @@ object OrderSizeResolver6441 {
         // turn "trade smaller" into "do not trade".
         var liveAwareLamports6992 = shapedOrMinimumLamports6600
         if (shapedOrMinimumLamports6600 > 0L) {
-            val streakMult6992 = try {
+            // V5.0.7883 — Cortex v2 §C.6: each piece of loss evidence counts once.
+            // The Executor.doBuy path (bridgeAlreadyApplied6992) already ran
+            // SmartSizer, which applies ColdStreakDamper; applying it here too
+            // squared the streak penalty (0.75 → 0.56, 0.50 → 0.25).
+            val streakMult6992 = if (bridgeAlreadyApplied6992) 1.0 else try {
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.sizeMultiplier(laneName, paperMode)
             } catch (_: Throwable) { 1.0 }
             val bridgeMult6992 = if (bridgeAlreadyApplied6992 || paperMode) 1.0 else try {

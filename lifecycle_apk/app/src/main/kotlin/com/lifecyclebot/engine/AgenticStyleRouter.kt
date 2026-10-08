@@ -246,7 +246,15 @@ object AgenticStyleRouter {
         }
     }
 
-    fun decide(ts: TokenState, classification: ModeRouter.Classification, laneHint: String = ""): Decision {
+    fun decide(ts: TokenState, classification: ModeRouter.Classification, laneHintIn: String = ""): Decision {
+        // V5.0.7883 — the per-candidate call in processTokenCycle passes no lane,
+        // so every token read the SHITCOIN tactic bucket and tuner (audit 08 Oct).
+        // With no hint, the token's own primary lane (the stage router's owner)
+        // is the lane whose tactic and tuning shape the trade.
+        val laneHint = if (laneHintIn.isNotBlank()) laneHintIn else {
+            val inferred7883 = try { TokenMetricStageRouter.preferredPrimaryLane(ts, "") } catch (_: Throwable) { "" }
+            if (inferred7883 == "STANDARD") "" else inferred7883
+        }
         val sheet = try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
         val tactic = try { TacticSwitcher.currentTactic(if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
