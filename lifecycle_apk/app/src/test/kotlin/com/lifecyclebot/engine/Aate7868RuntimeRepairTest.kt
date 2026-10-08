@@ -136,6 +136,61 @@ class Aate7868RuntimeRepairTest {
         assertTrue(binding.contains("pendingByPosition7428[positionId] = applied"))
     }
 
+    @Test fun forensicParentsAreModeScoped() {
+        val forensic = src("engine/ForensicReconciler6377.kt")
+        val parent = forensic.substringAfter("private fun canonicalParentMints7868(")
+            .substringBefore("fun runAll(")
+        assertTrue(parent.contains("paperMode: Boolean"))
+        assertTrue(parent.contains("it.mode.equals(if (paperMode)"))
+        assertTrue(forensic.contains("canonicalParentMints7868(paperMode)"))
+    }
+
+    @Test fun learningMustNotAcknowledgeMissingPositionBinding() {
+        val bridge = src("engine/truth/FinalizedBusConsumerBridge6465.kt")
+        val method = bridge.substringAfter("private fun deliverToStrategyHypothesis(")
+            .substringBefore("private fun deliverToExactStrategyPerformance7429(")
+        assertTrue(method.contains("hasPositionBinding7877(env.positionId)"))
+        assertTrue(method.contains("HYPOTHESIS_EXACT_BINDING_AWAIT_RETRY_7877"))
+        assertTrue(method.contains("NO_PROVEN_ENTRY_HYPOTHESIS_BINDING_7877"))
+    }
+
+    @Test fun sameCandidateElectionIsAtomicUnderConcurrentCallers() {
+        LaneExecutionCoordinator.resetForTests()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+        try {
+            val startingGate = java.util.concurrent.CountDownLatch(1)
+            val work = (0 until 8).map { n ->
+                pool.submit<java.lang.String> {
+                    startingGate.await()
+                    LaneExecutionCoordinator.elect(
+                        mint = "atomic-7877", lanes = listOf("MOONSHOT", "SHITCOIN"),
+                        preferred = if (n % 2 == 0) "SHITCOIN" else "MOONSHOT",
+                        candidateVersion = 7877L, runtimeGeneration = 877L,
+                    ).electionId
+                }
+            }
+            startingGate.countDown()
+            val electionIds = work.map { it.get(15, java.util.concurrent.TimeUnit.SECONDS) }
+            assertEquals("one mint/version must have exactly one winner", 1, electionIds.distinct().size)
+            assertTrue(LaneExecutionCoordinator.currentElection6600(
+                "atomic-7877", candidateVersion = 7877L, runtimeGeneration = 877L
+            ) != null)
+        } finally {
+            pool.shutdownNow()
+            LaneExecutionCoordinator.resetForTests()
+        }
+    }
+
+    @Test fun emergencyEscalationPreemptsOnlyCompletedSofterRetry() {
+        val close = src("engine/sell/CloseLease.kt")
+        val acquire = close.substringAfter("fun acquire(mint: String")
+            .substringBefore("fun recordRetry(")
+        assertTrue(acquire.contains("val escalation7807 = emergency7807"))
+        assertTrue(acquire.contains("!existing.inFlight"))
+        assertTrue(acquire.contains("escalation7807 ||"))
+        assertTrue(acquire.contains("EMERGENCY_RETRY_BACKOFF_PREEMPTED_7877"))
+    }
+
     @Test fun ticketRefusedAtExecutorTerminatesByName() {
         assertTrue(src("engine/Executor.kt").contains("ToolkitSignalSheet.recordDeskStage(lane, \"EXEC_REFUSED\", attemptId)"))
     }
