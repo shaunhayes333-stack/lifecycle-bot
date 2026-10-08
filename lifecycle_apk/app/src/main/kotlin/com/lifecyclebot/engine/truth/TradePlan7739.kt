@@ -505,10 +505,12 @@ object TradePlan7739 {
      * trail (it would shake a runner out on its first pullback). Field Manual
      * §8: scale out, let the runner run on a trail that fits it.
      */
-    fun exitFor(plan: Plan?, pnlPct: Double, peakPct: Double, holdMs: Long, trailBroken: Boolean, costPct: Double, runner: Boolean = false, underwaterMs: Long = UNDERWATER_MS_7739): Exit? {
+    fun exitFor(plan: Plan?, pnlPct: Double, peakPct: Double, holdMs: Long, trailBroken: Boolean, costPct: Double, runner: Boolean = false, underwaterMs: Long = UNDERWATER_MS_7739, targetMult: Double = 1.0): Exit? {
         if (plan != null) {
             if (pnlPct <= plan.stopPnlPct) return Exit(ExitKind.FULL, "STRUCTURE_STOP_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
-            if (!runner && pnlPct >= plan.targetPnlPct) return Exit(ExitKind.FULL, "PLAN_TARGET_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
+            // V5.0.7888 — in LIVE the full target stretches when profit exits were followed by
+            // the price running on (ExitRegret7752); the half at the first target still banks.
+            if (!runner && pnlPct >= plan.targetPnlPct * targetMult.coerceIn(1.0, 1.8)) return Exit(ExitKind.FULL, "PLAN_TARGET_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
             if (!plan.firstTargetTaken && pnlPct >= plan.firstTargetPnlPct && plan.firstTargetPnlPct >= costPct + 5.0) {
                 return Exit(ExitKind.HALF, "PLAN_FIRST_TARGET_7739_${plan.setup.name}_${pnlPct.toInt()}PCT")
             }

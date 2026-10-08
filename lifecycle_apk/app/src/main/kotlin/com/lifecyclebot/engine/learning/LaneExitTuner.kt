@@ -34,6 +34,7 @@ object LaneExitTuner {
     private const val SL_MAX = 1.30
     /** V5.0.7877 — exit-regret evidence may widen past the closed loop's own cap. */
     private const val SL_REGRET_MAX_7877 = 1.60
+    private const val TP_REGRET_MAX_7888 = 1.80
     private const val STEP   = 0.04
 
     // V5.0.6044 — LOWERED FROM 20 TO 8 (operator throughput doctrine).
@@ -550,11 +551,15 @@ object LaneExitTuner {
         val key = "${com.lifecyclebot.engine.LearningEnvironment7835.mode()}|${canon(lane)}"
         val laneSt = lanes[key]
         val closedLoopMature = laneSt != null && laneSt.window.size >= MIN_SAMPLE
-        if (closedLoopMature) {
+        val base7888 = if (closedLoopMature) {
             laneSt!!.tpMult
         } else {
             if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") replayBiasByLane[canon(lane)]?.tpMult ?: 1.0 else 1.0
         }
+        // V5.0.7888 — in LIVE, profit exits that were followed by the price running on
+        // widen the targets (ExitRegret7752.profitMultFor7888), as 7877 did for stops.
+        if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") base7888
+        else (base7888 * com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888()).coerceIn(TP_MIN, TP_REGRET_MAX_7888)
     } catch (_: Throwable) { 1.0 }
 
     fun getSlMult(lane: String): Double = try {

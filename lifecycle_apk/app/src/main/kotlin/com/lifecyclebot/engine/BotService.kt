@@ -995,6 +995,7 @@ class BotService : Service() {
                 planCostPct7766(ts),
                 RunnerExitProfile7277.isRunnerLane(pos.tradingMode),
                 com.lifecyclebot.engine.truth.TradePlan7739.underwaterMsFor7877(pos.tradingMode),
+                if (pos.isPaperPosition) 1.0 else com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(),
             )
         } catch (_: Throwable) { null }
     }

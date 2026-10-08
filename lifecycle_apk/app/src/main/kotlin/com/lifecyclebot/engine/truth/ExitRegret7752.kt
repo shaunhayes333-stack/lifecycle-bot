@@ -245,6 +245,34 @@ object ExitRegret7752 {
         m
     } catch (_: Throwable) { 1.0 }
 
+    // ── V5.0.7888 — the same evidence for PROFIT exits ──
+    // The 7877 steering covered stops only. When the trails / profit locks /
+    // take-profits that fired were followed by the price running on (the
+    // "60% post-sell runs"), the lane's targets widen; when they sold into a
+    // drop, they tighten a little. Applied to LaneExitTuner.getTpMult in LIVE,
+    // which every specialist lane's target already reads.
+    private fun isProfitFamily7888(f: String): Boolean =
+        f.contains("PROFIT") || f.contains("TRAIL") || f.contains("TAKE") || f.startsWith("TP") ||
+            f.contains("PEAK") || f.contains("BANK") || f.contains("GIVEBACK") || f.contains("TARGET")
+
+    /** LIVE target multiplier from profit-exit regret (1.0 = no evidence either way). */
+    fun profitMultFor7888(): Double = try {
+        ensureLoaded()
+        val r = synchronized(this) {
+            val parts = byFamily.entries.filter { isProfitFamily7888(it.key) && it.value.n > 0 }.map { it.value }
+            if (parts.isEmpty()) null else {
+                val m = Agg()
+                for (p in parts) { m.n += p.n; m.sumRealized += p.sumRealized; m.sumHold += p.sumHold; m.sumAfter += p.sumAfter; m.holdBeat += p.holdBeat }
+                read(m)
+            }
+        }
+        val mult = stopMult7877(r)
+        if (mult != 1.0) {
+            try { PipelineHealthCollector.labelInc(if (mult > 1.0) "EXIT_REGRET_TARGET_WIDENED_7888" else "EXIT_REGRET_TARGET_TIGHTENED_7888") } catch (_: Throwable) {}
+        }
+        mult
+    } catch (_: Throwable) { 1.0 }
+
     /** The underwater time-stop horizon for [lane]: extended when underwater exits were followed by recovery. */
     fun underwaterHoldMs(lane: String, defaultMs: Long): Long = try {
         val own = laneRead(lane)
@@ -262,6 +290,7 @@ object ExitRegret7752 {
                 "      byExit: ${byFamily.entries.sortedByDescending { it.value.n }.take(8).joinToString(" · ") { it.value.line(it.key) }.ifBlank { "-" }}\n" +
                 "      byLane: ${byLane.entries.sortedByDescending { it.value.n }.take(8).joinToString(" · ") { it.value.line(it.key) }.ifBlank { "-" }}\n" +
                 "      steering7877: stopMult[HARD_STOP-family]=${"%.2f".format(stopMult7877(familyRead("HARD_STOP", "STRICT_SL", "RAPID_CATASTROPHE_STOP", "STOP_LOSS", "STRUCTURE_STOP")))} underwaterExtended=${holdingPaid7877(familyRead("UNDERWATER_TIME_STOP"))}\n" +
+                "      steering7888: targetMult[profit-family]=${"%.2f".format(profitMultFor7888())}\n" +
                 "      read: after>0 = the price kept rising after we sold (exit cut a winner); hold>realized = holding to 60m would have paid more"
         }
     }
