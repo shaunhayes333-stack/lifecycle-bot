@@ -285,6 +285,7 @@ object Cortex7885 {
 
     fun statusLine(): String {
         ensureLoaded()
+        val credits = credits7888()
         return synchronized(this) {
             val n = assessed.get()
             val avgMs = if (n > 0) assessNanos.get() / n / 1_000_000.0 else 0.0
@@ -302,7 +303,7 @@ object Cortex7885 {
             }
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
-                "      data economy (§B.6): creditsToday=${"%.0f".format(credits7888())} perAssessedDecision=${if (n > 0) "%.1f".format(credits7888() / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits7888() / graded.get()) else "-"}\n" +
+                "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
                 "      stop authority (§7887): ${try { StopAuthority7887.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
                 "      seated (authority): ${seated.take(12).joinToString(" · ") { (k, s, a) -> "$k a=${"%.2f".format(a)} skill=${"%.1f".format(s.skill() * 100)}% n=${s.scored}" }.ifBlank { "none yet — a seat needs ${CortexLedger7885.MIN_SCORED} graded predictions beating the lane mean out-of-sample" }}\n" +

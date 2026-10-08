@@ -266,11 +266,7 @@ object ExitRegret7752 {
                 read(m)
             }
         }
-        val mult = stopMult7877(r)
-        if (mult != 1.0) {
-            try { PipelineHealthCollector.labelInc(if (mult > 1.0) "EXIT_REGRET_TARGET_WIDENED_7888" else "EXIT_REGRET_TARGET_TIGHTENED_7888") } catch (_: Throwable) {}
-        }
-        mult
+        stopMult7877(r)
     } catch (_: Throwable) { 1.0 }
 
     /** The underwater time-stop horizon for [lane]: extended when underwater exits were followed by recovery. */
