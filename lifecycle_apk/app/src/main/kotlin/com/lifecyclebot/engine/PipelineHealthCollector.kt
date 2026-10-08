@@ -1604,6 +1604,10 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {}
         sb.append("\n")
 
+        // V5.0.7919 — the Cortex scoreboard as its own section (second on the Pipeline screen).
+        sb.append("===== AATE Cortex scoreboard (§7919) =====\n")
+        sb.append(try { com.lifecyclebot.engine.cortex.Cortex7885.scoreboardCard() } catch (_: Throwable) { "  unavailable" }).append("\n\n")
+
         // ── Funnel ──────────────────────────────────────────────────
         sb.append("===== Pipeline funnel (in-app mirror of CI funnel) =====\n")
         val phasesOfInterest = listOf(

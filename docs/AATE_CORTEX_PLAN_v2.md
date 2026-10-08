@@ -234,8 +234,9 @@ Each build is one green CI run on main, followed by a snapshot review.
 | 7916 | **Cortex v14 — planners and LLM analysts as voters** (v1 §2.3, shadow scoring of planner proposals). The Super/SSI stack's decision stamp feeds nine voters: plan exposure (WAIT, reduced, base, conviction), world-model tactical EV, thesis pWin, tail, failure risk, latent state, critic fragility, tree confidence and arbiter meta-confidence. The Gemini narrative cache feeds three more: viral potential, scam confidence and BUY/WATCH/AVOID. Each is graded per lane on forward labels and earns authority or none. All reads are cache peeks, with no planner run and no LLM call. |
 | 7917 | **Cortex v15 — the legacy size stack, graded** (v1 Phase 5). The FDG's ~30 legacy size factors collapse into one composite shape (6552), which is now the voter LEGACY_SIZE_SHAPE: does the stack's shrink or grow predict the outcome? In a lane where it has been scored 300 times and earned no seat, the stack can no longer shrink a candidate the Cortex reads STRONG on a proven record; that candidate's shape is floored at 1.0, the lane's own calculated size. Absolute caps still apply: the live ceiling, pinned probes, and wallet and route caps. |
 | 7918 | **Phase 0 seal, completed across assets.** Tokenized stocks and crypto alts now carry their sealed execution ticket to dispatch, like forex, metals and commodities. One shared check (MarketsLiveExecutor.ticketRefusal7914) refuses any order that is larger than its ticket or whose ticket is not an allowed BUY. |
+| 7919 | **Scoreboard panel** (v1 §2.10 UI). The Cortex has its own section, second on the Pipeline screen and under the screen's render cap. For each lane it shows decisions graded, the STRONG and REFUSE records, the calibration slope, and the powers held: paper or live refusal, overrule plus conviction, or SUSPENDED. It also lists what the Cortex did (refusals, overrules, paper choices, size-ups, stack overrules) beside what it only shadowed, and the realised whole-position outcome for each mode by entry verdict. |
 
-### Status against the v1 plan after 7918
+### Status against the v1 plan after 7919
 
 Done:
 - Phase 0, except the legacy last-slice learners in recordTrade (a pinned method at the JVM limit).
@@ -250,4 +251,3 @@ Done:
 Open:
 - Phase 5, remainder. The size stack is now one graded voter and loses its shrink power over proven STRONG reads (7917). Deleting the individual factors waits on the evidence that lane-by-lane shows they carry no skill.
 - Phase 7 clean-up.
-- A UI scoreboard panel.

@@ -583,6 +583,43 @@ object Cortex7885 {
 
     // ── scoreboard (v1 §2.10) ──
 
+    /**
+     * V5.0.7919 — the in-app scoreboard card (a section of its own on the
+     * Pipeline screen, kept under the 2,000-char section render cap): per lane,
+     * what the Cortex has learned and which powers it holds; what it has done.
+     */
+    fun scoreboardCard(): String {
+        ensureLoaded()
+        return try {
+            synchronized(this) {
+                val seated = ledger.seats.entries.count { !it.key.contains('@') && !it.key.endsWith("|${CortexLedger7885.GLOBAL}") && it.value.authority() > 0.0 }
+                val sb = StringBuilder()
+                sb.append("  assessed=${assessed.get()} graded=${graded.get()} seated=$seated pending=${pending.size}\n")
+                sb.append("  lane      graded  strong    refuse    slope powers\n")
+                board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(8).forEach { (lane, b) ->
+                    val runner = isRunner(lane)
+                    val powers = buildString {
+                        if (board.refusalAuthority(lane, runner, true)) append("Rp ")
+                        if (board.refusalAuthority(lane, runner, false)) append("Rl ")
+                        if (board.overruleAuthority(lane)) append("O ")
+                        if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("SUSPENDED")
+                    }.trim().ifBlank { "shadow" }
+                    sb.append("  ${lane.take(9).padEnd(9)} ${b.byBucket.sumOf { it.n }.toInt().toString().padStart(6)}  " +
+                        "${fmtStat(b.byBucket[2]).padEnd(9)} ${fmtStat(b.byBucket[0]).padEnd(9)} ${"%.2f".format(calibration.slope(lane))}  $powers\n")
+                }
+                fun sum(prefix: String) = counters.entries.filter { it.key.startsWith(prefix) }.sumOf { it.value.get() }
+                sb.append("  did: refusedPaper=${sum("REFUSED_PAPER")} refusedLive=${sum("REFUSED_LIVE")} overruled=${sum("OVERRULED_LIVE")} " +
+                    "paperChosen=${sum("PAPER_CHOSEN_")} sizedUp=${sum("SIZED_UP_")} stackOverruled=${sum("STACK_SHRINK_OVERRULED_")}\n")
+                sb.append("  shadow: refuse=${sum("SHADOW_REFUSE")} overrule=${sum("SHADOW_OVERRULE")} choice=${sum("SHADOW_PAPER_CHOICE")} size=${sum("SHADOW_SIZE_UP")}\n")
+                sb.append("  realised: " + board.realized.entries.sortedBy { it.key }.take(6).joinToString(" · ") { (k, arr) ->
+                    "$k ${fmtStat(arr[2])}/${fmtStat(arr[1])}/${fmtStat(arr[0])}"
+                }.ifBlank { "none yet" } + "  (strong/neutral/refuse)\n")
+                sb.append("  key: Rp/Rl refuse paper/live · O overrule+conviction · SUSPENDED calibration < 0.5")
+                sb.toString().take(1_900)
+            }
+        } catch (t: Throwable) { "  unavailable: ${t.javaClass.simpleName}" }
+    }
+
     fun statusLine(): String {
         ensureLoaded()
         val credits = credits7888()
