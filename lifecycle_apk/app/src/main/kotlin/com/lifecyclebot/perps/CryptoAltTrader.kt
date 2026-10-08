@@ -3768,7 +3768,7 @@ object CryptoAltTrader {
             // target mint actually arrived on-chain).
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
             val liveResult7434 = try {
-                executeLiveTradeAtSize(position.id, signal, isSpot, canonicalFinalSize6570)
+                executeLiveTradeAtSize(position.id, signal, isSpot, canonicalFinalSize6570, canonicalCryptoIntent6565)
             } catch (t: Throwable) {
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(
                     canonicalCryptoIntent6565,
@@ -3956,9 +3956,17 @@ object CryptoAltTrader {
         signal: AltSignal,
         isSpot: Boolean,
         sizeSol: Double,
+        ticket7918: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,
     ): LiveCryptoOpenResult7434 {
         // V5.0.7318 — null = opened; otherwise the exact reason it was not.
         return try {
+            // V5.0.7918 — Phase 0 seal: the dispatched order must fit its sealed ticket.
+            ticket7918?.let { t ->
+                MarketsLiveExecutor.ticketRefusal7914(t, sizeSol)?.let { why ->
+                    try { PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
+                    return LiveCryptoOpenResult7434.Failed(why)
+                }
+            }
             // A prior signed transaction with unresolved owner-token proof is
             // already wallet liability, even if canonical OPEN has no quantity
             // yet. The tracker persists this signature across process restarts;

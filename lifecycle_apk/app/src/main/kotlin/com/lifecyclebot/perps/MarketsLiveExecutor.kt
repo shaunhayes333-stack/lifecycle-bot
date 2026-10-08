@@ -302,12 +302,7 @@ object MarketsLiveExecutor {
         sealedIntent7914: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,
     ): MarketsFill6486 = withContext(Dispatchers.IO) {
         sealedIntent7914?.let { t ->
-            val why = when {
-                !t.fdgAllowed || t.hardNoReasons.isNotEmpty() -> "EXECUTION_TICKET_NOT_ALLOWED_7914"
-                !t.resolvedSize.isFinite() || t.resolvedSize <= 0.0 -> "EXECUTION_TICKET_INVALID_SIZE_7914"
-                !sizeSol.isFinite() || sizeSol > t.resolvedSize * (1.0 + 1e-6) + 1e-9 -> "EXECUTION_SIZE_ABOVE_TICKET_7914"
-                else -> null
-            }
+            val why = ticketRefusal7914(t, sizeSol)
             if (why != null) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
                 return@withContext MarketsFill6486(FillState6486.FAILED, positionId, null, "NONE", "",
@@ -424,6 +419,18 @@ object MarketsLiveExecutor {
         MarketsFill6486(FillState6486.PENDING_PROOF, positionId, sig, "UNKNOWN", targetMint ?: "",
             java.math.BigInteger.ZERO, decimals, principal, fee, "SIGNATURE_ONLY_PENDING",
             reason = "Signature exists but neither target delta nor Flash position is proved")
+    }
+
+    /**
+     * V5.0.7914/7918 — Phase 0 seal: the order a sealed execution ticket may
+     * carry. Null = allowed; otherwise the named refusal. Used by every
+     * cross-asset live dispatcher (markets, stocks, crypto alts).
+     */
+    fun ticketRefusal7914(t: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent, sizeSol: Double): String? = when {
+        !t.fdgAllowed || t.hardNoReasons.isNotEmpty() -> "EXECUTION_TICKET_NOT_ALLOWED_7914"
+        !t.resolvedSize.isFinite() || t.resolvedSize <= 0.0 -> "EXECUTION_TICKET_INVALID_SIZE_7914"
+        !sizeSol.isFinite() || sizeSol > t.resolvedSize * (1.0 + 1e-6) + 1e-9 -> "EXECUTION_SIZE_ABOVE_TICKET_7914"
+        else -> null
     }
 
     @Deprecated("Use executeLiveTradeProof6486; Boolean results discard fill truth")

@@ -1443,7 +1443,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 )
             } catch (_: Exception) {}
         } else {
-            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, fdgSizeSol6561)
+            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, fdgSizeSol6561, marketIntent6561)
             if (!liveOk) {
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(marketIntent6561, "LIVE_EXECUTION_FAILED")
                 // Roll back: remove the position we just inserted.
@@ -2276,6 +2276,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         signal: StockSignal,
         isSpot: Boolean,
         sizeSol: Double,
+        ticket7918: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,
     ): Boolean {
         val leverage = if (isSpot) 1.0 else signal.leverage
         if (liveWalletBalance <= 0.0) {
@@ -2305,6 +2306,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             leverage = leverage,
             priceUsd = signal.price,
             traderType = "TokenizedStocks",
+            // V5.0.7918 — Phase 0: stock live orders re-check their sealed ticket too.
+            sealedIntent7914 = ticket7918,
         )
         val success = fill6486.confirmed
         val txSignature = fill6486.signature

@@ -233,11 +233,12 @@ Each build is one green CI run on main, followed by a snapshot review.
 | 7915 | **Cortex v13 — paper choice** (v1 Phase 4). In PAPER the Cortex now chooses as well as refuses. A candidate blocked on a soft reason (confidence or edge), or declined by its lane on one, is admitted when three things hold: the Cortex reads it STRONG, that lane's STRONG record clears the overrule bar, and the Cortex is self-consistent. One choice per lane per 5 min. It never overrides hard, mode or size blocks (safety, rug, route, freeze/mint authority, duplicates, wallet), never acts on a stale mark, and never acts in LIVE. Chosen positions are booked separately as PAPER_CHOSEN on whole-position closes, so the Cortex's own picks are graded on real exits. |
 | 7916 | **Cortex v14 — planners and LLM analysts as voters** (v1 §2.3, shadow scoring of planner proposals). The Super/SSI stack's decision stamp feeds nine voters: plan exposure (WAIT, reduced, base, conviction), world-model tactical EV, thesis pWin, tail, failure risk, latent state, critic fragility, tree confidence and arbiter meta-confidence. The Gemini narrative cache feeds three more: viral potential, scam confidence and BUY/WATCH/AVOID. Each is graded per lane on forward labels and earns authority or none. All reads are cache peeks, with no planner run and no LLM call. |
 | 7917 | **Cortex v15 — the legacy size stack, graded** (v1 Phase 5). The FDG's ~30 legacy size factors collapse into one composite shape (6552), which is now the voter LEGACY_SIZE_SHAPE: does the stack's shrink or grow predict the outcome? In a lane where it has been scored 300 times and earned no seat, the stack can no longer shrink a candidate the Cortex reads STRONG on a proven record; that candidate's shape is floored at 1.0, the lane's own calculated size. Absolute caps still apply: the live ceiling, pinned probes, and wallet and route caps. |
+| 7918 | **Phase 0 seal, completed across assets.** Tokenized stocks and crypto alts now carry their sealed execution ticket to dispatch, like forex, metals and commodities. One shared check (MarketsLiveExecutor.ticketRefusal7914) refuses any order that is larger than its ticket or whose ticket is not an allowed BUY. |
 
-### Status against the v1 plan after 7917
+### Status against the v1 plan after 7918
 
 Done:
-- Phase 0, except legacy last-slice learners in recordTrade and stock-trader ticket passing.
+- Phase 0, except the legacy last-slice learners in recordTrade (a pinned method at the JVM limit).
 - Phases 1–2 and 2.1 provenance.
 - 2.3, including Super/SSI planners and LLM analysts as voters (7916).
 - Phase 4: the Cortex chooses paper entries (7915).
