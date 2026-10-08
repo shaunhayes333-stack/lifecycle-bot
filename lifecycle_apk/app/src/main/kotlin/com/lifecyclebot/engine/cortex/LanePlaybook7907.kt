@@ -410,6 +410,9 @@ object LanePlaybook7907 {
         return true
     }
 
+    /** Pure: V5.0.7936 — does the lane have a mature NO_TRIGGER record to judge by? */
+    fun noTriggerMeasured7936(st: CortexLedger7885.Stat?): Boolean = st != null && st.n >= NONE_PROOF_N
+
     /** Pure: has a lane's NO_TRIGGER record proven that trading without a setup pays? */
     fun noTriggerProvenPositive(st: CortexLedger7885.Stat?): Boolean {
         if (st == null || st.n < NONE_PROOF_N) return false
@@ -428,7 +431,9 @@ object LanePlaybook7907 {
                 when {
                     // V5.0.7930 — a NO_TRIGGER record proven to lose is evidence, not a prior.
                     setup == NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_$lane"
-                    setup == NO_TRIGGER && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
+                    // V5.0.7936 — an unmeasured NO_TRIGGER explores (it has to trade to
+                    // learn); once its own record is mature it must have proven it pays.
+                    setup == NO_TRIGGER && noTriggerMeasured7936(st) && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
                     setup != NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup"
                     else -> null
                 }

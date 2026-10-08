@@ -10263,7 +10263,7 @@ class GoldenTapeRegressionTest {
         // Floor: raise capped at the loss band, lowering untouched, same sample bar as the learned floor.
         assertTrue(floor.contains("private fun lossBandCeiling(lane: String): Double? = try {"))
         assertTrue(floor.contains("if (mean != null && mean.isFinite() && mean <= 0.0) ceiling = (score + 10).toDouble()"))
-        assertTrue(floor.contains("val raise7276 = (regimeDelta + damperDelta).coerceAtLeast(0.0)"))
+        assertTrue(floor.contains("val raise7276 = evidencedRaise7936(regimeDelta + damperDelta, closes)"))
         assertTrue(floor.contains("val negativeDelta7276 = (regimeDelta + damperDelta).coerceAtMost(0.0)"))
         assertTrue(floor.contains("CANONICAL_FLOOR_RAISE_CAPPED_AT_LOSS_BAND_7276"))
 
@@ -12139,7 +12139,7 @@ class GoldenTapeRegressionTest {
         val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
         assertTrue(f.contains("val maturity = maxOf(liveMaturity7377, inheritedMaturity7377)"))
         assertTrue(f.contains("(0..9).sumOf { ScoreExpectancyTracker.bucketSamples(lane, it * 10) }"))
-        assertTrue(f.contains("waitFloor = floor + WAIT_PROMOTION_MARGIN_7243 * (if (learned != null) (1.0 - maturity) else 1.0),"))
+        assertTrue(f.contains("waitFloor = floor + waitMargin7936(learned != null, maturity, closes),"))
         val e = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
         assertTrue(e.contains("consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT && !lanePaysEv7334(lane)"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()

@@ -160,6 +160,25 @@ object CanonicalEntryFloor7266 {
         return learnedFloor(lane)
     }
 
+    /** Pure: the floor raise, only on the lane's own evidence (else none). */
+    fun evidencedRaise7936(rawDelta: Double, sameModeCloses: Int): Double =
+        if (sameModeCloses >= LEARNED_MIN_SAMPLES) rawDelta.coerceAtLeast(0.0) else 0.0
+
+    /**
+     * Pure. V5.0.7936 — the WAIT-promotion margin. A cold lane (under
+     * LEARNED_MIN_SAMPLES closes) has proven nothing either way and has to trade
+     * to learn: +[COLD_WAIT_MARGIN_7936]. A lane with a proven band narrows toward
+     * its floor as that band matures (7377). A lane with mature closes and no
+     * proven band keeps 7243's full +25: it has traded and found nothing that pays.
+     */
+    fun waitMargin7936(hasLearnedBand: Boolean, maturity: Double, sameModeCloses: Int): Double = when {
+        hasLearnedBand -> WAIT_PROMOTION_MARGIN_7243 * (1.0 - maturity.coerceIn(0.0, 1.0))
+        sameModeCloses < LEARNED_MIN_SAMPLES -> COLD_WAIT_MARGIN_7936
+        else -> WAIT_PROMOTION_MARGIN_7243
+    }
+
+    private const val COLD_WAIT_MARGIN_7936 = 10.0
+
     fun resolve(rawLane: String?): Resolution {
         val lane = rawLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "STANDARD"
         val bootstrap = try {
@@ -189,7 +208,10 @@ object CanonicalEntryFloor7266 {
         val regimeDelta = try { RegimeDetector.scoreFloorDelta().toDouble() } catch (_: Throwable) { 0.0 }
         val damperDelta = try { LaneExpectancyDamper.admissionScoreFloorDelta(lane) } catch (_: Throwable) { 0.0 }
         val base7276 = bootstrap + (target - bootstrap) * maturity
-        val raise7276 = (regimeDelta + damperDelta).coerceAtLeast(0.0)
+        // V5.0.7936 — a raise is a claim that this lane loses; it needs the lane's
+        // own evidence (LEARNED_MIN_SAMPLES same-mode closes). 5.0.7930: SHITCOIN
+        // read 25/50 on n=2 closes and its V3 floor refused 731 candidates.
+        val raise7276 = evidencedRaise7936(regimeDelta + damperDelta, closes)
         // V5.0.7276 §A FLOOR IS RAISED TO THE BAND THAT LOST, NOT PAST IT.
         //
         // 5.0.7273: QUALITY read 37 — base 26, own-tightened regime +3, damper
@@ -219,7 +241,7 @@ object CanonicalEntryFloor7266 {
             // proven: an unproven lane keeps +25, a lane whose learned band carries
             // mature evidence promotes WAIT signals close to its own floor.
             lane = lane, floor = floor,
-            waitFloor = floor + WAIT_PROMOTION_MARGIN_7243 * (if (learned != null) (1.0 - maturity) else 1.0),
+            waitFloor = floor + waitMargin7936(learned != null, maturity, closes),
             bootstrap = bootstrap, target = target, learnedFloor = learned, maturity = maturity,
             closes = closes, regimeDelta = regimeDelta, damperDelta = damperDelta,
         )
