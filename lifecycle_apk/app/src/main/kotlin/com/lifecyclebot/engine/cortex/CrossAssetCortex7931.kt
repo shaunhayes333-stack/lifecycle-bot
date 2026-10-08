@@ -74,7 +74,7 @@ object CrossAssetCortex7931 {
     }
 
     /** A fresh TokenState snapshot of the candidate for the labeler and the voters. */
-    fun tokenStateFor(c: CanonicalAssetEntryCandidate6551, nowMs: Long = System.currentTimeMillis()): Pair<TokenState, String>? {
+    private fun tokenStateFor(c: CanonicalAssetEntryCandidate6551, nowMs: Long = System.currentTimeMillis()): Pair<TokenState, String>? {
         val lane = laneFor(c.assetClass) ?: return null
         // The labeler grades longs; a short would be learned upside down.
         if (!(c.direction.isBlank() || c.direction.equals("LONG", true) || c.direction.equals("BUY", true))) return null
