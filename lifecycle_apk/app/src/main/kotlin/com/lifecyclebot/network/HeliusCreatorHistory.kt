@@ -260,6 +260,9 @@ class HeliusCreatorHistory(private val apiKey: String) {
 
         private const val EXPORT_MAX_ROWS = 750
 
+        /** V5.0.7895 — read-only peek for the Cortex (no fetch). */
+        fun peek7895(devWallet: String): CreatorReport? = if (devWallet.isBlank()) null else sharedCache[devWallet]
+
         fun exportState(): String {
             val arr = org.json.JSONArray()
             val snapshot = try { sharedCache.entries.sortedByDescending { it.value.checkedAt }.take(EXPORT_MAX_ROWS) } catch (_: Throwable) { sharedCache.entries.take(EXPORT_MAX_ROWS) }

@@ -548,6 +548,14 @@ object EducationSubLayerAI {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7895 — read-only peek at the per-module V3 component scores UnifiedScorer
+     * recorded for [mint] in the last 10 minutes. The Cortex grades every module as
+     * its own voter (about 50 of them were only ever summed into one score).
+     */
+    fun peekEntryScores7895(mint: String): Map<String, Int>? =
+        pendingEntryScores[mint]?.takeIf { System.currentTimeMillis() - it.timestamp <= 10 * 60_000L }?.scores
+
     /** V5.9.140 — public wrapper so UnifiedScorer can normalise without making
      *  the private function public (keeps the when-expression internal). */
     fun normalizeComponentName(componentName: String): String = normalizeLayerName(componentName)

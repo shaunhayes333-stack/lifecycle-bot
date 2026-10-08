@@ -51,6 +51,9 @@ object DexScreenerSocialSource {
     )
 
     private val cache = ConcurrentHashMap<String, Social>()
+
+    /** V5.0.7895 — read-only peek for the Cortex (no refresh, no network). */
+    fun peek7895(mint: String): Social? = cache[mint] ?: cache[mint.lowercase()]
     @Volatile private var lastRefreshMs = 0L
 
     fun searchBySymbol(symbol: String, mint: String): List<MentionEvent> {

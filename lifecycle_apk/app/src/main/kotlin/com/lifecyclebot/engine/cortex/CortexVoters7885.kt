@@ -163,10 +163,176 @@ object CortexVoters7885 {
             com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getMintMemory(ts.mint)
                 ?.takeIf { it.totalOutcomes >= 2 }?.avgPnlPct?.takeIf { it.isFinite() }
         },
+        // ── V5.0.7895: built and collected, never used for entries ──
+        // momentum predictor sub-scores (only its enum was used)
+        Voter("MOMENTUM_ACCUMULATION", "UNUSED_TECH", e(20.0, 40.0, 60.0, 80.0), setOf("mom_predictor")) { ts, _, _ ->
+            com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.accumulationScore?.let { fin(it) }
+        },
+        Voter("MOMENTUM_COILING", "UNUSED_TECH", e(20.0, 40.0, 60.0, 80.0), setOf("mom_predictor")) { ts, _, _ ->
+            com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.coilingScore?.let { fin(it) }
+        },
+        Voter("MOMENTUM_VOLUME_ACCEL", "UNUSED_TECH", e(20.0, 40.0, 60.0, 80.0), setOf("mom_predictor")) { ts, _, _ ->
+            com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.volumeAccelerationScore?.let { fin(it) }
+        },
+        // liquidity depth trend (raw %; only a coarse signal was used)
+        Voter("LIQUIDITY_TREND_PCT", "UNUSED_TECH", e(-10.0, -2.0, 2.0, 10.0, 20.0), setOf("liq_trend")) { ts, _, _ ->
+            com.lifecyclebot.engine.LiquidityDepthAI.analyzeTrend(ts.mint)
+                .takeIf { it.trend != com.lifecyclebot.engine.LiquidityDepthAI.Trend.UNKNOWN }?.changePercent?.let { fin(it) }
+        },
+        // volume profile (folded as a small score nudge only)
+        Voter("VOLUME_POC_DISTANCE", "UNUSED_TECH", e(-20.0, -5.0, 5.0, 20.0, 60.0), setOf("volume_profile")) { ts, _, _ ->
+            com.lifecyclebot.engine.VolumeProfileAnalyzer.analyze(ts)?.distanceFromPoc?.let { fin(it) }
+        },
+        Voter("VOLUME_SKEW", "UNUSED_TECH", e(-0.5, -0.1, 0.1, 0.5), setOf("volume_profile")) { ts, _, _ ->
+            com.lifecyclebot.engine.VolumeProfileAnalyzer.analyze(ts)?.volumeSkew?.let { fin(it) }
+        },
+        // bundle analysis beyond the first-block field (paid for, never read)
+        Voter("BUNDLE_LARGEST_PCT", "UNUSED_DATA", e(20.0, 35.0, 45.0, 70.0), setOf("bundle")) { ts, _, _ ->
+            com.lifecyclebot.engine.BundleDetector.cachedFresh7763(ts.mint)
+                ?.takeIf { it.bundleRisk != com.lifecyclebot.engine.BundleDetector.BundleRisk.UNKNOWN }?.largestBundlePct?.let { fin(it) }
+        },
+        Voter("BUNDLE_SOLD_FRACTION", "UNUSED_DATA", e(0.25, 0.5, 0.75), setOf("bundle")) { ts, _, _ ->
+            com.lifecyclebot.engine.BundleDetector.cachedFresh7763(ts.mint)?.let { b ->
+                val n = b.bundledWalletsSold + b.bundledWalletsHolding
+                if (n > 0) b.bundledWalletsSold.toDouble() / n else null
+            }
+        },
+        Voter("UNIQUE_WALLETS_FIRST10", "UNUSED_DATA", e(3.0, 5.0, 8.0), setOf("bundle")) { ts, _, _ ->
+            com.lifecyclebot.engine.BundleDetector.cachedFresh7763(ts.mint)
+                ?.takeIf { it.bundleRisk != com.lifecyclebot.engine.BundleDetector.BundleRisk.UNKNOWN }?.uniqueWalletsFirst10?.toDouble()
+        },
+        Voter("FIRST_BLOCK_BUYERS", "UNUSED_DATA", e(1.0, 3.0, 6.0, 10.0), setOf("bundle")) { ts, _, _ ->
+            ts.safety.takeIf { it.bundleRisk != "UNKNOWN" }?.firstBlockBuyers?.takeIf { it >= 0 }?.toDouble()
+        },
+        Voter("LP_LOCK_PCT", "UNUSED_DATA", e(50.0, 90.0, 99.0), setOf("lp_lock")) { ts, _, _ ->
+            ts.safety.lpLockPct.takeIf { it >= 0.0 && it.isFinite() }
+        },
+        // holders
+        Voter("HOLDER_GROWTH_PCT", "UNUSED_DATA", e(-20.0, -5.0, 5.0, 15.0), setOf("holders_growth")) { ts, _, _ ->
+            ts.holderGrowthRate.takeIf { ts.holderDataResolved && it != 0.0 && it.isFinite() }
+        },
+        Voter("HOLDER_COUNT", "UNUSED_DATA", e(50.0, 150.0, 500.0, 2_000.0), setOf("holders_count")) { ts, _, _ ->
+            ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 }?.toDouble()
+        },
+        Voter("VOLATILITY", "UNUSED_DATA", e(10.0, 25.0, 50.0, 75.0), setOf("volatility")) { ts, _, _ -> ts.volatility?.let { fin(it) } },
+        Voter("TURNOVER_5M", "UNUSED_DATA", e(0.02, 0.1, 0.3, 1.0), setOf("turnover")) { ts, _, _ ->
+            ts.tokenMap.volume5mUsd?.takeIf { it >= 0.0 && ts.lastLiquidityUsd > 0.0 }?.div(ts.lastLiquidityUsd)
+        },
+        Voter("MOVE_3_CANDLES", "UNUSED_DATA", e(-10.0, 0.0, 10.0, 40.0), setOf("price_action_short")) { ts, _, _ ->
+            fin(ts.meta.move3Pct)?.takeIf { it != 0.0 }
+        },
+        Voter("MOVE_8_CANDLES", "UNUSED_DATA", e(-10.0, 0.0, 10.0, 40.0), setOf("price_action_short")) { ts, _, _ ->
+            fin(ts.meta.move8Pct)?.takeIf { it != 0.0 }
+        },
+        Voter("LAST_EXIT_PNL", "UNUSED_DATA", e(-20.0, 0.0, 20.0, 100.0), setOf("reentry")) { ts, _, _ ->
+            ts.lastExitPnlPct.takeIf { ts.lastExitTs > 0L && it.isFinite() }
+        },
+        // live alpha pipeline (fetched on the live path, never read)
+        Voter("HOLDER_ACCELERATION", "UNUSED_DATA", e(-1.0, 0.0, 1.0, 5.0), setOf("alpha_pipeline")) { ts, _, _ ->
+            com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.holderAcceleration?.let { fin(it) }
+        },
+        Voter("BUY_CLUSTERING", "UNUSED_DATA", e(40.0, 70.0, 85.0), setOf("alpha_pipeline")) { ts, _, _ ->
+            com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.buyClusteringScore?.let { fin(it) }
+        },
+        Voter("TX_VELOCITY", "UNUSED_DATA", e(1.0, 3.0, 8.0), setOf("alpha_pipeline")) { ts, _, _ ->
+            com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity?.let { fin(it) }
+        },
+        // market sweep ranking (only a composite multiplier used)
+        Voter("SWEEP_PERCENTILE", "UNUSED_DATA", e(0.5, 0.75, 0.9, 0.97), setOf("sweep")) { ts, _, _ ->
+            com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint)?.percentile?.let { fin(it) }
+        },
+        Voter("SWEEP_TX_ACCEL", "UNUSED_DATA", e(0.7, 1.0, 1.35, 2.0), setOf("sweep")) { ts, _, _ ->
+            com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint)?.txAcceleration?.let { fin(it) }
+        },
+        Voter("SWEEP_VOLUME_ACCEL", "UNUSED_DATA", e(0.7, 1.0, 1.35, 2.0), setOf("sweep")) { ts, _, _ ->
+            com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint)?.volumeAcceleration?.let { fin(it) }
+        },
+        Voter("SWEEP_LIQUIDITY_DELTA", "UNUSED_DATA", e(-10.0, 0.0, 12.0), setOf("sweep")) { ts, _, _ ->
+            com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint)?.liquidityDeltaPct?.let { fin(it) }
+        },
+        // dev / creator history (cached Helius, only a rugger blacklist used)
+        Voter("DEV_TOKENS_CREATED", "UNUSED_DATA", e(1.0, 3.0, 10.0, 30.0), setOf("creator")) { ts, _, _ ->
+            com.lifecyclebot.engine.OperatorRegistry.getDevWallet(ts.mint)
+                ?.let { com.lifecyclebot.network.HeliusCreatorHistory.peek7895(it) }?.takeIf { it.tokensCreated > 0 }?.tokensCreated?.toDouble()
+        },
+        Voter("DEV_AVG_RUGCHECK", "UNUSED_DATA", e(30.0, 50.0, 70.0, 85.0), setOf("creator")) { ts, _, _ ->
+            com.lifecyclebot.engine.OperatorRegistry.getDevWallet(ts.mint)
+                ?.let { com.lifecyclebot.network.HeliusCreatorHistory.peek7895(it) }?.takeIf { it.tokensCreated > 0 }?.avgRugcheckScore?.let { fin(it) }
+        },
+        // DexScreener social (fetched every 90 s, dropped by the sentiment filter)
+        Voter("DEX_BOOST", "UNUSED_DATA", e(1.0, 100.0, 500.0), setOf("dex_social")) { ts, _, _ ->
+            com.lifecyclebot.network.DexScreenerSocialSource.peek7895(ts.mint)?.boostTotal?.let { fin(it) }
+        },
+        Voter("DEX_SOCIAL_LINKS", "UNUSED_DATA", e(1.0, 2.0, 4.0), setOf("dex_social")) { ts, _, _ ->
+            com.lifecyclebot.network.DexScreenerSocialSource.peek7895(ts.mint)?.socialCount?.toDouble()
+        },
+        Voter("DEX_COMMUNITY_TAKEOVER", "UNUSED_DATA", FLAG, setOf("dex_social")) { ts, _, _ ->
+            com.lifecyclebot.network.DexScreenerSocialSource.peek7895(ts.mint)?.let { if (it.communityTakeover) 1.0 else 0.0 }
+        },
+        // V3 modules with per-mint caches read only for exits / lessons
+        Voter("REGIME_TRANSITION", "UNUSED_TECH", e(-3.0, -0.5, 0.5, 3.0), setOf("regime_transition")) { ts, _, _ ->
+            com.lifecyclebot.v3.scoring.RegimeTransitionAI.getActiveTransitions().firstOrNull { it.first == ts.mint }?.second?.let { sig ->
+                val bear = sig.type.name in setOf("RUG_FORMING", "TREND_EXHAUSTION", "DISTRIBUTION_PHASE", "LIQUIDITY_DRAIN")
+                (if (bear) -1.0 else 1.0) * sig.type.alphaPotential * sig.confidence / 100.0
+            }
+        },
+        Voter("SCANNER_SOURCE_PNL", "UNUSED_TECH", e(-10.0, -3.0, 0.0, 3.0, 10.0), setOf("source_cohort")) { ts, _, _ ->
+            com.lifecyclebot.engine.ScannerSourceBrain.sourceSnapshot7658(ts.source)?.takeIf { it.samples >= 20 }?.avgPnlPct?.let { fin(it) }
+        },
+        Voter("NARRATIVE_RECENT_PNL", "UNUSED_TECH", e(-10.0, 0.0, 10.0, 20.0), setOf("narrative")) { ts, _, _ ->
+            com.lifecyclebot.engine.NarrativeDetectorAI.getNarrativeHeat(com.lifecyclebot.engine.NarrativeDetectorAI.detectNarrative(ts.symbol, ts.name))
+                .takeIf { it.tradeCount >= 3 }?.recentAvgPnl?.let { fin(it) }
+        },
+        Voter("MEME_CLUSTER_CROWDING", "UNUSED_TECH", e(1.0, 2.0, 4.0, 8.0), setOf("meme_cluster")) { ts, _, _ ->
+            com.lifecyclebot.v3.scoring.CultMomentumAI.countWithin(com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(ts.symbol, ts.name).cluster).toDouble()
+        },
+        Voter("INSIDER_SCORE", "UNUSED_TECH", e(10.0, 30.0, 60.0), setOf("insiders")) { ts, _, _ ->
+            com.lifecyclebot.v3.scoring.InsiderTrackerAI.getInsiderScore(ts.mint).takeIf { it > 0 }?.toDouble()
+        },
+        // ── V4 meta layer ──
+        Voter("V4_LIQUIDITY_FRAGILITY", "V4", e(0.2, 0.4, 0.6, 0.8), setOf("v4_fragility")) { ts, _, _ ->
+            com.lifecyclebot.v4.meta.LiquidityFragilityAI.getReportFor(ts.mint, ts.symbol)?.fragilityScore?.let { fin(it) }
+        },
+        Voter("V4_NARRATIVE_HEAT", "V4", e(0.2, 0.4, 0.6, 0.8), setOf("v4_narrative")) { ts, _, _ ->
+            com.lifecyclebot.v4.meta.NarrativeFlowAI.getNarrativeForSymbol(ts.symbol)?.narrativeHeat?.let { fin(it) }
+        },
+        Voter("V4_NARRATIVE_EXHAUSTION", "V4", e(0.2, 0.4, 0.6, 0.8), setOf("v4_narrative")) { ts, _, _ ->
+            com.lifecyclebot.v4.meta.NarrativeFlowAI.getNarrativeForSymbol(ts.symbol)?.themeExhaustion?.let { fin(it) }
+        },
+        Voter("V4_LEAD_LAG_ROTATION", "V4", e(0.2, 0.4, 0.6, 0.8), setOf("v4_leadlag")) { ts, _, _ ->
+            com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.getLeadSignalFor(ts.symbol)?.let { l ->
+                (if (l.direction == "INVERSE") -1.0 else 1.0) * l.rotationProbability
+            }
+        },
+        Voter("V4_CROSSTALK_DIRECTION", "V4", e(-0.5, -0.1, 0.1, 0.5), setOf("v4_crosstalk")) { ts, _, _ ->
+            com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getSignalsForSymbol(ts.symbol).filter { it.direction != null }
+                .takeIf { it.isNotEmpty() }?.map { (if (it.direction == "SHORT") -1.0 else 1.0) * it.confidence }?.average()
+        },
+        Voter("V4_GLOBAL_RISK_MODE", "V4", e(0.5, 1.5, 2.5), setOf("v4_regime")) { _, _, _ ->
+            com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getCurrentRegime().ordinal.toDouble()
+        },
+        Voter("V4_PORTFOLIO_HEAT", "V4", e(0.2, 0.4, 0.6, 0.8), setOf("v4_portfolio")) { _, _, _ ->
+            fin(com.lifecyclebot.v4.meta.PortfolioHeatAI.getPortfolioHeat())
+        },
         Voter("SENTIMENT", "MARKET", e(-0.3, -0.05, 0.05, 0.3), setOf("sentiment")) { ts, _, _ ->
             ts.sentiment.takeIf { it.confidence > 0.0 }?.score?.let { fin(it) }
         },
     )
+
+    private val V3_MODULE_EDGES = e(-10.0, -3.0, 0.0, 3.0, 10.0)
+
+    /**
+     * V5.0.7895 — each V3 UnifiedScorer module (about 50 of them, previously only
+     * summed into one score) as its own voter, from the per-mint component snapshot
+     * the scorer records. Absent snapshot = no votes.
+     */
+    fun dynamicVotes(ts: TokenState): List<CortexLedger7885.Vote> {
+        val comps = com.lifecyclebot.v3.scoring.EducationSubLayerAI.peekEntryScores7895(ts.mint) ?: return emptyList()
+        return comps.entries.sortedBy { it.key }.take(80).map { (name, v) ->
+            val id = "V3M_" + name.uppercase().filter { it.isLetterOrDigit() || it == '_' }.take(32)
+            CortexLedger7885.Vote(id, V3_MODULE_EDGES, v.toDouble(), setOf("v3_module_$id"))
+        }
+    }
 
     val IDS: List<String> = ALL.map { it.id }
     val EDGES: List<DoubleArray> = ALL.map { it.edges }

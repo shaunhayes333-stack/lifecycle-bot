@@ -128,7 +128,9 @@ class CortexLedger7885 {
             if (!raw.isFinite()) continue
             val st = seat(voterIds[i], lane, edges[i].size + 1)
             val p = predict(voterIds[i], lane, edges[i], raw).netPct
-            if (st.scored >= MIN_SCORED / 2) residuals.add(voterIds[i] to (y - p))
+            // Error co-movement is tracked among seated voters only (fusion only
+            // discounts seated voters; ~140 voters would otherwise mean ~10k pairs).
+            if (st.authority() > 0.0) residuals.add(voterIds[i] to (y - p))
             st.sseModel = st.sseModel * DECAY + (y - p) * (y - p)
             st.sseBase = st.sseBase * DECAY + (y - base) * (y - base)
             st.scored++

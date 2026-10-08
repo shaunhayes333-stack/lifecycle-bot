@@ -40,6 +40,8 @@ object Cortex7885 {
         val lane: String,
         val runnerLane: Boolean,
         val raws: DoubleArray,
+        val ids: List<String>,
+        val edges: List<DoubleArray>,
         val fused: CortexLedger7885.Fused,
         val bucket: CortexScoreboard7885.Bucket,
         val unknownFeatures: Int,
@@ -83,14 +85,19 @@ object Cortex7885 {
         assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
         ensureLoaded()
         val t0 = System.nanoTime()
-        val raws = CortexVoters7885.readAll(ts, lane, nowMs, voterFailures)
+        val staticRaws = CortexVoters7885.readAll(ts, lane, nowMs, voterFailures)
         val runner = isRunner(lane)
         val voters: List<CortexVoters7885.Voter> = CortexVoters7885.ALL
-        val votes = voters.mapIndexed { i, v -> CortexLedger7885.Vote(v.id, v.edges, raws[i], v.evidence) }
+        // V5.0.7895 — dynamic voters: every V3 UnifiedScorer module recorded for this mint.
+        val dyn = try { CortexVoters7885.dynamicVotes(ts) } catch (_: Throwable) { emptyList() }
+        val ids = CortexVoters7885.IDS + dyn.map { it.voterId }
+        val edges = CortexVoters7885.EDGES + dyn.map { it.edges }
+        val raws = DoubleArray(ids.size) { i -> if (i < staticRaws.size) staticRaws[i] else dyn[i - staticRaws.size].raw }
+        val votes = voters.mapIndexed { i, v -> CortexLedger7885.Vote(v.id, v.edges, staticRaws[i], v.evidence) } + dyn
         val fused = synchronized(this) { ledger.fuse(lane, votes) }
         val bucket = CortexScoreboard7885.bucketOf(fused.edgePct, fused.runnerRate, runner)
         val priceAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
-        val a = Assessment(lane, runner, raws, fused, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
+        val a = Assessment(lane, runner, raws, ids, edges, fused, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
         assessNanos.addAndGet(System.nanoTime() - t0)
         assessed.incrementAndGet()
         if (assessCache.size >= MAX_ASSESS_CACHE) assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_TTL_MS }
@@ -118,7 +125,7 @@ object Cortex7885 {
         pending.remove(key)
         if (!netPct.isFinite()) return
         synchronized(this) {
-            ledger.grade(p.a.lane, CortexVoters7885.IDS, CortexVoters7885.EDGES, p.a.raws, netPct, grossPct)
+            ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
             p.vetoRule?.let { r ->
                 vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
@@ -337,7 +344,7 @@ object Cortex7885 {
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
                     "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)}"
             }
-            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
+            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size}+V3modules assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
                 "      stop authority (§7887): ${try { StopAuthority7887.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +

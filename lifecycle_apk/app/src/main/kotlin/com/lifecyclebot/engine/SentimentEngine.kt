@@ -140,8 +140,12 @@ class SentimentEngine(private val cfg: () -> BotConfig) {
             SentimentAnalyzer.scoreText(it.text).blockReason
         } ?: ""
 
-        // Wallet concentration block: > 80% in top 10 holders
-        val concBlock = concentration > 80.0
+        // V5.0.7895 — the wallet-concentration BLOCK is removed. checkWalletConcentration
+        // divides the top 10 by the top 20 accounts (getTokenLargestAccounts), pool or
+        // bonding-curve account included, so it reads ~70-100 on nearly every token and
+        // "> 80" zeroed entry scores as a sentiment block. Holder concentration is
+        // judged once, correctly, by TokenSafetyChecker (topHolderPct); the raw value
+        // stays on SentimentResult for display.
 
         // Price/mention divergence: mentions spiking but price not yet
         // Signal: velocity > 2.0 mentions/min AND price change < 5% in last period
@@ -161,8 +165,8 @@ class SentimentEngine(private val cfg: () -> BotConfig) {
         val result = SentimentResult(
             score                  = combinedScore,
             confidence             = combinedConf,
-            blocked                = hardBlock || concBlock,
-            blockReason            = if (concBlock) "Wallet concentration ${concentration.toInt()}% > 80%" else blockReason,
+            blocked                = hardBlock,
+            blockReason            = blockReason,
             xScore                 = xScore,
             xMentions              = xEvents.size,
             xVelocity              = xVel,
@@ -170,7 +174,7 @@ class SentimentEngine(private val cfg: () -> BotConfig) {
             telegramMentions       = tgEvents.size,
             telegramVelocity       = tgVel,
             walletConcentration    = concentration,
-            concentrationBlocked   = concBlock,
+            concentrationBlocked   = false,
             divergenceSignal       = divergence,
             summary                = summary,
             updatedAt              = now,
