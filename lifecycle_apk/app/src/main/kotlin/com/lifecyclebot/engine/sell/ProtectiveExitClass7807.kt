@@ -153,7 +153,9 @@ object ProtectiveExitClass7807 {
      */
     fun bypassesHolds(reason: String?, lane: String?): Boolean {
         if (!isEmergency(reason)) return false
-        return if (isMoonshotLane(lane)) overridesMoonshotHold(reason) else true
+        // A confirmed hard stop is portfolio safety, not a discretionary
+        // strategy exit. Moonshot runner holds must never suppress it.
+        return true
     }
 
     /**
