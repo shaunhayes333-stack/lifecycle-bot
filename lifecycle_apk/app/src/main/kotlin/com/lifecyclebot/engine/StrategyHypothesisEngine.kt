@@ -510,6 +510,10 @@ object StrategyHypothesisEngine {
         } catch (_: Throwable) {}
     }
 
+    /** Exact position-bound learning proof. Absence is not a successful training outcome. */
+    fun hasPositionBinding7877(positionId: String): Boolean =
+        positionId.isNotBlank() && pendingByPosition7428.containsKey(positionId)
+
     /** Settle only the hypothesis/variant that was bound to this position. */
     /**
      * V5.0.7876 — returns false only when the outcome could not be applied and a
