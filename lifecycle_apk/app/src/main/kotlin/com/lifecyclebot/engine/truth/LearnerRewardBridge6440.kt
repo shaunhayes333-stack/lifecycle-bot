@@ -67,18 +67,29 @@ object LearnerRewardBridge6440 {
             lane.contains("PERPS", true) -> "PERPS"
             else -> "MEME"
         }
+        // A partial delivery must retry only the missing consumer. Neither a
+        // duplicate (false from a downstream idempotency guard) nor a failing
+        // second consumer may cause the first to be trained twice.
         val sentienceAccepted = try {
-            com.lifecyclebot.engine.SentienceHooks.recordCanonicalEngineOutcome6486(
-                positionId, engine, pnlSol, pnlSol > 0.0,
-            ) || com.lifecyclebot.engine.SentienceHooks.run { true }
+            com.lifecyclebot.engine.SentienceHooks.hasCanonicalEngineOutcome6486(positionId) ||
+                com.lifecyclebot.engine.SentienceHooks.recordCanonicalEngineOutcome6486(
+                    positionId, engine, pnlSol, pnlSol > 0.0,
+                )
         } catch (_: Throwable) { false }
         val labAccepted = try {
-            com.lifecyclebot.engine.lab.LlmLabEngine.recordCanonicalOutcome6486(
-                positionId, lane, tactic, pnlPct, pnlSol, mode.equals("paper", true),
-            ) || true
+            com.lifecyclebot.engine.lab.LlmLabEngine.hasCanonicalOutcome6486(positionId) ||
+                com.lifecyclebot.engine.lab.LlmLabEngine.recordCanonicalOutcome6486(
+                    positionId, lane, tactic, pnlPct, pnlSol, mode.equals("paper", true),
+                )
         } catch (_: Throwable) { false }
-        try { PipelineHealthCollector.labelInc("LEARNER_REWARD_FINALIZED_CONSUMED_6486") } catch (_: Throwable) {}
-        return sentienceAccepted && labAccepted
+        val fullyDelivered = sentienceAccepted && labAccepted
+        try {
+            PipelineHealthCollector.labelInc(
+                if (fullyDelivered) "LEARNER_REWARD_FINALIZED_CONSUMED_6486"
+                else "LEARNER_REWARD_FINALIZED_PARTIAL_RETRY_7876"
+            )
+        } catch (_: Throwable) {}
+        return fullyDelivered
     }
 
     fun finalizedMultiplier6486(positionId: String): Double? = finalizedMultipliers[positionId]
