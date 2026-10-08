@@ -129,7 +129,7 @@ object Cortex7885 {
         { r -> Thread(r, "cortex-7909").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
         java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy(),
     )
-    private val scheduled = ConcurrentHashMap.newKeySet<String>()
+    private val scheduled = ConcurrentHashMap<String, Long>()
 
     private fun submit(tag: String, job: () -> Unit) {
         try {
@@ -147,8 +147,14 @@ object Cortex7885 {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val key = "${ts.mint}|${canon(laneRaw)}"
         assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
-        if (scheduled.add(key)) submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key) } }
-        else inc("ASYNC_ALREADY_SCHEDULED")
+        // A job the full queue dropped never reaches its finally: a key may be
+        // rescheduled after 30 s, so a dropped assessment cannot block a mint forever.
+        val prev = scheduled[key]
+        if (prev == null || nowMs - prev > 30_000L) {
+            scheduled[key] = nowMs
+            submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key) } }
+        } else inc("ASYNC_ALREADY_SCHEDULED")
+        if (scheduled.size > 4_000) scheduled.entries.removeIf { nowMs - it.value > 30_000L }
         return null
     }
 

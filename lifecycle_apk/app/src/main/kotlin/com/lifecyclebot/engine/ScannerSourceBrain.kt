@@ -197,8 +197,12 @@ object ScannerSourceBrain {
                 s.lastUpdated = now
             }
         }
-        save()
+        // V5.0.7913 — every graded Cortex decision now lands here too; persist at
+        // most every 30 s instead of re-serialising all stats per outcome.
+        if (now - lastSaveMs7913 >= 30_000L) { lastSaveMs7913 = now; save() }
     }
+
+    @Volatile private var lastSaveMs7913 = 0L
 
     fun authority(source: String): AuthorityTier {
         val s = stats[normalise(source)] ?: return AuthorityTier.BOOTSTRAP
