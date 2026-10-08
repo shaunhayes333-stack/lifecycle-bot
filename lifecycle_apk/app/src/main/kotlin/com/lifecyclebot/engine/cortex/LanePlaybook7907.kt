@@ -63,6 +63,8 @@ object LanePlaybook7907 {
         val holders: Double = Double.NaN, val insider: Double = Double.NaN, val narrativeHeat: Double = Double.NaN,
         val narrativeExhaustion: Double = Double.NaN, val bundleLargest: Double = Double.NaN, val lpLock: Double = Double.NaN,
         val txVelocity: Double = Double.NaN, val volatility: Double = Double.NaN, val regime: String = "",
+        // V5.0.7926 — FreshLaunchSelector7737's -15% ladder has PROVEN this launch's setup cell.
+        val launchLadderProven: Boolean = false,
     )
 
     class Setup(val id: String, val prior: Double, val fires: (F) -> Boolean)
@@ -137,6 +139,11 @@ object LanePlaybook7907 {
     }
     // V5.0.7921/7923 — the launch tape since birth shows a crowd forming (LaunchTape7921).
     private val CROWD_FORMING = Setup("CROWD_FORMING", FLOW) { f -> f.crowdForming }
+    // V5.0.7926 — a fresh launch whose setup cell (phase|flow|concentration|multiple)
+    // the launch selector has PROVEN on its own graded record (n15 >= 20, ev15 net of
+    // cost > 0). 5.0.7925: PRE_IGNITION|FLOW_OK|CONC_ONE n15=26 ev15=+22.5% was refused
+    // live as NO_TRIGGER because no hand-written setup matched it.
+    private val LAUNCH_LADDER_PROVEN = Setup("LAUNCH_LADDER_PROVEN", STRUCT) { f -> f.launchLadderProven }
 
     // ── V5.0.7924 — the expanded library. Each fires on measurable conditions;
     //    each starts at an educated prior and is graded per lane from trade one.
@@ -223,15 +230,15 @@ object LanePlaybook7907 {
             HOLDER_EXPANSION, OPP_LIQUIDITY_EXPANSION, OPP_BREAKOUT_EXPANSION, LP_LOCKED_BASE, LOW_VOL_COIL, SECOND_LEG, MOMENTUM_PULLBACK_5M, RS_IN_WEAK_MARKET),
         "BLUECHIP" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, TREND_PULLBACK, RELATIVE_STRENGTH, FLAG_CONTINUATION,
             DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, OPP_RS_LEADER, OPP_LIQUIDITY_EXPANSION, OPP_CONTINUATION, RS_IN_WEAK_MARKET),
-        "SHITCOIN" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, FIRST_PULLBACK, PRE_IGNITION_BASE, CROWD_FORMING,
+        "SHITCOIN" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, FIRST_PULLBACK, PRE_IGNITION_BASE, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             FAST_CROWD, BROAD_DISTRIBUTION, NET_INFLOW_SURGE, FIRST_DIP_BOUGHT, DEV_HOLDS_CROWD_BUYS, CLEAN_DEV_LAUNCH, ACCELERATING_TAPE,
             GRADUATION_RUN, NO_BUNDLE_CLEAN, SOCIAL_LAUNCH, NARRATIVE_WAVE, INSIDER_ACCUMULATION, OPP_EARLY_IGNITION),
-        "EXPRESS" to listOf(PLAN_BASE_BREAKOUT, VOLUME_CONTINUATION, HIGHER_LOW_CONTINUATION, MICRO_FLAG, CROWD_FORMING,
+        "EXPRESS" to listOf(PLAN_BASE_BREAKOUT, VOLUME_CONTINUATION, HIGHER_LOW_CONTINUATION, MICRO_FLAG, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             ACCELERATING_TAPE, FAST_CROWD, VOLUME_IGNITION, TX_VELOCITY_BREAK, MOMENTUM_PULLBACK_5M, OPP_EARLY_IGNITION, OPP_RS_LEADER),
-        "MOONSHOT" to listOf(PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, BREAKOUT_RUNNER, RS_LEADER, POST_EVENT_RECLAIM, CROWD_FORMING,
+        "MOONSHOT" to listOf(PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, BREAKOUT_RUNNER, RS_LEADER, POST_EVENT_RECLAIM, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             FAST_CROWD, NET_INFLOW_SURGE, GRADUATION_RUN, POST_MIGRATION_HOLD, BOOSTED_LAUNCH, SOCIAL_LAUNCH, NARRATIVE_WAVE,
             VOLUME_IGNITION, OPP_BREAKOUT_EXPANSION, OPP_EARLY_IGNITION, SECOND_LEG, CTO_REVIVAL),
-        "PROJECT_SNIPER" to listOf(PLAN_BASE_BREAKOUT, VERIFIED_LAUNCH, LOW_RUNUP_BASE, FIRST_PULLBACK, CROWD_FORMING,
+        "PROJECT_SNIPER" to listOf(PLAN_BASE_BREAKOUT, VERIFIED_LAUNCH, LOW_RUNUP_BASE, FIRST_PULLBACK, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             CLEAN_DEV_LAUNCH, SOCIAL_LAUNCH, BROAD_DISTRIBUTION, NO_BUNDLE_CLEAN, LP_LOCKED_BASE, DEV_HOLDS_CROWD_BUYS, POST_MIGRATION_HOLD),
         "DIP_HUNTER" to listOf(PLAN_SWEEP_RECLAIM, SWEEP_RECLAIM_FLOW, CAPITULATION_HIGHER_LOW, SUPPORT_FLIP,
             MEAN_REVERSION_OVERSOLD, SECOND_LEG, FIRST_DIP_BOUGHT, HOLDER_EXPANSION, OPP_DIP_RECOVERY),
@@ -336,6 +343,11 @@ object LanePlaybook7907 {
             txVelocity = try { com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity } catch (_: Throwable) { null } ?: Double.NaN,
             volatility = ts.volatility ?: Double.NaN,
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
+            launchLadderProven = try {
+                val cost = com.lifecyclebot.engine.truth.FieldManual7715.allInCostPct(10.0, ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0)
+                com.lifecyclebot.engine.truth.FreshLaunchSelector7737.launchRead7742(ts, cost, nowMs).verdict ==
+                    com.lifecyclebot.engine.truth.FreshLaunchSelector7737.LaunchVerdict.PROVEN
+            } catch (_: Throwable) { false },
         )
     }
 

@@ -38,6 +38,13 @@ class Aate7924PlaybookLibraryTest {
         assertFalse(fires("SHITCOIN", b, "FAST_CROWD"))
     }
 
+    /** V5.0.7926 — a launch cell the selector has proven is a setup on the launch lanes. */
+    @Test fun provenLaunchLadderIsASetup() {
+        val proven = F(n, n, n, n, n, n, n, n, n, n, n, n, "", "", launchLadderProven = true)
+        for (lane in listOf("SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS")) assertTrue(lane, fires(lane, proven, "LAUNCH_LADDER_PROVEN"))
+        assertFalse(fires("SHITCOIN", F(n, n, n, n, n, n, n, n, n, n, n, n, "", ""), "LAUNCH_LADDER_PROVEN"))
+    }
+
     @Test fun structureSetupsNeedTheirConditions() {
         assertTrue(fires("BLUECHIP", base(dd = 35.0, chg5m = 2.0, chg1h = -20.0, liq = 80_000.0), "MEAN_REVERSION_OVERSOLD"))
         assertFalse(fires("BLUECHIP", base(dd = 35.0, chg5m = -2.0, chg1h = -20.0, liq = 80_000.0), "MEAN_REVERSION_OVERSOLD"))
