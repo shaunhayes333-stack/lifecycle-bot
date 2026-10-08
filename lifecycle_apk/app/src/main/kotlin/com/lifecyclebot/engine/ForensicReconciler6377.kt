@@ -164,8 +164,13 @@ object ForensicReconciler6377 {
             // adopted rows are opened by recovery, not by a journal BUY) is not an
             // unmatched sell. 5.0.7867 LIVE read buys=1 sells=9.
             val parented7868 = canonicalParentMints7868()
-            val unparentedSells7868 = sells.count { it.mint.isBlank() || it.mint !in parented7868 }
-            val ok = buys.size >= unparentedSells7868
+            val journalBoughtMints = buys.mapTo(HashSet()) { it.mint }
+            // Total BUY count cannot parent an unrelated SELL. Every SELL needs
+            // a matched journal BUY for its mint, or a canonical recovered parent.
+            val unparentedSells7868 = sells.count {
+                it.mint.isBlank() || (it.mint !in parented7868 && it.mint !in journalBoughtMints)
+            }
+            val ok = unparentedSells7868 == 0
             results += CheckResult("JOURNAL_ROW_PARITY", ok, "buys=${buys.size} sells=${sells.size} unparentedSells=$unparentedSells7868")
         }
 
