@@ -2439,7 +2439,9 @@ class Executor(
         // could return true for STRICT_SL/CATASTROPHE, creating -98% MOONSHOT
         // stop rows. Safety exits must always continue to sell route selection.
         try {
-            if (RecoveredHoldGuard.shouldSuppress(ts.mint, reason) && !isUnconditionalSafety) {
+            // V5.0.7931 — the live pnl lets a green recovered position cash a winner.
+            val pnl7931 = try { com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "RecoveredHoldGuard7931/${ts.mint.take(8)}", emit = false).takeIf { it.ok }?.pnlPct } catch (_: Throwable) { null } ?: Double.NaN
+            if (RecoveredHoldGuard.shouldSuppress(ts.mint, reason, pnl7931) && !isUnconditionalSafety) {
                 LiveTradeLogStore.log(
                     tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                     ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,

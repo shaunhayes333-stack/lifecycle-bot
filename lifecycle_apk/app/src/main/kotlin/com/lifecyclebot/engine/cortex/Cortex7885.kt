@@ -633,7 +633,10 @@ object Cortex7885 {
         if (!env.learningEligible) { inc("REALIZED_NOT_ELIGIBLE"); return }
         ensureLoaded()
         val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return
-        val a = entryReads.remove("${env.mint}|$mode") ?: return
+        // V5.0.7931 — cross-asset rows close under "solana|<mint>" / ticker / traded mint;
+        // all map onto the identity the entry was captured under.
+        val closeKey7931 = try { CrossAssetCortex7931.normalizeCloseKey(env.mint) } catch (_: Throwable) { env.mint }
+        val a = entryReads.remove("$closeKey7931|$mode") ?: return
         // V5.0.7925 — many envelopes carry holdingTimeMs=0; then the entry time is unknown
         // and the read is matched on mint+mode alone (it is removed at the first close).
         if (env.holdingTimeMs > 0L) {

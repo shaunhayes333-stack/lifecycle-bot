@@ -365,6 +365,49 @@ object LiveCanonicalRecovery6686 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7931 — the open live position's basis from EconomicEventSchema6464's durable
+     * Buy events (persisted, replayed at boot): the newest live position for this mint
+     * with no full-close Sell after it; top-ups of the same position are summed and
+     * the entry price is quantity-weighted. Lane and positionId are the bot's own.
+     */
+    private fun durableLiveBuyBasis7931(mint: String): Basis? = try {
+        val rows = com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
+        val buys = rows.filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Buy>()
+            .filter { it.mode == "live" && it.mint == mint && it.executedCostSol.isFinite() && it.executedCostSol > 0.0 }
+        val latest = buys.maxByOrNull { it.atMs }
+        if (latest == null) null else {
+            val pid = latest.positionId
+            val sells = rows.filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Sell>()
+                .filter { it.mode == "live" && it.positionId == pid && it.atMs >= latest.atMs }
+            val closed = sells.any { !it.partial || it.remainingQty.signum() == 0 }
+            val legs = buys.filter { it.positionId == pid }
+            // Partial exits already took their share of the cost basis.
+            val soldCost = sells.filter { it.partial }.sumOf { it.allocatedCostBasisSol.coerceAtLeast(0.0) }
+            val cost = (legs.sumOf { it.executedCostSol } - soldCost).coerceAtLeast(0.0)
+            val priced = legs.filter { it.fillPrice.isFinite() && it.fillPrice > 0.0 && it.filledQty.signum() > 0 }
+            val qty = priced.sumOf { it.filledQty.toDouble() }
+            val px = if (qty > 0.0) priced.sumOf { it.fillPrice * it.filledQty.toDouble() } / qty else 0.0
+            if (closed || !(px > 0.0) || !(cost > 0.0)) null else {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_BASIS_REBUILT_FROM_DURABLE_BUY_7931")
+                    ForensicLogger.lifecycle("LIVE_BASIS_REBUILT_FROM_DURABLE_BUY_7931",
+                        "mint=${mint.take(12)} positionId=${pid.take(28)} legs=${legs.size} cost=$cost px=$px lane=${latest.lane}")
+                } catch (_: Throwable) {}
+                Basis(
+                    entryCostSol = cost,
+                    entryPriceUsd = px,
+                    lane = latest.lane.ifBlank { "WALLET_RECOVERED" },
+                    openedAtMs = legs.minOf { it.atMs },
+                    source = "DURABLE_LIVE_BUY_EVENT_7931",
+                    pool = "",
+                    dex = "",
+                    identity = pid,
+                )
+            }
+        }
+    } catch (_: Throwable) { null }
+
     private fun trackerSignedBuyBasis7708(mint: String): Basis? {
         val p = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null } ?: return null
         if (!isBotSignedRow7708(p)) return null
@@ -676,7 +719,11 @@ object LiveCanonicalRecovery6686 {
                     // 6504 is left in the chain. It costs one lookup, it is the
                     // correct source if a live writer is ever added to it, and
                     // removing a source is not what this build is for.
-                    fromFill7126 ?: ledgerBasis6344_7133(mint) ?:
+                    // V5.0.7931 — the bot's own durable live Buy event is the first receipt:
+                    // every bot buy came back after a restart as WALLET_RECOVERED at the
+                    // observed mark (5.0.7929), because live canonical rows are rebuilt from
+                    // the wallet and none of the volatile sources survived.
+                    durableLiveBuyBasis7931(mint) ?: fromFill7126 ?: ledgerBasis6344_7133(mint) ?:
                         ledgerBasis7126(mint, amount) ?: journalBasis7253(mint, amount) ?:
                         botReservation7699?.let { reservation ->
                             if (reservation.entryCostSol.isFinite() && reservation.entryCostSol > 0.0 &&

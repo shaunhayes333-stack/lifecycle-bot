@@ -391,6 +391,8 @@ object LanePlaybook7907 {
     private val matchCache = ConcurrentHashMap<String, List<String>>()
 
     private fun classifyNow(ts: TokenState, lane: String, nowMs: Long): String? {
+        // V5.0.7931 — a lane with no playbook (crypto universe, Markets) costs no feature build.
+        if (!MENU.containsKey(lane)) return null
         val m = matches(lane, features(ts, nowMs)) ?: return null
         if (matchCache.size > 4_000) matchCache.clear()
         matchCache["${ts.mint}|$lane"] = m.map { it.id }

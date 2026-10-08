@@ -156,10 +156,24 @@ object RecoveredHoldGuard {
     /** Single-call gate consulted by sell paths. Returns true if the sell
      *  should be SUPPRESSED (held) because the recovered hold-grace window
      *  is active and the reason is not a confirmed emergency. */
-    fun shouldSuppress(mint: String, reason: String): Boolean {
+    fun shouldSuppress(mint: String, reason: String, pnlPct: Double = Double.NaN): Boolean {
         if (!isInHoldGrace(mint)) return false
         if (isEmergencyExitOverride(reason)) return false
+        // V5.0.7931 — the grace protects an unknown-entry position from being DUMPED,
+        // not from being cashed: AsNTKE (5.0.7929) sat at +387% after a +664% peak
+        // while 610 peak-capture / drawdown / take-profit sells were held for the
+        // "recovered" grace. Selling a winner is never the harm this guards against.
+        // Only while the position is actually green: a "peak give-back" on a loser stays held.
+        if (pnlPct.isFinite() && pnlPct > 0.0 && isProfitTakingExit7931(reason)) return false
         return true
+    }
+
+    /** Pure: an exit that banks a gain (take-profit, peak capture, profit lock, give-back from peak). */
+    fun isProfitTakingExit7931(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("TAKE_PROFIT") || r.contains("PROFIT_LOCK") || r.contains("PEAK_LOCK") ||
+            r.contains("PEAK_CAPTURE") || r.contains("PEAK_PARTIAL") || r.contains("DRAWDOWN_FROM_PEAK") ||
+            r.contains("GIVEBACK") || r.contains("GIVE_BACK") || r.startsWith("TP_") || r.contains("_TP_")
     }
 
     fun reconcileWithHeldMints(heldMints: Set<String>): Int {

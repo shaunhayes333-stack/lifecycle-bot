@@ -2944,6 +2944,9 @@ object PipelineHealthCollector {
             sb.append("  Cortex (§7885):               ").append(
                 try { com.lifecyclebot.engine.cortex.Cortex7885.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Cross-asset Cortex (§7931):  ").append(
+                try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Rent reclaim (§7927):        ").append(
                 try { RentReclaimer7927.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

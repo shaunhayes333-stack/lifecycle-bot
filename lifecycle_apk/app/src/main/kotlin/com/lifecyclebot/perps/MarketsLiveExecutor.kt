@@ -1564,8 +1564,20 @@ object MarketsLiveExecutor {
         exitReason: String = "MARKETS_CLOSE",
         entryTactic: String = "MARKETS",
     ): MarketsClose6486 = withContext(Dispatchers.IO) {
+        // V5.0.7931 — the live row was opened under its traded mint (xStock / wrapped /
+        // flash:), never the ticker: checking the ticker failed every Markets live close
+        // with MINT_MISMATCH. The positionId owns the row; its own mint is the identity.
+        val rowMint7931 = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)?.mint } catch (_: Throwable) { null }
+            ?.takeIf { m ->
+                // Only a mint this market could have been opened under; anything else keeps the mismatch check.
+                m.startsWith("flash:") || m in setOfNotNull(
+                    market.symbol,
+                    try { TokenizedAssetRegistry.mintFor(market.symbol) } catch (_: Throwable) { null },
+                    try { com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(cryptoSymbolOverride ?: market.symbol) } catch (_: Throwable) { null },
+                )
+            }
         val eligibility6570 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.exitEligibility6570(
-            positionId = positionId, mint = cryptoTargetMintOverride ?: market.symbol, expectedMode = "live",
+            positionId = positionId, mint = cryptoTargetMintOverride ?: rowMint7931?.takeIf { it.isNotBlank() } ?: market.symbol, expectedMode = "live",
         )
         val pos = eligibility6570.position
             ?: return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, eligibility6570.reason)

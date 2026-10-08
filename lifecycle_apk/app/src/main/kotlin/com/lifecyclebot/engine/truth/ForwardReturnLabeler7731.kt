@@ -572,7 +572,9 @@ object ForwardReturnLabeler7731 {
         }
     }
 
-    fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+    fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+        // V5.0.7931 — crypto-universe and Markets identities are priced by their own feeds.
+        val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
         if (pending.isEmpty() && freshUnpriced7737.isEmpty()) return
         val dueUnpriced7737 = ArrayList<Pair<String, Long>>()

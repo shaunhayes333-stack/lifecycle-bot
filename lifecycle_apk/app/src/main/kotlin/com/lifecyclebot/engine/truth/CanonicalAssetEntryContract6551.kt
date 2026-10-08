@@ -306,6 +306,14 @@ object CanonicalEntryAuthority6551 {
             return blocked(candidate, venue, reason7259)
         }
 
+        // V5.0.7931 — the crypto universe and Markets meet the same live edge gate as
+        // memecoins: Cortex refusal (once earned), proven-losing setups/stages/shapes and
+        // measured cohorts. Unmeasured candidates still explore.
+        com.lifecyclebot.engine.cortex.CrossAssetCortex7931.liveRefusal(candidate)?.let {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_EDGE_REFUSED_7931_${candidate.mode.uppercase()}_${candidate.assetClass.tag}") } catch (_: Throwable) {}
+            return blocked(candidate, venue, it)
+        }
+
         val shaping = CanonicalAssetEntryShaping6551(
             scorePenalty = if (candidate.score < 0.0) 1 else 0,
             // V5.0.7391 — an evidenced refusal whose refused cohort still pays trades at the floor size.
@@ -475,6 +483,8 @@ object CanonicalEntryAuthority6551 {
             ForensicLogger.lifecycle("CANONICAL_FDG_INTENT_SEALED_6551", "asset=${candidate.assetId.take(16)} class=${candidate.assetClass} verdict=$verdict registered=true")
         } catch (_: Throwable) {}
         val resultShaping = shaping.copy(sizeMultiplier = if (shaping.sizeMultiplier > 0.0) sizing.finalSizeSol / candidate.requestedSizeSol.coerceAtLeast(0.0000001) else 1.0)
+        // V5.0.7931 — every admitted cross-asset decision is a forward label and a Cortex capture.
+        try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observe(candidate, true, null) } catch (_: Throwable) {}
         return if (shaping.probe) CanonicalAssetEntryResult6551.Probe(registered, registered.resolvedSize, venue, resultShaping)
         else CanonicalAssetEntryResult6551.Allowed(registered, registered.resolvedSize, venue, resultShaping)
     }
@@ -676,11 +686,13 @@ object CanonicalEntryAuthority6551 {
 
     private fun deferred(c: CanonicalAssetEntryCandidate6551, venue: String, reason: String): CanonicalAssetEntryResult6551.Deferred {
         CanonicalEntryAuthority6540.markAuthBlockFor6551(c.assetClass, c.symbol, reason)
+        try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observe(c, false, reason) } catch (_: Throwable) {}
         return CanonicalAssetEntryResult6551.Deferred(reason)
     }
 
     private fun blocked(c: CanonicalAssetEntryCandidate6551, venue: String, reason: String): CanonicalAssetEntryResult6551.Blocked {
         CanonicalEntryAuthority6540.markAuthBlockFor6551(c.assetClass, c.symbol, reason)
+        try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observe(c, false, reason) } catch (_: Throwable) {}
         return CanonicalAssetEntryResult6551.Blocked(reason)
     }
 }

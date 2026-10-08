@@ -222,7 +222,9 @@ class CortexLedger7885 {
         l.add(y, runner)
         if (regime.isNotBlank()) lane("$lane@$regime").add(y, runner)
         // V5.0.7905 — the all-lane cell every voter's bins also feed.
-        if (lane != GLOBAL) {
+        // V5.0.7931 — cross-asset lanes (crypto universe, Markets) learn in their own
+        // lanes only: their outcomes must not move the memecoin all-lane prior.
+        if (lane != GLOBAL && !CrossAssetCortex7931.isCrossAssetLane(lane)) {
             for (i in voterIds.indices) {
                 val raw = raws.getOrNull(i) ?: continue
                 if (!raw.isFinite()) continue
