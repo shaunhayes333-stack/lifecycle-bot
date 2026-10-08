@@ -9505,9 +9505,7 @@ class Executor(
             val valueSol7708 = try {
                 com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(p7708.qtyToken * currentPrice, solUsd7708)
             } catch (_: Throwable) { Double.NaN }
-            val routableMin7708 = try {
-                com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd7708).routableMinSol
-            } catch (_: Throwable) { 0.0 }
+            val routableMin7708 = recoveredDustFloorSol7928(solUsd7708)
             if (!valueSol7708.isFinite() || routableMin7708 <= 0.0 || valueSol7708 >= routableMin7708) return@run
             val now7708 = System.currentTimeMillis()
             val last7708 = recoveredDustSellAt7708[ts.mint] ?: 0L
@@ -14413,6 +14411,14 @@ class Executor(
      */
     /** V5.0.7388 — when each open position (mint|entryTime) last made a new high. */
     private val lastNewHighMs7388 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /**
+     * V5.0.7928 — recovered inventory is dust only below a ~$1 sell floor. The buy
+     * ticket (~$5) was the old bar, so a recovered position of the bot's own that had
+     * dipped under one ticket was sold "as dust" on every restart.
+     */
+    private fun recoveredDustFloorSol7928(solUsd: Double): Double =
+        if (solUsd.isFinite() && solUsd > 0.0) RECOVERED_DUST_FLOOR_USD_7928 / solUsd else 0.0
+
     /** V5.0.7708 — last RECOVERED_DUST_LIQUIDATION_7708 attempt per mint. */
     private val recoveredDustSellAt7708 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
@@ -14495,6 +14501,7 @@ class Executor(
 
     /** V5.0.7714 — route refusals inside this window count toward dust-unroutable. */
     private val DUST_UNROUTABLE_FAILURE_WINDOW_MS_7714: Long = 15L * 60_000L
+    private val RECOVERED_DUST_FLOOR_USD_7928: Double = 1.0
     private val DUST_UNROUTABLE_MIN_FAILURES_7714: Int = 2
 
     /** V5.0.7714 — inventory the bot adopted from the wallet rather than entered on a signal. */
@@ -23791,6 +23798,21 @@ class Executor(
             MoonbagRunner7322.Action.PASS
     } catch (_: Throwable) { false }
 
+    /** V5.0.7928 — a deep live stop is checked against the route's executable value first. */
+    private fun stopCorroboratedByQuote7928(ts: TokenState, reason: String): Boolean = try {
+        val live = !ts.position.isPaperPosition && ts.position.isOpen
+        val v = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "ExitQuoteCorroboration7928/${ts.mint.take(8)}", emit = false)
+        // An unreadable trigger pnl is the phantom case itself: check the deepest band.
+        val trigger = if (v.ok) v.pnlPct else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.CHECK_BELOW_PCT - 1.0
+        if (!com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.applies(reason, trigger, live)) true
+        else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.allowSell(ts.mint, ts.symbol, reason, trigger, ts.position.costSol) {
+            val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false)
+            val raw = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)?.remainingQtyRaw
+            if (raw == null || raw.signum() <= 0 || raw.bitLength() > 63) null
+            else jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw.toLong(), 500).outAmount / 1_000_000_000.0
+        }
+    } catch (_: Throwable) { true }
+
     private fun freshExitReason7835(ts: TokenState, reason: String): String? {
         // V5.0.7897 — Cortex v3: an ordinary exit of a winner is held while the exit
         // cortex's PROVEN read says holding pays (never stops/emergencies/operator).
@@ -23798,6 +23820,7 @@ class Executor(
         val verdict = com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.evaluate(
             ts.mint, ts.lastPrice, ts.lastPriceUpdate, reason)
         if (!verdict.allow) return null
+        if (!stopCorroboratedByQuote7928(ts, reason)) return null
         return if (verdict.markUntrusted6882 && !reason.contains("MARK_UNTRUSTED_6882"))
             "$reason|MARK_UNTRUSTED_6882" else reason
     }

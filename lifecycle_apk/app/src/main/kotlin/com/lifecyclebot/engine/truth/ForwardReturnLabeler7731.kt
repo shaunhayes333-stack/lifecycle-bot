@@ -56,7 +56,7 @@ object ForwardReturnLabeler7731 {
     /** One observation per mint and lane per hour. */
     private const val REOBSERVE_MS_7731 = 60L * 60_000L
     private const val MAX_PENDING_7731 = 6_000
-    private const val MAX_CELLS_7731 = 400
+    private const val MAX_CELLS_7731 = 560 // V5.0.7928 — +lane x stage aggregates (never pruned)
     private const val MAX_SEEN_7731 = 12_000
     private const val PERSIST_EVERY_BOOKINGS_7731 = 25
     private const val PREFS_7731 = "forward_return_labeler_7731"
@@ -155,6 +155,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var peakPct = 0.0
         /** V5.0.7769 — market cap at the decision, the second witness for a big move. */
         @Volatile var entryMcap = 0.0
+        /** V5.0.7928 — the token's lifecycle stage at the decision (TokenMetricStageRouter). */
+        @Volatile var stage = ""
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -214,6 +216,12 @@ object ForwardReturnLabeler7731 {
     private const val AGG_REFUSED = "AGG|REFUSED"
     private fun laneKey(lane: String) = "LANE|$lane"
     private fun sourceKey(src: String) = "SRC|$src"
+    /** V5.0.7928 — lane x lifecycle stage: does this lane's play pay at this stage? */
+    fun stageKey7928(lane: String, stage: String) = "STAGE|${lane.trim().uppercase()}|${stage.trim().uppercase()}"
+    private fun keysOf7928(o: Obs): List<String> {
+        val base = listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED)
+        return if (o.stage.isBlank()) base else base + stageKey7928(o.lane, o.stage)
+    }
 
     @Synchronized
     fun attach(context: Context) {
@@ -285,7 +293,7 @@ object ForwardReturnLabeler7731 {
                     if (o.admitted) "1" else "0", o.score.toString(), o.quality, o.regime, o.phase,
                     o.entryPrice.toString(), o.costPct.toString(), o.atMs.toString(),
                     if (o.done15) "1" else "0", if (o.done60) "1" else "0", if (o.done240) "1" else "0", o.peakPct.toString(),
-                    o.entryMcap.toString(),
+                    o.entryMcap.toString(), o.stage,
                 ).joinToString(fs)
             }
     }
@@ -295,14 +303,15 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size != 17 && f.size != 18) return@forEach
+            if (f.size !in 17..19) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             if (atMs <= 0L || nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731) return@forEach
             val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
             val o = Obs(f[0], f[1], f[2], f[3], f[4], f[5] == "1", f[6].toIntOrNull() ?: -1, f[7], f[8], f[9], px, f[11].toDoubleOrNull() ?: 0.0, atMs)
             o.done15 = f[13] == "1"; o.done60 = f[14] == "1"; o.done240 = f[15] == "1"
             o.peakPct = f[16].toDoubleOrNull() ?: 0.0
-            if (f.size == 18) o.entryMcap = f[17].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            if (f.size >= 18) o.entryMcap = f[17].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            if (f.size >= 19) o.stage = f[18]
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -401,7 +410,10 @@ object ForwardReturnLabeler7731 {
         // so the label lands on the coarse signature (lane | band | regime).
         val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score, "U", regime, "UNKNOWN", px, cost.coerceIn(0.0, 60.0), nowMs)
-            .also { it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0 }
+            .also {
+                it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
+                it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
+            }
         lastSeenAt[key] = nowMs
         // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
         try { TradeShapeLearner7883.capture(ts, l, nowMs) } catch (_: Throwable) {}
@@ -430,7 +442,7 @@ object ForwardReturnLabeler7731 {
     private fun pruneCells() {
         // Drop the thinnest non-aggregate cells so the table stays bounded.
         val victims = cells.entries
-            .filter { !it.key.startsWith("AGG|") && !it.key.startsWith("LANE|") && !it.key.startsWith("SRC|") }
+            .filter { !it.key.startsWith("AGG|") && !it.key.startsWith("LANE|") && !it.key.startsWith("SRC|") && !it.key.startsWith("STAGE|") }
             .sortedBy { synchronized(it.value) { it.value.n60 + it.value.n15 } }
             .take(MAX_CELLS_7731 / 10)
         victims.forEach { cells.remove(it.key, it.value) }
@@ -438,7 +450,7 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun book(o: Obs, horizon: Int, net: Double, gross: Double) {
-        val keys = listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED)
+        val keys = keysOf7928(o)
         for (k in keys) {
             val t = tallyFor(k)
             synchronized(t) {
@@ -454,7 +466,7 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun markLost(o: Obs) {
-        for (k in listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED)) {
+        for (k in keysOf7928(o)) {
             val t = tallyFor(k)
             synchronized(t) { t.lost += 1 }
         }
@@ -645,6 +657,9 @@ object ForwardReturnLabeler7731 {
 
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))
 
+    /** V5.0.7928 — the 60-minute record of every [lane] decision taken at lifecycle [stage]. */
+    fun stageStatFor7928(lane: String, stage: String): CellStat? = cellStat(stageKey7928(lane, stage))
+
     /** V5.0.7737 — the lane's 60-minute label record (LaneAutoPauseGuard's label-proof release). */
     fun laneStatFor7737(lane: String): CellStat? = laneStat(lane)
 
@@ -653,7 +668,7 @@ object ForwardReturnLabeler7731 {
 
     fun statusLine(): String {
         val cellStats = cells.keys
-            .filter { !it.startsWith("AGG|") && !it.startsWith("LANE|") && !it.startsWith("SRC|") }
+            .filter { !it.startsWith("AGG|") && !it.startsWith("LANE|") && !it.startsWith("SRC|") && !it.startsWith("STAGE|") }
             .mapNotNull { cellStat(it) }
             .filter { it.n60 >= 30 }
         val best = cellStats.sortedByDescending { it.meanNet60Pct }.take(3)

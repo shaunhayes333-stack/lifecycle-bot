@@ -220,14 +220,61 @@ object TokenMetricStageRouter {
                 lane in setOf("DIP_HUNTER", "QUALITY") && s.drawdownFromPeakPct >= 12.0
             Stage.DUMPING -> reclaimConfirmed7425 &&
                 lane == "DIP_HUNTER" && s.drawdownFromPeakPct >= 25.0
-            Stage.FRESH_LAUNCH -> lane in setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MOONSHOT", "STANDARD", "CORE", "V3")
-            Stage.BASE_START -> lane in setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "STANDARD", "CORE", "V3")
-            Stage.MID_ACCUMULATION -> lane in setOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
-            Stage.CONTROLLED_MARKUP -> lane in setOf("MOONSHOT", "QUALITY", "STANDARD", "CORE", "V3")
+            Stage.FRESH_LAUNCH, Stage.BASE_START, Stage.MID_ACCUMULATION, Stage.CONTROLLED_MARKUP ->
+                lane in LANE_STAGE_SHEET_7928.getValue(s.stage)
             Stage.UNKNOWN -> lane in setOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3") && s.liquidityUsd >= 12_000.0 && s.mcapToLiq <= 65.0 && s.buyPressurePct >= 52.0
         }
         return LaneFit(allowed, lane, s.stage, s.compact)
     }
+
+    /**
+     * V5.0.7928 — the stage cheat sheet: which lanes play each clean lifecycle
+     * stage. Launch desks buy the launch and the base; the accumulation desks buy
+     * the pullback band; MOONSHOT/QUALITY ride a controlled markup. Peak
+     * exhaustion and dumping need a confirmed reclaim (DIP_HUNTER/QUALITY only),
+     * rug-prone never. This is the prior; [liveStageRefusal7928] lets each lane's
+     * own forward labels at each stage overrule it in either direction.
+     */
+    val LANE_STAGE_SHEET_7928: Map<Stage, Set<String>> = mapOf(
+        Stage.FRESH_LAUNCH to setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MOONSHOT", "STANDARD", "CORE", "V3"),
+        Stage.BASE_START to setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "STANDARD", "CORE", "V3"),
+        Stage.MID_ACCUMULATION to setOf("QUALITY", "BLUECHIP", "TREASURY", "DIP_HUNTER", "STANDARD", "CORE", "V3"),
+        Stage.CONTROLLED_MARKUP to setOf("MOONSHOT", "QUALITY", "STANDARD", "CORE", "V3"),
+    )
+
+    private const val STAGE_MIN_N_7928 = 30
+
+    /**
+     * Pure. V5.0.7928 — the lane x stage verdict. A measured record (n60 >= 30)
+     * decides: mean above zero by a standard error (or a positive 4-hour mean) admits
+     * even off the sheet; mean below -2% by a standard error refuses even on it. An
+     * unmeasured pair follows the sheet. UNKNOWN stage is no stage evidence at all.
+     * Returns null to admit, else the refusal reason.
+     */
+    fun judgeStage7928(lane: String, stage: Stage, sheetAllows: Boolean,
+                       stat: com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat?): String? {
+        if (stage == Stage.UNKNOWN) return null
+        // Rug-prone (top-heavy / liquidity air) is safety, not a learnable stage.
+        if (stage == Stage.RUG_PRONE) return "STAGE_RUG_PRONE_7928_$lane"
+        // A lane the sheet does not cover has no stage prior; only its own record can refuse it.
+        val covered = LANE_STAGE_SHEET_7928.values.any { lane in it }
+        if (stat != null && stat.n60 >= STAGE_MIN_N_7928) {
+            val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else 0.0
+            val late = stat.n240 >= STAGE_MIN_N_7928 && stat.meanNet240Pct > 0.0
+            if (stat.meanNet60Pct - se > 0.0 || late) return null
+            if (stat.meanNet60Pct + se < -2.0) return "STAGE_PROVEN_LOSING_7928_${lane}_${stage.name}"
+        }
+        return if (sheetAllows || !covered) null else "STAGE_LANE_MISFIT_7928_${lane}_${stage.name}"
+    }
+
+    /** V5.0.7928 — LIVE: is this the right point in the token's life for this lane's play? */
+    fun liveStageRefusal7928(ts: TokenState, lane: String): String? = try {
+        val fit = laneFit(ts, lane)
+        val why = judgeStage7928(fit.lane, fit.stage, fit.allowed,
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.stageStatFor7928(fit.lane, fit.stage.name))
+        try { PipelineHealthCollector.labelInc(if (why == null) "STAGE_FIT_ADMIT_7928_${fit.stage.name}" else "STAGE_FIT_REFUSED_7928_${fit.stage.name}") } catch (_: Throwable) {}
+        why
+    } catch (_: Throwable) { null }
 
     fun reasonFor(stage: Stage, rug: Boolean, peak: Boolean, dump: Boolean, base: Boolean, mid: Boolean, markup: Boolean, fresh: Boolean = false): String = when (stage) {
         Stage.RUG_PRONE -> "rugProne=$rug topHeavy/liquidityAir/thinRunup"

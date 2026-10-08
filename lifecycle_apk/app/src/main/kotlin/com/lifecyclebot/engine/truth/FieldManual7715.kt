@@ -270,6 +270,20 @@ object FieldManual7715 {
     }
 
     /**
+     * V5.0.7928 — a positive (profit-lock) stop under the round trip is a scratch
+     * that books as a loss. Lock at net break-even once the peak cleared it by 1.5
+     * pts; before that the lock is not armed and [preTrail] (the pre-trail stop) applies;
+     * a [preTrail] failure propagates to the caller's own fallback.
+     */
+    fun costArmedStop7928(rawStop: Double, peakPnlPct: Double, costPct: Double, preTrail: () -> Double): Double {
+        if (!rawStop.isFinite() || rawStop <= 0.0) return rawStop
+        val breakEven = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
+        if (rawStop >= breakEven) return rawStop
+        if (peakPnlPct >= breakEven + 1.5) return breakEven
+        return preTrail().coerceAtMost(0.0)
+    }
+
+    /**
      * V5.0.7766 §ONE_ROUND_TRIP_COST. Four formulas priced the same trip: this one
      * (~2.5% + impact), LiveBreakEvenGuard's entry gate (buy slippage TOLERANCE +
      * 2x learned slip + priority + platform + spread + MEV, ~20-30% at $4k

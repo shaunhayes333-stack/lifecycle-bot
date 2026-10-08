@@ -1281,7 +1281,8 @@ object CashGenerationAI {
     }
 
     private fun checkExitInternal(pos: TreasuryPosition, currentPrice: Double): ExitSignal {
-        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_exit_6038/${pos.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
+        // V5.0.7928 — an unreadable pnl is not a flat position: it held, it does not time out as "0%".
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_exit_6038/${pos.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: return ExitSignal.HOLD
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000
 
         if (currentPrice > pos.highWaterMark) {
@@ -1292,7 +1293,7 @@ object CashGenerationAI {
         // Paper/live TP floor: live exits at 2.5% (lock real profit sooner),
         // paper at 3.5% (let paper trades breathe for learning data).
         // These constants were defined but previously unused — now applied.
-        val tpFloor = if (pos.isPaper) TAKE_PROFIT_PCT_PAPER else TAKE_PROFIT_PCT_LIVE
+        val tpFloor = if (pos.isPaper) TAKE_PROFIT_PCT_PAPER else liveTpFloor7928(pos.entrySol)
         if (pnlPct >= tpFloor) {
             val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
             val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
@@ -1329,6 +1330,19 @@ object CashGenerationAI {
         return ExitSignal.HOLD
     }
 
+    /**
+     * V5.0.7928 — a live take-profit must clear the round trip. A flat +3% on a
+     * 0.044 SOL position is ~0% net after the platform fee, two priority fees and
+     * slippage; it banked scratches as "take profit".
+     */
+    fun liveTpFloor7928(entrySol: Double): Double = try {
+        maxOf(TAKE_PROFIT_PCT_LIVE, com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(entrySol, 0.0, 0.0) + 1.0)
+    } catch (_: Throwable) { TAKE_PROFIT_PCT_LIVE }
+
+    /** V5.0.7928 — a TIME_EXIT sweep never sells a position whose pnl is unreadable or green. */
+    fun sweepMaySell7928(signal: String, pnlKnown: Boolean, pnlPct: Double): Boolean =
+        signal != "TIME_EXIT" || (pnlKnown && pnlPct <= 0.0)
+
     private fun cashGenCanonicalPnl6038(entryPrice: Double, currentPrice: Double, context: String): Double =
         try { com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice, currentPrice, context = context, emit = true).takeIf { it.ok }?.pnlPct ?: 0.0 } catch (_: Throwable) { 0.0 }
 
@@ -1337,7 +1351,7 @@ object CashGenerationAI {
         updatePrice(mint, currentPrice)
 
         val pos = synchronized(exitPositions7858) { exitPositions7858[mint] } ?: return ExitSignal.HOLD
-        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_secondary_6038/${pos.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_secondary_6038/${pos.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: return ExitSignal.HOLD
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000
         val isAboveTarget = currentPrice >= pos.targetPrice
 
@@ -1384,9 +1398,10 @@ object CashGenerationAI {
         // but survives any floating-point or stale-price edge cases.
         val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > pos.entryPrice) {
             (pos.targetPrice - pos.entryPrice) / pos.entryPrice * 100.0
-        } else if (pos.isPaper) TAKE_PROFIT_PCT_PAPER.toDouble() else TAKE_PROFIT_PCT_LIVE.toDouble()
+        } else if (pos.isPaper) TAKE_PROFIT_PCT_PAPER.toDouble() else liveTpFloor7928(pos.entrySol)
 
-        if (isAboveTarget || pnlPct >= tpPct) {
+        // V5.0.7928 — live: the stored target only counts once it clears the round trip.
+        if ((pos.isPaper && isAboveTarget) || pnlPct >= (if (pos.isPaper) tpPct else maxOf(tpPct, liveTpFloor7928(pos.entrySol)))) {
             val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
             ErrorLogger.info(
                 TAG,

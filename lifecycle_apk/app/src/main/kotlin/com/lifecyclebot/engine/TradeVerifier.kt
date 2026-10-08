@@ -57,6 +57,8 @@ object TradeVerifier {
         val postOwnerLamports: Long = 0L,
         val feeLamports: Long = 0L,
         val txErr: String?,               // meta.err as string if FAILED_CONFIRMED
+        /** V5.0.7928 — rent paid into a token account this buy created (excluded from solSpent). */
+        val ataRentLamports7928: Long = 0L,
     )
 
     data class SellResult(
@@ -131,8 +133,11 @@ object TradeVerifier {
                     val ui = if (parsed.decimals > 0) {
                         rawDelta.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
                     } else rawDelta.toLong().toDouble()
-                    val solSpent = (parsed.solBefore - parsed.solAfter).coerceAtLeast(0L)
-                    return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null)
+                    // V5.0.7928 — the rent of a token account this buy opened is a deposit
+                    // (RentReclaimer7927 takes it back), not a price paid for the tokens: it
+                    // inflated every live entry basis by ~4.6% on a 0.044 SOL position.
+                    val solSpent = buySolSpent7928(parsed.solBefore, parsed.solAfter, parsed.ataRentLamports)
+                    return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null, parsed.ataRentLamports)
                 }
                 // tx confirmed err==null but ZERO token delta for our owner — could be a non-direct route.
                 // Treat as INCONCLUSIVE_PENDING and let reconciler retry; never declare phantom on this alone.
@@ -172,7 +177,9 @@ object TradeVerifier {
                 val rawConsumed = (parsed.rawBefore - parsed.rawAfter).coerceAtLeast(BigInteger.ZERO)
                 val tokenAccountClosed = parsed.preExisted && !parsed.postExisted
                 val tokensCleared = rawConsumed > BigInteger.ZERO || tokenAccountClosed
-                val solReceived = (parsed.solAfter - parsed.solBefore).coerceAtLeast(0L)
+                // V5.0.7928 — a token account closed in the sell refunds its rent: a deposit
+                // coming back, not sale proceeds (same rule as the buy side).
+                val solReceived = sellSolReceived7928(parsed.solBefore, parsed.solAfter, parsed.closedRentLamports)
                 // V5.9.495z — operator: "I still want the sell verified and
                 // that the tokens clear the wallet and return the sol".
                 // Require BOTH conditions before declaring LANDED:
@@ -181,7 +188,7 @@ object TradeVerifier {
                 // If only one side proven → keep waiting (chain still
                 // settling within this same tx is impossible, but we may
                 // be reading the partial pre/post snapshot mid-confirm).
-                val solRealised = solReceived > 5_000L
+                val solRealised = (parsed.solAfter - parsed.solBefore) > 5_000L
                 if (tokensCleared && solRealised) {
                     val ui = if (parsed.decimals > 0) {
                         rawConsumed.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
@@ -242,7 +249,25 @@ object TradeVerifier {
         val solBefore: Long,
         val solAfter: Long,
         val feeLamports: Long,
+        val ataRentLamports: Long = 0L,
+        val closedRentLamports: Long = 0L,
     )
+
+    /** V5.0.7928 — SOL a sell realised for its tokens: the owner delta less a closed account's rent refund. */
+    fun sellSolReceived7928(solBefore: Long, solAfter: Long, closedRentLamports: Long): Long {
+        val delta = (solAfter - solBefore).coerceAtLeast(0L)
+        val rent = closedRentLamports.coerceAtLeast(0L)
+        // The refund is read from the closed account's own pre-balance, so it is exact.
+        return if (rent > 0L) (delta - rent).coerceAtLeast(0L) else delta
+    }
+
+    /** V5.0.7928 — SOL the buy paid for its tokens and fees: the owner delta less a new account's rent. */
+    fun buySolSpent7928(solBefore: Long, solAfter: Long, ataRentLamports: Long): Long {
+        val delta = (solBefore - solAfter).coerceAtLeast(0L)
+        val rent = ataRentLamports.coerceAtLeast(0L)
+        // A rent read larger than the whole delta is not this tx's rent: keep the delta.
+        return if (rent in 1 until delta) delta - rent else delta
+    }
 
     private fun parseTxForOwner(wallet: SolanaWallet, sig: String, mint: String): TxParse? {
         return try {
@@ -284,7 +309,7 @@ object TradeVerifier {
             val preTok  = meta.optJSONArray("preTokenBalances")  ?: JSONArray()
             val postTok = meta.optJSONArray("postTokenBalances") ?: JSONArray()
 
-            data class TokRef(val raw: BigInteger, val dec: Int, val existed: Boolean)
+            data class TokRef(val raw: BigInteger, val dec: Int, val existed: Boolean, val accountIndex: Int = -1)
             fun findOwnerEntry(arr: JSONArray): TokRef {
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
@@ -293,7 +318,7 @@ object TradeVerifier {
                     val ta = o.optJSONObject("uiTokenAmount") ?: continue
                     val raw = runCatching { BigInteger(ta.optString("amount", "0")) }.getOrElse { BigInteger.ZERO }
                     val dec = ta.optInt("decimals", 0)
-                    return TokRef(raw, dec, true)
+                    return TokRef(raw, dec, true, o.optInt("accountIndex", -1))
                 }
                 return TokRef(BigInteger.ZERO, 0, false)
             }
@@ -311,6 +336,14 @@ object TradeVerifier {
                 solBefore = solBefore,
                 solAfter  = solAfter,
                 feeLamports = meta.optLong("fee", 0L).coerceAtLeast(0L),
+                // V5.0.7928 — an account absent before and present after was opened here; its
+                // post balance is the rent the owner deposited (a pre-funded account keeps 0).
+                ataRentLamports = if (!pre.existed && post.existed && post.accountIndex in 0 until postBalArr.length() &&
+                    post.accountIndex in 0 until preBalArr.length() && preBalArr.optLong(post.accountIndex, 0L) == 0L
+                ) postBalArr.optLong(post.accountIndex, 0L).coerceIn(0L, 10_000_000L) else 0L,
+                closedRentLamports = if (pre.existed && !post.existed && pre.accountIndex in 0 until preBalArr.length() &&
+                    pre.accountIndex in 0 until postBalArr.length() && postBalArr.optLong(pre.accountIndex, 0L) == 0L
+                ) preBalArr.optLong(pre.accountIndex, 0L).coerceIn(0L, 10_000_000L) else 0L,
             )
         } catch (e: Throwable) {
             ErrorLogger.debug(TAG, "parseTxForOwner($sig, $mint) failed: ${e.message?.take(60)}")

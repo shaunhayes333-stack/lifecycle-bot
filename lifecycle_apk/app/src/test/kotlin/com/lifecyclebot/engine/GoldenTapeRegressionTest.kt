@@ -13993,7 +13993,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(\"pending\", encodePending7735(now))"))
         assertTrue(lab.contains("restorePending7735(p.getString(\"pending\", null), System.currentTimeMillis())"))
-        assertTrue(lab.contains("if (f.size != 17 && f.size != 18) return@forEach"))
+        assertTrue(lab.contains("if (f.size !in 17..19) return@forEach"))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))

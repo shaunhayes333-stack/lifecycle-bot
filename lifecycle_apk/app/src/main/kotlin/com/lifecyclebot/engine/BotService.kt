@@ -964,6 +964,26 @@ class BotService : Service() {
         com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(sizeSol, if (solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd)
     } catch (_: Throwable) { PLAN_COST_PCT_7739 }
 
+    /**
+     * V5.0.7928 — the fluid stop, but a profit lock never sits below the round trip.
+     * The 9 Oct live export: winners cut at +1.6..+3.8% gross (a scratch or a loss
+     * net of cost) by a trail that armed at a 3% peak, while losers ran to -15%.
+     * A positive floor under cost+0.5 either locks at net break-even (peak cleared it
+     * by 1.5 pts) or is not armed yet (the pre-trail stop applies).
+     */
+    private fun fluidStop7928(
+        ts: com.lifecyclebot.data.TokenState, modeDefaultStop: Double, currentPnlPct: Double, peakPnlPct: Double,
+        holdTimeSeconds: Double, volatility: Double, lane: String,
+    ): Double {
+        val raw = com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(modeDefaultStop, currentPnlPct, peakPnlPct, holdTimeSeconds, volatility, lane)
+        return com.lifecyclebot.engine.truth.FieldManual7715.costArmedStop7928(raw, peakPnlPct, planCostPct7766(ts)) {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(modeDefaultStop, currentPnlPct, minOf(peakPnlPct, 2.9), holdTimeSeconds, volatility, lane)
+        }
+    }
+
+    /** V5.0.7928 — a stop that fires above entry is a profit lock; below, a stop. */
+    private fun rapidStopKind7928(stopPct: Double): String = if (stopPct > 0.0) "TRAILING" else "FLUID"
+
     /** V5.0.7792 — 7791's Moonshot mcap zone (fluid floor .. MAX_MARKET_CAP_USD). */
     private fun moonshotMcapInZone7792(ts: com.lifecyclebot.data.TokenState): Boolean = try {
         ts.lastMcap in com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
@@ -9675,10 +9695,15 @@ class BotService : Service() {
         } catch (_: Throwable) {
             try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
         }
-        val explicitLiquidationStop7433 =
-            source == "ui_stop_button" || source == "halt_reset" || source == "operator_manual_stop"
+        // V5.0.7928 — the Stop dialog promises "Open positions stay managed"; 6 of 12
+        // live rows on 9 Oct were restart/shutdown dumps. A plain Stop preserves
+        // positions (they resume under exit control on Start); a security halt reset
+        // or an explicit operator liquidation still sells them.
+        val explicitLiquidationStop7433 = source == "halt_reset" || source == "operator_manual_stop"
         val liquidateOnStop = explicitLiquidationStop7433 && !paperRuntime7433
-        val stopAllowed = explicitLiquidationStop7433 || source == "config_restart"
+        // The operator chose to stop: stay stopped (no auto-restart), positions kept.
+        val operatorStop7928 = explicitLiquidationStop7433 || source == "ui_stop_button"
+        val stopAllowed = operatorStop7928 || source == "config_restart"
         if (!stopAllowed) {
             ErrorLogger.error("BotService", "🚫 stopBot rejected: unapproved source=$source — runtime must stay running")
             try { ForensicLogger.lifecycle("STOPBOT_REJECTED", "source=$source reason=unapproved_stop_source") } catch (_: Throwable) {}
@@ -9763,11 +9788,11 @@ class BotService : Service() {
             try {
                 getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
                     .edit()
-                    .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, softStopPreservePositions)
-                    .putBoolean(KEY_MANUAL_STOP_REQUESTED, liquidateOnStop)
+                    .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, !operatorStop7928)
+                    .putBoolean(KEY_MANUAL_STOP_REQUESTED, operatorStop7928)
                     .apply()
             } catch (_: Exception) {}
-        if (liquidateOnStop) {
+        if (operatorStop7928) {
             cancelAllRestartAlarms()
             try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
         }
@@ -10367,10 +10392,10 @@ class BotService : Service() {
         tradeDb?.close(); tradeDb = null
         // Cancel keep-alive alarm only on explicit manual stop. Soft/restart
         // stops must keep resurrection available.
-        if (liquidateOnStop) cancelKeepAliveAlarm()
+        if (operatorStop7928) cancelKeepAliveAlarm()
         // Cancel watchdog only on explicit manual stop. Soft/restart stops must
         // remain resurrectable and must not arm the manual-stop dead latch.
-        if (liquidateOnStop) ServiceWatchdog.cancel(applicationContext)
+        if (operatorStop7928) ServiceWatchdog.cancel(applicationContext)
         // Stop self-healing diagnostics
         try {
             SelfHealingDiagnostics.stop()
@@ -10398,8 +10423,8 @@ class BotService : Service() {
         try {
             getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
                 .edit()
-                .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, softStopPreservePositions)
-                .putBoolean(KEY_MANUAL_STOP_REQUESTED, liquidateOnStop && !userStartQueuedDuringStop)
+                .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, !operatorStop7928)
+                .putBoolean(KEY_MANUAL_STOP_REQUESTED, operatorStop7928 && !userStartQueuedDuringStop)
                 .apply()
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to clear was_running flag: ${e.message}", e)
@@ -12050,7 +12075,7 @@ class BotService : Service() {
                         
                         val dynamicStopPct = try {
                             val modeDefault = com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                            fluidStop7928(ts,
                                 modeDefaultStop = modeDefault,
                                 currentPnlPct = pnlPct,
                                 peakPnlPct = peakPnlPct,
@@ -12175,7 +12200,7 @@ class BotService : Service() {
                             // stop from firing on a fresh token; everything that
                             // reaches here post-warmup is a normal trailing/fluid
                             // stop. Hard -15% floor (handled above) is untouched.
-                            val stopType = if (peakPnlPct > 5.0) "TRAILING" else "FLUID"
+                            val stopType = rapidStopKind7928(dynamicStopPct7696)
                             ErrorLogger.warn("BotService", "⚠️ RAPID $stopType STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${dynamicStopPct7696.toInt()}%)")
                             addLog("🛑 RAPID $stopType STOP: ${ts.symbol} ${pnlPct.toInt()}%")
                             
@@ -13331,7 +13356,7 @@ class BotService : Service() {
                                         RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPct)
                                     } catch (_: Throwable) { false }
                                     val lockedFloor = if (runnerLockDeferred7277) Double.NaN else try {
-                                        com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                                        fluidStop7928(ts,
                                             modeDefaultStop = 20.0,
                                             currentPnlPct = pnlPctNow,
                                             peakPnlPct = peakPct,
@@ -24877,6 +24902,11 @@ if (hotExitHandledSweep) {
                 if (posAgeMs < 45_000L) return@forEach
                 val sweepPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "BotService.treasurySweep/${ts.symbol}/${mint.take(8)}")
                 val pnlPct = if (sweepPnlVerdict.ok) sweepPnlVerdict.pnlPct else 0.0
+                // V5.0.7928 — the sweep's own pnl read vetoes a time exit it cannot see or that is green.
+                if (!com.lifecyclebot.v3.scoring.CashGenerationAI.sweepMaySell7928(signal.name, sweepPnlVerdict.ok, pnlPct)) {
+                    try { PipelineHealthCollector.labelInc("TREASURY_SWEEP_TIME_EXIT_HELD_7928") } catch (_: Throwable) {}
+                    return@forEach
+                }
                 ErrorLogger.warn(
                     "BotService",
                     "🧹 SWEEP TREASURY-EXIT: ${ts.symbol} | $signal | pnl=${pnlPct.toInt()}% — mint missed processTokenCycle",

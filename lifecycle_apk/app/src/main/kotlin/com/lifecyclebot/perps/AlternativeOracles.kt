@@ -499,6 +499,9 @@ object DexScreenerOracle {
                         
                         for (i in 0 until pairs.length()) {
                             val pair = pairs.getJSONObject(i)
+                            // V5.0.7928 — priceUsd is the BASE token's price: a pair quoting this
+                            // token as the quote side prices a different asset.
+                            if (!pair.optJSONObject("baseToken")?.optString("address", "").equals(address, ignoreCase = true)) continue
                             val price = pair.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
                             val liquidity = pair.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
                             

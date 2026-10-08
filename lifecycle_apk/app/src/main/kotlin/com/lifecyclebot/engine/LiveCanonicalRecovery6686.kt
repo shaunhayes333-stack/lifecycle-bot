@@ -583,7 +583,10 @@ object LiveCanonicalRecovery6686 {
             val botReservation7699 = pendingReservation7699 ?: timedOutReservation7699
 
             val basis: Basis? = when {
-                runtimePos != null && !runtimePos.isPaperPosition &&
+                // V5.0.7928 — a basis that was itself an observed-mark adoption is not a
+                // receipt: re-adopting it each restart reset every recovered position to
+                // 0% at the current price. The receipt chain below is asked first.
+                runtimePos != null && !runtimePos.isPaperPosition && !observedMarkBasis7928(runtimePos.entryPriceSource) &&
                     runtimePos.costSol.isFinite() && runtimePos.costSol > 0.0 &&
                     runtimePos.entryPrice.isFinite() && runtimePos.entryPrice > 0.0 -> Basis(
                         entryCostSol = runtimePos.costSol,
@@ -596,7 +599,7 @@ object LiveCanonicalRecovery6686 {
                         identity = runtimePos.positionId.ifBlank { "runtime" },
                     )
 
-                saved != null && !saved.isPaperPosition &&
+                saved != null && !saved.isPaperPosition && !observedMarkBasis7928(saved.entryPriceSource) &&
                     saved.costSol.isFinite() && saved.costSol > 0.0 &&
                     saved.entryPrice.isFinite() && saved.entryPrice > 0.0 -> Basis(
                         entryCostSol = saved.costSol,
@@ -702,6 +705,16 @@ object LiveCanonicalRecovery6686 {
                         }
                         // V5.0.7708 — the bot's own signed buy is a receipt.
                         ?: trackerSignedBuyBasis7708(mint)
+                        // V5.0.7928 — no receipt: keep the FIRST adoption's observed basis
+                        // rather than re-adopting at today's mark on every restart.
+                        ?: runtimePos?.takeIf { !it.isPaperPosition && it.costSol.isFinite() && it.costSol > 0.0 && it.entryPrice.isFinite() && it.entryPrice > 0.0 }?.let {
+                            Basis(it.costSol, it.entryPrice, it.tradingMode.ifBlank { "WALLET_RECOVERED" }, it.entryTime.takeIf { t -> t > 0L } ?: System.currentTimeMillis(),
+                                it.entryPriceSource.ifBlank { "RUNTIME_POSITION_BASIS_6686" }, it.entryPoolAddress, it.entryDex, it.positionId.ifBlank { "runtime" })
+                        }
+                        ?: saved?.takeIf { !it.isPaperPosition && it.costSol.isFinite() && it.costSol > 0.0 && it.entryPrice.isFinite() && it.entryPrice > 0.0 }?.let {
+                            Basis(it.costSol, it.entryPrice, it.tradingMode.ifBlank { "WALLET_RECOVERED" }, it.entryTime.takeIf { t -> t > 0L } ?: System.currentTimeMillis(),
+                                it.entryPriceSource.ifBlank { "PERSISTED_POSITION_BASIS_6686" }, it.entryPoolAddress, it.entryDex, "persisted:${it.savedAt}")
+                        }
                         // V5.0.7706 — last: adopt at the observed mark (see header).
                         ?: observedMarkBasis7706(mint, amount, ts)
                 }
@@ -1029,7 +1042,10 @@ object LiveCanonicalRecovery6686 {
                 }
             }
         } catch (_: Throwable) {}
-        try { HostWalletTokenTracker.adoptBotLineage7370(mint, symbol7370, basis.entryPriceUsd, basis.entryCostSol, basis.identity, basis.openedAtMs) } catch (_: Throwable) {}
+        // V5.0.7928 — an observed mark is not bot lineage: never launder it into a receipt.
+        if (!observedMarkBasis7928(basis.source)) {
+            try { HostWalletTokenTracker.adoptBotLineage7370(mint, symbol7370, basis.entryPriceUsd, basis.entryCostSol, basis.identity, basis.openedAtMs) } catch (_: Throwable) {}
+        }
         try {
             PipelineHealthCollector.labelInc("LIVE_RECOVERED_STUB_REHYDRATED_7370")
             ForensicLogger.lifecycle(
@@ -1318,6 +1334,9 @@ internal fun promotedEntrySnapshot7871(
     return frozen.copy(positionId = positionId, entryPriceUsd = price)
 }
 
+/** V5.0.7928 — pure: was this basis adopted at an observed mark (not paid for)? */
+fun observedMarkBasis7928(source: String): Boolean = source.contains("OBSERVED_MARK", true)
+
 /**
  * V5.0.7876 — pure: the cost of a promoted bot buy. The reservation is what the
  * bot spent; an observed-mark valuation (or any basis more than 3x the
@@ -1325,7 +1344,7 @@ internal fun promotedEntrySnapshot7871(
  */
 internal fun promotionCost7876(reservedCostSol: Double, basisCostSol: Double, basisSource: String): Double {
     if (!reservedCostSol.isFinite() || reservedCostSol <= 0.0) return basisCostSol
-    val observed = basisSource.contains("OBSERVED_MARK", true)
+    val observed = observedMarkBasis7928(basisSource)
     val implausible = !basisCostSol.isFinite() || basisCostSol <= 0.0 || basisCostSol > reservedCostSol * 3.0
     return if (observed || implausible) reservedCostSol else basisCostSol
 }
