@@ -54,13 +54,13 @@ class Aate7807ProtectiveExitPolicyTest {
         assertTrue(Priority.values().map { it.rank } == Priority.values().map { it.rank }.sorted())
     }
 
-    @Test fun moonshot_runner_only_yields_to_structural_or_catastrophe() {
+    @Test fun moonshot_hard_stops_and_kill_switch_always_override_discretionary_holds() {
         assertTrue(ProtectiveExitClass7807.bypassesHolds("STRICT_SL_-8", "STANDARD"))
-        assertFalse(ProtectiveExitClass7807.bypassesHolds("STRICT_SL_-8", "MOONSHOT"))
+        assertTrue(ProtectiveExitClass7807.bypassesHolds("STRICT_SL_-8", "MOONSHOT"))
         assertFalse(ProtectiveExitClass7807.bypassesHolds("trailing_stop", "MOONSHOT"))
         assertTrue(ProtectiveExitClass7807.bypassesHolds("dev_dump", "MOONSHOT"))
         assertTrue(ProtectiveExitClass7807.bypassesHolds("RAPID_CATASTROPHE_STOP", "MOONSHOT"))
-        assertFalse(ProtectiveExitClass7807.bypassesHolds("KILL_SWITCH", "MOONSHOT"))
+        assertTrue(ProtectiveExitClass7807.bypassesHolds("KILL_SWITCH", "MOONSHOT"))
     }
 
     @Test fun emergency_reason_wins_on_a_softer_lease_and_in_the_pending_queue() {
@@ -92,10 +92,8 @@ class Aate7807ProtectiveExitPolicyTest {
         CloseLease.recordRetry(mint, "RETRYABLE")
         assertTrue(CloseLease.msUntilEligible(mint) <= 15_000L)
         assertNull("a soft exit still waits", CloseLease.acquire(mint, "T", "TAKE_PROFIT_25"))
-        assertNull("emergency waits only its own 2s first rung", CloseLease.acquire(mint, "T", "STRICT_SL_-8"))
-        Thread.sleep(2_150L)
         val lease = CloseLease.acquire(mint, "T", "STRICT_SL_-8")
-        assertNotNull("emergency re-enters on its 2s rung, not the soft backoff", lease)
+        assertNotNull("escalated emergency re-enters immediately when prior soft attempt is no longer in flight", lease)
         assertEquals("STRICT_SL_-8", ProtectiveExitClass7807.effectiveReason(lease!!.emergencyReason7807 ?: lease.originalExitReason, "STRICT_SL_-8"))
         CloseLease.release(mint, "TEST_DONE")
     }
