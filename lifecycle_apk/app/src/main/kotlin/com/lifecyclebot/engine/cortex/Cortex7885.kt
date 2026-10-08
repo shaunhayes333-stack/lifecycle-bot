@@ -104,7 +104,9 @@ object Cortex7885 {
         // V5.0.7901 — Cortex v7: buckets read the calibrated edge, not the raw one.
         val calibrated = synchronized(this) { calibration.calibrate(lane, fused.edgePct, fused.laneMean) }
         val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
-        val priceAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
+        val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
+        val freshestAt = maxOf(ts.lastPriceUpdate, registryAt)
+        val priceAge = if (freshestAt > 0L) nowMs - freshestAt else Long.MAX_VALUE
         val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
         assessNanos.addAndGet(System.nanoTime() - t0)
         assessed.incrementAndGet()
@@ -167,7 +169,11 @@ object Cortex7885 {
     /** Pure rule check over an assessment. Returns the rule id that refuses, or null. */
     private fun constitutionRefusal(a: Assessment, ts: TokenState, paper: Boolean, refusalProven: Boolean): String? {
         if (!paper && ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return "C1_HARD_SAFETY"
-        if (!paper && a.staleMark) return "C2_MARK_STALE"
+        // V5.0.7906 — C2_MARK_STALE removed: 5.0.7891 refused 852 live candidates on
+        // ts.lastPriceUpdate alone, while most candidates are priced through the
+        // canonical mark registry (FieldManual7715 already refuses an impaired
+        // quote with the registry in view). Staleness stays an input to overrule
+        // and conviction, never a refusal of its own.
         if (a.bucket == CortexScoreboard7885.Bucket.REFUSE && refusalProven) return "C3_PROVEN_NEGATIVE_EDGE"
         if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL && lastSlot(ts)) {
             if (synchronized(this) { board.slotPriorityProven(a.lane) && consistent(a.lane) }) return "C5_SAVE_LAST_SLOT_FOR_STRONG"
