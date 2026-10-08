@@ -158,6 +158,7 @@ object CortexExit7897 {
         if (pending.size < MAX_PENDING) pending["$key|$nowMs"] = r
         if (latest.size > 2_000) latest.entries.removeIf { nowMs - it.value.atMs > READ_TTL_MS * 10 }
         if (lastSample.size > 4_000) lastSample.entries.removeIf { nowMs - it.value > RUNNER_HORIZON_MS }
+        if (holdVetoSince.size > 2_000) holdVetoSince.entries.removeIf { nowMs - it.value > MAX_HOLD_VETO_MS * 4 }
         inc("SAMPLED_${r.bucket.name}")
     }
 

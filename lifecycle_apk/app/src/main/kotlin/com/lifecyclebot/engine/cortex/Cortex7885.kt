@@ -117,6 +117,8 @@ object Cortex7885 {
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto)
+        // V5.0.7900 — Cortex v6: the same decision opens a 5-minute timing label.
+        try { CortexTiming7900.capture(ts, a, nowMs) } catch (_: Throwable) {}
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
     }
 
@@ -174,6 +176,7 @@ object Cortex7885 {
             val a = assess(ts, laneRaw) ?: return null
             val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) }
             val rule = constitutionRefusal(a, ts, paper, proven)
+                ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
             if (rule == null) {
                 if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) inc(if (paper) "SHADOW_REFUSE_PAPER" else "SHADOW_REFUSE_LIVE")
                 noteEntryRead(ts.mint, paper, a)
@@ -373,6 +376,7 @@ object Cortex7885 {
             val n = assessed.get()
             val avgMs = if (n > 0) assessNanos.get() / n / 1_000_000.0 else 0.0
             val seats: List<Triple<String, CortexLedger7885.Seat, Double>> = ledger.seats.entries
+                .filter { !it.key.contains('@') }
                 .map { (k, s) -> Triple(k, s, s.authority()) }
             val seated = seats.filter { it.third > 0.0 }.sortedByDescending { it.third }
             val bestByVoter = seats.groupBy { it.first.substringBefore('|') }
@@ -387,6 +391,7 @@ object Cortex7885 {
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size}+V3modules assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
+                "      timing cortex v6 (§7900): ${try { CortexTiming7900.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      exit cortex v3 (§7897): ${try { CortexExit7897.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      stop authority (§7887): ${try { StopAuthority7887.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
