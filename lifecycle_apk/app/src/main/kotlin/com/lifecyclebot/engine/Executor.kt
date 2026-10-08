@@ -18426,7 +18426,7 @@ class Executor(
             sealedIntent7835?.fdgAllowed == true &&
             sealedIntent7835.fdgVerdict.equals("BUY", ignoreCase = true) &&
             sealedIntent7835.finalDecision6613 ==
-                com.lifecyclebot.engine.CanonicalFinalDecision6613.BUY &&
+                ExecutableOpenGate.CanonicalFinalDecision6613.BUY &&
             sealedIntent7835.hardNoReasons.isEmpty()
         val contractLane7789 = sealedIntent7835?.canonicalLane
             ?.takeIf { sealedFdgBuy7789 && it.isNotBlank() } ?: layerTag
