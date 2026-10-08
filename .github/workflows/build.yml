@@ -208,6 +208,10 @@ jobs:
             echo "################ KOTLIN COMPILE ERRORS (repeated for log tail) ################"
             grep -E "^e: |^error: " /tmp/gradle_build.log | head -40 || echo "(no 'e:' lines — failure was not a Kotlin compile error)"
             echo "################ END COMPILE ERRORS ################"
+            # V5.0.7934 — also as check-run annotations: readable through the API
+            # when the raw job log is not downloadable.
+            grep -E "^e: |^error: " /tmp/gradle_build.log | head -20 | sed -E 's/[%]/%25/g' | while IFS= read -r line; do echo "::error title=Kotlin compile::${line:0:900}"; done || true
+            grep -E "What went wrong|FAILURE:" -A3 /tmp/gradle_build.log | head -12 | while IFS= read -r line; do echo "::error title=Gradle::${line:0:500}"; done || true
             exit 1
           fi
           python3 ci/build_gate_summary.py
