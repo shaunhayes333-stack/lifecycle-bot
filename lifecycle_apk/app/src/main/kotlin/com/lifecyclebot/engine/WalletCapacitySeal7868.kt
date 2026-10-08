@@ -34,8 +34,12 @@ internal object WalletCapacitySeal7868 {
 
     fun record(mint: String, sizeSol: Double, walletSol: Double, solUsd: Double, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || !sizeSol.isFinite() || sizeSol <= 0.0 || !walletSol.isFinite() || walletSol <= 0.0) return
-        seals[mint] = Seal(sizeSol, walletSol, solUsd, nowMs)
-        reservations[mint] = sizeSol to nowMs
+        // Publish the sizing proof and its reservation as one in-process state change.
+        // A competing candidate may not observe the new seal without its cash hold.
+        synchronized(reservations) {
+            seals[mint] = Seal(sizeSol, walletSol, solUsd, nowMs)
+            reservations[mint] = sizeSol to nowMs
+        }
         if (seals.size > 2_000) seals.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
     }
 
@@ -57,17 +61,21 @@ internal object WalletCapacitySeal7868 {
     fun freeCashFor(mint: String, walletSol: Double, nowMs: Long = System.currentTimeMillis()): Double {
         if (!walletSol.isFinite()) return walletSol
         // Only a candidate with a live sealed BUY intent holds capital.
-        reservations.entries.removeIf { (m, v) ->
-            nowMs - v.second > RESERVATION_TTL_MS ||
-                (try { ExecutableOpenGate.activeExecutionIntent6519("LIVE", m) } catch (_: Throwable) { null }) == null
+        val reserved = synchronized(reservations) {
+            reservations.entries.removeIf { (m, v) ->
+                nowMs - v.second > RESERVATION_TTL_MS ||
+                    (try { ExecutableOpenGate.activeExecutionIntent6519("LIVE", m) } catch (_: Throwable) { null }) == null
+            }
+            reservedExcluding(reservations, mint, nowMs)
         }
-        val reserved = reservedExcluding(reservations, mint, nowMs)
         if (reserved > 0.0) try { PipelineHealthCollector.labelInc("LIVE_CAPITAL_RESERVED_FOR_SEALED_INTENT_7868") } catch (_: Throwable) {}
         return (walletSol - reserved).coerceAtLeast(0.0)
     }
 
     /** The swap left the wallet (pending proof), or the buy terminated: release. */
-    fun release(mint: String) { if (mint.isNotBlank()) reservations.remove(mint) }
+    fun release(mint: String) {
+        if (mint.isNotBlank()) synchronized(reservations) { reservations.remove(mint) }
+    }
 
     /** Pure: is the capacity at execution materially different from the capacity at seal? */
     internal fun materiallyChanged(seal: Seal, walletNow: Double, solUsdNow: Double): Boolean {
