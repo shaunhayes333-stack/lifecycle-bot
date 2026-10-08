@@ -170,10 +170,26 @@ object Cortex7885 {
         if (!paper && a.staleMark) return "C2_MARK_STALE"
         if (a.bucket == CortexScoreboard7885.Bucket.REFUSE && refusalProven) return "C3_PROVEN_NEGATIVE_EDGE"
         if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL && lastSlot(ts)) {
-            if (synchronized(this) { board.slotPriorityProven(a.lane) }) return "C5_SAVE_LAST_SLOT_FOR_STRONG"
+            if (synchronized(this) { board.slotPriorityProven(a.lane) && consistent(a.lane) }) return "C5_SAVE_LAST_SLOT_FOR_STRONG"
             inc("SHADOW_SAVE_SLOT")
         }
         return null
+    }
+
+    // ── Cortex v9: self-consistency (V5.0.7904) ──
+    //
+    // A record can clear the bar while the Cortex's own predictions are badly
+    // calibrated (it said +8% where +1% happened). Authority — refusal,
+    // overrule, conviction sizing, slot saving — is only exercised while the
+    // lane's calibration slope is at least [MIN_CONSISTENT_SLOPE]: a Cortex
+    // whose deviations have stopped meaning what they say loses its say until
+    // they do again. Caller holds the lock.
+    private const val MIN_CONSISTENT_SLOPE = 0.5
+
+    private fun consistent(lane: String): Boolean {
+        val ok = calibration.slope(lane) >= MIN_CONSISTENT_SLOPE
+        if (!ok) inc("SUSPENDED_INCONSISTENT_$lane")
+        return ok
     }
 
     // ── Cortex v8: capital allocation (V5.0.7902) ──
@@ -200,7 +216,7 @@ object Cortex7885 {
     fun entryRefusal(ts: TokenState, laneRaw: String, paper: Boolean): String? {
         return try {
             val a = assess(ts, laneRaw) ?: return null
-            val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) }
+            val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) && consistent(a.lane) }
             val rule = constitutionRefusal(a, ts, paper, proven)
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
             if (rule == null) {
@@ -233,7 +249,7 @@ object Cortex7885 {
             val a = assess(ts, laneRaw) ?: return false
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
             if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
-            val proven = synchronized(this) { board.overruleAuthority(a.lane) }
+            val proven = synchronized(this) { board.overruleAuthority(a.lane) && consistent(a.lane) }
             if (!proven) { inc("SHADOW_OVERRULE_LIVE"); return false }
             inc("OVERRULED_LIVE")
             try {
@@ -308,7 +324,7 @@ object Cortex7885 {
         if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return 1.0
         val stake = synchronized(this) {
             val strong = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal) ?: return 1.0
-            if (!CortexScoreboard7885.overruleProven(strong)) { inc("SHADOW_SIZE_UP"); return 1.0 }
+            if (!CortexScoreboard7885.overruleProven(strong) || !consistent(a.lane)) { inc("SHADOW_SIZE_UP"); return 1.0 }
             kellyStakeSol(strong.mean(), strong.variance(), equitySol)
         }
         val mult = (stake / requestedSol).coerceIn(1.0, CONVICTION_MAX_MULT)

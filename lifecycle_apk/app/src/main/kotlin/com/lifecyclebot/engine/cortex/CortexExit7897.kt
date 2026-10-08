@@ -107,6 +107,7 @@ object CortexExit7897 {
     }
 
     private val ledger = CortexLedger7885()
+    private val calibration = CortexCalibration7901()
     private val books = HashMap<String, Book>()
     private val latest = ConcurrentHashMap<String, Read>()        // positionId
     private val pending = ConcurrentHashMap<String, Read>()       // positionId|atMs
@@ -152,7 +153,9 @@ object CortexExit7897 {
         val votes = ids.indices.map { i -> CortexLedger7885.Vote(ids[i], edges[i], raws[i], evidence[i]) }
         val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" }
         val fused = synchronized(this) { ledger.fuse(lane, votes, regime) }
-        val r = Read(key, ts.mint, lane, runner, ids, edges, raws, fused, bucketOf(fused.edgePct), px, nowMs, regime)
+        // V5.0.7904 — the exit cortex reads its calibrated forward edge too.
+        val calibrated = synchronized(this) { calibration.calibrate(lane, fused.edgePct, fused.laneMean) }
+        val r = Read(key, ts.mint, lane, runner, ids, edges, raws, fused, bucketOf(calibrated), px, nowMs, regime)
         latest[key] = r
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > RUNNER_HORIZON_MS + GRADE_GRACE_MS }
         if (pending.size < MAX_PENDING) pending["$key|$nowMs"] = r
@@ -182,6 +185,7 @@ object CortexExit7897 {
             val fwd = (px / r.px - 1.0) * 100.0
             synchronized(this) {
                 ledger.grade(r.lane, r.ids, r.edges, r.raws, fwd, fwd, r.regime)
+                calibration.learn(r.lane, r.fused.edgePct, r.fused.laneMean, fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
                 val b = books.getOrPut(r.lane) { Book() }
                 for (st in b.byBucket) st.scale(BOOK_DECAY)
                 b.byBucket[r.bucket.ordinal].add(fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), fwd >= CortexLedger7885.RUNNER_GROSS_PCT)
@@ -221,6 +225,7 @@ object CortexExit7897 {
             val b = books[lane] ?: return false
             val s = b.byBucket[bucket.ordinal]
             val p = b.positions[bucket.ordinal].size
+            if (calibration.slope(lane) < 0.5) { inc("SUSPENDED_INCONSISTENT_$lane"); return false }
             return if (bucket == Bucket.HOLD_STRONG) holdProven(s, p) else sellProven(s, p)
         }
     }
@@ -286,6 +291,7 @@ object CortexExit7897 {
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
+                o.optJSONObject("calibration")?.let { calibration.decode(it) }
                 o.optJSONObject("books")?.let { j ->
                     for (k in j.keys()) {
                         val f = j.optString(k).split('|')
@@ -305,7 +311,7 @@ object CortexExit7897 {
     private fun persist() {
         try {
             val json = synchronized(this) {
-                org.json.JSONObject().put("ledger", ledger.encode()).put("books", org.json.JSONObject().also { j ->
+                org.json.JSONObject().put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("books", org.json.JSONObject().also { j ->
                     books.forEach { (k, b) ->
                         j.put(k, (b.byBucket.map { it.encode() } + b.positions.map { s -> s.toList().takeLast(200).joinToString(",") { it.replace(",", "").replace("|", "") } }).joinToString("|"))
                     }
@@ -321,7 +327,7 @@ object CortexExit7897 {
         ensureLoaded()
         return synchronized(this) {
             val seated = ledger.seats.entries.map { it.key to it.value.authority() }.filter { it.second > 0.0 }.sortedByDescending { it.second }
-            "bar=EXIT_BAR_V1 horizon=30m(runner 120m) sampled/3m pending=${pending.size} graded=${graded.get()} seated=${seated.size}\n" +
+            "bar=EXIT_BAR_V1 horizon=30m(runner 120m) sampled/3m pending=${pending.size} graded=${graded.get()} seated=${seated.size} slope=${calibration.line()}\n" +
                 "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
                 "      seated: ${seated.take(10).joinToString(" · ") { (k, a) -> "$k a=${"%.2f".format(a)}" }.ifBlank { "none yet" }}\n" +
                 "      lanes: ${books.entries.take(8).joinToString(" · ") { (lane, b) ->
