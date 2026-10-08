@@ -50,4 +50,21 @@ class Aate7877LiveEdgeAndExitRegretTest {
         assertTrue(TradePlan7739.exitFor(null, -3.0, 2.0, at50min, false, 3.0)?.reason?.startsWith("UNDERWATER_TIME_STOP_7739") == true)
         assertNull(TradePlan7739.exitFor(null, -3.0, 2.0, at50min, false, 3.0, underwaterMs = 120L * 60_000L))
     }
+
+    @Test fun runnerLanesTradeTheCohortThatCarriesTheTail() {
+        val moonshotOwnCell = cell(65, -14.6, 3.0)            // MOONSHOT picks: runner-rate 2%
+        val launchRefused = cell(1043, 3.1, 1.2)              // PLANWAIT_LAUNCH_REFUSED: runner-rate 15%
+        val sellDominant = cell(222, -24.3, 4.0)
+        // Own cell proven clearly negative refuses, even with a paying cohort.
+        assertFalse(LiveEdgeGate7877.judgeRunner(moonshotOwnCell, listOf(launchRefused), laneProven = false).allow)
+        // Own cell thin or merely flat: the paying cohort carries it.
+        assertTrue(LiveEdgeGate7877.judgeRunner(cell(10, -20.0, 9.0), listOf(launchRefused), laneProven = false).allow)
+        assertTrue(LiveEdgeGate7877.judgeRunner(cell(80, -1.0, 2.0), listOf(launchRefused), laneProven = false).allow)
+        // A token whose tape puts it in a losing cohort stays paper.
+        assertFalse(LiveEdgeGate7877.judgeRunner(null, listOf(sellDominant), laneProven = false).allow)
+        // Same cohort fails the non-runner +2% slippage margin.
+        assertFalse(LiveEdgeGate7877.judge(launchRefused, laneProven = false).allow)
+        assertTrue(LiveEdgeGate7877.runnerCohortAllows(launchRefused))
+        assertFalse(LiveEdgeGate7877.runnerCohortAllows(sellDominant))
+    }
 }

@@ -282,8 +282,13 @@ object TradePlan7739 {
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
+        // V5.0.7878 — a runner lane is judged per cohort by the edge gate below,
+        // not by its lane-wide record: MOONSHOT's 10-close live record held every
+        // MOONSHOT token to paper (5.0.7876 PIVOT_7876_NEGATIVE_MOONSHOT=1924),
+        // including the cohort with a 15% runner rate.
+        val runner7878 = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         // V5.0.7876 — under a breached loss limit only evidence-positive lanes stay live.
-        LivePivotAuthority7876.liveRefusal(lane, paper, nowMs)?.let { return it }
+        if (!runner7878) LivePivotAuthority7876.liveRefusal(lane, paper, nowMs)?.let { return it }
         // V5.0.7877 — always on: live only where a measured, net-of-cost prediction says it pays.
         LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs)?.let { return it }
         val read = readForEntry7837(ts, nowMs)
@@ -309,7 +314,7 @@ object TradePlan7739 {
                     waited.incrementAndGet()
                     waitReasons.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("PLAN_WAIT_7739_$why") } catch (_: Throwable) {}
-                    return waitOrOverrule7757(ts, why, "NO_PLAN_WAIT_7739:$why:${lr.why}", nowMs)
+                    return waitOrOverrule7757(ts, why, "NO_PLAN_WAIT_7739:$why:${lr.why}", nowMs, runner7878)
                 }
                 else -> {}
             }
@@ -329,7 +334,7 @@ object TradePlan7739 {
             waited.incrementAndGet()
             waitReasons.computeIfAbsent(read.why) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PLAN_WAIT_7739_${read.why}") } catch (_: Throwable) {}
-            return waitOrOverrule7757(ts, read.why, "NO_PLAN_WAIT_7739:${read.why}", nowMs)
+            return waitOrOverrule7757(ts, read.why, "NO_PLAN_WAIT_7739:${read.why}", nowMs, runner7878)
         }
         plans[ts.mint] = Plan(setup, -read.stopPct, read.firstTargetPct, read.targetPct, nowMs)
         if (plans.size > 2_000) plans.entries.removeIf { nowMs - it.value.atMs > PLAN_TTL_MS_7739 }
@@ -346,6 +351,25 @@ object TradePlan7739 {
     }
 
     /**
+     * V5.0.7878 — the forward-label cohorts this token's current tape puts it in
+     * (the keys waitOrOverrule7757 labels under). Side-effect free; read by
+     * LiveEdgeGate7877 for runner lanes and by sizing.
+     */
+    fun runnerCohortKeys7878(ts: TokenState, nowMs: Long = System.currentTimeMillis()): List<String> {
+        val read = readForEntry7837(ts, nowMs)
+        if (read.setup != null) return emptyList()
+        val keys = ArrayList<String>(2)
+        if (barsPermitLaunch7742(read.why)) {
+            val lr = try { FreshLaunchSelector7737.launchRead7742(ts, LAUNCH_COST_PCT_7742, nowMs) } catch (_: Throwable) { null }
+            if (lr != null && (lr.verdict == FreshLaunchSelector7737.LaunchVerdict.NEGATIVE || lr.verdict == FreshLaunchSelector7737.LaunchVerdict.REFUSED)) {
+                keys += "PLANWAIT_${"LAUNCH_${lr.verdict.name}".take(20)}"
+            }
+        }
+        keys += "PLANWAIT_${read.why.take(20)}"
+        return keys
+    }
+
+    /**
      * V5.0.7757 §THE_PLAN'S_REFUSALS_ANSWER_TO_THE_TAPE_TOO.
      *
      * 5.0.7756 at 31 min: the executor refused 100 buys on the plan (STANDARD
@@ -359,11 +383,15 @@ object TradePlan7739 {
      * goes ahead; until then, and whenever its record is negative or thin, the
      * read stands. Paper never reaches here.
      */
-    private fun waitOrOverrule7757(ts: TokenState, why: String, reason: String, nowMs: Long): String? {
+    private fun waitOrOverrule7757(ts: TokenState, why: String, reason: String, nowMs: Long, runner: Boolean = false): String? {
         val key = "PLANWAIT_${why.take(20)}"
         try { ForwardReturnLabeler7731.observe(ts, key, false, reason, nowMs) } catch (_: Throwable) {}
         val stat = try { ForwardReturnLabeler7731.laneStatFor7737(key) } catch (_: Throwable) { null }
-        if (CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason
+        // V5.0.7878 — a runner lane overrules a wait whose own refused cohort pays
+        // net of cost (LiveEdgeGate7877 runner bar), not only at the hundred-label
+        // POSITIVE tier: PLANWAIT_LAUNCH_REFUSED n=1043 net +3.1% runner-rate 15%.
+        val runnerOverrule7878 = runner && LiveEdgeGate7877.runnerCohortAllows(stat)
+        if (!runnerOverrule7878 && CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason
         overruled7757.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("PLAN_WAIT_OVERRULED_BY_LABELS_7757_$why")

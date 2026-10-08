@@ -37,6 +37,14 @@ import java.util.concurrent.atomic.AtomicLong
 object LiveEdgeGate7877 {
     private const val CELL_MIN_N = 30
     private const val LIVE_MARGIN_PCT = 2.0
+    /**
+     * V5.0.7878 — runner lanes (MOONSHOT, sniper, shitcoin ...) are judged on
+     * the label mean itself (already net of the round-trip cost at a $5 ticket):
+     * their payoff is a 10-20% runner tail, so a lower 60-minute mean with a
+     * fat right tail is the profile, not a defect.
+     */
+    private const val RUNNER_MARGIN_PCT = 0.0
+    private const val PROVEN_NEGATIVE_PCT = -2.0
 
     enum class Source { CELL, LANE, NONE }
 
@@ -49,7 +57,7 @@ object LiveEdgeGate7877 {
      * Pure. [cell] is the candidate's forward-label cell (null when unseen);
      * [laneProven] is LivePivotAuthority7876's lane verdict == PROVEN.
      */
-    fun judge(cell: ForwardReturnLabeler7731.CellStat?, laneProven: Boolean): Verdict {
+    fun judge(cell: ForwardReturnLabeler7731.CellStat?, laneProven: Boolean, marginPct: Double = LIVE_MARGIN_PCT): Verdict {
         if (cell != null && cell.n60 >= CELL_MIN_N) {
             val se = if (cell.stderr60Pct.isFinite()) cell.stderr60Pct else Double.POSITIVE_INFINITY
             val lower = cell.meanNet60Pct - se
@@ -57,7 +65,7 @@ object LiveEdgeGate7877 {
             // may carry a cell whose 60-minute floor is under the margin.
             val lower240 = if (cell.n240 >= CELL_MIN_N) cell.meanNet240Pct - (if (se.isFinite()) se else 0.0) else Double.NEGATIVE_INFINITY
             val best = maxOf(lower, lower240)
-            return if (best > LIVE_MARGIN_PCT) {
+            return if (best > marginPct) {
                 Verdict(true, Source.CELL, best, "CELL_EDGE_${"%.1f".format(best)}PCT")
             } else {
                 Verdict(false, Source.CELL, best, "CELL_EDGE_BELOW_MARGIN_${"%.1f".format(best)}PCT")
@@ -67,6 +75,33 @@ object LiveEdgeGate7877 {
         else Verdict(false, Source.NONE, 0.0, "NO_PREDICTED_EDGE")
     }
 
+    /**
+     * Pure. V5.0.7878 — a runner-lane candidate is judged on the best measured
+     * cohort it actually belongs to: its own cell, and the plan cohort its tape
+     * puts it in right now (PLANWAIT_<read>, PLANWAIT_LAUNCH_<verdict>). 5.0.7876:
+     * MOONSHOT's own picks n=65 net -14.6% runner-rate 2%, while the fresh
+     * launches the selector refused (PLANWAIT_LAUNCH_REFUSED) were n=1043 net
+     * +3.1% runner-rate 15% — the tail the lane exists for was in the cohort it
+     * was not allowed to buy. Its own cell proven clearly negative still refuses.
+     */
+    fun judgeRunner(cell: ForwardReturnLabeler7731.CellStat?, cohorts: List<ForwardReturnLabeler7731.CellStat?>, laneProven: Boolean): Verdict {
+        if (cell != null && cell.n60 >= CELL_MIN_N) {
+            val se = if (cell.stderr60Pct.isFinite()) cell.stderr60Pct else 0.0
+            val late = cell.n240 >= CELL_MIN_N && cell.meanNet240Pct >= 0.0
+            if (cell.meanNet60Pct + se < PROVEN_NEGATIVE_PCT && !late) {
+                return Verdict(false, Source.CELL, cell.meanNet60Pct + se, "RUNNER_CELL_PROVEN_NEGATIVE_${"%.1f".format(cell.meanNet60Pct)}PCT")
+            }
+        }
+        val measured = (listOf(cell) + cohorts).filterNotNull().filter { it.n60 >= CELL_MIN_N }
+        if (measured.isEmpty()) return judge(null, laneProven, RUNNER_MARGIN_PCT)
+        val best = measured.map { judge(it, false, RUNNER_MARGIN_PCT) }.maxByOrNull { it.edgePct }!!
+        return best.copy(why = "RUNNER_" + best.why)
+    }
+
+    /** Pure: a runner lane's plan-wait cohort is evidence enough to overrule that wait. */
+    fun runnerCohortAllows(stat: ForwardReturnLabeler7731.CellStat?): Boolean =
+        stat != null && stat.n60 >= CELL_MIN_N && judge(stat, false, RUNNER_MARGIN_PCT).allow
+
     /** Side-effect-free read for sizing and diagnostics. */
     fun verdictFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Verdict {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
@@ -74,7 +109,12 @@ object LiveEdgeGate7877 {
         val laneProven = try {
             LivePivotAuthority7876.laneVerdict(l, nowMs) == LivePivotAuthority7876.Evidence.PROVEN
         } catch (_: Throwable) { false }
-        return judge(cell, laneProven)
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) } catch (_: Throwable) { false }
+        if (!runner) return judge(cell, laneProven)
+        val cohorts = try {
+            TradePlan7739.runnerCohortKeys7878(ts, nowMs).map { ForwardReturnLabeler7731.laneStatFor7737(it) }
+        } catch (_: Throwable) { emptyList() }
+        return judgeRunner(cell, cohorts, laneProven)
     }
 
     /** LIVE refusal reason, or null to admit. Paper is never refused. */
@@ -102,7 +142,7 @@ object LiveEdgeGate7877 {
     }
 
     fun statusLine(): String =
-        "bar=cellN>=$CELL_MIN_N&&mean-se>+$LIVE_MARGIN_PCT%|laneProven " +
+        "bar=cellN>=$CELL_MIN_N&&mean-se>+$LIVE_MARGIN_PCT%|laneProven runner=bestCohort(mean-se>$RUNNER_MARGIN_PCT%) " +
             "admit=[${allowed.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}] " +
             "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]"
 }
