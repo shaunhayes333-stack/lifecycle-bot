@@ -41,17 +41,19 @@ class CortexLedger7885 {
     }
 
     class Stat {
-        var n = 0.0; var sum = 0.0; var sumSq = 0.0; var runners = 0.0
+        var n = 0.0; var sum = 0.0; var sumSq = 0.0; var runners = 0.0; var wins = 0.0
         fun mean(): Double = if (n > 0.0) sum / n else 0.0
         fun variance(): Double = if (n > 1.0) ((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
-        fun add(y: Double, runner: Boolean) { n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0 }
-        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k }
-        fun encode(): String = "$n,$sum,$sumSq,$runners"
+        fun winRate(): Double = if (n > 0.0) wins / n else 0.5
+        fun add(y: Double, runner: Boolean) { n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0 }
+        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k }
+        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins"
         fun decode(s: String) {
-            val f = s.split(','); if (f.size != 4) return
+            val f = s.split(','); if (f.size != 4 && f.size != 5) return
             n = f[0].toDoubleOrNull() ?: 0.0; sum = f[1].toDoubleOrNull() ?: 0.0
             sumSq = f[2].toDoubleOrNull() ?: 0.0; runners = f[3].toDoubleOrNull() ?: 0.0
+            wins = if (f.size == 5) f[4].toDoubleOrNull() ?: 0.0 else 0.0
         }
     }
 
@@ -63,8 +65,20 @@ class CortexLedger7885 {
         var sseBase = 0.0
         val above = Stat()   // outcomes when this voter predicted above the lane mean
         val below = Stat()   // ... and below it
+        // V5.0.7910 — v1 §2.8 win-probability scoring: decayed Brier and log loss
+        // of the voter's P(net > 0) against the lane base rate, prequential.
+        var brierModel = 0.0
+        var brierBase = 0.0
+        var logLossModel = 0.0
+        var logLossBase = 0.0
 
         fun skill(): Double = if (scored >= MIN_SCORED && sseBase > 0.0) 1.0 - sseModel / sseBase else 0.0
+
+        /** Brier skill score of the voter's win probability (0 until MIN_SCORED). */
+        fun brierSkill(): Double = if (scored >= MIN_SCORED && brierBase > 0.0) 1.0 - brierModel / brierBase else 0.0
+
+        /** Log-loss skill of the voter's win probability (0 until MIN_SCORED). */
+        fun logLossSkill(): Double = if (scored >= MIN_SCORED && logLossBase > 0.0) 1.0 - logLossModel / logLossBase else 0.0
 
         /** 0..1. Zero until MIN_SCORED out-of-sample scores show positive skill. */
         fun authority(): Double {
@@ -80,6 +94,7 @@ class CortexLedger7885 {
             append(scored).append(';').append(sseModel).append(';').append(sseBase).append(';')
             append(above.encode()).append(';').append(below.encode())
             for (b in bins) append(';').append(b.encode())
+            append(';').append(brierModel).append(';').append(brierBase).append(';').append(logLossModel).append(';').append(logLossBase)
         }
 
         fun decode(s: String) {
@@ -90,6 +105,11 @@ class CortexLedger7885 {
             sseBase = f[2].toDoubleOrNull() ?: 0.0
             above.decode(f[3]); below.decode(f[4])
             for (i in bins.indices) bins[i].decode(f[5 + i])
+            val x = 5 + bins.size
+            if (f.size >= x + 4) {
+                brierModel = f[x].toDoubleOrNull() ?: 0.0; brierBase = f[x + 1].toDoubleOrNull() ?: 0.0
+                logLossModel = f[x + 2].toDoubleOrNull() ?: 0.0; logLossBase = f[x + 3].toDoubleOrNull() ?: 0.0
+            }
         }
     }
 
@@ -137,7 +157,9 @@ class CortexLedger7885 {
                 runner = (rb.runners + REGIME_K * runner) / (rb.n + REGIME_K)
             }
         }
-        return Prediction(pred, runner, st?.authority() ?: 0.0, n)
+        val laneWin = lanes[lane]?.winRate() ?: 0.5
+        val pWin = ((b?.wins ?: 0.0) + SHRINK_K * laneWin) / (n + SHRINK_K)
+        return Prediction(pred, runner, st?.authority() ?: 0.0, n, pWin)
     }
 
     /**
@@ -156,7 +178,7 @@ class CortexLedger7885 {
         return (sum - n * gMean) / (n + SHRINK_K)
     }
 
-    data class Prediction(val netPct: Double, val runnerRate: Double, val authority: Double, val binN: Double)
+    data class Prediction(val netPct: Double, val runnerRate: Double, val authority: Double, val binN: Double, val pWin: Double = 0.5)
 
     /**
      * Grade one decision. [raws] holds each voter's raw value (NaN = abstained)
@@ -174,7 +196,16 @@ class CortexLedger7885 {
             val raw = raws.getOrNull(i) ?: continue
             if (!raw.isFinite()) continue
             val st = seat(voterIds[i], lane, edges[i].size + 1)
-            val p = predict(voterIds[i], lane, edges[i], raw, regime).netPct
+            val pr = predict(voterIds[i], lane, edges[i], raw, regime)
+            val p = pr.netPct
+            val won = if (y > 0.0) 1.0 else 0.0
+            val baseWin = l.winRate()
+            val pw = pr.pWin.coerceIn(0.01, 0.99)
+            val bw = baseWin.coerceIn(0.01, 0.99)
+            st.brierModel = st.brierModel * DECAY + (won - pw) * (won - pw)
+            st.brierBase = st.brierBase * DECAY + (won - bw) * (won - bw)
+            st.logLossModel = st.logLossModel * DECAY - (won * kotlin.math.ln(pw) + (1 - won) * kotlin.math.ln(1 - pw))
+            st.logLossBase = st.logLossBase * DECAY - (won * kotlin.math.ln(bw) + (1 - won) * kotlin.math.ln(1 - bw))
             // Error co-movement is tracked among seated voters only (fusion only
             // discounts seated voters; ~140 voters would otherwise mean ~10k pairs).
             if (st.authority() > 0.0) residuals.add(voterIds[i] to (y - p))
@@ -231,6 +262,7 @@ class CortexLedger7885 {
         val effectiveVoters: Double,
         val dissentPct: Double,
         val top: List<String>,
+        val pWin: Double = 0.5,
     )
 
     /**
@@ -243,15 +275,15 @@ class CortexLedger7885 {
     fun fuse(lane: String, votes: List<Vote>, regime: String = ""): Fused {
         val l = lanes[lane]
         val (m, lr) = laneMean(lane, regime)
-        class W(val id: String, val ev: Set<String>, val a: Double, val d: Double, val rr: Double)
+        class W(val id: String, val ev: Set<String>, val a: Double, val d: Double, val rr: Double, val dw: Double = 0.0)
         val seated = ArrayList<W>()
         for (v in votes) {
             if (!v.raw.isFinite()) continue
             val p = predict(v.voterId, lane, v.edges, v.raw, regime)
             if (p.authority <= 0.0) continue
-            seated.add(W(v.voterId, v.evidence, p.authority, p.netPct - m, p.runnerRate - lr))
+            seated.add(W(v.voterId, v.evidence, p.authority, p.netPct - m, p.runnerRate - lr, p.pWin - (l?.winRate() ?: 0.5)))
         }
-        var sw = 0.0; var swd = 0.0; var swr = 0.0; var sw2 = 0.0
+        var sw = 0.0; var swd = 0.0; var swr = 0.0; var sw2 = 0.0; var swp = 0.0
         val weights = ArrayList<Pair<W, Double>>()
         for (w in seated) {
             var overlap = 0.0; var corr = 0.0
@@ -262,7 +294,7 @@ class CortexLedger7885 {
             }
             val weight = w.a / ((1.0 + overlap) * (1.0 + corr))
             weights.add(w to weight)
-            sw += weight; swd += weight * w.d; swr += weight * w.rr; sw2 += weight * weight
+            sw += weight; swd += weight * w.d; swr += weight * w.rr; sw2 += weight * weight; swp += weight * w.dw
         }
         val edge = m + swd / (1.0 + sw)
         val runner = (lr + swr / (1.0 + sw)).coerceIn(0.0, 1.0)
@@ -270,7 +302,8 @@ class CortexLedger7885 {
         val dissent = if (sw > 0.0) kotlin.math.sqrt(weights.sumOf { (w, x) -> x * (w.d - meanD) * (w.d - meanD) } / sw) else 0.0
         val top = weights.sortedByDescending { kotlin.math.abs(it.second * it.first.d) }.take(3)
             .map { (w, x) -> "${w.id}${if (w.d >= 0) "+" else ""}${"%.1f".format(w.d)}@${"%.2f".format(x)}" }
-        return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top)
+        val pWin = ((l?.winRate() ?: 0.5) + swp / (1.0 + sw)).coerceIn(0.0, 1.0)
+        return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top, pWin)
     }
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->

@@ -22,3 +22,22 @@ class Aate7905HierarchicalCortexTest {
         assertEquals(0.0, led.predict("V", "QUALITY", flag, 1.0).netPct - led.predict("V", "QUALITY", flag, 1.0).netPct, 1e-12)
     }
 }
+
+/** V5.0.7910 — win probability is scored (Brier, log loss) as well as the return. */
+class Aate7910WinProbabilityTest {
+    @Test fun anInformedVoterHasPositiveBrierAndLogLossSkill() {
+        val led = CortexLedger7885()
+        val flag = doubleArrayOf(0.5)
+        val rnd = java.util.Random(7910)
+        repeat(400) {
+            val good = rnd.nextBoolean()
+            val y = (if (good) 5.0 else -5.0) + rnd.nextGaussian() * 3.0
+            led.grade("SHITCOIN", listOf("W"), listOf(flag), doubleArrayOf(if (good) 1.0 else 0.0), y, y)
+        }
+        val seat = led.seats["W|SHITCOIN"]!!
+        assertTrue("brier ${seat.brierSkill()}", seat.brierSkill() > 0.2)
+        assertTrue("logloss ${seat.logLossSkill()}", seat.logLossSkill() > 0.1)
+        val f = led.fuse("SHITCOIN", listOf(CortexLedger7885.Vote("W", flag, 1.0, setOf("w"))))
+        assertTrue("pWin ${f.pWin}", f.pWin > 0.6)
+    }
+}

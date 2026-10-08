@@ -283,7 +283,7 @@ object Cortex7885 {
                     ForensicLogger.lifecycle(
                         "CORTEX_7885_REFUSED",
                         "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${a.lane} mode=$mode rule=$rule edge=${"%.2f".format(a.fused.edgePct)} " +
-                            "runner=${"%.2f".format(a.fused.runnerRate)} effVoters=${"%.1f".format(a.fused.effectiveVoters)} top=${a.fused.top.joinToString(",")}",
+                            "pWin=${"%.2f".format(a.fused.pWin)} runner=${"%.2f".format(a.fused.runnerRate)} effVoters=${"%.1f".format(a.fused.effectiveVoters)} top=${a.fused.top.joinToString(",")}",
                     )
                 }
             } catch (_: Throwable) {}
@@ -493,7 +493,7 @@ object Cortex7885 {
                 "      stop authority (§7887): ${try { StopAuthority7887.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
                 "      seated (authority): ${seated.take(12).joinToString(" · ") { (k, s, a) -> "$k a=${"%.2f".format(a)} skill=${"%.1f".format(s.skill() * 100)}% n=${s.scored}" }.ifBlank { "none yet — a seat needs ${CortexLedger7885.MIN_SCORED} graded predictions beating the lane mean out-of-sample" }}\n" +
-                "      best skill per voter: ${bestByVoter.take(10).joinToString(" · ") { (k, s, _) -> "$k ${"%+.1f".format(s.skill() * 100)}%/n${s.scored}" }.ifBlank { "-" }}\n" +
+                "      best skill per voter (return R² · win-prob Brier · log-loss): ${bestByVoter.take(10).joinToString(" · ") { (k, s, _) -> "$k ${"%+.1f".format(s.skill() * 100)}%/${"%+.1f".format(s.brierSkill() * 100)}%/${"%+.1f".format(s.logLossSkill() * 100)}% n${s.scored}" }.ifBlank { "-" }}\n" +
                 "      voter failures: ${voterFailures.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "0" }}\n" +
                 laneLines.ifBlank { "      lanes: no graded decisions yet" } + "\n" +
                 "      veto audit (refused candidates' forward return): " +
