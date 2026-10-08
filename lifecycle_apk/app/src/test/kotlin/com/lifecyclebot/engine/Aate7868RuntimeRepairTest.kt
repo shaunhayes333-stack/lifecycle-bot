@@ -168,6 +168,16 @@ class Aate7868RuntimeRepairTest {
         assertFalse(report.checks.first { it.name == "ORPHAN_SELL" }.ok)
     }
 
+    @Test fun postFdgExecutorDoesNotConsultMintOnlySnapshotForPlanVeto() {
+        val executor = src("engine/Executor.kt")
+        val section = executor.substringAfter("val sealedFdgBuy7789 =")
+            .substringBefore("if (execModeResolved == ExecMode.LIVE)")
+        assertTrue(section.contains("sealedIntent7835?.fdgAllowed == true"))
+        assertTrue(section.contains("sealedIntent7835.finalDecision6613"))
+        assertTrue(section.contains("sealedIntent7835?.canonicalLane"))
+        assertFalse(section.contains("ExecutionSnapshotAuthority6496.sealedSnapshot6609"))
+    }
+
     @Test fun forensicParentsAreModeScoped() {
         val forensic = src("engine/ForensicReconciler6377.kt")
         val parent = forensic.substringAfter("private fun canonicalParentMints7868(")
