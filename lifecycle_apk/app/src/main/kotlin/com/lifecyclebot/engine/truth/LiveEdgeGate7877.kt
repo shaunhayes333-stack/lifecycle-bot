@@ -30,9 +30,11 @@ import java.util.concurrent.atomic.AtomicLong
  *      its cost margin).
  *
  * A cell proven below the margin refuses even when the lane is proven: the
- * narrower evidence wins. Everything else trades paper/shadow, where the next
- * labels are made, and re-earns live automatically when its numbers turn —
- * no code change, no operator toggle. Exits are never touched here.
+ * narrower evidence wins, and that cell trades paper/shadow until its numbers
+ * turn — no code change, no operator toggle. V5.0.7880: a candidate with no
+ * measured cell yet explores LIVE (a fresh install has no labels at all), so
+ * the gate refuses only what the bot has measured to lose. Exits are never
+ * touched here.
  */
 object LiveEdgeGate7877 {
     private const val CELL_MIN_N = 30
@@ -83,8 +85,16 @@ object LiveEdgeGate7877 {
                 Verdict(false, Source.CELL, best, "CELL_EDGE_BELOW_MARGIN_${"%.1f".format(best)}PCT")
             }
         }
+        // V5.0.7880 — no measurement is not a negative measurement. On a fresh
+        // install every store is empty (5.0.7879: cells=0/0, observed=0) and the
+        // 7877 rule "no predicted edge, no trade" refused every candidate the
+        // bot saw (MOONSHOT 1,589, CASHGEN 462, SHITCOIN 341 ...), so it could
+        // never make the labels that would have let it trade. Operator: "it has
+        // to be tuned or traded from a trade one mindset." An unmeasured cell
+        // trades (route-minimum, every other gate still applies) and is refused
+        // only once its own labels say it loses.
         return if (laneProven) Verdict(true, Source.LANE, 0.0, "LANE_PROVEN_7876")
-        else Verdict(false, Source.NONE, 0.0, "NO_PREDICTED_EDGE")
+        else Verdict(true, Source.NONE, 0.0, "EXPLORE_UNMEASURED")
     }
 
     /**
@@ -108,7 +118,16 @@ object LiveEdgeGate7877 {
         if (measured.isEmpty()) return judge(null, laneProven, RUNNER_MARGIN_PCT)
         val verdicts = measured.map { runnerVerdict(it) }
         val best = verdicts.firstOrNull { it.allow } ?: verdicts.maxByOrNull { it.edgePct }!!
-        return best.copy(why = "RUNNER_" + best.why)
+        if (best.allow) return best.copy(why = "RUNNER_" + best.why)
+        // V5.0.7880 — a runner lane is refused only when every measured cohort it
+        // sits in is provably losing (mean plus one standard error below zero).
+        // A measured-but-uncertain cohort keeps exploring: the tail needs shots.
+        val provenLosing = measured.all { m ->
+            val se = if (m.stderr60Pct.isFinite()) m.stderr60Pct else 0.0
+            m.meanNet60Pct + se < 0.0 && !(m.n240 >= CELL_MIN_N && m.meanNet240Pct >= 0.0)
+        }
+        return if (provenLosing) best.copy(why = "RUNNER_COHORT_PROVEN_LOSING")
+        else Verdict(true, Source.NONE, best.edgePct, "RUNNER_EXPLORE_UNCERTAIN")
     }
 
     /** Pure: one measured cohort under the runner bar — mean-se, or the tail test. */

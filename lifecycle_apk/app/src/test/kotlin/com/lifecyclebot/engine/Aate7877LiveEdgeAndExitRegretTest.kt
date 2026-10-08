@@ -22,10 +22,10 @@ class Aate7877LiveEdgeAndExitRegretTest {
         assertFalse(LiveEdgeGate7877.judge(cell(54, -3.0, 1.0), laneProven = true).allow)
         // Positive but inside slippage margin: refused.
         assertFalse(LiveEdgeGate7877.judge(cell(200, 2.4, 1.0), laneProven = false).allow)
-        // Thin cell: lane evidence decides.
-        assertFalse(LiveEdgeGate7877.judge(cell(5, 40.0, 10.0), laneProven = false).allow)
+        // Thin or unseen cell: no measurement is not a negative one — it explores (7880).
+        assertTrue(LiveEdgeGate7877.judge(cell(5, 40.0, 10.0), laneProven = false).allow)
         assertTrue(LiveEdgeGate7877.judge(cell(5, 40.0, 10.0), laneProven = true).allow)
-        assertFalse(LiveEdgeGate7877.judge(null, laneProven = false).allow)
+        assertTrue(LiveEdgeGate7877.judge(null, laneProven = false).allow)
         // Launch cell paying at four hours.
         assertTrue(LiveEdgeGate7877.judge(cell(40, -1.0, 2.0, n240 = 35, mean240 = 12.0), laneProven = false).allow)
     }
@@ -81,5 +81,17 @@ class Aate7877LiveEdgeAndExitRegretTest {
         assertFalse(LiveEdgeGate7877.runnerCohortAllows(cell(222, -24.3, 4.0, run = 0.09)))
         // Non-runner lanes are unaffected.
         assertFalse(LiveEdgeGate7877.judge(launchRefusedFatTail, laneProven = false).allow)
+    }
+
+    @Test fun freshInstallTradesFromTradeOneAndRefusesOnlyMeasuredLosers() {
+        // 5.0.7879 fresh install: cells=0/0 and every candidate was refused NO_PREDICTED_EDGE.
+        assertTrue(LiveEdgeGate7877.judge(null, laneProven = false).allow)
+        assertTrue(LiveEdgeGate7877.judgeRunner(null, emptyList(), laneProven = false).allow)
+        // Measured but uncertain runner cohort keeps exploring.
+        assertTrue(LiveEdgeGate7877.judgeRunner(null, listOf(cell(40, -1.0, 3.0)), laneProven = false).allow)
+        // Measured and provably losing: refused.
+        assertFalse(LiveEdgeGate7877.judgeRunner(null, listOf(cell(222, -24.3, 4.0)), laneProven = false).allow)
+        // A flat non-runner cell measured under its margin stays refused.
+        assertFalse(LiveEdgeGate7877.judge(cell(54, -3.0, 1.0), laneProven = false).allow)
     }
 }
