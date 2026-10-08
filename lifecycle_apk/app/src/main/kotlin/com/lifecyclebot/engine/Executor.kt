@@ -18417,13 +18417,18 @@ class Executor(
         // V5.0.7789 — the live lane contract follows the immutable sealed FDG
         // owner, not a contributor/caller lane. This stops a BLUECHIP contributor
         // from vetoing a Pump.fun entry actually owned by a meme specialist.
-        val sealedFdgSnapshot7789 = try {
-            com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.sealedSnapshot6609(ts.mint)
-        } catch (_: Throwable) { null }
-        val sealedFdgBuy7789 = sealedFdgSnapshot7789 != null &&
-            sealedFdgSnapshot7789.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
-            sealedFdgSnapshot7789.executionAction.uppercase() in setOf("BUY", "PROBE_BUY")
-        val contractLane7789 = sealedFdgSnapshot7789?.primaryLane
+        // The execution ticket was already validated for this exact attempt,
+        // mint, LIVE mode, lane and amount by SealedExecutionSize7835 above.
+        // A mutable mint-only 6496 snapshot can be absent or superseded by
+        // another candidate while this valid ticket is travelling to execution.
+        // It must NEVER decide whether FDG policy can be re-vetoed downstream.
+        val sealedFdgBuy7789 =
+            sealedIntent7835?.fdgAllowed == true &&
+            sealedIntent7835.fdgVerdict.equals("BUY", ignoreCase = true) &&
+            sealedIntent7835.finalDecision6613 ==
+                com.lifecyclebot.engine.CanonicalFinalDecision6613.BUY &&
+            sealedIntent7835.hardNoReasons.isEmpty()
+        val contractLane7789 = sealedIntent7835?.canonicalLane
             ?.takeIf { sealedFdgBuy7789 && it.isNotBlank() } ?: layerTag
 
         if (execModeResolved == ExecMode.LIVE) {
