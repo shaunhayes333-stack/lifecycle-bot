@@ -33748,6 +33748,9 @@ if (hotExitHandledSweep) {
         }
         val answer = try {
             withTimeoutOrNull(1_500L) { task.await() }
+        } catch (cancel: CancellationException) {
+            task.cancel()
+            throw cancel // Stop/restart cancellation must not dispatch a SELL afterwards.
         } catch (_: Exception) { null }
         if (answer == null) {
             task.cancel()
