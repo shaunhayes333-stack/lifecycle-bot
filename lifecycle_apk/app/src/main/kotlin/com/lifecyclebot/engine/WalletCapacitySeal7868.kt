@@ -82,6 +82,13 @@ internal object WalletCapacitySeal7868 {
         seal: Seal?, sol: Double, walletNow: Double, solUsdNow: Double, reserveSol: Double,
         baseRefusal: String?, nowMs: Long,
     ): String? {
+        // The dynamic route-cap check is not the wallet affordability authority.
+        // Even if it reports PASS, never execute a sealed amount that no longer
+        // fits the current wallet after the mandatory SOL reserve.
+        if (!sol.isFinite() || sol <= 0.0 || !walletNow.isFinite() ||
+            !reserveSol.isFinite() || reserveSol < 0.0 ||
+            sol > (walletNow - reserveSol) + 1e-12
+        ) return "SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835"
         if (baseRefusal == null) return null
         if (baseRefusal != "SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835" && baseRefusal != "SEALED_SIZE_BELOW_CURRENT_MINIMUM_7835") return baseRefusal
         if (seal == null || nowMs - seal.atMs > TTL_MS || kotlin.math.abs(seal.sizeSol - sol) > 1e-9) return baseRefusal
