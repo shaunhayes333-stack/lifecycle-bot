@@ -69,7 +69,9 @@ object SellFinalityUniqueCounter7231 {
             redispatches.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("SELL_FINALITY_REDISPATCH_7231")
-                ForensicLogger.lifecycle(
+                // V5.0.7875 — counted every time, logged once per close: 250 redispatch
+                // lines (of 769 unique sells) flooded 5.0.7874's recent-event ring.
+                if (existing.redispatchCount.get() == 1L) ForensicLogger.lifecycle(
                     "SELL_FINALITY_REDISPATCH_7231",
                     "sig=${sig.take(12)} closeId=${cid.take(12)} " +
                         "redispatchCount=${existing.redispatchCount.get()} " +

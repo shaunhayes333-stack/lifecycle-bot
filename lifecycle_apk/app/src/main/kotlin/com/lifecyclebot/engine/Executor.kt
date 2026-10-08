@@ -13371,6 +13371,32 @@ class Executor(
     }
 
     /**
+     * V5.0.7875 — the verified BUY's USD/token entry basis. 5.0.7874 crashed in
+     * commitVerifiedLiveBuySideEffects6637 ("Verified BUY has no valid USD/token
+     * entry price") on a landed buy whose position carried no pre-buy mark
+     * (LIVE_POSITION_PRICE_ZERO=7, PRICE_STALE_LIVE_POSITION=7). The fill itself
+     * proves the basis: SOL spent / tokens received x SOL/USD. A valid stamped
+     * entry price stays authoritative; without one, the fill economics are
+     * written onto the position so exits and PnL have a basis. Throws only when
+     * neither exists.
+     */
+    private fun verifiedFillEntryPrice7875(ts: TokenState, actualCostSol: Double, qtyUi: Double): Double {
+        ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
+        val solUsd = WalletManager.lastKnownSolPrice
+        val fill = verifiedFillPriceUsd7875(actualCostSol, qtyUi, solUsd)
+            ?: throw IllegalStateException("Verified BUY has no valid USD/token entry price")
+        ts.position = ts.position.copy(entryPrice = fill, entryPriceSource = "VERIFIED_FILL_7875")
+        try {
+            PipelineHealthCollector.labelInc("LIVE_ENTRY_BASIS_FROM_VERIFIED_FILL_7875")
+            ForensicLogger.lifecycle(
+                "LIVE_ENTRY_BASIS_FROM_VERIFIED_FILL_7875",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} costSol=$actualCostSol qty=$qtyUi solUsd=$solUsd entryUsd=$fill",
+            )
+        } catch (_: Throwable) {}
+        return fill
+    }
+
+    /**
      * V5.0.7871 — the §6450 entry snapshot for a live buy waiting on balance proof.
      * 5.0.7868 read "Entry snapshot (§6450): positions=2 writes=0": both live buys
      * were opened by wallet promotion (LIVE_PENDING_ENTRY_PROMOTED_FROM_WALLET_7133),
@@ -20493,8 +20519,7 @@ class Executor(
                     return
                 }
 
-                val verifiedEntryPrice = ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 }
-                    ?: throw IllegalStateException("Verified BUY has no valid USD/token entry price")
+                val verifiedEntryPrice = verifiedFillEntryPrice7875(ts, actualCostSol, qtyUi)
                 val verifiedTrade = Trade(
                     side = "BUY",
                     mode = "live",
