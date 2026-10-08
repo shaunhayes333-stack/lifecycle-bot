@@ -36,6 +36,11 @@ class Aate7868RuntimeRepairTest {
         assertEquals("EXECUTION_SIZE_INVALID_7835",
             WalletCapacitySeal7868.decide(seal, 0.04272, 0.0843, 116.0, 0.01, "EXECUTION_SIZE_INVALID_7835", now))
         assertNull(WalletCapacitySeal7868.decide(seal, 0.04272, 0.0843, 116.0, 0.01, null, now))
+        // A dynamic route-cap PASS is not proof that wallet minus reserve can pay.
+        assertEquals("SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835",
+            WalletCapacitySeal7868.decide(seal, 0.04272, 0.045, 116.0, 0.01, null, now))
+        assertEquals("SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835",
+            WalletCapacitySeal7868.decide(seal, 0.04272, Double.NaN, 116.0, 0.01, null, now))
         val exec = src("engine/Executor.kt")
         assertTrue(exec.contains("WalletCapacitySeal7868.executionRefusal("))
         assertTrue(src("engine/FinalDecisionGate.kt").contains("WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd)"))
