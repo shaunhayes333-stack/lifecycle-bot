@@ -56,6 +56,7 @@ object Cortex7885 {
     private val ledger = CortexLedger7885()
     private val board = CortexScoreboard7885()
     private val calibration = CortexCalibration7901()
+    private val realLedgers = HashMap<String, CortexLedger7885>()   // mode -> outcome-truth ledger
     private val assessCache = ConcurrentHashMap<String, Assessment>()
     private val pending = ConcurrentHashMap<String, Pending>()
     private val voterFailures = ConcurrentHashMap<String, AtomicLong>()
@@ -435,7 +436,15 @@ object Cortex7885 {
         val a = entryReads.remove("${env.mint}|$mode") ?: return
         val entryAt = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         if (kotlin.math.abs(entryAt - a.atMs) > ENTRY_READ_MATCH_MS) { inc("REALIZED_UNMATCHED"); return }
-        synchronized(this) { board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct) }
+        synchronized(this) {
+            board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct)
+            // V5.0.7912 — Cortex v12, OutcomeTruth (v1 §2.7): every voter's entry-time
+            // opinion is also graded on the WHOLE-POSITION realised return, per mode,
+            // in its own ledger — skill on real fills and real exits, beside the
+            // forward-label skill that grants authority.
+            realLedgers.getOrPut(mode) { CortexLedger7885() }
+                .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime)
+        }
         inc("REALIZED_${mode}")
     }
 
@@ -451,6 +460,7 @@ object Cortex7885 {
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("board")?.let { board.decode(it) }
                 o.optJSONObject("calibration")?.let { calibration.decode(it) }
+                o.optJSONObject("real")?.let { j -> for (k in j.keys()) j.optJSONObject(k)?.let { realLedgers[k] = CortexLedger7885().also { l -> l.decode(it) } } }
                 o.optJSONObject("vetoes")?.let { j -> for (k in j.keys()) vetoBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
             } catch (_: Throwable) {}
         }
@@ -460,6 +470,7 @@ object Cortex7885 {
         try {
             val json = synchronized(this) {
                 org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())
+                    .put("real", org.json.JSONObject().also { j -> realLedgers.forEach { (k, l) -> j.put(k, l.encode()) } })
                     .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } }).toString()
             }
             LearningPersistence.save(PERSIST_KEY, json)
@@ -492,6 +503,11 @@ object Cortex7885 {
                 "      invariants & provenance v11 (§7911): ${try { CortexInvariants7911.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
+                "      outcome truth v12 (§7912, whole-position closes): ${realLedgers.entries.joinToString(" · ") { (mode, l) ->
+                    val seated = l.seats.entries.filter { !it.key.contains('@') && !it.key.endsWith("|${CortexLedger7885.GLOBAL}") && it.value.scored > 0 }
+                    "$mode closes=${l.lanes.entries.filter { !it.key.contains('@') && it.key != CortexLedger7885.GLOBAL }.sumOf { it.value.n }.toInt()} " +
+                        "best=[${seated.sortedByDescending { it.value.skill() }.take(4).joinToString(",") { "${it.key} ${"%+.1f".format(it.value.skill() * 100)}%/n${it.value.scored}" }}]"
+                }.ifBlank { "no closes yet" }}\n" +
                 "      lane playbooks (§7907): ${try { LanePlaybook7907.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      calibration v7 (§7901): slope=${calibration.line()}\n" +
                 "      timing cortex v6 (§7900): ${try { CortexTiming7900.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
