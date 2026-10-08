@@ -391,6 +391,24 @@ object CortexVoters7885 {
 
     val IDS: List<String> = ALL.map { it.id }
     val EDGES: List<DoubleArray> = ALL.map { it.edges }
+    private val EDGES_BY_ID: Map<String, DoubleArray> by lazy { ALL.associate { it.id to it.edges } }
+
+    /**
+     * V5.0.7920 — a voter's bin edges from its id alone (static voter, V3 module,
+     * or a pairwise cross), so a persisted decision can be graded after a restart.
+     */
+    fun edgesFor(id: String): DoubleArray? {
+        EDGES_BY_ID[id]?.let { return it }
+        if (id.startsWith("V3M_")) return V3_MODULE_EDGES
+        if (id.startsWith("X_")) {
+            val parts = id.removePrefix("X_").split("__")
+            if (parts.size != 2) return null
+            val a = EDGES_BY_ID[parts[0]] ?: return null
+            val b = EDGES_BY_ID[parts[1]] ?: return null
+            return DoubleArray((a.size + 1) * (b.size + 1) - 1) { k -> k + 0.5 }
+        }
+        return null
+    }
 
     // One stage snapshot per (mint, read time) — five timing voters share it.
     @Volatile private var stageMemo: Triple<String, Long, com.lifecyclebot.engine.TokenMetricStageRouter.Snapshot>? = null

@@ -175,10 +175,86 @@ object Cortex7885 {
         // V5.0.7900 — Cortex v6: the same decision opens a 5-minute timing label.
         try { CortexTiming7900.capture(ts, a, nowMs) } catch (_: Throwable) {}
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
+        persistPendingMaybe(nowMs)
+        try { LanePlaybook7907.persistPendingMaybe(nowMs) } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.7920: pending decisions survive a restart ──
+    //
+    // Labels mature 60 min (240 for runner lanes) after the decision, and every
+    // install or restart dropped the in-memory pending set, so a book restarted
+    // more often than hourly graded nothing. The newest [PENDING_PERSIST_MAX]
+    // pending decisions (finite votes only, sparse) are saved every 2 minutes
+    // and restored on load; edges are rebuilt from voter ids.
+    private const val PENDING_PERSIST_KEY = "CORTEX_PENDING_7920"
+    private const val PENDING_PERSIST_MAX = 1_000
+    private const val PENDING_PERSIST_EVERY_MS = 120_000L
+    @Volatile private var lastPendingPersistMs = 0L
+
+    private fun fin0(v: Double): Double = if (v.isFinite()) kotlin.math.round(v * 1e4) / 1e4 else 0.0
+
+    private fun persistPendingMaybe(nowMs: Long) {
+        if (nowMs - lastPendingPersistMs < PENDING_PERSIST_EVERY_MS) return
+        lastPendingPersistMs = nowMs
+        try {
+            // Voter ids are written once in a dictionary; each decision stores indices (keeps the blob well under 1 MB).
+            val dict = LinkedHashMap<String, Int>()
+            val arr = org.json.JSONArray()
+            pending.entries.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX).forEach { (k, p) ->
+                val a = p.a
+                val ids = org.json.JSONArray()
+                val xs = org.json.JSONArray()
+                for (i in a.ids.indices) {
+                    val r = a.raws.getOrNull(i) ?: continue
+                    if (r.isFinite()) { ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(fin0(r)) }
+                }
+                arr.put(
+                    org.json.JSONObject().put("k", k).put("l", a.lane).put("r", a.runnerLane).put("g", a.regime)
+                        .put("b", a.bucket.ordinal).put("e", fin0(a.fused.edgePct)).put("m", fin0(a.fused.laneMean))
+                        .put("ce", fin0(a.calibratedEdge)).put("adm", p.legacyAdmitted).put("at", p.atMs)
+                        .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("i", ids).put("x", xs),
+                )
+            }
+            val out = org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr)
+            LearningPersistence.save(PENDING_PERSIST_KEY, out.toString())
+            inc("PENDING_PERSISTED")
+        } catch (_: Throwable) { inc("PENDING_PERSIST_FAILED") }
+    }
+
+    /** Caller holds the lock (ensureLoaded). */
+    private fun restorePending(raw: String?, nowMs: Long) {
+        val root = org.json.JSONObject(raw ?: return)
+        val jd = root.optJSONArray("dict") ?: return
+        val dict = List(jd.length()) { jd.optString(it) }
+        val arr = root.optJSONArray("p") ?: return
+        val buckets = CortexScoreboard7885.Bucket.values()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val k = o.optString("k")
+            val at = o.optLong("at")
+            if (k.isBlank() || pending.containsKey(k) || nowMs - at > PENDING_TTL_MS || at > nowMs) continue
+            val ids = ArrayList<String>()
+            val edges = ArrayList<DoubleArray>()
+            val raws = ArrayList<Double>()
+            val ji = o.optJSONArray("i") ?: continue
+            val jx = o.optJSONArray("x") ?: continue
+            for (j in 0 until minOf(ji.length(), jx.length())) {
+                val id = dict.getOrNull(ji.optInt(j, -1)) ?: continue
+                val e = CortexVoters7885.edgesFor(id) ?: continue
+                ids.add(id); edges.add(e); raws.add(jx.optDouble(j))
+            }
+            val b = buckets.getOrNull(o.optInt("b", 1)) ?: CortexScoreboard7885.Bucket.NEUTRAL
+            val fused = CortexLedger7885.Fused(o.optDouble("e", 0.0), 0.0, o.optDouble("m", 0.0), 0.0, 0.0, 0.0, 0.0, emptyList())
+            val a = Assessment(o.optString("l"), o.optBoolean("r"), raws.toDoubleArray(), ids, edges, o.optString("g"),
+                fused, o.optDouble("ce", 0.0), b, 0, false, at)
+            pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"))
+            inc("PENDING_RESTORED")
+        }
     }
 
     /** ForwardReturnLabeler7731.tick: a horizon label booked for (mint, labelLane). */
     fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double) {
+        ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = pending[key] ?: return
         val want = if (p.a.runnerLane) 240 else 60
@@ -559,6 +635,7 @@ object Cortex7885 {
         synchronized(this) {
             if (loaded) return
             loaded = true
+            try { restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis()) } catch (_: Throwable) { inc("PENDING_RESTORE_FAILED") }
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }

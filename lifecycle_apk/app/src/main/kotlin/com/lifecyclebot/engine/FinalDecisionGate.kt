@@ -58,9 +58,21 @@ object FinalDecisionGate {
         init {
             val taxonomy = rejectTaxonomy
             if (taxonomy != null) {
+                // V5.0.7920 — a refused verdict is also observed for its forward
+                // return. Before this, only verdicts that reached ExecutableOpenGate
+                // were labelled, so on a LIVE book that refused everything at the
+                // FDG (5.0.7914: block=1540, allow=0) the Cortex captured nothing,
+                // the lane playbooks tagged nothing, and NO_TRIGGER could never
+                // earn its way out of refusal. The labeler dedups per (mint, lane).
+                val refusedLane7920 = canonicalLane7835.ifBlank {
+                    tags.firstOrNull { it.startsWith("lane:") }?.removePrefix("lane:").orEmpty()
+                }
                 ChokeReliefBus.launch("FDG_REJECT_TAXONOMY_4427", mint) {
                     try { RejectTaxonomyLedger.record(taxonomy, "FDG_${mode.name}", blockReason ?: approvalReason) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("FDG_REJECT_TAXONOMY_4427_${taxonomy.category.name}") } catch (_: Throwable) {}
+                    if (!shouldTrade && mint.isNotBlank() && refusedLane7920.isNotBlank()) try {
+                        com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(mint, refusedLane7920, false, blockReason ?: approvalReason)
+                    } catch (_: Throwable) {}
                 }
             }
         }

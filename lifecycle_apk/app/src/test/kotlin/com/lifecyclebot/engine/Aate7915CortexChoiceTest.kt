@@ -34,6 +34,17 @@ class Aate7915CortexChoiceTest {
         assertEquals(ids.size, ids.toSet().size)
     }
 
+    /** V5.0.7920 — a persisted decision's edges are rebuilt from voter ids alone. */
+    @Test fun edgesRebuiltFromIds() {
+        val i = CortexVoters7885.IDS.indexOf("RSI")
+        assertTrue(CortexVoters7885.EDGES[i].contentEquals(CortexVoters7885.edgesFor("RSI")!!))
+        assertTrue(CortexVoters7885.edgesFor("V3M_SOMETHING") != null)
+        val a = CortexVoters7885.edgesFor("RSI")!!.size + 1
+        val b = CortexVoters7885.edgesFor("V3_SCORE")!!.size + 1
+        assertEquals(a * b - 1, CortexVoters7885.edgesFor("X_RSI__V3_SCORE")!!.size)
+        assertEquals(null, CortexVoters7885.edgesFor("NOT_A_VOTER"))
+    }
+
     @Test fun stackShrinkOverruledOnlyWhenBothProven() {
         assertEquals(1.0, Cortex7885.shapeAfterAuthority(0.4, strongProven = true, stackMeasuredNoSkill = true), 1e-9)
         assertEquals(0.4, Cortex7885.shapeAfterAuthority(0.4, strongProven = false, stackMeasuredNoSkill = true), 1e-9)

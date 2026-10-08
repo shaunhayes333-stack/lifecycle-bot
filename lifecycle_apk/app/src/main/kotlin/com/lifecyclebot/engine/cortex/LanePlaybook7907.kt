@@ -267,9 +267,9 @@ object LanePlaybook7907 {
 
     /** Cortex7885.onLabel (graded horizon only): learn (lane, setup) from the forward label. */
     fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double) {
+        ensureLoaded()
         val (lane, setup) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
         if (!netPct.isFinite()) return
-        ensureLoaded()
         synchronized(this) {
             books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
                 .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
@@ -291,6 +291,14 @@ object LanePlaybook7907 {
         synchronized(this) {
             if (loaded) return
             loaded = true
+            // V5.0.7920 — pending setup tags survive a restart (labels mature 60-240 min later).
+            try {
+                val p = org.json.JSONObject(LearningPersistence.load(PENDING_KEY_7920) ?: "{}")
+                for (k in p.keys()) {
+                    val v = p.optString(k)
+                    if (!pending.containsKey(k) && v.contains('|')) pending[k] = v.substringBefore('|') to v.substringAfter('|')
+                }
+            } catch (_: Throwable) {}
             try {
                 val o = org.json.JSONObject(LearningPersistence.load("LANE_PLAYBOOK_7907") ?: return)
                 for (lane in o.keys()) {
@@ -300,6 +308,20 @@ object LanePlaybook7907 {
                 }
             } catch (_: Throwable) {}
         }
+    }
+
+    private const val PENDING_KEY_7920 = "LANE_PLAYBOOK_PENDING_7920"
+    @Volatile private var lastPendingPersistMs = 0L
+
+    /** Cortex7885.captureNow: save the pending setup tags at most every 2 minutes. */
+    fun persistPendingMaybe(nowMs: Long) {
+        if (nowMs - lastPendingPersistMs < 120_000L) return
+        lastPendingPersistMs = nowMs
+        try {
+            val o = org.json.JSONObject()
+            pending.entries.take(3_000).forEach { (k, v) -> o.put(k, "${v.first}|${v.second}") }
+            LearningPersistence.save(PENDING_KEY_7920, o.toString())
+        } catch (_: Throwable) {}
     }
 
     private fun persist() {
