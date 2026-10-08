@@ -297,7 +297,11 @@ object StrategyTruthLedger {
             hay.contains("ADOPTED_FROM_WALLET") ||
             hay.contains("RECOVERED_") ||
             hay.contains("RESTORED_") ||
-            hay.contains("INVENTORY_RECON")
+            hay.contains("INVENTORY_RECON") ||
+            // V5.0.7876 — a cost basis taken from an observed wallet valuation is
+            // inventory economics, not a strategy entry (5.0.7875: GMpcmw booked
+            // -97.8% / -1.831 SOL on such a basis and set SHITCOIN EV to -23.95%).
+            hay.contains("OBSERVED_MARK_ADOPTION")
     }
 
     fun inventoryRecoveryRows(rawRows: List<Trade>): List<Trade> =
