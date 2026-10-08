@@ -976,10 +976,18 @@ class BotService : Service() {
         holdTimeSeconds: Double, volatility: Double, lane: String,
     ): Double {
         val raw = com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(modeDefaultStop, currentPnlPct, peakPnlPct, holdTimeSeconds, volatility, lane)
-        return com.lifecyclebot.engine.truth.FieldManual7715.costArmedStop7928(raw, peakPnlPct, planCostPct7766(ts)) {
+        // V5.0.7935 — a runner under its give-back arm peak keeps its room, but a
+        // winner that cleared the round trip by a margin never closes red.
+        val runnerDeferred = try { RunnerExitProfile7277.deferGiveBackLock(lane, peakPnlPct) } catch (_: Throwable) { false }
+        return com.lifecyclebot.engine.truth.FieldManual7715.runnerAwareStop7935(raw, peakPnlPct, planCostPct7766(ts), runnerDeferred) {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(modeDefaultStop, currentPnlPct, minOf(peakPnlPct, 2.9), holdTimeSeconds, volatility, lane)
         }
     }
+
+    /** V5.0.7935 — a plan that banked its first target trails the remainder under structure. */
+    private fun planTrailsRemainder7935(ts: com.lifecyclebot.data.TokenState): Boolean = try {
+        com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime)?.firstTargetTaken == true
+    } catch (_: Throwable) { false }
 
     /** V5.0.7928 — a stop that fires above entry is a profit lock; below, a stop. */
     private fun rapidStopKind7928(stopPct: Double): String = if (stopPct > 0.0) "TRAILING" else "FLUID"
@@ -13353,10 +13361,11 @@ class BotService : Service() {
                                     // Use FluidLearningAI's high-lock floor — the same value
                                     // rendered as "lock +X%" in the open-position card.
                                     // V5.0.7346 — deferral first; the floor is only read when not deferred.
-                                    // V5.0.7739 — a planned position trails under structure, not 3-5 points under its peak.
-                                    val runnerLockDeferred7277 = com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) != null || try {
-                                        RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPct)
-                                    } catch (_: Throwable) { false }
+                                    // V5.0.7935 — the fluid lock slides for every position, planned or not;
+                                    // fluidStop7928 holds a runner's give-back room (break-even floor under
+                                    // its arm peak). Only a plan that already banked its first target and
+                                    // trails the rest under structure owns the lock.
+                                    val runnerLockDeferred7277 = planTrailsRemainder7935(ts)
                                     val lockedFloor = if (runnerLockDeferred7277) Double.NaN else try {
                                         fluidStop7928(ts,
                                             modeDefaultStop = 20.0,

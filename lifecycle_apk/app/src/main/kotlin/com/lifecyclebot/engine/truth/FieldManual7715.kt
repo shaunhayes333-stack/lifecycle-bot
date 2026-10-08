@@ -270,6 +270,21 @@ object FieldManual7715 {
     }
 
     /**
+     * V5.0.7935 — [costArmedStop7928] for every lane, plus the runner rule: a runner
+     * lane under its give-back arm peak gets no sliding lock (room to run), but once
+     * its peak cleared net break-even by [RUNNER_BREAKEVEN_MARGIN_PCT_7935] points it
+     * is floored at net break-even (FloopyTrador 5.0.7930: peak +21%, sold -5.9%).
+     */
+    fun runnerAwareStop7935(rawStop: Double, peakPnlPct: Double, costPct: Double, runnerDeferred: Boolean, preTrail: () -> Double): Double {
+        if (!runnerDeferred) return costArmedStop7928(rawStop, peakPnlPct, costPct, preTrail)
+        val breakEven = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
+        if (peakPnlPct.isFinite() && peakPnlPct >= breakEven + RUNNER_BREAKEVEN_MARGIN_PCT_7935) return breakEven
+        return preTrail().coerceAtMost(0.0)
+    }
+
+    private const val RUNNER_BREAKEVEN_MARGIN_PCT_7935 = 6.0
+
+    /**
      * V5.0.7928 — a positive (profit-lock) stop under the round trip is a scratch
      * that books as a loss. Lock at net break-even once the peak cleared it by 1.5
      * pts; before that the lock is not armed and [preTrail] (the pre-trail stop) applies;
