@@ -15,3 +15,16 @@ class Aate7901CalibrationTest {
         assertEquals(1.0, c.slope("OTHER"), 1e-12)
     }
 }
+
+/** V5.0.7902 — Cortex v8: the last slot is saved only when STRONG reads proven beat NEUTRAL ones. */
+class Aate7902CapitalAllocationTest {
+    @Test fun slotPriorityNeedsStrongToBeatNeutral() {
+        val b = com.lifecyclebot.engine.cortex.CortexScoreboard7885()
+        val S = com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket.STRONG
+        val N = com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket.NEUTRAL
+        repeat(60) { i -> b.record("QUALITY", S, true, if (i % 2 == 0) 12.0 else 6.0, 0.0) }
+        repeat(60) { i -> b.record("QUALITY", N, true, if (i % 2 == 0) 2.0 else -2.0, 0.0) }
+        org.junit.Assert.assertTrue(b.slotPriorityProven("QUALITY"))
+        org.junit.Assert.assertFalse(b.slotPriorityProven("SHITCOIN"))
+    }
+}

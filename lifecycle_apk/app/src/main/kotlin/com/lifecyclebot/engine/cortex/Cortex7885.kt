@@ -169,8 +169,28 @@ object Cortex7885 {
         if (!paper && ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return "C1_HARD_SAFETY"
         if (!paper && a.staleMark) return "C2_MARK_STALE"
         if (a.bucket == CortexScoreboard7885.Bucket.REFUSE && refusalProven) return "C3_PROVEN_NEGATIVE_EDGE"
+        if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL && lastSlot(ts)) {
+            if (synchronized(this) { board.slotPriorityProven(a.lane) }) return "C5_SAVE_LAST_SLOT_FOR_STRONG"
+            inc("SHADOW_SAVE_SLOT")
+        }
         return null
     }
+
+    // ── Cortex v8: capital allocation (V5.0.7902) ──
+    //
+    // The wallet funds only a few route-minimum trades at a time. When the free
+    // cash left would fund just one more, and this lane's record proves its
+    // STRONG reads beat its NEUTRAL reads, a NEUTRAL candidate does not take the
+    // last slot: it stays free for a STRONG one (rule C5).
+    private const val ROUTE_MIN_USD = 5.0
+    private const val ROUTE_MIN_FALLBACK_SOL = 0.0435
+
+    private fun lastSlot(ts: TokenState): Boolean = try {
+        val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val routeMin = if (solUsd.isFinite() && solUsd > 0.0) ROUTE_MIN_USD / solUsd else ROUTE_MIN_FALLBACK_SOL
+        val free = com.lifecyclebot.engine.WalletCapacitySeal7868.freeCashFor(ts.mint, com.lifecyclebot.engine.BotService.status.walletSol)
+        free.isFinite() && free >= routeMin && free < 2.0 * routeMin
+    } catch (_: Throwable) { false }
 
     /**
      * Called first by LiveEdgeGate7877.liveRefusal (both modes). Non-null means

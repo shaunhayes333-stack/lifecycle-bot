@@ -124,6 +124,17 @@ class CortexScoreboard7885 {
         a[bucket.ordinal].add(returnPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), returnPct >= CortexLedger7885.RUNNER_GROSS_PCT)
     }
 
+    /**
+     * V5.0.7902 — Cortex v8 bar: the Cortex's STRONG reads are proven AND they beat
+     * its NEUTRAL reads by the proof margin, so a scarce last slot is worth saving.
+     */
+    fun slotPriorityProven(lane: String): Boolean {
+        val b = books[lane] ?: return false
+        val strong = b.byBucket[Bucket.STRONG.ordinal]
+        val neutral = b.byBucket[Bucket.NEUTRAL.ordinal]
+        return overruleProven(strong) && neutral.n >= MIN_N_LIVE && strong.mean() - neutral.mean() > PROOF_MARGIN_PCT
+    }
+
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->
         books.forEach { (k, v) -> o.put(k, v.encode()) }
         o.put("_realized", org.json.JSONObject().also { j -> realized.forEach { (k, v) -> j.put(k, v.joinToString("|") { it.encode() }) } })
