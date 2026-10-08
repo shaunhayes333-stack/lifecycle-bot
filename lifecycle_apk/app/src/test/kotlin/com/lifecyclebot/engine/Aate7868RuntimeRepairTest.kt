@@ -127,6 +127,15 @@ class Aate7868RuntimeRepairTest {
         assertTrue(release.contains("e.key.candidateVersion == candidateVersion"))
     }
 
+    @Test fun canonicalDuplicatePositionBindingIsSerialized() {
+        val learner = src("engine/StrategyHypothesisEngine.kt")
+        val binding = learner.substringAfter("fun bindExecutedPosition7428(")
+            .substringBefore("fun releasePosition7809(")
+        assertTrue(binding.contains("return synchronized(pendingByPosition7428) { try {"))
+        assertTrue(binding.contains("pendingByDecision7428.remove(decisionKey7428"))
+        assertTrue(binding.contains("pendingByPosition7428[positionId] = applied"))
+    }
+
     @Test fun ticketRefusedAtExecutorTerminatesByName() {
         assertTrue(src("engine/Executor.kt").contains("ToolkitSignalSheet.recordDeskStage(lane, \"EXEC_REFUSED\", attemptId)"))
     }
