@@ -9059,7 +9059,7 @@ class Executor(
                 pos.isShitCoinPosition && pos.shitCoinStopLoss != 0.0 -> kotlin.math.abs(pos.shitCoinStopLoss)
                 pos.isBlueChipPosition && pos.blueChipStopLoss != 0.0 -> kotlin.math.abs(pos.blueChipStopLoss)
                 pos.isTreasuryPosition && pos.treasuryStopLoss != 0.0 -> kotlin.math.abs(pos.treasuryStopLoss)
-                else -> cfg().stopLossPct.takeIf { it > 0.0 } ?: 20.0
+                else -> com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)
             }
             // V5.9.1028 — AI-FLUID STOP LOSS THRESHOLD.
             // Operator V5.9.1027b mandate: "the strict and rapid stops are
@@ -10732,7 +10732,10 @@ class Executor(
         if (pos.entryPrice <= 0.0) return null
         // V5.0.6709 — magnitude authority: a negative learned stopLossPct
         // used to make the `> 0` predicate false and silently zero stopPx.
-        val effStopPctRaw = modeConf?.stopLossPct ?: cfg().stopLossPct
+        // V5.0.7887 — the lane's ordinary stop (plan, lane base x learned/regret
+        // multiplier) from StopAuthority7887, not the global config (~5%) that
+        // cut runners the lane's own learning had widened for.
+        val effStopPctRaw = com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)
         val effStopPctGlobal7366 = kotlin.math.abs(effStopPctRaw)
         // V5.0.7366 — the risk clock used the raw global stop (≈5% on device) for
         // every position, while riskCheck holds a RUNNER lane at its own fluid

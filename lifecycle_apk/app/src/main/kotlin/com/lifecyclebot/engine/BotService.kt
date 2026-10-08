@@ -12030,7 +12030,7 @@ class BotService : Service() {
                         }
                         
                         val dynamicStopPct = try {
-                            val modeDefault = cfg.stopLossPct
+                            val modeDefault = com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)
                             com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
                                 modeDefaultStop = modeDefault,
                                 currentPnlPct = pnlPct,
@@ -13236,7 +13236,10 @@ class BotService : Service() {
                                     laneName4588 == "BLUECHIP" ||
                                     laneName4588 == "BLUE_CHIP" ||
                                     laneName4588 == "CORE"
-                                val oneStrikeCatastrophic4588 = catastrophicLane4588 && !phantomRead && pnlPctNow <= TICK_HARD_FLOOR_PCT
+                                // V5.0.7887 — the floor is never tighter than -10%, and as wide as
+                                // the lane's own stop when its learning (incl. ExitRegret) widened it.
+                                val tickFloor7887 = minOf(TICK_HARD_FLOOR_PCT, com.lifecyclebot.engine.cortex.StopAuthority7887.stopPctFor(ts))
+                                val oneStrikeCatastrophic4588 = catastrophicLane4588 && !phantomRead && pnlPctNow <= tickFloor7887
                                 // V5.0.7277 — a runner-lane launch that is -20% inside its
                                 // first two minutes did not launch; first strike, no grace.
                                 val runnerEarlyCut7277 = !phantomRead && try {
@@ -13248,7 +13251,7 @@ class BotService : Service() {
                                 // found instead of clearing it: a real gap through -50% used to
                                 // reset the first strike and sell a tick later at -60%.
                                 pos.lastTickFloorBreach = if (phantomRead) pos.lastTickFloorBreach
-                                    else pnlPctNow <= TICK_HARD_FLOOR_PCT
+                                    else pnlPctNow <= tickFloor7887
                                 // V5.0.7330 — runner lanes have a -15% lane floor
                                 // (MoonshotTraderAI.HARD_FLOOR_STOP). Past two minutes they sat
                                 // on two-strike grace and closed at -59%/-61% (5.0.7324
@@ -13256,7 +13259,7 @@ class BotService : Service() {
                                 val runnerLane7369 = try {
                                     RunnerExitProfile7277.isRunnerLane(laneName4588)
                                 } catch (_: Throwable) { false }
-                                val runnerFloor7330 = !phantomRead && pnlPctNow <= RUNNER_LANE_FLOOR_PCT_7330 && runnerLane7369
+                                val runnerFloor7330 = !phantomRead && pnlPctNow <= minOf(RUNNER_LANE_FLOOR_PCT_7330, tickFloor7887) && runnerLane7369
                                 // V5.0.7389 — a MOONSHOT position exits at its OWN lane stop
                                 // (early -5 before +8% peak, -10 inside 12 min, hard floor after)
                                 // on the tick, instead of sitting until the generic -15 floor.
@@ -13269,7 +13272,7 @@ class BotService : Service() {
                                 // -10/-12/-13 inside the band their lane holds through.
                                 // MANIPULATED/SHITCOIN/EXPRESS keep their one-strike -10.
                                 val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
-                                if ((moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) &&
+                                if ((moonshotLaneStop7389 || (pnlPctNow <= tickFloor7887 && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) &&
                                     !planOwnsExit7754(ts, true, catastrophicConfirmed4485, "TICK_FLOOR", stopSide = true)) {
                                     if (moonshotLaneStop7389) try { PipelineHealthCollector.labelInc("TICK_MOONSHOT_LANE_STOP_7389") } catch (_: Throwable) {}
                                     ErrorLogger.warn("BotService",
@@ -18916,7 +18919,9 @@ class BotService : Service() {
      * the JVM 64KB cap (same reason V5.9.1021/1027b/1028b split out helpers).
      */
     private fun getCatastropheThreshold(paperMode: Boolean): Double {
-        val raw = if (paperMode) -25.0 else -14.0
+        // V5.0.7887 — LIVE was -14, shallower than the -15 hard floor: a "catastrophe"
+        // that acted as an ordinary stop. The ordinary stop is StopAuthority7887's.
+        val raw = -25.0
         return try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(raw)
         } catch (_: Throwable) { raw }

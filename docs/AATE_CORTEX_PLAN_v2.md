@@ -122,7 +122,7 @@ ShapeBook changes are binding for the lane that owns them. Generic layers may re
 | 6 (5.0.7885) | v1 Phase 2: outcome truth (forward labels) + authority ledger (prequential skill, evidence and error-correlation discount) | pushed |
 | 7 (5.0.7885–7886) | v1 Phase 3: Constitution (refuse-only, named rules C1–C3); SymbolicContext mood layer made observation-only (7886) | pushed; migrating scattered vetoes still open |
 | 8, 10 (5.0.7885) | Fusion decides paper refusals and live refusals/overrules on bar V1 evidence | pushed |
-| 9 | Single sizing/exit authority (Phase 5) | open |
+| 9 (5.0.7887) | Single exit authority, first step: one ordinary stop distance per position (StopAuthority7887 = plan, else lane base × LaneExitTuner/ExitRegret multiplier, runner floor 15%, 4–25%) read by the risk clock, STRICT_SL fallback, rapid fluid stop and tick floor; the LIVE rapid "catastrophe" moved from −14% to −25%. Exit proposals with one lock are still open. | pushed |
 | 11 | v1 Phase 7: clean-up | |
 
 Each build is one green CI run on main, followed by a snapshot review.
@@ -191,3 +191,11 @@ Each build is one green CI run on main, followed by a snapshot review.
   | Overrule a live edge-gate refusal | STRONG-bucket n ≥ 40 and mean − SE > +2% |
 
   Until a lane clears the bar, the Cortex only counts what it would have done (`SHADOW_*`).
+
+## I. Integration principle (operator, 08 Oct 2026)
+
+"The cortex must sit beside and integrate and work together with the current architecture."
+
+- **Reads, never rebuilds.** Every Cortex input is an existing component, read as a voter. StopAuthority7887 is assembled from the lane traders' own stop bands, TradePlan7739, LaneExitTuner and ExitRegret7752.
+- **One existing chokepoint.** The Cortex acts through LiveEdgeGate7877, which FDG and TradePlan already call. Its training comes from ForwardReturnLabeler7731 and CanonicalFinalizedTradeBus6464, which already run. No parallel pipeline.
+- **Authority only by evidence.** With nothing proven, the current stack decides exactly as before, and the Cortex only records what it would have done.
