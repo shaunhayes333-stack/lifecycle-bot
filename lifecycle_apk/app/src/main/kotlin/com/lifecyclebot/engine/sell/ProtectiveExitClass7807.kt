@@ -133,29 +133,14 @@ object ProtectiveExitClass7807 {
     fun acceptsPoorImpact(reason: String?): Boolean = of(reason).rank <= Priority.STRUCTURAL_EMERGENCY.rank
 
     /**
-     * B3 Moonshot rule — runners keep their normal drawdown / trailing
-     * behaviour. Only the structural emergency class and the existing hard
-     * catastrophe stop override a Moonshot hold (Field Manual L267-L268).
-     */
-    private fun overridesMoonshotHold(reason: String?): Boolean {
-        val p = of(reason)
-        if (p == Priority.STRUCTURAL_EMERGENCY) return true
-        return p == Priority.CAPITAL_PRESERVATION && reason.orEmpty().uppercase().contains("CATASTROPH")
-    }
-
-    private fun isMoonshotLane(lane: String?): Boolean = lane.orEmpty().uppercase().contains("MOONSHOT")
-
-    /**
-     * B2 — does this exit bypass the hold gates (style min-hold, lane hold
-     * preference, council disagreement, learning advisory, moonbag hold,
-     * profit-dust suppression)? Class 1-3 always do, except that on a
-     * Moonshot lane only [overridesMoonshotHold] reasons do.
+     * A triggered strict/hard stop is protective capital authority for every
+     * lane, including MOONSHOT. Discretionary runner holds cannot override
+     * hard stops, structural emergencies or kill-switch liquidation.
+     * Trailing/profit-taking exits retain their ordinary hold preferences.
      */
     fun bypassesHolds(reason: String?, lane: String?): Boolean {
-        if (!isEmergency(reason)) return false
-        // A confirmed hard stop is portfolio safety, not a discretionary
-        // strategy exit. Moonshot runner holds must never suppress it.
-        return true
+        // Lane is deliberately not an exception to hard capital protection.
+        return isEmergency(reason)
     }
 
     /**
