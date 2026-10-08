@@ -278,6 +278,23 @@ object HeldHotMarkAuthority7419 {
                 else -> {}
             }
 
+            // V5.0.7876 — a held position is never left without a mark. When no
+            // locked venue or corroborated feed answered and the exit mark is
+            // missing or older than [EXEC_FALLBACK_STALE_MS_7876], the mark is the
+            // price a sale of THIS position would get: a Jupiter sell quote for
+            // its exact remaining raw quantity, converted with its own decimals.
+            // 5.0.7875: RISK_CLOCK_BLOCKED_7001_NO_MARK=1117, so stops could not
+            // evaluate while the position was still held.
+            // A single unverified feed is refused by the registry, so it counts as no mark here.
+            if ((!(px.isFinite() && px > 0.0) || source == "HELD_HOT_SINGLE_SOURCE_7419") &&
+                p.assetClass == AssetClass.SOLANA_TOKEN &&
+                now - currentCanonicalTs(p.mint) > EXEC_FALLBACK_STALE_MS_7876
+            ) {
+                val ex = executableHeldMark7876(p, now)
+                timedOut = timedOut || ex.second
+                ex.first?.let { px = it; source = EXEC_SOURCE_7876; fallbacks.incrementAndGet() }
+            }
+
             if (timedOut) {
                 timeouts.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("HELD_HOT_MARK_TIMEOUT") } catch (_: Throwable) {}
@@ -296,7 +313,7 @@ object HeldHotMarkAuthority7419 {
             // authoritative curve state). 7419 previously renamed that result
             // and then discarded the proof, so the exit registry rejected it.
             // Single-source fanout stays non-authoritative.
-            val verified7424 = source.startsWith("LOCKED_VENUE_") ||
+            val verified7424 = source.startsWith("LOCKED_VENUE_") || source == EXEC_SOURCE_7876 ||
                 source == "HELD_HOT_CRYPTO_REGISTRY_7419" ||
                 source == "HELD_HOT_FANOUT_CORROBORATED_7419"
             val publishOk = try {
@@ -344,6 +361,44 @@ object HeldHotMarkAuthority7419 {
             }
         }
     }
+    private const val EXEC_FALLBACK_STALE_MS_7876 = 5_000L
+    private const val EXEC_DEBOUNCE_MS_7876 = 4_000L
+    internal const val EXEC_SOURCE_7876 = "HELD_HOT_EXECUTABLE_SELL_QUOTE_7876"
+    private val execAttempt7876 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val quoteApi7876 by lazy { com.lifecyclebot.network.JupiterApi("", observationOnly7397 = true) }
+
+    /** Pure: USD per token from a sell quote of [rawQty] at [decimals] returning [outLamports]. */
+    internal fun sellQuotePriceUsd7876(outLamports: Long, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double): Double? {
+        if (outLamports <= 0L || rawQty.signum() <= 0 || decimals !in 0..18) return null
+        if (!solUsd.isFinite() || solUsd <= 20.0 || solUsd >= 5_000.0) return null
+        val tokens = java.math.BigDecimal(rawQty).movePointLeft(decimals).toDouble()
+        if (!tokens.isFinite() || tokens <= 0.0) return null
+        val px = (outLamports / 1e9 * solUsd) / tokens
+        return px.takeIf { it.isFinite() && it > 0.0 }
+    }
+
+    /** (price or null, timed out). Debounced per mint; bounded on the held-mark pool. */
+    private fun executableHeldMark7876(p: CanonicalPositionAuthority6441.Position, now: Long): Pair<Double?, Boolean> {
+        val bare = p.mint.removePrefix("solana|").trim()
+        val raw = p.remainingQtyRaw
+        if (bare.isBlank() || bare.contains('|') || raw.signum() <= 0 || raw.bitLength() > 62) return null to false
+        if (now - (execAttempt7876[p.mint] ?: 0L) < EXEC_DEBOUNCE_MS_7876) return null to false
+        execAttempt7876[p.mint] = now
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val (q, timedOut) = boundedBatch7510 {
+            quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, raw.toLong(), 300)
+        }
+        val px = q?.let { sellQuotePriceUsd7876(it.outAmount, raw, p.quantityScale, solUsd) }
+        try {
+            PipelineHealthCollector.labelInc(when {
+                px != null -> "HELD_HOT_EXECUTABLE_MARK_PUBLISHED_7876"
+                timedOut -> "HELD_HOT_EXECUTABLE_MARK_TIMEOUT_7876"
+                else -> "HELD_HOT_EXECUTABLE_MARK_NO_ROUTE_7876"
+            })
+        } catch (_: Throwable) {}
+        return px to timedOut
+    }
+
     fun summary(): Summary = Summary(requests.get(), advanced.get(), unchanged.get(), timeouts.get(), fallbacks.get(), waitedOnEnrichment.get(), waitedOnUi.get(), waitedOnKeyless.get())
     fun statusLine(): String {
         val s = summary()

@@ -83,4 +83,17 @@ class Aate7876PivotAndExitTimingTest {
         assertTrue(fn.contains("recordOutcomeForPosition7428("))
         assertTrue(!fn.contains("        true\n"))
     }
+
+    @Test fun heldPositionMarkFallsBackToAnExecutableSellQuoteOfItsOwnQuantity() {
+        val h = com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419
+        // 1,000,000 tokens (6 decimals) sell for 0.05 SOL at $150/SOL -> $0.0000075 per token.
+        assertEquals(0.0000075, h.sellQuotePriceUsd7876(50_000_000L, java.math.BigInteger.valueOf(1_000_000_000_000L), 6, 150.0)!!, 1e-15)
+        assertEquals(null, h.sellQuotePriceUsd7876(0L, java.math.BigInteger.ONE, 6, 150.0))
+        assertEquals(null, h.sellQuotePriceUsd7876(1L, java.math.BigInteger.ZERO, 6, 150.0))
+        assertEquals(null, h.sellQuotePriceUsd7876(1L, java.math.BigInteger.ONE, 6, Double.NaN))
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/HeldHotMarkAuthority7419.kt").readText()
+        val verified = src.substringAfter("val verified7424 =").substringBefore("val publishOk")
+        assertTrue(verified.contains("source == EXEC_SOURCE_7876"))
+        assertTrue(src.contains("source == \"HELD_HOT_SINGLE_SOURCE_7419\") &&"))
+    }
 }
