@@ -12750,11 +12750,13 @@ class Executor(
         walletSol: Double,
         wallet: SolanaWallet?,
         totalExposureSol: Double,
+        // V5.0.7930 — an operator's manual add names its own size (meme position pop-out).
+        manualSizeSol: Double = Double.NaN,
     ) {
         normalizePositionScaleIfNeeded(ts)
         val pos  = ts.position
         val c    = cfg()
-        val size = topUpSizeSol(pos, walletSol, totalExposureSol)
+        val size = if (manualSizeSol.isFinite() && manualSizeSol > 0.0) manualSizeSol else topUpSizeSol(pos, walletSol, totalExposureSol)
 
         if (size < 0.001) {
             onLog("⚠ Top-up skipped: size too small (${size})", ts.mint)

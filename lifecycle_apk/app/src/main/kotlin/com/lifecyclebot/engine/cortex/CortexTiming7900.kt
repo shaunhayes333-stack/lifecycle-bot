@@ -121,6 +121,9 @@ object CortexTiming7900 {
 
     private fun ensureLoaded() {
         if (loaded) return
+        // V5.0.7930 — never latch "loaded" before the store opens: an early read came back
+        // empty and the next save overwrote the real ledgers with it.
+        if (!LearningPersistence.ready()) return
         synchronized(this) {
             if (loaded) return
             loaded = true
@@ -132,7 +135,14 @@ object CortexTiming7900 {
         }
     }
 
+    /** V5.0.7930 — BotService.onDestroy: save now (graded state between periodic saves was lost on restart). */
+    fun persistNow7930() {
+        if (!loaded) return
+        persist()
+    }
+
     private fun persist() {
+        if (!loaded) return
         try {
             val json = synchronized(this) {
                 org.json.JSONObject().put("ledger", ledger.encode())

@@ -127,7 +127,14 @@ object Cortex7885 {
     private val pool: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
         1, 2, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(256),
         { r -> Thread(r, "cortex-7909").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
-        java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy(),
+        // V5.0.7930 — a dropped job is counted (ASYNC_DROPPED), never silent.
+        java.util.concurrent.RejectedExecutionHandler { r, ex ->
+            if (!ex.isShutdown) {
+                ex.queue.poll()
+                inc("ASYNC_DROPPED")
+                try { ex.execute(r) } catch (_: Throwable) {}
+            }
+        },
     )
     private val scheduled = ConcurrentHashMap<String, Long>()
 
@@ -170,6 +177,8 @@ object Cortex7885 {
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source)
+        // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).
+        if (admitted) noteEntryRead(ts.mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
         // V5.0.7907 — the lane playbook tags the decision with its setup.
         try { LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs) } catch (_: Throwable) {}
         // V5.0.7900 — Cortex v6: the same decision opens a 5-minute timing label.
@@ -194,6 +203,9 @@ object Cortex7885 {
     private fun fin0(v: Double): Double = if (v.isFinite()) kotlin.math.round(v * 1e4) / 1e4 else 0.0
 
     private fun persistPendingMaybe(nowMs: Long) {
+        // V5.0.7930 — restore before the first save, or the save erases what was pending.
+        ensureLoaded()
+        if (!loaded) return
         if (nowMs - lastPendingPersistMs < PENDING_PERSIST_EVERY_MS) return
         lastPendingPersistMs = nowMs
         try {
@@ -359,7 +371,9 @@ object Cortex7885 {
      */
     fun entryRefusal(ts: TokenState, laneRaw: String, paper: Boolean): String? {
         return try {
-            val a = cachedOrSchedule(ts, laneRaw) ?: return null
+            // V5.0.7930 — LIVE never proceeds without a read: a first-seen live candidate
+            // (fast lane, launch-heat promotion) used to be admitted on a cache miss.
+            val a = cachedOrSchedule(ts, laneRaw) ?: (if (!paper) assess(ts, laneRaw) else null) ?: return null
             val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) && consistent(a.lane) }
             val rule = constitutionRefusal(a, ts, paper, proven)
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
@@ -615,6 +629,9 @@ object Cortex7885 {
     /** CanonicalFinalizedTradeBus6464 publish: one whole-position outcome (all legs, fees once). */
     fun onCanonicalClose(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
         if (!env.terminal || !env.realizedReturnPct.isFinite()) return
+        // V5.0.7930 — inferred-basis / quarantined rows are not learning truth; and load first.
+        if (!env.learningEligible) { inc("REALIZED_NOT_ELIGIBLE"); return }
+        ensureLoaded()
         val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return
         val a = entryReads.remove("${env.mint}|$mode") ?: return
         // V5.0.7925 — many envelopes carry holdingTimeMs=0; then the entry time is unknown
@@ -641,6 +658,9 @@ object Cortex7885 {
 
     private fun ensureLoaded() {
         if (loaded) return
+        // V5.0.7930 — never latch "loaded" before the store opens: an early read came back
+        // empty and the next save overwrote the real ledgers with it.
+        if (!LearningPersistence.ready()) return
         synchronized(this) {
             if (loaded) return
             loaded = true
@@ -656,7 +676,19 @@ object Cortex7885 {
         }
     }
 
+    /** V5.0.7930 — BotService.onDestroy: save now (graded state between periodic saves was lost on restart). */
+    fun persistNow7930() {
+        if (!loaded) return
+        persist()
+        lastPendingPersistMs = 0L
+        persistPendingMaybe(System.currentTimeMillis())
+        try { LanePlaybook7907.persistNow7930() } catch (_: Throwable) {}
+        try { CortexExit7897.persistNow7930() } catch (_: Throwable) {}
+        try { CortexTiming7900.persistNow7930() } catch (_: Throwable) {}
+    }
+
     private fun persist() {
+        if (!loaded) return
         try {
             val json = synchronized(this) {
                 org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())

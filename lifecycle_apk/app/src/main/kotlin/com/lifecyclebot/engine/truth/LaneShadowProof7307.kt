@@ -119,7 +119,17 @@ object LaneShadowProof7307 {
     }
 
     /** Called once per loop with the current price per mint (sanity-checked by the caller). */
+    /**
+     * V5.0.7930 — never throws: BotService ticks the forward labeler in the same try
+     * right after this, so an exception here skipped every label bookout that loop.
+     */
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+        try { tickInner7930(priceFor, nowMs) } catch (_: Throwable) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_SHADOW_TICK_FAILED_7930") } catch (_: Throwable) {}
+        }
+    }
+
+    private fun tickInner7930(priceFor: (String) -> Double?, nowMs: Long) {
         var closed = false
         for ((key, o) in open.entries.toList()) {
             val mint = key.substringAfter("::")

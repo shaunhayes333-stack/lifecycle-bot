@@ -6588,6 +6588,7 @@ for legal compliance.
             }
             llOpenPositions.addView(row)
             llOpenPositions.addView(div)
+            row.setOnClickListener { openMemePositionPopout(ts) }
 
             // V5.9.1493 — cache this freshly built row keyed by mint so later
             // renders reuse it (update live fields only) instead of rebuilding.
@@ -6635,6 +6636,19 @@ for legal compliance.
                 gravity = android.view.Gravity.CENTER_HORIZONTAL
             })
         }
+    }
+
+    // Tap an Open Positions row → MEME pop-out (live stats, Add to position,
+    // Sell, Close) — the meme-trader counterpart of the Crypto Universe
+    // position/token pop-outs. Rows are cached by mint, so the pop-out
+    // re-resolves the live TokenState by mint on every refresh rather than
+    // trusting the TokenState captured when the row was built.
+    private fun openMemePositionPopout(ts: TokenState) {
+        try {
+            MemePositionPopout.show(this, ts.mint, ts) { mint ->
+                cachedOpenPositionsModel6078.allSorted.firstOrNull { it.mint == mint }
+            }
+        } catch (_: Throwable) {}
     }
 
     // V5.9.1067 — class-field SimpleDateFormat. ICU Locale.clone() inside

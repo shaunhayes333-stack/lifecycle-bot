@@ -56,7 +56,9 @@ object StopAuthority7887 {
     /** The position's ordinary stop as a positive magnitude (e.g. 12.0 = -12%). */
     fun stopMagFor(ts: TokenState): Double {
         val pos = ts.position
-        val lane = pos.tradingMode.trim().uppercase()
+        // V5.0.7930 — canonical lane (CortexExit keys on it; raw aliases missed LANE_BASE).
+        val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(pos.tradingMode).uppercase() }
+            catch (_: Throwable) { "" }.ifBlank { pos.tradingMode.trim().uppercase() }
         val plan = try { com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) } catch (_: Throwable) { null }
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         val base = LANE_BASE[lane] ?: try {

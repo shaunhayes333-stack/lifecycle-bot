@@ -4892,6 +4892,8 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.stop() } catch (_: Throwable) {}
         // V5.0.7731 — the forward-label table survives the restart.
         try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.persistNow7731() } catch (_: Throwable) {}
+        // V5.0.7930 — and the Cortex, playbook, exit and timing books (were lost between periodic saves).
+        try { com.lifecyclebot.engine.cortex.Cortex7885.persistNow7930() } catch (_: Throwable) {}
         ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
         serviceForegroundActive6487 = false
         try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(false, "BotService.onDestroy6487") } catch (_: Throwable) {}

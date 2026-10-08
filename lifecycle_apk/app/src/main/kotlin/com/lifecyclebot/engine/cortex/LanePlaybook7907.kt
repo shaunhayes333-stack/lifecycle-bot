@@ -424,6 +424,8 @@ object LanePlaybook7907 {
             val why: String? = synchronized(this) {
                 val st = stat(lane, setup)
                 when {
+                    // V5.0.7930 — a NO_TRIGGER record proven to lose is evidence, not a prior.
+                    setup == NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_$lane"
                     setup == NO_TRIGGER && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
                     setup != NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup"
                     else -> null
@@ -444,6 +446,7 @@ object LanePlaybook7907 {
 
     /** Cortex7885.capture: tag the decision with its setup for its forward label. */
     fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long) {
+        ensureLoaded()
         val lane = canon(laneRaw)
         val setup = classify(ts, lane, nowMs) ?: return
         // V5.0.7925 — shed half, not all: clearing dropped every pending label at once.
@@ -483,6 +486,9 @@ object LanePlaybook7907 {
 
     private fun ensureLoaded() {
         if (loaded) return
+        // V5.0.7930 — never latch "loaded" before the store opens: an early read came back
+        // empty and the next save overwrote the real ledgers with it.
+        if (!LearningPersistence.ready()) return
         synchronized(this) {
             if (loaded) return
             loaded = true
@@ -510,6 +516,9 @@ object LanePlaybook7907 {
 
     /** Cortex7885.captureNow: save the pending setup tags at most every 2 minutes. */
     fun persistPendingMaybe(nowMs: Long) {
+        // V5.0.7930 — restore before the first save, or the save erases what was pending.
+        ensureLoaded()
+        if (!loaded) return
         if (nowMs - lastPendingPersistMs < 120_000L) return
         lastPendingPersistMs = nowMs
         try {
@@ -519,7 +528,16 @@ object LanePlaybook7907 {
         } catch (_: Throwable) {}
     }
 
+    /** V5.0.7930 — BotService.onDestroy: save now (graded state between periodic saves was lost on restart). */
+    fun persistNow7930() {
+        if (!loaded) return
+        persist()
+        lastPendingPersistMs = 0L
+        persistPendingMaybe(System.currentTimeMillis())
+    }
+
     private fun persist() {
+        if (!loaded) return
         try {
             val json = synchronized(this) {
                 org.json.JSONObject().also { o ->

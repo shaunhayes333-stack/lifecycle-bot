@@ -40,7 +40,7 @@ object LearningPersistence {
 
     private val recordCounter = AtomicInteger(0)
 
-    private var db: SQLiteDatabase? = null
+    @Volatile private var db: SQLiteDatabase? = null
     private var appCtx: Context? = null   // V5.9.1353 — stashed for resetAll() (FluidLearningAI needs a Context)
 
     private class KvHelper(ctx: Context) :
@@ -344,6 +344,9 @@ object LearningPersistence {
     //   Used for FluidLearningAI meme counters + SentienceOrchestrator
     //   reflection log so the full brain survives reboots.
     // ═════════════════════════════════════════════════════════════════
+
+    /** V5.0.7930 — true once the store is open; a load before then reads nothing, it does not mean "empty". */
+    fun ready(): Boolean = db != null
 
     /** V5.9.1321 — public KV save (delegates to internal blob put). */
     fun save(key: String, json: String) = putBlob(key, json)

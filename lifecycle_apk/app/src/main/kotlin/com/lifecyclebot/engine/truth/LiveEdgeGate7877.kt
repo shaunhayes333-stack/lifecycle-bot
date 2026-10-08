@@ -162,6 +162,20 @@ object LiveEdgeGate7877 {
         return judgeRunner(cell, cohorts, laneProven)
     }
 
+    /** Pure: a refusal resting on a prior alone (no measurement says the entry loses). */
+    fun priorOnly7930(why: String): Boolean =
+        (why.contains("NO_TRIGGER") || why.contains("STAGE_LANE_MISFIT")) && !why.contains("PROVEN_LOSING") &&
+            // Peak exhaustion and dumping need a reclaim; a stage-blind cell edge cannot vouch for that.
+            !why.endsWith("_PEAK_EXHAUSTION") && !why.endsWith("_DUMPING")
+
+    private fun measuredOverrules7930(ts: TokenState, lane: String, why: String, nowMs: Long): Boolean {
+        val v = try { verdictFor(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val ok = (v != null && v.allow && v.source == Source.CELL) ||
+            com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, lane, why)
+        if (ok) try { PipelineHealthCollector.labelInc("LIVE_PRIOR_REFUSAL_OVERRULED_BY_EVIDENCE_7930") } catch (_: Throwable) {}
+        return ok
+    }
+
     /** LIVE refusal reason, or null to admit. Paper is never refused. */
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
@@ -170,9 +184,17 @@ object LiveEdgeGate7877 {
         if (paper) return null
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         // V5.0.7907 — the lane's playbook: a live entry needs one of its setups.
-        com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l)?.let { return it }
         // V5.0.7928 — the lane's lifecycle stage: buy the stage this lane's play pays in.
-        com.lifecyclebot.engine.TokenMetricStageRouter.liveStageRefusal7928(ts, l)?.let { return it }
+        // V5.0.7930 — an unmeasured prior (no setup fired / off the stage sheet) yields to
+        // measured evidence: a cell proven above the live margin, or a proven Cortex
+        // STRONG read. A proven-losing setup/stage and rug-prone are never overruled.
+        val priors7930 = listOfNotNull(
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l),
+            com.lifecyclebot.engine.TokenMetricStageRouter.liveStageRefusal7928(ts, l),
+        )
+        for (prior in priors7930) {
+            if (!(priorOnly7930(prior) && measuredOverrules7930(ts, l, prior, nowMs))) return prior
+        }
         // V5.0.7883 — a learned shape rule of this lane (tokenomics/timing bin it
         // has proven to lose in) refuses before the cohort read.
         val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }

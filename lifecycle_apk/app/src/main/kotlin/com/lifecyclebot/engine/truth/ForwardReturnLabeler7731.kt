@@ -220,7 +220,9 @@ object ForwardReturnLabeler7731 {
     fun stageKey7928(lane: String, stage: String) = "STAGE|${lane.trim().uppercase()}|${stage.trim().uppercase()}"
     private fun keysOf7928(o: Obs): List<String> {
         val base = listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED)
-        return if (o.stage.isBlank()) base else base + stageKey7928(o.lane, o.stage)
+        // V5.0.7930 — plan pseudo-lanes (PLANWAIT_/PLANADMIT_) carry no stage book.
+        val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_")
+        return if (o.stage.isBlank() || pseudo) base else base + stageKey7928(o.lane, o.stage)
     }
 
     @Synchronized
@@ -393,8 +395,17 @@ object ForwardReturnLabeler7731 {
             skippedNoPrice.incrementAndGet()
             return
         }
+        // V5.0.7930 — an ADMIT supersedes a pending refusal of the same (mint, lane): a
+        // token refused earlier (or by an advisory gate) and then bought was labelled
+        // and graded as "refused" for up to four hours.
+        val prior7930 = pending[key]
+        val upgrade7930 = admitted && prior7930 != null && !prior7930.admitted
+        if (upgrade7930) {
+            pending.remove(key, prior7930)
+            try { PipelineHealthCollector.labelInc("FORWARD_LABEL_REFUSAL_SUPERSEDED_BY_ADMIT_7930") } catch (_: Throwable) {}
+        }
         val seen = lastSeenAt[key]
-        if (seen != null && nowMs - seen < REOBSERVE_MS_7731) { skippedRecent.incrementAndGet(); return }
+        if (!upgrade7930 && seen != null && nowMs - seen < REOBSERVE_MS_7731) { skippedRecent.incrementAndGet(); return }
         if (pending.containsKey(key)) { skippedRecent.incrementAndGet(); return }
         if (pending.size >= MAX_PENDING_7731) {
             skippedFull.incrementAndGet()
