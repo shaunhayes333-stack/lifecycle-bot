@@ -280,6 +280,7 @@ object CryptoAltTrader {
     // at the front of the resident queue.
     private val cryptoResidentLastScanAt7823 = ConcurrentHashMap<String, Long>()
     private const val CRYPTO_RESIDENT_SCAN_QUOTA_7823 = 64
+    private const val CRYPTO_FRESH_SCAN_QUOTA_7922 = 64
 
     // V5.0.7825 — identity-level anti-churn. CryptoAlt previously had no
     // post-close re-entry memory, so the same few high-ranked coins could be
@@ -1249,8 +1250,24 @@ object CryptoAltTrader {
         val residentSelected7823 = residentTokens7823.take(
             minOf(CRYPTO_RESIDENT_SCAN_QUOTA_7823, DYN_BATCH_SIZE)
         )
-        val genericUniverse7823 = universe7823.filterNot { it.canonicalIdentity6544 in residentKeys7823 }
-        val genericQuota7823 = (DYN_BATCH_SIZE - residentSelected7823.size).coerceAtLeast(1)
+        // V5.0.7922 — a FRESH channel. The generic queue is sorted fresh-first and
+        // then sliced by a rotating batch index, so fresh pools sat in slice 0 and
+        // were scanned once per full rotation (11,831 identities / ~136 a tick, on
+        // 5.0.7914: 949 fresh reached CryptoBrain, 3 reached V3/FDG). Fresh pools
+        // on Solana — the only chain the wallet can trade, live or paper (7774) —
+        // are now scanned every tick, least-recently-scanned first, so the lane
+        // desk gets its four warm-up samples in minutes, not hours.
+        val freshSelected7922 = universe7823.asSequence()
+            .filter { it.isFresh6544 && it.canonicalIdentity6544 !in residentKeys7823 && it.chainId.equals("solana", ignoreCase = true) }
+            .sortedBy { cryptoResidentLastScanAt7823[it.canonicalIdentity6544] ?: 0L }
+            .take(minOf(CRYPTO_FRESH_SCAN_QUOTA_7922, (DYN_BATCH_SIZE - residentSelected7823.size).coerceAtLeast(0)))
+            .toList()
+        val freshKeys7922 = freshSelected7922.map { it.canonicalIdentity6544 }.toSet()
+        if (freshSelected7922.isNotEmpty()) try {
+            PipelineHealthCollector.labelInc("CRYPTO_FRESH_SOLANA_SCANNED_7922")
+        } catch (_: Throwable) {}
+        val genericUniverse7823 = universe7823.filterNot { it.canonicalIdentity6544 in residentKeys7823 || it.canonicalIdentity6544 in freshKeys7922 }
+        val genericQuota7823 = (DYN_BATCH_SIZE - residentSelected7823.size - freshSelected7922.size).coerceAtLeast(1)
         val totalBatches = maxOf(1, (genericUniverse7823.size + genericQuota7823 - 1) / genericQuota7823)
         val batchIdx = dynBatchIdx % totalBatches
         val batchStart = batchIdx * genericQuota7823
@@ -1258,7 +1275,7 @@ object CryptoAltTrader {
         dynBatchIdx++
 
         val genericBatch7823 = if (batchStart < batchEnd) genericUniverse7823.subList(batchStart, batchEnd) else emptyList()
-        val batch = (residentSelected7823 + genericBatch7823)
+        val batch = (residentSelected7823 + freshSelected7922 + genericBatch7823)
             .distinctBy { it.canonicalIdentity6544 }
             .take(DYN_BATCH_SIZE)
         try {
