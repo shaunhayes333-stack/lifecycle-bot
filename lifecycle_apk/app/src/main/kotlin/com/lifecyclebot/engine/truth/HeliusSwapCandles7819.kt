@@ -101,7 +101,10 @@ object HeliusSwapCandles7819 {
         val next = nextAllowedMs[mint] ?: 0L
         if (nowMs < next || inFlight.contains(mint)) return
         requests.incrementAndGet()
-        if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs)) {
+        // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
+        // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
+        if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs) ||
+            !HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)) {
             budgetSkips.incrementAndGet()
             return
         }

@@ -42,6 +42,10 @@ object HeliusEnhancedWS {
     @Volatile private var client: OkHttpClient? = null
     @Volatile private var apiKey: String = ""
     @Volatile private var watchedAccounts: List<String> = emptyList()
+    /** V5.0.7881 — every wallet asked for, in priority order; watchedAccounts is the affordable prefix. */
+    @Volatile private var requestedAccounts: List<String> = emptyList()
+    @Volatile private var lastWidthCheckMs7881 = 0L
+    private const val WIDTH_CHECK_MS_7881 = 5L * 60_000L
     @Volatile private var subscriptionId: Long = -1L
     @Volatile private var onTxCb: ((sig: String, accounts: List<String>, raw: JSONObject) -> Unit)? = null
 
@@ -59,7 +63,8 @@ object HeliusEnhancedWS {
             return
         }
         apiKey = heliusApiKey
-        watchedAccounts = watchAccounts.distinct()
+        requestedAccounts = watchAccounts.distinct()
+        watchedAccounts = affordable7881(requestedAccounts)
         onTxCb = onTransaction
         client = OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)
@@ -72,8 +77,21 @@ object HeliusEnhancedWS {
     fun isRunning(): Boolean = running.get()
     fun watchedAccounts7277(): List<String> = watchedAccounts
 
+    /**
+     * V5.0.7881 — the stream is billed by the bytes it delivers. Its width is the
+     * affordable prefix of the requested list (HeliusCreditEconomy7881.streamWidth:
+     * the COPY signal's measured value, narrowed when the stream's spend runs ahead
+     * of its paced share).
+     */
+    private fun affordable7881(requested: List<String>): List<String> = try {
+        requested.take(com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.streamWidth(requested.size))
+    } catch (_: Throwable) { requested }
+
     fun updateWatchlist(newAccounts: List<String>) {
-        watchedAccounts = newAccounts.distinct()
+        requestedAccounts = newAccounts.distinct()
+        val next = affordable7881(requestedAccounts)
+        if (next == watchedAccounts && subscriptionId >= 0) return
+        watchedAccounts = next
         // Re-subscribe with new filter (Helius doesn't support live filter mutation
         // on an existing subscription — easiest is unsubscribe + subscribe).
         ws?.let { sock ->
@@ -138,6 +156,12 @@ object HeliusEnhancedWS {
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.meterWs("SMART_MONEY_STREAM", text.length) } catch (_: Throwable) {}
+            val now7881 = System.currentTimeMillis()
+            if (now7881 - lastWidthCheckMs7881 >= WIDTH_CHECK_MS_7881) {
+                lastWidthCheckMs7881 = now7881
+                try { if (affordable7881(requestedAccounts) != watchedAccounts) updateWatchlist(requestedAccounts) } catch (_: Throwable) {}
+            }
             try {
                 val msg = JSONObject(text)
                 // Subscription confirmation

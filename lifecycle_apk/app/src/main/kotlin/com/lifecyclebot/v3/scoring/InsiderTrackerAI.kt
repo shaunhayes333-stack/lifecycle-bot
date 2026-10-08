@@ -587,6 +587,12 @@ object InsiderTrackerAI {
         val key = heliusApiKey
         if (!com.lifecyclebot.engine.KeyValidator.isUsableEnhancedHeliusKey(key)) return@withContext emptyActivity(wallet)
         if (System.currentTimeMillis() < heliusCooldownUntil7368) return@withContext emptyActivity(wallet)
+        // V5.0.7881 — 100 credits a wallet; ALPHA wallets are scanned first, so a
+        // deferral drops the least valuable ones. Paced by the COPY signal's value.
+        if (!com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.admit(
+                com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.INSIDER_SCAN, 100.0)) {
+            return@withContext emptyActivity(wallet)
+        }
 
         return@withContext try {
             val url = "${HELIUS_TXN_URL.format(wallet.address)}?api-key=$key&limit=$HELIUS_LIMIT"

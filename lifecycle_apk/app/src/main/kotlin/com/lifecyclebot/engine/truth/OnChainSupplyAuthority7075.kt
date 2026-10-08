@@ -193,7 +193,8 @@ object OnChainSupplyAuthority7075 {
     private val notFoundYet7809 = AtomicLong(0L)
 
     private val http: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        // V5.0.7881 — on the shared client so its Helius reads are metered.
+        com.lifecyclebot.network.SharedHttpClient.builder()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(8, TimeUnit.SECONDS)
             .build()

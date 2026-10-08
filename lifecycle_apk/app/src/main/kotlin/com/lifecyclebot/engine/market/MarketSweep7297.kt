@@ -681,6 +681,9 @@ object MarketSweep7297 {
 
     /** Mints traded in the latest PumpSwap AMM swaps, read from Helius RPC. */
     private fun heliusSwaps(key: String): List<Row> {
+        // V5.0.7881 — one signature page plus a getTransaction per swap, paced.
+        if (!com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.admit(
+                com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.MARKET_SWEEP, 1.0 + HELIUS_SIGNATURES)) return emptyList()
         val sigBody = rpc(
             key,
             """{"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":["$PUMPSWAP_AMM",{"limit":$HELIUS_SIGNATURES}]}""",

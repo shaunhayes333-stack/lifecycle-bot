@@ -47,6 +47,13 @@ object BundleDetector {
         } catch (_: Throwable) { inFlight7763.remove(mint) }
     }
     private const val CACHE_DURATION_MS = 30 * 60 * 1000L
+    /**
+     * V5.0.7881 — a launch block never changes, so a measured analysis is kept
+     * for six hours; only an UNKNOWN one is retried on the 30-minute window.
+     */
+    private const val KNOWN_CACHE_DURATION_MS_7881 = 6 * 60 * 60 * 1000L
+    /** V5.0.7881 — the launch block is inside the latest 80 transactions only this long. */
+    const val LAUNCH_VISIBLE_MINUTES_7881 = 30.0
 
     data class BundleAnalysis(
         val mint: String,
@@ -74,7 +81,8 @@ object BundleDetector {
         val reason: String,
     ) {
         val isStale: Boolean
-            get() = System.currentTimeMillis() - analyzedAt > CACHE_DURATION_MS
+            get() = System.currentTimeMillis() - analyzedAt >
+                (if (bundleRisk == BundleRisk.UNKNOWN) CACHE_DURATION_MS else KNOWN_CACHE_DURATION_MS_7881)
     }
 
     enum class BundleType {
@@ -293,6 +301,9 @@ object BundleDetector {
         heliusApiKey: String,
         limit: Int,
     ): List<TokenTx> {
+        // V5.0.7881 — 100 credits a call; paced on the economy's BUNDLE_SCAN share.
+        if (!com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.admit(
+                com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.BUNDLE_SCAN, 100.0)) return emptyList()
         val url = "https://api.helius.xyz/v0/addresses/$mint/transactions?api-key=$heliusApiKey&limit=$limit"
 
         val request = Request.Builder()

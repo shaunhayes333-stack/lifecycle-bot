@@ -4021,6 +4021,12 @@ object PipelineHealthCollector {
             sb.append("  Read: ghost>0 or forced>20 => buys defer (EXEC_DEFERRED_SLOT_HEALTH) until cleanup; never a permanent block.\n")
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
+        // V5.0.7881 — Helius credit economy: what each feed costs and what it is allowed.
+        try {
+            sb.append("\n===== Helius credit economy (V5.0.7881) =====\n")
+            sb.append(com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.statusLine()).append('\n')
+        } catch (_: Throwable) { /* best-effort telemetry */ }
+
         // V5.9.952 — Birdeye budget surfacing. Use BirdeyeBudgetGate.snapshot()
         // as the denominator authority so reports cannot drift from plan quota.
         // makes the burn rate visible so it never happens silently again.

@@ -965,7 +965,12 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // V5.0.7763 — that producer now exists: BundleDetector's own first-block
         // analysis (Helius), requested in the background and read here once cached.
         val bundle7763 = try { BundleDetector.cachedFresh7763(mint) } catch (_: Throwable) { null }
-        if (bundle7763 == null) try { BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey) } catch (_: Throwable) {}
+        // V5.0.7881 — the analysis reads the token's latest 80 transactions, which
+        // contain its launch block only while it is young; past ~30 minutes every
+        // 100-credit call returned a first block that was not the first block.
+        if (bundle7763 == null && ageMinutes <= BundleDetector.LAUNCH_VISIBLE_MINUTES_7881) {
+            try { BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey) } catch (_: Throwable) {}
+        }
         val bundleRisk = bundle7763?.bundleRisk?.name ?: "UNKNOWN"
         val bundleType = bundle7763?.bundleType?.name ?: "NONE"
         val bundleRecommendation = bundle7763?.recommendation ?: "UNKNOWN"

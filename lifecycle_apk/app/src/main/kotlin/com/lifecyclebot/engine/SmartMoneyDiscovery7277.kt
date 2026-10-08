@@ -115,6 +115,10 @@ object SmartMoneyDiscovery7277 {
             return
         }
         for (mint in runners) {
+            // V5.0.7881 — up to 6 signature pages + one 100-credit parse per runner.
+            if (!com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.admit(
+                    com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.SMART_MONEY_DISCOVERY,
+                    SIGNATURE_PAGES_MAX + 100.0)) break
             val buyers = try { earliestBuyers(key, mint) } catch (t: Throwable) { emptyList() }
             minedRunners.add(mint)
             PipelineHealthCollector.labelInc("SMART_MONEY_RUNNER_MINED_7277")

@@ -82,6 +82,8 @@ object SharedHttpClient {
         // and 5xx/429 storms with a 599 synthetic response — zero TLS,
         // zero TCP, zero DNS during cool-down.
         .addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)
+        // V5.0.7881 — price every Helius call that reaches the wire (meter only).
+        .addInterceptor(com.lifecyclebot.network.HeliusCreditMeterInterceptor7881)
         // V5.0.4170 / V5.0.4173 — EXPLICIT GZIP request + TRANSPARENT DECODE.
         //
         // V5.0.4170 manually added `Accept-Encoding: gzip` to every request to

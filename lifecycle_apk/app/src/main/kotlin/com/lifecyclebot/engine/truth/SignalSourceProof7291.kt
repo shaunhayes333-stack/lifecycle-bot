@@ -119,6 +119,22 @@ object SignalSourceProof7291 {
         stamp(source, mint)
     }
 
+    /**
+     * V5.0.7881 — what this source's data is worth paying for, 0..1, read by
+     * HeliusCreditEconomy7881 to size the credits spent producing it.
+     * Proven (live, or 50+ forward labels with positive mean and PF>=1.2): 1.0.
+     * Measured losing (50+ labels, negative mean): 0.15 — a trickle, so it can
+     * re-earn. Unmeasured: 0.5 — explored, not bankrolled.
+     */
+    @Synchronized
+    fun economicValue7881(source: Source): Double {
+        if (isProven(source)) return 1.0
+        val l = labeled7731.getValue(source)
+        if (labeledProves7731(l.n, l.mean(), l.pf())) return 1.0
+        if (l.n >= MIN_LABELS_7731 && l.mean() < 0.0) return 0.15
+        return 0.5
+    }
+
     @Synchronized
     fun isProven(source: Source): Boolean {
         val t = tallies.getValue(source)

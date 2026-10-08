@@ -125,6 +125,9 @@ class HeliusCreatorHistory(private val apiKey: String) {
                 put("limit", 20)
             })
         }
+        // V5.0.7881 — a 10-credit DAS read per dev wallet (cached persistently).
+        if (!com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.admit(
+                com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.CREATOR_HISTORY, 10.0)) return emptyList()
         val body = post("https://mainnet.helius-rpc.com/?api-key=$apiKey", payload) ?: return emptyList()
         return try {
             val items = JSONObject(body)

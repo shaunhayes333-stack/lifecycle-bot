@@ -391,6 +391,7 @@ class HeliusWebSocket(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.meterWs("MINT_LOGS", text.length) } catch (_: Throwable) {}
                 // V5.0.7807 — a late frame from a replaced socket carries that socket's
                 // ids; never let it touch the current socket's maps.
                 val current = ws
