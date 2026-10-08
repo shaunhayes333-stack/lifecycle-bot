@@ -35,6 +35,7 @@ class CortexScoreboard7885 {
         const val MIN_N_PAPER = 20
         const val MIN_N_LIVE = 40
         const val TAIL_RUNNER_RATE = 0.10
+        const val BOOK_DECAY = 0.997
 
         /** Pure: where a fused verdict falls. */
         fun bucketOf(edgePct: Double, runnerRate: Double, runnerLane: Boolean): Bucket = when {
@@ -68,6 +69,8 @@ class CortexScoreboard7885 {
         /** Legacy refused, Cortex STRONG — the trades an overrule would have added. */
         val missedStrong = CortexLedger7885.Stat()
 
+        fun all(): List<CortexLedger7885.Stat> = byBucket.toList() + listOf(legacyAdmitted, legacyRefused, missedStrong)
+
         fun rest(): CortexLedger7885.Stat = CortexLedger7885.Stat().also { r ->
             for (b in listOf(Bucket.NEUTRAL, Bucket.STRONG)) {
                 val s = byBucket[b.ordinal]; r.n += s.n; r.sum += s.sum; r.sumSq += s.sumSq; r.runners += s.runners
@@ -89,6 +92,9 @@ class CortexScoreboard7885 {
         val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
         val runner = grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT
         val b = books.getOrPut(lane) { Book() }
+        // Decayed memory (~330 decisions): authority earned in an old regime fades
+        // unless the recent record keeps supporting it (v1 §2.8 automatic demotion).
+        for (st in b.all()) st.scale(BOOK_DECAY)
         b.byBucket[bucket.ordinal].add(y, runner)
         if (legacyAdmitted) b.legacyAdmitted.add(y, runner) else b.legacyRefused.add(y, runner)
         if (!legacyAdmitted && bucket == Bucket.STRONG) b.missedStrong.add(y, runner)

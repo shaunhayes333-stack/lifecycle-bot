@@ -44,6 +44,7 @@ class CortexLedger7885 {
         fun variance(): Double = if (n > 1.0) ((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun add(y: Double, runner: Boolean) { n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0 }
+        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k }
         fun encode(): String = "$n,$sum,$sumSq,$runners"
         fun decode(s: String) {
             val f = s.split(','); if (f.size != 4) return

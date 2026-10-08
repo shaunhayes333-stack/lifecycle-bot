@@ -158,6 +158,11 @@ object CortexVoters7885 {
         Voter("MCAP_TO_LIQ", "TOKENOMICS", e(3.0, 8.0, 25.0, 85.0), setOf("valuation")) { ts, _, now ->
             stage(ts, now)?.takeIf { it.liquidityUsd > 0.0 && it.marketCapUsd > 0.0 }?.mcapToLiq?.takeIf { it.isFinite() }
         },
+        // ── collective (Turso hive): this mint's outcomes across instances ──
+        Voter("COLLECTIVE_MINT_PNL", "COLLECTIVE", e(-20.0, -5.0, 0.0, 5.0, 20.0), setOf("collective")) { ts, _, _ ->
+            com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getMintMemory(ts.mint)
+                ?.takeIf { it.totalOutcomes >= 2 }?.avgPnlPct?.takeIf { it.isFinite() }
+        },
         Voter("SENTIMENT", "MARKET", e(-0.3, -0.05, 0.05, 0.3), setOf("sentiment")) { ts, _, _ ->
             ts.sentiment.takeIf { it.confidence > 0.0 }?.score?.let { fin(it) }
         },
