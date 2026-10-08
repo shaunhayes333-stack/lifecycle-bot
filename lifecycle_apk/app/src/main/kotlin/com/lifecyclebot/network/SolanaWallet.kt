@@ -71,6 +71,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     private val idGen   = AtomicLong(1)
 
     companion object {
+        // V5.0.7927 — token programs and wrapped SOL (rent reclaim).
+        private const val TOKEN_PROGRAM_7927 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        private const val TOKEN_2022_PROGRAM_7927 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        private const val WSOL_MINT_7927 = "So11111111111111111111111111111111111111112"
         // V5.0.4595 — WALLET RPC ROUND-ROBIN + PER-ENDPOINT COOLDOWN
         // (operator P0 "harden api and rpc connections").
         // Prior behavior: walletRpcEndpointsForTokenSnapshot() returned the
@@ -1570,6 +1574,83 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             delay = (delay * 2).coerceAtMost(3200L)
         }
         return last
+    }
+
+    /** V5.0.7927 — one empty token account the wallet can close for its rent. */
+    data class EmptyTokenAccount7927(val address: String, val mint: String, val programId: String, val lamports: Long)
+
+    /**
+     * V5.0.7927 — the wallet's token accounts holding zero tokens. Every buy opens an
+     * associated token account (~0.00204 SOL rent, more for Token-2022); a full sell
+     * leaves it empty and its rent locked. Read-only.
+     */
+    fun emptyTokenAccounts7927(): List<EmptyTokenAccount7927> {
+        val out = ArrayList<EmptyTokenAccount7927>()
+        for (program in listOf(TOKEN_PROGRAM_7927, TOKEN_2022_PROGRAM_7927)) {
+            val resp = rpc("getTokenAccountsByOwner", JSONArray()
+                .put(publicKeyB58)
+                .put(JSONObject().put("programId", program))
+                .put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed")))
+            val arr = resp.optJSONObject("result")?.optJSONArray("value") ?: continue
+            for (i in 0 until arr.length()) {
+                val row = arr.optJSONObject(i) ?: continue
+                val acct = row.optJSONObject("account") ?: continue
+                val info = acct.optJSONObject("data")?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                val amount = info.optJSONObject("tokenAmount")?.optString("amount").orEmpty()
+                if (amount != "0") continue
+                if (info.optString("state") != "initialized") continue
+                if (info.optString("owner") != publicKeyB58) continue
+                val closeAuth = info.optString("closeAuthority", "")
+                if (closeAuth.isNotBlank() && closeAuth != publicKeyB58) continue
+                val mint = info.optString("mint")
+                if (mint.isBlank() || mint == WSOL_MINT_7927) continue
+                out.add(EmptyTokenAccount7927(row.optString("pubkey"), mint, program, acct.optLong("lamports", 0L)))
+            }
+        }
+        return out
+    }
+
+    /**
+     * V5.0.7927 — close [accounts] (1..18, all holding zero tokens) in ONE legacy
+     * transaction, rent returned to this wallet. The token program refuses to close
+     * an account that holds any balance, so this can never destroy tokens: a race
+     * with a buy fails the whole transaction instead. Returns the signature.
+     */
+    fun closeTokenAccounts7927(accounts: List<EmptyTokenAccount7927>): String {
+        require(accounts.isNotEmpty() && accounts.size <= 18) { "1..18 accounts per transaction" }
+        val bhResp = rpc("getLatestBlockhash", JSONArray().put(JSONObject().put("commitment", "confirmed")))
+        val blockhash = bhResp.optJSONObject("result")?.optJSONObject("value")?.optString("blockhash")
+            ?.takeIf { it.isNotBlank() } ?: throw Exception("Failed to fetch blockhash")
+        val programs = accounts.map { it.programId }.distinct()
+        // Keys: [owner (signer, writable)] + token accounts (writable) + programs (read-only).
+        val keys = listOf(publicKeyB58) + accounts.map { it.address } + programs
+        fun compactU16(n: Int): ByteArray = when {
+            n < 0x80 -> byteArrayOf(n.toByte())
+            n < 0x4000 -> byteArrayOf((n and 0x7F or 0x80).toByte(), (n shr 7).toByte())
+            else -> byteArrayOf((n and 0x7F or 0x80).toByte(), ((n shr 7) and 0x7F or 0x80).toByte(), (n shr 14).toByte())
+        }
+        val msg = java.io.ByteArrayOutputStream().apply {
+            write(byteArrayOf(0x01, 0x00, programs.size.toByte()))   // 1 signer, 0 ro-signed, N ro-unsigned (programs)
+            write(compactU16(keys.size))
+            for (k in keys) write(Base58.base58Decode(k))
+            write(Base58.base58Decode(blockhash))
+            write(compactU16(accounts.size))
+            accounts.forEachIndexed { i, a ->
+                write(byteArrayOf((1 + accounts.size + programs.indexOf(a.programId)).toByte()))  // program id index
+                write(compactU16(3))
+                write(byteArrayOf((1 + i).toByte(), 0x00, 0x00))   // account, destination = owner, authority = owner
+                write(compactU16(1))
+                write(byteArrayOf(0x09))                           // TokenInstruction::CloseAccount
+            }
+        }.toByteArray()
+        val sig = TweetNaclFast.Signature(null, keyPair.secretKey).detached(msg)
+        val txB64 = android.util.Base64.encodeToString(byteArrayOf(0x01) + sig + msg, android.util.Base64.NO_WRAP)
+        val txResult = rpc("sendTransaction", JSONArray().put(txB64)
+            .put(JSONObject().put("encoding", "base64").put("preflightCommitment", "confirmed")))
+        val txSig = txResult.optString("result", "")
+        if (txSig.isBlank()) throw Exception("sendTransaction failed: ${txResult.optJSONObject("error")?.optString("message") ?: "unknown error"}")
+        awaitConfirmation(txSig)
+        return txSig
     }
 
     /**

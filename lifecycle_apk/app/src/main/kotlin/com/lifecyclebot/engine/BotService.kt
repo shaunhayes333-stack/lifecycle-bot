@@ -13232,7 +13232,7 @@ class BotService : Service() {
                                 //   2) require two consecutive sub-floor reads before firing
                                 //      (lastTickPnlBelowFloor must already be true).
                                 val execVsRawDelta4485 = kotlin.math.abs(execPnlPctNow - rawTickPnlPctNow)
-                                val catastrophicConfirmed4485 = pnlPctNow <= -50.0 && execPxForTickLock != null && execVsRawDelta4485 <= 20.0
+                                val catastrophicConfirmed4485 = catastrophicConfirmed7927(ts, pnlPctNow, execPxForTickLock, execVsRawDelta4485)
                                 val phantomRead = pnlPctNow < -50.0 && !catastrophicConfirmed4485
                                 val twoStrike = pos.lastTickFloorBreach
                                 // V5.0.4588 — CATASTROPHIC-LANE ONE-STRIKE (operator P0 task d).
@@ -25203,6 +25203,27 @@ if (hotExitHandledSweep) {
             PipelineHealthCollector.labelInc("LAUNCH_HEAT_7921_FAST_LANE")
             fastLaneEvaluate7277(mint, cfg, "LAUNCH_HEAT_7921")
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7927 — a catastrophic (<= -50%) tick read is confirmed only against a
+     * trusted basis. 9 Oct live export: 7thxAzq4 (a BASIS_UNCERTAIN_7807 recovered
+     * row) was sold 18 s after entry as "-82% confirmed" while its price was flat —
+     * the -82% came from the uncertain basis, and the round trip cost 6%. With an
+     * uncertain basis the move is measured against the canonical entry price.
+     */
+    private fun catastrophicConfirmed7927(ts: TokenState, pnlPct: Double, execPx: Double?, execVsRawDelta4485: Double): Boolean {
+        if (!(pnlPct <= -50.0 && execPx != null && execVsRawDelta4485 <= 20.0)) return false
+        val canon = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .firstOrNull { it.mint == ts.mint && it.mode.equals("live", ignoreCase = true) }
+        } catch (_: Throwable) { null } ?: return true
+        val uncertain = canon.quarantineReason.startsWith("BASIS_UNCERTAIN_7807") || canon.entryPriceSource.contains("BASIS_UNCERTAIN")
+        if (!uncertain) return true
+        val ref = canon.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: return false
+        val confirmed = execPx / ref - 1.0 <= -0.5
+        if (!confirmed) try { PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_REFUSED_UNCERTAIN_BASIS_7927") } catch (_: Throwable) {}
+        return confirmed
     }
 
     private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {
