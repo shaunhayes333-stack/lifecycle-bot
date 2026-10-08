@@ -136,6 +136,38 @@ class Aate7868RuntimeRepairTest {
         assertTrue(binding.contains("pendingByPosition7428[positionId] = applied"))
     }
 
+    @Test fun unrelatedBuyCannotParentAnotherMintsLiveSell() {
+        val unique = System.nanoTime().toString()
+        val trades = listOf(
+            com.lifecyclebot.data.Trade(side = "BUY", mode = "LIVE", sol = 0.1, price = 0.1,
+                ts = 1L, mint = "unrelated-buy-$unique", entryQtyToken = 100.0, entryCostSol = 0.1),
+            com.lifecyclebot.data.Trade(side = "SELL", mode = "LIVE", sol = 0.1, price = 0.1,
+                ts = 2L, mint = "unparented-sell-$unique", soldQtyToken = 100.0, reason = "TEST")
+        )
+        val report = ForensicReconciler6377.runAll(
+            trades, paperMode = false, paperWalletSol = 0.0, startCapitalSol = 0.0,
+            canonicalLiveOpenCount = 0, registryLiveOpenCount = 0
+        )
+        assertFalse(report.checks.first { it.name == "JOURNAL_ROW_PARITY" }.ok)
+        assertFalse(report.checks.first { it.name == "ORPHAN_SELL" }.ok)
+    }
+
+    @Test fun paperBuyCannotParentUnmatchedLiveSell() {
+        val mint = "mode-isolation-${System.nanoTime()}"
+        val trades = listOf(
+            com.lifecyclebot.data.Trade(side = "BUY", mode = "PAPER", sol = 0.1, price = 0.1,
+                ts = 1L, mint = mint, entryQtyToken = 100.0, entryCostSol = 0.1),
+            com.lifecyclebot.data.Trade(side = "SELL", mode = "LIVE", sol = 0.1, price = 0.1,
+                ts = 2L, mint = mint, soldQtyToken = 100.0, reason = "TEST")
+        )
+        val report = ForensicReconciler6377.runAll(
+            trades, paperMode = false, paperWalletSol = 0.0, startCapitalSol = 0.0,
+            canonicalLiveOpenCount = 0, registryLiveOpenCount = 0
+        )
+        assertFalse(report.checks.first { it.name == "JOURNAL_ROW_PARITY" }.ok)
+        assertFalse(report.checks.first { it.name == "ORPHAN_SELL" }.ok)
+    }
+
     @Test fun forensicParentsAreModeScoped() {
         val forensic = src("engine/ForensicReconciler6377.kt")
         val parent = forensic.substringAfter("private fun canonicalParentMints7868(")
