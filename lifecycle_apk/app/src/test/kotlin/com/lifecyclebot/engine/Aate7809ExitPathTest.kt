@@ -111,6 +111,17 @@ class Aate7809ExitPathTest {
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("Quarantine audit (§7809)"))
     }
 
+    @Test fun catastrophe_corrob_cannot_hold_emergency_dispatch_on_sync_provider() {
+        val bot = src("engine/BotService.kt")
+        val checker = bot.substringAfter("private suspend fun catastropheContradictedBounded7877(")
+            .substringBefore("private fun dispatchProtectiveExit7176(")
+        assertTrue(checker.contains("scope.async(Dispatchers.IO"))
+        assertTrue(checker.contains("withTimeoutOrNull(1_500L) { task.await() }"))
+        assertTrue(checker.contains("catch (cancel: CancellationException)"))
+        assertTrue(checker.contains("task.cancel()"))
+        assertTrue(bot.contains("catastropheContradictedBounded7877(ts, markPx)"))
+    }
+
     // ── item 21 — one canonical peak ─────────────────────────────────────────
     @Test fun canonical_peak_receives_lost_ticks_and_reentries_start_clean() {
         PeakAdaptiveTrail6390.clearForTest()
