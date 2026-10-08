@@ -51,7 +51,7 @@ object Cortex7885 {
         val atMs: Long,
     )
 
-    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null)
+    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null, val source: String = "")
 
     private val ledger = CortexLedger7885()
     private val board = CortexScoreboard7885()
@@ -122,7 +122,7 @@ object Cortex7885 {
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto)
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source)
         // V5.0.7907 — the lane playbook tags the decision with its setup.
         try { LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs) } catch (_: Throwable) {}
         // V5.0.7900 — Cortex v6: the same decision opens a 5-minute timing label.
@@ -139,6 +139,13 @@ object Cortex7885 {
         pending.remove(key)
         if (!netPct.isFinite()) return
         try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct) } catch (_: Throwable) {}
+        // V5.0.7908 — discovery quality: the scanner source brain orders and weights
+        // intake by each source's record, but learned only from closed trades (a
+        // handful a day). Every graded decision now teaches it what that source's
+        // tokens actually did, from trade one.
+        if (p.source.isNotBlank()) {
+            try { com.lifecyclebot.engine.ScannerSourceBrain.recordOutcome(p.source, netPct.coerceIn(-100.0, 200.0)) } catch (_: Throwable) {}
+        }
         synchronized(this) {
             ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
