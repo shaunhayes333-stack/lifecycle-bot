@@ -334,23 +334,16 @@ object AgenticStyleRouter {
         // V5.0.4579 — toxic buckets pivot strategy inside the same lane instead
         // of buying the same failing setup smaller. Keep lane affinity, but switch
         // the style/tactic surface toward defensive/reclaim behavior before sizing.
-        // V5.0.7878 — a runner lane (MOONSHOT, sniper ...) is never style-shrunk.
-        // 5.0.7876 applied toxic_reclaim_tactic size×0.33 tp×0.75 hold×0.48 to
-        // MOONSHOT candidates: a third of the size, three quarters of the target
-        // and half the hold clock, on the lane whose whole edge is the tail (its
-        // build-1941 500% trades were held 45-240 min to a 200-1000% target).
-        // A losing streak there is the cost of the lottery ticket, not a toxic
-        // bucket; the live edge gate (7877) decides whether it trades at all.
-        val runnerLane7878 = try { RunnerExitProfile7277.isRunnerLane(laneHint) } catch (_: Throwable) { false }
-        val toxicTacticPivot4584 = !runnerLane7878 && (strategyTune.label == "toxic_reclaim_tactic_pivot" || strategyTune.label == "toxic_inner_lane_pivot")
+        // V5.0.7894 — the 7878 runner floor (size/TP/hold forced to >= 1.0 on runner
+        // lanes) is removed at the operator's direction: entry size, target and hold
+        // are what the lane's own pipeline calculates (style toolkit x
+        // LiveStrategyTuner), not a fixed override. The live edge gate, the Cortex
+        // and the lane's own tuner decide; nothing here forces a size.
+        val toxicTacticPivot4584 = strategyTune.label == "toxic_reclaim_tactic_pivot" || strategyTune.label == "toxic_inner_lane_pivot"
         val tunedBaseStyle = if (toxicTacticPivot4584) sameLaneWeakPivotStyle(laneHint, Style.TOXIC_RECLAIM_TACTIC) else style
-        val tunedSizeFloor = if (runnerLane7878) 1.0 else 0.18
-        val tunedSize = (tunedBaseStyle.sizeMult * strategyTune.sizeMult).coerceIn(tunedSizeFloor, 1.95)
-        val tunedTp = (tunedBaseStyle.tpMult * strategyTune.tpMult).coerceIn(if (runnerLane7878) 1.0 else 0.65, 2.15)
-        val tunedHold = (tunedBaseStyle.holdMult * strategyTune.holdMult).coerceIn(if (runnerLane7878) 1.0 else 0.35, 4.00)
-        if (runnerLane7878) {
-            try { PipelineHealthCollector.labelInc("RUNNER_STYLE_NOT_SHRUNK_7878") } catch (_: Throwable) {}
-        }
+        val tunedSize = (tunedBaseStyle.sizeMult * strategyTune.sizeMult).coerceIn(0.18, 1.95)
+        val tunedTp = (tunedBaseStyle.tpMult * strategyTune.tpMult).coerceIn(0.65, 2.15)
+        val tunedHold = (tunedBaseStyle.holdMult * strategyTune.holdMult).coerceIn(0.35, 4.00)
         return Decision(
             style = tunedBaseStyle,
             tactic = tactic,
