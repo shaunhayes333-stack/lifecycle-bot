@@ -192,7 +192,7 @@ class Aate7868RuntimeRepairTest {
         try {
             val startingGate = java.util.concurrent.CountDownLatch(1)
             val work = (0 until 8).map { n ->
-                pool.submit<java.lang.String> {
+                pool.submit<String> {
                     startingGate.await()
                     LaneExecutionCoordinator.elect(
                         mint = "atomic-7877", lanes = listOf("MOONSHOT", "SHITCOIN"),
