@@ -316,7 +316,8 @@ object CortexVoters7885 {
             fin(com.lifecyclebot.v4.meta.PortfolioHeatAI.getPortfolioHeat())
         },
         // V5.0.7907 — which of the lane's playbook setups this candidate is (NO_TRIGGER = menu size).
-        Voter("PLAYBOOK_SETUP", "PLAYBOOK", e(0.5, 1.5, 2.5, 3.5, 4.5, 5.5), setOf("playbook")) { ts, lane, now ->
+        // V5.0.7924 — menus now hold up to ~20 setups: one bin per setup index.
+        Voter("PLAYBOOK_SETUP_V2", "PLAYBOOK", DoubleArray(20) { it + 0.5 }, setOf("playbook")) { ts, lane, now ->
             LanePlaybook7907.setupIndex(ts, lane, now)
         },
         Voter("SENTIMENT", "MARKET", e(-0.3, -0.05, 0.05, 0.3), setOf("sentiment")) { ts, _, _ ->

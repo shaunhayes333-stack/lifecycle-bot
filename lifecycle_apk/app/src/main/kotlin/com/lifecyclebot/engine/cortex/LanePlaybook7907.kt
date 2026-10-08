@@ -51,6 +51,18 @@ object LanePlaybook7907 {
         val liq: Double, val mcap: Double, val top: Double, val chg5m: Double, val chg1h: Double,
         val holderGrowth: Double, val volAccel: Double, val planSetup: String, val launchPhase: String,
         val crowdForming: Boolean = false,
+        // V5.0.7924 — the wider feature set the expanded setup library reads (NaN/blank = unknown).
+        val tapeCrowd: Double = Double.NaN, val tapeNetSol: Double = Double.NaN, val tapeBuyersPerMin: Double = Double.NaN,
+        val tapeBuyShare: Double = Double.NaN, val tapeLargest: Double = Double.NaN, val tapeTop3: Double = Double.NaN,
+        val tapeDevSold: Double = Double.NaN, val tapeFromPeak: Double = Double.NaN, val tapeFromFirst: Double = Double.NaN,
+        val buyTx15s: Double = Double.NaN, val buyTxPrev15s: Double = Double.NaN, val repeatBuyers60s: Double = Double.NaN,
+        val oppSetup: String = "", val oppPercentile: Double = Double.NaN, val oppRs: Double = Double.NaN,
+        val oppVolAccel: Double = Double.NaN, val oppTxAccel: Double = Double.NaN, val oppLiqDelta: Double = Double.NaN,
+        val boost: Double = Double.NaN, val socials: Double = Double.NaN, val cto: Boolean = false,
+        val devTokens: Double = Double.NaN, val devRugRate: Double = Double.NaN, val devKnownRugger: Boolean = false,
+        val holders: Double = Double.NaN, val insider: Double = Double.NaN, val narrativeHeat: Double = Double.NaN,
+        val narrativeExhaustion: Double = Double.NaN, val bundleLargest: Double = Double.NaN, val lpLock: Double = Double.NaN,
+        val txVelocity: Double = Double.NaN, val volatility: Double = Double.NaN, val regime: String = "",
     )
 
     class Setup(val id: String, val prior: Double, val fires: (F) -> Boolean)
@@ -125,22 +137,113 @@ object LanePlaybook7907 {
     }
     // V5.0.7921/7923 — the launch tape since birth shows a crowd forming (LaunchTape7921).
     private val CROWD_FORMING = Setup("CROWD_FORMING", FLOW) { f -> f.crowdForming }
+
+    // ── V5.0.7924 — the expanded library. Each fires on measurable conditions;
+    //    each starts at an educated prior and is graded per lane from trade one.
+    //    Launch tape (first minutes since birth) ──
+    private val FAST_CROWD = Setup("FAST_CROWD", FLOW) { f ->
+        le(f.age, 10.0) && ge(f.tapeBuyersPerMin, 8.0) && ge(f.tapeBuyShare, 60.0) && le(f.tapeLargest, 25.0) && le(f.tapeDevSold, 0.0)
+    }
+    private val BROAD_DISTRIBUTION = Setup("BROAD_DISTRIBUTION", FLOW) { f ->
+        ge(f.tapeCrowd, 40.0) && le(f.tapeTop3, 35.0) && ge(f.tapeBuyShare, 55.0) && le(f.tapeDevSold, 0.0)
+    }
+    private val NET_INFLOW_SURGE = Setup("NET_INFLOW_SURGE", FLOW) { f ->
+        le(f.age, 15.0) && ge(f.tapeNetSol, 10.0) && ge(f.tapeFromPeak, -25.0) && le(f.tapeLargest, 35.0)
+    }
+    private val FIRST_DIP_BOUGHT = Setup("FIRST_DIP_BOUGHT", FLOW) { f ->
+        ok(f.age, 3.0, 20.0) && ok(f.tapeFromPeak, -35.0, -15.0) && ge(f.buyTx15s, 3.0) && f.buyTx15s > f.buyTxPrev15s &&
+            ge(f.tapeBuyShare, 55.0) && le(f.tapeDevSold, 0.0)
+    }
+    private val DEV_HOLDS_CROWD_BUYS = Setup("DEV_HOLDS_CROWD_BUYS", FLOW) { f ->
+        le(f.age, 20.0) && le(f.tapeDevSold, 0.0) && ge(f.tapeCrowd, 20.0) && ge(f.tapeBuyShare, 55.0) && leOrUnknown(f.devTokens, 3.0)
+    }
+    private val CLEAN_DEV_LAUNCH = Setup("CLEAN_DEV_LAUNCH", FLOW) { f ->
+        le(f.age, 60.0) && le(f.devTokens, 2.0) && leOrUnknown(f.devRugRate, 0.2) && !f.devKnownRugger &&
+            ge(f.tapeCrowd, 10.0) && ge(f.tapeBuyShare, 55.0)
+    }
+    private val ACCELERATING_TAPE = Setup("ACCELERATING_TAPE", FLOW) { f ->
+        ge(f.buyTx15s, 5.0) && f.buyTx15s > f.buyTxPrev15s && leOrUnknown(f.tapeLargest, 35.0) && geOrUnknown(f.bp, 55.0)
+    }
+    private val GRADUATION_RUN = Setup("GRADUATION_RUN", FLOW) { f ->
+        ge(f.tapeNetSol, 40.0) && ge(f.tapeFromPeak, -15.0) && ge(f.tapeBuyShare, 60.0) && le(f.tapeDevSold, 0.0)
+    }
+    private val NO_BUNDLE_CLEAN = Setup("NO_BUNDLE_CLEAN", FLOW) { f ->
+        le(f.age, 120.0) && le(f.bundleLargest, 20.0) && ge(f.bp, 55.0) && leOrUnknown(f.runup, 150.0)
+    }
+    // ── social, narrative, insiders ──
+    private val SOCIAL_LAUNCH = Setup("SOCIAL_LAUNCH", FLOW) { f ->
+        le(f.age, 60.0) && ge(f.socials, 2.0) && ge(f.bp, 55.0) && geOrUnknown(f.tapeCrowd, 10.0)
+    }
+    private val BOOSTED_LAUNCH = Setup("BOOSTED_LAUNCH", PROBE) { f -> le(f.age, 120.0) && ge(f.boost, 100.0) && ge(f.bp, 55.0) }
+    private val CTO_REVIVAL = Setup("CTO_REVIVAL", PROBE) { f -> f.cto && ge(f.chg1h, 0.0) && ge(f.bp, 55.0) }
+    private val NARRATIVE_WAVE = Setup("NARRATIVE_WAVE", FLOW) { f ->
+        ge(f.narrativeHeat, 0.6) && leOrUnknown(f.narrativeExhaustion, 0.5) && ge(f.bp, 55.0)
+    }
+    private val INSIDER_ACCUMULATION = Setup("INSIDER_ACCUMULATION", FLOW) { f ->
+        ge(f.insider, 30.0) && ge(f.bp, 55.0) && leOrUnknown(f.runup, 100.0)
+    }
+    private val POST_MIGRATION_HOLD = Setup("POST_MIGRATION_HOLD", FLOW) { f ->
+        le(f.age, 60.0) && ge(f.liq, 15_000.0) && ge(f.chg5m, 0.0) && ge(f.bp, 55.0) && (f.mcap / f.liq).let { it.isFinite() && it <= 6.0 }
+    }
+    // ── market-wide opportunity ranking (MarketSweep7297) ──
+    private val OPP_EARLY_IGNITION = Setup("OPP_EARLY_IGNITION", FLOW) { f -> f.oppSetup == "EARLY_MOMENTUM_IGNITION" && ge(f.oppPercentile, 0.5) }
+    private val OPP_BREAKOUT_EXPANSION = Setup("OPP_BREAKOUT_EXPANSION", FLOW) { f -> f.oppSetup == "BREAKOUT_EXPANSION" && ge(f.oppPercentile, 0.6) }
+    private val OPP_RS_LEADER = Setup("OPP_RS_LEADER", FLOW) { f -> f.oppSetup == "RELATIVE_STRENGTH_LEADER" && ge(f.oppPercentile, 0.6) }
+    private val OPP_DIP_RECOVERY = Setup("OPP_DIP_RECOVERY", FLOW) { f -> f.oppSetup == "DIP_RECOVERY" && ge(f.oppPercentile, 0.4) }
+    private val OPP_LIQUIDITY_EXPANSION = Setup("OPP_LIQUIDITY_EXPANSION", FLOW) { f -> f.oppSetup == "LIQUIDITY_EXPANSION" && ge(f.oppPercentile, 0.4) }
+    private val OPP_CONTINUATION = Setup("OPP_CONTINUATION", FLOW) { f -> f.oppSetup == "CONTINUATION" && ge(f.oppPercentile, 0.6) }
+    // ── momentum / structure ──
+    private val VOLUME_IGNITION = Setup("VOLUME_IGNITION", FLOW) { f ->
+        ge(f.oppVolAccel, 2.0) && geOrUnknown(f.oppTxAccel, 1.5) && ge(f.chg5m, 2.0) && leOrUnknown(f.runup, 80.0)
+    }
+    private val HOLDER_EXPANSION = Setup("HOLDER_EXPANSION", FLOW) { f -> ge(f.holderGrowth, 10.0) && ge(f.bp, 55.0) && leOrUnknown(f.dd, 25.0) }
+    private val TX_VELOCITY_BREAK = Setup("TX_VELOCITY_BREAK", FLOW) { f -> ge(f.txVelocity, 3.0) && ge(f.pxPeak, 0.90) && ge(f.bp, 55.0) }
+    private val SECOND_LEG = Setup("SECOND_LEG", FLOW) { f ->
+        ok(f.age, 30.0, 240.0) && ok(f.dd, 25.0, 50.0) && ge(f.chg5m, 3.0) && ge(f.bp, 60.0) && geOrUnknown(f.holderGrowth, 0.0)
+    }
+    private val LOW_VOL_COIL = Setup("LOW_VOL_COIL", FLOW) { f ->
+        le(f.volatility, 15.0) && ge(f.pxPeak, 0.90) && ge(f.bp, 50.0) && ok(f.chg1h, -5.0, 10.0)
+    }
+    private val DEEP_LIQ_TREND = Setup("DEEP_LIQ_TREND", FLOW) { f -> ge(f.liq, 100_000.0) && ge(f.chg1h, 3.0) && le(f.dd, 10.0) && ge(f.bp, 50.0) }
+    private val MEAN_REVERSION_OVERSOLD = Setup("MEAN_REVERSION_OVERSOLD", FLOW) { f ->
+        ge(f.dd, 30.0) && ge(f.chg5m, 1.0) && le(f.chg1h, -15.0) && ge(f.liq, 50_000.0)
+    }
+    private val LP_LOCKED_BASE = Setup("LP_LOCKED_BASE", FLOW) { f ->
+        ge(f.lpLock, 90.0) && ge(f.pxPeak, 0.85) && ge(f.bp, 55.0) && le(f.mcap, 2_000_000.0)
+    }
+    private val MOMENTUM_PULLBACK_5M = Setup("MOMENTUM_PULLBACK_5M", FLOW) { f -> ge(f.chg1h, 10.0) && ok(f.chg5m, -6.0, -1.0) && ge(f.bp, 50.0) }
+    private val RS_IN_WEAK_MARKET = Setup("RS_IN_WEAK_MARKET", FLOW) { f ->
+        (f.regime == "DUMP" || f.regime == "CHOP" || f.regime == "DEAD") && ge(f.chg1h, 0.0) && ge(f.chg5m, 0.0) && ge(f.bp, 55.0)
+    }
     private val MICRO_PULLBACK_TREND = Setup("MICRO_PULLBACK_TREND", FLOW) { f -> ge(f.chg1h, 3.0) && ok(f.dd, 2.0, 8.0) && ge(f.bp, 50.0) }
 
     /** Lane -> its playbook (FIELD_MANUAL §4 families per lane; doc-derived). */
     private val MENU: Map<String, List<Setup>> = mapOf(
-        "QUALITY" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, BREAKOUT_HOLD, RECLAIM_AFTER_WEAKNESS),
-        "BLUECHIP" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, TREND_PULLBACK, RELATIVE_STRENGTH, FLAG_CONTINUATION),
-        "SHITCOIN" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, FIRST_PULLBACK, PRE_IGNITION_BASE, CROWD_FORMING),
-        "EXPRESS" to listOf(PLAN_BASE_BREAKOUT, VOLUME_CONTINUATION, HIGHER_LOW_CONTINUATION, MICRO_FLAG, CROWD_FORMING),
-        "MOONSHOT" to listOf(PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, BREAKOUT_RUNNER, RS_LEADER, POST_EVENT_RECLAIM, CROWD_FORMING),
-        "PROJECT_SNIPER" to listOf(PLAN_BASE_BREAKOUT, VERIFIED_LAUNCH, LOW_RUNUP_BASE, FIRST_PULLBACK, CROWD_FORMING),
-        "DIP_HUNTER" to listOf(PLAN_SWEEP_RECLAIM, SWEEP_RECLAIM_FLOW, CAPITULATION_HIGHER_LOW, SUPPORT_FLIP),
-        "MANIPULATED" to listOf(PLAN_SWEEP_RECLAIM, DISTRIBUTION_RECLAIM, SWEEP_RECLAIM_FLOW),
-        "TREASURY" to listOf(PLAN_SWEEP_RECLAIM, RANGE_LOW_BOUNCE, RECLAIM_AFTER_WEAKNESS, MICRO_PULLBACK_TREND),
-        "CASHGEN" to listOf(PLAN_SWEEP_RECLAIM, RANGE_LOW_BOUNCE, RECLAIM_AFTER_WEAKNESS, MICRO_PULLBACK_TREND),
-        "CYCLIC" to listOf(PLAN_SWEEP_RECLAIM, PLAN_BASE_BREAKOUT, RANGE_LOW_BOUNCE, SUPPORT_FLIP),
-        "CORE" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, RANGE_LOW_BOUNCE),
+        "QUALITY" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, BREAKOUT_HOLD, RECLAIM_AFTER_WEAKNESS,
+            HOLDER_EXPANSION, OPP_LIQUIDITY_EXPANSION, OPP_BREAKOUT_EXPANSION, LP_LOCKED_BASE, LOW_VOL_COIL, SECOND_LEG, MOMENTUM_PULLBACK_5M, RS_IN_WEAK_MARKET),
+        "BLUECHIP" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, TREND_PULLBACK, RELATIVE_STRENGTH, FLAG_CONTINUATION,
+            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, OPP_RS_LEADER, OPP_LIQUIDITY_EXPANSION, OPP_CONTINUATION, RS_IN_WEAK_MARKET),
+        "SHITCOIN" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, FIRST_PULLBACK, PRE_IGNITION_BASE, CROWD_FORMING,
+            FAST_CROWD, BROAD_DISTRIBUTION, NET_INFLOW_SURGE, FIRST_DIP_BOUGHT, DEV_HOLDS_CROWD_BUYS, CLEAN_DEV_LAUNCH, ACCELERATING_TAPE,
+            GRADUATION_RUN, NO_BUNDLE_CLEAN, SOCIAL_LAUNCH, NARRATIVE_WAVE, INSIDER_ACCUMULATION, OPP_EARLY_IGNITION),
+        "EXPRESS" to listOf(PLAN_BASE_BREAKOUT, VOLUME_CONTINUATION, HIGHER_LOW_CONTINUATION, MICRO_FLAG, CROWD_FORMING,
+            ACCELERATING_TAPE, FAST_CROWD, VOLUME_IGNITION, TX_VELOCITY_BREAK, MOMENTUM_PULLBACK_5M, OPP_EARLY_IGNITION, OPP_RS_LEADER),
+        "MOONSHOT" to listOf(PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, BREAKOUT_RUNNER, RS_LEADER, POST_EVENT_RECLAIM, CROWD_FORMING,
+            FAST_CROWD, NET_INFLOW_SURGE, GRADUATION_RUN, POST_MIGRATION_HOLD, BOOSTED_LAUNCH, SOCIAL_LAUNCH, NARRATIVE_WAVE,
+            VOLUME_IGNITION, OPP_BREAKOUT_EXPANSION, OPP_EARLY_IGNITION, SECOND_LEG, CTO_REVIVAL),
+        "PROJECT_SNIPER" to listOf(PLAN_BASE_BREAKOUT, VERIFIED_LAUNCH, LOW_RUNUP_BASE, FIRST_PULLBACK, CROWD_FORMING,
+            CLEAN_DEV_LAUNCH, SOCIAL_LAUNCH, BROAD_DISTRIBUTION, NO_BUNDLE_CLEAN, LP_LOCKED_BASE, DEV_HOLDS_CROWD_BUYS, POST_MIGRATION_HOLD),
+        "DIP_HUNTER" to listOf(PLAN_SWEEP_RECLAIM, SWEEP_RECLAIM_FLOW, CAPITULATION_HIGHER_LOW, SUPPORT_FLIP,
+            MEAN_REVERSION_OVERSOLD, SECOND_LEG, FIRST_DIP_BOUGHT, HOLDER_EXPANSION, OPP_DIP_RECOVERY),
+        "MANIPULATED" to listOf(PLAN_SWEEP_RECLAIM, DISTRIBUTION_RECLAIM, SWEEP_RECLAIM_FLOW, CTO_REVIVAL, ACCELERATING_TAPE, FIRST_DIP_BOUGHT),
+        "TREASURY" to listOf(PLAN_SWEEP_RECLAIM, RANGE_LOW_BOUNCE, RECLAIM_AFTER_WEAKNESS, MICRO_PULLBACK_TREND,
+            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, MOMENTUM_PULLBACK_5M, OPP_DIP_RECOVERY),
+        "CASHGEN" to listOf(PLAN_SWEEP_RECLAIM, RANGE_LOW_BOUNCE, RECLAIM_AFTER_WEAKNESS, MICRO_PULLBACK_TREND,
+            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, MOMENTUM_PULLBACK_5M, OPP_CONTINUATION),
+        "CYCLIC" to listOf(PLAN_SWEEP_RECLAIM, PLAN_BASE_BREAKOUT, RANGE_LOW_BOUNCE, SUPPORT_FLIP,
+            MEAN_REVERSION_OVERSOLD, LOW_VOL_COIL, OPP_LIQUIDITY_EXPANSION, SECOND_LEG, OPP_DIP_RECOVERY),
+        "CORE" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, RANGE_LOW_BOUNCE,
+            OPP_BREAKOUT_EXPANSION, OPP_RS_LEADER, HOLDER_EXPANSION, VOLUME_IGNITION, DEEP_LIQ_TREND, CROWD_FORMING),
     )
 
     /** Pure: the setups of [lane]'s menu that [f] fires (empty = no trigger; unknown lane = null). */
@@ -162,6 +265,14 @@ object LanePlaybook7907 {
         val plan = try { com.lifecyclebot.engine.truth.TradePlan7739.readForEntry7837(ts, nowMs).setup?.name } catch (_: Throwable) { null }
         val phase = try { com.lifecyclebot.engine.truth.FreshLaunchSelector7737.shapingRead7871(ts, nowMs)?.first?.substringBefore('|') } catch (_: Throwable) { null }
         val volAcc = try { com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.volumeAccelerationScore } catch (_: Throwable) { null }
+        val tape = try { com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, nowMs) } catch (_: Throwable) { null }
+        val flow = try { com.lifecyclebot.engine.WhaleDetector.launchFlow7401(ts.mint, nowMs = nowMs) } catch (_: Throwable) { null }
+        val opp = try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint) } catch (_: Throwable) { null }
+        val social = try { com.lifecyclebot.network.DexScreenerSocialSource.peek7895(ts.mint) } catch (_: Throwable) { null }
+        val creator = try {
+            com.lifecyclebot.engine.OperatorRegistry.getDevWallet(ts.mint)?.let { com.lifecyclebot.network.HeliusCreatorHistory.peek7895(it) }
+        } catch (_: Throwable) { null }
+        val narrative = try { com.lifecyclebot.v4.meta.NarrativeFlowAI.getNarrativeForSymbol(ts.symbol) } catch (_: Throwable) { null }
         return F(
             age = nn(s?.ageMin), runup = nn(s?.runupFromLocalLowPct), pxPeak = pos(s?.currentVsPeak), dd = nn(s?.drawdownFromPeakPct),
             bp = nn(s?.buyPressurePct ?: ts.lastBuyPressurePct), liq = pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
@@ -172,8 +283,45 @@ object LanePlaybook7907 {
             planSetup = plan.orEmpty(), launchPhase = phase.orEmpty(),
             crowdForming = try {
                 com.lifecyclebot.engine.market.LaunchTape7921.promoted(ts.mint) ||
-                    com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, nowMs)?.let { com.lifecyclebot.engine.market.LaunchTape7921.priorPass(it) } == true
+                    tape?.let { com.lifecyclebot.engine.market.LaunchTape7921.priorPass(it) } == true
             } catch (_: Throwable) { false },
+            // V5.0.7924 — every input below is a read-only cache peek; none fetches.
+            tapeCrowd = tape?.crowdBuyers?.toDouble() ?: Double.NaN,
+            tapeNetSol = tape?.crowdNetSol ?: Double.NaN,
+            tapeBuyersPerMin = tape?.buyersPerMin ?: Double.NaN,
+            tapeBuyShare = tape?.takeIf { it.crowdBuyers > 0 }?.buySharePct ?: Double.NaN,
+            tapeLargest = tape?.takeIf { it.crowdBuyers > 0 }?.largestBuyerPct ?: Double.NaN,
+            tapeTop3 = tape?.takeIf { it.crowdBuyers > 0 }?.top3Pct ?: Double.NaN,
+            tapeDevSold = tape?.let { if (it.devSold) 1.0 else 0.0 } ?: Double.NaN,
+            tapeFromPeak = tape?.fromPeakPct ?: Double.NaN,
+            tapeFromFirst = tape?.fromFirstPct ?: Double.NaN,
+            buyTx15s = flow?.buyTx15s?.toDouble() ?: Double.NaN,
+            buyTxPrev15s = flow?.buyTxPrev15s?.toDouble() ?: Double.NaN,
+            repeatBuyers60s = flow?.repeatBuyerWallets60s?.toDouble() ?: Double.NaN,
+            oppSetup = opp?.setup.orEmpty(),
+            oppPercentile = opp?.percentile ?: Double.NaN,
+            oppRs = opp?.relativeStrengthPct ?: Double.NaN,
+            oppVolAccel = opp?.volumeAcceleration ?: Double.NaN,
+            oppTxAccel = opp?.txAcceleration ?: Double.NaN,
+            oppLiqDelta = opp?.liquidityDeltaPct ?: Double.NaN,
+            boost = social?.boostTotal ?: Double.NaN,
+            socials = social?.socialCount?.toDouble() ?: Double.NaN,
+            cto = social?.communityTakeover == true,
+            devTokens = creator?.takeIf { it.tokensCreated > 0 }?.tokensCreated?.toDouble() ?: Double.NaN,
+            devRugRate = creator?.takeIf { it.tokensCreated > 0 }?.rugRate ?: Double.NaN,
+            devKnownRugger = creator?.isKnownRugger == true,
+            holders = ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 }?.toDouble() ?: Double.NaN,
+            insider = try { com.lifecyclebot.v3.scoring.InsiderTrackerAI.getInsiderScore(ts.mint).takeIf { it > 0 }?.toDouble() } catch (_: Throwable) { null } ?: Double.NaN,
+            narrativeHeat = narrative?.narrativeHeat ?: Double.NaN,
+            narrativeExhaustion = narrative?.themeExhaustion ?: Double.NaN,
+            bundleLargest = try {
+                com.lifecyclebot.engine.BundleDetector.cachedFresh7763(ts.mint)
+                    ?.takeIf { it.bundleRisk != com.lifecyclebot.engine.BundleDetector.BundleRisk.UNKNOWN }?.largestBundlePct
+            } catch (_: Throwable) { null } ?: Double.NaN,
+            lpLock = ts.safety.lpLockPct.takeIf { it >= 0.0 && it.isFinite() } ?: Double.NaN,
+            txVelocity = try { com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity } catch (_: Throwable) { null } ?: Double.NaN,
+            volatility = ts.volatility ?: Double.NaN,
+            regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
         )
     }
 
@@ -213,8 +361,13 @@ object LanePlaybook7907 {
         return v
     }
 
+    /** V5.0.7924 — every setup that fired on the last classification (all are graded, not only the tag). */
+    private val matchCache = ConcurrentHashMap<String, List<String>>()
+
     private fun classifyNow(ts: TokenState, lane: String, nowMs: Long): String? {
         val m = matches(lane, features(ts, nowMs)) ?: return null
+        if (matchCache.size > 4_000) matchCache.clear()
+        matchCache["${ts.mint}|$lane"] = m.map { it.id }
         if (m.isEmpty()) return NO_TRIGGER
         ensureLoaded()
         return synchronized(this) { m.maxByOrNull { expected(lane, it.id) }?.id ?: NO_TRIGGER }
@@ -268,18 +421,26 @@ object LanePlaybook7907 {
         val lane = canon(laneRaw)
         val setup = classify(ts, lane, nowMs) ?: return
         if (pending.size > 8_000) pending.clear()
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to setup
+        val fired = matchCache["${ts.mint}|$lane"].orEmpty().filter { it != setup }
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to (if (fired.isEmpty()) setup else setup + ";" + fired.joinToString(","))
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()
+        for (id in fired) firedCount.computeIfAbsent("$lane|$id") { AtomicLong(0) }.incrementAndGet()
     }
+
+    private val firedCount = ConcurrentHashMap<String, AtomicLong>()
 
     /** Cortex7885.onLabel (graded horizon only): learn (lane, setup) from the forward label. */
     fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double) {
         ensureLoaded()
-        val (lane, setup) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
+        val (lane, tag) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
         if (!netPct.isFinite()) return
+        // V5.0.7924 — the tagged setup and every other setup that fired are each graded.
+        val graded = listOf(tag.substringBefore(';')) + tag.substringAfter(';', "").split(',').filter { it.isNotBlank() }
         synchronized(this) {
-            books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
-                .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+            for (setup in graded.distinct()) {
+                books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
+                    .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+            }
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
     }
@@ -347,7 +508,9 @@ object LanePlaybook7907 {
         return synchronized(this) {
             val lanes = MENU.keys.joinToString("\n") { lane ->
                 val tags = tagged.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
-                    .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
+                    .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" } +
+                    " alsoFired{" + firedCount.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }.take(8)
+                        .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" } + "}"
                 val rec = (menuIds(lane) + NO_TRIGGER).joinToString(" ") { id ->
                     val st = stat(lane, id)
                     "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}% exp ${"%+.1f".format(expected(lane, id))}"}]"
