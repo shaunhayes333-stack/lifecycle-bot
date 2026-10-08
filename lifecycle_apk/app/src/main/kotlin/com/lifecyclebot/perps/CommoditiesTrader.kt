@@ -755,7 +755,7 @@ com.lifecyclebot.engine.FluidLearning.recordPaperBuy("CommoditiesTrader", positi
                 return
             }
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(executionIntent6565)
-            val liveFill7835 = executeLiveTradeAtSize(position.id, signal, positionSizeSol)
+            val liveFill7835 = executeLiveTradeAtSize(position.id, signal, positionSizeSol, executionIntent6565)
             if (liveFill7835.state == MarketsLiveExecutor.FillState6486.PENDING_PROOF) {
                 // Submission already owns a canonical pending position. Keep its reservation.
                 return
@@ -801,7 +801,7 @@ if (signal.tradeType == TradeType.SPOT) {
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
     /** V5.9.114: LIVE swap at caller-supplied size (paper-matched). */
-    private suspend fun executeLiveTradeAtSize(positionId: String, signal: CommoditySignal, sizeSol: Double): MarketsLiveExecutor.MarketsFill6486 {
+    private suspend fun executeLiveTradeAtSize(positionId: String, signal: CommoditySignal, sizeSol: Double, ticket7914: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null): MarketsLiveExecutor.MarketsFill6486 {
         ErrorLogger.info(TAG, "🔴 LIVE COMMODITY TRADE: ${signal.direction.emoji} ${signal.market.symbol} size=${sizeSol.fmt(4)}◎")
         val fill6486 = MarketsLiveExecutor.executeLiveTradeProof6486(
             positionId = positionId,
@@ -811,6 +811,7 @@ if (signal.tradeType == TradeType.SPOT) {
             leverage = if (signal.tradeType == TradeType.SPOT) 1.0 else signal.tradeType.leverage,
             priceUsd = signal.price,
             traderType = "Commodities",
+            sealedIntent7914 = ticket7914,
         )
         val success = fill6486.confirmed
         val txSignature = fill6486.signature

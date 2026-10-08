@@ -296,7 +296,24 @@ object MarketsLiveExecutor {
         leverage: Double,
         priceUsd: Double,
         traderType: String = "Markets",
+        // V5.0.7914 — Cortex Phase 0 (Cross-asset F1): the sealed ticket this order
+        // executes. When given, an order larger than the ticket's resolved size, or a
+        // ticket that is not an FDG BUY, is refused here at the executor.
+        sealedIntent7914: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,
     ): MarketsFill6486 = withContext(Dispatchers.IO) {
+        sealedIntent7914?.let { t ->
+            val why = when {
+                !t.fdgAllowed || t.hardNoReasons.isNotEmpty() -> "EXECUTION_TICKET_NOT_ALLOWED_7914"
+                !t.resolvedSize.isFinite() || t.resolvedSize <= 0.0 -> "EXECUTION_TICKET_INVALID_SIZE_7914"
+                !sizeSol.isFinite() || sizeSol > t.resolvedSize * (1.0 + 1e-6) + 1e-9 -> "EXECUTION_SIZE_ABOVE_TICKET_7914"
+                else -> null
+            }
+            if (why != null) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
+                return@withContext MarketsFill6486(FillState6486.FAILED, positionId, null, "NONE", "",
+                    java.math.BigInteger.ZERO, 0, sizeSol, 0.0, why, reason = why)
+            }
+        }
         val wallet = WalletManager.getWallet()
             ?: return@withContext MarketsFill6486(FillState6486.FAILED, positionId, null, "NONE", "",
                 java.math.BigInteger.ZERO, 0, sizeSol, 0.0, "NO_WALLET", reason = "No wallet")

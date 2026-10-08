@@ -228,3 +228,23 @@ Each build is one green CI run on main, followed by a snapshot review.
 | 7910 | **v1 §2.8 win-probability scoring.** Every seat also scores its P(net > 0), shrunk per bin toward the lane base rate, prequentially by decayed Brier and log loss against that base rate. The fused verdict carries a pooled pWin. Both skills are on the scoreboard beside the return R². |
 | 7911 | **Cortex v11 — self-checking prover** (v1 §2.5) **and feature provenance** (v1 §2.1). Invariants run every minute as named alarms: I1 a live position blind for more than 5 min, I2 a live position with no entry price, I3 a Cortex worker backlog, I4 pending stores near their caps. Each assessment classifies price, liquidity, mcap, holders and safety as OBSERVED/UNKNOWN/STALE, and the rates are on the scoreboard. |
 | 7912 | **Cortex v12 — outcome truth** (v1 §2.7). Every voter's entry-time opinion is also graded per mode on the whole-position realised return (all legs, fees once) in its own ledger. Real-fill skill sits beside the forward-label skill that grants authority. |
+| 7913 | Scheduler can't strand a mint: dropped jobs are rescheduled after 30 s. Scanner source brain persists at most every 30 s. |
+| 7914 | **Phase 0 cross-asset seal.** Forex, metals and commodities live orders carry their sealed execution ticket into MarketsLiveExecutor, which refuses an order larger than the ticket's resolved size or a ticket that is not an allowed BUY. |
+
+### Status against the v1 plan after 7914
+
+Done:
+- Phase 0, except legacy last-slice learners in recordTrade and stock-trader ticket passing.
+- Phases 1–2 and 2.1 provenance.
+- 2.3, apart from Super/SSI planners and LLM analysts as voters.
+- 2.4 and 2.5: refuse-only rules, prover invariants, veto audit.
+- 2.6: stop authority and conviction sizing.
+- 2.7 outcome truth, 2.8 (return, Brier and log loss, calibration, cells), 2.9 compute, 2.10 snapshot scoreboard.
+- Phase 6.
+
+Open:
+- Converting legacy direct score/size writes into votes, and replacing the ~45 sizing multipliers (Phase 5).
+- Phase 4: the Cortex choosing paper entries (today it refuses only).
+- Shadow scoring of planner proposals.
+- Phase 7 clean-up.
+- A UI scoreboard panel.
