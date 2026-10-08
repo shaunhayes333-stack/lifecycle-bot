@@ -207,6 +207,42 @@ object Cortex7885 {
         } catch (_: Throwable) { false }
     }
 
+    // ── conviction sizing (plan v2 §D) ──
+
+    private const val CONVICTION_MAX_MULT = 2.0
+    private const val KELLY_FRACTION = 0.25
+
+    /** Pure: quarter-Kelly stake (SOL) from a proven record's mean/variance (percent units). */
+    fun kellyStakeSol(meanPct: Double, variancePct2: Double, equitySol: Double): Double {
+        if (!meanPct.isFinite() || !variancePct2.isFinite() || variancePct2 <= 0.0 || meanPct <= 0.0 || equitySol <= 0.0) return 0.0
+        val f = KELLY_FRACTION * (meanPct / 100.0) / (variancePct2 / 10_000.0)
+        return f.coerceIn(0.0, 1.0) * equitySol
+    }
+
+    /**
+     * Size multiplier for a request on (mint, lane): > 1 only when this
+     * candidate's decision-time read is STRONG AND the lane's STRONG record is
+     * proven (the overrule bar). Never below 1 (shrinking is not a learning
+     * lever at the route minimum); at most 2x; downstream caps still apply.
+     */
+    fun convictionMult(mint: String, laneRaw: String, requestedSol: Double, equitySol: Double): Double {
+        if (mint.isBlank() || !(requestedSol > 0.0)) return 1.0
+        val a = assessCache["$mint|${canon(laneRaw)}"] ?: return 1.0
+        if (System.currentTimeMillis() - a.atMs > 60_000L) return 1.0
+        if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return 1.0
+        val stake = synchronized(this) {
+            val strong = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal) ?: return 1.0
+            if (!CortexScoreboard7885.overruleProven(strong)) { inc("SHADOW_SIZE_UP"); return 1.0 }
+            kellyStakeSol(strong.mean(), strong.variance(), equitySol)
+        }
+        val mult = (stake / requestedSol).coerceIn(1.0, CONVICTION_MAX_MULT)
+        if (mult > 1.0) {
+            inc("SIZED_UP_${a.lane}")
+            try { PipelineHealthCollector.labelInc("CORTEX_7893_CONVICTION_SIZE_UP_${a.lane}") } catch (_: Throwable) {}
+        }
+        return mult
+    }
+
     // ── progressive enrichment (plan v2 §B): buy a paid feature only while it pays ──
 
     private const val ENRICH_LEARNING_SCORES = 300

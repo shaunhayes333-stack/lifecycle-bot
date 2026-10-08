@@ -85,6 +85,14 @@ class Aate7885CortexTest {
         assertEquals(led.lanes["SHITCOIN"]!!.mean(), back.lanes["SHITCOIN"]!!.mean(), 1e-9)
     }
 
+    @Test fun convictionSizingIsQuarterKellyOnAProvenRecordAndNeverWithoutOne() {
+        // mean +6%, sd 30% -> f* = 0.06/0.09 = 0.667, quarter = 0.1667 of equity.
+        assertEquals(0.1667 * 0.3, com.lifecyclebot.engine.cortex.Cortex7885.kellyStakeSol(6.0, 900.0, 0.3), 1e-3)
+        assertEquals(0.0, com.lifecyclebot.engine.cortex.Cortex7885.kellyStakeSol(-1.0, 900.0, 0.3), 1e-12)
+        // No decision-time read for this mint: no size change.
+        assertEquals(1.0, com.lifecyclebot.engine.cortex.Cortex7885.convictionMult("NoReadMint7893", "MOONSHOT", 0.05, 0.3), 1e-12)
+    }
+
     @Test fun vetoReasonsMapToStableRuleIds() {
         assertEquals("EDGE_NO_PREDICTED_EDGE", com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("EDGE_7877_NO_PREDICTED_EDGE_SHITCOIN"))
         assertEquals("UNNAMED", com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("lowercase reason"))

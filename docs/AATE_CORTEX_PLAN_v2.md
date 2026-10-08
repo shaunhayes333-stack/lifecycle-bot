@@ -199,3 +199,14 @@ Each build is one green CI run on main, followed by a snapshot review.
 - **Reads, never rebuilds.** Every Cortex input is an existing component, read as a voter. StopAuthority7887 is assembled from the lane traders' own stop bands, TradePlan7739, LaneExitTuner and ExitRegret7752.
 - **One existing chokepoint.** The Cortex acts through LiveEdgeGate7877, which FDG and TradePlan already call. Its training comes from ForwardReturnLabeler7731 and CanonicalFinalizedTradeBus6464, which already run. No parallel pipeline.
 - **Authority only by evidence.** With nothing proven, the current stack decides exactly as before, and the Cortex only records what it would have done.
+
+## J. Builds 7888–7893
+
+| Build | Change |
+|---|---|
+| 7888 | Profit exits steered by ExitRegret, as stops were in 7877. In LIVE, lane targets (getTpMult) and the plan's full target widen when trails and profit locks were followed by the price running on. |
+| 7889 | Five timing and tokenomics voters (age, run-up, peak position, drawdown, mcap/liq). Credits per decision on the scoreboard. |
+| 7890 | Collective hive voter. The promotion record decays (~330 decisions), so stale authority fades. |
+| 7891 | Veto audit: every existing refusal is graded by its refused candidates' forward return. A rule is flagged REFUSING_WINNERS when proven. |
+| 7892 | Tick floor moved behind a helper, because that loop is at the JVM backend limit. |
+| 7893 | Conviction sizing (§D). On a lane whose STRONG record is proven, a STRONG candidate is sized toward quarter-Kelly of that record: never below the request, at most 2×, and downstream lane, wallet and liquidity caps still apply. |

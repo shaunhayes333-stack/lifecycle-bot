@@ -112,13 +112,20 @@ object TraderSizingBridge6444 {
                 walletSol
             }
         }
+        // V5.0.7893 — Cortex conviction (plan v2 §D): on a lane whose STRONG record is
+        // proven (n>=40, mean-SE>+2%), a candidate the Cortex reads STRONG is sized
+        // toward quarter-Kelly of that record, never below the request, at most 2x;
+        // the resolver's lane, wallet and liquidity caps below still bound it.
+        val requestedSol7893 = requestedSol * try {
+            com.lifecyclebot.engine.cortex.Cortex7885.convictionMult(mintForSeal, laneKey, requestedSol, walletSol7226)
+        } catch (_: Throwable) { 1.0 }
         // V5.0.7828 — specialists use CanonicalSizingBridge6532 as their primary route.
         // The old "generic misroute -> auto-reroute" wording/counters described a fixed
         // architecture as a fault on every call and hid real last-mile failures.
         try {
             if (laneKey in SPECIALIST_LANE_KEYS_6630) {
                 val classForRoute7828 = AssetClass.fromLane(laneKey)
-                val memoKey7868 = sizingMemoKey7868(laneKey, mintForSeal, paperMode, requestedSol, walletSol7226, overrideLaneRiskCapSol)
+                val memoKey7868 = sizingMemoKey7868(laneKey, mintForSeal, paperMode, requestedSol7893, walletSol7226, overrideLaneRiskCapSol)
                 memoHit7868(memoKey7868)?.let { hit ->
                     if (mintForSeal.isNotBlank() && hit.executable) {
                         try { SealedOrderSizeAuthority6497.sealFor(mintForSeal, hit, laneKey) } catch (_: Throwable) {}
@@ -126,7 +133,7 @@ object TraderSizingBridge6444 {
                     return hit
                 }
                 val canonical7828 = CanonicalSizingBridge6532.resolve(
-                    requestedSol = requestedSol,
+                    requestedSol = requestedSol7893,
                     assetClass = classForRoute7828,
                     laneName = laneKey,
                     walletSol = walletSol7226,
@@ -150,7 +157,7 @@ object TraderSizingBridge6444 {
         val laneCap = overrideLaneRiskCapSol ?: dynamicWalletCap.coerceAtMost(portfolioCapSol)
         return try {
             val r = OrderSizeResolver6441.resolve(
-                requestedSol = requestedSol,
+                requestedSol = requestedSol7893,
                 laneName = laneKey,
                 walletSol = walletSol7226,
                 paperMode = paperMode,
