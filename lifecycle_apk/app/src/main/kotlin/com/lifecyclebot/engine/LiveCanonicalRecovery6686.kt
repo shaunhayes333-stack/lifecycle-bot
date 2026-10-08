@@ -835,17 +835,31 @@ object LiveCanonicalRecovery6686 {
             // OPEN row, and a mint the wallet does not hold never enters this loop.
             val pendingSameMint7133 = pendingReservation7699
             if (pendingSameMint7133 != null) {
+                // V5.0.7876 — the bot's own buy is costed at what it reserved, never at a
+                // wallet-observed valuation (5.0.7875: GMpcmw promoted at cost 1.8726 SOL
+                // from qty x observed mark on a 0.08 SOL wallet, then "lost" -1.831 SOL).
+                val promoCost7876 = promotionCost7876(
+                    pendingSameMint7133.entryCostSol, basis.entryCostSol, basis.source,
+                )
+                val promoPrice7876 = if (promoCost7876 == basis.entryCostSol) basis.entryPriceUsd else
+                    verifiedFillPriceUsd7875(promoCost7876, amount.uiDoubleForDisplay(),
+                        try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }) ?: basis.entryPriceUsd
+                if (promoCost7876 != basis.entryCostSol) try {
+                    PipelineHealthCollector.labelInc("PROMOTION_COST_FROM_RESERVATION_7876")
+                    ForensicLogger.lifecycle("PROMOTION_COST_FROM_RESERVATION_7876",
+                        "mint=${mint.take(12)} reserved=${pendingSameMint7133.entryCostSol} observed=${basis.entryCostSol} source=${basis.source}")
+                } catch (_: Throwable) {}
                 val promoted7133 = try {
                     CanonicalPositionAuthority6441.promotePendingToOpen(
                         positionId = pendingSameMint7133.positionId,
                         actualQtyRaw = amount.raw,
-                        actualEntryCostSol = basis.entryCostSol,
+                        actualEntryCostSol = promoCost7876,
                         actualFeesSol = pendingSameMint7133.feesSol.coerceAtLeast(0.0),
                         tokenDecimals = amount.decimals,
                         paperMode = false,
                         quantityScale = amount.decimals,
-                        actualEntryPriceUsd = basis.entryPriceUsd,
-                        actualEntryPriceSource = basis.source,
+                        actualEntryPriceUsd = promoPrice7876,
+                        actualEntryPriceSource = if (promoCost7876 == basis.entryCostSol) basis.source else "RESERVED_COST_7876",
                         actualEntryPoolAddress = basis.pool,
                         actualEntryDex = basis.dex,
                     )
@@ -871,7 +885,7 @@ object LiveCanonicalRecovery6686 {
                                 pendingSameMint7133.positionId, mint, b7868.candidateVersion7876, b7868.lane, mode7863 = "LIVE",
                             )
                         } catch (_: Throwable) { "" } else ""
-                        promotedEntrySnapshot7871(b7868.entry7871, pendingSameMint7133.positionId, basis.entryPriceUsd)
+                        promotedEntrySnapshot7871(b7868.entry7871, pendingSameMint7133.positionId, promoPrice7876)
                             ?.let { if (variant7876.isNotBlank()) it.copy(entryStrategyVariantId = variant7876) else it }
                             ?.let { snap ->
                             try {
@@ -1291,4 +1305,16 @@ internal fun promotedEntrySnapshot7871(
     if (frozen == null || positionId.isBlank()) return null
     val price = if (entryPriceUsd.isFinite() && entryPriceUsd > 0.0) entryPriceUsd else frozen.entryPriceUsd
     return frozen.copy(positionId = positionId, entryPriceUsd = price)
+}
+
+/**
+ * V5.0.7876 — pure: the cost of a promoted bot buy. The reservation is what the
+ * bot spent; an observed-mark valuation (or any basis more than 3x the
+ * reservation) cannot replace it. Without a reservation cost the basis stands.
+ */
+internal fun promotionCost7876(reservedCostSol: Double, basisCostSol: Double, basisSource: String): Double {
+    if (!reservedCostSol.isFinite() || reservedCostSol <= 0.0) return basisCostSol
+    val observed = basisSource.contains("OBSERVED_MARK", true)
+    val implausible = !basisCostSol.isFinite() || basisCostSol <= 0.0 || basisCostSol > reservedCostSol * 3.0
+    return if (observed || implausible) reservedCostSol else basisCostSol
 }

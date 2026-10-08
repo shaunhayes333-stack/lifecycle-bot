@@ -74,6 +74,11 @@ class FunnelView7021 @JvmOverloads constructor(
     private var names: Array<String> = arrayOf()
     private var counts: LongArray = LongArray(0)
     private var colours: IntArray = IntArray(0)
+    // V5.0.7876 — labels built once per data change, not per animation frame:
+    // 5.0.7875 caught a 724 ms main-thread block in this onDraw (String.format
+    // boxing a Double for every row on each of the 780 ms grow animation's frames).
+    private var countText7876: Array<String> = arrayOf()
+    private var pctText7876: Array<String?> = arrayOf()
     private var grow = 1f
     private var anim: ValueAnimator? = null
 
@@ -96,6 +101,10 @@ class FunnelView7021 @JvmOverloads constructor(
         names = stageNames.copyOf()
         counts = stageCounts.copyOf()
         colours = stageColours.copyOf()
+        countText7876 = Array(counts.size) { counts[it].toString() }
+        pctText7876 = Array(counts.size) { i ->
+            if (i > 0 && counts[i - 1] > 0L) "${(counts[i] * 100L / counts[i - 1])}%" else null
+        }
         requestLayout()
         anim?.cancel()
         anim = ValueAnimator.ofFloat(0f, 1f).apply {
@@ -129,13 +138,10 @@ class FunnelView7021 @JvmOverloads constructor(
             val top = i * rowH
             val textBase = top + 12f * d
             canvas.drawText(names[i], 0f, textBase, namePaint)
-            canvas.drawText(counts[i].toString(), width.toFloat(), textBase, numPaint)
+            canvas.drawText(countText7876.getOrElse(i) { counts[i].toString() }, width.toFloat(), textBase, numPaint)
 
             // Survival against the stage above — the number the list hid.
-            if (i > 0 && counts[i - 1] > 0L) {
-                val pct = counts[i] * 100.0 / counts[i - 1]
-                canvas.drawText("${"%.0f".format(pct)}%", width.toFloat(), top + 24f * d, dropPaint)
-            }
+            pctText7876.getOrNull(i)?.let { canvas.drawText(it, width.toFloat(), top + 24f * d, dropPaint) }
 
             val barTop = top + 16f * d
             rect.set(0f, barTop, barRight, barTop + barH)

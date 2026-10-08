@@ -96,4 +96,12 @@ class Aate7876PivotAndExitTimingTest {
         assertTrue(verified.contains("source == EXEC_SOURCE_7876"))
         assertTrue(src.contains("source == \"HELD_HOT_SINGLE_SOURCE_7419\") &&"))
     }
+
+    @Test fun aBotBuyIsCostedAtItsReservationNotAnObservedValuation() {
+        // GMpcmw: reserved ~0.043 SOL, promoted at qty x observed mark = 1.8726 SOL.
+        assertEquals(0.043, promotionCost7876(0.043, 1.8726, "OBSERVED_MARK_ADOPTION_7706"), 1e-12)
+        assertEquals(0.043, promotionCost7876(0.043, 1.8726, "RUNTIME_POSITION_BASIS_6686"), 1e-12) // >3x implausible
+        assertEquals(0.045, promotionCost7876(0.043, 0.045, "RUNTIME_POSITION_BASIS_6686"), 1e-12) // the fill itself
+        assertEquals(0.05, promotionCost7876(0.0, 0.05, "OBSERVED_MARK_ADOPTION_7706"), 1e-12) // no reservation cost
+    }
 }
