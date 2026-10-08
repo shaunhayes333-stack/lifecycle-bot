@@ -90,7 +90,8 @@ object Cortex7885 {
         val runner = isRunner(lane)
         val voters: List<CortexVoters7885.Voter> = CortexVoters7885.ALL
         // V5.0.7895 — dynamic voters: every V3 UnifiedScorer module recorded for this mint.
-        val dyn = try { CortexVoters7885.dynamicVotes(ts) } catch (_: Throwable) { emptyList() }
+        val dyn = (try { CortexVoters7885.dynamicVotes(ts) } catch (_: Throwable) { emptyList() }) +
+            (try { synchronized(this) { crossVotes(lane, staticRaws) } } catch (_: Throwable) { emptyList() })
         val ids = CortexVoters7885.IDS + dyn.map { it.voterId }
         val edges = CortexVoters7885.EDGES + dyn.map { it.edges }
         val raws = DoubleArray(ids.size) { i -> if (i < staticRaws.size) staticRaws[i] else dyn[i - staticRaws.size].raw }
@@ -215,6 +216,42 @@ object Cortex7885 {
             } catch (_: Throwable) {}
             true
         } catch (_: Throwable) { false }
+    }
+
+    // ── Cortex v5: interaction discovery ──
+    //
+    // Edge often lives in combinations ("strong flow AND young AND thin
+    // holders"), which single-voter bins cannot see. For each lane the four
+    // currently seated voters with the most authority are crossed pairwise: the
+    // cross's raw value is the joint bin (bin_a x bins_b + bin_b), graded and
+    // seated exactly like any voter — so a combination earns authority only by
+    // out-of-sample skill beyond its parts. Crosses follow the seats: as the
+    // seated set changes, new combinations are tried.
+    private const val CROSS_TOP = 4
+
+    /** Caller holds the lock. */
+    private fun crossVotes(lane: String, raws: DoubleArray): List<CortexLedger7885.Vote> {
+        val ids = CortexVoters7885.IDS
+        val edges = CortexVoters7885.EDGES
+        val evidence = CortexVoters7885.ALL.map { it.evidence }
+        val top = ids.indices
+            .filter { raws.getOrNull(it)?.isFinite() == true }
+            .map { it to (ledger.seats["${ids[it]}|$lane"]?.authority() ?: 0.0) }
+            .filter { it.second > 0.0 }
+            .sortedByDescending { it.second }
+            .take(CROSS_TOP)
+            .map { it.first }
+            .sortedBy { ids[it] }
+        if (top.size < 2) return emptyList()
+        val out = ArrayList<CortexLedger7885.Vote>()
+        for (x in top.indices) for (y in x + 1 until top.size) {
+            val a = top[x]; val b = top[y]
+            val na = edges[a].size + 1; val nb = edges[b].size + 1
+            val code = CortexLedger7885.binOf(edges[a], raws[a]) * nb + CortexLedger7885.binOf(edges[b], raws[b])
+            val crossEdges = DoubleArray(na * nb - 1) { k -> k + 0.5 }
+            out.add(CortexLedger7885.Vote("X_${ids[a]}__${ids[b]}", crossEdges, code.toDouble(), evidence[a] + evidence[b] + "cross"))
+        }
+        return out
     }
 
     // ── conviction sizing (plan v2 §D) ──

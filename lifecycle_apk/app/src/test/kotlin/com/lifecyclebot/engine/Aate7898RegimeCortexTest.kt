@@ -20,3 +20,24 @@ class Aate7898RegimeCortexTest {
         assertEquals(-1.0, led.fuse("MEME", emptyList()).edgePct, 1e-9)
     }
 }
+
+/** V5.0.7899 — Cortex v5: a combination is learned only when the pair carries edge its parts do not. */
+class Aate7899InteractionCortexTest {
+    @Test fun aJointBinCarriesWhatNeitherPartDoes() {
+        // XOR world: outcome is +8 when exactly one flag is set, -8 otherwise.
+        val led = CortexLedger7885()
+        val flag = doubleArrayOf(0.5)
+        val cross = DoubleArray(3) { it + 0.5 }
+        val ids = listOf("A", "B", "X_A__B")
+        val rnd = java.util.Random(7899)
+        repeat(400) {
+            val a = if (rnd.nextBoolean()) 1.0 else 0.0
+            val b = if (rnd.nextBoolean()) 1.0 else 0.0
+            val y = (if ((a > 0.5) != (b > 0.5)) 8.0 else -8.0) + rnd.nextGaussian() * 4.0
+            led.grade("X", ids, listOf(flag, flag, cross), doubleArrayOf(a, b, a * 2 + b), y, y)
+        }
+        assertEquals(0.0, led.seats["A|X"]!!.authority(), 1e-12)
+        assertEquals(0.0, led.seats["B|X"]!!.authority(), 1e-12)
+        assertTrue(led.seats["X_A__B|X"]!!.authority() > 0.5)
+    }
+}

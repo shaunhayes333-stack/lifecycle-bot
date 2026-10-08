@@ -68,7 +68,10 @@ class CortexLedger7885 {
         /** 0..1. Zero until MIN_SCORED out-of-sample scores show positive skill. */
         fun authority(): Double {
             val s = skill()
-            if (scored < MIN_SCORED || s <= MIN_SKILL) return 0.0
+            // V5.0.7899 — the bar falls with evidence: a no-information voter's
+            // prequential skill is noise of order 1/n, so a flat 0.5% seated ~3% of
+            // pure-noise voters at n=400 (simulated). 0.5% + 4/n seats ~0.2%.
+            if (scored < MIN_SCORED || s <= MIN_SKILL + 4.0 / scored) return 0.0
             return (s / FULL_SKILL).coerceAtMost(1.0) * (scored / (scored + 100.0))
         }
 
