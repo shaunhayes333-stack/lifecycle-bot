@@ -44,6 +44,7 @@ object Cortex7885 {
         val edges: List<DoubleArray>,
         val regime: String,
         val fused: CortexLedger7885.Fused,
+        val calibratedEdge: Double,
         val bucket: CortexScoreboard7885.Bucket,
         val unknownFeatures: Int,
         val staleMark: Boolean,
@@ -54,6 +55,7 @@ object Cortex7885 {
 
     private val ledger = CortexLedger7885()
     private val board = CortexScoreboard7885()
+    private val calibration = CortexCalibration7901()
     private val assessCache = ConcurrentHashMap<String, Assessment>()
     private val pending = ConcurrentHashMap<String, Pending>()
     private val voterFailures = ConcurrentHashMap<String, AtomicLong>()
@@ -99,9 +101,11 @@ object Cortex7885 {
         // V5.0.7898 — Cortex v4: the decision is read in the current market regime.
         val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" }
         val fused = synchronized(this) { ledger.fuse(lane, votes, regime) }
-        val bucket = CortexScoreboard7885.bucketOf(fused.edgePct, fused.runnerRate, runner)
+        // V5.0.7901 — Cortex v7: buckets read the calibrated edge, not the raw one.
+        val calibrated = synchronized(this) { calibration.calibrate(lane, fused.edgePct, fused.laneMean) }
+        val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
         val priceAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
-        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
+        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
         assessNanos.addAndGet(System.nanoTime() - t0)
         assessed.incrementAndGet()
         if (assessCache.size >= MAX_ASSESS_CACHE) assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_TTL_MS }
@@ -133,6 +137,7 @@ object Cortex7885 {
         synchronized(this) {
             ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
+            calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
             p.vetoRule?.let { r ->
                 vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
@@ -352,6 +357,7 @@ object Cortex7885 {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("board")?.let { board.decode(it) }
+                o.optJSONObject("calibration")?.let { calibration.decode(it) }
                 o.optJSONObject("vetoes")?.let { j -> for (k in j.keys()) vetoBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
             } catch (_: Throwable) {}
         }
@@ -360,7 +366,7 @@ object Cortex7885 {
     private fun persist() {
         try {
             val json = synchronized(this) {
-                org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode())
+                org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())
                     .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } }).toString()
             }
             LearningPersistence.save(PERSIST_KEY, json)
@@ -391,6 +397,7 @@ object Cortex7885 {
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size}+V3modules assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
+                "      calibration v7 (§7901): slope=${calibration.line()}\n" +
                 "      timing cortex v6 (§7900): ${try { CortexTiming7900.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      exit cortex v3 (§7897): ${try { CortexExit7897.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      stop authority (§7887): ${try { StopAuthority7887.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
