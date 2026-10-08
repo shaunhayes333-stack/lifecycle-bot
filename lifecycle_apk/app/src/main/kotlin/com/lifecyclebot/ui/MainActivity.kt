@@ -2873,7 +2873,9 @@ for legal compliance.
                     val message = if (pendingNow && !runningNow) {
                         "This cancels the queued Start while persisted state is loading."
                     } else {
-                        "This halts all scanning and trading. Open positions stay managed but no new trades will be taken until you start again."
+                        // V5.0.7929 — Stop keeps positions; selling them is its own explicit choice.
+                        "Stop bot: halts scanning and trading and keeps open positions (their exits resume when you start again).\n\n" +
+                            "Stop & sell all: halts the bot and sells every open position back to SOL."
                     }
                     try {
                         AlertDialog.Builder(this)
@@ -2883,6 +2885,11 @@ for legal compliance.
                                 d.dismiss(); vm.stopBotFromStopButton()
                             }
                             .setNegativeButton("Keep running", null)
+                            .apply {
+                                if (runningNow) setNeutralButton("Stop & sell all") { d, _ ->
+                                    d.dismiss(); vm.stopBotAndSellAll7929()
+                                }
+                            }
                             .show()
                     } catch (_: Throwable) { vm.stopBotFromStopButton() }
                 }

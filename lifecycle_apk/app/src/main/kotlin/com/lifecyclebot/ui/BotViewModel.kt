@@ -304,6 +304,11 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     fun stopBotFromStopButton() {
         stopBot(source = "ui_stop_button", uiStopConfirmed = true)
     }
+
+    /** V5.0.7929 — the explicit liquidation stop: halt and sell every open position to SOL. */
+    fun stopBotAndSellAll7929() {
+        stopBot(source = "operator_manual_stop", uiStopConfirmed = true)
+    }
     
     fun forceRefresh() {
         // V5.0.6007 — SYNCHRONOUS IMMEDIATE HYDRATE before the async
