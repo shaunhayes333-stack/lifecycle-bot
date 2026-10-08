@@ -96,6 +96,21 @@ object KillSwitch {
         reason.startsWith("MAX_DRAWDOWN:") || reason.startsWith("MAX_DAILY_LOSS:") ||
             reason.startsWith("MAX_CONSECUTIVE_LOSSES:")
 
+    /** V5.0.7876 — the live loss limits breached at the last entry check (empty = none). */
+    @Volatile var pivotReasons7876: List<String> = emptyList()
+        private set
+
+    /** Pure: which loss limits are breached (each at its full limit). */
+    internal fun limitBreaches7876(
+        dailyPnlPct: Double, maxDailyLossPct: Double,
+        drawdownPct: Double, maxDrawdownPct: Double,
+        consecutiveLosses: Int, maxConsecutiveLosses: Int,
+    ): List<String> = buildList {
+        if (maxDailyLossPct > 0.0 && dailyPnlPct <= -maxDailyLossPct) add("DAILY_LOSS")
+        if (maxDrawdownPct > 0.0 && drawdownPct >= maxDrawdownPct) add("DRAWDOWN")
+        if (maxConsecutiveLosses > 0 && consecutiveLosses >= maxConsecutiveLosses) add("LOSS_STREAK")
+    }
+
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
         init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol))
@@ -476,6 +491,11 @@ object KillSwitch {
             notes7864 += "LOSSES $consecutiveLosses/$maxConsecutiveLosses"
         }
         
+        // V5.0.7876 — a breached limit (at the limit, not the 90% warning) puts
+        // the live desk into PIVOT (LivePivotAuthority7876): it keeps trading,
+        // but only on strategies whose own evidence is positive.
+        pivotReasons7876 = limitBreaches7876(dailyPnlPct, maxDailyLossPct, drawdownPct, maxDrawdownPct,
+            consecutiveLosses, maxConsecutiveLosses)
         // Limits reached are priced into size by LiveRiskPolicy7807; never a halt.
         return if (notes7864.isEmpty()) Pair(true, "OK")
         else Pair(true, "SIZE_DOWN_NOT_HALT_7864: ${notes7864.joinToString(" | ")}")

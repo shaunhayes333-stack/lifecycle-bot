@@ -282,6 +282,8 @@ object TradePlan7739 {
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
+        // V5.0.7876 — under a breached loss limit only evidence-positive lanes stay live.
+        LivePivotAuthority7876.liveRefusal(lane, paper, nowMs)?.let { return it }
         val read = readForEntry7837(ts, nowMs)
         val setup = read.setup
         if (setup == null && barsPermitLaunch7742(read.why)) {
@@ -520,5 +522,5 @@ object TradePlan7739 {
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
-            "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()}"
+            "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()} pivot7876=${LivePivotAuthority7876.statusLine()}"
 }

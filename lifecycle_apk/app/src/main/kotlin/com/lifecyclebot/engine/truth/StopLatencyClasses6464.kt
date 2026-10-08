@@ -176,7 +176,7 @@ object StopLatencyClasses6464 {
             "${cls.name}(n=${b.count} avg=${avg}ms max=${b.maxMs}ms)"
         }
         return "$parts catastrophicAlerts=${alerts.get()} | trigger->broadcast: $bParts7807 slaBreaches=${broadcastSlaBreaches7807.get()}" +
-            " | " + gateLine7809()
+            " | " + gateLine7809() + " | stages7876: " + ExitStageTiming7876.statusLine()
     }
 
     internal fun resetForTest() {

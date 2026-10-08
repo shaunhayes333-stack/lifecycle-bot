@@ -338,7 +338,8 @@ object MarketSweep7297 {
         val byBand = rows.mapNotNull { r -> Band.of(r.mcapUsd)?.let { it to r } }.groupBy({ it.first }, { it.second })
         val totalVol = rows.sumOf { it.volumeH1Usd.coerceAtLeast(0.0) }
         return byBand.mapValues { (band, rs) ->
-            val moves = rs.map { it.priceChangeH1Pct }.sorted()
+            // V5.0.7876 — a sub-hour token's "1h change" is its move since first print.
+            val moves = rs.filter { !underOneHour7876(it.ageHours) }.map { it.priceChangeH1Pct }.sorted()
             val median = if (moves.isEmpty()) 0.0 else moves[moves.size / 2]
             BandState(
                 band = band,
@@ -367,7 +368,7 @@ object MarketSweep7297 {
             val latestRt = rt.lastOrNull()
             val prev = prevByMint[r.mint]
             val bandMedian = Band.of(r.mcapUsd)?.let { current.bands[it]?.medianChangeH1Pct } ?: 0.0
-            val relative = (r.priceChangeH1Pct - bandMedian).coerceIn(-1000.0, 1000.0)
+            val relative = relativeStrength7876(r.priceChangeH1Pct, r.ageHours, bandMedian)
             val price5 = latestRt?.priceChange5mPct ?: run {
                 if (prev != null && prev.priceUsd > 0.0 && r.priceUsd > 0.0) {
                     ((r.priceUsd / prev.priceUsd) - 1.0) * 100.0
@@ -757,4 +758,18 @@ object MarketSweep7297 {
         val fails = lastFail7301.entries.joinToString(",") { "${it.key}:${it.value}" }.ifBlank { "none" }
         return "rows=${s.rows.size} age=${age}s $providers | $bands | served=$served | fail=$fails keyedJupiter=${jupiterKey7301.isNotBlank()}"
     }
+}
+
+/** V5.0.7876 — known age under one hour (0.0 = unknown age). */
+internal fun underOneHour7876(ageHours: Double): Boolean = ageHours.isFinite() && ageHours > 0.0 && ageHours < 1.0
+
+/**
+ * V5.0.7876 — relative strength against the band median. 5.0.7875 ranked
+ * minutes-old launches at rs=+1000.0: their "1h change" is the move since the
+ * first print, not an hour of strength, so it saturated the clamp and outranked
+ * every real leader. A known-sub-hour token has no 1h relative strength (0).
+ */
+internal fun relativeStrength7876(changeH1Pct: Double, ageHours: Double, bandMedian: Double): Double {
+    if (underOneHour7876(ageHours) || !changeH1Pct.isFinite()) return 0.0
+    return (changeH1Pct - bandMedian).coerceIn(-1000.0, 1000.0)
 }

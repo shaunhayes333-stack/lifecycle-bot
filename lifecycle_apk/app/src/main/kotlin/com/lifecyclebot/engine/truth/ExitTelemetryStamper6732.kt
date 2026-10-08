@@ -154,6 +154,7 @@ object ExitTelemetryStamper6732 {
                 classify(reason), atMs.coerceAtMost(now),
                 com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason),
             )
+            ExitStageTiming7876.onTrigger(mint, stamp.cls, stamp.atMs, now)
             triggers7807.merge(mint, stamp) { old, new ->
                 when {
                     now - old.atMs > TRIGGER_STAMP_MAX_AGE_MS_7807 -> new
