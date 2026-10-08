@@ -50,6 +50,7 @@ object LanePlaybook7907 {
         val age: Double, val runup: Double, val pxPeak: Double, val dd: Double, val bp: Double,
         val liq: Double, val mcap: Double, val top: Double, val chg5m: Double, val chg1h: Double,
         val holderGrowth: Double, val volAccel: Double, val planSetup: String, val launchPhase: String,
+        val crowdForming: Boolean = false,
     )
 
     class Setup(val id: String, val prior: Double, val fires: (F) -> Boolean)
@@ -122,16 +123,18 @@ object LanePlaybook7907 {
     private val RANGE_LOW_BOUNCE = Setup("RANGE_LOW_BOUNCE", FLOW) { f ->
         le(f.pxPeak, 0.85) && ok(f.dd, 5.0, 20.0) && ge(f.chg5m, 0.0) && ok(f.chg1h, -15.0, 15.0)
     }
+    // V5.0.7921/7923 — the launch tape since birth shows a crowd forming (LaunchTape7921).
+    private val CROWD_FORMING = Setup("CROWD_FORMING", FLOW) { f -> f.crowdForming }
     private val MICRO_PULLBACK_TREND = Setup("MICRO_PULLBACK_TREND", FLOW) { f -> ge(f.chg1h, 3.0) && ok(f.dd, 2.0, 8.0) && ge(f.bp, 50.0) }
 
     /** Lane -> its playbook (FIELD_MANUAL §4 families per lane; doc-derived). */
     private val MENU: Map<String, List<Setup>> = mapOf(
         "QUALITY" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, BREAKOUT_HOLD, RECLAIM_AFTER_WEAKNESS),
         "BLUECHIP" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, TREND_PULLBACK, RELATIVE_STRENGTH, FLAG_CONTINUATION),
-        "SHITCOIN" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, FIRST_PULLBACK, PRE_IGNITION_BASE),
-        "EXPRESS" to listOf(PLAN_BASE_BREAKOUT, VOLUME_CONTINUATION, HIGHER_LOW_CONTINUATION, MICRO_FLAG),
-        "MOONSHOT" to listOf(PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, BREAKOUT_RUNNER, RS_LEADER, POST_EVENT_RECLAIM),
-        "PROJECT_SNIPER" to listOf(PLAN_BASE_BREAKOUT, VERIFIED_LAUNCH, LOW_RUNUP_BASE, FIRST_PULLBACK),
+        "SHITCOIN" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, FIRST_PULLBACK, PRE_IGNITION_BASE, CROWD_FORMING),
+        "EXPRESS" to listOf(PLAN_BASE_BREAKOUT, VOLUME_CONTINUATION, HIGHER_LOW_CONTINUATION, MICRO_FLAG, CROWD_FORMING),
+        "MOONSHOT" to listOf(PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, BREAKOUT_RUNNER, RS_LEADER, POST_EVENT_RECLAIM, CROWD_FORMING),
+        "PROJECT_SNIPER" to listOf(PLAN_BASE_BREAKOUT, VERIFIED_LAUNCH, LOW_RUNUP_BASE, FIRST_PULLBACK, CROWD_FORMING),
         "DIP_HUNTER" to listOf(PLAN_SWEEP_RECLAIM, SWEEP_RECLAIM_FLOW, CAPITULATION_HIGHER_LOW, SUPPORT_FLIP),
         "MANIPULATED" to listOf(PLAN_SWEEP_RECLAIM, DISTRIBUTION_RECLAIM, SWEEP_RECLAIM_FLOW),
         "TREASURY" to listOf(PLAN_SWEEP_RECLAIM, RANGE_LOW_BOUNCE, RECLAIM_AFTER_WEAKNESS, MICRO_PULLBACK_TREND),
@@ -167,6 +170,10 @@ object LanePlaybook7907 {
             holderGrowth = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() } ?: Double.NaN,
             volAccel = volAcc?.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
             planSetup = plan.orEmpty(), launchPhase = phase.orEmpty(),
+            crowdForming = try {
+                com.lifecyclebot.engine.market.LaunchTape7921.promoted(ts.mint) ||
+                    com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, nowMs)?.let { com.lifecyclebot.engine.market.LaunchTape7921.priorPass(it) } == true
+            } catch (_: Throwable) { false },
         )
     }
 
