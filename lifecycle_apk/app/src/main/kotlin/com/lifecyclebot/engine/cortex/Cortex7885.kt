@@ -726,6 +726,7 @@ object Cortex7885 {
                     "$mode closes=${l.lanes.entries.filter { !it.key.contains('@') && it.key != CortexLedger7885.GLOBAL }.sumOf { it.value.n }.toInt()} " +
                         "best=[${seated.sortedByDescending { it.value.skill() }.take(4).joinToString(",") { "${it.key} ${"%+.1f".format(it.value.skill() * 100)}%/n${it.value.scored}" }}]"
                 }.ifBlank { "no closes yet" }}\n" +
+                "      launch tape v16 (§7921): ${try { com.lifecyclebot.engine.market.LaunchTape7921.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      lane playbooks (§7907): ${try { LanePlaybook7907.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      calibration v7 (§7901): slope=${calibration.line()}\n" +
                 "      timing cortex v6 (§7900): ${try { CortexTiming7900.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +

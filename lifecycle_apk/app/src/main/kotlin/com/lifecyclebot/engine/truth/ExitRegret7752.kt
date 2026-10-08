@@ -100,6 +100,7 @@ object ExitRegret7752 {
         try { com.lifecyclebot.engine.cortex.CortexExit7897.tick(priceFor, nowMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.cortex.CortexTiming7900.tick(priceFor, nowMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.cortex.CortexInvariants7911.check(nowMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.market.LaunchTape7921.tick() } catch (_: Throwable) {}
         ensureLoaded()
         if (pending.isEmpty()) return
         val unpriced = ArrayList<String>()

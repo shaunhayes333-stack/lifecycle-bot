@@ -362,6 +362,31 @@ object CortexVoters7885 {
         Voter("LLM_RECOMMENDATION", "LLM", e(-0.5, 0.5), setOf("llm_narrative")) { ts, _, _ ->
             when (llmNarrative(ts)?.analysis?.recommendation) { "BUY" -> 1.0; "AVOID" -> -1.0; "WATCH" -> 0.0; else -> null }
         },
+        // V5.0.7921 — Cortex v16: the launch tape since birth (LaunchTape7921).
+        Voter("LAUNCH_CROWD_BUYERS", "LAUNCH", e(5.0, 15.0, 30.0, 60.0), setOf("launch_tape")) { ts, _, now ->
+            launch(ts, now)?.crowdBuyers?.toDouble()
+        },
+        Voter("LAUNCH_NET_SOL", "LAUNCH", e(0.0, 1.0, 3.0, 8.0, 20.0), setOf("launch_tape")) { ts, _, now ->
+            fin(launch(ts, now)?.crowdNetSol)
+        },
+        Voter("LAUNCH_BUYERS_PER_MIN", "LAUNCH", e(1.0, 3.0, 6.0, 12.0), setOf("launch_tape")) { ts, _, now ->
+            fin(launch(ts, now)?.buyersPerMin)
+        },
+        Voter("LAUNCH_BUY_SHARE", "LAUNCH", e(45.0, 55.0, 65.0, 75.0), setOf("launch_tape")) { ts, _, now ->
+            fin(launch(ts, now)?.buySharePct)
+        },
+        Voter("LAUNCH_LARGEST_BUYER", "LAUNCH", e(15.0, 30.0, 50.0), setOf("launch_tape")) { ts, _, now ->
+            launch(ts, now)?.takeIf { it.crowdBuyers > 0 }?.largestBuyerPct
+        },
+        Voter("LAUNCH_DEV_SOLD", "LAUNCH", FLAG, setOf("launch_tape")) { ts, _, now ->
+            launch(ts, now)?.let { if (it.devSold) 1.0 else 0.0 }
+        },
+        Voter("LAUNCH_FROM_FIRST_PCT", "LAUNCH", e(-30.0, 0.0, 50.0, 150.0), setOf("launch_tape")) { ts, _, now ->
+            fin(launch(ts, now)?.fromFirstPct)
+        },
+        Voter("LAUNCH_HEAT", "LAUNCH", com.lifecyclebot.engine.market.LaunchTape7921.HEAT_EDGES, setOf("launch_tape")) { ts, _, now ->
+            fin(launch(ts, now)?.heat)
+        },
         // V5.0.7917 — Cortex v15: the legacy FDG size stack's composite shape, graded.
         Voter(Cortex7885.LEGACY_SIZE_SHAPE, "SIZING", e(0.5, 0.8, 1.0, 1.25), setOf("size_stack")) { ts, _, now ->
             Cortex7885.legacyShapeOf(ts.mint, now)
@@ -370,6 +395,9 @@ object CortexVoters7885 {
 
     private fun superStamp(ts: TokenState, lane: String, now: Long) =
         try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.peek7916(ts.mint, lane, now) } catch (_: Throwable) { null }
+
+    private fun launch(ts: TokenState, now: Long) =
+        try { com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, now) } catch (_: Throwable) { null }
 
     private fun llmNarrative(ts: TokenState) =
         try { com.lifecyclebot.engine.AsyncGeminiNarrativeCache6478.peekBySymbol7654(ts.symbol) } catch (_: Throwable) { null }

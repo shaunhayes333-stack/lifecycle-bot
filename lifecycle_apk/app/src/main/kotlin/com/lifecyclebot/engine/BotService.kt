@@ -10778,6 +10778,13 @@ class BotService : Service() {
         val streamGeneration = try {
             com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
         } catch (_: Throwable) { 0L }
+        // V5.0.7921 — a launch whose tape shows a crowd forming is re-read by the
+        // full pipeline the moment it does (re-admitted if it has left the watchlist).
+        try {
+            com.lifecyclebot.engine.market.LaunchTape7921.setOnPromote { mint, symbol, name ->
+                promoteHotLaunch7921(mint, symbol, name, streamGeneration)
+            }
+        } catch (_: Throwable) {}
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
             // V5.0.7278 — every trade on a held curve is a mark; see
@@ -10890,6 +10897,8 @@ class BotService : Service() {
                                 estLiq >= 2000.0 -> 30
                                 else             -> 22   // sub-$2k fresh rug-zone — discovery probe only
                             }
+                            // V5.0.7921 — the launch tape follows this create from birth.
+                            try { com.lifecyclebot.engine.market.LaunchTape7921.onCreate(mint, symbol, name.ifBlank { symbol }) } catch (_: Throwable) {}
                             admitProtectedMemeIntake(
                                 mint = mint,
                                 symbol = symbol,
@@ -25165,6 +25174,27 @@ if (hotExitHandledSweep) {
                 if (promotion7279.promoted) "PUMP_TRADE_MARK_REGISTRY_PUBLISHED_7279"
                 else "PUMP_TRADE_MARK_REGISTRY_REFUSED_7279",
             )
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.7921 — LaunchTape7921 promotion: re-admit if needed, then evaluate now. */
+    private fun promoteHotLaunch7921(mint: String, symbol: String, name: String, streamGeneration: Long) {
+        if (mint.isBlank() || !status.running) return
+        try {
+            val cfg = ConfigStore.load(applicationContext)
+            if (!status.tokens.containsKey(mint)) {
+                admitProtectedMemeIntake(
+                    mint = mint,
+                    symbol = symbol.ifBlank { mint.take(6) },
+                    name = name.ifBlank { symbol },
+                    source = "LAUNCH_HEAT_7921",
+                    confidence = 45,
+                    allSources = setOf("LAUNCH_HEAT_7921", "PUMP_PORTAL_WS"),
+                    expectedRuntimeGeneration = streamGeneration,
+                )
+            }
+            PipelineHealthCollector.labelInc("LAUNCH_HEAT_7921_FAST_LANE")
+            fastLaneEvaluate7277(mint, cfg, "LAUNCH_HEAT_7921")
         } catch (_: Throwable) {}
     }
 

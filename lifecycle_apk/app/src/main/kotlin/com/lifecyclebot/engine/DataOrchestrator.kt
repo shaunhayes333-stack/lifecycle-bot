@@ -680,6 +680,8 @@ class DataOrchestrator(
      */
     fun onTradePrint7819(mint: String, priceSolPerToken: Double) {
         if (!priceSolPerToken.isFinite() || priceSolPerToken <= 0.0) return
+        // V5.0.7921 — the launch tape keeps each launch's price path since birth.
+        try { com.lifecyclebot.engine.market.LaunchTape7921.onPrice(mint, priceSolPerToken) } catch (_: Throwable) {}
         val ts = status.tokens[mint] ?: return
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0) return
@@ -699,6 +701,8 @@ class DataOrchestrator(
     private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
 
     private fun onTapeTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
+        // V5.0.7921 — the launch tape since birth (crowd, flow, heat, promotion).
+        try { com.lifecyclebot.engine.market.LaunchTape7921.onTrade(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
         try { synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) } } catch (_: Throwable) {}
         try { applyTapeBuyPressure7773(mint) } catch (_: Throwable) {}
         // V5.0.7747 — WhaleTrackerAI's only feeder was BirdeyeWhaleFeeder (Birdeye

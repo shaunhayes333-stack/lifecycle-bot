@@ -119,7 +119,11 @@ object MemeNarrativeAI {
         val llmBias6678 = try {
             com.lifecyclebot.engine.SentienceHooks.entryQualityScoreBias6678(symbol)
         } catch (_: Throwable) { 0 }
-        val shapedBonus6678 = (best.baseBonus + llmBias6678).coerceIn(-10, 12)
+        // V5.0.7921 — the LLM's bias is no longer written into the score: on a
+        // minutes-old launch it can only judge the name ("bird": ANIMAL, llmBias
+        // -12, vetoed, then ran). Its BUY/WATCH/AVOID is a graded Cortex voter
+        // (LLM_RECOMMENDATION, 7916) and earns influence per lane, or none.
+        val shapedBonus6678 = best.baseBonus.coerceIn(-10, 12)
         if (llmBias6678 != 0) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_ENTRY_SCORE_SHAPED_6678")
