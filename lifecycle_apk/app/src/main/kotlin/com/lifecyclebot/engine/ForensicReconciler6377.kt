@@ -310,9 +310,19 @@ object ForensicReconciler6377 {
             // is a genuine orphan.
             val boughtMints = buys.mapTo(HashSet()) { it.mint }
             val canonicalMints6900 = canonicalParentMints7868(paperMode)
-            val orphans = sells.count {
+            val orphanRows7877 = sells.filter {
                 it.mint.isNotBlank() && it.mint !in boughtMints && it.mint !in canonicalMints6900
             }
+            // Preserve the questionable journal rows for reconciliation, while
+            // preventing their unsupported economics from training live models.
+            // Scope by positionId only; never poison all trades on this mint.
+            orphanRows7877.forEach { t ->
+                if (t.positionId.isNotBlank()) try {
+                    com.lifecyclebot.engine.truth.HistoricalEconomicQuarantine6496
+                        .reportUnparentedSell7877(t.positionId)
+                } catch (_: Throwable) {}
+            }
+            val orphans = orphanRows7877.size
             val ok = orphans == 0
             results += CheckResult(
                 "ORPHAN_SELL", ok,
