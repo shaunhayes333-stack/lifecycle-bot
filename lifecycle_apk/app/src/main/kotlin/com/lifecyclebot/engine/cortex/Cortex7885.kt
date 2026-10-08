@@ -42,6 +42,7 @@ object Cortex7885 {
         val raws: DoubleArray,
         val ids: List<String>,
         val edges: List<DoubleArray>,
+        val regime: String,
         val fused: CortexLedger7885.Fused,
         val bucket: CortexScoreboard7885.Bucket,
         val unknownFeatures: Int,
@@ -94,10 +95,12 @@ object Cortex7885 {
         val edges = CortexVoters7885.EDGES + dyn.map { it.edges }
         val raws = DoubleArray(ids.size) { i -> if (i < staticRaws.size) staticRaws[i] else dyn[i - staticRaws.size].raw }
         val votes = voters.mapIndexed { i, v -> CortexLedger7885.Vote(v.id, v.edges, staticRaws[i], v.evidence) } + dyn
-        val fused = synchronized(this) { ledger.fuse(lane, votes) }
+        // V5.0.7898 — Cortex v4: the decision is read in the current market regime.
+        val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" }
+        val fused = synchronized(this) { ledger.fuse(lane, votes, regime) }
         val bucket = CortexScoreboard7885.bucketOf(fused.edgePct, fused.runnerRate, runner)
         val priceAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
-        val a = Assessment(lane, runner, raws, ids, edges, fused, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
+        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
         assessNanos.addAndGet(System.nanoTime() - t0)
         assessed.incrementAndGet()
         if (assessCache.size >= MAX_ASSESS_CACHE) assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_TTL_MS }
@@ -125,7 +128,7 @@ object Cortex7885 {
         pending.remove(key)
         if (!netPct.isFinite()) return
         synchronized(this) {
-            ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct)
+            ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
             p.vetoRule?.let { r ->
                 vetoBook.getOrPut(r) { CortexLedger7885.Stat() }

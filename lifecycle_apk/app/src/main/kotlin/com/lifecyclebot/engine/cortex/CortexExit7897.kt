@@ -98,6 +98,7 @@ object CortexExit7897 {
         val bucket: Bucket,
         val px: Double,
         val atMs: Long,
+        val regime: String = "",
     )
 
     private class Book {
@@ -149,8 +150,9 @@ object CortexExit7897 {
         val raws = DoubleArray(ids.size) { i -> if (i < posRaws.size) posRaws[i] else tokenRaws[i - posRaws.size] }
         val evidence = POS_IDS.map { setOf("position_state") } + CortexVoters7885.ALL.map { it.evidence }
         val votes = ids.indices.map { i -> CortexLedger7885.Vote(ids[i], edges[i], raws[i], evidence[i]) }
-        val fused = synchronized(this) { ledger.fuse(lane, votes) }
-        val r = Read(key, ts.mint, lane, runner, ids, edges, raws, fused, bucketOf(fused.edgePct), px, nowMs)
+        val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" }
+        val fused = synchronized(this) { ledger.fuse(lane, votes, regime) }
+        val r = Read(key, ts.mint, lane, runner, ids, edges, raws, fused, bucketOf(fused.edgePct), px, nowMs, regime)
         latest[key] = r
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > RUNNER_HORIZON_MS + GRADE_GRACE_MS }
         if (pending.size < MAX_PENDING) pending["$key|$nowMs"] = r
@@ -178,7 +180,7 @@ object CortexExit7897 {
             if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(r.px, px)) { inc("BASIS_SUSPECT"); continue }
             val fwd = (px / r.px - 1.0) * 100.0
             synchronized(this) {
-                ledger.grade(r.lane, r.ids, r.edges, r.raws, fwd, fwd)
+                ledger.grade(r.lane, r.ids, r.edges, r.raws, fwd, fwd, r.regime)
                 val b = books.getOrPut(r.lane) { Book() }
                 for (st in b.byBucket) st.scale(BOOK_DECAY)
                 b.byBucket[r.bucket.ordinal].add(fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), fwd >= CortexLedger7885.RUNNER_GROSS_PCT)
