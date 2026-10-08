@@ -177,6 +177,18 @@ class Aate7868RuntimeRepairTest {
         assertTrue(forensic.contains("canonicalParentMints7868(paperMode)"))
     }
 
+    @Test fun missingHypothesisContextIsNotAcknowledgedAsTrained() {
+        val learner = src("engine/StrategyHypothesisEngine.kt")
+        val bindingCheck = learner.substringAfter("fun hasPositionBinding7877(")
+            .substringBefore("fun recordOutcomeForPosition7428(")
+        assertTrue(bindingCheck.contains("active.containsKey(binding.context)"))
+        val outcome = learner.substringAfter("fun recordOutcomeForPosition7428(")
+            .substringBefore("fun recordOutcome(mint:")
+        assertTrue(outcome.contains("pendingByPosition7428.putIfAbsent(positionId, applied)"))
+        assertTrue(outcome.contains("HYPOTHESIS_POSITION_CONTEXT_MISSING_7428"))
+        assertTrue(outcome.contains("return false"))
+    }
+
     @Test fun learningMustNotAcknowledgeMissingPositionBinding() {
         val bridge = src("engine/truth/FinalizedBusConsumerBridge6465.kt")
         val method = bridge.substringAfter("private fun deliverToStrategyHypothesis(")
