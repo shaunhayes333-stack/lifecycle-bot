@@ -90,10 +90,15 @@ object ForensicReconciler6377 {
      */
     @JvmStatic
     /** V5.0.7868 — every mint the canonical authority parents (open, closed, live quarantined). */
-    private fun canonicalParentMints7868(): Set<String> = try {
-        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-            .let { it.openPositions() + it.closedPositions() + it.quarantinedLivePositions7454() }
-            .mapTo(HashSet()) { it.mint }
+    private fun canonicalParentMints7868(paperMode: Boolean): Set<String> = try {
+        val authority = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+        val candidateParents = authority.openPositions() + authority.closedPositions() +
+            (if (paperMode) emptyList() else authority.quarantinedLivePositions7454())
+        candidateParents.asSequence()
+            .filter { it.mode.equals(if (paperMode) "paper" else "live", ignoreCase = true) }
+            .map { it.mint }
+            .filter { it.isNotBlank() }
+            .toSet()
     } catch (_: Throwable) { emptySet() }
 
     fun runAll(
@@ -163,9 +168,14 @@ object ForensicReconciler6377 {
             // V5.0.7868 — a sell of a canonically-parented position (wallet-recovered /
             // adopted rows are opened by recovery, not by a journal BUY) is not an
             // unmatched sell. 5.0.7867 LIVE read buys=1 sells=9.
-            val parented7868 = canonicalParentMints7868()
-            val unparentedSells7868 = sells.count { it.mint.isBlank() || it.mint !in parented7868 }
-            val ok = buys.size >= unparentedSells7868
+            val parented7868 = canonicalParentMints7868(paperMode)
+            val journalBoughtMints = buys.mapTo(HashSet()) { it.mint }
+            // Total BUY count cannot parent an unrelated SELL. Every SELL needs
+            // a matched journal BUY for its mint, or a canonical recovered parent.
+            val unparentedSells7868 = sells.count {
+                it.mint.isBlank() || (it.mint !in parented7868 && it.mint !in journalBoughtMints)
+            }
+            val ok = unparentedSells7868 == 0
             results += CheckResult("JOURNAL_ROW_PARITY", ok, "buys=${buys.size} sells=${sells.size} unparentedSells=$unparentedSells7868")
         }
 
@@ -299,10 +309,20 @@ object ForensicReconciler6377 {
             // absent from BOTH the in-memory buys and the canonical authority
             // is a genuine orphan.
             val boughtMints = buys.mapTo(HashSet()) { it.mint }
-            val canonicalMints6900 = canonicalParentMints7868()
-            val orphans = sells.count {
+            val canonicalMints6900 = canonicalParentMints7868(paperMode)
+            val orphanRows7877 = sells.filter {
                 it.mint.isNotBlank() && it.mint !in boughtMints && it.mint !in canonicalMints6900
             }
+            // Preserve the questionable journal rows for reconciliation, while
+            // preventing their unsupported economics from training live models.
+            // Scope by positionId only; never poison all trades on this mint.
+            orphanRows7877.forEach { t ->
+                if (t.positionId.isNotBlank()) try {
+                    com.lifecyclebot.engine.truth.HistoricalEconomicQuarantine6496
+                        .reportUnparentedSell7877(t.positionId)
+                } catch (_: Throwable) {}
+            }
+            val orphans = orphanRows7877.size
             val ok = orphans == 0
             results += CheckResult(
                 "ORPHAN_SELL", ok,

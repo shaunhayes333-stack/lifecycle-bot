@@ -33730,6 +33730,40 @@ if (hotExitHandledSweep) {
         return contradicted
     }
 
+    /**
+     * Keep emergency trigger-to-broadcast scheduling independent of a slow
+     * multi-provider mark repair. ParallelMarkFanout7088.resolve7088 is a
+     * synchronous network call that previously ran on the emergency dispatcher
+     * before the first SELL_START, adding provider timeouts to the queue stage.
+     *
+     * The external verification remains advisory when its deadline expires,
+     * matching the original null-provider fail-open behaviour. A quick
+     * independently corroborated contradiction still vetoes the suspect mark.
+     */
+    private suspend fun catastropheContradictedBounded7877(
+        ts: com.lifecyclebot.data.TokenState, markPx: Double,
+    ): Boolean {
+        val task = scope.async(Dispatchers.IO + CoroutineName("catastrophe-mark-check-7877")) {
+            catastropheContradicted7289(ts, markPx)
+        }
+        val answer = try {
+            withTimeoutOrNull(1_500L) { task.await() }
+        } catch (cancel: CancellationException) {
+            task.cancel()
+            throw cancel // Stop/restart cancellation must not dispatch a SELL afterwards.
+        } catch (_: Exception) { null }
+        if (answer == null) {
+            task.cancel()
+            try {
+                PipelineHealthCollector.labelInc("CATASTROPHE_MARK_CORROBORATION_DEADLINE_7877")
+                ForensicLogger.lifecycle("CATASTROPHE_MARK_CORROBORATION_DEADLINE_7877",
+                    "mint=${ts.mint.take(10)} action=do_not_block_emergency_exit timeoutMs=1500")
+            } catch (_: Throwable) {}
+            return false
+        }
+        return answer
+    }
+
     private fun dispatchProtectiveExit7176(
         ts: com.lifecyclebot.data.TokenState,
         positionId: String,
@@ -33791,7 +33825,7 @@ if (hotExitHandledSweep) {
             // asks again, so a genuine collapse is delayed by one question, not
             // held. Stop-loss and every other kind pass through unchanged.
             if (kind == com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.TriggerKind.CATASTROPHE &&
-                catastropheContradicted7289(ts, markPx)
+                catastropheContradictedBounded7877(ts, markPx)
             ) return@launch
             try {
                 executor.requestSell(

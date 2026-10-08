@@ -72,6 +72,22 @@ object HistoricalEconomicQuarantine6496 {
         }
     }
 
+    /**
+     * Isolate an unparented historical SELL by its exact position identity.
+     * Never quarantine its entire mint: a later legitimately opened position
+     * on that token must remain trainable independently of the damaged row.
+     */
+    fun reportUnparentedSell7877(positionId: String) {
+        if (positionId.isBlank()) return
+        orphanCalls.incrementAndGet()
+        val already = LearningQuarantineGate6470.isQuarantined(positionId, mint = null)
+        LearningQuarantineGate6470.quarantinePositionId(positionId, "UNPARENTED_SELL_7877")
+        if (!already) {
+            positionQuarantines.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("HISTORICAL_UNPARENTED_SELL_QUARANTINED_7877") } catch (_: Throwable) {}
+        }
+    }
+
     fun reportOrphanLot(mint: String, orphanCostSol: Double) {
         if (mint.isBlank()) return
         orphanCalls.incrementAndGet()

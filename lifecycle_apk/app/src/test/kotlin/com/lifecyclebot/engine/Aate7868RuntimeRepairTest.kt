@@ -36,6 +36,11 @@ class Aate7868RuntimeRepairTest {
         assertEquals("EXECUTION_SIZE_INVALID_7835",
             WalletCapacitySeal7868.decide(seal, 0.04272, 0.0843, 116.0, 0.01, "EXECUTION_SIZE_INVALID_7835", now))
         assertNull(WalletCapacitySeal7868.decide(seal, 0.04272, 0.0843, 116.0, 0.01, null, now))
+        // A dynamic route-cap PASS is not proof that wallet minus reserve can pay.
+        assertEquals("SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835",
+            WalletCapacitySeal7868.decide(seal, 0.04272, 0.045, 116.0, 0.01, null, now))
+        assertEquals("SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835",
+            WalletCapacitySeal7868.decide(seal, 0.04272, Double.NaN, 116.0, 0.01, null, now))
         val exec = src("engine/Executor.kt")
         assertTrue(exec.contains("WalletCapacitySeal7868.executionRefusal("))
         assertTrue(src("engine/FinalDecisionGate.kt").contains("WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd)"))
@@ -107,6 +112,153 @@ class Aate7868RuntimeRepairTest {
         val lec = src("engine/LaneExecutionCoordinator.kt")
         val block = lec.substringAfter("if (current == null) {\n            // V5.0.7868").substringBefore("return false")
         assertFalse(block.contains("ChokeReliefBus.launch"))
+    }
+
+    @Test fun forensicSellParityRequiresSameMintParent() {
+        val forensic = src("engine/ForensicReconciler6377.kt")
+        assertTrue(forensic.contains("val journalBoughtMints = buys.mapTo(HashSet()) { it.mint }"))
+        assertTrue(forensic.contains("it.mint !in parented7868 && it.mint !in journalBoughtMints"))
+        assertTrue(forensic.contains("val ok = unparentedSells7868 == 0"))
+    }
+
+    @Test fun releaseCannotRemoveNewerSpecialistCandidateVersion() {
+        val coordinator = src("engine/LaneExecutionCoordinator.kt")
+        val release = coordinator.substringAfter("fun releaseIfPrimary(").substringBefore("fun resetForTests()")
+        assertTrue(release.contains("e.key.candidateVersion == candidateVersion"))
+    }
+
+    @Test fun canonicalDuplicatePositionBindingIsSerialized() {
+        val learner = src("engine/StrategyHypothesisEngine.kt")
+        val binding = learner.substringAfter("fun bindExecutedPosition7428(")
+            .substringBefore("fun releasePosition7809(")
+        assertTrue(binding.contains("return synchronized(pendingByPosition7428) { try {"))
+        assertTrue(binding.contains("pendingByDecision7428.remove(decisionKey7428"))
+        assertTrue(binding.contains("pendingByPosition7428[positionId] = applied"))
+    }
+
+    @Test fun historicalOrphanSellIsLearningQuarantinedByPositionOnly() {
+        val mint = "orphan-proof-${System.nanoTime()}"
+        val pid = "live-orphan-position-$mint"
+        val trade = com.lifecyclebot.data.Trade(
+            side = "SELL", mode = "LIVE", sol = 0.1, price = 0.1,
+            ts = 200L, mint = mint, positionId = pid, soldQtyToken = 100.0,
+            reason = "TEST_UNPARENTED"
+        )
+        ForensicReconciler6377.runAll(
+            listOf(trade), paperMode = false, paperWalletSol = 0.0,
+            startCapitalSol = 0.0, canonicalLiveOpenCount = 0, registryLiveOpenCount = 0
+        )
+        assertTrue(com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(pid, null))
+        assertFalse(com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(null, mint))
+    }
+
+    @Test fun unrelatedBuyCannotParentAnotherMintsLiveSell() {
+        val unique = System.nanoTime().toString()
+        val trades = listOf(
+            com.lifecyclebot.data.Trade(side = "BUY", mode = "LIVE", sol = 0.1, price = 0.1,
+                ts = 1L, mint = "unrelated-buy-$unique", entryQtyToken = 100.0, entryCostSol = 0.1),
+            com.lifecyclebot.data.Trade(side = "SELL", mode = "LIVE", sol = 0.1, price = 0.1,
+                ts = 2L, mint = "unparented-sell-$unique", soldQtyToken = 100.0, reason = "TEST")
+        )
+        val report = ForensicReconciler6377.runAll(
+            trades, paperMode = false, paperWalletSol = 0.0, startCapitalSol = 0.0,
+            canonicalLiveOpenCount = 0, registryLiveOpenCount = 0
+        )
+        assertFalse(report.checks.first { it.name == "JOURNAL_ROW_PARITY" }.ok)
+        assertFalse(report.checks.first { it.name == "ORPHAN_SELL" }.ok)
+    }
+
+    @Test fun paperBuyCannotParentUnmatchedLiveSell() {
+        val mint = "mode-isolation-${System.nanoTime()}"
+        val trades = listOf(
+            com.lifecyclebot.data.Trade(side = "BUY", mode = "PAPER", sol = 0.1, price = 0.1,
+                ts = 1L, mint = mint, entryQtyToken = 100.0, entryCostSol = 0.1),
+            com.lifecyclebot.data.Trade(side = "SELL", mode = "LIVE", sol = 0.1, price = 0.1,
+                ts = 2L, mint = mint, soldQtyToken = 100.0, reason = "TEST")
+        )
+        val report = ForensicReconciler6377.runAll(
+            trades, paperMode = false, paperWalletSol = 0.0, startCapitalSol = 0.0,
+            canonicalLiveOpenCount = 0, registryLiveOpenCount = 0
+        )
+        assertFalse(report.checks.first { it.name == "JOURNAL_ROW_PARITY" }.ok)
+        assertFalse(report.checks.first { it.name == "ORPHAN_SELL" }.ok)
+    }
+
+    @Test fun postFdgExecutorDoesNotConsultMintOnlySnapshotForPlanVeto() {
+        val executor = src("engine/Executor.kt")
+        val section = executor.substringAfter("val sealedFdgBuy7789 =")
+            .substringBefore("if (execModeResolved == ExecMode.LIVE)")
+        assertTrue(section.contains("sealedIntent7835?.fdgAllowed == true"))
+        assertTrue(section.contains("sealedIntent7835.finalDecision6613"))
+        assertTrue(section.contains("sealedIntent7835?.canonicalLane"))
+        assertFalse(section.contains("ExecutionSnapshotAuthority6496.sealedSnapshot6609"))
+    }
+
+    @Test fun forensicParentsAreModeScoped() {
+        val forensic = src("engine/ForensicReconciler6377.kt")
+        val parent = forensic.substringAfter("private fun canonicalParentMints7868(")
+            .substringBefore("fun runAll(")
+        assertTrue(parent.contains("paperMode: Boolean"))
+        assertTrue(parent.contains("it.mode.equals(if (paperMode)"))
+        assertTrue(forensic.contains("canonicalParentMints7868(paperMode)"))
+    }
+
+    @Test fun missingHypothesisContextIsNotAcknowledgedAsTrained() {
+        val learner = src("engine/StrategyHypothesisEngine.kt")
+        val bindingCheck = learner.substringAfter("fun hasPositionBinding7877(")
+            .substringBefore("fun recordOutcomeForPosition7428(")
+        assertTrue(bindingCheck.contains("active.containsKey(binding.context)"))
+        val outcome = learner.substringAfter("fun recordOutcomeForPosition7428(")
+            .substringBefore("fun recordOutcome(mint:")
+        assertTrue(outcome.contains("pendingByPosition7428.putIfAbsent(positionId, applied)"))
+        assertTrue(outcome.contains("HYPOTHESIS_POSITION_CONTEXT_MISSING_7428"))
+        assertTrue(outcome.contains("return false"))
+    }
+
+    @Test fun learningMustNotAcknowledgeMissingPositionBinding() {
+        val bridge = src("engine/truth/FinalizedBusConsumerBridge6465.kt")
+        val method = bridge.substringAfter("private fun deliverToStrategyHypothesis(")
+            .substringBefore("private fun deliverToExactStrategyPerformance7429(")
+        assertTrue(method.contains("hasPositionBinding7877(env.positionId)"))
+        assertTrue(method.contains("HYPOTHESIS_EXACT_BINDING_AWAIT_RETRY_7877"))
+        assertTrue(method.contains("NO_PROVEN_ENTRY_HYPOTHESIS_BINDING_7877"))
+    }
+
+    @Test fun sameCandidateElectionIsAtomicUnderConcurrentCallers() {
+        LaneExecutionCoordinator.resetForTests()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+        try {
+            val startingGate = java.util.concurrent.CountDownLatch(1)
+            val work = (0 until 8).map { n ->
+                pool.submit<String> {
+                    startingGate.await()
+                    LaneExecutionCoordinator.elect(
+                        mint = "atomic-7877", lanes = listOf("MOONSHOT", "SHITCOIN"),
+                        preferred = if (n % 2 == 0) "SHITCOIN" else "MOONSHOT",
+                        candidateVersion = 7877L, runtimeGeneration = 877L,
+                    ).electionId
+                }
+            }
+            startingGate.countDown()
+            val electionIds = work.map { it.get(15, java.util.concurrent.TimeUnit.SECONDS) }
+            assertEquals("one mint/version must have exactly one winner", 1, electionIds.distinct().size)
+            assertTrue(LaneExecutionCoordinator.currentElection6600(
+                "atomic-7877", candidateVersion = 7877L, runtimeGeneration = 877L
+            ) != null)
+        } finally {
+            pool.shutdownNow()
+            LaneExecutionCoordinator.resetForTests()
+        }
+    }
+
+    @Test fun emergencyEscalationPreemptsOnlyCompletedSofterRetry() {
+        val close = src("engine/sell/CloseLease.kt")
+        val acquire = close.substringAfter("fun acquire(mint: String")
+            .substringBefore("fun recordRetry(")
+        assertTrue(acquire.contains("val escalation7807 = emergency7807"))
+        assertTrue(acquire.contains("!existing.inFlight"))
+        assertTrue(acquire.contains("escalation7807 ||"))
+        assertTrue(acquire.contains("EMERGENCY_RETRY_BACKOFF_PREEMPTED_7877"))
     }
 
     @Test fun ticketRefusedAtExecutorTerminatesByName() {

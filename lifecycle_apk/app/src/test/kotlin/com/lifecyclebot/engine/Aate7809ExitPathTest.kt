@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.sell.ProtectiveExitClass7807
 import com.lifecyclebot.engine.sell.EmergencyExitDispatcher7807
 import com.lifecyclebot.engine.sell.ExitHotPath7809
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
@@ -53,6 +54,13 @@ class Aate7809ExitPathTest {
         assertTrue(ExitHotPath7809.statusLine().contains("stuckReplaced=1"))
     }
 
+    @Test fun moonshot_hard_stops_bypass_strategy_holds() {
+        assertTrue(ProtectiveExitClass7807.bypassesHolds("STRICT_SL_-6", "MOONSHOT"))
+        assertTrue(ProtectiveExitClass7807.bypassesHolds("PROTECTIVE_EXIT_STOP_LOSS_6450_RISKCLOCK", "MOONSHOT"))
+        assertTrue(ProtectiveExitClass7807.bypassesHolds("RAPID_CATASTROPHE_STOP", "MOONSHOT"))
+        assertFalse(ProtectiveExitClass7807.bypassesHolds("PROTECTIVE_EXIT_TRAILING_STOP_6450", "MOONSHOT"))
+    }
+
     @Test fun normal_exits_never_use_dispatchers_io() {
         val normal = EmergencyExitDispatcher7807.forReason("PROTECTIVE_EXIT_TRAILING_STOP_6450_RISKCLOCK")
         assertSame(ExitHotPath7809.normalExitDispatcher, normal)
@@ -101,6 +109,17 @@ class Aate7809ExitPathTest {
         assertEquals(1, a.unfundedByKind["paper"])
         assertEquals(1, a.unfundedByKind["zeroQty"])
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("Quarantine audit (§7809)"))
+    }
+
+    @Test fun catastrophe_corrob_cannot_hold_emergency_dispatch_on_sync_provider() {
+        val bot = src("engine/BotService.kt")
+        val checker = bot.substringAfter("private suspend fun catastropheContradictedBounded7877(")
+            .substringBefore("private fun dispatchProtectiveExit7176(")
+        assertTrue(checker.contains("scope.async(Dispatchers.IO"))
+        assertTrue(checker.contains("withTimeoutOrNull(1_500L) { task.await() }"))
+        assertTrue(checker.contains("catch (cancel: CancellationException)"))
+        assertTrue(checker.contains("task.cancel()"))
+        assertTrue(bot.contains("catastropheContradictedBounded7877(ts, markPx)"))
     }
 
     // ── item 21 — one canonical peak ─────────────────────────────────────────
