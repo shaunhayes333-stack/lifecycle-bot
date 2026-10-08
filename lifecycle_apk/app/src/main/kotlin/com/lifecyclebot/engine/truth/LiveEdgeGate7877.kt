@@ -169,6 +169,8 @@ object LiveEdgeGate7877 {
         com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)?.let { return it }
         if (paper) return null
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        // V5.0.7907 — the lane's playbook: a live entry needs one of its setups.
+        com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l)?.let { return it }
         // V5.0.7883 — a learned shape rule of this lane (tokenomics/timing bin it
         // has proven to lose in) refuses before the cohort read.
         val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }

@@ -315,6 +315,10 @@ object CortexVoters7885 {
         Voter("V4_PORTFOLIO_HEAT", "V4", e(0.2, 0.4, 0.6, 0.8), setOf("v4_portfolio")) { _, _, _ ->
             fin(com.lifecyclebot.v4.meta.PortfolioHeatAI.getPortfolioHeat())
         },
+        // V5.0.7907 — which of the lane's playbook setups this candidate is (NO_TRIGGER = menu size).
+        Voter("PLAYBOOK_SETUP", "PLAYBOOK", e(0.5, 1.5, 2.5, 3.5, 4.5, 5.5), setOf("playbook")) { ts, lane, now ->
+            LanePlaybook7907.setupIndex(ts, lane, now)
+        },
         Voter("SENTIMENT", "MARKET", e(-0.3, -0.05, 0.05, 0.3), setOf("sentiment")) { ts, _, _ ->
             ts.sentiment.takeIf { it.confidence > 0.0 }?.score?.let { fin(it) }
         },

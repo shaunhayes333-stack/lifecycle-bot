@@ -123,6 +123,8 @@ object Cortex7885 {
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto)
+        // V5.0.7907 — the lane playbook tags the decision with its setup.
+        try { LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs) } catch (_: Throwable) {}
         // V5.0.7900 — Cortex v6: the same decision opens a 5-minute timing label.
         try { CortexTiming7900.capture(ts, a, nowMs) } catch (_: Throwable) {}
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
@@ -136,6 +138,7 @@ object Cortex7885 {
         if (horizonMin != want) return
         pending.remove(key)
         if (!netPct.isFinite()) return
+        try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct) } catch (_: Throwable) {}
         synchronized(this) {
             ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
@@ -440,6 +443,7 @@ object Cortex7885 {
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size}+V3modules assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
+                "      lane playbooks (§7907): ${try { LanePlaybook7907.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      calibration v7 (§7901): slope=${calibration.line()}\n" +
                 "      timing cortex v6 (§7900): ${try { CortexTiming7900.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      exit cortex v3 (§7897): ${try { CortexExit7897.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
