@@ -30,3 +30,14 @@ class Aate7936EntryBarsTest {
         assertTrue(LanePlaybook7907.noTriggerMeasured7936(mature))
     }
 }
+
+/** V5.0.7937 — scoring reflects the lane playbook. */
+class Aate7937PlaybookScoreTest {
+    @Test fun playbookScoreReadsExpectedReturnAndConfluence() {
+        assertEquals(50.0, LanePlaybook7907.scoreOf7937(0.0, 0), 1e-9)
+        assertEquals(60.0, LanePlaybook7907.scoreOf7937(1.0, 0), 1e-9)
+        assertEquals(66.0, LanePlaybook7907.scoreOf7937(1.0, 2), 1e-9)
+        assertEquals(0.0, LanePlaybook7907.scoreOf7937(-9.0, 0), 1e-9)
+        assertEquals(100.0, LanePlaybook7907.scoreOf7937(8.0, 5), 1e-9)
+    }
+}

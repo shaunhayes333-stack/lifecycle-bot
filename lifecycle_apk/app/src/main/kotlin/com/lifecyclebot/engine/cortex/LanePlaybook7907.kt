@@ -410,6 +410,27 @@ object LanePlaybook7907 {
         return true
     }
 
+    /**
+     * V5.0.7937 — the lane's playbook score for this candidate: the best fired
+     * setup's expected net return (learned record shrunk to its prior), on the
+     * score scale (50 = break-even, +10 per expected point, +3 per extra setup
+     * that also fired), or null when only NO_TRIGGER applies or the lane has no
+     * playbook. Scoring reflects what the lane trades, not the generic V3 read.
+     */
+    fun playbookScore7937(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Double? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) null else {
+            val also = matchCache["${ts.mint}|$lane"].orEmpty().count { it != setup }
+            val exp = synchronized(this) { expected(lane, setup) }
+            scoreOf7937(exp, also)
+        }
+    } catch (_: Throwable) { null }
+
+    /** Pure: expected net % and confluence → score (0..100). */
+    fun scoreOf7937(expectedPct: Double, extraSetups: Int): Double =
+        (50.0 + 10.0 * expectedPct + 3.0 * extraSetups.coerceIn(0, 5)).coerceIn(0.0, 100.0)
+
     /** Pure: V5.0.7936 — does the lane have a mature NO_TRIGGER record to judge by? */
     fun noTriggerMeasured7936(st: CortexLedger7885.Stat?): Boolean = st != null && st.n >= NONE_PROOF_N
 

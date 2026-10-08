@@ -974,10 +974,22 @@ object FinalDecisionGate {
      * V5.0.7932 — the generic V3 score floor is a prior; a launch in a cell the
      * fresh-launch ladder has PROVEN (measured, net of cost) is not refused by it.
      */
-    private fun ladderProvenAdmit7932(ts: TokenState): Boolean {
-        val proven = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.ladderProven7932(ts)
-        if (proven) try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_OVERRULED_BY_LADDER_7932") } catch (_: Throwable) {}
-        return proven
+    /**
+     * V5.0.7937 — scoring reflects the lane's playbook: a candidate whose lane
+     * playbook scores it at or above the WAIT bar (a fired setup with a positive
+     * expected record) is not refused by the generic V3 floor; neither is a
+     * ladder-proven launch (7932). NO_TRIGGER and losing setups leave the floor in force.
+     */
+    private fun playbookClearsFloor7937(ts: TokenState, lane: String, waitFloor: Double): Boolean {
+        if (com.lifecyclebot.engine.truth.FreshLaunchSelector7737.ladderProven7932(ts)) {
+            try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_OVERRULED_BY_LADDER_7932") } catch (_: Throwable) {}
+            return true
+        }
+        val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookScore7937(ts, lane) ?: return false
+        // A positive expected record (score above the 50 break-even) and at least the WAIT bar.
+        val clears = pb > 50.0 && pb >= waitFloor
+        if (clears) try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_PLAYBOOK_SCORE_7937_$lane") } catch (_: Throwable) {}
+        return clears
     }
 
     private fun cortexPaperChoice7915(
@@ -1339,7 +1351,7 @@ object FinalDecisionGate {
         val weakWaitPromotion7243 =
             !laneOwnScoreAdmitted7292 &&
                 baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && effectiveEntryScore7292 < waitFloor7266
-        if ((belowCanonicalFloor7243 || weakWaitPromotion7243) && !ladderProvenAdmit7932(ts)) {
+        if ((belowCanonicalFloor7243 || weakWaitPromotion7243) && !playbookClearsFloor7937(ts, floorLane7266, waitFloor7266)) {
             val reason7243 = if (belowCanonicalFloor7243) {
                 "CANONICAL_V3_SCORE_FLOOR_7243"
             } else {
