@@ -57,7 +57,8 @@ object InventoryPressureGovernor6829 {
             if (open.size > n) {
                 PipelineHealthCollector.labelInc("LIVE_INVENTORY_PAPER_ROWS_EXCLUDED_7432")
                 PipelineHealthCollector.labelInc("LIVE_INVENTORY_ALLMODE_AUTHORITY_REFUSED_7432")
-                PipelineHealthCollector.labelInc("LIVE_INVENTORY_AUTH_DIVERGENCE_7432")
+                // V5.0.7876 — excluding paper rows from a LIVE count is the filter
+                // working, not a divergence (5.0.7875 reported 4,724 of them as one).
             }
         } catch (_: Throwable) {}
         return n

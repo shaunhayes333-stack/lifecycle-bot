@@ -852,8 +852,11 @@ object GlobalTradeRegistry {
         isEstimatedLiquidity: Boolean = false,
     ): Boolean {
         if (mint.isBlank()) return false
-        if (activePositions.containsKey(mint)) {
-            ErrorLogger.debug(TAG, "🛡️ probation demote BLOCKED for $mint — active position open (reason=$reason)")
+        // V5.0.7876 — held anywhere (incl. canonical inventory), not only activePositions:
+        // callers remove the TokenState when this returns true.
+        if (isMintHeldAnywhere(mint)) {
+            ErrorLogger.debug(TAG, "🛡️ probation demote BLOCKED for $mint — position held (reason=$reason)")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROBATION_DEMOTE_REFUSED_HELD_7876") } catch (_: Throwable) {}
             return false
         }
         val entry = watchlist.remove(mint) ?: return false
@@ -1253,6 +1256,14 @@ object GlobalTradeRegistry {
         } catch (_: Throwable) {}
         try {
             if (com.lifecyclebot.engine.HostWalletTokenTracker.hasOpenPosition(mint)) return true
+        } catch (_: Throwable) {}
+        // V5.0.7876 — canonical protective inventory is the authority on what the
+        // bot holds. A held canonical row whose TokenState had been reset still
+        // passed this check, so watchlist demotion/pruning removed its TokenState
+        // and the risk clock read RISK_CLOCK_BLOCKED_7001_NO_TOKEN_STATE.
+        try {
+            if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807()
+                    .any { it.mint == mint || it.mint.removePrefix("solana|") == mint }) return true
         } catch (_: Throwable) {}
         return false
     }

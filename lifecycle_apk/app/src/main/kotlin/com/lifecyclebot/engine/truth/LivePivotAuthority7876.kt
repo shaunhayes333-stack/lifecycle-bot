@@ -82,6 +82,9 @@ object LivePivotAuthority7876 {
         )
     }
 
+    /** The lane's own evidence verdict (cached boards, 30 s). */
+    fun laneVerdict(lane: String, nowMs: Long = System.currentTimeMillis()): Evidence = verdict(evidenceFor(lane, nowMs))
+
     /** Live refusal for [lane] while a loss limit is breached, or null. Paper is never refused. */
     fun liveRefusal(lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         if (paper) return null

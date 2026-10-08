@@ -34,8 +34,16 @@ class BotService : Service() {
         // safeguard remains: live manipulation buying stays disabled until separately
         // promoted by an explicit live contract.
         private const val MANIPULATED_LIVE_BUYER_7395 = false
+        // V5.0.7876 — the "explicit live contract" is the lane's own evidence: live
+        // MANIPULATED buying opens only when its record proves positive under
+        // LivePivotAuthority7876 (live closes, forward labels net of one SE, or a
+        // 30-close paper record above the cost margin). Until then it trades paper.
         fun manipulatedBuyerEnabled7609(): Boolean =
-            try { RuntimeModeAuthority.isPaper() || MANIPULATED_LIVE_BUYER_7395 }
+            try {
+                RuntimeModeAuthority.isPaper() || MANIPULATED_LIVE_BUYER_7395 ||
+                    com.lifecyclebot.engine.truth.LivePivotAuthority7876.laneVerdict("MANIPULATED") ==
+                    com.lifecyclebot.engine.truth.LivePivotAuthority7876.Evidence.PROVEN
+            }
             catch (_: Throwable) { MANIPULATED_LIVE_BUYER_7395 }
 
         // V5.9.1355 P0.3 — WAIT-override dust-probe controls.
