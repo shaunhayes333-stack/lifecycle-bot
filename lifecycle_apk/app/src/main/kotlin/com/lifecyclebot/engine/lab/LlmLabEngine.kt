@@ -71,6 +71,9 @@ object LlmLabEngine {
 
     private val canonicalExternalIds6486 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /** Allows the finalized bus to treat idempotent retries as successful delivery. */
+    fun hasCanonicalOutcome6486(positionId: String): Boolean = canonicalExternalIds6486.contains(positionId)
+
     fun recordCanonicalOutcome6486(
         positionId: String, lane: String, tactic: String, pnlPct: Double,
         pnlSol: Double, paper: Boolean,
