@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.sell
 
+import com.lifecyclebot.engine.PipelineHealthCollector
+
 import com.lifecyclebot.engine.ForensicLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
