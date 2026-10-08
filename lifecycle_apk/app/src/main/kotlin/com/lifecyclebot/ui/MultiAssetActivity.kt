@@ -651,13 +651,23 @@ class MultiAssetActivity : AppCompatActivity() {
                 // User manually stopped — persist so auto-follow won't restart them even after reopen
                 userManuallyStopped = true
                 marketsPrefs.edit().putBoolean("user_manually_stopped", true).apply()
-                // V5.9.5: Close ALL open positions before stopping engines
-                try { TokenizedStockTrader.closeAllPositions() } catch (_: Exception) {}
-                try { CommoditiesTrader.closeAllPositions() } catch (_: Exception) {}
-                try { MetalsTrader.closeAllPositions() } catch (_: Exception) {}
-                try { ForexTrader.closeAllPositions() } catch (_: Exception) {}
-                try { CryptoAltTrader.closeAllPositions() } catch (_: Exception) {}
-                try { PerpsExecutionEngine.closeAllPositions() } catch (_: Exception) {}
+                // V5.9.5: Close ALL open positions before stopping engines.
+                // V5.0.7884 — Cortex Phase 0 (Concurrency C2), mirroring rule 7433:
+                // closes follow each position's own flag, so a stop pressed while the
+                // runtime is PAPER was selling LIVE forex/metals/stock/perps on-chain.
+                // A paper-runtime stop now keeps every position; only a live-runtime
+                // stop liquidates.
+                val liquidate7884 = try {
+                    !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                } catch (_: Throwable) { false }
+                if (liquidate7884) {
+                    try { TokenizedStockTrader.closeAllPositions() } catch (_: Exception) {}
+                    try { CommoditiesTrader.closeAllPositions() } catch (_: Exception) {}
+                    try { MetalsTrader.closeAllPositions() } catch (_: Exception) {}
+                    try { ForexTrader.closeAllPositions() } catch (_: Exception) {}
+                    try { CryptoAltTrader.closeAllPositions() } catch (_: Exception) {}
+                    try { PerpsExecutionEngine.closeAllPositions() } catch (_: Exception) {}
+                }
                 // Stop all Markets traders
                 TokenizedStockTrader.stop()
                 CommoditiesTrader.stop()

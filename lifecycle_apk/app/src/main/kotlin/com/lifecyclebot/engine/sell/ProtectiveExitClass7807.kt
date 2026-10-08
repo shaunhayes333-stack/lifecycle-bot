@@ -124,7 +124,12 @@ object ProtectiveExitClass7807 {
         r == "STOP" || r.contains("STRICT_SL") || r.contains("STOP_LOSS") || r.contains("STOP LOSS") ||
             r.contains("STOPLOSS") || r.contains("HARD_STOP") || r.contains("HARD_FLOOR") ||
             r.contains("HARD_15PCT_SL") || r.contains("HARD_SL") ||
-            r.contains("STRUCTURE_STOP_7739") || r.contains("MODE_EXIT_STOP_7744")
+            r.contains("STRUCTURE_STOP_7739") || r.contains("MODE_EXIT_STOP_7744") ||
+            // V5.0.7884 — Cortex Phase 0: real loss exits that resolved to NONE and so
+            // got the normal retry spacing, no emergency slippage, and could not
+            // pre-empt a sell already in flight.
+            r.contains("FLUID_FLOOR") || r.contains("EARLY_CUT") || r.contains("STALE_PRICE_FORCED") ||
+            r.contains("COLLAPSED_RISK_EXIT") || r.contains("CIRCUIT_BREAKER")
 
     /** B3 — the one shared emergency bypass class (ranks 1-3). */
     fun isEmergency(reason: String?): Boolean = of(reason).rank <= Priority.HARD_SL.rank

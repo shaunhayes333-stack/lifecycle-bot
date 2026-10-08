@@ -3591,8 +3591,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4206: ChopFilter must be revived as FDG score shaping, not intake hard veto", botService4206.contains("CHOP_FILTER_SOFT_SHAPED_4206") && botService4206.contains("laneQualifiedBuyDecision") && botService4206.contains("base.copy(entryScore = (base.entryScore - chopPenalty).coerceAtLeast(0.0))") && botService4206.contains("val sourceForChop = try { status.tokens[mintForProbe]?.source"))
         assertTrue("V5.0.4206: ChopFilter must not hard-return or purge candidates from intake", botService4206.contains("action=fdg_score_penalty") && botService4206.contains("no purge, no slot removal"))
         val executor4207 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.4207: SellOptimizationAI recordExitOutcome must be fed from terminal trade finality", executor4207.contains("SellOptimizationAI.recordExitOutcome") && executor4207.contains("ledgerAllowsClosedLearning && accountingTrainable") && executor4207.contains("SELL_OPTIMIZATION_OUTCOME_LEARNED_4207"))
-        assertTrue("V5.0.4207: SellOptimizationAI outcome learning must stay off the hot path", executor4207.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && executor4207.contains("wouldHaveBeenProxy"))
+        // V5.0.7884 — Cortex Phase 0 (Learning F6): the in-hold peak/low proxy inverted the
+        // label; SellOptimizationAI is now fed by ExitRegret7752 with the real after-exit price.
+        val regret7884 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExitRegret7752.kt").readText()
+        assertTrue("V5.0.7884: SellOptimizationAI recordExitOutcome must be fed the measured after-exit price", regret7884.contains("SellOptimizationAI.recordExitOutcome(") && regret7884.contains("wouldHaveBeen = hold"))
+        assertFalse("V5.0.7884: the inverted in-hold excursion proxy must not return", executor4207.contains("wouldHaveBeenProxy"))
         val learningPersistence4208 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
         val sellOpt4208 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SellOptimizationAI.kt").readText()
         val narrative4208 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MemeNarrativeAI.kt").readText()
@@ -14471,7 +14474,7 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("if (offRouteLossCorroborated7759(ts.mint, livePrice, pos.entryPrice, onRouteAgeMs)) return livePrice"))
         val helper = ex.substringAfter("private fun offRouteLossCorroborated7759(").substringBefore("\n    }\n")
         assertTrue(helper.contains("ForwardReturnLabeler7731.basisSuspect7738(entryPrice, livePrice)"))
-        assertTrue(helper.contains("val silent = onRouteAgeMs >= 180_000L"))
+        assertTrue(helper.contains("val silent = onRouteAgeMs >= 60_000L")) // V5.0.7884 — was 180 s
         assertTrue(ex.contains("SWEEP_TP_DEFERRED_TO_PLAN_7759"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("val peakDrawdown = lockBreached && com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) == null"))

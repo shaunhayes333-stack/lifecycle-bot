@@ -2937,6 +2937,9 @@ object PipelineHealthCollector {
             sb.append("  Exit regret (§7752):          ").append(
                 try { com.lifecyclebot.engine.truth.ExitRegret7752.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Cortex Phase 0 (§7884):       ").append(
+                try { com.lifecyclebot.engine.truth.CortexPhase0Status7884.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Trade shape (§7883):          ").append(
                 try { com.lifecyclebot.engine.truth.TradeShapeLearner7883.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

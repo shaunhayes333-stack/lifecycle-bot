@@ -80,6 +80,17 @@ object RemoteKillSwitch {
      * @param onKillSwitch Callback when kill switch is activated
      * @param onMessage Callback when a new message is received
      */
+    /**
+     * V5.0.7884 — Cortex Phase 0 (Config F1): startPolling had no caller, so a
+     * remote kill set in the operator's hosted JSON stopped nothing. KillSwitch
+     * starts it on bot start; a repeat call with the same URL is a no-op.
+     */
+    fun ensurePolling7884(url: String, intervalMs: Long) {
+        val u = url.trim()
+        if (u.isBlank() || (u == configUrl && pollingJob?.isActive == true)) return
+        startPolling(u, intervalMs.coerceAtLeast(15_000L))
+    }
+
     fun startPolling(
         url: String,
         intervalMs: Long = 60_000L,

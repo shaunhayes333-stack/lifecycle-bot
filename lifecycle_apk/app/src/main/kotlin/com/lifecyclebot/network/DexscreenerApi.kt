@@ -77,6 +77,15 @@ class DexscreenerApi {
     private val pairCache = java.util.concurrent.ConcurrentHashMap<String, CachedPair>()
     private val CACHE_TTL_MS = 45_000L  // 45 seconds cache (was 15) - reduce API calls
 
+    /**
+     * V5.0.7884 — Cortex Phase 0 (Marks C1): how old the Solana pair this
+     * instance would serve for [mint] is (Long.MAX_VALUE when not cached).
+     * getBestPair can return a cached pair up to 45 s old (135 s when rate
+     * limited); a caller that stamps "now" on it must check this first.
+     */
+    fun pairAgeMs7884(mint: String): Long =
+        pairCache["solana|$mint"]?.let { (System.currentTimeMillis() - it.timestamp).coerceAtLeast(0L) } ?: Long.MAX_VALUE
+
     /** Returns the best-scoring pair for this mint on Solana, or null. */
     // V5.0.6946 — DexPaprika removed (HTTP 402, paid product). Never routed to.
     fun getBestPair(mint: String): PairInfo? = getBestPairInternal("solana", mint, allowDexPaprika = false)

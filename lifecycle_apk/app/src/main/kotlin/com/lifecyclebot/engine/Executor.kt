@@ -889,7 +889,10 @@ class Executor(
             else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
         } catch (_: Throwable) { null }
         val agrees = reg != null && kotlin.math.abs(reg / livePrice - 1.0) <= 0.30
-        val silent = onRouteAgeMs >= 180_000L
+        // V5.0.7884 — Cortex Phase 0 (Marks C2): was 180 s, during which a real
+        // crash read as 0% (entry price) on a live position. One minute of a dark
+        // on-route feed is long enough to rule out a single bad off-route print.
+        val silent = onRouteAgeMs >= 60_000L
         if (!agrees && !silent) return false
         try { PipelineHealthCollector.labelInc(if (agrees) "ROUTE_LOCK_LOSS_CORROBORATED_7759" else "ROUTE_LOCK_LOSS_ONROUTE_SILENT_7759") } catch (_: Throwable) {}
         return true
@@ -2564,6 +2567,15 @@ class Executor(
     // ── position sizing ───────────────────────────────────────────────
 
     /**
+     * V5.0.7884 — Cortex Phase 0 (Sizing S4). A row's own mode decides; the
+     * position flag is consulted only when the row has none. Position() defaults
+     * to isPaperPosition=true, so a LIVE row recorded after ts.position was reset
+     * was labelled PAPER_SIMULATED and fed to the learners as paper.
+     */
+    private fun isPaperRow7884(mode: String, ts: TokenState): Boolean =
+        if (mode.isNotBlank()) mode.equals("paper", true) else ts.position.isPaperPosition
+
+    /**
      * Smart position sizing — delegates to SmartSizer.
      * Size scales with wallet balance, conviction, win rate, and drawdown.
      * Returns 0.0 if sizing conditions block the trade (drawdown circuit breaker etc.)
@@ -3139,6 +3151,45 @@ class Executor(
             )
         }
         return result
+    }
+
+    // ── V5.0.7884 — Cortex Phase 0 (Accounting F1/F3) ──
+    // The live profit-lock / capital-recovery partial did its own maths and never
+    // reduced the canonical position, so the whole-position outcome left this
+    // leg's proceeds out (runners that banked profit could book as losses) and
+    // the only duplicate guard was recordTrade's signature claim. It now commits
+    // through the same canonical slice authority as every other live partial
+    // (signature-idempotent), falling back to the legacy maths only when no
+    // canonical proof is available, so a sold slice is never left unbooked.
+    private val profitLockProofs7884 = java.util.concurrent.ConcurrentHashMap<String, TradeVerifier.SellResult>()
+
+    private fun keepProofLamports7884(mint: String, proof: TradeVerifier.SellResult): Long {
+        profitLockProofs7884[mint] = proof
+        return proof.solReceivedLamports
+    }
+
+    private data class ProfitLockSlice7884(
+        val pnlSol: Double, val pnlPct: Double, val netPnlSol: Double, val feeSol: Double,
+        val newQty: Double, val newCost: Double,
+    )
+
+    private fun profitLockSlice7884(
+        ts: TokenState, pos: Position, sellQty: Double, sellFraction: Double, solBack: Double, reason: String,
+    ): ProfitLockSlice7884 {
+        val proof = profitLockProofs7884.remove(ts.mint)
+        if (proof != null && sellFraction < 0.999) {
+            val settled = try { commitVerifiedLiveSlice7835(ts, proof, reason) } catch (_: Throwable) { null }
+            if (settled != null) {
+                try { PipelineHealthCollector.labelInc("PROFIT_LOCK_CANONICAL_SLICE_7884") } catch (_: Throwable) {}
+                val r = settled.realizedPnl
+                return ProfitLockSlice7884(r.realizedPnlSol, r.realizedPnlPct, r.realizedPnlSol, 0.0,
+                    ts.position.qtyToken, ts.position.costSol)
+            }
+            try { PipelineHealthCollector.labelInc("PROFIT_LOCK_CANONICAL_SLICE_UNAVAILABLE_7884") } catch (_: Throwable) {}
+        }
+        val a = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, "profitLock")
+        return ProfitLockSlice7884(a.pnlSol, a.pnlPct, a.netPnlSol, a.feeSol,
+            pos.qtyToken - sellQty, pos.costSol * (1.0 - sellFraction))
     }
 
     private data class LiveSellAccounting(
@@ -4292,7 +4343,7 @@ class Executor(
             ?: 0.0
         val proofStateForJournal4502 = trade.proofState.ifBlank {
             val sideU = trade.side.uppercase()
-            val isPaper = trade.mode.equals("paper", true) || ts.position.isPaperPosition
+            val isPaper = isPaperRow7884(trade.mode, ts)
             when {
                 isPaper -> "PAPER_SIMULATED"
                 (sideU == "SELL" || sideU == "PARTIAL_SELL") && trade.sig.isNotBlank() -> "LIVE_FINALIZED"
@@ -4835,7 +4886,7 @@ class Executor(
                 val resultPnlSol6078 = tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol
                 val resultTrainable6078 = accountingTrainable && rowLearningAdmitted4349
                 val resultAccepted6078 = ledgerAllowsClosedLearning
-                val resultIsPaper6078 = tradeWithMint.mode.equals("paper", true) || ts.position.isPaperPosition
+                val resultIsPaper6078 = isPaperRow7884(tradeWithMint.mode, ts)
                 // V5.0.6078 — ALL-RESULT OBSERVABILITY FANOUT. Policy heads still
                 // train only on accepted/sane rows below, but LLM/SSI/meta-cog context
                 // must see every sell-like result with accepted/trainable flags so
@@ -4902,56 +4953,10 @@ class Executor(
         } catch (_: Throwable) {}
 
         // V5.9.994 — ML TRAINING LOOP (Doctrine #4 — mature WR requires the
-        // V5.0.4207 — SellOptimizationAI.recordExitOutcome was a dead feedback edge.
-        // registerPosition/evaluate/closePosition were wired, but the strategy win-rate
-        // learner never received terminal outcomes. Feed it from the same idempotent
-        // closed-learning gate used by ML/KillSwitch: terminal SELL only, not partials,
-        // not recovered scratch, not invalid accounting. `wouldHaveBeen` is a bounded
-        // excursion proxy (peak for winners, low-water for losers) until a delayed +5m
-        // labeler exists; this is advisory learning only and never blocks exit finality.
-        try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
-                val sellOptTrade = tradeWithMint
-                val posEntryPrice = ts.position.entryPrice
-                val posPeakPrice = ts.position.highestPrice
-                val posLowPrice = ts.position.lowestPrice
-                val holdMins = if (sellOptTrade.entryTsMs > 0L) ((sellOptTrade.ts - sellOptTrade.entryTsMs) / 60_000L).toInt().coerceAtLeast(0) else 0
-                val wouldHaveBeenProxy = try {
-                    when {
-                        sellOptTrade.pnlPct >= 0.0 && posEntryPrice > 0.0 && posPeakPrice > 0.0 -> {
-                            val peakPct = ((posPeakPrice - posEntryPrice) / posEntryPrice) * 100.0
-                            maxOf(sellOptTrade.pnlPct, peakPct)
-                        }
-                        sellOptTrade.pnlPct < 0.0 && posEntryPrice > 0.0 && posLowPrice > 0.0 -> {
-                            val lowPct = ((posLowPrice - posEntryPrice) / posEntryPrice) * 100.0
-                            minOf(sellOptTrade.pnlPct, lowPct)
-                        }
-                        else -> sellOptTrade.pnlPct
-                    }
-                } catch (_: Throwable) { sellOptTrade.pnlPct }
-                val sellOptStrategy = when {
-                    sellOptTrade.reason.contains("stop", true) || sellOptTrade.reason.contains("risk", true) || sellOptTrade.reason.contains("rug", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.STOP_LOSS
-                    sellOptTrade.reason.contains("profit_lock", true) || sellOptTrade.reason.contains("trailing", true) || sellOptTrade.reason.contains("runner", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.TRAILING_LOCK
-                    sellOptTrade.reason.contains("time", true) || sellOptTrade.reason.contains("stale", true) || sellOptTrade.reason.contains("maxhold", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.TIME_DECAY_EXIT
-                    sellOptTrade.reason.contains("whale", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.WHALE_EXIT
-                    sellOptTrade.reason.contains("learn", true) || sellOptTrade.reason.contains("fluid", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.LEARNED_EXIT
-                    sellOptTrade.reason.contains("momentum", true) || sellOptTrade.reason.contains("take_profit", true) || sellOptTrade.reason.contains("sweep", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.MOMENTUM_EXIT
-                    else -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.FULL_EXIT
-                }
-                GlobalScope.launch(AppDispatchers.sideEffect) {
-                    try {
-                        com.lifecyclebot.v3.scoring.SellOptimizationAI.recordExitOutcome(
-                            strategy = sellOptStrategy,
-                            exitPnlPct = sellOptTrade.pnlPct,
-                            wouldHaveBeen = wouldHaveBeenProxy,
-                            tokenType = sellOptTrade.tradingMode.ifBlank { "STANDARD" },
-                            holdTimeMinutes = holdMins,
-                        )
-                        try { PipelineHealthCollector.labelInc("SELL_OPTIMIZATION_OUTCOME_LEARNED_4207") } catch (_: Throwable) {}
-                    } catch (_: Throwable) {}
-                }
-            }
-        } catch (_: Throwable) {}
+        // V5.0.7884 — Cortex Phase 0 (Learning F6): SellOptimizationAI was fed the
+        // in-hold peak/low as "what holding would have returned", which marked every
+        // profitable exit not-optimal and nearly every losing exit optimal. It is now
+        // fed by ExitRegret7752.tick with the real price after the exit.
 
         // V5.0.4241 — ASI/A18/A19 terminal-outcome fanout.
         // Feed the new SemanticPatternGraph and CounterfactualReplayEngine from
@@ -7499,7 +7504,7 @@ class Executor(
                 }
                 when (vsr?.outcome) {
                     TradeVerifier.Outcome.LANDED -> {
-                        verifiedSolReceived = vsr.solReceivedLamports
+                        verifiedSolReceived = keepProofLamports7884(ts.mint, vsr)
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_TX_PARSE_OK,
@@ -7779,14 +7784,14 @@ class Executor(
                 }
             }
 
-            val profitLockAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, "profitLock")
+            val profitLockAcct = profitLockSlice7884(ts, pos, sellQty, sellFraction, solBack, reason)
             val pnlSol = profitLockAcct.pnlSol
             val pnlPct = profitLockAcct.pnlPct
             val netPnl = profitLockAcct.netPnlSol
             val feeSol = profitLockAcct.feeSol
             
-            val newQty = pos.qtyToken - sellQty
-            val newCost = pos.costSol * (1.0 - sellFraction)
+            val newQty = profitLockAcct.newQty
+            val newCost = profitLockAcct.newCost
             
             val isCapitalRecovery = reason.contains("capital_recovery")
             val realizedCapitalRecovery4585 = isCapitalRecovery && pos.costSol > 0.0 && solBack >= pos.costSol * 0.98 && netPnl >= -0.000_001
@@ -21918,10 +21923,28 @@ class Executor(
         } catch (_: Throwable) { null }
     }
 
+    /**
+     * V5.0.7884 — Cortex Phase 0 (Marks C2): the mark the live exit classifier
+     * may use. ts.lastPrice had no age check, so a stale print set severity and
+     * giveback. Fresh tick, else a fresh canonical mark, else entry (0% — unknown
+     * is neutral; the reason keywords still classify).
+     */
+    private fun liveExitMark7884(ts: TokenState): Double {
+        val now = System.currentTimeMillis()
+        if (ts.lastPrice > 0.0 && ts.lastPrice.isFinite() && now - ts.lastPriceUpdate <= 60_000L) return ts.lastPrice
+        val reg = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)
+                ?.takeIf { now - it.timestampMs <= 60_000L }?.priceUsd?.value?.toDouble()
+        } catch (_: Throwable) { null }
+        if (reg != null && reg.isFinite() && reg > 0.0) return reg
+        try { PipelineHealthCollector.labelInc("LIVE_EXIT_CLASSIFY_NO_FRESH_MARK_7884") } catch (_: Throwable) {}
+        return ts.position.entryPrice
+    }
+
     private fun classifyLiveExitIntent(ts: TokenState, reason: String): LiveExitIntent {
         val pos = ts.position
         val entry = pos.entryPrice
-        val px = ts.lastPrice.takeIf { it > 0.0 } ?: pos.entryPrice
+        val px = liveExitMark7884(ts)
         val rawPnlPct = if (entry > 0.0 && px > 0.0) ((px - entry) / entry) * 100.0 else 0.0
         val peakGainPct = maxOf(pos.peakGainPct, rawPnlPct)
         val givebackFromPeak = peakGainPct - rawPnlPct

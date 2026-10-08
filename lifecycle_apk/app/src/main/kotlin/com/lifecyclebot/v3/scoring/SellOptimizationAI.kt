@@ -507,6 +507,20 @@ object SellOptimizationAI {
     // RECORD OUTCOMES FOR LEARNING
     // ═══════════════════════════════════════════════════════════════════════════
     
+    /** V5.0.7884 — pure: the exit strategy a close reason belongs to (moved from Executor.recordTrade). */
+    fun strategyForReason7884(reason: String): ExitStrategy {
+        val r = reason.lowercase()
+        return when {
+            "stop" in r || "risk" in r || "rug" in r -> ExitStrategy.STOP_LOSS
+            "profit_lock" in r || "trailing" in r || "runner" in r -> ExitStrategy.TRAILING_LOCK
+            "time" in r || "stale" in r || "maxhold" in r -> ExitStrategy.TIME_DECAY_EXIT
+            "whale" in r -> ExitStrategy.WHALE_EXIT
+            "learn" in r || "fluid" in r -> ExitStrategy.LEARNED_EXIT
+            "momentum" in r || "take_profit" in r || "sweep" in r -> ExitStrategy.MOMENTUM_EXIT
+            else -> ExitStrategy.FULL_EXIT
+        }
+    }
+
     /**
      * Record the outcome of an exit for future learning.
      */

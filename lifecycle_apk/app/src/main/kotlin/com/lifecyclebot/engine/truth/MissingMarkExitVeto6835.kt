@@ -160,7 +160,11 @@ object MissingMarkExitVeto6835 {
         val independentSafety = listOf("MANUAL", "RUG", "LIQ_DRAIN", "THIN_LIQ").any(reason::contains)
         val priceBased = !independentSafety && (
             STOP_LOSS_ALIAS_7836.containsMatchIn(reason) ||
-                listOf("STOP", "HARD_FLOOR", "CATASTROPH", "TRAIL", "TAKE_PROFIT", "PEAK_LOCK", "PROFIT_LOCK", "TARGET_HIT").any(reason::contains)
+                listOf("STOP", "HARD_FLOOR", "CATASTROPH", "TRAIL", "TAKE_PROFIT", "PEAK_LOCK", "PROFIT_LOCK", "TARGET_HIT",
+                    // V5.0.7884 — price-based siblings that sold on the same stale mark the
+                    // veto refuses for a stop. STALE_PRICE_FORCED stays exempt on purpose:
+                    // its trigger is the dark feed itself, not a price.
+                    "FLUID_FLOOR", "EARLY_CUT").any(reason::contains)
             )
         if (!priceBased) {
             allowCount.incrementAndGet()

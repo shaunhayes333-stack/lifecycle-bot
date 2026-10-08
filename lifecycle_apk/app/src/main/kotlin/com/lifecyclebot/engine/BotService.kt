@@ -29,6 +29,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BotService : Service() {
 
     companion object {
+        // V5.0.7884 — intake rug window bounds (Cortex Phase 0, Marks H1).
+        private const val RUG_WINDOW_MAX_MS_7884 = 10L * 60_000L
+        private const val RUG_NEWEST_MAX_AGE_MS_7884 = 120_000L
         // V5.0.7615 — MANIPULATED paper execution is restored so the lane can
         // learn and prove itself like the other 11 specialists. The 7395 live-money
         // safeguard remains: live manipulation buying stays disabled until separately
@@ -9437,6 +9440,55 @@ class BotService : Service() {
         return dust
     }
 
+    /**
+     * V5.0.7884 — Cortex Phase 0 (Config F2). rehydrateTokenStateFromTracker
+     * builds a fresh live TokenState but stores it with putIfAbsent, so when the
+     * mint was already in the store the wallet holding got no exit monitor while
+     * the heal still counted, and the old caller's copy(isPaperPosition=false)
+     * was a paper->live promotion waiting to happen. Now: the stored entry is the
+     * one that matters. An open PAPER position there is a conflict (logged, not
+     * promoted); a stored entry with no open position adopts the wallet-backed
+     * live position so the holding is actually monitored.
+     */
+    /**
+     * V5.0.7884 — Cortex Phase 0 (Marks H1). The intake rug check compared the
+     * newest candle to the one six back by POSITION, with no time check — a
+     * candle from hours ago (ChartHistoryFetcher seeds one 24 h back) or from
+     * before a price-basis switch read as a "-90% collapse", which with a
+     * liquidity conflict permanently blacklists the token and teaches the rug
+     * memory. The older price is used only when the six-candle window spans at
+     * most RUG_WINDOW_MAX_MS_7884 and the newest candle is fresh; otherwise the
+     * recent price is returned, i.e. no drop is claimed.
+     */
+    private fun rugOlderPrice7884(history: List<Candle>, recentPrice: Double): Double {
+        val w = history.toList().takeLast(6)
+        val older = w.firstOrNull() ?: return recentPrice
+        val newest = w.last()
+        val now = System.currentTimeMillis()
+        if (newest.ts - older.ts !in 0L..RUG_WINDOW_MAX_MS_7884 || now - newest.ts > RUG_NEWEST_MAX_AGE_MS_7884) {
+            try { PipelineHealthCollector.labelInc("RUG_INTAKE_WINDOW_STALE_SKIPPED_7884") } catch (_: Throwable) {}
+            return recentPrice
+        }
+        return older.priceUsd
+    }
+
+    private fun adoptHealedLive7884(mint: String, built: TokenState): Boolean {
+        val stored = synchronized(status.tokens) { status.tokens[mint] } ?: return false
+        if (stored === built) return true
+        synchronized(stored) {
+            val p = stored.position
+            if (p.isOpen && p.isPaperPosition) {
+                try { ForensicLogger.lifecycle("LIVE_HEAL_CONFLICT_OPEN_PAPER_7884", "mint=${mint.take(12)} action=not_promoted") } catch (_: Throwable) {}
+                return false
+            }
+            if (p.isOpen) return true
+            stored.position = built.position
+            stored.source = built.source
+        }
+        try { ForensicLogger.lifecycle("LIVE_HEAL_ADOPTED_INTO_STORED_7884", "mint=${mint.take(12)}") } catch (_: Throwable) {}
+        return true
+    }
+
     private fun rehydrateTokenStateFromTracker(
         mint: String,
         symbolHint: String,
@@ -9577,15 +9629,7 @@ class BotService : Service() {
                     continue
                 }
                 val ts = rehydrateTokenStateFromTracker(mint, sym, bal)
-                if (ts != null) {
-                    // ensure flagged open + live so the exit monitor/hotExit picks it up
-                    if (!ts.position.isOpen || ts.position.isPaperPosition) {
-                        synchronized(ts) {
-                            ts.position = ts.position.copy(isPaperPosition = false)
-                        }
-                    }
-                    healed++
-                }
+                if (ts != null && adoptHealedLive7884(mint, ts)) healed++
             } catch (e: Throwable) {
                 ErrorLogger.warn("BotService", "heal mint ${mint.take(10)} failed: ${e.message?.take(60)}")
             }
@@ -25862,7 +25906,7 @@ if (hotExitHandledSweep) {
             } ?: recentLiq
             
             val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
-            val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
+            val olderPrice = rugOlderPrice7884(ts.history, recentPrice)
             
             // V5.0.3893 — CONFIRMED DATA ONLY for intake rug blacklists.
             // Screenshots showed repeated BLACKLIST_SHADOW "Rug detected: price -96%"

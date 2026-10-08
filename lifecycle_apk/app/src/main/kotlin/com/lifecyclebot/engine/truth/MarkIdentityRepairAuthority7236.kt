@@ -194,6 +194,9 @@ object MarkIdentityRepairAuthority7236 {
         }
     }
 
+    /** V5.0.7884 — when the executable quote behind getExecutablePriceIfFresh7301 was observed. */
+    fun executableObservedAtMs7884(mint: String): Long = executable7301[mint]?.tsMs ?: 0L
+
     fun getExecutablePriceIfFresh7301(mint: String): Double? {
         val e = executable7301[mint] ?: return null
         if (System.currentTimeMillis() - e.tsMs > EXEC_FRESH_MS_7301) return null

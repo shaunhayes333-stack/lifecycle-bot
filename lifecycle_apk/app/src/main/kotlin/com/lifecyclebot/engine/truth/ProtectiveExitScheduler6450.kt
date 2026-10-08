@@ -301,6 +301,7 @@ object ProtectiveExitScheduler6450 {
         val epoch = System.currentTimeMillis()
         val latch = Latch(positionId, epoch, kind, mark, epoch, quoteAgeMs)
         var advanced7835 = false
+        var escalated7884 = false
         val effective7835 = latches.compute(positionId) { _, old ->
             fun priority(k: TriggerKind) = when (k) {
                 TriggerKind.CATASTROPHE -> 4
@@ -310,6 +311,7 @@ object ProtectiveExitScheduler6450 {
             }
             if (old == null || priority(kind) > priority(old.kind)) {
                 advanced7835 = true
+                escalated7884 = old != null
                 latch
             } else old
         }!!
@@ -327,7 +329,10 @@ object ProtectiveExitScheduler6450 {
             // Without this seed, a stop latched by riskCheck would be dispatched
             // again by the very next 500ms clock tick, which is a duplicate sell
             // the old one-shot guard happened to prevent.
-            lastDispatchMs[positionId] = epoch
+            // V5.0.7884 — an ESCALATION (a catastrophe over an earlier stop latch)
+            // must not wait out the retry window the first latch seeded: clear the
+            // clock so the risk clock dispatches the higher class on its next tick.
+            if (escalated7884) lastDispatchMs.remove(positionId) else lastDispatchMs[positionId] = epoch
             when (kind) {
                 TriggerKind.STOP_LOSS -> stopsTriggered.incrementAndGet()
                 TriggerKind.CATASTROPHE -> catastrophesTriggered.incrementAndGet()

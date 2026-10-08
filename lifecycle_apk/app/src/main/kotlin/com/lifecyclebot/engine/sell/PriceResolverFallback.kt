@@ -55,6 +55,8 @@ object PriceResolverFallback {
 
     data class Resolved(val priceUsd: Double, val source: Source)
 
+    private const val FALLBACK_MAX_PAIR_AGE_MS_7884 = 10_000L
+
     /**
      * V5.0.6914 §COVERAGE_AND_ORDER_ARE_BOTH_THE_PROBLEM.
      *
@@ -156,7 +158,15 @@ object PriceResolverFallback {
         // the cache away and re-hit the network for a mint it had just priced).
         val candidates6914 = listOf(
             Candidate6914(Source.DEXSCREENER, "dexscreener", "DEXSCREENER") {
-                sharedDexscreener6894.getBestPair(mint)?.candle?.priceUsd ?: 0.0
+                val px = sharedDexscreener6894.getBestPair(mint)?.candle?.priceUsd ?: 0.0
+                // V5.0.7884 — Cortex Phase 0 (Marks C1): every price returned here is
+                // stamped as observed NOW by the caller. A cached pair older than
+                // FALLBACK_MAX_PAIR_AGE_MS_7884 is not a new observation: skip it and
+                // let the next live source answer.
+                if (px > 0.0 && sharedDexscreener6894.pairAgeMs7884(mint) > FALLBACK_MAX_PAIR_AGE_MS_7884) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PRICE_FALLBACK_STALE_DEX_PAIR_SKIPPED_7884") } catch (_: Throwable) {}
+                    0.0
+                } else px
             },
             Candidate6914(Source.JUPITER_PRICE, "jupiter", "JUPITER_PRICE") {
                 fetchJupiterLitePrice6914(mint)

@@ -266,6 +266,10 @@ object CanonicalPriceMarkRegistry6522 {
         priceUsd: Double,
         source: String,
         verifiedIdentity7424: Boolean = false,
+        // V5.0.7884 — Cortex Phase 0 (Marks C1): the time the price was OBSERVED.
+        // A quote up to 60 s old was stamped "now" into the EXIT_ECONOMIC slot that
+        // drives the risk clock and stops.
+        observedAtMs7884: Long = 0L,
     ): Boolean {
         if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0) return false
         if (!verifiedIdentity7424) {
@@ -282,7 +286,7 @@ object CanonicalPriceMarkRegistry6522 {
             baseMint = mint,
             quoteMint = "USD",
             source = source.ifBlank { "REPAIRED_EXIT_7418" },
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = observedAtMs7884.takeIf { it > 0L && it <= System.currentTimeMillis() } ?: System.currentTimeMillis(),
             priceUsd = PriceUsd(java.math.BigDecimal.valueOf(priceUsd)),
             liquidityUsd = null,
             purpose = CanonicalMarkPurpose6570.EXIT_ECONOMIC,

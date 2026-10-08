@@ -105,6 +105,11 @@ object CanonicalEntryAuthority6551 {
         com.lifecyclebot.engine.KillSwitch.checkEntry7835(candidate.mode.equals("PAPER", true))?.let {
             return blocked(candidate, venue, it)
         }
+        // V5.0.7884 — Cortex Phase 0 (Cross-asset F1): the memecoin spine honours a
+        // runtime pause in TradeAuthorizer; forex/metals/commodities/stocks never
+        // reached it, so a pause did not stop their live buys.
+        if (try { com.lifecyclebot.engine.RuntimeConfigOverlay.isTradingPaused() } catch (_: Throwable) { false })
+            return blocked(candidate, venue, "PREAUTH_BLOCK_RUNTIME_PAUSED_7884")
         if (candidate.assetId.isBlank()) return blocked(candidate, venue, "INVALID_CANONICAL_ASSET_ID")
         if (!candidate.price.isFinite() || candidate.price <= 0.0)
             return blocked(candidate, venue, "INVALID_OR_STALE_PRICE")

@@ -115,8 +115,8 @@ ShapeBook changes are binding for the lane that owns them. Generic layers may re
 | Build | Content | Status |
 |---|---|---|
 | 1 (5.0.7881) | Data economy: meter, tiered value-paced purse, stream sizing, bundle waste removed | pushed |
-| 2 | Trade-shape learner (§C) + lane-hint fix + double-count removal | next |
-| 3 | v1 Phase 0 data-truth items, verified against current code (marks, exit priority, accounting) | |
+| 2 (5.0.7883) | Trade-shape learner (§C) + lane-hint fix + double-count removal | pushed |
+| 3 (5.0.7884) | v1 Phase 0 data-truth items, verified against current code (marks, exit priority, accounting) — see §G | pushed |
 | 4 | v1 Phase 1: CandidateSnapshot (with cost/state per feature), Opinion, VoterRegistry, scoreboard — shadow | |
 | 5 | Progressive enrichment (§B next) on the snapshot | |
 | 6 | v1 Phase 2: OutcomeTruth + AuthorityLedger (calibration, correlation discount) | |
@@ -136,3 +136,25 @@ Each build is one green CI run on main, followed by a snapshot review.
 - **Paper:** the shadow book stays the paper surface while live; Cortex decides in paper in Build 8.
 - **Retiring voters:** zero-authority voters stay in shadow at the free tier only. They lose any paid data budget (§B.6).
 - **Collective (Turso):** a voter on other instances' LIVE rows only, deduplicated. Zero authority until calibrated.
+
+## G. Phase 0 as verified against 5.0.7883 (Build 3 = 5.0.7884)
+
+| Item | Finding in current code | 7884 |
+|---|---|---|
+| Marks C1 | Fallback chain served DexScreener pairs up to 45 s (135 s rate-limited) old, stamped "now"; repaired exit marks from 60 s-old quotes stamped "now" | Stale pairs skipped (>10 s); repaired marks carry their observation time |
+| Marks C2 | Live off-route loss locked to entry price for up to 180 s; exit classifier read `lastPrice` with no age check | Silence window 60 s; classifier uses a fresh tick, else a fresh canonical mark |
+| Marks H1 | Intake rug check compared candles by position (ChartHistoryFetcher seeds one 24 h back) → permanent blacklist | Window must span ≤10 min with newest ≤120 s |
+| Exits F1 | Catastrophe and hold-gate bypass already correct | No change |
+| Exits F5 | Escalation worked but waited one retry window | Escalation dispatches on the next tick |
+| Exits F2/F3 | ~14 stop authorities | Deferred to Build 9 (single exit authority) |
+| Exits F4 / NONE class | FLUID_FLOOR, EARLY_CUT sold on stale marks; five loss exits resolved to NONE | Veto covers them; they are HARD_SL. STALE_PRICE_FORCED stays veto-exempt by design |
+| Config F1 | RemoteKillSwitch never polled | Polled from KillSwitch init; live entries refuse while killed |
+| Sizing S4 | Row paper/live fell back to `Position()` default | The row's own mode decides |
+| Config F2 | Wallet heal could promote a stored paper position; watchlist entries left the holding unmonitored | Conflict logged, never promoted; empty entries adopt the live position |
+| Concurrency C2 | Markets stop in paper runtime sold live positions | Only a live-runtime stop liquidates |
+| Cross-asset F1 | Runtime pause not honoured by forex/metals/commodities/stocks | Pause refuses them. Executor seal check deferred |
+| Accounting F2 | Fixed (live receipts net of fees) | Paper zero-net edge left |
+| Accounting F1/F3 | Profit-lock partial bypassed the canonical slice | Commits through the canonical slice (signature-idempotent) |
+| Accounting F4 | Several recordTrade learners graded the last slice | Deferred to Build 6 (OutcomeTruth) |
+| Learning F1/F2 | LanePolicy shared paper/live cells | Paper cells keyed separately; live keeps its history |
+| Learning F6 | Exit-optimality label inverted | Fed by ExitRegret7752's after-exit price |

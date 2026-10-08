@@ -37,7 +37,8 @@ object ExitRegret7752 {
     private const val FETCH_GAP_MS_7752 = 20_000L
     private const val PERSIST_KEY_7752 = "EXIT_REGRET_7752"
 
-    private class Pending(val mint: String, val lane: String, val family: String, val realizedPct: Double, val exitPx: Double, val dueMs: Long)
+    private class Pending(val mint: String, val lane: String, val family: String, val realizedPct: Double, val exitPx: Double, val dueMs: Long,
+        val reason: String = "", val holdMin: Int = 0)
 
     private class Agg {
         var n = 0; var sumRealized = 0.0; var sumHold = 0.0; var sumAfter = 0.0; var holdBeat = 0
@@ -88,7 +89,8 @@ object ExitRegret7752 {
         if (exitPx == null) { noExitMark.incrementAndGet(); return }
         val entryMs = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         val due = maxOf(entryMs + HOLD_MS_7752, env.atMs + MIN_AFTER_CLOSE_MS_7752)
-        pending[env.tradeId] = Pending(env.mint, CanonicalLaneIdentity6506.canonical(env.lane), family(env.exitReason), env.realizedReturnPct, exitPx, due)
+        pending[env.tradeId] = Pending(env.mint, CanonicalLaneIdentity6506.canonical(env.lane), family(env.exitReason), env.realizedReturnPct, exitPx, due,
+            env.exitReason, (env.holdingTimeMs.coerceAtLeast(0L) / 60_000L).toInt())
         try { PipelineHealthCollector.labelInc("EXIT_REGRET_TRACKED_7752") } catch (_: Throwable) {}
     }
 
@@ -117,6 +119,14 @@ object ExitRegret7752 {
             }
             pending.remove(id)
             recorded.incrementAndGet()
+            // V5.0.7884 — the exit-strategy learner gets the measured after-exit truth.
+            try {
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.recordExitOutcome(
+                    strategy = com.lifecyclebot.v3.scoring.SellOptimizationAI.strategyForReason7884(p.reason),
+                    exitPnlPct = p.realizedPct, wouldHaveBeen = hold,
+                    tokenType = p.lane.ifBlank { "STANDARD" }, holdTimeMinutes = p.holdMin,
+                )
+            } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("EXIT_REGRET_BOOKED_7752") } catch (_: Throwable) {}
             persist()
         }

@@ -142,13 +142,25 @@ object LanePolicy {
         State.NORMAL_EXECUTION        -> 1.00
     }
 
-    private fun laneKey(lane: String): String = lane.uppercase().take(32)
+    // V5.0.7884 — Cortex Phase 0 (Learning F1/F2): paper closes demoted and
+    // restored the same lane cells live sizing reads. Paper outcomes now live in
+    // their own "PAPER~" cells (canonical deliveries run inside
+    // LearningEnvironment7835.withMode(env.mode)); LIVE keeps the original keys,
+    // so its persisted state carries over.
+    private const val PAPER_PREFIX_7884 = "PAPER~"
+    private fun laneKey(lane: String): String {
+        val u = lane.uppercase()
+        val base = u.removePrefix(PAPER_PREFIX_7884).take(32)
+        val paper = u.startsWith(PAPER_PREFIX_7884) ||
+            try { com.lifecyclebot.engine.LearningEnvironment7835.mode().equals("PAPER", true) } catch (_: Throwable) { false }
+        return if (paper) PAPER_PREFIX_7884 + base else base
+    }
     private fun bucketKey(lane: String, scoreBand: String): String = "${laneKey(lane)}|${scoreBand.uppercase()}"
 
     private fun getOrCreateLaneCell(lane: String): Cell {
         val k = laneKey(lane)
         return lanes.computeIfAbsent(k) {
-            val def = defaultPolicyFor(k)
+            val def = defaultPolicyFor(k.removePrefix(PAPER_PREFIX_7884))
             newCell(def, defaultLearningWeight(def), defaultExecutionWeight(def)).also {
                 loadFromPersistenceIfAny("lane", k, it)
             }
@@ -158,7 +170,7 @@ object LanePolicy {
     private fun getOrCreateBucketCell(lane: String, scoreBand: String): Cell {
         val k = bucketKey(lane, scoreBand)
         return buckets.computeIfAbsent(k) {
-            val laneDef = defaultPolicyFor(lane)
+            val laneDef = defaultPolicyFor(lane.uppercase().removePrefix(PAPER_PREFIX_7884))
             newCell(laneDef, defaultLearningWeight(laneDef), defaultExecutionWeight(laneDef)).also {
                 loadFromPersistenceIfAny("bucket", k, it)
             }

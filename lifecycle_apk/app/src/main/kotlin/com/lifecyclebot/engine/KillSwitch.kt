@@ -114,12 +114,14 @@ object KillSwitch {
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
         init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol))
+        try { RemoteKillSwitch.ensurePolling7884(config.remoteConfigUrl, config.remoteConfigPollSecs * 1000L) } catch (_: Throwable) {}
     }
 
     @Synchronized
     fun checkEntry7835(paper: Boolean, config: com.lifecyclebot.data.BotConfig? = null): String? {
         if (paper) return null
         if (RuntimeModeAuthority.isPaper()) return "LIVE_ENTRY_WHILE_RUNTIME_PAPER_7835"
+        if (RemoteKillSwitch.isKilled) return "REMOTE_KILL_7884:${RemoteKillSwitch.killReason.take(60)}"
         if (config != null) config7835 = config
         val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)
         if (!equity.isFinite() || equity <= 0.0) return "KILL_SWITCH_EQUITY_UNAVAILABLE_7835"

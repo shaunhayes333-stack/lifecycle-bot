@@ -218,6 +218,7 @@ object OpenPnlSanity {
                         com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(
                             mint, saneReplacement7301, repairedSource7418,
                             verifiedIdentity7424 = execSane7301,
+                            observedAtMs7884 = if (execSane7301) repairAuth7301.executableObservedAtMs7884(mint) else 0L,
                         )
                         PipelineHealthCollector.labelInc(if (execSane7301) "OPEN_PNL_ABSURD_GAIN_REPAIRED_BY_EXECUTABLE_QUOTE_7301" else "OPEN_PNL_ABSURD_GAIN_REPAIRED_7298")
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
