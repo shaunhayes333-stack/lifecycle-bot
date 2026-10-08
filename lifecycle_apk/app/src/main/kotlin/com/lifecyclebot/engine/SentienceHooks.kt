@@ -256,6 +256,9 @@ object SentienceHooks {
      */
     private val canonicalEngineOutcomeIds6486 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /** The canonical bus may retry a previously delivered terminal outcome. */
+    fun hasCanonicalEngineOutcome6486(positionId: String): Boolean = canonicalEngineOutcomeIds6486.contains(positionId)
+
     fun recordCanonicalEngineOutcome6486(positionId: String, engine: String, pnlSol: Double, isWin: Boolean): Boolean {
         if (positionId.isBlank() || !canonicalEngineOutcomeIds6486.add(positionId)) return false
         applyCanonicalEngineOutcome6486(engine, pnlSol, isWin)
