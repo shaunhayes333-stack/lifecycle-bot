@@ -164,11 +164,15 @@ object LiveEdgeGate7877 {
 
     /** LIVE refusal reason, or null to admit. Paper is never refused. */
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
+        // earned that authority (bar V1); until then this returns null.
+        com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)?.let { return it }
         if (paper) return null
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         // V5.0.7883 — a learned shape rule of this lane (tokenomics/timing bin it
         // has proven to lose in) refuses before the cohort read.
         val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }
+        if (shape != null && com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null
         if (shape != null) {
             TradeShapeLearner7883.noteRefusal(l, shape)
             refused.computeIfAbsent("$l|SHAPE") { AtomicLong(0) }.incrementAndGet()
@@ -180,6 +184,8 @@ object LiveEdgeGate7877 {
             try { PipelineHealthCollector.labelInc("LIVE_EDGE_ADMIT_7877_${v.source.name}") } catch (_: Throwable) {}
             return null
         }
+        // V5.0.7885 — a proven Cortex STRONG read overrules the cohort refusal.
+        if (com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, v.why)) return null
         refused.computeIfAbsent("$l|${v.why.substringBefore("_PCT").take(28)}") { AtomicLong(0) }.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("LIVE_EDGE_REFUSED_7877")

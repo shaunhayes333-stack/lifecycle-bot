@@ -1,0 +1,239 @@
+package com.lifecyclebot.engine.cortex
+
+import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.LearningPersistence
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * V5.0.7885 — AATE Cortex runtime (plan v1 §2, v2 §E builds 4-10).
+ *
+ *   snapshot   one frozen read per (mint, lane) decision: every voter's raw
+ *              opinion + feature provenance (OBSERVED / UNKNOWN / STALE)
+ *   ledger     every voter graded prequentially on forward labels (net of
+ *              cost, admitted AND refused candidates) — authority is earned
+ *              per lane and decays when skill does
+ *   fusion     authority x independence pooling around the lane prior
+ *   rules      a Constitution that can only refuse, every refusal named
+ *   authority  the Cortex refuses in PAPER once its REFUSE record is proven
+ *              (bar V1, n>=20) and in LIVE at n>=40; it overrules a live
+ *              edge-gate refusal only when its STRONG record is proven.
+ *              Until then it shadows: what it would have done is counted.
+ *
+ * Horizon: runner lanes are graded on the 240-minute label (their edge is the
+ * tail), every other lane on the 60-minute label.
+ *
+ * Nothing here sizes a trade. Every entry point fails open (null / false).
+ */
+object Cortex7885 {
+    private const val ASSESS_TTL_MS = 20_000L
+    private const val PENDING_TTL_MS = 5L * 60L * 60_000L
+    private const val MAX_PENDING = 8_000
+    private const val MAX_ASSESS_CACHE = 4_000
+    private const val PERSIST_KEY = "CORTEX_7885"
+    private const val PERSIST_EVERY = 40
+    private const val MARK_STALE_MS = 180_000L
+
+    class Assessment(
+        val lane: String,
+        val runnerLane: Boolean,
+        val raws: DoubleArray,
+        val fused: CortexLedger7885.Fused,
+        val bucket: CortexScoreboard7885.Bucket,
+        val unknownFeatures: Int,
+        val staleMark: Boolean,
+        val atMs: Long,
+    )
+
+    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long)
+
+    private val ledger = CortexLedger7885()
+    private val board = CortexScoreboard7885()
+    private val assessCache = ConcurrentHashMap<String, Assessment>()
+    private val pending = ConcurrentHashMap<String, Pending>()
+    private val voterFailures = ConcurrentHashMap<String, AtomicLong>()
+    private val counters = ConcurrentHashMap<String, AtomicLong>()
+    private val assessed = AtomicLong(0)
+    private val graded = AtomicLong(0)
+    private val sincePersist = AtomicLong(0)
+    private val assessNanos = AtomicLong(0)
+    @Volatile private var loaded = false
+
+    private fun inc(k: String) { counters.computeIfAbsent(k) { AtomicLong(0) }.incrementAndGet() }
+
+    private fun canon(lane: String): String {
+        val c = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane).uppercase() } catch (_: Throwable) { "" }
+        return if (c.isBlank()) lane.trim().uppercase() else c
+    }
+
+    private fun fmtStat(s: CortexLedger7885.Stat): String = if (s.n < 1.0) "-" else "n${s.n.toInt()}/${"%+.1f".format(s.mean())}%"
+
+    private fun isRunner(lane: String): Boolean =
+        try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+
+    /** Snapshot + votes + fusion for (ts, lane); cached briefly so the gate and the labeler see one read. */
+    fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {
+        if (ts.mint.isBlank() || laneRaw.isBlank()) return null
+        val lane = canon(laneRaw)
+        val key = "${ts.mint}|$lane"
+        assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
+        ensureLoaded()
+        val t0 = System.nanoTime()
+        val raws = CortexVoters7885.readAll(ts, lane, nowMs, voterFailures)
+        val runner = isRunner(lane)
+        val voters: List<CortexVoters7885.Voter> = CortexVoters7885.ALL
+        val votes = voters.mapIndexed { i, v -> CortexLedger7885.Vote(v.id, v.edges, raws[i], v.evidence) }
+        val fused = synchronized(this) { ledger.fuse(lane, votes) }
+        val bucket = CortexScoreboard7885.bucketOf(fused.edgePct, fused.runnerRate, runner)
+        val priceAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
+        val a = Assessment(lane, runner, raws, fused, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
+        assessNanos.addAndGet(System.nanoTime() - t0)
+        assessed.incrementAndGet()
+        if (assessCache.size >= MAX_ASSESS_CACHE) assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_TTL_MS }
+        assessCache[key] = a
+        return a
+    }
+
+    /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
+    fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis()) {
+        if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
+        val a = assess(ts, labelLane, nowMs) ?: return
+        if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
+        if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs)
+        inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
+    }
+
+    /** ForwardReturnLabeler7731.tick: a horizon label booked for (mint, labelLane). */
+    fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double) {
+        val key = "$mint|${labelLane.trim().uppercase()}"
+        val p = pending[key] ?: return
+        val want = if (p.a.runnerLane) 240 else 60
+        if (horizonMin != want) return
+        pending.remove(key)
+        if (!netPct.isFinite()) return
+        synchronized(this) {
+            ledger.grade(p.a.lane, CortexVoters7885.IDS, CortexVoters7885.EDGES, p.a.raws, netPct, grossPct)
+            board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
+        }
+        graded.incrementAndGet()
+        if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
+    }
+
+    // ── Constitution (refuse-only; every refusal names its rule) ──
+
+    /** Pure rule check over an assessment. Returns the rule id that refuses, or null. */
+    private fun constitutionRefusal(a: Assessment, ts: TokenState, paper: Boolean, refusalProven: Boolean): String? {
+        if (!paper && ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return "C1_HARD_SAFETY"
+        if (!paper && a.staleMark) return "C2_MARK_STALE"
+        if (a.bucket == CortexScoreboard7885.Bucket.REFUSE && refusalProven) return "C3_PROVEN_NEGATIVE_EDGE"
+        return null
+    }
+
+    /**
+     * Called first by LiveEdgeGate7877.liveRefusal (both modes). Non-null means
+     * the Cortex refuses this entry under a named rule.
+     */
+    fun entryRefusal(ts: TokenState, laneRaw: String, paper: Boolean): String? {
+        return try {
+            val a = assess(ts, laneRaw) ?: return null
+            val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) }
+            val rule = constitutionRefusal(a, ts, paper, proven)
+            if (rule == null) {
+                if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) inc(if (paper) "SHADOW_REFUSE_PAPER" else "SHADOW_REFUSE_LIVE")
+                return null
+            }
+            val mode = if (paper) "PAPER" else "LIVE"
+            inc("REFUSED_${mode}_$rule")
+            try {
+                PipelineHealthCollector.labelInc("CORTEX_7885_REFUSED_${mode}_$rule")
+                if (com.lifecyclebot.engine.ForensicEmitRateLimiter6356.shouldEmit("CORTEX_7885", "${a.lane}|${ts.mint}")) {
+                    ForensicLogger.lifecycle(
+                        "CORTEX_7885_REFUSED",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${a.lane} mode=$mode rule=$rule edge=${"%.2f".format(a.fused.edgePct)} " +
+                            "runner=${"%.2f".format(a.fused.runnerRate)} effVoters=${"%.1f".format(a.fused.effectiveVoters)} top=${a.fused.top.joinToString(",")}",
+                    )
+                }
+            } catch (_: Throwable) {}
+            "CORTEX_7885_${rule}_${a.lane}"
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * Called by LiveEdgeGate7877 when it would refuse a LIVE entry. True means the
+     * Cortex's proven STRONG record overrules that edge refusal for this candidate.
+     */
+    fun overrulesEdgeRefusal(ts: TokenState, laneRaw: String, refusal: String): Boolean {
+        return try {
+            val a = assess(ts, laneRaw) ?: return false
+            if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
+            if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
+            val proven = synchronized(this) { board.overruleAuthority(a.lane) }
+            if (!proven) { inc("SHADOW_OVERRULE_LIVE"); return false }
+            inc("OVERRULED_LIVE")
+            try {
+                PipelineHealthCollector.labelInc("CORTEX_7885_OVERRULED_EDGE_${a.lane}")
+                ForensicLogger.lifecycle(
+                    "CORTEX_7885_OVERRULED_EDGE",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${a.lane} edge=${"%.2f".format(a.fused.edgePct)} was=${refusal.take(60)} top=${a.fused.top.joinToString(",")}",
+                )
+            } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
+    }
+
+    // ── persistence ──
+
+    private fun ensureLoaded() {
+        if (loaded) return
+        synchronized(this) {
+            if (loaded) return
+            loaded = true
+            try {
+                val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
+                o.optJSONObject("ledger")?.let { ledger.decode(it) }
+                o.optJSONObject("board")?.let { board.decode(it) }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun persist() {
+        try {
+            val json = synchronized(this) {
+                org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).toString()
+            }
+            LearningPersistence.save(PERSIST_KEY, json)
+        } catch (_: Throwable) {}
+    }
+
+    // ── scoreboard (v1 §2.10) ──
+
+    fun statusLine(): String {
+        ensureLoaded()
+        return synchronized(this) {
+            val n = assessed.get()
+            val avgMs = if (n > 0) assessNanos.get() / n / 1_000_000.0 else 0.0
+            val seats: List<Triple<String, CortexLedger7885.Seat, Double>> = ledger.seats.entries
+                .map { (k, s) -> Triple(k, s, s.authority()) }
+            val seated = seats.filter { it.third > 0.0 }.sortedByDescending { it.third }
+            val bestByVoter = seats.groupBy { it.first.substringBefore('|') }
+                .mapValues { (_, l) -> l.maxByOrNull { it.second.skill() } }
+                .values.filterNotNull().sortedByDescending { it.second.skill() }
+            val laneLines = board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(8).joinToString("\n") { (lane, b) ->
+                val runner = isRunner(lane)
+                "      $lane${if (runner) "(240m)" else "(60m)"}: refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])} " +
+                    "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
+                    "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)}"
+            }
+            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
+                "seats=${seats.size} seated=${seated.size}\n" +
+                "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
+                "      seated (authority): ${seated.take(12).joinToString(" · ") { (k, s, a) -> "$k a=${"%.2f".format(a)} skill=${"%.1f".format(s.skill() * 100)}% n=${s.scored}" }.ifBlank { "none yet — a seat needs ${CortexLedger7885.MIN_SCORED} graded predictions beating the lane mean out-of-sample" }}\n" +
+                "      best skill per voter: ${bestByVoter.take(10).joinToString(" · ") { (k, s, _) -> "$k ${"%+.1f".format(s.skill() * 100)}%/n${s.scored}" }.ifBlank { "-" }}\n" +
+                "      voter failures: ${voterFailures.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "0" }}\n" +
+                laneLines.ifBlank { "      lanes: no graded decisions yet" }
+        }
+    }
+}

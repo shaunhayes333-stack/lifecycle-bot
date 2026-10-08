@@ -117,11 +117,12 @@ ShapeBook changes are binding for the lane that owns them. Generic layers may re
 | 1 (5.0.7881) | Data economy: meter, tiered value-paced purse, stream sizing, bundle waste removed | pushed |
 | 2 (5.0.7883) | Trade-shape learner (§C) + lane-hint fix + double-count removal | pushed |
 | 3 (5.0.7884) | v1 Phase 0 data-truth items, verified against current code (marks, exit priority, accounting) — see §G | pushed |
-| 4 | v1 Phase 1: CandidateSnapshot (with cost/state per feature), Opinion, VoterRegistry, scoreboard — shadow | |
+| 4 (5.0.7885) | v1 Phase 1: snapshot, opinions, voter registry (36 voters), scoreboard | pushed |
 | 5 | Progressive enrichment (§B next) on the snapshot | |
-| 6 | v1 Phase 2: OutcomeTruth + AuthorityLedger (calibration, correlation discount) | |
-| 7 | v1 Phase 3: Constitution | |
-| 8–10 | v1 Phases 4–6: fusion decides in paper → single sizing/exit authority → live on evidence | |
+| 6 (5.0.7885) | v1 Phase 2: outcome truth (forward labels) + authority ledger (prequential skill, evidence and error-correlation discount) | pushed |
+| 7 (5.0.7885) | v1 Phase 3: Constitution (refuse-only, named rules C1–C3) | pushed; migrating scattered vetoes still open |
+| 8, 10 (5.0.7885) | Fusion decides paper refusals and live refusals/overrules on bar V1 evidence | pushed |
+| 9 | Single sizing/exit authority (Phase 5) | open |
 | 11 | v1 Phase 7: clean-up | |
 
 Each build is one green CI run on main, followed by a snapshot review.
@@ -129,9 +130,9 @@ Each build is one green CI run on main, followed by a snapshot review.
 ## F. Decisions taken (operator: "fix it all")
 
 - **Phase order:** as table E. The data economy goes first because it was burning money.
-- **Promotion bar:**
-  - The v1 default stands for voters to gain live authority.
-  - Forward labels count at shrinkage weight for shape learning only, never for voter authority.
+- **Promotion bar (revised in 5.0.7885):**
+  - Voter authority is earned on forward labels: net of cost, on admitted and refused candidates alike, scored prequentially. Live closes are too few to seat anything for weeks, and they are graded by exits rather than by selection.
+  - The Cortex's own say is a separate, versioned bar (CORTEX_BAR_V1) over its decision-time verdicts (§H).
 - **Sizing:** §D (fractional Kelly ≤ 0.25 once proven; route minimum before).
 - **Paper:** the shadow book stays the paper surface while live; Cortex decides in paper in Build 8.
 - **Retiring voters:** zero-authority voters stay in shadow at the free tier only. They lose any paid data budget (§B.6).
@@ -158,3 +159,35 @@ Each build is one green CI run on main, followed by a snapshot review.
 | Accounting F4 | Several recordTrade learners graded the last slice | Deferred to Build 6 (OutcomeTruth) |
 | Learning F1/F2 | LanePolicy shared paper/live cells | Paper cells keyed separately; live keeps its history |
 | Learning F6 | Exit-optimality label inverted | Fed by ExitRegret7752's after-exit price |
+
+## H. Cortex as built (5.0.7885)
+
+- **Voters.** 36 cheap, side-effect-free reads (`engine/cortex/CortexVoters7885`):
+  - specialist cache: own score and confidence, breadth, mean
+  - V3 score and confidence
+  - strategy and flow scores
+  - CrossTalk, SuperBrain and capital-efficiency brains
+  - forward model EV and P(win), score expectancy, pattern classifier
+  - token memory, expert prior
+  - plan setup and R:R, edge-gate cell, shape rule, launch read, stage fit
+  - rugcheck, top holder, safety penalty
+  - buy pressure, 5m/1h change, liquidity, market cap, sentiment
+
+  A voter abstains with NaN; it never fakes a neutral.
+- **Ledger.** Per (voter, lane), each raw bin's net return is learned and shrunk toward the lane mean (K = 20). Every prediction is scored before its outcome is learned.
+  - Skill = decayed out-of-sample error reduction versus the lane mean.
+  - Authority = 0 until 60 scores with skill > 0.5%. It reaches full weight at 5% skill.
+  - Runner lanes are graded at 240 minutes, the others at 60.
+- **Fusion.** The lane prior carries weight 1. Each seated voter's weight = authority ÷ (1 + voters sharing its evidence) ÷ (1 + Σ positive error correlation).
+- **Constitution.** Refuse-only rules, each with an id:
+  - C1 hard safety (live)
+  - C2 stale mark > 180 s (live)
+  - C3 proven negative edge
+- **Bar V1** (per lane, re-evaluated on every read):
+
+  | Authority | Requires |
+  |---|---|
+  | Refuse | REFUSE-bucket n ≥ 20 (paper) or ≥ 40 (live), mean + SE < −2%, ≥ 2% worse than the lane's other decisions; runner lanes also need runner rate < 10% |
+  | Overrule a live edge-gate refusal | STRONG-bucket n ≥ 40 and mean − SE > +2% |
+
+  Until a lane clears the bar, the Cortex only counts what it would have done (`SHADOW_*`).
