@@ -105,6 +105,21 @@ object SuperIntelligenceCalibration7636 {
         }
     }
 
+    /**
+     * V5.0.7916 — read-only: the freshest Super planner stamp for a mint (the
+     * lane's own first, else any lane), at most 10 minutes old. The Cortex reads
+     * the planner, critic, tree and arbiter as voters and grades them.
+     */
+    fun peek7916(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): DecisionStamp? {
+        if (mint.isBlank()) return null
+        pending[key(mint, lane)]?.let { if (nowMs - it.atMs <= 600_000L) return it }
+        val suffix = "|" + mint.trim()
+        return pending.entries.asSequence()
+            .filter { it.key.endsWith(suffix) && nowMs - it.value.atMs <= 600_000L }
+            .map { it.value }
+            .maxByOrNull { it.atMs }
+    }
+
     fun bindPosition(positionId: String, mint: String, lane: String): Boolean {
         if (positionId.isBlank() || mint.isBlank()) return false
         val laneKey = lane.trim().uppercase()

@@ -947,6 +947,39 @@ object FinalDecisionGate {
      * the verdict is WAIT; the next cycle re-reads the tape. Paper is never
      * refused. Field Manual §4/§9: no trigger and invalidation, no trade.
      */
+    /**
+     * V5.0.7915 — Cortex v13 paper choice. PAPER only: a candidate blocked on a
+     * soft reason, or declined by its lane on a soft reason, is admitted when
+     * the Cortex reads it STRONG on a lane whose STRONG record is proven
+     * (Cortex7885.paperChoice). Hard, mode and size blocks are never touched.
+     */
+    private fun cortexPaperChoice7915(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        specialistLane: String?,
+        laneName: String,
+        blockReason: String?,
+        blockLevel: BlockLevel?,
+        mismatchIgnored: Boolean,
+        tags: MutableList<String>,
+        checks: MutableList<GateCheck>,
+    ): Boolean = try {
+        val declined = !(candidate.shouldTrade || mismatchIgnored)
+        val blocked = blockReason != null && blockReason != "PROBE_ONLY"
+        val hardLevel = blockLevel == BlockLevel.HARD || blockLevel == BlockLevel.MODE || blockLevel == BlockLevel.SIZE
+        if (!blocked && !declined) false
+        else if (blocked && !com.lifecyclebot.engine.cortex.Cortex7885.softBlock(blockReason, hardLevel)) false
+        else if (declined && !com.lifecyclebot.engine.cortex.Cortex7885.softBlock(candidate.blockReason.takeIf { it.isNotBlank() }, false)) false
+        else {
+            val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
+            if (!com.lifecyclebot.engine.cortex.Cortex7885.paperChoice(ts, lane)) false else {
+                tags.add("cortex_choice_7915")
+                checks.add(GateCheck("cortex_choice_7915", true, "lane=$lane overrode ${(blockReason ?: candidate.blockReason).take(60)}"))
+                true
+            }
+        }
+    } catch (_: Throwable) { false }
+
     /** V5.0.7877 — LiveEdgeGate7877 as a FinalDecision; built outside evaluate() (verifier budget 7720). */
     private fun liveEdgeBlock7877(
         ts: TokenState,
@@ -5037,6 +5070,12 @@ object FinalDecisionGate {
             }
         }
 
+        // V5.0.7915 — Cortex v13 paper choice (v1 Phase 4); helper keeps evaluate() in budget (7720).
+        if (config.paperMode && cortexPaperChoice7915(ts, candidate, specialistLane, laneName, blockReason, blockLevel, baseSignalMismatchIgnoredForLane, tags, checks)) {
+            blockReason = null
+            blockLevel = null
+        }
+
         // V5.9.1486 — PROBE_ONLY IS AN APPROVED DUST BUY, NOT A BLOCK (matches the
         // canExecute() contract at the top of this file). Snapshot 5.0.3492 showed
         // PROBE_ONLY as the #1 reject reason (471) AND logged as SHITCOIN_FDG_HARD_VETO
@@ -5048,7 +5087,7 @@ object FinalDecisionGate {
         // as non-blocking here, identically to canExecute(). Any OTHER non-null
         // blockReason still forces shouldTrade=false; -15% floor + hardNo + genuine FDG
         // veto untouched.
-        val shouldTrade = (blockReason == null || blockReason == "PROBE_ONLY") && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane)
+        val shouldTrade = (blockReason == null || blockReason == "PROBE_ONLY") && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane || "cortex_choice_7915" in tags)
 
         if (!shouldTrade && blockReason != null) {
             recordBlock(blockReason)
@@ -5784,7 +5823,12 @@ object FinalDecisionGate {
         // bounded log-space band, then resolve the one executable notional.
         if (shouldTradeFinal && finalSize > 0.0 && proposedSizeSol > 0.0) {
             val rawShape6552 = (finalSize / proposedSizeSol).takeIf { it.isFinite() && it > 0.0 } ?: 1.0
-            val boundedShape6552 = kotlin.math.exp(kotlin.math.ln(rawShape6552).coerceIn(kotlin.math.ln(0.35), kotlin.math.ln(1.50)))
+            // V5.0.7917 — Cortex v15 grades this shape and, once the stack is measured
+            // without skill, stops it shrinking a proven-STRONG candidate.
+            val boundedShape6552 = com.lifecyclebot.engine.cortex.Cortex7885.sizeShape(
+                ts, specialistLane?.trim()?.takeIf { it.isNotBlank() } ?: laneName,
+                kotlin.math.exp(kotlin.math.ln(rawShape6552).coerceIn(kotlin.math.ln(0.35), kotlin.math.ln(1.50))), rawShape6552,
+            )
             val beforeCanonical6552 = finalSize
             // V5.0.6827 §CANONICAL_NOTIONAL_OVERRODE_ABSOLUTE_CAPS — this block is
             // algebraically proposedSizeSol * clamp(finalSize/proposedSizeSol, 0.35, 1.50),

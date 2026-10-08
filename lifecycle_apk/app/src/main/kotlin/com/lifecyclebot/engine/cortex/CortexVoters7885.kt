@@ -322,7 +322,57 @@ object CortexVoters7885 {
         Voter("SENTIMENT", "MARKET", e(-0.3, -0.05, 0.05, 0.3), setOf("sentiment")) { ts, _, _ ->
             ts.sentiment.takeIf { it.confidence > 0.0 }?.score?.let { fin(it) }
         },
+        // V5.0.7916 — Cortex v14: the Super/SSI planner stack and the LLM analysts
+        // as voters (v1 §2.3). Their proposals were blended into the oracle with
+        // hand weights; here each is graded on forward labels and earns authority
+        // per lane, or none. Read-only peeks: no planner run, no LLM call.
+        Voter("SUPER_PLAN_EXPOSURE", "SUPER", e(0.2, 0.7, 1.2), setOf("super_plan")) { ts, lane, now ->
+            superStamp(ts, lane, now)?.planAction?.exposure
+        },
+        Voter("SUPER_WORLD_TACTICAL_EV", "SUPER", PCT, setOf("super_world")) { ts, lane, now ->
+            fin(superStamp(ts, lane, now)?.world?.forHorizon(com.lifecyclebot.engine.SuperWorldModel7634.Horizon.TACTICAL)?.expectedPnlPct)
+        },
+        Voter("SUPER_WORLD_THESIS_PWIN", "SUPER", PROB, setOf("super_world")) { ts, lane, now ->
+            fin(superStamp(ts, lane, now)?.world?.forHorizon(com.lifecyclebot.engine.SuperWorldModel7634.Horizon.THESIS)?.pWin)
+        },
+        Voter("SUPER_WORLD_TAIL", "SUPER", e(0.05, 0.2, 0.4, 0.6), setOf("super_world")) { ts, lane, now ->
+            fin(superStamp(ts, lane, now)?.world?.tailOpportunity)
+        },
+        Voter("SUPER_WORLD_FAILURE_RISK", "SUPER", e(0.2, 0.4, 0.6, 0.72), setOf("super_world")) { ts, lane, now ->
+            fin(superStamp(ts, lane, now)?.world?.failureRisk)
+        },
+        Voter("SUPER_LATENT_STATE", "SUPER", e(0.5, 1.5, 2.5, 3.5, 4.5), setOf("super_world")) { ts, lane, now ->
+            superStamp(ts, lane, now)?.world?.latentState?.ordinal?.toDouble()
+        },
+        Voter("SUPER_CRITIC_FRAGILITY", "SUPER", e(0.2, 0.4, 0.6, 0.8), setOf("super_critic")) { ts, lane, now ->
+            fin(superStamp(ts, lane, now)?.criticFragility)
+        },
+        Voter("SUPER_TREE_CONFIDENCE", "SUPER", e(0.2, 0.4, 0.6, 0.8), setOf("super_tree")) { ts, lane, now ->
+            fin(superStamp(ts, lane, now)?.treeConfidence)
+        },
+        Voter("SUPER_ARBITER_META_CONF", "SUPER", e(0.2, 0.4, 0.6, 0.8), setOf("super_arbiter")) { ts, lane, now ->
+            fin(superStamp(ts, lane, now)?.arbiterMetaConfidence)
+        },
+        Voter("LLM_VIRAL_POTENTIAL", "LLM", e(30.0, 50.0, 70.0, 85.0), setOf("llm_narrative")) { ts, _, _ ->
+            fin(llmNarrative(ts)?.analysis?.viralPotential)
+        },
+        Voter("LLM_SCAM_CONFIDENCE", "LLM", e(10.0, 30.0, 60.0), setOf("llm_scam")) { ts, _, _ ->
+            llmNarrative(ts)?.let { n -> if (n.quickScam == true) 100.0 else n.analysis?.let { a -> if (a.isScam) fin(a.scamConfidence) else 0.0 } }
+        },
+        Voter("LLM_RECOMMENDATION", "LLM", e(-0.5, 0.5), setOf("llm_narrative")) { ts, _, _ ->
+            when (llmNarrative(ts)?.analysis?.recommendation) { "BUY" -> 1.0; "AVOID" -> -1.0; "WATCH" -> 0.0; else -> null }
+        },
+        // V5.0.7917 — Cortex v15: the legacy FDG size stack's composite shape, graded.
+        Voter(Cortex7885.LEGACY_SIZE_SHAPE, "SIZING", e(0.5, 0.8, 1.0, 1.25), setOf("size_stack")) { ts, _, now ->
+            Cortex7885.legacyShapeOf(ts.mint, now)
+        },
     )
+
+    private fun superStamp(ts: TokenState, lane: String, now: Long) =
+        try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.peek7916(ts.mint, lane, now) } catch (_: Throwable) { null }
+
+    private fun llmNarrative(ts: TokenState) =
+        try { com.lifecyclebot.engine.AsyncGeminiNarrativeCache6478.peekBySymbol7654(ts.symbol) } catch (_: Throwable) { null }
 
     private val V3_MODULE_EDGES = e(-10.0, -3.0, 0.0, 3.0, 10.0)
 

@@ -326,6 +326,55 @@ object Cortex7885 {
         } catch (_: Throwable) { false }
     }
 
+    // ── Cortex v13: paper choice (v1 Phase 4, V5.0.7915) ──
+    //
+    // Until now the Cortex only refused. In PAPER it now also CHOOSES: a
+    // candidate the legacy stack blocked on a soft (confidence / edge) reason,
+    // or that its lane declined, is admitted as a paper position when the
+    // Cortex reads it STRONG and that lane's STRONG record is proven on forward
+    // labels (the overrule bar) and the Cortex is self-consistent. One choice
+    // per lane per [CHOICE_SPACING_MS]. Never in LIVE, never over a hard block
+    // (safety, rug, route, mode, size), never on a stale mark. Its positions are
+    // booked as PAPER_CHOSEN on whole-position closes, so the choice itself is
+    // graded on real exits before anything like it is let near live money.
+    private const val CHOICE_SPACING_MS = 5L * 60_000L
+    private val lastChoiceAt = ConcurrentHashMap<String, Long>()
+    private val chosen = ConcurrentHashMap<String, Long>()   // mint -> chosen at
+
+    /** Pure: is a legacy block soft enough for a proven Cortex read to override in paper? */
+    fun softBlock(blockReason: String?, hardLevel: Boolean): Boolean {
+        if (hardLevel) return false
+        val r = (blockReason ?: return true).uppercase()
+        return listOf("HARD", "RUG", "TOKEN_MAP", "ROUTE", "SAFETY", "HONEYPOT", "FREEZE", "MINT_AUTH", "KILL", "PAUSE", "WALLET", "BALANCE", "DUPLICATE", "OPEN_POSITION", "CAPACITY")
+            .none { r.contains(it) }
+    }
+
+    /** FinalDecisionGate (PAPER only): true admits this soft-blocked candidate as the Cortex's choice. */
+    fun paperChoice(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        return try {
+            val a = cachedOrSchedule(ts, laneRaw, nowMs) ?: return false
+            if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
+            if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
+            val proven = synchronized(this) { board.overruleAuthority(a.lane) && consistent(a.lane) }
+            if (!proven) { inc("SHADOW_PAPER_CHOICE"); return false }
+            val last = lastChoiceAt[a.lane] ?: 0L
+            if (nowMs - last < CHOICE_SPACING_MS) { inc("PAPER_CHOICE_SPACED"); return false }
+            lastChoiceAt[a.lane] = nowMs
+            if (chosen.size > 2_000) chosen.entries.removeIf { nowMs - it.value > PENDING_TTL_MS * 4 }
+            chosen[ts.mint] = nowMs
+            noteEntryRead(ts.mint, true, a)
+            inc("PAPER_CHOSEN_${a.lane}")
+            try {
+                PipelineHealthCollector.labelInc("CORTEX_7915_PAPER_CHOSEN_${a.lane}")
+                ForensicLogger.lifecycle(
+                    "CORTEX_7915_PAPER_CHOSEN",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${a.lane} edge=${"%.2f".format(a.calibratedEdge)} pWin=${"%.2f".format(a.fused.pWin)} top=${a.fused.top.joinToString(",")}",
+                )
+            } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
+    }
+
     // ── Cortex v5: interaction discovery ──
     //
     // Edge often lives in combinations ("strong flow AND young AND thin
@@ -398,6 +447,53 @@ object Cortex7885 {
         return mult
     }
 
+    // ── Cortex v15: the legacy size stack, graded (v1 Phase 5, V5.0.7917) ──
+    //
+    // FinalDecisionGate multiplies the proposal by ~30 legacy factors (win-memory,
+    // liquidity, tiers, Kelly, brain chain, consensus damps, policy heads...) and
+    // 6552 collapses the product into one bounded shape [0.35, 1.5]. That shape
+    // is now a voter, LEGACY_SIZE_SHAPE, graded like any other: does the stack's
+    // shrink/grow predict the forward return? In a lane where it has been scored
+    // [STACK_MEASURED] times and earned no seat, the stack loses its power to
+    // SHRINK a candidate the Cortex reads STRONG on a proven record: that
+    // candidate's shape is floored at 1.0 (the lane's own calculated size).
+    // Absolute caps (live ceiling, pinned probes, wallet and route caps) still apply.
+    const val LEGACY_SIZE_SHAPE = "LEGACY_SIZE_SHAPE"
+    private const val STACK_MEASURED = 300
+    private val legacyShape = ConcurrentHashMap<String, DoubleArray>()   // mint -> [shape, atMs]
+
+    /** CortexVoters7885: the most recent legacy shape the FDG stack produced for this mint (10 min). */
+    fun legacyShapeOf(mint: String, nowMs: Long): Double? =
+        legacyShape[mint]?.takeIf { nowMs - it[1].toLong() <= 600_000L }?.get(0)
+
+    /** Pure: the shape after Cortex v15 authority. */
+    fun shapeAfterAuthority(bounded: Double, strongProven: Boolean, stackMeasuredNoSkill: Boolean): Double =
+        if (strongProven && stackMeasuredNoSkill && bounded < 1.0) 1.0 else bounded
+
+    /** FinalDecisionGate 6552: record the stack's raw shape and return the shape to use. */
+    fun sizeShape(ts: TokenState, laneRaw: String, bounded: Double, raw: Double, nowMs: Long = System.currentTimeMillis()): Double {
+        return try {
+            if (raw.isFinite() && raw > 0.0) {
+                if (legacyShape.size > 4_000) legacyShape.entries.removeIf { nowMs - it.value[1].toLong() > 600_000L }
+                legacyShape[ts.mint] = doubleArrayOf(raw, nowMs.toDouble())
+            }
+            if (bounded >= 1.0) return bounded
+            val a = assessCache["${ts.mint}|${canon(laneRaw)}"]?.takeIf { nowMs - it.atMs <= 60_000L } ?: return bounded
+            if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return bounded
+            val (strongProven, noSkill) = synchronized(this) {
+                val seat = ledger.seats["$LEGACY_SIZE_SHAPE|${a.lane}"]
+                (board.overruleAuthority(a.lane) && consistent(a.lane)) to
+                    ((seat?.scored ?: 0) >= STACK_MEASURED && (seat?.authority() ?: 0.0) <= 0.0)
+            }
+            val out = shapeAfterAuthority(bounded, strongProven, noSkill)
+            if (out != bounded) {
+                inc("STACK_SHRINK_OVERRULED_${a.lane}")
+                try { PipelineHealthCollector.labelInc("CORTEX_7917_STACK_SHRINK_OVERRULED_${a.lane}") } catch (_: Throwable) {}
+            } else if (strongProven) inc("SHADOW_STACK_OVERRULE")
+            out
+        } catch (_: Throwable) { bounded }
+    }
+
     // ── progressive enrichment (plan v2 §B): buy a paid feature only while it pays ──
 
     private const val ENRICH_LEARNING_SCORES = 300
@@ -442,8 +538,10 @@ object Cortex7885 {
         val a = entryReads.remove("${env.mint}|$mode") ?: return
         val entryAt = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         if (kotlin.math.abs(entryAt - a.atMs) > ENTRY_READ_MATCH_MS) { inc("REALIZED_UNMATCHED"); return }
+        val wasChosen = mode == "PAPER" && chosen.remove(env.mint) != null
         synchronized(this) {
             board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct)
+            if (wasChosen) board.recordRealized("PAPER_CHOSEN", a.lane, a.bucket, env.realizedReturnPct)
             // V5.0.7912 — Cortex v12, OutcomeTruth (v1 §2.7): every voter's entry-time
             // opinion is also graded on the WHOLE-POSITION realised return, per mode,
             // in its own ledger — skill on real fills and real exits, beside the
