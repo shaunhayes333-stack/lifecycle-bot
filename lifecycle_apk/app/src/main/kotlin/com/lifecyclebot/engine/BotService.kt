@@ -13870,12 +13870,16 @@ class BotService : Service() {
     }
 
     private fun laneQualifiedBuyDecision(
-        base: com.lifecyclebot.data.CandidateDecision,
+        candidate7951: com.lifecyclebot.data.CandidateDecision,
         lane: String,
         confidenceFloor: Double = 60.0,
         liquidityUsd: Double = -1.0,   // V5.9.1355 P0.3 — -1 = unknown (don't liq-gate; still zero-score-gate)
         mintForProbe: String = "",     // V5.9.1466 — for PROBE GRADUATION (CandidateDecision has no mint field)
     ): com.lifecyclebot.data.CandidateDecision {
+        // V5.0.7951 — every caller passes the owner lane's own confidence as confidenceFloor;
+        // an unpopulated (0) aiConfidence carries it instead of reaching FDG as
+        // ZERO_CONFIDENCE_LIVE_DEFER_7403 (TREASURY / MANIPULATED / PROJECT_SNIPER / V3 trunk).
+        val base = MemeChokes7951.laneConfidence7951(candidate7951, confidenceFloor)
         // V5.0.7950 — the chart read decides first: a shape that historically runs is a buy.
         chartBuyDecision7950(base, lane, liquidityUsd, mintForProbe)?.let { return it }
         val cleanQuality = when {
@@ -14326,7 +14330,7 @@ class BotService : Service() {
                 // budget and had zero callers, so the only limiter was the global
                 // 1-in-N sampler on the line above, which cannot tell QUALITY
                 // (24 straight losses) from a lane that is winning.
-                if (!com.lifecyclebot.engine.learning.ExplorationBudget.allowPaperMicroTrade(lane)) {
+                if (!com.lifecyclebot.engine.learning.ExplorationBudget.allowProbe7951(lane, mintForProbe)) { // V5.0.7951 — distinct probes, not re-asks
                     try {
                         PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL_6967")
                         PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL_6967_${lane.uppercase()}")
@@ -14486,7 +14490,7 @@ class BotService : Service() {
             // matters most here: it is what turns QUALITY's 40/hr into 10/hr
             // while QUALITY is losing, automatically, which is the behaviour the
             // -31.28% mean on 24 straight losses was crying out for.
-            if (!com.lifecyclebot.engine.learning.ExplorationBudget.allowPaperMicroTrade(lane)) {
+            if (!com.lifecyclebot.engine.learning.ExplorationBudget.allowProbe7951(lane, mintForProbe)) { // V5.0.7951 — distinct probes, not re-asks
                 try {
                     PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967")
                     PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967_${lane.uppercase()}")
@@ -25264,6 +25268,8 @@ if (hotExitHandledSweep) {
     /** V5.0.7950 — the daily corpus refresh and the in-app chart library (load + build in the background). */
     private fun startCorpusAndChartLibrary7950() {
         com.lifecyclebot.engine.DailyCorpusRefresher.start(applicationContext)
+        // V5.0.7951 — the one-minute mark tape survives a restart (plan + chart reader bars).
+        try { com.lifecyclebot.engine.truth.MarkBarsStore7951.start7951(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.chart.ChartLibraryBuilder7950.start(applicationContext) } catch (e: Exception) {
             ErrorLogger.warn("BotService", "ChartLibraryBuilder7950 start error: ${e.message}")
         }
@@ -25593,7 +25599,7 @@ if (hotExitHandledSweep) {
                 // 116,268 supply, not a billion. Source says who told us about the
                 // mint; only the mint suffix says what the mint IS.
                 val isPumpSource = try {
-                    com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)
+                    MemeChokes7951.curveVenueSeeded7951(ts) // V5.0.7951 — the curve is the venue (suffix, key or reserves); seeds its price
                 } catch (_: Throwable) { false }
                 if (isPumpSource && ts.lastPrice <= 0.0 && ts.lastMcap > 0.0) {
                     val seededPrice = ts.lastMcap / 1_000_000_000.0
@@ -29563,7 +29569,7 @@ if (hotExitHandledSweep) {
                             else                          -> "(none)"
                         }
                         fun v3RoutingRejectForShitCoin4233(reason: String): Boolean =
-                            reason.contains("SHITCOIN_CANDIDATE") || reason.contains("MCAP_TOO_LOW")
+                            MemeChokes7951.v3RejectIsLaneRouting7951(reason) // V5.0.7951 — + SIZE_ZERO (capital, not token truth)
                         fun v3PaperTrainingRug4233(reason: String): Boolean =
                             reason.startsWith("V3:RUG_FATAL:") ||
                                 reason.contains("RUG_CRITICAL") ||

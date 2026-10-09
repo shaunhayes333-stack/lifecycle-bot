@@ -5985,6 +5985,9 @@ object FinalDecisionGate {
             ).routableMinSol
         } catch (_: Throwable) { 0.0 } else 0.0
         val minimum = maxOf(configuredMinimum7835, currentRoutableMinimum7835)
+        // V5.0.7951 — an approved live entry the wallet cannot fund (SIZE_NOT_EXECUTABLE_7835):
+        // when the chart reader says BUY it is real demand that capital rotation may serve.
+        MemeChokes7951.noteCapitalStarved7951(ts.mint, lane, cash - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL, minimum, config.paperMode)
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         // A market-depth cap can reduce or refuse a proposal; an executable floor
         // must never erase it. There is no wallet-share substitute for unknown depth.

@@ -823,6 +823,12 @@ object ParallelMarkFanout7088 {
                         val complete = (bytes[48].toInt() and 0xFF) != 0
                         if (complete) { skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint); continue }
                         if (vTok <= 0.0 || vSol <= 0.0) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ZERO_RESERVES_7278"); continue }
+                        // V5.0.7951 — the account's virtual and REAL reserves are the curve's liquidity.
+                        try {
+                            com.lifecyclebot.engine.truth.CurveReserves7951.noteAccount7951(
+                                mint, vSol / 1e9, vTok / Math.pow(10.0, PUMP_TOKEN_DECIMALS_7269.toDouble()), readU64Le7269(bytes, 32) / 1e9,
+                            )
+                        } catch (_: Throwable) {}
                         val priceSol = (vSol / 1e9) / (vTok / Math.pow(10.0, PUMP_TOKEN_DECIMALS_7269.toDouble()))
                         val px = priceSol * solUsd
                         if (px.isFinite() && px > 0.0) out[mint] = px

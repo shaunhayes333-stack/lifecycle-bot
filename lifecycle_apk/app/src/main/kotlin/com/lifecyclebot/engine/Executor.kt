@@ -14534,7 +14534,8 @@ class Executor(
      */
     private fun capitalDemandWaiting7951(): Boolean =
         (try { com.lifecyclebot.engine.truth.CapitalThroughput7951.demandWaiting7951() } catch (_: Throwable) { false }) ||
-            (try { SpecialistOwnership7951.capitalDemand7951().values.any { it > 0 } } catch (_: Throwable) { false })
+            (try { SpecialistOwnership7951.capitalDemand7951().values.any { it > 0 } } catch (_: Throwable) { false }) ||
+            (try { MemeChokes7951.provenDemandWaiting7951() } catch (_: Throwable) { false })
 
     /** V5.0.7951 — offer this qualifying position; true when it is the deadest one (chart TOP_MOTIF / DEV_SOLD first). */
     private fun deadestRotationOffer7951(mint: String, key: String, pnlPct: Double, msSinceNewHigh: Long, nowMs: Long): Boolean {

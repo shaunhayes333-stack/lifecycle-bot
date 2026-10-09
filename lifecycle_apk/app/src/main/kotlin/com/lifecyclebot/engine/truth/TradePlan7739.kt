@@ -153,6 +153,9 @@ object TradePlan7739 {
      */
     private fun barsFrom(ts: TokenState, nowMs: Long): List<Bar> {
         val hist = if (ts.candleTimeframeMinutes > 1) emptyList() else historyBars7739(ts, nowMs)
+        // V5.0.7951 — the token's one-minute history seeds its mark tape at first sight, so
+        // the bars outlive a provider re-seed clearing ts.history and (MarkBarsStore7951) a restart.
+        if (hist.isNotEmpty()) try { MarkBars7948.seedBars7951(ts.mint, hist, nowMs) } catch (_: Throwable) {}
         if (hist.size > MIN_BARS_7739) return hist
         val merged = MarkBars7948.merge7948(hist, MarkBars7948.bars7948(ts.mint, nowMs, WINDOW_MS_7739), MIN_BARS_7739 + 1)
         if (merged.size > hist.size) MarkBars7948.noteLent7948(merged.size - hist.size)
@@ -580,5 +583,7 @@ object TradePlan7739 {
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
-            "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()} pivot7876=${LivePivotAuthority7876.statusLine()} edge7877=${LiveEdgeGate7877.statusLine()}"
+            "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()} pivot7876=${LivePivotAuthority7876.statusLine()} edge7877=${LiveEdgeGate7877.statusLine()} " +
+            // V5.0.7951 — restored/seeded bars and the meme-choke repairs.
+            "${MarkBarsStore7951.statusLine7951()} ${com.lifecyclebot.engine.MemeChokes7951.statusLine7951()}"
 }

@@ -104,7 +104,51 @@ object MarkBars7948 {
         try { PipelineHealthCollector.labelInc("PLAN_BARS_FROM_MARKS_7948") } catch (_: Throwable) {}
     }
 
-    fun statusLine7948(): String = "markBars7948 mints=${tapes.size} marks=${marksNoted.get()} barsLent=${barsLent.get()}"
+    // ── V5.0.7951 §THE_TAPE_SURVIVES_A_RESTART ─────────────────────────────
+    //
+    // 5.0.7949 at 146 s: Trade plans waited TOO_FEW_BARS=95 even with this tape,
+    // because a restart empties it and the plan needs six one-minute bars. Known
+    // bars (a restored tape, the token's own one-minute history at first sight)
+    // are folded in for the minutes the tape lacks; they are real prices, the
+    // live prints keep winning the minutes they cover.
+
+    private val barsSeeded7951 = AtomicLong(0)
+
+    /**
+     * Pure: the COMPLETED bars of [bars] whose minute [present] lacks, inside
+     * [keepMs] before [nowMs]. The forming minute is left to the live prints.
+     */
+    fun missingBars7951(bars: List<TradePlan7739.Bar>, present: Set<Long>, nowMs: Long, keepMs: Long = KEEP_MS): List<TradePlan7739.Bar> =
+        bars.filter { b ->
+            b.startMs > 0L && b.startMs + BUCKET_MS <= nowMs && nowMs - b.startMs <= keepMs && (b.startMs / BUCKET_MS) !in present &&
+                listOf(b.open, b.high, b.low, b.close).all { it.isFinite() && it > 0.0 }
+        }
+
+    /** Fold known one-minute bars into the minutes [mint]'s tape lacks. Returns the minutes added. */
+    fun seedBars7951(mint: String, bars: List<TradePlan7739.Bar>, nowMs: Long): Int {
+        if (mint.isBlank() || bars.isEmpty()) return 0
+        val present = tapes[mint]?.let { t -> synchronized(t) { HashSet(t.bars.keys) } } ?: emptySet<Long>()
+        val missing = missingBars7951(bars, present, nowMs)
+        if (missing.isEmpty()) return 0
+        for (b in missing) {
+            note7948(mint, b.open, b.startMs)
+            note7948(mint, b.high, b.startMs + 1L)
+            note7948(mint, b.low, b.startMs + 2L)
+            note7948(mint, b.close, b.startMs + BUCKET_MS - 1_000L)
+        }
+        barsSeeded7951.addAndGet(missing.size.toLong())
+        try { PipelineHealthCollector.labelInc("MARK_BARS_SEEDED_7951") } catch (_: Throwable) {}
+        return missing.size
+    }
+
+    /** The tapes of the [maxMints] most recently marked mints still inside the keep window (for persistence). */
+    fun export7951(nowMs: Long, maxMints: Int): List<Pair<String, List<TradePlan7739.Bar>>> =
+        tapes.entries.filter { nowMs - it.value.lastMs in 0L..KEEP_MS }
+            .sortedByDescending { it.value.lastMs }
+            .take(maxMints)
+            .map { (mint, t) -> mint to synchronized(t) { t.bars.map { (m, b) -> TradePlan7739.Bar(m * BUCKET_MS, b[0], b[1], b[2], b[3]) } } }
+
+    fun statusLine7948(): String = "markBars7948 mints=${tapes.size} marks=${marksNoted.get()} barsLent=${barsLent.get()} seeded7951=${barsSeeded7951.get()}"
 
     private fun trimMints7948(nowMs: Long) {
         tapes.entries.removeIf { nowMs - it.value.lastMs > KEEP_MS }
@@ -113,5 +157,5 @@ object MarkBars7948 {
         for (e in drop) tapes.remove(e.key)
     }
 
-    internal fun resetForTest7948() { tapes.clear(); marksNoted.set(0); barsLent.set(0) }
+    internal fun resetForTest7948() { tapes.clear(); marksNoted.set(0); barsLent.set(0); barsSeeded7951.set(0) }
 }
