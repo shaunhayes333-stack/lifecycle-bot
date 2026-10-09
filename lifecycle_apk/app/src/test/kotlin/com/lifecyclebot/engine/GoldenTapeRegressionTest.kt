@@ -14035,7 +14035,7 @@ class GoldenTapeRegressionTest {
         assertEquals("FLOW_STRONG", sel.flowBucket(8, 1, 80.0, 6, true))
         assertEquals("FLOW_NONE", sel.flowBucket(0, 0, 50.0, 0, false))
         assertEquals("CONC_ONE", sel.concentrationBucket(70.0, 2))
-        assertEquals("DEV_SELLING", sel.structuralRefusal(1, 0.0, "FLOW_STRONG", "CONC_BROAD", 1.2))
+        assertTrue(sel.structuralRefusal(1, 0.0, "FLOW_STRONG", "CONC_BROAD", 1.2) == null)  // V5.0.7968: dev selling is not a refusal
         assertEquals("FIVE_MINUTE_CASCADE", sel.structuralRefusal(0, -25.0, "FLOW_OK", "CONC_BROAD", 1.2))
         assertEquals("CHASING_3X_FROM_CREATE", sel.structuralRefusal(0, 0.0, "FLOW_OK", "CONC_BROAD", 3.4))
         assertTrue(sel.structuralRefusal(0, 2.0, "FLOW_STRONG", "CONC_BROAD", 1.2) == null)

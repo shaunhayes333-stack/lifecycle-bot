@@ -93,8 +93,10 @@ object ChartLibrary7950 {
         var end = first
         while (end <= last && n < maxWindows) {
             val f = ChartMotif7950.encode(bars, end)
-            val o = if (f != null) ChartMotif7950.outcome(bars, end) else null
+            val o = ChartMotif7950.outcome(bars, end)
             if (f != null && o != null) { add(f, o, source); n++ }
+            // V5.0.7968 — the same labelled window teaches the candle-colour reader.
+            if (o != null) try { CandleColors7968.learn7968(bars, end, o) } catch (_: Throwable) {}
             end += stride
         }
         return n
@@ -191,9 +193,11 @@ object ChartLibrary7950 {
             }
             tmp.renameTo(file)
         } catch (_: Throwable) {}
+        try { CandleColors7968.save7968(File(file.parentFile, file.name + ".colors7968")) } catch (_: Throwable) {}
     }
 
     fun load(file: File): Int {
+        try { CandleColors7968.load7968(File(file.parentFile, file.name + ".colors7968")) } catch (_: Throwable) {}
         if (!file.exists()) return 0
         return try {
             DataInputStream(BufferedInputStream(file.inputStream(), 1 shl 16)).use { inp ->

@@ -18,7 +18,7 @@ class Aate7921LaunchTapeTest {
         assertTrue(LaunchTape7921.priorPass(feat()))
         assertFalse(LaunchTape7921.priorPass(feat(crowd = 6)))            // no crowd yet
         assertFalse(LaunchTape7921.priorPass(feat(largest = 60.0)))       // one wallet pumping it
-        assertFalse(LaunchTape7921.priorPass(feat(dev = true)))           // dev sold
+        assertTrue(LaunchTape7921.priorPass(feat(dev = true)))            // V5.0.7968: dev sale is not a veto
         assertFalse(LaunchTape7921.priorPass(feat(fromPeak = -50.0)))     // already dumped
         assertFalse(LaunchTape7921.priorPass(feat(age = 0.5)))            // judged at birth
         assertFalse(LaunchTape7921.priorPass(feat(age = 30.0)))           // too late to be early
@@ -29,7 +29,7 @@ class Aate7921LaunchTapeTest {
         val whale = LaunchTape7921.heatOf(30, 3.0, 70.0, 70.0, false)
         val devSold = LaunchTape7921.heatOf(30, 3.0, 70.0, 10.0, true)
         assertTrue(broad > whale)
-        assertTrue(broad > devSold)
+        assertEquals(broad, devSold, 1e-12)   // V5.0.7968: a dev sale does not cool the heat
         assertEquals(0.0, LaunchTape7921.heatOf(0, 3.0, 70.0, 10.0, false), 1e-9)
     }
 

@@ -133,13 +133,13 @@ object LaunchTape7921 {
     fun heatOf(crowdBuyers: Int, ageMin: Double, buySharePct: Double, largestBuyerPct: Double, devSold: Boolean): Double {
         if (crowdBuyers <= 0 || !ageMin.isFinite()) return 0.0
         val perMin = crowdBuyers / ageMin.coerceAtLeast(1.0)
-        return perMin * (buySharePct / 100.0).coerceIn(0.0, 1.0) * (1.0 - largestBuyerPct / 100.0).coerceIn(0.0, 1.0) * (if (devSold) 0.2 else 1.0)
+        return perMin * (buySharePct / 100.0).coerceIn(0.0, 1.0) * (1.0 - largestBuyerPct / 100.0).coerceIn(0.0, 1.0)
     }
 
     /** Pure: the educated prior bar ("a crowd is forming"). */
     fun priorPass(f: Feat): Boolean =
         f.ageMin >= 1.0 && f.ageMin <= 20.0 && f.crowdBuyers >= 15 && f.crowdNetSol >= 3.0 && f.buySharePct >= 60.0 &&
-            f.largestBuyerPct <= 30.0 && f.top3Pct <= 55.0 && !f.devSold && f.fromPeakPct.isFinite() && f.fromPeakPct >= -35.0
+            f.largestBuyerPct <= 30.0 && f.top3Pct <= 55.0 && f.fromPeakPct.isFinite() && f.fromPeakPct >= -35.0
 
     /** Pure: is a graded record proven positive / negative? */
     fun provenPositive(s: CortexLedger7885.Stat): Boolean =
@@ -177,7 +177,7 @@ object LaunchTape7921 {
         val f = features(mint, nowMs) ?: return
         ensureLoaded()
         val (prior, learned) = synchronized(this) {
-            (priorPass(f) && !provenNegative(priorBook)) to (binBook[binOf(f.heat)]?.let { provenPositive(it) } == true && !f.devSold)
+            (priorPass(f) && !provenNegative(priorBook)) to (binBook[binOf(f.heat)]?.let { provenPositive(it) } == true)
         }
         if (!prior && !learned) return
         // V5.0.7925 — claim the promotion once (two feeds can deliver the same trade burst).

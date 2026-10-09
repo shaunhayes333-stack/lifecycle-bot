@@ -279,6 +279,7 @@ object ChartSources7955 {
 
     private const val PUMP_API = "https://frontend-api-v3.pump.fun"
     private const val PUMP_SWAP_API = "https://swap-api.pump.fun"
+    private const val PUMP_ADV_API_7968 = "https://advanced-api-v2.pump.fun"
 
     /** V5.0.7959 — swap-api candles come as a bare array or wrapped ({candles|data:[...]}). */
     private fun pumpCandleArray7959(body: String): JSONArray {
@@ -478,15 +479,21 @@ object ChartSources7955 {
 
     private fun pumpCoins(body: String): List<Job> {
         val out = ArrayList<Job>()
+        val created = try { ChartParsers7955.pumpCreated7968(json(body)) } catch (_: Throwable) { emptyMap() }
         for ((mint, pool) in ChartParsers7955.pumpCoins7955(json(body))) {
             // V5.0.7959 — the v3 candlestick route failed 64/65 live; pump.fun's swap API serves
             // the same candles. Try it first, fall back to v3 once it refuses.
             val v3 = Job("PF|$mint|1m", PUMP, PUMP, ChartLibrary7950.SRC_SOL_MEME, "$PUMP_API/candlesticks/$mint?offset=0&limit=1000&timeframe=1") {
                 Out(ChartParsers7955.pumpFun7955(JSONArray(it)))
             }
-            out += Job("PF|$mint|1m", PUMP, PUMP, ChartLibrary7950.SRC_SOL_MEME, "$PUMP_SWAP_API/v2/coins/$mint/candles?interval=1m&limit=1000&currency=USD", fallback = v3) {
+            val swap = Job("PF|$mint|1m", PUMP, PUMP, ChartLibrary7950.SRC_SOL_MEME, "$PUMP_SWAP_API/v2/coins/$mint/candles?interval=1m&limit=1000&currency=USD", fallback = v3) {
                 Out(ChartParsers7955.pumpFun7955(pumpCandleArray7959(it)))
             }
+            // V5.0.7968 — the documented candle route (advanced-api-v2, createdTs required) first.
+            val c = created[mint] ?: 0L
+            out += if (c > 0L) Job("PF|$mint|1m", PUMP, PUMP, ChartLibrary7950.SRC_SOL_MEME, "$PUMP_ADV_API_7968/v2/coins/$mint/candles?interval=1m&limit=1000&currency=USD&createdTs=$c", fallback = swap) {
+                Out(ChartParsers7955.pumpFun7955(pumpCandleArray7959(it)))
+            } else swap
             if (pool.isNotBlank()) out += geckoPool("solana", pool, PUMP)
             out += keyedMintJobs(mint)
         }

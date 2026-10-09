@@ -117,7 +117,7 @@ object RunnerGrab7967 {
         if (ts.position.isOpen) return false
         if (ts.safety.tier == SafetyTier.HARD_BLOCK) return false
         if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return false
-        if (try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(mint)?.devSold } catch (_: Throwable) { null } == true) return false
+        // V5.0.7968 — a dev sale does not stop a grab (devs sell to side wallets).
         provenCellFor(ts, nowMs) ?: return false
         if (!firmingNow(mint, nowMs)) return false
         // Graded whether or not the admit is live.

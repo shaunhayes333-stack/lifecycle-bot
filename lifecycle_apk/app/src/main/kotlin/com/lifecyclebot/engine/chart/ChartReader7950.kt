@@ -48,7 +48,7 @@ object ChartReader7950 {
 
     private val tapes = ConcurrentHashMap<String, Tape>()
 
-    data class Read(val motif: MotifRead7950?, val bars: Int, val buyShare: Double, val devSold: Boolean, val atMs: Long, val devSoldAtMs: Long = 0L)
+    data class Read(val motif: MotifRead7950?, val bars: Int, val buyShare: Double, val devSold: Boolean, val atMs: Long, val devSoldAtMs: Long = 0L, val colorBuy7968: Boolean = false)
 
     private val reads = ConcurrentHashMap<String, Read>()
     private val buys = AtomicLong(0)
@@ -141,7 +141,8 @@ object ChartReader7950 {
         val end = bars.size - 1
         val f = ChartMotif7950.encode(bars, end) ?: return null
         val motif = ChartLibrary7950.query(f)
-        val r = Read(motif, bars.size, ChartMotif7950.buyShare(bars, end), nowMs - tape.devSoldAtMs < DEV_SELL_WINDOW_MS, nowMs, tape.devSoldAtMs)
+        val colorBuy = try { CandleColors7968.read7968(bars)?.buy == true } catch (_: Throwable) { false }  // V5.0.7968
+        val r = Read(motif, bars.size, ChartMotif7950.buyShare(bars, end), nowMs - tape.devSoldAtMs < DEV_SELL_WINDOW_MS, nowMs, tape.devSoldAtMs, colorBuy)
         if (reads.size > 3_000) reads.clear()
         reads[mint] = r
         readsDone.incrementAndGet()
@@ -234,8 +235,11 @@ object ChartReader7950 {
      * resembles nothing gets no verdict.
      */
     fun buySignal(r: Read?, typicalDist: Double = ChartLibrary7950.typicalDist()): Boolean {
-        val m = r?.motif ?: return false
-        if (r.devSold) return false
+        if (r == null) return false
+        // V5.0.7968 — a proven candle-colour sequence (any price, any mcap) is a buy when buyers hold the tape.
+        if (r.colorBuy7968 && (!r.buyShare.isFinite() || r.buyShare >= MIN_BUY_SHARE)) return true
+        val m = r.motif ?: return false
+        // V5.0.7968 — a dev sale is not a veto: devs routinely sell to side wallets (owner call).
         val se = kotlin.math.sqrt((m.pUp * (1.0 - m.pUp)).coerceAtLeast(0.0) / m.n.coerceAtLeast(1))
         if (m.n < MIN_N || m.lift - se < BUY_LIFT) return false
         if (typicalDist.isFinite() && typicalDist > 0.0 && m.meanDist > typicalDist * 1.25) return false
@@ -246,7 +250,7 @@ object ChartReader7950 {
     /** Pure: does a read say get out of a held position? Returns the reason or null. */
     fun exitSignal(r: Read?): String? {
         if (r == null) return null
-        if (r.devSold) return "DEV_SOLD"
+        // V5.0.7968 — dev sales no longer force an exit; the motif decides.
         val m = r.motif ?: return null
         if (m.n < MIN_N) return null
         val se = kotlin.math.sqrt((m.pUp * (1.0 - m.pUp)).coerceAtLeast(0.0) / m.n.coerceAtLeast(1))
@@ -299,6 +303,7 @@ object ChartReader7950 {
         "tapes=${tapes.size} reads=${readsDone.get()} buys=${buys.get()} exits=${exits.get()} liveMotifs=${liveMotifs.get()} " +
             "admitted=${admitted.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} lib[${ChartLibrary7950.statusLine()}] " +
             "build[${ChartLibraryBuilder7950.statusLine()}]" +
+            "\n    colours(§7968) " + (try { CandleColors7968.statusLine7968() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7955 — one line per chart market-data source (the pinned diag dump may not grow).
             (try { ChartSources7955.diagLines7955().joinToString("") { "\n    $it" } } catch (_: Throwable) { "" })
 

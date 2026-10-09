@@ -407,6 +407,23 @@ object ExpertWallets7962 {
         } catch (_: Throwable) {}
     }
 
+    /** V5.0.7968 — PumpCallouts7968: a proven caller called [mint]; graded as a TOP expert entry. */
+    fun noteCallout7968(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.length < 30) return
+        recentExpertBuys.putIfAbsent(mint, nowMs to Tier7962.TOP)
+        try { PipelineHealthCollector.labelInc("EXPERT_CALLOUT_7968") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.7968 — PumpCallouts7968: proven callers' wallets are learned as TOP experts (histories, cells, exits). */
+    fun addCallerWallets7968(wallets: List<String>): Int {
+        var added = 0
+        for (w in wallets) {
+            if (!isAddress(w) || w == OWNER_WALLET_7962 || experts.containsKey(w) || experts.size >= MAX_EXPERTS) continue
+            experts[w] = Expert(w, Tier7962.TOP, "TOP_CALLER_7968"); added++
+        }
+        return added
+    }
+
     /** CopyTradeEngine: a tape trade by a wallet nobody tracks (not a smart-money detection). */
     fun noteUntrackedTape7962() { untrackedTape.incrementAndGet() }
 
@@ -688,6 +705,11 @@ object ExpertWallets7962 {
     /** pump.fun 1m candles for a pump mint: swap-api first, then the v3 route (from creation). */
     private fun pumpBars(mint: String): List<Bar7950> {
         if (!(mint.endsWith("pump") || mint.endsWith("bonk"))) return emptyList()
+        // V5.0.7968 — the documented route (advanced-api-v2, createdTs required) first.
+        val c = if (mint.endsWith("pump")) createdMs(mint, emptyList()) else 0L
+        if (c > 0L) httpGet("https://advanced-api-v2.pump.fun/v2/coins/$mint/candles?interval=1m&limit=1000&currency=USD&createdTs=$c")
+            ?.let { try { ChartParsers7955.pumpFun7955(candleArray(it)) } catch (_: Throwable) { null } }
+            ?.let { if (it.size > ChartMotif7950.WINDOW) return it }
         val a = httpGet("https://swap-api.pump.fun/v2/coins/$mint/candles?interval=1m&limit=1000&currency=USD")
             ?.let { try { ChartParsers7955.pumpFun7955(candleArray(it)) } catch (_: Throwable) { null } }.orEmpty()
         if (a.size > ChartMotif7950.WINDOW) return a

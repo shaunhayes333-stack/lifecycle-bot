@@ -178,7 +178,7 @@ object FreshLaunchSelector7737 {
 
     /** Pure: the structural refusal for one setup's raw facts, or null. */
     fun structuralRefusal(devSellTx: Int, chg5mPct: Double, flow: String, conc: String, multiple: Double?): String? = when {
-        devSellTx > 0 -> "DEV_SELLING"
+        // V5.0.7968 — dev selling is not a refusal (devs sell to side wallets); devSellTx stays a recorded fact.
         chg5mPct <= -18.0 -> "FIVE_MINUTE_CASCADE"
         flow == "FLOW_SELL" -> "SELL_DOMINANT_TAPE"
         conc == "CONC_ONE" -> "ONE_WALLET_PUMP"

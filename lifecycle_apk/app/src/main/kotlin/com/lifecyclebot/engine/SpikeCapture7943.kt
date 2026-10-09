@@ -169,7 +169,8 @@ object SpikeCapture7943 {
             // V5.0.7962 — slots, size and priority on the best decision cells (Thompson bandit).
             "\n  Cell allocator (§7962):      " + (try { CellAllocator7962.statusLine() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7967 — runner grab / hold and the missed-runner audit.
-            "\n  Runner grab (§7967):         " + (try { RunnerGrab7967.statusLine7967() } catch (_: Throwable) { "unavailable" })
+            "\n  Runner grab (§7967):         " + (try { RunnerGrab7967.statusLine7967() } catch (_: Throwable) { "unavailable" }) +
+            "\n  Curve ticks (§7968):         " + (try { com.lifecyclebot.network.CurveTicks7968.statusLine7968() } catch (_: Throwable) { "unavailable" })
 
     fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
 }

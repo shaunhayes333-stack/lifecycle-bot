@@ -85,7 +85,7 @@ class Aate7950ChartReaderTest {
         assertTrue(dn.pUp < 0.2)
         assertTrue(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.7, false, 0L), Double.NaN))
         assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.3, false, 0L), Double.NaN))   // sellers dominate the tape now
-        assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.7, true, 0L), Double.NaN))    // dev sold
+        assertTrue(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.7, true, 0L), Double.NaN))    // V5.0.7968: dev sale is not a veto
         assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(dn, 40, 0.7, false, 0L), Double.NaN))
         ChartLibrary7950.resetForTest()
     }
@@ -95,7 +95,7 @@ class Aate7950ChartReaderTest {
         assertEquals("TOP_MOTIF", ChartReader7950.exitSignal(ChartReader7950.Read(top, 40, 0.4, false, 0L)))
         val run = MotifRead7950(40, 0.6, 0.25, 20.0, -5.0, 8.0, 1.0)
         assertNull(ChartReader7950.exitSignal(ChartReader7950.Read(run, 40, 0.6, false, 0L)))
-        assertEquals("DEV_SOLD", ChartReader7950.exitSignal(ChartReader7950.Read(run, 40, 0.6, true, 0L)))
+        assertNull(ChartReader7950.exitSignal(ChartReader7950.Read(run, 40, 0.6, true, 0L)))  // V5.0.7968: dev sale alone never exits
     }
 
     @Test fun liveTapeFillsQuietMinutes() {

@@ -404,6 +404,23 @@ object ChartParsers7955 {
     }
 
     /** pump.fun coins (array, or a single king-of-the-hill object): mint -> PumpSwap/Raydium pool ("" while on the curve). */
+    /** V5.0.7968 — pump coin rows' creation time (ms) by mint; the advanced-api-v2 candle route requires it. */
+    fun pumpCreated7968(body: Any): Map<String, Long> {
+        val arr = when (body) {
+            is JSONArray -> body
+            is JSONObject -> body.optJSONArray("coins") ?: JSONArray().put(body)
+            else -> JSONArray()
+        }
+        val out = HashMap<String, Long>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val mint = o.optString("mint")
+            val ts = o.optLong("created_timestamp", 0L)
+            if (mint.isNotBlank() && ts > 0L) out[mint] = if (ts < 100_000_000_000L) ts * 1000L else ts
+        }
+        return out
+    }
+
     fun pumpCoins7955(body: Any): List<Pair<String, String>> {
         val arr = when (body) {
             is JSONArray -> body

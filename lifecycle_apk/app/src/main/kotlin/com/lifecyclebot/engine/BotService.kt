@@ -10864,6 +10864,12 @@ class BotService : Service() {
                 // V5.0.7819 — the curve's post-trade price is also a candle print.
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
+            // V5.0.7968 — free per-trade marks for held curves: the bonding-curve account itself on the
+            // Helius standard WS (the PumpPortal trade stream needs a paid key). Same path as a PumpPortal trade.
+            com.lifecyclebot.network.CurveTicks7968.start7968({ try { ConfigStore.load(applicationContext).heliusApiKey } catch (_: Throwable) { cfg.heliusApiKey } }) { mint, priceSol, mcapSol ->
+                try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
+                try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
+            }
             // V5.0.7787 — the same mark from Helius-decoded pump.fun trades on held mints.
             orchestrator?.setOnHeldTradeMark7787 { mint: String, priceSol: Double ->
                 try { applyPumpTradeMark7278(mint, priceSol, 0.0) } catch (_: Throwable) {}
@@ -12610,6 +12616,7 @@ class BotService : Service() {
                             com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(m)
                     }.take(60).toSet()
                     com.lifecyclebot.network.PumpFunWS.syncTradeSubscriptions7278(curveMints7278)
+                    com.lifecyclebot.network.CurveTicks7968.sync7968(curveMints7278)  // V5.0.7968 — free curve ticks
                 } catch (_: Throwable) {}
 
                 if (openMints.isEmpty()) {
