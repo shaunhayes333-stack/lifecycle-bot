@@ -882,6 +882,8 @@ object CryptoAltTrader {
             isRunning.set(false)
         }
         isRunning.set(true)
+        // V5.0.7962 — everything but SOL: the multi-chain meme lane runs beside this trader.
+        try { ctx?.let { com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.start7962(it) } } catch (_: Throwable) {}
         // V5.0.6580 §P0-g — CRYPTO_ALT producer STARTED stamp.
         // Operator forensic (6578): CryptoAlt data/raw/actionable stages
         // active but producer 'started=0' in cross-asset funnel. The
@@ -970,6 +972,7 @@ object CryptoAltTrader {
         engineJob?.cancel()
         monitorJob?.cancel()
         dynScanJob?.cancel()
+        try { com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.stop7962() } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader STOPPED")
     }
 
