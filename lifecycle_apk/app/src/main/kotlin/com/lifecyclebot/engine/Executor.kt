@@ -17190,6 +17190,15 @@ class Executor(
         return true
     }
     
+    /**
+     * V5.0.7948 — backstop terminal for a BLUECHIP/QUALITY ticket that did not open.
+     * liveBuy names most refusals itself (emitLiveBuyFail -> EXEC_REFUSED); this only
+     * fires when none was recorded on the attempt, so every ticket ends by name.
+     */
+    private fun unexecutedTicket7948(layerTag: String, attemptId: String, reason: String) {
+        try { ToolkitSignalSheet.terminalizeUnexecutedTicket7948(normalizeExecutionLane(layerTag), attemptId, reason) } catch (_: Throwable) {}
+    }
+
     fun blueChipBuy(
         ts: TokenState,
         sizeSol: Double,
@@ -17239,6 +17248,7 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "🔵 [BLUE CHIP] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                unexecutedTicket7948(layerTag, preflight.attemptId, "LIVE_BUY_NO_WALLET_7948")
                 return false
             }
             val liveOpened = liveBuy(
@@ -17254,11 +17264,12 @@ class Executor(
                 layerTagEmoji = layerTagEmoji,
                 finalityPrechecked = true, attemptId = preflight.attemptId,
             )
-            if (!liveOpened) return false
+            if (!liveOpened) { unexecutedTicket7948(layerTag, preflight.attemptId, "LIVE_BUY_NOT_OPENED_7948"); return false }
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {
             ErrorLogger.warn("Executor", "🔵 [${layerTag}] ${ts.symbol} | BUY_NOT_OPENED | attemptId=${preflight.attemptId} | finality/route blocked")
+            unexecutedTicket7948(layerTag, preflight.attemptId, "BUY_NOT_OPENED_7948")
             return false
         }
         

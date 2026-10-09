@@ -446,6 +446,11 @@ object ExecutableOpenGate {
                 sameDecisionContract6734(existing, intent) &&
                     existing.resolvedSize <= 0.0 && intent.resolvedSize.isFinite() && intent.resolvedSize > 0.0 ->
                     existing.copy(resolvedSize = intent.resolvedSize)
+                // V5.0.7948 — same decision contract, smaller current FDG size: the
+                // live ticket follows it down (never up), so the seal matches FDG.
+                sameDecisionContract6734(existing, intent) && ticketLive(existing) &&
+                    SpecialistExecution7948.shrinkSealedSize7948(existing.resolvedSize, intent.resolvedSize) ->
+                    existing.copy(resolvedSize = intent.resolvedSize)
                 // V5.0.7321 — an expired intent is replaced, not reused with
                 // its old createdAt (which made the new allow stale on arrival).
                 !ticketLive(existing) -> intent.also { created6734 = true }
@@ -2286,9 +2291,11 @@ object ExecutableOpenGate {
                     // caller may already hold a valid resolved size. Do not
                     // manufacture a zero-size intent merely because no seal was
                     // written in this direct/test/admission path.
-                    val resolvedSize6519 = immutableAuthority6519?.resolvedSizeSol?.takeIf { it.isFinite() && it > 0.0 }
-                        ?: resolvedSizeSol6558.takeIf { it.isFinite() && it > 0.0 }
-                        ?: 0.0
+                    // V5.0.7948 — the first sealed size caps; a smaller current FDG
+                    // size wins (5.0.7947 FDG_SEAL_FAILED_7835: the old larger seal never matched).
+                    val resolvedSize6519 = SpecialistExecution7948.sealedIntentSize7948(
+                        immutableAuthority6519?.resolvedSizeSol, resolvedSizeSol6558,
+                    )
                     // V5.0.7115 — see the note on canonicalLane(). This is the
                     // second of the two sites that sealed an intent's lane with a
                     // bare uppercase while the consumer canonicalised; the

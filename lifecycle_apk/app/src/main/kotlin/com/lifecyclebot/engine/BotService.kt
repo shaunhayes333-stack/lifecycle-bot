@@ -14737,6 +14737,16 @@ class BotService : Service() {
      * A lane whose trader can never authorize is not electable (Field Manual
      * L356: ownership is resolved explicitly, to a strategy that can own the trade).
      */
+    /**
+     * V5.0.7948 — the FinalExecutionPermit refused an authorized, ticketed attempt
+     * ("another layer executing"). It was a debug line only, so 5.0.7947 BLUECHIP
+     * read ticket=11 exec=0 with no terminal. The ticket now ends by name.
+     */
+    private fun permitRefusedTicket7948(lane: String, symbol: String, attemptId: String) {
+        ErrorLogger.debug("BotService", "[$lane] $symbol | EXECUTION_BLOCKED | another layer executing")
+        try { ToolkitSignalSheet.terminalizeUnexecutedTicket7948(lane, attemptId, "FINAL_EXECUTION_PERMIT_BUSY_7948") } catch (_: Throwable) {}
+    }
+
     private fun cyclicPolicyAllows7809(lane: String?): Boolean {
         val raw = lane.orEmpty()
         val canon = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(raw) } catch (_: Throwable) { raw.uppercase() }
@@ -28325,7 +28335,7 @@ if (hotExitHandledSweep) {
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                                 } // end canFundLive else block
                             } else {
-                                ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                permitRefusedTicket7948(compounderLane7614, ts.symbol, treasuryAttemptId)
                                 // Release authorizer lock since we didn't execute
                                 TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
                                 try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "PERMIT_BLOCKED") } catch (_: Throwable) {}
@@ -28885,7 +28895,7 @@ if (hotExitHandledSweep) {
                                     "${blueChipAuthorizedSize7835.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
-                                ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                permitRefusedTicket7948("BLUECHIP", ts.symbol, if (blueChipAuth6494.isExecutable()) blueChipAuth6494.attemptId else "")
                             }
                         }
                     }
@@ -29312,7 +29322,7 @@ if (hotExitHandledSweep) {
                                             FinalExecutionPermit.releaseExecution(ts.mint)
                                         }
                                     } else {
-                                        ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                        permitRefusedTicket7948("MOONSHOT", ts.symbol, moonshotAttemptId)
                                     }
                                 }
                             }
@@ -30005,7 +30015,7 @@ if (hotExitHandledSweep) {
                                     "${adjustedSize.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
-                                ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                permitRefusedTicket7948("SHITCOIN", ts.symbol, shitcoinAttemptId)
                                 // V5.9.677 — final silent-drop point on the
                                 // SHITCOIN lane (the authorizer rejection
                                 // race). Surfaces "another layer is buying

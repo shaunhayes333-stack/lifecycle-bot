@@ -1373,14 +1373,16 @@ object ShitCoinTraderAI {
         
         if (!passesScore || !passesConf) {
             val failTag = if (wrFloor > 0 && shitScore < wrFloor) "WR_RECOVERY_SCORE_FLOOR" else "THRESHOLD_FAIL"
-            try { ShitCoinDecisionMatrixReport.recordReject("$failTag score=$shitScore<$effectiveMinScore conf=$shitConfidence<$minConf", mode.name, launchPlatform.name, isPaperMode) } catch (_: Throwable) {}
+            // V5.0.7948 — print the operator that actually holds for each pair (was always '<').
+            val failReason7948 = com.lifecyclebot.engine.SpecialistExecution7948.thresholdFailReason7948(failTag, shitScore, effectiveMinScore, shitConfidence, minConf, "(base=$minScore wr_floor=$wrFloor)")
+            try { ShitCoinDecisionMatrixReport.recordReject(failReason7948, mode.name, launchPlatform.name, isPaperMode) } catch (_: Throwable) {}
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
                 confidence = shitConfidence,
-                reason = "${failTag}: score=$shitScore<$effectiveMinScore (base=$minScore wr_floor=$wrFloor) conf=$shitConfidence<$minConf",
+                reason = failReason7948,
                 mode = mode,
                 isPaperMode = isPaperMode,
                 launchPlatform = launchPlatform,
@@ -1388,6 +1390,9 @@ object ShitCoinTraderAI {
                 socialScore = socialBonus,
                 bundleWarning = bundleWarning,
                 graduationImminent = graduationImminent,
+                // V5.0.7948 — carry the real lane score so the native bridge reports
+                // nativeScore=<score>, not the confidence fallback (score=4 conf=4).
+                entryScore = shitScore,
             )
         }
 

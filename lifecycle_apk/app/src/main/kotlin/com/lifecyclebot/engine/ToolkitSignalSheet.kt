@@ -795,7 +795,7 @@ object ToolkitSignalSheet {
             } else {
                 val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
                 deskHypotheses[lane] = DeskHypothesis(
-                    lane, setup, maxOf(native.score,native.confidence).toDouble().coerceIn(25.0,100.0),
+                    lane, setup, (native.ownershipConviction7948 ?: maxOf(native.score,native.confidence).toDouble()).coerceIn(25.0,100.0),
                     native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
                     native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
                     "nativeBrain7542;${native.reason}"
@@ -897,7 +897,7 @@ object ToolkitSignalSheet {
                             candidateVersion = candidateVersion7622,
                             score = native.score,
                             confidence = native.confidence.toDouble(),
-                            reason = "NATIVE_SPECIALIST_READY_7803;" + native.reason,
+                            reason = "NATIVE_SPECIALIST_READY_7803;" + native.reason, conviction7948 = native.ownershipConviction7948,
                         )
                     }
                 }
@@ -1545,6 +1545,34 @@ object ToolkitSignalSheet {
         if (preSizeRefusals7809.size > 2_000) preSizeRefusals7809.clear()
         preSizeRefusals7809.computeIfAbsent("${refusalMode7819()}|$l|$r") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SPECIALIST_PRE_SIZE_REFUSAL_7809_$l") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7948 — a sealed ticket that does not execute ends in ONE named terminal
+     * on its own attempt (TICKET => EXEC or EXEC_REFUSED). 5.0.7947 BLUECHIP read
+     * ticket=11 exec=0 with no terminal for the permit/open refusals and for the
+     * authorizer refusals that came after the seal. Idempotent: an attempt that
+     * already carries EXEC or EXEC_REFUSED is left alone. `nameRefusal=false` when
+     * the caller already counted the reason (TradeAuthorizer's AUTH_<reason>).
+     */
+    internal fun terminalizeUnexecutedTicket7948(lane: String, attemptId: String, reason: String, nameRefusal: Boolean = true): Boolean {
+        if (attemptId.isBlank()) return false
+        val canon = try {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(
+                lane.uppercase().replace("BLUE_CHIP", "BLUECHIP").replace("SHITCOIN_EXPRESS", "EXPRESS"),
+            )
+        } catch (_: Throwable) { lane.trim().uppercase() }
+        val l = attemptTicketLineage7809(attemptId)?.lane?.takeIf { it.isNotBlank() } ?: canon
+        if (l.isBlank()) return false
+        val now = System.currentTimeMillis()
+        val terminated = listOf("EXEC", "EXEC_REFUSED").any { st ->
+            deskStageOnce7481["$l|$st|$attemptId"]?.let { now - it <= DESK_STAGE_TTL_MS_7481 } == true
+        }
+        if (terminated) return false
+        if (nameRefusal) recordPreSizeRefusal7809(l, reason)
+        recordDeskStage(l, "EXEC_REFUSED", attemptId)
+        try { PipelineHealthCollector.labelInc("TICKET_UNEXECUTED_TERMINALIZED_7948_$l") } catch (_: Throwable) {}
+        return true
     }
 
     /**
