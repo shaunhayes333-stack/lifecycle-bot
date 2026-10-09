@@ -711,6 +711,11 @@ class DataOrchestrator(
     private fun onTapeTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
         // V5.0.7921 — the launch tape since birth (crowd, flow, heat, promotion).
         try { com.lifecyclebot.engine.market.LaunchTape7921.onTrade(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
+        // V5.0.7950 — the chart reader's buy/sell volume split and dev-sold flag.
+        try {
+            val dev7950 = if (!isBuy && wallet.isNotBlank()) (try { OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }) == wallet else false
+            com.lifecyclebot.engine.chart.ChartReader7950.onTrade(mint, solAmount, isBuy, dev7950)
+        } catch (_: Throwable) {}
         try { synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) } } catch (_: Throwable) {}
         try { applyTapeBuyPressure7773(mint) } catch (_: Throwable) {}
         // V5.0.7747 — WhaleTrackerAI's only feeder was BirdeyeWhaleFeeder (Birdeye

@@ -53,7 +53,28 @@ object SpikeCapture7943 {
         if (px != null && px > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate <= FRESH_MARK_MS_7944) {
             try { onMark(ts, px, sell) } catch (_: Throwable) {}
         }
+        try { chartExit7950(ts, px, nowMs, sell) } catch (_: Throwable) {}
         return px
+    }
+
+    private val chartExitAt7950 = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.7950 — the chart reader's exit for a held position: the shape now matches
+     * tops (or the dev sold). Sells the whole holding; at most once per 20 s per
+     * position while the sell lands, and never in the first 90 s after entry.
+     */
+    private fun chartExit7950(ts: TokenState, px: Double?, nowMs: Long, sell: (TokenState, Double, String) -> Unit) {
+        val pos = ts.position
+        if (!pos.isOpen || pos.entryTime <= 0L || nowMs - pos.entryTime < 90_000L) return
+        val why = com.lifecyclebot.engine.chart.ChartReader7950.exitFor(ts.mint, nowMs) ?: return
+        val key = "${ts.mint}|${pos.entryTime}"
+        val last = chartExitAt7950[key] ?: 0L
+        if (nowMs - last < 20_000L) return
+        if (chartExitAt7950.size > 2_000) chartExitAt7950.clear()
+        chartExitAt7950[key] = nowMs
+        val green = px != null && pos.entryPrice > 0.0 && px > pos.entryPrice
+        sell(ts, 1.0, if (green) "CHART_CAPTURE_TOP_7950_$why" else "CHART_STOP_7950_$why")
     }
 
     /** V5.0.7945 — the fill a spike sell is assumed to give up against its tier price. */

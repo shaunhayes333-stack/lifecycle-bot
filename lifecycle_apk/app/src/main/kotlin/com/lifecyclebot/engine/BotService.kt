@@ -3614,7 +3614,7 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "HistoricalCorpusSeeder start error: ${e.message}")
         }
         try {
-            com.lifecyclebot.engine.DailyCorpusRefresher.start(applicationContext)
+            startCorpusAndChartLibrary7950()
         } catch (e: Exception) {
             ErrorLogger.warn("BotService", "DailyCorpusRefresher start error: ${e.message}")
         }
@@ -13876,6 +13876,8 @@ class BotService : Service() {
         liquidityUsd: Double = -1.0,   // V5.9.1355 P0.3 — -1 = unknown (don't liq-gate; still zero-score-gate)
         mintForProbe: String = "",     // V5.9.1466 — for PROBE GRADUATION (CandidateDecision has no mint field)
     ): com.lifecyclebot.data.CandidateDecision {
+        // V5.0.7950 — the chart read decides first: a shape that historically runs is a buy.
+        chartBuyDecision7950(base, lane, liquidityUsd, mintForProbe)?.let { return it }
         val cleanQuality = when {
             base.finalQuality.isNotBlank() && base.finalQuality != "SKIP" -> base.finalQuality
             base.setupQuality.isNotBlank() && base.setupQuality != "SKIP" -> base.setupQuality
@@ -25248,6 +25250,35 @@ if (hotExitHandledSweep) {
                 else "PUMP_TRADE_MARK_REGISTRY_REFUSED_7279",
             )
         } catch (_: Throwable) {}
+    }
+
+    /** V5.0.7950 — the daily corpus refresh and the in-app chart library (load + build in the background). */
+    private fun startCorpusAndChartLibrary7950() {
+        com.lifecyclebot.engine.DailyCorpusRefresher.start(applicationContext)
+        try { com.lifecyclebot.engine.chart.ChartLibraryBuilder7950.start(applicationContext) } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "ChartLibraryBuilder7950 start error: ${e.message}")
+        }
+    }
+
+    /**
+     * V5.0.7950 — the chart reader says BUY: the lane's candidate is a real buy, not a
+     * score-floor wait or a dust probe. Liquidity too thin to exit still refuses.
+     */
+    private fun chartBuyDecision7950(
+        base: com.lifecyclebot.data.CandidateDecision,
+        lane: String,
+        liquidityUsd: Double,
+        mint: String,
+    ): com.lifecyclebot.data.CandidateDecision? {
+        if (mint.isBlank()) return null
+        if (liquidityUsd >= 0.0 && liquidityUsd < LANE_PROBE_MIN_LIQ_USD) return null
+        if (!com.lifecyclebot.engine.chart.ChartReader7950.admitsLive(mint, lane)) return null
+        return base.copy(
+            signal = "BUY", finalSignal = "BUY", shouldTrade = true, blockReason = "", edgeVeto = false,
+            edgeQuality = if (base.edgeQuality == "SKIP") "B" else base.edgeQuality,
+            finalQuality = if (base.finalQuality.isBlank() || base.finalQuality == "SKIP" || base.finalQuality == "C") "B" else base.finalQuality,
+            aiConfidence = base.aiConfidence.coerceAtLeast(60.0),
+        )
     }
 
     /**

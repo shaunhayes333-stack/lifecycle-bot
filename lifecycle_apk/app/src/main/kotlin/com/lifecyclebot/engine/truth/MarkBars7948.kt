@@ -44,6 +44,8 @@ object MarkBars7948 {
     /** Record one observed price for [mint] at [atMs]. Cheap; safe on socket threads. */
     fun note7948(mint: String, priceUsd: Double, atMs: Long) {
         if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0 || atMs <= 0L) return
+        // V5.0.7950 — every price the bot sees also feeds the chart reader's candles.
+        try { com.lifecyclebot.engine.chart.ChartReader7950.onPrice(mint, priceUsd, atMs) } catch (_: Throwable) {}
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         synchronized(tape) {
             fold7948(tape.bars, priceUsd, atMs)

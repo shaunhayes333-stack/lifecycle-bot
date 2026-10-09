@@ -296,6 +296,8 @@ object TradePlan7739 {
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
+        // V5.0.7950 — the chart reader's BUY is the plan (hard safety still runs in the edge gate's chart path).
+        if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return null
         // V5.0.7878 — a runner lane is judged per cohort by the edge gate below,
         // not by its lane-wide record: MOONSHOT's 10-close live record held every
         // MOONSHOT token to paper (5.0.7876 PIVOT_7876_NEGATIVE_MOONSHOT=1924),

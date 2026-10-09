@@ -264,6 +264,19 @@ object LiveEdgeGate7877 {
     }
 
     private const val LANE_LOSING_MIN_N_7938 = 100
+
+    /**
+     * V5.0.7950 — live: the chart reader says BUY and nothing hard refuses (the
+     * safety tier's HARD_BLOCK, Mayhem Mode). Learned and plan refusals do not apply:
+     * the chart library's thousands of measured outcomes are the evidence.
+     */
+    fun chartAdmits7950(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
+        if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts, nowMs) != null) return false
+        val ok = try { com.lifecyclebot.engine.chart.ChartReader7950.saysBuy(ts.mint, nowMs) } catch (_: Throwable) { false }
+        if (ok) try { PipelineHealthCollector.labelInc("LIVE_EDGE_CHART_ADMIT_7950_${lane.uppercase()}") } catch (_: Throwable) {}
+        return ok
+    }
     internal const val MIN_RESOLVED_SHARE_7944 = 0.75
 
     /**
@@ -304,8 +317,12 @@ object LiveEdgeGate7877 {
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
         // earned that authority (bar V1); until then this returns null.
-        com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)?.let { return it }
-        if (paper) return null
+        val cortex7950 = com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)
+        if (paper) return cortex7950
+        // V5.0.7950 — the chart reader's BUY passes every learned/soft refusal; hard safety
+        // (the safety tier's HARD_BLOCK, Mayhem) still refuses inside chartAdmits7950.
+        if (chartAdmits7950(ts, lane, nowMs)) return null
+        cortex7950?.let { return it }
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         // V5.0.7943 — pump.fun Mayhem Mode coins are not bought live.
         com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts)?.let { return it }
