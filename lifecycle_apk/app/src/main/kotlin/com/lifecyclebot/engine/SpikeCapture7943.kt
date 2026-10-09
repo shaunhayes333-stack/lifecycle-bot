@@ -56,6 +56,30 @@ object SpikeCapture7943 {
         return px
     }
 
+    /** V5.0.7945 — the fill a spike sell is assumed to give up against its tier price. */
+    private const val CAPTURE_SLIP_7945 = 0.05
+
+    /**
+     * V5.0.7945 — Pure: the gross % the tiers bank on a path that peaked at
+     * [peakGrossPct] and sits at [horizonGrossPct]. Each tier the peak reached sells
+     * its fraction at the tier's own threshold (the first print at or above it, not
+     * the peak) less [CAPTURE_SLIP_7945]; the remainder is worth the horizon price.
+     * foff (+276% peak, 0% at the hour) banks about +50%, not 0.
+     */
+    fun realisableGrossPct(peakGrossPct: Double, horizonGrossPct: Double): Double {
+        if (!horizonGrossPct.isFinite()) return horizonGrossPct
+        val peak = if (peakGrossPct.isFinite()) maxOf(peakGrossPct, horizonGrossPct) else horizonGrossPct
+        var remaining = 1.0
+        var banked = 0.0
+        for ((pct, frac) in TIERS) {
+            if (peak < pct) break
+            val sold = remaining * frac
+            banked += sold * ((1.0 + pct / 100.0) * (1.0 - CAPTURE_SLIP_7945) - 1.0) * 100.0
+            remaining -= sold
+        }
+        return banked + remaining * horizonGrossPct
+    }
+
     /** Pure: the highest tier index (1-based) this gross gain reaches, or 0. */
     fun tierReached(grossPct: Double): Int {
         if (!grossPct.isFinite()) return 0

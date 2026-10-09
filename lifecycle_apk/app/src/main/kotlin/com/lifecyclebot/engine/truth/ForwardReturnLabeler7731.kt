@@ -492,7 +492,26 @@ object ForwardReturnLabeler7731 {
         try { PipelineHealthCollector.labelInc("FORWARD_LABEL_LOST_MARK_7731") } catch (_: Throwable) {}
     }
 
-    private fun bookSixty7944(o: Obs, net: Double, gross: Double, nowMs: Long) {
+    /**
+     * V5.0.7945 — a label is what the bot's exits would have earned, not the price
+     * at the hour. Every learner read the 60/240-minute price alone, so a token that
+     * spiked +276% at minute two and was back at entry by the hour taught every
+     * lane, cell, voter and source "break-even minus cost": the lanes that find
+     * spikes were graded as if the spike never happened. The spike tiers
+     * (SpikeCapture7943) now sell into those prints live, so the label books what
+     * they bank on the observed peak plus the remainder at the horizon.
+     */
+    private fun captured7945(o: Obs, net: Double, gross: Double): Pair<Double, Double> {
+        val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(o.peakPct, gross)
+        if (!g.isFinite() || g <= gross) return net to gross
+        capturedLabels7945.incrementAndGet()
+        return (net + (g - gross)).coerceAtMost(NET_CEILING_PCT_7738) to g
+    }
+
+    private val capturedLabels7945 = AtomicLong(0)
+
+    private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long) {
+        val (net, gross) = captured7945(o, net0, gross0)
         book(o, 60, net, gross)
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
@@ -503,7 +522,8 @@ object ForwardReturnLabeler7731 {
         try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
     }
 
-    private fun bookTwoForty7944(o: Obs, net: Double, gross: Double) {
+    private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double) {
+        val (net, gross) = captured7945(o, net0, gross0)
         book(o, 240, net, gross)
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
     }
@@ -690,7 +710,7 @@ object ForwardReturnLabeler7731 {
             // V5.0.7809 — a horizon label is booked only from a mark inside its own
             // window (Field Manual L357): a 15-minute label first priced at minute 70
             // used to book the 70-minute move into the 15-minute cohort.
-            if (!o.done15 && age >= H15_MS_7731) { o.done15 = true; if (horizonOpen7809(age, H15_MS_7731)) book(o, 15, net, gross) else horizonMissed7809.incrementAndGet() }
+            if (!o.done15 && age >= H15_MS_7731) { o.done15 = true; if (horizonOpen7809(age, H15_MS_7731)) captured7945(o, net, gross).let { (n, g) -> book(o, 15, n, g) } else horizonMissed7809.incrementAndGet() }
             if (!o.done60 && age >= H60_MS_7731 && !horizonOpen7809(age, H60_MS_7731)) {
                 // Restored after its 60-minute window closed: priced at the last mark seen before it
                 // (V5.0.7944), lost only when there is none inside the window.
@@ -760,7 +780,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
