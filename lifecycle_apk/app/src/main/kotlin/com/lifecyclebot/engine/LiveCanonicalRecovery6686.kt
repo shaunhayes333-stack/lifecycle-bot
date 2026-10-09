@@ -529,7 +529,21 @@ object LiveCanonicalRecovery6686 {
                     "action=${if (park) "park_mint_sell_not_moving_tokens" else "readopt_at_observed_mark_no_cost_recharge"}")
         } catch (_: Throwable) {}
         if (park) { markDustUnroutable7714(mint); return null }
-        return observedMarkBasis7706(mint, amount, ts)
+        // V5.0.7962 — the residual keeps the ORIGINAL entry price for its exits (cost stays the
+        // observed value, so nothing is re-charged and learning still excludes the row).
+        // 5.0.7961 live: Frank's residual was re-adopted at the current mark after the coin had
+        // run ~7x from the bot's buy, its exits read +6% instead of +646%, and a 5-point
+        // profit lock sold the runner as a +6% trade.
+        val mark = observedMarkBasis7706(mint, amount, ts) ?: return null
+        return residualBasis7962(mark, b)
+    }
+
+    /** Pure-ish: the observed-mark basis carrying the spent receipt's entry price when the units agree (within 200x). */
+    private fun residualBasis7962(mark: Basis, receipt: Basis): Basis {
+        val r = if (receipt.entryPriceUsd > 0.0 && mark.entryPriceUsd > 0.0) mark.entryPriceUsd / receipt.entryPriceUsd else Double.NaN
+        if (!residualPriceUsable7962(r)) return mark
+        try { PipelineHealthCollector.labelInc("LIVE_RESIDUAL_KEEPS_ORIGINAL_ENTRY_7962") } catch (_: Throwable) {}
+        return mark.copy(entryPriceUsd = receipt.entryPriceUsd, source = mark.source + "_RESIDUAL_7962")
     }
 
     private data class Basis(
@@ -1417,3 +1431,7 @@ internal fun promotionCost7876(reservedCostSol: Double, basisCostSol: Double, ba
     val implausible = !basisCostSol.isFinite() || basisCostSol <= 0.0 || basisCostSol > reservedCostSol * 3.0
     return if (observed || implausible) reservedCostSol else basisCostSol
 }
+
+/** V5.0.7962 — pure: is the mark / receipt price ratio a believable same-unit move (1/200x .. 200x)? */
+fun residualPriceUsable7962(markOverReceipt: Double): Boolean =
+    markOverReceipt.isFinite() && markOverReceipt > 0.0 && markOverReceipt in (1.0 / 200.0)..200.0
