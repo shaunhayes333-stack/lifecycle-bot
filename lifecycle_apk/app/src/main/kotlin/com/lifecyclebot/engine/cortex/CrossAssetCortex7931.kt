@@ -43,7 +43,8 @@ object CrossAssetCortex7931 {
 
     fun isCrossAssetLane(lane: String): Boolean {
         val l = lane.substringBefore('@').uppercase()
-        return l == "CRYPTO_ALT" || l.startsWith("MKT_")
+        // V5.0.7962 — the multi-chain meme lanes (EVM_BSC, EVM_BASE, ...) learn in their own lanes too.
+        return l == "CRYPTO_ALT" || l.startsWith("MKT_") || l.startsWith("EVM_")
     }
 
     /**
@@ -102,7 +103,8 @@ object CrossAssetCortex7931 {
 
     /** ForwardReturnLabeler7731.tick fallback: a fresh price for a cross-asset identity, else null. */
     fun priceFor(key: String, nowMs: Long = System.currentTimeMillis()): Double? {
-        val a = assets[key] ?: return null
+        // V5.0.7962 — multi-chain meme labels are marked from that lane's own pair prices.
+        val a = assets[key] ?: return com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.freshMark7962(key, nowMs)
         return try {
             if (a.assetClass == AssetClass.CRYPTO_ALT || a.assetClass == AssetClass.SOLANA_TOKEN) {
                 val m = com.lifecyclebot.perps.DynamicAltTokenRegistry.heldMarkSnapshot7251(a.dynKey.ifBlank { key })
@@ -136,5 +138,9 @@ object CrossAssetCortex7931 {
     }
 
     fun statusLine(): String = "tracked=${assets.size} byClass=" +
-        assets.values.groupingBy { it.assetClass.tag }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
+        assets.values.groupingBy { it.assetClass.tag }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" } +
+        // V5.0.7962 — everything but SOL: per chain gas, live/shadow, candidates, labels, cell EV (own diag line;
+        // carried here because PipelineHealthCollector.dumpText is a pinned method that may only shrink).
+        "\n  Multi-chain lane (§7962):    " +
+        (try { com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.statusLine() } catch (_: Throwable) { "unavailable" })
 }
