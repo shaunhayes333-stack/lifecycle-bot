@@ -117,6 +117,9 @@ object LocalCandleSynthesis7055 {
         if (!priceUsd.isFinite() || priceUsd <= 0.0) return
         val mint = ts.mint
         if (mint.isBlank()) return
+        // V5.0.7948 — every observed price also lands on the mint's mark tape,
+        // before the candidate-only and fetched-kline stand-downs below.
+        try { MarkBars7948.note7948(mint, priceUsd, atMs) } catch (_: Throwable) {}
         // CANDIDATES ONLY. An OPEN position already receives a per-tick candle
         // from openPositionTickLoop (BotService:11098) at 1Hz; binning here as
         // well would double-append and inflate hist.size with the same motion
@@ -247,7 +250,7 @@ object LocalCandleSynthesis7055 {
         "ticksBinned=${ticksBinned.get()} candles=${candlesEmitted.get()} " +
             "openBuckets=${buckets.size} deferredToFetched=${skippedHasFetched.get()} " +
             "tradePrints7819=${tradePrints7819.get()} tradeCandles7819=${tradeCandles7819.get()} " +
-            "| sources7819 local=${candlesEmitted.get()} heliusSwaps[${HeliusSwapCandles7819.statusLine7819()}] " +
+            "| sources7819 local=${candlesEmitted.get()} heliusSwaps[${HeliusSwapCandles7819.statusLine7819()}] ${MarkBars7948.statusLine7948()} " +
             "read=unlocks_BREAKOUT(>=10)_REVERSAL(>=8)_PULLBACK(>=15)_and_the_lanes_behind_them"
 
     internal fun resetForTest() {

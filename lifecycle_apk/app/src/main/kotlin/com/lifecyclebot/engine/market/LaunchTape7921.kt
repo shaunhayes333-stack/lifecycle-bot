@@ -204,6 +204,16 @@ object LaunchTape7921 {
         heatOf(r.buyerSol.size, (nowMs - r.birthMs) / 60_000.0, share, largest, r.devSold)
     }
 
+    /**
+     * V5.0.7948 — does this launch still need its Helius tape? Promoted, or
+     * young enough to be promoted or checkpointed. Off-watchlist mints past this
+     * are released by DataOrchestrator's subscription housekeeping.
+     */
+    fun tapeInUse7948(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val r = recs[mint] ?: return false
+        return r.promotedAtMs > 0L || nowMs - r.birthMs <= PROMOTE_MAX_AGE_MS
+    }
+
     /** Was this mint promoted (protect it from Helius eviction; voters read it)? */
     fun promoted(mint: String): Boolean = (recs[mint]?.promotedAtMs ?: 0L) > 0L
 

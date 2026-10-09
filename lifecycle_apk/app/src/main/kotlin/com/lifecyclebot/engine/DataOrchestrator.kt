@@ -240,6 +240,11 @@ class DataOrchestrator(
         tokenDevWallets.keys.removeIf { it !in live }
         synchronized(pendingTrades) { pendingTrades.keys.removeIf { it !in live } }
         dexWs?.let { d -> d.subscribedMints7807().filter { it !in live }.forEach { d.unsubscribeToken(it) } }
+        // V5.0.7948 — Helius slots held by mints that left the watchlist (and whose
+        // launch tape is past use) are released instead of waiting to be evicted.
+        try {
+            heliusWs?.releaseTokens7948 { m -> m in live || com.lifecyclebot.engine.market.LaunchTape7921.tapeInUse7948(m, now) }
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -682,9 +687,12 @@ class DataOrchestrator(
         if (!priceSolPerToken.isFinite() || priceSolPerToken <= 0.0) return
         // V5.0.7921 — the launch tape keeps each launch's price path since birth.
         try { com.lifecyclebot.engine.market.LaunchTape7921.onPrice(mint, priceSolPerToken) } catch (_: Throwable) {}
-        val ts = status.tokens[mint] ?: return
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0) return
+        // V5.0.7948 — a launch's prints reach its mark tape before it is admitted,
+        // so TradePlan7739 reads its bars since birth, not since admission.
+        try { com.lifecyclebot.engine.truth.MarkBars7948.note7948(mint, priceSolPerToken * solUsd, System.currentTimeMillis()) } catch (_: Throwable) {}
+        val ts = status.tokens[mint] ?: return
         try {
             com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.noteTrade7819(
                 ts, priceSolPerToken * solUsd, ts.lastMcap, System.currentTimeMillis(),
