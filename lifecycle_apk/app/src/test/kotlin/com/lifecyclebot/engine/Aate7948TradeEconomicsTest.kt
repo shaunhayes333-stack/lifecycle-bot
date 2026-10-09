@@ -83,11 +83,11 @@ class Aate7948TradeEconomicsTest {
         val small = Cortex7885.kellyStakeSol(6.0, v, 0.1)
         val large = Cortex7885.kellyStakeSol(6.0, v, 0.2)
         assertEquals(2.0 * small, large, 1e-12)
-        // Multiplier: never below 1 (the request already cleared the route minimum), at most 2.
+        // Multiplier: never below 1 (the request already cleared the route minimum), at most 2.5 (V5.0.7955).
         assertEquals(1.0, Cortex7885.stakeMult7948(0.0, 0.05), 1e-12)
         assertEquals(1.0, Cortex7885.stakeMult7948(0.01, 0.05), 1e-12)
         assertEquals(1.5, Cortex7885.stakeMult7948(0.075, 0.05), 1e-12)
-        assertEquals(2.0, Cortex7885.stakeMult7948(1.0, 0.05), 1e-12)
+        assertEquals(2.5, Cortex7885.stakeMult7948(1.0, 0.05), 1e-12)
         assertEquals(1.0, Cortex7885.stakeMult7948(Double.NaN, 0.05), 1e-12)
         assertEquals(0.0, Cortex7885.cohortVariance7948(Double.NaN, 100), 1e-12)
     }

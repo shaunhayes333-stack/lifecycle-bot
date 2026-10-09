@@ -512,16 +512,44 @@ object LanePlaybook7907 {
         if (setup == null) 0 else synchronized(this) { stat(lane, setup)?.n?.toInt() ?: 0 }
     } catch (_: Throwable) { 0 }
 
+    // ── V5.0.7955 §GRADUATED_AUTHORITY for setup records ──
+    //
+    // A setup with a strong positive record waited for 30 labels before it could size
+    // a trade, and nothing let it admit one. Its authority is now graduated like the
+    // Cortex's (CortexScoreboard7885.graduatedFraction7955): from 15 labels, on the
+    // edge over a [SETUP_SMALL_N_MARGIN_7955] margin at 1 SE (n < 25) / 0.75 SE (n >= 25),
+    // reaching 1.0 at the old proof (30+, mean - SE > 0). Proven-losing is unchanged.
+    private const val SETUP_SMALL_N_MARGIN_7955 = 2.0
+
+    /** Pure: a (lane, setup) record's graduated authority in [0, 1]. */
+    fun setupFraction7955(st: CortexLedger7885.Stat?): Double {
+        if (st == null || st.n < 1.0) return 0.0
+        val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
+        return CortexScoreboard7885.graduatedFraction7955(st.n, st.mean(), se, 0.0, SETUP_SMALL_N_MARGIN_7955, LOSING_N, setupProvenPositive7948(st))
+    }
+
+    /** LiveEdgeGate7877: [graduated authority, label count] of this candidate's classified setup, or null (none / NO_TRIGGER). */
+    fun classifiedAuthority7955(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
+            val st = stat(lane, setup)
+            if (st == null) null else doubleArrayOf(setupFraction7955(st), st.n)
+        }
+    } catch (_: Throwable) { null }
+
     /**
-     * Cortex7885.convictionMult: [mean, variance] (percent units) of this candidate's
-     * classified setup when that record is proven positive, else null.
+     * Cortex7885.convictionMult: [mean, variance, authority] (percent units) of this
+     * candidate's classified setup when that record holds authority (V5.0.7955:
+     * graduated, > 0; 1.0 = proven positive), else null.
      */
     fun provenSetupRecord7948(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
         val lane = canon(laneRaw)
         val setup = classify(ts, lane, nowMs)
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
             val st = stat(lane, setup)
-            if (st != null && setupProvenPositive7948(st)) doubleArrayOf(st.mean(), st.variance()) else null
+            val f = setupFraction7955(st)
+            if (st != null && f > 0.0) doubleArrayOf(st.mean(), st.variance(), f) else null
         }
     } catch (_: Throwable) { null }
 
@@ -641,11 +669,13 @@ object LanePlaybook7907 {
                         .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" } + "}"
                 val rec = (menuIds(lane) + NO_TRIGGER).joinToString(" ") { id ->
                     val st = stat(lane, id)
-                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}% exp ${"%+.1f".format(expected(lane, id))}"}]"
+                    // V5.0.7955 — a setup holding graduated authority shows it (auth=0.62).
+                    val auth = setupFraction7955(st)
+                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}% exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0) " auth=${"%.2f".format(auth)}" else ""}]"
                 }
                 "      $lane tagged{$tags} record: $rec"
             }
-            "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · paper never refused\n" +
+            "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused\n" +
                 "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" + lanes
         }
     }
