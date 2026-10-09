@@ -118,10 +118,10 @@ object TraderSizingBridge6444 {
         // the resolver's lane, wallet and liquidity caps below still bound it.
         // V5.0.7962 — times the decision cell's Kelly multiple (CellAllocator7962), under the same 2.5x cap.
         val requestedSol7893 = requestedSol * try {
-            com.lifecyclebot.engine.CellAllocator7962.combinedSizeMult7962(
+            com.lifecyclebot.engine.RunnerGrab7967.sizeMult7967(mintForSeal, com.lifecyclebot.engine.CellAllocator7962.combinedSizeMult7962(
                 com.lifecyclebot.engine.cortex.Cortex7885.convictionMult(mintForSeal, laneKey, requestedSol, walletSol7226),
                 mintForSeal, laneKey, paperMode, requestedSol,
-            )
+            ))  // V5.0.7967 — a grabbed runner is sized at least 2x
         } catch (_: Throwable) { 1.0 }
         // V5.0.7828 — specialists use CanonicalSizingBridge6532 as their primary route.
         // The old "generic misroute -> auto-reroute" wording/counters described a fixed

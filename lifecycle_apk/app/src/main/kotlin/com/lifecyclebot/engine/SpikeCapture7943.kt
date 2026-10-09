@@ -55,6 +55,8 @@ object SpikeCapture7943 {
             try { onMark(ts, px, sell) } catch (_: Throwable) {}
         }
         try { chartExit7950(ts, px, nowMs, sell) } catch (_: Throwable) {}
+        // V5.0.7967 — a grabbed runner's own exits (1m structure break, -35%).
+        try { RunnerGrab7967.heldExit7967(ts, px, nowMs, sell) } catch (_: Throwable) {}
         // V5.0.7962 — structure break (first lower low after a run): shadow until its own record proves it.
         try { com.lifecyclebot.engine.chart.StructureTracker7962.heldExit7962(ts, px, nowMs, sell) } catch (_: Throwable) {}
         return px
@@ -127,7 +129,9 @@ object SpikeCapture7943 {
         val now7955 = System.currentTimeMillis()
         try { ExitProfile7955.notePeak7955(ts, gross, now7955) } catch (_: Throwable) {}
         val plan7955 = try { ExitProfile7955.planFor7955(ts, now7955) } catch (_: Throwable) { null }
-        val tiers = plan7955?.tiers?.takeIf { it.isNotEmpty() } ?: TIERS
+        // V5.0.7967 — a grabbed runner sells on the owner's ladder (half at 2x, then 5x, 11x).
+        val tiers = try { RunnerGrab7967.tiersFor7967(ts) } catch (_: Throwable) { null }
+            ?: plan7955?.tiers?.takeIf { it.isNotEmpty() } ?: TIERS
         val reached = tierReached(gross, tiers)
         if (reached == 0) return 0
         val key = "${ts.mint}|${pos.entryTime}"
@@ -163,7 +167,9 @@ object SpikeCapture7943 {
             "\n  Structure (§7962):           " + (try { com.lifecyclebot.engine.chart.StructureTracker7962.statusLine7962() } catch (_: Throwable) { "unavailable" }) +
             "\n  Cost ledger (§7962):         " + (try { com.lifecyclebot.engine.truth.CostLedger7962.statusLine7962() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7962 — slots, size and priority on the best decision cells (Thompson bandit).
-            "\n  Cell allocator (§7962):      " + (try { CellAllocator7962.statusLine() } catch (_: Throwable) { "unavailable" })
+            "\n  Cell allocator (§7962):      " + (try { CellAllocator7962.statusLine() } catch (_: Throwable) { "unavailable" }) +
+            // V5.0.7967 — runner grab / hold and the missed-runner audit.
+            "\n  Runner grab (§7967):         " + (try { RunnerGrab7967.statusLine7967() } catch (_: Throwable) { "unavailable" })
 
     fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
 }

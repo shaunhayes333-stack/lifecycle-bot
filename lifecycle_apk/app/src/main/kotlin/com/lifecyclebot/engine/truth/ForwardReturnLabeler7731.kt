@@ -184,6 +184,8 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7962 — lowest gross seen so far, and the lowest before the (latest) peak. */
         @Volatile var minPct7962 = 0.0
         @Volatile var dipBeforePeak7962 = Double.NaN
+        /** V5.0.7967 — the refusal reason at the decision (missed-runner audit). */
+        @Volatile var reason7967: String = ""
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -472,6 +474,7 @@ object ForwardReturnLabeler7731 {
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score, "U", regime, "UNKNOWN", px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
+                it.reason7967 = reason.orEmpty().take(120)
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
             }
         lastSeenAt[key] = nowMs
@@ -775,6 +778,9 @@ object ForwardReturnLabeler7731 {
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
             if (gross < o.minPct7962) o.minPct7962 = gross
+            if (gross >= 400.0 && o.peakPct < 400.0) try {
+                com.lifecyclebot.engine.RunnerGrab7967.onRunnerLabel7967(o.mint, o.symbol, o.lane, o.admitted, o.reason7967, gross, nowMs)
+            } catch (_: Throwable) {}
             if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
             o.lastPx = px; o.lastPxAtMs = nowMs

@@ -84,6 +84,12 @@ object LiveCanonicalRecovery6686 {
 
     private fun dustUnroutableCount7714(): Int = dustUnroutableAt7714.size
 
+    /** V5.0.7967 — the bot has evidence it bought [mint] (tracker row it signed/sourced, or coverage attribution). */
+    private fun botAttributed7967(mint: String): Boolean = try {
+        val p = HostWalletTokenTracker.getEntry(mint)
+        isBotSignedRow7708(p) || isBotSourcedRow7717(p) || coverageAttributed7730(mint)
+    } catch (_: Throwable) { false }
+
     private fun isBotSignedRow7708(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =
         p != null && !p.buySignature.isNullOrBlank() &&
             (p.source == HostWalletTokenTracker.PositionSource.BOT_BUY || p.source == HostWalletTokenTracker.PositionSource.TX_PARSE)
@@ -470,6 +476,14 @@ object LiveCanonicalRecovery6686 {
      */
     private fun observedMarkBasis7706(mint: String, amount: CanonicalTokenAmount, ts: com.lifecyclebot.data.TokenState?): Basis? {
         if (!HostWalletTokenTracker.RECOVER_ORPHAN_WALLET_TOKENS) return null
+        // V5.0.7967 — the owner trades by hand in this wallet. A holding with no bot evidence
+        // (no bot-signed / bot-sourced tracker row, no coverage attribution, no receipt reached
+        // this far) is his: left alone, never adopted or sold. 5.0.7964 adopted his Spiralism buy
+        // and dumped 117,600 tokens as an emergency stop.
+        if (!botAttributed7967(mint)) {
+            try { PipelineHealthCollector.labelInc("MANUAL_HOLDING_LEFT_ALONE_7967") } catch (_: Throwable) {}
+            return null
+        }
         val now = System.currentTimeMillis()
         val qty = amount.uiDoubleForDisplay()
         if (!qty.isFinite() || qty <= 0.0) return null
