@@ -260,10 +260,30 @@ object SpecialistMiner7972 {
             if (lo > bestLo) { best = sp; bestLo = lo }
         }
         if (best != null) {
+            matched[ts.mint] = best to nowMs
+            if (matched.size > 2_000) matched.entries.removeIf { nowMs - it.value.second > MATCH_TTL_MS }
             liveMatches.incrementAndGet()
             try { PipelineHealthCollector.labelInc("SPECIALIST_MATCH_7972_$l") } catch (_: Throwable) {}
         }
         return best
+    }
+
+    private val matched = ConcurrentHashMap<String, Pair<Spec, Long>>()
+    private const val MATCH_TTL_MS = 10L * 60_000L
+
+    /**
+     * Pure. V5.0.7974 — size from the specialist's proven floor: 1 + (mean - 2 SE)/100, at
+     * most 2x (a +15% floor sizes 1.15x, +50% sizes 1.5x). Never below the request.
+     */
+    fun edgeMult7974(lowerPct: Double): Double =
+        if (!lowerPct.isFinite() || lowerPct <= 0.0) 1.0 else (1.0 + lowerPct / 100.0).coerceAtMost(2.0)
+
+    /** TraderSizingBridge6444: a buy admitted by a specialist (within 10 min) is sized by its proven floor. */
+    fun sizeMult7974(mint: String, mult: Double, nowMs: Long = System.currentTimeMillis()): Double {
+        val m = if (mult.isFinite() && mult > 0.0) mult else 1.0
+        val (sp, at) = matched[mint] ?: return m
+        if (nowMs - at > MATCH_TTL_MS) return m
+        return maxOf(m, edgeMult7974(sp.disc.mean() - 2.0 * sp.disc.se()))
     }
 
     /** Pure-ish: a specialist whose labels run (>= 20% at +50% gross) is held like a runner. */
