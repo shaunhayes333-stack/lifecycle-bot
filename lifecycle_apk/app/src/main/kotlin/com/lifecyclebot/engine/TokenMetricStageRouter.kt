@@ -171,7 +171,9 @@ object TokenMetricStageRouter {
         if (!com.lifecyclebot.engine.truth.LiveEdgeGate7877.laneProvenLosing7938(own)) return lane
         val best = alternatives.entries
             .filter { (l, st) -> l != lane && st != null && st.n60 >= REROUTE_MIN_N_7940 &&
-                st.stderr60Pct.isFinite() && st.meanNet60Pct - st.stderr60Pct > 0.0 }
+                st.stderr60Pct.isFinite() && st.meanNet60Pct - st.stderr60Pct > 0.0 &&
+                // V5.0.7942 — lost marks counted as -100% must not sink it.
+                (st.meanNet60Pct * st.n60 - 100.0 * st.lost) / (st.n60 + st.lost).toDouble() > 0.0 }
             .maxByOrNull { (_, st) -> st!!.meanNet60Pct - st.stderr60Pct }
         return best?.key ?: lane
     }

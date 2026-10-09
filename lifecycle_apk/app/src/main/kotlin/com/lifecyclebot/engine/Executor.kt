@@ -9533,6 +9533,7 @@ class Executor(
                 try { PipelineHealthCollector.labelInc("LIVE_CULL_DEFERRED_PEAK_SHOWED_LIFE_7706") } catch (_: Throwable) {}
                 return@run
             }
+            if (holdPaysWithinHour7942(ts, posAgeMs)) return@run
             val minHold7353 = if (live7706) maxOf(FLAT_CULL_MIN_HOLD_MS_7353, LIVE_CULL_MIN_HOLD_MS_7706) else FLAT_CULL_MIN_HOLD_MS_7353
             if (!runner7353 && posAgeMs >= minHold7353 &&
                 ts.position.peakGainPct < FLAT_CULL_MAX_PEAK_PCT_7353 &&
@@ -9581,10 +9582,8 @@ class Executor(
                 try { PipelineHealthCollector.labelInc("LIVE_CULL_DEFERRED_PEAK_SHOWED_LIFE_7706") } catch (_: Throwable) {}
                 return@run
             }
-            val pressure7388 = if (live7706) false else try {
-                com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.pressureLevel(if (ts.position.isPaperPosition) "PAPER" else "LIVE") >=
-                    com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.Pressure.HIGH
-            } catch (_: Throwable) { false }
+            if (holdPaysWithinHour7942(ts, posAgeMs)) return@run
+            val pressure7388 = !live7706 && inventoryPressureHigh7942(ts)
             // V5.0.7392 — one window for every lane. Runner lanes waited 30 min
             // (15 under pressure) and nearly the whole meme book is a runner lane,
             // so the cull almost never reached a flat meme position. A runner that
@@ -14422,6 +14421,30 @@ class Executor(
      */
     private fun recoveredDustFloorSol7928(solUsd: Double): Double =
         if (solUsd.isFinite() && solUsd > 0.0) RECOVERED_DUST_FLOOR_USD_7928 / solUsd else 0.0
+
+    /** V5.0.7388 inventory pressure read (moved out of runManageOnly in 7942). */
+    private fun inventoryPressureHigh7942(ts: TokenState): Boolean = try {
+        com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.pressureLevel(if (ts.position.isPaperPosition) "PAPER" else "LIVE") >=
+            com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.Pressure.HIGH
+    } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.7942 — the flat/dead-money culls (30 min live) never take a position in its
+     * first hour when its lane's own 60-minute labels prove that holding to the hour
+     * pays (lost marks counted as -100%). 5.0.7941: MOONSHOT labels n=1119 +9.9% at
+     * 60 min while its live rows closed as STALE_FLAT_CULL / DEAD_MONEY_CULL at 30 min
+     * for -1..-3% each (the round trip, for nothing).
+     */
+    private fun holdPaysWithinHour7942(ts: TokenState, posAgeMs: Long): Boolean {
+        if (posAgeMs >= 60L * 60_000L) return false
+        val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(ts.position.tradingMode).uppercase() } catch (_: Throwable) { "" }
+        if (lane.isBlank()) return false
+        val pays = try {
+            com.lifecyclebot.engine.truth.LiveEdgeGate7877.laneProvenPositive7941(com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane))
+        } catch (_: Throwable) { false }
+        if (pays) try { PipelineHealthCollector.labelInc("CULL_DEFERRED_HOLD_PAYS_7942_$lane") } catch (_: Throwable) {}
+        return pays
+    }
 
     /** V5.0.7708 — last RECOVERED_DUST_LIQUIDATION_7708 attempt per mint. */
     private val recoveredDustSellAt7708 = java.util.concurrent.ConcurrentHashMap<String, Long>()
