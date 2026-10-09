@@ -227,6 +227,8 @@ object LiveWalletReconciler {
                 balances,
             )
         } catch (_: Throwable) { 0 }
+        // V5.0.7948 — confirmed LIVE buys still without a BUY journal row get one from their canonical fill.
+        try { com.lifecyclebot.engine.truth.AccountingIntegrity7948.sweepLiveBuyJournal7948() } catch (_: Throwable) {}
         if (canonicalRecovered7844 > 0) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_RECONCILER_CANONICAL_RECOVERY_7844")

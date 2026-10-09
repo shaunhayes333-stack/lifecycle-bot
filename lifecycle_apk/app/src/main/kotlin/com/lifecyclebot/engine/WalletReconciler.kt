@@ -148,6 +148,8 @@ object WalletReconciler {
         // V5.0.7807 — protective quarantine rows leave management only on a
         // proven-zero wallet (two complete snapshots) (Field Manual L39).
         try { changes += LiveCanonicalRecovery6686.retireProtectiveQuarantinesOnWalletZero7807(walletMints) } catch (_: Throwable) {}
+        // V5.0.7948 — a confirmed LIVE buy (incl. wallet-promoted) still without its BUY row is journaled from its canonical fill.
+        try { com.lifecyclebot.engine.truth.AccountingIntegrity7948.sweepLiveBuyJournal7948() } catch (_: Throwable) {}
 
         // ── Pass 2: zombie closure ──────────────────────────────────────────
         // Every open position with zero wallet balance must be closed —

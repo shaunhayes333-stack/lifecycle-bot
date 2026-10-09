@@ -223,5 +223,9 @@ object ContaminatedPartialQuarantine7032 {
 
     fun statusLine(): String =
         "scanned=$scanned quarantinedPositions=${contaminated.size} partialsSeen=$partialsSeen " +
-            "firstCorruptAtMs=$firstCorruptAtMs7064 [$lastSummary]"
+            "firstCorruptAtMs=$firstCorruptAtMs7064 [$lastSummary]" +
+            // V5.0.7948 — say what this cohort is: durable PAPER history (pre-7032
+            // partials carry no exit rate; 7056 refuses new ones), excluded from
+            // learning, and never part of LIVE inventory.
+            " scope=paper_history learning=excluded liveInventory=none"
 }

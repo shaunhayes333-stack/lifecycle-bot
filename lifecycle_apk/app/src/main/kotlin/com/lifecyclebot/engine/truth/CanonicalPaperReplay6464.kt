@@ -537,7 +537,10 @@ object CanonicalPaperReplay6464 {
         else "cashΔ=${"%.4f".format(p.cashDelta)} realizedΔ=${"%.4f".format(p.realizedDelta)} " +
              "openCostΔ=${"%.4f".format(p.openCostDelta)} qtyMismatch=${p.qtyMismatchCount} " +
              "dupDiscarded=${p.duplicateDiscarded} invalidQuarantined=${p.invalidRowsQuarantined} " +
-             "orphanOpenCost=${"%.6f".format(p.orphanOpenCostSol)} orphanLots=${p.orphanLotCount} replays=${replays.get()}"
+             "orphanOpenCost=${"%.6f".format(p.orphanOpenCostSol)} orphanLots=${p.orphanLotCount} replays=${replays.get()}" +
+             // V5.0.7948 — quarantined rows are durable PAPER history kept out of the
+             // replayed ledger; nothing here is LIVE inventory or live cash.
+             " scope=paper_durable_history invalidRows=excluded_from_replay liveInventory=none"
     }
 
     internal fun resetForTest() {

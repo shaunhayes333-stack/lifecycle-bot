@@ -184,7 +184,11 @@ object PipelineHealthCollector {
     private val canonicalBuySeen7863 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     @Volatile private var executionCounterStart7863 = System.currentTimeMillis()
     fun onCanonicalBuyCommitted7863(positionId: String, paperMode: Boolean) {
-        if (!paperMode && positionId.isNotBlank() && canonicalBuySeen7863.add(positionId)) execLiveBuyOk.incrementAndGet()
+        if (!paperMode && positionId.isNotBlank() && canonicalBuySeen7863.add(positionId)) {
+            execLiveBuyOk.incrementAndGet()
+            // V5.0.7948 — every confirmed LIVE buy must reach the journal with its fill.
+            com.lifecyclebot.engine.truth.AccountingIntegrity7948.onLiveBuyCommitted7948(positionId)
+        }
     }
     private val execLiveSellFail = AtomicLong(0L)
     private val execLiveSellPendingFinality = AtomicLong(0L)
@@ -1351,6 +1355,8 @@ object PipelineHealthCollector {
                 .append(" fundedOutsideExitScope=").append(q7809.fundedOutsideExitScope)
                 .append(" unfunded=").append(q7809.unfunded)
                 .append(" unfundedByKind=").append(q7809.unfundedByKind.entries.joinToString(",") { "${it.key}:${it.value}" })
+                // V5.0.7948 — unfunded rows (paper/replay/zero-qty) are bookkeeping residue.
+                .append(if (q7809.unfunded > 0) " [unfunded=historical residue: excluded from learning and live inventory]" else "")
                 .append("\n")
             sb.append("  Exit hot path (§7809):        ")
                 .append(com.lifecyclebot.engine.sell.ExitHotPath7809.statusLine())
@@ -1753,6 +1759,15 @@ object PipelineHealthCollector {
             sb.append(line("Canonical LIVE active mints:", canonicalLive6492.size, "mode+mint projection")).append('\n')
             sb.append(line("Canonical active mints (all modes):", (canonicalPaper6492.map { it.mint }.toSet() + canonicalLive6492.map { it.mint }.toSet()).size, "diagnostic union only")).append('\n')
             sb.append(line("Host wallet projection:", hostProjection, "LIVE wallet projection only; not paper authority")).append('\n')
+            // V5.0.7948 — name the mint(s) behind any canonical-vs-host count difference.
+            try {
+                sb.append("  Host projection gap (§7948): ").append(
+                    com.lifecyclebot.engine.truth.AccountingIntegrity7948.projectionGap7948(
+                        canonicalLive6492.map { it.mint }.toSet(),
+                        com.lifecyclebot.engine.HostWalletTokenTracker.getOpenForAccountingMints(),
+                    ) { m -> com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(m)?.status?.name },
+                ).append('\n')
+            } catch (_: Throwable) {}
             sb.append(line("LAB sandbox projection:", labProjection, "isolated hypotheses; never canonical inventory")).append('\n')
             sb.append("  Held supervisor (§7246):     ")
                 .append(try { com.lifecyclebot.engine.HeldPositionSupervisor7246.statusLine() } catch (_: Throwable) { "unavailable" })
@@ -4185,6 +4200,10 @@ object PipelineHealthCollector {
             if (lc("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") > lc("BUY_JOURNALED")) {
                 sb.append("  REGRESSION_GUARDS_FAIL: VERIFIED_BUY_WITHOUT_JOURNAL proofCommitted=${lc("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637")} journaled=${lc("BUY_JOURNALED")}\n")
             }
+            // V5.0.7948 — confirmed LIVE buys (canonical commits, incl. wallet promotions) vs journaled BUY rows.
+            sb.append("  Journal coverage (§7948): ")
+                .append(com.lifecyclebot.engine.truth.AccountingIntegrity7948.coverageLine7948(execLiveBuyOk.get(), lc("BUY_JOURNALED")))
+                .append("\n")
             sb.append("  Buy fail buckets: finality=${lc("BUY_FAILED_FINALITY")} route=${lc("BUY_FAILED_ROUTE")} staleTicket=${lc("BUY_FAILED_STALE_TICKET")} safety=${lc("BUY_FAILED_SAFETY")}\n")
             val advisorSoftKinds = labelCounts.keys.count { it.startsWith("LIVE_BUY_ADVISOR_SOFT_") }
             sb.append("  Pre-attempt suppressions: providerProofBlind=${lc("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND")} brainPattern=${lc("LIVE_BUY_PREATTEMPT_BRAIN_PATTERN_SUPPRESSED")} staleAuthPruned=${lc("STALE_AUTH_LOCK_PRUNED")} liveEntered=${lc("LIVE_BUY_ENTERED")} advisorSoft=$advisorSoftKinds\n")
