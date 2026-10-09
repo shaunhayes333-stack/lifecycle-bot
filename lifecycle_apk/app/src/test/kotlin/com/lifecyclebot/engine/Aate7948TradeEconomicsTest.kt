@@ -35,8 +35,8 @@ class Aate7948TradeEconomicsTest {
         assertFalse(LiveEdgeGate7877.cohortProvenPositive7948(cohort(500, 1.0, 2.0, run = 0.04)))
         assertFalse(LiveEdgeGate7877.cohortProvenPositive7948(cohort(200, 9.0, 1.0, lost = 200)))
         assertFalse(LiveEdgeGate7877.cohortOverrulesSmaller7948(null, 0))
-        // The runner tail proves a fat-tailed cohort whose standard error swamps the mean.
-        assertTrue(LiveEdgeGate7877.cohortProvenPositive7948(cohort(300, 3.0, 5.0, run = 0.15)))
+        // A runner tail alone is not proof when the standard error swamps the mean.
+        assertFalse(LiveEdgeGate7877.cohortProvenPositive7948(cohort(300, 3.0, 5.0, run = 0.15)))
     }
 
     @Test fun aMeasuredSetupExpectedToLoseIsRefusedAndAProvenOneIsRecognised() {

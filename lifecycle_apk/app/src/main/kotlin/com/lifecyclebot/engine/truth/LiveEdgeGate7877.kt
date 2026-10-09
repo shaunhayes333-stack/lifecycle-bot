@@ -166,8 +166,9 @@ object LiveEdgeGate7877 {
         // a fired playbook setup with a positive expected record still gets its shot.
         if (laneProvenLosing7938(laneStat7938) && !runnerSetupFires7939(ts, l, nowMs)) {
             val own = judge(cell, false)
-            // V5.0.7948 — a lane mean on fewer labels does not refuse a cohort proven on more.
-            if (!(own.allow && own.source == Source.CELL) && !cohortOverrulesSmaller7948(cohort7948, laneStat7938?.n60 ?: 0)) {
+            // V5.0.7948 review — a pooled cross-lane cohort never overrules the lane's own proven loss
+            // (the exact borrowed-cohort admission 7938 was written to stop).
+            if (!(own.allow && own.source == Source.CELL)) {
                 return Verdict(false, Source.CELL, laneStat7938?.meanNet60Pct ?: 0.0, "LANE_PROVEN_LOSING_7938_${"%.1f".format(laneStat7938?.meanNet60Pct ?: 0.0)}PCT")
             }
         }
@@ -213,7 +214,8 @@ object LiveEdgeGate7877 {
         if (stat.resolvedShare < MIN_RESOLVED_SHARE_7944) return false
         if (!(stat.meanNet60Pct > 0.0)) return false
         val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else return false
-        return stat.meanNet60Pct - se > 0.0 || stat.runnerRate60 >= TAIL_MIN_RUNNER_RATE
+        // V5.0.7948 review — significantly positive only; a runner tail alone is not proof.
+        return stat.meanNet60Pct - se > 0.0
     }
 
     /** Pure: does [cohort] (proven positive) outweigh a refusal measured on [refusalSampleN] labels? */
@@ -234,6 +236,11 @@ object LiveEdgeGate7877 {
      */
     private fun refusalSampleN7948(ts: TokenState, lane: String, prior: String): Int? {
         if (prior.endsWith("_PEAK_EXHAUSTION") || prior.endsWith("_DUMPING") || prior.contains("RUG")) return null
+        // V5.0.7948 review — a lane's own PROVEN_LOSING record (setup, NO_TRIGGER, stage) is never
+        // outweighed by a pooled cohort, nor is a runner lane's runner-setups-only rule (7939).
+        if (prior.contains("PROVEN_LOSING")) return null
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+        if (runner && prior.startsWith("PLAYBOOK_NO_TRIGGER")) return null
         return when {
             prior.startsWith("PLAYBOOK_") -> try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedSampleN7948(ts, lane) } catch (_: Throwable) { null }
             prior.startsWith("STAGE_PROVEN_LOSING_7928") -> try {
