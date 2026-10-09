@@ -310,7 +310,10 @@ object ShitCoinExpress {
         if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return noRide("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K")
         }
-        if (marketCapUsd < MIN_MARKET_CAP_USD) {
+        // V5.0.7971 — $0 is an unhydrated mcap (unknown), not a tiny one: 5.0.7964 refused
+        // 3,695 of 3,740 EXPRESS reads as "MCAP_TOO_LOW: $0" while the lane's 60-minute labels
+        // ran n72 +28.3% net (19% runners). Same rule ShitCoin adopted in V5.9.160.
+        if (marketCapUsd > 0.0 && marketCapUsd < MIN_MARKET_CAP_USD) {
             return noRide("MCAP_TOO_LOW: \$${marketCapUsd.toInt()}")
         }
         

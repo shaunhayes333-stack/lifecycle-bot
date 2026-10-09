@@ -165,17 +165,28 @@ object SignalSourceProof7291 {
         if (t.n >= 10 && t.mean() < 0.0) return false
         val l = labeled7731.getValue(source)
         val sq = labeledSq7962.getValue(source)
-        if (sq[0] < 8.0) return false
-        val sd = com.lifecyclebot.engine.ExpertWallets7962.sdOf7962(sq[0].toInt(), sq[1], sq[2])
+        val sd = if (sq[0] >= 8.0) com.lifecyclebot.engine.ExpertWallets7962.sdOf7962(sq[0].toInt(), sq[1], sq[2])
+            else legacySd7971(l.n, l.mean()) ?: return false
+        if (!sd.isFinite()) return false
         return com.lifecyclebot.engine.ExpertWallets7962.labeledPromotes7962(l.n, l.mean(), sd, l.pf())
     }
+
+    /**
+     * Pure. V5.0.7971 — labels booked before squares were kept (pre-7962) carry no SD, so a
+     * source with n25 +65% pf 5.8 stayed PAPER_ONLY (sqN=0) waiting for 8 new labels.
+     * Those labels are judged with a deliberately wide SD instead: 100% per label, or
+     * twice the mean when larger (memecoin forward returns rarely spread wider).
+     */
+    fun legacySd7971(n: Int, meanFrac: Double): Double? =
+        if (n < 20 || !meanFrac.isFinite()) null else maxOf(1.0, 2.0 * kotlin.math.abs(meanFrac))
 
     /** V5.0.7962 — the COPY source's standing for the Expert wallets diag line. */
     @Synchronized
     fun copyTier7962(): String {
         val l = labeled7731.getValue(Source.COPY)
         val sq = labeledSq7962.getValue(Source.COPY)
-        val sd = com.lifecyclebot.engine.ExpertWallets7962.sdOf7962(sq[0].toInt(), sq[1], sq[2])
+        val sd = if (sq[0] >= 8.0) com.lifecyclebot.engine.ExpertWallets7962.sdOf7962(sq[0].toInt(), sq[1], sq[2])
+            else legacySd7971(l.n, l.mean()) ?: Double.NaN
         val lo = if (sd.isFinite() && l.n > 0) l.mean() - sd / kotlin.math.sqrt(l.n.toDouble()) else Double.NaN
         val tier = when {
             isProven(Source.COPY) -> "PROVEN_LIVE"
