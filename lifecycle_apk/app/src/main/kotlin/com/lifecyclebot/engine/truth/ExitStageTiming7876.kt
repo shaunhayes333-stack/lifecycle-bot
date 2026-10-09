@@ -34,13 +34,46 @@ object ExitStageTiming7876 {
     private val tracks = ConcurrentHashMap<String, Track>()
     private val aggs = ConcurrentHashMap<String, Agg>()   // "CLASS|stage" -> agg
 
-    /** Stamp the trigger (earliest per mint wins while the track is live). */
-    fun onTrigger(mint: String, cls: StopLatencyClasses6464.Class, atMs: Long, nowMs: Long = System.currentTimeMillis()) {
-        if (mint.isBlank() || atMs <= 0L) return
+    // V5.0.7948 — a sell that already broadcast is awaiting its chain outcome for
+    // up to this long (verifySell 60 s + wallet polling). Re-requests in that
+    // window are the hot loop / sweeps re-asking an exit already on the wire,
+    // not a new condition waiting to be sold: they must not open a new queue
+    // sample (5.0.7947 TRAILING_STOP queue max 204,037 ms).
+    private const val AWAIT_OUTCOME_MS_7948 = 90_000L
+
+    /**
+     * Stamp the trigger (earliest per mint wins while the track is live).
+     * V5.0.7948 — returns false when the stamp was ignored because this mint's
+     * sell is already broadcast and awaiting its outcome.
+     */
+    fun onTrigger(mint: String, cls: StopLatencyClasses6464.Class, atMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank() || atMs <= 0L) return false
         val cur = tracks[mint]
-        if (cur != null && nowMs - cur.triggerAtMs <= MAX_AGE_MS && cur.broadcastAtMs == 0L) return
+        if (cur != null && nowMs - cur.triggerAtMs <= MAX_AGE_MS && cur.broadcastAtMs == 0L) return true
+        if (cur != null && cur.broadcastAtMs > 0L && nowMs - cur.broadcastAtMs <= AWAIT_OUTCOME_MS_7948) return false
         tracks[mint] = Track(cls, atMs.coerceAtMost(nowMs))
         if (tracks.size > 500) tracks.entries.removeIf { nowMs - it.value.triggerAtMs > MAX_AGE_MS }
+        return true
+    }
+
+    /**
+     * V5.0.7948 — a deliberate deferral / hold / veto withdrew the trigger: the
+     * exit was not waiting to sell, so its track must not survive to time the
+     * hold as queue. Only a track that has not reached SELL_START is dropped.
+     */
+    fun withdrawUndispatched7948(mint: String) {
+        val t = tracks[mint] ?: return
+        if (synchronized(t) { t.attempts == 0 }) tracks.remove(mint, t)
+    }
+
+    /**
+     * V5.0.7948 — the mint was answered without (another) broadcast: position
+     * closed, refused as fatal, or terminally confirmed. Any track not awaiting a
+     * broadcast outcome is dropped so the next position on this mint starts clean.
+     */
+    fun closeUnbroadcast7948(mint: String) {
+        val t = tracks[mint] ?: return
+        if (synchronized(t) { t.broadcastAtMs == 0L }) tracks.remove(mint, t)
     }
 
     private fun add(cls: StopLatencyClasses6464.Class, stage: String, ms: Long) {

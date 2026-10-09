@@ -7354,7 +7354,7 @@ class Executor(
                         "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)" + (if (txResult.dynSlipPickedBps >= 0) " | dyn-slip picked=${txResult.dynSlipPickedBps}bps incurred=${txResult.dynSlipIncurredBps}bps" else ""),
                         traderTag = "MEME",
                     )
-                    security.enforceSignDelay()
+                    signDelayFor7948(reason)
 
                     val useJito = c.jitoEnabled && !activeQuote7228.isUltra
                     // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.
@@ -22517,6 +22517,20 @@ class Executor(
     // and canonical inventory; no learner, council, oracle or lane-performance
     // state is consulted for an emergency (EXPERT_CRYPTO_TRADER_CHEAT_SHEET L35).
 
+    /**
+     * V5.0.7948 — the fixed 500 ms sign -> broadcast pause is skipped for protective,
+     * trailing and profit-lock exits (ProtectiveExitClass7807 rank 1-4): every one of
+     * them is price-sensitive and the pause guards nothing the quote / slippage / lock
+     * checks before it do not. Ordinary exits keep it.
+     */
+    private fun signDelayFor7948(reason: String) {
+        if (com.lifecyclebot.engine.sell.ExitDispatchLatency7948.skipsSignDelay(reason)) {
+            try { PipelineHealthCollector.labelInc("SELL_SIGN_DELAY_SKIPPED_7948") } catch (_: Throwable) {}
+            return
+        }
+        security.enforceSignDelay()
+    }
+
     /** Stamp trigger time; true when [reason] bypasses every hold gate for this live position. */
     private fun protectiveEmergencyAdmit7807(ts: TokenState, reason: String): Boolean {
         if (ts.position.isPaperPosition) return false
@@ -22618,6 +22632,47 @@ class Executor(
     }
 
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        // V5.0.7948 — processTokenCycle sells inline on a supervisor worker whose 15 s
+        // budget ends in Thread.interrupt (runInterruptible). A live sell past that budget
+        // was killed mid quote / broadcast / verifySell and redispatched (5.0.7947: 355
+        // worker timeouts, 285 sell redispatches). On those threads the sell now runs on
+        // its own pool; CloseLease and the sell locks still single-flight it per mint.
+        if (com.lifecyclebot.engine.sell.ExitDispatchLatency7948.runsOffCallerThread(Thread.currentThread().name)) {
+            return requestSellOffSupervisor7948(ts, reason, wallet, walletSol)
+        }
+        return requestSellCore7948(ts, reason, wallet, walletSol)
+    }
+
+    /**
+     * V5.0.7948 — run [requestSellCore7948] on the supervisor-sell pool and wait at most
+     * ExitDispatchLatency7948.SUPERVISOR_SELL_WAIT_MS_7948. A sell still running after that
+     * (or when the worker is interrupted) is answered FAILED_RETRYABLE — the processTokenCycle
+     * callers already treat that as "retry next tick", and the next tick sees the settled
+     * position (ALREADY_CLOSED) — while the sell itself finishes, verifies and books normally.
+     */
+    private fun requestSellOffSupervisor7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        val future7948 = try {
+            com.lifecyclebot.engine.sell.ExitDispatchLatency7948.supervisorSellExecutor.submit(
+                java.util.concurrent.Callable { requestSellCore7948(ts, reason, wallet, walletSol) },
+            )
+        } catch (_: Throwable) {
+            return requestSellCore7948(ts, reason, wallet, walletSol)
+        }
+        return try {
+            future7948.get(com.lifecyclebot.engine.sell.ExitDispatchLatency7948.SUPERVISOR_SELL_WAIT_MS_7948, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: java.util.concurrent.TimeoutException) {
+            try { PipelineHealthCollector.labelInc("SELL_CONTINUES_OFF_SUPERVISOR_7948") } catch (_: Throwable) {}
+            SellResult.FAILED_RETRYABLE
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            try { PipelineHealthCollector.labelInc("SELL_SURVIVED_SUPERVISOR_INTERRUPT_7948") } catch (_: Throwable) {}
+            SellResult.FAILED_RETRYABLE
+        } catch (e: java.util.concurrent.ExecutionException) {
+            throw (e.cause ?: e)
+        }
+    }
+
+    private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         // V5.0.7768 — a bag an on-chain read just proved to be unroutable dust is
         // answered from that proof, not re-sold every tick (DustBagLatch7768).
         if (!ts.position.isPaperPosition && com.lifecyclebot.engine.sell.DustBagLatch7768.held(ts.mint)) {
@@ -22716,6 +22771,8 @@ class Executor(
                         )
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_REJECTED_NO_CANONICAL_POSITION_6501")
                     } catch (_: Throwable) {}
+                    // V5.0.7948 — nothing to sell: this request's trigger is not a pending exit.
+                    com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.clearTrigger7807(ts.mint)
                     return SellResult.ALREADY_CLOSED
                 }
             }
@@ -22849,6 +22906,7 @@ class Executor(
                     // re-projected this exit every tick. Resume finality from the close
                     // signature (async), or quarantine on confirmed-zero when none exists.
                     try { onLiveClosedWithOpenCanonical7362(ts, wallet) } catch (_: Throwable) {}
+                    com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.clearTrigger7807(ts.mint)  // V5.0.7948
                     return SellResult.ALREADY_CLOSED
                 }
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "CLOSE_AUTHORITY_WAIT") } catch (_: Throwable) {}
@@ -23804,6 +23862,9 @@ class Executor(
             }
             MoonbagRunner7322.Action.HOLD_MOONBAG -> {
                 try { PipelineHealthCollector.labelInc("MOONBAG_HELD_7322") } catch (_: Throwable) {}
+                // V5.0.7948 — a held moonbag is a deliberate hold, not an exit waiting to sell:
+                // its trailing-stop stamp must not time the runner's hold as dispatch queue.
+                com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
                 return SellResult.FAILED_RETRYABLE
             }
             MoonbagRunner7322.Action.PASS -> Unit
@@ -23843,6 +23904,14 @@ class Executor(
     } catch (_: Throwable) { true }
 
     private fun freshExitReason7835(ts: TokenState, reason: String): String? {
+        val fresh7948 = freshExitReasonOrVeto7948(ts, reason)
+        // V5.0.7948 — a vetoed exit (cortex hold, missing / untrusted mark, stop the quote
+        // does not corroborate) is not waiting to sell: withdraw its non-emergency stamp.
+        if (fresh7948 == null) com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
+        return fresh7948
+    }
+
+    private fun freshExitReasonOrVeto7948(ts: TokenState, reason: String): String? {
         // V5.0.7897 — Cortex v3: an ordinary exit of a winner is held while the exit
         // cortex's PROVEN read says holding pays (never stops/emergencies/operator).
         if (com.lifecyclebot.engine.cortex.CortexExit7897.holdVeto(ts, reason)) return null
@@ -27499,7 +27568,7 @@ class Executor(
                     )
                     // V5.9.767 — drive SellJobRegistry state machine end-to-end.
                     try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.BUILDING) } catch (_: Throwable) {}
-                    security.enforceSignDelay()
+                    signDelayFor7948(reason)
 
                     val useJito = c.jitoEnabled && !quote!!.isUltra
                     // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.

@@ -129,6 +129,9 @@ object CloseLease {
     }
     fun isLeased(mint: String): Boolean = current(mint) != null
 
+    /** V5.0.7948 — true while a doSell attempt holds this mint's lease (an attempt is running). */
+    fun sellInFlight7948(mint: String): Boolean = current(mint)?.inFlight == true
+
     @Synchronized
     private fun current(mint: String): Lease? {
         if (mint.isBlank()) return null

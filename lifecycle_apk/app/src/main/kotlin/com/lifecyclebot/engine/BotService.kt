@@ -2856,7 +2856,8 @@ class BotService : Service() {
     ) {
         val key7809 = ts.mint
         val startedAt7809 = System.currentTimeMillis()
-        if (!com.lifecyclebot.engine.sell.ExitHotPath7809.tryBegin(key7809, startedAt7809)) {
+        val selling7948 = try { com.lifecyclebot.engine.sell.CloseLease.sellInFlight7948(key7809) } catch (_: Throwable) { false }
+        if (!com.lifecyclebot.engine.sell.ExitHotPath7809.tryBegin(key7809, startedAt7809, selling7948)) {
             try { PipelineHealthCollector.labelInc("HOT_EXIT_UNIT_COALESCED_7809") } catch (_: Throwable) {}
             return
         }
@@ -24863,17 +24864,13 @@ if (hotExitHandledSweep) {
                             "symbol=${ts.symbol} pnl=${pnlPct.toInt()} peak=${peakPct.toInt()} reason=$reason6882",
                         )
                     } catch (_: Throwable) {}
-                    val r = executor.requestSell(
-                        ts = ts,
-                        reason = reason6882,
-                        wallet = wallet,
-                        walletSol = effectiveBalance,
-                    )
-                    if (r == com.lifecyclebot.engine.Executor.SellResult.CONFIRMED ||
-                        r == com.lifecyclebot.engine.Executor.SellResult.PAPER_CONFIRMED
-                    ) {
-                        addLog("🛡 [UNIVERSAL] ${ts.symbol}: $reason6882 pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}%")
-                    }
+                    // V5.0.7948 — dispatched per mint off the sweep. The inline requestSell ran
+                    // one position's whole live sell (quote, broadcast, 60 s verify) while
+                    // every later position in this walk waited for its floor / trail check.
+                    // requestSellOffLoop7288 coalesces per mint and picks the emergency or
+                    // normal exit pool by reason; CloseLease still single-flights the sell.
+                    requestSellOffLoop7288(ts, reason6882, wallet, effectiveBalance)
+                    addLog("🛡 [UNIVERSAL] ${ts.symbol}: $reason6882 pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}% (dispatched)")
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Universal exit ${ts.symbol}: ${e.message}")
                 }
@@ -24952,7 +24949,10 @@ if (hotExitHandledSweep) {
             )
             openTokens.forEach { ts ->
                 com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitEvaluation()
-                try { executor.runManageOnly(ts, wallet, effectiveBalance) }
+                // V5.0.7948 — one manage unit per position on the hot-exit pool (coalesced
+                // with the hot loop's unit for the same mint) instead of 24 positions in
+                // series, where one live sell held every later position's trailing stop.
+                try { dispatchHotExitUnit7809(ts, wallet, effectiveBalance) }
                 catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Sweep manage(${ts.symbol}): ${e.message}")
                 }
