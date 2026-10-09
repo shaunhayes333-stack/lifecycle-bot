@@ -22,7 +22,8 @@ object SpikeCapture7943 {
     private val firedTiers = ConcurrentHashMap<String, Int>()
     private val fired = java.util.concurrent.atomic.AtomicLong(0)
     /** V5.0.7944 — a tier whose sell did not land is re-armed, at most this many times per position. */
-    private const val MAX_REARMS_7944 = 4
+    // V5.0.7965 — 4 re-arms ran out on Frank while sells were suppressed; a spike keeps trying while it lasts.
+    private const val MAX_REARMS_7944 = 16
     private val rearms = ConcurrentHashMap<String, Int>()
     private val rearmed = java.util.concurrent.atomic.AtomicLong(0)
     /** V5.0.7944 — a non-curve mark must be this fresh to sell on (a stale print is not a spike). */

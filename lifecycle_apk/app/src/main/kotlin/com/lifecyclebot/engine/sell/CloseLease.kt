@@ -173,7 +173,10 @@ object CloseLease {
             // softer exit (up to 60s before 7807). It is gated only by its own
             // 2/3/5/8/10s cadence from the last attempt; an in-flight attempt is
             // still never doubled (Field Manual L248).
-            val emergency7807 = ProtectiveExitClass7807.isEmergency(rawReason)
+            // V5.0.7965 — a profit capture on a spike is as time-critical as a stop: 5.0.7964 live,
+            // Frank at +532% (peak +691%) had its spike-tier and runner-lock sells suppressed behind a
+            // failed hard-floor lease's backoff, and the tier re-arms ran out. Never doubled in flight.
+            val emergency7807 = ProtectiveExitClass7807.isEmergency(rawReason) || urgentProfitCapture7965(rawReason)
             val emergencyEligible7807 = emergency7807 && !existing.inFlight &&
                 now - existing.lastTouchMs >= ProtectiveExitClass7807.emergencyRetryDelayMs(existing.closeAttemptCount - 1)
             if (emergency7807) {
@@ -320,4 +323,11 @@ object CloseLease {
 
     fun canonicalReason(raw: String): String =
         raw.replace(Regex("^(PENDING_RETRY_\\d+:\\s*)+"), "").trim().ifBlank { "exit" }
+
+    /** V5.0.7965 — pure: a sell into a spike / a runner lock that must not wait out a backoff. */
+    fun urgentProfitCapture7965(reason: String?): Boolean {
+        val r = reason.orEmpty().uppercase()
+        return r.startsWith("SPIKE_CAPTURE_7943") || r.contains("RAPID_DRAWDOWN_FROM_PEAK") || r.contains("MONSTER_LOCK") ||
+            r.startsWith("CHART_CAPTURE_TOP_7950") || r.contains("PEAK_CAPTURE")
+    }
 }

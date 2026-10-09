@@ -559,7 +559,10 @@ object LiveCanonicalRecovery6686 {
     /** Pure-ish: the observed-mark basis carrying the spent receipt's entry price when the units agree (within 200x). */
     private fun residualBasis7962(mark: Basis, receipt: Basis): Basis {
         val r = if (receipt.entryPriceUsd > 0.0 && mark.entryPriceUsd > 0.0) mark.entryPriceUsd / receipt.entryPriceUsd else Double.NaN
-        if (!residualPriceUsable7962(r)) return mark
+        // V5.0.7965 — only a residual in PROFIT keeps the old entry. 5.0.7964 live: 7veuJc, a residual
+        // below its old entry, read as a catastrophe and was dumped at drain slippage (marked $13.28,
+        // sold for 0.052 SOL). A losing residual's cost is already realised: it exits from today's mark.
+        if (!residualPriceUsable7962(r) || r < 1.0) return mark
         try { PipelineHealthCollector.labelInc("LIVE_RESIDUAL_KEEPS_ORIGINAL_ENTRY_7962") } catch (_: Throwable) {}
         return mark.copy(entryPriceUsd = receipt.entryPriceUsd, source = mark.source + "_RESIDUAL_7962")
     }
