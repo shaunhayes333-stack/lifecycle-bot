@@ -91,6 +91,8 @@ object SmartMoneyDiscovery7277 {
         try { ExpertWallets7962.start7962(scope, heliusKey, copyEngine, onWatchlistChanged) } catch (_: Throwable) {}
         // V5.0.7968 — pump.fun Callouts: proven callers' fresh calls -> intake + EXPERT_ENTRY; their wallets -> experts.
         try { PumpCallouts7968.start7968(scope) } catch (_: Throwable) {}
+        // V5.0.7973 — pump.fun livestreams + King of the Hill (keyless), graduation / copycat facts.
+        try { com.lifecyclebot.engine.market.MemeMeta7973.start7973(scope) } catch (_: Throwable) {}
         job = scope.launch(Dispatchers.IO) {
             delay(FIRST_DELAY_MS)
             while (isActive) {

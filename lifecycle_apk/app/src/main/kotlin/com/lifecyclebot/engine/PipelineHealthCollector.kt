@@ -1406,6 +1406,9 @@ object PipelineHealthCollector {
         sb.append("  Specialists (§7972): ").append(
             try { com.lifecyclebot.engine.truth.SpecialistMiner7972.statusLine7972() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Meme meta (§7973): ").append(
+            try { com.lifecyclebot.engine.market.MemeMeta7973.statusLine7973() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Pump callouts (§7968): ").append(
             try { PumpCallouts7968.statusLine7968() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

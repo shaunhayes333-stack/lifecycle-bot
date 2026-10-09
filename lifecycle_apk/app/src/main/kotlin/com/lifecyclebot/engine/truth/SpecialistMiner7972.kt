@@ -73,7 +73,7 @@ object SpecialistMiner7972 {
     fun demotes7972(n: Int, mean: Double, se: Double): Boolean = n >= DEMOTE_N && mean.isFinite() && se.isFinite() && mean + se < 0.0
 
     /** The facts triples are built from (pairs use every fact): keeps the key table phone-sized. */
-    private val CORE = setOf("mc", "age", "bp", "st", "hv", "dev", "bpm", "c5")
+    private val CORE = setOf("mc", "age", "bp", "st", "hv", "dev", "bpm", "c5", "grad")
 
     /**
      * Pure: every pair of [facts], and every triple of its CORE facts (sorted, so one
@@ -159,6 +159,12 @@ object SpecialistMiner7972 {
             put("sw", if (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.secondWave7974(ts.lastExitTs, ts.lastExitPrice, ts.lastPrice, nowMs, ts.position.isOpen) } catch (_: Throwable) { false }) "Y" else "N")
             put("xp", if (try { com.lifecyclebot.engine.ExpertWallets7962.expertEntryLive7962(ts.mint, nowMs) } catch (_: Throwable) { false }) "Y" else "N")
             put("sf", try { ts.safety.tier.name } catch (_: Throwable) { "NA" })
+            // V5.0.7973 — the meme meta: curve progress (graduation play), copycat theme, livestream, King of the Hill.
+            val meta = com.lifecyclebot.engine.market.MemeMeta7973
+            val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            put("grad", if (ts.mint.endsWith("pump")) meta.gradBin7973(meta.curveProgress7973(mc, solUsd)) else "NA")
+            put("beta", if (try { meta.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false }) "Y" else "N")
+            put("live", if (try { meta.live7973(ts.mint, nowMs) || meta.koth7973(ts.mint, nowMs) } catch (_: Throwable) { false }) "Y" else "N")
         } catch (_: Throwable) {}
         return out
     }

@@ -786,6 +786,9 @@ object ForwardReturnLabeler7731 {
             if (gross < o.minPct7962) o.minPct7962 = gross
             if (gross >= 400.0 && o.peakPct < 400.0) try {
                 com.lifecyclebot.engine.RunnerGrab7967.onRunnerLabel7967(o.mint, o.symbol, o.lane, o.admitted, o.reason7967, gross, nowMs)
+                // V5.0.7973 — a +400% coin's name/ticker words become a 6-hour theme (copycat / beta rotation).
+                com.lifecyclebot.engine.market.MemeMeta7973.noteLeader7973(o.mint, o.symbol,
+                    try { com.lifecyclebot.engine.BotService.status.tokens[o.mint]?.name.orEmpty() } catch (_: Throwable) { "" }, nowMs)
             } catch (_: Throwable) {}
             if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
