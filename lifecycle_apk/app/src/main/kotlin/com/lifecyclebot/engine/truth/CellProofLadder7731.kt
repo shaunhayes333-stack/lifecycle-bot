@@ -92,7 +92,14 @@ object CellProofLadder7731 {
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         if (paper) return null
         val stat = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
-        return when (tierFor(stat)) {
+        val tier = tierFor(stat)
+        // V5.0.7948 — a negative cell yields to a proven plan cohort the candidate sits in
+        // that is measured on more labels (LiveEdgeGate7877: the larger measured sample decides).
+        if (tier == Tier.NEGATIVE && LiveEdgeGate7877.cohortOverrulesSmaller7948(LiveEdgeGate7877.provenCohort7948(ts, nowMs), stat?.n60 ?: 0)) {
+            try { PipelineHealthCollector.labelInc("CELL_PROOF_NEGATIVE_OUTWEIGHED_BY_COHORT_7948") } catch (_: Throwable) {}
+            return null
+        }
+        return when (tier) {
             Tier.NEGATIVE -> {
                 liveBlocks.incrementAndGet()
                 lastBlock = "${stat?.key} n=${stat?.n60} net=${"%+.1f".format(stat?.meanNet60Pct ?: 0.0)}%"

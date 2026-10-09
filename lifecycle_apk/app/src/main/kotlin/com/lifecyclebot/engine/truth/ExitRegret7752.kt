@@ -124,6 +124,8 @@ object ExitRegret7752 {
                 byFamily.getOrPut(p.family) { Agg() }.add(p.realizedPct, hold, after)
                 // V5.0.7925 — the lane's STOP exits on their own: the stop multiplier reads these.
                 if (isStopFamily7925(p.family)) byLane.getOrPut("${p.lane}|STOP") { Agg() }.add(p.realizedPct, hold, after)
+                // V5.0.7948 — the lane's ordinary (non-catastrophic) stops on their own: their room is learned apart from rug exits.
+                if (isStopFamily7925(p.family) && !isCatastrophicFamily7948(p.family)) byLane.getOrPut("${p.lane}|$ORDINARY_STOP_7948") { Agg() }.add(p.realizedPct, hold, after)
             }
             pending.remove(id)
             recorded.incrementAndGet()
@@ -252,19 +254,53 @@ object ExitRegret7752 {
      * lane whose profit trails sold early widened its STOPS.
      */
     fun stopMultFor(lane: String): Double = try {
-        val own = run {
+        val (ordinary, own) = run {
             ensureLoaded()
-            val key = "${CanonicalLaneIdentity6506.canonical(lane)}|STOP"
-            synchronized(this) { read(byLane[key]) }
+            val l = CanonicalLaneIdentity6506.canonical(lane)
+            synchronized(this) { read(byLane["$l|$ORDINARY_STOP_7948"]) to read(byLane["$l|STOP"]) }
         }
-        val r = if (own != null && own.n >= REGRET_MIN_N_7877) own
-            else familyRead("HARD_STOP", "STRICT_SL", "RAPID_CATASTROPHE_STOP", "STOP_LOSS", "STRUCTURE_STOP")
-        val m = stopMult7877(r)
+        // V5.0.7948 — the lane's ordinary stops first, then all its stops, then the ordinary
+        // stop families across lanes; catastrophe exits do not steer ordinary room.
+        val r = when {
+            ordinary != null && ordinary.n >= REGRET_MIN_N_7877 -> ordinary
+            own != null && own.n >= REGRET_MIN_N_7877 -> own
+            else -> familyRead(*ORDINARY_STOP_FAMILIES_7948)
+        }
+        val m = stopMult7948(r)
         if (m != 1.0) {
             try { PipelineHealthCollector.labelInc(if (m > 1.0) "EXIT_REGRET_STOP_WIDENED_7877" else "EXIT_REGRET_STOP_TIGHTENED_7877") } catch (_: Throwable) {}
         }
         m
     } catch (_: Throwable) { 1.0 }
+
+    // ── V5.0.7948 §MEASURED_ROOM_FOR_ORDINARY_STOPS ──
+    //
+    // 5.0.7947 live: HARD_STOP n=27 realised -2.2% while the 60-minute hold read
+    // -0.1%; MEME stops n=19 realised -2.4% vs hold +1.5%; RUG_DRAIN n=3 -29.7%
+    // vs hold -44.8%. The 7877 widening needed the price to run +5% after the
+    // stop, so stops that each gave away 2-4 points before a recovery never moved.
+    // An ordinary stop whose measured hold beat it (on [REGRET_MIN_N_7877]+ exits,
+    // in at least 40% of them, with the price higher after the exit) now gets room
+    // in proportion to the measured gap: +10% stop distance per point the hold
+    // beat the stop, inside the same [1.0, STOP_MULT_MAX_7877] bound. StopAuthority7887
+    // still clamps the result under the catastrophe line, and rug / catastrophe /
+    // hard-floor exits stay instant: they are not stop-multiplied and do not steer it.
+    private const val ORDINARY_STOP_7948 = "ORDSTOP"
+    private const val ROOM_PER_POINT_7948 = 10.0
+    private val ORDINARY_STOP_FAMILIES_7948 = arrayOf("HARD_STOP", "STRICT_SL", "STOP_LOSS", "STRUCTURE_STOP")
+
+    /** Pure: a catastrophic exit family (rug, drain, catastrophe, hard floor) — never given room. */
+    fun isCatastrophicFamily7948(f: String): Boolean =
+        f.contains("CATASTROPH") || f.contains("RUG") || f.contains("DRAIN") || f.contains("HARD_FLOOR")
+
+    /** Pure: the 7877 multiplier, widened by the measured hold-over-stop gap when holding demonstrably paid. */
+    fun stopMult7948(r: Read7877?): Double {
+        val base = stopMult7877(r)
+        if (r == null || r.n < REGRET_MIN_N_7877) return base
+        val gap = r.meanHold - r.meanRealized
+        if (!gap.isFinite() || gap <= 0.0 || r.holdBeatShare < 0.40 || !(r.meanAfter > 0.0)) return base
+        return maxOf(base, (1.0 + gap / ROOM_PER_POINT_7948).coerceIn(1.0, STOP_MULT_MAX_7877))
+    }
 
     // ── V5.0.7888 — the same evidence for PROFIT exits ──
     // The 7877 steering covered stops only. When the trails / profit locks /
