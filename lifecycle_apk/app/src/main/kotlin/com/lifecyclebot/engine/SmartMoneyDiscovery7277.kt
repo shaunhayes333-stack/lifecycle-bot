@@ -85,6 +85,10 @@ object SmartMoneyDiscovery7277 {
         if (!started.compareAndSet(false, true)) return
         prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         load()
+        // V5.0.7962 — expert wallets (OWNER, top traders, the wallets promoted here): their real
+        // trade histories, built on device on the same Helius key and credit share, teach charts,
+        // entry cells and exits. Its own IO loop, never on the hot path.
+        try { ExpertWallets7962.start7962(scope, heliusKey, copyEngine, onWatchlistChanged) } catch (_: Throwable) {}
         job = scope.launch(Dispatchers.IO) {
             delay(FIRST_DELAY_MS)
             while (isActive) {

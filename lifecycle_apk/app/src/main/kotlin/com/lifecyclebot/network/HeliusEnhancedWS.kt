@@ -84,7 +84,9 @@ object HeliusEnhancedWS {
      * of its paced share).
      */
     private fun affordable7881(requested: List<String>): List<String> = try {
-        requested.take(com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.streamWidth(requested.size))
+        // V5.0.7962 — OWNER and top-trader wallets first, so the affordable prefix always watches them.
+        com.lifecyclebot.engine.ExpertWallets7962.prioritise7962(requested)
+            .take(com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.streamWidth(requested.size))
     } catch (_: Throwable) { requested }
 
     fun updateWatchlist(newAccounts: List<String>) {
