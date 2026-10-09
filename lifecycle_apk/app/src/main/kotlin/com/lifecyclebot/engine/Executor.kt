@@ -14502,7 +14502,8 @@ class Executor(
             msSinceLastRotation = com.lifecyclebot.engine.truth.CapitalDrawdown7948.msSinceLastRotation7948(now),
         )
         val blocker = com.lifecyclebot.engine.truth.CapitalDrawdown7948.rotationBlocker7948(input) {
-            com.lifecyclebot.engine.truth.CapitalDrawdown7948.anyLiveLaneProven7948()
+            // V5.0.7951 — a proven live lane, or a chart BUY the wallet could not fund.
+            MemeChokes7951.provenDemandWaiting7951()
         }
         if (blocker != null) return false
         com.lifecyclebot.engine.truth.CapitalDrawdown7948.noteRotation7948(now)

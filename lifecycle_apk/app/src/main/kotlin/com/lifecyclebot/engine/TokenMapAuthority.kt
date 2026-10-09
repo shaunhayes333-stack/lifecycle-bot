@@ -31,10 +31,22 @@ object TokenMapAuthority {
         tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
         // V5.0.7925 — a 0.0 realSolReserves is not "unknown": it hid liquiditySol, so a
         // curve with no real reserves read yet came back as $0 (ZERO_LIQUIDITY rejects).
-        val sol = (tm.realSolReserves?.takeIf { it.isFinite() && it > 0.0 } ?: tm.liquiditySol)
-            ?.takeIf { it.isFinite() && it > 0.0 } ?: return 0.0
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        return if (solUsd.isFinite() && solUsd > 0.0) sol * solUsd else 0.0
+        if (!solUsd.isFinite() || solUsd <= 0.0) return 0.0
+        val sol = (tm.realSolReserves?.takeIf { it.isFinite() && it > 0.0 } ?: tm.liquiditySol)
+            ?.takeIf { it.isFinite() && it > 0.0 } ?: curveLiquiditySol7951(ts)
+        return if (sol.isFinite() && sol > 0.0) sol * solUsd else 0.0
+    }
+
+    /**
+     * V5.0.7951 — a pump.fun curve's real SOL as last observed by CurveReserves7951
+     * (PumpPortal create / trade frames and RPC curve reads, keyed by mint, so a
+     * frame that arrived before the token row existed is not lost). Observed
+     * reserves only; never inferred from market cap.
+     */
+    private fun curveLiquiditySol7951(ts: TokenState): Double {
+        if (ts.mint.isBlank()) return 0.0
+        return try { com.lifecyclebot.engine.truth.CurveReserves7951.liquiditySol7951(ts.mint) } catch (_: Throwable) { 0.0 }
     }
     private const val ROUTE_TTL_MS = 90_000L
     private const val ACTIVE_HYDRATION_STALE_MS = 20_000L

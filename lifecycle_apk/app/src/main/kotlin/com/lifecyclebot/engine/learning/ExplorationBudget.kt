@@ -136,6 +136,44 @@ object ExplorationBudget {
         return ok
     }
 
+    // V5.0.7951 §A_RE_ASK_IS_NOT_A_NEW_PROBE.
+    //
+    // 5.0.7949 at 146 s: FDG/EXPLORATION_BUDGET_REFUSED_DUST_PROBE=71 (the top FDG
+    // block) and ZERO_SIGNAL=2 against LANE_WAIT_OVERRIDE_DUST_PROBE=176. The
+    // scan loop re-qualifies the same resident mint every cycle, and every admit
+    // was charged again, so a lane's hourly probe ceiling (TREASURY 30, SHITCOIN
+    // 30) was spent on a few dozen tokens asked about over and over inside the
+    // first minutes after a start, then refused everything for the rest of the
+    // hour. Probes are how a lane earns its five-minute labels. The ceiling now
+    // counts DISTINCT probes: a mint already admitted for this lane within the
+    // hour re-asks free; a new mint still spends one unit of the (magnitude-
+    // collapsed) ceiling, so a bleeding lane is still held to its reduced count.
+    private val probeAdmits7951 = ConcurrentHashMap<String, Long>()
+    private const val PROBE_KEYS_MAX_7951 = 4_000
+
+    /** Pure: does a re-ask for a probe admitted at [admittedAtMs] ride on that admission? */
+    fun probeReaskFree7951(admittedAtMs: Long?, nowMs: Long): Boolean =
+        admittedAtMs != null && nowMs - admittedAtMs in 0L..HOUR_MS
+
+    /** Probe budget for [lane] on [mint]: one unit per distinct mint per hour. */
+    fun allowProbe7951(lane: String, mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank()) return allowPaperMicroTrade(lane)
+        val key = "${lane.uppercase().take(24)}|$mint"
+        if (probeReaskFree7951(probeAdmits7951[key], nowMs)) {
+            try { PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_PROBE_REASK_FREE_7951") } catch (_: Throwable) {}
+            return true
+        }
+        val ok = allowPaperMicroTrade(lane)
+        if (ok) {
+            if (probeAdmits7951.size >= PROBE_KEYS_MAX_7951) probeAdmits7951.entries.removeIf { nowMs - it.value > HOUR_MS }
+            if (probeAdmits7951.size >= PROBE_KEYS_MAX_7951) probeAdmits7951.clear()
+            probeAdmits7951[key] = nowMs
+        }
+        return ok
+    }
+
+    internal fun resetProbesForTest7951() { probeAdmits7951.clear(); microHourly.clear() }
+
     fun allowShadowSignal(lane: String): Boolean {
         val budget = budgetFor(lane)
         // V5.0.7091 — same defect, same fix. A refused shadow signal consumed

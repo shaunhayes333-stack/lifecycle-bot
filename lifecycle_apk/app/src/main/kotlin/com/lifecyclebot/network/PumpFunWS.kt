@@ -378,6 +378,8 @@ object PumpFunWS {
                         val vTok = j.optDouble("vTokensInBondingCurve", 0.0)
                         val mcapSol = j.optDouble("marketCapSol", 0.0)
                         if (!vSol.isFinite() || !vTok.isFinite() || vSol <= 0.0 || vTok <= 0.0) return
+                        // V5.0.7951 — the curve's reserves, kept by mint even before a token row exists.
+                        try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, vSol, vTok) } catch (_: Throwable) {}
                         val priceSol = vSol / vTok
                         if (!priceSol.isFinite() || priceSol <= 0.0) return
                         if (!tradeAuthDenied7432.get()) tokenTradeStreamObserved7432.set(true)
@@ -442,6 +444,8 @@ object PumpFunWS {
                         val priceSol0 = if (vSol0.isFinite() && vTok0.isFinite() && vSol0 > 0.0 && vTok0 > 0.0) vSol0 / vTok0 else 0.0
                         if (priceSol0.isFinite() && priceSol0 > 0.0) {
                             try { PumpCurveKeys7269.rememberCreate7280(mint, priceSol0, System.currentTimeMillis()) } catch (_: Throwable) {}
+                            // V5.0.7951 — the create frame's reserves are the curve's first liquidity reading.
+                            try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, vSol0, vTok0) } catch (_: Throwable) {}
                         }
                         if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
                         createStreamObserved7432.set(true)

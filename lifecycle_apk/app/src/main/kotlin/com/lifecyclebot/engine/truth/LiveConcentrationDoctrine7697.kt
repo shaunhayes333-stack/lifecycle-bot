@@ -166,7 +166,12 @@ object LiveConcentrationDoctrine7697 {
                 com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.get(laneKey)
             } catch (_: Throwable) { null }
             if (opinion != null && opinion.authoritative && !opinion.eligible) {
-                return refuse(mint, laneKey, "SPECIALIST_REJECTS:$laneKey:score=${opinion.score}:${opinion.reason.take(60)}")
+                // V5.0.7951 — "LIVE_WALLET_TOO_SMALL" (CASHGEN score=90, 5.0.7949) is a statement
+                // about the wallet, not the token. Capital is answered by canonical sizing and
+                // capital rotation, never as a conviction refusal.
+                if (!com.lifecyclebot.engine.MemeChokes7951.isCapitalArtefactReason7951(opinion.reason)) {
+                    return refuse(mint, laneKey, "SPECIALIST_REJECTS:$laneKey:score=${opinion.score}:${opinion.reason.take(60)}")
+                }
             }
         }
         convictionAllows.incrementAndGet()
