@@ -56,6 +56,15 @@ object CanonicalLotQuantity6464 {
     private val overSellRejects = AtomicLong(0L)
     private val overSellClamps = AtomicLong(0L)
     private val invariantViolations = AtomicLong(0L)
+    // V5.0.7948 — violations raised while replaying durable PAPER history at startup
+    // are historical residue, not a live producer; counted apart so the dump says so.
+    private val replayViolations7948 = AtomicLong(0L)
+    private val replaying7948 = ThreadLocal.withInitial { false }
+
+    private fun countViolation7948() {
+        invariantViolations.incrementAndGet()
+        if (replaying7948.get() == true) replayViolations7948.incrementAndGet()
+    }
 
     // ─── Confirmed fill hooks ──────────────────────────────────────────
 
@@ -64,12 +73,15 @@ object CanonicalLotQuantity6464 {
         val paperIds = source.asSequence().filter { it.mode == "paper" }.map { it.positionId }.toSet()
         paperIds.forEach { lots.remove(it) }
         lots.entries.removeIf { it.key.startsWith("PAPER:CARRY6492:") }
-        source.filter { it.mode == "paper" }.sortedBy { it.atMs }.forEach { e ->
-            when (e) {
-                is EconomicEventSchema6464.Buy -> onBuyFilled(e.positionId, e.mint, e.filledQty)
-                is EconomicEventSchema6464.Sell -> onSellFilled(e.positionId, e.mint, e.soldQty)
+        replaying7948.set(true)
+        try {
+            source.filter { it.mode == "paper" }.sortedBy { it.atMs }.forEach { e ->
+                when (e) {
+                    is EconomicEventSchema6464.Buy -> onBuyFilled(e.positionId, e.mint, e.filledQty)
+                    is EconomicEventSchema6464.Sell -> onSellFilled(e.positionId, e.mint, e.soldQty)
+                }
             }
-        }
+        } finally { replaying7948.set(false) }
         // V5.0.6492 — mirror durable replay carry into the exact active
         // positionId selected by CanonicalPositionAuthority. Without this,
         // healUnfundedPaperEntries removes carry-restored positions immediately.
@@ -113,7 +125,7 @@ object CanonicalLotQuantity6464 {
             ?.takeIf { it.confirmedBoughtQty > BigInteger.ZERO }
             ?: repairLotFromCanonical7807(positionId, mint, filledQty)
         if (existing == null || existing.confirmedBoughtQty <= BigInteger.ZERO) {
-            invariantViolations.incrementAndGet()
+            countViolation7948()
             try {
                 ForensicLogger.lifecycle(
                     "CANONICAL_LOT_SELL_QUARANTINED_6470",
@@ -132,7 +144,7 @@ object CanonicalLotQuantity6464 {
         }
         // Additional invariant: sold + filledQty must not exceed bought.
         if (existing.confirmedSoldQty + filledQty > existing.confirmedBoughtQty + BigInteger.ONE) {
-            invariantViolations.incrementAndGet()
+            countViolation7948()
             try {
                 ForensicLogger.lifecycle(
                     "CANONICAL_LOT_SELL_QUARANTINED_6470",
@@ -277,7 +289,7 @@ object CanonicalLotQuantity6464 {
 
     private fun checkInvariant(lot: Lot, site: String) {
         if (lot.confirmedSoldQty > lot.confirmedBoughtQty + BigInteger.ONE) {
-            invariantViolations.incrementAndGet()
+            countViolation7948()
             try {
                 ForensicLogger.lifecycle(
                     "CANONICAL_LOT_INVARIANT_VIOLATION_6464",
@@ -291,10 +303,18 @@ object CanonicalLotQuantity6464 {
 
     fun statusLine(): String =
         "lots=${lots.size} overSellRejects=${overSellRejects.get()} overSellClamps=${overSellClamps.get()} " +
-            "invariantViolations=${invariantViolations.get()}"
+            "invariantViolations=${invariantViolations.get()}" + violationScope7948(invariantViolations.get(), replayViolations7948.get())
+
+    /** V5.0.7948 — splits the lot-invariant total into live-runtime vs replayed paper history. */
+    internal fun violationScope7948(total: Long, replayed: Long): String {
+        val runtime = (total - replayed).coerceAtLeast(0L)
+        return " runtime7948=$runtime paperReplayHistory7948=$replayed" +
+            (if (replayed > 0L) " [paper replay residue: learning-quarantined, never live inventory]" else "") +
+            (if (runtime > 0L) " [RUNTIME: raised by this session's fills, see CANONICAL_LOT_SELL_QUARANTINED_6470]" else "")
+    }
 
     internal fun resetForTest() {
         lots.clear()
-        overSellRejects.set(0L); overSellClamps.set(0L); invariantViolations.set(0L)
+        overSellRejects.set(0L); overSellClamps.set(0L); invariantViolations.set(0L); replayViolations7948.set(0L)
     }
 }

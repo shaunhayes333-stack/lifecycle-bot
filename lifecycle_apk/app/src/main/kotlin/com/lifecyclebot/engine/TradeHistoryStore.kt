@@ -1070,6 +1070,10 @@ object TradeHistoryStore {
                 journalRevision7343.incrementAndGet()
             }
         }
+        // V5.0.7948 — journal coverage: this canonical LIVE buy now has its BUY row.
+        if (tradeToStore.side.equals("BUY", true) && tradeToStore.mode.equals("live", true)) {
+            try { com.lifecyclebot.engine.truth.AccountingIntegrity7948.onLiveBuyJournaled7948(tradeToStore.positionId) } catch (_: Throwable) {}
+        }
         if (tradeToStore.side.equals("BUY", true) && tradeToStore.mint.isNotBlank()) {
             try {
                 latestBuyByMintCache = LinkedHashMap(latestBuyByMintCache).apply { put(tradeToStore.mint, tradeToStore) }

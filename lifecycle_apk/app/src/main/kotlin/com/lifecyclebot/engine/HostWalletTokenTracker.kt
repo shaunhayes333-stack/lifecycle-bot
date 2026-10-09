@@ -1227,6 +1227,24 @@ object HostWalletTokenTracker {
                     } catch (_: Throwable) {}
                     // Release any terminal sell-job + close-lease so the lifecycle can restart.
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
+                } else if (com.lifecyclebot.engine.truth.AccountingIntegrity7948.reopenForCanonicalLive7948(
+                        existing.status.name, walletHasTradableRaw,
+                        walletHasTradableRaw && com.lifecyclebot.engine.truth.AccountingIntegrity7948.canonicalLiveOpen7948(mint),
+                    )
+                ) {
+                    // V5.0.7948 — closed as stale-unheld on an RPC gap while the canonical
+                    // book still owns this LIVE position and the wallet holds it: the host
+                    // projection dropped a real position (5 canonical vs 4 host).
+                    existing.status = PositionStatus.OPEN_TRACKING
+                    existing.activeSellAttemptId = null
+                    existing.notes.add("REOPENED_7948: canonical LIVE open + wallet holds qty=$uiAmount")
+                    if (existing.sellSignature.isNullOrBlank()) try {
+                        com.lifecyclebot.engine.sell.LivePositionCloseAuthority
+                            .releaseUnsignedCloseOnWalletHeld7373(mint, existing.symbol ?: mint.take(6))
+                    } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("TRACKER_STALE_UNHELD_REOPENED_CANONICAL_7948") } catch (_: Throwable) {}
+                    emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, mint, existing.symbol, null,
+                        "CANONICAL_LIVE_WALLET_HELD → REOPENED ${existing.symbol ?: mint.take(6)} qty=$uiAmount (was CLOSED_STALE_RECOVERY_UNHELD)")
                 } else if (walletHasTradableRaw &&
                     existing.status in setOf(
                         PositionStatus.BUY_PENDING,
@@ -1898,6 +1916,12 @@ object HostWalletTokenTracker {
             if (hasCurrentWalletPositiveProof(p) || hasCurrentWalletRawBalance7691(p)) continue
             val anchor2 = maxOf(p.lastWalletReconcileMs ?: 0L, p.lastSeenWalletMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs)
             if (anchor2 > 0L && (now - anchor2) < staleRecoveryTtlMs) continue
+            // V5.0.7948 — the canonical book still owns a LIVE position on this mint:
+            // missing held proof is an RPC gap, not a sale. Keep it for the next snapshot.
+            if (com.lifecyclebot.engine.truth.AccountingIntegrity7948.canonicalLiveOpen7948(p.mint)) {
+                try { PipelineHealthCollector.labelInc("TRACKER_STALE_CLOSE_DEFERRED_CANONICAL_LIVE_7948") } catch (_: Throwable) {}
+                continue
+            }
             p.status = PositionStatus.CLOSED_STALE_RECOVERY_UNHELD
             p.uiAmount = 0.0
             p.rawAmount = "0"

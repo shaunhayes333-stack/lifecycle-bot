@@ -23655,7 +23655,15 @@ class Executor(
                         mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji,
                         // V5.0.7355 — cost of THIS slice; ts.position already holds only the remainder.
                         entryCostSol = livePartialCostBasisSol, entryPriceSnapshot = pos.entryPrice,
-                        soldCostBasisSol = livePartialCostBasisSol, grossProceedsSol = solBack)
+                        soldCostBasisSol = livePartialCostBasisSol, grossProceedsSol = solBack,
+                        // V5.0.7948 — the 7807 partial-leg identity (SPIKE_CAPTURE_7943 sells come
+                        // through here): canonical positionId + exact sold/remaining raw, so the
+                        // journal row links to the lot the canonical slice just reduced.
+                        positionId = pos.positionId.ifBlank { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false) },
+                        entryTsMs = pos.entryTime, entryQtyToken = pos.qtyToken,
+                        soldQtyToken = proof7835.uiTokenConsumed, remainingQtyToken = ts.position.qtyToken,
+                        canonicalConsumedRaw = settled7835.actualConsumedRaw, remainingRawQty = settled7835.remainingRaw,
+                        tokenDecimals = proof7835.decimals, proofState = "LIVE_FINALIZED")
 
                     recordTrade(ts, liveTrade)
                     security.recordTrade(liveTrade)
@@ -26111,7 +26119,10 @@ class Executor(
         ts.lastExitWasWin   = pnlP >= 1.0  // V5.9.185
         // V5.9.256: Mark closed in persistent wallet memory
         try { WalletTokenMemory.recordExit(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Exception) {}
-        try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Exception) {}
+        // V5.0.7948 — paperSell: tag the reason PAPER so a paper exit can never mark the
+        // LIVE wallet row for the same mint unheld (it dropped a canonical LIVE position
+        // out of the host wallet projection: 5 canonical vs 4 host).
+        try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, com.lifecyclebot.engine.truth.AccountingIntegrity7948.paperTrackerReason7948(reason)) } catch (_: Exception) {}
         
         try {
             PositionPersistence.savePosition(ts)
