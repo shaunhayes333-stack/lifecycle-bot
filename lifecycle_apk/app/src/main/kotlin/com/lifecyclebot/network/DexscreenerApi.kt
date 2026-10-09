@@ -366,9 +366,15 @@ class DexscreenerApi {
         return out
     }
 
-    fun batchPriceFetch(mints: List<String>): Map<String, Double> {
+    fun batchPriceFetch(mints: List<String>, slotWaitMs7948: Long = 0L): Map<String, Double> {
         if (mints.isEmpty()) return emptyMap()
-        if (!RateLimiter.allowRequest("dexscreener")) return emptyMap()
+        // V5.0.7948 — the held-mark batch (rapid stop-loss tick) waits briefly for
+        // the shared 25 ms limiter slot instead of returning an empty batch whenever
+        // any scanner call landed in the same instant (MARK_BATCH_EMPTY_6970=681).
+        if (!RateLimiter.waitForSlot("dexscreener", slotWaitMs7948)) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_BATCH_LIMITER_REFUSED_7948") } catch (_: Throwable) {}
+            return emptyMap()
+        }
 
         // DS hard limit: 30 mints per request. Trim defensively.
         val take = mints.take(30).joinToString(",")

@@ -12672,7 +12672,7 @@ class BotService : Service() {
                 val chunks = solanaMints6970.filter { it !in locked7392 }.chunked(30)
                 var rateLimitedChunks6970 = 0
                 if (chunks.size == 1) {
-                    val one = try { dex.batchPriceFetch(chunks[0]) } catch (_: Throwable) { emptyMap() }
+                    val one = try { dex.batchPriceFetch(chunks[0], 200L) } catch (_: Throwable) { emptyMap() }
                     if (one.isEmpty() && chunks[0].isNotEmpty()) rateLimitedChunks6970++
                     priceMap.putAll(one)
                     for (k in one.keys) markSource6999[k] = "DEXSCREENER_BATCH"
@@ -12683,7 +12683,7 @@ class BotService : Service() {
                                 async {
                                     // Stagger past RateLimiter.minSpacingMs (25ms).
                                     if (idx > 0) kotlinx.coroutines.delay(idx * 30L)
-                                    try { dex.batchPriceFetch(chunk) } catch (_: Throwable) { emptyMap() }
+                                    try { dex.batchPriceFetch(chunk, 200L) } catch (_: Throwable) { emptyMap() } // V5.0.7948 — wait for the limiter slot
                                 }
                             }.awaitAll()
                         }
@@ -20382,7 +20382,7 @@ class BotService : Service() {
             // a separate suspend function in V5.9.634c because botLoop hit the
             // JVM 64KB per-method bytecode limit.
             if (loopCount % 12 == 0) {
-                runFreezeDetectorTick(loopCount, cfg)
+                offloadFreezeDetector7948(loopCount, cfg)
             }
             
             // AGGRESSIVE WATCHLIST CLEANUP - every 5 loops (about 25 seconds)
@@ -22108,6 +22108,23 @@ if (hotExitHandledSweep) {
      * Extracted from botLoop in V5.9.634c so the loop stays under the
      * JVM 64KB per-method bytecode ceiling.
      */
+    /**
+     * V5.0.7948 — 5.0.7947: 40 slow cycles, worst phase POST_LEARNING_TRADER_SYNC.
+     * SlowCycleDiagnostic charges a phase with the time until the NEXT marker, so
+     * that phase is the watchdog block after it, whose one inline heavy step is
+     * this tick: two 24 h trade-journal filters under the store lock, a full
+     * status.tokens scan, and on a freeze a stream reconnect. It is telemetry
+     * plus plumbing recovery and never gates a trade, so it runs on the
+     * bounded maintenance worker (coalesced, 5 s budget) instead of the bot loop.
+     */
+    private fun offloadFreezeDetector7948(loopCount: Int, cfg: com.lifecyclebot.data.BotConfig) {
+        try {
+            com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(name = "freeze_detector_7948", budgetMs = 5_000L) {
+                runFreezeDetectorTick(loopCount, cfg)
+            }
+        } catch (_: Throwable) {}
+    }
+
     private suspend fun runFreezeDetectorTick(
         loopCount: Int,
         cfg: com.lifecyclebot.data.BotConfig,
@@ -24612,7 +24629,7 @@ if (hotExitHandledSweep) {
                                     // 7219 arithmetic. The secondary-provider
                                     // gate is the top-up threshold, not 120s, so
                                     // the 7204 trigger actually reaches a door.
-                                    val advanced7225 = tryFallbackPriceData(
+                                    val advanced7225 = refreshExitMarkFromVenue7948(cp.mint, ts) || tryFallbackPriceData(
                                         cp.mint, ts,
                                         secondaryStaleAfterMs7225 = MarkRefreshDedupTtl6594.TTL_SUCCESS_MS,
                                     )
@@ -25192,6 +25209,8 @@ if (hotExitHandledSweep) {
             )
             PipelineHealthCollector.labelInc("PUMP_TRADE_MARK_APPLIED_7278")
         } catch (_: Throwable) {}
+        // V5.0.7948 — held-curve and PumpPortal trade marks feed the plan's mark bars.
+        try { com.lifecyclebot.engine.truth.MarkBars7948.note7948(mint, px, now) } catch (_: Throwable) {}
         // V5.0.7943 — a spike is sold into on the print that carries it.
         try { SpikeCapture7943.onMark(ts, px) { t, frac, reason -> sellIntoSpike7943(t, frac, reason) } } catch (_: Throwable) {}
         // V5.0.7279 — the executor reads the canonical mark registry, not
@@ -34463,6 +34482,31 @@ if (hotExitHandledSweep) {
     // the storm guard already share, so the doors open exactly when the
     // top-up knocks. Traffic stays bounded by that TTL: <=1 refresh attempt
     // per mint per 30s on success, 5s backoff on failure, as 6594 designed.
+    /**
+     * V5.0.7948 §THE_REFRESH_KNOCKED_ON_DEAD_DOORS. 5.0.7947: mark refreshes that
+     * advanced = 6, risk-clock stale = 1,509. The exit refresh only ever asked
+     * tryFallbackPriceData's cascade: Birdeye overview (401 all session),
+     * DexScreener token, BirdeyeOracle (401), pump.fun frontend (sr=6%), the
+     * last three gated on ts.lastPriceUpdate being 30 s old, so a refresh
+     * triggered by stale PROVENANCE on a recently-written row asked only the
+     * dead Birdeye door. The venue the position actually trades on (the
+     * bonding curve on chain, or the exact pool sealed at purchase) was never
+     * asked. Ask it first; the cascade still runs when it cannot price.
+     */
+    private fun refreshExitMarkFromVenue7948(mint: String, ts: TokenState): Boolean {
+        val mark = try {
+            com.lifecyclebot.network.LockedVenueMarks7392.resolve(listOf(mint), dex)[mint]
+        } catch (_: Throwable) { null } ?: return false
+        if (!mark.priceUsd.isFinite() || mark.priceUsd <= 0.0) return false
+        synchronized(ts) {
+            ts.lastPrice = mark.priceUsd
+            ts.lastPriceUpdate = System.currentTimeMillis()
+            ts.lastPriceSource = mark.source
+        }
+        broadcastFallbackPrice(mint, mark.priceUsd, mark.source)
+        return true
+    }
+
     private suspend fun tryFallbackPriceData(
         mint: String,
         ts: TokenState,

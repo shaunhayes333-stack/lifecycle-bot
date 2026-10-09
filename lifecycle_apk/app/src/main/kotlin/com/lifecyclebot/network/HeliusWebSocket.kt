@@ -46,7 +46,12 @@ class HeliusWebSocket(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .callTimeout(0, TimeUnit.SECONDS)
-        .pingInterval(15, TimeUnit.SECONDS)
+        // V5.0.7948 — OkHttp fails the socket (SocketTimeoutException) when a pong
+        // is not back within ONE ping interval. Under a 128-mint notification burst
+        // the pong queues behind the frames, so 15 s produced 36 reconnects x ~128
+        // resubscribes (4,577) in 5.0.7947. 30 s still keeps Helius's 10-minute idle
+        // timer far away and detects a dead socket within a minute.
+        .pingInterval(HELIUS_PING_INTERVAL_SEC_7948, TimeUnit.SECONDS)
         .build()
 
     // Keep user callbacks off the socket reader: ACK/pong progress must not
@@ -88,6 +93,7 @@ class HeliusWebSocket(
         const val MAX_PENDING_REQUESTS_7807 = 512
         const val MAX_UNSUB_DEDUPE_7807 = 512
         const val HEALTHY_INBOUND_WINDOW_MS_7819 = 120_000L
+        const val HELIUS_PING_INTERVAL_SEC_7948 = 30L
         val swapBuyRegex7807 = Regex("""Buy\s+([\d.]+)\s+tokens?\s+for\s+([\d.]+)\s+SOL""", RegexOption.IGNORE_CASE)
         val swapSellRegex7807 = Regex("""Sell\s+([\d.]+)\s+tokens?\s+for\s+([\d.]+)\s+SOL""", RegexOption.IGNORE_CASE)
         val reconnectScheduler7803: ScheduledExecutorService =
@@ -234,6 +240,31 @@ class HeliusWebSocket(
             subscribeToken(mint)
         }
         publishGauges7807()
+    }
+
+    /**
+     * V5.0.7948 — release desired token subscriptions the caller no longer needs
+     * (left the watchlist, not held, launch tape past use). The LRU used to keep
+     * them until a new mint evicted one (730 evictions in 5.0.7947), and every
+     * reconnect re-sent them; a freed slot costs one unsubscribe once, and the
+     * next admission no longer evicts a live mint. Held mints are never released.
+     */
+    fun releaseTokens7948(keep: (String) -> Boolean): Int {
+        val pinned = pinnedMints7807()
+        val released = ArrayList<Pair<String, Int?>>()
+        synchronized(subscriptions) {
+            val drop = releasableSubs7948(subscriptions.keys.toList(), pinned, keep)
+            for (m in drop) released.add(m to subscriptions.remove(m))
+        }
+        if (released.isEmpty()) return 0
+        for ((mint, serverId) in released) {
+            // Pending request kept, as on eviction: its late ACK finds the mint unwanted and unsubscribes.
+            subscriptionToMint7765.entries.removeIf { it.value == mint }
+            serverId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
+        }
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_TOKEN_SUB_RELEASED_7948") } catch (_: Throwable) {}
+        publishGauges7807()
+        return released.size
     }
 
     /** Subscribe to all swaps for a specific token mint. */
@@ -844,6 +875,10 @@ object HeliusSolanaScope7819 {
         return kept7819
     }
 }
+
+/** V5.0.7948 — pure: desired subscriptions that are neither pinned (held) nor still wanted by [keep]. */
+internal fun releasableSubs7948(desired: List<String>, pinned: Set<String>, keep: (String) -> Boolean): List<String> =
+    desired.filter { it !in pinned && !keep(it) }
 
 /** V5.0.7867 — pure: held mints first, then the rest newest-first ([eldestFirst] is map order). */
 internal fun resubscribeOrder7867(eldestFirst: List<String>, held: Set<String>): List<String> {

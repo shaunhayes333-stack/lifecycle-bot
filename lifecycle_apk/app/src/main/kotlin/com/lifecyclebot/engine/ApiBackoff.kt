@@ -40,7 +40,56 @@ object ApiBackoff {
         // here instead of in consecutiveFailures, so they never arm a lockout
         // on a host that is demonstrably answering.
         val requestLevelFailures6999: AtomicInteger = AtomicInteger(0),
+        // V5.0.7948 — rolling success share (x1e6, EWMA) and answered-call count.
+        val okEwmaMicros7948: AtomicLong = AtomicLong(1_000_000L),
+        val samples7948: AtomicInteger = AtomicInteger(0),
     )
+
+    /**
+     * V5.0.7948 §DEAD_PROVIDERS_KEPT_BEING_ASKED. 5.0.7947: Birdeye 401 and
+     * DexPaprika 403 all session, pump.fun frontend sr=6%, GeckoTerminal 35%.
+     * A 401/403 from an enrichment provider is a key or plan state, not a
+     * wobble: the old auth ladder topped out at 10 minutes, so a dead key was
+     * re-asked six times an hour for the whole session. Enrichment hosts now
+     * climb 5 min -> 15 -> 30 -> 60 -> 120. Execution-path hosts (Jupiter quote,
+     * swap, Helius, RPC) keep the short ladder: a transient edge 403 there must
+     * never stand trading down for hours.
+     */
+    private val LONG_AUTH_HOSTS_7948 = setOf(
+        "birdeye", "dexpaprika", "geckoterminal", "coingecko", "pumpfun", "jupiter_tokens", "jupiter_tokens_keyed",
+    )
+    private val longAuthSchedule7948 = longArrayOf(300_000L, 900_000L, 1_800_000L, 3_600_000L, 7_200_000L)
+
+    /** Pure: auth/forbidden lockout for the [n]th consecutive 401/403 (1-based) on [host]. */
+    fun authBackoffMs7948(host: String, n: Int): Long {
+        val schedule = if (key(host) in LONG_AUTH_HOSTS_7948) longAuthSchedule7948 else authBackoffSchedule
+        return schedule[(n - 1).coerceIn(0, schedule.lastIndex)]
+    }
+
+    /**
+     * Pure: multiplier on the soft (5xx/timeout) lockout for a provider whose
+     * rolling success share is [okShare] over [samples] answered calls. A host
+     * that answers most calls keeps the fast half-open; one that fails most of
+     * them (pump.fun frontend at 6%) is asked an order of magnitude less often.
+     */
+    fun adaptiveSoftMultiplier7948(okShare: Double, samples: Int): Long = when {
+        samples < 20 || !okShare.isFinite() -> 1L
+        okShare < 0.10 -> 12L
+        okShare < 0.25 -> 6L
+        okShare < 0.50 -> 2L
+        else -> 1L
+    }
+
+    /** Pure: EWMA step (alpha 1/20) of the success share, in micros. */
+    fun nextOkEwmaMicros7948(prevMicros: Long, ok: Boolean): Long =
+        prevMicros + ((if (ok) 1_000_000L else 0L) - prevMicros) / 20L
+
+    private const val SOFT_CAP_MS_7948 = 300_000L
+
+    private fun noteOutcome7948(s: State, ok: Boolean) {
+        s.samples7948.incrementAndGet()
+        s.okEwmaMicros7948.updateAndGet { nextOkEwmaMicros7948(it, ok) }
+    }
 
     private val state = ConcurrentHashMap<String, State>()
 
@@ -155,14 +204,21 @@ object ApiBackoff {
 
             val n = s.consecutiveFailures.incrementAndGet()
             s.lastFailureCode.set(code)
+            noteOutcome7948(s, ok = false)
 
-            val schedule = when (code) {
-                429 -> rateLimitSchedule
-                401, 403 -> authBackoffSchedule
-                else -> softBackoffSchedule
+            val idx = (n - 1).coerceIn(0, rateLimitSchedule.lastIndex)
+            // V5.0.7948 — long auth ladder for enrichment hosts; soft lockouts
+            // stretch with the host's measured failure share.
+            val delayMs = when (code) {
+                429 -> rateLimitSchedule[idx]
+                401, 403 -> authBackoffMs7948(host, n)
+                else -> {
+                    val base = softBackoffSchedule[(n - 1).coerceIn(0, softBackoffSchedule.lastIndex)]
+                    val mult = adaptiveSoftMultiplier7948(s.okEwmaMicros7948.get() / 1_000_000.0, s.samples7948.get())
+                    if (mult > 1L) try { PipelineHealthCollector.labelInc("API_BACKOFF_ADAPTIVE_STRETCH_7948") } catch (_: Throwable) {}
+                    (base * mult).coerceAtMost(maxOf(base, SOFT_CAP_MS_7948))
+                }
             }
-            val idx = (n - 1).coerceIn(0, schedule.lastIndex)
-            val delayMs = schedule[idx]
             val until = System.currentTimeMillis() + delayMs
             s.lockoutUntilMs.accumulateAndGet(until) { old, fresh -> maxOf(old, fresh) }
             s.totalLockouts.incrementAndGet()
@@ -183,6 +239,7 @@ object ApiBackoff {
         try {
             if (host.isBlank()) return
             val s = state[key(host)] ?: return
+            noteOutcome7948(s, ok = true)
             // V5.0.6999 — a real answer proves the host is serving this API, so
             // the request-level streak (which only exists to catch a retired
             // endpoint) starts over.

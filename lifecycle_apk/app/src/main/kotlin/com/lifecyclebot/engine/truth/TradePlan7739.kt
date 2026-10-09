@@ -144,9 +144,23 @@ object TradePlan7739 {
 
     // ── bars ──
 
-    /** One-minute bars rebuilt from a history that may mix ticks, synthetic and fetched candles. */
+    /**
+     * One-minute bars for the plan. V5.0.7948 — the token's own mark tape
+     * (MarkBars7948: trade prints, WS and polled marks, held-curve marks) is a
+     * first-class source: history/provider bars win every minute they cover and
+     * mark bars fill the rest, so a fresh launch is not refused for missing
+     * third-party candles. A 4H-seeded history no longer reads as zero bars.
+     */
     private fun barsFrom(ts: TokenState, nowMs: Long): List<Bar> {
-        if (ts.candleTimeframeMinutes > 1) return emptyList()
+        val hist = if (ts.candleTimeframeMinutes > 1) emptyList() else historyBars7739(ts, nowMs)
+        if (hist.size > MIN_BARS_7739) return hist
+        val merged = MarkBars7948.merge7948(hist, MarkBars7948.bars7948(ts.mint, nowMs, WINDOW_MS_7739), MIN_BARS_7739 + 1)
+        if (merged.size > hist.size) MarkBars7948.noteLent7948(merged.size - hist.size)
+        return merged
+    }
+
+    /** One-minute bars rebuilt from a history that may mix ticks, synthetic and fetched candles. */
+    private fun historyBars7739(ts: TokenState, nowMs: Long): List<Bar> {
         val pts = try { synchronized(ts) { ts.history.toList() } } catch (_: Throwable) { emptyList() }
         val byMinute = java.util.TreeMap<Long, DoubleArray>()   // minute -> [open, high, low, close, lastTs]
         for (c in pts.sortedBy { it.ts }) {
