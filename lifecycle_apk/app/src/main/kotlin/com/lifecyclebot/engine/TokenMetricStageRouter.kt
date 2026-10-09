@@ -153,7 +153,7 @@ object TokenMetricStageRouter {
      * mean - se > 0), the token goes to the paying lane. 5.0.7937: FRESH_LAUNCH went
      * to MOONSHOT (labels n=251 -8.2%) while EXPRESS read n=85 +12.7% run 14%.
      */
-    fun evidenceReroute7940(lane: String, stage: Stage): String {
+    private fun evidenceReroute7940(lane: String, stage: Stage): String {
         val stats = LANE_STAGE_SHEET_7928[stage].orEmpty().filter { it !in TRUNK_LANES_7940 }
             .associateWith { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(it) }
         val own = stats[lane.uppercase()] ?: com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane.uppercase())

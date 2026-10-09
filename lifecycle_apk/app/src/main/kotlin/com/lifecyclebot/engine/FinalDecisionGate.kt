@@ -985,6 +985,15 @@ object FinalDecisionGate {
             try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_OVERRULED_BY_LADDER_7932") } catch (_: Throwable) {}
             return true
         }
+        // V5.0.7941 — learning that admits: a lane whose own forward labels prove its
+        // candidate pool pays (5.0.7937 SHITCOIN n=2485 +4.4%, refused 1,343 times by this
+        // floor) is not held back by the generic V3 floor; playbook, stage, shape, cohort
+        // and Cortex refusals still filter it.
+        val laneStat7941 = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane.uppercase()) } catch (_: Throwable) { null }
+        if (com.lifecyclebot.engine.truth.LiveEdgeGate7877.laneProvenPositive7941(laneStat7941)) {
+            try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_LANE_PROVEN_7941_$lane") } catch (_: Throwable) {}
+            return true
+        }
         val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookScore7937(ts, lane) ?: return false
         // A positive expected record (score above the 50 break-even) and at least the WAIT bar.
         val clears = pb > 50.0 && pb >= waitFloor

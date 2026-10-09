@@ -193,6 +193,16 @@ object LiveEdgeGate7877 {
 
     private const val LANE_LOSING_MIN_N_7938 = 100
 
+    /**
+     * Pure. V5.0.7941 — the lane's own 60-minute labels prove its candidate pool pays:
+     * 100+ labels and mean minus one standard error above zero (labels are net of cost).
+     */
+    fun laneProvenPositive7941(stat: ForwardReturnLabeler7731.CellStat?): Boolean {
+        if (stat == null || stat.n60 < LANE_LOSING_MIN_N_7938) return false
+        val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else return false
+        return stat.meanNet60Pct - se > 0.0
+    }
+
     private fun runnerSetupFires7939(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         if (!runner) return false
