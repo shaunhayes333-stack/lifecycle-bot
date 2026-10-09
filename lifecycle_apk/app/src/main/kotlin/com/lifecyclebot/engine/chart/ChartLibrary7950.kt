@@ -105,9 +105,20 @@ object ChartLibrary7950 {
      * (5 BTC series must not overrule every learned refusal during the first build).
      */
     fun mature(): Boolean = synchronized(lock) {
-        size >= CAPACITY / 4 && bySrc[SRC_CRYPTO] >= MIN_PER_FAMILY && (bySrc[SRC_SOL_MEME] + bySrc[SRC_BSC_MEME] + bySrc[SRC_LIVE]) >= MIN_PER_FAMILY
+        matureFor7959(size, bySrc[SRC_CRYPTO], bySrc[SRC_SOL_MEME] + bySrc[SRC_BSC_MEME] + bySrc[SRC_LIVE])
     }
     private const val MIN_PER_FAMILY = 2_000L
+
+    /**
+     * V5.0.7959 — pure maturity rule. Fingerprints are scale-free and the same bot-driven
+     * rhythms repeat across crypto and memes, so a broad crypto library (a quarter full,
+     * 2,000+ crypto motifs) reads memes once [MIN_MEME_7959] meme/live motifs anchor it.
+     * 5.0.7958 live: 13,076 crypto motifs, 184 meme/live — the 2,000-meme bar kept the
+     * reader dark while every meme candle source was rate-limited.
+     */
+    fun matureFor7959(size: Int, crypto: Long, memeAndLive: Long): Boolean =
+        size >= CAPACITY / 4 && crypto >= MIN_PER_FAMILY && memeAndLive >= MIN_MEME_7959
+    const val MIN_MEME_7959 = 300L
 
     @Volatile private var distEwma = Double.NaN
 

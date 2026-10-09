@@ -512,6 +512,26 @@ object LiveCanonicalRecovery6686 {
         )
     }
 
+    /**
+     * V5.0.7959 — wallet tokens that outlived a full live close are not re-charged the
+     * spent receipt's cost: adopted once at the observed mark, then parked if a second
+     * close still leaves them in the wallet (the sell is not moving them).
+     */
+    private fun spentReceiptGuard7959(mint: String, amount: CanonicalTokenAmount, ts: com.lifecyclebot.data.TokenState?, b: Basis?): Basis? {
+        if (b == null || b.source == "OBSERVED_MARK_ADOPTION_7706") return b
+        val closedAt = com.lifecyclebot.engine.truth.LiveReceiptSpent7959.lastLiveFullCloseMs(mint)
+        if (!com.lifecyclebot.engine.truth.LiveReceiptSpent7959.isSpent(b.openedAtMs, closedAt)) return b
+        val park = com.lifecyclebot.engine.truth.LiveReceiptSpent7959.shouldPark(mint)
+        try {
+            PipelineHealthCollector.labelInc(if (park) "LIVE_SELL_TOKENS_STILL_HELD_PARKED_7959" else "LIVE_SELL_TOKENS_STILL_HELD_7959")
+            ForensicLogger.lifecycle("LIVE_SELL_TOKENS_STILL_HELD_7959",
+                "mint=${mint.take(12)} raw=${amount.raw} receipt=${b.source} receiptAt=${b.openedAtMs} lastFullClose=$closedAt cost=${b.entryCostSol} " +
+                    "action=${if (park) "park_mint_sell_not_moving_tokens" else "readopt_at_observed_mark_no_cost_recharge"}")
+        } catch (_: Throwable) {}
+        if (park) { markDustUnroutable7714(mint); return null }
+        return observedMarkBasis7706(mint, amount, ts)
+    }
+
     private data class Basis(
         val entryCostSol: Double,
         val entryPriceUsd: Double,
@@ -625,7 +645,7 @@ object LiveCanonicalRecovery6686 {
             } else null
             val botReservation7699 = pendingReservation7699 ?: timedOutReservation7699
 
-            val basis: Basis? = when {
+            val basisRaw7959: Basis? = when {
                 // V5.0.7928 — a basis that was itself an observed-mark adoption is not a
                 // receipt: re-adopting it each restart reset every recovered position to
                 // 0% at the current price. The receipt chain below is asked first.
@@ -767,6 +787,8 @@ object LiveCanonicalRecovery6686 {
                 }
             }
 
+            // V5.0.7959 — a receipt already realised by a full close is spent (LiveReceiptSpent7959).
+            val basis: Basis? = spentReceiptGuard7959(mint, amount, ts, basisRaw7959)
             if (basis == null) {
                 try {
                     ForensicLogger.lifecycle(

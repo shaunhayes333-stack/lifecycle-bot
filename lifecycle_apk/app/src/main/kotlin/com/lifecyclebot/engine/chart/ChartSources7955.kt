@@ -202,7 +202,9 @@ object ChartSources7955 {
     /** [key] null = a listing / discovery call (never recorded as done). */
     private class Job(
         val key: String?, val prov: String, val origin: String, val source: Int, val url: String,
-        val headers: Map<String, String> = emptyMap(), val post: String? = null, val parse: (String) -> Out,
+        val headers: Map<String, String> = emptyMap(), val post: String? = null,
+        /** V5.0.7959 — tried when this job's endpoint refuses for good (e.g. a moved API). */
+        val fallback: Job? = null, val parse: (String) -> Out,
     ) { var tries = 0 }
 
     private val queues: Map<String, RoundRobin7955<Job>> = PROVS.associate { it.id to RoundRobin7955<Job>() }
@@ -276,6 +278,15 @@ object ChartSources7955 {
     private fun nowSec(): Long = System.currentTimeMillis() / 1000L
 
     private const val PUMP_API = "https://frontend-api-v3.pump.fun"
+    private const val PUMP_SWAP_API = "https://swap-api.pump.fun"
+
+    /** V5.0.7959 — swap-api candles come as a bare array or wrapped ({candles|data:[...]}). */
+    private fun pumpCandleArray7959(body: String): JSONArray {
+        val t = body.trimStart()
+        if (t.startsWith("[")) return JSONArray(t)
+        val o = JSONObject(t)
+        return o.optJSONArray("candles") ?: o.optJSONArray("data") ?: JSONArray()
+    }
     private const val MORALIS_API = "https://solana-gateway.moralis.io"
     private const val SOL_MINT = "So11111111111111111111111111111111111111112"
     private const val CODEX_SOLANA = 1399811149
@@ -468,8 +479,13 @@ object ChartSources7955 {
     private fun pumpCoins(body: String): List<Job> {
         val out = ArrayList<Job>()
         for ((mint, pool) in ChartParsers7955.pumpCoins7955(json(body))) {
-            out += Job("PF|$mint|1m", PUMP, PUMP, ChartLibrary7950.SRC_SOL_MEME, "$PUMP_API/candlesticks/$mint?offset=0&limit=1000&timeframe=1") {
+            // V5.0.7959 — the v3 candlestick route failed 64/65 live; pump.fun's swap API serves
+            // the same candles. Try it first, fall back to v3 once it refuses.
+            val v3 = Job("PF|$mint|1m", PUMP, PUMP, ChartLibrary7950.SRC_SOL_MEME, "$PUMP_API/candlesticks/$mint?offset=0&limit=1000&timeframe=1") {
                 Out(ChartParsers7955.pumpFun7955(JSONArray(it)))
+            }
+            out += Job("PF|$mint|1m", PUMP, PUMP, ChartLibrary7950.SRC_SOL_MEME, "$PUMP_SWAP_API/v2/coins/$mint/candles?interval=1m&limit=1000&currency=USD", fallback = v3) {
+                Out(ChartParsers7955.pumpFun7955(pumpCandleArray7959(it)))
             }
             if (pool.isNotBlank()) out += geckoPool("solana", pool, PUMP)
             out += keyedMintJobs(mint)
@@ -663,6 +679,7 @@ object ChartSources7955 {
         if (body == null) {
             val transient = r.code < 0 || r.code == 429 || r.code >= 500 || r.code == 401 || r.code == 403
             if (transient && ++job.tries < 3) queues[job.prov]?.add(job.origin, job)
+            else job.fallback?.let { queues[it.prov]?.add(it.origin, it) }
             return 0
         }
         val out = try { job.parse(body) } catch (_: Throwable) { p.fail.incrementAndGet(); Out() }
