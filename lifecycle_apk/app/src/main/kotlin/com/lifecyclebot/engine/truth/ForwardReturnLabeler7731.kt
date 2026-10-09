@@ -601,6 +601,16 @@ object ForwardReturnLabeler7731 {
     }
 
     /** A price for [mint] from the loop's token states, else the canonical mark registry when fresh. */
+    /**
+     * V5.0.7948 — the same mark a forward label is read on (loop price, else the
+     * canonical registry, else the off-watch batch), for the learners that grade on
+     * the label's clock (CortexTiming7900, the shadow book). They read the loop's
+     * token-state closure alone, so a candidate that left the watchlist was never
+     * priced at its window: Timing WINDOW_MISSED=544, shadow book 9 opens / 0 closes.
+     */
+    fun markFor7948(mint: String, priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()): Double? =
+        try { markFor(mint, priceFor, nowMs) } catch (_: Throwable) { null }
+
     private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? {
         val fromLoop = try { priceFor(mint) } catch (_: Throwable) { null }
         if (fromLoop != null && fromLoop.isFinite() && fromLoop > 0.0) return fromLoop

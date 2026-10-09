@@ -81,16 +81,26 @@ object CortexInvariants7911 {
         if (nowMs - lastCheckMs < CHECK_EVERY_MS) return
         lastCheckMs = nowMs
         try {
-            val tokens = try { synchronized(com.lifecyclebot.engine.BotService.status.tokens) { com.lifecyclebot.engine.BotService.status.tokens.values.toList() } } catch (_: Throwable) { emptyList() }
-            for (ts in tokens) {
-                val p = ts.position
-                if (!p.isOpen || p.isPaperPosition) continue
-                val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
-                val freshest = maxOf(ts.lastPriceUpdate, registryAt)
-                if (freshest <= 0L || nowMs - freshest > BLIND_MS) {
-                    alarm("I1_LIVE_POSITION_BLIND", ts.mint, "sym=${ts.symbol} markAgeSec=${if (freshest > 0L) (nowMs - freshest) / 1000 else -1}", nowMs)
+            val tokens = try { synchronized(com.lifecyclebot.engine.BotService.status.tokens) { com.lifecyclebot.engine.BotService.status.tokens.toMap() } } catch (_: Throwable) { emptyMap() }
+            // V5.0.7948 — the invariant reads the inventory the exit system protects: the
+            // canonical LIVE exit scope, Solana-priced rows only. It read every TokenState
+            // whose projected position said "open, not paper", which also counts trader-owned
+            // off-chain rows (priced by their own feeds, never by a Solana mark) and stale
+            // projections of closed positions — 5.0.7947: I1=19 while the exit feed saw 5/5
+            // positions marked.
+            val scope = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveExitScope7809("live")
+                    .filterNot { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it) }
+            } catch (_: Throwable) { emptyList() }
+            for (cp in scope) {
+                val ts = tokens[cp.mint]
+                val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(cp.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
+                val crossAssetMarked = try { CrossAssetCortex7931.priceFor(cp.mint, nowMs) != null } catch (_: Throwable) { false }
+                val freshest = maxOf(ts?.lastPriceUpdate ?: 0L, registryAt)
+                if (!crossAssetMarked && (freshest <= 0L || nowMs - freshest > BLIND_MS)) {
+                    alarm("I1_LIVE_POSITION_BLIND", cp.mint, "sym=${cp.symbol} lane=${cp.lane} markAgeSec=${if (freshest > 0L) (nowMs - freshest) / 1000 else -1}", nowMs)
                 }
-                if (!(p.entryPrice > 0.0)) alarm("I2_LIVE_POSITION_NO_ENTRY", ts.mint, "sym=${ts.symbol} lane=${p.tradingMode}", nowMs)
+                if (!((ts?.position?.entryPrice ?: 0.0) > 0.0) && !(cp.entryPriceUsd > 0.0)) alarm("I2_LIVE_POSITION_NO_ENTRY", cp.mint, "sym=${cp.symbol} lane=${cp.lane}", nowMs)
             }
             val backlog = Cortex7885.queuedTasks()
             if (backlog > 200) alarm("I3_CORTEX_BACKLOG", "pool", "queued=$backlog", nowMs)

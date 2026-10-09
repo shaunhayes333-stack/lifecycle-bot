@@ -14207,26 +14207,32 @@ class Executor(
         // V5.0.6073 — SHADOW ALWAYS-ON: gate removed (was toggle + live-only).
         val toRemove = mutableListOf<String>()
         val stopLossPct = cfg().stopLossPct
-        val takeProfitPct = 50.0
-        
+        val nowShadow7948 = System.currentTimeMillis()
+
         for ((mint, shadow) in shadowPositions) {
-            val ts = tokenStates[mint] ?: continue
-            val currentPrice = getActualPrice(ts)
-            if (currentPrice <= 0) continue
-            shadowLastMark7320[mint] = currentPrice
-            
-            val pnlPct = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "Executor.shadow_position_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
-            val holdTimeMin = (System.currentTimeMillis() - shadow.entryTime) / 60000
-            
-            val shouldExit = when {
-                pnlPct <= -stopLossPct -> "stop_loss"
-                pnlPct >= takeProfitPct -> "take_profit"
-                holdTimeMin >= 30 -> "timeout_30min"
-                else -> null
-            }
-            
+            // V5.0.7948 — a refused token leaves the watchlist: price it from the forward
+            // label's mark chain, and let the timeout close it on its last observed mark
+            // (ShadowBookExit7948 has the 5.0.7947 evidence: 9 opens, 0 closes).
+            val ts = tokenStates[mint]
+            val loopPrice7948 = ts?.let { getActualPrice(it) }?.takeIf { it > 0.0 }
+            val freshPrice7948 = loopPrice7948
+                ?: com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.markFor7948(mint, { null }, nowShadow7948)?.takeIf { it > 0.0 }
+            if (freshPrice7948 != null) shadowLastMark7320[mint] = freshPrice7948
+            val currentPrice = freshPrice7948 ?: shadowLastMark7320[mint]
+
+            val pnlPct = currentPrice?.let { OpenPnlSanity.inspect(shadow.entryPrice, it, context = "Executor.shadow_position_6038/${shadow.mint.take(8)}", emit = true).takeIf { v -> v.ok }?.pnlPct }
+            val holdTimeMin = (nowShadow7948 - shadow.entryTime) / 60000
+
+            val shouldExit = com.lifecyclebot.engine.truth.ShadowBookExit7948.exitReason7948(
+                if (freshPrice7948 != null) pnlPct else null, holdTimeMin, stopLossPct,
+            )
+
             if (shouldExit != null) {
-                closeShadow7320(shadow, currentPrice, shouldExit, (shadowPositions.size - toRemove.size - 1).coerceAtLeast(0))
+                if (currentPrice == null || currentPrice <= 0.0) {
+                    try { PipelineHealthCollector.labelInc("SHADOW_TIMEOUT_NO_MARK_DROPPED_7948") } catch (_: Throwable) {}
+                } else {
+                    closeShadow7320(shadow, currentPrice, shouldExit, (shadowPositions.size - toRemove.size - 1).coerceAtLeast(0))
+                }
                 toRemove.add(mint)
             }
         }

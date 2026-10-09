@@ -60,6 +60,25 @@ class CortexScoreboard7885 {
         /** Pure: does the STRONG record prove the Cortex finds edge the gates miss? */
         fun overruleProven(strong: CortexLedger7885.Stat): Boolean =
             strong.n >= MIN_N_LIVE && strong.mean() - se(strong) > PROOF_MARGIN_PCT
+
+        // V5.0.7948 — an inverted lane. 5.0.7947: SHITCOIN STRONG n=39 at -8.1% against
+        // NEUTRAL n=14 at +5.5% — the Cortex's "strong" read picked worse tokens than its
+        // shrug. Nothing in the bar looked at STRONG relative to NEUTRAL, so a lane whose
+        // strong side measurably under-performs kept the word "strong" for every power
+        // keyed on it. Inverted = STRONG below NEUTRAL by more than the proof margin AND
+        // by more than one combined standard error, on enough reads of each.
+        const val INVERSION_MIN_STRONG_7948 = 20
+        const val INVERSION_MIN_NEUTRAL_7948 = 10
+
+        /** Pure: does this lane's STRONG record measurably trail its NEUTRAL record? */
+        fun invertedProven7948(strong: CortexLedger7885.Stat, neutral: CortexLedger7885.Stat): Boolean {
+            if (strong.n < INVERSION_MIN_STRONG_7948 || neutral.n < INVERSION_MIN_NEUTRAL_7948) return false
+            val gap = neutral.mean() - strong.mean()
+            if (!gap.isFinite() || gap <= PROOF_MARGIN_PCT) return false
+            val seS = se(strong); val seN = se(neutral)
+            if (!seS.isFinite() || !seN.isFinite()) return false
+            return gap - kotlin.math.sqrt(seS * seS + seN * seN) > 0.0
+        }
     }
 
     class Book {
@@ -107,7 +126,25 @@ class CortexScoreboard7885 {
 
     fun overruleAuthority(lane: String): Boolean {
         val b = books[lane] ?: return false
-        return overruleProven(b.byBucket[Bucket.STRONG.ordinal])
+        // V5.0.7948 — an inverted lane's STRONG read is not strong: no strong-side power
+        // (overrule, paper choice, conviction size-up, stack-shrink overrule) until it re-proves.
+        return overruleProven(b.byBucket[Bucket.STRONG.ordinal]) && !inverted7948(lane)
+    }
+
+    /**
+     * V5.0.7948 — STRONG measurably below NEUTRAL on this lane's forward labels, or on
+     * the realised whole-position closes of either mode. The books keep recording STRONG
+     * reads (decayed), so the lane re-proves — and regains its powers — on new evidence.
+     */
+    fun inverted7948(lane: String): Boolean {
+        books[lane]?.let { b ->
+            if (invertedProven7948(b.byBucket[Bucket.STRONG.ordinal], b.byBucket[Bucket.NEUTRAL.ordinal])) return true
+        }
+        for (mode in listOf("LIVE", "PAPER")) {
+            val r = realized["$mode|$lane"] ?: continue
+            if (invertedProven7948(r[Bucket.STRONG.ordinal], r[Bucket.NEUTRAL.ordinal])) return true
+        }
+        return false
     }
 
     /**
