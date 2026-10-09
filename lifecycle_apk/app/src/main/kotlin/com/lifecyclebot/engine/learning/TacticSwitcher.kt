@@ -260,6 +260,40 @@ object TacticSwitcher {
         return sum.coerceIn(0.0, 1.0)
     }
 
+    // V5.0.7948 — pooled-lane rotation bar: at least 8 pooled closes, a mean at or
+    // below -2%, and P(loss rate > 60%) >= 85% under the Beta posterior. The 60% target
+    // (the per-cohort Bayes gate uses 70%) is the pooled read's: more closes, and a
+    // momentum book losing 6 of 10 at a negative mean is already paying to be wrong.
+    private const val POOLED_MIN_SAMPLES_7948 = 8
+    private const val POOLED_MEAN_PNL_7948 = -2.0
+    private const val POOLED_LOSS_RATE_TARGET_7948 = 0.60
+
+    /** Pure: does the pooled (lane, tactic) record call for a rotation? */
+    internal fun pooledRotationDue7948(wins: Int, losses: Int, trades: Int, meanPnlPct: Double): Boolean {
+        if (trades < POOLED_MIN_SAMPLES_7948 || !meanPnlPct.isFinite() || meanPnlPct > POOLED_MEAN_PNL_7948) return false
+        return posteriorLossProbAbove(losses, wins, POOLED_LOSS_RATE_TARGET_7948) >= BAYES_TRIGGER_PROB
+    }
+
+    /** The lane's cohorts on [cell]'s tactic, pooled; a rotation reason when the pool is bleeding. */
+    private fun pooledLaneBleed7948(lane: String, cell: Cell): String? {
+        return try {
+            val prefix = key(lane, "").substringBeforeLast('|') + "|"
+            val tactic = cell.tactic.get()
+            var n = 0; var w = 0; var l = 0; var pnlBps = 0L; var cohorts = 0
+            for ((k, c) in cells) {
+                if (!k.startsWith(prefix) || c.tactic.get() != tactic) continue
+                val t = c.tradesSinceRotation.get()
+                if (t <= 0) continue
+                n += t; w += c.winsSinceRotation.get(); l += c.lossesSinceRotation.get(); pnlBps += c.pnlSumSinceRotation.get(); cohorts++
+            }
+            if (cohorts < 2) return null   // a single cohort is judged by its own gates
+            val mean = pnlBps.toDouble() / 100.0 / n
+            if (!pooledRotationDue7948(w, l, n, mean)) return null
+            try { PipelineHealthCollector.labelInc("TACTIC_POOLED_LANE_ROTATION_7948") } catch (_: Throwable) {}
+            "pooled-lane ${Tactic.values()[tactic].name} cohorts=$cohorts W/L=$w/$l mean=${"%+.1f".format(mean)}% n=$n"
+        } catch (_: Throwable) { null }
+    }
+
     internal fun posteriorLossProbAboveForTest(losses: Int, wins: Int, threshold: Double = BAYES_LOSS_RATE_TARGET): Double =
         posteriorLossProbAbove(losses, wins, threshold)
 
@@ -408,6 +442,17 @@ object TacticSwitcher {
                 rotate(lane, scoreBand, cell, "fast lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
                 return
             }
+        }
+
+        // V5.0.7948 — POOLED LANE EVIDENCE. Every gate above reads this one (lane, band)
+        // cohort, and the cohorts are mostly n=1, so no cohort ever reached 8 decisive
+        // closes: 5.0.7947 had every cohort on MOMENTUM while LIVE regime=CHOP ran
+        // WR=21.2% meanPnl=-4.37%. The lane's cohorts that are on the SAME tactic share
+        // one question — is this tactic losing on this lane right now — so their
+        // since-rotation closes are pooled, and this cohort rotates on the pooled verdict.
+        pooledLaneBleed7948(lane, cell)?.let { why ->
+            rotate(lane, scoreBand, cell, why)
+            return
         }
 
         // Below the trial window (and not a fast-rotation case): keep accumulating.

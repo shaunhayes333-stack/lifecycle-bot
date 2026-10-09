@@ -62,6 +62,8 @@ object StrategyHypothesisEngine {
     // ceiling; we want to catch fills that went 4x underwater not
     // just full liquidations.
     private const val RUG_PNL_THRESHOLD_6747    = -80.0
+    // V5.0.7948 — counted outcomes needed before the hit-rate / rug-rate floors are read.
+    private const val QUALITY_MIN_COUNTED_7948  = 4L
 
     // V5.9.1286 — EXIT-PROFILE EVOLUTION. The engine now tests a second dimension:
     // a stop-WIDTH multiplier. The tuning console proved tight stops (BLUECHIP -4/-7%)
@@ -85,8 +87,11 @@ object StrategyHypothesisEngine {
         @Volatile var rugs: Long = 0L,
     ) {
         val variance: Double get() = if (n > 1) m2 / (n - 1) else 0.0
-        val pWin6747: Double get() = if (n > 0) wins.toDouble() / n.toDouble() else 0.0
-        val pRug6747: Double get() = if (n > 0) rugs.toDouble() / n.toDouble() else 0.0
+        // V5.0.7948 — rates over the outcomes actually COUNTED. The win/loss/rug counters
+        // were never persisted, so after a restart an arm came back with n=8 and wins=0:
+        // pWin read 0% and every quality gate refused — 316 active, 0 promotions.
+        val pWin6747: Double get() = if (wins + losses > 0) wins.toDouble() / (wins + losses).toDouble() else 0.0
+        val pRug6747: Double get() = if (wins + losses > 0) rugs.toDouble() / (wins + losses).toDouble() else 0.0
         fun update(x: Double) { synchronized(this) {
             n += 1
             val d = x - mean; mean += d / n; m2 += d * (x - mean)
@@ -207,8 +212,11 @@ object StrategyHypothesisEngine {
         } catch (_: Throwable) {}
     }
 
+    // V5.0.7948 — the lane is canonicalised: FDG stamps under its learning-owner lane and
+    // the executor binds under the sealed intent's canonical lane; an alias on either side
+    // made the bind miss (HYPOTHESIS_POSITION_BIND_MISSING).
     private fun decisionKey7428(mint: String, candidateVersion: Long, lane: String, mode: String = LearningEnvironment7835.mode()): String =
-        "${mode.uppercase()}|${mint.trim()}|$candidateVersion|${lane.trim().uppercase()}"
+        "${mode.uppercase()}|${mint.trim()}|$candidateVersion|${com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane.trim().uppercase() }}"
 
     private fun suppressVariantForContext(lane: String, score: Int, regime: String): Boolean {
         val l = lane.uppercase()
@@ -225,6 +233,18 @@ object StrategyHypothesisEngine {
         // in DUMP/CHOP below elite score and in known bleeder lanes/danger buckets.
         // This is not a trade veto; FDG/executor still own entry and sizing.
         return hostileExperiment || (hostileRegime && knownBleederLane) || dangerBucket
+    }
+
+    /** V5.0.7948 — a suppressed-variant decision is a CONTROL sample of its context. */
+    private fun stampSuppressedControl7948(ctx: String, mint: String, candidateVersion: Long, lane: String, strategyIdentity: String) {
+        try {
+            active.getOrPut(ctx) { spawn(ctx) }
+            val dk = decisionKey7428(mint, candidateVersion, lane)
+            val applied = AppliedDecision7428(ctx, false, "")
+            // Same rule as the main path (7809): an identity-free re-read never overwrites the exact stamp.
+            if (strategyIdentity.isBlank()) pendingByDecision7428.putIfAbsent(dk, applied) else pendingByDecision7428[dk] = applied
+            PipelineHealthCollector.labelInc("HYPOTHESIS_SUPPRESSED_CONTROL_STAMPED_7948")
+        } catch (_: Throwable) {}
     }
 
     /** Deterministic arm assignment so a mint always lands in the same arm. */
@@ -294,7 +314,6 @@ object StrategyHypothesisEngine {
                 PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_CONTEXT_STAMPED_7430")
             } catch (_: Throwable) {}
             if (suppressVariantForContext(lane, score, regime)) {
-                active.remove(ctx)
                 // V5.0.6258 — only wipe pending if it's for the ctx we're suppressing.
                 // Prior impl unconditionally wiped, so a downstream readback in a
                 // bleeder lane erased the entry-time stamp of a different ctx → arm
@@ -302,6 +321,12 @@ object StrategyHypothesisEngine {
                 val existing = pending[mint]
                 if (existing != null && existing.first == ctx) pending.remove(mint)
                 try { PipelineHealthCollector.labelInc("HYPOTHESIS_HOSTILE_BLEEDER_VARIANT_SUPPRESSED") } catch (_: Throwable) {}
+                // V5.0.7948 — the variant is suppressed, the trade is not: it still opens at
+                // the control size, so it is stamped (and later bound and settled) as a
+                // CONTROL sample of its context. The context used to be deleted and never
+                // stamped, so in a CHOP/DUMP regime every open was a bind miss and taught
+                // nothing (5.0.7947: bind misses 5, promotions 0).
+                stampSuppressedControl7948(ctx, mint, candidateVersion, lane, strategyIdentity)
                 return 1.0
             }
             val h = active.getOrPut(ctx) { spawn(ctx) }
@@ -368,6 +393,8 @@ object StrategyHypothesisEngine {
     ): Double {
         return try {
             val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
+            // V5.0.7948 — a suppressed context now stays active (control learning); read what getSizeBias applies.
+            if (suppressVariantForContext(lane, score, regime)) return 1.0
             val h = active[ctx] ?: return baseline[ctx] ?: 1.0
             val variant = isVariant(mint)
             val bias = if (variant) h.variantSizeBias else (baseline[ctx] ?: 1.0)
@@ -389,6 +416,7 @@ object StrategyHypothesisEngine {
     ): Double {
         return try {
             val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
+            if (suppressVariantForContext(lane, score, regime)) return 1.0   // V5.0.7948 — as getStopBias
             val h = active[ctx] ?: return stopBaseline[ctx] ?: 1.0
             val variant = isVariant(mint)
             val mult = if (variant) h.variantStopMult else (stopBaseline[ctx] ?: 1.0)
@@ -414,7 +442,7 @@ object StrategyHypothesisEngine {
             val ctx = ctxKey7430(lane, score, regime, strategyIdentity)
             seedExactFromParent7430(parentCtx7430, ctx, lane, strategyIdentity)
             if (suppressVariantForContext(lane, score, regime)) {
-                active.remove(ctx)
+                // V5.0.7948 — the context stays: its control arm is learning (getSizeBias).
                 pending.remove(mint)
                 return 1.0
             }
@@ -586,9 +614,11 @@ object StrategyHypothesisEngine {
         // V5.0.6747 §PROMOTION_QUALITY_GATES — hit-rate + rug-rate
         // floor. A control arm with mean=+131% but pWin<25% is a
         // fat-tail lottery, not an edge; refuse the +10% size bump.
-        val proveCtrlQualityOk6747 =
+        // V5.0.7948 — the floors are read once enough outcomes are counted (restored arms re-count).
+        val ctrlCounted7948 = h.control.wins + h.control.losses >= QUALITY_MIN_COUNTED_7948
+        val proveCtrlQualityOk6747 = ctrlCounted7948 &&
             h.control.pWin6747 >= MIN_PWIN_PROMOTE_6747 && h.control.pRug6747 <= MAX_PRUG_PROMOTE_6747
-        if (proveCtrlEdge && !proveCtrlQualityOk6747) {
+        if (proveCtrlEdge && ctrlCounted7948 && !proveCtrlQualityOk6747) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_PROVEN_BASELINE_REJECTED_QUALITY_6747")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -632,7 +662,7 @@ object StrategyHypothesisEngine {
         val ddAcceptable = (vv.mean - sqrt(vv.variance)) > -25.0
         // V5.0.6747 §PROMOTION_QUALITY_GATES — variant arm must also
         // clear hit-rate + rug-rate floors before we bump size.
-        val variantQualityOk6747 =
+        val variantQualityOk6747 = vv.wins + vv.losses >= QUALITY_MIN_COUNTED_7948 &&
             vv.pWin6747 >= MIN_PWIN_PROMOTE_6747 && vv.pRug6747 <= MAX_PRUG_PROMOTE_6747
         val promoteOk = t >= PROMOTE_T && variantBetter && variantProfitable &&
             variantNetPos && variantPfBetter && sampleOk && ddAcceptable && variantQualityOk6747
@@ -702,6 +732,9 @@ object StrategyHypothesisEngine {
                 o.put("csN", h.control.n); o.put("csM", h.control.mean); o.put("csM2", h.control.m2)
                 o.put("vsN", h.variant.n); o.put("vsM", h.variant.mean); o.put("vsM2", h.variant.m2)
                 o.put("vSizeBias", h.variantSizeBias); o.put("vStopMult", h.variantStopMult)
+                // V5.0.7948 — the quality counters survive a restart with the arm.
+                o.put("cw", h.control.wins); o.put("cl", h.control.losses); o.put("cr", h.control.rugs)
+                o.put("vw", h.variant.wins); o.put("vl", h.variant.losses); o.put("vr", h.variant.rugs)
                 ac.put(ctx, o)
             }
             put("active", ac)
@@ -752,6 +785,12 @@ object StrategyHypothesisEngine {
                     h.variant.n = a.optLong("vsN", 0L)
                     h.variant.mean = a.optDouble("vsM", 0.0)
                     h.variant.m2 = a.optDouble("vsM2", 0.0)
+                    // V5.0.7948 — the variant keeps the mutation its samples were taken under.
+                    h.variantSizeBias = a.optDouble("vSizeBias", h.variantSizeBias)
+                    h.variantStopMult = a.optDouble("vStopMult", h.variantStopMult)
+                    // V5.0.7948 — absent on pre-7948 state: those arms re-count from here.
+                    h.control.wins = a.optLong("cw", 0L); h.control.losses = a.optLong("cl", 0L); h.control.rugs = a.optLong("cr", 0L)
+                    h.variant.wins = a.optLong("vw", 0L); h.variant.losses = a.optLong("vl", 0L); h.variant.rugs = a.optLong("vr", 0L)
                     active[ctx] = h
                 }
             }

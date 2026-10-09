@@ -22,8 +22,9 @@ import java.util.concurrent.atomic.AtomicLong
  *              edge-gate refusal only when its STRONG record is proven.
  *              Until then it shadows: what it would have done is counted.
  *
- * Horizon: runner lanes are graded on the 240-minute label (their edge is the
- * tail), every other lane on the 60-minute label.
+ * Horizon: every lane is graded on THE read — label slot 60, the 5-minute
+ * spike-credited label (V5.0.7946). V5.0.7948: a decision is filed under the
+ * bucket assigned by the ledger of the same label epoch (see restorePending).
  *
  * Nothing here sizes a trade. Every entry point fails open (null / false).
  */
@@ -154,6 +155,10 @@ object Cortex7885 {
         } catch (_: Throwable) { inc("ASYNC_REJECTED") }
     }
 
+    /** V5.0.7948 — CortexTiming7900: an inverted lane's STRONG read is not exempt from the dip wait. */
+    fun laneInverted7948(laneRaw: String): Boolean =
+        try { ensureLoaded(); synchronized(this) { board.inverted7948(canon(laneRaw)) } } catch (_: Throwable) { false }
+
     /** For CortexInvariants7911. */
     fun queuedTasks(): Int = try { pool.queue.size } catch (_: Throwable) { 0 }
     fun pendingCount(): Int = pending.size
@@ -233,7 +238,7 @@ object Cortex7885 {
                     org.json.JSONObject().put("k", k).put("l", a.lane).put("r", a.runnerLane).put("g", a.regime)
                         .put("b", a.bucket.ordinal).put("e", fin0(a.fused.edgePct)).put("m", fin0(a.fused.laneMean))
                         .put("ce", fin0(a.calibratedEdge)).put("adm", p.legacyAdmitted).put("at", p.atMs)
-                        .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("i", ids).put("x", xs),
+                        .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("ep", PERSIST_KEY).put("i", ids).put("x", xs),
                 )
             }
             val out = org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr)
@@ -254,6 +259,10 @@ object Cortex7885 {
             val k = o.optString("k")
             val at = o.optLong("at")
             if (k.isBlank() || pending.containsKey(k) || nowMs - at > PENDING_TTL_MS || at > nowMs) continue
+            // V5.0.7948 — a decision's bucket was assigned by the ledger of its build. One
+            // saved before the 7947 label epoch was bucketed on 60/240-minute, spike-blind
+            // grades and would be filed into books graded on the 5-minute read.
+            if (o.optString("ep") != PERSIST_KEY) { inc("PENDING_EPOCH_DROPPED_7948"); continue }
             val ids = ArrayList<String>()
             val edges = ArrayList<DoubleArray>()
             val raws = ArrayList<Double>()
@@ -542,7 +551,10 @@ object Cortex7885 {
         if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return 1.0
         val stake = synchronized(this) {
             val strong = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal) ?: return 1.0
-            if (!CortexScoreboard7885.overruleProven(strong) || !consistent(a.lane)) { inc("SHADOW_SIZE_UP"); return 1.0 }
+            // V5.0.7948 — the lane's overrule authority (proven AND not inverted), not the bare STRONG record.
+            if (!board.overruleAuthority(a.lane) || !consistent(a.lane)) {
+                inc(if (board.inverted7948(a.lane)) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return 1.0
+            }
             kellyStakeSol(strong.mean(), strong.variance(), equitySol)
         }
         val mult = (stake / requestedSol).coerceIn(1.0, CONVICTION_MAX_MULT)
@@ -740,7 +752,8 @@ object Cortex7885 {
                         if (board.refusalAuthority(lane, runner, true)) append("Rp ")
                         if (board.refusalAuthority(lane, runner, false)) append("Rl ")
                         if (board.overruleAuthority(lane)) append("O ")
-                        if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("SUSPENDED")
+                        if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("SUSPENDED ")
+                        if (board.inverted7948(lane)) append("INVERTED")
                     }.trim().ifBlank { "shadow" }
                     sb.append("  ${lane.take(9).padEnd(9)} ${b.byBucket.sumOf { it.n }.toInt().toString().padStart(6)}  " +
                         "${fmtStat(b.byBucket[2]).padEnd(9)} ${fmtStat(b.byBucket[0]).padEnd(9)} ${"%.2f".format(calibration.slope(lane))}  $powers\n")
@@ -752,7 +765,7 @@ object Cortex7885 {
                 sb.append("  realised: " + board.realized.entries.sortedBy { it.key }.take(6).joinToString(" · ") { (k, arr) ->
                     "$k ${fmtStat(arr[2])}/${fmtStat(arr[1])}/${fmtStat(arr[0])}"
                 }.ifBlank { "none yet" } + "  (strong/neutral/refuse)\n")
-                sb.append("  key: Rp/Rl refuse paper/live · O overrule+conviction · SUSPENDED calibration < 0.5")
+                sb.append("  key: Rp/Rl refuse paper/live · O overrule+conviction · SUSPENDED calibration < 0.5 · INVERTED strong < neutral")
                 sb.toString().take(1_900)
             }
         } catch (t: Throwable) { "  unavailable: ${t.javaClass.simpleName}" }
@@ -773,7 +786,7 @@ object Cortex7885 {
                 .values.filterNotNull().sortedByDescending { it.second.skill() }
             val laneLines = board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(8).joinToString("\n") { (lane, b) ->
                 val runner = isRunner(lane)
-                "      $lane${if (runner) "(240m)" else "(60m)"}: refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])} " +
+                "      $lane(5m${if (runner) ",runner" else ""}${if (board.inverted7948(lane)) ",INVERTED" else ""}): refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])} " +
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
                     "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)}"
             }

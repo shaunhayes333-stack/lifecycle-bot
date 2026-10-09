@@ -66,8 +66,11 @@ object CortexTiming7900 {
 
     /** Cortex7885.capture: one candidate opens a 5-minute timing label. */
     fun capture(ts: TokenState, a: Cortex7885.Assessment, nowMs: Long) {
-        val px = ts.lastPrice
-        if (!px.isFinite() || px <= 0.0 || nowMs - ts.lastPriceUpdate > MARK_MAX_AGE_MS) return
+        // V5.0.7948 — a candidate priced through the canonical registry (lastPriceUpdate=0)
+        // opened no sample at all; read the forward label's own entry mark instead.
+        val tsFresh = ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && nowMs - ts.lastPriceUpdate <= MARK_MAX_AGE_MS
+        val px = if (tsFresh) ts.lastPrice else (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.markFor7948(ts.mint, { null }, nowMs) ?: return)
+        if (!px.isFinite() || px <= 0.0) return
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > WAIT_MS + GRADE_WINDOW_MS }
         if (pending.size >= MAX_PENDING) return
         val dip = fusedMove(a) < -DIP_PCT
@@ -82,7 +85,9 @@ object CortexTiming7900 {
             val age = nowMs - s.atMs
             if (age < WAIT_MS) continue
             if (age > WAIT_MS + GRADE_WINDOW_MS) { pending.remove(k); inc("WINDOW_MISSED"); continue }
-            val px = (try { priceFor(s.mint) } catch (_: Throwable) { null })?.takeIf { it.isFinite() && it > 0.0 } ?: continue
+            // V5.0.7948 — the forward label's mark chain (loop → registry → off-watch batch).
+            val px = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.markFor7948(s.mint, priceFor, nowMs)
+                ?.takeIf { it.isFinite() && it > 0.0 } ?: continue
             pending.remove(k)
             if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(s.px0, px)) continue
             val move = (px / s.px0 - 1.0) * 100.0
@@ -104,7 +109,9 @@ object CortexTiming7900 {
      * 5-minute move is a dip and the lane's DIP record is proven.
      */
     fun waitRefusal(a: Cortex7885.Assessment): String? {
-        if (a.runnerLane || a.bucket == CortexScoreboard7885.Bucket.STRONG) return null
+        if (a.runnerLane) return null
+        // V5.0.7948 — a STRONG read is exempt only where STRONG still means strong.
+        if (a.bucket == CortexScoreboard7885.Bucket.STRONG && !Cortex7885.laneInverted7948(a.lane)) return null
         val move = fusedMove(a)
         if (move >= -DIP_PCT) return null
         val proven = synchronized(this) { dipBook[a.lane]?.let { waitProven(it) } ?: false }

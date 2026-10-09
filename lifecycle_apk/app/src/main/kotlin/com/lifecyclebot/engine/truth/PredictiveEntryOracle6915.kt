@@ -353,9 +353,16 @@ object PredictiveEntryOracle6915 {
         // fan and source needed to query it without any I/O. Treat it as a
         // bounded prior only; 0.50/default is neutral and cannot veto.
         try {
-            val ph = phase.trim()
-            val ema = emaFan.trim()
-            val src = sourceFamily.trim()
+            // V5.0.7948 — only the learned-admission path passed phase and EMA fan, and it is
+            // bypassed by every sealed intent (7846), so the other callers (canonical asset
+            // contract, sniper shaper, BotService sniper) never consulted pattern memory
+            // (5.0.7947: consulted=0). The pattern was learned from the token's own phase,
+            // EMA fan and source; read them from the token when the caller left them blank.
+            val ts7948 = if (mint.isNotBlank() && (phase.isBlank() || emaFan.isBlank() || sourceFamily.isBlank()))
+                try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } else null
+            val ph = phase.trim().ifBlank { ts7948?.phase?.trim().orEmpty() }
+            val ema = emaFan.trim().ifBlank { ts7948?.meta?.emafanAlignment?.trim().orEmpty() }
+            val src = sourceFamily.trim().ifBlank { ts7948?.source?.trim().orEmpty() }
             if (ph.isNotBlank() && ema.isNotBlank() && src.isNotBlank() &&
                 !ema.equals("UNKNOWN", true)) {
                 val wr = com.lifecyclebot.engine.TradingMemory
