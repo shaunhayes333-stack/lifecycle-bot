@@ -142,7 +142,12 @@ object CortexExit7897 {
         lastSample[key] = nowMs
         ensureLoaded()
         val lane = laneOf(ts)
-        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+        // V5.0.7955 — a runner setup (learned exit profile) is graded on the runner horizon in any lane; a pop-and-fade one never.
+        val runner = try {
+            com.lifecyclebot.engine.ExitProfile7955.runnerExits7955(
+                com.lifecyclebot.engine.ExitProfile7955.planFor7955(ts, nowMs), com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane),
+            )
+        } catch (_: Throwable) { false }
         val tokenRaws = CortexVoters7885.readAll(ts, lane, nowMs)
         val heldMin = if (ts.position.entryTime > 0L) (nowMs - ts.position.entryTime) / 60_000.0 else Double.NaN
         val posRaws = doubleArrayOf(pnlPct, peakPct, (peakPct - pnlPct).coerceAtLeast(0.0), heldMin, ts.position.partialSoldPct)
@@ -261,9 +266,14 @@ object CortexExit7897 {
             val r = freshRead(ts, nowMs) ?: return false
             if (r.bucket != Bucket.HOLD_STRONG) return false
             val key = posKey(ts)
+            // V5.0.7955 — the position's learned exit profile: a pop-and-fade setup is never held
+            // past its own exits; a runner setup may be held up to its learned max hold (15..120 min).
+            val plan7955 = try { com.lifecyclebot.engine.ExitProfile7955.planFor7955(ts, nowMs) } catch (_: Throwable) { null }
+            if (plan7955?.popFade == true) { inc("PROFILE_POPFADE_NOT_HELD_7955"); return false }
             if (!proven(r.lane, Bucket.HOLD_STRONG)) { inc("SHADOW_HOLD"); return false }
             val since = holdVetoSince.getOrPut(key) { nowMs }
-            if (nowMs - since > MAX_HOLD_VETO_MS) { inc("HOLD_CAP_REACHED"); return false }
+            val cap7955 = plan7955?.takeIf { it.runner }?.maxHoldMs?.coerceIn(15L * 60_000L, 2L * MAX_HOLD_VETO_MS) ?: MAX_HOLD_VETO_MS
+            if (nowMs - since > cap7955) { inc("HOLD_CAP_REACHED"); return false }
             inc("HELD_${r.lane}")
             try {
                 PipelineHealthCollector.labelInc("CORTEX_EXIT_7897_HELD_${r.lane}")

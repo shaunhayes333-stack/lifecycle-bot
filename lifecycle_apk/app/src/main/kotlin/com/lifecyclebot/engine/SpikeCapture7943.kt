@@ -87,12 +87,13 @@ object SpikeCapture7943 {
      * the peak) less [CAPTURE_SLIP_7945]; the remainder is worth the horizon price.
      * foff (+276% peak, 0% at the hour) banks about +50%, not 0.
      */
-    fun realisableGrossPct(peakGrossPct: Double, horizonGrossPct: Double): Double {
+    fun realisableGrossPct(peakGrossPct: Double, horizonGrossPct: Double, tiers: List<Pair<Double, Double>> = TIERS): Double {
         if (!horizonGrossPct.isFinite()) return horizonGrossPct
         val peak = if (peakGrossPct.isFinite()) maxOf(peakGrossPct, horizonGrossPct) else horizonGrossPct
         var remaining = 1.0
         var banked = 0.0
-        for ((pct, frac) in TIERS) {
+        // V5.0.7955 — [tiers] is the key's learned ladder (ExitProfile7955); TIERS is its prior.
+        for ((pct, frac) in tiers) {
             if (peak < pct) break
             val sold = remaining * frac
             banked += sold * ((1.0 + pct / 100.0) * (1.0 - CAPTURE_SLIP_7945) - 1.0) * 100.0
@@ -102,10 +103,10 @@ object SpikeCapture7943 {
     }
 
     /** Pure: the highest tier index (1-based) this gross gain reaches, or 0. */
-    fun tierReached(grossPct: Double): Int {
+    fun tierReached(grossPct: Double, tiers: List<Pair<Double, Double>> = TIERS): Int {
         if (!grossPct.isFinite()) return 0
         var t = 0
-        TIERS.forEachIndexed { i, (pct, _) -> if (grossPct >= pct) t = i + 1 }
+        tiers.forEachIndexed { i, (pct, _) -> if (grossPct >= pct) t = i + 1 }
         return t
     }
 
@@ -119,26 +120,40 @@ object SpikeCapture7943 {
         val gross = (priceUsd / pos.entryPrice - 1.0) * 100.0
         // A basis in the wrong units reads as a 100,000% "spike"; that is not a price.
         if (gross > 100_000.0) return 0
-        val reached = tierReached(gross)
+        // V5.0.7955 — the position's own learned ladder (lane x setup); TIERS when unlearned.
+        val now7955 = System.currentTimeMillis()
+        try { ExitProfile7955.notePeak7955(ts, gross, now7955) } catch (_: Throwable) {}
+        val plan7955 = try { ExitProfile7955.planFor7955(ts, now7955) } catch (_: Throwable) { null }
+        val tiers = plan7955?.tiers?.takeIf { it.isNotEmpty() } ?: TIERS
+        val reached = tierReached(gross, tiers)
         if (reached == 0) return 0
         val key = "${ts.mint}|${pos.entryTime}"
         val done = firedTiers[key] ?: 0
         if (reached <= done) return 0
         if (firedTiers.size > 2_000) firedTiers.clear()
         firedTiers[key] = reached
-        val frac = TIERS[reached - 1].second
+        val frac = tiers[reached - 1].second
         fired.incrementAndGet()
+        try { ExitProfile7955.onTierFired7955(plan7955, reached) } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc("SPIKE_CAPTURE_7943_TIER$reached")
             ForensicLogger.lifecycle(
                 "SPIKE_CAPTURE_7943",
-                "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${pos.tradingMode} gross=${"%.1f".format(gross)}% tier=$reached sell=${(frac * 100).toInt()}% action=sell_into_spike",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${pos.tradingMode} gross=${"%.1f".format(gross)}% tier=$reached sell=${(frac * 100).toInt()}% key7955=${plan7955?.key ?: "PRIOR"}/${plan7955?.source ?: "PRIOR"} action=sell_into_spike",
             )
         } catch (_: Throwable) {}
         sell(ts, frac, "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT")
         if (rearms.size > 2_000) rearms.clear()
         return reached
     }
+
+    /**
+     * V5.0.7955 — PipelineHealthCollector.dumpText: the spike line, the mayhem line and the
+     * learned exit profiles (ExitProfile7955: n per key, top keys' tiers/trail/maxHold, tier fires by key).
+     */
+    fun diagLines7955(): String =
+        statusLine() + " · mayhem " + MayhemMode7943.statusLine() + "\n  Exit profiles (§7955):       " +
+            (try { ExitProfile7955.statusLine7955() } catch (_: Throwable) { "unavailable" })
 
     fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
 }

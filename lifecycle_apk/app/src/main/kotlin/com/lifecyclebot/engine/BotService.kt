@@ -978,10 +978,16 @@ class BotService : Service() {
         val raw = com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(modeDefaultStop, currentPnlPct, peakPnlPct, holdTimeSeconds, volatility, lane)
         // V5.0.7935 — a runner under its give-back arm peak keeps its room, but a
         // winner that cleared the round trip by a margin never closes red.
-        val runnerDeferred = try { RunnerExitProfile7277.deferGiveBackLock(lane, peakPnlPct) } catch (_: Throwable) { false }
-        return com.lifecyclebot.engine.truth.FieldManual7715.runnerAwareStop7935(raw, peakPnlPct, planCostPct7766(ts), runnerDeferred) {
+        val laneDeferred = try { RunnerExitProfile7277.deferGiveBackLock(lane, peakPnlPct) } catch (_: Throwable) { false }
+        // V5.0.7955 — the position's learned exit plan: a runner setup holds like DIAMOND_HANDS
+        // in any lane, a pop-and-fade setup never waits, and the lock trails at the learned width.
+        val plan7955 = try { ExitProfile7955.planFor7955(ts) } catch (_: Throwable) { null }
+        val runnerDeferred = ExitProfile7955.deferGiveBack7955(plan7955, laneDeferred, peakPnlPct)
+        val costPct = planCostPct7766(ts)
+        val stop = com.lifecyclebot.engine.truth.FieldManual7715.runnerAwareStop7935(raw, peakPnlPct, costPct, runnerDeferred) {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(modeDefaultStop, currentPnlPct, minOf(peakPnlPct, 2.9), holdTimeSeconds, volatility, lane)
         }
+        return ExitProfile7955.applyTrail7955(plan7955, stop, peakPnlPct, costPct)
     }
 
     /** V5.0.7935 — a plan that banked its first target trails the remainder under structure. */
@@ -1021,16 +1027,21 @@ class BotService : Service() {
             val pos = ts.position
             val now = System.currentTimeMillis()
             val plan = com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime)
+            val plan7955 = try { ExitProfile7955.planFor7955(ts, now) } catch (_: Throwable) { null }
             // V5.0.7897 — Cortex v3 samples the position (every 3 min) for the exit cortex.
             try { com.lifecyclebot.engine.cortex.CortexExit7897.observe(ts, pnlPctNow, peakPct, now) } catch (_: Throwable) {}
             com.lifecyclebot.engine.truth.TradePlan7739.exitFor(
                 plan, pnlPctNow, peakPct, now - pos.entryTime,
                 plan != null && com.lifecyclebot.engine.truth.TradePlan7739.trailBroken(ts, now),
                 planCostPct7766(ts),
-                RunnerExitProfile7277.isRunnerLane(pos.tradingMode),
+                // V5.0.7955 — runner exits follow the setup's learned profile, not the lane alone.
+                ExitProfile7955.runnerExits7955(plan7955, RunnerExitProfile7277.isRunnerLane(pos.tradingMode)),
                 com.lifecyclebot.engine.truth.TradePlan7739.underwaterMsFor7877(pos.tradingMode),
                 if (pos.isPaperPosition) 1.0 else com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(),
-            ) ?: com.lifecyclebot.engine.cortex.CortexExit7897.sellReason(ts, now)?.let {
+            ) ?: ExitProfile7955.maxHoldExit7955(plan7955, now - pos.entryTime, pnlPctNow, planCostPct7766(ts))?.let {
+                // V5.0.7955 — a pop-and-fade setup past its learned hold takes its profit.
+                com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
+            } ?: com.lifecyclebot.engine.cortex.CortexExit7897.sellReason(ts, now)?.let {
                 // V5.0.7897 — the exit cortex's own proven SELL read, through the plan-exit path.
                 com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
             }
