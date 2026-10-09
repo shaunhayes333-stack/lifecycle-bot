@@ -14791,7 +14791,16 @@ class BotService : Service() {
         } catch (_: Throwable) { false }
     }
 
-    private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
+    /**
+     * V5.0.7951 — a READY specialist this cycle did not let evaluate is lost before
+     * the FDG; that loss now has a name on the lane's liveness row (any return path).
+     */
+    private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean =
+        laneEvaluationAllowed7951(ts, lane, primaryLane).also { allowed ->
+            if (!allowed) try { SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane) } catch (_: Throwable) {}
+        }
+
+    private fun laneEvaluationAllowed7951(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
         // V5.0.6002 — LANE QUARANTINE (operator directive 2026-07-02).
         // MANIPULATED, PROJECT_SNIPER, DIP_HUNTER are hard-paused for new
         // BUY entries until the LLM Lab autonomously promotes a strategy

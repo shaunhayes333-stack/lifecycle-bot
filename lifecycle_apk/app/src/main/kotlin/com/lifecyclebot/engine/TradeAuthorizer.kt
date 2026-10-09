@@ -461,6 +461,9 @@ object TradeAuthorizer {
                 score = score,
                 confidence = safeConfidence,
                 reason = "TRADE_AUTHORIZER_READY_7803",
+                // V5.0.7951 — keep the lane's common-scale conviction; the raw V3 blend here
+                // overwrote the native READY and re-opened the cross-lane scale mismatch.
+                conviction7948 = SpecialistOwnership7951.authorizerReadyConviction7951(requestedBook.name, mint, candidateVersion7624, score, safeConfidence),
             )
             PipelineHealthCollector.labelInc("SPECIALIST_READY_PROPOSAL_7803_" + requestedBook.name)
         } catch (_: Throwable) {}

@@ -183,6 +183,8 @@ object FinalDecisionGate {
 
     private fun rememberFdgVerdict(key: String, verdict: FinalDecision): FinalDecision {
         fdgVerdictCache[key] = FdgVerdictCacheEntry(verdict, System.currentTimeMillis())
+        // V5.0.7951 — a lane block ends before authorize(): name it; a capital-only block is still owner + intent.
+        try { SpecialistOwnership7951.onFdgVerdict7951(verdict.mint, verdict.canonicalLane7835, verdict.candidateVersion7835, verdict.shouldTrade, verdict.blockReason) } catch (_: Throwable) {}
         if (fdgVerdictCache.size > 4096) {
             val cutoff = System.currentTimeMillis() - FDG_VERDICT_CACHE_TTL_MS
             fdgVerdictCache.entries.removeIf { it.value.tsMs < cutoff }
@@ -900,6 +902,7 @@ object FinalDecisionGate {
     ): FinalDecision? = try {
         val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
         val reason = com.lifecyclebot.engine.truth.CellProofLadder7731.liveBlockReason(ts, lane, paper)
+        if (reason != null) SpecialistOwnership7951.notePreIntent7951(lane, "FDG_$reason") // V5.0.7951
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
             mode = mode,
@@ -934,6 +937,7 @@ object FinalDecisionGate {
     ): FinalDecision? = try {
         val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
         val reason = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.liveBlockReason(ts, lane, paper)
+        if (reason != null) SpecialistOwnership7951.notePreIntent7951(lane, "FDG_$reason") // V5.0.7951
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
             mode = mode,
@@ -1039,6 +1043,7 @@ object FinalDecisionGate {
     ): FinalDecision? = try {
         val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
         val reason = com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper)
+        if (reason != null) SpecialistOwnership7951.notePreIntent7951(lane, "FDG_$reason") // V5.0.7951
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
             mode = mode,
