@@ -55,7 +55,9 @@ object MemeMeta7973 {
     /** Pure: pump.fun bonding-curve progress 0..1 from market cap; NaN when unknown, 1.0 at/after graduation. */
     fun curveProgress7973(mcapUsd: Double, solUsd: Double): Double {
         if (!(mcapUsd > 0.0) || !(solUsd > 0.0)) return Double.NaN
-        val vSol = sqrt(K_OVER_SUPPLY * (mcapUsd / solUsd))
+        val mcapSol = com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(mcapUsd, solUsd)
+        if (!(mcapSol > 0.0)) return Double.NaN
+        val vSol = sqrt(K_OVER_SUPPLY * mcapSol)
         return ((vSol - 30.0) / GRAD_REAL_SOL).coerceIn(0.0, 1.0)
     }
 
