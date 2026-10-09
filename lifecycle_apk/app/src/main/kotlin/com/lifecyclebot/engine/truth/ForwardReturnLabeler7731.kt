@@ -527,9 +527,9 @@ object ForwardReturnLabeler7731 {
      * they bank on the observed peak plus the remainder at the horizon.
      */
     private fun captured7945(o: Obs, net: Double, gross: Double): Pair<Double, Double> {
-        // V5.0.7955 — credited on the ladder this (lane, setup) is actually sold on.
-        val tiers7955 = try { com.lifecyclebot.engine.ExitProfile7955.planForKey7955(o.lane, o.setup7955).tiers } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
-        val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(o.peakPct, gross, tiers7955)
+        // V5.0.7955 review — labels are credited on the FIXED ladder: crediting on the learned
+        // ladder (fit to these same labels) inflated the grades that drive authority and size.
+        val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(o.peakPct, gross)
         if (!g.isFinite() || g <= gross) return net to gross
         capturedLabels7945.incrementAndGet()
         return (net + (g - gross)).coerceAtMost(NET_CEILING_PCT_7738) to g
@@ -553,7 +553,9 @@ object ForwardReturnLabeler7731 {
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double) {
         // V5.0.7955 — one exit-profile sample per observation: peak, time to peak, give-back to the 60-minute read.
-        try {
+        // V5.0.7955 review — exits are learned from decisions the bot took (and realised closes),
+        // not from the refused pool, which is mostly tokens that fade.
+        if (o.admitted) try {
             com.lifecyclebot.engine.ExitProfile7955.onLabel7955(
                 o.lane, o.setup7955, maxOf(o.peakPct, gross0), if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L,
                 com.lifecyclebot.engine.ExitProfile7955.giveback7955(maxOf(o.peakPct, gross0), gross0), o.giveback5_7955,

@@ -178,6 +178,12 @@ object ChartReader7950 {
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         var n = 0
         synchronized(tape) {
+            // V5.0.7955 review — a seed on another price scale (SOL vs USD) would corrupt the
+            // read and the library: refuse it when its last close is > 3x off the tape's.
+            val tapeClose = tape.bars.lastEntry()?.value?.get(3) ?: Double.NaN
+            val seedClose = bars.lastOrNull()?.c ?: Double.NaN
+            if (tapeClose.isFinite() && tapeClose > 0.0 && seedClose.isFinite() && seedClose > 0.0 &&
+                (seedClose / tapeClose > 3.0 || tapeClose / seedClose > 3.0)) return 0
             val oldest = (nowMs - KEEP_MS) / BUCKET_MS
             val newest = nowMs / BUCKET_MS
             for (b in bars) {
@@ -244,6 +250,9 @@ object ChartReader7950 {
         val se = kotlin.math.sqrt((m.pUp * (1.0 - m.pUp)).coerceAtLeast(0.0) / m.n.coerceAtLeast(1))
         return if (m.lift + se <= EXIT_LIFT && m.meanEndPct < 0.0 && -m.meanDnPct > m.meanUpPct) "TOP_MOTIF" else null
     }
+
+    /** V5.0.7955 — the last read for [mint] if one exists (no library search, no backfill request). */
+    fun cachedRead7955(mint: String): Read? = reads[mint]
 
     /** Gate check (not counted): does the chart say BUY for [mint] now? */
     fun saysBuy(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =

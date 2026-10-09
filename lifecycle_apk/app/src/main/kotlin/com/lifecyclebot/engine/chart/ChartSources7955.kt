@@ -743,8 +743,14 @@ object ChartSources7955 {
         for ((name, fetch) in sources) {
             val bars = try { fetch() } catch (e: InterruptedException) { throw e } catch (_: Throwable) { null }
             if (bars == null || bars.size < 5) continue
-            // Live tape volumes are SOL; Bitquery already reports the SOL side.
-            val seeded = ChartReader7950.seedBars7955(mint, if (name == BITQUERY) bars else usdBarsToSol7955(bars, solUsd()), now)
+            // Live tape volumes are SOL; Bitquery already reports the SOL side, but its PRICES are
+            // SOL per token (V5.0.7955 review) and the tape is USD: convert, or skip with no SOL price.
+            val sol = solUsd()
+            val ready = if (name == BITQUERY) {
+                if (!(sol > 0.0)) continue
+                bars.map { it.copy(o = it.o * sol, h = it.h * sol, l = it.l * sol, c = it.c * sol) }
+            } else usdBarsToSol7955(bars, sol)
+            val seeded = ChartReader7950.seedBars7955(mint, ready, now)
             if (seeded > 0) {
                 backfillSeeded.incrementAndGet()
                 backfillBars.addAndGet(seeded.toLong())

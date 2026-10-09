@@ -79,7 +79,8 @@ object ExitProfile7955 {
     /** Pure: the share of a [peakPct] gain given back by a read at [readPct] (NaN when there was no real peak). */
     fun giveback7955(peakPct: Double, readPct: Double): Double {
         if (!peakPct.isFinite() || !readPct.isFinite() || peakPct < WIN_PEAK_PCT_7955) return Double.NaN
-        return ((peakPct - readPct) / peakPct).coerceIn(0.0, 2.0)
+        // V5.0.7955 review — capped at the whole peak (a read below entry is a 100% give-back).
+        return ((peakPct - readPct) / peakPct).coerceIn(0.0, 1.0)
     }
 
     /** Pure: a key's profile from its samples [peakPct, timeToPeakMin, giveback60, giveback5]. */
@@ -150,7 +151,8 @@ object ExitProfile7955 {
         val be = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
         val arm = maxOf(plan.tiers.firstOrNull()?.first?.times(0.5) ?: 20.0, be + 1.5)
         if (peakPct < arm) return stopPct
-        val lock = peakPct * (1.0 - plan.trailFrac)
+        // V5.0.7955 review — the learned trail always leaves at least 8 points of room under the peak.
+        val lock = minOf(peakPct * (1.0 - plan.trailFrac), peakPct - MIN_TRAIL_ROOM_PCT_7955)
         return when {
             plan.runner && stopPct > 0.0 && stopPct > lock -> maxOf(lock, be)
             !plan.runner && plan.trailFrac < PRIOR_TRAIL_FRAC_7955 && lock > stopPct && lock >= be -> lock
@@ -165,7 +167,7 @@ object ExitProfile7955 {
      */
     fun deferGiveBack7955(plan: Plan7955?, laneDeferred: Boolean, peakPct: Double): Boolean = when {
         plan == null -> laneDeferred
-        plan.popFade -> false
+        plan.popFade -> laneDeferred
         plan.runner -> laneDeferred || !peakPct.isFinite() || peakPct < RunnerExitProfile7277.MIN_PEAK_FOR_GIVEBACK_LOCK_PCT
         else -> laneDeferred
     }
@@ -177,7 +179,7 @@ object ExitProfile7955 {
      */
     fun runnerExits7955(plan: Plan7955?, laneRunner: Boolean): Boolean = when {
         plan == null -> laneRunner
-        plan.popFade -> false
+        plan.popFade -> laneRunner
         plan.runner -> true
         else -> laneRunner
     }
@@ -188,6 +190,8 @@ object ExitProfile7955 {
         val be = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
         return if (pnlPct >= be) "PROFILE_MAX_HOLD_7955_${pnlPct.toInt()}PCT" else null
     }
+
+    private const val MIN_TRAIL_ROOM_PCT_7955 = 8.0
 
     // ── learner ──
 
@@ -219,7 +223,8 @@ object ExitProfile7955 {
      */
     fun entrySetup7955(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): String {
         try {
-            val r = com.lifecyclebot.engine.chart.ChartReader7950.read(ts.mint, nowMs)
+            // V5.0.7955 review — cached read only: no library search per observed decision.
+            val r = com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)
             if (com.lifecyclebot.engine.chart.ChartReader7950.buySignal(r)) {
                 val up = r?.motif?.meanUpPct ?: Double.NaN
                 return when {
@@ -288,7 +293,9 @@ object ExitProfile7955 {
         planCache[ck]?.let { (at, p) -> if (nowMs - at in 0L..PLAN_CACHE_MS_7955) return p }
         val (src, prof) = bestProfile(lane, setup)
         val source = when { prof == null -> "PRIOR"; src == ck -> "KEY"; src == GLOBAL_7955 -> "GLOBAL"; else -> "LANE" }
-        val plan = planFrom7955(prof, ck, source)
+        // V5.0.7955 review — only the key's OWN record shapes its exits; a lane-wide or global
+        // pool (mostly refused candidates that fade) must not turn every position pop-and-fade.
+        val plan = if (source == "KEY") planFrom7955(prof, ck, source) else planFrom7955(null, ck, "PRIOR")
         if (planCache.size > 2_000) planCache.clear()
         planCache[ck] = nowMs to plan
         return plan
@@ -350,12 +357,16 @@ object ExitProfile7955 {
     private fun persist() {
         if (!loaded) return
         try {
-            val json = synchronized(this) {
-                org.json.JSONObject().also { j ->
-                    rings.forEach { (k, ring) -> j.put(k, ring.joinToString(";") { s -> s.joinToString(",") { v -> if (v.isFinite()) "%.2f".format(java.util.Locale.US, v) else "NaN" } }) }
-                }.toString()
-            }
-            LearningPersistence.save(PERSIST_KEY_7955, json)
+            // V5.0.7955 review — copy under the lock, format and save off the caller's thread.
+            val snap = synchronized(this) { rings.mapValues { (_, ring) -> ring.map { it.copyOf() } } }
+            Thread({
+                try {
+                    val json = org.json.JSONObject().also { j ->
+                        snap.forEach { (k, ring) -> j.put(k, ring.joinToString(";") { s -> s.joinToString(",") { v -> if (v.isFinite()) (kotlin.math.round(v * 100.0) / 100.0).toString() else "NaN" } }) }
+                    }.toString()
+                    LearningPersistence.save(PERSIST_KEY_7955, json)
+                } catch (_: Throwable) {}
+            }, "exit-profile-save-7955").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
         } catch (_: Throwable) {}
     }
 

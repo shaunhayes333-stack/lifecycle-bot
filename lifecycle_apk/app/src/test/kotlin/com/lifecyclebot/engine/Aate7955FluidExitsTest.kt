@@ -24,7 +24,7 @@ class Aate7955FluidExitsTest {
     @Test fun givebackIsShareOfPeak() {
         assertEquals(0.9, ExitProfile7955.giveback7955(100.0, 10.0), 1e-9)
         assertTrue(ExitProfile7955.giveback7955(5.0, 0.0).isNaN())   // no real peak
-        assertEquals(2.0, ExitProfile7955.giveback7955(20.0, -100.0), 1e-9)
+        assertEquals(1.0, ExitProfile7955.giveback7955(20.0, -100.0), 1e-9)   // review: capped at the whole peak
     }
 
     @Test fun popFadeKeySellsEarlyAndHeavy() {
@@ -94,10 +94,13 @@ class Aate7955FluidExitsTest {
         assertEquals(10.0, ExitProfile7955.applyTrail7955(ExitProfile7955.planFrom7955(null), 10.0, 40.0, 4.0), 1e-9)
         // Deferral: runner holds under +50 in any lane, pop-fade never waits.
         assertTrue(ExitProfile7955.deferGiveBack7955(run, laneDeferred = false, peakPct = 30.0))
-        assertFalse(ExitProfile7955.deferGiveBack7955(pop, laneDeferred = true, peakPct = 30.0))
+        // Review: pop-fade never overrides a runner lane's deferral; outside one it never waits.
+        assertTrue(ExitProfile7955.deferGiveBack7955(pop, laneDeferred = true, peakPct = 30.0))
+        assertFalse(ExitProfile7955.deferGiveBack7955(pop, laneDeferred = false, peakPct = 30.0))
         assertTrue(ExitProfile7955.deferGiveBack7955(null, laneDeferred = true, peakPct = 30.0))
         assertTrue(ExitProfile7955.runnerExits7955(run, laneRunner = false))
-        assertFalse(ExitProfile7955.runnerExits7955(pop, laneRunner = true))
+        assertTrue(ExitProfile7955.runnerExits7955(pop, laneRunner = true))
+        assertFalse(ExitProfile7955.runnerExits7955(pop, laneRunner = false))
         // Max hold: pop-fade past its hold and net green exits; red or early does not.
         assertNotNull(ExitProfile7955.maxHoldExit7955(pop, pop.maxHoldMs + 1, 12.0, 4.0))
         assertNull(ExitProfile7955.maxHoldExit7955(pop, pop.maxHoldMs + 1, 2.0, 4.0))
