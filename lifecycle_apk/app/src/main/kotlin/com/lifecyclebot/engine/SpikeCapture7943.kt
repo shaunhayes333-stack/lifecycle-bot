@@ -160,7 +160,9 @@ object SpikeCapture7943 {
             "\n  Entry chase (§7961):         " + (try { com.lifecyclebot.engine.truth.EntryChase7961.statusLine() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7962 — market structure (swings, HL_RECLAIM, learned structure-break exit) and the measured all-in cost.
             "\n  Structure (§7962):           " + (try { com.lifecyclebot.engine.chart.StructureTracker7962.statusLine7962() } catch (_: Throwable) { "unavailable" }) +
-            "\n  Cost ledger (§7962):         " + (try { com.lifecyclebot.engine.truth.CostLedger7962.statusLine7962() } catch (_: Throwable) { "unavailable" })
+            "\n  Cost ledger (§7962):         " + (try { com.lifecyclebot.engine.truth.CostLedger7962.statusLine7962() } catch (_: Throwable) { "unavailable" }) +
+            // V5.0.7962 — slots, size and priority on the best decision cells (Thompson bandit).
+            "\n  Cell allocator (§7962):      " + (try { CellAllocator7962.statusLine() } catch (_: Throwable) { "unavailable" })
 
     fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
 }

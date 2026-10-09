@@ -257,6 +257,7 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) { return }
         prefs = p
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
         try {
             p.getString(CELLS_KEY_7946, null)?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
@@ -559,6 +560,8 @@ object ForwardReturnLabeler7731 {
         book(o, 60, net, gross)
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
+        // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
+        try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
         try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
         // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
         try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}

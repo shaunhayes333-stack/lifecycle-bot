@@ -116,8 +116,12 @@ object TraderSizingBridge6444 {
         // proven (n>=40, mean-SE>+2%), a candidate the Cortex reads STRONG is sized
         // toward quarter-Kelly of that record, never below the request, at most 2x;
         // the resolver's lane, wallet and liquidity caps below still bound it.
+        // V5.0.7962 — times the decision cell's Kelly multiple (CellAllocator7962), under the same 2.5x cap.
         val requestedSol7893 = requestedSol * try {
-            com.lifecyclebot.engine.cortex.Cortex7885.convictionMult(mintForSeal, laneKey, requestedSol, walletSol7226)
+            com.lifecyclebot.engine.CellAllocator7962.combinedSizeMult7962(
+                com.lifecyclebot.engine.cortex.Cortex7885.convictionMult(mintForSeal, laneKey, requestedSol, walletSol7226),
+                mintForSeal, laneKey, paperMode, requestedSol,
+            )
         } catch (_: Throwable) { 1.0 }
         // V5.0.7828 — specialists use CanonicalSizingBridge6532 as their primary route.
         // The old "generic misroute -> auto-reroute" wording/counters described a fixed
