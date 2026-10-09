@@ -152,14 +152,9 @@ data class BotConfig(
     // SOL." Create and migration frames are free; the per-trade stream that
     // marks a held curve every second is not. Blank means no trade stream.
     val pumpPortalApiKey: String = "",
-    // V5.0.7955 — free-tier market-data keys for the chart library and live candle
-    // backfill (engine/chart/ChartSources7955). Blank = that source is skipped.
-    val coinMarketCapApiKey: String = "",
-    val moralisApiKey: String = "",
-    val bitqueryApiKey: String = "",
-    val solanaTrackerApiKey: String = "",
-    val codexApiKey: String = "",
-    val cryptoCompareApiKey: String = "",
+    // V5.0.7958 — the free-tier market-data keys (5.0.7955) live outside this class in
+    // ConfigStore.marketDataKeys7958: six more constructor params pushed BotConfig's
+    // synthetic default constructor past the JVM's 255-slot limit (ClassFormatError).
     val jupiterApiKey: String = DefaultKeys.JUPITER,
     val openRouterApiKey: String = DefaultKeys.OPENROUTER,
     val cerebrasApiKey: String   = DefaultKeys.CEREBRAS,
@@ -397,6 +392,26 @@ object ConfigStore {
         cachedConfigMs = 0L
     }
 
+    /** V5.0.7958 — chart-source free-tier key names (same prefs keys as 5.0.7955), in settings order. */
+    private val MARKET_DATA_KEY_NAMES_7958 = listOf(
+        "coinmarketcap_api_key", "moralis_api_key", "bitquery_api_key",
+        "solanatracker_api_key", "codex_api_key", "cryptocompare_api_key",
+    )
+
+    /** V5.0.7958 — the market-data keys, kept out of BotConfig (JVM constructor slot limit). */
+    fun marketDataKeys7958(ctx: Context): List<String> = try {
+        val s = secrets(ctx)
+        MARKET_DATA_KEY_NAMES_7958.map { s.getString(it, "").orEmpty().trim() }
+    } catch (_: Throwable) { MARKET_DATA_KEY_NAMES_7958.map { "" } }
+
+    fun saveMarketDataKeys7958(ctx: Context, keys: List<String>) {
+        try {
+            secrets(ctx).edit().apply {
+                MARKET_DATA_KEY_NAMES_7958.forEachIndexed { i, k -> putString(k, keys.getOrNull(i).orEmpty().trim()) }
+            }.apply()
+        } catch (_: Throwable) {}
+    }
+
     @Synchronized
     fun save(ctx: Context, cfg: BotConfig) {
         invalidateCache() // V5.9.706 — flush stale cache on write
@@ -415,13 +430,6 @@ object ConfigStore {
             putString("groq_api_key",        cfg.groqApiKey)
             putString("gemini_api_key",      cfg.geminiApiKey)
             putString("pump_portal_api_key", cfg.pumpPortalApiKey)
-            // V5.0.7955 — chart-source free-tier keys.
-            putString("coinmarketcap_api_key", cfg.coinMarketCapApiKey)
-            putString("moralis_api_key",     cfg.moralisApiKey)
-            putString("bitquery_api_key",    cfg.bitqueryApiKey)
-            putString("solanatracker_api_key", cfg.solanaTrackerApiKey)
-            putString("codex_api_key",       cfg.codexApiKey)
-            putString("cryptocompare_api_key", cfg.cryptoCompareApiKey)
             putString("jupiter_api_key",     cfg.jupiterApiKey)
             // V5.9.915 — operator-hardcoded fallback LLM keys
             putString("openrouter_api_key",  cfg.openRouterApiKey)
@@ -662,12 +670,6 @@ object ConfigStore {
                 if (it.isNullOrBlank()) DefaultKeys.HELIUS else it
             },
             pumpPortalApiKey            = s.getString("pump_portal_api_key", "").orEmpty().trim(),
-            coinMarketCapApiKey         = s.getString("coinmarketcap_api_key", "").orEmpty().trim(),
-            moralisApiKey               = s.getString("moralis_api_key", "").orEmpty().trim(),
-            bitqueryApiKey              = s.getString("bitquery_api_key", "").orEmpty().trim(),
-            solanaTrackerApiKey         = s.getString("solanatracker_api_key", "").orEmpty().trim(),
-            codexApiKey                 = s.getString("codex_api_key", "").orEmpty().trim(),
-            cryptoCompareApiKey         = s.getString("cryptocompare_api_key", "").orEmpty().trim(),
             birdeyeApiKey               = s.getString("birdeye_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.BIRDEYE else it
             },

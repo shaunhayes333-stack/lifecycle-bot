@@ -116,9 +116,8 @@ object ChartSources7955 {
         keysAtMs = now
         val ctx = appCtx ?: return
         try {
-            val c = com.lifecyclebot.data.ConfigStore.load(ctx)
-            keys = Keys(c.coinMarketCapApiKey.trim(), c.moralisApiKey.trim(), c.bitqueryApiKey.trim(),
-                c.solanaTrackerApiKey.trim(), c.codexApiKey.trim(), c.cryptoCompareApiKey.trim())
+            val k = com.lifecyclebot.data.ConfigStore.marketDataKeys7958(ctx)
+            keys = Keys(k[0], k[1], k[2], k[3], k[4], k[5])
         } catch (_: Throwable) {}
     }
 

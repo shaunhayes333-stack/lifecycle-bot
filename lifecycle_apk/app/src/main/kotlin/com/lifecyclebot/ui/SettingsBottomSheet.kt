@@ -397,12 +397,10 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etTreasuryWalletAddress.setText(cfg.treasuryWalletAddress)
         etHeliusKey.setText(cfg.heliusApiKey)
         etPumpPortalKey.setText(cfg.pumpPortalApiKey)
-        etCoinMarketCapKey7955.setText(cfg.coinMarketCapApiKey)
-        etMoralisKey7955.setText(cfg.moralisApiKey)
-        etBitqueryKey7955.setText(cfg.bitqueryApiKey)
-        etSolanaTrackerKey7955.setText(cfg.solanaTrackerApiKey)
-        etCodexKey7955.setText(cfg.codexApiKey)
-        etCryptoCompareKey7955.setText(cfg.cryptoCompareApiKey)
+        com.lifecyclebot.data.ConfigStore.marketDataKeys7958(requireContext()).let { k ->
+            etCoinMarketCapKey7955.setText(k[0]); etMoralisKey7955.setText(k[1]); etBitqueryKey7955.setText(k[2])
+            etSolanaTrackerKey7955.setText(k[3]); etCodexKey7955.setText(k[4]); etCryptoCompareKey7955.setText(k[5])
+        }
         etBirdeyeKey.setText(cfg.birdeyeApiKey)
         etGroqKey.setText(cfg.groqApiKey)
         etGeminiKey.setText(cfg.geminiApiKey)
@@ -468,12 +466,6 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             treasuryWalletAddress = etTreasuryWalletAddress.text.toString().trim(),
             heliusApiKey = etHeliusKey.text.toString().trim(),
             pumpPortalApiKey = etPumpPortalKey.text.toString().trim(),
-            coinMarketCapApiKey = etCoinMarketCapKey7955.text.toString().trim(),
-            moralisApiKey = etMoralisKey7955.text.toString().trim(),
-            bitqueryApiKey = etBitqueryKey7955.text.toString().trim(),
-            solanaTrackerApiKey = etSolanaTrackerKey7955.text.toString().trim(),
-            codexApiKey = etCodexKey7955.text.toString().trim(),
-            cryptoCompareApiKey = etCryptoCompareKey7955.text.toString().trim(),
             birdeyeApiKey = etBirdeyeKey.text.toString().trim(),
             groqApiKey = etGroqKey.text.toString().trim(),
             geminiApiKey = etGeminiKey.text.toString().trim(),
@@ -495,6 +487,11 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
                 .filter { it.isNotEmpty() }
         )
         
+        // V5.0.7958 — market-data keys are stored beside BotConfig, not in it.
+        com.lifecyclebot.data.ConfigStore.saveMarketDataKeys7958(requireContext(), listOf(
+            etCoinMarketCapKey7955, etMoralisKey7955, etBitqueryKey7955,
+            etSolanaTrackerKey7955, etCodexKey7955, etCryptoCompareKey7955,
+        ).map { it.text.toString().trim() })
         onSettingsSaved?.invoke(newConfig)
         // V5.9.361 — persist ElevenLabs key (lives in VoiceManager prefs).
         try {

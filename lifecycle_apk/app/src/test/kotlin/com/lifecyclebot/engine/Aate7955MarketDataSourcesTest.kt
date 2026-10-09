@@ -136,4 +136,18 @@ class Aate7955MarketDataSourcesTest {
         assertEquals(1.0, sol[0].v, 1e-12); assertEquals(0.5, sol[0].buyV, 1e-12)
         assertEquals(0.0, ChartSources7955.usdBarsToSol7955(listOf(Bar7950(1L, 1.0, 1.0, 1.0, 1.0, 150.0)), 0.0)[0].v, 1e-12)
     }
+
+    /** V5.0.7958 — BotConfig must stay loadable: every constructor (incl. the synthetic default one) within 255 JVM slots. */
+    @Test fun botConfigConstructorsFitTheJvmSlotLimit() {
+        val cls = Class.forName("com.lifecyclebot.data.BotConfig")
+        // every non-static signature also carries `this` (one slot)
+        val all = cls.declaredConstructors.map { listOf<Class<*>>(cls) + it.parameterTypes.toList() } +
+            cls.declaredMethods.filter { it.name.startsWith("copy") }.map { m ->
+                (if (java.lang.reflect.Modifier.isStatic(m.modifiers)) emptyList() else listOf<Class<*>>(cls)) + m.parameterTypes.toList()
+            }
+        for (params in all) {
+            val slots = params.sumOf { if (it == java.lang.Long.TYPE || it == java.lang.Double.TYPE) 2L else 1L }
+            assertTrue("BotConfig signature uses $slots slots", slots <= 255)
+        }
+    }
 }
