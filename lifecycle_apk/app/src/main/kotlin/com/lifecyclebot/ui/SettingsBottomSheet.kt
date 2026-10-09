@@ -61,6 +61,13 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var etTreasuryWalletAddress: EditText
     private lateinit var etHeliusKey: EditText
     private lateinit var etPumpPortalKey: EditText  // V5.0.7284
+    // V5.0.7955 — free-tier chart-source keys.
+    private lateinit var etCoinMarketCapKey7955: EditText
+    private lateinit var etMoralisKey7955: EditText
+    private lateinit var etBitqueryKey7955: EditText
+    private lateinit var etSolanaTrackerKey7955: EditText
+    private lateinit var etCodexKey7955: EditText
+    private lateinit var etCryptoCompareKey7955: EditText
     private lateinit var etBirdeyeKey: EditText
     private lateinit var etGroqKey: EditText
     private lateinit var etGeminiKey: EditText
@@ -142,6 +149,12 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etTreasuryWalletAddress = view.findViewById(R.id.etTreasuryWalletAddress)
         etHeliusKey = view.findViewById(R.id.etHeliusKey)
         etPumpPortalKey = view.findViewById(R.id.etPumpPortalKey)
+        etCoinMarketCapKey7955 = view.findViewById(R.id.etCoinMarketCapKey7955)
+        etMoralisKey7955 = view.findViewById(R.id.etMoralisKey7955)
+        etBitqueryKey7955 = view.findViewById(R.id.etBitqueryKey7955)
+        etSolanaTrackerKey7955 = view.findViewById(R.id.etSolanaTrackerKey7955)
+        etCodexKey7955 = view.findViewById(R.id.etCodexKey7955)
+        etCryptoCompareKey7955 = view.findViewById(R.id.etCryptoCompareKey7955)
         etBirdeyeKey = view.findViewById(R.id.etBirdeyeKey)
         etGroqKey = view.findViewById(R.id.etGroqKey)
         etGeminiKey = view.findViewById(R.id.etGeminiKey)
@@ -384,6 +397,12 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etTreasuryWalletAddress.setText(cfg.treasuryWalletAddress)
         etHeliusKey.setText(cfg.heliusApiKey)
         etPumpPortalKey.setText(cfg.pumpPortalApiKey)
+        etCoinMarketCapKey7955.setText(cfg.coinMarketCapApiKey)
+        etMoralisKey7955.setText(cfg.moralisApiKey)
+        etBitqueryKey7955.setText(cfg.bitqueryApiKey)
+        etSolanaTrackerKey7955.setText(cfg.solanaTrackerApiKey)
+        etCodexKey7955.setText(cfg.codexApiKey)
+        etCryptoCompareKey7955.setText(cfg.cryptoCompareApiKey)
         etBirdeyeKey.setText(cfg.birdeyeApiKey)
         etGroqKey.setText(cfg.groqApiKey)
         etGeminiKey.setText(cfg.geminiApiKey)
@@ -449,6 +468,12 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             treasuryWalletAddress = etTreasuryWalletAddress.text.toString().trim(),
             heliusApiKey = etHeliusKey.text.toString().trim(),
             pumpPortalApiKey = etPumpPortalKey.text.toString().trim(),
+            coinMarketCapApiKey = etCoinMarketCapKey7955.text.toString().trim(),
+            moralisApiKey = etMoralisKey7955.text.toString().trim(),
+            bitqueryApiKey = etBitqueryKey7955.text.toString().trim(),
+            solanaTrackerApiKey = etSolanaTrackerKey7955.text.toString().trim(),
+            codexApiKey = etCodexKey7955.text.toString().trim(),
+            cryptoCompareApiKey = etCryptoCompareKey7955.text.toString().trim(),
             birdeyeApiKey = etBirdeyeKey.text.toString().trim(),
             groqApiKey = etGroqKey.text.toString().trim(),
             geminiApiKey = etGeminiKey.text.toString().trim(),
