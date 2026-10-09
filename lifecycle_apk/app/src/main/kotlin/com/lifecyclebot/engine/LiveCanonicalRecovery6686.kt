@@ -87,7 +87,8 @@ object LiveCanonicalRecovery6686 {
     /** V5.0.7967 — the bot has evidence it bought [mint] (tracker row it signed/sourced, or coverage attribution). */
     private fun botAttributed7967(mint: String): Boolean = try {
         val p = HostWalletTokenTracker.getEntry(mint)
-        isBotSignedRow7708(p) || isBotSourcedRow7717(p) || coverageAttributed7730(mint)
+        (isBotSignedRow7708(p) || isBotSourcedRow7717(p) || coverageAttributed7730(mint)) &&
+            !OwnerManualHoldings7976.isOwnerManual7976(mint)   // V5.0.7976 — the owner's hand-bought tokens stay his
     } catch (_: Throwable) { false }
 
     private fun isBotSignedRow7708(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =

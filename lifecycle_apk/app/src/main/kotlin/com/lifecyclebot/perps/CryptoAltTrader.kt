@@ -332,7 +332,20 @@ object CryptoAltTrader {
             com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.assess(WalletManager.currentPubkey())
         } catch (_: Throwable) { null }
         if (coverage is com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked) {
-            return requested to "CRYPTO_LIVE_BLOCKED_UNMANAGED_BOT_HOLD_7708:${coverage.reasonCode}:${coverage.mints.size}"
+            // V5.0.7976 — as the meme gate (7713): an unresolved holding reserves its own slot;
+            // it does not freeze every crypto entry. Only an unverifiable wallet, or no slot left
+            // after counting the unresolved holdings, refuses.
+            val unresolved = coverage.mints.toSet()
+            val canonical = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live")
+                    .asSequence().filter { it.mode.equals("live", true) && it.remainingQtyRaw.signum() > 0 }.map { it.mint }.toSet()
+            } catch (_: Throwable) { emptySet<String>() }
+            val occupied = canonical.size + unresolved.count { it !in canonical }
+            val slotOk = try { com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slotVerdict(occupied).allow } catch (_: Throwable) { false }
+            if (coverage.reasonCode != "UNMANAGED_BOT_WALLET_HOLDING" || !slotOk) {
+                return requested to "CRYPTO_LIVE_BLOCKED_UNMANAGED_BOT_HOLD_7708:${coverage.reasonCode}:${coverage.mints.size}"
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_LIVE_UNRESOLVED_HOLDING_SLOT_RESERVED_7976") } catch (_: Throwable) {}
         }
         return requested to null
     }

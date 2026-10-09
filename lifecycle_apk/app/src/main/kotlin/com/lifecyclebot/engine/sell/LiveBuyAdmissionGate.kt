@@ -416,7 +416,9 @@ internal object LiveExitCoverageGuard7701 {
                 if (dustUnroutable7714 && botSource && positive) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_EXIT_COVERAGE_DUST_UNROUTABLE_IGNORED_7714") } catch (_: Throwable) {}
                 }
-                botSource && positive && p.mint in positiveWalletMints && !dustUnroutable7714
+                // V5.0.7976 — the owner's own manual buys in the shared wallet are not bot inventory.
+                botSource && positive && p.mint in positiveWalletMints && !dustUnroutable7714 &&
+                    !com.lifecyclebot.engine.OwnerManualHoldings7976.isOwnerManual7976(p.mint)
             }
             .map { it.mint }
             .toMutableSet()
