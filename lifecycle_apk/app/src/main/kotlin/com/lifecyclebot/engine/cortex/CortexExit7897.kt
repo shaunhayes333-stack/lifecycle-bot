@@ -41,6 +41,7 @@ object CortexExit7897 {
     private const val MARK_MAX_AGE_MS = 120_000L
     private const val READ_TTL_MS = 6L * 60_000L
     private const val MAX_PENDING = 6_000
+    private const val PERSIST_PENDING_7960 = 600
     private const val STRONG_PCT = 3.0
     private const val PROOF_PCT = 2.0
     private const val MIN_N = 60
@@ -314,6 +315,7 @@ object CortexExit7897 {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("calibration")?.let { calibration.decode(it) }
+                o.optJSONArray("pending7960")?.let { decodePending7960(it, System.currentTimeMillis()) }
                 o.optJSONObject("books")?.let { j ->
                     for (k in j.keys()) {
                         val f = j.optString(k).split('|')
@@ -330,6 +332,50 @@ object CortexExit7897 {
         }
     }
 
+    /**
+     * V5.0.7960 — pending samples survive a restart. A sample grades 30 min (runner 120 min)
+     * after it was read; 5.0.7958 restarted with every sample dropped and read pending=41
+     * graded=0, so builds installed faster than the horizon never graded an exit read.
+     * Voter ids are stored with their raws; edges are re-read from the current voter set
+     * and a voter that no longer exists is dropped from the sample.
+     */
+    private fun encodePending7960(): org.json.JSONArray {
+        val arr = org.json.JSONArray()
+        for ((k, r) in pending.entries.sortedByDescending { it.value.atMs }.take(PERSIST_PENDING_7960)) {
+            arr.put(org.json.JSONObject()
+                .put("k", k).put("pid", r.positionId).put("mint", r.mint).put("lane", r.lane).put("runner", r.runner)
+                .put("ids", org.json.JSONArray(r.ids)).put("raws", org.json.JSONArray(r.raws.map { if (it.isFinite()) it else 0.0 }))
+                .put("edge", r.fused.edgePct.takeIf { it.isFinite() } ?: 0.0).put("mean", r.fused.laneMean.takeIf { it.isFinite() } ?: 0.0).put("bucket", r.bucket.name)
+                .put("px", r.px).put("at", r.atMs).put("regime", r.regime))
+        }
+        return arr
+    }
+
+    private fun decodePending7960(arr: org.json.JSONArray, nowMs: Long) {
+        val allIds = POS_IDS + CortexVoters7885.IDS
+        val allEdges = POS_EDGES + CortexVoters7885.EDGES
+        val edgeById = allIds.indices.associate { allIds[it] to allEdges[it] }
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val at = o.optLong("at", 0L)
+            if (at <= 0L || nowMs - at > RUNNER_HORIZON_MS + GRADE_GRACE_MS) continue
+            val idsArr = o.optJSONArray("ids") ?: continue
+            val rawsArr = o.optJSONArray("raws") ?: continue
+            val ids = ArrayList<String>(); val edges = ArrayList<DoubleArray>(); val raws = ArrayList<Double>()
+            for (j in 0 until minOf(idsArr.length(), rawsArr.length())) {
+                val id = idsArr.optString(j); val e = edgeById[id] ?: continue
+                ids += id; edges += e; raws += rawsArr.optDouble(j, 0.0)
+            }
+            val bucket = try { Bucket.valueOf(o.optString("bucket")) } catch (_: Throwable) { continue }
+            val px = o.optDouble("px", 0.0)
+            if (ids.isEmpty() || !(px > 0.0)) continue
+            val fused = CortexLedger7885.Fused(o.optDouble("edge", 0.0), 0.0, o.optDouble("mean", 0.0), 0.0, 0.0, 0.0, 0.0, emptyList())
+            pending[o.optString("k")] = Read(o.optString("pid"), o.optString("mint"), o.optString("lane"), o.optBoolean("runner"),
+                ids, edges, raws.toDoubleArray(), fused, bucket, px, at, o.optString("regime"))
+        }
+        if (arr.length() > 0) inc("PENDING_RESTORED_7960")
+    }
+
     /** V5.0.7930 — BotService.onDestroy: save now (graded state between periodic saves was lost on restart). */
     fun persistNow7930() {
         if (!loaded) return
@@ -340,7 +386,7 @@ object CortexExit7897 {
         if (!loaded) return
         try {
             val json = synchronized(this) {
-                org.json.JSONObject().put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("books", org.json.JSONObject().also { j ->
+                org.json.JSONObject().put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("pending7960", encodePending7960()).put("books", org.json.JSONObject().also { j ->
                     books.forEach { (k, b) ->
                         j.put(k, (b.byBucket.map { it.encode() } + b.positions.map { s -> s.toList().takeLast(200).joinToString(",") { it.replace(",", "").replace("|", "") } }).joinToString("|"))
                     }

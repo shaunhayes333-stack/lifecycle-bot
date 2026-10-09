@@ -348,6 +348,10 @@ internal object LiveExitCoverageGuard7701 {
             .asSequence()
             .filter { it.mode.equals("live", true) && it.remainingQtyRaw.signum() > 0 }
             .toList()
+        val openRowMints7960 = canonicalRows.asSequence().filter {
+            it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED
+        }.map { it.mint }.toSet()
         val canonicalRawByMint = canonicalRows.groupBy { it.mint }.mapValues { (_, rows) ->
             rows.fold(java.math.BigInteger.ZERO) { total, position -> total + position.remainingQtyRaw }
         }
@@ -470,6 +474,11 @@ internal object LiveExitCoverageGuard7701 {
             val walletUiAmount = walletRow?.uiAmount ?: cachedAmount?.uiDoubleForDisplay() ?: 0.0
             val positiveUiWithoutRaw = walletUiAmount.isFinite() && walletUiAmount > 0.0 &&
                 walletRaw <= java.math.BigInteger.ONE
+            // V5.0.7960 — an OPEN canonical row covers its whole wallet balance: a full exit
+            // sells the on-chain balance (Executor liveSell confirmedSellUiQty = actual balance),
+            // so tokens beyond the row's quantity leave with it. 5.0.7958 flagged such mints as
+            // unmanaged forever (heal: ALREADY_OPEN, reconcile refused after partial sells).
+            if (mint in openRowMints7960) return@filter false
             walletRaw > canonicalRaw + java.math.BigInteger.ONE || positiveUiWithoutRaw
         }.sorted()
         // V5.0.7718 — an unmanaged bot holding is healed now, not at the next

@@ -190,6 +190,7 @@ object SpecialistOwnership7951 {
         val l = lane7951(lane)
         if (l !in SpecialistCandidateBooks7803.LANES) return
         val reason = blockReason?.takeIf { it.isNotBlank() } ?: "FDG_NO_REASON"
+        noteLaneRefused7960(mint, l, nowMs)
         val capital = capitalOnlyReason7951(reason, capitalNotes7951[mint]?.takeIf { nowMs - it.atMs <= CAPITAL_NOTE_TTL_MS_7951 }?.reason)
         if (capital == null) {
             notePreIntent7951(l, "FDG_$reason")
@@ -261,6 +262,42 @@ object SpecialistOwnership7951 {
 
     internal fun resetForTests7951() {
         eligibleRaw7951.clear(); capitalNotes7951.clear(); demand7951.clear()
-        stampedCapital7951.clear(); preIntent7951.clear()
+        stampedCapital7951.clear(); preIntent7951.clear(); refusedAt7960.clear()
+    }
+
+    // ── V5.0.7960 — a refused primary hands the candidate on ──
+    //
+    // 5.0.7958 live: only the cycle primary (+ one rescue) evaluates a token. CASHGEN won
+    // primary on candidates its own Cortex read refuses (C3_PROVEN_NEGATIVE_EDGE, 811 blocks),
+    // and BLUECHIP / MOONSHOT READY proposals on the same tokens were never evaluated
+    // (READY_NOT_EVALUATED_PRIMARY_CASHGEN=58). Once the primary's FDG refuses this mint, the
+    // other READY lanes of its desk may evaluate it for [REFUSED_HANDOFF_MS_7960]. Every
+    // safety / FDG / sizing gate still decides each of them.
+    private const val REFUSED_HANDOFF_MS_7960 = 90_000L
+    private val refusedAt7960 = ConcurrentHashMap<String, Long>()
+
+    internal fun noteLaneRefused7960(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        if (refusedAt7960.size > 4_096) refusedAt7960.entries.removeIf { nowMs - it.value > REFUSED_HANDOFF_MS_7960 }
+        refusedAt7960["${lane7951(lane)}|$mint"] = nowMs
+    }
+
+    /** True when [primaryLane]'s FDG refused [mint] within the hand-off window. */
+    internal fun primaryRefused7960(mint: String, primaryLane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val at = refusedAt7960["${lane7951(primaryLane)}|$mint"] ?: return false
+        return nowMs - at in 0..REFUSED_HANDOFF_MS_7960
+    }
+
+    /**
+     * A non-primary lane may evaluate this token: its own desk proposal is READY and the
+     * primary was refused. Counted (READY_HANDED_OFF_7960) so the hand-off shows.
+     */
+    internal fun handOffAllowed7960(lane: String, mint: String, primaryLane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val l = lane7951(lane)
+        if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) return false
+        if (!primaryRefused7960(mint, primaryLane, nowMs)) return false
+        val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
+        if (ready) notePreIntent7951(l, "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
+        return ready
     }
 }

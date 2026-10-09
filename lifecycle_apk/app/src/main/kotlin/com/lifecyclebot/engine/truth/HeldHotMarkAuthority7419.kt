@@ -80,6 +80,23 @@ object HeldHotMarkAuthority7419 {
         } catch (_: Throwable) { emptyList() }
     }
 
+    /**
+     * V5.0.7960 — held positions this pass prices from Solana venues: Solana tokens, and
+     * CRYPTO_ALT positions whose identity is a Solana SPL mint. 5.0.7958 live: CRYPTO_ALT /
+     * CRYPTO_SPOT holdings on SPL mints got no EXIT_ECONOMIC mark (alt registry only), the risk
+     * clock read NO_MARK on 3,998 of 7,663 ticks, and their stops fired at -37%..-43%.
+     */
+    private fun solanaPriced7960(p: CanonicalPositionAuthority6441.Position): Boolean =
+        solanaPricedClass7960(p.assetClass, p.mint)
+
+    /** Pure form of [solanaPriced7960]. */
+    fun solanaPricedClass7960(assetClass: AssetClass, mint: String): Boolean {
+        if (assetClass == AssetClass.SOLANA_TOKEN) return true
+        if (assetClass != AssetClass.CRYPTO_ALT) return false
+        val bare = mint.removePrefix("solana|").trim()
+        return !bare.contains('|') && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(bare)
+    }
+
     private fun runtimeTokenAgeMs(mint: String, now: Long): Long {
         val ts = try { synchronized(BotService.status.tokens) { BotService.status.tokens[mint] } } catch (_: Throwable) { null }
         val at = ts?.lastPriceUpdate ?: 0L
@@ -145,7 +162,7 @@ object HeldHotMarkAuthority7419 {
         // discovery candidates. Resolve the book once per pass.
         val solanaByBare7510 = LinkedHashMap<String, CanonicalPositionAuthority6441.Position>()
         for (p in stale) {
-            if (p.assetClass != AssetClass.SOLANA_TOKEN) continue
+            if (!solanaPriced7960(p)) continue
             val bare = p.mint.removePrefix("solana|").trim()
             if (bare.isNotBlank() && !bare.contains("|")) solanaByBare7510[bare] = p
         }
@@ -273,6 +290,18 @@ object HeldHotMarkAuthority7419 {
                     ) {
                         px = dyn.price
                         source = "HELD_HOT_CRYPTO_REGISTRY_7419"
+                    } else if (solanaPriced7960(p)) {
+                        // V5.0.7960 — a CRYPTO_ALT position on a Solana SPL mint is priced like
+                        // any held Solana token when the alt registry has no fresh observation.
+                        val bare = p.mint.removePrefix("solana|").trim()
+                        val locked = locked7510[bare]
+                        val fan = fan7510[bare]
+                        if (locked != null && locked.priceUsd.isFinite() && locked.priceUsd > 0.0) {
+                            px = locked.priceUsd; source = locked.source
+                        } else if (fan != null && fan.priceUsd.isFinite() && fan.priceUsd > 0.0 && fan.corroborated) {
+                            px = fan.priceUsd; source = "HELD_HOT_FANOUT_CORROBORATED_7419"
+                        }
+                        try { PipelineHealthCollector.labelInc(if (px > 0.0) "HELD_HOT_ALT_SOLANA_PRICED_7960" else "HELD_HOT_ALT_SOLANA_UNPRICED_7960") } catch (_: Throwable) {}
                     }
                 }
                 else -> {}
@@ -287,7 +316,7 @@ object HeldHotMarkAuthority7419 {
             // evaluate while the position was still held.
             // A single unverified feed is refused by the registry, so it counts as no mark here.
             if ((!(px.isFinite() && px > 0.0) || source == "HELD_HOT_SINGLE_SOURCE_7419") &&
-                p.assetClass == AssetClass.SOLANA_TOKEN &&
+                solanaPriced7960(p) &&
                 now - currentCanonicalTs(p.mint) > EXEC_FALLBACK_STALE_MS_7876
             ) {
                 val ex = executableHeldMark7876(p, now)

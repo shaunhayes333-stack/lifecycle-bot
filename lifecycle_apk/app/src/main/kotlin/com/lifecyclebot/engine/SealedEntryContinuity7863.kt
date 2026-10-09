@@ -48,7 +48,7 @@ internal object SealedEntryContinuity7863 {
             com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
         ).firstNotNullOfOrNull { purpose ->
             try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(ts.mint, purpose, nowMs) } catch (_: Throwable) { null }
-        } ?: return null
+        } ?: return runtimeRevalidated7960(ts, intent, nowMs)
         val freshPx = fresh.priceUsd.value.toDouble()
         if (!withinRevalidationBand7868(intent.executableMarkPriceUsd6613, freshPx)) {
             try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_STALE_PRICE_MOVED_7868") } catch (_: Throwable) {}
@@ -61,4 +61,33 @@ internal object SealedEntryContinuity7863 {
         try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_REVALIDATED_7868") } catch (_: Throwable) {}
         return snap
     }
+
+    /**
+     * V5.0.7960 — no fresh canonical mark: the token's own runtime price, observed within
+     * [RUNTIME_MAX_AGE_MS_7960] (pump trade stream / scanner), revalidates the sealed price
+     * inside the same 15% band. 5.0.7958 live: QUALITY approvals died MARK_CHOKED
+     * (ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED) with a live tape still printing.
+     */
+    private fun runtimeRevalidated7960(ts: TokenState, intent: ExecutableOpenGate.ExecutionIntent, nowMs: Long): MintEntryMarketSnapshot? {
+        val px = ts.lastPrice
+        val at = ts.lastPriceUpdate
+        if (!runtimeUsable7960(intent.executableMarkPriceUsd6613, px, at, nowMs)) return null
+        val snap = MintEntryMarketSnapshot(
+            priceUsd = px,
+            marketCapUsd = 0.0,
+            liquidityUsd = intent.liquidityUsd,
+            poolAddress = "MINT_ROUTE:${intent.mint}",
+            priceSource = "RUNTIME_REVALIDATED_7960:" + ts.lastPriceSource.ifBlank { "runtime" }.take(40),
+            dex = "UNKNOWN",
+            capturedAtMs = at,
+        ).takeIf { it.valid } ?: return null
+        try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_RUNTIME_REVALIDATED_7960") } catch (_: Throwable) {}
+        return snap
+    }
+
+    internal const val RUNTIME_MAX_AGE_MS_7960 = 20_000L
+
+    /** Pure: a runtime price fresh enough and within the band of the sealed price. */
+    internal fun runtimeUsable7960(sealedPx: Double, px: Double, atMs: Long, nowMs: Long): Boolean =
+        atMs > 0L && nowMs - atMs in -5_000L..RUNTIME_MAX_AGE_MS_7960 && withinRevalidationBand7868(sealedPx, px)
 }

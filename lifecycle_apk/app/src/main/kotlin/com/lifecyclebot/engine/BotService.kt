@@ -6147,6 +6147,31 @@ class BotService : Service() {
         return true
     }
 
+    /** V5.0.7960 — the risk clock's mark: canonical EXIT_ECONOMIC, else a fresh runtime observation. */
+    private class RiskMark7960(val present: Boolean, val px: Double?, val ageMs: Long, val fresh: Boolean)
+
+    /**
+     * V5.0.7960 — O(1), no provider calls. The canonical EXIT_ECONOMIC mark when it is
+     * fresh (<= 60 s). Otherwise the token's own runtime price when observed <= 15 s ago
+     * (pump trade stream, scanner, wallet tracker) and within 50x of entry (unit guard).
+     * 5.0.7958 live: the canonical mark was missing on 3,998 of 7,663 risk-clock ticks and
+     * stops fired at -37%..-43%.
+     */
+    private fun riskClockMark7960(mint: String, ts: com.lifecyclebot.data.TokenState?, now: Long): RiskMark7960 {
+        val m = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+        } catch (_: Throwable) { null }
+        val px = try { m?.priceUsd?.value?.toDouble()?.takeIf { it.isFinite() && it > 0.0 } } catch (_: Throwable) { null }
+        val age = m?.timestampMs?.takeIf { it > 0L }?.let { (now - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
+        if (px != null && age <= 60_000L) return RiskMark7960(true, px, age, true)
+        val rt = ts?.let { t -> com.lifecyclebot.engine.truth.RiskClockMark7960.runtimeRiskMark7960(t.lastPrice, t.lastPriceUpdate, t.position.entryPrice, now) }
+        if (rt != null) {
+            try { PipelineHealthCollector.labelInc("RISK_CLOCK_RUNTIME_MARK_FALLBACK_7960") } catch (_: Throwable) {}
+            return RiskMark7960(true, rt, (now - (ts?.lastPriceUpdate ?: now)).coerceAtLeast(0L), true)
+        }
+        return RiskMark7960(m != null, px, age, false)
+    }
+
     fun startBot() {
         if (deferStartUntilServiceReady6516()) return
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
@@ -6626,20 +6651,11 @@ class BotService : Service() {
                     // rule, and pass the price as pre-resolved so no provider or
                     // heavy price-policy path can run inline.
                     val now7545 = System.currentTimeMillis()
-                    val exitMark7545 = try {
-                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
-                            mint,
-                            com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC,
-                        )
-                    } catch (_: Throwable) { null }
-                    val exitMarkPx7545 = try {
-                        exitMark7545?.priceUsd?.value?.toDouble()
-                            ?.takeIf { it.isFinite() && it > 0.0 }
-                    } catch (_: Throwable) { null }
-                    val exitMarkAge7545 = exitMark7545?.timestampMs?.takeIf { it > 0L }
-                        ?.let { (now7545 - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
-                    val canonicalMarkFresh7545 =
-                        exitMarkPx7545 != null && exitMarkAge7545 <= 60_000L
+                    val rm7960 = riskClockMark7960(mint, ts6882, now7545)  // V5.0.7960
+                    val exitMark7545: Any? = if (rm7960.present) rm7960 else null
+                    val exitMarkPx7545 = rm7960.px
+                    val exitMarkAge7545 = rm7960.ageMs
+                    val canonicalMarkFresh7545 = rm7960.fresh
                     val th6882 = if (ts6882 == null || !canonicalMarkFresh7545) null else
                         try {
                             executor.protectiveExitThresholds6882(
@@ -14958,7 +14974,8 @@ class BotService : Service() {
             eligibleLanes = qualifiedDeskLanes6600,
         )
         val specialistEvaluationAllowed6600 = designatedDeskQualified6599 &&
-            (l.equals(primaryLane, true) || l.equals(boundedRescue6600, true))
+            (l.equals(primaryLane, true) || l.equals(boundedRescue6600, true) ||
+                SpecialistOwnership7951.handOffAllowed7960(l, ts.mint, primaryLane))  // V5.0.7960
         // V5.0.6604 §SPECIALIST_CONSENSUS_GATE (troubleshoot_agent P0 fix).
         //   Root cause slice of the <10% MemeTrader WR: MEME specialists
         //   (SHITCOIN / EXPRESS / MOONSHOT / PROJECT_SNIPER) could satisfy
