@@ -87,6 +87,8 @@ object RunnerGrab7967 {
     fun deferrable7967(reason: String, grossPct: Double): Boolean {
         if (!grossPct.isFinite() || grossPct <= HARD_STOP_PCT) return false
         val r = reason.uppercase()
+        // V5.0.7969 — the early-rug BACKSTOP is a soft -10% tick exit, not rug evidence.
+        if (r.contains("EARLY_RUG_BACKSTOP")) return true
         val integrity = listOf("RUG", "DEV_", "DEV SOLD", "LIQUIDITY", "HONEYPOT", "FREEZE", "FROZEN", "DEAD", "MANUAL",
             "RUNNER_", "STRUCTURE_BREAK", "SPIKE_CAPTURE", "ZERO_BALANCE", "ORPHAN", "INVARIANT", "STARTUP_SWEEP")
         return integrity.none { r.contains(it) }
@@ -240,7 +242,7 @@ object RunnerGrab7967 {
 
     /** Pure: the refusal reason's rule name (leading upper-case words, max 4). */
     fun reasonKey7967(reason: String?): String =
-        reason.orEmpty().trim().split('_', ':', ' ', '/').filter { w -> w.isNotEmpty() && !w.all { it.isDigit() } }
+        reason.orEmpty().trim().split('_', ':', ' ', '/').filter { w -> w.isNotEmpty() }
             .takeWhile { w -> w.all { it.isUpperCase() || it.isDigit() } }.take(4).joinToString("_").ifBlank { "UNKNOWN" }
 
     fun statusLine7967(): String {
