@@ -1803,7 +1803,7 @@ object ToolkitSignalSheet {
             val refusals7809 = preSizeRefusalSummary7809(lane)
             val executableSizeOutcomes7809 = (causal.outcomes["SIZED_EXECUTABLE"] ?: 0).toLong()
             val openOnLane7809 = openByLane7809[lane] ?: 0
-            val reportedStatus7809 = when {
+            val baseStatus7951 = when {
                 status == "SIZING_CHOKED" && executableSizeOutcomes7809 > 0L -> "SIZE_LINEAGE_INCOMPLETE_7809"
                 status == "SIZING_CHOKED" && refusals7809.isNotBlank() -> "REFUSED_BEFORE_SIZE_7809"
                 status == "DEAD" && openOnLane7809 > 0 -> "HOLDING_NO_FRESH_DISCOVERY_7809"
@@ -1880,7 +1880,11 @@ object ToolkitSignalSheet {
             val residentReady7815 = resident7815.count {
                 it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY
             }
-            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=${if (!buyerEnabled7609) "BUYER_DISABLED" else if (intent == 0L && residentReady7815 == 0) "OBSERVING_NO_READY_CANDIDATE" else reportedStatus7809} rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
+            // V5.0.7951 — a lane that died before BUY_INTENT (FDG block, READY not evaluated,
+            // capital-only) says why instead of INTENT_CHOKED with no stamp to explain it.
+            val preIntent7951 = SpecialistOwnership7951.preIntentRefusals7951(lane)
+            val reportedStatus7809 = SpecialistOwnership7951.shownStatus7951(baseStatus7951, buyerEnabled7609, intent, residentReady7815, preIntent7951)
+            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} preIntentRefusals7951=${preIntent7951.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }
@@ -1904,6 +1908,8 @@ object ToolkitSignalSheet {
             (expectancy.coerceIn(0.25, 1.50) * opportunity).coerceAtLeast(0.01)
         }
         val weightSum = weights.values.sum().coerceAtLeast(0.01)
+        // V5.0.7951 — ready/owner candidates waiting only on capital (last ~2 min).
+        val capitalDemand7951 = try { SpecialistOwnership7951.capitalDemand7951() } catch (_: Throwable) { emptyMap() }
         configuredMemeDesks6599.forEach { lane ->
             val owned = positions.filter { it.lane.equals(lane, true) || (lane == "BLUECHIP" && it.lane.equals("BLUE_CHIP", true)) }
             val used = owned.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
@@ -1936,7 +1942,7 @@ object ToolkitSignalSheet {
                     " enforcedUtil=${"%.2f".format(enforced6912.utilization)}x" +
                     " enforcedHeadroom=${enforced6912.hasHeadroom}"
             } else " enforcedTargetSol=n/a enforcedUtil=n/a enforcedHeadroom=n/a"
-            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}%(advisory) targetSol=${"%.4f".format(targetSol)}(advisory)$enforcedTxt6912 availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${capitalStarved7875(sharedCash)} capitalRefusals7194=${com.lifecyclebot.engine.truth.OrderSizeResolver6441.capitalRefusalCount7194()} starvedByLane=NONE allocationDecisionSource=${capitalSource6686}+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
+            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}%(advisory) targetSol=${"%.4f".format(targetSol)}(advisory)$enforcedTxt6912 availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${capitalStarved7875(sharedCash)} capitalRefusals7194=${com.lifecyclebot.engine.truth.OrderSizeResolver6441.capitalRefusalCount7194()} capitalDemand7951=${capitalDemand7951[lane] ?: 0} starvedByLane=NONE allocationDecisionSource=${capitalSource6686}+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
         }
     }
 

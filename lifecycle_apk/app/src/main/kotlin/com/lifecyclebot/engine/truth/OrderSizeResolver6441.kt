@@ -787,6 +787,9 @@ object OrderSizeResolver6441 {
         if (!actuallyExec && (reason == "CAPITAL_BELOW_MIN_EXECUTABLE_6490" || reason == "NO_WALLET" || reason == "PAPER_CASH_EMPTY_7819")) {
             capitalRefusals7194.incrementAndGet()
             lastCapitalRefusalMs7194 = System.currentTimeMillis()
+            // V5.0.7951 — who was refused for capital: an FDG SIZE_NOT_EXECUTABLE on this mint is
+            // then a capital-only refusal, and a post-intent refusal is capital demand at once.
+            try { com.lifecyclebot.engine.SpecialistOwnership7951.onCapitalRefusal7951(laneName, mint, reason, postIntent = causalEventId.isNotBlank()) } catch (_: Throwable) {}
         }
         try {
             ForensicLogger.lifecycle(

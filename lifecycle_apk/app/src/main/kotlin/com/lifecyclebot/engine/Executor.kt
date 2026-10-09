@@ -14513,6 +14513,8 @@ class Executor(
                 "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane heldMin=${posAgeMs / 60_000L} " +
                     "pnl=${"%.2f".format(verdict.pnlPct)} peak=${"%.1f".format(p.peakGainPct)} " +
                     "valueSol=${"%.5f".format(valueSol)} liquid=${"%.4f".format(liquid)} routableMin=${"%.5f".format(routableMin)} " +
+                    // V5.0.7951 — the specialist demand this rotation frees capital for.
+                    "capitalDemand7951=${SpecialistOwnership7951.capitalDemand7951()} " +
                     "action=free_dead_money_for_proven_setup",
             )
         } catch (_: Throwable) {}
