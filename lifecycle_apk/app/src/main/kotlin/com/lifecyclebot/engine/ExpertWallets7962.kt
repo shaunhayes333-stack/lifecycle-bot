@@ -469,6 +469,13 @@ object ExpertWallets7962 {
         persistIndex()
     }
 
+    /** The bot's first durable live buy (EconomicEventSchema6464), or 0 when unknown (then nothing on a shared wallet is treated as the owner's). */
+    private fun firstBotLiveBuyMs7962(): Long = try {
+        com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
+            .filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Buy>()
+            .filter { it.mode == "live" }.minOfOrNull { it.atMs } ?: 0L
+    } catch (_: Throwable) { 0L }
+
     private fun isBotOwnWallet(addr: String): Boolean = try { WalletManager.currentPubkey() == addr } catch (_: Throwable) { false }
 
     private fun tierOfLabel(label: String): Tier7962 = when {
@@ -568,8 +575,12 @@ object ExpertWallets7962 {
         h.trips = trips.size
         h.closedTrips = trips.count { it.closed }
         synchronized(pendingLearn) {
+            // V5.0.7962 — if the owner's wallet is also the bot's trading wallet, only his own
+            // trades (before the bot's first live buy, or not bot-signed) are the owner's.
+            val botCutoff = if (tier == Tier7962.OWNER && isBotOwnWallet(h.addr)) firstBotLiveBuyMs7962() else Long.MAX_VALUE
             for (t in trips) {
                 if (!t.closed || "${t.mint}|${t.entryMs}" in h.learned) continue
+                if (t.entryMs >= botCutoff) { try { PipelineHealthCollector.labelInc("EXPERT_OWNER_TRIP_IS_BOT_TRADE_7962") } catch (_: Throwable) {}; continue }
                 val list = pendingLearn.getOrPut(t.mint) { ArrayList() }
                 if (list.none { it.first == h.addr && it.second.entryMs == t.entryMs }) list += h.addr to t
             }
