@@ -153,7 +153,9 @@ object SpikeCapture7943 {
      */
     fun diagLines7955(): String =
         statusLine() + " · mayhem " + MayhemMode7943.statusLine() + "\n  Exit profiles (§7955):       " +
-            (try { ExitProfile7955.statusLine7955() } catch (_: Throwable) { "unavailable" })
+            (try { ExitProfile7955.statusLine7955() } catch (_: Throwable) { "unavailable" }) +
+            // V5.0.7961 — fill price against decision price, per lane (feeds every label's cost).
+            "\n  Entry chase (§7961):         " + (try { com.lifecyclebot.engine.truth.EntryChase7961.statusLine() } catch (_: Throwable) { "unavailable" })
 
     fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
 }

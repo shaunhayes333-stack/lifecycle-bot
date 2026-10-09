@@ -103,6 +103,11 @@ object EntryStrategySnapshot6450 {
         }
         writes.incrementAndGet()
         persist6567(snap)
+        // V5.0.7961 — the fill price against the decision price (EntryChase7961).
+        try {
+            EntryChase7961.onEntry7961(snap.mint, snap.entryLane, snap.entryPriceUsd, snap.entryTimestampMs,
+                paperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())
+        } catch (_: Throwable) {}
         return true
     }
 

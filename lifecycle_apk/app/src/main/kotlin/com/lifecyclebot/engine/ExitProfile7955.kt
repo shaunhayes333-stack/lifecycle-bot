@@ -52,6 +52,8 @@ object ExitProfile7955 {
         val medGiveback: Double,
         val medGiveback5: Double,
         val runnerRate: Double,
+        /** V5.0.7961 — the ladder that captured most on this key's own peaks (NaN until 10 winners). */
+        val optLevels: List<Double> = emptyList(),
     )
 
     /** A position's exit plan. [tiers] = (gross % trigger, fraction of the current holding sold). */
@@ -100,7 +102,35 @@ object ExitProfile7955 {
             medGiveback = med(win.map { it[2] }),
             medGiveback5 = med(win.map { it[3] }),
             runnerRate = ok.count { it[0] >= RUNNER_PEAK_PCT_7955 }.toDouble() / ok.size,
+            optLevels = if (win.size >= 10) optimalLevels7961(ok.map { it[0] }) else emptyList(),
         )
+    }
+
+    /**
+     * V5.0.7961 — pure: the take-profit ladder this key's own peaks pay most on. Rung 1 is the
+     * level L that maximises L x P(peak >= L) over every sample (losers included: they never
+     * reach it); rung 2 maximises the same among samples that reached rung 1 at >= 1.4x rung 1;
+     * rung 3 among those that reached rung 2 at >= 1.5x rung 2. Levels are searched on the
+     * observed peaks themselves, between +15% and +3000%.
+     */
+    fun optimalLevels7961(peaks: List<Double>): List<Double> {
+        val all = peaks.filter { it.isFinite() }.sorted()
+        if (all.isEmpty()) return emptyList()
+        fun best(pool: List<Double>, minL: Double): Double? {
+            val cands = pool.filter { it >= minL && it <= 3_000.0 }.distinct()
+            if (cands.isEmpty()) return null
+            val n = pool.size.toDouble()
+            return cands.maxByOrNull { l -> l * (pool.count { it >= l } / n) }
+        }
+        val out = ArrayList<Double>(3)
+        val l1 = best(all, 15.0) ?: return emptyList()
+        out += l1
+        val reached1 = all.filter { it >= l1 }
+        val l2 = best(reached1, l1 * 1.4) ?: return out
+        out += l2
+        val reached2 = reached1.filter { it >= l2 }
+        best(reached2, l2 * 1.5)?.let { out += it }
+        return out
     }
 
     /**
@@ -117,9 +147,11 @@ object ExitProfile7955 {
         val wL = if (p.medPeak.isFinite()) minOf(w, p.nWin / 10.0).coerceIn(0.0, 1.0) else 0.0
         val gb = if (p.medGiveback.isFinite()) p.medGiveback else 0.6
         val rr = if (p.runnerRate.isFinite()) p.runnerRate else 0.15
-        val l1 = (0.9 * p.medPeak).coerceIn(15.0, 300.0)
-        val l2 = maxOf(if (p.p75Peak.isFinite()) p.p75Peak else 0.0, l1 * 1.4).coerceAtMost(1_000.0)
-        val l3 = maxOf(if (p.p90Peak.isFinite()) p.p90Peak else 0.0, l2 * 1.5).coerceAtMost(3_000.0)
+        // V5.0.7961 — the capture-maximising ladder when the key has 10+ winners; quantiles otherwise.
+        val o = p.optLevels
+        val l1 = (o.getOrNull(0) ?: (0.9 * p.medPeak)).coerceIn(15.0, 300.0)
+        val l2 = maxOf(o.getOrNull(1) ?: (if (p.p75Peak.isFinite()) p.p75Peak else 0.0), l1 * 1.4).coerceAtMost(1_000.0)
+        val l3 = maxOf(o.getOrNull(2) ?: (if (p.p90Peak.isFinite()) p.p90Peak else 0.0), l2 * 1.5).coerceAtMost(3_000.0)
         val learnedLevels = listOf(l1, l2, l3)
         val adj = 0.5 * (gb - 0.6) - (rr - 0.15)
         val levels = DoubleArray(prior.size) { i ->
@@ -237,10 +269,10 @@ object ExitProfile7955 {
         return try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, canon(lane), nowMs) } catch (_: Throwable) { null } ?: "NONE"
     }
 
-    private fun add(lane: String, setup: String, sample: DoubleArray) {
+    private fun add(lane: String, setup: String, sample: DoubleArray, keyOnly: Boolean = false) {
         ensureLoaded()
         synchronized(this) {
-            for (k in keysFor(lane, setup)) {
+            for (k in keysFor(lane, setup).let { if (keyOnly) it.take(1) else it }) {
                 if (!rings.containsKey(k) && rings.size >= MAX_KEYS_7955) {
                     val victim = rings.entries.filter { it.key != GLOBAL_7955 }.minByOrNull { it.value.size }?.key
                     if (victim != null) rings.remove(victim)
@@ -254,9 +286,9 @@ object ExitProfile7955 {
     }
 
     /** ForwardReturnLabeler7731 at the 60-minute read: one sample per observation. */
-    fun onLabel7955(lane: String, setup: String, peakPct: Double, timeToPeakMs: Long, giveback60: Double, giveback5: Double) {
+    fun onLabel7955(lane: String, setup: String, peakPct: Double, timeToPeakMs: Long, giveback60: Double, giveback5: Double, keyOnly: Boolean = false) {
         if (!peakPct.isFinite()) return
-        add(lane, setup, doubleArrayOf(peakPct, timeToPeakMs.coerceAtLeast(0L) / 60_000.0, giveback60, giveback5))
+        add(lane, setup, doubleArrayOf(peakPct, timeToPeakMs.coerceAtLeast(0L) / 60_000.0, giveback60, giveback5), keyOnly)
         fromLabels.incrementAndGet()
     }
 
@@ -277,6 +309,17 @@ object ExitProfile7955 {
         val setup = keyParts?.getOrNull(1) ?: "NONE"
         add(lane, setup, doubleArrayOf(peak, ttp / 60_000.0, gb, Double.NaN))
         fromCloses.incrementAndGet()
+    }
+
+    /**
+     * V5.0.7961 — a setup that fired (not NONE / NO_TRIGGER) describes the price path the bot
+     * would trade, admitted or not: its labels teach that setup's own exit key. 5.0.7958 read
+     * samples[labels=6 closes=714]: admitted-only labels left the meme setups with no exit
+     * record, so every meme position ran the fixed prior ladder.
+     */
+    fun setupFired7961(setup: String): Boolean {
+        val s = setup.trim().uppercase()
+        return s.isNotEmpty() && s != "NONE" && s != "NO_TRIGGER"
     }
 
     private fun bestProfile(lane: String, setup: String): Pair<String, Profile7955?> {

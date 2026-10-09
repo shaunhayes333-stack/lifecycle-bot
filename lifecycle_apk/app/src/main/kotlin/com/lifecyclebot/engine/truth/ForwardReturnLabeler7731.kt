@@ -385,6 +385,18 @@ object ForwardReturnLabeler7731 {
 
     // ── observation (called from ExecutableOpenGate.recordFdg for every distinct verdict) ──
 
+    /**
+     * V5.0.7961 — the price and time of the admitted decision for (mint, lane), the base
+     * EntryChase7961 measures a fill against; any admitted decision on the mint when the
+     * lane names differ. Null when none is pending.
+     */
+    fun decisionPx7961(mint: String, lane: String): Pair<Double, Long>? {
+        val o = pending["$mint|${lane.trim().uppercase()}"]?.takeIf { it.admitted }
+            ?: pending.values.filter { it.mint == mint && it.admitted }.maxByOrNull { it.atMs }
+            ?: return null
+        return o.entryPrice to o.atMs
+    }
+
     fun observe(mint: String, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {
         if (mint.isBlank()) return
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return
@@ -444,7 +456,9 @@ object ForwardReturnLabeler7731 {
         }
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
         val liq = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0
-        val cost = try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }
+        val cost = (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }) +
+            // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
+            (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
         val cell = cellKey(ts.source, l, ts.lastMcap, ageMs)
         // V5.0.7734 — the regime is read now, at decision time, as the forecast
         // model keys it; the token state carries no setup quality or edge phase,
@@ -555,10 +569,13 @@ object ForwardReturnLabeler7731 {
         // V5.0.7955 — one exit-profile sample per observation: peak, time to peak, give-back to the 60-minute read.
         // V5.0.7955 review — exits are learned from decisions the bot took (and realised closes),
         // not from the refused pool, which is mostly tokens that fade.
-        if (o.admitted) try {
+        // V5.0.7961 — a refused decision whose setup fired teaches that setup's own key only.
+        val setupFired7961 = try { com.lifecyclebot.engine.ExitProfile7955.setupFired7961(o.setup7955) } catch (_: Throwable) { false }
+        if (o.admitted || setupFired7961) try {
             com.lifecyclebot.engine.ExitProfile7955.onLabel7955(
                 o.lane, o.setup7955, maxOf(o.peakPct, gross0), if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L,
                 com.lifecyclebot.engine.ExitProfile7955.giveback7955(maxOf(o.peakPct, gross0), gross0), o.giveback5_7955,
+                keyOnly = !o.admitted,
             )
         } catch (_: Throwable) {}
         val (net, gross) = captured7945(o, net0, gross0)

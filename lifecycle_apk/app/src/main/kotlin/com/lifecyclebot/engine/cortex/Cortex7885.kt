@@ -63,7 +63,7 @@ object Cortex7885 {
         val atMs: Long,
     )
 
-    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null, val source: String = "")
+    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null, val source: String = "", val setup7961: String = "")
 
     private val ledger = CortexLedger7885()
     private val board = CortexScoreboard7885()
@@ -192,7 +192,8 @@ object Cortex7885 {
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source)
+        val setup7961 = try { LanePlaybook7907.classify(ts, a.lane, nowMs) } catch (_: Throwable) { null }.orEmpty()
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961)
         // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).
         if (admitted) noteEntryRead(ts.mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
         // V5.0.7907 — the lane playbook tags the decision with its setup.
@@ -240,7 +241,7 @@ object Cortex7885 {
                     org.json.JSONObject().put("k", k).put("l", a.lane).put("r", a.runnerLane).put("g", a.regime)
                         .put("b", a.bucket.ordinal).put("e", fin0(a.fused.edgePct)).put("m", fin0(a.fused.laneMean))
                         .put("ce", fin0(a.calibratedEdge)).put("adm", p.legacyAdmitted).put("at", p.atMs)
-                        .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("ep", PERSIST_KEY).put("i", ids).put("x", xs),
+                        .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs),
                 )
             }
             val out = org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr)
@@ -279,7 +280,7 @@ object Cortex7885 {
             val fused = CortexLedger7885.Fused(o.optDouble("e", 0.0), 0.0, o.optDouble("m", 0.0), 0.0, 0.0, 0.0, 0.0, emptyList())
             val a = Assessment(o.optString("l"), o.optBoolean("r"), raws.toDoubleArray(), ids, edges, o.optString("g"),
                 fused, o.optDouble("ce", 0.0), b, 0, false, at)
-            pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"))
+            pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"))
             inc("PENDING_RESTORED")
         }
     }
@@ -312,6 +313,12 @@ object Cortex7885 {
             ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
             calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
+            if (p.setup7961.isNotBlank()) {
+                val jk = jointKey7961(p.a.lane, p.a.bucket, p.setup7961)
+                if (!jointBook7961.containsKey(jk) && jointBook7961.size >= 600) jointBook7961.entries.minByOrNull { it.value.n }?.key?.let { jointBook7961.remove(it) }
+                jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }
+                    .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+            }
             p.vetoRule?.let { r ->
                 vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
@@ -329,6 +336,32 @@ object Cortex7885 {
     // flagged as refusing winners. Nothing is relaxed automatically: this is the
     // evidence for moving each veto into the Constitution or retiring it.
     private val vetoBook = HashMap<String, CortexLedger7885.Stat>()
+
+    /**
+     * V5.0.7961 — verdict x setup. Each graded decision also books its 5-minute net into
+     * "lane|bucket|setup" (setup = LanePlaybook7907 at the decision). 5.0.7958: MOONSHOT's
+     * refuse bucket read n63 -5.0% while its LAUNCH_LADDER_PROVEN setup read n109 +12.9%;
+     * C3 refused every candidate in the bucket whatever setup fired. The joint cell decides.
+     */
+    private val jointBook7961 = HashMap<String, CortexLedger7885.Stat>()
+    private const val JOINT_MIN_N_7961 = 30.0
+    private const val JOINT_MARGIN_PCT_7961 = 2.0
+
+    fun jointKey7961(lane: String, bucket: CortexScoreboard7885.Bucket, setup: String): String = "$lane|${bucket.name}|$setup"
+
+    /** Pure: a joint cell proven to pay (n >= 30, mean - SE > +2% net). */
+    fun jointProvenPositive7961(st: CortexLedger7885.Stat?): Boolean {
+        if (st == null || st.n < JOINT_MIN_N_7961) return false
+        val se = kotlin.math.sqrt(st.variance() / st.n)
+        return st.mean() - se > JOINT_MARGIN_PCT_7961
+    }
+
+    /** "lane|bucket|setup n/mean" for the scoreboard: the strongest proven cells. */
+    private fun jointLine7961(): String = synchronized(this) {
+        jointBook7961.entries.filter { it.value.n >= 10.0 }.sortedByDescending { it.value.mean() }.take(6)
+            .joinToString(" · ") { (k, st) -> "$k n${st.n.toInt()}/${"%+.1f".format(st.mean())}%${if (jointProvenPositive7961(st)) " PROVEN" else ""}" }
+            .ifBlank { "-" }
+    }
 
     /**
      * V5.0.7953 — a refusal rule whose own refused candidates are proven to win
@@ -363,7 +396,14 @@ object Cortex7885 {
         // canonical mark registry (FieldManual7715 already refuses an impaired
         // quote with the registry in view). Staleness stays an input to overrule
         // and conviction, never a refusal of its own.
-        if (a.bucket == CortexScoreboard7885.Bucket.REFUSE && refusalProven) return "C3_PROVEN_NEGATIVE_EDGE"
+        if (a.bucket == CortexScoreboard7885.Bucket.REFUSE && refusalProven) {
+            // V5.0.7961 — the lane's refuse bucket is an average over every setup it holds; a
+            // setup whose own record INSIDE that bucket is proven positive is not refused.
+            val setup = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+            val st = setup?.let { synchronized(this) { jointBook7961[jointKey7961(a.lane, a.bucket, it)] } }
+            if (jointProvenPositive7961(st)) { inc("C3_STOOD_DOWN_SETUP_PROVEN_7961"); return null }
+            return "C3_PROVEN_NEGATIVE_EDGE"
+        }
         if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL && lastSlot(ts)) {
             if (synchronized(this) { board.slotPriorityProven(a.lane) && consistent(a.lane) }) return "C5_SAVE_LAST_SLOT_FOR_STRONG"
             inc("SHADOW_SAVE_SLOT")
@@ -820,6 +860,7 @@ object Cortex7885 {
                 o.optJSONObject("calibration")?.let { calibration.decode(it) }
                 o.optJSONObject("real")?.let { j -> for (k in j.keys()) j.optJSONObject(k)?.let { realLedgers[k] = CortexLedger7885().also { l -> l.decode(it) } } }
                 o.optJSONObject("vetoes")?.let { j -> for (k in j.keys()) vetoBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
+                o.optJSONObject("joint7961")?.let { j -> for (k in j.keys()) jointBook7961[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
             } catch (_: Throwable) {}
         }
     }
@@ -842,7 +883,8 @@ object Cortex7885 {
             val json = synchronized(this) {
                 org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())
                     .put("real", org.json.JSONObject().also { j -> realLedgers.forEach { (k, l) -> j.put(k, l.encode()) } })
-                    .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } }).toString()
+                    .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } })
+                    .put("joint7961", org.json.JSONObject().also { j -> jointBook7961.forEach { (k, v) -> j.put(k, v.encode()) } }).toString()
             }
             LearningPersistence.save(PERSIST_KEY, json)
         } catch (_: Throwable) {}
@@ -931,6 +973,7 @@ object Cortex7885 {
                 "      best skill per voter (return R² · win-prob Brier · log-loss): ${bestByVoter.take(10).joinToString(" · ") { (k, s, _) -> "$k ${"%+.1f".format(s.skill() * 100)}%/${"%+.1f".format(s.brierSkill() * 100)}%/${"%+.1f".format(s.logLossSkill() * 100)}% n${s.scored}" }.ifBlank { "-" }}\n" +
                 "      voter failures: ${voterFailures.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "0" }}\n" +
                 laneLines.ifBlank { "      lanes: no graded decisions yet" } + "\n" +
+                "      verdict x setup (§7961): ${jointLine7961()}\n" +
                 "      veto audit (refused candidates' forward return): " +
                 vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(12).joinToString(" · ") { (r, st) ->
                     val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
