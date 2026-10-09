@@ -333,6 +333,13 @@ object LiveEdgeGate7877 {
 
     /** LIVE refusal reason, or null to admit. Paper is never refused. */
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        val why = liveRefusalCore7970(ts, lane, paper, nowMs)
+        // V5.0.7970 — a live admit in a proven runner cell is held like a runner.
+        if (why == null && !paper) try { com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs) } catch (_: Throwable) {}
+        return why
+    }
+
+    private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
         // earned that authority (bar V1); until then this returns null.
         val cortex7950 = com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)
@@ -361,6 +368,14 @@ object LiveEdgeGate7877 {
             // V5.0.7953 — a refusal the veto audit proves is refusing winners stands down.
             if (com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners7953(prior)) continue
             if ((priorOnly7930(prior) || prior.contains("_EXPECTED_NEGATIVE_7948")) && measuredOverrules7930(ts, l, prior, nowMs)) continue
+            // V5.0.7970 — "no setup fired" proven losing is a lane-wide aggregate (MOONSHOT n851 -5%).
+            // It yields to the narrower cell this token sits in when that cell clears +15% net after
+            // one SE (the same lane's PUMP_PORTAL|MC_10K_100K|AGE_LT15M cell: n50 +157%), or to a
+            // full-authority Cortex STRONG read (MOONSHOT missed STRONG n48 +24%). A setup proven
+            // losing is never overruled here.
+            if (prior.startsWith("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING") &&
+                (com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, l, nowMs) ||
+                    com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, prior))) continue
             val sampleN = refusalSampleN7948(ts, l, prior)
             if (sampleN != null && cohortOverrulesSmaller7948(cohort7948, sampleN)) {
                 try { PipelineHealthCollector.labelInc("LIVE_PRIOR_REFUSAL_OUTWEIGHED_BY_COHORT_7948") } catch (_: Throwable) {}

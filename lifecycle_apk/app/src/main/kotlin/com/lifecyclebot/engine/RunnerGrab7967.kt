@@ -72,6 +72,21 @@ object RunnerGrab7967 {
             r.lastLow.isFinite() && r.lastClose >= r.lastLow &&
             (!r.buyShare.isFinite() || r.buyShare >= MIN_BUY_SHARE)
 
+    /**
+     * Pure. V5.0.7970 — a cell clears the owner's round-trip bar: 20+ labels and the
+     * 5-minute net return minus one standard error at or above +15%.
+     */
+    fun cellClearsBar7970(n: Int, meanPct: Double, sePct: Double): Boolean =
+        n >= PROVEN_MIN_N && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct >= 15.0
+
+    /**
+     * Pure. V5.0.7970 — the chart is not breaking down: no 1m structure break and sellers
+     * not dominating the tape (buyers >= 45% when known). Unknown structure (a coin too young
+     * for swings) does not refuse — the proven cell's labels were earned at decision time.
+     */
+    fun notBreaking7970(r: StructureTracker7962.Read7962?): Boolean =
+        r == null || (!r.brokeStructure && (!r.buyShare.isFinite() || r.buyShare >= 0.45))
+
     /** Pure: has the grab record proven it loses (n >= 20, mean + SE < 0)? */
     fun recordStandsDown7967(st: CortexLedger7885.Stat): Boolean {
         if (st.n < 20.0) return false
@@ -104,6 +119,39 @@ object RunnerGrab7967 {
         stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) }?.key
     }
 
+    private fun standing7970(mint: String, nowMs: Long): Boolean {
+        val (_, r60) = StructureTracker7962.reads7967(mint, nowMs)
+        return notBreaking7970(r60)
+    }
+
+    /**
+     * LiveEdgeGate7877: a lane-wide "no setup fired, proven losing" record yields to the
+     * narrower cell this token sits in when that cell clears +15% net after one SE.
+     * The aggregate contains the cell; the cell is the more specific measurement.
+     */
+    fun cellBeatsLane7970(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val st = stat(lane, ts, nowMs) ?: return false
+        val ok = cellClearsBar7970(st.n60, st.meanNet60Pct, st.stderr60Pct)
+        if (ok) try { PipelineHealthCollector.labelInc("CELL_BEATS_LANE_7970_${lane.uppercase()}") } catch (_: Throwable) {}
+        return ok
+    }
+
+    /**
+     * LiveEdgeGate7877: a live admit (any path) of a token in a proven runner cell is held
+     * like a grab — any buy can become the runner, so it gets the runner ladder and the
+     * soft-exit deferral while its 1m structure stands.
+     */
+    fun noteAdmit7970(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+        if (ts.position.isOpen || grabbed.containsKey(ts.mint)) return
+        provenCellFor(ts, nowMs) ?: return
+        grabbed[ts.mint] = nowMs
+        val px = ts.lastPrice
+        if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(ts.mint, px to nowMs)
+        heldAdmits.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("RUNNER_HOLD_ON_ADMIT_7970") } catch (_: Throwable) {}
+    }
+    private val heldAdmits = AtomicLong(0)
+
     private fun firmingNow(mint: String, nowMs: Long): Boolean {
         val (r15, r60) = StructureTracker7962.reads7967(mint, nowMs)
         return firming7967(r15) || firming7967(r60)
@@ -121,7 +169,10 @@ object RunnerGrab7967 {
         if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return false
         // V5.0.7968 — a dev sale does not stop a grab (devs sell to side wallets).
         provenCellFor(ts, nowMs) ?: return false
-        if (!firmingNow(mint, nowMs)) return false
+        // V5.0.7970 — the cell's labels were earned on every decision in it, firming or not:
+        // its best cells (n50 +157%, n39 +174% at 5 min) are mostly coins too young for two
+        // swings. Firming still counts; otherwise a cell admit needs only a chart not breaking.
+        if (!firmingNow(mint, nowMs) && !standing7970(mint, nowMs)) return false
         // Graded whether or not the admit is live.
         val px = ts.lastPrice
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(mint, px to nowMs)
@@ -250,7 +301,7 @@ object RunnerGrab7967 {
         val down = synchronized(record) { recordStandsDown7967(record) }
         val top = missedByReason.entries.sortedByDescending { it.value.get() }.take(5).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         val recent = synchronized(missedRecent) { missedRecent.joinToString(" · ") }.ifBlank { "-" }
-        return "grabs=${grabs.get()} holding=${grabbed.size} deferredSoftExits=${deferred.get()} runnerExits=${exitsTaken.get()} " +
+        return "grabs=${grabs.get()} heldAdmits7970=${heldAdmits.get()} holding=${grabbed.size} deferredSoftExits=${deferred.get()} runnerExits=${exitsTaken.get()} " +
             "record30m=$st${if (down) " STOOD_DOWN" else ""} pendingGrades=${signals.size} | runners>=+400%: caught=${caught.get()} " +
             "missed=${missedByReason.values.sumOf { it.get() }} byReason=[$top] recent=[$recent]"
     }
