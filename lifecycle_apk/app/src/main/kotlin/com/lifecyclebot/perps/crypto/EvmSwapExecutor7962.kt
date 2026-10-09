@@ -415,14 +415,30 @@ object EvmSwapExecutor7962 {
         store: Store7962,
     ): EvmBridgeTransactionEngine6649.Outcome {
         var r = try { EvmBridgeTransactionEngine6649.execute(request, creds, rpc, store) }
-        catch (t: Throwable) { return EvmBridgeTransactionEngine6649.Outcome.Failed(null, t.message ?: t.javaClass.simpleName) }
+        catch (t: Throwable) { return thrown(request, store, t) }
         repeat(6) {
             if (r !is EvmBridgeTransactionEngine6649.Outcome.Pending) return r
             delay(2_500L)
             r = try { EvmBridgeTransactionEngine6649.execute(request, creds, rpc, store) }
-            catch (t: Throwable) { return EvmBridgeTransactionEngine6649.Outcome.Failed(null, t.message ?: t.javaClass.simpleName) }
+            catch (t: Throwable) { return thrown(request, store, t) }
         }
         return r
+    }
+
+    /**
+     * An exception (RPC outage on a receipt / block read) once a signed record exists is
+     * transient: the tx may already be on chain, so it stays Pending and is never booked failed.
+     */
+    private fun thrown(
+        request: EvmBridgeTransactionEngine6649.Request,
+        store: Store7962,
+        t: Throwable,
+    ): EvmBridgeTransactionEngine6649.Outcome {
+        val why = t.message ?: t.javaClass.simpleName
+        val rec = store.load(request.idempotencyKey)
+        return if (rec != null && rec.stage != EvmBridgeTransactionEngine6649.Stage.FAILED)
+            EvmBridgeTransactionEngine6649.Outcome.Pending(rec, "EVM_RPC_RETRY:$why")
+        else EvmBridgeTransactionEngine6649.Outcome.Failed(null, why)
     }
 
     private fun settle(ctx: Context, chain: Chain7962, p: Prepared, rpc: Rpc7962, token: String, buy: Boolean, hash: String): Swap7962 {
@@ -470,6 +486,9 @@ object EvmSwapExecutor7962 {
                     ?: return@withContext Swap7962.Rejected("NO_ROUTE", "kyber returned no route")
                 val built = build(chain, route, creds.address, slippageBps)
                     ?: return@withContext Swap7962.Rejected("BUILD_FAILED", "kyber build incomplete or mismatched")
+                // Never send more native than the ticket asked for.
+                if (built.transactionValue != null && built.transactionValue != built.amountIn)
+                    return@withContext Swap7962.Rejected("BUILD_VALUE_MISMATCH", "value=${built.transactionValue} amountIn=${built.amountIn}")
                 val nativeBefore = try { rpc.big("eth_getBalance", creds.address, "latest") } catch (t: Throwable) {
                     return@withContext Swap7962.Rejected("RPC_UNREACHABLE", t.message ?: "balance")
                 }
@@ -513,6 +532,9 @@ object EvmSwapExecutor7962 {
                 }
                 val built = build(chain, route, creds.address, slippageBps)
                     ?: return@withContext Swap7962.Rejected("BUILD_FAILED", "kyber sell build incomplete or mismatched")
+                // A token -> native sell never carries native value.
+                if (built.transactionValue != null && built.transactionValue > BigInteger.ZERO)
+                    return@withContext Swap7962.Rejected("BUILD_VALUE_MISMATCH", "sell value=${built.transactionValue}")
                 val nativeBefore = try { rpc.big("eth_getBalance", creds.address, "latest") } catch (t: Throwable) {
                     return@withContext Swap7962.Pending("BALANCE_READ_RETRY:${t.message}")
                 }
