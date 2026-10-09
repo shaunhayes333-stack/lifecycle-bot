@@ -177,6 +177,10 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7944 — the last price seen for it and when, so a vanished mark books at its real last value. */
         @Volatile var lastPx = 0.0
         @Volatile var lastPxAtMs = 0L
+        /** V5.0.7955 — the setup at the decision (ExitProfile7955 key), when the peak was set, and the 5-minute give-back. */
+        @Volatile var setup7955 = ""
+        @Volatile var peakAtMs7955 = 0L
+        @Volatile var giveback5_7955 = Double.NaN
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -316,6 +320,7 @@ object ForwardReturnLabeler7731 {
                     o.entryPrice.toString(), o.costPct.toString(), o.atMs.toString(),
                     if (o.done15) "1" else "0", if (o.done60) "1" else "0", if (o.done240) "1" else "0", o.peakPct.toString(),
                     o.entryMcap.toString(), o.stage, o.lastPx.toString(), o.lastPxAtMs.toString(),
+                    o.setup7955.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '), o.peakAtMs7955.toString(),
                 ).joinToString(fs)
             }
     }
@@ -325,7 +330,7 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..21) return@forEach
+            if (f.size !in 17..23) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             if (atMs <= 0L || nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731) return@forEach
             val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
@@ -338,6 +343,7 @@ object ForwardReturnLabeler7731 {
                 o.lastPx = f[19].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                 o.lastPxAtMs = f[20].toLongOrNull() ?: 0L
             }
+            if (f.size >= 23) { o.setup7955 = f[21]; o.peakAtMs7955 = f[22].toLongOrNull() ?: 0L }
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -454,6 +460,8 @@ object ForwardReturnLabeler7731 {
         try { TradeShapeLearner7883.capture(ts, l, nowMs) } catch (_: Throwable) {}
         // V5.0.7885 — the Cortex snapshot + every voter's opinion at this decision.
         try { com.lifecyclebot.engine.cortex.Cortex7885.capture(ts, l, admitted, nowMs, reason) } catch (_: Throwable) {}
+        // V5.0.7955 — the setup this decision is traded as keys its exit profile (classify is cached by the capture above).
+        try { pending[key]?.setup7955 = com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) {}
         // V5.0.7737 — a fresh launch is also followed by first touch (+50% / -30%).
         try { FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs) } catch (_: Throwable) {}
         if (lastSeenAt.size > MAX_SEEN_7731) {
@@ -519,7 +527,9 @@ object ForwardReturnLabeler7731 {
      * they bank on the observed peak plus the remainder at the horizon.
      */
     private fun captured7945(o: Obs, net: Double, gross: Double): Pair<Double, Double> {
-        val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(o.peakPct, gross)
+        // V5.0.7955 — credited on the ladder this (lane, setup) is actually sold on.
+        val tiers7955 = try { com.lifecyclebot.engine.ExitProfile7955.planForKey7955(o.lane, o.setup7955).tiers } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
+        val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(o.peakPct, gross, tiers7955)
         if (!g.isFinite() || g <= gross) return net to gross
         capturedLabels7945.incrementAndGet()
         return (net + (g - gross)).coerceAtMost(NET_CEILING_PCT_7738) to g
@@ -528,6 +538,8 @@ object ForwardReturnLabeler7731 {
     private val capturedLabels7945 = AtomicLong(0)
 
     private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long) {
+        // V5.0.7955 — the give-back from the peak to the 5-minute read rides on the observation to its 60-minute sample.
+        o.giveback5_7955 = com.lifecyclebot.engine.ExitProfile7955.giveback7955(o.peakPct, gross0)
         val (net, gross) = captured7945(o, net0, gross0)
         book(o, 60, net, gross)
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
@@ -540,6 +552,13 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double) {
+        // V5.0.7955 — one exit-profile sample per observation: peak, time to peak, give-back to the 60-minute read.
+        try {
+            com.lifecyclebot.engine.ExitProfile7955.onLabel7955(
+                o.lane, o.setup7955, maxOf(o.peakPct, gross0), if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L,
+                com.lifecyclebot.engine.ExitProfile7955.giveback7955(maxOf(o.peakPct, gross0), gross0), o.giveback5_7955,
+            )
+        } catch (_: Throwable) {}
         val (net, gross) = captured7945(o, net0, gross0)
         book(o, 240, net, gross)
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
@@ -729,7 +748,7 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
-            if (gross > o.peakPct) o.peakPct = gross
+            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
             o.lastPx = px; o.lastPxAtMs = nowMs
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)

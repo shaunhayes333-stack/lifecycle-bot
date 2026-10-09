@@ -14410,7 +14410,8 @@ class GoldenTapeRegressionTest {
         assertTrue(helper.contains("if (runner && (stopSide || plan.firstTargetTaken)) return false"))
         assertTrue(bot.contains("val exitSignal = moonshotExitSignal7755(ts, currentPrice)"))
         assertTrue(bot.contains("sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP"))
-        assertTrue(bot.contains("RunnerExitProfile7277.isRunnerLane(pos.tradingMode),"))
+        // V5.0.7955 — the lane's runner flag now reaches exitFor through the learned exit profile.
+        assertTrue(bot.contains("ExitProfile7955.runnerExits7955(plan7955, RunnerExitProfile7277.isRunnerLane(pos.tradingMode)),"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
     }

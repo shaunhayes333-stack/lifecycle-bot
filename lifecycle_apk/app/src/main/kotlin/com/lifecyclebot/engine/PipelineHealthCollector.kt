@@ -2963,7 +2963,7 @@ object PipelineHealthCollector {
                 try { com.lifecyclebot.engine.chart.ChartReader7950.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             sb.append("  Spike capture (§7943):       ").append(
-                try { SpikeCapture7943.statusLine() + " · mayhem " + MayhemMode7943.statusLine() } catch (_: Throwable) { "unavailable" }
+                try { SpikeCapture7943.diagLines7955() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             sb.append("  Cross-asset Cortex (§7931):  ").append(
                 try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.statusLine() } catch (_: Throwable) { "unavailable" }

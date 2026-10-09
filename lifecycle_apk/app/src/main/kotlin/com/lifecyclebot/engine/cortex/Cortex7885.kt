@@ -830,6 +830,7 @@ object Cortex7885 {
         persistPendingMaybe(System.currentTimeMillis())
         try { LanePlaybook7907.persistNow7930() } catch (_: Throwable) {}
         try { CortexExit7897.persistNow7930() } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ExitProfile7955.persistNow7955() } catch (_: Throwable) {} // V5.0.7955
         try { CortexTiming7900.persistNow7930() } catch (_: Throwable) {}
     }
 
