@@ -454,7 +454,9 @@ object LanePlaybook7907 {
                     setup == NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_$lane"
                     // V5.0.7936 — an unmeasured NO_TRIGGER explores (it has to trade to
                     // learn); once its own record is mature it must have proven it pays.
-                    setup == NO_TRIGGER && noTriggerMeasured7936(st) && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
+                    // V5.0.7939 — a runner lane (MOONSHOT hunts 500%+) buys runner setups only:
+                    // 5.0.7937 MOONSHOT bought NO_TRIGGER 442 of 514 times, 4h labels n29 -24%.
+                    setup == NO_TRIGGER && (runner || noTriggerMeasured7936(st)) && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
                     setup != NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup"
                     else -> null
                 }

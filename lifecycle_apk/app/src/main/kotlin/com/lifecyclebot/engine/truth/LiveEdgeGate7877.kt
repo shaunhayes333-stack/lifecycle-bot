@@ -160,7 +160,9 @@ object LiveEdgeGate7877 {
         // PLANWAIT_LAUNCH_NEGATIVE cohort (+3.3%) it does not trade like. Only the
         // candidate's own measured-positive cell (or the ladder, above) still admits.
         val laneStat7938 = try { ForwardReturnLabeler7731.laneStatFor7737(l) } catch (_: Throwable) { null }
-        if (laneProvenLosing7938(laneStat7938)) {
+        // V5.0.7939 — a runner lane is judged on its runner setups, not its lane mean:
+        // a fired playbook setup with a positive expected record still gets its shot.
+        if (laneProvenLosing7938(laneStat7938) && !runnerSetupFires7939(ts, l, nowMs)) {
             val own = judge(cell, false)
             if (!(own.allow && own.source == Source.CELL)) {
                 return Verdict(false, Source.CELL, laneStat7938?.meanNet60Pct ?: 0.0, "LANE_PROVEN_LOSING_7938_${"%.1f".format(laneStat7938?.meanNet60Pct ?: 0.0)}PCT")
@@ -190,6 +192,13 @@ object LiveEdgeGate7877 {
     }
 
     private const val LANE_LOSING_MIN_N_7938 = 100
+
+    private fun runnerSetupFires7939(ts: TokenState, lane: String, nowMs: Long): Boolean {
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+        if (!runner) return false
+        val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookScore7937(ts, lane, nowMs) ?: return false
+        return pb > 50.0
+    }
 
     /** Pure: a refusal resting on a prior alone (no measurement says the entry loses). */
     fun priorOnly7930(why: String): Boolean =
