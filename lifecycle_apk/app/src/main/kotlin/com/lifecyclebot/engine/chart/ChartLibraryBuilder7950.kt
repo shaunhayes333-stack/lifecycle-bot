@@ -32,7 +32,7 @@ object ChartLibraryBuilder7950 {
     private const val FILE = "chart_library_7950.bin"
     private const val PREFS = "chart_library_builder_7950"
     private const val REBUILD_MS = 7L * 24 * 60 * 60_000L
-    private const val GECKO_GAP_MS = 3_500L
+    private const val GECKO_GAP_MS = 10_000L
     private const val BINANCE_GAP_MS = 350L
     private const val WINDOWS_PER_SERIES = 40
     private const val TOP_CRYPTO = 200
@@ -188,6 +188,13 @@ object ChartLibraryBuilder7950 {
             if (gecko) {
                 val wait = lastGeckoMs + GECKO_GAP_MS - System.currentTimeMillis()
                 if (wait > 0) Thread.sleep(wait)
+                // V5.0.7951 review — the live candle feed owns GeckoTerminal: wait out its cooldown and its slot.
+                var guard = 0
+                while (guard++ < 60) {
+                    val slot = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809() } catch (_: Throwable) { null } ?: break
+                    if (!slot.cooldown && slot.waitMs <= 0L) break
+                    Thread.sleep(slot.waitMs.coerceIn(1_000L, 30_000L))
+                }
                 lastGeckoMs = System.currentTimeMillis()
             } else Thread.sleep(BINANCE_GAP_MS)
             calls.incrementAndGet()

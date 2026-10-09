@@ -67,7 +67,7 @@ object SpikeCapture7943 {
     private fun chartExit7950(ts: TokenState, px: Double?, nowMs: Long, sell: (TokenState, Double, String) -> Unit) {
         val pos = ts.position
         if (!pos.isOpen || pos.entryTime <= 0L || nowMs - pos.entryTime < 90_000L) return
-        val why = com.lifecyclebot.engine.chart.ChartReader7950.exitFor(ts.mint, nowMs) ?: return
+        val why = com.lifecyclebot.engine.chart.ChartReader7950.exitFor(ts.mint, nowMs, pos.entryTime) ?: return
         val key = "${ts.mint}|${pos.entryTime}"
         val last = chartExitAt7950[key] ?: 0L
         if (nowMs - last < 20_000L) return

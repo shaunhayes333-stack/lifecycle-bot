@@ -75,16 +75,18 @@ class Aate7950ChartReaderTest {
         repeat(150) { ChartLibrary7950.ingestSeries(staircase(1.0 + it, 1.0 + it % 7), ChartLibrary7950.SRC_SOL_MEME, maxWindows = 10) }
         repeat(150) { ChartLibrary7950.ingestSeries(bleed(), ChartLibrary7950.SRC_CRYPTO, maxWindows = 10) }
         assertTrue(ChartLibrary7950.size() > 2_000)
-        val up = ChartLibrary7950.query(ChartMotif7950.encode(staircase(3.0, 2.0), 30)!!)!!
+        assertFalse(ChartLibrary7950.mature())
+        assertNull(ChartLibrary7950.query(ChartMotif7950.encode(bleed(), 30)!!))
+        val up = ChartLibrary7950.query(ChartMotif7950.encode(staircase(3.0, 2.0), 30)!!, requireMature = false)!!
         assertTrue(up.pUp > 0.8)
         assertTrue(up.lift > 0.2)
         assertTrue(up.meanDist >= 0.0 && up.meanDist.isFinite())
-        val dn = ChartLibrary7950.query(ChartMotif7950.encode(bleed(), 30)!!)!!
+        val dn = ChartLibrary7950.query(ChartMotif7950.encode(bleed(), 30)!!, requireMature = false)!!
         assertTrue(dn.pUp < 0.2)
-        assertTrue(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.7, false, 0L)))
-        assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.3, false, 0L)))   // sellers dominate the tape now
-        assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.7, true, 0L)))    // dev sold
-        assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(dn, 40, 0.7, false, 0L)))
+        assertTrue(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.7, false, 0L), Double.NaN))
+        assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.3, false, 0L), Double.NaN))   // sellers dominate the tape now
+        assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(up, 40, 0.7, true, 0L), Double.NaN))    // dev sold
+        assertFalse(ChartReader7950.buySignal(ChartReader7950.Read(dn, 40, 0.7, false, 0L), Double.NaN))
         ChartLibrary7950.resetForTest()
     }
 

@@ -713,7 +713,9 @@ class DataOrchestrator(
         try { com.lifecyclebot.engine.market.LaunchTape7921.onTrade(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
         // V5.0.7950 — the chart reader's buy/sell volume split and dev-sold flag.
         try {
-            val dev7950 = if (!isBuy && wallet.isNotBlank()) (try { OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }) == wallet else false
+            // V5.0.7951 review — a dev dust sale (a known fraction under 20%) is not a dump; an unknown
+            // fraction (the Helius path passes 0.0) still counts.
+            val dev7950 = if (!isBuy && wallet.isNotBlank() && !(soldFractionOfHolding > 0.0 && soldFractionOfHolding < 0.2)) (try { OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }) == wallet else false
             com.lifecyclebot.engine.chart.ChartReader7950.onTrade(mint, solAmount, isBuy, dev7950)
         } catch (_: Throwable) {}
         try { synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) } } catch (_: Throwable) {}

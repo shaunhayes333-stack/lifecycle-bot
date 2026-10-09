@@ -802,7 +802,7 @@ object OrderSizeResolver6441 {
             lastCapitalRefusalMs7194 = System.currentTimeMillis()
             // V5.0.7951 — who was refused for capital: an FDG SIZE_NOT_EXECUTABLE on this mint is
             // then a capital-only refusal, and a post-intent refusal is capital demand at once.
-            try { com.lifecyclebot.engine.SpecialistOwnership7951.onCapitalRefusal7951(laneName, mint, reason, postIntent = causalEventId.isNotBlank()) } catch (_: Throwable) {}
+            if (!paperMode) try { com.lifecyclebot.engine.SpecialistOwnership7951.onCapitalRefusal7951(laneName, mint, reason, postIntent = causalEventId.isNotBlank()) } catch (_: Throwable) {}
             if (!paperMode) noteCapitalDemand7951(laneName, mint)
         }
         try {

@@ -48,7 +48,7 @@ object ChartReader7950 {
 
     private val tapes = ConcurrentHashMap<String, Tape>()
 
-    data class Read(val motif: MotifRead7950?, val bars: Int, val buyShare: Double, val devSold: Boolean, val atMs: Long)
+    data class Read(val motif: MotifRead7950?, val bars: Int, val buyShare: Double, val devSold: Boolean, val atMs: Long, val devSoldAtMs: Long = 0L)
 
     private val reads = ConcurrentHashMap<String, Read>()
     private val buys = AtomicLong(0)
@@ -136,7 +136,7 @@ object ChartReader7950 {
         val end = bars.size - 1
         val f = ChartMotif7950.encode(bars, end) ?: return null
         val motif = ChartLibrary7950.query(f)
-        val r = Read(motif, bars.size, ChartMotif7950.buyShare(bars, end), nowMs - tape.devSoldAtMs < DEV_SELL_WINDOW_MS, nowMs)
+        val r = Read(motif, bars.size, ChartMotif7950.buyShare(bars, end), nowMs - tape.devSoldAtMs < DEV_SELL_WINDOW_MS, nowMs, tape.devSoldAtMs)
         if (reads.size > 3_000) reads.clear()
         reads[mint] = r
         readsDone.incrementAndGet()
@@ -156,11 +156,18 @@ object ChartReader7950 {
         if (n > 0) liveMotifs.addAndGet(n.toLong())
     }
 
-    /** Pure: does a read say BUY? */
-    fun buySignal(r: Read?): Boolean {
+    /**
+     * Pure: does a read say BUY? V5.0.7951 review: the lift must clear the bar by one
+     * standard error of the neighbours' win rate, and the neighbours must be close
+     * (mean distance within [ChartLibrary7950.typicalDist] x 1.25) — a window that
+     * resembles nothing gets no verdict.
+     */
+    fun buySignal(r: Read?, typicalDist: Double = ChartLibrary7950.typicalDist()): Boolean {
         val m = r?.motif ?: return false
         if (r.devSold) return false
-        if (m.n < MIN_N || m.lift < BUY_LIFT) return false
+        val se = kotlin.math.sqrt((m.pUp * (1.0 - m.pUp)).coerceAtLeast(0.0) / m.n.coerceAtLeast(1))
+        if (m.n < MIN_N || m.lift - se < BUY_LIFT) return false
+        if (typicalDist.isFinite() && typicalDist > 0.0 && m.meanDist > typicalDist * 1.25) return false
         if (!(m.meanUpPct > 1.5 * -m.meanDnPct) || !(m.meanEndPct > 0.0)) return false
         return !r.buyShare.isFinite() || r.buyShare >= MIN_BUY_SHARE
     }
@@ -171,7 +178,8 @@ object ChartReader7950 {
         if (r.devSold) return "DEV_SOLD"
         val m = r.motif ?: return null
         if (m.n < MIN_N) return null
-        return if (m.lift <= EXIT_LIFT && m.meanEndPct < 0.0 && -m.meanDnPct > m.meanUpPct) "TOP_MOTIF" else null
+        val se = kotlin.math.sqrt((m.pUp * (1.0 - m.pUp)).coerceAtLeast(0.0) / m.n.coerceAtLeast(1))
+        return if (m.lift + se <= EXIT_LIFT && m.meanEndPct < 0.0 && -m.meanDnPct > m.meanUpPct) "TOP_MOTIF" else null
     }
 
     /** Gate check (not counted): does the chart say BUY for [mint] now? */
@@ -193,9 +201,15 @@ object ChartReader7950 {
         return ok
     }
 
-    /** Held position: the chart's exit reason, or null to keep holding. */
-    fun exitFor(mint: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val why = try { exitSignal(read(mint, nowMs)) } catch (_: Throwable) { null } ?: return null
+    /**
+     * Held position: the chart's exit reason, or null to keep holding. A dev sale
+     * counts only when it happened after [entryMs] (V5.0.7951 review: a sale minutes
+     * before the buy forced a full exit at 90 s).
+     */
+    fun exitFor(mint: String, nowMs: Long = System.currentTimeMillis(), entryMs: Long = 0L): String? {
+        val r = try { read(mint, nowMs) } catch (_: Throwable) { null }
+        val r2 = if (r != null && r.devSold && r.devSoldAtMs <= entryMs) r.copy(devSold = false) else r
+        val why = try { exitSignal(r2) } catch (_: Throwable) { null } ?: return null
         exits.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("CHART_READER_EXIT_7950_$why")

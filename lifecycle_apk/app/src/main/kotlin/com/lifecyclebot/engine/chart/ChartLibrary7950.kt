@@ -99,9 +99,25 @@ object ChartLibrary7950 {
     /** The last window end [ingestSeries] could use for a series of [n] bars. */
     fun lastLabelledEnd(n: Int): Int = n - ChartMotif7950.HORIZON - 1
 
-    /** The [k] nearest motifs' verdict on [f], or null when the library is too small. */
-    fun query(f: FloatArray, k: Int = 40): MotifRead7950? {
+    /**
+     * V5.0.7951 review — the library reads live charts only once it is mature: a
+     * quarter full, with at least [MIN_PER_FAMILY] motifs from memes and from crypto
+     * (5 BTC series must not overrule every learned refusal during the first build).
+     */
+    fun mature(): Boolean = synchronized(lock) {
+        size >= CAPACITY / 4 && bySrc[SRC_CRYPTO] >= MIN_PER_FAMILY && (bySrc[SRC_SOL_MEME] + bySrc[SRC_BSC_MEME] + bySrc[SRC_LIVE]) >= MIN_PER_FAMILY
+    }
+    private const val MIN_PER_FAMILY = 2_000L
+
+    @Volatile private var distEwma = Double.NaN
+
+    /** Typical mean neighbour distance of recent reads (EWMA), NaN before any. */
+    fun typicalDist(): Double = distEwma
+
+    /** The [k] nearest motifs' verdict on [f], or null when the library is not mature. */
+    fun query(f: FloatArray, k: Int = 80, requireMature: Boolean = true): MotifRead7950? {
         if (f.size != DIM) return null
+        if (requireMature && !mature()) return null
         queries.incrementAndGet()
         val qf = IntArray(DIM) { q(f[it]).toInt() }
         synchronized(lock) {
@@ -138,7 +154,9 @@ object ChartLibrary7950 {
             }
             if (m == 0) return null
             val p = h.toDouble() / m
-            return MotifRead7950(m, p, p - hits.toDouble() / n, up / m, dn / m, end / m, dist / m)
+            val md = dist / m
+            distEwma = if (distEwma.isFinite()) distEwma * 0.98 + md * 0.02 else md
+            return MotifRead7950(m, p, p - hits.toDouble() / n, up / m, dn / m, end / m, md)
         }
     }
 

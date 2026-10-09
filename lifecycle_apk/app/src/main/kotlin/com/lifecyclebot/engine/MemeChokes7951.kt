@@ -58,7 +58,9 @@ object MemeChokes7951 {
     fun v3RejectIsLaneRouting7951(reason: String): Boolean {
         val r = reason.trim()
         return r.contains("SHITCOIN_CANDIDATE") || r.contains("MCAP_TOO_LOW") ||
-            r.equals("SIZE_ZERO", ignoreCase = true) || r.equals("TOO_OLD", ignoreCase = true)
+            // V5.0.7951 review — TOO_OLD stays fatal: V3 reads true on-chain age, the lane's own
+            // check reads watchlist age, and EligibilityGate stops at the first failure.
+            r.equals("SIZE_ZERO", ignoreCase = true)
     }
 
     // ── the curve is the venue ──────────────────────────────────────────────
