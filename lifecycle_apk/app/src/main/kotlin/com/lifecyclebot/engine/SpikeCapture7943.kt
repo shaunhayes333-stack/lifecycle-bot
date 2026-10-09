@@ -54,6 +54,8 @@ object SpikeCapture7943 {
             try { onMark(ts, px, sell) } catch (_: Throwable) {}
         }
         try { chartExit7950(ts, px, nowMs, sell) } catch (_: Throwable) {}
+        // V5.0.7962 — structure break (first lower low after a run): shadow until its own record proves it.
+        try { com.lifecyclebot.engine.chart.StructureTracker7962.heldExit7962(ts, px, nowMs, sell) } catch (_: Throwable) {}
         return px
     }
 
@@ -155,7 +157,10 @@ object SpikeCapture7943 {
         statusLine() + " · mayhem " + MayhemMode7943.statusLine() + "\n  Exit profiles (§7955):       " +
             (try { ExitProfile7955.statusLine7955() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7961 — fill price against decision price, per lane (feeds every label's cost).
-            "\n  Entry chase (§7961):         " + (try { com.lifecyclebot.engine.truth.EntryChase7961.statusLine() } catch (_: Throwable) { "unavailable" })
+            "\n  Entry chase (§7961):         " + (try { com.lifecyclebot.engine.truth.EntryChase7961.statusLine() } catch (_: Throwable) { "unavailable" }) +
+            // V5.0.7962 — market structure (swings, HL_RECLAIM, learned structure-break exit) and the measured all-in cost.
+            "\n  Structure (§7962):           " + (try { com.lifecyclebot.engine.chart.StructureTracker7962.statusLine7962() } catch (_: Throwable) { "unavailable" }) +
+            "\n  Cost ledger (§7962):         " + (try { com.lifecyclebot.engine.truth.CostLedger7962.statusLine7962() } catch (_: Throwable) { "unavailable" })
 
     fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
 }

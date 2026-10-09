@@ -456,7 +456,8 @@ object ForwardReturnLabeler7731 {
         }
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
         val liq = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0
-        val cost = (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }) +
+        // V5.0.7962 — the lane's measured live round trip once it has 8+ trades (CostLedger7962; excludes the chase).
+        val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
             // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
             (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
         val cell = cellKey(ts.source, l, ts.lastMcap, ageMs)
