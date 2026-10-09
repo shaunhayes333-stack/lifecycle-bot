@@ -65,6 +65,7 @@ object ChartLibraryBuilder7950 {
         val f = File(app.filesDir, FILE)
         file = f
         if (!running.compareAndSet(false, true)) return
+        startLiveLearner7954(f)
         Thread({
             try {
                 phase = "loading"
@@ -78,12 +79,8 @@ object ChartLibraryBuilder7950 {
                 }
                 phase = "live"
                 // Live motifs keep arriving through ChartReader7950; save them periodically.
-                var ticks = 0
-                while (true) {
-                    Thread.sleep(LIVE_LEARN_MS_7953)
-                    learnLive7953()
-                    if (++ticks % 2 == 0) ChartLibrary7950.save(f)
-                }
+                // V5.0.7954 — live learning and saving run on their own thread (startLiveLearner7954).
+                while (true) Thread.sleep(60L * 60_000L)
             } catch (_: InterruptedException) {
             } catch (t: Throwable) {
                 phase = "error:${t.javaClass.simpleName}"
@@ -135,6 +132,32 @@ object ChartLibraryBuilder7950 {
      */
     private const val LIVE_LEARN_MS_7953 = 5L * 60_000L
     @Volatile private var lastLiveLearnMs7953 = 0L
+
+    private val skipped7954 = AtomicLong(0)
+    private val liveLearned7954 = AtomicLong(0)
+
+    /**
+     * V5.0.7954 — live charts are learned on their own thread from the first minutes,
+     * independent of the download: 5.0.7953 learned nothing live for 24 minutes because
+     * live learning only ran inside the download loop, which was still listing pools.
+     */
+    private fun startLiveLearner7954(f: File) {
+        Thread({
+            var ticks = 0
+            try {
+                Thread.sleep(90_000L)
+                while (true) {
+                    lastLiveLearnMs7953 = System.currentTimeMillis()
+                    val n = try { ChartReader7950.learnAll7953() } catch (_: Throwable) { 0 }
+                    liveLearned7954.addAndGet(n.toLong())
+                    if (++ticks % 2 == 0) ChartLibrary7950.save(f)
+                    Thread.sleep(LIVE_LEARN_MS_7954)
+                }
+            } catch (_: InterruptedException) {
+            } catch (_: Throwable) {}
+        }, "chart-live-learner-7954").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+    }
+    private const val LIVE_LEARN_MS_7954 = 3L * 60_000L
 
     private fun learnLive7953() {
         lastLiveLearnMs7953 = System.currentTimeMillis()
@@ -217,12 +240,16 @@ object ChartLibraryBuilder7950 {
                 val wait = lastGeckoMs + GECKO_GAP_MS - System.currentTimeMillis()
                 if (wait > 0) Thread.sleep(wait)
                 // V5.0.7951 review — the live candle feed owns GeckoTerminal: wait out its cooldown and its slot.
-                var guard = 0
-                while (guard++ < 60) {
-                    val slot = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809() } catch (_: Throwable) { null } ?: break
-                    if (!slot.cooldown && slot.waitMs <= 0L) break
-                    Thread.sleep(slot.waitMs.coerceIn(1_000L, 30_000L))
+                // V5.0.7954 — bounded: 5.0.7953 sat in "listing" for 24 min waiting out the feed's
+                // cooldowns (up to 60 x 30 s per call). Wait at most 45 s, then skip this call.
+                val waitUntil = System.currentTimeMillis() + 45_000L
+                var ready = false
+                while (System.currentTimeMillis() < waitUntil) {
+                    val slot = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809() } catch (_: Throwable) { null }
+                    if (slot == null || (!slot.cooldown && slot.waitMs <= 0L)) { ready = true; break }
+                    Thread.sleep(slot.waitMs.coerceIn(1_000L, 15_000L))
                 }
+                if (!ready) { skipped7954.incrementAndGet(); return null }
                 lastGeckoMs = System.currentTimeMillis()
             } else Thread.sleep(BINANCE_GAP_MS)
             calls.incrementAndGet()
@@ -285,5 +312,5 @@ object ChartLibraryBuilder7950 {
     }
 
     fun statusLine(): String =
-        "phase=$phase series=${seriesDone.get()}/${seriesTotal.get()} calls=${calls.get()} failures=${failures.get()}"
+        "phase=$phase series=${seriesDone.get()}/${seriesTotal.get()} calls=${calls.get()} failures=${failures.get()} skippedBusyFeed7954=${skipped7954.get()} liveLearned7954=${liveLearned7954.get()}"
 }

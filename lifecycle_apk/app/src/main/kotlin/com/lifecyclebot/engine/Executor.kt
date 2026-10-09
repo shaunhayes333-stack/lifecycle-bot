@@ -14506,7 +14506,12 @@ class Executor(
         // that the 7946 reset left unproven; and only the deadest qualifying position goes.
         val blocker = com.lifecyclebot.engine.truth.CapitalDrawdown7948.rotationBlocker7948(input) { capitalDemandWaiting7951() }
         val offerKey7951 = "${ts.mint}|${p.entryTime}"
-        if (blocker != null) { com.lifecyclebot.engine.truth.CapitalThroughput7951.withdrawRotationOffer7951(offerKey7951); return false }
+        if (blocker != null) {
+            com.lifecyclebot.engine.truth.CapitalThroughput7951.withdrawRotationOffer7951(offerKey7951)
+            // V5.0.7954 — the diag names why rotation did not free capital.
+            try { PipelineHealthCollector.labelInc("CAPITAL_ROTATION_BLOCKED_7954_${blocker.substringBefore(':').take(40)}") } catch (_: Throwable) {}
+            return false
+        }
         if (!deadestRotationOffer7951(ts.mint, offerKey7951, verdict.pnlPct, input.msSinceNewHigh, now)) return false
         com.lifecyclebot.engine.truth.CapitalThroughput7951.withdrawRotationOffer7951(offerKey7951)
         com.lifecyclebot.engine.truth.CapitalDrawdown7948.noteRotation7948(now)
