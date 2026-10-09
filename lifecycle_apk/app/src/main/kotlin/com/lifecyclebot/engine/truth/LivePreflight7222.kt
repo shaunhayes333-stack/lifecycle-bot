@@ -109,7 +109,7 @@ object LivePreflight7222 {
             val pf = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd)
             val minViableWallet = pf.minViableTradeableSol + reserve
             val ok = walletSol > 0.0 && !pf.wouldRefuse
-            val detail = "tradeable=${"%.4f".format(pf.tradeableSol)} routableMin=${"%.5f".format(pf.routableMinSol)} " +
+            val detail = "reserve7951=${"%.4f".format(reserve)} tradeable=${"%.4f".format(pf.tradeableSol)} routableMin=${"%.5f".format(pf.routableMinSol)} " +
                 "capacity=${pf.capacity} shareGuard=${"%.3f".format(pf.shareGuard)} safeShareCap=${"%.5f".format(pf.safeShareCapSol)} " +
                 "minViableWalletSol=${"%.4f".format(minViableWallet)} " +
                 (if (!ok && walletSol > 0.0) "shortfallSol=${"%.4f".format(CapitalDrawdown7948.shortfallSol7948(walletSol, reserve, pf.routableMinSol))} " else "") +
@@ -121,7 +121,7 @@ object LivePreflight7222 {
                 // and the remedy the bot itself applies (CAPITAL_ROTATION_7948).
                 else -> Check("ROUTABLE_CAPACITY", Verdict.REFUSE,
                     "${CapitalDrawdown7948.routableRefusalReason7948(pf.capacity, pf.tradeableSol, pf.routableMinSol)}; " +
-                        "remedy=CAPITAL_ROTATION_7948 frees a dead-money live position for a proven setup; $detail")
+                        "remedy=CAPITAL_ROTATION_7948 frees the deadest dead-money live position for a candidate waiting on capital (V5.0.7951); $detail")
             }
         }
 

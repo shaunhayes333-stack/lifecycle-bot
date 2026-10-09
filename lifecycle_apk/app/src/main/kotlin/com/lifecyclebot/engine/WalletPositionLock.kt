@@ -62,7 +62,9 @@ object WalletPositionLock {
         if (walletSol <= 0.01) return false
 
         val totalDeployed = getTotalDeployed()
-        val maxAllowed = walletSol * (maxExposurePct / 100.0)
+        // V5.0.7951 — caps are shares of the wallet (liquid + deployed), not of liquid alone.
+        val basis7951 = exposureBasis7951(walletSol, totalDeployed, liveEquity7951(walletSol))
+        val maxAllowed = basis7951 * (maxExposurePct / 100.0)
         val afterTrade = totalDeployed + sizeSol
 
         // V5.9.665 — global cap check. If we'd blow past 80% wallet
@@ -75,7 +77,7 @@ object WalletPositionLock {
             // single lane shouldn't have been blocked by another lane
             // hogging the global pool. Otherwise, block.
             val laneCapPct = perLaneCapPct[traderName] ?: maxExposurePct
-            val laneCapSol = walletSol * (laneCapPct / 100.0)
+            val laneCapSol = basis7951 * (laneCapPct / 100.0)
             val laneDeployed = deployedSol.getOrDefault(traderName, 0.0)
             val laneAfter = laneDeployed + sizeSol
             if (laneAfter > laneCapSol) {
@@ -94,7 +96,7 @@ object WalletPositionLock {
 
         // V5.9.665 — also enforce per-lane cap even when global has room.
         val laneCapPct = perLaneCapPct[traderName] ?: maxExposurePct
-        val laneCapSol = walletSol * (laneCapPct / 100.0)
+        val laneCapSol = basis7951 * (laneCapPct / 100.0)
         val laneDeployed = deployedSol.getOrDefault(traderName, 0.0)
         val laneAfter = laneDeployed + sizeSol
         if (laneAfter > laneCapSol) {
@@ -130,6 +132,31 @@ object WalletPositionLock {
      * Get total deployed SOL across all traders.
      */
     fun getTotalDeployed(): Double = deployedSol.values.sum()
+
+    /**
+     * V5.0.7951 — the exposure caps are shares of the WALLET (liquid SOL + what
+     * this lock has recorded as deployed), not of liquid SOL alone. Both callers
+     * pass liquid SOL, so every open position shrank the base its own exposure
+     * was measured against: on 5.0.7949 (liquid 0.040) a 0.027-0.045 SOL crypto
+     * order needed liquid >= 2.5x its size to clear the 40% CryptoAlt cap. That
+     * pre-dispatch refusal (LIVE_WALLET_LOCK_7835) is the likely cause of
+     * CRYPTO_ALT intent=5 dispatch=2 dispatchReject=3: every sized intent that
+     * fails before dispatch counts as a reject, and the other exits there (an
+     * invalid sealed size, a pending expiry) need a sizing fault or a stall.
+     *
+     * [deployedSol] is only what this in-memory lock recorded this session, so
+     * positions carried over a restart are invisible to it; the canonical live
+     * marked equity ([liveEquitySol]) is the floor of the basis.
+     */
+    fun exposureBasis7951(liquidSol: Double, deployedSol: Double, liveEquitySol: Double): Double {
+        val recorded = (if (liquidSol.isFinite()) liquidSol.coerceAtLeast(0.0) else 0.0) +
+            (if (deployedSol.isFinite()) deployedSol.coerceAtLeast(0.0) else 0.0)
+        return maxOf(recorded, if (liveEquitySol.isFinite()) liveEquitySol else 0.0)
+    }
+
+    /** Callers are live-only (CryptoAlt live branch, Executor live buy). */
+    private fun liveEquity7951(liquidSol: Double): Double =
+        try { com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(liquidSol) } catch (_: Throwable) { 0.0 }
 
     /**
      * Get current exposure percentage.

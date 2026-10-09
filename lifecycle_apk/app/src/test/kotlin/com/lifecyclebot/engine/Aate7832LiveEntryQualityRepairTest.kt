@@ -54,7 +54,7 @@ class Aate7832LiveEntryQualityRepairTest {
         val resolver = src("engine/truth/OrderSizeResolver6441.kt")
         val risk = src("engine/truth/LiveRiskPolicy7807.kt")
         val guard = src("engine/truth/RoutableMinRiskGuard7236.kt")
-        assertTrue(smart.contains("LIVE_ROUTABLE_MIN_USD_7127 = 5.0"))
+        assertTrue(smart.contains("LIVE_ROUTABLE_MIN_USD_7127 = 3.0")) // V5.0.7951
         assertTrue(resolver.contains("LIVE_ROUTABLE_MIN_CAPACITY_PROMOTED_7840"))
         assertTrue(resolver.contains("refuseMinPromotion6909 -> 0L"))
         assertTrue(risk.contains("RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"))

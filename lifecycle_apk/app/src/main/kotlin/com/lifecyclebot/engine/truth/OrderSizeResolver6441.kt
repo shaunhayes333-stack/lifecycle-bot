@@ -76,6 +76,19 @@ object OrderSizeResolver6441 {
 
     /** V5.0.7194 — lifetime count of capital-fundability refusals. */
     fun capitalRefusalCount7194(): Long = capitalRefusals7194.get()
+
+    /**
+     * V5.0.7951 — a live candidate this resolver refused ONLY for capital is
+     * demand for SOL; a chart-reader BUY waiting on capital is tagged as such.
+     * Capital rotation (Executor.capitalRotation7948) and the scarce-slot rule
+     * (ExitThroughputAuthority6727) read it through CapitalThroughput7951.
+     */
+    private fun noteCapitalDemand7951(lane: String, mint: String) {
+        try {
+            val chartBuy = mint.isNotBlank() && com.lifecyclebot.engine.chart.ChartReader7950.saysBuy(mint)
+            CapitalThroughput7951.noteCapitalDemand7951(lane, mint, if (chartBuy) "CHART_BUY_CAPITAL_REFUSED" else "SIZE_CAPITAL_REFUSED")
+        } catch (_: Throwable) {}
+    }
     private const val SOL_LAMPORTS_6491 = 1_000_000_000L
     private const val PAPER_ENTRY_FEE_RESERVE_RATE_6490 = 0.005
 
@@ -787,6 +800,7 @@ object OrderSizeResolver6441 {
         if (!actuallyExec && (reason == "CAPITAL_BELOW_MIN_EXECUTABLE_6490" || reason == "NO_WALLET" || reason == "PAPER_CASH_EMPTY_7819")) {
             capitalRefusals7194.incrementAndGet()
             lastCapitalRefusalMs7194 = System.currentTimeMillis()
+            if (!paperMode) noteCapitalDemand7951(laneName, mint)
         }
         try {
             ForensicLogger.lifecycle(

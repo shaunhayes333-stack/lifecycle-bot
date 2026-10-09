@@ -14501,10 +14501,14 @@ class Executor(
             banked = p.partialSoldPct > 0.0 || p.capitalRecovered || p.profitLocked || p.isHouseMoney,
             msSinceLastRotation = com.lifecyclebot.engine.truth.CapitalDrawdown7948.msSinceLastRotation7948(now),
         )
-        val blocker = com.lifecyclebot.engine.truth.CapitalDrawdown7948.rotationBlocker7948(input) {
-            com.lifecyclebot.engine.truth.CapitalDrawdown7948.anyLiveLaneProven7948()
-        }
-        if (blocker != null) return false
+        // V5.0.7951 — fires on real demand (a candidate refused only for capital, a
+        // chart BUY waiting on it, crypto WALLET_BELOW_ROUTABLE), not on a lane label
+        // that the 7946 reset left unproven; and only the deadest qualifying position goes.
+        val blocker = com.lifecyclebot.engine.truth.CapitalDrawdown7948.rotationBlocker7948(input) { capitalDemandWaiting7951() }
+        val offerKey7951 = "${ts.mint}|${p.entryTime}"
+        if (blocker != null) { com.lifecyclebot.engine.truth.CapitalThroughput7951.withdrawRotationOffer7951(offerKey7951); return false }
+        if (!deadestRotationOffer7951(ts.mint, offerKey7951, verdict.pnlPct, input.msSinceNewHigh, now)) return false
+        com.lifecyclebot.engine.truth.CapitalThroughput7951.withdrawRotationOffer7951(offerKey7951)
         com.lifecyclebot.engine.truth.CapitalDrawdown7948.noteRotation7948(now)
         try {
             PipelineHealthCollector.labelInc("CAPITAL_ROTATION_7948")
@@ -14513,12 +14517,35 @@ class Executor(
                 "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane heldMin=${posAgeMs / 60_000L} " +
                     "pnl=${"%.2f".format(verdict.pnlPct)} peak=${"%.1f".format(p.peakGainPct)} " +
                     "valueSol=${"%.5f".format(valueSol)} liquid=${"%.4f".format(liquid)} routableMin=${"%.5f".format(routableMin)} " +
-                    "action=free_dead_money_for_proven_setup",
+                    "action=free_dead_money_for_waiting_demand_7951",
             )
         } catch (_: Throwable) {}
         lastNewHighMs7388.remove("${ts.mint}|${p.entryTime}")
         requestSell(ts = ts, reason = "CAPITAL_ROTATION_7948", wallet = wallet, walletSol = walletSol)
         return true
+    }
+
+    /**
+     * V5.0.7951 — is a candidate waiting on capital right now? The one place the
+     * rotation asks; repoint it at the specialist-ownership read
+     * (capitalDemand7951) when that lands.
+     */
+    private fun capitalDemandWaiting7951(): Boolean =
+        try { com.lifecyclebot.engine.truth.CapitalThroughput7951.demandWaiting7951() } catch (_: Throwable) { false }
+
+    /** V5.0.7951 — offer this qualifying position; true when it is the deadest one (chart TOP_MOTIF / DEV_SOLD first). */
+    private fun deadestRotationOffer7951(mint: String, key: String, pnlPct: Double, msSinceNewHigh: Long, nowMs: Long): Boolean {
+        val chartExit = try {
+            com.lifecyclebot.engine.chart.ChartReader7950.exitSignal(com.lifecyclebot.engine.chart.ChartReader7950.read(mint, nowMs)) != null
+        } catch (_: Throwable) { false }
+        return try {
+            com.lifecyclebot.engine.truth.CapitalThroughput7951.offerRotation7951(
+                com.lifecyclebot.engine.truth.CapitalThroughput7951.RotationOffer7951(
+                    key, chartExit, com.lifecyclebot.engine.truth.CapitalThroughput7951.deadness7951(pnlPct, msSinceNewHigh), nowMs,
+                ),
+                nowMs,
+            )
+        } catch (_: Throwable) { false }
     }
 
     /** V5.0.7708 — last RECOVERED_DUST_LIQUIDATION_7708 attempt per mint. */

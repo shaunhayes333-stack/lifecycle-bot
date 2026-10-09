@@ -143,9 +143,11 @@ class Aate7807LiveRiskPolicyTest {
             walletSol = 0.2113,
             solUsd = 120.85,
             maxLiveBuySol = 2.0,
-            walletSharePct = 0.18,
+            // V5.0.7951 — the routable minimum is now ~0.0256 SOL ($3 / cost floor),
+            // below an 18% cap of this wallet; a 10% share keeps the bridge case.
+            walletSharePct = 0.10,
         )
-        assertEquals(0.2113 * 0.18, cap.configuredWalletCapSol, 1e-9)
+        assertEquals(0.2113 * 0.10, cap.configuredWalletCapSol, 1e-9)
         assertTrue(cap.routableMinSol > cap.configuredWalletCapSol)
         assertTrue(cap.routeFloorLifted)
         assertEquals(cap.routableMinSol, cap.maxSpendableSol, 1e-9)

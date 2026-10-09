@@ -142,6 +142,8 @@ object CapitalDrawdown7948 {
 
     /**
      * Null = rotate (sell this position so its SOL funds a proven setup).
+     * V5.0.7951 — the Executor passes "a candidate is waiting on capital"
+     * (CapitalThroughput7951.demandWaiting7951) as [provenSetupWaiting].
      * Otherwise the first reason it is kept. [provenSetupWaiting] is evaluated
      * last, only when every cheaper condition already holds.
      */

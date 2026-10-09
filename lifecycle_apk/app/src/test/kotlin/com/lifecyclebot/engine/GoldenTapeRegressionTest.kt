@@ -11040,7 +11040,8 @@ class GoldenTapeRegressionTest {
         val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt").readText()
         assertTrue(v3.contains("com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL"))
         assertFalse(v3.contains("val reserveSol = config?.reserveSol ?: 0.05\n"))
-        assertEquals(0.012, com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL, 1e-12)
+        // V5.0.7951 — sized from open positions, between the 0.006 floor and the old 0.012 ceiling.
+        assertTrue(com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL in 0.006..0.012)
     }
 
     @Test
@@ -13379,7 +13380,7 @@ class GoldenTapeRegressionTest {
         assertEquals(20, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slots(0.01))
         assertEquals(20, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slots(100.0))
         val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt").readText()
-        assertTrue(sizer.contains("        const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0"))
+        assertTrue(sizer.contains("        const val LIVE_ROUTABLE_MIN_USD_7127 = 3.0")) // V5.0.7951 audit: $5 -> $3
 
         // Bot-sourced dust is adopted at the $2 floor so it is sold, not left squatting a slot.
         val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()

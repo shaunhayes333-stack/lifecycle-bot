@@ -44,7 +44,7 @@ object LiveSlotPriority7304 {
                 ?: if (laneKey == "PROJECT_SNIPER") OracleTradeHistory7287.lane("PRESALE_SNIPE") else null
         } catch (_: Throwable) { null }
         val proven = isProven(stat)
-        val defer = shouldDefer(freeSlots, proven, lastSlotSinceMs, nowMs)
+        val defer = shouldDefer(freeSlots, proven, lastSlotSinceMs, nowMs) && anyProvenLane7951()
         try {
             val label = when {
                 defer -> "LIVE_LAST_SLOT_RESERVED_FOR_PROVEN_LANE_7304"
@@ -56,4 +56,15 @@ object LiveSlotPriority7304 {
         } catch (_: Throwable) {}
         return defer
     }
+
+    /**
+     * V5.0.7951 — holding the last slot for a proven lane only makes sense when
+     * one exists. After the 7946 label reset none is, and on a small wallet the
+     * last slot is usually the only slot, so every slot capital rotation freed
+     * sat empty for SLOT_RELEASE_MS_7304 (5.0.7949: RESERVED_FOR_PROVEN_LANE x2
+     * with no proven lane anywhere). Fails toward the old behaviour.
+     */
+    private fun anyProvenLane7951(): Boolean = try {
+        LiveRiskPolicy7807.LaneRiskBudget7807.keys.any { isProven(OracleTradeHistory7287.lane(it)) }
+    } catch (_: Throwable) { true }
 }

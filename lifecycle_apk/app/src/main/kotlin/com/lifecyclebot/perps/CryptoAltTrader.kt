@@ -321,6 +321,10 @@ object CryptoAltTrader {
         val floor = try {
             com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMin)
         } catch (_: Throwable) { 0.0 }
+        // V5.0.7951 — crypto competes for the same SOL: a routable crypto entry
+        // refused only because meme positions hold the cash is capital demand,
+        // which lets Executor's capital rotation free the deadest meme position.
+        if (floor <= 0.0) noteCryptoCapitalDemand7951()
         if (floor <= 0.0) return requested to "CRYPTO_LIVE_REFUSED_WALLET_BELOW_ROUTABLE_7708:tradeable=${"%.4f".format(tradeable)} routableMin=${"%.4f".format(routableMin)}"
         val slots = try { com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slotVerdict() } catch (_: Throwable) { null }
         if (slots != null && !slots.allow) return requested to "CRYPTO_LIVE_REFUSED_SLOTS_FULL_7708:open=${slots.open}/${slots.slots}"
@@ -331,6 +335,12 @@ object CryptoAltTrader {
             return requested to "CRYPTO_LIVE_BLOCKED_UNMANAGED_BOT_HOLD_7708:${coverage.reasonCode}:${coverage.mints.size}"
         }
         return requested to null
+    }
+
+    private fun noteCryptoCapitalDemand7951() {
+        try {
+            com.lifecyclebot.engine.truth.CapitalThroughput7951.noteCapitalDemand7951("CRYPTO_ALT", "", "CRYPTO_WALLET_BELOW_ROUTABLE")
+        } catch (_: Throwable) {}
     }
 
     internal fun canonicalCryptoLane7251(isDynamic: Boolean, isSpot: Boolean): String = when {

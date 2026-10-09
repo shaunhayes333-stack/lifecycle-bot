@@ -226,6 +226,7 @@ object ExitThroughputAuthority6727 {
         val laneHeadroom6732 = try {
             if (lane.isNotBlank()) LaneCapitalFairness6732.headroomFor(m, lane) else null
         } catch (_: Throwable) { null }
+        scarceSlotRefusal7951(m, lane, laneHeadroom6732)?.let { return Verdict(false, it, openCount, cash, equity, cashRatio) }
         if (laneHeadroom6732?.hasHeadroom == true) {
             try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_LANE_FAIRNESS_BYPASS_6732") } catch (_: Throwable) {}
             return Verdict(true, "LANE_HEADROOM_FAIRNESS_6732", openCount, cash, equity, cashRatio)
@@ -342,6 +343,55 @@ object ExitThroughputAuthority6727 {
         }
 
         return Verdict(true, "OK", openCount, cash, equity, cashRatio)
+    }
+
+    /**
+     * V5.0.7951 — SLOTS UNDER SCARCITY. 5.0.7949 live: equity 0.2219 SOL, four
+     * open live positions, CASHGEN holding two of them at 1.63x its enforced
+     * target while every faster lane was refused for capital. While the wallet's
+     * routable capacity is scarce (<= 5 orders of EQUITY, or liquid SOL for at
+     * most one), a slow lane (CASHGEN / BLUECHIP / TREASURY / QUALITY) holds one
+     * slot while a fast lane (SHITCOIN / MOONSHOT / EXPRESS / CORE / crypto) has
+     * demand waiting, and a lane at or over its enforced allocation does not take
+     * another slot from a lane that is asking. A lane alone with the wallet is
+     * never refused here (CapitalThroughput7951.scarceSlotRefusal7951). Live only;
+     * fails open.
+     */
+    private fun scarceSlotRefusal7951(m: String, lane: String, headroom: LaneCapitalFairness6732.Headroom?): String? {
+        if (m != "live" || lane.isBlank()) return null
+        return try {
+            val nl = CanonicalLaneIdentity6506.canonical(lane)
+            val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            if (!solUsd.isFinite() || solUsd <= 0.0) return null
+            val liquid = com.lifecyclebot.engine.BotService.status.walletSol
+            val equity = CapitalDrawdown7948.liveMarkedEquitySol7948(liquid)
+            val reserve = LiveSpendReserveAuthority7255.RESERVE_SOL
+            val routableMin = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd).routableMinSol
+            val laneOpen = CanonicalPositionAuthority6441.openPositions().count {
+                it.mode.equals("live", ignoreCase = true) && CanonicalLaneIdentity6506.canonical(it.lane) == nl
+            }
+            val now = System.currentTimeMillis()
+            val refusal = CapitalThroughput7951.scarceSlotRefusal7951(
+                lane = nl,
+                laneOpen = laneOpen,
+                utilization = if (headroom != null && headroom.targetSol > 0.0) headroom.utilization else 0.0,
+                equityCapacity = CapitalThroughput7951.routableCapacity7951(equity, reserve, routableMin),
+                liquidCapacity = CapitalThroughput7951.routableCapacity7951(liquid, reserve, routableMin),
+                fastDemandWaiting = CapitalThroughput7951.demandWaiting7951(now, excludeLane = nl, fastOnly = true),
+                otherDemandWaiting = CapitalThroughput7951.demandWaiting7951(now, excludeLane = nl),
+            )
+            if (refusal != null) {
+                PipelineHealthCollector.labelInc(refusal)
+                PipelineHealthCollector.labelInc("${refusal}_$nl")
+                ForensicLogger.lifecycle(
+                    refusal,
+                    "lane=$nl laneOpen=$laneOpen equity=${"%.4f".format(equity)} liquid=${"%.4f".format(liquid)} " +
+                        "reserve=${"%.4f".format(reserve)} routableMin=${"%.5f".format(routableMin)} " +
+                        "util=${"%.2f".format(headroom?.utilization ?: 0.0)} action=slot_goes_to_the_lane_waiting_on_capital",
+                )
+            }
+            refusal
+        } catch (_: Throwable) { null }
     }
 }
 
