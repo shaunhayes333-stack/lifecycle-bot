@@ -893,6 +893,140 @@
                 android:paddingStart="12dp"
                 android:layout_marginBottom="10dp"/>
 
+            <!-- V5.0.7955 — free-tier chart-source keys (engine/chart/ChartSources7955) -->
+            <TextView
+                android:id="@+id/tvCoinMarketCapHelp7955"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CMC KEY - coinmarketcap.com/api (free Basic: listings + DEX pairs)"
+                android:textColor="@color/aate_green"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etCoinMarketCapKey7955"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste coinmarketcap api key (blank = skipped)..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+            <TextView
+                android:id="@+id/tvMoralisHelp7955"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MORALIS KEY - moralis.com (free: Solana pairs, OHLCV, pump.fun new/graduated)"
+                android:textColor="@color/aate_green"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etMoralisKey7955"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste moralis api key (blank = skipped)..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+            <TextView
+                android:id="@+id/tvBitqueryHelp7955"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BITQUERY KEY - bitquery.io (free: Solana DEX trades, 1m buy/sell bars)"
+                android:textColor="@color/aate_green"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etBitqueryKey7955"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste bitquery access token (blank = skipped)..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+            <TextView
+                android:id="@+id/tvSolanaTrackerHelp7955"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SOLANATRACKER KEY - solanatracker.io data API (free: charts)"
+                android:textColor="@color/aate_green"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etSolanaTrackerKey7955"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste solanatracker api key (blank = skipped)..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+            <TextView
+                android:id="@+id/tvCodexHelp7955"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CODEX KEY - codex.io (free: getBars with buy volume)"
+                android:textColor="@color/aate_green"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etCodexKey7955"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste codex api key (blank = skipped)..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+            <TextView
+                android:id="@+id/tvCryptoCompareHelp7955"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CRYPTOCOMPARE KEY - cryptocompare.com (free: minute/hour history)"
+                android:textColor="@color/aate_green"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etCryptoCompareKey7955"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste cryptocompare api key (blank = skipped)..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+
             <!-- Birdeye -->
             <TextView
                 android:id="@+id/tvBirdeyeHelp"

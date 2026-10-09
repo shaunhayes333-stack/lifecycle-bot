@@ -117,8 +117,10 @@ object ChartReader7950 {
                 var g = prevMin + 1
                 while (g < m && out.size < 600) { out += Bar7950(g * BUCKET_MS, prevClose, prevClose, prevClose, prevClose, 0.0, 0.0); g++ }
             }
-            val vol = b[4] + b[5]
-            out += Bar7950(m * BUCKET_MS, b[0], b[1], b[2], b[3], vol, if (vol > 0.0) b[4] else Double.NaN)
+            // V5.0.7955 — a backfilled minute may carry volume without a buy/sell split (slot 7).
+            val split = b[4] + b[5]
+            val unsplit = if (b.size > 7) b[7] else 0.0
+            out += Bar7950(m * BUCKET_MS, b[0], b[1], b[2], b[3], split + unsplit, if (split > 0.0 && unsplit <= 0.0) b[4] else Double.NaN)
             prevMin = m
             prevClose = b[3]
         }
@@ -130,9 +132,10 @@ object ChartReader7950 {
     /** The chart read for [mint] now (cached [READ_TTL_MS]); null when there are too few candles. */
     fun read(mint: String, nowMs: Long = System.currentTimeMillis()): Read? {
         reads[mint]?.let { if (nowMs - it.atMs < READ_TTL_MS) return it }
-        val tape = tapes[mint] ?: return null
+        val tape = tapes[mint] ?: return noteShort7955(mint, nowMs)
         val bars = bars(mint)
-        if (bars.size < ChartMotif7950.WINDOW + 1) return null
+        if (bars.size < ChartMotif7950.WINDOW + 1) return noteShort7955(mint, nowMs)
+        short7955.remove(mint)
         val end = bars.size - 1
         val f = ChartMotif7950.encode(bars, end) ?: return null
         val motif = ChartLibrary7950.query(f)
@@ -142,6 +145,56 @@ object ChartReader7950 {
         readsDone.incrementAndGet()
         learnLive(mint, tape, bars)
         return r
+    }
+
+    // ── V5.0.7955 live backfill: a token is readable the moment it is seen ──
+
+    /** Mints a read found with too few candles -> last asked (ChartSources7955 backfills them). */
+    private val short7955 = ConcurrentHashMap<String, Long>()
+
+    private fun noteShort7955(mint: String, nowMs: Long): Read? {
+        if (mint.isNotBlank()) {
+            short7955[mint] = nowMs
+            if (short7955.size > 2_000) short7955.entries.filter { nowMs - it.value > KEEP_MS }.forEach { short7955.remove(it.key, it.value) }
+        }
+        return null
+    }
+
+    /** Recently read mints whose tape is still too short to read (newest first). */
+    fun shortTapes7955(nowMs: Long = System.currentTimeMillis()): List<String> =
+        short7955.entries.filter { nowMs - it.value < 30L * 60_000L }.sortedByDescending { it.value }.take(50).map { it.key }
+
+    /** Contiguous one-minute candles the tape holds for [mint] now. */
+    fun liveBars7955(mint: String): Int = bars(mint).size
+
+    /**
+     * Seed one-minute candles ([Bar7950.v] in SOL) into [mint]'s tape. Minutes the
+     * live tape already holds are kept; only the last [KEEP_MS] is taken. A bar
+     * without a buy split keeps its volume unsplit (never a fabricated 50/50).
+     * Returns the minutes added.
+     */
+    fun seedBars7955(mint: String, bars: List<Bar7950>, nowMs: Long = System.currentTimeMillis()): Int {
+        if (mint.isBlank() || bars.isEmpty()) return 0
+        val tape = tapes.computeIfAbsent(mint) { Tape() }
+        var n = 0
+        synchronized(tape) {
+            val oldest = (nowMs - KEEP_MS) / BUCKET_MS
+            val newest = nowMs / BUCKET_MS
+            for (b in bars) {
+                val m = b.t / BUCKET_MS
+                if (m < oldest || m > newest || tape.bars.containsKey(m)) continue
+                if (!(b.c > 0.0) || !b.c.isFinite() || !(b.h >= b.l)) continue
+                val v = if (b.v.isFinite() && b.v > 0.0) b.v else 0.0
+                val split = v > 0.0 && b.buyV.isFinite()
+                val buy = if (split) b.buyV.coerceIn(0.0, v) else 0.0
+                tape.bars[m] = doubleArrayOf(b.o, b.h, b.l, b.c, buy, if (split) v - buy else 0.0, (m * BUCKET_MS).toDouble(), if (split) 0.0 else v)
+                n++
+            }
+            tape.bars.lastEntry()?.let { val ms = it.key * BUCKET_MS; if (ms > tape.lastMs) tape.lastMs = ms }
+        }
+        if (n > 0) reads.remove(mint)
+        if (tapes.size > MAX_MINTS) trim(nowMs)
+        return n
     }
 
     /** V5.0.7953 — fingerprint every live tape's closed candles into the library. Returns motifs added. */
@@ -231,6 +284,8 @@ object ChartReader7950 {
     fun statusLine(): String =
         "tapes=${tapes.size} reads=${readsDone.get()} buys=${buys.get()} exits=${exits.get()} liveMotifs=${liveMotifs.get()} " +
             "admitted=${admitted.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} lib[${ChartLibrary7950.statusLine()}] " +
-            "build[${ChartLibraryBuilder7950.statusLine()}]"
+            "build[${ChartLibraryBuilder7950.statusLine()}]" +
+            // V5.0.7955 — one line per chart market-data source (the pinned diag dump may not grow).
+            (try { ChartSources7955.diagLines7955().joinToString("") { "\n    $it" } } catch (_: Throwable) { "" })
 
 }

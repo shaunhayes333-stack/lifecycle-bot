@@ -152,6 +152,14 @@ data class BotConfig(
     // SOL." Create and migration frames are free; the per-trade stream that
     // marks a held curve every second is not. Blank means no trade stream.
     val pumpPortalApiKey: String = "",
+    // V5.0.7955 — free-tier market-data keys for the chart library and live candle
+    // backfill (engine/chart/ChartSources7955). Blank = that source is skipped.
+    val coinMarketCapApiKey: String = "",
+    val moralisApiKey: String = "",
+    val bitqueryApiKey: String = "",
+    val solanaTrackerApiKey: String = "",
+    val codexApiKey: String = "",
+    val cryptoCompareApiKey: String = "",
     val jupiterApiKey: String = DefaultKeys.JUPITER,
     val openRouterApiKey: String = DefaultKeys.OPENROUTER,
     val cerebrasApiKey: String   = DefaultKeys.CEREBRAS,
@@ -407,6 +415,13 @@ object ConfigStore {
             putString("groq_api_key",        cfg.groqApiKey)
             putString("gemini_api_key",      cfg.geminiApiKey)
             putString("pump_portal_api_key", cfg.pumpPortalApiKey)
+            // V5.0.7955 — chart-source free-tier keys.
+            putString("coinmarketcap_api_key", cfg.coinMarketCapApiKey)
+            putString("moralis_api_key",     cfg.moralisApiKey)
+            putString("bitquery_api_key",    cfg.bitqueryApiKey)
+            putString("solanatracker_api_key", cfg.solanaTrackerApiKey)
+            putString("codex_api_key",       cfg.codexApiKey)
+            putString("cryptocompare_api_key", cfg.cryptoCompareApiKey)
             putString("jupiter_api_key",     cfg.jupiterApiKey)
             // V5.9.915 — operator-hardcoded fallback LLM keys
             putString("openrouter_api_key",  cfg.openRouterApiKey)
@@ -647,6 +662,12 @@ object ConfigStore {
                 if (it.isNullOrBlank()) DefaultKeys.HELIUS else it
             },
             pumpPortalApiKey            = s.getString("pump_portal_api_key", "").orEmpty().trim(),
+            coinMarketCapApiKey         = s.getString("coinmarketcap_api_key", "").orEmpty().trim(),
+            moralisApiKey               = s.getString("moralis_api_key", "").orEmpty().trim(),
+            bitqueryApiKey              = s.getString("bitquery_api_key", "").orEmpty().trim(),
+            solanaTrackerApiKey         = s.getString("solanatracker_api_key", "").orEmpty().trim(),
+            codexApiKey                 = s.getString("codex_api_key", "").orEmpty().trim(),
+            cryptoCompareApiKey         = s.getString("cryptocompare_api_key", "").orEmpty().trim(),
             birdeyeApiKey               = s.getString("birdeye_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.BIRDEYE else it
             },
