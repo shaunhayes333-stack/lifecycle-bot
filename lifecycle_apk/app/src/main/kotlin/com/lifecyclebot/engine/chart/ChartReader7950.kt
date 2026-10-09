@@ -62,6 +62,7 @@ object ChartReader7950 {
     /** Every observed price (MarkBars7948.note7948 calls this). */
     fun onPrice(mint: String, priceUsd: Double, atMs: Long) {
         if (mint.isBlank() || !(priceUsd > 0.0) || !priceUsd.isFinite() || atMs <= 0L) return
+        try { StructureTracker7962.onPrice7962(mint, priceUsd, atMs) } catch (_: Throwable) {}   // V5.0.7962 — 15 s / 1 m swings
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         synchronized(tape) {
             val m = atMs / BUCKET_MS
@@ -84,6 +85,7 @@ object ChartReader7950 {
     /** Every trade on the tape (DataOrchestrator.onTapeTrade7773). */
     fun onTrade(mint: String, solAmount: Double, isBuy: Boolean, isDev: Boolean, atMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return
+        try { StructureTracker7962.onTrade7962(mint, solAmount, isBuy, atMs) } catch (_: Throwable) {}   // V5.0.7962
         val tape = tapes[mint] ?: return
         synchronized(tape) {
             if (isDev && !isBuy) tape.devSoldAtMs = atMs
