@@ -458,6 +458,10 @@ object LanePlaybook7907 {
                     // 5.0.7937 MOONSHOT bought NO_TRIGGER 442 of 514 times, 4h labels n29 -24%.
                     setup == NO_TRIGGER && (runner || noTriggerMeasured7936(st)) && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
                     setup != NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup"
+                    // V5.0.7948 — the best setup that fired has a measured record whose shrunk
+                    // expectancy is below zero (5.0.7947 SHITCOIN LAUNCH_CONTINUATION n6 -11.0%).
+                    setup != NO_TRIGGER && st != null && expectedNegative7948(st, expected(lane, setup), runner) ->
+                        "PLAYBOOK_SETUP_EXPECTED_NEGATIVE_7948_${lane}_$setup"
                     else -> null
                 }
             }
@@ -473,6 +477,53 @@ object LanePlaybook7907 {
             why
         } catch (_: Throwable) { null }
     }
+
+    // ── V5.0.7948 — prefer what the labels proved, refuse what they measured losing ──
+    //
+    // 5.0.7947 records: MOONSHOT LAUNCH_LADDER_PROVEN n3 +61.2%, SHITCOIN
+    // LAUNCH_LADDER_PROVEN n4 +41.4%, PRE_IGNITION_BASE n6 +24.1%, while
+    // LAUNCH_CONTINUATION n6 -11.0% still traded live: "proven losing" needs 30
+    // labels, so a setup measured negative kept its live slot until then. The
+    // classifier already tags the best-expected setup that fired; a candidate is
+    // now refused live when even that one is expected (record shrunk to its prior
+    // by n/(n+20)) to lose on [MEASURED_MIN_N_7948]+ labels. Runner-lane setups
+    // with a 10% runner tail keep their shots. LiveEdgeGate7877 lets measured
+    // evidence (a proven cell or cohort on more labels) outweigh it.
+    private const val MEASURED_MIN_N_7948 = 5.0
+
+    /** Pure: is a (lane, setup) record measured, with a shrunk expectancy below zero? */
+    fun expectedNegative7948(st: CortexLedger7885.Stat, expectedPct: Double, runnerLane: Boolean): Boolean {
+        if (st.n < MEASURED_MIN_N_7948 || !expectedPct.isFinite()) return false
+        if (runnerLane && st.runnerRate() >= TAIL_RATE) return false
+        return expectedPct < 0.0
+    }
+
+    /** Pure: a (lane, setup) record proven to pay: 30+ labels and mean minus one standard error above zero. */
+    fun setupProvenPositive7948(st: CortexLedger7885.Stat?): Boolean {
+        if (st == null || st.n < LOSING_N) return false
+        val se = kotlin.math.sqrt(st.variance() / st.n)
+        return st.mean() - se > 0.0
+    }
+
+    /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */
+    fun classifiedSampleN7948(ts: TokenState, laneRaw: String): Int = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane)
+        if (setup == null) 0 else synchronized(this) { stat(lane, setup)?.n?.toInt() ?: 0 }
+    } catch (_: Throwable) { 0 }
+
+    /**
+     * Cortex7885.convictionMult: [mean, variance] (percent units) of this candidate's
+     * classified setup when that record is proven positive, else null.
+     */
+    fun provenSetupRecord7948(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
+            val st = stat(lane, setup)
+            if (st != null && setupProvenPositive7948(st)) doubleArrayOf(st.mean(), st.variance()) else null
+        }
+    } catch (_: Throwable) { null }
 
     /** Cortex7885.capture: tag the decision with its setup for its forward label. */
     fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long) {
@@ -594,7 +645,7 @@ object LanePlaybook7907 {
                 }
                 "      $lane tagged{$tags} record: $rec"
             }
-            "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · paper never refused\n" +
+            "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · paper never refused\n" +
                 "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" + lanes
         }
     }

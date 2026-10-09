@@ -546,24 +546,73 @@ object Cortex7885 {
      */
     fun convictionMult(mint: String, laneRaw: String, requestedSol: Double, equitySol: Double): Double {
         if (mint.isBlank() || !(requestedSol > 0.0)) return 1.0
-        val a = assessCache["$mint|${canon(laneRaw)}"] ?: return 1.0
-        if (System.currentTimeMillis() - a.atMs > 60_000L) return 1.0
-        if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return 1.0
-        val stake = synchronized(this) {
-            val strong = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal) ?: return 1.0
-            // V5.0.7948 — the lane's overrule authority (proven AND not inverted), not the bare STRONG record.
-            if (!board.overruleAuthority(a.lane) || !consistent(a.lane)) {
-                inc(if (board.inverted7948(a.lane)) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return 1.0
-            }
-            kellyStakeSol(strong.mean(), strong.variance(), equitySol)
-        }
-        val mult = (stake / requestedSol).coerceIn(1.0, CONVICTION_MAX_MULT)
+        val lane = canon(laneRaw)
+        val cortexStake = cortexStake7893(mint, lane, equitySol)
+        // V5.0.7948 — the candidate's own proven evidence sizes it too (see provenEvidenceStake7948).
+        val evidenceStake = provenEvidenceStake7948(mint, lane, equitySol)
+        val mult = stakeMult7948(maxOf(cortexStake, evidenceStake), requestedSol)
         if (mult > 1.0) {
-            inc("SIZED_UP_${a.lane}")
-            try { PipelineHealthCollector.labelInc("CORTEX_7893_CONVICTION_SIZE_UP_${a.lane}") } catch (_: Throwable) {}
+            inc("SIZED_UP_$lane")
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (cortexStake >= evidenceStake) "CORTEX_7893_CONVICTION_SIZE_UP_$lane" else "EVIDENCE_KELLY_SIZE_UP_7948_$lane",
+                )
+            } catch (_: Throwable) {}
         }
         return mult
     }
+
+    /** The 7893 STRONG-record quarter-Kelly stake (SOL), or 0 when the read or the record does not qualify. */
+    private fun cortexStake7893(mint: String, lane: String, equitySol: Double): Double {
+        val a = assessCache["$mint|$lane"] ?: return 0.0
+        if (System.currentTimeMillis() - a.atMs > 60_000L) return 0.0
+        if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return 0.0
+        return synchronized(this) {
+            val strong = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal) ?: return 0.0
+            // V5.0.7948 — the lane's overrule authority (proven AND not inverted), not the bare STRONG record.
+            if (!board.overruleAuthority(a.lane) || !consistent(a.lane)) {
+                inc(if (board.inverted7948(a.lane)) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return 0.0
+            }
+            kellyStakeSol(strong.mean(), strong.variance(), equitySol)
+        }
+    }
+
+    /**
+     * V5.0.7948 §SIZE_COMPOUNDS_WHERE_THE_EDGE_IS_PROVEN.
+     *
+     * Owner goal: exponential wallet growth. The 7893 conviction size-up never
+     * fired (5.0.7947: Cortex seated 0, size-up shadow 101, real 0), so every
+     * live order sat at the request whatever the evidence. A candidate whose lane
+     * evidence is proven positive — its classified playbook setup in this lane (30+
+     * labels, mean-SE > 0) or the lane's own forward labels (LiveEdgeGate7877.
+     * laneProvenPositive7941) — is now sized toward quarter-Kelly of that record
+     * (a pooled cross-lane cohort may admit a trade, but never sizes it up)
+     * on the CURRENT wallet: as winners' proceeds return to the wallet the stake
+     * grows with it (compounding), and as it shrinks the stake shrinks. Never
+     * below the request (so never under the route minimum the request already
+     * cleared), at most [CONVICTION_MAX_MULT]x; every downstream wallet, lane,
+     * share and liquidity cap still bounds it. Unproven evidence changes nothing.
+     */
+    private fun provenEvidenceStake7948(mint: String, lane: String, equitySol: Double): Double {
+        if (!(equitySol > 0.0)) return 0.0
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return 0.0
+        val nowMs = System.currentTimeMillis()
+        val setup = try { LanePlaybook7907.provenSetupRecord7948(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val laneStat = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane) } catch (_: Throwable) { null }
+        val setupStake = if (setup != null && setup.size >= 2) kellyStakeSol(setup[0], setup[1], equitySol) else 0.0
+        val laneStake = if (laneStat != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.laneProvenPositive7941(laneStat)) {
+            kellyStakeSol(laneStat.meanNet60Pct, cohortVariance7948(laneStat.stderr60Pct, laneStat.n60), equitySol)
+        } else 0.0
+        return maxOf(setupStake, laneStake)
+    }
+
+    /** Pure: a label set's per-label variance (percent^2) from its standard error and count. */
+    fun cohortVariance7948(stderrPct: Double, n: Int): Double =
+        if (!stderrPct.isFinite() || stderrPct <= 0.0 || n <= 0) 0.0 else stderrPct * stderrPct * n
+
+    /** Pure: the size multiplier a stake justifies over the request: at least 1, at most [CONVICTION_MAX_MULT]. */
+    fun stakeMult7948(stakeSol: Double, requestedSol: Double): Double =
+        if (!(requestedSol > 0.0) || !stakeSol.isFinite()) 1.0 else (stakeSol / requestedSol).coerceIn(1.0, CONVICTION_MAX_MULT)
 
     // ── Cortex v15: the legacy size stack, graded (v1 Phase 5, V5.0.7917) ──
     //

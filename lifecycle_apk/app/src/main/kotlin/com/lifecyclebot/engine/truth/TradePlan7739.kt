@@ -405,7 +405,9 @@ object TradePlan7739 {
         // net of cost (LiveEdgeGate7877 runner bar), not only at the hundred-label
         // POSITIVE tier: PLANWAIT_LAUNCH_REFUSED n=1043 net +3.1% runner-rate 15%.
         val runnerOverrule7878 = runner && LiveEdgeGate7877.runnerCohortAllows(stat)
-        if (!runnerOverrule7878 && CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason
+        // V5.0.7948 — one bar for "this cohort pays" across the gates (LiveEdgeGate7877.cohortProvenPositive7948).
+        val cohortProven7948 = LiveEdgeGate7877.cohortProvenPositive7948(stat)
+        if (!runnerOverrule7878 && !cohortProven7948 && CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason
         overruled7757.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("PLAN_WAIT_OVERRULED_BY_LABELS_7757_$why")

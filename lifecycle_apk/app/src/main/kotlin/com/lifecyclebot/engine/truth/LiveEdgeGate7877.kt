@@ -160,11 +160,14 @@ object LiveEdgeGate7877 {
         // PLANWAIT_LAUNCH_NEGATIVE cohort (+3.3%) it does not trade like. Only the
         // candidate's own measured-positive cell (or the ladder, above) still admits.
         val laneStat7938 = try { ForwardReturnLabeler7731.laneStatFor7737(l) } catch (_: Throwable) { null }
+        // V5.0.7948 — the plan cohort this tape puts the candidate in, when its own labels prove it pays.
+        val cohort7948 by lazy { provenCohort7948(ts, nowMs) }
         // V5.0.7939 — a runner lane is judged on its runner setups, not its lane mean:
         // a fired playbook setup with a positive expected record still gets its shot.
         if (laneProvenLosing7938(laneStat7938) && !runnerSetupFires7939(ts, l, nowMs)) {
             val own = judge(cell, false)
-            if (!(own.allow && own.source == Source.CELL)) {
+            // V5.0.7948 — a lane mean on fewer labels does not refuse a cohort proven on more.
+            if (!(own.allow && own.source == Source.CELL) && !cohortOverrulesSmaller7948(cohort7948, laneStat7938?.n60 ?: 0)) {
                 return Verdict(false, Source.CELL, laneStat7938?.meanNet60Pct ?: 0.0, "LANE_PROVEN_LOSING_7938_${"%.1f".format(laneStat7938?.meanNet60Pct ?: 0.0)}PCT")
             }
         }
@@ -172,11 +175,73 @@ object LiveEdgeGate7877 {
             LivePivotAuthority7876.laneVerdict(l, nowMs) == LivePivotAuthority7876.Evidence.PROVEN
         } catch (_: Throwable) { false }
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) } catch (_: Throwable) { false }
-        if (!runner) return judge(cell, laneProven)
-        val cohorts = try {
-            TradePlan7739.runnerCohortKeys7878(ts, nowMs).map { ForwardReturnLabeler7731.laneStatFor7737(it) }
-        } catch (_: Throwable) { emptyList() }
-        return judgeRunner(cell, cohorts, laneProven)
+        val v = if (!runner) judge(cell, laneProven) else {
+            val cohorts = try {
+                TradePlan7739.runnerCohortKeys7878(ts, nowMs).map { ForwardReturnLabeler7731.laneStatFor7737(it) }
+            } catch (_: Throwable) { emptyList() }
+            judgeRunner(cell, cohorts, laneProven)
+        }
+        if (v.allow) return v
+        // V5.0.7948 — the candidate's own cell refused on fewer labels than the proven cohort it sits in.
+        val cohort = cohort7948
+        if (cohort != null && cohortOverrulesSmaller7948(cohort, cell?.n60 ?: 0)) {
+            try { PipelineHealthCollector.labelInc("LIVE_EDGE_COHORT_PROVEN_7948_$l") } catch (_: Throwable) {}
+            return Verdict(true, Source.CELL, cohort.meanNet60Pct, "COHORT_PROVEN_7948_${cohort.key.take(28)}")
+        }
+        return v
+    }
+
+    // ── V5.0.7948 §THE_LARGER_MEASURED_SAMPLE_DECIDES ──
+    //
+    // 5.0.7947 live: forward labels admitted n=13 mean -5.4% against refused n=156
+    // +9.7% (earlier builds admitted -5.1% vs refused +5.3% on n=8,452), and the
+    // refused cohort PLANWAIT_LAUNCH_NEGATIVE n=2,164 read +13.1%. A cohort proven
+    // on its own labels was still refused downstream by smaller samples (a lane
+    // NO_TRIGGER record n=40, a lane mean, a setup on six labels). A refusal that
+    // rests on a measured sample now yields to a proven-positive cohort the
+    // candidate sits in when that cohort is measured on MORE labels. Safety
+    // (rug-prone, mayhem, structural launch shapes, peak/dump stages) never yields.
+    private const val COHORT_MIN_N_7948 = 100
+
+    /**
+     * Pure: a plan cohort proven to pay on its own labels: 100+ reads, mostly
+     * resolved, a positive net mean, and either mean minus one standard error
+     * above zero or the runner tail (>= 10% of its tokens reaching the runner bar).
+     */
+    fun cohortProvenPositive7948(stat: ForwardReturnLabeler7731.CellStat?): Boolean {
+        if (stat == null || stat.n60 < COHORT_MIN_N_7948) return false
+        if (stat.resolvedShare < MIN_RESOLVED_SHARE_7944) return false
+        if (!(stat.meanNet60Pct > 0.0)) return false
+        val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else return false
+        return stat.meanNet60Pct - se > 0.0 || stat.runnerRate60 >= TAIL_MIN_RUNNER_RATE
+    }
+
+    /** Pure: does [cohort] (proven positive) outweigh a refusal measured on [refusalSampleN] labels? */
+    fun cohortOverrulesSmaller7948(cohort: ForwardReturnLabeler7731.CellStat?, refusalSampleN: Int): Boolean =
+        cohort != null && cohortProvenPositive7948(cohort) && cohort.n60 > refusalSampleN.coerceAtLeast(0)
+
+    /** The largest proven-positive plan cohort this candidate's tape puts it in now, or null. Side-effect free. */
+    fun provenCohort7948(ts: TokenState, nowMs: Long = System.currentTimeMillis()): ForwardReturnLabeler7731.CellStat? = try {
+        TradePlan7739.runnerCohortKeys7878(ts, nowMs)
+            .mapNotNull { k -> try { ForwardReturnLabeler7731.laneStatFor7737(k) } catch (_: Throwable) { null } }
+            .filter { cohortProvenPositive7948(it) }
+            .maxByOrNull { it.n60 }
+    } catch (_: Throwable) { null }
+
+    /**
+     * The label count a prior refusal rests on, or null when it is not a measured
+     * read a larger cohort may outweigh (safety, peak/dump stages, plain priors).
+     */
+    private fun refusalSampleN7948(ts: TokenState, lane: String, prior: String): Int? {
+        if (prior.endsWith("_PEAK_EXHAUSTION") || prior.endsWith("_DUMPING") || prior.contains("RUG")) return null
+        return when {
+            prior.startsWith("PLAYBOOK_") -> try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedSampleN7948(ts, lane) } catch (_: Throwable) { null }
+            prior.startsWith("STAGE_PROVEN_LOSING_7928") -> try {
+                val fit = com.lifecyclebot.engine.TokenMetricStageRouter.laneFit(ts, lane)
+                ForwardReturnLabeler7731.stageStatFor7928(fit.lane, fit.stage.name)?.n60 ?: 0
+            } catch (_: Throwable) { null }
+            else -> null
+        }
     }
 
     /**
@@ -246,8 +311,17 @@ object LiveEdgeGate7877 {
             com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l),
             com.lifecyclebot.engine.TokenMetricStageRouter.liveStageRefusal7928(ts, l),
         )
+        // V5.0.7948 — a small-sample read (the playbook's shrunk expectancy) also yields
+        // to measured evidence, and any measured refusal yields to a proven cohort on more labels.
+        val cohort7948 by lazy { provenCohort7948(ts, nowMs) }
         for (prior in priors7930) {
-            if (!(priorOnly7930(prior) && measuredOverrules7930(ts, l, prior, nowMs))) return prior
+            if ((priorOnly7930(prior) || prior.contains("_EXPECTED_NEGATIVE_7948")) && measuredOverrules7930(ts, l, prior, nowMs)) continue
+            val sampleN = refusalSampleN7948(ts, l, prior)
+            if (sampleN != null && cohortOverrulesSmaller7948(cohort7948, sampleN)) {
+                try { PipelineHealthCollector.labelInc("LIVE_PRIOR_REFUSAL_OUTWEIGHED_BY_COHORT_7948") } catch (_: Throwable) {}
+                continue
+            }
+            return prior
         }
         // V5.0.7883 — a learned shape rule of this lane (tokenomics/timing bin it
         // has proven to lose in) refuses before the cohort read.
