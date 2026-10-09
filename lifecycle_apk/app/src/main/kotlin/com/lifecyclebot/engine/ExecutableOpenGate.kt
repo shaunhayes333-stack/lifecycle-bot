@@ -3984,7 +3984,8 @@ object ExecutableOpenGate {
         // touched — the coordinator continues to drain inventory —
         // admission just pauses until it's safe to open again.
         val throughputVerdict6727 = try {
-            com.lifecyclebot.engine.truth.ExitThroughputAuthority6727.evaluate(modeUpper, lane)
+            // V5.0.7962 — then the last routable live slot goes to the better cell (CellAllocator7962).
+            CellAllocator7962.throughput7962(modeUpper, lane, mint)
         } catch (_: Throwable) { null }
         if (throughputVerdict6727 != null && !throughputVerdict6727.allow) {
             try {

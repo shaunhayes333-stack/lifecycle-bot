@@ -21477,9 +21477,8 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBy
             } catch (_: Throwable) { 0.0 }
             priority += (realPoolUsd / 2_000.0).coerceAtMost(60.0)
             priority += (bcEstUsd / 8_000.0).coerceAtMost(15.0)
-            priority += ts.entryScore
-            priority += ts.meta.momScore * 0.8
-            priority += ts.meta.volScore * 0.5
+            // V5.0.7962 — entryScore + momentum + volume, plus the cell's sampled EV per hold minute.
+            priority += CellAllocator7962.watchPriority7962(ts, nowMs)
             priority += (ts.lastBuyPressurePct - 50.0).coerceIn(0.0, 35.0)
             // V5.9.794 — operator audit Item 6 priority signals: volume,
             // safety-freshness, source-reliability.
