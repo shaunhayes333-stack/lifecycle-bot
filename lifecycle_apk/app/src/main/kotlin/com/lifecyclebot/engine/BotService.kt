@@ -11209,8 +11209,7 @@ class BotService : Service() {
                         // Get current price - use the most recent available
                         // V5.9.684 — STALE-PRICE RUG ESCAPE: restructured to avoid
                         // continue inside run{} lambda (Kotlin experimental feature).
-                        val rawPrice = ts.lastPrice.takeIf { it > 0 }
-                            ?: ts.history.lastOrNull()?.priceUsd
+                        val rawPrice = SpikeCapture7943.rapidMark(ts, System.currentTimeMillis()) { t, f, r -> sellIntoSpike7943(t, f, r) }
                         if (rawPrice == null || rawPrice <= 0.0) {
                             // V5.9.698 — Tightened stale-price-rug-escape: 5 min → 90s.
                             // Flash rugs complete in <90s and immediately go price-dark.
@@ -25222,17 +25221,24 @@ if (hotExitHandledSweep) {
         } catch (_: Throwable) {}
     }
 
-    /** V5.0.7943 — off the socket thread: a partial sell of [fraction] of the holding. */
+    /**
+     * V5.0.7943 — off the socket thread: a partial sell of [fraction] of the holding.
+     * V5.0.7944 — a sell that did not land re-arms its tier, so the next print above
+     * it tries again instead of the spike being lost to a busy lock or a slipped quote.
+     */
     private fun sellIntoSpike7943(ts: com.lifecyclebot.data.TokenState, fraction: Double, reason: String) {
+        val tier = reason.substringAfter("_T", "").substringBefore('_').toIntOrNull() ?: 0
         scope.launch(Dispatchers.IO) {
+            var applied = false
             try {
                 val paper = ts.position.isPaperPosition
                 val wallet = if (paper) null else WalletManager.getWallet()
                 val bal = try { status.getEffectiveBalance(paper) } catch (_: Throwable) { 0.0 }
-                executor.requestPartialSell(ts, fraction, reason, wallet, bal)
+                applied = executor.requestPartialSellConfirmed6566(ts, fraction, reason, wallet, bal).applied
             } catch (t: Throwable) {
                 try { ErrorLogger.warn("BotService", "SPIKE_CAPTURE_7943 sell failed: ${t.message}") } catch (_: Throwable) {}
             }
+            if (!applied && tier > 0) SpikeCapture7943.rearm(ts, tier)
         }
     }
 

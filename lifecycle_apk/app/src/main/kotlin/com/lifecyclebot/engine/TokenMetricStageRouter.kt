@@ -172,8 +172,8 @@ object TokenMetricStageRouter {
         val best = alternatives.entries
             .filter { (l, st) -> l != lane && st != null && st.n60 >= REROUTE_MIN_N_7940 &&
                 st.stderr60Pct.isFinite() && st.meanNet60Pct - st.stderr60Pct > 0.0 &&
-                // V5.0.7942 — lost marks counted as -100% must not sink it.
-                (st.meanNet60Pct * st.n60 - 100.0 * st.lost) / (st.n60 + st.lost).toDouble() > 0.0 }
+                // V5.0.7944 — vanished marks are booked in the mean; the rest must be mostly read.
+                st.resolvedShare >= com.lifecyclebot.engine.truth.LiveEdgeGate7877.MIN_RESOLVED_SHARE_7944 }
             .maxByOrNull { (_, st) -> st!!.meanNet60Pct - st.stderr60Pct }
         return best?.key ?: lane
     }

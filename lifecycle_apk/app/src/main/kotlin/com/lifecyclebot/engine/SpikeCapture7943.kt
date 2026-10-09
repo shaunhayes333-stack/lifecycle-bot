@@ -21,6 +21,40 @@ object SpikeCapture7943 {
 
     private val firedTiers = ConcurrentHashMap<String, Int>()
     private val fired = java.util.concurrent.atomic.AtomicLong(0)
+    /** V5.0.7944 — a tier whose sell did not land is re-armed, at most this many times per position. */
+    private const val MAX_REARMS_7944 = 4
+    private val rearms = ConcurrentHashMap<String, Int>()
+    private val rearmed = java.util.concurrent.atomic.AtomicLong(0)
+    /** V5.0.7944 — a non-curve mark must be this fresh to sell on (a stale print is not a spike). */
+    private const val FRESH_MARK_MS_7944 = 5_000L
+
+    /**
+     * V5.0.7944 — the sell for [tier] did not land (another sell held the lock, no
+     * route, slippage): the tier fires again on the next print still above it.
+     * Returns true when re-armed.
+     */
+    fun rearm(ts: TokenState, tier: Int): Boolean {
+        val key = "${ts.mint}|${ts.position.entryTime}"
+        val n = rearms.merge(key, 1, Int::plus) ?: 1
+        if (n > MAX_REARMS_7944 || !ts.position.isOpen) return false
+        firedTiers.compute(key) { _, done -> if (done != null && done >= tier) tier - 1 else done }
+        rearmed.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_REARMED_7944") } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * V5.0.7944 — the rapid monitor's 500 ms read of every open position. Spikes on
+     * graduated / DEX tokens never come through the curve trade feed; this sells them
+     * on the freshest mark the row holds. Returns the mark read (the monitor's price).
+     */
+    fun rapidMark(ts: TokenState, nowMs: Long, sell: (TokenState, Double, String) -> Unit): Double? {
+        val px = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd
+        if (px != null && px > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate <= FRESH_MARK_MS_7944) {
+            try { onMark(ts, px, sell) } catch (_: Throwable) {}
+        }
+        return px
+    }
 
     /** Pure: the highest tier index (1-based) this gross gain reaches, or 0. */
     fun tierReached(grossPct: Double): Int {
@@ -38,6 +72,8 @@ object SpikeCapture7943 {
         val pos = ts.position
         if (!pos.isOpen || pos.entryPrice <= 0.0 || !priceUsd.isFinite() || priceUsd <= 0.0) return 0
         val gross = (priceUsd / pos.entryPrice - 1.0) * 100.0
+        // A basis in the wrong units reads as a 100,000% "spike"; that is not a price.
+        if (gross > 100_000.0) return 0
         val reached = tierReached(gross)
         if (reached == 0) return 0
         val key = "${ts.mint}|${pos.entryTime}"
@@ -55,10 +91,11 @@ object SpikeCapture7943 {
             )
         } catch (_: Throwable) {}
         sell(ts, frac, "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT")
+        if (rearms.size > 2_000) rearms.clear()
         return reached
     }
 
-    fun statusLine(): String = "fired=${fired.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
+    fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"
 }
 
 /**

@@ -192,6 +192,7 @@ object LiveEdgeGate7877 {
     }
 
     private const val LANE_LOSING_MIN_N_7938 = 100
+    internal const val MIN_RESOLVED_SHARE_7944 = 0.75
 
     /**
      * Pure. V5.0.7941 — the lane's own 60-minute labels prove its candidate pool pays:
@@ -200,12 +201,10 @@ object LiveEdgeGate7877 {
     fun laneProvenPositive7941(stat: ForwardReturnLabeler7731.CellStat?): Boolean {
         if (stat == null || stat.n60 < LANE_LOSING_MIN_N_7938) return false
         val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else return false
-        // V5.0.7942 — a label whose mark was lost (no price at the horizon: a pulled
-        // pool, a dead curve) is not a neutral absence; counted as -100% the pool must
-        // still pay. 5.0.7941 SHITCOIN read +5.3% on n=3490 but lost 272 marks.
-        val n = stat.n60.toDouble()
-        val lostAdjusted = (stat.meanNet60Pct * n - 100.0 * stat.lost) / (n + stat.lost)
-        return stat.meanNet60Pct - se > 0.0 && lostAdjusted > 0.0
+        // V5.0.7944 — vanished marks are now booked inside the mean (last real price, or
+        // -100% when the pool died: ForwardReturnLabeler7731.classifyVanished7944); what is
+        // still LOST is a data gap. The pool must still be mostly read, not mostly gaps.
+        return stat.meanNet60Pct - se > 0.0 && stat.resolvedShare >= MIN_RESOLVED_SHARE_7944
     }
 
     private fun runnerSetupFires7939(ts: TokenState, lane: String, nowMs: Long): Boolean {

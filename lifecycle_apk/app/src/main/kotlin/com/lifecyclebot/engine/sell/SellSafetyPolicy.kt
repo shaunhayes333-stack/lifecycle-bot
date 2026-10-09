@@ -47,7 +47,16 @@ object SellSafetyPolicy {
      * (500) for every non-emergency reason. Emergency exits get the emergency ceiling
      * and the caller MUST emit SELL_EMERGENCY_SLIPPAGE_OVERRIDE (see logEmergencyOverride).
      */
+    /**
+     * V5.0.7944 — a sell INTO a spike (SpikeCapture7943) is racing the next print:
+     * it starts at 500bps and may walk once to 1000bps instead of losing the spike
+     * on a 200→350→500 re-quote walk. +40% sold at 10% slippage still banks +26%.
+     */
+    fun isSpikeCapture7944(reason: String?): Boolean = reason.orEmpty().uppercase().contains("SPIKE_CAPTURE")
+    private const val SPIKE_MAX_SELL_SLIPPAGE_BPS_7944 = 1_000
+
     fun maxSlippageBps(reason: String?): Int {
+        if (isSpikeCapture7944(reason)) return SPIKE_MAX_SELL_SLIPPAGE_BPS_7944
         if (isEmergencyExit(reason)) {
             logEmergencyOverride(reason)
             // V5.0.7807 — B4: automatic emergency sells are capped at 50%. Only an
@@ -70,7 +79,8 @@ object SellSafetyPolicy {
     // V5.0.7807 — B4: every automatic emergency starts at the route's emergency rung
     // (dev_dump / liquidity_collapse used to classify UNKNOWN and start at 200bps).
     fun initialSlippageBps(reason: String?): Int =
-        if (ProtectiveExitClass7807.isEmergency(reason) && !isManualEmergency(reason)) emergencyStartBps7807(reason)
+        if (isSpikeCapture7944(reason)) 500
+        else if (ProtectiveExitClass7807.isEmergency(reason) && !isManualEmergency(reason)) emergencyStartBps7807(reason)
         else initialSlippageBpsLegacy(reason)
 
     private fun initialSlippageBpsLegacy(reason: String?): Int = when (classify(reason)) {
@@ -94,6 +104,7 @@ object SellSafetyPolicy {
      * non-emergency reasons keep their existing ladders (Field Manual L248).
      */
     fun ladder(reason: String?, attempt: Int): List<Int> {
+        if (isSpikeCapture7944(reason)) return listOf(500, SPIKE_MAX_SELL_SLIPPAGE_BPS_7944)
         if (ProtectiveExitClass7807.isEmergency(reason) && !isManualEmergency(reason)) {
             return ProtectiveExitClass7807.slippageLadderBps(attempt, emergencyStartBps7807(reason))
         }

@@ -23389,6 +23389,8 @@ class Executor(
                     var sellUnits = partialPlan.rawAmount
                     val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
                     val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
+                    // V5.0.7944 — a spike sell is urgent: top tip, no sign delay.
+                    val spike7944 = com.lifecyclebot.engine.sell.SellSafetyPolicy.isSpikeCapture7944(reason)
                     val isDrainExit = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
                                       (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) ||
                                        com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason))
@@ -23485,7 +23487,7 @@ class Executor(
                             val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                             val txResult = buildTxWithRetry(
                                 quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                                senderTipLamports = effectiveSenderTipLamports(c, urgent = isDrainExit),
+                                senderTipLamports = effectiveSenderTipLamports(c, urgent = isDrainExit || spike7944),
                             )
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -23493,11 +23495,11 @@ class Executor(
                                 "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)" + (if (txResult.dynSlipPickedBps >= 0) " | dyn-slip picked=${txResult.dynSlipPickedBps}bps incurred=${txResult.dynSlipIncurredBps}bps" else ""),
                                 traderTag = "MEME",
                             )
-                            security.enforceSignDelay()
+                            if (!spike7944) security.enforceSignDelay()
 
                             val useJito = c.jitoEnabled && !quote.isUltra
                             // V5.9.483 — dynamic Jito tip (see JitoTipFetcher).
-                            val jitoTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
+                            val jitoTip = effectiveJitoTipLamports(c, urgent = isDrainExit || spike7944)
                             val ultraReqId = if (quote.isUltra) txResult.requestId else null
 
                             onLog("📊 LIVE PARTIAL: Signing and broadcasting @ ${currentSlip}bps (attempt $broadcastAttempts)...", ts.mint)

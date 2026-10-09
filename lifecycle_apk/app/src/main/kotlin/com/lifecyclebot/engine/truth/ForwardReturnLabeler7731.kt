@@ -157,6 +157,9 @@ object ForwardReturnLabeler7731 {
         @Volatile var entryMcap = 0.0
         /** V5.0.7928 — the token's lifecycle stage at the decision (TokenMetricStageRouter). */
         @Volatile var stage = ""
+        /** V5.0.7944 — the last price seen for it and when, so a vanished mark books at its real last value. */
+        @Volatile var lastPx = 0.0
+        @Volatile var lastPxAtMs = 0L
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -295,7 +298,7 @@ object ForwardReturnLabeler7731 {
                     if (o.admitted) "1" else "0", o.score.toString(), o.quality, o.regime, o.phase,
                     o.entryPrice.toString(), o.costPct.toString(), o.atMs.toString(),
                     if (o.done15) "1" else "0", if (o.done60) "1" else "0", if (o.done240) "1" else "0", o.peakPct.toString(),
-                    o.entryMcap.toString(), o.stage,
+                    o.entryMcap.toString(), o.stage, o.lastPx.toString(), o.lastPxAtMs.toString(),
                 ).joinToString(fs)
             }
     }
@@ -305,7 +308,7 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..19) return@forEach
+            if (f.size !in 17..21) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             if (atMs <= 0L || nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731) return@forEach
             val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
@@ -314,6 +317,10 @@ object ForwardReturnLabeler7731 {
             o.peakPct = f[16].toDoubleOrNull() ?: 0.0
             if (f.size >= 18) o.entryMcap = f[17].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
             if (f.size >= 19) o.stage = f[18]
+            if (f.size >= 21) {
+                o.lastPx = f[19].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                o.lastPxAtMs = f[20].toLongOrNull() ?: 0L
+            }
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -485,6 +492,77 @@ object ForwardReturnLabeler7731 {
         try { PipelineHealthCollector.labelInc("FORWARD_LABEL_LOST_MARK_7731") } catch (_: Throwable) {}
     }
 
+    private fun bookSixty7944(o: Obs, net: Double, gross: Double, nowMs: Long) {
+        book(o, 60, net, gross)
+        try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
+        try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
+        // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
+        try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}
+        // V5.0.7813 — counterfactual entry-quality learning, graded whether FDG admitted or refused.
+        try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
+    }
+
+    private fun bookTwoForty7944(o: Obs, net: Double, gross: Double) {
+        book(o, 240, net, gross)
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7944 — what a vanished mark was worth. 5.0.7941 dropped 1,928 refused
+     * labels as LOST_MARK and 5.0.7942 then counted every one of them as -100%,
+     * which was as wrong as dropping them. Every route and the curve stopped
+     * pricing the token by its horizon, so its last price is the best read of
+     * what it was worth:
+     *  - DEAD: the last read was already a collapse (gross <= [DEAD_GROSS_PCT_7944])
+     *    and nothing prices it now: the pool or curve is gone, booked at -100%.
+     *  - LAST_MARK: a read from the second half of the horizon: booked at it.
+     *  - GAP: no read late enough to say anything (the app was off, or it left the
+     *    watchlist early): stays LOST_MARK and is not booked either way.
+     */
+    enum class Vanished7944 { DEAD, LAST_MARK, GAP }
+
+    private const val DEAD_GROSS_PCT_7944 = -60.0
+
+    /** Pure. [lastSeenAgeMs] is the observation's age at its last read, or <= 0 when it never had one. */
+    fun classifyVanished7944(lastGrossPct: Double, lastSeenAgeMs: Long, horizonMs: Long): Vanished7944 = when {
+        lastSeenAgeMs <= 0L || !lastGrossPct.isFinite() -> Vanished7944.GAP
+        lastGrossPct <= DEAD_GROSS_PCT_7944 -> Vanished7944.DEAD
+        lastSeenAgeMs >= horizonMs / 2 -> Vanished7944.LAST_MARK
+        else -> Vanished7944.GAP
+    }
+
+    private val vanishedDead7944 = AtomicLong(0)
+    private val vanishedLastMark7944 = AtomicLong(0)
+
+    private fun resolveVanished7944(o: Obs, horizon: Int, nowMs: Long) {
+        val horizonMs = if (horizon == 60) H60_MS_7731 else H240_MS_7731
+        val cutoff = o.atMs + horizonMs + LOST_GRACE_MS_7731
+        var px = o.lastPx; var at = o.lastPxAtMs
+        // A stale registry read newer than ours is still a later real price.
+        try {
+            val m = CanonicalPriceMarkRegistry6522.get(o.mint)
+            val rp = m?.priceUsd?.value?.toDouble() ?: 0.0
+            if (m != null && m.timestampMs > at && m.timestampMs in (o.atMs + 1)..cutoff && rp.isFinite() && rp > 0.0) { px = rp; at = m.timestampMs }
+        } catch (_: Throwable) {}
+        if (at > cutoff) at = 0L
+        val gross = if (px > 0.0 && o.entryPrice > 0.0) (px / o.entryPrice - 1.0) * 100.0 else Double.NaN
+        when (classifyVanished7944(gross, if (at > o.atMs) at - o.atMs else 0L, horizonMs)) {
+            Vanished7944.GAP -> if (horizon == 60) markLost(o)
+            Vanished7944.DEAD -> {
+                vanishedDead7944.incrementAndGet()
+                if (horizon == 60) bookSixty7944(o, -100.0, -100.0, nowMs) else bookTwoForty7944(o, -100.0, -100.0)
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_DEAD_7944") } catch (_: Throwable) {}
+            }
+            Vanished7944.LAST_MARK -> {
+                vanishedLastMark7944.incrementAndGet()
+                val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
+                if (horizon == 60) bookSixty7944(o, net, gross, nowMs) else bookTwoForty7944(o, net, gross)
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_LAST_MARK_7944") } catch (_: Throwable) {}
+            }
+        }
+    }
+
     /** A price for [mint] from the loop's token states, else the canonical mark registry when fresh. */
     private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? {
         val fromLoop = try { priceFor(mint) } catch (_: Throwable) { null }
@@ -584,11 +662,12 @@ object ForwardReturnLabeler7731 {
             if (px == null) {
                 if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
                 if (!o.done60 && age >= H60_MS_7731 + LOST_GRACE_MS_7731) {
-                    // Nothing priced it through its 60-minute horizon: lost, not booked.
-                    markLost(o)
+                    // V5.0.7944 — nothing priced it at its 60-minute horizon: booked at its
+                    // real last price (or -100% when it died), lost only when there is no read.
+                    resolveVanished7944(o, 60, nowMs)
                     pending.remove(key, o)
                 } else if (o.done60 && age >= H240_MS_7731 + LOST_GRACE_MS_7731) {
-                    // It earned its 60-minute label; the 240 is simply absent.
+                    if (!o.done240) { o.done240 = true; resolveVanished7944(o, 240, nowMs) }
                     pending.remove(key, o)
                 }
                 continue
@@ -605,37 +684,29 @@ object ForwardReturnLabeler7731 {
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
             if (gross > o.peakPct) o.peakPct = gross
+            val priorPx7944 = o.lastPx to o.lastPxAtMs
+            o.lastPx = px; o.lastPxAtMs = nowMs
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
             // V5.0.7809 — a horizon label is booked only from a mark inside its own
             // window (Field Manual L357): a 15-minute label first priced at minute 70
             // used to book the 70-minute move into the 15-minute cohort.
             if (!o.done15 && age >= H15_MS_7731) { o.done15 = true; if (horizonOpen7809(age, H15_MS_7731)) book(o, 15, net, gross) else horizonMissed7809.incrementAndGet() }
             if (!o.done60 && age >= H60_MS_7731 && !horizonOpen7809(age, H60_MS_7731)) {
-                // Restored after its 60-minute window closed: the same LOST_MARK the unpriced path books.
-                markLost(o)
+                // Restored after its 60-minute window closed: priced at the last mark seen before it
+                // (V5.0.7944), lost only when there is none inside the window.
+                o.lastPx = priorPx7944.first; o.lastPxAtMs = priorPx7944.second
+                resolveVanished7944(o, 60, nowMs)
                 pending.remove(key, o)
                 continue
             }
             if (!o.done60 && age >= H60_MS_7731) {
                 o.done60 = true
-                book(o, 60, net, gross)
-                try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
-                try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
-                // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
-                try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}
-                // V5.0.7813 — counterfactual entry-quality learning. The exact
-                // decision-time expert feature vector is graded whether FDG admitted
-                // or refused the candidate; this is low-weight forward evidence and
-                // never overwrites stronger canonical terminal truth.
-                try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
+                bookSixty7944(o, net, gross, nowMs)
             }
             if (!o.done240 && age >= H240_MS_7731) {
                 o.done240 = true
-                if (horizonOpen7809(age, H240_MS_7731)) {
-                    book(o, 240, net, gross)
-                    try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
-                } else horizonMissed7809.incrementAndGet()
+                if (horizonOpen7809(age, H240_MS_7731)) bookTwoForty7944(o, net, gross)
+                else horizonMissed7809.incrementAndGet()
                 pending.remove(key, o)
             }
         }
@@ -689,7 +760,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
