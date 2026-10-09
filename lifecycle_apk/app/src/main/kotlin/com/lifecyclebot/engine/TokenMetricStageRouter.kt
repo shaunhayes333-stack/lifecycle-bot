@@ -141,6 +141,45 @@ object TokenMetricStageRouter {
     }
 
     fun preferredPrimaryLane(ts: TokenState, fallback: String): String {
+        val lane = preferredPrimaryLaneByStage(ts, fallback)
+        return try { evidenceReroute7940(lane, snapshot(ts).stage) } catch (_: Throwable) { lane }
+    }
+
+    /**
+     * V5.0.7940 — feed each lane the tokens it is paid for. The stage sheet picks the
+     * owner by shape; the lanes' own forward labels then say whether that owner pays
+     * at this stage. When the chosen lane is proven losing (LiveEdgeGate7877 bar) and
+     * another lane that plays this stage has a measured positive record (n >= 50,
+     * mean - se > 0), the token goes to the paying lane. 5.0.7937: FRESH_LAUNCH went
+     * to MOONSHOT (labels n=251 -8.2%) while EXPRESS read n=85 +12.7% run 14%.
+     */
+    fun evidenceReroute7940(lane: String, stage: Stage): String {
+        val stats = LANE_STAGE_SHEET_7928[stage].orEmpty().filter { it !in TRUNK_LANES_7940 }
+            .associateWith { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(it) }
+        val own = stats[lane.uppercase()] ?: com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane.uppercase())
+        val to = rerouteTarget7940(lane.uppercase(), own, stats)
+        if (to != lane.uppercase()) try { PipelineHealthCollector.labelInc("LANE_REROUTED_BY_EVIDENCE_7940_${lane.uppercase()}_TO_$to") } catch (_: Throwable) {}
+        return to
+    }
+
+    /** Pure: the lane a token should go to, given the owner's and the alternatives' 60-minute records. */
+    fun rerouteTarget7940(
+        lane: String,
+        own: com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat?,
+        alternatives: Map<String, com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.CellStat?>,
+    ): String {
+        if (!com.lifecyclebot.engine.truth.LiveEdgeGate7877.laneProvenLosing7938(own)) return lane
+        val best = alternatives.entries
+            .filter { (l, st) -> l != lane && st != null && st.n60 >= REROUTE_MIN_N_7940 &&
+                st.stderr60Pct.isFinite() && st.meanNet60Pct - st.stderr60Pct > 0.0 }
+            .maxByOrNull { (_, st) -> st!!.meanNet60Pct - st.stderr60Pct }
+        return best?.key ?: lane
+    }
+
+    private const val REROUTE_MIN_N_7940 = 50
+    private val TRUNK_LANES_7940 = setOf("STANDARD", "CORE", "V3")
+
+    private fun preferredPrimaryLaneByStage(ts: TokenState, fallback: String): String {
         val s = snapshot(ts)
         // V5.0.4091 — ESTABLISHED-TOKEN BLUECHIP OVERRIDE (operator P0: intake
         // starvation. BLUECHIP/DIP_HUNTER/MANIPULATED/CYCLIC show 0 lane evals
