@@ -66,7 +66,7 @@ object ExitHotPath7809 {
      * with the same [nowMs]. False = a unit for this position is already in
      * flight (younger than [UNIT_STUCK_MS_7809]); this tick is coalesced.
      */
-    fun tryBegin(key: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun tryBegin(key: String, nowMs: Long = System.currentTimeMillis(), sellInFlight7948: Boolean = false): Boolean {
         if (key.isBlank()) return false
         val prior = inFlight7809.putIfAbsent(key, nowMs)
         if (prior == null) {
@@ -75,6 +75,15 @@ object ExitHotPath7809 {
         }
         if (nowMs - prior < UNIT_STUCK_MS_7809) {
             coalesced7809.incrementAndGet()
+            return false
+        }
+        // V5.0.7948 — a unit past 8 s whose mint holds an in-flight close is selling
+        // (broadcast + 60 s verify), not wedged. A replacement can only bounce off
+        // that CloseLease, so it is coalesced instead (5.0.7947: 131 "stuck"
+        // replacements feeding 285 sell redispatches).
+        if (sellInFlight7948) {
+            coalesced7809.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("HOT_EXIT_UNIT_SELLING_NOT_REPLACED_7948") } catch (_: Throwable) {}
             return false
         }
         if (!inFlight7809.replace(key, prior, nowMs)) return false

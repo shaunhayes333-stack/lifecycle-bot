@@ -69,6 +69,9 @@ object ExitTelemetryStamper6732 {
                 StopLatencyClasses6464.recordGateBroadcastToFinality7809((now7809 - b7809).coerceAtLeast(0L))
             }
             PipelineHealthCollector.labelInc("EXIT_TERMINAL_STAMPED_6732_${cls.name}")
+            // V5.0.7948 — the position is closed: a trigger re-stamped after its
+            // broadcast (sweeps re-asking during confirmation) is not a pending exit.
+            if (mint.isNotBlank()) clearTrigger7807(mint)
         } catch (_: Throwable) {}
     }
 
@@ -154,7 +157,12 @@ object ExitTelemetryStamper6732 {
                 classify(reason), atMs.coerceAtMost(now),
                 com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason),
             )
-            ExitStageTiming7876.onTrigger(mint, stamp.cls, stamp.atMs, now)
+            // V5.0.7948 — a re-request while this mint's sell is on the wire awaiting
+            // its outcome is not a new trigger (no queue / trigger->broadcast sample).
+            if (!ExitStageTiming7876.onTrigger(mint, stamp.cls, stamp.atMs, now)) {
+                PipelineHealthCollector.labelInc("EXIT_TRIGGER_RESTAMP_AWAITING_OUTCOME_IGNORED_7948")
+                return
+            }
             triggers7807.merge(mint, stamp) { old, new ->
                 when {
                     now - old.atMs > TRIGGER_STAMP_MAX_AGE_MS_7807 -> new
@@ -192,6 +200,9 @@ object ExitTelemetryStamper6732 {
     fun clearTrigger7807(mint: String) {
         if (mint.isBlank()) return
         try { triggers7807.remove(mint) } catch (_: Throwable) {}
+        // V5.0.7948 — the per-stage track goes with it, or its stale trigger time
+        // becomes the next position's "queue" on this mint.
+        try { ExitStageTiming7876.closeUnbroadcast7948(mint) } catch (_: Throwable) {}
     }
 
     // ── V5.0.7809 — latency samples measure condition-first-ACTIONABLE ───────
@@ -219,6 +230,9 @@ object ExitTelemetryStamper6732 {
                 }
             }
             if (positionId.isNotBlank() && !emergencyKept7809) intents.remove(positionId)
+            // V5.0.7948 — ExitStageTiming7876 kept the deferred trigger, so the queue
+            // stage (trigger -> first SELL_START) timed the whole hold. Withdraw it too.
+            if (mint.isNotBlank() && !emergencyKept7809) ExitStageTiming7876.withdrawUndispatched7948(mint)
         } catch (_: Throwable) {}
     }
 
