@@ -66,7 +66,13 @@ object StopAuthority7887 {
         } catch (_: Throwable) { 15.0 }
         val mult = try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(lane) } catch (_: Throwable) { 1.0 }
         sources.computeIfAbsent(if (plan != null) "PLAN" else if (LANE_BASE.containsKey(lane)) "LANE" else "STYLE") { AtomicLong(0) }.incrementAndGet()
-        return compose(plan?.stopPnlPct, base, mult, runner)
+        val composed = compose(plan?.stopPnlPct, base, mult, runner)
+        // V5.0.7962 — the key's own winners decide how much room they need (ExitProfile7955).
+        val learned = try {
+            com.lifecyclebot.engine.ExitProfile7955.learnedStopMag7962(com.lifecyclebot.engine.ExitProfile7955.keyProfileFor7962(ts), composed)
+        } catch (_: Throwable) { null }
+        if (learned != null) sources.computeIfAbsent("WINNER_DIP_7962") { AtomicLong(0) }.incrementAndGet()
+        return learned ?: composed
     }
 
     /** The same stop as a signed percent (e.g. -12.0). */

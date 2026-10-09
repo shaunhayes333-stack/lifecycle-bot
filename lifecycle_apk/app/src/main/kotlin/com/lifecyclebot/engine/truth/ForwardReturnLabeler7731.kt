@@ -181,6 +181,9 @@ object ForwardReturnLabeler7731 {
         @Volatile var setup7955 = ""
         @Volatile var peakAtMs7955 = 0L
         @Volatile var giveback5_7955 = Double.NaN
+        /** V5.0.7962 — lowest gross seen so far, and the lowest before the (latest) peak. */
+        @Volatile var minPct7962 = 0.0
+        @Volatile var dipBeforePeak7962 = Double.NaN
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -575,7 +578,7 @@ object ForwardReturnLabeler7731 {
             com.lifecyclebot.engine.ExitProfile7955.onLabel7955(
                 o.lane, o.setup7955, maxOf(o.peakPct, gross0), if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L,
                 com.lifecyclebot.engine.ExitProfile7955.giveback7955(maxOf(o.peakPct, gross0), gross0), o.giveback5_7955,
-                keyOnly = !o.admitted,
+                keyOnly = !o.admitted, dipBeforePeakPct = o.dipBeforePeak7962,
             )
         } catch (_: Throwable) {}
         val (net, gross) = captured7945(o, net0, gross0)
@@ -767,7 +770,8 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
-            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs }
+            if (gross < o.minPct7962) o.minPct7962 = gross
+            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
             o.lastPx = px; o.lastPxAtMs = nowMs
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)

@@ -54,6 +54,9 @@ object ExitProfile7955 {
         val runnerRate: Double,
         /** V5.0.7961 — the ladder that captured most on this key's own peaks (NaN until 10 winners). */
         val optLevels: List<Double> = emptyList(),
+        /** V5.0.7962 — how deep this key's winners (peak >= +30%) dipped before running: 80th pct magnitude, and its n. */
+        val winnerDipP80: Double = Double.NaN,
+        val winnerDipN: Int = 0,
     )
 
     /** A position's exit plan. [tiers] = (gross % trigger, fraction of the current holding sold). */
@@ -103,8 +106,40 @@ object ExitProfile7955 {
             medGiveback5 = med(win.map { it[3] }),
             runnerRate = ok.count { it[0] >= RUNNER_PEAK_PCT_7955 }.toDouble() / ok.size,
             optLevels = if (win.size >= 10) optimalLevels7961(ok.map { it[0] }) else emptyList(),
+            winnerDipP80 = winnerDips7962(ok).let { d -> if (d.isEmpty()) Double.NaN else quantile(d.sorted(), 0.8) },
+            winnerDipN = winnerDips7962(ok).size,
         )
     }
+
+    /** V5.0.7962 — pure: dip magnitudes (positive %) before the peak of samples that ran >= +30%. */
+    fun winnerDips7962(samples: List<DoubleArray>): List<Double> =
+        samples.filter { it.size >= 5 && it[0].isFinite() && it[0] >= 30.0 && it[4].isFinite() && it[4] <= 0.0 }.map { -it[4] }
+
+    /**
+     * V5.0.7962 — pure: the stop magnitude a key's winners say it needs (p80 of their dip
+     * before running, +2 points), shrunk toward [currentMag] by n / 20, bounded [4, 25].
+     * Setups whose winners never dip get tighter stops (losers cut sooner); setups whose
+     * winners shake out first get room. Null until 5 winners carry a dip.
+     */
+    fun learnedStopMag7962(p: Profile7955?, currentMag: Double): Double? {
+        if (p == null || p.winnerDipN < 5 || !p.winnerDipP80.isFinite() || !currentMag.isFinite()) return null
+        val w = (p.winnerDipN / 20.0).coerceIn(0.0, 1.0)
+        val learned = (p.winnerDipP80 + 2.0).coerceIn(4.0, 25.0)
+        return (currentMag * (1.0 - w) + learned * w).coerceIn(4.0, 25.0)
+    }
+
+    /** The position's key profile (KEY source only), for StopAuthority7887. */
+    fun keyProfileFor7962(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Profile7955? {
+        val plan = planFor7955(ts, nowMs) ?: return null
+        if (plan.source != "KEY") return null
+        keyProfileCache7962[plan.key]?.let { (at, prof) -> if (nowMs - at in 0L..PLAN_CACHE_MS_7955) return prof }
+        ensureLoaded()
+        val prof = synchronized(this) { rings[plan.key]?.let { profileOf7955(it.toList()) } }
+        if (keyProfileCache7962.size > 2_000) keyProfileCache7962.clear()
+        keyProfileCache7962[plan.key] = nowMs to prof
+        return prof
+    }
+    private val keyProfileCache7962 = ConcurrentHashMap<String, Pair<Long, Profile7955?>>()
 
     /**
      * V5.0.7961 — pure: the take-profit ladder this key's own peaks pay most on. Rung 1 is the
@@ -286,9 +321,9 @@ object ExitProfile7955 {
     }
 
     /** ForwardReturnLabeler7731 at the 60-minute read: one sample per observation. */
-    fun onLabel7955(lane: String, setup: String, peakPct: Double, timeToPeakMs: Long, giveback60: Double, giveback5: Double, keyOnly: Boolean = false) {
+    fun onLabel7955(lane: String, setup: String, peakPct: Double, timeToPeakMs: Long, giveback60: Double, giveback5: Double, keyOnly: Boolean = false, dipBeforePeakPct: Double = Double.NaN) {
         if (!peakPct.isFinite()) return
-        add(lane, setup, doubleArrayOf(peakPct, timeToPeakMs.coerceAtLeast(0L) / 60_000.0, giveback60, giveback5), keyOnly)
+        add(lane, setup, doubleArrayOf(peakPct, timeToPeakMs.coerceAtLeast(0L) / 60_000.0, giveback60, giveback5, dipBeforePeakPct), keyOnly)
         fromLabels.incrementAndGet()
     }
 
@@ -389,7 +424,7 @@ object ExitProfile7955 {
                     val ring = ArrayDeque<DoubleArray>()
                     o.optString(k).split(';').forEach { row ->
                         val f = row.split(',').map { it.toDoubleOrNull() ?: Double.NaN }
-                        if (f.size == 4 && f[0].isFinite()) ring.addLast(f.toDoubleArray())
+                        if ((f.size == 4 || f.size == 5) && f[0].isFinite()) ring.addLast(f.toDoubleArray())  // V5.0.7962 — 5th = dip before peak
                     }
                     if (ring.isNotEmpty()) rings[k] = ring
                 }

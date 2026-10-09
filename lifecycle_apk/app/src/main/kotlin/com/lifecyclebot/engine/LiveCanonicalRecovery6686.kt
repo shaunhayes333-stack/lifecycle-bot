@@ -185,6 +185,19 @@ object LiveCanonicalRecovery6686 {
         return out7819
     }
 
+    /** V5.0.7962 — direct per-mint wallet reads for heal targets the cached snapshot omits (positive answers only). */
+    private fun singleMintReads7962(mints: List<String>): Map<String, CanonicalTokenAmount> {
+        if (mints.isEmpty()) return emptyMap()
+        val w = try { WalletManager.getWallet() } catch (_: Throwable) { null } ?: return emptyMap()
+        val out = LinkedHashMap<String, CanonicalTokenAmount>()
+        for (m in mints.take(4)) {
+            val a = try { w.getSingleMintBalanceBounded7868(m) } catch (_: Throwable) { null } ?: continue
+            out[m] = a
+        }
+        try { PipelineHealthCollector.labelInc(if (out.isEmpty()) "BOT_HOLDING_HEAL_SINGLE_MINT_EMPTY_7962" else "BOT_HOLDING_HEAL_SINGLE_MINT_FOUND_7962") } catch (_: Throwable) {}
+        return out
+    }
+
     /** Operator-facing: the V5.0.7718 heal counters, appended to the adoption status line. */
     private fun healStatus7718(): String =
         "botHealKicks7718=${healKicks7718.get()} botHealAdopted7718=${healAdopted7718.get()} botHealProtected7819=${healProtected7819.get()}" +
@@ -214,7 +227,12 @@ object LiveCanonicalRecovery6686 {
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val snap = try { WalletAccountCache.snapshot(ttlMs = 60_000L) } catch (_: Throwable) { null }
-                    val subset = snap.orEmpty().filterKeys { it in due }.filterValues { it.raw > BigInteger.ONE }
+                    // V5.0.7962 — a mint the coverage guard convicts but the cached wallet read
+                    // omits is asked for directly (one mint-filtered RPC read, both token
+                    // programs). 5.0.7961: 6LhyhWmD — 86 heal kicks, 81 ended NO_WALLET_SNAPSHOT
+                    // while the tokens sat in the wallet with no exit owner.
+                    val subset = snap.orEmpty().filterKeys { it in due }.filterValues { it.raw > BigInteger.ONE } +
+                        singleMintReads7962(due.filter { snap?.get(it)?.let { a -> a.raw > BigInteger.ONE } != true })
                     // V5.0.7819 — see trackerHoldings7819: the guard's own evidence
                     // stands in for the wallet cache nothing refreshes in PAPER.
                     // A fresh COMPLETE read that omits a mint proves it gone, so the
