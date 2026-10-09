@@ -65,6 +65,8 @@ object LanePlaybook7907 {
         val txVelocity: Double = Double.NaN, val volatility: Double = Double.NaN, val regime: String = "",
         // V5.0.7926 — FreshLaunchSelector7737's -15% ladder has PROVEN this launch's setup cell.
         val launchLadderProven: Boolean = false,
+        // V5.0.7962 — an expert wallet (OWNER / top trader / smart money) bought this mint minutes ago.
+        val expertEntry7962: Boolean = false,
     )
 
     class Setup(val id: String, val prior: Double, val fires: (F) -> Boolean)
@@ -253,10 +255,16 @@ object LanePlaybook7907 {
             OPP_BREAKOUT_EXPANSION, OPP_RS_LEADER, HOLDER_EXPANSION, VOLUME_IGNITION, DEEP_LIQ_TREND, CROWD_FORMING),
     )
 
-    /** Pure: the setups of [lane]'s menu that [f] fires (empty = no trigger; unknown lane = null). */
-    fun matches(lane: String, f: F): List<Setup>? = MENU[lane]?.filter { s -> try { s.fires(f) } catch (_: Throwable) { false } }
+    // V5.0.7962 — EXPERT_ENTRY: an expert wallet's live buy on this mint (ExpertWallets7962), graded
+    // per lane on forward labels like every setup (flow prior; a proven loser refuses as usual).
+    private val EXPERT_ENTRY_7962 = Setup("EXPERT_ENTRY", FLOW) { f -> f.expertEntry7962 }
+    private val EXPERT_LANES_7962 = setOf("SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER")
+    private fun menuOf7962(lane: String): List<Setup>? = MENU[lane]?.let { if (lane in EXPERT_LANES_7962) it + EXPERT_ENTRY_7962 else it }
 
-    fun menuIds(lane: String): List<String> = MENU[lane]?.map { it.id }.orEmpty()
+    /** Pure: the setups of [lane]'s menu that [f] fires (empty = no trigger; unknown lane = null). */
+    fun matches(lane: String, f: F): List<Setup>? = menuOf7962(lane)?.filter { s -> try { s.fires(f) } catch (_: Throwable) { false } }
+
+    fun menuIds(lane: String): List<String> = menuOf7962(lane)?.map { it.id }.orEmpty()
 
     // ── features ──
 
@@ -348,6 +356,7 @@ object LanePlaybook7907 {
                 com.lifecyclebot.engine.truth.FreshLaunchSelector7737.launchRead7742(ts, cost, nowMs).verdict ==
                     com.lifecyclebot.engine.truth.FreshLaunchSelector7737.LaunchVerdict.PROVEN
             } catch (_: Throwable) { false },
+            expertEntry7962 = try { com.lifecyclebot.engine.ExpertWallets7962.expertEntryLive7962(ts.mint, nowMs) } catch (_: Throwable) { false },
         )
     }
 
@@ -365,7 +374,7 @@ object LanePlaybook7907 {
     private fun stat(lane: String, setup: String): CortexLedger7885.Stat? = books[lane]?.stats?.get(setup)
 
     private fun priorOf(lane: String, setup: String): Double =
-        if (setup == NO_TRIGGER) -1.0 else MENU[lane]?.firstOrNull { it.id == setup }?.prior ?: 0.0
+        if (setup == NO_TRIGGER) -1.0 else menuOf7962(lane)?.firstOrNull { it.id == setup }?.prior ?: 0.0
 
     /** Shrunk expected net % of (lane, setup). Caller holds the lock. */
     private fun expected(lane: String, setup: String): Double {

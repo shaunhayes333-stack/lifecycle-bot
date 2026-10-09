@@ -1386,6 +1386,26 @@ object PipelineHealthCollector {
      */
     fun pasteSafeSnapshot(): String = dumpText()
 
+    /** V5.0.7962 — Smart Money (§7422) accounting, then Expert wallets (§7962): histories, learning, COPY tier. */
+    private fun smartMoneyLines7962(): String {
+        val sb = StringBuilder()
+        sb.append("  Smart Money (§7422): detected=").append(
+            try { SmartMoneyBridgeHealth7422.detectedCount() } catch (_: Throwable) { 0L }
+        ).append(" candidatesCreated=").append(
+            try { SmartMoneyBridgeHealth7422.candidatesCreated() } catch (_: Throwable) { 0L }
+        ).append(" contributorsAttached=").append(
+            try { SmartMoneyBridgeHealth7422.contributorsAttached() } catch (_: Throwable) { 0L }
+        ).append(" rejected=").append(
+            try { SmartMoneyBridgeHealth7422.rejected() } catch (_: Throwable) { 0L }
+        ).append(" unexplained=").append(
+            try { SmartMoneyBridgeHealth7422.unexplained() } catch (_: Throwable) { 0L }
+        ).append("\n")
+        sb.append("  Expert wallets (§7962): ").append(
+            try { ExpertWallets7962.statusLine7962() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
+        return sb.toString()
+    }
+
     fun dumpText(): String {
         val s = snapshot()
         // V5.0.6368 — Locale.ROOT for date formatting so we never touch the
@@ -3310,17 +3330,8 @@ object PipelineHealthCollector {
             ).append(" subscriptionFailures=").append(
                 try { com.lifecyclebot.network.PumpFunWS.lifecycleSubscriptionFailures7420() } catch (_: Throwable) { 0L }
             ).append("\n")
-            sb.append("  Smart Money (§7422): detected=").append(
-                try { SmartMoneyBridgeHealth7422.detectedCount() } catch (_: Throwable) { 0L }
-            ).append(" candidatesCreated=").append(
-                try { SmartMoneyBridgeHealth7422.candidatesCreated() } catch (_: Throwable) { 0L }
-            ).append(" contributorsAttached=").append(
-                try { SmartMoneyBridgeHealth7422.contributorsAttached() } catch (_: Throwable) { 0L }
-            ).append(" rejected=").append(
-                try { SmartMoneyBridgeHealth7422.rejected() } catch (_: Throwable) { 0L }
-            ).append(" unexplained=").append(
-                try { SmartMoneyBridgeHealth7422.unexplained() } catch (_: Throwable) { 0L }
-            ).append("\n")
+            // V5.0.7962 — the §7422 line and the expert-wallet line, built outside dumpText (method budget).
+            sb.append(smartMoneyLines7962())
             sb.append("  On-chain supply   (§7075): ").append(
                 com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.status()
             ).append("\n")

@@ -10838,7 +10838,7 @@ class GoldenTapeRegressionTest {
         assertFalse(p.isProven(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY))
         assertTrue(p.statusLine().contains("bar=n>=20,mean>0,pf>=1.2"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("if (c.copyTradingEnabled || c.paperMode || copyProven7291)"))
+        assertTrue(bot.contains("if (c.copyTradingEnabled || c.paperMode || copyProven7291 || copyRouteLive7962())"))
         assertTrue(bot.contains("if (cfg.autoTradeNetworkSignals || cfg.paperMode || networkProven7291)"))
         val nb = java.io.File("src/main/kotlin/com/lifecyclebot/perps/NetworkSignalAutoBuyer.kt").readText()
         assertTrue(nb.contains("SignalSourceProof7291.Source.NETWORK, signal.mint"))

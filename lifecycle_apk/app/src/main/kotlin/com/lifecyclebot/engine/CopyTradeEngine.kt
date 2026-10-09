@@ -135,6 +135,14 @@ class CopyTradeEngine(
         isBuy: Boolean,
     ) {
         if (!isBuy) return
+        // V5.0.7962 — the pump.fun / Helius tape routes EVERY trade here. A buy by a wallet
+        // nobody tracks is tape, not a smart-money detection: 5.0.7958 counted 1,965 of them
+        // as INSUFFICIENT_EVIDENCE rejections (detected=2008 rejected=2002), burying the
+        // tracked-wallet funnel. Untracked tape is counted apart and never "detected".
+        if (!wallets.containsKey(buyerWallet) && insiderAsCopyWallet7719(buyerWallet) == null) {
+            ExpertWallets7962.noteUntrackedTape7962()
+            return
+        }
         SmartMoneyBridgeHealth7422.detected()
         // V5.0.7719 — the Helius push subscription watches the insider list AND
         // the copy list (BotService whaleAddrs), but this engine only knew the
@@ -160,6 +168,8 @@ class CopyTradeEngine(
                 com.lifecyclebot.engine.truth.SmartMoneyFeed6394.onWhaleBuy(mint, buyerWallet, now)
                 PipelineHealthCollector.labelInc("SMART_MONEY_FEED_BUY_WRITTEN_7431")
             } catch (_: Throwable) {}
+            // V5.0.7962 — an expert's (OWNER / top trader / smart money) buy arms EXPERT_ENTRY on this mint.
+            try { ExpertWallets7962.onTrackedBuy7962(mint, buyerWallet, now) } catch (_: Throwable) {}
         }
         val isDupe = recentSignals.any { s ->
             s.mint == mint && s.trackedWallet == buyerWallet && now - s.ts < 30_000L
@@ -215,18 +225,18 @@ class CopyTradeEngine(
      * Used to seed the copy wallet list with proven performers.
      */
     fun discoverTopWallets(): List<Pair<String, Double>> {
-        // Pump.fun leaderboard API (public)
-        val url  = "https://frontend-api-v3.pump.fun/leaderboard?timeframe=7d&limit=20"
-        val body = get(url) ?: return emptyList()
-        return try {
-            val arr = org.json.JSONArray(body)
-            (0 until arr.length()).mapNotNull { i ->
-                val item = arr.optJSONObject(i) ?: return@mapNotNull null
-                val addr = item.optString("user", "")
-                val pnl  = item.optDouble("realized_pnl", 0.0)
-                if (addr.isNotBlank() && pnl > 0) addr to pnl else null
-            }.sortedByDescending { it.second }.take(10)
-        } catch (_: Exception) { emptyList() }
+        // V5.0.7962 — pump.fun's published API has no /leaderboard path (5.0.7958:
+        // LEADERBOARD_SEEDED=0) and the old parse read a bare array only. Each route is
+        // parsed tolerantly (bare array or wrapped; SOL or USD PnL) and GMGN's 7-day
+        // wallet rank answers when pump.fun does not. Fail-soft: empty on any failure.
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        for (url in ExpertWallets7962.LEADERBOARD_URLS_7962) {
+            val body = get(url) ?: continue
+            val rows = ExpertWallets7962.parseLeaderboard7962(body, solUsd)
+            ExpertWallets7962.noteLeaderboard7962(url, rows.size)
+            if (rows.isNotEmpty()) return rows.sortedByDescending { it.second }.take(10)
+        }
+        return emptyList()
     }
 
     /**
@@ -322,7 +332,10 @@ class CopyTradeEngine(
             else                                  -> "copytrade_other"
         }
         val req  = Request.Builder().url(effectiveUrl)
-            .header("Accept", "application/json").build()
+            .header("Accept", "application/json")
+            // V5.0.7962 — GMGN (leaderboard fallback) is Cloudflare-fronted and wants a browser UA.
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36")
+            .build()
         val start = System.currentTimeMillis()
         val resp = http.newCall(req).execute()
         try { com.lifecyclebot.engine.ApiHealthMonitor.record(host, resp.code, System.currentTimeMillis() - start) } catch (_: Throwable) {}
