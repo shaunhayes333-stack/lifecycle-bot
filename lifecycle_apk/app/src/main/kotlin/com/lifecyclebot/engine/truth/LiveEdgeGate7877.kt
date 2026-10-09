@@ -154,6 +154,18 @@ object LiveEdgeGate7877 {
         // the plan will actually run), not on 60-minute hold cohorts.
         if (FreshLaunchSelector7737.ladderProven7932(ts, nowMs)) return Verdict(true, Source.CELL, 0.0, "LAUNCH_LADDER_PROVEN_7932")
         val cell = try { ForwardReturnLabeler7731.cellStatFor(ts, l, nowMs) } catch (_: Throwable) { null }
+        // V5.0.7938 — a lane whose own forward labels are proven losing does not trade
+        // live on a borrowed cohort. 5.0.7937 (hours live): MOONSHOT lane labels n=251
+        // net -8.2% and live realised n=63 at -10%, admitted through the pooled
+        // PLANWAIT_LAUNCH_NEGATIVE cohort (+3.3%) it does not trade like. Only the
+        // candidate's own measured-positive cell (or the ladder, above) still admits.
+        val laneStat7938 = try { ForwardReturnLabeler7731.laneStatFor7737(l) } catch (_: Throwable) { null }
+        if (laneProvenLosing7938(laneStat7938)) {
+            val own = judge(cell, false)
+            if (!(own.allow && own.source == Source.CELL)) {
+                return Verdict(false, Source.CELL, laneStat7938?.meanNet60Pct ?: 0.0, "LANE_PROVEN_LOSING_7938_${"%.1f".format(laneStat7938?.meanNet60Pct ?: 0.0)}PCT")
+            }
+        }
         val laneProven = try {
             LivePivotAuthority7876.laneVerdict(l, nowMs) == LivePivotAuthority7876.Evidence.PROVEN
         } catch (_: Throwable) { false }
@@ -164,6 +176,20 @@ object LiveEdgeGate7877 {
         } catch (_: Throwable) { emptyList() }
         return judgeRunner(cell, cohorts, laneProven)
     }
+
+    /**
+     * Pure. V5.0.7938 — the lane's own 60-minute labels prove it loses: 100+ labels,
+     * mean plus one standard error under -2% net, and no positive 4-hour record (a
+     * runner lane whose tail pays after the hour is not refused).
+     */
+    fun laneProvenLosing7938(stat: ForwardReturnLabeler7731.CellStat?): Boolean {
+        if (stat == null || stat.n60 < LANE_LOSING_MIN_N_7938) return false
+        val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else return false
+        if (stat.n240 >= CELL_MIN_N && stat.meanNet240Pct >= 0.0) return false
+        return stat.meanNet60Pct + se < PROVEN_NEGATIVE_PCT
+    }
+
+    private const val LANE_LOSING_MIN_N_7938 = 100
 
     /** Pure: a refusal resting on a prior alone (no measurement says the entry loses). */
     fun priorOnly7930(why: String): Boolean =
