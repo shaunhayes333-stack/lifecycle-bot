@@ -328,6 +328,23 @@ object Cortex7885 {
     // evidence for moving each veto into the Constitution or retiring it.
     private val vetoBook = HashMap<String, CortexLedger7885.Stat>()
 
+    /**
+     * V5.0.7953 — a refusal rule whose own refused candidates are proven to win
+     * (veto audit: 40+ graded, mean minus one standard error above +2% net) stops
+     * refusing live. 5.0.7951: PLAYBOOK_SETUP_PROVEN_LOSING refused 252 SHITCOIN
+     * launch-ladder candidates whose forward return was +16.7% (n=40) — the audit
+     * printed REFUSING_WINNERS and nothing acted on it.
+     */
+    fun vetoRefusesWinners7953(reason: String): Boolean {
+        ensureLoaded()
+        val st = synchronized(this) { vetoBook[vetoRuleOf(reason)] } ?: return false
+        if (st.n < 40.0) return false
+        val se = kotlin.math.sqrt(st.variance() / st.n)
+        val retired = st.mean() - se > 2.0
+        if (retired) inc("VETO_RETIRED_7953_${vetoRuleOf(reason)}")
+        return retired
+    }
+
     /** Pure: a stable rule id from a refusal reason (leading upper-case words, max 4). */
     fun vetoRuleOf(reason: String): String =
         reason.trim().split('_', ':', ' ').filter { w -> w.isNotEmpty() && !w.all { it.isDigit() } }

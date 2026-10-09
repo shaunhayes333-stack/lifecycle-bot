@@ -144,6 +144,16 @@ object ChartReader7950 {
         return r
     }
 
+    /** V5.0.7953 — fingerprint every live tape's closed candles into the library. Returns motifs added. */
+    fun learnAll7953(): Int {
+        val before = liveMotifs.get()
+        for ((mint, tape) in tapes.entries.toList()) {
+            val bars = synchronized(tape) { toBars(tape.bars) }
+            if (bars.size > ChartMotif7950.WINDOW + ChartMotif7950.HORIZON) learnLive(mint, tape, bars)
+        }
+        return (liveMotifs.get() - before).toInt()
+    }
+
     /** Fingerprint this mint's closed candles whose future is now known back into the library. */
     private fun learnLive(mint: String, tape: Tape, bars: List<Bar7950>) {
         val lastEnd = ChartLibrary7950.lastLabelledEnd(bars.size)

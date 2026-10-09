@@ -78,9 +78,11 @@ object ChartLibraryBuilder7950 {
                 }
                 phase = "live"
                 // Live motifs keep arriving through ChartReader7950; save them periodically.
+                var ticks = 0
                 while (true) {
-                    Thread.sleep(10L * 60_000L)
-                    ChartLibrary7950.save(f)
+                    Thread.sleep(LIVE_LEARN_MS_7953)
+                    learnLive7953()
+                    if (++ticks % 2 == 0) ChartLibrary7950.save(f)
                 }
             } catch (_: InterruptedException) {
             } catch (t: Throwable) {
@@ -97,14 +99,16 @@ object ChartLibraryBuilder7950 {
         phase = "listing"
         val done = HashSet(prefs.getStringSet("done", emptySet()) ?: emptySet())
         val series = ArrayList<Series>()
-        series += cryptoSeries()
-        series += memeSeries()
+        // V5.0.7953 — memes first and interleaved: 5.0.7951 built 8,433 crypto motifs and 0 meme
+        // motifs in 21 minutes because every Binance series was queued ahead of every pool.
+        series += interleave7953(memeSeries(), cryptoSeries())
         val todo = series.filter { it.key !in done }
         seriesTotal.set(series.size)
         seriesDone.set(series.size - todo.size)
         phase = "building"
         var sinceSave = 0
         for (s in todo) {
+            if (System.currentTimeMillis() - lastLiveLearnMs7953 >= LIVE_LEARN_MS_7953) learnLive7953()
             val bars = try { if (s.binance) binanceBars(s.url) else geckoBars(s.url) } catch (_: Throwable) { null }
             if (bars != null && bars.size > ChartMotif7950.WINDOW + ChartMotif7950.HORIZON + 2) {
                 sinceSave += ChartLibrary7950.ingestSeries(bars, s.source, WINDOWS_PER_SERIES)
@@ -122,6 +126,30 @@ object ChartLibraryBuilder7950 {
             PipelineHealthCollector.labelInc("CHART_LIBRARY_BUILT_7950")
             ForensicLogger.lifecycle("CHART_LIBRARY_BUILT_7950", "series=${series.size} ${ChartLibrary7950.statusLine()}")
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7953 — every 5 minutes, all live tapes (every chart the bot is watching,
+     * hundreds of memes) are fingerprinted into the library, not only the few read by
+     * a buy check: 5.0.7951 had 627 live tapes and 19 live motifs.
+     */
+    private const val LIVE_LEARN_MS_7953 = 5L * 60_000L
+    @Volatile private var lastLiveLearnMs7953 = 0L
+
+    private fun learnLive7953() {
+        lastLiveLearnMs7953 = System.currentTimeMillis()
+        try { ChartReader7950.learnAll7953() } catch (_: Throwable) {}
+    }
+
+    /** Pure: alternate [first] and [second] (first leads), keeping the rest of the longer list. */
+    fun <T> interleave7953(first: List<T>, second: List<T>): List<T> {
+        val out = ArrayList<T>(first.size + second.size)
+        val n = maxOf(first.size, second.size)
+        for (i in 0 until n) {
+            if (i < first.size) out += first[i]
+            if (i < second.size) out += second[i]
+        }
+        return out
     }
 
     // ── sources ──

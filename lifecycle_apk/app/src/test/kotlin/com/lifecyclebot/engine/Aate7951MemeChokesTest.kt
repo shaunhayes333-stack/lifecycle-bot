@@ -70,7 +70,8 @@ class Aate7951MemeChokesTest {
 
     @Test fun v3CapitalAndTrunkAgeVerdictsAreRoutingNotTokenTruth() {
         assertTrue(MemeChokes7951.v3RejectIsLaneRouting7951("SIZE_ZERO"))
-        assertTrue(MemeChokes7951.v3RejectIsLaneRouting7951("TOO_OLD"))
+        // V5.0.7952 review — TOO_OLD (true on-chain age) stays fatal.
+        assertFalse(MemeChokes7951.v3RejectIsLaneRouting7951("TOO_OLD"))
         assertTrue(MemeChokes7951.v3RejectIsLaneRouting7951("SHITCOIN_CANDIDATE"))
         assertTrue(MemeChokes7951.v3RejectIsLaneRouting7951("MCAP_TOO_LOW"))
         for (hard in listOf("ZERO_LIQUIDITY", "LOW_LIQUIDITY", "COOLDOWN", "ALREADY_OPEN", "SCORE_TOO_LOW", "GLOBAL_EXPOSURE_MAX_SLOTS(5/5)")) {

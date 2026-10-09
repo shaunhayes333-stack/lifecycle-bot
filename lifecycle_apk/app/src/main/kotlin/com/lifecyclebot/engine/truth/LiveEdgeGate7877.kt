@@ -339,6 +339,8 @@ object LiveEdgeGate7877 {
         // to measured evidence, and any measured refusal yields to a proven cohort on more labels.
         val cohort7948 by lazy { provenCohort7948(ts, nowMs) }
         for (prior in priors7930) {
+            // V5.0.7953 — a refusal the veto audit proves is refusing winners stands down.
+            if (com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners7953(prior)) continue
             if ((priorOnly7930(prior) || prior.contains("_EXPECTED_NEGATIVE_7948")) && measuredOverrules7930(ts, l, prior, nowMs)) continue
             val sampleN = refusalSampleN7948(ts, l, prior)
             if (sampleN != null && cohortOverrulesSmaller7948(cohort7948, sampleN)) {
