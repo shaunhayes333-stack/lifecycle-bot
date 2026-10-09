@@ -62,7 +62,13 @@ class SmartSizerV3(
          *  floor tracks the market instead of freezing at one exchange rate. */
         // V5.0.7728 — the slot limit no longer derives from routable capacity.
         // This minimum remains an independent sizing/venue constraint.
-        const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0
+        // V5.0.7951 — $5 -> $3. Audited against the code's real fixed costs
+        // (CapitalThroughput7951): buy 0.0002 Sender tip + ~0.00002 CU/base,
+        // urgent sell 0.0004 + 0.00002 = 0.00064 SOL round trip, which is 2.35%
+        // of $3 at SOL $110 (0.0272 SOL); ATA rent is returned on close. Below the
+        // SOL cost floor (round trip / 2.5% = 0.0256 SOL) the floor wins instead,
+        // see routableMinSol7951. At $5 a 0.22 SOL wallet carried four orders.
+        const val LIVE_ROUTABLE_MIN_USD_7127 = 3.0
 
         /** Hard lower bound on the converted routable minimum. Guards against a
          *  bad or spiking SOL price producing a floor small enough to reinstate
@@ -115,9 +121,7 @@ class SmartSizerV3(
                 com.lifecyclebot.engine.truth.EconomicUnitInvariant7061
                     .usdToSol(LIVE_ROUTABLE_MIN_USD_7127, solUsd)
             } catch (_: Throwable) { Double.NaN }
-            val routableMin = if (rawSol.isFinite() && rawSol > 0.0) {
-                rawSol.coerceIn(LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127, LIVE_FLOOR_CEILING_SOL_7127)
-            } else LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127
+            val routableMin = routableMinSol7951(rawSol)
             val capacity = if (routableMin > 0.0 && tradeable > 0.0) {
                 kotlin.math.floor(tradeable / routableMin).toInt()
             } else 0
@@ -209,6 +213,22 @@ class SmartSizerV3(
          * prerequisite from turning a healthy small wallet into a permanent
          * no-trade account while still rejecting an all-in order. */
         private const val SINGLE_ROUTABLE_POSITION_SHARE_7255 = 0.60
+
+        /**
+         * V5.0.7951 — the ONE routable-minimum arithmetic, shared by compute()
+         * and routableCapacityPreflight7224 so they cannot drift: the $-route
+         * floor converted at [rawSol], never below the fixed-cost floor (an order
+         * whose round trip costs <= 2.5% of it) nor the absolute sanity minimum,
+         * never above the ceiling. An unknown price falls to the cost floor,
+         * which is price-independent.
+         */
+        private fun routableMinSol7951(rawSol: Double): Double {
+            val costFloor = try {
+                com.lifecyclebot.engine.truth.CapitalThroughput7951.costFloorOrderSol7951()
+            } catch (_: Throwable) { LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127 }
+            val base = if (rawSol.isFinite() && rawSol > 0.0) rawSol else LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127
+            return maxOf(base, costFloor).coerceIn(LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127, LIVE_FLOOR_CEILING_SOL_7127)
+        }
 
         /** V5.0.7399 — when only one routable slot exists, tradeableSol has
          * already had the execution reserve removed. Do not reserve it twice. */
@@ -400,7 +420,7 @@ class SmartSizerV3(
                 .usdToSol(LIVE_ROUTABLE_MIN_USD_7127, solUsd7127)
         } catch (_: Throwable) { Double.NaN }
         val routableMinSol7127 = if (routableRawSol7127.isFinite() && routableRawSol7127 > 0.0) {
-            routableRawSol7127.coerceIn(LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127, LIVE_FLOOR_CEILING_SOL_7127)
+            routableMinSol7951(routableRawSol7127) // V5.0.7951 — shared with routableCapacityPreflight7224
         } else {
             // V5.0.7142 — A MISSING PRICE MUST NOT INFLATE THE FLOOR.
             //
@@ -427,7 +447,7 @@ class SmartSizerV3(
             // minimum is the one value here chosen as the smallest trade that
             // can still route, so it is the honest answer to "how small may
             // this be" when the conversion is unavailable.
-            LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127
+            routableMinSol7951(Double.NaN) // V5.0.7951 — price-independent cost floor
         }
         val liveNoDustFloor6269 = (tradeable * LIVE_FLOOR_WALLET_PCT_7127)
             .coerceIn(routableMinSol7127, LIVE_FLOOR_CEILING_SOL_7127)

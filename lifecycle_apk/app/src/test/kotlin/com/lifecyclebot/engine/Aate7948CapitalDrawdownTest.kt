@@ -17,8 +17,8 @@ class Aate7948CapitalDrawdownTest {
 
     private fun src(rel: String) = File("src/main/kotlin/com/lifecyclebot/$rel").readText()
 
-    // 5.0.7947: $5 at this price is 0.04535 SOL.
-    private val solUsd7947 = 5.0 / 0.04535
+    // 5.0.7947: one routable order (then $5) at this price is 0.04535 SOL (V5.0.7951: priced off the current USD floor).
+    private val solUsd7947 = SmartSizerV3.LIVE_ROUTABLE_MIN_USD_7127 / 0.04535
 
     @Test fun capacity_zero_uses_single_position_rule_not_a_25pct_band() {
         val pf = SmartSizerV3.routableCapacityPreflight7224(0.0418, solUsd7947)
