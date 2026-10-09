@@ -32,7 +32,16 @@ object Cortex7885 {
     private const val PENDING_TTL_MS = 5L * 60L * 60_000L
     private const val MAX_PENDING = 8_000
     private const val MAX_ASSESS_CACHE = 4_000
-    private const val PERSIST_KEY = "CORTEX_7885"
+    /**
+     * V5.0.7947 — the forward-label ledgers moved to a new key. They were graded on
+     * 60/240-minute, spike-blind labels; since 7945/7946 a label is the 5-minute read
+     * with the spike tiers credited, so the old grades measured a different thing and
+     * kept refusing on it (5.0.7944: C3 on CASHGEN 1,006). The realised-trade ledgers
+     * ("real") are fills and exits, still true, and carry over. The old key is left in
+     * place, untouched.
+     */
+    private const val PERSIST_KEY = "CORTEX_7885_V7947"
+    private const val LEGACY_PERSIST_KEY_7947 = "CORTEX_7885"
     private const val PERSIST_EVERY = 40
     private const val MARK_STALE_MS = 180_000L
 
@@ -671,7 +680,13 @@ object Cortex7885 {
             loaded = true
             try { restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis()) } catch (_: Throwable) { inc("PENDING_RESTORE_FAILED") }
             try {
-                val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
+                val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: run {
+                    LearningPersistence.load(LEGACY_PERSIST_KEY_7947)?.let { legacy ->
+                        org.json.JSONObject(legacy).optJSONObject("real")?.let { j -> for (k in j.keys()) j.optJSONObject(k)?.let { realLedgers[k] = CortexLedger7885().also { l -> l.decode(it) } } }
+                        inc("LEGACY_REAL_CARRIED_7947")
+                    }
+                    return
+                })
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("board")?.let { board.decode(it) }
                 o.optJSONObject("calibration")?.let { calibration.decode(it) }

@@ -136,22 +136,52 @@ object MayhemMode7943 {
     /** Pure: is this supply a mayhem-mode pump.fun supply? */
     fun mayhemSupply(supply: Double): Boolean = supply.isFinite() && supply in MAYHEM_SUPPLY_LO..MAYHEM_SUPPLY_HI
 
-    private fun isMayhem(ts: TokenState): Boolean {
-        if (!ts.mint.endsWith("pump")) return false
-        val onChain = try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(ts.mint) } catch (_: Throwable) { 0.0 }
-        if (onChain <= 0.0) try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.requestAsync7075(ts.mint) } catch (_: Throwable) {}
-        val implied = if (ts.lastMcap > 0.0 && ts.lastPrice > 0.0) ts.lastMcap / ts.lastPrice else 0.0
-        val supply = if (onChain > 0.0) onChain else implied
-        return mayhemSupply(supply)
+    /**
+     * V5.0.7947 — only the on-chain supply convicts. 5.0.7944 refused 1,286 coins in
+     * 27 minutes while only 591 supplies had resolved: most refusals rested on the
+     * supply implied by market cap / price, two prints from different feeds and times
+     * (TokenMetrics: supplyConflicts=25, worst break 102x). A coin whose implied supply
+     * looks like mayhem waits up to [UNVERIFIED_WAIT_MS_7947] for its chain read, then
+     * is judged on that read, or let through if the chain never answers.
+     */
+    private const val UNVERIFIED_WAIT_MS_7947 = 60_000L
+    private val firstSuspectAt = ConcurrentHashMap<String, Long>()
+    private val deferred = java.util.concurrent.atomic.AtomicLong(0)
+    private val cleared = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure: "MAYHEM" (chain-proven), "WAIT" (implied only, inside the wait), or null. */
+    fun verdict7947(onChainSupply: Double, impliedSupply: Double, suspectForMs: Long): String? = when {
+        onChainSupply > 0.0 -> if (mayhemSupply(onChainSupply)) "MAYHEM" else null
+        mayhemSupply(impliedSupply) && suspectForMs < UNVERIFIED_WAIT_MS_7947 -> "WAIT"
+        else -> null
     }
 
     /** LiveEdgeGate7877: the live refusal for a mayhem coin, or null. */
-    fun liveRefusal(ts: TokenState): String? {
-        if (!isMayhem(ts)) return null
-        refused.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("MAYHEM_MODE_REFUSED_7943") } catch (_: Throwable) {}
-        return "MAYHEM_MODE_7943"
+    fun liveRefusal(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
+        if (!ts.mint.endsWith("pump")) return null
+        val onChain = try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(ts.mint) } catch (_: Throwable) { 0.0 }
+        if (onChain <= 0.0) try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.requestAsync7075(ts.mint) } catch (_: Throwable) {}
+        val implied = if (ts.lastMcap > 0.0 && ts.lastPrice > 0.0) ts.lastMcap / ts.lastPrice else 0.0
+        val since = if (onChain <= 0.0 && mayhemSupply(implied)) {
+            if (firstSuspectAt.size > 5_000) firstSuspectAt.clear()
+            nowMs - firstSuspectAt.getOrPut(ts.mint) { nowMs }
+        } else 0L
+        return when (verdict7947(onChain, implied, since)) {
+            "MAYHEM" -> {
+                refused.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("MAYHEM_MODE_REFUSED_7943") } catch (_: Throwable) {}
+                "MAYHEM_MODE_7943"
+            }
+            "WAIT" -> {
+                deferred.incrementAndGet()
+                "MAYHEM_UNVERIFIED_WAIT_7947"
+            }
+            else -> {
+                if (firstSuspectAt.remove(ts.mint) != null) cleared.incrementAndGet()
+                null
+            }
+        }
     }
 
-    fun statusLine(): String = "refused=${refused.get()}"
+    fun statusLine(): String = "refusedOnChain=${refused.get()} waitedUnverified7947=${deferred.get()} clearedAfterWait7947=${cleared.get()}"
 }

@@ -531,7 +531,7 @@ object LanePlaybook7907 {
                 }
             } catch (_: Throwable) {}
             try {
-                val o = org.json.JSONObject(LearningPersistence.load("LANE_PLAYBOOK_7907") ?: return)
+                val o = org.json.JSONObject(LearningPersistence.load(BOOKS_KEY_7947) ?: return)
                 for (lane in o.keys()) {
                     val j = o.optJSONObject(lane) ?: continue
                     val b = books.getOrPut(lane) { Book() }
@@ -542,6 +542,8 @@ object LanePlaybook7907 {
     }
 
     private const val PENDING_KEY_7920 = "LANE_PLAYBOOK_PENDING_7920"
+    /** V5.0.7947 — setup records graded on the 5-minute, spike-credited read (old key "LANE_PLAYBOOK_7907" left untouched). */
+    private const val BOOKS_KEY_7947 = "LANE_PLAYBOOK_7947"
     @Volatile private var lastPendingPersistMs = 0L
 
     /** Cortex7885.captureNow: save the pending setup tags at most every 2 minutes. */
@@ -574,7 +576,7 @@ object LanePlaybook7907 {
                     books.forEach { (lane, b) -> o.put(lane, org.json.JSONObject().also { j -> b.stats.forEach { (k, v) -> j.put(k, v.encode()) } }) }
                 }.toString()
             }
-            LearningPersistence.save("LANE_PLAYBOOK_7907", json)
+            LearningPersistence.save(BOOKS_KEY_7947, json)
         } catch (_: Throwable) {}
     }
 
