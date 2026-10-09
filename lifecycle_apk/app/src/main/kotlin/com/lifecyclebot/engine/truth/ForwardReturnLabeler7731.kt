@@ -186,6 +186,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var dipBeforePeak7962 = Double.NaN
         /** V5.0.7967 — the refusal reason at the decision (missed-runner audit). */
         @Volatile var reason7967: String = ""
+        /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
+        @Volatile var feats7972: List<String> = emptyList()
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -263,6 +265,7 @@ object ForwardReturnLabeler7731 {
         prefs = p
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
+        try { SpecialistMiner7972.attach7972(context) } catch (_: Throwable) {}
         try {
             p.getString(CELLS_KEY_7946, null)?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
@@ -476,6 +479,7 @@ object ForwardReturnLabeler7731 {
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
                 it.reason7967 = reason.orEmpty().take(120)
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
+                it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
             }
         lastSeenAt[key] = nowMs
         // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
@@ -568,6 +572,8 @@ object ForwardReturnLabeler7731 {
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
+        // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
+        try { SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs) } catch (_: Throwable) {}
         try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
         // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
         try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}
@@ -869,6 +875,7 @@ object ForwardReturnLabeler7731 {
     fun persistNow7731() {
         persist(force = true)
         try { FreshLaunchSelector7737.persistNow7737() } catch (_: Throwable) {}
+        try { SpecialistMiner7972.saveNow7972() } catch (_: Throwable) {}   // V5.0.7972
         try {
             ForensicLogger.lifecycle(
                 "FORWARD_LABELER_PERSISTED_7731",

@@ -351,6 +351,15 @@ object LiveEdgeGate7877 {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         // V5.0.7943 — pump.fun Mayhem Mode coins are not bought live.
         com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts)?.let { return it }
+        // V5.0.7972 — a promoted specialist of this lane (a fact combination whose own labels
+        // cleared +15% net after 2 SE on 25+ decisions, still holding out of sample) admits.
+        // Hard safety (HARD_BLOCK) and Mayhem have already refused above / at the door.
+        if (ts.safety.tier != com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) {
+            SpecialistMiner7972.match7972(ts, l, nowMs)?.let { sp ->
+                if (SpecialistMiner7972.runs7972(sp)) try { com.lifecyclebot.engine.RunnerGrab7967.holdAsRunner7972(ts, nowMs) } catch (_: Throwable) {}
+                return null
+            }
+        }
         // V5.0.7907 — the lane's playbook: a live entry needs one of its setups.
         // V5.0.7928 — the lane's lifecycle stage: buy the stage this lane's play pays in.
         // V5.0.7930 — an unmeasured prior (no setup fired / off the stage sheet) yields to

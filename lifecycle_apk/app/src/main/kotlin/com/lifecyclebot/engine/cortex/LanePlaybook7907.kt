@@ -69,9 +69,23 @@ object LanePlaybook7907 {
         val expertEntry7962: Boolean = false,
         // V5.0.7962 — StructureTracker7962: higher low after a higher high, reclaimed, buyers >= 50%.
         val structureHlReclaim: Boolean = false,
+        // V5.0.7974 — the bot sold this mint within 2 h and it is back near that price with a fresh higher low.
+        val secondWave7974: Boolean = false,
     )
 
     class Setup(val id: String, val prior: Double, val fires: (F) -> Boolean)
+
+    /**
+     * Pure. V5.0.7974 — the price side of a second wave: the bot sold this mint 2-120 minutes
+     * ago (no position open) and price is back within -40%..+10% of that exit.
+     */
+    fun secondWave7974(lastExitMs: Long, lastExitPx: Double, px: Double, nowMs: Long, open: Boolean): Boolean {
+        if (open || lastExitMs <= 0L || !(lastExitPx > 0.0) || !(px > 0.0)) return false
+        val dt = nowMs - lastExitMs
+        if (dt < 2L * 60_000L || dt > 120L * 60_000L) return false
+        val r = px / lastExitPx
+        return r in 0.60..1.10
+    }
 
     private fun ok(v: Double, lo: Double, hi: Double) = v.isFinite() && v >= lo && v <= hi
     private fun ge(v: Double, x: Double) = v.isFinite() && v >= x
@@ -228,35 +242,45 @@ object LanePlaybook7907 {
     private val RS_IN_WEAK_MARKET = Setup("RS_IN_WEAK_MARKET", FLOW) { f ->
         (f.regime == "DUMP" || f.regime == "CHOP" || f.regime == "DEAD") && ge(f.chg1h, 0.0) && ge(f.chg5m, 0.0) && ge(f.bp, 55.0)
     }
+    // V5.0.7974 — established memes ($1M-$50M, deep pool) swing inside their range: buy the
+    // lower part of the range once the 5-minute turns up with buyers in control (owner: BERT,
+    // Jean Phil, baton, apeonfone ranges). Graded per lane like every setup.
+    private val RANGE_SUPPORT_SWING = Setup("RANGE_SUPPORT_SWING", FLOW) { f ->
+        ok(f.mcap, 1_000_000.0, 50_000_000.0) && ge(f.liq, 100_000.0) && ok(f.dd, 25.0, 65.0) &&
+            ge(f.chg5m, 0.5) && ge(f.bp, 52.0) && geOrUnknown(f.chg1h, -12.0)
+    }
+    // V5.0.7974 — second wave: re-buy a coin the bot already sold once it builds a higher low
+    // again near the exit (owner: Spiralism / Jean Phil second legs).
+    private val SECOND_WAVE = Setup("SECOND_WAVE", STRUCT) { f -> f.secondWave7974 }
     private val MICRO_PULLBACK_TREND = Setup("MICRO_PULLBACK_TREND", FLOW) { f -> ge(f.chg1h, 3.0) && ok(f.dd, 2.0, 8.0) && ge(f.bp, 50.0) }
 
     /** Lane -> its playbook (FIELD_MANUAL §4 families per lane; doc-derived). */
     private val MENU: Map<String, List<Setup>> = mapOf(
         "QUALITY" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, BREAKOUT_HOLD, RECLAIM_AFTER_WEAKNESS,
-            HOLDER_EXPANSION, OPP_LIQUIDITY_EXPANSION, OPP_BREAKOUT_EXPANSION, LP_LOCKED_BASE, LOW_VOL_COIL, SECOND_LEG, MOMENTUM_PULLBACK_5M, RS_IN_WEAK_MARKET, HL_RECLAIM),
+            HOLDER_EXPANSION, OPP_LIQUIDITY_EXPANSION, OPP_BREAKOUT_EXPANSION, LP_LOCKED_BASE, LOW_VOL_COIL, SECOND_LEG, MOMENTUM_PULLBACK_5M, RS_IN_WEAK_MARKET, HL_RECLAIM, RANGE_SUPPORT_SWING, SECOND_WAVE),
         "BLUECHIP" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, TREND_PULLBACK, RELATIVE_STRENGTH, FLAG_CONTINUATION,
-            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, OPP_RS_LEADER, OPP_LIQUIDITY_EXPANSION, OPP_CONTINUATION, RS_IN_WEAK_MARKET),
+            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, OPP_RS_LEADER, OPP_LIQUIDITY_EXPANSION, OPP_CONTINUATION, RS_IN_WEAK_MARKET, RANGE_SUPPORT_SWING),
         "SHITCOIN" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, FIRST_PULLBACK, PRE_IGNITION_BASE, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             FAST_CROWD, BROAD_DISTRIBUTION, NET_INFLOW_SURGE, FIRST_DIP_BOUGHT, DEV_HOLDS_CROWD_BUYS, CLEAN_DEV_LAUNCH, ACCELERATING_TAPE,
-            GRADUATION_RUN, NO_BUNDLE_CLEAN, SOCIAL_LAUNCH, NARRATIVE_WAVE, INSIDER_ACCUMULATION, OPP_EARLY_IGNITION, HL_RECLAIM),
+            GRADUATION_RUN, NO_BUNDLE_CLEAN, SOCIAL_LAUNCH, NARRATIVE_WAVE, INSIDER_ACCUMULATION, OPP_EARLY_IGNITION, HL_RECLAIM, SECOND_WAVE),
         "EXPRESS" to listOf(PLAN_BASE_BREAKOUT, VOLUME_CONTINUATION, HIGHER_LOW_CONTINUATION, MICRO_FLAG, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             ACCELERATING_TAPE, FAST_CROWD, VOLUME_IGNITION, TX_VELOCITY_BREAK, MOMENTUM_PULLBACK_5M, OPP_EARLY_IGNITION, OPP_RS_LEADER, HL_RECLAIM),
         "MOONSHOT" to listOf(PLAN_BASE_BREAKOUT, LAUNCH_CONTINUATION, BREAKOUT_RUNNER, RS_LEADER, POST_EVENT_RECLAIM, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             FAST_CROWD, NET_INFLOW_SURGE, GRADUATION_RUN, POST_MIGRATION_HOLD, BOOSTED_LAUNCH, SOCIAL_LAUNCH, NARRATIVE_WAVE,
-            VOLUME_IGNITION, OPP_BREAKOUT_EXPANSION, OPP_EARLY_IGNITION, SECOND_LEG, CTO_REVIVAL, HL_RECLAIM),
+            VOLUME_IGNITION, OPP_BREAKOUT_EXPANSION, OPP_EARLY_IGNITION, SECOND_LEG, CTO_REVIVAL, HL_RECLAIM, SECOND_WAVE),
         "PROJECT_SNIPER" to listOf(PLAN_BASE_BREAKOUT, VERIFIED_LAUNCH, LOW_RUNUP_BASE, FIRST_PULLBACK, CROWD_FORMING, LAUNCH_LADDER_PROVEN,
             CLEAN_DEV_LAUNCH, SOCIAL_LAUNCH, BROAD_DISTRIBUTION, NO_BUNDLE_CLEAN, LP_LOCKED_BASE, DEV_HOLDS_CROWD_BUYS, POST_MIGRATION_HOLD, HL_RECLAIM),
         "DIP_HUNTER" to listOf(PLAN_SWEEP_RECLAIM, SWEEP_RECLAIM_FLOW, CAPITULATION_HIGHER_LOW, SUPPORT_FLIP,
             MEAN_REVERSION_OVERSOLD, SECOND_LEG, FIRST_DIP_BOUGHT, HOLDER_EXPANSION, OPP_DIP_RECOVERY, HL_RECLAIM),
         "MANIPULATED" to listOf(PLAN_SWEEP_RECLAIM, DISTRIBUTION_RECLAIM, SWEEP_RECLAIM_FLOW, CTO_REVIVAL, ACCELERATING_TAPE, FIRST_DIP_BOUGHT, HL_RECLAIM),
         "TREASURY" to listOf(PLAN_SWEEP_RECLAIM, RANGE_LOW_BOUNCE, RECLAIM_AFTER_WEAKNESS, MICRO_PULLBACK_TREND,
-            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, MOMENTUM_PULLBACK_5M, OPP_DIP_RECOVERY),
+            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, MOMENTUM_PULLBACK_5M, OPP_DIP_RECOVERY, RANGE_SUPPORT_SWING),
         "CASHGEN" to listOf(PLAN_SWEEP_RECLAIM, RANGE_LOW_BOUNCE, RECLAIM_AFTER_WEAKNESS, MICRO_PULLBACK_TREND,
-            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, MOMENTUM_PULLBACK_5M, OPP_CONTINUATION),
+            DEEP_LIQ_TREND, LOW_VOL_COIL, MEAN_REVERSION_OVERSOLD, MOMENTUM_PULLBACK_5M, OPP_CONTINUATION, RANGE_SUPPORT_SWING),
         "CYCLIC" to listOf(PLAN_SWEEP_RECLAIM, PLAN_BASE_BREAKOUT, RANGE_LOW_BOUNCE, SUPPORT_FLIP,
-            MEAN_REVERSION_OVERSOLD, LOW_VOL_COIL, OPP_LIQUIDITY_EXPANSION, SECOND_LEG, OPP_DIP_RECOVERY),
+            MEAN_REVERSION_OVERSOLD, LOW_VOL_COIL, OPP_LIQUIDITY_EXPANSION, SECOND_LEG, OPP_DIP_RECOVERY, RANGE_SUPPORT_SWING),
         "CORE" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, RANGE_LOW_BOUNCE,
-            OPP_BREAKOUT_EXPANSION, OPP_RS_LEADER, HOLDER_EXPANSION, VOLUME_IGNITION, DEEP_LIQ_TREND, CROWD_FORMING, HL_RECLAIM),
+            OPP_BREAKOUT_EXPANSION, OPP_RS_LEADER, HOLDER_EXPANSION, VOLUME_IGNITION, DEEP_LIQ_TREND, CROWD_FORMING, HL_RECLAIM, RANGE_SUPPORT_SWING),
     )
 
     // V5.0.7962 — EXPERT_ENTRY: an expert wallet's live buy on this mint (ExpertWallets7962), graded
@@ -362,6 +386,10 @@ object LanePlaybook7907 {
             } catch (_: Throwable) { false },
             expertEntry7962 = try { com.lifecyclebot.engine.ExpertWallets7962.expertEntryLive7962(ts.mint, nowMs) } catch (_: Throwable) { false },
             structureHlReclaim = try { com.lifecyclebot.engine.chart.StructureTracker7962.hlReclaim7962(ts.mint, nowMs) } catch (_: Throwable) { false },
+            secondWave7974 = try {
+                secondWave7974(ts.lastExitTs, ts.lastExitPrice, ts.lastPrice, nowMs, ts.position.isOpen) &&
+                    com.lifecyclebot.engine.chart.StructureTracker7962.hlReclaim7962(ts.mint, nowMs)
+            } catch (_: Throwable) { false },
         )
     }
 
@@ -611,7 +639,8 @@ object LanePlaybook7907 {
         val id = classify(ts, lane, nowMs) ?: return null
         // V5.0.7962 — the 7962 setups are appended AFTER NO_TRIGGER's bin, so every setup the
         // voter learned before (and NO_TRIGGER = base menu size) keeps its bin.
-        val added7962 = listOf("HL_RECLAIM", "EXPERT_ENTRY")
+        // V5.0.7974 — RANGE_SUPPORT_SWING / SECOND_WAVE appended after them the same way.
+        val added7962 = listOf("HL_RECLAIM", "EXPERT_ENTRY", "RANGE_SUPPORT_SWING", "SECOND_WAVE")
         val menu = menuIds(lane).filter { it !in added7962 }
         val i = menu.indexOf(id)
         val j = added7962.indexOf(id)

@@ -152,6 +152,13 @@ object RunnerGrab7967 {
     }
     private val heldAdmits = AtomicLong(0)
 
+    /** V5.0.7972 — LiveEdgeGate7877: a specialist whose labels run is held like a grab. */
+    fun holdAsRunner7972(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+        if (ts.position.isOpen || grabbed.putIfAbsent(ts.mint, nowMs) != null) return
+        heldAdmits.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("RUNNER_HOLD_SPECIALIST_7972") } catch (_: Throwable) {}
+    }
+
     private fun firmingNow(mint: String, nowMs: Long): Boolean {
         val (r15, r60) = StructureTracker7962.reads7967(mint, nowMs)
         return firming7967(r15) || firming7967(r60)
@@ -209,12 +216,48 @@ object RunnerGrab7967 {
 
     // ── size ──
 
-    /** TraderSizingBridge6444: a grabbed runner is sized at least 2x (never above the 2.5x cap). */
+    /**
+     * TraderSizingBridge6444: a grabbed runner opens at 1.5x (never above the 2.5x cap).
+     * V5.0.7973 — was 2x up front; the rest of the size now goes in on confirmation
+     * ([structureAdd7973]): losers die at the starter size, winners end up bigger.
+     */
     fun sizeMult7967(mint: String, mult: Double): Double {
         val m = if (mult.isFinite() && mult > 0.0) mult else 1.0
         val at = grabbed[mint] ?: return m
         if (System.currentTimeMillis() - at > 10L * 60_000L) return m
-        return maxOf(m, 2.0).coerceAtMost(2.5)
+        return maxOf(m, STARTER_MULT_7973).coerceAtMost(2.5)
+    }
+    private const val STARTER_MULT_7973 = 1.5
+
+    /**
+     * Pure. V5.0.7973 — scale in on confirmation: add once per NEW confirmed swing (the 1m
+     * higher-high/higher-low count above the count at the last add), only in profit, with a
+     * higher low in place and the structure unbroken, at most [MAX_ADDS_7973] adds.
+     */
+    fun addConfirmed7973(r: StructureTracker7962.Read7962?, swingsAtLastAdd: Int, adds: Int, grossPct: Double): Boolean =
+        r != null && adds < MAX_ADDS_7973 && grossPct.isFinite() && grossPct > 0.0 &&
+            r.higherLow && !r.brokeStructure && r.hhHl > swingsAtLastAdd && r.hhHl >= 2 &&
+            (!r.buyShare.isFinite() || r.buyShare >= MIN_BUY_SHARE)
+    private const val MAX_ADDS_7973 = 2
+    private val addState = ConcurrentHashMap<String, IntArray>()
+    private val addsSignalled = AtomicLong(0)
+
+    /** Executor.autonomousTopUpSignal6091: a held runner (or proven-cell admit) just confirmed a new swing — add. */
+    fun structureAdd7973(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (ts.position.isPaperPosition || !holding7967(ts, nowMs)) return false
+        val (_, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
+        val k = "${ts.mint}|${ts.position.entryTime}"
+        val tc = ts.position.topUpCount
+        // [swings at the last executed add, top-ups seen, swings when the pending add was signalled, top-ups at open]
+        val st = addState.getOrPut(k) { intArrayOf(r60?.hhHl ?: 0, tc, -1, tc) }
+        // An add is counted only once the executor actually topped up (its own gain/cooldown/exposure checks may decline).
+        if (tc > st[1]) { st[1] = tc; if (st[2] >= 0) st[0] = st[2]; st[2] = -1 }
+        if (!addConfirmed7973(r60, st[0], tc - st[3], gross(ts, null))) return false
+        st[2] = r60!!.hhHl
+        if (addState.size > 2_000) addState.clear()
+        addsSignalled.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("RUNNER_STRUCTURE_ADD_7973") } catch (_: Throwable) {}
+        return true
     }
 
     // ── hold ──
@@ -301,7 +344,7 @@ object RunnerGrab7967 {
         val down = synchronized(record) { recordStandsDown7967(record) }
         val top = missedByReason.entries.sortedByDescending { it.value.get() }.take(5).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         val recent = synchronized(missedRecent) { missedRecent.joinToString(" · ") }.ifBlank { "-" }
-        return "grabs=${grabs.get()} heldAdmits7970=${heldAdmits.get()} holding=${grabbed.size} deferredSoftExits=${deferred.get()} runnerExits=${exitsTaken.get()} " +
+        return "grabs=${grabs.get()} heldAdmits7970=${heldAdmits.get()} adds7973=${addsSignalled.get()} holding=${grabbed.size} deferredSoftExits=${deferred.get()} runnerExits=${exitsTaken.get()} " +
             "record30m=$st${if (down) " STOOD_DOWN" else ""} pendingGrades=${signals.size} | runners>=+400%: caught=${caught.get()} " +
             "missed=${missedByReason.values.sumOf { it.get() }} byReason=[$top] recent=[$recent]"
     }

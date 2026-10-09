@@ -5710,6 +5710,8 @@ class Executor(
             val currentPrice = getActualPrice(ts)
             val gainPct = pct(pos.entryPrice, currentPrice)
             if (gainPct < 2.0) return false // add to winners only — never average down
+            // V5.0.7973 — a held runner that just confirmed a new 1m swing gets its next unit.
+            if (try { RunnerGrab7967.structureAdd7973(ts) } catch (_: Throwable) { false }) return true
             val whaleBid = ts.meta.whaleSummary.isNotBlank() || ts.meta.velocityScore >= 70.0
             val bullStructure = emafanAlignment in listOf("BULL_FAN", "BULL_FLAT") && volScore >= 45.0
             val holderConviction = ts.holderGrowthRate >= 10.0 && (ts.peakHolderCount >= 50 || ts.holderDataResolved)

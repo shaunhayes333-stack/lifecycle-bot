@@ -258,6 +258,25 @@ object ExitProfile7955 {
         return if (pnlPct >= be) "PROFILE_MAX_HOLD_7955_${pnlPct.toInt()}PCT" else null
     }
 
+    /**
+     * Pure. V5.0.7973 — the learned no-progress time stop. Most memecoin losers bleed rather
+     * than rug: they never get going and are held for an hour. A key whose 20+ labelled
+     * decisions say its moves peak by [Profile7955.medTtpMin] gets a clock of twice that
+     * (5..90 min). A position still under water at the clock that never reached
+     * max(+5%, 30% of the key's median peak, cost + 3%) has not started the move its setup
+     * pays on, and is closed. Anything that got going is left to the other exits.
+     */
+    fun noProgressExit7973(p: Profile7955?, holdMs: Long, pnlPct: Double, peakPct: Double, costPct: Double): String? {
+        if (p == null || p.n < 20 || !p.medTtpMin.isFinite() || p.medTtpMin <= 0.0) return null
+        if (!pnlPct.isFinite() || pnlPct >= 0.0) return null
+        val clockMin = (2.0 * p.medTtpMin).coerceIn(5.0, 90.0)
+        if (holdMs < (clockMin * 60_000.0).toLong()) return null
+        val c = if (costPct.isFinite() && costPct > 0.0) costPct else 0.0
+        val bar = maxOf(5.0, if (p.medPeak.isFinite()) 0.3 * p.medPeak else 0.0, c + 3.0)
+        if (peakPct.isFinite() && peakPct >= bar) return null
+        return "NO_PROGRESS_TIME_STOP_7973_${clockMin.toInt()}M"
+    }
+
     private const val MIN_TRAIL_ROOM_PCT_7955 = 8.0
 
     // ── learner ──

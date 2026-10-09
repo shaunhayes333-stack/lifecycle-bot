@@ -1041,6 +1041,13 @@ class BotService : Service() {
             ) ?: ExitProfile7955.maxHoldExit7955(plan7955, now - pos.entryTime, pnlPctNow, planCostPct7766(ts))?.let {
                 // V5.0.7955 — a pop-and-fade setup past its learned hold takes its profit.
                 com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
+            } ?: ExitProfile7955.noProgressExit7973(
+                try { ExitProfile7955.keyProfileFor7962(ts, now) } catch (_: Throwable) { null },
+                now - pos.entryTime, pnlPctNow, peakPct, planCostPct7766(ts),
+            )?.let {
+                // V5.0.7973 — a position that never started its setup's move is closed on the learned clock.
+                try { PipelineHealthCollector.labelInc("NO_PROGRESS_TIME_STOP_7973") } catch (_: Throwable) {}
+                com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
             } ?: com.lifecyclebot.engine.cortex.CortexExit7897.sellReason(ts, now)?.let {
                 // V5.0.7897 — the exit cortex's own proven SELL read, through the plan-exit path.
                 com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)

@@ -1403,6 +1403,9 @@ object PipelineHealthCollector {
         sb.append("  Expert wallets (§7962): ").append(
             try { ExpertWallets7962.statusLine7962() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Specialists (§7972): ").append(
+            try { com.lifecyclebot.engine.truth.SpecialistMiner7972.statusLine7972() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Pump callouts (§7968): ").append(
             try { PumpCallouts7968.statusLine7968() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
