@@ -469,12 +469,16 @@ object ExpertWallets7962 {
         persistIndex()
     }
 
-    /** The bot's first durable live buy (EconomicEventSchema6464), or 0 when unknown (then nothing on a shared wallet is treated as the owner's). */
-    private fun firstBotLiveBuyMs7962(): Long = try {
-        com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
-            .filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Buy>()
-            .filter { it.mode == "live" }.minOfOrNull { it.atMs } ?: 0L
-    } catch (_: Throwable) { 0L }
+    /** V5.0.7965 — every transaction signature the bot itself sent (live journal + fill-lot ledger). */
+    private fun botSignatures7965(): Set<String> {
+        val out = HashSet<String>()
+        try { TradeHistoryStore.getAllTrades().forEach { t -> if (t.mode.equals("live", true) && t.sig.isNotBlank()) out += t.sig } } catch (_: Throwable) {}
+        try {
+            val w = WalletManager.currentPubkey()
+            FillLotLedger6344.snapshotForWallet(w).forEach { if (it.buyTxSig.isNotBlank()) out += it.buyTxSig }
+        } catch (_: Throwable) {}
+        return out
+    }
 
     private fun isBotOwnWallet(addr: String): Boolean = try { WalletManager.currentPubkey() == addr } catch (_: Throwable) { false }
 
@@ -571,16 +575,18 @@ object ExpertWallets7962 {
     }
 
     private fun enqueueTrips(h: Hist, tier: Tier7962) {
-        val trips = reconstructRoundTrips7962(h.legs)
+        // V5.0.7965 — the owner trades by hand in the bot's own wallet. His trades are the legs the
+        // bot did NOT sign (bot signatures: the live trade journal + the durable fill-lot ledger).
+        val sharedWallet7965 = tier == Tier7962.OWNER && isBotOwnWallet(h.addr)
+        val legs7965 = if (sharedWallet7965) { val bot = botSignatures7965(); h.legs.filter { it.sig !in bot } } else h.legs.toList()
+        val trips = reconstructRoundTrips7962(legs7965)
         h.trips = trips.size
         h.closedTrips = trips.count { it.closed }
         synchronized(pendingLearn) {
             // V5.0.7962 — if the owner's wallet is also the bot's trading wallet, only his own
             // trades (before the bot's first live buy, or not bot-signed) are the owner's.
-            val botCutoff = if (tier == Tier7962.OWNER && isBotOwnWallet(h.addr)) firstBotLiveBuyMs7962() else Long.MAX_VALUE
             for (t in trips) {
                 if (!t.closed || "${t.mint}|${t.entryMs}" in h.learned) continue
-                if (t.entryMs >= botCutoff) { try { PipelineHealthCollector.labelInc("EXPERT_OWNER_TRIP_IS_BOT_TRADE_7962") } catch (_: Throwable) {}; continue }
                 val list = pendingLearn.getOrPut(t.mint) { ArrayList() }
                 if (list.none { it.first == h.addr && it.second.entryMs == t.entryMs }) list += h.addr to t
             }
