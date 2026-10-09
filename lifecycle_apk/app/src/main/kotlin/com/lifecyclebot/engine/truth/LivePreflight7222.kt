@@ -112,12 +112,16 @@ object LivePreflight7222 {
             val detail = "tradeable=${"%.4f".format(pf.tradeableSol)} routableMin=${"%.5f".format(pf.routableMinSol)} " +
                 "capacity=${pf.capacity} shareGuard=${"%.3f".format(pf.shareGuard)} safeShareCap=${"%.5f".format(pf.safeShareCapSol)} " +
                 "minViableWalletSol=${"%.4f".format(minViableWallet)} " +
-                (if (!ok && walletSol > 0.0) "shortfallSol=${"%.4f".format((minViableWallet - walletSol).coerceAtLeast(0.0))} " else "") +
+                (if (!ok && walletSol > 0.0) "shortfallSol=${"%.4f".format(CapitalDrawdown7948.shortfallSol7948(walletSol, reserve, pf.routableMinSol))} " else "") +
                 "(§7218 via SmartSizerV3.routableCapacityPreflight7224)"
             when {
                 walletSol <= 0.0 -> Check("ROUTABLE_CAPACITY", Verdict.UNKNOWN, "wallet not read; $detail")
                 ok -> Check("ROUTABLE_CAPACITY", Verdict.PASS, detail)
-                else -> Check("ROUTABLE_CAPACITY", Verdict.REFUSE, "one routable position exceeds the share guard; $detail")
+                // V5.0.7948 — capacity 0 says what it is (tradeable below one order),
+                // and the remedy the bot itself applies (CAPITAL_ROTATION_7948).
+                else -> Check("ROUTABLE_CAPACITY", Verdict.REFUSE,
+                    "${CapitalDrawdown7948.routableRefusalReason7948(pf.capacity, pf.tradeableSol, pf.routableMinSol)}; " +
+                        "remedy=CAPITAL_ROTATION_7948 frees a dead-money live position for a proven setup; $detail")
             }
         }
 

@@ -133,7 +133,7 @@ class SmartSizerV3(
                 // One-slot wallets may use the tradeable balance up to the DEX
                 // routable minimum; the untouchable SOL reserve remains outside it.
                 SINGLE_ROUTABLE_POSITION_SHARE_7399
-            } else LIVE_FLOOR_MAX_WALLET_SHARE_7127
+            } else SINGLE_ROUTABLE_POSITION_SHARE_7399 // V5.0.7948 capacity 0: tradeable < one order; no 25% band
             // V5.0.7697 — the concentration doctrine's share is the floor of the
             // guard whenever the wallet can carry two or more routable positions
             // (mirrors compute(); keep both in one commit).
@@ -478,7 +478,10 @@ class SmartSizerV3(
         } else if (routableCapacity7218 == 1) {
             SINGLE_ROUTABLE_POSITION_SHARE_7399
         } else {
-            LIVE_FLOOR_MAX_WALLET_SHARE_7127
+            // V5.0.7948 — capacity 0 is "tradeable below one routable order", not a
+            // 25% band (mirrors routableCapacityPreflight7224; 5.0.7947 printed an
+            // impossible "25% share cap 0.01045" against a 0.04535 minimum).
+            SINGLE_ROUTABLE_POSITION_SHARE_7399
         }
         // V5.0.7697 — the doctrine's share is the guard's floor on a live wallet
         // that can carry two or more routable positions (mirrored in
@@ -487,7 +490,7 @@ class SmartSizerV3(
             kotlin.math.max(shareGuard7218, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.share(tradeable))
         } catch (_: Throwable) { shareGuard7218 } else shareGuard7218
         val safeShareCap7142 = tradeable * shareGuardEff7697
-        if (isLive && shareGuard7218 > LIVE_FLOOR_MAX_WALLET_SHARE_7127) {
+        if (isLive && routableCapacity7218 >= 1 && shareGuard7218 > LIVE_FLOOR_MAX_WALLET_SHARE_7127) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector
                     .labelInc("LIVE_FLOOR_CONCENTRATED_TO_ROUTABLE_CAPACITY_7218")

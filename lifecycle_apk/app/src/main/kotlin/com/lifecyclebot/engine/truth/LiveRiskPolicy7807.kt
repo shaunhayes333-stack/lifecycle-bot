@@ -407,8 +407,6 @@ object LiveRiskPolicy7807 {
     private const val DAY_MS_7807 = 24L * 60L * 60_000L
     private val laneLosses = ConcurrentHashMap<String, ConcurrentLinkedDeque<Pair<Long, Double>>>()
     private val subscribed = AtomicBoolean(false)
-    @Volatile private var equityPeakSol = 0.0
-    @Volatile private var equityPeakAtMs = 0L
     private val bucketShrinkByMint = ConcurrentHashMap<String, Pair<Double, Long>>()
     private val opens = AtomicLong(0)
     private val passes = ConcurrentHashMap<String, AtomicLong>()
@@ -441,17 +439,6 @@ object LiveRiskPolicy7807 {
         return (-q.sumOf { it.second }).coerceAtLeast(0.0)
     }
 
-    /** Rolling-24h equity peak; returns the drawdown fraction from it. */
-    private fun observeEquity(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double {
-        if (!equitySol.isFinite() || equitySol <= 0.0) return 0.0
-        return synchronized(this) {
-            if (equityPeakSol <= 0.0 || equitySol >= equityPeakSol || nowMs - equityPeakAtMs > DAY_MS_7807) {
-                equityPeakSol = equitySol
-                equityPeakAtMs = nowMs
-            }
-            ((equityPeakSol - equitySol) / equityPeakSol).coerceIn(0.0, 1.0)
-        }
-    }
 
     /** B9: a refusal converted to a size note (e.g. PaperEvBucketGate6405), consumed at the final shape. */
     fun noteGovernorShrink(mint: String, mult: Double, label: String) {
@@ -517,7 +504,14 @@ object LiveRiskPolicy7807 {
         val effectiveLane7811 = canonicalLane(lane)
 
         val equity = liveEquitySol(walletSol)
-        val dd = observeEquity(equity, nowMs)
+        // V5.0.7948 — one drawdown authority (CapitalDrawdown7948): marked live equity of
+        // the whole wallet vs its rolling-24h peak, the same number KillSwitch reports.
+        // The free cash passed here is sizing input; a sealed in-flight buy is not a loss.
+        val dd = CapitalDrawdown7948.observePct7948(
+            CapitalDrawdown7948.liveMarkedEquitySol7948(
+                try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { walletSol }),
+            nowMs,
+        ) / 100.0
         val ll = laneLive(effectiveLane7811)
         val plan = try { TradePlan7739.freshPlan7783(mint) } catch (_: Throwable) { null }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
@@ -570,5 +564,5 @@ object LiveRiskPolicy7807 {
 
     fun statusLine(): String =
         "LiveRiskPolicy7807: opens=${opens.get()} passes=${passes.entries.joinToString(",") { "${it.key}=${it.value.get()}" }} " +
-            "equityPeak=${"%.4f".format(equityPeakSol)}"
+            "equityPeak=${"%.4f".format(CapitalDrawdown7948.currentPeak7948().peakSol)}"
 }
