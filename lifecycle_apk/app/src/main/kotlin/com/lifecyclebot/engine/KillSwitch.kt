@@ -113,7 +113,7 @@ object KillSwitch {
 
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
-        init(context, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol))
+        init(context, com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol))
         try { RemoteKillSwitch.ensurePolling7884(config.remoteConfigUrl, config.remoteConfigPollSecs * 1000L) } catch (_: Throwable) {}
     }
 
@@ -123,9 +123,9 @@ object KillSwitch {
         if (RuntimeModeAuthority.isPaper()) return "LIVE_ENTRY_WHILE_RUNTIME_PAPER_7835"
         if (RemoteKillSwitch.isKilled) return "REMOTE_KILL_7884:${RemoteKillSwitch.killReason.take(60)}"
         if (config != null) config7835 = config
-        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)
+        val equity = com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol)
         if (!equity.isFinite() || equity <= 0.0) return "KILL_SWITCH_EQUITY_UNAVAILABLE_7835"
-        if (!initializedLive7835) context7835?.let { init(it, equity) }
+        if (!initializedLive7835) context7835?.let { init(it, equity) } else observePeak7948(equity)
         val now = System.currentTimeMillis()
         if (!isSameDay(dailyStartDate, now)) { dailyStartBalance = equity; dailyStartDate = now }
         if (isKilled && killReason.startsWith("MAX_CONSECUTIVE_LOSSES") &&
@@ -144,18 +144,20 @@ object KillSwitch {
     fun preflight7863(): Pair<Boolean, String> {
         if (RuntimeModeAuthority.isPaper()) return true to "PAPER_MODE"
         if (!initializedLive7835) return false to "RISK_STATE_NOT_INITIALIZED"
-        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)
+        val equity = com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol)
         if (!equity.isFinite() || equity <= 0.0) return false to "EQUITY_UNAVAILABLE"
-        return canTrade(equity, maxDailyLossPct = config7835.maxDailyLossPct,
+        val verdict = canTrade(equity, maxDailyLossPct = config7835.maxDailyLossPct,
             maxConsecutiveLosses = config7835.circuitBreakerLosses,
             maxTradesPerHour = config7835.maxTradesPerHour)
+        // V5.0.7948 — the report always carries the one drawdown number and its basis.
+        return verdict.first to "${verdict.second} | ${com.lifecyclebot.engine.truth.CapitalDrawdown7948.line7948(equity)}"
     }
 
     @Synchronized
     fun recordCanonical7835(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.mode.equals("LIVE", true) || !env.terminal) return true
         val ctx = context7835 ?: return false
-        val equity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)
+        val equity = com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol)
         if (!equity.isFinite() || equity <= 0.0) return false
         if (!initializedLive7835) initLive7835(ctx, equity)
         val key = env.economicEventId.ifBlank { env.tradeId }
@@ -179,6 +181,21 @@ object KillSwitch {
     
     // State tracking
     private var peakBalance: Double = 0.0
+    /** V5.0.7948 — when [peakBalance] was set; the peak is a rolling-24h high-water. */
+    private var peakAt7948: Long = 0L
+
+    /**
+     * V5.0.7948 — the drawdown peak lives in CapitalDrawdown7948 (marked live
+     * equity, rolling 24h, shared with LiveRiskPolicy7807's size multiplier);
+     * KillSwitch mirrors it only to persist it.
+     */
+    private fun observePeak7948(equity: Double): Double {
+        val dd = com.lifecyclebot.engine.truth.CapitalDrawdown7948.observePct7948(equity)
+        val p = com.lifecyclebot.engine.truth.CapitalDrawdown7948.currentPeak7948()
+        peakBalance = p.peakSol
+        peakAt7948 = p.atMs
+        return dd
+    }
     private var dailyStartBalance: Double = 0.0
     private var dailyStartDate: Long = 0
     private var consecutiveLosses: Int = 0
@@ -231,6 +248,7 @@ object KillSwitch {
         val storedSchema7843 = prefs.getInt("environment_schema", 0)
         // Load persisted state
         peakBalance = prefs.getFloat("peak_balance", currentBalance.toFloat()).toDouble()
+        peakAt7948 = prefs.getLong("peak_at_7948", 0L)
         dailyStartBalance = prefs.getFloat("daily_start_balance", currentBalance.toFloat()).toDouble()
         dailyStartDate = prefs.getLong("daily_start_date", System.currentTimeMillis())
         consecutiveLosses = prefs.getInt("consecutive_losses", 0)
@@ -313,10 +331,19 @@ object KillSwitch {
             isKilled = false; killReason = ""; killTime = 0L
         }
 
-        // Update peak if current balance is higher
-        if (currentBalance > peakBalance) {
+        // V5.0.7948 — the drawdown basis changed from cash + cost basis against a
+        // peak that never fell to MARKED live equity against a rolling-24h peak
+        // (5.0.7947: "DD 86%/25%" beside a 0.6% strategy DD). A baseline recorded
+        // on the old basis is not comparable, so the window restarts here.
+        if (storedSchema7843 < 7948) {
             peakBalance = currentBalance
+            peakAt7948 = System.currentTimeMillis()
+            dailyStartBalance = currentBalance
+            dailyStartDate = peakAt7948
+            try { PipelineHealthCollector.labelInc("KILL_SWITCH_MARKED_EQUITY_BASELINE_7948") } catch (_: Throwable) {}
         }
+        com.lifecyclebot.engine.truth.CapitalDrawdown7948.seed7948(peakBalance, peakAt7948)
+        observePeak7948(currentBalance)
         
         // Reset daily tracking if new day
         val now = System.currentTimeMillis()
@@ -364,10 +391,8 @@ object KillSwitch {
         
         val now = System.currentTimeMillis()
         
-        // Update peak balance
-        if (currentBalance > peakBalance) {
-            peakBalance = currentBalance
-        }
+        // Update peak balance (V5.0.7948: rolling-24h marked-equity authority)
+        observePeak7948(currentBalance)
         
         // Track trades per hour
         if (!isSameHour(hourStart, now)) {
@@ -410,9 +435,7 @@ object KillSwitch {
         }
         
         // 2. Max Drawdown
-        val drawdownPct = if (peakBalance > 0) {
-            ((peakBalance - currentBalance) / peakBalance) * 100
-        } else 0.0
+        val drawdownPct = com.lifecyclebot.engine.truth.CapitalDrawdown7948.peekPct7948(currentBalance)
         
         if (drawdownPct >= maxDrawdownPct) {
             sizeDownNotice7864("MAX_DRAWDOWN",
@@ -480,12 +503,10 @@ object KillSwitch {
         }
         
         // Check drawdown
-        val drawdownPct = if (peakBalance > 0) {
-            ((peakBalance - currentBalance) / peakBalance) * 100
-        } else 0.0
+        val drawdownPct = com.lifecyclebot.engine.truth.CapitalDrawdown7948.peekPct7948(currentBalance)
         
         if (drawdownPct >= maxDrawdownPct * 0.9) {
-            notes7864 += "DD ${drawdownPct.toInt()}%/${maxDrawdownPct.toInt()}%"
+            notes7864 += "DD ${drawdownPct.toInt()}%/${maxDrawdownPct.toInt()}% (marked live equity vs 24h peak)"
         }
         
         // Check consecutive losses
@@ -517,9 +538,7 @@ object KillSwitch {
             ((currentBalance - dailyStartBalance) / dailyStartBalance) * 100
         } else 0.0
         
-        val drawdownPct = if (peakBalance > 0) {
-            ((peakBalance - currentBalance) / peakBalance) * 100
-        } else 0.0
+        val drawdownPct = com.lifecyclebot.engine.truth.CapitalDrawdown7948.peekPct7948(currentBalance)
         
         val warningLevel = if (isKilled) WarningLevel.KILLED else {
             getWarningLevel(dailyPnlPct, drawdownPct, consecutiveLosses,
@@ -546,6 +565,8 @@ object KillSwitch {
         killTime = 0
         consecutiveLosses = 0
         peakBalance = newBalance
+        peakAt7948 = System.currentTimeMillis()
+        if (!isPaperMode) com.lifecyclebot.engine.truth.CapitalDrawdown7948.seed7948(newBalance, peakAt7948)
         dailyStartBalance = newBalance
         dailyStartDate = System.currentTimeMillis()
         tradesThisHour = 0
@@ -638,7 +659,8 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putInt("environment_schema", 7864)
+            putInt("environment_schema", 7948)
+            putLong("peak_at_7948", peakAt7948)
             putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())
             putFloat("peak_balance", peakBalance.toFloat())

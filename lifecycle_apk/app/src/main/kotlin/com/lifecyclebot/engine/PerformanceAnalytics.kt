@@ -617,6 +617,26 @@ object PerformanceAnalytics {
         return warnings
     }
 
+    /**
+     * V5.0.7948 — one drawdown number, with its basis. This curve is closed-trade
+     * P&L seeded at the PAPER starting cash, so in live mode it printed "0.6%"
+     * beside KillSwitch's "86%". Live prints the CapitalDrawdown7948 authority
+     * (marked live equity vs rolling-24h peak) — the number KillSwitch and
+     * LiveRiskPolicy7807 act on; paper keeps its curve, labelled.
+     */
+    private fun drawdownLines7948(stats: AnalyticsSnapshot): String {
+        val live = try { !RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        if (live) {
+            val line = try {
+                com.lifecyclebot.engine.truth.CapitalDrawdown7948.line7948(
+                    com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol))
+            } catch (_: Throwable) { null }
+            if (line != null) return "  Drawdown: $line\n"
+        }
+        return "  Max Drawdown: ${stats.maxDrawdownPct.fmt(1)}% (closed-trade P&L vs paper starting cash)\n" +
+            "  Current DD: ${stats.currentDrawdownPct.fmt(1)}%\n"
+    }
+
     fun formatSummary(stats: AnalyticsSnapshot): String {
         val sb = StringBuilder()
 
@@ -633,8 +653,7 @@ object PerformanceAnalytics {
         sb.append("  Expectancy: ").append(stats.expectancy.fmt(4)).append(" SOL/trade\n\n")
 
         sb.append("*Risk:*\n")
-        sb.append("  Max Drawdown: ").append(stats.maxDrawdownPct.fmt(1)).append("%\n")
-        sb.append("  Current DD: ").append(stats.currentDrawdownPct.fmt(1)).append("%\n")
+        sb.append(drawdownLines7948(stats))
         sb.append("  Longest Loss Streak: ").append(stats.longestLossStreak).append("\n\n")
 
         if (stats.insights.isNotEmpty()) {

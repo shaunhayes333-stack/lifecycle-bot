@@ -9614,7 +9614,7 @@ class Executor(
             return
         }
 
-        if (checkProfitLock(ts, wallet, walletSol)) return
+        if (capitalRotation7948(ts, currentPrice, posAgeMs, wallet, walletSol) || checkProfitLock(ts, wallet, walletSol)) return
         // V5.9.1558 — source fix: a partial rung is an exit action for THIS tick.
         // Pre-fix, runManageOnly could partial-sell and then immediately fall
         // through into full TP, so the journal showed terminal TAKE_PROFIT/SL
@@ -14444,6 +14444,75 @@ class Executor(
         } catch (_: Throwable) { false }
         if (pays) try { PipelineHealthCollector.labelInc("CULL_DEFERRED_HOLD_PAYS_7942_$lane") } catch (_: Throwable) {}
         return pays
+    }
+
+    /**
+     * V5.0.7948 — CAPITAL ROTATION. 5.0.7947 live: wallet 0.0538 SOL (tradeable
+     * 0.0418 after the reserve) against a 0.04535 SOL routable minimum, five open
+     * live positions, and every new entry refused at the FDG as
+     * SIZE_NOT_EXECUTABLE_7835 / RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835. A live
+     * position that touched +3% is exempt from both culls above forever, so a
+     * faded one held the SOL indefinitely. While liquid SOL cannot fund one
+     * routable order, a flat/red live position past its lane's useful hold that has
+     * stopped making highs is sold (one at a time, 5-minute spacing) when that
+     * frees one order and some live lane's own evidence is PROVEN. Never green
+     * (> +1%), never banked, never a runner whose peak lock is armed
+     * (CapitalDrawdown7948.rotationBlocker7948 holds the whole rule).
+     */
+    private fun capitalRotation7948(ts: TokenState, currentPrice: Double, posAgeMs: Long, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        val p = ts.position
+        if (p.isPaperPosition || !p.isOpen || p.qtyToken <= 0.0 || currentPrice <= 0.0) return false
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd.isFinite() || solUsd <= 0.0) return false
+        val liquid = if (walletSol.isFinite() && walletSol > 0.0) walletSol else try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+        val reserve = com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL
+        val routableMin = try {
+            com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd).routableMinSol
+        } catch (_: Throwable) { 0.0 }
+        // Cheap exit first: a wallet that can fund one order never rotates.
+        if (routableMin <= 0.0 || liquid - reserve >= routableMin) return false
+        val verdict = try {
+            OpenPnlSanity.inspectPosition(p, currentPrice, "Executor.capitalRotation7948/${ts.symbol}", emit = false, mint = ts.mint)
+        } catch (_: Throwable) { null }
+        if (verdict == null || !verdict.ok) return false
+        val now = System.currentTimeMillis()
+        val valueSol = try {
+            com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(p.qtyToken * currentPrice, solUsd)
+        } catch (_: Throwable) { Double.NaN }
+        val lastHigh = lastNewHighMs7388["${ts.mint}|${p.entryTime}"]
+        val lane = p.tradingMode
+        val input = com.lifecyclebot.engine.truth.CapitalDrawdown7948.RotationInput7948(
+            walletSol = liquid,
+            reserveSol = reserve,
+            routableMinSol = routableMin,
+            positionValueSol = valueSol,
+            pnlPct = verdict.pnlPct,
+            peakGainPct = p.peakGainPct,
+            ageMs = posAgeMs,
+            laneMaxHoldMinutes = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.budgetFor(lane).maxHoldMinutes,
+            msSinceNewHigh = if (lastHigh == null) -1L else now - lastHigh,
+            markAgeMs = if (ts.lastPriceUpdate > 0L) now - ts.lastPriceUpdate else -1L,
+            banked = p.partialSoldPct > 0.0 || p.capitalRecovered || p.profitLocked || p.isHouseMoney,
+            msSinceLastRotation = com.lifecyclebot.engine.truth.CapitalDrawdown7948.msSinceLastRotation7948(now),
+        )
+        val blocker = com.lifecyclebot.engine.truth.CapitalDrawdown7948.rotationBlocker7948(input) {
+            com.lifecyclebot.engine.truth.CapitalDrawdown7948.anyLiveLaneProven7948()
+        }
+        if (blocker != null) return false
+        com.lifecyclebot.engine.truth.CapitalDrawdown7948.noteRotation7948(now)
+        try {
+            PipelineHealthCollector.labelInc("CAPITAL_ROTATION_7948")
+            ForensicLogger.lifecycle(
+                "CAPITAL_ROTATION_7948",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane heldMin=${posAgeMs / 60_000L} " +
+                    "pnl=${"%.2f".format(verdict.pnlPct)} peak=${"%.1f".format(p.peakGainPct)} " +
+                    "valueSol=${"%.5f".format(valueSol)} liquid=${"%.4f".format(liquid)} routableMin=${"%.5f".format(routableMin)} " +
+                    "action=free_dead_money_for_proven_setup",
+            )
+        } catch (_: Throwable) {}
+        lastNewHighMs7388.remove("${ts.mint}|${p.entryTime}")
+        requestSell(ts = ts, reason = "CAPITAL_ROTATION_7948", wallet = wallet, walletSol = walletSol)
+        return true
     }
 
     /** V5.0.7708 — last RECOVERED_DUST_LIQUIDATION_7708 attempt per mint. */
