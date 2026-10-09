@@ -132,8 +132,11 @@ internal object SpecialistCandidateBooks7803 {
         score: Int,
         confidence: Double,
         reason: String,
+        // V5.0.7948 — a native opinion already placed on its lane's own pass bar.
+        conviction7948: Double? = null,
     ): Entry? {
-        val conviction = (score.coerceIn(0, 100) * 0.60 + confidence.coerceIn(0.0, 100.0) * 0.40)
+        val conviction = conviction7948?.takeIf { it.isFinite() }
+            ?: (score.coerceIn(0, 100) * 0.60 + confidence.coerceIn(0.0, 100.0) * 0.40)
         return upsert(
             lane, mint, symbol, candidateVersion, State.READY,
             conviction, score, confidence, "TRADE_AUTHORIZER", reason,

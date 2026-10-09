@@ -376,8 +376,13 @@ object TradeAuthorizer {
             candidateVersion = candidateVersion7624,
         )
         var electionReceipt6494: LaneExecutionCoordinator.Verdict? = null
+        // V5.0.7948 — the sealed ticket this call minted; a later refusal ends it by name.
+        var sealedTicketAttempt7948 = ""
         fun releasePrimaryAfterAuthFailure(reason: String) {
             val receipt = electionReceipt6494
+            if (sealedTicketAttempt7948.isNotBlank()) try {
+                ToolkitSignalSheet.terminalizeUnexecutedTicket7948(requestedBook.name, sealedTicketAttempt7948, "AUTH_$reason", nameRefusal = false)
+            } catch (_: Throwable) {}
             ExecutableOpenGate.terminalizeAttempt6514(causalAttempt6613, mint, requestedBook.name)
             // V5.0.6653 — every created intent receives an explicit terminal
             // outcome.  Previously release only freed the election while the
@@ -428,6 +433,20 @@ object TradeAuthorizer {
         //   TREASURY reads ~94 -> the funnel's keying is the bug, not the lane
         try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "BUY_INTENT", causalAttempt6613) } catch (_: Throwable) {}
 
+        // V5.0.7948 — a confirmed live rug (RugCheck 0) is deterministic and needs no
+        // seal: refuse it here, before READY, the FDG seal and the ticket. 5.0.7947
+        // minted BLUECHIP tickets and then refused 13 of them as RUGCHECK_CATASTROPHIC.
+        if (SpecialistExecution7948.isConfirmedRugForLive7948(rugcheckScore, isPaperMode)) {
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore (confirmed rug) before seal")
+            releasePrimaryAfterAuthFailure("RUGCHECK_CATASTROPHIC")
+            return AuthorizationResult(
+                verdict = ExecutionVerdict.REJECT,
+                reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
+                blockLevel = BlockLevel.HARD,
+                canRetry = false,
+            )
+        }
+
         // V5.0.7803 — this is the first cross-lane arbitration boundary.
         // Reaching TradeAuthorizer means this specialist has independently
         // progressed from resident WATCHING/QUALIFIED to an executable proposal.
@@ -457,7 +476,7 @@ object TradeAuthorizer {
             SpecialistPreauthSeal7834.ensure(tokenState7835, fdgDecision7835!!, requestedBook.name, preResolvedSizeSol)
         } catch (error: Exception) {
             releasePrimaryAfterAuthFailure("FDG_SEAL_ERROR_7835")
-            return rejectAuth4424("FDG_SEAL_ERROR_7835:${error.javaClass.simpleName}", BlockLevel.SOFT, canRetry = true)
+            return rejectAuth4424("FDG_SEAL_ERROR_7835:${error.javaClass.simpleName}", BlockLevel.SOFT, canRetry = true, stampCausal7858 = false)
         }
         if (sealedIntent7812 == null) {
             // V5.0.7868 — another lane already owns this candidate's one live BUY
@@ -468,7 +487,7 @@ object TradeAuthorizer {
             if (owner7868 != null) {
                 try { PipelineHealthCollector.labelInc("TRADE_AUTH_OWNED_BY_OTHER_LANE_7868") } catch (_: Throwable) {}
                 releasePrimaryAfterAuthFailure("OWNED_BY_${owner7868}_7868")
-                return rejectAuth4424(reason = "OWNED_BY_${owner7868}_7868", blockLevel = BlockLevel.SOFT, canRetry = false)
+                return rejectAuth4424(reason = "OWNED_BY_${owner7868}_7868", blockLevel = BlockLevel.SOFT, canRetry = false, stampCausal7858 = false)
             }
             try {
                 ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613)
@@ -486,8 +505,11 @@ object TradeAuthorizer {
                 reason = "FDG_SEAL_FAILED_7835",
                 blockLevel = BlockLevel.SOFT,
                 canRetry = true,
+                stampCausal7858 = false, // V5.0.7948 — counted once, as AUTH_FDG_SEAL_FAILED_7835
             )
         }
+
+        sealedTicketAttempt7948 = sealedIntent7812.attemptId
 
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
         // 3086 showed EXEC_OPEN_REQUEST=538 but EXEC_OPEN_BLOCKED_DUPLICATE_KEY=3423:
@@ -514,6 +536,9 @@ object TradeAuthorizer {
                     "LANE_PREAUTH_SUPPRESSED",
                     "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} primary=${laneElection.primaryLane} candidateVersion=${laneElection.candidateVersion} reason=${laneElection.reason}"
                 )
+            } catch (_: Throwable) {}
+            try {
+                ToolkitSignalSheet.terminalizeUnexecutedTicket7948(requestedBook.name, sealedIntent7812.attemptId, "PREAUTH_${laneElection.reason}", nameRefusal = false)
             } catch (_: Throwable) {}
             return rejectAuth4424(
                 reason = "PREAUTH_${laneElection.reason}",
@@ -556,6 +581,7 @@ object TradeAuthorizer {
                 blockLevel = BlockLevel.SOFT,
                 canRetry = false,
                 attemptIdForResult = finality.attemptId,
+                stampCausal7858 = false, // V5.0.7948 — counted once, as AUTH_FINALITY_*
             )
         }
 
@@ -567,6 +593,7 @@ object TradeAuthorizer {
                 reason = "BANNED",
                 blockLevel = BlockLevel.PERMANENT,
                 canRetry = false,
+                stampCausal7858 = false, // V5.0.7948 — counted once, as AUTH_BANNED
             )
         }
 
@@ -598,24 +625,17 @@ object TradeAuthorizer {
             rugcheckScore <= 0 -> {
                 // V5.9.495n — operator: "live gate needs to come down to rc 1
                 // and $2000 its not trading good tokens because of this".
-                // Was: <=1 hard reject + 2..5 shadow-only in live, which kept
-                // legitimate fresh-launch tokens (RC=1 unknown/pending +
-                // RC=2-5 risky-but-tradeable) out of live entirely. Now only
-                // confirmed-rug RC=0 hard-blocks live; RC≥1 falls through to
+                // Now only confirmed-rug RC=0 hard-blocks live; RC≥1 falls through to
                 // GATE 3 (liquidity) and downstream FDG/sub-trader checks.
+                // V5.0.7948 — the confirmed live rug (RC=0) is refused before the seal
+                // (isConfirmedRugForLive7948 above). RC<0 is RugCheck's "not fetched"
+                // sentinel, not a rug: callers that pass the raw safety score
+                // (QUALITY/BLUECHIP/MOONSHOT/V3) were refused as catastrophic while
+                // SHITCOIN/EXPRESS callers mapped the same -1 to 100.
                 if (isPaperMode || bypassRugcheck) {
-                    val bypassReason = "PAPER LEARNING"
-                    ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore — allowing entry")
-                    // fall through to GATE 3+
+                    ErrorLogger.info(TAG, "⚠️ BYPASS (PAPER LEARNING): $symbol RC_SCORE_$rugcheckScore — allowing entry")
                 } else {
-                    ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 0 (confirmed rug)")
-                    releasePrimaryAfterAuthFailure("RUGCHECK_CATASTROPHIC")
-                    return AuthorizationResult(
-                        verdict = ExecutionVerdict.REJECT,
-                        reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
-                        blockLevel = BlockLevel.HARD,
-                        canRetry = false,
-                    )
+                    ErrorLogger.info(TAG, "🟡 LIVE-RC-UNFETCHED $symbol: RC_SCORE_$rugcheckScore — FDG/safety tier still gate")
                 }
             }
 

@@ -26,13 +26,22 @@ internal object SpecialistPreauthSeal7834 {
         if (paper != RuntimeModeAuthority.isPaper()) return null
         val canonicalLane = CanonicalLaneIdentity6506.canonical(lane)
         val tokenMap = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source)
+        // V5.0.7948 — the seal captures the entry mark with the SAME observed depth
+        // the executor's entry snapshot accepts (TokenMapAuthority.observedLiquidityUsd:
+        // tick, token map, then curve reserves). `tokenMap.liquidityUsd ?: ts.lastLiquidityUsd`
+        // passed 0 for curve/fresh pools, so no executable mark was sealed and the
+        // selected QUALITY/MOONSHOT candidate deferred as ENTRY_MARKET_SNAPSHOT_MISSING.
+        val sealLiquidity7948 = SpecialistExecution7948.sealLiquidityUsd7948(
+            tokenMap.liquidityUsd, ts.lastLiquidityUsd,
+            try { TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 },
+        )
         com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.refreshFromExecutableTokenMap6614(
             mint = ts.mint,
             pairOrPool = tokenMap.poolAddress.ifBlank { tokenMap.pairAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } } },
             quoteMint = tokenMap.quoteMint.ifBlank { "USD" },
             source = ts.lastPriceSource.ifBlank { tokenMap.sourceScanner.ifBlank { ts.source } },
             priceUsd = tokenMap.priceUsd ?: ts.lastPrice,
-            liquidityUsd = tokenMap.liquidityUsd ?: ts.lastLiquidityUsd,
+            liquidityUsd = sealLiquidity7948,
             routeStatus = tokenMap.routeStatus,
             evidenceTimestampMs = if (tokenMap.priceUsd != null) tokenMap.priceObservedAtMs7858 else ts.lastPriceUpdate,
         )
@@ -54,7 +63,7 @@ internal object SpecialistPreauthSeal7834 {
                 mint = ts.mint, symbol = ts.symbol, lane = canonicalLane,
                 canExecute = true, reason = decision.blockReason, signal = "BUY",
                 rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
-                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons.toList(),
+                liquidityUsd = sealLiquidity7948, hardNoReasons = ts.safety.hardBlockReasons.toList(),
                 preFdgVerdict = "BUY", candidateVersion = decision.candidateVersion7835,
                 entryScore = decision.effectiveEntryScore7687,
                 tokenMapRouteStatus = tokenMap.routeStatus, tokenMapHydrationComplete = tokenMap.hydrationComplete,
@@ -68,7 +77,9 @@ internal object SpecialistPreauthSeal7834 {
                 it.candidateVersion == decision.candidateVersion7835 &&
                     CanonicalLaneIdentity6506.canonical(it.canonicalLane) == canonicalLane &&
                     it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() &&
-                    it.resolvedSize > 0.0 && kotlin.math.abs(it.resolvedSize - size) <= 1e-9
+                    // V5.0.7948 — within the FDG verdict (same rule as reuse), not
+                    // bit-equal: the first seal of a version caps a later, larger FDG size.
+                    SpecialistExecution7948.sealWithinFdgSize7948(it.resolvedSize, size)
             }
 
         val first7840 = sealOnce7840()

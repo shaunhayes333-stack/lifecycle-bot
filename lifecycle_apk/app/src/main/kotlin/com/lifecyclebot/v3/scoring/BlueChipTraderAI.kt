@@ -852,9 +852,11 @@ object BlueChipTraderAI {
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
                 confidence = blueChipConfidence,
-                reason = "THRESHOLD_FAIL: score=$blueChipScore<$minScore conf=$blueChipConfidence<$minConf",
+                // V5.0.7948 — the operator that holds for each pair, and the real score.
+                reason = com.lifecyclebot.engine.SpecialistExecution7948.thresholdFailReason7948("THRESHOLD_FAIL", blueChipScore, minScore, blueChipConfidence, minConf),
                 mode = mode,
-                isPaperMode = isPaperMode
+                isPaperMode = isPaperMode,
+                entryScore = blueChipScore,
             )
         }
 
