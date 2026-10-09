@@ -563,7 +563,8 @@ object FieldManual7715 {
         // H/I/J are priced by their owning venue trader (fees, funding, margin),
         // not by an AMM curve; the pool-impact model does not apply to them.
         val ammPriced = isAmmPriced(mandate.setup)
-        val cost = if (ammPriced) allInCostPct(sizeUsd, liq) else BASE_ROUND_TRIP_COST_PCT_7715
+        // V5.0.7962 — the lane's measured all-in cost at this ticket size once learned (CostLedger7962).
+        val cost = if (ammPriced) CostLedger7962.costOr7962(lane, size, allInCostPct(sizeUsd, liq)) else BASE_ROUND_TRIP_COST_PCT_7715
         val impact = if (ammPriced) impactRoundTripPct(sizeUsd, liq) else 0.0
         val (trig, note) = if (observedSetup) true to "candle plan ${planRead.setup}: ${planRead.why}"
             else triggerFor(mandate.setup, ts, candidate, regime)

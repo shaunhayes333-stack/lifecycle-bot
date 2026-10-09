@@ -2920,6 +2920,14 @@ class BotService : Service() {
 
     private var notifIdCounter = 100
 
+    /** V5.0.7962 — COPY signals route live on settled live proof (the copy perps side trade needs this). */
+    private fun copyLiveProven7962(): Boolean =
+        com.lifecyclebot.engine.truth.SignalSourceProof7291.isProven(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY)
+
+    /** V5.0.7962 — ...or on forward labels that clear the statistical bar (n>=20, mean-SE>gap, pf>=1.5; self-demoting). */
+    private fun copyRouteLive7962(): Boolean =
+        com.lifecyclebot.engine.truth.SignalSourceProof7291.liveEligible7962(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY)
+
     /** V5.0.7855 — device log carries the full ART verifier text (method, dex pc, reason). */
     private fun bootFailure7855(t: Throwable) {
         ErrorLogger.crash("BotService", "SERVICE_BOOTSTRAP_FAILED_6516: ${t.javaClass.simpleName}: ${t.message}", t)
@@ -3285,9 +3293,8 @@ class BotService : Service() {
                 // graded them PROVEN on settled closes. The toggle remains a
                 // manual live override. Every routed signal is stamped so its
                 // close is graded. The direct autoMode copy below is unchanged.
-                val copyProven7291 = com.lifecyclebot.engine.truth.SignalSourceProof7291
-                    .isProven(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY)
-                if (c.copyTradingEnabled || c.paperMode || copyProven7291) {
+                val copyProven7291 = copyLiveProven7962()
+                if (c.copyTradingEnabled || c.paperMode || copyProven7291 || copyRouteLive7962()) {
                     try {
                         com.lifecyclebot.engine.truth.SignalSourceProof7291.stamp(
                             com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY, mint)
@@ -21477,9 +21484,8 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBy
             } catch (_: Throwable) { 0.0 }
             priority += (realPoolUsd / 2_000.0).coerceAtMost(60.0)
             priority += (bcEstUsd / 8_000.0).coerceAtMost(15.0)
-            priority += ts.entryScore
-            priority += ts.meta.momScore * 0.8
-            priority += ts.meta.volScore * 0.5
+            // V5.0.7962 — entryScore + momentum + volume, plus the cell's sampled EV per hold minute.
+            priority += CellAllocator7962.watchPriority7962(ts, nowMs)
             priority += (ts.lastBuyPressurePct - 50.0).coerceIn(0.0, 35.0)
             // V5.9.794 — operator audit Item 6 priority signals: volume,
             // safety-freshness, source-reliability.

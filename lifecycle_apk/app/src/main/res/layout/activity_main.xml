@@ -6244,6 +6244,136 @@
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="10dp"/>
 
+                    <!-- V5.0.7962 — chart / market-data keys live on this card too (the bottom sheet was not where operators looked). -->
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="CHART DATA KEYS (free tiers) — feed the chart library + live candles"
+                        android:textColor="@color/aate_purple" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginTop="4dp" android:layout_marginBottom="6dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="PUMPPORTAL KEY — pumpportal.fun"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Fund the key wallet with 0.02 SOL: per-trade stream for held memes"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etPumpPortalKeyMain7962"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste pumpportal api key…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="SOLANATRACKER KEY — solanatracker.io/data-api"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Meme 1m candles + trending. Free plan → Dashboard → API key"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etSolanaTrackerKeyMain7962"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste solanatracker key…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="MORALIS KEY — admin.moralis.com"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="pump.fun + Solana pair OHLCV. Free plan → Settings → API Keys"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etMoralisKeyMain7962"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste moralis key…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="CMC KEY — coinmarketcap.com/api"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Listings + DEX pairs (all chains). Free Basic plan"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etCoinMarketCapKeyMain7962"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste coinmarketcap key…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="CODEX KEY — codex.io"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Multi-chain token bars (BSC/ETH/Base memes). Free tier"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etCodexKeyMain7962"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste codex key…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="BITQUERY KEY — bitquery.io"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="On-chain DEX trades, any chain. Free tier → Access token"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etBitqueryKeyMain7962"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste bitquery token…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="CRYPTOCOMPARE KEY — cryptocompare.com"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Minute / hour history for listed coins. Free key"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etCryptoCompareKeyMain7962"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste cryptocompare key…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <Button android:id="@+id/btnSaveDataKeys7962"
+                        android:layout_width="match_parent" android:layout_height="40dp"
+                        android:text="SAVE DATA KEYS" android:textSize="11sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="12dp"/>
+
                     <TextView android:id="@+id/tvGroqHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="GROQ KEY — console.groq.com"

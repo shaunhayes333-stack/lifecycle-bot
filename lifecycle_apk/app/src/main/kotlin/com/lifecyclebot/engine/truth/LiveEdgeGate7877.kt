@@ -352,6 +352,7 @@ object LiveEdgeGate7877 {
         val priors7930 = listOfNotNull(
             com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l),
             com.lifecyclebot.engine.TokenMetricStageRouter.liveStageRefusal7928(ts, l),
+            CostLedger7962.liveRefusal7962(ts, l),   // V5.0.7962 — measured all-in cost above the setup's gross
         )
         // V5.0.7948 — a small-sample read (the playbook's shrunk expectancy) also yields
         // to measured evidence, and any measured refusal yields to a proven cohort on more labels.

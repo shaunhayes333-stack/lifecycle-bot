@@ -260,6 +260,7 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) { return }
         prefs = p
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
         try {
             p.getString(CELLS_KEY_7946, null)?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
@@ -459,7 +460,8 @@ object ForwardReturnLabeler7731 {
         }
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
         val liq = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0
-        val cost = (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }) +
+        // V5.0.7962 — the lane's measured live round trip once it has 8+ trades (CostLedger7962; excludes the chase).
+        val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
             // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
             (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
         val cell = cellKey(ts.source, l, ts.lastMcap, ageMs)
@@ -561,6 +563,8 @@ object ForwardReturnLabeler7731 {
         book(o, 60, net, gross)
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
+        // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
+        try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
         try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
         // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
         try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}

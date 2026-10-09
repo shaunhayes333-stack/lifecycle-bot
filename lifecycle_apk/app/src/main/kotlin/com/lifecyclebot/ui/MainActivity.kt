@@ -2322,6 +2322,8 @@ for legal compliance.
         etGroqKey       = try { findViewById(R.id.etGroqKey) } catch (_: Exception) { EditText(this) }
         etGeminiKey     = try { findViewById(R.id.etGeminiKey) } catch (_: Exception) { EditText(this) }
         etJupiterKey    = try { findViewById(R.id.etJupiterKey) } catch (_: Exception) { EditText(this) }
+        // V5.0.7962 — chart / market-data keys on this card.
+        DataKeysCard7962.bind(this, { vm.ui.value.config }) { c -> vm.saveConfig(c, allowRestart = false) }
         switchNotifications = try { findViewById(R.id.switchNotifications) } catch (_: Exception) { android.widget.Switch(this) }
         switchSounds    = try { findViewById(R.id.switchSounds) } catch (_: Exception) { android.widget.Switch(this) }
         switchDarkMode  = try { findViewById(R.id.switchDarkMode) } catch (_: Exception) { androidx.appcompat.widget.SwitchCompat(this) }
@@ -10532,6 +10534,7 @@ This cannot be undone!
     }
 
     private fun saveSettings() {
+        DataKeysCard7962.save(this, { vm.ui.value.config }, { c -> vm.saveConfig(c, allowRestart = false) }, includePumpPortal = false)  // V5.0.7962
         val wl = etWatchlist.text.toString()
             .split(",").map { it.trim() }.filter { it.isNotBlank() }
         val cfg = ConfigStore.load(this).copy(
@@ -10553,6 +10556,7 @@ This cannot be undone!
             groqApiKey            = etGroqKey.text.toString().trim(),
             geminiApiKey          = etGeminiKey.text.toString().trim(),
             jupiterApiKey         = etJupiterKey.text.toString().trim(),
+            pumpPortalApiKey      = DataKeysCard7962.pumpPortal(this) ?: ConfigStore.load(this).pumpPortalApiKey,  // V5.0.7962
             watchlist             = wl,
             notificationsEnabled  = switchNotifications.isChecked,
             soundEnabled          = switchSounds.isChecked,

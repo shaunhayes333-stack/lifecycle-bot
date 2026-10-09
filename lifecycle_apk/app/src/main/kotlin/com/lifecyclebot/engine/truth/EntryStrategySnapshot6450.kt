@@ -108,6 +108,8 @@ object EntryStrategySnapshot6450 {
             EntryChase7961.onEntry7961(snap.mint, snap.entryLane, snap.entryPriceUsd, snap.entryTimestampMs,
                 paperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())
         } catch (_: Throwable) {}
+        // V5.0.7962 — the market price at this live fill (CostLedger7962 measures the round trip from it).
+        try { CostLedger7962.onEntry7962(snap.positionId, snap.mint, snap.entryTimestampMs, com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) } catch (_: Throwable) {}
         return true
     }
 

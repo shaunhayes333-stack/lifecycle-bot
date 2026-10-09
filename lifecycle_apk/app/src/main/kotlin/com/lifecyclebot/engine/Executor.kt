@@ -14494,7 +14494,8 @@ class Executor(
             positionValueSol = valueSol,
             pnlPct = verdict.pnlPct,
             peakGainPct = p.peakGainPct,
-            ageMs = posAgeMs,
+            // V5.0.7962 — a top cell waiting on capital may rotate a flat/negative-EV cell before its useful hold.
+            ageMs = CellAllocator7962.rotationAgeMs7962(ts, lane, posAgeMs, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.budgetFor(lane).maxHoldMinutes),
             laneMaxHoldMinutes = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.budgetFor(lane).maxHoldMinutes,
             msSinceNewHigh = if (lastHigh == null) -1L else now - lastHigh,
             markAgeMs = if (ts.lastPriceUpdate > 0L) now - ts.lastPriceUpdate else -1L,
@@ -14515,6 +14516,7 @@ class Executor(
         if (!deadestRotationOffer7951(ts.mint, offerKey7951, verdict.pnlPct, input.msSinceNewHigh, now)) return false
         com.lifecyclebot.engine.truth.CapitalThroughput7951.withdrawRotationOffer7951(offerKey7951)
         com.lifecyclebot.engine.truth.CapitalDrawdown7948.noteRotation7948(now)
+        CellAllocator7962.noteRotation7962()
         try {
             PipelineHealthCollector.labelInc("CAPITAL_ROTATION_7948")
             ForensicLogger.lifecycle(

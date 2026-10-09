@@ -31,6 +31,9 @@ object ChartLibrary7950 {
     const val SRC_SOL_MEME = 1
     const val SRC_BSC_MEME = 2
     const val SRC_LIVE = 3
+    /** V5.0.7962 — the chart at an expert wallet's real entry (ExpertWallets7962), labelled by what followed. */
+    const val SRC_EXPERT = 4
+    private const val SRC_MAX_7962 = SRC_EXPERT
 
     private val lock = Any()
     private val feats = ByteArray(CAPACITY * DIM)
@@ -45,7 +48,7 @@ object ChartLibrary7950 {
     private val rng = java.util.Random(7950)
     private val added = AtomicLong(0)
     private val queries = AtomicLong(0)
-    private val bySrc = LongArray(4)
+    private val bySrc = LongArray(SRC_MAX_7962 + 1)
 
     fun size(): Int = size
 
@@ -58,7 +61,8 @@ object ChartLibrary7950 {
         synchronized(lock) {
             seen++
             val idx = if (size < CAPACITY) size++ else {
-                val r = if (source == SRC_LIVE) { if (rng.nextInt(4) != 0) return; rng.nextInt(CAPACITY) }
+                // V5.0.7962 — expert entries are scarce and always kept (a random slot), live ones a quarter of the time.
+                val r = if (source == SRC_LIVE || source == SRC_EXPERT) { if (source == SRC_LIVE && rng.nextInt(4) != 0) return; rng.nextInt(CAPACITY) }
                 else (rng.nextDouble() * seen).toLong().let { if (it < CAPACITY) it.toInt() else return }
                 if (hit[r]) hits--
                 r
@@ -70,8 +74,8 @@ object ChartLibrary7950 {
             upPct[idx] = o.maxUpPct
             dnPct[idx] = o.maxDnPct
             endPct[idx] = o.endPct
-            src[idx] = source.coerceIn(0, 3).toByte()
-            bySrc[source.coerceIn(0, 3)]++
+            src[idx] = source.coerceIn(0, SRC_MAX_7962).toByte()
+            bySrc[source.coerceIn(0, SRC_MAX_7962)]++
         }
         added.incrementAndGet()
     }
@@ -105,7 +109,7 @@ object ChartLibrary7950 {
      * (5 BTC series must not overrule every learned refusal during the first build).
      */
     fun mature(): Boolean = synchronized(lock) {
-        matureFor7959(size, bySrc[SRC_CRYPTO], bySrc[SRC_SOL_MEME] + bySrc[SRC_BSC_MEME] + bySrc[SRC_LIVE])
+        matureFor7959(size, bySrc[SRC_CRYPTO], bySrc[SRC_SOL_MEME] + bySrc[SRC_BSC_MEME] + bySrc[SRC_LIVE] + bySrc[SRC_EXPERT])
     }
     private const val MIN_PER_FAMILY = 2_000L
 
@@ -202,7 +206,7 @@ object ChartLibrary7950 {
                         hit[i] = inp.readBoolean(); upPct[i] = inp.readFloat(); dnPct[i] = inp.readFloat(); endPct[i] = inp.readFloat()
                         src[i] = inp.readByte()
                         if (hit[i]) hits++
-                        bySrc[src[i].toInt().coerceIn(0, 3)]++
+                        bySrc[src[i].toInt().coerceIn(0, SRC_MAX_7962)]++
                     }
                     size = n
                     seen = n.toLong()
@@ -214,7 +218,7 @@ object ChartLibrary7950 {
 
     fun statusLine(): String = synchronized(lock) {
         "motifs=$size/$CAPACITY baseUp=${"%.0f".format(if (size > 0) hits * 100.0 / size else 0.0)}% added=${added.get()} queries=${queries.get()} " +
-            "src[crypto=${bySrc[SRC_CRYPTO]} solMeme=${bySrc[SRC_SOL_MEME]} bscMeme=${bySrc[SRC_BSC_MEME]} live=${bySrc[SRC_LIVE]}]"
+            "src[crypto=${bySrc[SRC_CRYPTO]} solMeme=${bySrc[SRC_SOL_MEME]} bscMeme=${bySrc[SRC_BSC_MEME]} live=${bySrc[SRC_LIVE]} expert=${bySrc[SRC_EXPERT]}]"
     }
 
     internal fun resetForTest() = synchronized(lock) { size = 0; hits = 0; seen = 0L; added.set(0); queries.set(0); for (i in bySrc.indices) bySrc[i] = 0 }

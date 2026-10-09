@@ -189,6 +189,8 @@ object CanonicalFinalizedTradeBus6464 {
         try { com.lifecyclebot.engine.ExitProfile7955.onClose7955(env) } catch (_: Throwable) {}
         // V5.0.7885 — Cortex OutcomeTruth cross-check: realised outcome by entry verdict.
         try { com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) } catch (_: Throwable) {}
+        // V5.0.7962 — the realised close grades its decision cell (live and paper books apart).
+        try { com.lifecyclebot.engine.CellAllocator7962.onClose7962(env) } catch (_: Throwable) {}
         // V5.0.7232 §SELL_OK_TRUTH — record the unique finality at the
         //   canonical publish point. Redispatch handled in the prev != null
         //   branch above.

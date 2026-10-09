@@ -28,6 +28,7 @@ creates	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ExistingIntelligenceCo
 ExitCostMicrobrain	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ExitCostMicrobrain.kt	False
 ExitIntelligence	EXIT_LEARNED_UPSTREAM	com/lifecyclebot/engine/ExitIntelligence.kt	False
 ExpertTraderKnowledge7813	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ExpertTraderKnowledge7813.kt	False
+ExpertWallets7962	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/ExpertWallets7962.kt	False
 FdgBrainChain	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/FdgBrainChain.kt	False
 FluidLearning	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/FluidLearning.kt	False
 ForwardOutcomeModel	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ForwardOutcomeModel.kt	False
@@ -184,6 +185,7 @@ PerpsTraderAI	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/perps/PerpsTrade
 PerpsTrailingStop	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/perps/PerpsTrailingStop.kt	False
 PythOracle	PROVIDER_BACKED_REVIEW	com/lifecyclebot/perps/PythOracle.kt	False
 CryptoExecFailureTracker	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/perps/crypto/CryptoExecFailureTracker.kt	False
+MultiChainMemeLane7962	PROVIDER_BACKED_REVIEW	com/lifecyclebot/perps/crypto/MultiChainMemeLane7962.kt	False
 CryptoBrain	CRYPTO_NATIVE_UPSTREAM	com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt	False
 CryptoBrainState	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/perps/crypto/brain/CryptoBrainState.kt	False
 CryptoCanonicalLearning	CANONICAL_LEARNING_INFRASTRUCTURE	com/lifecyclebot/perps/crypto/brain/CryptoCanonicalLearning.kt	False
