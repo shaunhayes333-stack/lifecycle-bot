@@ -25193,6 +25193,8 @@ if (hotExitHandledSweep) {
             )
             PipelineHealthCollector.labelInc("PUMP_TRADE_MARK_APPLIED_7278")
         } catch (_: Throwable) {}
+        // V5.0.7943 — a spike is sold into on the print that carries it.
+        try { SpikeCapture7943.onMark(ts, px) { t, frac, reason -> sellIntoSpike7943(t, frac, reason) } } catch (_: Throwable) {}
         // V5.0.7279 — the executor reads the canonical mark registry, not
         // ts.lastPrice. 7278 wrote the trade mark to the token row only, so a
         // curve mint could be freshly marked and still be refused at the door
@@ -25218,6 +25220,20 @@ if (hotExitHandledSweep) {
                 else "PUMP_TRADE_MARK_REGISTRY_REFUSED_7279",
             )
         } catch (_: Throwable) {}
+    }
+
+    /** V5.0.7943 — off the socket thread: a partial sell of [fraction] of the holding. */
+    private fun sellIntoSpike7943(ts: com.lifecyclebot.data.TokenState, fraction: Double, reason: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val paper = ts.position.isPaperPosition
+                val wallet = if (paper) null else WalletManager.getWallet()
+                val bal = try { status.getEffectiveBalance(paper) } catch (_: Throwable) { 0.0 }
+                executor.requestPartialSell(ts, fraction, reason, wallet, bal)
+            } catch (t: Throwable) {
+                try { ErrorLogger.warn("BotService", "SPIKE_CAPTURE_7943 sell failed: ${t.message}") } catch (_: Throwable) {}
+            }
+        }
     }
 
     /** V5.0.7921 — LaunchTape7921 promotion: re-admit if needed, then evaluate now. */

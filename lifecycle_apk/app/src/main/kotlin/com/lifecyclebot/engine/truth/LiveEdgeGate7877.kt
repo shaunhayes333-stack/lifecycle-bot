@@ -236,6 +236,8 @@ object LiveEdgeGate7877 {
         com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)?.let { return it }
         if (paper) return null
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        // V5.0.7943 — pump.fun Mayhem Mode coins are not bought live.
+        com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts)?.let { return it }
         // V5.0.7907 — the lane's playbook: a live entry needs one of its setups.
         // V5.0.7928 — the lane's lifecycle stage: buy the stage this lane's play pays in.
         // V5.0.7930 — an unmeasured prior (no setup fired / off the stage sheet) yields to
