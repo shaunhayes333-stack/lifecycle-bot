@@ -20,7 +20,8 @@ package com.lifecyclebot.engine.cortex
  *                      lanes) runner rate < 10%. minN = 20 paper, 40 live.
  *   overrule authority STRONG n >= 40 and mean - 1 SE > +2%: the Cortex may
  *                      admit a live candidate the edge gate refused (never a
- *                      safety refusal).
+ *                      safety refusal). V5.0.7955: graduated from 15 grades
+ *                      (authorityFraction7955); 1.0 at this bar.
  * Both are re-evaluated on every read, so authority is lost as soon as the
  * record stops supporting it.
  */
@@ -60,6 +61,50 @@ class CortexScoreboard7885 {
         /** Pure: does the STRONG record prove the Cortex finds edge the gates miss? */
         fun overruleProven(strong: CortexLedger7885.Stat): Boolean =
             strong.n >= MIN_N_LIVE && strong.mean() - se(strong) > PROOF_MARGIN_PCT
+
+        // ── V5.0.7955 §GRADUATED_AUTHORITY: power is earned by degree, not at a cliff ──
+        //
+        // 5.0.7953: MOONSHOT STRONG n37 +23.4% held no power at all (the bar needed 40),
+        // while one more grade would have handed it everything. Authority is now a
+        // fraction in [0, 1]: 0 below [GRAD_MIN_N_7955] grades; above that it grows with
+        // the t-statistic of the edge over the margin and with n, needing a wider edge at
+        // small n (lower bound at 1 SE for n < 25, 0.75 SE from 25), and reaches 1.0
+        // exactly at the old bar. Below the full bar it is capped under 1.0, so every
+        // boolean power keyed on the old bar (fraction >= 1.0) is unchanged.
+        const val GRAD_MIN_N_7955 = 15
+        private const val GRAD_MID_N_7955 = 25
+        const val GRAD_PARTIAL_CAP_7955 = 0.95
+        private const val GRAD_RAMP_SE_7955 = 0.5
+        private const val GRAD_NEUTRAL_MIN_N_7955 = 5.0
+
+        /**
+         * Pure: graduated authority of a record of [n] outcomes with [mean] and standard
+         * error [se], judged on (mean - [baselinePct] - [marginPct]). [fullProven] is the
+         * record's full bar (1.0); [fullN] is the n at which the size factor saturates.
+         */
+        fun graduatedFraction7955(n: Double, mean: Double, se: Double, baselinePct: Double, marginPct: Double, fullN: Int, fullProven: Boolean): Double {
+            if (fullProven) return 1.0
+            if (!(n >= GRAD_MIN_N_7955) || !mean.isFinite()) return 0.0
+            val excess = mean - baselinePct - marginPct
+            if (!excess.isFinite() || excess <= 0.0) return 0.0
+            val t = if (se.isFinite() && se > 0.0) excess / se else if (se == 0.0) Double.POSITIVE_INFINITY else return 0.0
+            val k = if (n < GRAD_MID_N_7955) 1.0 else 0.75
+            val tFactor = ((t - k) / GRAD_RAMP_SE_7955).coerceIn(0.0, 1.0)
+            val span = (fullN - GRAD_MIN_N_7955).coerceAtLeast(1)
+            val nFactor = 0.5 + 0.5 * ((n - GRAD_MIN_N_7955) / span).coerceIn(0.0, 1.0)
+            return (tFactor * nFactor).coerceIn(0.0, GRAD_PARTIAL_CAP_7955)
+        }
+
+        /**
+         * Pure: a lane's graduated overrule authority. Edge = STRONG mean over
+         * max(NEUTRAL mean, 0) (NEUTRAL counted from 5 grades) plus the proof margin;
+         * 1.0 at today's bar (n >= 40, mean - SE > 2%); an inverted lane holds 0.
+         */
+        fun authorityFraction7955(strong: CortexLedger7885.Stat, neutral: CortexLedger7885.Stat, inverted: Boolean): Double {
+            if (inverted) return 0.0
+            val baseline = if (neutral.n >= GRAD_NEUTRAL_MIN_N_7955) neutral.mean().coerceAtLeast(0.0) else 0.0
+            return graduatedFraction7955(strong.n, strong.mean(), se(strong), baseline, PROOF_MARGIN_PCT, MIN_N_LIVE, overruleProven(strong))
+        }
 
         // V5.0.7948 — an inverted lane. 5.0.7947: SHITCOIN STRONG n=39 at -8.1% against
         // NEUTRAL n=14 at +5.5% — the Cortex's "strong" read picked worse tokens than its
@@ -124,11 +169,19 @@ class CortexScoreboard7885 {
         return refuseProven(b.byBucket[Bucket.REFUSE.ordinal], b.rest(), runnerLane, if (paper) MIN_N_PAPER else MIN_N_LIVE)
     }
 
-    fun overruleAuthority(lane: String): Boolean {
-        val b = books[lane] ?: return false
-        // V5.0.7948 — an inverted lane's STRONG read is not strong: no strong-side power
-        // (overrule, paper choice, conviction size-up, stack-shrink overrule) until it re-proves.
-        return overruleProven(b.byBucket[Bucket.STRONG.ordinal]) && !inverted7948(lane)
+    /**
+     * Full overrule authority (today's bar, not inverted). V5.0.7955: the same thing as
+     * a graduated fraction of 1.0; the partial powers read [fractionFor7955].
+     */
+    fun overruleAuthority(lane: String): Boolean = fractionFor7955(lane) >= 1.0
+
+    /**
+     * V5.0.7955 — this lane's graduated authority in [0, 1]. V5.0.7948: an inverted
+     * lane's STRONG read is not strong, so it holds 0 (no strong-side power) until it re-proves.
+     */
+    fun fractionFor7955(lane: String): Double {
+        val b = books[lane] ?: return 0.0
+        return authorityFraction7955(b.byBucket[Bucket.STRONG.ordinal], b.byBucket[Bucket.NEUTRAL.ordinal], inverted7948(lane))
     }
 
     /**

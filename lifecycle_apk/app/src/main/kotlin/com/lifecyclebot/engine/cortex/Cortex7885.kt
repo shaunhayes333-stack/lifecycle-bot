@@ -21,6 +21,8 @@ import java.util.concurrent.atomic.AtomicLong
  *              (bar V1, n>=20) and in LIVE at n>=40; it overrules a live
  *              edge-gate refusal only when its STRONG record is proven.
  *              Until then it shadows: what it would have done is counted.
+ *              V5.0.7955: STRONG-side authority is graduated (0..1 from 15
+ *              grades); overrule from 0.5, size-up scaled by the fraction.
  *
  * Horizon: every lane is graded on THE read — label slot 60, the 5-minute
  * spike-credited label (V5.0.7946). V5.0.7948: a decision is filed under the
@@ -385,6 +387,24 @@ object Cortex7885 {
         return ok
     }
 
+    // ── V5.0.7955 §GRADUATED_AUTHORITY ──
+    //
+    // A lane's STRONG-side powers scale with CortexScoreboard7885.authorityFraction7955
+    // instead of switching on at 40 grades: the conviction size-up is scaled by the
+    // fraction, and the overrule / paper choice / stack-shrink overrule open at
+    // [OVERRULE_FRACTION_7955]. A self-inconsistent lane (v9) holds 0.
+    private const val OVERRULE_FRACTION_7955 = 0.5
+
+    /** Caller holds the lock. */
+    private fun laneFraction7955(lane: String): Double {
+        val f = board.fractionFor7955(lane)
+        return if (f > 0.0 && consistent(lane)) f else 0.0
+    }
+
+    /** V5.0.7955 — this lane's graduated Cortex authority in [0, 1] (0 when unread or inconsistent). */
+    fun fractionFor7955(laneRaw: String): Double =
+        try { ensureLoaded(); synchronized(this) { laneFraction7955(canon(laneRaw)) } } catch (_: Throwable) { 0.0 }
+
     // ── Cortex v8: capital allocation (V5.0.7902) ──
     //
     // The wallet funds only a few route-minimum trades at a time. When the free
@@ -444,14 +464,19 @@ object Cortex7885 {
             val a = cachedOrSchedule(ts, laneRaw) ?: return false
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
             if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
-            val proven = synchronized(this) { board.overruleAuthority(a.lane) && consistent(a.lane) }
-            if (!proven) { inc("SHADOW_OVERRULE_LIVE"); return false }
+            // V5.0.7955 — partial authority overrules soft edge refusals only: never a hard
+            // safety / rug / route refusal, never a Mayhem Mode coin.
+            if (!softBlock(refusal, false)) return false
+            if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return false
+            val fraction = synchronized(this) { laneFraction7955(a.lane) }
+            if (fraction < OVERRULE_FRACTION_7955) { inc("SHADOW_OVERRULE_LIVE"); return false }
             inc("OVERRULED_LIVE")
+            if (fraction < 1.0) inc("PARTIAL_AUTHORITY_OVERRULE_7955")
             try {
                 PipelineHealthCollector.labelInc("CORTEX_7885_OVERRULED_EDGE_${a.lane}")
                 ForensicLogger.lifecycle(
                     "CORTEX_7885_OVERRULED_EDGE",
-                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${a.lane} edge=${"%.2f".format(a.fused.edgePct)} was=${refusal.take(60)} top=${a.fused.top.joinToString(",")}",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${a.lane} edge=${"%.2f".format(a.fused.edgePct)} auth=${"%.2f".format(fraction)} was=${refusal.take(60)} top=${a.fused.top.joinToString(",")}",
                 )
             } catch (_: Throwable) {}
             true
@@ -487,7 +512,8 @@ object Cortex7885 {
             val a = cachedOrSchedule(ts, laneRaw, nowMs) ?: return false
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
             if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
-            val proven = synchronized(this) { board.overruleAuthority(a.lane) && consistent(a.lane) }
+            // V5.0.7955 — the same graduated threshold as the live overrule.
+            val proven = synchronized(this) { laneFraction7955(a.lane) >= OVERRULE_FRACTION_7955 }
             if (!proven) { inc("SHADOW_PAPER_CHOICE"); return false }
             val last = lastChoiceAt[a.lane] ?: 0L
             if (nowMs - last < CHOICE_SPACING_MS) { inc("PAPER_CHOICE_SPACED"); return false }
@@ -545,7 +571,9 @@ object Cortex7885 {
 
     // ── conviction sizing (plan v2 §D) ──
 
-    private const val CONVICTION_MAX_MULT = 2.0
+    // V5.0.7955 — 2.0 -> 2.5: proven edge compounds as size (still scaled by authority,
+    // still under every downstream wallet / lane / share / liquidity cap).
+    private const val CONVICTION_MAX_MULT = 2.5
     private const val KELLY_FRACTION = 0.25
 
     /** Pure: quarter-Kelly stake (SOL) from a proven record's mean/variance (percent units). */
@@ -557,40 +585,56 @@ object Cortex7885 {
 
     /**
      * Size multiplier for a request on (mint, lane): > 1 only when this
-     * candidate's decision-time read is STRONG AND the lane's STRONG record is
-     * proven (the overrule bar). Never below 1 (shrinking is not a learning
-     * lever at the route minimum); at most 2x; downstream caps still apply.
+     * candidate's decision-time read is STRONG AND the lane's STRONG record holds
+     * authority (V5.0.7955: graduated, scaling the Kelly multiple), or the
+     * candidate's setup / lane evidence is proven. Never below 1 (shrinking is not
+     * a learning lever at the route minimum); at most 2.5x; downstream caps still apply.
      */
     fun convictionMult(mint: String, laneRaw: String, requestedSol: Double, equitySol: Double): Double {
         if (mint.isBlank() || !(requestedSol > 0.0)) return 1.0
         val lane = canon(laneRaw)
-        val cortexStake = cortexStake7893(mint, lane, equitySol)
+        // V5.0.7955 — each stake is scaled by the authority behind it:
+        // 1 + fraction x (KellyMult - 1), capped at CONVICTION_MAX_MULT.
+        val cortexMult = cortexStake7893(mint, lane, equitySol).let { (stake, f) -> graduatedMult7955(f, stake, requestedSol) }
         // V5.0.7948 — the candidate's own proven evidence sizes it too (see provenEvidenceStake7948).
-        val evidenceStake = provenEvidenceStake7948(mint, lane, equitySol)
-        val mult = stakeMult7948(maxOf(cortexStake, evidenceStake), requestedSol)
+        val evidenceMult = provenEvidenceStake7948(mint, lane, equitySol).maxOfOrNull { (stake, f) -> graduatedMult7955(f, stake, requestedSol) } ?: 1.0
+        val mult = maxOf(cortexMult, evidenceMult)
         if (mult > 1.0) {
             inc("SIZED_UP_$lane")
             try {
                 PipelineHealthCollector.labelInc(
-                    if (cortexStake >= evidenceStake) "CORTEX_7893_CONVICTION_SIZE_UP_$lane" else "EVIDENCE_KELLY_SIZE_UP_7948_$lane",
+                    if (cortexMult >= evidenceMult) "CORTEX_7893_CONVICTION_SIZE_UP_$lane" else "EVIDENCE_KELLY_SIZE_UP_7948_$lane",
                 )
             } catch (_: Throwable) {}
         }
         return mult
     }
 
-    /** The 7893 STRONG-record quarter-Kelly stake (SOL), or 0 when the read or the record does not qualify. */
-    private fun cortexStake7893(mint: String, lane: String, equitySol: Double): Double {
-        val a = assessCache["$mint|$lane"] ?: return 0.0
-        if (System.currentTimeMillis() - a.atMs > 60_000L) return 0.0
-        if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return 0.0
+    /** Pure (V5.0.7955): the request scaled toward a Kelly stake by authority [fraction]: in [1, CONVICTION_MAX_MULT]. */
+    fun graduatedMult7955(fraction: Double, kellyStakeSol: Double, requestedSol: Double): Double {
+        if (!fraction.isFinite() || fraction <= 0.0) return 1.0
+        val kellyMult = stakeMult7948(kellyStakeSol, requestedSol)
+        return (1.0 + fraction.coerceAtMost(1.0) * (kellyMult - 1.0)).coerceIn(1.0, CONVICTION_MAX_MULT)
+    }
+
+    /**
+     * The 7893 STRONG-record quarter-Kelly stake (SOL) on current equity and the lane's
+     * graduated authority (V5.0.7955), or (0, 0) when the read or the record does not qualify.
+     */
+    private fun cortexStake7893(mint: String, lane: String, equitySol: Double): Pair<Double, Double> {
+        val none = 0.0 to 0.0
+        val a = assessCache["$mint|$lane"] ?: return none
+        if (System.currentTimeMillis() - a.atMs > 60_000L) return none
+        if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return none
         return synchronized(this) {
-            val strong = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal) ?: return 0.0
-            // V5.0.7948 — the lane's overrule authority (proven AND not inverted), not the bare STRONG record.
-            if (!board.overruleAuthority(a.lane) || !consistent(a.lane)) {
-                inc(if (board.inverted7948(a.lane)) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return 0.0
+            val strong = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal) ?: return none
+            // V5.0.7948 — the lane's authority (not inverted, self-consistent), not the bare STRONG record.
+            val f = laneFraction7955(a.lane)
+            if (f <= 0.0) {
+                inc(if (board.inverted7948(a.lane)) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return none
             }
-            kellyStakeSol(strong.mean(), strong.variance(), equitySol)
+            if (f < 1.0) inc("PARTIAL_AUTHORITY_SIZE_7955")
+            kellyStakeSol(strong.mean(), strong.variance(), equitySol) to f
         }
     }
 
@@ -610,17 +654,20 @@ object Cortex7885 {
      * cleared), at most [CONVICTION_MAX_MULT]x; every downstream wallet, lane,
      * share and liquidity cap still bounds it. Unproven evidence changes nothing.
      */
-    private fun provenEvidenceStake7948(mint: String, lane: String, equitySol: Double): Double {
-        if (!(equitySol > 0.0)) return 0.0
-        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return 0.0
+    private fun provenEvidenceStake7948(mint: String, lane: String, equitySol: Double): List<Pair<Double, Double>> {
+        if (!(equitySol > 0.0)) return emptyList()
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return emptyList()
         val nowMs = System.currentTimeMillis()
         val setup = try { LanePlaybook7907.provenSetupRecord7948(ts, lane, nowMs) } catch (_: Throwable) { null }
         val laneStat = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane) } catch (_: Throwable) { null }
+        // V5.0.7955 — a setup record carries its graduated authority as a third element (1.0 when absent).
         val setupStake = if (setup != null && setup.size >= 2) kellyStakeSol(setup[0], setup[1], equitySol) else 0.0
+        val setupFraction = if (setup != null && setup.size >= 3) setup[2] else 1.0
         val laneStake = if (laneStat != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.laneProvenPositive7941(laneStat)) {
             kellyStakeSol(laneStat.meanNet60Pct, cohortVariance7948(laneStat.stderr60Pct, laneStat.n60), equitySol)
         } else 0.0
-        return maxOf(setupStake, laneStake)
+        // The lane's own proven labels (100+, mean-SE > 0) carry full authority.
+        return listOf(setupStake to setupFraction, laneStake to 1.0)
     }
 
     /** Pure: a label set's per-label variance (percent^2) from its standard error and count. */
@@ -666,7 +713,8 @@ object Cortex7885 {
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return bounded
             val (strongProven, noSkill) = synchronized(this) {
                 val seat = ledger.seats["$LEGACY_SIZE_SHAPE|${a.lane}"]
-                (board.overruleAuthority(a.lane) && consistent(a.lane)) to
+                // V5.0.7955 — the same graduated threshold as the live overrule.
+                (laneFraction7955(a.lane) >= OVERRULE_FRACTION_7955) to
                     ((seat?.scored ?: 0) >= STACK_MEASURED && (seat?.authority() ?: 0.0) <= 0.0)
             }
             val out = shapeAfterAuthority(bounded, strongProven, noSkill)
@@ -814,10 +862,13 @@ object Cortex7885 {
                 sb.append("  lane      graded  strong    refuse    slope powers\n")
                 board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(8).forEach { (lane, b) ->
                     val runner = isRunner(lane)
+                    // V5.0.7955 — graduated authority: O from auth >= 0.5, size-up scaled by auth.
+                    val auth7955 = board.fractionFor7955(lane)
                     val powers = buildString {
                         if (board.refusalAuthority(lane, runner, true)) append("Rp ")
                         if (board.refusalAuthority(lane, runner, false)) append("Rl ")
-                        if (board.overruleAuthority(lane)) append("O ")
+                        if (auth7955 >= OVERRULE_FRACTION_7955) append("O ")
+                        if (auth7955 > 0.0) append("auth=${"%.2f".format(auth7955)} ")
                         if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("SUSPENDED ")
                         if (board.inverted7948(lane)) append("INVERTED")
                     }.trim().ifBlank { "shadow" }
@@ -826,12 +877,12 @@ object Cortex7885 {
                 }
                 fun sum(prefix: String) = counters.entries.filter { it.key.startsWith(prefix) }.sumOf { it.value.get() }
                 sb.append("  did: refusedPaper=${sum("REFUSED_PAPER")} refusedLive=${sum("REFUSED_LIVE")} overruled=${sum("OVERRULED_LIVE")} " +
-                    "paperChosen=${sum("PAPER_CHOSEN_")} sizedUp=${sum("SIZED_UP_")} stackOverruled=${sum("STACK_SHRINK_OVERRULED_")}\n")
+                    "paperChosen=${sum("PAPER_CHOSEN_")} sizedUp=${sum("SIZED_UP_")} stackOverruled=${sum("STACK_SHRINK_OVERRULED_")} partialAuth=${sum("PARTIAL_AUTHORITY_")}\n")
                 sb.append("  shadow: refuse=${sum("SHADOW_REFUSE")} overrule=${sum("SHADOW_OVERRULE")} choice=${sum("SHADOW_PAPER_CHOICE")} size=${sum("SHADOW_SIZE_UP")}\n")
                 sb.append("  realised: " + board.realized.entries.sortedBy { it.key }.take(6).joinToString(" · ") { (k, arr) ->
                     "$k ${fmtStat(arr[2])}/${fmtStat(arr[1])}/${fmtStat(arr[0])}"
                 }.ifBlank { "none yet" } + "  (strong/neutral/refuse)\n")
-                sb.append("  key: Rp/Rl refuse paper/live · O overrule+conviction · SUSPENDED calibration < 0.5 · INVERTED strong < neutral")
+                sb.append("  key: Rp/Rl refuse paper/live · O overrule (auth>=0.5) · auth graduated strong authority, scales size-up · SUSPENDED calibration < 0.5 · INVERTED strong < neutral")
                 sb.toString().take(1_900)
             }
         } catch (t: Throwable) { "  unavailable: ${t.javaClass.simpleName}" }
@@ -854,7 +905,7 @@ object Cortex7885 {
                 val runner = isRunner(lane)
                 "      $lane(5m${if (runner) ",runner" else ""}${if (board.inverted7948(lane)) ",INVERTED" else ""}): refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])} " +
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
-                    "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)}"
+                    "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)} auth=${"%.2f".format(board.fractionFor7955(lane))}"
             }
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.ALL.size}+V3modules assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +

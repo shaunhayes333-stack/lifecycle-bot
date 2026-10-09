@@ -189,7 +189,25 @@ object LiveEdgeGate7877 {
             try { PipelineHealthCollector.labelInc("LIVE_EDGE_COHORT_PROVEN_7948_$l") } catch (_: Throwable) {}
             return Verdict(true, Source.CELL, cohort.meanNet60Pct, "COHORT_PROVEN_7948_${cohort.key.take(28)}")
         }
+        // V5.0.7955 — the candidate's classified playbook setup holds graduated authority
+        // (from 15 labels, LanePlaybook7907.setupFraction7955) on more labels than its own cell.
+        val setup7955 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedAuthority7955(ts, l, nowMs) } catch (_: Throwable) { null }
+        if (setupAdmits7955(setup7955, cell?.n60 ?: 0, v.why)) {
+            try { PipelineHealthCollector.labelInc("LIVE_EDGE_SETUP_AUTHORITY_7955_$l") } catch (_: Throwable) {}
+            return Verdict(true, Source.CELL, 0.0, "SETUP_AUTHORITY_7955_${"%.2f".format(setup7955?.getOrNull(0) ?: 0.0)}")
+        }
         return v
+    }
+
+    /**
+     * Pure (V5.0.7955): a classified setup's [authority, labels] admits over a refusal when
+     * its authority is at least 0.5 and it rests on more labels than the candidate's cell.
+     * A cell or cohort proven negative / losing keeps its refusal.
+     */
+    fun setupAdmits7955(auth: DoubleArray?, cellN: Int, refusedWhy: String): Boolean {
+        if (auth == null || auth.size < 2) return false
+        if (refusedWhy.contains("PROVEN_NEGATIVE") || refusedWhy.contains("PROVEN_LOSING")) return false
+        return auth[0].isFinite() && auth[0] >= 0.5 && auth[1] > cellN.coerceAtLeast(0)
     }
 
     // ── V5.0.7948 §THE_LARGER_MEASURED_SAMPLE_DECIDES ──
