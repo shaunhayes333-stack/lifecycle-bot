@@ -110,10 +110,11 @@ class Aate7809LearningAttributionTest {
 
     @Test fun horizon_labels_book_only_inside_their_own_window() {
         val L = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
-        assertTrue(L.horizonOpen7809(15L * 60_000L, 15L * 60_000L))
-        assertTrue(L.horizonOpen7809(25L * 60_000L, 15L * 60_000L))
-        assertFalse(L.horizonOpen7809(26L * 60_000L, 15L * 60_000L))
-        assertFalse(L.horizonOpen7809(14L * 60_000L, 15L * 60_000L))
+        // V5.0.7946 — grace is half the horizon, 1 to 10 minutes.
+        assertTrue(L.horizonOpen7809(5L * 60_000L, 5L * 60_000L))
+        assertTrue(L.horizonOpen7809(450_000L, 5L * 60_000L))
+        assertFalse(L.horizonOpen7809(451_000L, 5L * 60_000L))
+        assertFalse(L.horizonOpen7809(4L * 60_000L, 5L * 60_000L))
         assertTrue(L.horizonOpen7809(70L * 60_000L, 60L * 60_000L))
         assertFalse(L.horizonOpen7809(71L * 60_000L, 60L * 60_000L))
     }

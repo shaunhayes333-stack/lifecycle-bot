@@ -271,8 +271,10 @@ object Cortex7885 {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = pending[key] ?: return
-        val want = if (p.a.runnerLane) 240 else 60
-        if (horizonMin != want) return
+        // V5.0.7946 — every lane is graded at THE read (slot 60 = 5 minutes). Runner lanes
+        // used to wait for the 4-hour label; with the spike tiers credited in the label,
+        // a runner's first minutes carry its capture, and the Cortex learns 48x sooner.
+        if (horizonMin != 60) return
         pending.remove(key)
         if (!netPct.isFinite()) return
         try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct) } catch (_: Throwable) {}

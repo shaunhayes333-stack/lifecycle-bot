@@ -46,15 +46,32 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ForwardReturnLabeler7731 {
 
-    private const val H15_MS_7731 = 15L * 60_000L
-    private const val H60_MS_7731 = 60L * 60_000L
-    private const val H240_MS_7731 = 240L * 60_000L
-    /** A mark older than this is not a price for this purpose (LaneShadowProof7307 uses the same). */
-    private const val MARK_MAX_AGE_MS_7731 = 120_000L
-    /** Lost-mark grace past the last horizon before the observation is dropped. */
+    /**
+     * V5.0.7946 — the read is FIVE minutes. Meme tokens spike and fade inside
+     * minutes; a 60-minute read taught the Cortex an hour late, lost the mark of
+     * every token that left the watchlist in that hour (5.0.7941: 1,928 lost), and
+     * graded the price long after the bot's own exits had acted. The three label
+     * slots keep their historical names (15 / 60 / 240, and n60 / meanNet60Pct in
+     * CellStat) but now mean:
+     *   slot "15"  -> 2 minutes  (the early read)
+     *   slot "60"  -> 5 minutes  (THE read: lane proof, cells, stages, Cortex, playbooks)
+     *   slot "240" -> 60 minutes (the late read that spares runner lanes)
+     * The table is stored under new keys, so no 60-minute label mixes into it.
+     */
+    private const val H15_MS_7731 = 2L * 60_000L
+    private const val H60_MS_7731 = 5L * 60_000L
+    private const val H240_MS_7731 = 60L * 60_000L
+    /** A mark older than this is not a price for this purpose (tightened for the 5-minute read). */
+    private const val MARK_MAX_AGE_MS_7731 = 45_000L
+    /** Lost-mark grace past the longest horizon before the observation is dropped. */
     private const val LOST_GRACE_MS_7731 = 10L * 60_000L
-    /** One observation per mint and lane per hour. */
-    private const val REOBSERVE_MS_7731 = 60L * 60_000L
+    /** V5.0.7946 — one observation per mint and lane per 15 minutes (the read is 5). */
+    private const val REOBSERVE_MS_7731 = 15L * 60_000L
+    private const val CELLS_KEY_7946 = "cells_7946"
+    private const val PENDING_KEY_7946 = "pending_7946"
+
+    /** V5.0.7946 — Pure: how late a horizon may still be read: half the horizon, between 1 and 10 minutes. */
+    fun graceFor7946(horizonMs: Long): Long = (horizonMs / 2).coerceIn(60_000L, LOST_GRACE_MS_7731)
     private const val MAX_PENDING_7731 = 6_000
     private const val MAX_CELLS_7731 = 560 // V5.0.7928 — +lane x stage aggregates (never pruned)
     private const val MAX_SEEN_7731 = 12_000
@@ -62,10 +79,10 @@ object ForwardReturnLabeler7731 {
     private const val PREFS_7731 = "forward_return_labeler_7731"
     /** Routable-minimum ticket, the size every cell is costed at. */
     private const val COST_SIZE_USD_7731 = 5.0
-    /** A 60-minute gross move above this is a runner. */
+    /** A gross move at the read (spike tiers credited) above this is a runner. */
     private const val RUNNER_PCT_7731 = 50.0
     /** V5.0.7735 — oldest decision-time price a label may start from. */
-    private const val ENTRY_MARK_MAX_AGE_MS_7735 = 10L * 60_000L
+    private const val ENTRY_MARK_MAX_AGE_MS_7735 = 90_000L // V5.0.7946 — a 5-minute read cannot start from a 10-minute-old price
     /**
      * V5.0.7735 — pending observations survive a restart. Every install or
      * restart inside the 60-minute horizon used to discard every open
@@ -181,7 +198,7 @@ object ForwardReturnLabeler7731 {
         }
     }
 
-    /** Read-only view of a cell at the 60-minute horizon, the ladder's horizon. */
+    /** Read-only view of a cell at THE read (slot "60", 5 minutes since V5.0.7946), the ladder's horizon. */
     data class CellStat(
         val key: String,
         val n60: Int,
@@ -194,7 +211,7 @@ object ForwardReturnLabeler7731 {
         val n240: Int = 0,
         val meanNet240Pct: Double = 0.0,
     ) {
-        /** Share of observations that reached a 60-minute label rather than losing their mark. */
+        /** Share of observations that reached a label at the read rather than losing their mark. */
         val resolvedShare: Double get() = if (n60 + lost > 0) n60.toDouble() / (n60 + lost) else 0.0
     }
 
@@ -237,7 +254,7 @@ object ForwardReturnLabeler7731 {
         prefs = p
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try {
-            p.getString("cells", null)?.split(';')?.forEach { row ->
+            p.getString(CELLS_KEY_7946, null)?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
                 val key = row.substring(0, sep)
@@ -265,7 +282,7 @@ object ForwardReturnLabeler7731 {
             }
         } catch (_: Throwable) {}
         try {
-            val n = restorePending7735(p.getString("pending", null), System.currentTimeMillis())
+            val n = restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())
             if (n > 0) {
                 restoredPending7735.addAndGet(n.toLong())
                 PipelineHealthCollector.labelInc("FORWARD_LABELER_PENDING_RESTORED_7735")
@@ -282,7 +299,7 @@ object ForwardReturnLabeler7731 {
         bookingsSincePersist.set(0)
         try {
             val enc = cells.entries.joinToString(";") { (k, t) -> "$k=${synchronized(t) { t.encode() }}" }
-            p.edit().putString("cells", enc).putString("pending", encodePending7735(now)).apply()
+            p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now)).remove("cells").remove("pending").apply()
         } catch (_: Throwable) {}
     }
 
@@ -557,7 +574,7 @@ object ForwardReturnLabeler7731 {
 
     private fun resolveVanished7944(o: Obs, horizon: Int, nowMs: Long) {
         val horizonMs = if (horizon == 60) H60_MS_7731 else H240_MS_7731
-        val cutoff = o.atMs + horizonMs + LOST_GRACE_MS_7731
+        val cutoff = o.atMs + horizonMs + graceFor7946(horizonMs)
         var px = o.lastPx; var at = o.lastPxAtMs
         // A stale registry read newer than ours is still a later real price.
         try {
@@ -608,14 +625,13 @@ object ForwardReturnLabeler7731 {
      * batch rotates through every due observation.
      */
     private const val OFFWATCH_RETRY_MS_7809 = 90_000L
-    private const val HORIZON_GRACE_MS_7809 = LOST_GRACE_MS_7731
     private val offWatchAttemptAt7809 = ConcurrentHashMap<String, Long>()
     private val offWatchDeferred7809 = AtomicLong(0)
     private val horizonMissed7809 = AtomicLong(0)
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
-        ageMs >= horizonMs && ageMs <= horizonMs + HORIZON_GRACE_MS_7809
+        ageMs >= horizonMs && ageMs <= horizonMs + graceFor7946(horizonMs)
 
     private fun rotateDue7809(due: List<String>, nowMs: Long): List<String> {
         if (offWatchAttemptAt7809.size > MAX_SEEN_7731) {
@@ -681,12 +697,12 @@ object ForwardReturnLabeler7731 {
             val px = markFor(o.mint, priceFor, nowMs)
             if (px == null) {
                 if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
-                if (!o.done60 && age >= H60_MS_7731 + LOST_GRACE_MS_7731) {
+                if (!o.done60 && age >= H60_MS_7731 + graceFor7946(H60_MS_7731)) {
                     // V5.0.7944 — nothing priced it at its 60-minute horizon: booked at its
                     // real last price (or -100% when it died), lost only when there is no read.
                     resolveVanished7944(o, 60, nowMs)
                     pending.remove(key, o)
-                } else if (o.done60 && age >= H240_MS_7731 + LOST_GRACE_MS_7731) {
+                } else if (o.done60 && age >= H240_MS_7731 + graceFor7946(H240_MS_7731)) {
                     if (!o.done240) { o.done240 = true; resolveVanished7944(o, 240, nowMs) }
                     pending.remove(key, o)
                 }
@@ -779,7 +795,7 @@ object ForwardReturnLabeler7731 {
         val worst = cellStats.sortedBy { it.meanNet60Pct }.take(3)
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
-        return "pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
+        return "read=5m(slot60) early=2m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
             "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
