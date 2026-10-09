@@ -64,7 +64,21 @@ object LearningResetSweep7781 {
         "perps_learning_bridge", "perps_heatmap", "perps_trader_ai", "crypto_brain_v1",
         // journal lifetime totals (clearAllTrades deliberately keeps these)
         "trade_history_store",
+        // V5.0.7975 — the 79xx learners that keep their own prefs
+        "cell_allocator_7962",
     )
+
+    /**
+     * V5.0.7975 — learning databases / files wiped at boot. The Cortex, lane playbooks,
+     * exit profiles, timing / exit cortex and stop authority live in learning_kv.db
+     * (LearningPersistence): resetAll() cleared it once, but those learners still held
+     * their ledgers in memory and saved them back before the restart, so a reset kept
+     * every "PROVEN_LOSING" refusal (5.0.7972 after a reset: PLAYBOOK_NO_TRIGGER_PROVEN_LOSING
+     * 230, CORTEX C3 234) while the positive evidence was gone — and the bot would not trade.
+     * Deleting them at boot, before anything opens them, makes the reset final.
+     */
+    internal val LEARNING_DBS_7975: List<String> = listOf("learning_kv.db")
+    internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin")
 
     @Volatile private var bootSweeps = 0
     @Volatile private var requestSweeps = 0
@@ -96,6 +110,8 @@ object LearningResetSweep7781 {
         val marker = try { app.getSharedPreferences(MARKER_PREFS, Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         if (!marker.getBoolean(KEY_PENDING, false)) return
         wipe(app)
+        for (db in LEARNING_DBS_7975) try { app.deleteDatabase(db) } catch (_: Throwable) {}
+        for (f in LEARNING_FILES_7975) try { java.io.File(app.filesDir, f).delete() } catch (_: Throwable) {}
         bootSweeps++
         try { marker.edit().putBoolean(KEY_PENDING, false).commit() } catch (_: Throwable) {}
         ErrorLogger.info("LearningReset7781", "Reset completed at boot: ${LEARNING_PREFS_7781.size} stores cleared")
@@ -107,5 +123,6 @@ object LearningResetSweep7781 {
         }
     }
 
-    fun statusLine(): String = "requests=$requestSweeps bootSweeps=$bootSweeps stores=${LEARNING_PREFS_7781.size}"
+    fun statusLine(): String = "requests=$requestSweeps bootSweeps=$bootSweeps stores=${LEARNING_PREFS_7781.size}+db${LEARNING_DBS_7975.size}+files${LEARNING_FILES_7975.size}" +
+        (if (requestSweeps > 0 && bootSweeps == 0) " PENDING_RESTART(close and reopen AATE to finish the reset)" else "")
 }

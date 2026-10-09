@@ -310,6 +310,14 @@ object TradePlan7739 {
         if (!runner7878) LivePivotAuthority7876.liveRefusal(lane, paper, nowMs)?.let { return it }
         // V5.0.7877 — always on: live only where a measured, net-of-cost prediction says it pays.
         LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs)?.let { return it }
+        // V5.0.7975 — admitted on positive evidence (specialist / proven cell / full-authority
+        // Cortex): planned as an early launch-style entry now, not made to wait for a chart setup.
+        if (LiveEdgeGate7877.positiveAdmit7975(ts.mint, nowMs)) {
+            plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -LAUNCH_STOP_PCT_7742, LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
+            admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("PLAN_ADMITTED_7975_POSITIVE_EVIDENCE") } catch (_: Throwable) {}
+            return null
+        }
         val read = readForEntry7837(ts, nowMs)
         val setup = read.setup
         if (setup == null && barsPermitLaunch7742(read.why)) {

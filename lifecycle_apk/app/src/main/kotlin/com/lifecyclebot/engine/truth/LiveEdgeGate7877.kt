@@ -332,10 +332,32 @@ object LiveEdgeGate7877 {
     }
 
     /** LIVE refusal reason, or null to admit. Paper is never refused. */
+    /**
+     * V5.0.7975 — mints this gate admitted on POSITIVE evidence (a specialist, a cell
+     * clearing +15% net over the lane-wide refusal, a full-authority Cortex STRONG read, a
+     * proven runner cell). TradePlan7739 plans them instead of waiting for a chart setup:
+     * 5.0.7972 missed BUM +32,922%, hehe +2,906%, AIA +1,577% on NO_PLAN_WAIT_7739 after
+     * this gate had already let them through.
+     */
+    private val positive7975 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun notePositive7975(mint: String, nowMs: Long) {
+        positive7975[mint] = nowMs
+        if (positive7975.size > 2_000) positive7975.entries.removeIf { nowMs - it.value > POSITIVE_TTL_MS_7975 }
+    }
+
+    /** TradePlan7739.liveBlockReason: was [mint] just admitted here on positive evidence? */
+    fun positiveAdmit7975(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        positive7975[mint]?.let { nowMs - it in 0L..POSITIVE_TTL_MS_7975 } == true
+
+    private const val POSITIVE_TTL_MS_7975 = 2L * 60_000L
+
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)
         // V5.0.7970 — a live admit in a proven runner cell is held like a runner.
-        if (why == null && !paper) try { com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs) } catch (_: Throwable) {}
+        if (why == null && !paper) try {
+            if (com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs)) notePositive7975(ts.mint, nowMs)
+        } catch (_: Throwable) {}
         return why
     }
 
@@ -357,6 +379,7 @@ object LiveEdgeGate7877 {
         if (ts.safety.tier != com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) {
             SpecialistMiner7972.match7972(ts, l, nowMs)?.let { sp ->
                 if (SpecialistMiner7972.runs7972(sp)) try { com.lifecyclebot.engine.RunnerGrab7967.holdAsRunner7972(ts, nowMs) } catch (_: Throwable) {}
+                notePositive7975(ts.mint, nowMs)
                 return null
             }
         }
@@ -384,7 +407,7 @@ object LiveEdgeGate7877 {
             // losing is never overruled here.
             if (prior.startsWith("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING") &&
                 (com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, l, nowMs) ||
-                    com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, prior))) continue
+                    com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, prior))) { notePositive7975(ts.mint, nowMs); continue }
             val sampleN = refusalSampleN7948(ts, l, prior)
             if (sampleN != null && cohortOverrulesSmaller7948(cohort7948, sampleN)) {
                 try { PipelineHealthCollector.labelInc("LIVE_PRIOR_REFUSAL_OUTWEIGHED_BY_COHORT_7948") } catch (_: Throwable) {}

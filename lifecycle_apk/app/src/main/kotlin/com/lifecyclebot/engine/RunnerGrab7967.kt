@@ -141,14 +141,16 @@ object RunnerGrab7967 {
      * like a grab — any buy can become the runner, so it gets the runner ladder and the
      * soft-exit deferral while its 1m structure stands.
      */
-    fun noteAdmit7970(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
-        if (ts.position.isOpen || grabbed.containsKey(ts.mint)) return
-        provenCellFor(ts, nowMs) ?: return
+    fun noteAdmit7970(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (ts.position.isOpen) return false
+        provenCellFor(ts, nowMs) ?: return false
+        if (grabbed.containsKey(ts.mint)) return true
         grabbed[ts.mint] = nowMs
         val px = ts.lastPrice
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(ts.mint, px to nowMs)
         heldAdmits.incrementAndGet()
         try { PipelineHealthCollector.labelInc("RUNNER_HOLD_ON_ADMIT_7970") } catch (_: Throwable) {}
+        return true
     }
     private val heldAdmits = AtomicLong(0)
 

@@ -498,7 +498,9 @@ object LanePlaybook7907 {
                     // learn); once its own record is mature it must have proven it pays.
                     // V5.0.7939 — a runner lane (MOONSHOT hunts 500%+) buys runner setups only:
                     // 5.0.7937 MOONSHOT bought NO_TRIGGER 442 of 514 times, 4h labels n29 -24%.
-                    setup == NO_TRIGGER && (runner || noTriggerMeasured7936(st)) && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
+                    // V5.0.7975 — trade-one: a runner lane's unmeasured NO_TRIGGER explores like every
+                    // lane (labels arrive within minutes); refused once 40 labels measure it short of proof.
+                    setup == NO_TRIGGER && noTriggerMeasured7936(st) && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
                     setup != NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup"
                     // V5.0.7948 — the best setup that fired has a measured record whose shrunk
                     // expectancy is below zero (5.0.7947 SHITCOIN LAUNCH_CONTINUATION n6 -11.0%).
