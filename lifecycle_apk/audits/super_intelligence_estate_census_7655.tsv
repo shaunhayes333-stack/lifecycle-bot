@@ -120,7 +120,7 @@ TimeOptimizationAI	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/TimeOptimiz
 TokenRefreshPolicy	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/TokenRefreshPolicy.kt	False
 TrailingStopManager	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/TrailingStopManager.kt	False
 TreasuryBrain	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/TreasuryBrain.kt	False
-TreasuryScannerFeed	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/TreasuryScannerFeed.kt	False
+TreasuryScannerFeed	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/TreasuryScannerFeed.kt	False
 UnifiedExitPolicyHead	EXIT_LEARNED_UPSTREAM	com/lifecyclebot/engine/UnifiedExitPolicyHead.kt	False
 UnifiedNarrativeAI	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/UnifiedNarrativeAI.kt	False
 UnifiedPolicyHead	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/UnifiedPolicyHead.kt	False
