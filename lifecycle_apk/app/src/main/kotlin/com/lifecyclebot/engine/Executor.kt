@@ -13392,8 +13392,18 @@ class Executor(
      * neither exists.
      */
     private fun verifiedFillEntryPrice7875(ts: TokenState, actualCostSol: Double, qtyUi: Double): Double {
-        ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
         val solUsd = WalletManager.lastKnownSolPrice
+        // V5.0.7988 — a fill well above the decision mark is the real basis (5.0.7985 LACANDY: mark
+        // 3.1e-6, filled at ~1.45e-5 after the coin had run; every exit read +83% while it was -62%).
+        ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 }?.let { mark ->
+            val fill7988 = verifiedFillPriceUsd7875(actualCostSol, qtyUi, solUsd)
+            if (fill7988 != null && fillOverridesMark7988(mark, fill7988)) {
+                ts.position = ts.position.copy(entryPrice = fill7988, highestPrice = maxOf(ts.position.highestPrice, fill7988))
+                try { PipelineHealthCollector.labelInc("LIVE_ENTRY_BASIS_FILL_ABOVE_MARK_7988") } catch (_: Throwable) {}
+                return fill7988
+            }
+            return mark
+        }
         val fill = verifiedFillPriceUsd7875(actualCostSol, qtyUi, solUsd)
             ?: throw IllegalStateException("Verified BUY has no valid USD/token entry price")
         ts.position = ts.position.copy(entryPrice = fill, entryPriceSource = "VERIFIED_FILL_7875")

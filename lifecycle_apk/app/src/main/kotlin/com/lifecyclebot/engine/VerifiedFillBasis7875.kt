@@ -12,3 +12,10 @@ internal fun verifiedFillPriceUsd7875(actualCostSol: Double, qtyUi: Double, solU
     val px = actualCostSol / qtyUi * solUsd
     return px.takeIf { it.isFinite() && it > 0.0 }
 }
+
+/** Pure. V5.0.7988 — the verified fill replaces the decision mark when it is 25%..20x above it (a chased fill, not a unit error). */
+internal fun fillOverridesMark7988(markUsd: Double, fillUsd: Double): Boolean {
+    if (!markUsd.isFinite() || markUsd <= 0.0 || !fillUsd.isFinite() || fillUsd <= 0.0) return false
+    val r = fillUsd / markUsd
+    return r >= 1.25 && r <= 20.0
+}

@@ -289,6 +289,27 @@ object LiveCanonicalRecovery6686 {
      * in protective inventory. Recovery later promotes the same row to OPEN
      * once a basis is proven (Field Manual L403). Returns rows created/attached.
      */
+    /**
+     * V5.0.7988 — the cost basis of a wallet holding the bot re-protects. 5.0.7985 re-adopted
+     * leftovers of positions it had already sold (8TiMkg 947 of 2,926 tokens, Frank 6,592 of
+     * 88,534) at the WHOLE original buy cost, then booked -38..-41% "losses" on sells that
+     * returned SOL: learning and the daily-loss brake both read them as real. The basis is the
+     * bot's own lots' cost per token x the tokens held, never more than the tracker's figure.
+     */
+    private fun remnantBasisSol7988(trackerEntrySol: Double, mint: String, amount: CanonicalTokenAmount): Double {
+        val lots = try { FillLotLedger6344.snapshotForMint(WalletManager.currentPubkey(), mint) } catch (_: Throwable) { emptyList() }
+        val held = try { java.math.BigDecimal(amount.raw).movePointLeft(amount.decimals).toDouble() } catch (_: Throwable) { Double.NaN }
+        return remnantBasis7988(trackerEntrySol, lots.sumOf { it.entryCostSol }, lots.sumOf { it.entryQty }, held)
+    }
+
+    /** Pure. V5.0.7988 — proportional basis for [heldQty] tokens; falls back to the tracker figure when lots are unknown. */
+    fun remnantBasis7988(trackerEntrySol: Double, lotCostSol: Double, lotQty: Double, heldQty: Double): Double {
+        val tracker = if (trackerEntrySol.isFinite() && trackerEntrySol > 0.0) trackerEntrySol else 0.0
+        if (!(lotCostSol > 0.0) || !(lotQty > 0.0) || !heldQty.isFinite() || heldQty <= 0.0) return tracker
+        val share = lotCostSol / lotQty * heldQty
+        return if (tracker > 0.0) minOf(tracker, share) else share
+    }
+
     internal fun protectUnadoptedBotHoldings7807(subset: Map<String, CanonicalTokenAmount>): Int {
         if (subset.isEmpty()) return 0
         val covered7807 = try { CanonicalPositionAuthority6441.protectiveInventoryMints7807("live") } catch (_: Throwable) { emptySet<String>() }
@@ -311,7 +332,8 @@ object LiveCanonicalRecovery6686 {
                     lane = row7807?.entryLane7708.orEmpty().ifBlank { "WALLET_RECOVERED" },
                     actualQtyRaw = amount.raw,
                     tokenDecimals = amount.decimals,
-                    entryCostSol = row7807?.entrySol ?: 0.0,
+                    // V5.0.7988 — a leftover is charged its share of the buy, not the whole buy.
+                    entryCostSol = remnantBasisSol7988(row7807?.entrySol ?: 0.0, mint, amount),
                     entryPriceUsd = row7807?.entryPriceUsd ?: 0.0,
                     signature = row7807?.buySignature.orEmpty(),
                     reason = "BOT_HOLDING_BASIS_UNPROVEN_7718",
