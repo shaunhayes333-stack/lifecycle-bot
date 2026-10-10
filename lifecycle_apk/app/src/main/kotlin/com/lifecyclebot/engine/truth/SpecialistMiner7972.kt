@@ -272,6 +272,31 @@ object SpecialistMiner7972 {
         }
     }
 
+    /** V5.0.8000 — HiveEdge8000: this instance's combinations with 10+ labels ([n, sum, sumSq, wins, runners, 0]). */
+    fun hiveSnapshot8000(): Map<String, DoubleArray> =
+        keys.entries.asSequence().filter { it.value.n >= 10 }.sortedByDescending { it.value.n }.take(1_500)
+            .associate { (k, s) -> k to synchronized(s) { doubleArrayOf(s.n.toDouble(), s.sum, s.sumSq, s.wins.toDouble(), s.runners.toDouble(), 0.0) } }
+
+    /** V5.0.8000 — a combination the network (local + hive evidence) proves is promoted here too. Returns promotions. */
+    fun hivePromote8000(): Int {
+        var n = 0
+        for (hk in HiveEdge8000.netKeys8000("SPEC|")) {
+            val k = hk.removePrefix("SPEC|")
+            if (promoted.containsKey(k)) continue
+            val net = HiveEdge8000.net8000(hk) ?: continue
+            val local = keys[k]
+            val c = Stat()
+            if (local != null) synchronized(local) { c.n = local.n; c.sum = local.sum; c.sumSq = local.sumSq; c.wins = local.wins; c.runners = local.runners }
+            c.n += net[0].toInt(); c.sum += net[1]; c.sumSq += net[2]; c.wins += net[3].toInt(); c.runners += net[4].toInt()
+            if (promotes7972(c.n, c.mean(), c.se(), c.wins) && promoted.putIfAbsent(k, Spec(k, System.currentTimeMillis(), c)) == null) {
+                n++
+                promotions.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("SPECIALIST_PROMOTED_BY_HIVE_8000") } catch (_: Throwable) {}
+            }
+        }
+        return n
+    }
+
     private fun prune() {
         val victims = keys.entries.filter { !promoted.containsKey(it.key) && it.value.n <= 3 }.take(MAX_KEYS / 5)
             .ifEmpty { keys.entries.filter { !promoted.containsKey(it.key) }.sortedBy { it.value.n }.take(MAX_KEYS / 10) }

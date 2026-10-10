@@ -866,6 +866,8 @@ object ForwardReturnLabeler7731 {
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
             if (gross < o.minPct7962) o.minPct7962 = gross
+            // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.
+            if (gross >= 100.0 && age <= 30L * 60_000L) try { HiveEdge8000.noteRunner8000(o.mint, o.symbol, gross, o.atMs) } catch (_: Throwable) {}
             if (gross >= 400.0 && o.peakPct < 400.0) try {
                 com.lifecyclebot.engine.RunnerGrab7967.onRunnerLabel7967(o.mint, o.symbol, o.lane, o.admitted, o.reason7967, gross, nowMs)
                 // V5.0.7973 — a +400% coin's name/ticker words become a 6-hour theme (copycat / beta rotation).
@@ -910,21 +912,37 @@ object ForwardReturnLabeler7731 {
     // ── reads ──
 
     private fun cellStat(key: String): CellStat? {
-        val t = cells[key] ?: return null
+        // V5.0.8000 — the rest of the hive's labels for this key ride on the local tally.
+        val hive = try { HiveEdge8000.net8000("FRL|$key") } catch (_: Throwable) { null }
+        val t = cells[key] ?: if (hive == null) return null else Tally()
         return synchronized(t) {
-            if (t.n60 <= 0 && t.lost <= 0) null else {
-                val mean = if (t.n60 > 0) t.sum60 / t.n60 else 0.0
-                val variance = if (t.n60 > 1) ((t.sumSq60 / t.n60) - mean * mean).coerceAtLeast(0.0) else 0.0
-                val se = if (t.n60 > 1) kotlin.math.sqrt(variance / t.n60) else Double.POSITIVE_INFINITY
+            val n = t.n60 + (hive?.get(0)?.toInt() ?: 0)
+            val sum = t.sum60 + (hive?.get(1) ?: 0.0)
+            val sumSq = t.sumSq60 + (hive?.get(2) ?: 0.0)
+            val wins = t.win60 + (hive?.get(3)?.toInt() ?: 0)
+            val runners = t.runner60 + (hive?.get(4)?.toInt() ?: 0)
+            if (n <= 0 && t.lost <= 0) null else {
+                val mean = if (n > 0) sum / n else 0.0
+                val variance = if (n > 1) ((sumSq / n) - mean * mean).coerceAtLeast(0.0) else 0.0
+                val se = if (n > 1) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY
                 CellStat(
-                    key = key, n60 = t.n60, meanNet60Pct = mean,
-                    winRate60 = if (t.n60 > 0) t.win60.toDouble() / t.n60 else 0.0,
-                    runnerRate60 = if (t.n60 > 0) t.runner60.toDouble() / t.n60 else 0.0,
+                    key = key, n60 = n, meanNet60Pct = mean,
+                    winRate60 = if (n > 0) wins.toDouble() / n else 0.0,
+                    runnerRate60 = if (n > 0) runners.toDouble() / n else 0.0,
                     stderr60Pct = se, lost = t.lost,
                     n240 = t.n240, meanNet240Pct = if (t.n240 > 0) t.sum240 / t.n240 else 0.0,
                 )
             }
         }
+    }
+
+    /** V5.0.8000 — HiveEdge8000: this instance's own 5-minute tallies ([n, sum, sumSq, wins, runners, 0]). */
+    fun hiveSnapshot8000(): Map<String, DoubleArray> {
+        val out = HashMap<String, DoubleArray>(cells.size)
+        for ((k, t) in cells) synchronized(t) {
+            if (t.n60 >= 3) out[k] = doubleArrayOf(t.n60.toDouble(), t.sum60, t.sumSq60, t.win60.toDouble(), t.runner60.toDouble(), 0.0)
+        }
+        return out
     }
 
     fun cellStatFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {

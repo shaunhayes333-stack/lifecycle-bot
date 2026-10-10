@@ -462,7 +462,22 @@ object LanePlaybook7907 {
     @Volatile private var loaded = false
     private val sincePersist = AtomicLong(0)
 
-    private fun stat(lane: String, setup: String): CortexLedger7885.Stat? = books[lane]?.stats?.get(setup)
+    private fun stat(lane: String, setup: String): CortexLedger7885.Stat? {
+        val local = books[lane]?.stats?.get(setup)
+        // V5.0.8000 — the rest of the hive's grades of this setup ride on the local book.
+        val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null } ?: return local
+        val c = CortexLedger7885.Stat()
+        if (local != null) { c.n = local.n; c.sum = local.sum; c.sumSq = local.sumSq; c.runners = local.runners; c.wins = local.wins }
+        c.n += hive[0]; c.sum += hive[1]; c.sumSq += hive[2]; c.wins += hive[3]; c.runners += hive[4]
+        return c
+    }
+
+    /** V5.0.8000 — HiveEdge8000: this instance's setup books ([n, sum, sumSq, wins, runners, 0]). */
+    fun hiveSnapshot8000(): Map<String, DoubleArray> = synchronized(this) {
+        val out = HashMap<String, DoubleArray>()
+        for ((lane, b) in books) for ((setup, s) in b.stats) if (s.n >= 3.0) out["$lane|$setup"] = doubleArrayOf(s.n, s.sum, s.sumSq, s.wins, s.runners, 0.0)
+        out
+    }
 
     private fun priorOf(lane: String, setup: String): Double =
         if (setup == NO_TRIGGER) -1.0 else menuOf7962(lane)?.firstOrNull { it.id == setup }?.prior ?: 0.0

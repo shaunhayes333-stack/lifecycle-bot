@@ -1415,6 +1415,9 @@ object PipelineHealthCollector {
         sb.append("  Pump callouts (§7968): ").append(
             try { PumpCallouts7968.statusLine7968() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Hive brain (§8000): ").append(
+            try { com.lifecyclebot.engine.truth.HiveEdge8000.statusLine8000() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Progressive grading (§7997): ").append(
             try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.progressiveLine7997() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

@@ -236,75 +236,17 @@ object TailHunter7996 {
 
     // ── act ──
 
-    /** Local evidence plus the hive's (other instances' replays of the same key, V5.0.7998). */
+    /** Local evidence plus the hive's (other instances' replays of the same key, HiveEdge8000). */
     private fun proven(key: String): Stat7996? {
         val local = stats[key]
-        val hive = network[key]
+        val hive = try { HiveEdge8000.net8000("TAIL|$key") } catch (_: Throwable) { null }
         if (local == null && hive == null) return null
         val c = Stat7996()
-        c.n = (local?.n ?: 0) + (hive?.n ?: 0)
-        c.sum = (local?.sum ?: 0.0) + (hive?.sum ?: 0.0)
-        c.runners = (local?.runners ?: 0) + (hive?.runners ?: 0)
-        c.best = maxOf(local?.best ?: 0.0, hive?.best ?: 0.0)
+        c.n = (local?.n ?: 0) + (hive?.get(0)?.toInt() ?: 0)
+        c.sum = (local?.sum ?: 0.0) + (hive?.get(1) ?: 0.0)
+        c.runners = (local?.runners ?: 0) + (hive?.get(4)?.toInt() ?: 0)
+        c.best = maxOf(local?.best ?: 0.0, hive?.get(5) ?: 0.0)
         return c.takeIf { tailProven7996(it.n, it.sum, it.runners) }
-    }
-
-    // ── V5.0.7998 — THE HIVE: every installed instance's replays, pooled ──
-    //
-    // Owner: "the shared edge thru the hive network across the installed instances ... the more
-    // instances the smarter the network." Tail runners are rare (a handful a day per instance), so
-    // one phone needs days to prove a key; N phones prove it N times faster. Every 10 minutes this
-    // instance publishes its own replay totals per key (upsert on instance|key, so nothing is ever
-    // double counted) to the collective Turso database and reads everyone else's (last 7 days).
-    private val network = ConcurrentHashMap<String, Stat7996>()
-    @Volatile private var lastHiveMs = 0L
-    @Volatile private var hivePeers = 0
-    private val hiveUploads = AtomicLong(0)
-    private val hiveKeys = AtomicLong(0)
-
-    /** CollectiveLearning background sync: publish this instance's replays, pull the hive's. */
-    suspend fun hiveSync7998(client: com.lifecyclebot.collective.TursoClient, instanceId: String) {
-        val now = System.currentTimeMillis()
-        if (instanceId.isBlank() || now - lastHiveMs < 10L * 60_000L) return
-        lastHiveMs = now
-        ensureLoaded()
-        client.execute(
-            "CREATE TABLE IF NOT EXISTS tail_keys_7998 (instance_id TEXT NOT NULL, k TEXT NOT NULL, n INTEGER, s REAL, r INTEGER, b REAL, updated_ms INTEGER, PRIMARY KEY (instance_id, k))"
-        )
-        val mine = stats.entries.filter { it.value.n >= 3 }.sortedByDescending { it.value.n }.take(400)
-        for (chunk in mine.chunked(80)) {
-            val stmts = chunk.map { (k, s) ->
-                "INSERT INTO tail_keys_7998 (instance_id, k, n, s, r, b, updated_ms) VALUES (?, ?, ?, ?, ?, ?, ?) " +
-                    "ON CONFLICT(instance_id, k) DO UPDATE SET n = excluded.n, s = excluded.s, r = excluded.r, b = excluded.b, updated_ms = excluded.updated_ms" to
-                    listOf<Any?>(instanceId, k, s.n.toLong(), s.sum, s.runners.toLong(), s.best, now)
-            }
-            client.batch(stmts)
-            hiveUploads.addAndGet(chunk.size.toLong())
-        }
-        val res = client.query(
-            "SELECT k, SUM(n) AS n, SUM(s) AS s, SUM(r) AS r, MAX(b) AS b, COUNT(DISTINCT instance_id) AS peers FROM tail_keys_7998 " +
-                "WHERE instance_id != ? AND updated_ms > ? GROUP BY k HAVING SUM(n) >= 5 ORDER BY SUM(r) DESC, SUM(n) DESC LIMIT 4000",
-            listOf<Any?>(instanceId, now - 7L * 24L * 3_600_000L),
-        )
-        if (!res.success) return
-        val fresh = HashMap<String, Stat7996>(res.rows.size * 2)
-        var peers = 0
-        for (row in res.rows) {
-            val k = row["k"]?.toString().orEmpty()
-            if (k.isBlank()) continue
-            val s = Stat7996()
-            s.n = row["n"]?.toString()?.toDoubleOrNull()?.toInt() ?: 0
-            s.sum = row["s"]?.toString()?.toDoubleOrNull() ?: 0.0
-            s.runners = row["r"]?.toString()?.toDoubleOrNull()?.toInt() ?: 0
-            s.best = row["b"]?.toString()?.toDoubleOrNull() ?: 0.0
-            peers = maxOf(peers, row["peers"]?.toString()?.toDoubleOrNull()?.toInt() ?: 0)
-            if (s.n > 0) fresh[k] = s
-        }
-        network.clear(); network.putAll(fresh)
-        hivePeers = peers
-        hiveKeys.set(fresh.size.toLong())
-        if (!anyProvenPair) anyProvenPair = fresh.keys.any { it.startsWith("P|") && proven(it) != null }
-        try { PipelineHealthCollector.labelInc("TAIL_HIVE_SYNC_7998") } catch (_: Throwable) {}
     }
 
     /**
@@ -323,7 +265,7 @@ object TailHunter7996 {
         val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, ts.lastMcap, ageMs)
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l, nowMs) } catch (_: Throwable) { null } ?: "NONE"
         val hit = proven("C|$cell") != null || proven("S|$l|$setup") != null ||
-            proven("SRC|${ForwardReturnLabeler7731.sourceFamily(ts.source)}|$l") != null || anyProvenPair && run {
+            proven("SRC|${ForwardReturnLabeler7731.sourceFamily(ts.source)}|$l") != null || pairsWorthChecking(nowMs) && run {
             val facts = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
             factKeys7996(l, facts).any { it.startsWith("P|") && proven(it) != null }
         }
@@ -335,6 +277,19 @@ object TailHunter7996 {
             com.lifecyclebot.engine.RunnerGrab7967.holdAsRunner7972(ts, nowMs)
         } catch (_: Throwable) {}
         return true
+    }
+
+    @Volatile private var hivePairsAtMs = 0L
+    @Volatile private var hivePairs = false
+
+    /** Any fact pair proven locally, or any pair the hive proves together with us (refreshed each minute). */
+    private fun pairsWorthChecking(nowMs: Long): Boolean {
+        if (anyProvenPair) return true
+        if (nowMs - hivePairsAtMs > 60_000L) {
+            hivePairsAtMs = nowMs
+            hivePairs = try { HiveEdge8000.netKeys8000("TAIL|P|").any { proven(it.removePrefix("TAIL|")) != null } } catch (_: Throwable) { false }
+        }
+        return hivePairs
     }
 
     /** ChartReader7950.saysBuy / FinalDecisionGate edge veto: a ticket issued in the last few minutes. */
@@ -356,6 +311,11 @@ object TailHunter7996 {
         return if (ticketActive7996(mint)) minOf(m, 0.5) else m
     }
 
+    /** V5.0.8000 — HiveEdge8000: this instance's replay totals per key ([n, sum, 0, 0, runners, best]). */
+    fun hiveSnapshot8000(): Map<String, DoubleArray> =
+        stats.entries.asSequence().filter { it.value.n >= 3 }.sortedByDescending { it.value.n }.take(1_500)
+            .associate { (k, s) -> k to doubleArrayOf(s.n.toDouble(), s.sum, 0.0, 0.0, s.runners.toDouble(), s.best) }
+
     // ── housekeeping / report ──
 
     fun trim7977() {
@@ -375,7 +335,7 @@ object TailHunter7996 {
             .map { (rule, es) -> val n = es.sumOf { it.value.n }; val sum = es.sumOf { it.value.sum }; val run = es.sumOf { it.value.runners }
                 "$rule n$n ${"%+.1f".format(if (n > 0) sum / n else 0.0)}% run$run" }
             .sortedByDescending { it }.take(8).joinToString(" · ").ifBlank { "-" }
-        return "hive[peers=$hivePeers keys=${hiveKeys.get()} uploaded=${hiveUploads.get()}] replaying=${obs.size} observed=${observed.get()} finalized=${finalized.get()} runners=${runnersSeen.get()} tickets=${ticketsIssued.get()} keys=${stats.size} " +
+        return "replaying=${obs.size} observed=${observed.get()} finalized=${finalized.get()} runners=${runnersSeen.get()} tickets=${ticketsIssued.get()} keys=${stats.size} " +
             "bar=n>=$TAIL_MIN_N,sum>0,runners>=$TAIL_MIN_RUNNERS recentRunners[$rr]\n    tail-proven: $top\n    by refusal (ladder replay): $rules"
     }
 

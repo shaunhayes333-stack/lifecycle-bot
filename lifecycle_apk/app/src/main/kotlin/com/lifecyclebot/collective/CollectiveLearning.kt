@@ -46,6 +46,7 @@ object CollectiveLearning {
     // reconnect, the Collective screen, stopBot's shutdown()). Volatile so a
     // write on one dispatcher thread is seen by the next isEnabled() check.
     @Volatile private var client: TursoClient? = null
+    @Volatile private var runnerJob8000: kotlinx.coroutines.Job? = null
     @Volatile private var isInitialized = false
     private var lastSyncTime = 0L
 
@@ -415,6 +416,8 @@ object CollectiveLearning {
     fun shutdown() {
         syncJob?.cancel()
         syncJob = null
+        runnerJob8000?.cancel()
+        runnerJob8000 = null
         client = null
         isInitialized = false
         Log.i(TAG, "Collective learning shutdown")
@@ -1921,6 +1924,17 @@ object CollectiveLearning {
 
     private fun startBackgroundSync() {
         syncJob?.cancel()
+        // V5.0.8000 — runner signals between installed instances, every minute.
+        runnerJob8000?.cancel()
+        runnerJob8000 = scope.launch {
+            while (isActive) {
+                delay(60_000L)
+                if (isEnabled()) try {
+                    val c = client; val id = getInstanceId()
+                    if (c != null && id != null) com.lifecyclebot.engine.truth.HiveEdge8000.fastSync8000(c, id)
+                } catch (e: Exception) { Log.w(TAG, "Hive runner sync: ${e.message}") }
+            }
+        }
         syncJob = scope.launch {
             while (isActive) {
                 delay(SYNC_INTERVAL_MS)
@@ -1928,11 +1942,11 @@ object CollectiveLearning {
                     try {
                         uploadLocalPatternAggregates()
                         downloadAll()
-                        // V5.0.7998 — the tail hunter's replays, pooled across every installed instance.
+                        // V5.0.8000 — the hive brain: learnt edge, specialists, setups and tail replays pooled.
                         try {
                             val c = client; val id = getInstanceId()
-                            if (c != null && id != null) com.lifecyclebot.engine.truth.TailHunter7996.hiveSync7998(c, id)
-                        } catch (e: Exception) { Log.w(TAG, "Tail hive sync: ${e.message}") }
+                            if (c != null && id != null) com.lifecyclebot.engine.truth.HiveEdge8000.sync8000(c, id)
+                        } catch (e: Exception) { Log.w(TAG, "Hive edge sync: ${e.message}") }
                     } catch (e: Exception) {
                         Log.e(TAG, "Background sync error: ${e.message}")
                     }
