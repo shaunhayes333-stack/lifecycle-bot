@@ -1415,6 +1415,9 @@ object PipelineHealthCollector {
         sb.append("  Pump callouts (§7968): ").append(
             try { PumpCallouts7968.statusLine7968() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Watch first (§7994): ").append(
+            try { com.lifecyclebot.engine.truth.LiveEdgeGate7877.watchLine7994() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Discovery (§7984): ").append(
             try { com.lifecyclebot.engine.truth.DiscoveryRate7984.line7984() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

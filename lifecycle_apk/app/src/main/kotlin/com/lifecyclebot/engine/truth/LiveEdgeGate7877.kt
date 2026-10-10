@@ -353,6 +353,8 @@ object LiveEdgeGate7877 {
     private const val POSITIVE_TTL_MS_7975 = 2L * 60_000L
 
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        // V5.0.7994 — watch first: live money only goes where the bot's own labels already point.
+        if (!paper) watchFirst7994(ts, lane, nowMs)?.let { return it }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)
         // V5.0.7970 — a live admit in a proven runner cell is held like a runner.
         if (why == null && !paper) try {
@@ -360,6 +362,38 @@ object LiveEdgeGate7877 {
         } catch (_: Throwable) {}
         return why
     }
+
+    // ── V5.0.7994 — WATCH FIRST ──
+    //
+    // Owner, after a reset: "isn't that pretty slow while risking live capital?" The forward
+    // labeler grades every coin the bot looks at (hundreds an hour) whether it buys or not, so a
+    // live buy adds almost nothing to learning and costs real SOL. 5.0.7991 bought fresh launches
+    // whose cell already read -9.5% (n106) and -5.7% (n74). A live entry now needs its own cell
+    // (source | lane | mcap band | age band) to read at least [WATCH_MIN_N_7994] labels with a
+    // non-negative 5-minute net mean, or a promoted specialist match. Everything else is watched.
+    private const val WATCH_MIN_N_7994 = 10
+    private val watched7994 = java.util.concurrent.atomic.AtomicLong(0)
+    private val cleared7994 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure. V5.0.7994 — may live money enter a cell with [n] labels and [meanPct] 5-minute net mean? */
+    fun cellEarnsLive7994(n: Int, meanPct: Double): Boolean = n >= WATCH_MIN_N_7994 && meanPct.isFinite() && meanPct >= 0.0
+
+    private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long): String? {
+        val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
+        if (st != null && cellEarnsLive7994(st.n60, st.meanNet60Pct)) { cleared7994.incrementAndGet(); return null }
+        val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        val specialist = try { SpecialistMiner7972.match7972(ts, l, nowMs) } catch (_: Throwable) { null }
+        if (specialist != null) { cleared7994.incrementAndGet(); return null }
+        watched7994.incrementAndGet()
+        val why = when {
+            st == null || st.n60 < WATCH_MIN_N_7994 -> "WATCH_FIRST_7994_THIN_CELL"
+            else -> "WATCH_FIRST_7994_CELL_NEGATIVE"
+        }
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
+        return why
+    }
+
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
