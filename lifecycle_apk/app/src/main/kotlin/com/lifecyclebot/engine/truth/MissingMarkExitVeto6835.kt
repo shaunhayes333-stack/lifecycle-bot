@@ -117,6 +117,9 @@ object MissingMarkExitVeto6835 {
     private const val MIN_DEFER_ATTEMPTS = 20L
     private const val HARD_DEFER_MS = 1_200_000L
 
+    private const val CATASTROPHE_RETRY_MS_8008 = 10L * 60_000L
+    private val freshCatastrophe8008 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private val vetoCount = AtomicLong(0L)
     private val allowCount = AtomicLong(0L)
     private val freshBypassCount = AtomicLong(0L)
@@ -171,6 +174,18 @@ object MissingMarkExitVeto6835 {
             return Verdict(true, "NON_PRICE_REASON_7835")
         }
 
+        // V5.0.8008 — a catastrophe that already fired on a FRESH mark is not vetoed on its retries:
+        // a rugged curve stops trading, so the mark freezes at the crash price and every retry of
+        // the stop used to be held for up to 20 minutes as "stale".
+        val catastrophe8008 = reason.contains("CATASTROPH")
+        if (catastrophe8008) {
+            val firedAt = freshCatastrophe8008[mintKey]
+            if (firedAt != null && nowMs - firedAt <= CATASTROPHE_RETRY_MS_8008) {
+                allowCount.incrementAndGet()
+                return Verdict(true, "CATASTROPHE_RETRY_AFTER_FRESH_FIRE_8008")
+            }
+        }
+
         // Mark price must be a legal number.
         if (!markPrice.isFinite() || markPrice <= 0.0) {
             return deferOrRelease(mintKey, exitReason, nowMs, "MARK_NONFINITE_OR_NONPOSITIVE", "MARK_NONFINITE_OR_NONPOSITIVE")
@@ -213,6 +228,10 @@ object MissingMarkExitVeto6835 {
         // discarded so a later unrelated stall starts its own clock.
         deferrals.remove(mintKey)
         freshBypassCount.incrementAndGet()
+        if (catastrophe8008) {
+            if (freshCatastrophe8008.size > 500) freshCatastrophe8008.entries.removeIf { nowMs - it.value > CATASTROPHE_RETRY_MS_8008 }
+            freshCatastrophe8008[mintKey] = nowMs
+        }
         return Verdict(true, "MARK_FRESH_${markAgeMs / 1000L}s")
     }
 
@@ -315,6 +334,6 @@ object MissingMarkExitVeto6835 {
 
     internal fun clearForTest() {
         vetoCount.set(0L); allowCount.set(0L); freshBypassCount.set(0L)
-        boundReleaseCount.set(0L); deferrals.clear()
+        boundReleaseCount.set(0L); deferrals.clear(); freshCatastrophe8008.clear()
     }
 }

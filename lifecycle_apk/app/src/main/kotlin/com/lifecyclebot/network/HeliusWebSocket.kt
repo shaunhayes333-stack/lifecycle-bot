@@ -62,10 +62,31 @@ class HeliusWebSocket(
         java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
     ).apply { allowCoreThreadTimeOut(true) }
 
-    private fun dispatchCallback7863(callback: () -> Unit) {
+    // V5.0.8008 — held positions' trades get their own lane: a burst of launch trades filling the
+    // shared 256-slot queue used to drop a held coin's crash print (HELIUS_CALLBACK_QUEUE_FULL_7863).
+    private val heldCallbacks8008 = java.util.concurrent.ThreadPoolExecutor(
+        1, 1, 30L, TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(256),
+        java.util.concurrent.ThreadFactory { r -> Thread(r, "HeliusHeldCallbacks8008").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+    ).apply { allowCoreThreadTimeOut(true) }
+    @Volatile private var heldCache8008: Pair<Long, Set<String>> = 0L to emptySet()
+
+    private fun isHeld8008(mint: String?): Boolean {
+        if (mint.isNullOrBlank()) return false
+        val now = System.currentTimeMillis()
+        var c = heldCache8008
+        if (now - c.first > 2_000L) {
+            c = now to (try { pinnedMints7807() } catch (_: Throwable) { emptySet() })
+            heldCache8008 = c
+        }
+        return mint in c.second
+    }
+
+    private fun dispatchCallback7863(mint: String? = null, callback: () -> Unit) {
         val socket = ws
+        val pool = if (isHeld8008(mint)) heldCallbacks8008 else callbacks7863
         try {
-            callbacks7863.execute {
+            pool.execute {
                 if (running && ws === socket) try { callback() } catch (_: Throwable) {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_CALLBACK_FAILED_7863")
                 }
@@ -666,7 +687,7 @@ class HeliusWebSocket(
             val tokenAmt = u64le7765(b, 48) / 1_000_000.0
             val isBuy = (b[56].toInt() and 0xFF) == 1
             val wallet = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(57, 89)) } catch (_: Throwable) { "" }
-            if (solAmt > 0.0) { dispatchCallback7863 { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }; return }
+            if (solAmt > 0.0) { dispatchCallback7863(mint) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }; return }
         }
 
         // Detect swap direction from log messages
@@ -689,14 +710,14 @@ class HeliusWebSocket(
                 val tokenAmt = buyMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = buyMatch.groupValues[2].toDoubleOrNull() ?: continue
                 // V5.0.7765 — the mint is known from the subscription.
-                dispatchCallback7863 { onSwap(mint, true, solAmt, tokenAmt, "", sig) }
+                dispatchCallback7863(mint) { onSwap(mint, true, solAmt, tokenAmt, "", sig) }
                 return
             }
             val sellMatch = sellPattern.find(log)
             if (sellMatch != null) {
                 val tokenAmt = sellMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = sellMatch.groupValues[2].toDoubleOrNull() ?: continue
-                dispatchCallback7863 { onSwap(mint, false, solAmt, tokenAmt, "", sig) }
+                dispatchCallback7863(mint) { onSwap(mint, false, solAmt, tokenAmt, "", sig) }
                 return
             }
         }

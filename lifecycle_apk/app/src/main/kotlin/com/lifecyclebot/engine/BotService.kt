@@ -881,6 +881,7 @@ class BotService : Service() {
     // stale or skipped tick could never remember a lock it had already earned.
     private val tickLockFloor7392 = java.util.concurrent.ConcurrentHashMap<String, Double>()
     private val OFF_LOOP_SELL_RETRY_MS_7288 = 60_000L
+    private val RAPID_WAKE_PCT_8008 = -10.0
 
     /**
      * V5.0.7745 — a watched smart-money wallet selling at least half of its
@@ -1274,6 +1275,17 @@ class BotService : Service() {
                 requestSellOffLoop7288(ts, exit.reason, walletP, balP)
             }
         } catch (_: Throwable) {}
+    }
+
+    // V5.0.8008 — rug reaction: every pushed mark (curve account, Helius trade, PumpPortal
+    // trade) on a held LIVE position at -10% or worse wakes the rapid stop sweep immediately.
+    private val rapidWake8008 = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    private fun wakeRapidOnFall8008(ts: com.lifecyclebot.data.TokenState, px: Double) {
+        val pos = ts.position
+        if (!pos.isOpen || pos.isPaperPosition || pos.entryPrice <= 0.0 || !px.isFinite()) return
+        if ((px / pos.entryPrice - 1.0) * 100.0 > RAPID_WAKE_PCT_8008) return
+        if (rapidWake8008.trySend(Unit).isSuccess) try { PipelineHealthCollector.labelInc("RAPID_WAKE_ON_FALL_8008") } catch (_: Throwable) {}
     }
 
     private fun requestSellOffLoop7288(
@@ -7793,12 +7805,13 @@ class BotService : Service() {
                     // Hard exit on large dev sells (>20%); urgency signal on smaller ones
                     if (pct >= 0.20) {
                         // Force immediate exit — dev dumping is a rug signal
+                        // V5.0.8008 — sold as a structural emergency (DEV_DUMP: emergency slippage,
+                        // routing and retry ladder, no sign delay, no hold veto) on the emergency
+                        // pool, instead of a plain "exit" through the decision path. Small dev sales
+                        // still do not force an exit (owner, 7968: devs sell to side wallets).
                         scope.launch {
-                            val cfg = ConfigStore.load(applicationContext)
-                            val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-                            executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
-                                System.currentTimeMillis(), status.openPositionCount,
-                                status.totalExposureSol)
+                            val cfg8008 = ConfigStore.load(applicationContext)
+                            requestSellOffLoop7288(ts, "DEV_DUMP_PUSH_${pctInt}PCT_8008", wallet, status.getEffectiveBalance(cfg8008.paperMode))
                         }
                         sendTradeNotif("🚨 Dev Selling",
                             "${ts.symbol}: dev sold ${pctInt}% — exiting position",
@@ -11819,8 +11832,7 @@ class BotService : Service() {
                                 "🚨 DEEP_CATASTROPHE_NET: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s — bypassed all other floors, force-exit")
                             addLog("🛑 DEEP CATASTROPHE NET: ${ts.symbol} ${pnlPct.toInt()}% (>${(posAgeForNet/1000).toInt()}s) — emergency exit", ts.mint)
                             try {
-                                executor.requestSell(ts = ts, reason = "DEEP_CATASTROPHE_NET",
-                                    wallet = wallet, walletSol = effectiveBalance)
+                                requestSellOffLoop7288(ts, "DEEP_CATASTROPHE_NET", wallet, effectiveBalance)  // V5.0.8008
                                 TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
                             } catch (e: Throwable) {
                                 ErrorLogger.warn("BotService", "DEEP_CATASTROPHE_NET sell error: ${e.message?.take(50)}")
@@ -12520,7 +12532,9 @@ class BotService : Service() {
                     }
                 }
 
-                kotlinx.coroutines.delay(CHECK_INTERVAL_MS)
+                // V5.0.8008 — a pushed mark on a held position that is falling wakes this
+                // sweep at once instead of waiting out the 500 ms interval.
+                kotlinx.coroutines.withTimeoutOrNull(CHECK_INTERVAL_MS) { rapidWake8008.receive() }
                 
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "Rapid stop-loss monitor error: ${e.message}")
@@ -19198,14 +19212,14 @@ class BotService : Service() {
         if (pnlPct <= catastropheThreshold && stopConfirmed7385) {
             ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
             addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
-            executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)
+            requestSellOffLoop7288(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)  // V5.0.8008 — off the sweep: one sell never holds the other positions' stops
             TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
             return true
         }
         if (pnlPct <= -HARD_FLOOR_STOP_PCT_CONST && stopConfirmed7385) {
             ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR/unconditional): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
             addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
-            executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)
+            requestSellOffLoop7288(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)  // V5.0.8008 — off the sweep: one sell never holds the other positions' stops
             TradeStateMachine.startCooldown(ts.mint)
             return true
         }
@@ -19223,7 +19237,7 @@ class BotService : Service() {
             addLog("📉 DRAWDOWN STOP: ${ts.symbol} ${pnlPct.toInt()}% (peak +${peakGainPct.toInt()}% → -${drawdownFromPeak.toInt()}pts give-back)")
             try { PipelineHealthCollector.labelInc("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()} peak=${peakGainPct.toInt()} drawdown=${drawdownFromPeak.toInt()} action=runner_lock_before_settle") } catch (_: Throwable) {}
-            executor.requestSell(ts, "RAPID_DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080", wallet, effectiveBalance)
+            requestSellOffLoop7288(ts, "RAPID_DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080", wallet, effectiveBalance)  // V5.0.8008 — off the sweep: one sell never holds the other positions' stops
             TradeStateMachine.startCooldown(ts.mint)
             return true
         }
@@ -25311,6 +25325,7 @@ if (hotExitHandledSweep) {
         // V5.0.7982 — a runner's peak capture / hard stop fires on the print too, not on the next
         // 500 ms sweep (heldExit7967's own per-position retry gap stops a double sell).
         try { RunnerGrab7967.heldExit7967(ts, px, now) { t, frac, reason -> sellIntoSpike7943(t, frac, reason) } } catch (_: Throwable) {}
+        try { wakeRapidOnFall8008(ts, px) } catch (_: Throwable) {}
         // V5.0.7279 — the executor reads the canonical mark registry, not
         // ts.lastPrice. 7278 wrote the trade mark to the token row only, so a
         // curve mint could be freshly marked and still be refused at the door
