@@ -730,6 +730,10 @@ object FinalDecisionGate {
         edgeVetoes.entries.removeIf { it.value.timestamp < thirtyMinutesAgo }
     }
 
+    /** V5.0.7985 — Cortex7885's veto audit retires EDGE_VETO_ACTIVE when its refused candidates are proven winners. */
+    private fun edgeVetoRetired7985(): Boolean =
+        try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners7953("EDGE_VETO_ACTIVE") } catch (_: Throwable) { false }
+
     fun hasActiveEdgeVeto(mint: String): EdgeVeto? {
         val veto = edgeVetoes[mint] ?: return null
         val elapsed = System.currentTimeMillis() - veto.timestamp
@@ -3572,6 +3576,11 @@ object FinalDecisionGate {
                 if (config.paperMode) {
                     checks.add(GateCheck("edge_veto_sticky", true, "PAPER: veto bypassed for learning (original: ${activeVeto.reason})"))
                     tags.add("edge_veto_bypassed")
+                } else if (edgeVetoRetired7985()) {
+                    // V5.0.7985 — the legacy edge veto answers to its own record like every graded rule:
+                    // once its refused candidates are proven to win (veto audit n>=40, mean-SE > +2%), it stands down.
+                    checks.add(GateCheck("edge_veto_sticky", true, "RETIRED_7985: refused candidates proven to win (${activeVeto.reason})"))
+                    tags.add("edge_veto_retired_7985")
                 } else {
                     // V5.0.7403 — a five-second learned edge veto is already
                     // extremely short. One hot buy-pressure print cannot erase it.
