@@ -46,6 +46,8 @@ class JournalActivity : AppCompatActivity() {
     private var cachedSellEntries = listOf<com.lifecyclebot.engine.TradeJournal.JournalEntry>()
     @Volatile private var journalRefreshInFlight: Boolean = false
     private var lastRenderedStoreCount: Int = -1
+    private var lastRenderedRev8015: Long = -2L
+    private var lastRenderedNewest8015: String = ""
     private var lastRenderedFilter: String? = "__INIT__"
 
     // V5.0.7014 — bound to AateUi (which mirrors res/values/colors.xml).
@@ -218,7 +220,12 @@ class JournalActivity : AppCompatActivity() {
                             com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount()
                         }
                     } catch (_: Throwable) { -1 }
-                    if (storeSize == lastRenderedStoreCount && currentModeFilter == lastRenderedFilter && lastRenderedTradeCount >= 0) {
+                    // V5.0.8015 — the store's revision moves on every journal change; its row count stops moving
+                    // once the in-memory cap is reached, which froze the screen.
+                    val rev8015 = try { com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343() } catch (_: Throwable) { -1L }
+                    val revUnchanged8015 = rev8015 == lastRenderedRev8015
+                    lastRenderedRev8015 = rev8015
+                    if (revUnchanged8015 && storeSize == lastRenderedStoreCount && currentModeFilter == lastRenderedFilter && lastRenderedTradeCount >= 0) {
                         delay(10_000)
                         continue
                     }
@@ -505,7 +512,9 @@ class JournalActivity : AppCompatActivity() {
                 // V5.0.4497 — re-render on lifecycle row count, not sell-only count.
                 // BUY rows arriving between sells must show up immediately.
                 val lifecycleRowCount = filtered.size
-                if (lifecycleRowCount == lastRenderedTradeCount && lastRenderedTradeCount >= 0) return@launch
+                val newest8015 = filtered.firstOrNull()?.let { "${it.ts}|${it.side}|${it.mint}" }.orEmpty()
+                if (lifecycleRowCount == lastRenderedTradeCount && lastRenderedTradeCount >= 0 && newest8015 == lastRenderedNewest8015) return@launch
+                lastRenderedNewest8015 = newest8015
                 val stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     journal.getStatsFiltered(filtered)
                 }
@@ -624,31 +633,19 @@ class JournalActivity : AppCompatActivity() {
         // Fully qualified to match this file's convention (:102, :218) — there
         // is no TradeHistoryStore import here and adding one for a single call
         // would be the odd change, not the safe one.
-        val lifetime7205 = try {
-            com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
-        } catch (_: Throwable) { null }
-        if (lifetime7205 != null && lifetime7205.terminalCloses7205 > 0) {
-            tvJournalWinRate.text = "${lifetime7205.terminalWinRate7205.toInt()}%  " +
-                "(${lifetime7205.terminalWins7205}W/${lifetime7205.terminalLosses7205}L)"
-            tvJournalCount.text = lifetime7205.terminalCloses7205.toString()
-            tvJournalAvgWin.text = if (lifetime7205.terminalWins7205 > 0) {
-                "%+.1f%%".format(lifetime7205.terminalAvgWinPct7205)
-            } else {
-                "0.0%"
-            }
-        } else {
-            // No closed position yet. Fall back to the per-row figures rather
-            // than blanking the header — on a device upgrading into this build
-            // the per-position counters seed from whatever rows are in memory
-            // and can legitimately read zero for a while.
-            tvJournalWinRate.text = "${stats.winRate.toInt()}%  (${stats.totalWins}W/${stats.totalLosses}L)"
-            tvJournalCount.text = entries.size.toString()
-            tvJournalAvgWin.text = if (stats.totalWins > 0) {
-                "%+.1f%%".format(stats.avgWinPct)
-            } else {
-                "0.0%"
-            }
-        }
+        // V5.0.8015 — every tile is computed from the rows this screen shows (the selected tab), with
+        // the same per-position rules the lifetime counters used: a TRADE is a terminal SELL, a win is
+        // >= +0.5%, a loss <= -2.0%, the rest scratches (now shown). The tiles used to read the saved
+        // lifetime counters, which ignored the tab, survived Clear and could sit unchanged for days.
+        val terminal8015 = entries.filter { it.side.equals("SELL", ignoreCase = true) }
+        val wins8015 = terminal8015.filter { it.pnlPct >= 0.5 }
+        val losses8015 = terminal8015.count { it.pnlPct <= -2.0 }
+        val scratches8015 = terminal8015.size - wins8015.size - losses8015
+        val decided8015 = wins8015.size + losses8015
+        val winRate8015 = if (decided8015 > 0) wins8015.size * 100.0 / decided8015 else 0.0
+        tvJournalWinRate.text = "${winRate8015.toInt()}%  (${wins8015.size}W/${losses8015}L/${scratches8015}S)"
+        tvJournalCount.text = terminal8015.size.toString()
+        tvJournalAvgWin.text = if (wins8015.isNotEmpty()) "%+.1f%%".format(wins8015.map { it.pnlPct }.average()) else "0.0%"
 
         llJournalTrades.removeAllViews()
         reattachTabBar()  // V5.9.264: keep the filter tabs visible across refreshes

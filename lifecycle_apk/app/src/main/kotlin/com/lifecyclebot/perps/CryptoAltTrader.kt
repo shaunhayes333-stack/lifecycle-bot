@@ -4000,6 +4000,15 @@ object CryptoAltTrader {
         data class Failed(val reason: String) : LiveCryptoOpenResult7434()
     }
 
+    /** V5.0.8015 — the shared post-exit lockout (TradeStateMachine) applies to this lane's live buys too. */
+    private fun cooldownRefusal8015(mint: String?): String? {
+        if (mint.isNullOrBlank()) return null
+        val locked = try { com.lifecyclebot.engine.TradeStateMachine.isInCooldown(mint) } catch (_: Throwable) { false }
+        if (!locked) return null
+        try { PipelineHealthCollector.labelInc("CRYPTO_LIVE_BUY_REFUSED_COOLDOWN_8015") } catch (_: Throwable) {}
+        return "CATASTROPHE_COOLDOWN_8015"
+    }
+
     private suspend fun executeLiveTradeAtSize(
         positionId: String,
         signal: AltSignal,
@@ -4025,6 +4034,9 @@ object CryptoAltTrader {
                 ?: if (signal.market != PerpsMarket.DYN) try {
                     com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(signal.marketSymbol)
                 } catch (_: Throwable) { null } else null
+            // V5.0.8015 — a coin just stopped out (catastrophe lockout, 30 min) is not re-bought by this lane:
+            // 8014 bought XNS, stopped it at -16.4%, re-bought it and stopped it again at -9.9% 12 minutes later.
+            if (cooldownRefusal8015(pendingMint7436) != null) return LiveCryptoOpenResult7434.Failed("CATASTROPHE_COOLDOWN_8015")
             val priorSigned7436 = if (signal.dynChainId.isNullOrBlank() || signal.dynChainId.equals("solana", true))
                 pendingMint7436?.let { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(it) }
             else null

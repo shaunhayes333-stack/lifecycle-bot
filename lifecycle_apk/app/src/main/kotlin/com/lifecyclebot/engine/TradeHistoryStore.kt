@@ -1894,6 +1894,9 @@ object TradeHistoryStore {
         lifetimeScratches      = 0
         lifetimeWinPnlSum      = 0.0
         lifetimeRealizedPnlSol = 0.0
+        // V5.0.8015 — the per-position counters behind the Journal tiles reset with the rest.
+        lifetimeTerminalCloses7205 = 0; lifetimeTerminalWins7205 = 0; lifetimeTerminalLosses7205 = 0
+        lifetimeTerminalScratches7205 = 0; lifetimeTerminalWinPnlSum7205 = 0.0
         try { saveLifetimeStats() } catch (_: Exception) {}
 
         // V5.9.635 — also reset RunTracker30D counters (preserves proof-run
@@ -1921,6 +1924,9 @@ object TradeHistoryStore {
         lifetimeScratches      = 0
         lifetimeWinPnlSum      = 0.0
         lifetimeRealizedPnlSol = 0.0
+        // V5.0.8015 — the per-position counters behind the Journal tiles reset with the rest.
+        lifetimeTerminalCloses7205 = 0; lifetimeTerminalWins7205 = 0; lifetimeTerminalLosses7205 = 0
+        lifetimeTerminalScratches7205 = 0; lifetimeTerminalWinPnlSum7205 = 0.0
         ioHandler?.post {
             try { db?.delete(TradeDbHelper.TABLE, null, null) } catch (_: Exception) {}
         }

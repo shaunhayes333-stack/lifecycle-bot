@@ -37,15 +37,15 @@ internal object CortexVotersWide8004 {
         Voter(id, fam, edges, setOf(ev), read)
 
     // One read per (module, mint, assessment time): several voters share a module's result.
-    private val memo = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Any?>>()
+    // V5.0.8015 — one slot per module (an assessment reads one coin at one time), not a map of up to
+    // 4,000 stale results for coins long gone (heap read 90% eight minutes into 8014).
+    private val memo = java.util.concurrent.ConcurrentHashMap<String, Triple<String, Long, Any?>>()
 
     @Suppress("UNCHECKED_CAST")
     private fun <T> once(name: String, ts: TokenState, now: Long, f: () -> T): T {
-        val k = "$name|${ts.mint}"
-        memo[k]?.let { if (it.first == now) return it.second as T }
+        memo[name]?.let { (m, t, v) -> if (m == ts.mint && t == now) return v as T }
         val r = f()
-        if (memo.size > 4_000) memo.clear()
-        memo[k] = now to r
+        memo[name] = Triple(ts.mint, now, r)
         return r
     }
 
