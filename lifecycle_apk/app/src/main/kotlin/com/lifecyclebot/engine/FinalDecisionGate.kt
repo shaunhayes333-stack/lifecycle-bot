@@ -736,7 +736,8 @@ object FinalDecisionGate {
 
     /** V5.0.7996 — a tail-proven lottery ticket is not held back by the legacy edge veto. */
     private fun tailTicket7996(mint: String): Boolean =
-        try { com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint) } catch (_: Throwable) { false }
+        try { com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint) } catch (_: Throwable) { false } ||
+            try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(mint) } catch (_: Throwable) { false }  // V5.0.8018
 
     fun hasActiveEdgeVeto(mint: String): EdgeVeto? {
         val veto = edgeVetoes[mint] ?: return null

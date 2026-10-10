@@ -10925,6 +10925,20 @@ class BotService : Service() {
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
+            // V5.0.8018 — and for held GRADUATED coins: the PumpSwap pool's two vaults on the same free socket type.
+            com.lifecyclebot.network.GradTicks8018.start8018(
+                key = { try { ConfigStore.load(applicationContext).heliusApiKey } catch (_: Throwable) { cfg.heliusApiKey } },
+                rpc = { try { RuntimeProviderAuthority6685.configuredHeliusRpc() } catch (_: Throwable) { "" } },
+                candidates = { m -> status.tokens[m]?.let { t -> listOf(t.pairAddress, t.tokenMap.poolAddress, t.tokenMap.pairAddress, t.lastPricePoolAddr, t.position.entryPoolAddress) }.orEmpty().filter { it.isNotBlank() } },
+                ref = { m ->
+                    val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                    val px = status.tokens[m]?.lastPrice ?: 0.0
+                    if (solUsd > 0.0 && px > 0.0) px / solUsd else Double.NaN
+                },
+            ) { mint, priceSol, pool ->
+                try { applyPumpTradeMark7278(mint, priceSol, 0.0, "PUMPSWAP_VAULT_WS_8018", pool) } catch (_: Throwable) {}
+                try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
+            }
             // V5.0.7787 — the same mark from Helius-decoded pump.fun trades on held mints.
             orchestrator?.setOnHeldTradeMark7787 { mint: String, priceSol: Double ->
                 try { applyPumpTradeMark7278(mint, priceSol, 0.0) } catch (_: Throwable) {}
@@ -12674,6 +12688,8 @@ class BotService : Service() {
                     com.lifecyclebot.network.PumpFunWS.syncTradeSubscriptions7278(curveMints7278)
                     com.lifecyclebot.network.CurveTicks7968.sync7968(curveMints7278)  // V5.0.7968 — free curve ticks
                 } catch (_: Throwable) {}
+                // V5.0.8018 — held coins on a PumpSwap pool (graduated) get per-trade vault ticks.
+                try { com.lifecyclebot.network.GradTicks8018.sync8018(openMints.take(40).toSet()) } catch (_: Throwable) {}
 
                 if (openMints.isEmpty()) {
                     try { PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_NO_OPEN_POSITIONS") } catch (_: Throwable) {}
@@ -25331,7 +25347,11 @@ if (hotExitHandledSweep) {
      * a live websocket observation so the exit feed treats it as fresh.
      * Only held mints are subscribed, so this never touches discovery.
      */
-    private fun applyPumpTradeMark7278(mint: String, priceSolPerToken: Double, marketCapSol: Double) {
+    private fun applyPumpTradeMark7278(
+        mint: String, priceSolPerToken: Double, marketCapSol: Double,
+        // V5.0.8018 — a PumpSwap vault tick (GradTicks8018) rides the same path with its own source and pool.
+        source8018: String = "PUMP_PORTAL_TRADE_WS_7278", pool8018: String = "",
+    ) {
         val ts = status.tokens[mint] ?: return
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0) return
@@ -25340,7 +25360,8 @@ if (hotExitHandledSweep) {
         val now = System.currentTimeMillis()
         synchronized(ts) {
             ts.lastPrice = px
-            ts.lastPriceSource = "PUMP_PORTAL_TRADE_WS_7278"
+            ts.lastPriceSource = source8018
+            if (pool8018.isNotBlank()) { ts.lastPricePoolAddr = pool8018; ts.lastPriceDex = "PUMPSWAP" }
             ts.lastPriceUpdate = now
             if (marketCapSol.isFinite() && marketCapSol > 0.0) ts.lastMcap = marketCapSol * solUsd
         }
@@ -25367,13 +25388,13 @@ if (hotExitHandledSweep) {
         // unknown: the registry routes that to the observation slot, which is
         // the slot paper execution reads; live keeps its strict slot.
         try {
-            val curve7279 = com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint).orEmpty()
+            val curve7279 = pool8018.ifBlank { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint).orEmpty() }
             val promotion7279 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616(
                 mint = mint,
                 observedBaseMint = mint,
                 pairOrPool = curve7279,
                 quoteMint = "So11111111111111111111111111111111111111112",
-                source = "PUMP_PORTAL_TRADE_WS_7278",
+                source = source8018,
                 priceUsd = px,
                 liquidityUsd = 0.0,
                 evidenceTimestampMs = now,

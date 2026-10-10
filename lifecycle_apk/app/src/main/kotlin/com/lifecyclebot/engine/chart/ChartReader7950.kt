@@ -324,7 +324,8 @@ object ChartReader7950 {
             // V5.0.7967 — a forming runner in a proven cell is a buy on the same admit path.
             try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(mint, nowMs) } catch (_: Throwable) { false } ||
             // V5.0.7996 — a tail-proven lottery ticket rides the same admit path.
-            com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint, nowMs)
+            com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint, nowMs) ||
+            com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(mint, nowMs)  // V5.0.8018 — a confirmed-run re-entry
 
     /**
      * Live entry: the chart says BUY for [mint]. Counted per lane; the caller lets
@@ -334,7 +335,8 @@ object ChartReader7950 {
     fun admitsLive(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val ok = try { buySignal(read(mint, nowMs)) } catch (_: Throwable) { false } ||
             try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(mint, nowMs) } catch (_: Throwable) { false } ||  // V5.0.7967
-            com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint, nowMs)  // V5.0.7996
+            com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint, nowMs) ||  // V5.0.7996
+            com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(mint, nowMs)  // V5.0.8018
         if (ok) {
             buys.incrementAndGet()
             admitted.computeIfAbsent(lane.uppercase()) { AtomicLong(0) }.incrementAndGet()

@@ -5623,6 +5623,8 @@ class Executor(
         pos: Position,
         walletSol: Double,
         totalExposureSol: Double,
+        // V5.0.8018 — a held runner (grab / ticket / promoted) pyramids like diamond hands: the size goes in on confirmation.
+        runner8018: Boolean = false,
     ): Double {
         val c          = cfg()
         val topUpNum   = pos.topUpCount + 1  // which top-up this would be
@@ -5642,7 +5644,7 @@ class Executor(
         // we never go nuclear. Subsequent top-ups stay at the same
         // gain-scaled level rather than decaying.
         val peakGainPct = pos.peakGainPct.coerceAtLeast(0.0)
-        val diamondHands6091 = pos.tradingMode.equals("DIAMOND_HANDS", true) || pos.isLongHold
+        val diamondHands6091 = pos.tradingMode.equals("DIAMOND_HANDS", true) || pos.isLongHold || runner8018
         val growthBonus = (peakGainPct / 50.0).coerceIn(0.0, if (diamondHands6091) 2.0 else 1.0)
         val growthMultiplier = (1.0 + growthBonus).coerceAtMost(if (diamondHands6091) 3.0 else 2.0)
         var size       = initSize * growthMultiplier
@@ -12759,7 +12761,8 @@ class Executor(
         normalizePositionScaleIfNeeded(ts)
         val pos  = ts.position
         val c    = cfg()
-        val size = if (manualSizeSol.isFinite() && manualSizeSol > 0.0) manualSizeSol else topUpSizeSol(pos, walletSol, totalExposureSol)
+        val size = if (manualSizeSol.isFinite() && manualSizeSol > 0.0) manualSizeSol else topUpSizeSol(pos, walletSol, totalExposureSol,
+            runner8018 = try { RunnerGrab7967.holdingRunner8018(ts) } catch (_: Throwable) { false })
 
         if (size < 0.001) {
             onLog("⚠ Top-up skipped: size too small (${size})", ts.mint)

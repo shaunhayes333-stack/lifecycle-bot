@@ -392,6 +392,11 @@ object LiveEdgeGate7877 {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val specialist = try { SpecialistMiner7972.match7972(ts, l, nowMs) } catch (_: Throwable) { null }
         if (specialist != null) { cleared7994.incrementAndGet(); return null }
+        // V5.0.8018 — a confirmed run the bot missed or sold early gets a second entry (RunnerPlay8018).
+        if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) {
+            cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
+            return null
+        }
         // V5.0.7996 — a tail-proven ticket (its cell / fact pair pays on the 4-hour ladder replay).
         if (try { TailHunter7996.ticket7996(ts, l, nowMs) } catch (_: Throwable) { false }) {
             cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)

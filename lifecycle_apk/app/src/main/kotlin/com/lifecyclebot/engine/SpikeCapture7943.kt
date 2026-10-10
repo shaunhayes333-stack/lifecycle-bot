@@ -82,6 +82,11 @@ object SpikeCapture7943 {
         sell(ts, 1.0, if (green) "CHART_CAPTURE_TOP_7950_$why" else "CHART_STOP_7950_$why")
     }
 
+    /** V5.0.8018 — a promoted runner starts its runner ladder fresh (a scalp rung fired earlier is not runner tier 1). */
+    fun resetTiers8018(ts: TokenState) {
+        firedTiers.remove("${ts.mint}|${ts.position.entryTime}")
+    }
+
     /** V5.0.7945 — the fill a spike sell is assumed to give up against its tier price. */
     private const val CAPTURE_SLIP_7945 = 0.05
 
@@ -129,6 +134,9 @@ object SpikeCapture7943 {
         val now7955 = System.currentTimeMillis()
         try { ExitProfile7955.notePeak7955(ts, gross, now7955) } catch (_: Throwable) {}
         val plan7955 = try { ExitProfile7955.planFor7955(ts, now7955) } catch (_: Throwable) { null }
+        // V5.0.8018 — a position forming a run (structure firming at +25% or better) is promoted to the
+        // runner hold before its scalp rung sells 60% at +40%; graded against that ladder on close.
+        try { RunnerPlay8018.onMark8018(ts, gross, now7955) } catch (_: Throwable) {}
         // V5.0.7967 — a grabbed runner sells on the owner's ladder (half at 2x, then 5x, 11x).
         val tiers = try { RunnerGrab7967.tiersFor7967(ts) } catch (_: Throwable) { null }
             ?: plan7955?.tiers?.takeIf { it.isNotEmpty() } ?: TIERS

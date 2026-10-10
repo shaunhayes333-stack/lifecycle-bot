@@ -955,6 +955,8 @@ object ForwardReturnLabeler7731 {
                     try { com.lifecyclebot.engine.BotService.status.tokens[o.mint]?.name.orEmpty() } catch (_: Throwable) { "" }, nowMs)
             } catch (_: Throwable) {}
             // V5.0.8017 — every 4x+ runner joined to the bot's own position (held? entry vs start? share banked?).
+            // V5.0.8018 — a confirmed run (+100% over the decision price inside the hour) can earn a second entry.
+            if (gross >= com.lifecyclebot.engine.RunnerPlay8018.RUN_CONFIRM_PCT_8018) try { com.lifecyclebot.engine.RunnerPlay8018.onRun8018(o.mint, gross, nowMs - o.atMs, nowMs) } catch (_: Throwable) {}
             if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs) } catch (_: Throwable) {}
             if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
             val priorPx7944 = o.lastPx to o.lastPxAtMs

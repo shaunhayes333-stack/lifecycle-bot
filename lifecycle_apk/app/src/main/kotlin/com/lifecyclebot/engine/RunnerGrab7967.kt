@@ -318,6 +318,25 @@ object RunnerGrab7967 {
         return ts.position.isOpen && ts.position.entryTime >= at - 5L * 60_000L && nowMs - at <= HOLD_WINDOW_MS
     }
 
+    // ── V5.0.8018 — RunnerPlay8018 hooks ──
+
+    /** Is the 1-minute or 15-second structure firming for [mint] right now (2+ higher swings, higher low, buyers)? */
+    fun firmingNow8018(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = firmingNow(mint, nowMs)
+
+    /** Is [ts] held on the runner ladder (grab, proven-cell admit, ticket or promotion)? */
+    fun holdingRunner8018(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = holding7967(ts, nowMs)
+
+    /**
+     * A held position that is forming a run joins the runner hold from its own entry time: the runner
+     * ladder, the soft-exit deferral while structure stands, the structure exits and the structure adds.
+     */
+    fun promote8018(ts: TokenState): Boolean {
+        val pos = ts.position
+        if (!pos.isOpen || pos.entryTime <= 0L) return false
+        grabbed[ts.mint] = pos.entryTime
+        return true
+    }
+
     /** SpikeCapture7943.onMark: the runner ladder for a grabbed position, else null. */
     fun tiersFor7967(ts: TokenState): List<Pair<Double, Double>>? = if (holding7967(ts)) TIERS_7967 else null
 
