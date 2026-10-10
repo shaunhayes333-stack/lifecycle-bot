@@ -405,7 +405,7 @@ object CortexVoters7885 {
         Voter(Cortex7885.LEGACY_SIZE_SHAPE, "SIZING", e(0.5, 0.8, 1.0, 1.25), setOf("size_stack")) { ts, _, now ->
             Cortex7885.legacyShapeOf(ts.mint, now)
         },
-    )
+    ) + CortexVotersWide8004.VOTERS  // V5.0.8004 — the wide estate
 
     private fun superStamp(ts: TokenState, lane: String, now: Long) =
         try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.peek7916(ts.mint, lane, now) } catch (_: Throwable) { null }

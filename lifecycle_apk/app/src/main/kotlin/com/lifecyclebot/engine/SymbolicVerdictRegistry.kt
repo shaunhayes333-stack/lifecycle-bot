@@ -109,6 +109,23 @@ object SymbolicVerdictRegistry {
      * that want to inspect the current verdict for a mint without
      * affecting trade-close attribution.
      */
+    /**
+     * V5.0.8004 — the symbolic vote as a signed number for the Cortex:
+     * ALLOW +confidence, CAUTION −confidence/2, VETO −confidence, NEUTRAL 0.
+     */
+    fun peekVote8004(mint: String): Double? {
+        val e = store[mint] ?: return null
+        if (System.currentTimeMillis() - e.capturedAtMs > TTL_MS) return null
+        val c = e.confidence.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: return null
+        return when (e.vote.uppercase()) {
+            "ALLOW" -> c
+            "CAUTION" -> -c / 2.0
+            "VETO" -> -c
+            "NEUTRAL" -> 0.0
+            else -> null
+        }
+    }
+
     fun peek(mint: String): String? {
         if (mint.isBlank()) return null
         return try {
