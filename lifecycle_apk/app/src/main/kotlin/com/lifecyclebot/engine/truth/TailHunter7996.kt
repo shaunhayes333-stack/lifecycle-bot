@@ -53,7 +53,18 @@ object TailHunter7996 {
     // ── pure: the ladder replay ──
 
     /** One position replayed on the owner's runner ladder. Prices are in any consistent unit. */
-    class Ladder7996(private val entry: Double) {
+    /**
+     * V5.0.7997 — [crypto]: the swing ladder for crypto alts (no 300x tails there): -8% stop until
+     * +15%, half off at +15% (rest stopped at break-even), 35% at +40% and +100%, the rest out 20%
+     * below a +30%-or-better peak.
+     */
+    class Ladder7996(private val entry: Double, private val crypto: Boolean = false) {
+        private val stopX = if (crypto) 0.92 else STOP_X
+        private val t1X = if (crypto) 1.15 else 2.0
+        private val t2X = if (crypto) 1.40 else 5.0
+        private val t3X = if (crypto) 2.00 else 11.0
+        private val trailFromX = if (crypto) 1.30 else 3.0
+        private val trailKeep = if (crypto) 0.80 else 0.65
         var remaining = 1.0
             private set
         var banked = 0.0
@@ -74,13 +85,13 @@ object TailHunter7996 {
             lastX = x
             if (x > peakX) peakX = x
             if (!t1) {
-                if (x <= STOP_X) { close(x); return }
-                if (x < 2.0) return
-                banked += 0.5 * 2.0; remaining = 0.5; t1 = true
+                if (x <= stopX) { close(x); return }
+                if (x < t1X) return
+                banked += 0.5 * t1X; remaining = 0.5; t1 = true
             }
-            if (!t2 && x >= 5.0) { val s = remaining * 0.35; banked += s * 5.0; remaining -= s; t2 = true }
-            if (!t3 && x >= 11.0) { val s = remaining * 0.35; banked += s * 11.0; remaining -= s; t3 = true }
-            if (x <= 1.0 || (peakX >= 3.0 && x <= 0.65 * peakX)) close(x)
+            if (!t2 && x >= t2X) { val s = remaining * 0.35; banked += s * t2X; remaining -= s; t2 = true }
+            if (!t3 && x >= t3X) { val s = remaining * 0.35; banked += s * t3X; remaining -= s; t3 = true }
+            if (x <= 1.0 || (peakX >= trailFromX && x <= trailKeep * peakX)) close(x)
         }
 
         private fun close(x: Double) { banked += remaining * x; remaining = 0.0; done = true }
@@ -172,10 +183,13 @@ object TailHunter7996 {
             else -> try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf(reason) } catch (_: Throwable) { "UNNAMED" }
         }
         val facts = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
+        // V5.0.7997 — the decision's setup and discovery source are graded on the ladder too.
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l, nowMs) } catch (_: Throwable) { null } ?: "NONE"
+        val src = ForwardReturnLabeler7731.sourceFamily(ts.source)
         val keys = ArrayList<String>(140).apply {
-            add("C|$cell"); add("R|$rule|$cell"); addAll(factKeys7996(l, facts))
+            add("C|$cell"); add("R|$rule|$cell"); add("S|$l|$setup"); add("SRC|$src|$l"); addAll(factKeys7996(l, facts))
         }
-        obs[ts.mint] = Obs(ts.mint, l, keys, Ladder7996(px), nowMs)
+        obs[ts.mint] = Obs(ts.mint, l, keys, Ladder7996(px, crypto = l.startsWith("CRYPTO")), nowMs)
         observed.incrementAndGet()
     }
 
@@ -238,7 +252,9 @@ object TailHunter7996 {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
         val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, ts.lastMcap, ageMs)
-        val hit = proven("C|$cell") != null || anyProvenPair && run {
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l, nowMs) } catch (_: Throwable) { null } ?: "NONE"
+        val hit = proven("C|$cell") != null || proven("S|$l|$setup") != null ||
+            proven("SRC|${ForwardReturnLabeler7731.sourceFamily(ts.source)}|$l") != null || anyProvenPair && run {
             val facts = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
             factKeys7996(l, facts).any { it.startsWith("P|") && proven(it) != null }
         }

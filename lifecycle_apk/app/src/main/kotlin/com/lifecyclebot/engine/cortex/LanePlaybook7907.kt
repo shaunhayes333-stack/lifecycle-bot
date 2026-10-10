@@ -687,6 +687,9 @@ object LanePlaybook7907 {
         if (!netPct.isFinite()) return
         // V5.0.7924 — the tagged setup and every other setup that fired are each graded.
         val graded = listOf(tag.substringBefore(';')) + tag.substringAfter(';', "").split(',').filter { it.isNotBlank() }
+        // V5.0.7997 — kept so later checkpoints can revise this label (ForwardReturnLabeler7731).
+        graded7997["$mint|${labelLane.trim().uppercase()}"] = lane to graded.distinct()
+        if (graded7997.size > 8_000) graded7997.clear()
         synchronized(this) {
             for (setup in graded.distinct()) {
                 books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
@@ -694,6 +697,18 @@ object LanePlaybook7907 {
             }
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
+    }
+
+    private val graded7997 = ConcurrentHashMap<String, Pair<String, List<String>>>()
+
+    /** V5.0.7997 — ForwardReturnLabeler7731: a later checkpoint revises a graded label in every setup book it went to. */
+    fun reviseLabel7997(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+        val (lane, setups) = graded7997["$mint|${labelLane.trim().uppercase()}"] ?: return
+        val yo = oldNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+        val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+        val ro = oldGross.isFinite() && oldGross >= CortexLedger7885.RUNNER_GROSS_PCT
+        val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
+        synchronized(this) { for (s in setups) books[lane]?.stats?.get(s)?.revise(yo, yn, ro, rn) }
     }
 
     /** Index of the setup in the lane menu (NO_TRIGGER = menu size), for the Cortex voter. */

@@ -48,6 +48,14 @@ class CortexLedger7885 {
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
         fun add(y: Double, runner: Boolean) { n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0 }
         fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k }
+        /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value (n unchanged). */
+        fun revise(yOld: Double, yNew: Double, runnerOld: Boolean, runnerNew: Boolean) {
+            if (n <= 0.0 || !yOld.isFinite() || !yNew.isFinite()) return
+            sum += yNew - yOld; sumSq = (sumSq + yNew * yNew - yOld * yOld).coerceAtLeast(0.0)
+            if (runnerNew != runnerOld) runners = (runners + if (runnerNew) 1.0 else -1.0).coerceIn(0.0, n)
+            val dw = (if (yNew > 0.0) 1.0 else 0.0) - (if (yOld > 0.0) 1.0 else 0.0)
+            if (dw != 0.0) wins = (wins + dw).coerceIn(0.0, n)
+        }
         fun encode(): String = "$n,$sum,$sumSq,$runners,$wins"
         fun decode(s: String) {
             val f = s.split(','); if (f.size != 4 && f.size != 5) return

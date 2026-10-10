@@ -188,6 +188,11 @@ object ForwardReturnLabeler7731 {
         @Volatile var reason7967: String = ""
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
         @Volatile var feats7972: List<String> = emptyList()
+        /** V5.0.7997 — the label value last given to the learners, the next checkpoint, liquidity at the decision. */
+        @Volatile var bookedNet7997 = Double.NaN
+        @Volatile var bookedGross7997 = Double.NaN
+        @Volatile var ck7997 = 0
+        @Volatile var entryLiq7997 = 0.0
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -480,6 +485,7 @@ object ForwardReturnLabeler7731 {
                 it.reason7967 = reason.orEmpty().take(120)
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
+                it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
             }
         lastSeenAt[key] = nowMs
         // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
@@ -568,6 +574,7 @@ object ForwardReturnLabeler7731 {
         o.giveback5_7955 = com.lifecyclebot.engine.ExitProfile7955.giveback7955(o.peakPct, gross0)
         val (net, gross) = captured7945(o, net0, gross0)
         book(o, 60, net, gross)
+        o.bookedNet7997 = net; o.bookedGross7997 = gross
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
@@ -580,6 +587,81 @@ object ForwardReturnLabeler7731 {
         // V5.0.7813 — counterfactual entry-quality learning, graded whether FDG admitted or refused.
         try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
     }
+
+    // ── V5.0.7997 — PROGRESSIVE GRADING ──
+    //
+    // Owner: "grade coins at 5m, 15 min, 30 min, 1 hour, 4 hours, and only if it's still running,
+    // hasn't died, holds liq and volume, then repeat ... a spread of learning data over the 4 hours
+    // instead of one stamp." Every learner was graded once, at 5 minutes, so a coin that went 300x
+    // over hours taught them "-9%". The 5-minute label still lands first (learning stays fast); at
+    // each later checkpoint, while the coin still trades (a fresh mark, not down 60%, liquidity held
+    // above 40% of the decision's), the label is REVISED to what the exits would have banked on its
+    // path so far (spike tiers on the observed peak + the rest at the mark) in every book it went to:
+    // the lane / cell tallies here, the setup books (LanePlaybook7907), the fact combinations
+    // (SpecialistMiner7972) and the cell bandit (CellAllocator7962). Revision replaces the value; a
+    // decision is never counted twice. Past 1 hour only coins still up 20%+ keep being followed.
+    private val CK_MS_7997 = longArrayOf(15L * 60_000L, 30L * 60_000L, 60L * 60_000L, 4L * 3_600_000L,
+        8L * 3_600_000L, 12L * 3_600_000L, 24L * 3_600_000L)
+    private const val RUNNING_GROSS_7997 = 20.0
+    private const val DEAD_GROSS_7997 = -60.0
+    private const val MAX_EXTENDED_7997 = 1_500
+    private val revisions7997 = AtomicLong(0)
+    private val upgraded7997 = AtomicLong(0)
+    private val extended7997 = AtomicLong(0)
+    private val diedEarly7997 = AtomicLong(0)
+
+    /** Pure. V5.0.7997 — is a coin still alive at a checkpoint? Not collapsed, liquidity held (unknown = held). */
+    private fun alive7997(grossPct: Double, entryLiq: Double, nowLiq: Double): Boolean =
+        grossPct.isFinite() && grossPct > DEAD_GROSS_7997 &&
+            (entryLiq <= 0.0 || !nowLiq.isFinite() || nowLiq <= 0.0 || nowLiq >= 0.4 * entryLiq)
+
+    private fun nowLiq7997(mint: String): Double =
+        try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.lastLiquidityUsd ?: Double.NaN } catch (_: Throwable) { Double.NaN }
+
+    private fun keepRunning7997(o: Obs, gross: Double): Boolean =
+        pending.size < MAX_PENDING_7731 && extended7997.get() - diedEarly7997.get() < MAX_EXTENDED_7997 &&
+            gross >= RUNNING_GROSS_7997 && alive7997(gross, o.entryLiq7997, nowLiq7997(o.mint))
+
+    /** Revises the 5-minute label at each due checkpoint; true when the coin is no longer followed. */
+    private fun checkpoint7997(o: Obs, net0: Double, gross0: Double, age: Long, nowMs: Long): Boolean {
+        if (o.ck7997 >= CK_MS_7997.size) return true
+        if (age < CK_MS_7997[o.ck7997]) return false
+        o.ck7997 += 1
+        val (net, gross) = captured7945(o, net0, gross0)
+        val oldNet = o.bookedNet7997
+        val oldGross = o.bookedGross7997
+        if (oldNet.isFinite() && net.isFinite() && kotlin.math.abs(net - oldNet) >= 0.5) {
+            revise7997(o, oldNet, net, oldGross, gross)
+            o.bookedNet7997 = net; o.bookedGross7997 = gross
+            revisions7997.incrementAndGet()
+            if (net > oldNet) upgraded7997.incrementAndGet()
+        }
+        val alive = alive7997(gross0, o.entryLiq7997, nowLiq7997(o.mint))
+        if (!alive) { diedEarly7997.incrementAndGet(); o.ck7997 = CK_MS_7997.size }
+        return !alive || (age >= H240_MS_7731 && gross0 < RUNNING_GROSS_7997) || o.ck7997 >= CK_MS_7997.size
+    }
+
+    private fun revise7997(o: Obs, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+        for (k in keysOf7928(o)) {
+            val t = tallyFor(k)
+            synchronized(t) {
+                if (t.n60 <= 0) return@synchronized
+                t.sum60 += newNet - oldNet
+                t.sumSq60 = (t.sumSq60 + newNet * newNet - oldNet * oldNet).coerceAtLeast(0.0)
+                t.win60 = (t.win60 + (if (newNet > 0.0) 1 else 0) - (if (oldNet > 0.0) 1 else 0)).coerceIn(0, t.n60)
+                val ro = oldGross.isFinite() && oldGross >= RUNNER_PCT_7731
+                val rn = newGross.isFinite() && newGross >= RUNNER_PCT_7731
+                if (ro != rn) t.runner60 = (t.runner60 + if (rn) 1 else -1).coerceIn(0, t.n60)
+            }
+        }
+        try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
+        try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
+    }
+
+    fun progressiveLine7997(): String =
+        "checkpoints=15m,30m,1h,4h,8h,12h,24h revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
+            "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double) {
         // V5.0.7955 — one exit-profile sample per observation: peak, time to peak, give-back to the 60-minute read.
@@ -810,10 +892,14 @@ object ForwardReturnLabeler7731 {
                 o.done60 = true
                 bookSixty7944(o, net, gross, nowMs)
             }
+            // V5.0.7997 — progressive grading: 15 m, 30 m, 1 h, 4 h, 8 h, 12 h, 24 h while the coin lives.
+            val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false
             if (!o.done240 && age >= H240_MS_7731) {
                 o.done240 = true
                 if (horizonOpen7809(age, H240_MS_7731)) bookTwoForty7944(o, net, gross)
                 else horizonMissed7809.incrementAndGet()
+                if (stop7997 || !keepRunning7997(o, gross)) pending.remove(key, o) else extended7997.incrementAndGet()
+            } else if (o.done240 && stop7997) {
                 pending.remove(key, o)
             }
         }

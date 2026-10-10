@@ -59,6 +59,15 @@ object SpecialistMiner7972 {
         }
         fun mean(): Double = if (n > 0) sum / n else 0.0
         fun se(): Double = if (n > 1) sqrt(((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) / n) else Double.POSITIVE_INFINITY
+        /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value. */
+        fun revise(oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+            if (n <= 0 || !oldNet.isFinite() || !newNet.isFinite()) return
+            val yo = oldNet.coerceIn(-100.0, NET_CAP); val yn = newNet.coerceIn(-100.0, NET_CAP)
+            sum += yn - yo; sumSq = (sumSq + yn * yn - yo * yo).coerceAtLeast(0.0)
+            wins = (wins + (if (yn > 0.0) 1 else 0) - (if (yo > 0.0) 1 else 0)).coerceIn(0, n)
+            val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS; val rn = newGross.isFinite() && newGross >= RUNNER_GROSS
+            if (ro != rn) runners = (runners + if (rn) 1 else -1).coerceIn(0, n)
+        }
     }
 
     class Spec(val key: String, val promotedAtMs: Long, val disc: Stat, val live: Stat = Stat())
@@ -241,6 +250,26 @@ object SpecialistMiner7972 {
             }
         }
         if (sinceSave.incrementAndGet() >= 500) { sinceSave.set(0); file?.let { f -> Thread({ save(f) }, "specialists-7972-save").apply { isDaemon = true }.start() } }
+    }
+
+    /**
+     * V5.0.7997 — ForwardReturnLabeler7731: a later checkpoint (15 m, 30 m, 1 h, 4 h ... while the
+     * coin is alive) revises the decision's label in every fact combination it was booked to, so a
+     * runner's later path promotes the combinations that found it.
+     */
+    fun reviseLabel7997(lane: String, facts: List<String>, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+        if (facts.size < 3 || !oldNet.isFinite() || !newNet.isFinite() || lane.startsWith("PLAN")) return
+        for (k in combos7972(lane, facts)) {
+            val s = keys[k] ?: continue
+            val promote = synchronized(s) { s.revise(oldNet, newNet, oldGross, newGross); !promoted.containsKey(k) && promotes7972(s.n, s.mean(), s.se(), s.wins) }
+            if (promote) {
+                val snap = synchronized(s) { Stat(s.n, s.sum, s.sumSq, s.wins, s.runners) }
+                if (promoted.putIfAbsent(k, Spec(k, System.currentTimeMillis(), snap)) == null) {
+                    promotions.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("SPECIALIST_PROMOTED_ON_REVISION_7997") } catch (_: Throwable) {}
+                }
+            }
+        }
     }
 
     private fun prune() {

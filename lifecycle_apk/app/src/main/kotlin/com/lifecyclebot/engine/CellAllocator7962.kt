@@ -102,6 +102,13 @@ object CellAllocator7962 {
             }
         }
 
+        /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value (weight 1). */
+        fun revise(oldNet: Double, newNet: Double) {
+            if (!(w > 0.0) || !oldNet.isFinite() || !newNet.isFinite()) return
+            val xo = winsorize7962(oldNet); val xn = winsorize7962(newNet)
+            sx += xn - xo; sxx = (sxx + xn * xn - xo * xo).coerceAtLeast(0.0)
+        }
+
         fun plus(o: Stat7962?): Stat7962 {
             val r = Stat7962()
             r.w = w + (o?.w ?: 0.0); r.sx = sx + (o?.sx ?: 0.0); r.sxx = sxx + (o?.sxx ?: 0.0)
@@ -383,6 +390,21 @@ object CellAllocator7962 {
         if (l.startsWith("PLANWAIT_") || l.startsWith("PLANADMIT_")) return
         addAll(EV_LABEL, Ref7962(cell, bandOf(cell), l, setup.trim()), netPct, 1.0)
         labelsIn.incrementAndGet()
+    }
+
+    /** V5.0.7997 — ForwardReturnLabeler7731: a later checkpoint revises a label in every node it was booked to. */
+    fun reviseLabel7997(cell: String, lane: String, setup: String, oldNet: Double, newNet: Double) {
+        if (cell.isBlank() || !oldNet.isFinite() || !newNet.isFinite()) return
+        val l = canonLane(lane)
+        if (l.startsWith("PLANWAIT_") || l.startsWith("PLANADMIT_")) return
+        val ref = Ref7962(cell, bandOf(cell), l, setup.trim())
+        val nodeList = buildList {
+            add(GLOBAL_NODE); add(laneNode(ref.lane))
+            if (ref.setup.isNotBlank()) add(setupNode(ref.lane, ref.setup))
+            add(cellNode(ref.cell))
+            if (ref.band.isNotBlank()) add(bandNode(ref.band))
+        }
+        for (node in nodeList) nodes[nodeKey(EV_LABEL, node)]?.let { s -> synchronized(s) { s.revise(oldNet, newNet) } }
     }
 
     /** CanonicalFinalizedTradeBus6464.publish: a realised close, booked in its own mode's book. */
