@@ -87,8 +87,10 @@ object LiveCanonicalRecovery6686 {
     /** V5.0.7967 — the bot has evidence it bought [mint] (tracker row it signed/sourced, or coverage attribution). */
     private fun botAttributed7967(mint: String): Boolean = try {
         val p = HostWalletTokenTracker.getEntry(mint)
-        (isBotSignedRow7708(p) || isBotSourcedRow7717(p) || coverageAttributed7730(mint)) &&
-            !OwnerManualHoldings7976.isOwnerManual7976(mint)   // V5.0.7976 — the owner's hand-bought tokens stay his
+        // V5.0.8024 — or the bot's own journal traded it live (survives every tracker / coverage expiry).
+        BotJournalMints8024.botTraded8024(mint) ||
+            ((isBotSignedRow7708(p) || isBotSourcedRow7717(p) || coverageAttributed7730(mint)) &&
+                !OwnerManualHoldings7976.isOwnerManual7976(mint))   // V5.0.7976 — the owner's hand-bought tokens stay his
     } catch (_: Throwable) { false }
 
     private fun isBotSignedRow7708(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =
@@ -583,7 +585,10 @@ object LiveCanonicalRecovery6686 {
                 "mint=${mint.take(12)} raw=${amount.raw} receipt=${b.source} receiptAt=${b.openedAtMs} lastFullClose=$closedAt cost=${b.entryCostSol} " +
                     "action=${if (park) "park_mint_sell_not_moving_tokens" else "readopt_at_observed_mark_no_cost_recharge"}")
         } catch (_: Throwable) {}
-        if (park) { markDustUnroutable7714(mint); return null }
+        // V5.0.8024 — a residual is never left unmanaged: when the re-adoption window is spent the mint waits
+        // for the next window (LiveReceiptSpent7959, 10 minutes) instead of being parked as dust for 6 hours.
+        // Observed-mark adoption re-charges no cost, so retrying books no ghost loss.
+        if (park) return null
         // V5.0.7962 — the residual keeps the ORIGINAL entry price for its exits (cost stays the
         // observed value, so nothing is re-charged and learning still excludes the row).
         // 5.0.7961 live: Frank's residual was re-adopted at the current mark after the coin had
@@ -591,6 +596,31 @@ object LiveCanonicalRecovery6686 {
         // profit lock sold the runner as a +6% trade.
         val mark = observedMarkBasis7706(mint, amount, ts) ?: return null
         return residualBasis7962(mark, b)
+    }
+
+    /** V5.0.8024 — the chain-reconciled basis: SOL the wallet actually paid for the tokens it holds now. */
+    private fun chainBasis8024(mint: String, r: com.lifecyclebot.engine.truth.OnChainCost8024.Result?, amount: CanonicalTokenAmount, raw: Basis?): Basis? {
+        if (r == null || r.state != com.lifecyclebot.engine.truth.OnChainCost8024.State.READY) return null
+        if (!r.costSol.isFinite() || r.costSol <= 0.0) return null
+        val qty = amount.uiDoubleForDisplay()
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!qty.isFinite() || qty <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0) return null
+        try {
+            ForensicLogger.lifecycle(
+                "ONCHAIN_COST_BASIS_8024",
+                "mint=${mint.take(12)} raw=${amount.raw} costSol=${"%.6f".format(r.costSol)} buys=${r.buys} sells=${r.sells} replaced=${raw?.source ?: "none"} action=adopt_live_at_chain_cost",
+            )
+        } catch (_: Throwable) {}
+        return Basis(
+            entryCostSol = r.costSol,
+            entryPriceUsd = r.costSol * solUsd / qty,
+            lane = raw?.lane?.ifBlank { null } ?: "WALLET_RECOVERED",
+            openedAtMs = raw?.openedAtMs?.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            source = "ONCHAIN_COST_8024",
+            pool = raw?.pool.orEmpty(),
+            dex = raw?.dex.orEmpty(),
+            identity = "onchain",
+        )
     }
 
     /** Pure-ish: the observed-mark basis carrying the spent receipt's entry price when the units agree (within 200x). */
@@ -859,8 +889,16 @@ object LiveCanonicalRecovery6686 {
                 }
             }
 
+            // V5.0.8024 — a bot coin's cost is read from the chain: the wallet's own swaps of this mint, replayed
+            // and reconciled to its on-chain balance (OnChainCost8024). While the read is in flight the holding
+            // waits one pass; a reconciled cost replaces every journal / tracker / mark guess.
+            val chain8024 = if (botAttributed7967(mint)) com.lifecyclebot.engine.truth.OnChainCost8024.resultFor8024(mint, amount.raw) else null
+            if (chain8024?.state == com.lifecyclebot.engine.truth.OnChainCost8024.State.PENDING) {
+                try { PipelineHealthCollector.labelInc("ONCHAIN_COST_PENDING_8024") } catch (_: Throwable) {}
+                continue
+            }
             // V5.0.7959 — a receipt already realised by a full close is spent (LiveReceiptSpent7959).
-            val basis: Basis? = spentReceiptGuard7959(mint, amount, ts, basisRaw7959)
+            val basis: Basis? = chainBasis8024(mint, chain8024, amount, basisRaw7959) ?: spentReceiptGuard7959(mint, amount, ts, basisRaw7959)
             if (basis == null) {
                 try {
                     ForensicLogger.lifecycle(

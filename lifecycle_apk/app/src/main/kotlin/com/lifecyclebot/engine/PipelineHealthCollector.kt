@@ -1447,6 +1447,11 @@ object PipelineHealthCollector {
         ).append(" | rebuy ").append(
             try { RebuyLockout8019.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Wallet truth (§8024): chainCost ").append(
+            try { com.lifecyclebot.engine.truth.OnChainCost8024.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append(" | journal ").append(
+            try { BotJournalMints8024.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Tail hunter (§7996): ").append(
             try { com.lifecyclebot.engine.truth.TailHunter7996.statusLine7996() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

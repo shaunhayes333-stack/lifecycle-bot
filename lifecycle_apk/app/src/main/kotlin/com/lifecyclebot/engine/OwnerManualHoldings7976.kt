@@ -40,7 +40,8 @@ object OwnerManualHoldings7976 {
     /** Is [mint] in the wallet only because the owner bought it by hand? */
     fun isOwnerManual7976(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
         val p = HostWalletTokenTracker.getEntry(mint)
-        if (p == null) false else {
+        // V5.0.8024 — a mint the bot's own journal traded live is never the owner's hand buy.
+        if (p == null || BotJournalMints8024.botTraded8024(mint, nowMs)) false else {
             val (sigs, lotMints) = botEvidence(nowMs)
             val manual = ownerManual7976(p.source == HostWalletTokenTracker.PositionSource.BOT_BUY, p.buySignature, sigs, mint in lotMints)
             if (manual) try { PipelineHealthCollector.labelInc("OWNER_MANUAL_HOLDING_EXCLUDED_7976") } catch (_: Throwable) {}
