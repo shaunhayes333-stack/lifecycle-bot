@@ -29,6 +29,8 @@ class Aate8022RepeatLoserTest {
 
     @Test fun aCoinThatLostTwiceTodayIsNotBoughtAgain() {
         val now = 10L * 24 * 3_600_000L
+        assertEquals(2, RebuyLockout8019.MAX_LOSSES_8022)
+        assertEquals(24L * 3_600_000L, RebuyLockout8019.LOSS_MEMORY_MS_8022)
         assertTrue(RebuyLockout8019.lossLocked8022(listOf(now - 60_000L, now - 3_600_000L), now, ticket = false))
         assertFalse(RebuyLockout8019.lossLocked8022(listOf(now - 60_000L), now, false))
         assertFalse(RebuyLockout8019.lossLocked8022(listOf(now - 60_000L, now - 25L * 3_600_000L), now, false))
