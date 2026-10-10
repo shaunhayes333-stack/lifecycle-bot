@@ -62,6 +62,18 @@ object LiveEdgeGate7877 {
 
     enum class Source { CELL, LANE, NONE }
 
+    /**
+     * Pure (V5.0.8022): a cell whose observations mostly LOST their mark before the read is not a measurement
+     * of the coins in it — it is a measurement of the few that survived. 8018: CRYPTO_ALT's one cell
+     * (XASSET_CRYPTO_ALT_CRYPTO | MC_UNKNOWN | AGE_UNKNOWN) read +14.6% on 97 labels with 69 more lost, and
+     * the gate admitted 49 live buys on it (the lane's realised record: 122 closes, -6.65% a trade, -0.69 SOL).
+     * Under [MIN_RESOLVED_SHARE_7944] resolved, the cell refuses instead of admitting.
+     */
+    fun mostlyUnpriced8022(cell: ForwardReturnLabeler7731.CellStat?): Verdict? =
+        if (cell != null && cell.n60 >= CELL_MIN_N && cell.resolvedShare < MIN_RESOLVED_SHARE_7944)
+            Verdict(false, Source.CELL, Double.NaN, "CELL_MOSTLY_UNPRICED_8022_${(cell.resolvedShare * 100).toInt()}PCT_RESOLVED")
+        else null
+
     data class Verdict(val allow: Boolean, val source: Source, val edgePct: Double, val why: String)
 
     private val allowed = ConcurrentHashMap<String, AtomicLong>()
@@ -72,6 +84,7 @@ object LiveEdgeGate7877 {
      * [laneProven] is LivePivotAuthority7876's lane verdict == PROVEN.
      */
     fun judge(cell: ForwardReturnLabeler7731.CellStat?, laneProven: Boolean, marginPct: Double = LIVE_MARGIN_PCT): Verdict {
+        mostlyUnpriced8022(cell)?.let { return it }
         if (cell != null && cell.n60 >= CELL_MIN_N) {
             val se = if (cell.stderr60Pct.isFinite()) cell.stderr60Pct else Double.POSITIVE_INFINITY
             val lower = cell.meanNet60Pct - se
@@ -107,6 +120,7 @@ object LiveEdgeGate7877 {
      * was not allowed to buy. Its own cell proven clearly negative still refuses.
      */
     fun judgeRunner(cell: ForwardReturnLabeler7731.CellStat?, cohorts: List<ForwardReturnLabeler7731.CellStat?>, laneProven: Boolean): Verdict {
+        mostlyUnpriced8022(cell)?.let { return it }
         if (cell != null && cell.n60 >= CELL_MIN_N) {
             val se = if (cell.stderr60Pct.isFinite()) cell.stderr60Pct else 0.0
             val late = cell.n240 >= CELL_MIN_N && cell.meanNet240Pct >= 0.0
