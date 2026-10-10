@@ -30,6 +30,10 @@ object KillSwitch {
     // bursts to 1000+ during volatile sessions, while the daily-loss /
     // drawdown / consecutive-loss circuit breakers still protect capital.
     private const val DEFAULT_MAX_TRADES_PER_HOUR = 100      // Rate limit (live)
+    // V5.0.7993 — no hourly trade cap on live entries. 5.0.7835 wired BotConfig.maxTradesPerHour
+    // (a legacy default of 10) into the live entry gate; the owner never set one, and 5.0.7991
+    // stopped buying with "RATE_LIMITED: 10 trades this hour". Loss / drawdown brakes stay.
+    private const val NO_HOURLY_CAP_7993 = Int.MAX_VALUE
     
     // V5.7.8: Paper mode — no limits, let it learn freely
     private const val PAPER_MAX_DAILY_LOSS_PCT = 999.0
@@ -135,7 +139,7 @@ object KillSwitch {
         }
         val verdict = canTrade(equity, maxDailyLossPct = config7835.maxDailyLossPct,
             maxConsecutiveLosses = config7835.circuitBreakerLosses,
-            maxTradesPerHour = config7835.maxTradesPerHour)
+            maxTradesPerHour = NO_HOURLY_CAP_7993)
         return if (verdict.first) null else "KILL_SWITCH_7835:${verdict.second}"
     }
 
@@ -148,7 +152,7 @@ object KillSwitch {
         if (!equity.isFinite() || equity <= 0.0) return false to "EQUITY_UNAVAILABLE"
         val verdict = canTrade(equity, maxDailyLossPct = config7835.maxDailyLossPct,
             maxConsecutiveLosses = config7835.circuitBreakerLosses,
-            maxTradesPerHour = config7835.maxTradesPerHour)
+            maxTradesPerHour = NO_HOURLY_CAP_7993)
         // V5.0.7948 — the report always carries the one drawdown number and its basis.
         return verdict.first to "${verdict.second} | ${com.lifecyclebot.engine.truth.CapitalDrawdown7948.line7948(equity)}"
     }
