@@ -55,6 +55,14 @@ object ChartLibrary7950 {
 
     private fun q(x: Float): Byte = (x * Q).roundToInt().coerceIn(-127, 127).toByte()
 
+    /** Under [lock]: a random crypto slot (four draws), else any random slot. */
+    private fun liveSlot7982(): Int {
+        var r = rng.nextInt(CAPACITY)
+        var tries = 0
+        while (src[r].toInt() != SRC_CRYPTO && tries < 3) { r = rng.nextInt(CAPACITY); tries++ }
+        return r
+    }
+
     /** Add one fingerprint with its outcome. */
     fun add(f: FloatArray, o: MotifOutcome7950, source: Int) {
         if (f.size != DIM) return
@@ -62,7 +70,11 @@ object ChartLibrary7950 {
             seen++
             val idx = if (size < CAPACITY) size++ else {
                 // V5.0.7962 — expert entries are scarce and always kept (a random slot), live ones a quarter of the time.
-                val r = if (source == SRC_LIVE || source == SRC_EXPERT) { if (source == SRC_LIVE && rng.nextInt(4) != 0) return; rng.nextInt(CAPACITY) }
+                // V5.0.7982 — a live motif always enters and replaces a crypto slot when one of four
+                // random draws finds it (5.0.7976: 38,948 of 40,000 slots were crypto; meme reads had
+                // crypto neighbours). Meme, live and expert history is kept.
+                val r = if (source == SRC_LIVE) liveSlot7982()
+                else if (source == SRC_EXPERT) rng.nextInt(CAPACITY)
                 else (rng.nextDouble() * seen).toLong().let { if (it < CAPACITY) it.toInt() else return }
                 if (hit[r]) hits--
                 r

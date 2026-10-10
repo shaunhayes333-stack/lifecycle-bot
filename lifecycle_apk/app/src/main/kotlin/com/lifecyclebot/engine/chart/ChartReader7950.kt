@@ -27,6 +27,12 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ChartReader7950 {
     private const val BUCKET_MS = 60_000L
+    // V5.0.7982 — 15-second candles for the first minutes of a tape. One-minute candles need
+    // 21 minutes before a read, so every fresh meme (decided in its first minutes) was unread:
+    // 5.0.7976 read 21 charts from 256 tapes. Fingerprints are scale-free, so a young tape is
+    // read on 15 s candles (5+ minutes) until its one-minute tape is long enough.
+    private const val FINE_MS_7982 = 15_000L
+    private const val FINE_KEEP_MS_7982 = 30L * 60_000L
     private const val KEEP_MS = 120L * 60_000L
     private const val MAX_MINTS = 1_500
     private const val READ_TTL_MS = 15_000L
@@ -41,6 +47,8 @@ object ChartReader7950 {
     private class Tape {
         // minute -> [o, h, l, c, buySol, sellSol, lastPriceTs]
         val bars = TreeMap<Long, DoubleArray>()
+        val fine7982 = TreeMap<Long, DoubleArray>()
+        @Volatile var fineIngestedThrough7982 = -1L
         @Volatile var lastMs = 0L
         @Volatile var devSoldAtMs = 0L
         @Volatile var ingestedThrough = -1L
@@ -48,13 +56,15 @@ object ChartReader7950 {
 
     private val tapes = ConcurrentHashMap<String, Tape>()
 
-    data class Read(val motif: MotifRead7950?, val bars: Int, val buyShare: Double, val devSold: Boolean, val atMs: Long, val devSoldAtMs: Long = 0L, val colorBuy7968: Boolean = false)
+    data class Read(val motif: MotifRead7950?, val bars: Int, val buyShare: Double, val devSold: Boolean, val atMs: Long, val devSoldAtMs: Long = 0L, val colorBuy7968: Boolean = false, val fine7982: Boolean = false)
 
     private val reads = ConcurrentHashMap<String, Read>()
     private val buys = AtomicLong(0)
     private val exits = AtomicLong(0)
     private val readsDone = AtomicLong(0)
     private val liveMotifs = AtomicLong(0)
+    private val fineReads7982 = AtomicLong(0)
+    private val fineMotifs7982 = AtomicLong(0)
     private val admitted = ConcurrentHashMap<String, AtomicLong>()
 
     // ── feed ──
@@ -65,21 +75,27 @@ object ChartReader7950 {
         try { StructureTracker7962.onPrice7962(mint, priceUsd, atMs) } catch (_: Throwable) {}   // V5.0.7962 — 15 s / 1 m swings
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         synchronized(tape) {
-            val m = atMs / BUCKET_MS
-            val b = tape.bars[m]
-            if (b == null) {
-                val prevClose = tape.bars.lowerEntry(m)?.value?.get(3) ?: priceUsd
-                tape.bars[m] = doubleArrayOf(prevClose, maxOf(prevClose, priceUsd), minOf(prevClose, priceUsd), priceUsd, 0.0, 0.0, atMs.toDouble())
-            } else {
-                if (priceUsd > b[1]) b[1] = priceUsd
-                if (priceUsd < b[2]) b[2] = priceUsd
-                if (atMs.toDouble() >= b[6]) { b[3] = priceUsd; b[6] = atMs.toDouble() }
-            }
+            foldPrice7982(tape.bars, atMs / BUCKET_MS, priceUsd, atMs)
+            foldPrice7982(tape.fine7982, atMs / FINE_MS_7982, priceUsd, atMs)
             if (atMs > tape.lastMs) tape.lastMs = atMs
             val oldest = (tape.lastMs - KEEP_MS) / BUCKET_MS
             while (tape.bars.isNotEmpty() && tape.bars.firstKey() < oldest) tape.bars.pollFirstEntry()
+            val fineOldest = (tape.lastMs - FINE_KEEP_MS_7982) / FINE_MS_7982
+            while (tape.fine7982.isNotEmpty() && tape.fine7982.firstKey() < fineOldest) tape.fine7982.pollFirstEntry()
         }
         if (tapes.size > MAX_MINTS) trim(atMs)
+    }
+
+    private fun foldPrice7982(t: TreeMap<Long, DoubleArray>, k: Long, priceUsd: Double, atMs: Long) {
+        val b = t[k]
+        if (b == null) {
+            val prevClose = t.lowerEntry(k)?.value?.get(3) ?: priceUsd
+            t[k] = doubleArrayOf(prevClose, maxOf(prevClose, priceUsd), minOf(prevClose, priceUsd), priceUsd, 0.0, 0.0, atMs.toDouble())
+        } else {
+            if (priceUsd > b[1]) b[1] = priceUsd
+            if (priceUsd < b[2]) b[2] = priceUsd
+            if (atMs.toDouble() >= b[6]) { b[3] = priceUsd; b[6] = atMs.toDouble() }
+        }
     }
 
     /** Every trade on the tape (DataOrchestrator.onTapeTrade7773). */
@@ -90,6 +106,7 @@ object ChartReader7950 {
         synchronized(tape) {
             if (isDev && !isBuy) tape.devSoldAtMs = atMs
             if (!(solAmount > 0.0) || !solAmount.isFinite()) return
+            (tape.fine7982[atMs / FINE_MS_7982] ?: tape.fine7982.lastEntry()?.value)?.let { if (isBuy) it[4] += solAmount else it[5] += solAmount }
             val b = tape.bars[atMs / BUCKET_MS] ?: tape.bars.lastEntry()?.value ?: return
             if (isBuy) b[4] += solAmount else b[5] += solAmount
         }
@@ -109,7 +126,7 @@ object ChartReader7950 {
     }
 
     /** Pure: tape minutes -> contiguous candles (a quiet minute is a flat, zero-volume candle). */
-    fun toBars(tape: TreeMap<Long, DoubleArray>): List<Bar7950> {
+    fun toBars(tape: TreeMap<Long, DoubleArray>, bucketMs: Long = BUCKET_MS): List<Bar7950> {
         if (tape.isEmpty()) return emptyList()
         val out = ArrayList<Bar7950>(tape.size + 8)
         var prevMin = -1L
@@ -117,12 +134,12 @@ object ChartReader7950 {
         for ((m, b) in tape) {
             if (prevMin >= 0 && prevClose.isFinite()) {
                 var g = prevMin + 1
-                while (g < m && out.size < 600) { out += Bar7950(g * BUCKET_MS, prevClose, prevClose, prevClose, prevClose, 0.0, 0.0); g++ }
+                while (g < m && out.size < 600) { out += Bar7950(g * bucketMs, prevClose, prevClose, prevClose, prevClose, 0.0, 0.0); g++ }
             }
             // V5.0.7955 — a backfilled minute may carry volume without a buy/sell split (slot 7).
             val split = b[4] + b[5]
             val unsplit = if (b.size > 7) b[7] else 0.0
-            out += Bar7950(m * BUCKET_MS, b[0], b[1], b[2], b[3], split + unsplit, if (split > 0.0 && unsplit <= 0.0) b[4] else Double.NaN)
+            out += Bar7950(m * bucketMs, b[0], b[1], b[2], b[3], split + unsplit, if (split > 0.0 && unsplit <= 0.0) b[4] else Double.NaN)
             prevMin = m
             prevClose = b[3]
         }
@@ -135,18 +152,24 @@ object ChartReader7950 {
     fun read(mint: String, nowMs: Long = System.currentTimeMillis()): Read? {
         reads[mint]?.let { if (nowMs - it.atMs < READ_TTL_MS) return it }
         val tape = tapes[mint] ?: return noteShort7955(mint, nowMs)
-        val bars = bars(mint)
+        val minute = bars(mint)
+        val fineBars = synchronized(tape) { toBars(tape.fine7982, FINE_MS_7982) }
+        // V5.0.7982 — the young tape reads on its 15 s candles; the short note still asks for a backfill.
+        val fine = useFine7982(minute.size, fineBars.size)
+        val bars = if (fine) fineBars else minute
         if (bars.size < ChartMotif7950.WINDOW + 1) return noteShort7955(mint, nowMs)
-        short7955.remove(mint)
+        if (fine) noteShort7955(mint, nowMs) else short7955.remove(mint)
         val end = bars.size - 1
         val f = ChartMotif7950.encode(bars, end) ?: return null
         val motif = ChartLibrary7950.query(f)
         val colorBuy = try { CandleColors7968.read7968(bars)?.buy == true } catch (_: Throwable) { false }  // V5.0.7968
-        val r = Read(motif, bars.size, ChartMotif7950.buyShare(bars, end), nowMs - tape.devSoldAtMs < DEV_SELL_WINDOW_MS, nowMs, tape.devSoldAtMs, colorBuy)
+        val r = Read(motif, bars.size, ChartMotif7950.buyShare(bars, end), nowMs - tape.devSoldAtMs < DEV_SELL_WINDOW_MS, nowMs, tape.devSoldAtMs, colorBuy, fine)
         if (reads.size > 3_000) reads.clear()
         reads[mint] = r
         readsDone.incrementAndGet()
-        learnLive(mint, tape, bars)
+        if (fine) fineReads7982.incrementAndGet()
+        learnLive(mint, tape, minute)
+        learnFine7982(tape, fineBars)
         return r
     }
 
@@ -212,8 +235,26 @@ object ChartReader7950 {
         for ((mint, tape) in tapes.entries.toList()) {
             val bars = synchronized(tape) { toBars(tape.bars) }
             if (bars.size > ChartMotif7950.WINDOW + ChartMotif7950.HORIZON) learnLive(mint, tape, bars)
+            val fine = synchronized(tape) { toBars(tape.fine7982, FINE_MS_7982) }
+            if (fine.size > ChartMotif7950.WINDOW + ChartMotif7950.HORIZON) learnFine7982(tape, fine)
         }
         return (liveMotifs.get() - before).toInt()
+    }
+
+    /** Pure: read on the 15 s tape when the one-minute tape is too short and the fine one is long enough. */
+    fun useFine7982(minuteBars: Int, fineBars: Int): Boolean =
+        minuteBars < ChartMotif7950.WINDOW + 1 && fineBars >= ChartMotif7950.WINDOW + 1
+
+    /** V5.0.7982 — a fresh meme's own 15 s candles, once their future is known, teach the library meme rhythm. */
+    private fun learnFine7982(tape: Tape, bars: List<Bar7950>) {
+        val lastEnd = ChartLibrary7950.lastLabelledEnd(bars.size)
+        if (lastEnd < ChartMotif7950.WINDOW) return
+        val lastEndMs = bars[lastEnd].t
+        if (lastEndMs <= tape.fineIngestedThrough7982) return
+        val fromEnd = bars.indexOfFirst { it.t > tape.fineIngestedThrough7982 }.coerceAtLeast(ChartMotif7950.WINDOW)
+        val n = ChartLibrary7950.ingestSeries(bars, ChartLibrary7950.SRC_LIVE, maxWindows = 4, fromEnd = fromEnd)
+        tape.fineIngestedThrough7982 = lastEndMs
+        if (n > 0) { liveMotifs.addAndGet(n.toLong()); fineMotifs7982.addAndGet(n.toLong()) }
     }
 
     /** Fingerprint this mint's closed candles whose future is now known back into the library. */
@@ -304,7 +345,7 @@ object ChartReader7950 {
     }
 
     fun statusLine(): String =
-        "tapes=${tapes.size} reads=${readsDone.get()} buys=${buys.get()} exits=${exits.get()} liveMotifs=${liveMotifs.get()} " +
+        "tapes=${tapes.size} reads=${readsDone.get()} fineReads7982=${fineReads7982.get()} fineMotifs7982=${fineMotifs7982.get()} buys=${buys.get()} exits=${exits.get()} liveMotifs=${liveMotifs.get()} " +
             "admitted=${admitted.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} lib[${ChartLibrary7950.statusLine()}] " +
             "build[${ChartLibraryBuilder7950.statusLine()}]" +
             "\n    colours(§7968) " + (try { CandleColors7968.statusLine7968() } catch (_: Throwable) { "unavailable" }) +
