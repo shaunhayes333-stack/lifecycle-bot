@@ -87,8 +87,10 @@ object LiveCanonicalRecovery6686 {
     /** V5.0.7967 — the bot has evidence it bought [mint] (tracker row it signed/sourced, or coverage attribution). */
     private fun botAttributed7967(mint: String): Boolean = try {
         val p = HostWalletTokenTracker.getEntry(mint)
-        (isBotSignedRow7708(p) || isBotSourcedRow7717(p) || coverageAttributed7730(mint)) &&
-            !OwnerManualHoldings7976.isOwnerManual7976(mint)   // V5.0.7976 — the owner's hand-bought tokens stay his
+        // V5.0.8024 — or the bot's own journal traded it live (survives every tracker / coverage expiry).
+        BotJournalMints8024.botTraded8024(mint) ||
+            ((isBotSignedRow7708(p) || isBotSourcedRow7717(p) || coverageAttributed7730(mint)) &&
+                !OwnerManualHoldings7976.isOwnerManual7976(mint))   // V5.0.7976 — the owner's hand-bought tokens stay his
     } catch (_: Throwable) { false }
 
     private fun isBotSignedRow7708(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =
@@ -583,7 +585,10 @@ object LiveCanonicalRecovery6686 {
                 "mint=${mint.take(12)} raw=${amount.raw} receipt=${b.source} receiptAt=${b.openedAtMs} lastFullClose=$closedAt cost=${b.entryCostSol} " +
                     "action=${if (park) "park_mint_sell_not_moving_tokens" else "readopt_at_observed_mark_no_cost_recharge"}")
         } catch (_: Throwable) {}
-        if (park) { markDustUnroutable7714(mint); return null }
+        // V5.0.8024 — a residual is never left unmanaged: when the re-adoption window is spent the mint waits
+        // for the next window (LiveReceiptSpent7959, 10 minutes) instead of being parked as dust for 6 hours.
+        // Observed-mark adoption re-charges no cost, so retrying books no ghost loss.
+        if (park) return null
         // V5.0.7962 — the residual keeps the ORIGINAL entry price for its exits (cost stays the
         // observed value, so nothing is re-charged and learning still excludes the row).
         // 5.0.7961 live: Frank's residual was re-adopted at the current mark after the coin had

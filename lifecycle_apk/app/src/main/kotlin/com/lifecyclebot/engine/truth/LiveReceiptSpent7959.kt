@@ -42,13 +42,26 @@ object LiveReceiptSpent7959 {
      * Record one re-adoption of a spent receipt for [mint]; true when the mint has
      * already used its re-adoption (park it rather than loop).
      */
-    fun shouldPark(mint: String): Boolean {
+    fun shouldPark(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val n = readoptions.merge(mint, 1) { a, b -> a + b } ?: 1
         if (readoptions.size > 512) readoptions.clear()
-        return n > MAX_READOPTIONS
+        // V5.0.8024 — the first re-adoption is free; later ones wait out a [READOPT_WINDOW_MS_8024] window
+        // (was: parked for good). Altai's 31,567 leftover tokens ran to $29.59 with nothing to sell them.
+        if (n <= MAX_READOPTIONS) { lastReadoptAt8024[mint] = nowMs; return false }
+        val last = lastReadoptAt8024[mint] ?: 0L
+        if (!readoptDue8024(nowMs - last)) return true
+        lastReadoptAt8024[mint] = nowMs
+        return false
     }
+
+    /** V5.0.8024 — residual re-adoptions are retried on this cadence, never abandoned. */
+    const val READOPT_WINDOW_MS_8024 = 10L * 60_000L
+    private val lastReadoptAt8024 = ConcurrentHashMap<String, Long>()
+
+    /** Pure: may a residual be re-adopted [sinceLastMs] after its previous re-adoption? */
+    fun readoptDue8024(sinceLastMs: Long): Boolean = sinceLastMs >= READOPT_WINDOW_MS_8024
 
     fun status(): String = "readopted=${readoptions.size} parked=${readoptions.values.count { it > MAX_READOPTIONS }}"
 
-    internal fun resetForTest() = readoptions.clear()
+    internal fun resetForTest() { readoptions.clear(); lastReadoptAt8024.clear() }
 }
