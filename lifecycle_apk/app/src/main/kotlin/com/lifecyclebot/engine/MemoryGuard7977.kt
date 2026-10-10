@@ -73,7 +73,10 @@ object MemoryGuard7977 {
     // watchlist, not open (runtime or canonical live), not ticketed and not priced for 30 minutes go, oldest
     // first, down to [KEEP_TOKENS_8025]. A dropped coin comes back through intake like any new one.
     const val KEEP_TOKENS_8025 = 300
-    private const val STALE_TOKEN_MS_8025 = 30L * 60_000L
+    // V5.0.8027 — 30 min of "no price" never came: background pricing keeps refreshing rows the watchlist has
+    // already dropped, so 8026 pruned 0 rows and died of OutOfMemoryError at 22.7 min (564-672 rows vs a
+    // 220 watchlist). The clock is now the row's age since intake, 10 min, and every trim (soft or hard) prunes.
+    private const val STALE_TOKEN_MS_8025 = 10L * 60_000L
     private val tokensPruned8025 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Pure: may a token row be pruned? */
@@ -88,7 +91,7 @@ object MemoryGuard7977 {
         val liveOpen = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("live").map { it.mint }.toHashSet() } catch (_: Throwable) { return 0 }
         val victims = tokens.entries.asSequence()
             .filter { (m, ts) ->
-                val last = maxOf(ts.lastPriceUpdate, ts.addedToWatchlistAt)
+                val last = ts.addedToWatchlistAt
                 prunable8025(m in watch, ts.position.isOpen || m in liveOpen,
                     try { RunnerPlay8018.ticketActive8018(m, now) } catch (_: Throwable) { true }, now - last)
             }
@@ -104,7 +107,7 @@ object MemoryGuard7977 {
     }
 
     private fun trimAll(hard: Boolean) {
-        if (hard) try { pruneTokens8025() } catch (_: Throwable) {}
+        try { pruneTokens8025() } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SpecialistMiner7972.trim7977(hard) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.chart.CandleColors7968.trim7977(hard) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.MemeMeta7973.trim7977() } catch (_: Throwable) {}

@@ -161,5 +161,12 @@ object OnChainCost8024 {
         }
     }
 
-    fun statusLine(): String = "reconciled=${reconciled.get()} unreconciled=${unreconciled.get()} cached=${cache.size} reading=${inFlight.size}"
+    fun statusLine(): String = "reconciled=${reconciled.get()} unreconciled=${unreconciled.get()} cached=${cache.size} reading=${inFlight.size} unreconciledNow=[${unreconciledNames8027()}]"
+
+    /** V5.0.8027 — name every held coin whose chain history does not add up: symbol, mint, why. */
+    private fun unreconciledNames8027(): String =
+        cache.entries.filter { it.value.state == State.UNRECONCILED }.take(8).joinToString(" · ") { (mint, r) ->
+            val sym = try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.symbol } catch (_: Throwable) { null }
+            "${sym ?: "?"} $mint ${r.why.take(40)}"
+        }.ifEmpty { "-" }
 }

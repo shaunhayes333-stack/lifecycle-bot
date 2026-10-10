@@ -329,8 +329,15 @@ object MissingMarkExitVeto6835 {
         val s = summary()
         return "vetoed=${s.vetoed} allowedNonCatastrophic=${s.allowed} " +
             "freshCatastrophicAllowed=${s.freshBypass} boundReleased6882=${s.boundReleased} " +
-            "heldNow=${s.heldNow} oldestHeld=${s.oldestHeldMs / 1000L}s"
+            "heldNow=${s.heldNow} oldestHeld=${s.oldestHeldMs / 1000L}s held=[${heldNames8027()}]"
     }
+
+    /** V5.0.8027 — owner: "what coin is unmanaged. give me a name". Each held coin: symbol, mint, seconds held. */
+    private fun heldNames8027(nowMs: Long = System.currentTimeMillis()): String =
+        deferrals.entries.sortedBy { it.value.firstAtMs }.take(8).joinToString(" · ") { (mint, d) ->
+            val sym = try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.symbol } catch (_: Throwable) { null }
+            "${sym ?: "?"} $mint ${(nowMs - d.firstAtMs).coerceAtLeast(0L) / 1000L}s"
+        }.ifEmpty { "-" }
 
     internal fun clearForTest() {
         vetoCount.set(0L); allowCount.set(0L); freshBypassCount.set(0L)
