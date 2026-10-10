@@ -1288,6 +1288,43 @@ class BotService : Service() {
         if (rapidWake8008.trySend(Unit).isSuccess) try { PipelineHealthCollector.labelInc("RAPID_WAKE_ON_FALL_8008") } catch (_: Throwable) {}
     }
 
+    private val learningTickInFlight8020 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * V5.0.8020 — the learning ticks (shadow proof, forward labels with their progressive re-grading of every
+     * learner, exit regret) leave the trading loop: 8018's worst cycle was 74 s in POST_SUPERVISOR with the heap
+     * at 100%, and every second there is a second no exit or entry is evaluated. Single-flight on the default
+     * pool; a tick still running skips the next.
+     */
+    private fun dispatchLearningTicks8020(tokenStatesCopy: Map<String, com.lifecyclebot.data.TokenState>, nowShadow7307: Long) {
+        if (learningTickInFlight8020.compareAndSet(false, true)) {
+            try { markProgress("POST_SUPERVISOR/LEARNING_TICKS_DISPATCHED") } catch (_: Throwable) {}
+            scope.launch(kotlinx.coroutines.Dispatchers.Default + CoroutineName("learning-ticks-8020")) {
+                val t0 = System.currentTimeMillis()
+                try {
+                    com.lifecyclebot.engine.truth.LaneShadowProof7307.tick({ m ->
+                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
+                    }, nowShadow7307)
+                    // V5.0.7731 — forward-return labels for every FDG verdict,
+                    // priced from the same closure (canonical mark as fallback).
+                    com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.tick({ m ->
+                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
+                    }, nowShadow7307)
+                    // V5.0.7752 — price closed live trades at their sixty-minute mark.
+                    com.lifecyclebot.engine.truth.ExitRegret7752.tick({ m ->
+                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
+                    }, nowShadow7307)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "Learning tick error: ${e.message}")
+                } finally {
+                    val ms = System.currentTimeMillis() - t0
+                    if (ms > 10_000L) try { PipelineHealthCollector.labelInc("LEARNING_TICK_SLOW_8020") } catch (_: Throwable) {}
+                    learningTickInFlight8020.set(false)
+                }
+            }
+        } else try { PipelineHealthCollector.labelInc("LEARNING_TICK_SKIPPED_IN_FLIGHT_8020") } catch (_: Throwable) {}
+    }
+
     private fun requestSellOffLoop7288(
         ts: com.lifecyclebot.data.TokenState,
         reason: String,
@@ -21978,6 +22015,7 @@ if (hotExitHandledSweep) {
             // mints (positions=0 + ALREADY_OPEN drift bug) and closes
             // zombies (open position with zero wallet balance). Throttled
             // to every ~15s internally so calling every loop is fine.
+            try { markProgress("POST_SUPERVISOR/WALLET_RECONCILE") } catch (_: Throwable) {}  // V5.0.8020 — sub-phase timing
             if (!cfg.paperMode) {
                 wallet?.let { w ->
                     try {
@@ -22000,18 +22038,8 @@ if (hotExitHandledSweep) {
                     // V5.0.7307 — lane shadow proof follows FDG's unproven-lane
                     // refusals; a mark older than two minutes is not a price.
                     val nowShadow7307 = System.currentTimeMillis()
-                    com.lifecyclebot.engine.truth.LaneShadowProof7307.tick({ m ->
-                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
-                    }, nowShadow7307)
-                    // V5.0.7731 — forward-return labels for every FDG verdict,
-                    // priced from the same closure (canonical mark as fallback).
-                    com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.tick({ m ->
-                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
-                    }, nowShadow7307)
-                    // V5.0.7752 — price closed live trades at their sixty-minute mark.
-                    com.lifecyclebot.engine.truth.ExitRegret7752.tick({ m ->
-                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
-                    }, nowShadow7307)
+                    dispatchLearningTicks8020(tokenStatesCopy, nowShadow7307)  // V5.0.8020 — off the trading loop
+                    try { markProgress("POST_SUPERVISOR/SHADOW_POSITIONS") } catch (_: Throwable) {}
                     // V5.0.7809 — moved after the label ticks: a shadow-position exception no longer skips label bookout.
                     executor.checkShadowPositions(tokenStatesCopy)
                 } catch (e: Exception) {
