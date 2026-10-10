@@ -34,7 +34,7 @@ class Aate7981DrawdownFeedsStreamsTest {
     @Test fun depositRaisesThePeakSoLaterLossesMeasureFromIt() {
         val p = CapitalDrawdown7948.rebasedPeak7981(CapitalDrawdown7948.Peak7948(0.10, 1L), 0.20, 0.30, 2L)
         assertEquals(0.30, p.peakSol, 1e-12)
-        assertTrue(src("engine/KillSwitch.kt").contains("storedSchema7843 < 7981"))
+        assertTrue(src("engine/KillSwitch.kt").contains("storedSchema7843 < 7990"))
     }
 
     @Test fun deadFeedsBackOff() {

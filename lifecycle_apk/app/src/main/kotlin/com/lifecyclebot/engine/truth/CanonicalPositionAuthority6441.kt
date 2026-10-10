@@ -1208,7 +1208,9 @@ object CanonicalPositionAuthority6441 {
         if (t7807 != null) {
             // Unknown basis can never become a trusted learning outcome, even if
             // the row is later promoted for risk purposes.
-            if (t7807.entryCostSol <= 0.0 || t7807.entryPriceUsd <= 0.0) {
+            // V5.0.7990 — a copied tracker cost is not a proven basis either: 5.0.7985 booked
+            // -38..-41% "losses" on re-protected leftovers and they reached the live record.
+            run {
                 try { LearningQuarantineGate6470.quarantinePositionId(t7807.positionId, t7807.quarantineReason) } catch (_: Throwable) {}
             }
             try {

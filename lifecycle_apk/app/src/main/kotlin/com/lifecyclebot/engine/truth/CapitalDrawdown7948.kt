@@ -147,9 +147,19 @@ object CapitalDrawdown7948 {
             }
             prevEq7981 = equitySol; prevReal7981 = real; prevUpnl7981 = upnl; prevRev7986 = rev
         }
-        peak7948 = rollPeak7948(peak7948, equitySol, nowMs)
+        // V5.0.7990 — a new high must hold for two observations: one inflated mark set a 24 h peak of
+        // 0.6266 against 0.28 equity (5.0.7989, "54.5%" drawdown shrinking every size).
+        val confirmed7990 = peakCandidate7990(equitySol, prevPeakObs7990)
+        if (equitySol.isFinite() && equitySol > 0.0) prevPeakObs7990 = equitySol
+        peak7948 = rollPeak7948(peak7948, confirmed7990, nowMs)
         drawdownPct7948(peak7948, equitySol, nowMs)
     }
+
+    @Volatile private var prevPeakObs7990 = Double.NaN
+
+    /** Pure. V5.0.7990 — the equity a new peak may take: the lower of this and the previous observation. */
+    fun peakCandidate7990(equitySol: Double, prevEquitySol: Double): Double =
+        if (prevEquitySol.isFinite()) minOf(equitySol, prevEquitySol) else equitySol
 
     /** Reads the drawdown percent without moving the peak (reports, preflight). */
     fun peekPct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double =
