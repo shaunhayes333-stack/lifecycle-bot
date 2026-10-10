@@ -35,7 +35,7 @@ class Aate8009ExecutionSpeedTest {
         assertTrue(src("network/PumpFunDirectApi.kt").contains("PriorityFee8009.pumpPortalSol("))
         assertTrue(src("engine/BotService.kt").contains("com.lifecyclebot.network.ExecWarm8009.start()"))
         val ex = src("engine/Executor.kt")
-        assertTrue(ex.contains("if (jupiterCircuitOpen || emergencyDirect8009 || emergencyRouteEscalated7807(ts, reason)) emptyList() else slippageLevels"))
+        assertTrue(ex.contains("if (jupiterCircuitOpen || skipQuoteLadder8009(ts, reason)) emptyList() else slippageLevels"))
         assertTrue(ex.contains("Thread.sleep(if (pollNum == 1) 1_500L else pollIntervalMs)"))
     }
 }

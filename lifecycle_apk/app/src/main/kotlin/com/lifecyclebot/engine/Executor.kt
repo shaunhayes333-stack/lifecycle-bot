@@ -22729,6 +22729,19 @@ class Executor(
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8009 — the sell quote ladder is skipped by an emergency that already failed once
+     * (7807) and, now, by an emergency on a coin that sells direct (PumpPortal first) on its
+     * first attempt: it does not spend up to 6 s on aggregator quotes before its first broadcast.
+     */
+    private fun skipQuoteLadder8009(ts: TokenState, reason: String): Boolean {
+        if (emergencyRouteEscalated7807(ts, reason)) return true
+        val direct = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) &&
+            (try { shouldTryPumpDirectFirst6099(ts, "EXIT") } catch (_: Throwable) { false })
+        if (direct) try { PipelineHealthCollector.labelInc("EMERGENCY_SELL_DIRECT_FIRST_8009") } catch (_: Throwable) {}
+        return direct
+    }
+
     private fun emergencyRouteEscalated7807(ts: TokenState, reason: String): Boolean {
         val attempt = emergencyAttempt7807(ts)
         if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.shouldEscalateRoute(reason, attempt)) return false
@@ -27352,13 +27365,7 @@ class Executor(
             var jupiterProviderClassFailure7228 = false
             // V5.0.7807 — B4: a funded emergency that already failed once skips the
             // aggregator quote ladder and goes straight to the direct routes.
-            // V5.0.8009 — an emergency on a coin that sells direct (PumpPortal first) does not spend up
-            // to 6 s on aggregator quotes before its first broadcast: the same skip a failed emergency
-            // already takes on its second attempt, now on the first.
-            val emergencyDirect8009 = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) &&
-                (try { shouldTryPumpDirectFirst6099(ts, "EXIT") } catch (_: Throwable) { false })
-            if (emergencyDirect8009) try { PipelineHealthCollector.labelInc("EMERGENCY_SELL_DIRECT_FIRST_8009") } catch (_: Throwable) {}
-            jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || emergencyDirect8009 || emergencyRouteEscalated7807(ts, reason)) emptyList() else slippageLevels) {
+            jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || skipQuoteLadder8009(ts, reason)) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
                     if (System.nanoTime() >= quoteLadderDeadline7863) break@jupiterLadder7228
                     try {
