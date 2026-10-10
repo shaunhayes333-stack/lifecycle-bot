@@ -37,7 +37,7 @@ class Aate8024BotInventoryTest {
 
     @Test fun theCostOfAHoldingIsReplayedFromTheChainAndMustMatchTheBalance() {
         val M = com.lifecyclebot.engine.truth.OnChainCost8024
-        fun mv(slot: Long, tok: Long, sol: Long) = M.Move(0L, slot, java.math.BigInteger.valueOf(tok), sol)
+        fun mv(slot: Long, tok: Long, sol: Long) = com.lifecyclebot.engine.truth.OnChainCost8024.Move(0L, slot, java.math.BigInteger.valueOf(tok), sol)
         // buy 7,486 for 0.015 SOL, buy 24,081 for 0.03 SOL, nothing sold -> 31,567 held at 0.045 SOL
         val r = M.replay8024(listOf(mv(2, 24_081, -30_000_000), mv(1, 7_486, -15_000_000)))
         assertEquals(java.math.BigInteger.valueOf(31_567), r.heldRaw)
