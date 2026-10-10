@@ -354,8 +354,9 @@ object LiveEdgeGate7877 {
 
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         // V5.0.7994 — watch first: live money only goes where the bot's own labels already point.
-        if (!paper) watchFirst7994(ts, lane, nowMs)?.let { return it }
+        if (!paper) watchFirst7994(ts, lane, nowMs)?.let { observeTail7996(ts, lane, it, nowMs); return it }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)
+        if (!paper) observeTail7996(ts, lane, why, nowMs)
         // V5.0.7970 — a live admit in a proven runner cell is held like a runner.
         if (why == null && !paper) try {
             if (com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs)) notePositive7975(ts.mint, nowMs)
@@ -391,6 +392,11 @@ object LiveEdgeGate7877 {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val specialist = try { SpecialistMiner7972.match7972(ts, l, nowMs) } catch (_: Throwable) { null }
         if (specialist != null) { cleared7994.incrementAndGet(); return null }
+        // V5.0.7996 — a tail-proven ticket (its cell / fact pair pays on the 4-hour ladder replay).
+        if (try { TailHunter7996.ticket7996(ts, l, nowMs) } catch (_: Throwable) { false }) {
+            cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
+            return null
+        }
         watched7994.incrementAndGet()
         val why = when {
             st == null || st.n60 < WATCH_MIN_N_7994 -> "WATCH_FIRST_7994_THIN_CELL"
@@ -401,6 +407,11 @@ object LiveEdgeGate7877 {
     }
 
     private val planSkips7995 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** V5.0.7996 — every live decision opens a 4-hour ladder replay (TailHunter7996). */
+    private fun observeTail7996(ts: TokenState, lane: String, reason: String?, nowMs: Long) {
+        try { TailHunter7996.observe7996(ts, lane, reason, nowMs) } catch (_: Throwable) {}
+    }
 
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0

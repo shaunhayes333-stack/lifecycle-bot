@@ -170,6 +170,7 @@ ScannerCanonicalDedupe6411	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/trut
 ScannerHeatPublisher6398	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/ScannerHeatPublisher6398.kt	False
 this	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt	False
 SentienceLabRewardBridge6444	BACKGROUND_RESEARCH_REVIEW	com/lifecyclebot/engine/truth/SentienceLabRewardBridge6444.kt	False
+TailHunter7996	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/TailHunter7996.kt	False
 UnreadIntelligenceSurface7041	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/UnreadIntelligenceSurface7041.kt	False
 WorkerPoolDomainRegistry6411	REPORT_INFRASTRUCTURE	com/lifecyclebot/engine/truth/WorkerPoolDomainRegistry6411.kt	False
 SwitchboardOracle	PROVIDER_BACKED_REVIEW	com/lifecyclebot/perps/AlternativeOracles.kt	False

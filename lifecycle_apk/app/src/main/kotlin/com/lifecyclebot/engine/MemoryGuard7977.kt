@@ -72,6 +72,7 @@ object MemoryGuard7977 {
         try { com.lifecyclebot.engine.chart.CandleColors7968.trim7977(hard) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.MemeMeta7973.trim7977() } catch (_: Throwable) {}
         try { RunnerGrab7967.trim7977() } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.TailHunter7996.trim7977() } catch (_: Throwable) {}
         try { PumpCallouts7968.trim7977() } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.chart.ChartReader7950.trim7977() } catch (_: Throwable) {}
         // V5.0.7979 — the token archive's resident rows (the rest is on the device).

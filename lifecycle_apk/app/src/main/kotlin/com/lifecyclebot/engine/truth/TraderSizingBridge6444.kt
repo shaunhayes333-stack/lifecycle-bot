@@ -118,10 +118,10 @@ object TraderSizingBridge6444 {
         // the resolver's lane, wallet and liquidity caps below still bound it.
         // V5.0.7962 — times the decision cell's Kelly multiple (CellAllocator7962), under the same 2.5x cap.
         val requestedSol7893 = requestedSol * try {
-            com.lifecyclebot.engine.RunnerGrab7967.sizeMult7967(mintForSeal, SpecialistMiner7972.sizeMult7974(mintForSeal, com.lifecyclebot.engine.CellAllocator7962.combinedSizeMult7962(
+            TailHunter7996.sizeMult7996(mintForSeal, com.lifecyclebot.engine.RunnerGrab7967.sizeMult7967(mintForSeal, SpecialistMiner7972.sizeMult7974(mintForSeal, com.lifecyclebot.engine.CellAllocator7962.combinedSizeMult7962(
                 com.lifecyclebot.engine.cortex.Cortex7885.convictionMult(mintForSeal, laneKey, requestedSol, walletSol7226),
                 mintForSeal, laneKey, paperMode, requestedSol,
-            )))  // V5.0.7967 — a grabbed runner opens at 1.5x; V5.0.7974 — a specialist admit sized by its proven floor
+            ))))  // V5.0.7967 — a grabbed runner opens at 1.5x; V5.0.7974 — a specialist admit sized by its proven floor; V5.0.7996 — a tail ticket opens at the minimum
         } catch (_: Throwable) { 1.0 }
         // V5.0.7828 — specialists use CanonicalSizingBridge6532 as their primary route.
         // The old "generic misroute -> auto-reroute" wording/counters described a fixed

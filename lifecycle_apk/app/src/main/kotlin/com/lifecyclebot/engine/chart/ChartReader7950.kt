@@ -73,6 +73,7 @@ object ChartReader7950 {
     fun onPrice(mint: String, priceUsd: Double, atMs: Long) {
         if (mint.isBlank() || !(priceUsd > 0.0) || !priceUsd.isFinite() || atMs <= 0L) return
         try { StructureTracker7962.onPrice7962(mint, priceUsd, atMs) } catch (_: Throwable) {}   // V5.0.7962 — 15 s / 1 m swings
+        try { com.lifecyclebot.engine.truth.TailHunter7996.onPrice7996(mint, priceUsd, atMs) } catch (_: Throwable) {}   // V5.0.7996 — ladder replays
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         synchronized(tape) {
             foldPrice7982(tape.bars, atMs / BUCKET_MS, priceUsd, atMs)
@@ -321,7 +322,9 @@ object ChartReader7950 {
     fun saysBuy(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
         try { buySignal(read(mint, nowMs)) } catch (_: Throwable) { false } ||
             // V5.0.7967 — a forming runner in a proven cell is a buy on the same admit path.
-            try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(mint, nowMs) } catch (_: Throwable) { false }
+            try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(mint, nowMs) } catch (_: Throwable) { false } ||
+            // V5.0.7996 — a tail-proven lottery ticket rides the same admit path.
+            com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint, nowMs)
 
     /**
      * Live entry: the chart says BUY for [mint]. Counted per lane; the caller lets
@@ -330,7 +333,8 @@ object ChartReader7950 {
      */
     fun admitsLive(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val ok = try { buySignal(read(mint, nowMs)) } catch (_: Throwable) { false } ||
-            try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(mint, nowMs) } catch (_: Throwable) { false }  // V5.0.7967
+            try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(mint, nowMs) } catch (_: Throwable) { false } ||  // V5.0.7967
+            com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint, nowMs)  // V5.0.7996
         if (ok) {
             buys.incrementAndGet()
             admitted.computeIfAbsent(lane.uppercase()) { AtomicLong(0) }.incrementAndGet()

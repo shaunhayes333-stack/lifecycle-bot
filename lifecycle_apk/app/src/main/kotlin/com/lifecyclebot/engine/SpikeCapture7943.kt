@@ -235,7 +235,9 @@ object MayhemMode7943 {
                 // V5.0.7979 — owner: "only good mayhem coins can trade." A mayhem coin that matches a
                 // promoted specialist whose combination includes mayhem (its own labels cleared +15%
                 // net after 2 SE on 25+ mayhem decisions, still holding out of sample) is not refused.
-                if (try { com.lifecyclebot.engine.truth.SpecialistMiner7972.goodMayhem7979(ts, nowMs) } catch (_: Throwable) { false }) {
+                if (try { com.lifecyclebot.engine.truth.SpecialistMiner7972.goodMayhem7979(ts, nowMs) } catch (_: Throwable) { false } ||
+                    // V5.0.7996 — or the Mayhem rule's own cell pays on the 4-hour ladder replay.
+                    try { com.lifecyclebot.engine.truth.TailHunter7996.goodMayhemTail7996(ts, nowMs) } catch (_: Throwable) { false }) {
                     goodPassed7979.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("MAYHEM_GOOD_SPECIALIST_PASSED_7979") } catch (_: Throwable) {}
                     return null
