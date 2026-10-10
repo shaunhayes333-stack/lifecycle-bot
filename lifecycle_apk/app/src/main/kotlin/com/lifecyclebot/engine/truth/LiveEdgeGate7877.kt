@@ -397,9 +397,12 @@ object LiveEdgeGate7877 {
     private val priorsCleared8019 = AtomicLong(0)
     private const val BAND_MIN_N_8019 = 20
 
-    /** Pure (V5.0.8019): a lane x cap band is proven losing on 20+ labels with mean - SE below zero. */
+    /**
+     * Pure (V5.0.8019): a lane x cap band is proven losing on 20+ labels — its upper bound (mean + SE) is below
+     * zero. V5.0.8023: was mean - SE < 0, which "proved" every band whose lower bound dipped under zero.
+     */
     fun bandLoses8019(n: Int, meanPct: Double, sePct: Double): Boolean =
-        n >= BAND_MIN_N_8019 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct < 0.0
+        n >= BAND_MIN_N_8019 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
 
     private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long): String? {
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
@@ -425,7 +428,7 @@ object LiveEdgeGate7877 {
             return null
         }
         // V5.0.8019 — a thin cell inside a cap band this lane is PROVEN to lose in (20+ labels across every
-        // source and age, mean - SE < 0) is refused on the band's record, not waved through as merely thin:
+        // source and age, mean + SE < 0) is refused on the band's record, not waved through as merely thin:
         // 8018's floor-price launches (filed under $10k once the cap agrees with the price) rode the
         // THIN_CELL stand-down into the bot's worst group (27 live closes, -17.4%).
         val band = if (st == null || st.n60 < WATCH_MIN_N_7994) try { ForwardReturnLabeler7731.bandStatFor8019(ts, l) } catch (_: Throwable) { null } else null

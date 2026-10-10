@@ -12,7 +12,7 @@ class Aate8016StrongClearsWatchFirstTest {
         val wf = g.substringAfter("private fun watchFirst7994(").substringBefore("private val planSkips7995")
         assertTrue(wf.contains("Cortex7885.overrulesEdgeRefusal(ts, l, why)"))
         assertTrue(wf.indexOf("overrulesEdgeRefusal(ts, l, why)") < wf.indexOf("watched7994.incrementAndGet()"))
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("refusal.contains(\"CELL_NEGATIVE\")) && fraction < 1.0"))
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("refusal.contains(\"CELL_NEGATIVE\") || refusal.contains(\"BAND_NEGATIVE\")) && fraction < 1.0"))
     }
 
     @Test fun theRefusalReasonSurvivesARestart() {

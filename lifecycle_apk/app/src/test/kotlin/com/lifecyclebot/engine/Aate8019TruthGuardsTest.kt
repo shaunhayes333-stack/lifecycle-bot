@@ -37,7 +37,8 @@ class Aate8019TruthGuardsTest {
         assertEquals("BAND|SHITCOIN|MC_LT10K", com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.bandKey8019("shitcoin", 3_127.0))
         assertTrue(LiveEdgeGate7877.bandLoses8019(27, -17.4, 4.0))
         assertFalse(LiveEdgeGate7877.bandLoses8019(12, -17.4, 4.0))
-        assertFalse(LiveEdgeGate7877.bandLoses8019(40, -2.0, 3.0))
+        assertFalse(LiveEdgeGate7877.bandLoses8019(40, -2.0, 3.0))      // upper bound +1%: not proven
+        assertTrue(LiveEdgeGate7877.bandLoses8019(40, -4.0, 3.0))
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(g.contains("bandNegative -> \"WATCH_FIRST_8019_BAND_NEGATIVE\""))
         assertTrue(g.contains("RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }"))
