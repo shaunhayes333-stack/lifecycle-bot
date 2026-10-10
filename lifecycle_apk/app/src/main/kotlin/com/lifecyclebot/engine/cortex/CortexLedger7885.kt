@@ -32,6 +32,52 @@ class CortexLedger7885 {
         const val Y_MAX = 200.0
         const val RUNNER_GROSS_PCT = 50.0
 
+        /**
+         * V5.0.8007 — vote cleaning. Pure. Multiple-comparison bar: with thousands of seats a few
+         * pure-noise voters clear a fixed bar by luck, so the noise term grows with the log of the
+         * number of seats competing (1.0 up to 1,500 seats, ~1.6 at 5,000).
+         */
+        fun fdrFactor8007(seatCount: Int): Double = 1.0 + 0.5 * kotlin.math.ln(kotlin.math.max(1.0, seatCount / 1_500.0))
+
+        /** Pure. V5.0.8007 — a voter that lands in one bin 97%+ of the time cannot tell candidates apart. */
+        fun discriminates8007(seat: Seat): Boolean {
+            val total = seat.bins.sumOf { it.n }
+            if (total < MIN_SCORED) return true
+            val top = seat.bins.maxOf { it.n }
+            return top / total < 0.97
+        }
+
+        /**
+         * Pure. V5.0.8007 — direction check: decisions the voter put above the lane mean must
+         * actually have done better than those it put below. Inverted (z < 0 on 15+ each side) →
+         * 0; not yet clearly right (z < 1) → half; otherwise full. Thin sides are not judged.
+         */
+        fun direction8007(seat: Seat): Double {
+            val a = seat.above; val b = seat.below
+            if (a.n < 15.0 || b.n < 15.0) return 1.0
+            val se = kotlin.math.sqrt(a.variance() / a.n + b.variance() / b.n)
+            if (!(se > 0.0)) return if (a.mean() > b.mean()) 1.0 else 0.0
+            val z = (a.mean() - b.mean()) / se
+            return when { z < 0.0 -> 0.0; z < 1.0 -> 0.5; else -> 1.0 }
+        }
+
+        /** Pure. V5.0.8007 — the cleaned authority of a seat given how many seats compete. */
+        fun cleanAuthority8007(seat: Seat, seatCount: Int): Double {
+            if (seat.scored < MIN_SCORED) return 0.0
+            val s = seat.skill()
+            if (s <= MIN_SKILL + 4.0 * fdrFactor8007(seatCount) / seat.scored) return 0.0
+            if (!discriminates8007(seat)) return 0.0
+            val dir = direction8007(seat)
+            if (dir <= 0.0) return 0.0
+            return (s / FULL_SKILL).coerceAtMost(1.0) * (seat.scored / (seat.scored + 100.0)) * dir
+        }
+
+        /** Pure. V5.0.8007 — one voter's pull is clamped to ±max(10%, 3 lane SDs): no single thin bin swings a fusion. */
+        fun clampPull8007(d: Double, laneSd: Double): Double {
+            val cap = kotlin.math.max(10.0, 3.0 * (if (laneSd.isFinite()) laneSd else 0.0))
+            return d.coerceIn(-cap, cap)
+        }
+
         /** Pure: bin index of [v] on ascending [edges] (0..edges.size). */
         fun binOf(edges: DoubleArray, v: Double): Int {
             var i = 0
@@ -89,14 +135,12 @@ class CortexLedger7885 {
         fun logLossSkill(): Double = if (scored >= MIN_SCORED && logLossBase > 0.0) 1.0 - logLossModel / logLossBase else 0.0
 
         /** 0..1. Zero until MIN_SCORED out-of-sample scores show positive skill. */
-        fun authority(): Double {
-            val s = skill()
-            // V5.0.7899 — the bar falls with evidence: a no-information voter's
-            // prequential skill is noise of order 1/n, so a flat 0.5% seated ~3% of
-            // pure-noise voters at n=400 (simulated). 0.5% + 4/n seats ~0.2%.
-            if (scored < MIN_SCORED || s <= MIN_SKILL + 4.0 / scored) return 0.0
-            return (s / FULL_SKILL).coerceAtMost(1.0) * (scored / (scored + 100.0))
-        }
+        // V5.0.7899 — the bar falls with evidence: a no-information voter's
+        // prequential skill is noise of order 1/n, so a flat 0.5% seated ~3% of
+        // pure-noise voters at n=400 (simulated). 0.5% + 4/n seats ~0.2%.
+        // V5.0.8007 — and the vote must be clean: it discriminates (not one bin 97% of the time)
+        // and its above/below split points the way it claims (see [cleanAuthority8007]).
+        fun authority(): Double = cleanAuthority8007(this, 0)
 
         fun encode(): String = buildString {
             append(scored).append(';').append(sseModel).append(';').append(sseBase).append(';')
@@ -167,7 +211,7 @@ class CortexLedger7885 {
         }
         val laneWin = lanes[lane]?.winRate() ?: 0.5
         val pWin = ((b?.wins ?: 0.0) + SHRINK_K * laneWin) / (n + SHRINK_K)
-        return Prediction(pred, runner, st?.authority() ?: 0.0, n, pWin)
+        return Prediction(pred, runner, st?.let { cleanAuthority8007(it, seats.size) } ?: 0.0, n, pWin)
     }
 
     /**
@@ -345,12 +389,14 @@ class CortexLedger7885 {
         val l = lanes[lane]
         val (m, lr) = laneMean(lane, regime)
         class W(val id: String, val ev: Set<String>, val a: Double, val d: Double, val rr: Double, val dw: Double = 0.0)
+        val laneSd8007 = kotlin.math.sqrt(l?.variance() ?: 0.0)
         val seated = ArrayList<W>()
         for (v in votes) {
             if (!v.raw.isFinite()) continue
             val p = predict(v.voterId, lane, v.edges, v.raw, regime)
             if (p.authority <= 0.0) continue
-            seated.add(W(v.voterId, v.evidence, p.authority, p.netPct - m, p.runnerRate - lr, p.pWin - (l?.winRate() ?: 0.5)))
+            // V5.0.8007 — outlier pulls clamped (net and runner-rate deviations).
+            seated.add(W(v.voterId, v.evidence, p.authority, clampPull8007(p.netPct - m, laneSd8007), (p.runnerRate - lr).coerceIn(-0.5, 0.5), p.pWin - (l?.winRate() ?: 0.5)))
         }
         var sw = 0.0; var swd = 0.0; var swr = 0.0; var sw2 = 0.0; var swp = 0.0
         val weights = ArrayList<Pair<W, Double>>()
@@ -373,6 +419,24 @@ class CortexLedger7885 {
             .map { (w, x) -> "${w.id}${if (w.d >= 0) "+" else ""}${"%.1f".format(w.d)}@${"%.2f".format(x)}" }
         val pWin = ((l?.winRate() ?: 0.5) + swp / (1.0 + sw)).coerceIn(0.0, 1.0)
         return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top, pWin)
+    }
+
+    /** V5.0.8007 — what vote cleaning does to the seasoned seats (lane seats only). */
+    fun cleanLine8007(): String {
+        var seasoned = 0; var noise = 0; var flat = 0; var inverted = 0; var half = 0; var seated = 0
+        val n = seats.size
+        for ((k, st) in seats) {
+            if (k.contains('@') || k.endsWith("|$GLOBAL") || st.scored < MIN_SCORED) continue
+            seasoned++
+            val s = st.skill()
+            when {
+                s <= MIN_SKILL + 4.0 * fdrFactor8007(n) / st.scored -> noise++
+                !discriminates8007(st) -> flat++
+                direction8007(st) <= 0.0 -> inverted++
+                else -> { seated++; if (direction8007(st) < 1.0) half++ }
+            }
+        }
+        return "seats=$n seasoned=$seasoned seated=$seated (half-weight=$half) filtered: noise=$noise flat=$flat inverted=$inverted fdr=${"%.2f".format(fdrFactor8007(n))}"
     }
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->

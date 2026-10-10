@@ -1082,6 +1082,7 @@ object Cortex7885 {
             }
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
+                "      vote cleaning (§8007): ${synchronized(this) { ledger.cleanLine8007() }}\n" +
                 "      invariants & provenance v11 (§7911): ${try { CortexInvariants7911.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
