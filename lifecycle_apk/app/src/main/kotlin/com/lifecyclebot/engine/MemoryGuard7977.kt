@@ -74,12 +74,17 @@ object MemoryGuard7977 {
         try { RunnerGrab7967.trim7977() } catch (_: Throwable) {}
         try { PumpCallouts7968.trim7977() } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.chart.ChartReader7950.trim7977() } catch (_: Throwable) {}
+        // V5.0.7979 — the token archive's resident rows (the rest is on the device).
+        try { TokenMetaCache.instanceOrNull7979()?.evictToMemoryCap7979(if (hard) 1_500 else 3_000) } catch (_: Throwable) {}
     }
 
     private fun sizes(): String =
         "miner=${try { com.lifecyclebot.engine.truth.SpecialistMiner7972.size7977() } catch (_: Throwable) { -1 }} " +
             "colours=${try { com.lifecyclebot.engine.chart.CandleColors7968.size7977() } catch (_: Throwable) { -1 }} " +
-            "chartReads=${try { com.lifecyclebot.engine.chart.ChartReader7950.size7977() } catch (_: Throwable) { -1 }}"
+            "chartReads=${try { com.lifecyclebot.engine.chart.ChartReader7950.size7977() } catch (_: Throwable) { -1 }} " +
+            "tokenArchiveResident=${try { TokenMetaCache.snapshotIfPresent()?.liveRows ?: -1 } catch (_: Throwable) { -1 }} " +
+            "archiveDiskLoads=${try { TokenMetaCache.instanceOrNull7979()?.diskLoads7979() ?: -1L } catch (_: Throwable) { -1L }} " +
+            "watchTokens=${try { BotService.status.tokens.size } catch (_: Throwable) { -1 }}"
 
     fun statusLine7977(): String =
         "heap=${lastUsedMb}/${maxMb}MB (${"%.0f".format(lastFrac * 100)}%) peak=${"%.0f".format(peakFrac * 100)}% " +

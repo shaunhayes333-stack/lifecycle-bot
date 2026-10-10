@@ -226,7 +226,11 @@ class TokenMetaCache private constructor(ctx: Context) :
      * Bulk-load the persistent table into memory. Idempotent — only the
      * first call does work. Returns number of rows hydrated.
      */
-    fun warmStart(maxRows: Int = 50_000): Int {
+    // V5.0.7979 — the archive lives on the device; memory holds only the working set.
+    // 5.0.7976 kept every row resident (27,651 rows, warmStart up to 50,000, eviction only of
+    // rows hit < 3 times) and the process died of OutOfMemoryError after ~3 h. Boot now loads the
+    // MEMORY_ROWS_7979 most relevant rows; a miss reads the row back from SQLite off the hot path.
+    fun warmStart(maxRows: Int = MEMORY_ROWS_7979): Int {
         if (!loaded.compareAndSet(false, true)) return live.size
         var hydrated = 0
         try {
@@ -307,15 +311,77 @@ class TokenMetaCache private constructor(ctx: Context) :
         return hydrated
     }
 
-    /** Hot path read. Returns null on miss. Never touches disk. */
+    /** Hot path read. Returns null on miss. Never touches disk (a miss queues a background disk read). */
     fun lookup(mint: String): Entry? {
         val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
         if (key.isEmpty()) return null
         val hit = live[key]
         if (hit != null) { totalReadHits.incrementAndGet(); return hit }
         totalReadMisses.incrementAndGet()
+        requestDiskLoad7979(key)
         return null
     }
+
+    private val diskLoadsInFlight7979 = ConcurrentHashMap.newKeySet<String>()
+    private val diskLoads7979 = AtomicLong(0L)
+    private val diskLoader7979 = java.util.concurrent.ThreadPoolExecutor(
+        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(256),
+        java.util.concurrent.ThreadFactory { r -> Thread(r, "TokenMetaCache-disk-7979").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy(),
+    ).apply { allowCoreThreadTimeOut(true) }
+
+    private fun requestDiskLoad7979(key: String) {
+        if (!diskLoadsInFlight7979.add(key)) return
+        try {
+            diskLoader7979.execute {
+                try {
+                    readableDatabase.rawQuery(
+                        "SELECT mint, symbol, name, pair_address, pair_url, logo_url, " +
+                            "last_price_source, last_price_pool_addr, last_price_dex, " +
+                            "last_price, last_mcap, last_liquidity_usd, last_fdv, " +
+                            "creation_time_ms, first_seen_ms, last_seen_ms, hit_count, " +
+                            "decimals, last_interacted_ms, supply_tokens, supply_captured_ms " +
+                            "FROM token_meta WHERE mint = ? LIMIT 1",
+                        arrayOf(key),
+                    ).use { c ->
+                        if (c.moveToNext()) {
+                            live.putIfAbsent(key, Entry(
+                                mint = key,
+                                symbol = c.getString(1) ?: "", name = c.getString(2) ?: "",
+                                pairAddress = c.getString(3) ?: "", pairUrl = c.getString(4) ?: "", logoUrl = c.getString(5) ?: "",
+                                lastPriceSource = c.getString(6) ?: "", lastPricePoolAddr = c.getString(7) ?: "", lastPriceDex = c.getString(8) ?: "",
+                                lastPrice = c.getDouble(9), lastMcap = c.getDouble(10), lastLiquidityUsd = c.getDouble(11), lastFdv = c.getDouble(12),
+                                creationTimeMs = c.getLong(13), firstSeenMs = c.getLong(14), lastSeenMs = c.getLong(15), hitCount = c.getLong(16),
+                                decimals = c.getInt(17), lastInteractedMs = c.getLong(18), supplyTokens = c.getDouble(19), supplyCapturedAtMs = c.getLong(20),
+                            ))
+                            diskLoads7979.incrementAndGet()
+                        }
+                    }
+                } catch (_: Throwable) {
+                } finally { diskLoadsInFlight7979.remove(key) }
+            }
+        } catch (_: Throwable) { diskLoadsInFlight7979.remove(key) }
+    }
+
+    /**
+     * V5.0.7979 — bound the memory working set: persisted, unmodified rows beyond [cap] leave
+     * memory least-recently-seen first (they stay on disk and reload on the next lookup).
+     * Rows the bot traded in the last 24 h stay resident.
+     */
+    @Synchronized
+    fun evictToMemoryCap7979(cap: Int = MEMORY_ROWS_7979): Int {
+        val excess = (live.size - cap).coerceAtLeast(0)
+        if (excess == 0) return 0
+        val keepTradedAfter = System.currentTimeMillis() - 24L * 3_600_000L
+        val victims = live.values.asSequence().filter {
+            it.mint !in dirty && it.mint !in flushing7863 && it.lastInteractedMs < keepTradedAfter
+        }.sortedBy { maxOf(it.lastSeenMs, it.lastInteractedMs) }.take(excess).map { it.mint }.toList()
+        victims.forEach { live.remove(it) }
+        if (victims.isNotEmpty()) bumpCompletenessRevision7483()
+        return victims.size
+    }
+
+    fun diskLoads7979(): Long = diskLoads7979.get()
 
     /**
      * Register a snapshot. Cheap — writes only to memory + marks dirty.
@@ -641,12 +707,16 @@ class TokenMetaCache private constructor(ctx: Context) :
         // dropped.
         private const val DB_VERSION = 4
         private const val MAX_LIVE_ROWS = 50_000
+        /** V5.0.7979 — memory working set; the rest of the archive stays on the device. */
+        private const val MEMORY_ROWS_7979 = 4_000
         private const val FLUSH_EVERY_N_HITS = 32L
 
         @Volatile private var INSTANCE: TokenMetaCache? = null
 
         /** Non-throwing snapshot for telemetry. Returns null if cache not yet initialized. */
         fun snapshotIfPresent(): Snapshot? = INSTANCE?.snapshot()
+        /** V5.0.7979 — MemoryGuard7977 trims the resident rows. */
+        fun instanceOrNull7979(): TokenMetaCache? = INSTANCE
 
         fun get(ctx: Context): TokenMetaCache {
             val existing = INSTANCE

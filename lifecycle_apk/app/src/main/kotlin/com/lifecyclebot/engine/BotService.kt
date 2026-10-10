@@ -3230,6 +3230,8 @@ class BotService : Service() {
                                 // relevant. Protected 500-token scanner pool is a separate
                                 // store and is never touched.
                                 try { cache.evictColdSoft(2500) } catch (_: Throwable) {}
+                                // V5.0.7979 — the archive stays on the device; memory keeps the working set.
+                                try { cache.evictToMemoryCap7979() } catch (_: Throwable) {}
                             }
                         }.apply { name = "TokenMetaCache-flush"; isDaemon = true }.start()
                     } catch (t: Throwable) {

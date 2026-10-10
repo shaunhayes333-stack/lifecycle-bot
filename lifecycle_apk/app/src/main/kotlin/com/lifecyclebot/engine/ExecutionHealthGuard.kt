@@ -138,26 +138,15 @@ object ExecutionHealthGuard {
      * Emergency reasons (RUG / CATASTROPHIC / STEALTH_MINT / etc) always
      * return false — they MUST broadcast at any cost.
      */
-    fun shouldDeferDirectRouteSell(mint: String, reason: String): Boolean {
-        if (isEmergencyReason(reason)) return false
-        if (isJupiterHealthy()) {
-            // Jupiter is alive again — clear any prior defers so we don't
-            // carry stale state once recovery happens.
-            directRouteDeferCounts.remove(mint)
-            directRouteFirstDeferMs.remove(mint)
-            return false
-        }
-        val now = System.currentTimeMillis()
-        val firstMs = directRouteFirstDeferMs.getOrPut(mint) { now }
-        val counter = directRouteDeferCounts.getOrPut(mint) { AtomicInteger(0) }
-        val n = counter.incrementAndGet()
-        if (n > DIRECT_ROUTE_DEFER_MAX || now - firstMs >= DIRECT_ROUTE_DEFER_MAX_MS) {
-            directRouteDeferCounts.remove(mint)
-            directRouteFirstDeferMs.remove(mint)
-            return false // force-proceed to avoid permanent freeze
-        }
-        return true
-    }
+    /**
+     * V5.0.7979 — owner: "swap routing can go thru helius with no issue 100% of the time."
+     * The direct route (pump.fun / PumpSwap / Raydium built and broadcast through the Helius
+     * Sender) does not need Jupiter, so a dead Jupiter quote no longer holds a sell for up to
+     * 15 s waiting for it to recover: the sell goes direct now. Kept as the one call site's
+     * answer (always "do not defer"); the defer counters below stay for telemetry.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun shouldDeferDirectRouteSell(mint: String, reason: String): Boolean = false
 
     /** Current defer count for telemetry / debug. */
     fun directRouteDeferCount(mint: String): Int =

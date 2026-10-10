@@ -210,6 +210,17 @@ object MayhemMode7943 {
     }
 
     /** LiveEdgeGate7877: the live refusal for a mayhem coin, or null. */
+    /** V5.0.7979 — is this a mayhem-mode coin? Cached supply or the mcap/price-implied supply; no side effects. */
+    fun isMayhem7979(ts: TokenState): Boolean {
+        if (!ts.mint.endsWith("pump")) return false
+        val onChain = try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(ts.mint) } catch (_: Throwable) { 0.0 }
+        if (onChain > 0.0) return mayhemSupply(onChain)
+        val implied = if (ts.lastMcap > 0.0 && ts.lastPrice > 0.0) ts.lastMcap / ts.lastPrice else 0.0
+        return mayhemSupply(implied)
+    }
+
+    private val goodPassed7979 = java.util.concurrent.atomic.AtomicLong(0)
+
     fun liveRefusal(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
         if (!ts.mint.endsWith("pump")) return null
         val onChain = try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(ts.mint) } catch (_: Throwable) { 0.0 }
@@ -221,6 +232,14 @@ object MayhemMode7943 {
         } else 0L
         return when (verdict7947(onChain, implied, since)) {
             "MAYHEM" -> {
+                // V5.0.7979 — owner: "only good mayhem coins can trade." A mayhem coin that matches a
+                // promoted specialist whose combination includes mayhem (its own labels cleared +15%
+                // net after 2 SE on 25+ mayhem decisions, still holding out of sample) is not refused.
+                if (try { com.lifecyclebot.engine.truth.SpecialistMiner7972.goodMayhem7979(ts, nowMs) } catch (_: Throwable) { false }) {
+                    goodPassed7979.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("MAYHEM_GOOD_SPECIALIST_PASSED_7979") } catch (_: Throwable) {}
+                    return null
+                }
                 refused.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("MAYHEM_MODE_REFUSED_7943") } catch (_: Throwable) {}
                 "MAYHEM_MODE_7943"
@@ -236,5 +255,5 @@ object MayhemMode7943 {
         }
     }
 
-    fun statusLine(): String = "refusedOnChain=${refused.get()} waitedUnverified7947=${deferred.get()} clearedAfterWait7947=${cleared.get()}"
+    fun statusLine(): String = "refusedOnChain=${refused.get()} waitedUnverified7947=${deferred.get()} clearedAfterWait7947=${cleared.get()} goodPassed7979=${goodPassed7979.get()}"
 }

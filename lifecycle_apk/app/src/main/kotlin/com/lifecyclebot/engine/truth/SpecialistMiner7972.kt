@@ -73,7 +73,7 @@ object SpecialistMiner7972 {
     fun demotes7972(n: Int, mean: Double, se: Double): Boolean = n >= DEMOTE_N && mean.isFinite() && se.isFinite() && mean + se < 0.0
 
     /** The facts triples are built from (pairs use every fact): keeps the key table phone-sized. */
-    private val CORE = setOf("mc", "age", "bp", "st", "hv", "dev", "bpm", "c5", "grad")
+    private val CORE = setOf("mc", "age", "bp", "st", "hv", "dev", "bpm", "c5", "grad", "mh")
 
     /**
      * Pure: every pair of [facts], and every triple of its CORE facts (sorted, so one
@@ -165,6 +165,8 @@ object SpecialistMiner7972 {
             put("grad", if (ts.mint.endsWith("pump")) meta.gradBin7973(meta.curveProgress7973(mc, solUsd)) else "NA")
             put("beta", if (try { meta.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false }) "Y" else "N")
             put("live", if (try { meta.live7973(ts.mint, nowMs) || meta.koth7973(ts.mint, nowMs) } catch (_: Throwable) { false }) "Y" else "N")
+            // V5.0.7979 — mayhem-mode coin: lets the labels find the GOOD mayhem combinations.
+            put("mh", if (try { com.lifecyclebot.engine.MayhemMode7943.isMayhem7979(ts) } catch (_: Throwable) { false }) "Y" else "N")
         } catch (_: Throwable) {}
         return out
     }
@@ -292,6 +294,20 @@ object SpecialistMiner7972 {
         val l = lane.trim().uppercase()
         return combos7972(l, features7972(ts, l, nowMs)).any { promoted.containsKey(it) }
     }
+
+    /**
+     * V5.0.7979 — MayhemMode7943: a mayhem coin is "good" when a promoted specialist of a meme
+     * lane whose combination includes mh=Y matches it now.
+     */
+    fun goodMayhem7979(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (promoted.keys.none { it.contains("|mh=Y") }) return false
+        val facts = features7972(ts, "MEME", nowMs)
+        for (lane in MAYHEM_LANES_7979) {
+            if (combos7972(lane, facts).any { it.contains("|mh=Y") && promoted.containsKey(it) }) return true
+        }
+        return false
+    }
+    private val MAYHEM_LANES_7979 = listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER")
 
     /** Pure-ish: a specialist whose labels run (>= 20% at +50% gross) is held like a runner. */
     fun runs7972(sp: Spec): Boolean = sp.disc.n > 0 && sp.disc.runners >= 0.2 * sp.disc.n
