@@ -34,7 +34,21 @@ import java.util.concurrent.atomic.AtomicLong
 object HiveEdge8000 {
 
     private const val UPLOAD_MS = 10L * 60_000L
-    private const val FILE = "hive_uploaded_8000.txt"
+    // V5.0.8028 — A CLEAN HIVE in the same database. The 8000 tables summed every build's evidence with no
+    // build tag, so labels from pre-8019 builds (floor coins filed under peak caps, unpriced cells, broken
+    // bases) stayed in the network total and came straight back after every learning reset. 8028+ write and
+    // read new tables only; the old ones are left untouched (nothing deleted, simply no longer read). On the
+    // switch, everything this install already holds is counted as uploaded, so only what it learns from now
+    // on enters the clean hive. Every row carries the build that last wrote it.
+    const val EDGE_TABLE_8028 = "hive_edge_8028"
+    const val RUNNER_TABLE_8028 = "hive_runners_8028"
+    private const val FILE = "hive_uploaded_8028.txt"
+    @Volatile private var baselineDue8028 = false
+    private val baselined8028 = AtomicLong(0)
+    private fun build8028(): String = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "?" }
+
+    /** Pure: the switch baseline — every local key counts as already uploaded (its history stays out of the clean hive). */
+    fun baseline8028(local: Map<String, DoubleArray>): Map<String, DoubleArray> = local.mapValues { it.value.copyOf() }
     private const val BATCH = 80
     private const val PULL_LIMIT = 5_000
     private const val RUNNER_PULL_WINDOW_MS = 15L * 60_000L
@@ -119,7 +133,9 @@ object HiveEdge8000 {
         if (loaded) return
         loaded = true
         try {
-            file()?.takeIf { it.exists() }?.forEachLine { line ->
+            val file8028 = file()
+            if (file8028 != null && !file8028.exists()) baselineDue8028 = true
+            file8028?.takeIf { it.exists() }?.forEachLine { line ->
                 if (line.startsWith("#pull\t")) { lastPullMs = line.substringAfter('\t').toLongOrNull() ?: 0L; return@forEachLine }
                 val k = line.substringBefore('\t'); val f = line.substringAfter('\t', "").split(',')
                 if (k.isNotBlank() && f.size == 6) uploaded[k] = DoubleArray(6) { f[it].toDoubleOrNull() ?: 0.0 }
@@ -140,10 +156,10 @@ object HiveEdge8000 {
 
     private suspend fun ensureTables(client: com.lifecyclebot.collective.TursoClient) {
         if (tableReady) return
-        client.execute("CREATE TABLE IF NOT EXISTS hive_edge_8000 (k TEXT PRIMARY KEY, n REAL, s REAL, ss REAL, w REAL, r REAL, b REAL, updated_ms INTEGER)")
-        client.execute("CREATE INDEX IF NOT EXISTS hive_edge_8000_upd ON hive_edge_8000(updated_ms)")
-        client.execute("CREATE TABLE IF NOT EXISTS hive_runners_8000 (mint TEXT PRIMARY KEY, symbol TEXT, peak REAL, first_ms INTEGER, updated_ms INTEGER, instance TEXT)")
-        client.execute("CREATE INDEX IF NOT EXISTS hive_runners_8000_upd ON hive_runners_8000(updated_ms)")
+        client.execute("CREATE TABLE IF NOT EXISTS $EDGE_TABLE_8028 (k TEXT PRIMARY KEY, n REAL, s REAL, ss REAL, w REAL, r REAL, b REAL, updated_ms INTEGER, build TEXT)")
+        client.execute("CREATE INDEX IF NOT EXISTS ${EDGE_TABLE_8028}_upd ON $EDGE_TABLE_8028(updated_ms)")
+        client.execute("CREATE TABLE IF NOT EXISTS $RUNNER_TABLE_8028 (mint TEXT PRIMARY KEY, symbol TEXT, peak REAL, first_ms INTEGER, updated_ms INTEGER, instance TEXT, build TEXT)")
+        client.execute("CREATE INDEX IF NOT EXISTS ${RUNNER_TABLE_8028}_upd ON $RUNNER_TABLE_8028(updated_ms)")
         tableReady = true
     }
 
@@ -156,6 +172,13 @@ object HiveEdge8000 {
         ensureTables(client)
         // Upload deltas.
         val local = snapshot()
+        if (baselineDue8028) {
+            uploaded.putAll(baseline8028(local))
+            baselined8028.set(local.size.toLong())
+            baselineDue8028 = false
+            save()
+            try { PipelineHealthCollector.labelInc("HIVE_CLEAN_BASELINE_8028") } catch (_: Throwable) {}
+        }
         val deltas = ArrayList<Pair<String, DoubleArray>>()
         for ((k, v) in local) {
             val prior = uploaded[k]
@@ -164,10 +187,10 @@ object HiveEdge8000 {
         }
         for (chunk in deltas.chunked(BATCH)) {
             val stmts = chunk.map { (k, d) ->
-                "INSERT INTO hive_edge_8000 (k, n, s, ss, w, r, b, updated_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+                "INSERT INTO $EDGE_TABLE_8028 (k, n, s, ss, w, r, b, updated_ms, build) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                     "ON CONFLICT(k) DO UPDATE SET n = n + excluded.n, s = s + excluded.s, ss = ss + excluded.ss, w = w + excluded.w, " +
-                    "r = r + excluded.r, b = MAX(b, excluded.b), updated_ms = excluded.updated_ms" to
-                    listOf<Any?>(k, d[0], d[1], d[2], d[3], d[4], d[5], now)
+                    "r = r + excluded.r, b = MAX(b, excluded.b), updated_ms = excluded.updated_ms, build = excluded.build" to
+                    listOf<Any?>(k, d[0], d[1], d[2], d[3], d[4], d[5], now, build8028())
             }
             val ok = try { client.batch(stmts).all { it.success } } catch (_: Throwable) { false }
             if (!ok) break
@@ -176,7 +199,7 @@ object HiveEdge8000 {
         }
         // Pull the network's changes since the last pull.
         val res = client.query(
-            "SELECT k, n, s, ss, w, r, b, updated_ms FROM hive_edge_8000 WHERE updated_ms > ? ORDER BY updated_ms LIMIT $PULL_LIMIT",
+            "SELECT k, n, s, ss, w, r, b, updated_ms FROM $EDGE_TABLE_8028 WHERE updated_ms > ? ORDER BY updated_ms LIMIT $PULL_LIMIT",
             listOf<Any?>(lastPullMs),
         )
         if (res.success) {
@@ -220,7 +243,7 @@ object HiveEdge8000 {
         var pages = 0
         while (pages < 40) {
             val res = client.query(
-                "SELECT k, n, s, ss, w, r, b, updated_ms FROM hive_edge_8000 WHERE updated_ms > ? ORDER BY updated_ms LIMIT $PULL_LIMIT",
+                "SELECT k, n, s, ss, w, r, b, updated_ms FROM $EDGE_TABLE_8028 WHERE updated_ms > ? ORDER BY updated_ms LIMIT $PULL_LIMIT",
                 listOf<Any?>(from),
             )
             if (!res.success || res.rows.isEmpty()) break
@@ -265,9 +288,9 @@ object HiveEdge8000 {
         val send = pendingRunners.entries.toList()
         if (send.isNotEmpty()) {
             val stmts = send.map { (m, t) ->
-                "INSERT INTO hive_runners_8000 (mint, symbol, peak, first_ms, updated_ms, instance) VALUES (?, ?, ?, ?, ?, ?) " +
-                    "ON CONFLICT(mint) DO UPDATE SET peak = MAX(peak, excluded.peak), updated_ms = excluded.updated_ms" to
-                    listOf<Any?>(m, t.first.take(24), t.second, t.third, now, instanceId)
+                "INSERT INTO $RUNNER_TABLE_8028 (mint, symbol, peak, first_ms, updated_ms, instance, build) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(mint) DO UPDATE SET peak = MAX(peak, excluded.peak), updated_ms = excluded.updated_ms, build = excluded.build" to
+                    listOf<Any?>(m, t.first.take(24), t.second, t.third, now, instanceId, build8028())
             }
             if (try { client.batch(stmts).all { it.success } } catch (_: Throwable) { false }) {
                 send.forEach { pendingRunners.remove(it.key, it.value) }
@@ -276,7 +299,7 @@ object HiveEdge8000 {
         }
         val since = maxOf(lastRunnerPullMs, now - RUNNER_PULL_WINDOW_MS)
         val res = client.query(
-            "SELECT mint, symbol, peak, updated_ms FROM hive_runners_8000 WHERE updated_ms > ? AND instance != ? ORDER BY updated_ms DESC LIMIT 50",
+            "SELECT mint, symbol, peak, updated_ms FROM $RUNNER_TABLE_8028 WHERE updated_ms > ? AND instance != ? ORDER BY updated_ms DESC LIMIT 50",
             listOf<Any?>(since, instanceId),
         )
         lastRunnerPullMs = now
@@ -300,5 +323,5 @@ object HiveEdge8000 {
     fun statusLine8000(): String =
         "sharedKeys=${aggregate.size} mineUploaded=${uploaded.size} uploadedRows=${uploadedRows.get()} pulledRows=${pulledRows.get()} " +
             "specialistsFromHive=${promotedFromHive.get()} seatsInherited=${seatsInherited.get()} expertsInherited=${expertsInherited.get()} runnerSignals[sent=${runnersSent.get()} pulled=${runnersPulled.get()}] " +
-            "books=FRL,SPEC,PB,TAIL,CX,DEV,EXP lastPull=${if (lastPullMs > 0L) "${(System.currentTimeMillis() - lastPullMs) / 1000}s" else "-"}"
+            "books=FRL,SPEC,PB,TAIL,CX,DEV,EXP hive=$EDGE_TABLE_8028 baselinedKeys8028=${baselined8028.get()} lastPull=${if (lastPullMs > 0L) "${(System.currentTimeMillis() - lastPullMs) / 1000}s" else "-"}"
 }
