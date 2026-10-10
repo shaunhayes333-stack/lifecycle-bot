@@ -1928,6 +1928,11 @@ object CollectiveLearning {
                     try {
                         uploadLocalPatternAggregates()
                         downloadAll()
+                        // V5.0.7998 — the tail hunter's replays, pooled across every installed instance.
+                        try {
+                            val c = client; val id = getInstanceId()
+                            if (c != null && id != null) com.lifecyclebot.engine.truth.TailHunter7996.hiveSync7998(c, id)
+                        } catch (e: Exception) { Log.w(TAG, "Tail hive sync: ${e.message}") }
                     } catch (e: Exception) {
                         Log.e(TAG, "Background sync error: ${e.message}")
                     }
