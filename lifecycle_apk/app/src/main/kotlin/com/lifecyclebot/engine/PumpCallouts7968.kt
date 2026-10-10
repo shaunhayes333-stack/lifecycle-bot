@@ -181,6 +181,7 @@ object PumpCallouts7968 {
     }
 
     private fun get(path: String): String? {
+        if (!FeedBackoff7981.allow7981("PUMP_CALLOUTS")) return null
         polls.incrementAndGet()
         return try {
             val req = Request.Builder().url("$API$path")
@@ -190,11 +191,12 @@ object PumpCallouts7968 {
                 .build()
             http.newCall(req).execute().use { r ->
                 lastStatus = r.code.toString()
-                if (r.code == 401 || r.code == 403) { authRefused.incrementAndGet(); return null }
+                if (r.code == 401 || r.code == 403) { authRefused.incrementAndGet(); FeedBackoff7981.fail7981("PUMP_CALLOUTS"); return null }
                 val b = r.body?.string()
-                if (!r.isSuccessful || b.isNullOrBlank()) null else { okPolls.incrementAndGet(); b }
+                if (!r.isSuccessful || b.isNullOrBlank()) { FeedBackoff7981.fail7981("PUMP_CALLOUTS"); null }
+                else { okPolls.incrementAndGet(); FeedBackoff7981.ok7981("PUMP_CALLOUTS"); b }
             }
-        } catch (t: Throwable) { lastStatus = t.javaClass.simpleName; null }
+        } catch (t: Throwable) { lastStatus = t.javaClass.simpleName; FeedBackoff7981.fail7981("PUMP_CALLOUTS"); null }
     }
 
     private fun tick(now: Long) {

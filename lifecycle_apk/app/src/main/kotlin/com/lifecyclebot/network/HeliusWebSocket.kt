@@ -84,7 +84,9 @@ class HeliusWebSocket(
     // not a permanent historical registry. Keep only the freshest launch tape and
     // explicitly unsubscribe the oldest server-side subscription when the cap rolls.
     private companion object {
-        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 128
+        // V5.0.7981 — 128 mention-filtered log streams moved 4.7 GB in ~3 h (5.0.7976) and the
+        // process died in OkHttp's TLS reader. Held mints are pinned; 64 slots keep every hot launch.
+        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 64
         const val MAX_WALLET_SUBSCRIPTIONS_7794 = 64
         // V5.0.7807 — a subscribe request whose ACK never arrives (dropped frame,
         // JSON-RPC error, socket died mid-flight) must not pin a request-map entry

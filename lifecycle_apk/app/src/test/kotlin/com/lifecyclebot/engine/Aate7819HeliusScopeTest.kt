@@ -68,8 +68,8 @@ class Aate7819HeliusScopeTest {
         for (i in 0 until 100) held.add("STK$i")
         held.add(mint(9999))
         ws.setPinnedMintsProvider7807 { held.toSet() }
-        for (i in 0 until 128) ws.subscribeToken(mint(i))
-        assertEquals(128, desired(ws).size)
+        for (i in 0 until 64) ws.subscribeToken(mint(i))
+        assertEquals(64, desired(ws).size)
         val evBefore = HeliusSubscriptionTelemetry7807.evictions.get()
         ws.ensurePinnedSubscriptions7807()
         // Only the one real Solana held mint is pinned and re-armed: exactly one eviction.
@@ -80,7 +80,7 @@ class Aate7819HeliusScopeTest {
         // A second housekeeping tick is a no-op (old behaviour: 100 re-arms every 10 s).
         ws.ensurePinnedSubscriptions7807()
         assertEquals(evBefore + 1, HeliusSubscriptionTelemetry7807.evictions.get())
-        assertEquals(128, desired(ws).size)
+        assertEquals(64, desired(ws).size)
     }
 
     @Test fun telemetryLineCarriesRejectionsAndReconnectReasons() {
@@ -94,7 +94,7 @@ class Aate7819HeliusScopeTest {
 
     @Test fun sourceContractsForOwnerAndReconnectCauses() {
         val h = src("network/HeliusWebSocket.kt")
-        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 128"))
+        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 64"))
         assertTrue(h.contains("override fun onClosing("))
         assertTrue(h.contains("noteReconnect7819(\"SERVER_CLOSE_\$code\")"))
         assertTrue(h.contains("if (!admitMint7819(mint)) return"))

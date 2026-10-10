@@ -335,7 +335,10 @@ object KillSwitch {
         // peak that never fell to MARKED live equity against a rolling-24h peak
         // (5.0.7947: "DD 86%/25%" beside a 0.6% strategy DD). A baseline recorded
         // on the old basis is not comparable, so the window restarts here.
-        if (storedSchema7843 < 7948) {
+        // V5.0.7981 — the stored peak predates external-flow rebasing: owner deposits,
+        // withdrawals and manual trades inflated it (5.0.7976: 0.8127 peak vs 0.0503 equity,
+        // "93.8%" with almost no bot trades). Restart the window once on the new basis.
+        if (storedSchema7843 < 7981) {
             peakBalance = currentBalance
             peakAt7948 = System.currentTimeMillis()
             dailyStartBalance = currentBalance
@@ -659,7 +662,7 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putInt("environment_schema", 7948)
+            putInt("environment_schema", 7981)
             putLong("peak_at_7948", peakAt7948)
             putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())

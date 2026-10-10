@@ -10,7 +10,7 @@ class Aate7794LiveEdgeRepairTest {
 
     @Test fun heliusSubscriptionsAreBoundedAndEvictOldest() {
         val s = src("network/HeliusWebSocket.kt")
-        assertTrue(s.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 128"))
+        assertTrue(s.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 64"))
         assertTrue(s.contains("HELIUS_WS_TOKEN_SUB_EVICTED_7794"))
         assertTrue(s.contains("logsUnsubscribe"))
         assertTrue(s.contains("tokenSnapshot = synchronized(subscriptions)"))

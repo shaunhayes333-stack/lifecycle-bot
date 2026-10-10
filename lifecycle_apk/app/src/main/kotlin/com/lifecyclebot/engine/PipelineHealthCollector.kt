@@ -1415,6 +1415,9 @@ object PipelineHealthCollector {
         sb.append("  Pump callouts (§7968): ").append(
             try { PumpCallouts7968.statusLine7968() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Feed back-off (§7981): ").append(
+            try { FeedBackoff7981.line7981() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         return sb.toString()
     }
 

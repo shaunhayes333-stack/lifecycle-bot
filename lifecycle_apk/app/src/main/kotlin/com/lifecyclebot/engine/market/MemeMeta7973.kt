@@ -129,7 +129,8 @@ object MemeMeta7973 {
         }
     }
 
-    private fun get(url: String): String? {
+    private fun get(url: String, feed: String): String? {
+        if (!com.lifecyclebot.engine.FeedBackoff7981.allow7981(feed)) return null
         polls.incrementAndGet()
         return try {
             val req = Request.Builder().url(url).header("Accept", "application/json")
@@ -138,9 +139,10 @@ object MemeMeta7973 {
             http.newCall(req).execute().use { r ->
                 lastStatus = r.code.toString()
                 val b = r.body?.string()
-                if (!r.isSuccessful || b.isNullOrBlank()) null else { pollOk.incrementAndGet(); b }
+                if (!r.isSuccessful || b.isNullOrBlank()) { com.lifecyclebot.engine.FeedBackoff7981.fail7981(feed); null }
+                else { pollOk.incrementAndGet(); com.lifecyclebot.engine.FeedBackoff7981.ok7981(feed); b }
             }
-        } catch (t: Throwable) { lastStatus = t.javaClass.simpleName; null }
+        } catch (t: Throwable) { lastStatus = t.javaClass.simpleName; com.lifecyclebot.engine.FeedBackoff7981.fail7981(feed); null }
     }
 
     /** Pure: (mint, symbol, usd market cap) rows from a pump coin list or single coin body. */
@@ -158,7 +160,7 @@ object MemeMeta7973 {
     }
 
     private fun poll(now: Long) {
-        get("https://frontend-api-v3.pump.fun/coins/currently-live?limit=60&offset=0&includeNsfw=false")?.let { body ->
+        get("https://frontend-api-v3.pump.fun/coins/currently-live?limit=60&offset=0&includeNsfw=false", "PUMP_LIVE")?.let { body ->
             for ((mint, sym, mc) in try { coins7973(body) } catch (_: Throwable) { emptyList() }) {
                 live[mint] = now
                 val last = intakeAt[mint] ?: 0L
@@ -176,7 +178,7 @@ object MemeMeta7973 {
             if (live.size > 2_000) live.entries.removeIf { now - it.value > 10 * POLL_MS }
             if (intakeAt.size > 4_000) intakeAt.entries.removeIf { now - it.value > INTAKE_GAP_MS }
         }
-        get("https://frontend-api-v3.pump.fun/coins/king-of-the-hill?includeNsfw=false")?.let { body ->
+        get("https://frontend-api-v3.pump.fun/coins/king-of-the-hill?includeNsfw=false", "PUMP_KOTH")?.let { body ->
             (try { coins7973(body) } catch (_: Throwable) { emptyList() }).firstOrNull()?.let { koth = it.first; kothAtMs = now }
         }
     }

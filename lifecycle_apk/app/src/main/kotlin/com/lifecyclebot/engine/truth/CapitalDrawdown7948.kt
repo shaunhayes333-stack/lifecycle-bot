@@ -61,8 +61,64 @@ object CapitalDrawdown7948 {
 
     fun currentPeak7948(): Peak7948 = peak7948
 
+    // ── V5.0.7981 — money that moved in or out without a bot trade is not a drawdown ──
+    //
+    // The owner trades by hand in the bot's wallet and moves SOL in and out. 5.0.7976 read a
+    // 93.8% drawdown (equity 0.0503 vs a 24 h peak of 0.8127) with almost no bot trades in
+    // between, and every size shrank to nothing. An equity change that the bot's own realised
+    // live P&L and unrealised marks do not explain is an external flow: the peak moves by the
+    // same amount, so the drawdown measures the bot's trading only.
+
+    /** Pure: the part of an equity change the bot's realised and unrealised P&L do not explain. */
+    fun externalFlow7981(dEquitySol: Double, dRealisedSol: Double, dUnrealisedSol: Double): Double =
+        if (!dEquitySol.isFinite()) 0.0 else dEquitySol - (if (dRealisedSol.isFinite()) dRealisedSol else 0.0) -
+            (if (dUnrealisedSol.isFinite()) dUnrealisedSol else 0.0)
+
+    /** Pure: is [flowSol] large enough to be a deposit / withdrawal / manual trade (>= 0.005 SOL and >= 3% of equity)? */
+    fun isExternal7981(flowSol: Double, equitySol: Double): Boolean =
+        flowSol.isFinite() && kotlin.math.abs(flowSol) >= maxOf(0.005, 0.03 * equitySol.coerceAtLeast(0.0))
+
+    /** Pure: the peak after an external flow (never below current equity). */
+    fun rebasedPeak7981(prior: Peak7948, flowSol: Double, equitySol: Double, nowMs: Long): Peak7948 {
+        if (prior.peakSol <= 0.0) return Peak7948(equitySol, nowMs)
+        return Peak7948(maxOf(prior.peakSol + flowSol, equitySol), prior.atMs)
+    }
+
+    @Volatile private var prevEq7981 = Double.NaN
+    @Volatile private var prevReal7981 = Double.NaN
+    @Volatile private var prevUpnl7981 = Double.NaN
+    @Volatile private var realCache7981: Pair<Long, Double>? = null
+    private val externalFlows7981 = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var netExternal7981 = 0.0
+
+    private fun realisedLiveSol7981(nowMs: Long): Double {
+        realCache7981?.let { (at, v) -> if (nowMs - at in 0L..20_000L) return v }
+        val v = try {
+            com.lifecyclebot.engine.StrategyTelemetry.computeCleanLiveTerminalLeaderboard().sumOf { it.totalSolPnl }
+        } catch (_: Throwable) { Double.NaN }
+        realCache7981 = nowMs to v
+        return v
+    }
+
     /** Observes [equitySol] (moves the peak) and returns the drawdown percent. */
     fun observePct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double = synchronized(this) {
+        if (equitySol.isFinite() && equitySol > 0.0) {
+            val real = realisedLiveSol7981(nowMs)
+            val upnl = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
+            if (prevEq7981.isFinite() && real.isFinite() && prevReal7981.isFinite()) {
+                val flow = externalFlow7981(equitySol - prevEq7981, real - prevReal7981, upnl - prevUpnl7981)
+                if (isExternal7981(flow, equitySol)) {
+                    peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
+                    externalFlows7981.incrementAndGet()
+                    netExternal7981 += flow
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (flow > 0) "DRAWDOWN_EXTERNAL_INFLOW_7981" else "DRAWDOWN_EXTERNAL_OUTFLOW_7981")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_EXTERNAL_FLOW_7981", "flow=${"%.4f".format(flow)} equity=${"%.4f".format(equitySol)} peak=${"%.4f".format(peak7948.peakSol)}")
+                    } catch (_: Throwable) {}
+                }
+            }
+            prevEq7981 = equitySol; prevReal7981 = real; prevUpnl7981 = upnl
+        }
         peak7948 = rollPeak7948(peak7948, equitySol, nowMs)
         drawdownPct7948(peak7948, equitySol, nowMs)
     }
@@ -82,7 +138,7 @@ object CapitalDrawdown7948 {
     fun line7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): String {
         val p = rollPeak7948(peak7948, equitySol, nowMs)
         return "liveDD=${"%.1f".format(peekPct7948(equitySol, nowMs))}% equity=${"%.4f".format(equitySol)} " +
-            "peak24h=${"%.4f".format(p.peakSol)} basis=[$BASIS_7948]"
+            "peak24h=${"%.4f".format(p.peakSol)} externalFlows7981=${externalFlows7981.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]"
     }
 
     // ── pure: routable capacity sentence ────────────────────────────────────
