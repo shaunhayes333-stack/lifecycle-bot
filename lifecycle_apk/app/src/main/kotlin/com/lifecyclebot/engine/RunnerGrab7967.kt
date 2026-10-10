@@ -95,6 +95,17 @@ object RunnerGrab7967 {
     }
 
     /**
+     * Pure. V5.0.7991 — does a held runner keep deferring soft exits? Green: yes. Red: only within
+     * its first [SHAKEOUT_MS_7991] and above [SHAKEOUT_FLOOR_PCT_7991]. 5.0.7985..7990: 779 soft
+     * exits deferred in 10 minutes, and losers rode to the -35..-40% floors (TICK_HARD_FLOOR_-38PCT,
+     * CATASTROPHIC_-40PCT) while every proven-cell or specialist admit counted as a runner.
+     */
+    fun holdsThrough7991(grossPct: Double, ageMs: Long): Boolean =
+        grossPct.isFinite() && (grossPct >= 0.0 || (grossPct > SHAKEOUT_FLOOR_PCT_7991 && ageMs in 0L until SHAKEOUT_MS_7991))
+    private const val SHAKEOUT_MS_7991 = 3L * 60_000L
+    private const val SHAKEOUT_FLOOR_PCT_7991 = -15.0
+
+    /**
      * Pure: is [reason] an exit a held runner defers while its structure stands and it is above
      * [HARD_STOP_PCT]? Integrity exits (rug, dev, liquidity, honeypot, freeze, dead, manual) and
      * this module's own exits always pass.
@@ -313,6 +324,12 @@ object RunnerGrab7967 {
         if (ts.position.isPaperPosition || !holding7967(ts, nowMs)) return null
         val g = gross(ts, null)
         if (!deferrable7967(reason, g)) return null
+        // V5.0.7991 — the hold is for runners, not for losers: a red position gets shakeout room
+        // only for its first 3 minutes and only above -15%; after that its own stops run.
+        if (!holdsThrough7991(g, nowMs - ts.position.entryTime)) {
+            try { PipelineHealthCollector.labelInc("RUNNER_HOLD_RELEASED_LOSER_7991") } catch (_: Throwable) {}
+            return null
+        }
         val (_, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
         if (r60 != null && r60.brokeStructure) return null
         deferred.incrementAndGet()
