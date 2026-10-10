@@ -192,5 +192,16 @@ object CandleColors7968 {
         } catch (_: Throwable) { 0 }
     }
 
+    /** V5.0.7977 — MemoryGuard7977: drop thin keys (hard: everything under 20 samples). */
+    fun trim7977(hard: Boolean) {
+        val minN = if (hard) 20 else 5
+        synchronized(lock) {
+            fine.entries.removeIf { it.value.n < minN }
+            coarse.entries.removeIf { it.value.n < minN }
+        }
+    }
+
+    fun size7977(): Int = synchronized(lock) { fine.size + coarse.size }
+
     internal fun resetForTest7968() = synchronized(lock) { fine.clear(); coarse.clear(); totalN = 0; totalHits = 0; learned.set(0); buys.set(0); reads.set(0) }
 }

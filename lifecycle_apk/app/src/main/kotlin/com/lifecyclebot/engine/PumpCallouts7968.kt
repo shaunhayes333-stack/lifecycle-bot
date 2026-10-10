@@ -254,6 +254,13 @@ object PumpCallouts7968 {
         } catch (_: Throwable) {}
     }
 
+    /** V5.0.7977 — MemoryGuard7977. */
+    fun trim7977() {
+        val now = System.currentTimeMillis()
+        seenCalls.entries.removeIf { now - it.value > 3_600_000L }
+        learnedCalls.clear()
+    }
+
     fun statusLine7968(): String {
         val bandTxt = synchronized(bands) {
             bands.entries.sortedBy { it.key }.joinToString(" ") { (k, b) ->

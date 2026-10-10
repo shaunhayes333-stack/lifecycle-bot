@@ -347,6 +347,12 @@ object CryptoAltTrader {
             }
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_LIVE_UNRESOLVED_HOLDING_SLOT_RESERVED_7976") } catch (_: Throwable) {}
         }
+        // V5.0.7977 — the wallet lock the dispatch step enforces is checked here, before an
+        // intent is sealed: 5.0.7976 sealed 23 CRYPTO_ALT intents a 0.05 SOL wallet could not
+        // fund and every one became CROSS_ASSET_DISPATCH_REJECT (LIVE_WALLET_LOCK_7835).
+        if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", maxOf(requested, floor), balance)) {
+            return requested to "CRYPTO_LIVE_REFUSED_WALLET_LOCK_7977"
+        }
         return requested to null
     }
 

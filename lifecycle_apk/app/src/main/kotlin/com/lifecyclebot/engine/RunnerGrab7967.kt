@@ -154,6 +154,14 @@ object RunnerGrab7967 {
     }
     private val heldAdmits = AtomicLong(0)
 
+    /** V5.0.7977 — MemoryGuard7977: forget grabs older than the hold window and stale add state. */
+    fun trim7977() {
+        val now = System.currentTimeMillis()
+        grabbed.entries.removeIf { now - it.value > HOLD_WINDOW_MS }
+        addState.clear()
+        lastSell.clear()
+    }
+
     /** V5.0.7972 — LiveEdgeGate7877: a specialist whose labels run is held like a grab. */
     fun holdAsRunner7972(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
         if (ts.position.isOpen || grabbed.putIfAbsent(ts.mint, nowMs) != null) return

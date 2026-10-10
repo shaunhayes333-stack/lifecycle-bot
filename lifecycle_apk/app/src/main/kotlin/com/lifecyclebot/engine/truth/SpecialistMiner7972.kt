@@ -46,7 +46,7 @@ object SpecialistMiner7972 {
     private const val BAR_PCT = 15.0
     private const val MIN_WIN = 0.25
     private const val DEMOTE_N = 10
-    private const val MAX_KEYS = 80_000
+    private const val MAX_KEYS = 40_000
     private const val NET_CAP = 300.0
     private const val RUNNER_GROSS = 50.0
 
@@ -112,7 +112,7 @@ object SpecialistMiner7972 {
     /** The token's discrete facts now (at a decision). Never throws. */
     fun features7972(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): List<String> {
         val out = ArrayList<String>(22)
-        fun put(name: String, v: String) { out += "$name=$v" }
+        fun put(name: String, v: String) { out += "$name=$v".intern() }
         try {
             val mc = ts.lastMcap
             put("mc", if (mc > 0.0) band(mc, doubleArrayOf(10e3, 30e3, 100e3, 1e6, 10e6, 50e6), arrayOf("LT10K", "10_30K", "30_100K", "100K_1M", "1M_10M", "10M_50M", "GT50M")) else "NA")
@@ -208,7 +208,7 @@ object SpecialistMiner7972 {
                 val s = devs.getOrPut(dev) { Stat() }
                 synchronized(s) { s.add(net, gross) }
                 if (devs.size > 20_000) devs.clear()
-                if (devLabelled.size > 50_000) devLabelled.clear()
+                if (devLabelled.size > 10_000) devLabelled.clear()
             }
         } catch (_: Throwable) {}
         for (k in combos7972(lane, facts)) {
@@ -336,6 +336,19 @@ object SpecialistMiner7972 {
     }
 
     fun saveNow7972() { file?.let { save(it) } }
+
+    /** V5.0.7977 — MemoryGuard7977: drop the thinnest unpromoted combinations (hard: down to a quarter). */
+    fun trim7977(hard: Boolean) {
+        val keep = if (hard) MAX_KEYS / 4 else MAX_KEYS / 2
+        if (keys.size > keep) {
+            keys.entries.filter { !promoted.containsKey(it.key) }.sortedBy { it.value.n }
+                .take((keys.size - keep).coerceAtLeast(0)).forEach { keys.remove(it.key, it.value) }
+        }
+        devLabelled.clear(); matched.clear()
+        if (hard && devs.size > 5_000) devs.entries.filter { it.value.n < 2 }.forEach { devs.remove(it.key, it.value) }
+    }
+
+    fun size7977(): Int = keys.size
 
     internal fun resetForTest7972() { keys.clear(); promoted.clear(); devs.clear(); devLabelled.clear(); labels.set(0); promotions.set(0); demotions.set(0); liveMatches.set(0) }
 }

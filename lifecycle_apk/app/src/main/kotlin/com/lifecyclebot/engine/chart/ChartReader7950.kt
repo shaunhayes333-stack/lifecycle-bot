@@ -257,6 +257,10 @@ object ChartReader7950 {
         return if (m.lift + se <= EXIT_LIFT && m.meanEndPct < 0.0 && -m.meanDnPct > m.meanUpPct) "TOP_MOTIF" else null
     }
 
+    /** V5.0.7977 — MemoryGuard7977: the read cache is rebuilt on demand. */
+    fun trim7977() { reads.clear() }
+    fun size7977(): Int = reads.size + tapes.size
+
     /** V5.0.7955 — the last read for [mint] if one exists (no library search, no backfill request). */
     fun cachedRead7955(mint: String): Read? = reads[mint]
 

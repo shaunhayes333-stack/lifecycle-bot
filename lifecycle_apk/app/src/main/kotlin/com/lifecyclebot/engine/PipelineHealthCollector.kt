@@ -1403,6 +1403,9 @@ object PipelineHealthCollector {
         sb.append("  Expert wallets (§7962): ").append(
             try { ExpertWallets7962.statusLine7962() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Memory guard (§7977): ").append(
+            try { MemoryGuard7977.statusLine7977() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Specialists (§7972): ").append(
             try { com.lifecyclebot.engine.truth.SpecialistMiner7972.statusLine7972() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
@@ -1794,7 +1797,11 @@ object PipelineHealthCollector {
                     com.lifecyclebot.engine.truth.AccountingIntegrity7948.projectionGap7948(
                         canonicalLive6492.map { it.mint }.toSet(),
                         com.lifecyclebot.engine.HostWalletTokenTracker.getOpenForAccountingMints(),
-                    ) { m -> com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(m)?.status?.name },
+                    ) { m ->
+                        // V5.0.7977 — the owner's hand-bought holdings are named as such, not as unexplained gaps.
+                        val st = com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(m)?.status?.name
+                        if (com.lifecyclebot.engine.OwnerManualHoldings7976.isOwnerManual7976(m)) "OWNER_MANUAL_7976${st?.let { "/$it" } ?: ""}" else st
+                    },
                 ).append('\n')
             } catch (_: Throwable) {}
             sb.append(line("LAB sandbox projection:", labProjection, "isolated hypotheses; never canonical inventory")).append('\n')

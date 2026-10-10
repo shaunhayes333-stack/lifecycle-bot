@@ -181,6 +181,15 @@ object MemeMeta7973 {
         }
     }
 
+    /** V5.0.7977 — MemoryGuard7977. */
+    fun trim7977() {
+        val now = System.currentTimeMillis()
+        intakeAt.clear()
+        live.entries.removeIf { now - it.value > 3 * POLL_MS }
+        themes.entries.removeIf { now - it.value > THEME_MS }
+        leaders.entries.removeIf { now - it.value > THEME_MS }
+    }
+
     fun statusLine7973(): String {
         val now = System.currentTimeMillis()
         val liveNow = live.values.count { now - it <= 3 * POLL_MS }
