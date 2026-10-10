@@ -286,6 +286,13 @@ object SpecialistMiner7972 {
         return maxOf(m, edgeMult7974(sp.disc.mean() - 2.0 * sp.disc.se()))
     }
 
+    /** V5.0.7978 — LanePlaybook7907: does a promoted specialist of [lane] match? No counters, no sizing record. */
+    fun peek7978(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (promoted.isEmpty()) return false
+        val l = lane.trim().uppercase()
+        return combos7972(l, features7972(ts, l, nowMs)).any { promoted.containsKey(it) }
+    }
+
     /** Pure-ish: a specialist whose labels run (>= 20% at +50% gross) is held like a runner. */
     fun runs7972(sp: Spec): Boolean = sp.disc.n > 0 && sp.disc.runners >= 0.2 * sp.disc.n
 

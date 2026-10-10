@@ -71,6 +71,15 @@ object LanePlaybook7907 {
         val structureHlReclaim: Boolean = false,
         // V5.0.7974 — the bot sold this mint within 2 h and it is back near that price with a fresh higher low.
         val secondWave7974: Boolean = false,
+        // V5.0.7978 — the facts the runners carried that no setup read (NaN / false = unknown).
+        val holderVel7978: Double = Double.NaN,      // holders gained per minute over ~5 min
+        val turnover7978: Double = Double.NaN,       // 1h volume / market cap
+        val curve7978: Double = Double.NaN,          // pump.fun bonding-curve progress 0..1
+        val live7978: Boolean = false,               // pump.fun livestream or King of the Hill
+        val beta7978: Boolean = false,               // copycat of a coin that ran +400% in the last 6 h
+        val colourBuy7978: Boolean = false,          // a proven candle-colour sequence
+        /** Lane-specific: a promoted specialist of the lane matches (set by classifyNow). */
+        var specialistEdge7978: Boolean = false,
     )
 
     class Setup(val id: String, val prior: Double, val fires: (F) -> Boolean)
@@ -252,6 +261,32 @@ object LanePlaybook7907 {
     // V5.0.7974 — second wave: re-buy a coin the bot already sold once it builds a higher low
     // again near the exit (owner: Spiralism / Jean Phil second legs).
     private val SECOND_WAVE = Setup("SECOND_WAVE", STRUCT) { f -> f.secondWave7974 }
+    // ── V5.0.7978 — the runner setups. Owner: "the no setup bulletin needs to be fixed.
+    // obviously it needs more setups." 5.0.7976: SHITCOIN tagged NO_TRIGGER 156 of 171, and
+    // the runners it refused (Memecoins +1,032%, POORELON +1,438%, $CCOW +2,162%) sat there.
+    // Each is learned per lane like every setup (prior, then its own labels; a proven loser refuses).
+    private val SPECIALIST_EDGE = Setup("SPECIALIST_EDGE", STRUCT) { f -> f.specialistEdge7978 }
+    private val FRESH_LAUNCH_MOMENTUM = Setup("FRESH_LAUNCH_MOMENTUM", FLOW) { f ->
+        le(f.age, 15.0) && le(f.mcap, 100_000.0) && ge(f.tapeBuyersPerMin, 6.0) &&
+            geOrUnknown(f.tapeBuyShare, 60.0) && leOrUnknown(f.tapeLargest, 30.0)
+    }
+    private val MICRO_CAP_IGNITION = Setup("MICRO_CAP_IGNITION", FLOW) { f ->
+        le(f.mcap, 10_000.0) && le(f.age, 15.0) && ge(f.chg5m, 10.0) && geOrUnknown(f.bp, 60.0)
+    }
+    private val HOLDER_SURGE = Setup("HOLDER_SURGE", FLOW) { f -> ge(f.holderVel7978, 5.0) && geOrUnknown(f.bp, 55.0) }
+    private val TURNOVER_SPIKE = Setup("TURNOVER_SPIKE", FLOW) { f ->
+        ge(f.turnover7978, 3.0) && ge(f.chg5m, 0.0) && geOrUnknown(f.bp, 55.0)
+    }
+    private val GRADUATION_APPROACH = Setup("GRADUATION_APPROACH", FLOW) { f ->
+        ok(f.curve7978, 0.80, 0.97) && geOrUnknown(f.bp, 55.0) && geOrUnknown(f.chg5m, 0.0)
+    }
+    private val LIVESTREAM_LAUNCH = Setup("LIVESTREAM_LAUNCH", FLOW) { f -> f.live7978 && geOrUnknown(f.bp, 55.0) }
+    private val COPYCAT_BETA = Setup("COPYCAT_BETA", FLOW) { f -> f.beta7978 && le(f.age, 60.0) && geOrUnknown(f.bp, 55.0) }
+    private val COLOUR_SEQUENCE = Setup("COLOUR_SEQUENCE", FLOW) { f -> f.colourBuy7978 }
+    private val MEME_EXTRAS_7978 = listOf(SPECIALIST_EDGE, FRESH_LAUNCH_MOMENTUM, MICRO_CAP_IGNITION, HOLDER_SURGE, TURNOVER_SPIKE,
+        GRADUATION_APPROACH, LIVESTREAM_LAUNCH, COPYCAT_BETA, COLOUR_SEQUENCE)
+    private val OTHER_EXTRAS_7978 = listOf(SPECIALIST_EDGE, HOLDER_SURGE, TURNOVER_SPIKE, COLOUR_SEQUENCE)
+    private val MEME_LANES_7978 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED")
     private val MICRO_PULLBACK_TREND = Setup("MICRO_PULLBACK_TREND", FLOW) { f -> ge(f.chg1h, 3.0) && ok(f.dd, 2.0, 8.0) && ge(f.bp, 50.0) }
 
     /** Lane -> its playbook (FIELD_MANUAL §4 families per lane; doc-derived). */
@@ -287,7 +322,10 @@ object LanePlaybook7907 {
     // per lane on forward labels like every setup (flow prior; a proven loser refuses as usual).
     private val EXPERT_ENTRY_7962 = Setup("EXPERT_ENTRY", FLOW) { f -> f.expertEntry7962 }
     private val EXPERT_LANES_7962 = setOf("SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER")
-    private fun menuOf7962(lane: String): List<Setup>? = MENU[lane]?.let { if (lane in EXPERT_LANES_7962) it + EXPERT_ENTRY_7962 else it }
+    private fun menuOf7962(lane: String): List<Setup>? = MENU[lane]?.let { base ->
+        (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
+            (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)   // V5.0.7978
+    }
 
     /** Pure: the setups of [lane]'s menu that [f] fires (empty = no trigger; unknown lane = null). */
     fun matches(lane: String, f: F): List<Setup>? = menuOf7962(lane)?.filter { s -> try { s.fires(f) } catch (_: Throwable) { false } }
@@ -390,6 +428,26 @@ object LanePlaybook7907 {
                 secondWave7974(ts.lastExitTs, ts.lastExitPrice, ts.lastPrice, nowMs, ts.position.isOpen) &&
                     com.lifecyclebot.engine.chart.StructureTracker7962.hlReclaim7962(ts.mint, nowMs)
             } catch (_: Throwable) { false },
+            holderVel7978 = try {
+                val h = ts.history
+                val last = h.lastOrNull()
+                val then = h.lastOrNull { it.ts <= (last?.ts ?: 0L) - 5 * 60_000L && it.holderCount > 0 }
+                if (last == null || then == null) Double.NaN
+                else com.lifecyclebot.engine.truth.SpecialistMiner7972.holderVelocity7972(last.holderCount, then.holderCount, (last.ts - then.ts) / 60_000.0)
+            } catch (_: Throwable) { Double.NaN },
+            turnover7978 = try {
+                val v = ts.history.lastOrNull()?.volumeH1 ?: Double.NaN
+                if (ts.lastMcap > 0.0 && v.isFinite() && v > 0.0) v / ts.lastMcap else Double.NaN
+            } catch (_: Throwable) { Double.NaN },
+            curve7978 = try {
+                if (!ts.mint.endsWith("pump")) Double.NaN
+                else com.lifecyclebot.engine.market.MemeMeta7973.curveProgress7973(ts.lastMcap, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+            } catch (_: Throwable) { Double.NaN },
+            live7978 = try {
+                com.lifecyclebot.engine.market.MemeMeta7973.live7973(ts.mint, nowMs) || com.lifecyclebot.engine.market.MemeMeta7973.koth7973(ts.mint, nowMs)
+            } catch (_: Throwable) { false },
+            beta7978 = try { com.lifecyclebot.engine.market.MemeMeta7973.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false },
+            colourBuy7978 = try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)?.colorBuy7968 == true } catch (_: Throwable) { false },
         )
     }
 
@@ -435,7 +493,10 @@ object LanePlaybook7907 {
     private fun classifyNow(ts: TokenState, lane: String, nowMs: Long): String? {
         // V5.0.7931 — a lane with no playbook (crypto universe, Markets) costs no feature build.
         if (!MENU.containsKey(lane)) return null
-        val m = matches(lane, features(ts, nowMs)) ?: return null
+        val f7978 = features(ts, nowMs)
+        // V5.0.7978 — a promoted specialist of this lane is a setup (graded like the rest).
+        f7978.specialistEdge7978 = try { com.lifecyclebot.engine.truth.SpecialistMiner7972.peek7978(ts, lane, nowMs) } catch (_: Throwable) { false }
+        val m = matches(lane, f7978) ?: return null
         if (matchCache.size > 4_000) matchCache.clear()
         matchCache["${ts.mint}|$lane"] = m.map { it.id }
         if (m.isEmpty()) return NO_TRIGGER
@@ -642,7 +703,10 @@ object LanePlaybook7907 {
         // V5.0.7962 — the 7962 setups are appended AFTER NO_TRIGGER's bin, so every setup the
         // voter learned before (and NO_TRIGGER = base menu size) keeps its bin.
         // V5.0.7974 — RANGE_SUPPORT_SWING / SECOND_WAVE appended after them the same way.
-        val added7962 = listOf("HL_RECLAIM", "EXPERT_ENTRY", "RANGE_SUPPORT_SWING", "SECOND_WAVE")
+        val added7962 = listOf("HL_RECLAIM", "EXPERT_ENTRY", "RANGE_SUPPORT_SWING", "SECOND_WAVE",
+            // V5.0.7978 — appended the same way, so every earlier bin is unchanged.
+            "SPECIALIST_EDGE", "FRESH_LAUNCH_MOMENTUM", "MICRO_CAP_IGNITION", "HOLDER_SURGE", "TURNOVER_SPIKE",
+            "GRADUATION_APPROACH", "LIVESTREAM_LAUNCH", "COPYCAT_BETA", "COLOUR_SEQUENCE")
         val menu = menuIds(lane).filter { it !in added7962 }
         val i = menu.indexOf(id)
         val j = added7962.indexOf(id)

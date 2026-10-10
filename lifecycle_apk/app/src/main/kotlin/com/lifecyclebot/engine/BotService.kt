@@ -1045,9 +1045,11 @@ class BotService : Service() {
                 try { ExitProfile7955.keyProfileFor7962(ts, now) } catch (_: Throwable) { null },
                 now - pos.entryTime, pnlPctNow, peakPct, planCostPct7766(ts),
             )?.let {
-                // V5.0.7973 — a position that never started its setup's move is closed on the learned clock.
-                try { PipelineHealthCollector.labelInc("NO_PROGRESS_TIME_STOP_7973") } catch (_: Throwable) {}
-                com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
+                // V5.0.7978 — SHADOW ONLY. Shipped live in 7973 without proof; its clock is learned
+                // from every label (losers peak early), so it could close a slow starter that dips
+                // and then runs. It is counted, never acted on, until a record shows it pays.
+                try { PipelineHealthCollector.labelInc("NO_PROGRESS_TIME_STOP_SHADOW_7978") } catch (_: Throwable) {}
+                null
             } ?: com.lifecyclebot.engine.cortex.CortexExit7897.sellReason(ts, now)?.let {
                 // V5.0.7897 — the exit cortex's own proven SELL read, through the plan-exit path.
                 com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
