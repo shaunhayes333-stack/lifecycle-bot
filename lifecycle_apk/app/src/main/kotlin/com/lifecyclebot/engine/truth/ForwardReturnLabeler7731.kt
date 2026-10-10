@@ -954,6 +954,8 @@ object ForwardReturnLabeler7731 {
                 com.lifecyclebot.engine.market.MemeMeta7973.noteLeader7973(o.mint, o.symbol,
                     try { com.lifecyclebot.engine.BotService.status.tokens[o.mint]?.name.orEmpty() } catch (_: Throwable) { "" }, nowMs)
             } catch (_: Throwable) {}
+            // V5.0.8017 — every 4x+ runner joined to the bot's own position (held? entry vs start? share banked?).
+            if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs) } catch (_: Throwable) {}
             if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
             o.lastPx = px; o.lastPxAtMs = nowMs

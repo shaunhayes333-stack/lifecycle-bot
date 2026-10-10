@@ -1432,6 +1432,9 @@ object PipelineHealthCollector {
         ).append(" | warm ").append(
             try { com.lifecyclebot.network.ExecWarm8009.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Runner capture (§8017): ").append(
+            try { com.lifecyclebot.engine.truth.RunnerCapture8017.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Tail hunter (§7996): ").append(
             try { com.lifecyclebot.engine.truth.TailHunter7996.statusLine7996() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

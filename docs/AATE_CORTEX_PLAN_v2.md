@@ -348,3 +348,4 @@ Done:
 Open:
 - Phase 5, remainder. The size stack is now one graded voter and loses its shrink power over proven STRONG reads (7917). Deleting the individual factors waits on the evidence that lane-by-lane shows they carry no skill.
 - Phase 7 clean-up.
+| 8017 | **Runner capture, measured.** Every coin the labeler sees run 4x+ is joined to the bot's own position: missed (with the refusal that kept it out), holding (entry vs the coin's start mark, open P&L), or closed (realised return and the share of the run from the bot's own entry it banked). Diag line `Runner capture (§8017)`: runners/held/live/missed, median entry-vs-start, median banked share, top 8 rows. This is the scoreboard for entries vs holds vs exits on the coins that matter. |
