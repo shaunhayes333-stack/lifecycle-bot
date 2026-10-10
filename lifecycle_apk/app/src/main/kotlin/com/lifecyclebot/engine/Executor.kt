@@ -13501,6 +13501,13 @@ class Executor(
     }
 
 
+    /** V5.0.8027 — never buy a dead or flatlined chart (FlatChart8027); a hard current-market check like route and safety. */
+    private fun flatChartRefused8027(ts: TokenState, sol: Double): Boolean {
+        val why = try { FlatChart8027.refusal8027(ts) } catch (_: Throwable) { null } ?: return false
+        emitLiveBuyFail(ts, sol, why)
+        return true
+    }
+
     private fun liveBuyDeferred(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         val taxonomy = try { RejectTaxonomy.classify(reason, null) } catch (_: Throwable) { null }
         ChokeReliefBus.launch("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433", ts.mint) {
@@ -18057,7 +18064,7 @@ class Executor(
         // The executor cannot ask the same learned/risk policy to decide the
         // trade again. Current route/safety/finality checks below remain hard.
         try { PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
-        try { PipelineHealthCollector.labelInc("COMMON_SENSE_RR_POST_SEAL_ADVISORY_7849") } catch (_: Throwable) {}
+        if (flatChartRefused8027(ts, sol)) return false
         // V5.0.7849 — immutable execution intent is the entry verdict.
         // Executor consumes it; learned/history authorities may not re-decide it.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }

@@ -1447,6 +1447,9 @@ object PipelineHealthCollector {
         ).append(" | rebuy ").append(
             try { RebuyLockout8019.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Dead charts (§8027): ").append(
+            try { FlatChart8027.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  First sight (§8026): ").append(
             try { com.lifecyclebot.engine.cortex.FirstSight8026.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
