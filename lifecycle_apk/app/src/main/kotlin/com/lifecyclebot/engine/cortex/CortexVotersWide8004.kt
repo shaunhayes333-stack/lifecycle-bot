@@ -374,7 +374,6 @@ internal object CortexVotersWide8004 {
         v("LIQ_CYCLE_RISK", "REGIME", e(1.5, 2.5, 3.5, 4.5), "liq_cycle") { _, _, _ -> com.lifecyclebot.v3.scoring.LiquidityCycleAI.getCurrentState().riskLevel.toDouble() },
         v("STABLECOIN_REGIME", "REGIME", e(-0.5, -0.1, 0.1, 0.5), "stable_flow") { _, _, _ -> fin(com.lifecyclebot.v3.scoring.StablecoinFlowAI.getRegimeBias()) },
         v("NEWS_SHOCK_SLOPE", "REGIME", e(-0.2, -0.05, 0.05, 0.2), "news_shock") { _, _, _ -> fin(com.lifecyclebot.v3.scoring.NewsShockAI.getSlope())?.takeIf { it != 0.0 } },
-        v("DRAWDOWN_AGGRESSION", "REGIME", UNIT, "drawdown_circuit") { _, _, _ -> fin(com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression()) },
         v("REGIME_FIT_LANE", "REGIME", MULT, "regime_fit") { _, lane, _ -> fin(com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getRegimeFitMultiplier(lane)) },
         v("PORTFOLIO_ENTRY_PENALTY", "REGIME", UNIT, "v4_portfolio_pen") { _, _, _ -> fin(com.lifecyclebot.v4.meta.PortfolioHeatAI.getNewEntryPenalty()) },
         // ── bonding curve, launch phase, admission records ──

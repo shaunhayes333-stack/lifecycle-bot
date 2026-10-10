@@ -90,6 +90,7 @@ object CollectiveLearning {
     fun getClient(): TursoClient? = client
 
     private const val SYNC_INTERVAL_MS = 15 * 60 * 1000L
+    private const val FIRST_SYNC_DELAY_MS_8012 = 30_000L
 
     private var totalUploadAttemptsThisSession = 0
     private var totalUploadSuccessThisSession = 0
@@ -1936,8 +1937,13 @@ object CollectiveLearning {
             }
         }
         syncJob = scope.launch {
+            // V5.0.8012 — the first sync runs 30 s after start, not 15 minutes: a new install or a
+            // restart traded on thin local cells (watch-first refused ~800 coins in 11 min on 8011)
+            // while the network's labels for those cells sat in the hive.
+            var first8012 = true
             while (isActive) {
-                delay(SYNC_INTERVAL_MS)
+                delay(if (first8012) FIRST_SYNC_DELAY_MS_8012 else SYNC_INTERVAL_MS)
+                first8012 = false
                 if (isEnabled()) {
                     try {
                         uploadLocalPatternAggregates()

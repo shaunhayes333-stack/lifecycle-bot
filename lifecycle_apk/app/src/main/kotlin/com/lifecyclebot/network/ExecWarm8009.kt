@@ -39,6 +39,9 @@ object ExecWarm8009 {
     fun statusLine(): String = "pings=${pings.get()} every ${PERIOD_MS / 1000}s"
 
     private fun warmOnce() {
+        // V5.0.8012 — keep the priority-fee reading fresh between trades (it only refreshed on a trade,
+        // so the first trade after a quiet spell paid the fixed floor).
+        try { PriorityFee8009.pumpPortalSol(0.0) } catch (_: Throwable) {}
         hit(Request.Builder().url("https://sender.helius-rpc.com/ping").get().build())
         hit(Request.Builder().url("https://pumpportal.fun/api/trade-local").get().build())
         val rpc = try { com.lifecyclebot.engine.RuntimeProviderAuthority6685.configuredHeliusRpc() } catch (_: Throwable) { "" }
