@@ -10809,6 +10809,12 @@ class BotService : Service() {
             "BATTERY_OPT_CHECK",
             "whitelisted=$whitelisted pkg=$packageName"
         )
+        // V5.0.8010 — exact alarms are the watchdog's restart path (Android 12+ can revoke them).
+        val canExact8010 = try {
+            if (android.os.Build.VERSION.SDK_INT >= 31) (getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager)?.canScheduleExactAlarms() else true
+        } catch (_: Throwable) { null }
+        try { Awake8010.noteEnvironment(whitelisted, canExact8010) } catch (_: Throwable) {}
+        if (canExact8010 == false) addLog("⚠️ Exact alarms are off — the restart watchdog is weakened. Settings › Apps › AATE › Alarms & reminders › Allow.")
         if (whitelisted) {
             ErrorLogger.info("BotService", "✅ Battery optimisation: app is WHITELISTED (Doze cannot suspend bot loop)")
             return
@@ -10834,6 +10840,29 @@ class BotService : Service() {
         } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "Battery-opt prompt failed: ${e.message}")
         }
+        // V5.0.8010 — Android 10+ blocks a service from opening a screen while the app is in the
+        // background, so the prompt above often never showed. A notification always does: tap it to
+        // open the exemption screen; it also names the phone maker's own background-kill setting.
+        try { postBatteryFixNotification8010() } catch (_: Throwable) {}
+    }
+
+    private fun postBatteryFixNotification8010() {
+        @android.annotation.SuppressLint("BatteryLife")
+        val fix = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            .setData(android.net.Uri.parse("package:$packageName"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pi = PendingIntent.getActivity(this, 8010, fix, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val hint = Awake8010.oemHint8010(android.os.Build.MANUFACTURER.orEmpty())
+        val n = NotificationCompat.Builder(this, CHANNEL_TRADE)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_low_battery)
+            .setContentTitle("AATE can be put to sleep")
+            .setContentText("Tap to stop battery optimisation pausing the bot")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Tap to stop battery optimisation pausing the bot. Also: $hint"))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.notify(8010, n)
     }
 
     /** V5.9.675 — read-only accessor used by MainActivity for the banner. */
@@ -17661,6 +17690,8 @@ class BotService : Service() {
     private fun emitBotLoopTick(loopCount: Int) {
         // V5.9.659b — extracted from botLoop body to stay under JVM 64KB
         // method size. Tracks its own prev-cycle delta via class field.
+        // V5.0.8010 — how long the phone actually suspended the app since the last tick.
+        try { Awake8010.noteTick(android.os.SystemClock.elapsedRealtime(), android.os.SystemClock.uptimeMillis()) } catch (_: Throwable) {}
         try {
             val now = System.currentTimeMillis()
             val prevCycleMs = now - lastBotLoopTickMs
