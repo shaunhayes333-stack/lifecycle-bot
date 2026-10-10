@@ -339,7 +339,8 @@ object KillSwitch {
         // withdrawals and manual trades inflated it (5.0.7976: 0.8127 peak vs 0.0503 equity,
         // "93.8%" with almost no bot trades). Restart the window once on the new basis.
         // V5.0.7990 — once more: a one-tick mark spike set the stored peak (see CapitalDrawdown7948).
-        if (storedSchema7843 < 7990) {
+        // V5.0.7992 — and again: phantom live rows had set the peak (LiveRiskPolicy7807.walletHolds7992).
+        if (storedSchema7843 < 7992) {
             peakBalance = currentBalance
             peakAt7948 = System.currentTimeMillis()
             dailyStartBalance = currentBalance
@@ -663,7 +664,7 @@ object KillSwitch {
     
     private fun save(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
-            putInt("environment_schema", 7990)
+            putInt("environment_schema", 7992)
             putLong("peak_at_7948", peakAt7948)
             putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())

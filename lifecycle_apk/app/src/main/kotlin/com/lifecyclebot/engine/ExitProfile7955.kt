@@ -349,6 +349,9 @@ object ExitProfile7955 {
     /** CanonicalFinalizedTradeBus6464: a realised close (peak, exit, hold) of a position this book planned or a lane fallback. */
     fun onClose7955(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
         if (!env.terminal || env.mint.isBlank() || !env.realizedReturnPct.isFinite()) return
+        // V5.0.7992 — live exit ladders learn from live closes only. Paper and replayed cross-asset
+        // history (STOCK_SPOT n200, PERPS n30, CROSS_ASSET_HISTORY_REPAIR rows) were setting live exits.
+        if (!env.mode.equals("live", true)) return
         val entryMs = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         val planKey = positionPlans.keys.firstOrNull { it.startsWith(env.mint + "|") && kotlin.math.abs((it.substringAfter('|').toLongOrNull() ?: 0L) - entryMs) < 120_000L }
         val plan = planKey?.let { positionPlans.remove(it) }

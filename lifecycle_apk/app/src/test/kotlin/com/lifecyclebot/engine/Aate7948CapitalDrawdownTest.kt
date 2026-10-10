@@ -90,7 +90,7 @@ class Aate7948CapitalDrawdownTest {
         assertFalse(ks.contains("LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)"))
         assertEquals(4, Regex(Regex.escape("CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol)")).findAll(ks).count())
         assertFalse(ks.contains("((peakBalance - currentBalance) / peakBalance) * 100"))
-        assertTrue(ks.contains("putInt(\"environment_schema\", 7990)"))
+        assertTrue(ks.contains("putInt(\"environment_schema\", 7992)"))
         assertTrue(ks.contains("SIZE_DOWN_NOT_HALT_7864"))
         val lrp = src("engine/truth/LiveRiskPolicy7807.kt")
         assertFalse(lrp.contains("private fun observeEquity("))

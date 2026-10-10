@@ -489,9 +489,19 @@ object LiveRiskPolicy7807 {
     } catch (_: Throwable) { 0 }
 
     /** Cash plus cost basis still deployed in open live positions (realised equity; marks excluded). */
+    /** V5.0.7992 — the host wallet tracker shows a positive balance for [mint] (unknown tracker = trust the row). */
+    private fun walletHolds7992(mint: String): Boolean = try {
+        val p = com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)
+        p != null && p.uiAmount.isFinite() && p.uiAmount > 0.0
+    } catch (_: Throwable) { true }
+
     internal fun liveEquitySol(walletSol: Double): Double {
+        // V5.0.7992 — only rows the wallet actually holds count as deployed capital. 5.0.7991 after a
+        // reset: XOM (STOCK_SPOT, 0.2385) and AC2x (DIP_HUNTER, 0.4293) — rows with no valid entry that
+        // never existed in the wallet — inflated live equity, set a 0.56 SOL "peak" and a 68% drawdown.
         val deployed = try {
             CanonicalPositionAuthority6441.protectiveInventory7807("live")
+                .filter { walletHolds7992(it.mint) }
                 .sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
         } catch (_: Throwable) { 0.0 }
         val w = if (walletSol.isFinite()) walletSol.coerceAtLeast(0.0) else 0.0
