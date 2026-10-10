@@ -244,7 +244,24 @@ object Cortex7885 {
                         .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs),
                 )
             }
-            val out = org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr)
+            // V5.0.8013 — graded decisions held for progressive revision ride along (best runs first),
+            // so a 5 h / 24 h / later re-grade still reaches the voters after an app restart.
+            val garr = org.json.JSONArray()
+            synchronized(this) { graded8006.entries.sortedByDescending { it.value.gross }.take(GRADED_PERSIST_MAX_8013).toList() }.forEach { (k, g) ->
+                val a = g.p.a
+                val ids = org.json.JSONArray(); val xs = org.json.JSONArray(); val pr = org.json.JSONArray(); val pw = org.json.JSONArray()
+                for (i in a.ids.indices) {
+                    val r = a.raws.getOrNull(i) ?: continue
+                    if (!r.isFinite()) continue
+                    ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(fin0(r))
+                    pr.put(fin0(g.trace.preds.getOrNull(i) ?: Double.NaN)); pw.put(fin0(g.trace.pWins.getOrNull(i) ?: Double.NaN))
+                }
+                garr.put(org.json.JSONObject().put("k", k).put("l", a.lane).put("g", a.regime).put("b", a.bucket.ordinal)
+                    .put("adm", g.p.legacyAdmitted).put("at", g.atMs).put("v", g.p.vetoRule.orEmpty()).put("su", g.p.setup7961)
+                    .put("base", fin0(g.trace.base)).put("bw", fin0(g.trace.baseWin)).put("n", fin0(g.net)).put("gr", fin0(g.gross))
+                    .put("i", ids).put("x", xs).put("pr", pr).put("pw", pw))
+            }
+            val out = org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr).put("g8013", garr)
             LearningPersistence.save(PENDING_PERSIST_KEY, out.toString())
             inc("PENDING_PERSISTED")
         } catch (_: Throwable) { inc("PENDING_PERSIST_FAILED") }
@@ -282,6 +299,34 @@ object Cortex7885 {
                 fused, o.optDouble("ce", 0.0), b, 0, false, at)
             pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"))
             inc("PENDING_RESTORED")
+        }
+        restoreGraded8013(root, dict, nowMs)
+    }
+
+    /** V5.0.8013 — graded decisions still on the progressive schedule, back after a restart. */
+    private fun restoreGraded8013(root: org.json.JSONObject, dict: List<String>, nowMs: Long) {
+        val garr = root.optJSONArray("g8013") ?: return
+        val buckets = CortexScoreboard7885.Bucket.values()
+        for (i in 0 until garr.length()) {
+            val o = garr.optJSONObject(i) ?: continue
+            val k = o.optString("k"); val at = o.optLong("at")
+            if (k.isBlank() || at <= 0L || nowMs - at > GRADED_KEEP_MS_8013 || graded8006.containsKey(k)) continue
+            val ids = ArrayList<String>(); val edges = ArrayList<DoubleArray>()
+            val raws = ArrayList<Double>(); val preds = ArrayList<Double>(); val pws = ArrayList<Double>()
+            val ji = o.optJSONArray("i") ?: continue; val jx = o.optJSONArray("x") ?: continue
+            val jp = o.optJSONArray("pr") ?: continue; val jw = o.optJSONArray("pw") ?: continue
+            for (j in 0 until minOf(ji.length(), jx.length(), jp.length(), jw.length())) {
+                val id = dict.getOrNull(ji.optInt(j, -1)) ?: continue
+                val e = CortexVoters7885.edgesFor(id) ?: continue
+                ids.add(id); edges.add(e); raws.add(jx.optDouble(j)); preds.add(jp.optDouble(j)); pws.add(jw.optDouble(j))
+            }
+            val b = buckets.getOrNull(o.optInt("b", 1)) ?: CortexScoreboard7885.Bucket.NEUTRAL
+            val fused = CortexLedger7885.Fused(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList())
+            val a = Assessment(o.optString("l"), false, raws.toDoubleArray(), ids, edges, o.optString("g"), fused, 0.0, b, 0, false, at)
+            val p = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, "", o.optString("su"))
+            val trace = CortexLedger7885.GradeTrace8006(preds.toDoubleArray(), pws.toDoubleArray(), o.optDouble("base", 0.0), o.optDouble("bw", 0.5))
+            graded8006[k] = Graded8006(p, trace, o.optDouble("n", Double.NaN), o.optDouble("gr", Double.NaN), at)
+            inc("GRADED_RESTORED_8013")
         }
     }
 
@@ -421,12 +466,14 @@ object Cortex7885 {
     )
     private val graded8006 = HashMap<String, Graded8006>()
     private const val MAX_GRADED_8006 = 600
+    private const val GRADED_PERSIST_MAX_8013 = 150
+    private const val GRADED_KEEP_MS_8013 = 7L * 24L * 3_600_000L + 10L * 60_000L
     private val revised8006 = java.util.concurrent.atomic.AtomicLong(0)
     private val revisedUp8006 = java.util.concurrent.atomic.AtomicLong(0)
 
     private fun retain8006(key: String, p: Pending, trace: CortexLedger7885.GradeTrace8006, net: Double, gross: Double) {
         if (graded8006.size >= MAX_GRADED_8006) {
-            val cutoff = System.currentTimeMillis() - 25L * 3_600_000L
+            val cutoff = System.currentTimeMillis() - GRADED_KEEP_MS_8013
             graded8006.entries.removeIf { it.value.atMs < cutoff }
             if (graded8006.size >= MAX_GRADED_8006) graded8006.entries.minByOrNull { it.value.gross }?.key?.let { graded8006.remove(it) }
         }

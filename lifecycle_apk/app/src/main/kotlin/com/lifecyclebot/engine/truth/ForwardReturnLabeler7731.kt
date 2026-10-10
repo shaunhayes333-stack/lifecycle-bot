@@ -325,9 +325,12 @@ object ForwardReturnLabeler7731 {
 
     private fun encodePending7735(nowMs: Long): String {
         val fs = FIELD_SEP_7735.toString()
+        // V5.0.8013 — a coin still being followed past the hour (progressive grading) is saved for as
+        // long as its schedule runs, and saved first: a restart used to drop every followed runner
+        // after 70 minutes, so the 5 h / 24 h / beyond grades never happened across an app update.
         return pending.values.asSequence()
-            .filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 }
-            .sortedByDescending { it.atMs }
+            .filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }
+            .sortedWith(compareByDescending<Obs> { followed8013(it, nowMs) }.thenByDescending { it.atMs })
             .take(MAX_PERSISTED_PENDING_7735)
             .joinToString(ROW_SEP_7735.toString()) { o ->
                 listOf(
@@ -337,18 +340,35 @@ object ForwardReturnLabeler7731 {
                     if (o.done15) "1" else "0", if (o.done60) "1" else "0", if (o.done240) "1" else "0", o.peakPct.toString(),
                     o.entryMcap.toString(), o.stage, o.lastPx.toString(), o.lastPxAtMs.toString(),
                     o.setup7955.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '), o.peakAtMs7955.toString(),
+                    // V5.0.8013 — the progressive-grading state rides along (fields 23..30).
+                    o.ck7997.toString(), o.bookedNet7997.toString(), o.bookedGross7997.toString(), o.entryLiq7997.toString(),
+                    if (o.exitDeferred8006) "1" else "0", o.minPct7962.toString(), o.dipBeforePeak7962.toString(),
+                    o.feats7972.joinToString("\u0002") { it.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' ') },
                 ).joinToString(fs)
             }
     }
+
+    /** V5.0.8013 — an observation the progressive schedule is still following past the hour. */
+    private fun followed8013(o: Obs, nowMs: Long): Boolean =
+        o.done240 && o.bookedNet7997.isFinite() && scheduleOpen8013(o.ck7997, nowMs - o.atMs)
+
+    private fun checkpointDue8013(o: Obs, age: Long): Boolean =
+        o.done240 && o.ck7997 in CK_MS_7997.indices && age >= CK_MS_7997[o.ck7997]
+
+    /** Pure. V5.0.8013 — checkpoint [ck] of the schedule is still ahead (within its grace) at [ageMs]. */
+    fun scheduleOpen8013(ck: Int, ageMs: Long): Boolean =
+        ck in CK_MS_7997.indices && ageMs <= CK_MS_7997[CK_MS_7997.size - 1] + LOST_GRACE_MS_7731
 
     private fun restorePending7735(enc: String?, nowMs: Long): Int {
         if (enc.isNullOrBlank()) return 0
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..23) return@forEach
+            if (f.size !in 17..31) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
-            if (atMs <= 0L || nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731) return@forEach
+            val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
+            if (atMs <= 0L) return@forEach
+            if (nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731 && !scheduleOpen8013(ck8013, nowMs - atMs)) return@forEach
             val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
             val o = Obs(f[0], f[1], f[2], f[3], f[4], f[5] == "1", f[6].toIntOrNull() ?: -1, f[7], f[8], f[9], px, f[11].toDoubleOrNull() ?: 0.0, atMs)
             o.done15 = f[13] == "1"; o.done60 = f[14] == "1"; o.done240 = f[15] == "1"
@@ -360,6 +380,16 @@ object ForwardReturnLabeler7731 {
                 o.lastPxAtMs = f[20].toLongOrNull() ?: 0L
             }
             if (f.size >= 23) { o.setup7955 = f[21]; o.peakAtMs7955 = f[22].toLongOrNull() ?: 0L }
+            if (f.size >= 31) {
+                o.ck7997 = ck8013
+                o.bookedNet7997 = f[24].toDoubleOrNull() ?: Double.NaN
+                o.bookedGross7997 = f[25].toDoubleOrNull() ?: Double.NaN
+                o.entryLiq7997 = f[26].toDoubleOrNull() ?: 0.0
+                o.exitDeferred8006 = f[27] == "1"
+                o.minPct7962 = f[28].toDoubleOrNull() ?: 0.0
+                o.dipBeforePeak7962 = f[29].toDoubleOrNull() ?: Double.NaN
+                o.feats7972 = f[30].split('\u0002').filter { it.isNotBlank() }
+            }
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -602,8 +632,10 @@ object ForwardReturnLabeler7731 {
     // the lane / cell tallies here, the setup books (LanePlaybook7907), the fact combinations
     // (SpecialistMiner7972) and the cell bandit (CellAllocator7962). Revision replaces the value; a
     // decision is never counted twice. Past 1 hour only coins still up 20%+ keep being followed.
-    private val CK_MS_7997 = longArrayOf(15L * 60_000L, 30L * 60_000L, 60L * 60_000L, 4L * 3_600_000L,
-        8L * 3_600_000L, 12L * 3_600_000L, 24L * 3_600_000L)
+    // V5.0.8013 — the owner's schedule: 5 m (the first label), 15 m, 30 m, 1 h, 5 h, 24 h, and beyond
+    // (48 h, 72 h, 7 d) for a coin that is still running, holding liquidity and up 20%+ past the hour.
+    private val CK_MS_7997 = longArrayOf(15L * 60_000L, 30L * 60_000L, 60L * 60_000L, 5L * 3_600_000L,
+        24L * 3_600_000L, 48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)
     private const val RUNNING_GROSS_7997 = 20.0
     private const val DEAD_GROSS_7997 = -60.0
     private const val MAX_EXTENDED_7997 = 1_500
@@ -664,7 +696,7 @@ object ForwardReturnLabeler7731 {
     }
 
     fun progressiveLine7997(): String =
-        "checkpoints=15m,30m,1h,4h,8h,12h,24h revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
+        "checkpoints=5m,15m,30m,1h,5h,24h,48h,72h,7d revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false) {
@@ -865,14 +897,22 @@ object ForwardReturnLabeler7731 {
             val px = markFor(o.mint, priceFor, nowMs)
             if (px == null) {
                 if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
+                // V5.0.8013 — a followed coin's due checkpoint asks for an off-watch mark too.
+                else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to (o.atMs + CK_MS_7997[o.ck7997]))
                 if (!o.done60 && age >= H60_MS_7731 + graceFor7946(H60_MS_7731)) {
                     // V5.0.7944 — nothing priced it at its 60-minute horizon: booked at its
                     // real last price (or -100% when it died), lost only when there is no read.
                     resolveVanished7944(o, 60, nowMs)
                     pending.remove(key, o)
                 } else if (o.done60 && age >= H240_MS_7731 + graceFor7946(H240_MS_7731)) {
-                    if (!o.done240) { o.done240 = true; resolveVanished7944(o, 240, nowMs) }
-                    pending.remove(key, o)
+                    if (!o.done240) { o.done240 = true; resolveVanished7944(o, 240, nowMs); pending.remove(key, o) }
+                    // V5.0.8013 — a coin still on the progressive schedule is kept while unpriced (it left
+                    // the watchlist; its checkpoint fetches an off-watch mark); it used to be dropped here,
+                    // so the 5 h / 24 h grades almost never happened.
+                    else if (!followed8013(o, nowMs)) {
+                        if (o.lastPx > 0.0 && o.entryPrice > 0.0) endRun8006(o, (o.lastPx / o.entryPrice - 1.0) * 100.0)
+                        pending.remove(key, o)
+                    }
                 }
                 continue
             }
