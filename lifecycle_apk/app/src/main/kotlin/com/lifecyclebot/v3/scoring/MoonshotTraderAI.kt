@@ -1224,7 +1224,9 @@ object MoonshotTraderAI {
         if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor))
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
         val holdMinutes = holdSeconds / 60
-        if (holdMinutes <= 12) stop = maxOf(stop, -10.0)
+        // V5.0.8030 — one stop per lane: the first 12 minutes hold the runner floor (StopAuthority7887, 15%), not a
+        // tick-path -10% that contradicted checkExit's -20 floor and cut STRONG coins on the dip before their run.
+        if (holdMinutes <= 12) stop = maxOf(stop, -15.0)
         val inBreatherWindow = holdMinutes <= 12 && pos.stopLossPct > -10.0
         if (!inBreatherWindow && pos.stopLossPct < 0.0) stop = maxOf(stop, pos.stopLossPct)
         return stop

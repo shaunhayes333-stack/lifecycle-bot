@@ -480,10 +480,15 @@ object LiveEdgeGate7877 {
         if (paper) return cortex7950
         // V5.0.8019 — a coin any lane closed in the last 10 minutes is not reopened (the re-entry ticket excepted).
         com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }
+        // V5.0.8030 — positive EV only: the lane's expected move must be at least 2x the round trip. Hard: no
+        // chart read, specialist, ticket or Cortex overrule buys a trade whose cost eats half its move.
+        NetEdge8030.entryRefusal8030(ts, lane)?.let { return it }
+        // V5.0.8030 — a Cortex refusal that has EARNED authority (proven on its own record) is not bypassed by a
+        // chart-reader BUY any more; the chart read still clears every unproven soft prior below.
+        cortex7950?.let { return it }
         // V5.0.7950 — the chart reader's BUY passes every learned/soft refusal; hard safety
         // (the safety tier's HARD_BLOCK, Mayhem) still refuses inside chartAdmits7950.
         if (chartAdmits7950(ts, lane, nowMs)) return null
-        cortex7950?.let { return it }
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         // V5.0.7943 — pump.fun Mayhem Mode coins are not bought live.
         com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts)?.let { return it }

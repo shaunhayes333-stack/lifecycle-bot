@@ -9061,12 +9061,10 @@ class Executor(
             // Fix: `!= 0.0` + kotlin.math.abs() so a stored -4.0 resolves to
             // a raw magnitude of 4.0 (later re-negated at the modeStopNegative
             // computation as intended).
-            val rawSL = when {
-                pos.isShitCoinPosition && pos.shitCoinStopLoss != 0.0 -> kotlin.math.abs(pos.shitCoinStopLoss)
-                pos.isBlueChipPosition && pos.blueChipStopLoss != 0.0 -> kotlin.math.abs(pos.blueChipStopLoss)
-                pos.isTreasuryPosition && pos.treasuryStopLoss != 0.0 -> kotlin.math.abs(pos.treasuryStopLoss)
-                else -> com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)
-            }
+            // V5.0.8030 — one stop per lane: STRICT_SL reads the same stop as every other path (StopAuthority7887:
+            // the plan, else the lane band x its learned multiplier, runner floor). The stored per-trader fields
+            // (shitCoin / blueChip / treasury) set a second, tighter stop for three lanes only.
+            val rawSL = com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)
             // V5.9.1028 — AI-FLUID STOP LOSS THRESHOLD.
             // Operator V5.9.1027b mandate: "the strict and rapid stops are
             // still meant to be a fluid learnt thing as well. everything is
@@ -22852,6 +22850,11 @@ class Executor(
             try { PipelineHealthCollector.labelInc("SELL_DUST_LATCH_ANSWERED_7768") } catch (_: Throwable) {}
             return SellResult.ROUTE_FAILED_NO_SIGNATURE
         }
+        // V5.0.8030 — net profit always: a green profit-taking exit below the round trip + 1% holds (NetEdge8030).
+        if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = false) } catch (_: Throwable) { false }) {
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
         // V5.0.7715 — §10 exit discipline: every exit request is classified
         // (structural / integrity / target / time / regime / operational) so
         // the report shows what kind of exits the book is taking, per mode.
@@ -23232,6 +23235,11 @@ class Executor(
     ) {
         val pct = sellPercentage.coerceIn(0.0, 1.0)
         if (pct <= 0) return
+        // V5.0.8030 — a partial take-profit is profit-taking too: none below the round trip + 1%.
+        if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = true) } catch (_: Throwable) { false }) {
+            receipt6566?.invoke(PartialSellReceipt6566(false))
+            return
+        }
         
         // V5.9.475 — rehydrate ts.position from sub-trader maps if empty.
         // Without this, partial-sell would compute originalHolding = 0

@@ -1447,6 +1447,9 @@ object PipelineHealthCollector {
         ).append(" | rebuy ").append(
             try { RebuyLockout8019.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Net edge (§8030): ").append(
+            try { com.lifecyclebot.engine.truth.NetEdge8030.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Lane participation (§8029): ").append(
             try { LaneParticipation8029.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

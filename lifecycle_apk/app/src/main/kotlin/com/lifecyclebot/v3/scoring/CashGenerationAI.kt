@@ -1335,8 +1335,12 @@ object CashGenerationAI {
      * 0.044 SOL position is ~0% net after the platform fee, two priority fees and
      * slippage; it banked scratches as "take profit".
      */
+    // V5.0.8030 — owner: "treasury scalps ... 3% is dumb, that just costs money". A live take-profit is at least
+    // 2x the round trip (measured lane cost or the model at this ticket, NetEdge8030): the same bar the entry had
+    // to clear, so a scalp that is taken is a net win.
     fun liveTpFloor7928(entrySol: Double): Double = try {
-        maxOf(TAKE_PROFIT_PCT_LIVE, com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(entrySol, 0.0, 0.0) + 1.0)
+        maxOf(TAKE_PROFIT_PCT_LIVE, com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(entrySol, 0.0, 0.0) + 1.0,
+            com.lifecyclebot.engine.truth.NetEdge8030.EDGE_MULT * com.lifecyclebot.engine.truth.NetEdge8030.costPct8030("TREASURY", entrySol, 0.0))
     } catch (_: Throwable) { TAKE_PROFIT_PCT_LIVE }
 
     /** V5.0.7928 — a TIME_EXIT sweep never sells a position whose pnl is unreadable or green. */
