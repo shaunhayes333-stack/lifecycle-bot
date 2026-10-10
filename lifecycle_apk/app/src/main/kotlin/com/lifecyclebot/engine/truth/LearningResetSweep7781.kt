@@ -78,7 +78,7 @@ object LearningResetSweep7781 {
      * Deleting them at boot, before anything opens them, makes the reset final.
      */
     internal val LEARNING_DBS_7975: List<String> = listOf("learning_kv.db")
-    internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin")
+    internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin", "runner_grab_7989.txt")
 
     @Volatile private var bootSweeps = 0
     @Volatile private var requestSweeps = 0

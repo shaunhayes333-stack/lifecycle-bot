@@ -193,6 +193,7 @@ object RunnerGrab7967 {
         // Graded whether or not the admit is live.
         val px = ts.lastPrice
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(mint, px to nowMs)
+        ensureRecord7989()
         gradeDue(nowMs)
         if (synchronized(record) { recordStandsDown7967(record) }) {
             try { PipelineHealthCollector.labelInc("RUNNER_GRAB_STOOD_DOWN_7967") } catch (_: Throwable) {}
@@ -221,7 +222,27 @@ object RunnerGrab7967 {
             if (r < 0.01 || r > 200.0) continue
             val g = ((r - 1.0) * 100.0).coerceIn(-100.0, 1_000.0)
             synchronized(record) { record.add(g, g >= 100.0) }
+            saveRecord7989()
         }
+    }
+
+    // ── V5.0.7989 — the grab's own record survives restarts ──
+    // It lived only in memory, and every build install restarted it at zero, so the stand-down
+    // (20 grades, mean + SE < 0) could never engage: 5.0.7985 read record30m=- with 140 pending.
+
+    @Volatile private var recordLoaded7989 = false
+
+    private fun recordFile7989(): java.io.File? =
+        com.lifecyclebot.AATEApp.appContextOrNull()?.let { java.io.File(it.filesDir, "runner_grab_7989.txt") }
+
+    private fun ensureRecord7989() {
+        if (recordLoaded7989) return
+        recordLoaded7989 = true
+        try { recordFile7989()?.takeIf { it.exists() }?.readText()?.trim()?.let { t -> synchronized(record) { record.decode(t) } } } catch (_: Throwable) {}
+    }
+
+    private fun saveRecord7989() {
+        try { recordFile7989()?.writeText(synchronized(record) { record.encode() }) } catch (_: Throwable) {}
     }
 
     // ── size ──

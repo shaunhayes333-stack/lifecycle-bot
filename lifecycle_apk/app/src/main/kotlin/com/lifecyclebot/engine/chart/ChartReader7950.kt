@@ -280,6 +280,10 @@ object ChartReader7950 {
      */
     fun buySignal(r: Read?, typicalDist: Double = ChartLibrary7950.typicalDist()): Boolean {
         if (r == null) return false
+        // V5.0.7989 — a 15-second read is learning only, never an admit. 5.0.7985: once fresh tapes were
+        // read on 15 s candles the reader said BUY 772 times and admitted ~770 launch-price coins
+        // ($3.1k mcap) past every learned refusal; win rate and EV fell with it.
+        if (r.fine7982) return false
         // V5.0.7968 — a proven candle-colour sequence (any price, any mcap) is a buy when buyers hold the tape.
         if (r.colorBuy7968 && (!r.buyShare.isFinite() || r.buyShare >= MIN_BUY_SHARE)) return true
         val m = r.motif ?: return false
