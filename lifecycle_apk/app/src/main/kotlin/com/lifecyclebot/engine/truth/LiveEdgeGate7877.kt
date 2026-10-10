@@ -380,7 +380,14 @@ object LiveEdgeGate7877 {
 
     private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long): String? {
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
-        if (st != null && cellEarnsLive7994(st.n60, st.meanNet60Pct)) { cleared7994.incrementAndGet(); return null }
+        if (st != null && cellEarnsLive7994(st.n60, st.meanNet60Pct)) {
+            cleared7994.incrementAndGet()
+            // V5.0.7995 — a cell that pays (+5% or better at 5 minutes) is bought now, not made to wait
+            // for a chart setup: NO_PLAN_WAIT_7739 cost the biggest runners (BUM +32,922%, hehe +2,906%,
+            // ORA +1,871%, AIA +1,577%) and its refused candidates read +3.9% (n301) / +11.7% (n34).
+            if (cellSkipsPlanWait7995(st.n60, st.meanNet60Pct)) { notePositive7975(ts.mint, nowMs); planSkips7995.incrementAndGet() }
+            return null
+        }
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val specialist = try { SpecialistMiner7972.match7972(ts, l, nowMs) } catch (_: Throwable) { null }
         if (specialist != null) { cleared7994.incrementAndGet(); return null }
@@ -393,7 +400,12 @@ object LiveEdgeGate7877 {
         return why
     }
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    private val planSkips7995 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
+    fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
+
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
