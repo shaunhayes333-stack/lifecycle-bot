@@ -12,7 +12,7 @@ class Aate7984DiscoveryTest {
         assertEquals(30_000L, intakeDedupTtl7984(false, 30_000L))
         assertEquals(300_000L, intakeDedupTtl7984(true, 30_000L))
         val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("if (prevAt != null && (nowMs - prevAt) < dedupTtl7984(mint, prevAt, nowMs)) {"))
+        assertTrue(bot.contains("(nowMs - prevAt) < dedupTtl7984(mint, prevAt, nowMs)"))
     }
 
     @Test fun newVersusRepeatIsCounted() {

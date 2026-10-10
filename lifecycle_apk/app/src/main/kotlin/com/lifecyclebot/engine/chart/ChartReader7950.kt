@@ -34,7 +34,7 @@ object ChartReader7950 {
     private const val FINE_MS_7982 = 15_000L
     private const val FINE_KEEP_MS_7982 = 30L * 60_000L
     private const val KEEP_MS = 120L * 60_000L
-    private const val MAX_MINTS = 1_500
+    private const val MAX_MINTS = 1_000
     private const val READ_TTL_MS = 15_000L
     private const val DEV_SELL_WINDOW_MS = 10L * 60_000L
 
@@ -76,7 +76,10 @@ object ChartReader7950 {
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         synchronized(tape) {
             foldPrice7982(tape.bars, atMs / BUCKET_MS, priceUsd, atMs)
-            foldPrice7982(tape.fine7982, atMs / FINE_MS_7982, priceUsd, atMs)
+            // V5.0.7986 — 15 s candles only while the one-minute tape is too short to read (memory:
+            // 5.0.7985 peaked at 100% heap with 1,005 tapes each holding both).
+            if (tape.bars.size <= ChartMotif7950.WINDOW + ChartMotif7950.HORIZON) foldPrice7982(tape.fine7982, atMs / FINE_MS_7982, priceUsd, atMs)
+            else if (tape.fine7982.isNotEmpty()) tape.fine7982.clear()
             if (atMs > tape.lastMs) tape.lastMs = atMs
             val oldest = (tape.lastMs - KEEP_MS) / BUCKET_MS
             while (tape.bars.isNotEmpty() && tape.bars.firstKey() < oldest) tape.bars.pollFirstEntry()
@@ -299,7 +302,12 @@ object ChartReader7950 {
     }
 
     /** V5.0.7977 — MemoryGuard7977: the read cache is rebuilt on demand. */
-    fun trim7977() { reads.clear() }
+    fun trim7977() {
+        reads.clear()
+        // V5.0.7986 — under heap pressure, tapes quiet for 15 minutes go (the archive keeps the token).
+        val now = System.currentTimeMillis()
+        tapes.entries.removeIf { now - it.value.lastMs > 15L * 60_000L }
+    }
     fun size7977(): Int = reads.size + tapes.size
 
     /** V5.0.7955 — the last read for [mint] if one exists (no library search, no backfill request). */

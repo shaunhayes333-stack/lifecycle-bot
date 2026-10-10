@@ -13705,9 +13705,16 @@ class BotService : Service() {
 
     private fun safeLabel7984(label: String) { try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {} }
 
+    /** V5.0.7986 — an accepted intake; a mint with no prior accept is counted as discovered (7984 never saw these). */
+    private fun markAccepted7986(mint: String, prevAt: Long?, nowMs: Long) {
+        intakeLastAcceptMs[mint] = nowMs
+        intakeDedupCount[mint] = 0
+        if (prevAt == null) try { com.lifecyclebot.engine.truth.DiscoveryRate7984.note7984(mint, true, nowMs) } catch (_: Throwable) {}
+    }
+
     /** V5.0.7984 — counts the intake (new vs repeat) and returns this mint's re-intake window. */
     private fun dedupTtl7984(mint: String, prevAt: Long?, nowMs: Long): Long {
-        try { com.lifecyclebot.engine.truth.DiscoveryRate7984.note7984(mint, prevAt == null, nowMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.DiscoveryRate7984.note7984(mint, false, nowMs) } catch (_: Throwable) {}
         val watched = try { GlobalTradeRegistry.getEntry(mint) != null } catch (_: Throwable) { false }
         return intakeDedupTtl7984(watched, intakeDedupTtlMs)
     }
@@ -16402,8 +16409,7 @@ class BotService : Service() {
             // Promotion crossed probation→hot: continue once through canonical
             // hydration so the newly-qualified mint cannot remain projection-only.
         }
-        intakeLastAcceptMs[mint] = nowMs
-        intakeDedupCount[mint] = 0
+        markAccepted7986(mint, prevAt, nowMs)
 
         // V5.9.1464 — FAMILY-LEVEL burst gate (spec item 7). Collapse same-family
         // mint floods so the watchlist/UI isn't inflated by PIÑA/José/JOTCHUA-style

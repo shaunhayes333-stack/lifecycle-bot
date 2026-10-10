@@ -84,6 +84,22 @@ object CapitalDrawdown7948 {
         return Peak7948(maxOf(prior.peakSol + flowSol, equitySol), prior.atMs)
     }
 
+    // V5.0.7986 — a flow is only external if it stands for [CONFIRM_MS_7986] with no journal write
+    // in between. 5.0.7985 counted 22 "external flows" in 13 minutes: the wallet moves on a bot
+    // buy/sell before the position and realised P&L catch up, which read as a deposit/withdrawal.
+    private const val CONFIRM_MS_7986 = 45_000L
+    private class Pending7986(val eq: Double, val real: Double, val upnl: Double, val rev: Long, val atMs: Long)
+    @Volatile private var pending7986: Pending7986? = null
+    @Volatile private var prevRev7986 = -1L
+    private val cancelled7986 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure: confirm a pending flow? Only when no journal write happened and it has stood long enough. */
+    fun confirmFlow7986(revAtPending: Long, revNow: Long, pendingAtMs: Long, nowMs: Long): Boolean? = when {
+        revNow != revAtPending -> false
+        nowMs - pendingAtMs >= CONFIRM_MS_7986 -> true
+        else -> null
+    }
+
     @Volatile private var prevEq7981 = Double.NaN
     @Volatile private var prevReal7981 = Double.NaN
     @Volatile private var prevUpnl7981 = Double.NaN
@@ -105,19 +121,31 @@ object CapitalDrawdown7948 {
         if (equitySol.isFinite() && equitySol > 0.0) {
             val real = realisedLiveSol7981(nowMs)
             val upnl = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
-            if (prevEq7981.isFinite() && real.isFinite() && prevReal7981.isFinite()) {
-                val flow = externalFlow7981(equitySol - prevEq7981, real - prevReal7981, upnl - prevUpnl7981)
-                if (isExternal7981(flow, equitySol)) {
-                    peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
-                    externalFlows7981.incrementAndGet()
-                    netExternal7981 += flow
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (flow > 0) "DRAWDOWN_EXTERNAL_INFLOW_7981" else "DRAWDOWN_EXTERNAL_OUTFLOW_7981")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_EXTERNAL_FLOW_7981", "flow=${"%.4f".format(flow)} equity=${"%.4f".format(equitySol)} peak=${"%.4f".format(peak7948.peakSol)}")
-                    } catch (_: Throwable) {}
+            val rev = try { com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343() } catch (_: Throwable) { -1L }
+            val p = pending7986
+            if (p != null) {
+                when (confirmFlow7986(p.rev, rev, p.atMs, nowMs)) {
+                    false -> { pending7986 = null; cancelled7986.incrementAndGet() }
+                    true -> {
+                        pending7986 = null
+                        val flow = if (real.isFinite()) externalFlow7981(equitySol - p.eq, real - p.real, upnl - p.upnl) else 0.0
+                        if (isExternal7981(flow, equitySol)) {
+                            peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
+                            externalFlows7981.incrementAndGet()
+                            netExternal7981 += flow
+                            try {
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (flow > 0) "DRAWDOWN_EXTERNAL_INFLOW_7981" else "DRAWDOWN_EXTERNAL_OUTFLOW_7981")
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_EXTERNAL_FLOW_7981", "flow=${"%.4f".format(flow)} equity=${"%.4f".format(equitySol)} peak=${"%.4f".format(peak7948.peakSol)}")
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    null -> {}
                 }
+            } else if (prevEq7981.isFinite() && real.isFinite() && prevReal7981.isFinite() && rev == prevRev7986) {
+                val flow = externalFlow7981(equitySol - prevEq7981, real - prevReal7981, upnl - prevUpnl7981)
+                if (isExternal7981(flow, equitySol)) pending7986 = Pending7986(prevEq7981, prevReal7981, prevUpnl7981, rev, nowMs)
             }
-            prevEq7981 = equitySol; prevReal7981 = real; prevUpnl7981 = upnl
+            prevEq7981 = equitySol; prevReal7981 = real; prevUpnl7981 = upnl; prevRev7986 = rev
         }
         peak7948 = rollPeak7948(peak7948, equitySol, nowMs)
         drawdownPct7948(peak7948, equitySol, nowMs)
@@ -138,7 +166,7 @@ object CapitalDrawdown7948 {
     fun line7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): String {
         val p = rollPeak7948(peak7948, equitySol, nowMs)
         return "liveDD=${"%.1f".format(peekPct7948(equitySol, nowMs))}% equity=${"%.4f".format(equitySol)} " +
-            "peak24h=${"%.4f".format(p.peakSol)} externalFlows7981=${externalFlows7981.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]"
+            "peak24h=${"%.4f".format(p.peakSol)} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]"
     }
 
     // ── pure: routable capacity sentence ────────────────────────────────────
