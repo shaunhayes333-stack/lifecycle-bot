@@ -13702,6 +13702,15 @@ class BotService : Service() {
     private val intakeDedupCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val intakeSeenSourcesByMint6566 = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
     private val intakeDedupTtlMs: Long = 30_000L
+
+    private fun safeLabel7984(label: String) { try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {} }
+
+    /** V5.0.7984 — counts the intake (new vs repeat) and returns this mint's re-intake window. */
+    private fun dedupTtl7984(mint: String, prevAt: Long?, nowMs: Long): Long {
+        try { com.lifecyclebot.engine.truth.DiscoveryRate7984.note7984(mint, prevAt == null, nowMs) } catch (_: Throwable) {}
+        val watched = try { GlobalTradeRegistry.getEntry(mint) != null } catch (_: Throwable) { false }
+        return intakeDedupTtl7984(watched, intakeDedupTtlMs)
+    }
     // V5.9.1464 — FAMILY-LEVEL intake burst gate (spec item 7). The per-mint
     // dedupe above stops the SAME mint re-flooding, but pump.fun spam ships the
     // SAME narrative/family under MANY fresh mints (PIÑA/José/JOTCHUA bursts).
@@ -16320,7 +16329,10 @@ class BotService : Service() {
         }
         val newSourceEvidence6566 = incomingSources6566.any { seenSources6566.add(it) }
         val prevAt = intakeLastAcceptMs[mint]
-        if (prevAt != null && (nowMs - prevAt) < intakeDedupTtlMs) {
+        // V5.0.7984 — a mint already on the watchlist refreshes its own price; a scanner list that
+        // re-serves it every poll (trending / boosted / hunts) is held to the 5-minute window, not
+        // 30 s (5.0.7983: SIB re-intaken 26x, STUTUTU 19x in 7 minutes). New evidence still merges.
+        if (prevAt != null && (nowMs - prevAt) < dedupTtl7984(mint, prevAt, nowMs)) {
             val lanes6566 = inferIntakeLaneAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
             val tools6566 = inferIntakeToolAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
             val registryBefore7475 = GlobalTradeRegistry.getEntry(mint)
@@ -16373,7 +16385,7 @@ class BotService : Service() {
                     note = "MEME_DEDUPE_REFRESH_6566",
                 )
             } else if (hot6566 && !meaningfulRefresh7475) {
-                try { PipelineHealthCollector.labelInc("INTAKE_REPEAT_NO_NEW_EVIDENCE_COALESCED_7475") } catch (_: Throwable) {}
+                safeLabel7984("INTAKE_REPEAT_NO_NEW_EVIDENCE_COALESCED_7475")
             }
             val cnt = (intakeDedupCount[mint] ?: 0) + 1
             intakeDedupCount[mint] = cnt
@@ -16445,7 +16457,7 @@ class BotService : Service() {
         // Opportunistic prune so the maps cannot grow unbounded across
         // long sessions. Cheap O(n) only when we cross the cap.
         if (intakeLastAcceptMs.size > 1024) {
-            val cutoff = nowMs - intakeDedupTtlMs
+            val cutoff = nowMs - WATCHED_INTAKE_DEDUP_MS_7984
             val it = intakeLastAcceptMs.entries.iterator()
             while (it.hasNext()) {
                 val e = it.next()
@@ -35236,3 +35248,10 @@ private val smartChartScanCounter = java.util.concurrent.atomic.AtomicLong(0)
 internal object CanonicalRebuildMemo7387 {
     @Volatile var builtForEvents: Int = -1
 }
+
+/** V5.0.7984 — re-intake window: 5 minutes for a mint already on the watchlist, else [baseMs]. */
+internal const val WATCHED_INTAKE_DEDUP_MS_7984 = 5L * 60_000L
+
+/** Pure. V5.0.7984 — the intake dedupe window for a mint. */
+internal fun intakeDedupTtl7984(watched: Boolean, baseMs: Long): Long =
+    if (watched) maxOf(baseMs, WATCHED_INTAKE_DEDUP_MS_7984) else baseMs
