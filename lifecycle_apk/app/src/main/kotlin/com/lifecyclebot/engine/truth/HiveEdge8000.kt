@@ -92,6 +92,10 @@ object HiveEdge8000 {
         try { for ((k, v) in SpecialistMiner7972.hiveSnapshot8000()) out["SPEC|$k"] = v } catch (_: Throwable) {}
         try { for ((k, v) in com.lifecyclebot.engine.cortex.LanePlaybook7907.hiveSnapshot8000()) out["PB|$k"] = v } catch (_: Throwable) {}
         try { for ((k, v) in TailHunter7996.hiveSnapshot8000()) out["TAIL|$k"] = v } catch (_: Throwable) {}
+        // V5.0.8001 — the Cortex's voter seats, dev reputations and expert wallets.
+        try { for ((k, v) in com.lifecyclebot.engine.cortex.Cortex7885.hiveSnapshot8001()) out["CX|$k"] = v } catch (_: Throwable) {}
+        try { for ((k, v) in SpecialistMiner7972.hiveDevSnapshot8001()) out["DEV|$k"] = v } catch (_: Throwable) {}
+        try { for ((k, v) in com.lifecyclebot.engine.ExpertWallets7962.hiveSnapshot8001()) out["EXP|$k"] = v } catch (_: Throwable) {}
         return out
     }
 
@@ -176,8 +180,56 @@ object HiveEdge8000 {
         }
         save()
         // What the network proves becomes local authority.
-        try { promotedFromHive.addAndGet(SpecialistMiner7972.hivePromote8000().toLong()) } catch (_: Throwable) {}
+        inherit()
         try { PipelineHealthCollector.labelInc("HIVE_EDGE_SYNC_8000") } catch (_: Throwable) {}
+    }
+
+    private fun inherit(): String {
+        val sp = try { SpecialistMiner7972.hivePromote8000() } catch (_: Throwable) { 0 }
+        val cx = try { com.lifecyclebot.engine.cortex.Cortex7885.hiveInherit8001() } catch (_: Throwable) { 0 }
+        val ex = try { com.lifecyclebot.engine.ExpertWallets7962.hiveInherit8001() } catch (_: Throwable) { 0 }
+        promotedFromHive.addAndGet(sp.toLong()); seatsInherited.addAndGet(cx.toLong()); expertsInherited.addAndGet(ex.toLong())
+        return "specialists=$sp cortexSeats=$cx expertWallets=$ex"
+    }
+
+    private val seatsInherited = AtomicLong(0)
+    private val expertsInherited = AtomicLong(0)
+
+    /**
+     * V5.0.8001 — BOOST (Collective Brain screen): a new or reset install inherits the whole network's
+     * learnt edge now — every shared book paged in from the start, then specialists promoted, Cortex
+     * seats and expert wallets inherited. Returns a one-paragraph summary for the boost dialog.
+     */
+    suspend fun boost8001(client: com.lifecyclebot.collective.TursoClient): String {
+        ensureLoaded()
+        ensureTables(client)
+        var from = 0L
+        var rows = 0
+        var pages = 0
+        while (pages < 40) {
+            val res = client.query(
+                "SELECT k, n, s, ss, w, r, b, updated_ms FROM hive_edge_8000 WHERE updated_ms > ? ORDER BY updated_ms LIMIT $PULL_LIMIT",
+                listOf<Any?>(from),
+            )
+            if (!res.success || res.rows.isEmpty()) break
+            var maxTs = from
+            for (row in res.rows) {
+                val k = row["k"]?.toString().orEmpty()
+                if (k.isBlank()) continue
+                aggregate[k] = DoubleArray(6) { i -> row[listOf("n", "s", "ss", "w", "r", "b")[i]]?.toString()?.toDoubleOrNull() ?: 0.0 }
+                maxTs = maxOf(maxTs, row["updated_ms"]?.toString()?.toDoubleOrNull()?.toLong() ?: 0L)
+            }
+            rows += res.rows.size
+            pages++
+            if (maxTs <= from || res.rows.size < PULL_LIMIT) { from = maxTs; break }
+            from = maxTs
+        }
+        lastPullMs = maxOf(lastPullMs, from)
+        pulledRows.addAndGet(rows.toLong())
+        save()
+        val got = inherit()
+        try { PipelineHealthCollector.labelInc("HIVE_BOOST_8001") } catch (_: Throwable) {}
+        return "Hive brain: ${aggregate.size} shared keys ($rows rows read) — inherited $got"
     }
 
     // ── runner signals ──
@@ -235,6 +287,6 @@ object HiveEdge8000 {
 
     fun statusLine8000(): String =
         "sharedKeys=${aggregate.size} mineUploaded=${uploaded.size} uploadedRows=${uploadedRows.get()} pulledRows=${pulledRows.get()} " +
-            "specialistsFromHive=${promotedFromHive.get()} runnerSignals[sent=${runnersSent.get()} pulled=${runnersPulled.get()}] " +
-            "books=FRL,SPEC,PB,TAIL lastPull=${if (lastPullMs > 0L) "${(System.currentTimeMillis() - lastPullMs) / 1000}s" else "-"}"
+            "specialistsFromHive=${promotedFromHive.get()} seatsInherited=${seatsInherited.get()} expertsInherited=${expertsInherited.get()} runnerSignals[sent=${runnersSent.get()} pulled=${runnersPulled.get()}] " +
+            "books=FRL,SPEC,PB,TAIL,CX,DEV,EXP lastPull=${if (lastPullMs > 0L) "${(System.currentTimeMillis() - lastPullMs) / 1000}s" else "-"}"
 }

@@ -196,9 +196,20 @@ object SpecialistMiner7972 {
 
     private fun devFor(mint: String): String {
         val dev = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null } ?: return "NA"
-        val s = devs[dev] ?: return "NEW"
-        return synchronized(s) { devBin7972(s.n, s.mean()) }
+        // V5.0.8001 — the hive's record of this dev rides on the local one.
+        val hive = try { HiveEdge8000.net8000("DEV|$dev") } catch (_: Throwable) { null }
+        val s = devs[dev] ?: if (hive == null) return "NEW" else Stat()
+        return synchronized(s) {
+            val n = s.n + (hive?.get(0)?.toInt() ?: 0)
+            val sum = s.sum + (hive?.get(1) ?: 0.0)
+            if (n <= 0) "NEW" else devBin7972(n, sum / n)
+        }
     }
+
+    /** V5.0.8001 — HiveEdge8000: this instance's dev reputations ([n, sum, sumSq, wins, runners, 0]). */
+    fun hiveDevSnapshot8001(): Map<String, DoubleArray> =
+        devs.entries.asSequence().filter { it.value.n >= 1 }.sortedByDescending { it.value.n }.take(3_000)
+            .associate { (k, s) -> k to synchronized(s) { doubleArrayOf(s.n.toDouble(), s.sum, s.sumSq, s.wins.toDouble(), s.runners.toDouble(), 0.0) } }
 
     /** ForwardReturnLabeler7731.attach: where the miner keeps its record. */
     fun attach7972(context: Context) {

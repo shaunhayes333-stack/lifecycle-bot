@@ -415,6 +415,19 @@ object ExpertWallets7962 {
     }
 
     /** V5.0.7968 — PumpCallouts7968: proven callers' wallets are learned as TOP experts (histories, cells, exits). */
+    /** V5.0.8001 — HiveEdge8000: this instance's tracked expert wallets ([1, 0, 0, 0, 0, tier rank]; OWNER never shared). */
+    fun hiveSnapshot8001(): Map<String, DoubleArray> =
+        experts.values.filter { it.tier != Tier7962.OWNER }.take(200)
+            .associate { e -> e.address to doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, if (e.tier == Tier7962.TOP) 2.0 else 1.0) }
+
+    /** V5.0.8001 — expert wallets other instances track are tracked here too (the hive's best first). Returns added. */
+    fun hiveInherit8001(): Int {
+        val hive = com.lifecyclebot.engine.truth.HiveEdge8000
+        val ranked = hive.netKeys8000("EXP|").mapNotNull { k -> hive.net8000(k)?.let { k.removePrefix("EXP|") to (it[0] * 10.0 + it[5]) } }
+            .sortedByDescending { it.second }.map { it.first }
+        return addCallerWallets7968(ranked)
+    }
+
     fun addCallerWallets7968(wallets: List<String>): Int {
         var added = 0
         for (w in wallets) {

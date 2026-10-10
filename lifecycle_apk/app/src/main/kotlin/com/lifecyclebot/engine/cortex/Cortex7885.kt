@@ -866,6 +866,55 @@ object Cortex7885 {
     }
 
     /** V5.0.7930 — BotService.onDestroy: save now (graded state between periodic saves was lost on restart). */
+    // ── V5.0.8001 — the Cortex's voter seats through the hive (HiveEdge8000) ──
+
+    /** This instance's seasoned seats: "S|voter|lane" = [scored, sseModel, sseBase, brierModel, brierBase, bins]
+     *  and "B|voter|lane|bin" = [n, sum, sumSq, wins, runners, 0]. */
+    fun hiveSnapshot8001(): Map<String, DoubleArray> = synchronized(this) {
+        val out = HashMap<String, DoubleArray>()
+        for ((id, st) in ledger.seats) {
+            if (st.scored < 30) continue
+            out["S|$id"] = doubleArrayOf(st.scored.toDouble(), st.sseModel, st.sseBase, st.brierModel, st.brierBase, st.bins.size.toDouble())
+            for (i in st.bins.indices) {
+                val b = st.bins[i]
+                if (b.n >= 1.0) out["B|$id|$i"] = doubleArrayOf(b.n, b.sum, b.sumSq, b.wins, b.runners, 0.0)
+            }
+            if (out.size > 6_000) break
+        }
+        out
+    }
+
+    /**
+     * V5.0.8001 — a thin local seat inherits the network's: a seat this instance has scored fewer
+     * than MIN_SCORED times takes the hive's skill sums and bins (new installs start from the
+     * network's learnt authority instead of zero). Returns seats inherited.
+     */
+    fun hiveInherit8001(): Int {
+        ensureLoaded()
+        var n = 0
+        val hive = com.lifecyclebot.engine.truth.HiveEdge8000
+        synchronized(this) {
+            for (hk in hive.netKeys8000("CX|S|")) {
+                val id = hk.removePrefix("CX|S|")
+                val net = hive.net8000(hk) ?: continue
+                if (net[0] < CortexLedger7885.MIN_SCORED) continue
+                val bins = net[5].toInt().coerceIn(1, 64)
+                val parts = id.split('|')
+                if (parts.size < 2) continue
+                val st = ledger.seat(parts[0], parts.drop(1).joinToString("|"), bins)
+                if (st.scored >= CortexLedger7885.MIN_SCORED || st.bins.size != bins) continue
+                st.scored = net[0].toInt(); st.sseModel = net[1]; st.sseBase = net[2]; st.brierModel = net[3]; st.brierBase = net[4]
+                for (i in st.bins.indices) hive.net8000("CX|B|$id|$i")?.let { b ->
+                    val s = CortexLedger7885.Stat(); s.n = b[0]; s.sum = b[1]; s.sumSq = b[2]; s.wins = b[3]; s.runners = b[4]
+                    st.bins[i].n = s.n; st.bins[i].sum = s.sum; st.bins[i].sumSq = s.sumSq; st.bins[i].wins = s.wins; st.bins[i].runners = s.runners
+                }
+                n++
+            }
+        }
+        if (n > 0) try { inc("SEATS_INHERITED_FROM_HIVE_8001") } catch (_: Throwable) {}
+        return n
+    }
+
     fun persistNow7930() {
         if (!loaded) return
         persist()

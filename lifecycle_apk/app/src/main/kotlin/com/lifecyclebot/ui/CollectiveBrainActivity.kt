@@ -1154,6 +1154,14 @@ class AnimatedBrainView @JvmOverloads constructor(
         } catch (e: Exception) {
             sb.appendLine("📡 Sync: Using cached data (${e.message})")
         }
+        // V5.0.8001 — inherit the network's learnt edge (cells, specialists, setups, tail replays,
+        // Cortex seats, dev reputations, expert wallets).
+        try {
+            val c = CollectiveLearning.getClient()
+            sb.appendLine("🧠 " + if (c != null) com.lifecyclebot.engine.truth.HiveEdge8000.boost8001(c) else "Hive brain: not connected")
+        } catch (e: Exception) {
+            sb.appendLine("🧠 Hive brain: ${e.message}")
+        }
         
         // 2. Get collective stats for backtesting
         val stats = try { CollectiveLearning.getCollectiveStats() } catch (_: Exception) { null }
