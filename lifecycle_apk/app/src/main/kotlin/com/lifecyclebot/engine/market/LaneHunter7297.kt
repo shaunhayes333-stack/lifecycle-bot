@@ -69,7 +69,7 @@ object LaneHunter7297 {
     data class Claim(val lane: String, val mcapAtHunt: Double, val atMs: Long)
 
     const val SOURCE_PREFIX = "MARKET_HUNT_"
-    private const val PICKS_PER_LANE = 8
+    private const val PICKS_PER_LANE = 12  // V5.0.8029 — 8 -> 12: the sweep now carries ~420 rows across every venue
     private const val CLAIM_TTL_MS = 30L * 60 * 1000
     private const val MIN_BUCKET_N = 8
     private const val PREFS = "aate_lane_hunter_7297"

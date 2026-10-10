@@ -616,9 +616,18 @@ object ForwardReturnLabeler7731 {
     private fun captured7945(o: Obs, net: Double, gross: Double): Pair<Double, Double> {
         // V5.0.7955 review — labels are credited on the FIXED ladder: crediting on the learned
         // ladder (fit to these same labels) inflated the grades that drive authority and size.
-        val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(o.peakPct, gross)
-        if (!g.isFinite() || g <= gross) return net to gross
-        capturedLabels7945.incrementAndGet()
+        // V5.0.8029 — graded on THIS lane's play: its own stop first (a coin through the stop before its peak is a
+        // stopped trade, not a run), then the spike ladder on the peak with the rest at the mark — or at the stop.
+        val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane) } catch (_: Throwable) { Double.NaN }
+        val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross) { pk, rest ->
+            com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(pk, rest).let { if (it.isFinite() && it > rest) it else rest }
+        }
+        if (!g.isFinite() || g == gross) return net to gross
+        val dipFirst8029 = if (o.dipBeforePeak7962.isFinite()) o.dipBeforePeak7962 else o.minPct7962
+        if (g < gross || (stop8029 > 0.0 && o.minPct7962 <= -stop8029)) try {
+            com.lifecyclebot.engine.LaneParticipation8029.noteGraded8029(first = dipFirst8029 <= -stop8029, afterPeak = dipFirst8029 > -stop8029)
+        } catch (_: Throwable) {}
+        if (g > gross) capturedLabels7945.incrementAndGet()
         return (net + (g - gross)).coerceAtMost(NET_CEILING_PCT_7738) to g
     }
 

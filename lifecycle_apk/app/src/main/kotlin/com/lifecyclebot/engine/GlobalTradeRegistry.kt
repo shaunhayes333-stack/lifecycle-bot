@@ -526,13 +526,20 @@ object GlobalTradeRegistry {
             } catch (_: Throwable) { emptySet() }
             val MIN_ADMISSION_AGE_MS_6598 = 60_000L
             val MIN_PROCESSING_IDLE_MS_6598 = 30_000L
-            val victim = watchlist.values.asSequence()
+            val evictable6598 = watchlist.values.asSequence()
                 .filter { it.mint != mint }
                 .filter { it.mint !in openMints6598 }
                 .filter { now - it.addedAt >= MIN_ADMISSION_AGE_MS_6598 }
                 .filter { it.lastProcessedAt == 0L || now - it.lastProcessedAt >= MIN_PROCESSING_IDLE_MS_6598 }
                 .sortedWith(compareBy<WatchlistEntry> { it.processCount }.thenBy { it.addedAt })
-                .firstOrNull()
+                .toList()
+            // V5.0.8029 — pump.fun may hold at most half the hot watchlist: over that share, the victim is a pump.fun coin
+            // (5.0.8027: ~95% of intake was pump.fun and 476 evictions in 23 min pushed the market hunters' coins out).
+            val pumpOver8029 = watchlist.values.count { LaneParticipation8029.pumpFamily8029(it.source) } >=
+                LaneParticipation8029.PUMP_MAX_SHARE * watchlist.size
+            val victim = (if (pumpOver8029) evictable6598.firstOrNull { LaneParticipation8029.pumpFamily8029(it.source) } else null)
+                ?.also { LaneParticipation8029.notePumpEviction8029() }
+                ?: evictable6598.firstOrNull()
             if (victim != null) {
                 watchlist.remove(victim.mint)
                 try {

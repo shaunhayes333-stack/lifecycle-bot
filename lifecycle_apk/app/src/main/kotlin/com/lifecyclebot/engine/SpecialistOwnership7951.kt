@@ -241,6 +241,12 @@ object SpecialistOwnership7951 {
         if (!ready) return
         val p = lane7951(primaryLane)
         notePreIntent7951(l, if (p == l) "READY_PRIMARY_GATED" else "READY_NOT_EVALUATED_PRIMARY_$p")
+        // V5.0.8029 — a specialist that qualified a coin learns from it even when another lane owns it. Only the
+        // elected primary reached the FDG, so only it was ever labelled: QUALITY / BLUECHIP / TREASURY cells never
+        // filled, watch-first refused them as THIN_CELL for ever, and they never traded (ownerSelected=0 on 555
+        // QUALITY candidates). The coin's forward return is now booked in this lane's own cell too, graded on
+        // this lane's own stop (LaneParticipation8029). Paper learning only — nothing is bought on it.
+        if (p != l) LaneParticipation8029.shadow8029(mint, l)
     }
 
     /** "REASON=n,..." top four refusals that ended this lane before BUY_INTENT. */

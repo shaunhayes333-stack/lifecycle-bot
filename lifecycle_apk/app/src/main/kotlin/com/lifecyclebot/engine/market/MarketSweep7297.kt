@@ -265,6 +265,12 @@ object MarketSweep7297 {
             "JUP_TRADED" to { jupiterList("/toptraded/1h?limit=50", "JUP_TRADED") },
             "JUP_ORGANIC" to { jupiterList("/toporganicscore/1h?limit=50", "JUP_ORGANIC") },
             "JUP_RECENT" to { jupiterList("/recent?limit=50", "JUP_RECENT") },
+            // V5.0.8029 — the whole market on more clocks: what is moving in the last 5 minutes (every venue: pump,
+            // LaunchLab, Meteora, Raydium, Orca), and what has carried volume / organic flow over the day — the
+            // established coins QUALITY / BLUECHIP / TREASURY / CASHGEN hunt.
+            "JUP_TRENDING_5M" to { jupiterList("/toptrending/5m?limit=50", "JUP_TRENDING_5M") },
+            "JUP_TRADED_24H" to { jupiterList("/toptraded/24h?limit=50", "JUP_TRADED_24H") },
+            "JUP_ORGANIC_24H" to { jupiterList("/toporganicscore/24h?limit=50", "JUP_ORGANIC_24H") },
             "RAYDIUM_VOLUME" to { raydiumPools() },
         )
         if (runHelius) tasks += "HELIUS_SWAPS" to { heliusSwaps(heliusKey) }

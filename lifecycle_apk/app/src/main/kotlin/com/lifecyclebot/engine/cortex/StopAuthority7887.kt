@@ -75,6 +75,21 @@ object StopAuthority7887 {
         return learned ?: composed
     }
 
+    /**
+     * V5.0.8029 — a lane's ordinary stop with no position (forward-label grading): the lane's base band x its
+     * learned multiplier, runner floor applied. Positive magnitude.
+     */
+    fun laneStopMag8029(lane: String): Double {
+        val l = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane).uppercase() } catch (_: Throwable) { "" }
+            .ifBlank { lane.trim().uppercase() }
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) } catch (_: Throwable) { false }
+        // Not a trading lane (a plan / audit key labelled through the same book): no play to grade on.
+        if (!LANE_BASE.containsKey(l) && !runner && l != "MOONSHOT") return Double.NaN
+        val base = LANE_BASE[l] ?: try { kotlin.math.abs(com.lifecyclebot.engine.HoldingLogicLayer.getHoldParams(l).stopLossPct) } catch (_: Throwable) { 15.0 }
+        val mult = try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(l) } catch (_: Throwable) { 1.0 }
+        return compose(null, base, mult, runner || l == "MOONSHOT")
+    }
+
     /** The same stop as a signed percent (e.g. -12.0). */
     fun stopPctFor(ts: TokenState): Double = -stopMagFor(ts)
 
