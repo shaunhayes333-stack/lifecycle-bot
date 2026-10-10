@@ -90,11 +90,20 @@ object ForensicReconciler6377 {
      */
     @JvmStatic
     /** V5.0.7868 — every mint the canonical authority parents (open, closed, live quarantined). */
-    private fun canonicalParentMints7868(): Set<String> = try {
-        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-            .let { it.openPositions() + it.closedPositions() + it.quarantinedLivePositions7454() }
-            .mapTo(HashSet()) { it.mint }
-    } catch (_: Throwable) { emptySet() }
+    private fun canonicalParentMints7868(): Set<String> {
+        val out = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                .let { it.openPositions() + it.closedPositions() + it.quarantinedLivePositions7454() }
+                .mapTo(HashSet()) { it.mint }
+        } catch (_: Throwable) { HashSet() }
+        // V5.0.7982 — the bot's own on-chain buy lots are a parent too. A learning reset clears
+        // the journal and canonical history but never FillLotLedger6344, so 5.0.7976 read
+        // "buys=2 sells=12 unparentedSells=12 / orphanSells=10" for sells of the bot's own buys.
+        try {
+            FillLotLedger6344.snapshotForWallet(WalletManager.currentPubkey()).forEach { out += it.mintAddress }
+        } catch (_: Throwable) {}
+        return out
+    }
 
     fun runAll(
         allTrades: List<Trade>,
