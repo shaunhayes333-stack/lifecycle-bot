@@ -216,6 +216,13 @@ object LiveRiskPolicy7807 {
     }
 
     /** Executable-minimum rule: open at the minimum only if its loss at the stop fits the hard cap. */
+    /** Pure. V5.0.7987 — share of equity one executable-minimum order may take: 30% at <= 0.25 SOL, 15% at >= 1 SOL. */
+    fun smallAccountMinShare7987(equitySol: Double): Double {
+        if (!equitySol.isFinite() || equitySol <= 0.0) return 0.0
+        val t = ((equitySol - 0.25) / 0.75).coerceIn(0.0, 1.0)
+        return 0.30 - 0.15 * t
+    }
+
     fun executableMinRiskOk(execMinSol: Double, stopPct: Double, costPct: Double, equitySol: Double): Boolean {
         if (!execMinSol.isFinite() || execMinSol <= 0.0) return true
         if (!equitySol.isFinite() || equitySol <= 0.0) return false
@@ -390,7 +397,12 @@ object LiveRiskPolicy7807 {
             // landed below it. This is the last-mile counterpart to the shared
             // resolver's capacity promotion: no safety/EV veto is bypassed.
             val minCost7840 = roundTripCostPct(i.execMinSol, i.solUsd, i.liquidityUsd)
-            val minFundable7840 = i.execMinSol <= laneCap + 1e-12 && i.execMinSol <= liqCap + 1e-12
+            // V5.0.7987 — on a sub-1-SOL wallet the venue minimum is a large share of equity: a meme
+            // lane's 20% position cap refused EVERY meme order below 0.137 SOL equity (5.0.7985: equity
+            // 0.1215, cap 0.0243 < min 0.0273, 177 refusals, runner grabs included). The minimum may use
+            // up to [smallAccountMinShare7987] of equity; the hard per-trade loss cap below still binds.
+            val minCap7987 = maxOf(laneCap, i.equitySol * smallAccountMinShare7987(i.equitySol))
+            val minFundable7840 = i.execMinSol <= minCap7987 + 1e-12 && i.execMinSol <= liqCap + 1e-12
             val minRiskSafe7840 = minFundable7840 &&
                 executableMinRiskOk(i.execMinSol, stop, minCost7840, i.equitySol)
             if (minRiskSafe7840) {
