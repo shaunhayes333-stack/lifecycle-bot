@@ -36,7 +36,7 @@ class Aate7997ProgressiveGradingTest {
         val l = TailHunter7996.Ladder7996(100.0, crypto = true)
         for (p in listOf(105.0, 115.0, 140.0, 150.0, 119.0)) l.onPrice(p)
         assertTrue(l.done)   // out 20% below the 1.5x peak
-        // 0.5x1.15 + 0.175x1.40 + 0.325x1.19 = 1.20375 -> +20.4% - 3% cost
-        assertEquals(17.375, l.resultPct(), 1e-6)
+        // 0.5x1.15 + 0.175x1.40 + 0.325x1.19 = 1.20675 -> +20.7% - 3% cost
+        assertEquals(17.675, l.resultPct(), 1e-6)
     }
 }
