@@ -46,7 +46,8 @@ object RunnerPlay8018 {
     const val PROMOTE_MIN_PCT_8018 = 25.0
     const val RUN_CONFIRM_PCT_8018 = 100.0
     private const val PROMOTE_WINDOW_MS = 30L * 60_000L
-    private const val RUN_MAX_AGE_MS = 60L * 60_000L
+    // V5.0.8025 — runners refused at first sight often confirm later than the hour (QubitCat, brigitte): 4 hours.
+    private const val RUN_MAX_AGE_MS = 4L * 60L * 60_000L
     private const val RUN_MAX_PCT = 3_000.0
     private const val TICKET_TTL_MS = 3L * 60_000L
     private const val MAX_OPEN_REENTRIES = 2

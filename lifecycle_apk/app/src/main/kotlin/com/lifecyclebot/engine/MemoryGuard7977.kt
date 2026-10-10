@@ -67,7 +67,44 @@ object MemoryGuard7977 {
         } catch (_: Throwable) {}
     }
 
+    // ── V5.0.8025 — the token map is the largest thing the trims never touched ──
+    // 5.0.8023: heap 92% (peak 100%), 22 hard trims, worst loop 38-55 s, with 569 token rows each carrying
+    // up to 460 candles while the watchlist is capped at 220. On a HARD trim, rows that are not on the
+    // watchlist, not open (runtime or canonical live), not ticketed and not priced for 30 minutes go, oldest
+    // first, down to [KEEP_TOKENS_8025]. A dropped coin comes back through intake like any new one.
+    const val KEEP_TOKENS_8025 = 300
+    private const val STALE_TOKEN_MS_8025 = 30L * 60_000L
+    private val tokensPruned8025 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure: may a token row be pruned? */
+    fun prunable8025(watched: Boolean, open: Boolean, ticketed: Boolean, staleMs: Long): Boolean =
+        !watched && !open && !ticketed && staleMs >= STALE_TOKEN_MS_8025
+
+    private fun pruneTokens8025(): Int {
+        val tokens = BotService.status.tokens
+        if (tokens.size <= KEEP_TOKENS_8025) return 0
+        val now = System.currentTimeMillis()
+        val watch = try { GlobalTradeRegistry.getWatchlist().toHashSet() } catch (_: Throwable) { return 0 }
+        val liveOpen = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("live").map { it.mint }.toHashSet() } catch (_: Throwable) { return 0 }
+        val victims = tokens.entries.asSequence()
+            .filter { (m, ts) ->
+                val last = maxOf(ts.lastPriceUpdate, ts.addedToWatchlistAt)
+                prunable8025(m in watch, ts.position.isOpen || m in liveOpen,
+                    try { RunnerPlay8018.ticketActive8018(m, now) } catch (_: Throwable) { true }, now - last)
+            }
+            .sortedBy { maxOf(it.value.lastPriceUpdate, it.value.addedToWatchlistAt) }
+            .map { it.key }
+            .take(tokens.size - KEEP_TOKENS_8025)
+            .toList()
+        if (victims.isEmpty()) return 0
+        synchronized(tokens) { victims.forEach { tokens.remove(it) } }
+        tokensPruned8025.addAndGet(victims.size.toLong())
+        try { PipelineHealthCollector.labelInc("MEMORY_GUARD_TOKENS_PRUNED_8025") } catch (_: Throwable) {}
+        return victims.size
+    }
+
     private fun trimAll(hard: Boolean) {
+        if (hard) try { pruneTokens8025() } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SpecialistMiner7972.trim7977(hard) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.chart.CandleColors7968.trim7977(hard) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.MemeMeta7973.trim7977() } catch (_: Throwable) {}
@@ -85,7 +122,7 @@ object MemoryGuard7977 {
             "chartReads=${try { com.lifecyclebot.engine.chart.ChartReader7950.size7977() } catch (_: Throwable) { -1 }} " +
             "tokenArchiveResident=${try { TokenMetaCache.snapshotIfPresent()?.liveRows ?: -1 } catch (_: Throwable) { -1 }} " +
             "archiveDiskLoads=${try { TokenMetaCache.instanceOrNull7979()?.diskLoads7979() ?: -1L } catch (_: Throwable) { -1L }} " +
-            "watchTokens=${try { BotService.status.tokens.size } catch (_: Throwable) { -1 }}"
+            "watchTokens=${try { BotService.status.tokens.size } catch (_: Throwable) { -1 }} tokensPruned8025=${tokensPruned8025.get()}"
 
     fun statusLine7977(): String =
         "heap=${lastUsedMb}/${maxMb}MB (${"%.0f".format(lastFrac * 100)}%) peak=${"%.0f".format(peakFrac * 100)}% " +

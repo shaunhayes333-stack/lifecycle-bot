@@ -49,6 +49,12 @@ object BasisBreak8019 {
             peakGainPct.isFinite() && peakGainPct >= 100.0 && currentGainPct.isFinite() && currentGainPct <= 0.0
 
     private val phantomRefused = AtomicLong(0)
+    const val RELEASE_MS_8025 = 15L * 60_000L
+    private val firstRefusedAt8025 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val releasedCount8025 = AtomicLong(0)
+
+    /** Pure: has a broken-basis hold lasted long enough to let the exit through? */
+    fun released8025(heldMs: Long): Boolean = heldMs >= RELEASE_MS_8025
 
     /** Executor.requestSellCore7948: true refuses this exit (the mark's basis is broken, or the peak was a phantom). */
     fun refuses8019(ts: TokenState, reason: String, markPrice: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
@@ -62,6 +68,17 @@ object BasisBreak8019 {
             return true
         }
         if (!brokenBasis8019(pos.entryPrice, markPrice)) return false
+        // V5.0.8025 — the refusal is a hold, not a prison: after [RELEASE_MS_8025] of broken-basis refusals the
+        // price-driven exit goes through (the sell is sized from the wallet, so it sells what is really held at
+        // what it is really worth). Nothing sits unmanaged for ever.
+        val key = "${ts.mint}|${pos.entryTime}"
+        val first = firstRefusedAt8025.getOrPut(key) { nowMs }
+        if (firstRefusedAt8025.size > 2_000) firstRefusedAt8025.clear()
+        if (released8025(nowMs - first)) {
+            releasedCount8025.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("BASIS_BREAK_RELEASED_8025") } catch (_: Throwable) {}
+            return false
+        }
         refused.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("BASIS_BREAK_EXIT_REFUSED_8019")
@@ -75,5 +92,5 @@ object BasisBreak8019 {
         return true
     }
 
-    fun statusLine(): String = "exitsRefused=${refused.get()} phantomPeaks=${phantomRefused.get()} bar=mark ${MAX_RATIO_8019.toInt()}x from entry"
+    fun statusLine(): String = "exitsRefused=${refused.get()} phantomPeaks=${phantomRefused.get()} released8025=${releasedCount8025.get()} bar=mark ${MAX_RATIO_8019.toInt()}x from entry"
 }

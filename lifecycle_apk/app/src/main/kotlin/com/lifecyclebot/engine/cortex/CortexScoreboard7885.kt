@@ -75,6 +75,27 @@ class CortexScoreboard7885 {
             return true
         }
 
+        // ── V5.0.8025 — NOTHING IS EVER FULLY LEARNT ──
+        // Owner, 5.0.8023: "moonshot shouldn't be at max maturity ... it needs thousands of trades to have a
+        // proper sample size. it can prove edge but nothing should ever be considered fully learnt." MOONSHOT
+        // reached authority 1.00 on 62 STRONG grades, overruled 112 refusals (the proven-losing no-trigger rule
+        // among them) and its first four live buys stopped out within 80 s. Authority is now the evidence
+        // fraction times MATURITY = n / (n + [MATURITY_HALF_N_8025]) over every STRONG grade the lane has ever
+        // had (the books decay to ~330, so a separate lifetime count), capped at [MAX_AUTHORITY_8025]: half
+        // weight at 1,000 grades, 0.75 at 3,000, never 1.0 — so every full-authority power (overruling a
+        // proven-losing record, a measured-negative cell or band) is out of reach for ever, and the 0.5 overrule
+        // bar needs on the order of a thousand graded STRONG reads with the evidence still holding.
+        const val MATURITY_HALF_N_8025 = 1_000.0
+        const val MAX_AUTHORITY_8025 = 0.95
+
+        /** Pure: a lane's maturity after [lifetimeN] STRONG grades — always below 1. */
+        fun maturity8025(lifetimeN: Double): Double =
+            if (!lifetimeN.isFinite() || lifetimeN <= 0.0) 0.0 else lifetimeN / (lifetimeN + MATURITY_HALF_N_8025)
+
+        /** Pure: authority = evidence x maturity, never above [MAX_AUTHORITY_8025]. */
+        fun matureAuthority8025(evidence: Double, lifetimeN: Double): Double =
+            if (!evidence.isFinite() || evidence <= 0.0) 0.0 else (evidence * maturity8025(lifetimeN)).coerceIn(0.0, MAX_AUTHORITY_8025)
+
         /** Pure: does the STRONG record prove the Cortex finds edge the gates miss? */
         fun overruleProven(strong: CortexLedger7885.Stat): Boolean =
             strong.n >= MIN_N_LIVE && strong.mean() - se(strong) > PROOF_MARGIN_PCT
@@ -158,11 +179,16 @@ class CortexScoreboard7885 {
             }
         }
 
-        fun encode(): String = (byBucket.map { it.encode() } + listOf(legacyAdmitted.encode(), legacyRefused.encode(), missedStrong.encode())).joinToString("|")
+        /** V5.0.8025 — every STRONG read this lane has ever had graded (never decayed, never windowed): its maturity. */
+        var strongLifetime8025 = 0.0
+
+        fun encode(): String = (byBucket.map { it.encode() } + listOf(legacyAdmitted.encode(), legacyRefused.encode(), missedStrong.encode(), strongLifetime8025.toString())).joinToString("|")
         fun decode(s: String) {
-            val f = s.split('|'); if (f.size != byBucket.size + 3) return
+            val f = s.split('|'); if (f.size != byBucket.size + 3 && f.size != byBucket.size + 4) return
             byBucket.forEachIndexed { i, st -> st.decode(f[i]) }
             legacyAdmitted.decode(f[byBucket.size]); legacyRefused.decode(f[byBucket.size + 1]); missedStrong.decode(f[byBucket.size + 2])
+            // A book saved before 8025 starts its lifetime count from the (decayed) STRONG n it carries.
+            strongLifetime8025 = f.getOrNull(byBucket.size + 3)?.toDoubleOrNull() ?: byBucket[Bucket.STRONG.ordinal].n
         }
     }
 
@@ -177,6 +203,7 @@ class CortexScoreboard7885 {
         // unless the recent record keeps supporting it (v1 §2.8 automatic demotion).
         for (st in b.all()) st.scale(BOOK_DECAY)
         b.byBucket[bucket.ordinal].add(y, runner)
+        if (bucket == Bucket.STRONG) b.strongLifetime8025 += 1.0
         if (legacyAdmitted) b.legacyAdmitted.add(y, runner) else b.legacyRefused.add(y, runner)
         if (!legacyAdmitted && bucket == Bucket.STRONG) b.missedStrong.add(y, runner)
     }
@@ -202,7 +229,7 @@ class CortexScoreboard7885 {
     /** V5.0.8019 — the relative refusal: REFUSE reads measurably below the lane's other reads where STRONG holds authority. */
     fun relativeRefusalAuthority8019(lane: String, runnerLane: Boolean): Boolean {
         val b = books[lane] ?: return false
-        return relativeRefuseProven8019(b.byBucket[Bucket.REFUSE.ordinal], b.rest(), fractionFor7955(lane), runnerLane)
+        return relativeRefuseProven8019(b.byBucket[Bucket.REFUSE.ordinal], b.rest(), evidenceFor8025(lane), runnerLane)  // V5.0.8025 — refusing protects capital: evidence, not maturity
     }
 
     /**
@@ -217,8 +244,18 @@ class CortexScoreboard7885 {
      */
     fun fractionFor7955(lane: String): Double {
         val b = books[lane] ?: return 0.0
+        // V5.0.8025 — the evidence fraction times the lane's maturity: never fully learnt.
+        return matureAuthority8025(evidenceFor8025(lane), b.strongLifetime8025)
+    }
+
+    /** V5.0.8025 — the evidence alone (how strongly the recent STRONG record beats the margin), before maturity. */
+    fun evidenceFor8025(lane: String): Double {
+        val b = books[lane] ?: return 0.0
         return authorityFraction7955(b.byBucket[Bucket.STRONG.ordinal], b.byBucket[Bucket.NEUTRAL.ordinal], inverted7948(lane))
     }
+
+    /** V5.0.8025 — every STRONG grade this lane has ever had (diag). */
+    fun strongLifetime8025(lane: String): Double = books[lane]?.strongLifetime8025 ?: 0.0
 
     /**
      * V5.0.7948 — STRONG measurably below NEUTRAL on this lane's forward labels, or on

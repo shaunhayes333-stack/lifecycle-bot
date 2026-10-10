@@ -27,7 +27,7 @@ class Aate8018RunnerPlayTest {
     @Test fun aConfirmedRunEarnsASecondEntry() {
         assertTrue(RunnerPlay8018.confirmsRun8018(150.0, 20 * 60_000L, firming = true, held = false))
         assertFalse(RunnerPlay8018.confirmsRun8018(80.0, 20 * 60_000L, true, false))
-        assertFalse(RunnerPlay8018.confirmsRun8018(150.0, 90 * 60_000L, true, false))
+        assertFalse(RunnerPlay8018.confirmsRun8018(150.0, 5 * 60 * 60_000L, true, false))   // V5.0.8025: window 4 h
         assertFalse(RunnerPlay8018.confirmsRun8018(150.0, 20 * 60_000L, true, held = true))
         assertFalse(RunnerPlay8018.confirmsRun8018(150.0, 20 * 60_000L, firming = false, held = false))
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("RunnerPlay8018.onRun8018(o.mint, gross, nowMs - o.atMs, nowMs)"))

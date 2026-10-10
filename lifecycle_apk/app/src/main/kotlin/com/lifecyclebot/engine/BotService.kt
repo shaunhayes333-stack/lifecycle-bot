@@ -14611,7 +14611,9 @@ class BotService : Service() {
             // probes are cheap but at 18.7% WR the learner is drowning
             // in them. Sample in CHOP/DUMP so the WAIT signal doesn't
             // become the dominant learning input.
-            if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("DUST_PROBE")) {
+            // V5.0.8025 — a confirmed-run re-entry ticket is not a dust probe: neither the damper nor the budget holds it.
+            val runTicket8025 = try { RunnerPlay8018.ticketActive8018(mintForProbe) } catch (_: Throwable) { false }
+            if (!runTicket8025 && !com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("DUST_PROBE")) {
                 return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_DUST_PROBE_6747")
             }
             // V5.0.6967 §THE_EXPLORATION_BUDGET_THAT_NEVER_ONCE_SAID_NO.
@@ -14664,7 +14666,7 @@ class BotService : Service() {
                 status.tokens[mintForProbe]?.let { t -> com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(t, lane, "EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967") } == true
             } catch (_: Throwable) { false }
             if (cortexSignal8019) try { PipelineHealthCollector.labelInc("EXPLORATION_PROBE_UPGRADED_BY_CORTEX_8019") } catch (_: Throwable) {}
-            if (!cortexSignal8019 && !com.lifecyclebot.engine.learning.ExplorationBudget.allowProbe7951(lane, mintForProbe)) { // V5.0.7951 — distinct probes, not re-asks
+            if (!cortexSignal8019 && !runTicket8025 && !com.lifecyclebot.engine.learning.ExplorationBudget.allowProbe7951(lane, mintForProbe)) { // V5.0.7951 — distinct probes, not re-asks
                 try {
                     PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967")
                     PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967_${lane.uppercase()}")

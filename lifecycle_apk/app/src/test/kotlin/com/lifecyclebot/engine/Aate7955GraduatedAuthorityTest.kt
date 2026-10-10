@@ -79,15 +79,18 @@ class Aate7955GraduatedAuthorityTest {
     }
 
     @Test fun theBooleanPowerIsFullAuthority() {
+        // V5.0.8025 — evidence still grades the record (partial at 30, full at the old bar), but authority is
+        // evidence x maturity over every STRONG grade ever: 70 grades is nowhere near "learnt".
         val board = CortexScoreboard7885()
         assertEquals(0.0, board.fractionFor7955("MOONSHOT"), 1e-12)
         repeat(30) { i -> board.record("MOONSHOT", Bucket.STRONG, false, 10.0 + if (i % 2 == 0) 2.0 else -2.0, 0.0) }
-        val partial = board.fractionFor7955("MOONSHOT")
+        val partial = board.evidenceFor8025("MOONSHOT")
         assertTrue(partial >= 0.5 && partial < 1.0)
         assertFalse(board.overruleAuthority("MOONSHOT"))
         repeat(40) { i -> board.record("MOONSHOT", Bucket.STRONG, false, 10.0 + if (i % 2 == 0) 2.0 else -2.0, 0.0) }
-        assertEquals(1.0, board.fractionFor7955("MOONSHOT"), 1e-12)
-        assertTrue(board.overruleAuthority("MOONSHOT"))
+        assertEquals(1.0, board.evidenceFor8025("MOONSHOT"), 1e-12)
+        assertEquals(70.0 / 1_070.0, board.fractionFor7955("MOONSHOT"), 1e-9)
+        assertFalse(board.overruleAuthority("MOONSHOT"))
         // Unknown lane through the runtime: no authority, never a throw.
         assertEquals(0.0, Cortex7885.fractionFor7955("NO_SUCH_LANE_7955"), 1e-12)
     }
