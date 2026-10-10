@@ -49,6 +49,7 @@ object SpecialistMiner7972 {
     private const val MAX_KEYS = 40_000
     private const val NET_CAP = 300.0
     private const val RUNNER_GROSS = 50.0
+    private const val STAT_WINDOW_8014 = 300
 
     class Stat(var n: Int = 0, var sum: Double = 0.0, var sumSq: Double = 0.0, var wins: Int = 0, var runners: Int = 0) {
         fun add(net: Double, gross: Double) {
@@ -56,6 +57,12 @@ object SpecialistMiner7972 {
             n++; sum += y; sumSq += y * y
             if (y > 0.0) wins++
             if (gross.isFinite() && gross >= RUNNER_GROSS) runners++
+            // V5.0.8014 — fresh edge: a combination's record is its most recent ~[STAT_WINDOW_8014] outcomes.
+            if (n > STAT_WINDOW_8014) {
+                val k = STAT_WINDOW_8014.toDouble() / n
+                n = STAT_WINDOW_8014; sum *= k; sumSq *= k
+                wins = kotlin.math.round(wins * k).toInt().coerceIn(0, n); runners = kotlin.math.round(runners * k).toInt().coerceIn(0, n)
+            }
         }
         fun mean(): Double = if (n > 0) sum / n else 0.0
         fun se(): Double = if (n > 1) sqrt(((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) / n) else Double.POSITIVE_INFINITY

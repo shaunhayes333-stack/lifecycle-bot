@@ -77,9 +77,21 @@ object HiveEdge8000 {
     /** The rest of the network's evidence for [key] ([n, sum, sumSq, wins, runners, best]), or null. */
     fun net8000(key: String): DoubleArray? {
         val total = aggregate[key] ?: return null
-        val o = othersOf8000(total, uploaded[key])
+        val o = capWeight8014(othersOf8000(total, uploaded[key]), HIVE_WINDOW_8014)
         return if (o[0] >= 1.0) o else null
     }
+
+    /**
+     * Pure. V5.0.8014 — the network's all-time evidence for a key counts as at most [cap] outcomes
+     * (its mean kept), so an install's own fresh labels are never swamped by weeks-old network history.
+     */
+    fun capWeight8014(v: DoubleArray, cap: Double): DoubleArray {
+        if (v.size < 5 || !(v[0] > cap)) return v
+        val k = cap / v[0]
+        return DoubleArray(v.size) { i -> if (i <= 4) v[i] * k else v[i] }
+    }
+
+    const val HIVE_WINDOW_8014 = 1_000.0
 
     /** Keys of the shared ledger with [prefix] that carry other instances' evidence. */
     fun netKeys8000(prefix: String): List<String> = aggregate.keys.filter { it.startsWith(prefix) && net8000(it) != null }

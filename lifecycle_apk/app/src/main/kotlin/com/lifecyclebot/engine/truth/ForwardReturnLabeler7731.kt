@@ -92,6 +92,8 @@ object ForwardReturnLabeler7731 {
      * attach, bounded to the newest [MAX_PERSISTED_PENDING_7735].
      */
     private const val MAX_PERSISTED_PENDING_7735 = 2_000
+    /** V5.0.8014 — labels a cell keeps per horizon before the oldest fade (fresh edge). */
+    const val CELL_WINDOW_8014 = 300
     private const val FIELD_SEP_7735 = '\u001F'
     private const val ROW_SEP_7735 = '\u001E'
     private val restoredPending7735 = AtomicLong(0)
@@ -203,6 +205,18 @@ object ForwardReturnLabeler7731 {
         var n60 = 0; var sum60 = 0.0; var sumSq60 = 0.0; var win60 = 0; var runner60 = 0
         var n240 = 0; var sum240 = 0.0; var win240 = 0
         var lost = 0
+        /**
+         * V5.0.8014 — fresh edge: a horizon past [w] labels keeps its most recent ~[w] (the oldest fade
+         * proportionally), so the cell record watch-first and every lane read is recent, not all-time.
+         */
+        fun window8014(w: Int) {
+            if (n15 > w) { val k = w.toDouble() / n15; n15 = w; sum15 *= k; win15 = (win15 * k).roundToIntSafe8014().coerceIn(0, n15) }
+            if (n60 > w) {
+                val k = w.toDouble() / n60; n60 = w; sum60 *= k; sumSq60 *= k
+                win60 = (win60 * k).roundToIntSafe8014().coerceIn(0, n60); runner60 = (runner60 * k).roundToIntSafe8014().coerceIn(0, n60)
+            }
+            if (n240 > w) { val k = w.toDouble() / n240; n240 = w; sum240 *= k; win240 = (win240 * k).roundToIntSafe8014().coerceIn(0, n240) }
+        }
         fun encode(): String = "$n15,$sum15,$win15,$n60,$sum60,$sumSq60,$win60,$runner60,$n240,$sum240,$win240,$lost"
         fun decode(s: String): Boolean {
             val f = s.split(',')
@@ -566,6 +580,7 @@ object ForwardReturnLabeler7731 {
                     60 -> { t.n60 += 1; t.sum60 += net; t.sumSq60 += net * net; if (net > 0.0) t.win60 += 1; if (gross >= RUNNER_PCT_7731) t.runner60 += 1 }
                     else -> { t.n240 += 1; t.sum240 += net; if (net > 0.0) t.win240 += 1 }
                 }
+                t.window8014(CELL_WINDOW_8014)
             }
         }
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
@@ -1056,3 +1071,6 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) {}
     }
 }
+
+/** V5.0.8014 — Double to Int, rounded half up (counts scaled by a fresh-edge window). */
+private fun Double.roundToIntSafe8014(): Int = if (this.isFinite()) kotlin.math.round(this).toInt() else 0

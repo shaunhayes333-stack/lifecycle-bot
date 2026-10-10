@@ -31,6 +31,7 @@ class CortexLedger7885 {
         const val Y_MIN = -100.0
         const val Y_MAX = 200.0
         const val RUNNER_GROSS_PCT = 50.0
+        const val STAT_WINDOW_8014 = 500.0
 
         /**
          * V5.0.8007 — vote cleaning. Pure. Multiple-comparison bar: with thousands of seats a few
@@ -92,7 +93,12 @@ class CortexLedger7885 {
         fun variance(): Double = if (n > 1.0) ((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
-        fun add(y: Double, runner: Boolean) { n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0 }
+        fun add(y: Double, runner: Boolean) {
+            n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0
+            // V5.0.8014 — fresh edge: past [STAT_WINDOW_8014] outcomes the oldest evidence fades, so a busy
+            // cell's record is its most recent ~500 outcomes and turns when the market turns.
+            if (n > STAT_WINDOW_8014) scale(STAT_WINDOW_8014 / n)
+        }
         fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k }
         /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value (n unchanged). */
         fun revise(yOld: Double, yNew: Double, runnerOld: Boolean, runnerNew: Boolean) {

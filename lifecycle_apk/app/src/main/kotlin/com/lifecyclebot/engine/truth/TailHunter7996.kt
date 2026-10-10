@@ -102,7 +102,11 @@ object TailHunter7996 {
 
     private class Stat7996 {
         @Volatile var n = 0; @Volatile var sum = 0.0; @Volatile var runners = 0; @Volatile var best = 0.0
-        fun add(r: Double, runner: Boolean) { n++; sum += r; if (runner) runners++; if (r > best) best = r }
+        fun add(r: Double, runner: Boolean) {
+            n++; sum += r; if (runner) runners++; if (r > best) best = r
+            // V5.0.8014 — fresh edge: a key's replay record is its most recent ~200.
+            if (n > 200) { val k = 200.0 / n; n = 200; sum *= k; runners = kotlin.math.round(runners * k).toInt().coerceIn(0, n) }
+        }
         fun mean(): Double = if (n > 0) sum / n else 0.0
         fun encode(): String = "$n,$sum,$runners,$best"
         fun decode(s: String) {
