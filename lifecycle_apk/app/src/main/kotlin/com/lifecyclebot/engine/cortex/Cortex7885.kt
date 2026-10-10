@@ -637,7 +637,8 @@ object Cortex7885 {
             val fraction = synchronized(this) { laneFraction7955(a.lane) }
             if (fraction < OVERRULE_FRACTION_7955) { inc("SHADOW_OVERRULE_LIVE"); return false }
             // V5.0.7955 review — a lane's own PROVEN_LOSING / PROVEN_NEGATIVE record yields only to full authority.
-            if ((refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE")) && fraction < 1.0) { inc("SHADOW_OVERRULE_PROVEN_7955"); return false }
+            // V5.0.8016 — watch-first's measured-negative cell is a proven record too.
+            if ((refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE")) && fraction < 1.0) { inc("SHADOW_OVERRULE_PROVEN_7955"); return false }
             inc("OVERRULED_LIVE")
             if (fraction < 1.0) inc("PARTIAL_AUTHORITY_OVERRULE_7955")
             try {

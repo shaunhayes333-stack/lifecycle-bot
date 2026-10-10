@@ -408,6 +408,14 @@ object LiveEdgeGate7877 {
             standDown8006.incrementAndGet(); cleared7994.incrementAndGet()
             return null
         }
+        // V5.0.8016 — a proven Cortex STRONG read clears watch-first like any other soft refusal. Watch-first
+        // returned before the Cortex was ever asked, so in 8014 SHITCOIN's STRONG reads went unbought 31 times
+        // at +19.4% (the lane's STRONG bucket +17.9%, authority 0.83) while thin cells held back the runners.
+        // A thin cell yields at the Cortex's overrule bar (0.5); a cell measured negative needs full authority.
+        if (try { com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, why) } catch (_: Throwable) { false }) {
+            cortexCleared8016.incrementAndGet(); cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
+            return null
+        }
         watched7994.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
         return why
@@ -415,6 +423,7 @@ object LiveEdgeGate7877 {
 
     private val planSkips7995 = java.util.concurrent.atomic.AtomicLong(0)
     private val standDown8006 = java.util.concurrent.atomic.AtomicLong(0)
+    private val cortexCleared8016 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** V5.0.7996 — every live decision opens a 4-hour ladder replay (TailHunter7996). */
     private fun observeTail7996(ts: TokenState, lane: String, reason: String?, nowMs: Long) {
@@ -424,7 +433,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has

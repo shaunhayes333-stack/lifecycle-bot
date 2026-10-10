@@ -358,6 +358,8 @@ object ForwardReturnLabeler7731 {
                     o.ck7997.toString(), o.bookedNet7997.toString(), o.bookedGross7997.toString(), o.entryLiq7997.toString(),
                     if (o.exitDeferred8006) "1" else "0", o.minPct7962.toString(), o.dipBeforePeak7962.toString(),
                     o.feats7972.joinToString("\u0002") { it.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' ') },
+                    // V5.0.8016 — the refusal reason survives a restart (missed runners read UNKNOWN without it).
+                    o.reason7967.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
                 ).joinToString(fs)
             }
     }
@@ -378,7 +380,7 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..31) return@forEach
+            if (f.size !in 17..32) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
             if (atMs <= 0L) return@forEach
@@ -404,6 +406,7 @@ object ForwardReturnLabeler7731 {
                 o.dipBeforePeak7962 = f[29].toDoubleOrNull() ?: Double.NaN
                 o.feats7972 = f[30].split('\u0002').filter { it.isNotBlank() }
             }
+            if (f.size >= 32) o.reason7967 = f[31]
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
