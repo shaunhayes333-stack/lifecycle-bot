@@ -56,6 +56,19 @@ object CortexVoters7885 {
         Voter("SPEC_MEAN_SCORE", "SPECIALIST", SCORE, setOf("lane_native_all")) { ts, _, _ ->
             spec(ts)?.opinions?.values?.filter { it.gradeable && it.eligible }?.takeIf { it.isNotEmpty() }?.map { it.score }?.average()
         },
+        // ── V5.0.8003 — modules that had no seat ──
+        Voter("TREASURY_SCALP", "BRAIN", SCORE, setOf("treasury_scalp")) { ts, _, _ ->
+            com.lifecyclebot.engine.TreasuryBrain.evaluate(ts).score
+        },
+        Voter("LANE_TRUST", "STRATEGY", e(0.2, 0.4, 0.6, 0.8), setOf("lane_trust")) { _, lane, _ ->
+            com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustRecord(lane)?.trustScore
+        },
+        Voter("EXEC_CONFIDENCE", "MARKET", e(0.70, 0.85, 0.95), setOf("exec_path")) { _, _, _ ->
+            com.lifecyclebot.v4.meta.ExecutionPathAI.takeIf { it.getVenueStats().isNotEmpty() }?.getExecutionConfidenceMultiplier()
+        },
+        Voter("CRYPTO_BEHAVIOR_ADJ", "BRAIN", e(-10.0, -3.0, 0.0, 3.0, 10.0), setOf("crypto_behavior")) { _, _, _ ->
+            com.lifecyclebot.perps.crypto.brain.CryptoBrain.takeIf { it.isReady() }?.scoreAdjustment()?.toDouble()
+        },
         // ── V3 committee ──
         Voter("V3_SCORE", "V3", SCORE, setOf("v3")) { ts, _, _ -> ts.lastV3Score?.toDouble() },
         Voter("V3_CONFIDENCE", "V3", CONF, setOf("v3")) { ts, _, _ -> ts.lastV3Confidence?.toDouble() },
@@ -411,12 +424,47 @@ object CortexVoters7885 {
      * the scorer records. Absent snapshot = no votes.
      */
     fun dynamicVotes(ts: TokenState): List<CortexLedger7885.Vote> {
-        val comps = com.lifecyclebot.v3.scoring.EducationSubLayerAI.peekEntryScores7895(ts.mint) ?: return emptyList()
-        return comps.entries.sortedBy { it.key }.take(80).map { (name, v) ->
+        val lanes = laneBrainVotes8003(ts)
+        val comps = com.lifecyclebot.v3.scoring.EducationSubLayerAI.peekEntryScores7895(ts.mint)
+        val v3m = comps?.entries?.sortedBy { it.key }?.take(80)?.map { (name, v) ->
             val id = "V3M_" + name.uppercase().filter { it.isLetterOrDigit() || it == '_' }.take(32)
             CortexLedger7885.Vote(id, V3_MODULE_EDGES, v.toDouble(), setOf("v3_module_$id"))
+        }?.distinctBy { it.voterId }.orEmpty()
+        lastLaneVotes8003 = lanes.size
+        if (comps != null) lastV3Votes8003 = v3m.size
+        return lanes + v3m
+    }
+
+    @Volatile private var lastLaneVotes8003 = 0
+    @Volatile private var lastV3Votes8003 = 0
+
+    /** Lane-brain voter id stem from a lane name: "LB_<LANE>". */
+    internal fun laneBrainStem8003(lane: String): String =
+        "LB_" + lane.uppercase().filter { it.isLetterOrDigit() || it == '_' }.take(24)
+
+    /**
+     * V5.0.8003 — every one of the 12 lane brains votes on every candidate in every
+     * lane's seat, not just its own lane (SPEC_OWN_*): score (0 when it refuses),
+     * confidence, and conviction on its own pass bar. A MOONSHOT brain's read is
+     * then graded as evidence for the SHITCOIN lane's decision too. Evidence is per
+     * brain, so one brain's three numbers count once in fusion.
+     */
+    internal fun laneBrainVotes8003(ts: TokenState): List<CortexLedger7885.Vote> {
+        val ops = spec(ts)?.opinions ?: return emptyList()
+        return ops.values.filter { it.gradeable }.sortedBy { it.lane }.flatMap { o ->
+            val stem = laneBrainStem8003(o.lane)
+            val ev = setOf("lane_brain_$stem")
+            listOfNotNull(
+                CortexLedger7885.Vote("${stem}_S", SCORE, if (o.eligible) o.score.toDouble() else 0.0, ev),
+                if (o.eligible) CortexLedger7885.Vote("${stem}_C", CONF, o.confidence.toDouble(), ev) else null,
+                o.ownershipConviction7948?.takeIf { it.isFinite() }?.let { CortexLedger7885.Vote("${stem}_V", SCORE, it, ev) },
+            )
         }.distinctBy { it.voterId }
     }
+
+    /** Voter census for the diag: static + lane brains + V3 modules (last read). */
+    fun votersLine8003(): String =
+        "${ALL.size}static+${lastLaneVotes8003}laneBrain+${lastV3Votes8003}V3modules+crosses"
 
     val IDS: List<String> = ALL.map { it.id }
     val EDGES: List<DoubleArray> = ALL.map { it.edges }
@@ -429,6 +477,11 @@ object CortexVoters7885 {
     fun edgesFor(id: String): DoubleArray? {
         EDGES_BY_ID[id]?.let { return it }
         if (id.startsWith("V3M_")) return V3_MODULE_EDGES
+        if (id.startsWith("LB_")) return when {
+            id.endsWith("_S") || id.endsWith("_V") -> SCORE
+            id.endsWith("_C") -> CONF
+            else -> null
+        }
         if (id.startsWith("X_")) {
             val parts = id.removePrefix("X_").split("__")
             if (parts.size != 2) return null
