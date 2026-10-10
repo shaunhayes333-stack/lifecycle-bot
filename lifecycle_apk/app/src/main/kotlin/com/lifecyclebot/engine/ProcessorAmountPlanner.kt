@@ -174,10 +174,17 @@ object ProcessorAmountPlanner {
         processor: String = "DIRECT",
     ): ConfirmedSellAmount? {
         if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
-        val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
+        val first8020 = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
             ErrorLogger.warn("ProcessorAmountPlanner", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
             null
         }
+        // V5.0.8020 — one immediate re-read before a sell is blocked on BALANCE_UNKNOWN: 8018 blocked 7 sells
+        // (Altai's partial at +42.6% among them) on a single failed or empty RPC read.
+        val accounts = if (first8020 == null || first8020.isEmpty() || first8020[ts.mint] == null) {
+            try { PipelineHealthCollector.labelInc("SELL_BALANCE_REREAD_8020") } catch (_: Throwable) {}
+            (try { wallet.getTokenAccountsWithDecimalsBounded(3_000L) } catch (_: Exception) { null })
+                ?.takeIf { it.isNotEmpty() && it[ts.mint] != null } ?: first8020
+        } else first8020
 
         // HostWalletTokenTracker / generic TX_PARSE are not sell amount authority.
         // RPC-empty/missing means BALANCE_UNKNOWN unless SellAmountAuthority has a

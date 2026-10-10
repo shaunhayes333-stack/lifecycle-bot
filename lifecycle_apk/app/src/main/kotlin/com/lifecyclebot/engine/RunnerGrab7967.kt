@@ -365,8 +365,14 @@ object RunnerGrab7967 {
             try { PipelineHealthCollector.labelInc("RUNNER_HOLD_RELEASED_LOSER_7991") } catch (_: Throwable) {}
             return null
         }
-        val (_, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
+        val (r15, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
         if (r60 != null && r60.brokeStructure) return null
+        // V5.0.8020 — a stop on a RED position is held only while a tape says the run stands (unbroken, buyers in
+        // control); no read, no hold. 8018 held 47 admits through NORMAL_STOPs for up to 3 minutes on no evidence.
+        if (g < 0.0 && !runStanding8019(r60) && !runStanding8019(r15)) {
+            try { PipelineHealthCollector.labelInc("RUNNER_HOLD_RELEASED_NO_TAPE_8020") } catch (_: Throwable) {}
+            return null
+        }
         deferred.incrementAndGet()
         try { PipelineHealthCollector.labelInc("RUNNER_HOLD_DEFERRED_7967") } catch (_: Throwable) {}
         return "RUNNER_HOLD_7967"
