@@ -638,10 +638,15 @@ object Cortex7885 {
             if (!softBlock(refusal, false)) return false
             if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return false
             val fraction = synchronized(this) { laneFraction7955(a.lane) }
-            if (fraction < OVERRULE_FRACTION_7955) { inc("SHADOW_OVERRULE_LIVE"); return false }
             // V5.0.7955 review — a lane's own PROVEN_LOSING / PROVEN_NEGATIVE record yields only to full authority.
             // V5.0.8016 — watch-first's measured-negative cell is a proven record too.
-            if ((refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE") || refusal.contains("BAND_NEGATIVE")) && fraction < 1.0) { inc("SHADOW_OVERRULE_PROVEN_7955"); return false }
+            val provenRefusal = refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE") || refusal.contains("BAND_NEGATIVE")
+            if (fraction < OVERRULE_FRACTION_7955 || (provenRefusal && fraction < 1.0)) {
+                // V5.0.8026 — no override authority yet (maturity): the coin may still be bought at FIRST SIGHT as a
+                // route-minimum runner probe when evidence, EV, win rate, data integrity and the cash caps all clear.
+                if (firstSight8026(a, ts, refusal)) { inc("FIRST_SIGHT_8026"); return true }
+                inc(if (fraction < OVERRULE_FRACTION_7955) "SHADOW_OVERRULE_LIVE" else "SHADOW_OVERRULE_PROVEN_7955"); return false
+            }
             inc("OVERRULED_LIVE")
             if (fraction < 1.0) inc("PARTIAL_AUTHORITY_OVERRULE_7955")
             try {
@@ -654,6 +659,16 @@ object Cortex7885 {
             true
         } catch (_: Throwable) { false }
     }
+
+    /** V5.0.8026 — FirstSight8026 with this lane's evidence, STRONG record and maturity. */
+    private fun firstSight8026(a: Assessment, ts: TokenState, refusal: String): Boolean = try {
+        val (evidence, strong, maturity) = synchronized(this) {
+            val s = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal)
+            val copy = CortexLedger7885.Stat().also { c -> if (s != null) c.decode(s.encode()) }
+            Triple(if (consistent(a.lane)) board.evidenceFor8025(a.lane) else 0.0, copy, CortexScoreboard7885.maturity8025(board.strongLifetime8025(a.lane)))
+        }
+        FirstSight8026.grant8026(ts, a.lane, refusal, evidence, strong, maturity)
+    } catch (_: Throwable) { false }
 
     // ── Cortex v13: paper choice (v1 Phase 4, V5.0.7915) ──
     //

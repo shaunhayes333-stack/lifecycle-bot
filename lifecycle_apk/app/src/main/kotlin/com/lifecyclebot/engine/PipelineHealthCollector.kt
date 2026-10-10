@@ -1447,6 +1447,9 @@ object PipelineHealthCollector {
         ).append(" | rebuy ").append(
             try { RebuyLockout8019.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  First sight (§8026): ").append(
+            try { com.lifecyclebot.engine.cortex.FirstSight8026.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Wallet truth (§8024): chainCost ").append(
             try { com.lifecyclebot.engine.truth.OnChainCost8024.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append(" | journal ").append(

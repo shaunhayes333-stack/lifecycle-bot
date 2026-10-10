@@ -189,6 +189,7 @@ object CanonicalFinalizedTradeBus6464 {
         try { com.lifecyclebot.engine.ExitProfile7955.onClose7955(env) } catch (_: Throwable) {}
         try { RunnerCapture8017.onClose8017(env) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.RunnerPlay8018.onClose8018(env) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.FirstSight8026.onClose8026(env) } catch (_: Throwable) {}
         if (env.terminal && env.mode.equals("live", true)) try { com.lifecyclebot.engine.RebuyLockout8019.onClose8019(env.mint, env.atMs, env.realizedReturnPct) } catch (_: Throwable) {}
         // V5.0.7885 — Cortex OutcomeTruth cross-check: realised outcome by entry verdict.
         try { com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) } catch (_: Throwable) {}
