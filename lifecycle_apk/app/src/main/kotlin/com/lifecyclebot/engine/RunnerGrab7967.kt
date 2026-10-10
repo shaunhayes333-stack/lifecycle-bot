@@ -323,6 +323,20 @@ object RunnerGrab7967 {
     /** Is the 1-minute or 15-second structure firming for [mint] right now (2+ higher swings, higher low, buyers)? */
     fun firmingNow8018(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = firmingNow(mint, nowMs)
 
+    /** Pure (V5.0.8019): a run still standing — a read exists, structure unbroken, buyers in control (>= 55% when known). */
+    fun runStanding8019(r: StructureTracker7962.Read7962?): Boolean =
+        r != null && !r.brokeStructure && (!r.buyShare.isFinite() || r.buyShare >= MIN_BUY_SHARE)
+
+    /**
+     * V5.0.8019 — the re-entry bar: firming (two higher swings) OR simply standing on either timeframe. 8018's
+     * "firming" alone refused all 9 confirmed runs: a coin mid-run rarely prints two clean higher swings on the
+     * 1-minute tape while it is going.
+     */
+    fun runStandingNow8019(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val (r15, r60) = StructureTracker7962.reads7967(mint, nowMs)
+        return firming7967(r15) || firming7967(r60) || runStanding8019(r60) || runStanding8019(r15)
+    }
+
     /** Is [ts] held on the runner ladder (grab, proven-cell admit, ticket or promotion)? */
     fun holdingRunner8018(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = holding7967(ts, nowMs)
 

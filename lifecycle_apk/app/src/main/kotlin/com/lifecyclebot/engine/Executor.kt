@@ -22829,6 +22829,8 @@ class Executor(
     private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         // V5.0.7967 — a grabbed runner holds through soft exits while its 1m structure stands.
         if (try { RunnerGrab7967.deferSell7967(ts, reason) } catch (_: Throwable) { null } != null) return SellResult.FAILED_RETRYABLE
+        // V5.0.8019 — a price-driven exit on a mark 1000x from the entry is a broken basis, not a move.
+        if (try { BasisBreak8019.refuses8019(ts, reason, getActualPrice(ts)) } catch (_: Throwable) { false }) return SellResult.FAILED_RETRYABLE
         // V5.0.7768 — a bag an on-chain read just proved to be unroutable dust is
         // answered from that proof, not re-sold every tick (DustBagLatch7768).
         if (!ts.position.isPaperPosition && com.lifecyclebot.engine.sell.DustBagLatch7768.held(ts.mint)) {

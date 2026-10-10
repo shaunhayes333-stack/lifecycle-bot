@@ -379,6 +379,14 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7994 — may live money enter a cell with [n] labels and [meanPct] 5-minute net mean? */
     fun cellEarnsLive7994(n: Int, meanPct: Double): Boolean = n >= WATCH_MIN_N_7994 && meanPct.isFinite() && meanPct >= 0.0
 
+    private val bandRefused8019 = AtomicLong(0)
+    private val priorsCleared8019 = AtomicLong(0)
+    private const val BAND_MIN_N_8019 = 20
+
+    /** Pure (V5.0.8019): a lane x cap band is proven losing on 20+ labels with mean - SE below zero. */
+    fun bandLoses8019(n: Int, meanPct: Double, sePct: Double): Boolean =
+        n >= BAND_MIN_N_8019 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct < 0.0
+
     private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long): String? {
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         if (st != null && cellEarnsLive7994(st.n60, st.meanNet60Pct)) {
@@ -402,7 +410,15 @@ object LiveEdgeGate7877 {
             cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
             return null
         }
+        // V5.0.8019 — a thin cell inside a cap band this lane is PROVEN to lose in (20+ labels across every
+        // source and age, mean - SE < 0) is refused on the band's record, not waved through as merely thin:
+        // 8018's floor-price launches (filed under $10k once the cap agrees with the price) rode the
+        // THIN_CELL stand-down into the bot's worst group (27 live closes, -17.4%).
+        val band = if (st == null || st.n60 < WATCH_MIN_N_7994) try { ForwardReturnLabeler7731.bandStatFor8019(ts, l) } catch (_: Throwable) { null } else null
+        val bandNegative = band != null && bandLoses8019(band.n60, band.meanNet60Pct, band.stderr60Pct)
+        if (bandNegative) bandRefused8019.incrementAndGet()
         val why = when {
+            bandNegative -> "WATCH_FIRST_8019_BAND_NEGATIVE"
             st == null || st.n60 < WATCH_MIN_N_7994 -> "WATCH_FIRST_7994_THIN_CELL"
             else -> "WATCH_FIRST_7994_CELL_NEGATIVE"
         }
@@ -438,13 +454,15 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
         // earned that authority (bar V1); until then this returns null.
         val cortex7950 = com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)
         if (paper) return cortex7950
+        // V5.0.8019 — a coin any lane closed in the last 10 minutes is not reopened (the re-entry ticket excepted).
+        com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }
         // V5.0.7950 — the chart reader's BUY passes every learned/soft refusal; hard safety
         // (the safety tier's HARD_BLOCK, Mayhem) still refuses inside chartAdmits7950.
         if (chartAdmits7950(ts, lane, nowMs)) return null
@@ -486,8 +504,12 @@ object LiveEdgeGate7877 {
             // full-authority Cortex STRONG read (MOONSHOT missed STRONG n48 +24%). A setup proven
             // losing is never overruled here.
             if (prior.startsWith("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING") &&
-                (com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, l, nowMs) ||
-                    com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, prior))) { notePositive7975(ts.mint, nowMs); continue }
+                com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, l, nowMs)) { notePositive7975(ts.mint, nowMs); continue }
+            // V5.0.8019 — EVERY soft prior (no-trigger, setup expectancy, plan wait) yields to a proven Cortex STRONG
+            // read, not only the proven-losing one: 8018 lost QubitCat (+1,840%) and brigitte (+481%) to the plain
+            // PLAYBOOK_NO_TRIGGER refusal while SHITCOIN's STRONG reads paid +22% at authority 0.84. Hard safety,
+            // Mayhem and a proven-losing record below full authority are still refused inside overrulesEdgeRefusal.
+            if (com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, prior)) { priorsCleared8019.incrementAndGet(); notePositive7975(ts.mint, nowMs); continue }
             val sampleN = refusalSampleN7948(ts, l, prior)
             if (sampleN != null && cohortOverrulesSmaller7948(cohort7948, sampleN)) {
                 try { PipelineHealthCollector.labelInc("LIVE_PRIOR_REFUSAL_OUTWEIGHED_BY_COHORT_7948") } catch (_: Throwable) {}

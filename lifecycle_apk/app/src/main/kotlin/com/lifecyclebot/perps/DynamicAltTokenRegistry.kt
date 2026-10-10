@@ -880,7 +880,7 @@ object DynamicAltTokenRegistry {
      *  then opportunityScore, then volume — every top-25 scan is guaranteed
      *  to include every currently-fresh token before falling through to
      *  established ranking. */
-    fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.sortedWith(
+    fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.filter { !pumpMint8019(it.mint) || it.isStatic }.sortedWith(  // V5.0.8019
         compareByDescending<DynToken> { it.isFresh6544 }
             // V5.0.7244 — preserve fresh-first discovery, but within each
             // cohort spend scan slots on already-priced/routable evidence first.
@@ -1976,8 +1976,18 @@ object DynamicAltTokenRegistry {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
+    /** Pure (V5.0.8019): a pump.fun mint (curve or graduate) belongs to the meme lanes, never the crypto universe. */
+    fun pumpMint8019(mint: String): Boolean = mint.trim().endsWith("pump")
+
     private fun upsert(rawTok6492: DynToken) {
         if (rawTok6492.mint.isBlank() || rawTok6492.symbol.isBlank()) return
+        // V5.0.8019 — Solana isolation, enforced at the door: 8018's CRYPTO_ALT / CRYPTO_SPOT lanes bought
+        // REELS, HXHZT27p and GjVpdj6W (pump.fun mints) with prices from the wrong feed ($24.83 on a
+        // $0.0000032 coin) and double-bought coins the meme lanes had just sold. Static listings stay.
+        if (pumpMint8019(rawTok6492.mint) && registry[rawTok6492.canonicalIdentity6544]?.isStatic != true) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_PUMP_MINT_REFUSED_8019") } catch (_: Throwable) {}
+            return
+        }
         val inferredMcapSource6492 = when {
             rawTok6492.mcapSource.isNotBlank() -> rawTok6492.mcapSource
             rawTok6492.mcap <= 0.0 -> ""

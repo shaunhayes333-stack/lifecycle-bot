@@ -598,7 +598,10 @@ object Cortex7885 {
             // (fast lane, launch-heat promotion) used to be admitted on a cache miss.
             val a = cachedOrSchedule(ts, laneRaw) ?: (if (!paper) assess(ts, laneRaw) else null) ?: return null
             val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) && consistent(a.lane) }
-            val rule = constitutionRefusal(a, ts, paper, proven)
+            // V5.0.8019 — or the relative bar: this lane's REFUSE reads sit measurably below its other reads while
+            // its STRONG reads hold authority. Live only (paper already refuses at 20).
+            val relative8019 = !paper && !proven && synchronized(this) { board.relativeRefusalAuthority8019(a.lane, a.runnerLane) && consistent(a.lane) }
+            val rule = constitutionRefusal(a, ts, paper, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
             if (rule == null) {
                 if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) inc(if (paper) "SHADOW_REFUSE_PAPER" else "SHADOW_REFUSE_LIVE")
@@ -638,7 +641,7 @@ object Cortex7885 {
             if (fraction < OVERRULE_FRACTION_7955) { inc("SHADOW_OVERRULE_LIVE"); return false }
             // V5.0.7955 review — a lane's own PROVEN_LOSING / PROVEN_NEGATIVE record yields only to full authority.
             // V5.0.8016 — watch-first's measured-negative cell is a proven record too.
-            if ((refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE")) && fraction < 1.0) { inc("SHADOW_OVERRULE_PROVEN_7955"); return false }
+            if ((refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE") || refusal.contains("BAND_NEGATIVE")) && fraction < 1.0) { inc("SHADOW_OVERRULE_PROVEN_7955"); return false }
             inc("OVERRULED_LIVE")
             if (fraction < 1.0) inc("PARTIAL_AUTHORITY_OVERRULE_7955")
             try {

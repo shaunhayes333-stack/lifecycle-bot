@@ -179,7 +179,7 @@ object TailHunter7996 {
         if (obs.size >= MAX_OBS) return
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, ts.lastMcap, ageMs)
+        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)
         val mayhem = try { com.lifecyclebot.engine.MayhemMode7943.isMayhem7979(ts) } catch (_: Throwable) { false }
         val rule = when {
             mayhem -> "MAYHEM_MODE"
@@ -266,7 +266,7 @@ object TailHunter7996 {
         if (open >= MAX_OPEN_TICKETS) return false
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, ts.lastMcap, ageMs)
+        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l, nowMs) } catch (_: Throwable) { null } ?: "NONE"
         val hit = proven("C|$cell") != null || proven("S|$l|$setup") != null ||
             proven("SRC|${ForwardReturnLabeler7731.sourceFamily(ts.source)}|$l") != null || pairsWorthChecking(nowMs) && run {
@@ -305,7 +305,7 @@ object TailHunter7996 {
         ensureLoaded()
         val l = CanonicalLaneIdentity6506.canonical(ts.position.tradingMode.ifBlank { "SHITCOIN" }).uppercase()
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cells = listOf(l, "SHITCOIN", "MOONSHOT").distinct().map { ForwardReturnLabeler7731.cellKey(ts.source, it, ts.lastMcap, ageMs) }
+        val cells = listOf(l, "SHITCOIN", "MOONSHOT").distinct().map { ForwardReturnLabeler7731.cellKey(ts.source, it, TrustedMcap8019.mcap8019(ts), ageMs) }
         return cells.any { proven("R|MAYHEM_MODE|$it") != null }
     }
 

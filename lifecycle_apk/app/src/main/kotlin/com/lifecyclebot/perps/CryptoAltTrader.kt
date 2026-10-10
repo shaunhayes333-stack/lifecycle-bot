@@ -4004,7 +4004,8 @@ object CryptoAltTrader {
     private fun cooldownRefusal8015(mint: String?): String? {
         if (mint.isNullOrBlank()) return null
         val locked = try { com.lifecyclebot.engine.TradeStateMachine.isInCooldown(mint) } catch (_: Throwable) { false }
-        if (!locked) return null
+        // V5.0.8019 — and the cross-lane post-close lockout.
+        if (!locked) return try { com.lifecyclebot.engine.RebuyLockout8019.refusal8019(mint) } catch (_: Throwable) { null }
         try { PipelineHealthCollector.labelInc("CRYPTO_LIVE_BUY_REFUSED_COOLDOWN_8015") } catch (_: Throwable) {}
         return "CATASTROPHE_COOLDOWN_8015"
     }

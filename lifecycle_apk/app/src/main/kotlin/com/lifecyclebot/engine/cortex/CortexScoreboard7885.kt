@@ -58,6 +58,23 @@ class CortexScoreboard7885 {
             return true
         }
 
+        /**
+         * Pure (V5.0.8019): relative refusal — on a lane whose STRONG reads hold authority ([fraction]
+         * >= 0.5), REFUSE reads measurably below the lane's other reads are refused on [RELATIVE_MIN_N_8019]
+         * grades: refuse.mean + SE < rest.mean - SE - margin, and refuse not positive on its own. 8018:
+         * SHITCOIN STRONG n32 +22.2% (authority 0.84) while its REFUSE reads (n19, -2.9%) were bought live
+         * and closed at -27.1% — the absolute bar (40 refusals at mean + SE < -2%) could not engage.
+         */
+        const val RELATIVE_MIN_N_8019 = 10
+        fun relativeRefuseProven8019(refuse: CortexLedger7885.Stat, rest: CortexLedger7885.Stat, fraction: Double, runnerLane: Boolean): Boolean {
+            if (!fraction.isFinite() || fraction < 0.5) return false
+            if (refuse.n < RELATIVE_MIN_N_8019 || rest.n < MIN_N_PAPER) return false
+            if (refuse.mean() > 0.0) return false
+            if (refuse.mean() + se(refuse) >= rest.mean() - se(rest) - PROOF_MARGIN_PCT) return false
+            if (runnerLane && refuse.runnerRate() >= TAIL_RUNNER_RATE) return false
+            return true
+        }
+
         /** Pure: does the STRONG record prove the Cortex finds edge the gates miss? */
         fun overruleProven(strong: CortexLedger7885.Stat): Boolean =
             strong.n >= MIN_N_LIVE && strong.mean() - se(strong) > PROOF_MARGIN_PCT
@@ -180,6 +197,12 @@ class CortexScoreboard7885 {
     fun refusalAuthority(lane: String, runnerLane: Boolean, paper: Boolean): Boolean {
         val b = books[lane] ?: return false
         return refuseProven(b.byBucket[Bucket.REFUSE.ordinal], b.rest(), runnerLane, if (paper) MIN_N_PAPER else MIN_N_LIVE)
+    }
+
+    /** V5.0.8019 — the relative refusal: REFUSE reads measurably below the lane's other reads where STRONG holds authority. */
+    fun relativeRefusalAuthority8019(lane: String, runnerLane: Boolean): Boolean {
+        val b = books[lane] ?: return false
+        return relativeRefuseProven8019(b.byBucket[Bucket.REFUSE.ordinal], b.rest(), fractionFor7955(lane), runnerLane)
     }
 
     /**

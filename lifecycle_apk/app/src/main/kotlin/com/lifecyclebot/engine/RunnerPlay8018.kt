@@ -141,7 +141,7 @@ object RunnerPlay8018 {
         val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return
         if (ts.safety.tier == SafetyTier.HARD_BLOCK) return
         if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return
-        val firming = RunnerGrab7967.firmingNow8018(mint, nowMs)
+        val firming = RunnerGrab7967.runStandingNow8019(mint, nowMs)  // V5.0.8019 — firming or standing with buyers
         if (!confirmsRun8018(gross, runAgeMs, firming, ts.position.isOpen)) { if (!firming) notFirming.incrementAndGet(); return }
         if (armed.size > 2_000) armed.entries.removeIf { nowMs - it.value > SEEN_MS }
         armed[mint] = nowMs

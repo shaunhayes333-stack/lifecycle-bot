@@ -270,8 +270,13 @@ object ForwardReturnLabeler7731 {
     private fun sourceKey(src: String) = "SRC|$src"
     /** V5.0.7928 — lane x lifecycle stage: does this lane's play pay at this stage? */
     fun stageKey7928(lane: String, stage: String) = "STAGE|${lane.trim().uppercase()}|${stage.trim().uppercase()}"
+    /** V5.0.8019 — lane x cap band across every source and age: the record that says "this lane loses under $10k". */
+    fun bandKey8019(lane: String, mcapUsd: Double) = "BAND|${lane.trim().uppercase()}|${mcapBand(mcapUsd)}"
+    /** V5.0.8019 — LiveEdgeGate7877: the lane's 60-minute record in [ts]'s cap band (local + hive). */
+    fun bandStatFor8019(ts: TokenState, lane: String): CellStat? = cellStat(bandKey8019(lane, TrustedMcap8019.mcap8019(ts)))
     private fun keysOf7928(o: Obs): List<String> {
-        val base = listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED)
+        val base = listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED,
+            "BAND|${o.lane}|${o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN"}")  // V5.0.8019 — lane x cap band
         // V5.0.7930 — plan pseudo-lanes (PLANWAIT_/PLANADMIT_) carry no stage book.
         val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_")
         return if (o.stage.isBlank() || pseudo) base else base + stageKey7928(o.lane, o.stage)
@@ -523,7 +528,7 @@ object ForwardReturnLabeler7731 {
         val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
             // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
             (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
-        val cell = cellKey(ts.source, l, ts.lastMcap, ageMs)
+        val cell = cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)  // V5.0.8019 — the cap the price agrees with
         // V5.0.7734 — the regime is read now, at decision time, as the forecast
         // model keys it; the token state carries no setup quality or edge phase,
         // so the label lands on the coarse signature (lane | band | regime).
@@ -1033,7 +1038,7 @@ object ForwardReturnLabeler7731 {
 
     fun cellStatFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        return cellStat(cellKey(ts.source, lane, ts.lastMcap, ageMs))
+        return cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs))  // V5.0.8019
     }
 
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))

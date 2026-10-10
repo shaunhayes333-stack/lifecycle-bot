@@ -1440,6 +1440,13 @@ object PipelineHealthCollector {
         ).append(" | pumpswap ticks ").append(
             try { com.lifecyclebot.network.GradTicks8018.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Truth guards (§8019): cap ").append(
+            try { com.lifecyclebot.engine.truth.TrustedMcap8019.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append(" | basis ").append(
+            try { BasisBreak8019.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append(" | rebuy ").append(
+            try { RebuyLockout8019.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Tail hunter (§7996): ").append(
             try { com.lifecyclebot.engine.truth.TailHunter7996.statusLine7996() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

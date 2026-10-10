@@ -14619,7 +14619,15 @@ class BotService : Service() {
             // matters most here: it is what turns QUALITY's 40/hr into 10/hr
             // while QUALITY is losing, automatically, which is the behaviour the
             // -31.28% mean on 24 straight losses was crying out for.
-            if (!com.lifecyclebot.engine.learning.ExplorationBudget.allowProbe7951(lane, mintForProbe)) { // V5.0.7951 — distinct probes, not re-asks
+            // V5.0.8019 — a candidate the Cortex reads STRONG on a lane whose STRONG record holds authority is not
+            // a probe at all: it is a signal the legacy score missed. The exploration budget was the top refusal
+            // of +400% runners in 8018 (QubitCat x2, demo, ELIZABETH) and its refused set reads +1.6% on average,
+            // so the veto audit can never retire it; the Cortex's own read decides per coin instead.
+            val cortexSignal8019 = try {
+                status.tokens[mintForProbe]?.let { t -> com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(t, lane, "EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967") } == true
+            } catch (_: Throwable) { false }
+            if (cortexSignal8019) try { PipelineHealthCollector.labelInc("EXPLORATION_PROBE_UPGRADED_BY_CORTEX_8019") } catch (_: Throwable) {}
+            if (!cortexSignal8019 && !com.lifecyclebot.engine.learning.ExplorationBudget.allowProbe7951(lane, mintForProbe)) { // V5.0.7951 — distinct probes, not re-asks
                 try {
                     PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967")
                     PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967_${lane.uppercase()}")

@@ -367,7 +367,7 @@ object CellAllocator7962 {
     private fun refFor(ts: TokenState, lane: String, nowMs: Long, withSetup: Boolean): Ref7962 {
         val l = canonLane(lane)
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, ts.lastMcap, ageMs)
+        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts), ageMs)
         val setup = if (!withSetup) "" else try { ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) { "" }
         return Ref7962(cell, bandOf(cell), l, setup)
     }
@@ -569,7 +569,7 @@ object CellAllocator7962 {
             }
         } else {
             val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-            val band = bandOf(ForwardReturnLabeler7731.cellKey(ts.source, "X", ts.lastMcap, ageMs))
+            val band = bandOf(ForwardReturnLabeler7731.cellKey(ts.source, "X", com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts), ageMs))
             val bs = statFor(bandNode(band), live)
             if ((bs?.w ?: 0.0) < MIN_PRIORITY_N_7962) 0.0 else {
                 val post = hierarchy7962(listOf(statFor(GLOBAL_NODE, live), bs))
