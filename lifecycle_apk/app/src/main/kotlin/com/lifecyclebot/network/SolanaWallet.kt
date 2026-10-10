@@ -223,6 +223,33 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
     // ── balance ────────────────────────────────────────────
 
+    // ── V5.0.8009 — execution speed ──
+    @Volatile private var solBalance8009: Pair<Long, Double>? = null
+    private val SOL_BALANCE_TTL_MS_8009 = 1_500L
+    /** signature -> (signed tx, sent via Sender) while it awaits confirmation: re-broadcast until it lands. */
+    private val inFlight8009 = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
+    private val echoing8009 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val echo8009 = java.util.concurrent.ThreadPoolExecutor(
+        2, 2, 30L, TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(64),
+        java.util.concurrent.ThreadFactory { r -> Thread(r, "TxEcho8009").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy(),
+    ).apply { allowCoreThreadTimeOut(true) }
+
+    /** The same signed bytes again (idempotent: one signature lands at most once), off the caller's thread. */
+    private fun echoSend8009(sig: String, signedB64: String, viaSender: Boolean) {
+        if (!echoing8009.add(sig)) return
+        echo8009.execute {
+            try {
+                if (viaSender) try { com.lifecyclebot.network.HeliusSender.send(signedB64) } catch (_: Throwable) {}
+                try {
+                    rpc("sendTransaction", JSONArray().put(signedB64).put(JSONObject()
+                        .put("encoding", "base64").put("skipPreflight", true).put("maxRetries", 0)))
+                } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_ECHO_SENT_8009") } catch (_: Throwable) {}
+            } finally { echoing8009.remove(sig) }
+        }
+    }
+
     fun getSolBalance(): Double {
         // V5.9.771 — EMERGENT-MEME #5: ANR / main-thread guard.
         // Operator dump V5.9.770: ANR top blocking call sites
@@ -244,6 +271,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             } catch (_: Throwable) {}
             throw IllegalStateException("SolanaWallet.getSolBalance() called from Dispatchers.Main — wrap in withContext(Dispatchers.IO)")
         }
+        // V5.0.8009 — one read serves a buy attempt: the planner asked for the same balance three
+        // or four times in a row (each a round trip, with 300/600 ms retry sleeps on a miss).
+        solBalance8009?.let { (at, v) -> if (System.currentTimeMillis() - at < SOL_BALANCE_TTL_MS_8009) return v }
         var lastEx: Exception? = null
         repeat(3) { attempt ->
             try {
@@ -253,7 +283,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     throw RuntimeException("RPC error: ${error.optString("message", "unknown")}")
                 }
                 val lam = resp.optJSONObject("result")?.optLong("value", 0L) ?: 0L
-                return lam / 1_000_000_000.0
+                return (lam / 1_000_000_000.0).also { solBalance8009 = System.currentTimeMillis() to it }
             } catch (e: Exception) {
                 lastEx = e
                 if (attempt < 2) Thread.sleep((300L shl attempt))
@@ -348,6 +378,11 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             if (!senderSig.isNullOrBlank()) {
                 com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet",
                     "⚡ Broadcast via Helius Sender: ${senderSig.take(16)}…")
+                // V5.0.8009 — the same bytes also go out through RPC at once (two routes, not one).
+                solBalance8009 = null
+                if (inFlight8009.size > 200) inFlight8009.clear()
+                inFlight8009[senderSig] = signedB64 to true
+                echoSend8009(senderSig, signedB64, viaSender = false)
                 return finalized(senderSig)
             }
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("HELIUS_SENDER_DEGRADED",
@@ -363,8 +398,12 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 // transaction is immediately sent through normal RPC below, so this
                 // preserves dual-route finality without nested runBlocking or a bundle
                 // status wait on the execution thread.
-                val jitoResult = com.lifecyclebot.engine.JitoMEVProtection
-                    .submitProtectedNoWait6489(signedB64, jitoTipLamports)
+                // V5.0.8009 — submitted off the send path: the bundle carries no tip transfer and never
+                // reported landed, so waiting on it (up to 2.5 s) only delayed the RPC send below.
+                echo8009.execute {
+                    try { com.lifecyclebot.engine.JitoMEVProtection.submitProtectedNoWait6489(signedB64, jitoTipLamports) } catch (_: Throwable) {}
+                }
+                val jitoResult = com.lifecyclebot.engine.JitoMEVProtection.BundleResult(false, null, null, "ASYNC_8009")
 
                 
                 if (jitoResult.success && jitoResult.bundleId != null) {
@@ -385,7 +424,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("JITO_FALLBACK_SINGLE_RPC",
                             "reason=payload_invalid action=single_rpc_send") } catch (_: Throwable) {}
                     }
-                    com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet", 
+                    if (jErr != "ASYNC_8009") com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet", 
                         "⚠️ Jito failed: ${jitoResult.error}, falling back to normal RPC")
                 }
             } catch (e: Exception) {
@@ -413,6 +452,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             val errorMsg = errorObj?.optString("message", "unknown RPC error") ?: "unknown error"
             throw RuntimeException("sendTransaction failed: $errorMsg")
         }
+        solBalance8009 = null
+        if (inFlight8009.size > 200) inFlight8009.clear()
+        inFlight8009[result] = signedB64 to false
         return finalized(result)
     }
 
@@ -487,9 +529,19 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // An on-chain error still throws; not found after 30 s still means expired.
         val start = System.currentTimeMillis()
         val deadline = start + timeoutMs
+        // V5.0.8009 — while the signature is not yet seen, the signed bytes are re-broadcast every
+        // 2 s (both routes) until ~25 s: Sender/RPC were sent once with maxRetries 0, so a dropped
+        // transaction used to wait the full 30 s "not found" window before anything happened.
+        val echo = inFlight8009[signature]
+        var lastEcho = start
+        try {
         while (System.currentTimeMillis() < deadline) {
             val elapsed = System.currentTimeMillis() - start
             val pause = if (elapsed < 10_000L) 400L else 1_000L
+            if (echo != null && elapsed in 1_500L..25_000L && System.currentTimeMillis() - lastEcho >= 2_000L) {
+                lastEcho = System.currentTimeMillis()
+                echoSend8009(signature, echo.first, echo.second)
+            }
             try {
                 val sigArray = JSONArray().put(signature)
                 val params   = JSONArray()
@@ -529,6 +581,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             }
         }
         throw RuntimeException("Confirmation timeout after ${timeoutMs/1000}s: $signature")
+        } finally { inFlight8009.remove(signature) }
     }
 
     /**

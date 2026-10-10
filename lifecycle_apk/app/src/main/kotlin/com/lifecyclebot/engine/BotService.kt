@@ -8759,6 +8759,8 @@ class BotService : Service() {
         // Warm up DNS cache for Jupiter APIs (bypasses ISP DNS issues)
         com.lifecyclebot.network.CloudflareDns.INSTANCE.warmupJupiterDns()
         addLog("🌐 DNS-over-HTTPS enabled for Jupiter APIs")
+        // V5.0.8009 — execution hosts' connections kept warm while the bot runs.
+        try { com.lifecyclebot.network.ExecWarm8009.start() } catch (_: Throwable) {}
         
         // Set up periodic save callback for EdgeLearning
         EdgeLearning.onThresholdsChanged = {

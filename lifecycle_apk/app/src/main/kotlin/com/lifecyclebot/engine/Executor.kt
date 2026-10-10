@@ -20939,7 +20939,8 @@ class Executor(
                 val maxPolls = 10
                 for (pollNum in 1..maxPolls) {
                     try {
-                        Thread.sleep(pollIntervalMs)
+                        // V5.0.8009 — the tx is already confirmed: the first proof read goes at 1.5 s, not 6 s.
+                        Thread.sleep(if (pollNum == 1) 1_500L else pollIntervalMs)
 
                         // V5.9.265 — AUTHORITATIVE sig-based verification first.
                         // Jupiter Ultra/RFQ swaps deliver tokens but
@@ -27351,7 +27352,13 @@ class Executor(
             var jupiterProviderClassFailure7228 = false
             // V5.0.7807 — B4: a funded emergency that already failed once skips the
             // aggregator quote ladder and goes straight to the direct routes.
-            jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || emergencyRouteEscalated7807(ts, reason)) emptyList() else slippageLevels) {
+            // V5.0.8009 — an emergency on a coin that sells direct (PumpPortal first) does not spend up
+            // to 6 s on aggregator quotes before its first broadcast: the same skip a failed emergency
+            // already takes on its second attempt, now on the first.
+            val emergencyDirect8009 = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) &&
+                (try { shouldTryPumpDirectFirst6099(ts, "EXIT") } catch (_: Throwable) { false })
+            if (emergencyDirect8009) try { PipelineHealthCollector.labelInc("EMERGENCY_SELL_DIRECT_FIRST_8009") } catch (_: Throwable) {}
+            jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || emergencyDirect8009 || emergencyRouteEscalated7807(ts, reason)) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
                     if (System.nanoTime() >= quoteLadderDeadline7863) break@jupiterLadder7228
                     try {
@@ -30804,6 +30811,7 @@ class Executor(
             val sig = com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(
                 wallet, built, effectiveSenderTipLamports(c, urgent = false), c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
             ) ?: return null
+            try { com.lifecyclebot.engine.WalletAccountCache.bustNow() } catch (_: Throwable) {}  // V5.0.8009
             val firstReadQty = try {
                 ((wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0) - preTokenQty).coerceAtLeast(0.0)
             } catch (_: Throwable) { 0.0 }
@@ -30986,6 +30994,8 @@ class Executor(
             // every buy was serializing the bot's coroutine — at 10
             // buys/min that's 25% of the loop wasted in sleep. Removed;
             // the watchdog (below) handles the RPC-lag case anyway.
+            // V5.0.8009 — the post-buy read must not be served the 5 s pre-buy snapshot (firstReadQty ~0).
+            try { com.lifecyclebot.engine.WalletAccountCache.bustNow() } catch (_: Throwable) {}
             val firstReadQty: Double = try {
                 val cur = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
                 (cur - preTokenQty).coerceAtLeast(0.0)

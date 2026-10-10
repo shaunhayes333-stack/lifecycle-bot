@@ -101,7 +101,7 @@ object PumpFunDirectApi {
             throw RuntimeException("PumpPortal BUY: invalid solAmount=$solAmount")
         }
         // V5.9.1524 — Sender tip floor (priorityFee == Jito tip on PumpPortal).
-        val effPriorityFee = priorityFeeSol.coerceAtLeast(0.0002)
+        val effPriorityFee = PriorityFee8009.pumpPortalSol(priorityFeeSol.coerceAtLeast(0.0002))  // V5.0.8009 — follows the network
         val payload = JSONObject().apply {
             put("publicKey", publicKeyB58)
             put("action", "buy")
@@ -218,7 +218,7 @@ object PumpFunDirectApi {
         // PumpPortal uses priorityFee AS the Jito tip, so floor it here. This
         // guarantees every Sender-broadcast sell lands instead of being dropped.
         val SENDER_MIN_TIP_SOL = 0.0002
-        val effPriorityFee = priorityFeeSol.coerceAtLeast(SENDER_MIN_TIP_SOL)
+        val effPriorityFee = PriorityFee8009.pumpPortalSol(priorityFeeSol.coerceAtLeast(SENDER_MIN_TIP_SOL))  // V5.0.8009
 
         // Item 1 — validated amount authority. Prefer the exact raw token units.
         val safeDecimals = decimals.coerceIn(0, 18)

@@ -1424,6 +1424,11 @@ object PipelineHealthCollector {
         sb.append("  Cortex re-grading (§8006): ").append(
             try { com.lifecyclebot.engine.cortex.Cortex7885.progressiveLine8006() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Execution (§8009): fee ").append(
+            try { com.lifecyclebot.network.PriorityFee8009.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append(" | warm ").append(
+            try { com.lifecyclebot.network.ExecWarm8009.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Tail hunter (§7996): ").append(
             try { com.lifecyclebot.engine.truth.TailHunter7996.statusLine7996() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

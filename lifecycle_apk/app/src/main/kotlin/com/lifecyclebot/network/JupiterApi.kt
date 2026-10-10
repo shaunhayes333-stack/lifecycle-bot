@@ -642,7 +642,8 @@ class JupiterApi(
                 // Sender needs BOTH a CU price and a Helius tip. Jupiter /swap
                 // can encode one prioritization mode, so it builds the CU price;
                 // HeliusSenderEnvelope7250 appends the tip locally before signing.
-                put("computeUnitPriceMicroLamports", senderComputeUnitPriceMicroLamports.coerceAtLeast(1L))
+                // V5.0.8009 — the network's current High estimate when it is above the caller's price.
+                put("computeUnitPriceMicroLamports", PriorityFee8009.jupiterMicroLamports(senderComputeUnitPriceMicroLamports.coerceAtLeast(1L)))
             } else {
                 put("prioritizationFeeLamports", "auto")
             }

@@ -66,6 +66,10 @@ object SharedHttpClient {
 
     val base: OkHttpClient = OkHttpClient.Builder()
         .dispatcher(sharedDispatcher)
+        // V5.0.8009 — 24 idle connections kept 5 minutes (OkHttp's default is 5): ~50 clients
+        // and dozens of hosts share this pool, so the execution hosts (Helius RPC / Sender,
+        // PumpPortal, Jupiter) were routinely evicted and every trade paid a fresh TLS handshake.
+        .connectionPool(okhttp3.ConnectionPool(24, 5, TimeUnit.MINUTES))
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)

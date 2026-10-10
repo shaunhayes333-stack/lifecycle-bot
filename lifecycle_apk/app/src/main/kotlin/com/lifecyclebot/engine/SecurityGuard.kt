@@ -87,7 +87,9 @@ class SecurityGuard(
         const val MAX_PRICE_MOVE_PCT      = 50.0              // anomaly: >50% move between polls
         const val MAX_VOL_SPIKE_MULTIPLE  = 100.0             // anomaly: 100x volume spike
         const val MIN_TX_INTERVAL_MS      = 500L              // 0.5s between txns — multi-token bot
-        const val SIGN_BROADCAST_DELAY_MS = 500L              // enforced delay sign → broadcast
+        // V5.0.8009 — 0 (was 500 ms): signing is local and the delay only aged the transaction's
+        // blockhash and the quote it was built on; every buy and most sells paid it.
+        const val SIGN_BROADCAST_DELAY_MS = 0L
         const val MAX_POSITION_SOL_HARD   = Double.MAX_VALUE  // no hard cap — SmartSizer manages size
     }
 
@@ -306,7 +308,7 @@ class SecurityGuard(
     // ─────────────────────────────────────────────────────────────────
 
     fun enforceSignDelay() {
-        Thread.sleep(SIGN_BROADCAST_DELAY_MS)
+        if (SIGN_BROADCAST_DELAY_MS > 0L) Thread.sleep(SIGN_BROADCAST_DELAY_MS)
     }
 
     // ─────────────────────────────────────────────────────────────────

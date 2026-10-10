@@ -25,7 +25,9 @@ class SlippageGuard(private val jupiter: JupiterApi) {
 
     companion object {
         const val MAX_QUOTE_DIVERGENCE_PCT = 5.0   // INCREASED from 2% - meme coins move 3-5% in seconds
-        const val QUOTE_DELAY_MS           = 800L  // REDUCED from 1s - faster execution
+        // V5.0.8009 — 250 ms (was 800): the second quote still checks the price is not being
+        // pushed between reads, without spending most of a second of a launch's first minute.
+        const val QUOTE_DELAY_MS           = 250L
         const val SOLANA_TX_FEE_SOL        = 0.000005
         const val JUPITER_FEE_PCT          = 0.003  // 0.3%
     }
