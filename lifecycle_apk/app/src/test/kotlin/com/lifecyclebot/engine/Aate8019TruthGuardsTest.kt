@@ -43,7 +43,8 @@ class Aate8019TruthGuardsTest {
         assertTrue(g.contains("bandNegative -> \"WATCH_FIRST_8019_BAND_NEGATIVE\""))
         assertTrue(g.contains("RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }"))
         assertTrue(g.contains("Cortex7885.overrulesEdgeRefusal(ts, l, prior)) { priorsCleared8019.incrementAndGet()"))
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("refusal.contains(\"BAND_NEGATIVE\")) && fraction < 1.0"))
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("refusal.contains(\"BAND_NEGATIVE\")"))
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("(provenRefusal && fraction < 1.0)"))
         assertTrue(src("engine/BotService.kt").contains("if (!cortexSignal8019 && !runTicket8025 && !com.lifecyclebot.engine.learning.ExplorationBudget.allowProbe7951(lane, mintForProbe))"))
     }
 

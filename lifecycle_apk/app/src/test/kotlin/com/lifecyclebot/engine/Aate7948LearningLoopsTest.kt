@@ -55,7 +55,9 @@ class Aate7948LearningLoopsTest {
         // The STRONG book keeps learning: once STRONG beats NEUTRAL again the power returns.
         repeat(400) { i -> board.record("SHITCOIN", Bucket.STRONG, false, 25.0 + if (i % 2 == 0) 1.0 else -1.0, 0.0) }
         assertFalse(board.inverted7948("SHITCOIN"))
-        assertTrue(board.overruleAuthority("SHITCOIN"))
+        // V5.0.8025 — the evidence returns in full; authority is evidence x maturity, never full.
+        assertTrue(board.evidenceFor8025("SHITCOIN") > 0.99)
+        assertFalse(board.overruleAuthority("SHITCOIN"))
     }
 
     @Test fun realisedClosesAlsoRevealAnInversion() {
