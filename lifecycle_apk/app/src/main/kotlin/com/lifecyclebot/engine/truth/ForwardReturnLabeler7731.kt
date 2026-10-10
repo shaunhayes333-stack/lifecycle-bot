@@ -186,6 +186,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var dipBeforePeak7962 = Double.NaN
         /** V5.0.7967 — the refusal reason at the decision (missed-runner audit). */
         @Volatile var reason7967: String = ""
+        /** V5.0.8006 — the exit-profile sample waits for the end of a followed run. */
+        @Volatile var exitDeferred8006: Boolean = false
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
         @Volatile var feats7972: List<String> = emptyList()
         /** V5.0.7997 — the label value last given to the learners, the next checkpoint, liquidity at the decision. */
@@ -657,17 +659,32 @@ object ForwardReturnLabeler7731 {
         try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
         try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
+        // V5.0.8006 — the Cortex (every voter seat, scoreboard bucket, veto audit, setup x verdict book) too.
+        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
     }
 
     fun progressiveLine7997(): String =
         "checkpoints=15m,30m,1h,4h,8h,12h,24h revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
-            "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()}"
+            "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
-    private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double) {
+    private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false) {
         // V5.0.7955 — one exit-profile sample per observation: peak, time to peak, give-back to the 60-minute read.
         // V5.0.7955 review — exits are learned from decisions the bot took (and realised closes),
         // not from the refused pool, which is mostly tokens that fade.
         // V5.0.7961 — a refused decision whose setup fired teaches that setup's own key only.
+        // V5.0.8006 — a coin still running at the hour is followed on (7997); its exit sample waits
+        // for the end of the run, so the exit plans learn the peak and time-to-peak of the whole
+        // run instead of "peaked at minute 60" (which taught every runner key to sell early).
+        if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)
+        val (net, gross) = captured7945(o, net0, gross0)
+        book(o, 240, net, gross)
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
+    }
+
+    private val exitRunSamples8006 = AtomicLong(0)
+
+    /** The observation's one exit-profile sample, at the hour or at the end of a followed run. */
+    private fun exitSample8006(o: Obs, gross0: Double) {
         val setupFired7961 = try { com.lifecyclebot.engine.ExitProfile7955.setupFired7961(o.setup7955) } catch (_: Throwable) { false }
         if (o.admitted || setupFired7961) try {
             com.lifecyclebot.engine.ExitProfile7955.onLabel7955(
@@ -676,9 +693,14 @@ object ForwardReturnLabeler7731 {
                 keyOnly = !o.admitted, dipBeforePeakPct = o.dipBeforePeak7962,
             )
         } catch (_: Throwable) {}
-        val (net, gross) = captured7945(o, net0, gross0)
-        book(o, 240, net, gross)
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8006 — a followed run ended: its deferred exit sample is taken on the whole path. */
+    private fun endRun8006(o: Obs, gross: Double) {
+        if (!o.exitDeferred8006) return
+        o.exitDeferred8006 = false
+        exitRunSamples8006.incrementAndGet()
+        exitSample8006(o, gross)
     }
 
     /**
@@ -898,10 +920,12 @@ object ForwardReturnLabeler7731 {
             val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false
             if (!o.done240 && age >= H240_MS_7731) {
                 o.done240 = true
-                if (horizonOpen7809(age, H240_MS_7731)) bookTwoForty7944(o, net, gross)
+                val follow8006 = !stop7997 && keepRunning7997(o, gross)
+                if (horizonOpen7809(age, H240_MS_7731)) bookTwoForty7944(o, net, gross, deferExit8006 = follow8006)
                 else horizonMissed7809.incrementAndGet()
-                if (stop7997 || !keepRunning7997(o, gross)) pending.remove(key, o) else extended7997.incrementAndGet()
+                if (!follow8006) pending.remove(key, o) else extended7997.incrementAndGet()
             } else if (o.done240 && stop7997) {
+                endRun8006(o, gross)
                 pending.remove(key, o)
             }
         }

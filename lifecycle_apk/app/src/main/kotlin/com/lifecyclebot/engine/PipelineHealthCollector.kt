@@ -1421,6 +1421,9 @@ object PipelineHealthCollector {
         sb.append("  Progressive grading (§7997): ").append(
             try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.progressiveLine7997() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Cortex re-grading (§8006): ").append(
+            try { com.lifecyclebot.engine.cortex.Cortex7885.progressiveLine8006() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Tail hunter (§7996): ").append(
             try { com.lifecyclebot.engine.truth.TailHunter7996.statusLine7996() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

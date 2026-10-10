@@ -397,16 +397,24 @@ object LiveEdgeGate7877 {
             cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
             return null
         }
-        watched7994.incrementAndGet()
         val why = when {
             st == null || st.n60 < WATCH_MIN_N_7994 -> "WATCH_FIRST_7994_THIN_CELL"
             else -> "WATCH_FIRST_7994_CELL_NEGATIVE"
         }
+        // V5.0.8006 — closed loop: watch-first is graded like every other refusal (the veto audit,
+        // per lane, on progressively revised labels). When the coins it held back in this lane are
+        // proven to win (40+ graded, mean - SE > +2% net of measured cost), it stands down.
+        if (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(why, l) } catch (_: Throwable) { false }) {
+            standDown8006.incrementAndGet(); cleared7994.incrementAndGet()
+            return null
+        }
+        watched7994.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
         return why
     }
 
     private val planSkips7995 = java.util.concurrent.atomic.AtomicLong(0)
+    private val standDown8006 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** V5.0.7996 — every live decision opens a 4-hour ladder replay (TailHunter7996). */
     private fun observeTail7996(ts: TokenState, lane: String, reason: String?, nowMs: Long) {
@@ -416,7 +424,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
@@ -455,7 +463,8 @@ object LiveEdgeGate7877 {
         val cohort7948 by lazy { provenCohort7948(ts, nowMs) }
         for (prior in priors7930) {
             // V5.0.7953 — a refusal the veto audit proves is refusing winners stands down.
-            if (com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners7953(prior)) continue
+            // V5.0.8006 — read in this lane (its own record once it has 40 graded refusals).
+            if (com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(prior, l)) continue
             if ((priorOnly7930(prior) || prior.contains("_EXPECTED_NEGATIVE_7948")) && measuredOverrules7930(ts, l, prior, nowMs)) continue
             // V5.0.7970 — "no setup fired" proven losing is a lane-wide aggregate (MOONSHOT n851 -5%).
             // It yields to the narrower cell this token sits in when that cell clears +15% net after

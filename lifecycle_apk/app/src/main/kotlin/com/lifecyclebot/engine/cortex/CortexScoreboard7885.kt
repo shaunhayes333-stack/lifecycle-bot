@@ -164,6 +164,19 @@ class CortexScoreboard7885 {
         if (!legacyAdmitted && bucket == Bucket.STRONG) b.missedStrong.add(y, runner)
     }
 
+    /** V5.0.8006 — a progressive label revision replaces the booked value in this decision's books. */
+    fun revise8006(lane: String, bucket: Bucket, legacyAdmitted: Boolean, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+        if (!oldNet.isFinite() || !newNet.isFinite()) return
+        val b = books[lane] ?: return
+        val yo = oldNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+        val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+        val ro = oldGross.isFinite() && oldGross >= CortexLedger7885.RUNNER_GROSS_PCT
+        val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
+        b.byBucket[bucket.ordinal].revise(yo, yn, ro, rn)
+        (if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused).revise(yo, yn, ro, rn)
+        if (!legacyAdmitted && bucket == Bucket.STRONG) b.missedStrong.revise(yo, yn, ro, rn)
+    }
+
     fun refusalAuthority(lane: String, runnerLane: Boolean, paper: Boolean): Boolean {
         val b = books[lane] ?: return false
         return refuseProven(b.byBucket[Bucket.REFUSE.ordinal], b.rest(), runnerLane, if (paper) MIN_N_PAPER else MIN_N_LIVE)

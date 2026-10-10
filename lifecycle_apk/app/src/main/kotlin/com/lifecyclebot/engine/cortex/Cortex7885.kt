@@ -310,7 +310,8 @@ object Cortex7885 {
             if (sourceGraded.size > 6_000) sourceGraded.entries.removeIf { p.atMs - it.value > PENDING_TTL_MS }
         }
         synchronized(this) {
-            ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
+            val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
+            if (trace8006 != null) retain8006(key, p, trace8006, netPct, grossPct)
             board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
             calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
             if (p.setup7961.isNotBlank()) {
@@ -321,6 +322,9 @@ object Cortex7885 {
             }
             p.vetoRule?.let { r ->
                 vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
+                    .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+                // V5.0.8006 — the same rule per lane: a rule can refuse winners in one lane and losers in another.
+                vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane)) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
         }
@@ -379,6 +383,81 @@ object Cortex7885 {
         if (retired) inc("VETO_RETIRED_7953_${vetoRuleOf(reason)}")
         return retired
     }
+
+    /**
+     * V5.0.8006 — [vetoRefusesWinners7953] read in the lane the refusal is about: the lane's own
+     * record of the rule decides once it has 40 graded refusals, the all-lane record before that.
+     */
+    fun vetoRefusesWinners8006(reason: String, lane: String): Boolean {
+        ensureLoaded()
+        val rule = vetoRuleOf(reason)
+        val l = canon(lane)
+        val own = synchronized(this) { vetoBook[vetoLaneKey8006(rule, l)] }
+        if (own != null && own.n >= 40.0) {
+            val retired = vetoProvenWinners8006(own)
+            if (retired) inc("VETO_RETIRED_8006_${rule}@$l")
+            return retired
+        }
+        return vetoRefusesWinners7953(reason)
+    }
+
+    /** Pure. V5.0.8006 — refused candidates proven to win: 40+ graded, mean minus one SE above +2% net. */
+    fun vetoProvenWinners8006(st: CortexLedger7885.Stat?): Boolean {
+        if (st == null || st.n < 40.0) return false
+        return st.mean() - kotlin.math.sqrt(st.variance() / st.n) > 2.0
+    }
+
+    private fun vetoLaneKey8006(rule: String, lane: String) = "$rule@$lane"
+
+    // ── V5.0.8006 — progressive revision of graded decisions ──
+    //
+    // The forward labeler revises a 5-minute label at 15 m, 30 m, 1 h, 4 h, 8 h, 12 h and 24 h
+    // while the coin lives (7997). The Cortex graded once at 5 minutes and never heard again, so
+    // every voter, the scoreboard buckets, the veto audit and the setup×verdict book learned what
+    // a coin did in its first five minutes. Graded decisions are kept (bounded; the weakest
+    // labels are dropped first, runners kept) and every revision is applied to all of them.
+    private class Graded8006(
+        val p: Pending, val trace: CortexLedger7885.GradeTrace8006, var net: Double, var gross: Double, val atMs: Long,
+    )
+    private val graded8006 = HashMap<String, Graded8006>()
+    private const val MAX_GRADED_8006 = 600
+    private val revised8006 = java.util.concurrent.atomic.AtomicLong(0)
+    private val revisedUp8006 = java.util.concurrent.atomic.AtomicLong(0)
+
+    private fun retain8006(key: String, p: Pending, trace: CortexLedger7885.GradeTrace8006, net: Double, gross: Double) {
+        if (graded8006.size >= MAX_GRADED_8006) {
+            val cutoff = System.currentTimeMillis() - 25L * 3_600_000L
+            graded8006.entries.removeIf { it.value.atMs < cutoff }
+            if (graded8006.size >= MAX_GRADED_8006) graded8006.entries.minByOrNull { it.value.gross }?.key?.let { graded8006.remove(it) }
+        }
+        graded8006[key] = Graded8006(p, trace, net, gross, p.atMs)
+    }
+
+    /** ForwardReturnLabeler7731.revise7997: a decision's label moved; re-grade it everywhere it was booked. */
+    fun reviseLabel8006(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+        if (!newNet.isFinite()) return
+        val key = "$mint|${labelLane.trim().uppercase()}"
+        synchronized(this) {
+            val g = graded8006[key] ?: return
+            val yo = g.net; val go = g.gross
+            if (!yo.isFinite()) return
+            val a = g.p.a
+            ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, yo, newNet, go, newGross, a.regime)
+            board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, yo, newNet, go, newGross)
+            val cy = { v: Double -> v.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX) }
+            val ro = go >= CortexLedger7885.RUNNER_GROSS_PCT; val rn = newGross >= CortexLedger7885.RUNNER_GROSS_PCT
+            g.p.vetoRule?.let { r ->
+                vetoBook[r]?.revise(cy(yo), cy(newNet), ro, rn)
+                vetoBook[vetoLaneKey8006(r, a.lane)]?.revise(cy(yo), cy(newNet), ro, rn)
+            }
+            if (g.p.setup7961.isNotBlank()) jointBook7961[jointKey7961(a.lane, a.bucket, g.p.setup7961)]?.revise(cy(yo), cy(newNet), ro, rn)
+            g.net = newNet; g.gross = newGross
+        }
+        revised8006.incrementAndGet()
+        if (newNet > oldNet) revisedUp8006.incrementAndGet()
+    }
+
+    fun progressiveLine8006(): String = "retained=${synchronized(this) { graded8006.size }} revised=${revised8006.get()} up=${revisedUp8006.get()}"
 
     /** Pure: a stable rule id from a refusal reason (leading upper-case words, max 4). */
     fun vetoRuleOf(reason: String): String =

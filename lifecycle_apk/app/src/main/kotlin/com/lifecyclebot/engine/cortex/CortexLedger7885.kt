@@ -193,12 +193,15 @@ class CortexLedger7885 {
      * in [voterIds] order with matching [edges]. Scores every voter on the
      * outcome before learning it, then learns it.
      */
-    fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = "") {
-        if (!netPct.isFinite()) return
+    fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = ""): GradeTrace8006? {
+        if (!netPct.isFinite()) return null
         val y = netPct.coerceIn(Y_MIN, Y_MAX)
         val runner = grossPct.isFinite() && grossPct >= RUNNER_GROSS_PCT
         val l = lane(lane)
         val base = laneMean(lane, regime).first
+        val baseWin8006 = l.winRate()
+        val preds8006 = DoubleArray(voterIds.size) { Double.NaN }
+        val pWins8006 = DoubleArray(voterIds.size) { Double.NaN }
         val residuals = ArrayList<Pair<String, Double>>()
         for (i in voterIds.indices) {
             val raw = raws.getOrNull(i) ?: continue
@@ -206,6 +209,7 @@ class CortexLedger7885 {
             val st = seat(voterIds[i], lane, edges[i].size + 1)
             val pr = predict(voterIds[i], lane, edges[i], raw, regime)
             val p = pr.netPct
+            preds8006[i] = p; pWins8006[i] = pr.pWin
             val won = if (y > 0.0) 1.0 else 0.0
             val baseWin = l.winRate()
             val pw = pr.pWin.coerceIn(0.01, 0.99)
@@ -248,6 +252,61 @@ class CortexLedger7885 {
             val c = pairs.getOrPut(k) { DoubleArray(3) }
             c[0] = c[0] * DECAY + ra * rb; c[1] = c[1] * DECAY + ra * ra; c[2] = c[2] * DECAY + rb * rb
         }
+        return GradeTrace8006(preds8006, pWins8006, base, baseWin8006)
+    }
+
+    /** V5.0.8006 — what a grade predicted, kept so a later checkpoint can revise the label. */
+    class GradeTrace8006(val preds: DoubleArray, val pWins: DoubleArray, val base: Double, val baseWin: Double)
+
+    /**
+     * V5.0.8006 — progressive revision. A decision graded at 5 minutes is re-graded when the
+     * forward labeler revises its label at 15 m … 24 h (the coin kept running, or died). The
+     * revised value REPLACES the booked one everywhere it went — every voter's bin (lane,
+     * regime and all-lane cells), the above/below split, the lane prior — and each seat's
+     * out-of-sample error is re-scored against the prediction it actually made then. A
+     * decision is never counted twice; a voter that called a runner at minute zero now earns
+     * the authority it deserved instead of being scored on the first five minutes.
+     */
+    fun revise8006(
+        lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, trace: GradeTrace8006,
+        oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, regime: String = "",
+    ) {
+        if (!oldNet.isFinite() || !newNet.isFinite()) return
+        val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, Y_MAX)
+        val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT
+        val rn = newGross.isFinite() && newGross >= RUNNER_GROSS_PCT
+        if (yo == yn && ro == rn) return
+        val wo = if (yo > 0.0) 1.0 else 0.0; val wn = if (yn > 0.0) 1.0 else 0.0
+        val bw = trace.baseWin.coerceIn(0.01, 0.99)
+        val crossAsset = CrossAssetCortex7931.isCrossAssetLane(lane)
+        for (i in voterIds.indices) {
+            val raw = raws.getOrNull(i) ?: continue
+            if (!raw.isFinite()) continue
+            val p = trace.preds.getOrNull(i) ?: continue
+            if (!p.isFinite()) continue
+            val st = seats["${voterIds[i]}|$lane"] ?: continue
+            val bin = binOf(edges[i], raw)
+            st.bins.getOrNull(bin)?.revise(yo, yn, ro, rn)
+            (if (p >= trace.base) st.above else st.below).revise(yo, yn, ro, rn)
+            st.sseModel = (st.sseModel + (yn - p) * (yn - p) - (yo - p) * (yo - p)).coerceAtLeast(0.0)
+            st.sseBase = (st.sseBase + (yn - trace.base) * (yn - trace.base) - (yo - trace.base) * (yo - trace.base)).coerceAtLeast(0.0)
+            if (wn != wo) {
+                val pw = (trace.pWins.getOrNull(i) ?: Double.NaN).takeIf { it.isFinite() }?.coerceIn(0.01, 0.99)
+                if (pw != null) {
+                    st.brierModel = (st.brierModel + (wn - pw) * (wn - pw) - (wo - pw) * (wo - pw)).coerceAtLeast(0.0)
+                    st.logLossModel = (st.logLossModel - (wn * kotlin.math.ln(pw) + (1 - wn) * kotlin.math.ln(1 - pw)) +
+                        (wo * kotlin.math.ln(pw) + (1 - wo) * kotlin.math.ln(1 - pw))).coerceAtLeast(0.0)
+                }
+                st.brierBase = (st.brierBase + (wn - bw) * (wn - bw) - (wo - bw) * (wo - bw)).coerceAtLeast(0.0)
+                st.logLossBase = (st.logLossBase - (wn * kotlin.math.ln(bw) + (1 - wn) * kotlin.math.ln(1 - bw)) +
+                    (wo * kotlin.math.ln(bw) + (1 - wo) * kotlin.math.ln(1 - bw))).coerceAtLeast(0.0)
+            }
+            if (regime.isNotBlank()) seats["${voterIds[i]}|$lane@$regime"]?.bins?.getOrNull(bin)?.revise(yo, yn, ro, rn)
+            if (lane != GLOBAL && !crossAsset) seats["${voterIds[i]}|$GLOBAL"]?.bins?.getOrNull(bin)?.revise(yo, yn, ro, rn)
+        }
+        lanes[lane]?.revise(yo, yn, ro, rn)
+        if (regime.isNotBlank()) lanes["$lane@$regime"]?.revise(yo, yn, ro, rn)
+        if (lane != GLOBAL && !crossAsset) lanes[GLOBAL]?.revise(yo, yn, ro, rn)
     }
 
     /** voterA|voterB (sorted) -> decayed sum(ra*rb), sum(ra^2), sum(rb^2). */
