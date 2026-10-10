@@ -479,9 +479,17 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * silently we'd clear the position while still holding tokens.
      */
     fun awaitConfirmation(signature: String, timeoutMs: Long = 45_000L): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        var pollCount = 0
+        // V5.0.7980 — speed. This waited for "finalized" (~32 slots, ~13 s after "confirmed")
+        // and polled every 1.5-2 s, so every buy and sell sat ~15 s+ past its real landing —
+        // a peak capture filled well after the print it chased. "confirmed" (a supermajority
+        // has voted the block) is the trading-grade finality every venue and wallet uses; it
+        // is returned as soon as it is seen. Polls every 400 ms for the first 10 s, then 1 s.
+        // An on-chain error still throws; not found after 30 s still means expired.
+        val start = System.currentTimeMillis()
+        val deadline = start + timeoutMs
         while (System.currentTimeMillis() < deadline) {
+            val elapsed = System.currentTimeMillis() - start
+            val pause = if (elapsed < 10_000L) 400L else 1_000L
             try {
                 val sigArray = JSONArray().put(signature)
                 val params   = JSONArray()
@@ -497,30 +505,27 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
                 when {
                     value == null -> {
-                        // Not yet propagated — normal for first few seconds
-                        pollCount++
-                        // After 15 polls (~30s) with no result, likely blockhash expired
-                        if (pollCount > 15) {
+                        // Not yet propagated — normal for the first second or two.
+                        if (elapsed > 30_000L) {
                             throw RuntimeException(
-                                "Transaction not found after ${pollCount * 2}s — " +
+                                "Transaction not found after ${elapsed / 1000}s — " +
                                 "blockhash may have expired: $signature")
                         }
-                        Thread.sleep(2_000)
+                        Thread.sleep(pause)
                     }
                     value.has("err") && !value.isNull("err") -> {
                         val err = value.optJSONObject("err")?.toString() ?: value.opt("err").toString()
                         throw RuntimeException("Transaction failed on-chain: $err (sig=$signature)")
                     }
                     else -> {
-                        val status = value.optString("confirmationStatus", "")
-                        if (status == "finalized") return true
-                        Thread.sleep(1_500)
+                        if (confirmedEnough7980(value.optString("confirmationStatus", ""))) return true
+                        Thread.sleep(pause)
                     }
                 }
             } catch (e: RuntimeException) {
                 throw e   // re-throw explicit failures
             } catch (_: Exception) {
-                Thread.sleep(2_000)
+                Thread.sleep(pause)
             }
         }
         throw RuntimeException("Confirmation timeout after ${timeoutMs/1000}s: $signature")
@@ -1746,3 +1751,6 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
 
 }
+
+/** V5.0.7980 — trading-grade finality: "confirmed" or "finalized" (pure; see awaitConfirmation). */
+internal fun confirmedEnough7980(status: String): Boolean = status == "confirmed" || status == "finalized"

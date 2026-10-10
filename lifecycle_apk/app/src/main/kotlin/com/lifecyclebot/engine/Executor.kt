@@ -27546,6 +27546,11 @@ class Executor(
                                com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason) ||
                                // V5.0.7807 — B4: capital-preservation / structural emergencies get drain-exit urgency.
                                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.acceptsPoorImpact(reason))
+            // V5.0.7980 — a profit capture (spike tier, peak / drawdown-from-peak, chart top, runner
+            // structure break) must LAND at the print it chased: drain-exit priority fee and doubled tip.
+            // Slippage still follows the reason's own cap (isDrainExit is unchanged for slippage).
+            val fastLand7980 = isDrainExit || com.lifecyclebot.engine.sell.CloseLease.urgentProfitCapture7965(reason) ||
+                reason.uppercase().startsWith("RUNNER_STRUCTURE_BREAK_7967") || reason.uppercase().startsWith("RUNNER_HARD_STOP_7967")
             val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason, emergencyAttempt7807(ts))
             if (isDrainExit) {
                 onLog("🚨 DRAIN-EXIT mode for ${ts.symbol} ($reason): ladder=${broadcastSlipLadder.joinToString(",")}bps", tradeId.mint)
@@ -27588,7 +27593,7 @@ class Executor(
             // V5.0.7807 — B4: an emergency uses its per-attempt rung (<= 50%) on the direct route.
             val lsPumpSlip = emergencyDirectSlipBps7807(ts, reason)?.div(100)?.coerceIn(1, 50) ?: (sellSlippage / 100).coerceIn(1, 5)
             val lsPumpJito = c.jitoEnabled
-            val lsPumpTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
+            val lsPumpTip = effectiveJitoTipLamports(c, urgent = fastLand7980)
             // V5.9.1528 — provider-select forensic (operator spec). PumpPortal
             // Lightning pool="auto" routes pump.fun bonding curve → PumpSwap →
             // Raydium and broadcasts through the Helius Sender; it is the PRIMARY
@@ -27617,7 +27622,7 @@ class Executor(
                     traderTag = "MEME",
                 )?.rawAmount ?: return SellResult.FAILED_RETRYABLE,
                 slipPct = lsPumpSlip,
-                priorityFeeSol = if (isDrainExit) 0.0005 else 0.0001,
+                priorityFeeSol = if (fastLand7980) 0.0005 else 0.0001,
                 useJito = lsPumpJito,
                 jitoTipLamports = lsPumpTip,
                 sellTradeKey = sellTradeKey,
@@ -27697,7 +27702,7 @@ class Executor(
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
                         quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                        senderTipLamports = effectiveSenderTipLamports(c, urgent = isDrainExit),
+                        senderTipLamports = effectiveSenderTipLamports(c, urgent = fastLand7980),
                     )
                     onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
                     LiveTradeLogStore.log(
@@ -27712,7 +27717,7 @@ class Executor(
 
                     val useJito = c.jitoEnabled && !quote!!.isUltra
                     // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.
-                    val jitoTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
+                    val jitoTip = effectiveJitoTipLamports(c, urgent = fastLand7980)
 
                     if (quote!!.isUltra) {
                         onLog("🚀 Broadcasting sell via Jupiter Ultra (Beam MEV protection) @ ${currentSlip}bps…", ts.mint)
@@ -27852,7 +27857,7 @@ class Executor(
                     if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L) {
                         val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, emergencyDirectSlipBps7807(ts, reason) ?: if (isDrainExit) 2_500 else 500)
                         val built7311 = com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)
-                        val senderTip7311 = effectiveSenderTipLamports(c, urgent = isDrainExit)
+                        val senderTip7311 = effectiveSenderTipLamports(c, urgent = fastLand7980)
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_BROADCAST,
@@ -27867,7 +27872,7 @@ class Executor(
                             raySig7311 = wallet.signAndSend(
                                 env7311?.txBase64 ?: rayTx,
                                 useJito = c.jitoEnabled && env7311 == null,
-                                jitoTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
+                                jitoTipLamports = effectiveJitoTipLamports(c, urgent = fastLand7980),
                                 senderCompatible = env7311 != null,
                                 awaitFinality = true,
                             )
@@ -27900,7 +27905,7 @@ class Executor(
             if (sig == null) {
                 val rescueSlip = emergencyDirectSlipBps7807(ts, reason)?.div(100)?.coerceIn(1, 50) ?: 5  // V5.9.1524 — 5% live sell cap; V5.0.7807 B4 emergency rung (<= 50%)
                 val rescueJito = c.jitoEnabled
-                val rescueTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
+                val rescueTip = effectiveJitoTipLamports(c, urgent = fastLand7980)
                 // V5.0.4102 — Wave B: skip Pump rescue if the mint is currently
                 // in 60s Pump-direct suppression after 2x 0x1788 strikes. The
                 // rescue will be re-attempted on a later tick once cooldown
@@ -27930,7 +27935,7 @@ class Executor(
                         traderTag = "MEME",
                     )?.rawAmount ?: return SellResult.FAILED_RETRYABLE,
                     slipPct = rescueSlip,
-                    priorityFeeSol = if (isDrainExit) 0.0008 else 0.0003,
+                    priorityFeeSol = if (fastLand7980) 0.0008 else 0.0003,
                     useJito = rescueJito,
                     jitoTipLamports = rescueTip,
                     sellTradeKey = sellTradeKey,
@@ -30917,7 +30922,8 @@ class Executor(
             // the Jito / RPC path exactly as before.
             val pumpEnv7311 = try {
                 com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
-                    built.txBase64, wallet.publicKeyB58, effectiveSenderTipLamports(cfg(), urgent = false),
+                    // V5.0.7980 — a grabbed runner / proven-cell / specialist entry lands next slot (doubled tip).
+                    built.txBase64, wallet.publicKeyB58, effectiveSenderTipLamports(cfg(), urgent = RunnerGrab7967.isGrabbed7980(ts.mint)),
                 )
             } catch (_: Throwable) { null }
             try {

@@ -299,16 +299,36 @@ object RunnerGrab7967 {
         return "RUNNER_HOLD_7967"
     }
 
+    private val peaks7980 = ConcurrentHashMap<String, Double>()
+
+    /** V5.0.7980 — Executor: is [mint] a runner admit (grab / proven cell / runner specialist)? Its buy lands urgently. */
+    fun isGrabbed7980(mint: String): Boolean = grabbed.containsKey(mint)
+
+    /**
+     * Pure. V5.0.7980 — peak capture: after a gross peak of at least +200%, price 35% below the
+     * peak price (gross % values: (1 + g) <= 0.65 x (1 + peak)).
+     */
+    fun peakGiveback7980(peakPct: Double, grossPct: Double): Boolean =
+        peakPct.isFinite() && grossPct.isFinite() && peakPct >= 200.0 &&
+            (1.0 + grossPct / 100.0) <= 0.65 * (1.0 + peakPct / 100.0)
+
     /** SpikeCapture7943.rapidMark: a held runner's own exits — structure break or the -35% stop. */
     fun heldExit7967(ts: TokenState, px: Double?, nowMs: Long, sell: (TokenState, Double, String) -> Unit) {
         if (!holding7967(ts, nowMs)) return
         val pos = ts.position
-        if (nowMs - pos.entryTime < 60_000L) return
         val g = gross(ts, px)
         if (!g.isFinite()) return
+        // V5.0.7980 — the peak, tick by tick from entry (curve ticks / trade marks reach here per print).
+        val pk = "${ts.mint}|${pos.entryTime}"
+        val peak = peaks7980.merge(pk, g) { a, b -> maxOf(a, b) } ?: g
+        if (peaks7980.size > 2_000) peaks7980.clear()
+        if (nowMs - pos.entryTime < 60_000L && !peakGiveback7980(peak, g)) return
         val (r15, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
         val why = when {
             g <= HARD_STOP_PCT -> "RUNNER_HARD_STOP_7967_${g.toInt()}PCT"
+            // V5.0.7980 — a huge quick breakout gives back fast: once it has run +200%, the rest
+            // goes when price is 35% below its peak, without waiting for a bar to close.
+            peakGiveback7980(peak, g) -> "RUNNER_PEAK_CAPTURE_7980_${peak.toInt()}PK_${g.toInt()}PCT"
             r60 != null && r60.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_1M_${g.toInt()}PCT"
             g >= 50.0 && r15 != null && r15.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_15S_${g.toInt()}PCT"
             else -> return
