@@ -8,7 +8,7 @@ class Aate7992PaperLeakTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
     @Test fun phantomRowsAreNotLiveEquity() {
-        assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains(".filter { walletHolds7992(it.mint) }"))
+        assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains(".filter { walletHolds7992(it.mint, it.entryPriceUsd) }"))
         assertTrue(src("engine/KillSwitch.kt").contains("storedSchema7843 < 7992"))
     }
 

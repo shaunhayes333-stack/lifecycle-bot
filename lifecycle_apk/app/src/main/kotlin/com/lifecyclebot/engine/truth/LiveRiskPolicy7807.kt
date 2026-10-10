@@ -489,10 +489,14 @@ object LiveRiskPolicy7807 {
     } catch (_: Throwable) { 0 }
 
     /** Cash plus cost basis still deployed in open live positions (realised equity; marks excluded). */
-    /** V5.0.7992 — the host wallet tracker shows a positive balance for [mint] (unknown tracker = trust the row). */
-    private fun walletHolds7992(mint: String): Boolean = try {
+    /**
+     * V5.0.7992 — is a protective live row real capital? The tracker's balance decides when it knows
+     * the mint; a row the tracker has never seen counts only with a valid entry basis (the phantom
+     * XOM / AC2x rows carried ENTRY_PRICE_INVALID and no wallet balance).
+     */
+    private fun walletHolds7992(mint: String, entryPriceUsd: Double): Boolean = try {
         val p = com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)
-        p != null && p.uiAmount.isFinite() && p.uiAmount > 0.0
+        if (p != null) p.uiAmount.isFinite() && p.uiAmount > 0.0 else entryPriceUsd.isFinite() && entryPriceUsd > 0.0
     } catch (_: Throwable) { true }
 
     internal fun liveEquitySol(walletSol: Double): Double {
@@ -501,7 +505,7 @@ object LiveRiskPolicy7807 {
         // never existed in the wallet — inflated live equity, set a 0.56 SOL "peak" and a 68% drawdown.
         val deployed = try {
             CanonicalPositionAuthority6441.protectiveInventory7807("live")
-                .filter { walletHolds7992(it.mint) }
+                .filter { walletHolds7992(it.mint, it.entryPriceUsd) }
                 .sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
         } catch (_: Throwable) { 0.0 }
         val w = if (walletSol.isFinite()) walletSol.coerceAtLeast(0.0) else 0.0
