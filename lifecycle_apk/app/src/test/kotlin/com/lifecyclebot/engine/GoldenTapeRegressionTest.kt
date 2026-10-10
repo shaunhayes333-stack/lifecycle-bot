@@ -13620,7 +13620,7 @@ class GoldenTapeRegressionTest {
         // V5.0.7730 — the two version files agree and carry a release tag; the
         // exact build moves every ship and is not this test's subject.
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -13675,7 +13675,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("LAB_SLOT_FREED_7723"))
         assertTrue(lab.contains("LAB_SLOT_NOT_FREED_NO_CANDIDATE_7723"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -13730,7 +13730,7 @@ class GoldenTapeRegressionTest {
         assertTrue(fm.contains("FIELD_MANUAL_QUOTE_AGE_FROM_CANONICAL_MARK_7730"))
         assertTrue(fm.contains("if (card.quoteAgeMs < 0L) soft += \"quote freshness unknown\""))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -13820,7 +13820,7 @@ class GoldenTapeRegressionTest {
         assertTrue(doc.contains("fixedCostShare7731="))
         assertEquals(3.8, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.fixedCostSharePct7731(0.042), 0.05)
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     /**
@@ -13887,7 +13887,7 @@ class GoldenTapeRegressionTest {
         val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(labeler.contains("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     /**
@@ -13946,7 +13946,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bridgeBranches.contains("CRYPTO_BRIDGE_TICKET_BELOW_VIABLE_7734"))
         assertTrue(bridgeBranches.indexOf("executable = false") < bridgeBranches.indexOf("executable = true"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     /**
@@ -13997,7 +13997,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("if (f.size !in 17..19) return@forEach"))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
 
@@ -14025,7 +14025,7 @@ class GoldenTapeRegressionTest {
         val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
         assertTrue(manifest.contains("android:largeHeap=\"true\""))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14065,7 +14065,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("if (dueAtHorizon7737(o, age)) dueUnpriced7737.add("))
         assertTrue(lab.contains("FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14087,7 +14087,7 @@ class GoldenTapeRegressionTest {
         assertTrue(src.contains("val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)"))
         assertTrue(src.contains("if (!p.getBoolean(\"purged7738\", false)) {"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14138,7 +14138,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("val planExit7739 = planTickRead7739(ts, pnlPctNow, peakPct, rawTickPnlPctNow, execPxForTickLock != null)"))
         assertTrue(bs.contains("val runnerLockDeferred7277 = planTrailsRemainder7935(ts)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14166,7 +14166,7 @@ class GoldenTapeRegressionTest {
         val proof = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OracleEdgeProof7263.kt").readText()
         assertTrue(proof.contains("rRet <= aRet - MIN_EDGE_MARGIN_RETURN_7263"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14200,7 +14200,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("com.lifecyclebot.engine.truth.TradePlan7739.chokepointRefusal7742(ts, canonicalRoutedLane, score.toInt())"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14221,7 +14221,7 @@ class GoldenTapeRegressionTest {
         assertTrue(probe.contains("u.startsWith(\"lane_policy:\")"))
         assertFalse(probe.contains("whale_follow_live_growth_probe\" ||"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14239,7 +14239,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("tm.realSolReserves = (vSol - com.lifecyclebot.network.PumpFunWS.PUMP_INITIAL_VIRTUAL_SOL_7744).coerceAtLeast(0.0)"))
         assertEquals(30.0, com.lifecyclebot.network.PumpFunWS.PUMP_INITIAL_VIRTUAL_SOL_7744, 1e-9)
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14263,7 +14263,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val laneBiasMult = 1.0"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14287,7 +14287,7 @@ class GoldenTapeRegressionTest {
         // The 20-slot setting is the operator's; wallet affordability never rewrites it.
         assertEquals(20, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.slots(0.08))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14303,7 +14303,7 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("Council7740.liveBlockReason("))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14314,7 +14314,7 @@ class GoldenTapeRegressionTest {
         assertTrue(g.contains("OPERATOR_RELEASED_LANES_7750.filter { paused.remove(it) != null }"))
         assertTrue(g.contains("Field Manual §12"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14325,7 +14325,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tp.contains("executorRefused7751="))
         assertTrue(tp.contains("CanonicalLaneIdentity6506.canonical(lane)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14345,7 +14345,7 @@ class GoldenTapeRegressionTest {
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(phc.contains("Exit regret (§7752)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14370,7 +14370,7 @@ class GoldenTapeRegressionTest {
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(lab.contains("com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(missed7753)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14391,7 +14391,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tp.exitFor(plan, -16.0, 2.0, 60_000L, false, 4.0)!!.reason.startsWith("STRUCTURE_STOP_7739"))
         assertTrue(tp.exitFor(null, -3.0, 1.0, 46L * 60_000L, false, 4.0)!!.reason.startsWith("UNDERWATER_TIME_STOP_7739"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14413,7 +14413,7 @@ class GoldenTapeRegressionTest {
         // V5.0.7955 — the lane's runner flag now reaches exitFor through the learned exit profile.
         assertTrue(bot.contains("ExitProfile7955.runnerExits7955(plan7955, RunnerExitProfile7277.isRunnerLane(pos.tradingMode)),"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14424,7 +14424,7 @@ class GoldenTapeRegressionTest {
         assertFalse(cycle.contains("planOwnsExit7754("))
         assertFalse(cycle.contains("com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14444,7 +14444,7 @@ class GoldenTapeRegressionTest {
         assertFalse(l.tierFor(st(150, 1.5, 1.0)) == pos)
         assertTrue(tp.contains("waitProof7757="))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14467,7 +14467,7 @@ class GoldenTapeRegressionTest {
         assertEquals(-1, pi.buysM5)
         assertFalse(pi.priceChangeM5.isFinite())
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14484,7 +14484,7 @@ class GoldenTapeRegressionTest {
         assertFalse(com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(1.0, 0.7))
         assertTrue(com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(1.0, 0.01))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14495,7 +14495,7 @@ class GoldenTapeRegressionTest {
         assertTrue(fn.contains("val desired = maxOf(requestedSol, minRealistic).coerceAtMost(cap)"))
         assertTrue(fn.contains("WALLET_TARGET_LIFT_DECLINED_7760"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14508,7 +14508,7 @@ class GoldenTapeRegressionTest {
         assertFalse(ex.contains("val regimeMult = com.lifecyclebot.engine.MarketRegimeAI.getPositionSizeMultiplier()"))
         assertTrue(ex.contains("val regimeSizeMult = 1.0"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14521,7 +14521,7 @@ class GoldenTapeRegressionTest {
         assertTrue(fn.contains("if (now - last < 15_000L) return false"))
         assertTrue(fn.contains("lastWsCycleAllowedMs7762[mint] = now"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14543,7 +14543,7 @@ class GoldenTapeRegressionTest {
         val h = com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415
         assertTrue(h.takeSignalsAtEntry7764("none_7764") == null)
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14562,7 +14562,7 @@ class GoldenTapeRegressionTest {
         assertEquals(com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS, com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(-1.0))
         assertEquals(com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN, com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(0.3))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14575,7 +14575,7 @@ class GoldenTapeRegressionTest {
         assertFalse(h.contains("onSwap(\"\", "))
         assertTrue(h.contains("b.copyOfRange(8, 40).contentEquals(mintBytes)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
@@ -14600,7 +14600,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val stale7385 = ageSecs7385 == null || ageSecs7385 > LIVE_SNIPER_MAX_AGE_SECS_7385"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
-        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.7\\d{3}")))
+        assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
 
     @Test
