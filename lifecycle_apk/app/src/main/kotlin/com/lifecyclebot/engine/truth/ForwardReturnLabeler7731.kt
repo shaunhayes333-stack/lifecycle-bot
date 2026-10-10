@@ -73,6 +73,9 @@ object ForwardReturnLabeler7731 {
     /** V5.0.7946 — Pure: how late a horizon may still be read: half the horizon, between 1 and 10 minutes. */
     fun graceFor7946(horizonMs: Long): Long = (horizonMs / 2).coerceIn(60_000L, LOST_GRACE_MS_7731)
     private const val MAX_PENDING_7731 = 6_000
+
+    /** V5.0.8031 — how full the pending book is (0..1): low-priority labels (native verdicts) back off above half. */
+    fun pendingLoad8031(): Double = pending.size.toDouble() / MAX_PENDING_7731
     private const val MAX_CELLS_7731 = 560 // V5.0.7928 — +lane x stage aggregates (never pruned)
     private const val MAX_SEEN_7731 = 12_000
     private const val PERSIST_EVERY_BOOKINGS_7731 = 25

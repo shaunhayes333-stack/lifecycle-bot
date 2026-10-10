@@ -22836,11 +22836,13 @@ class Executor(
         // V5.0.8020 — a deliberate hold / refusal withdraws the trigger stamp: 8018's NORMAL_STOP "queue" of 232 s
         // was the runner hold being timed as dispatch latency (ExitStageTiming7876 / ExitTelemetryStamper6732).
         if (try { RunnerGrab7967.deferSell7967(ts, reason) } catch (_: Throwable) { null } != null) {
+            try { DecisionReasons8031.hold8031(ts, "RUNNER_HOLD_7967", reason) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
         // V5.0.8019 — a price-driven exit on a mark 1000x from the entry is a broken basis, not a move.
         if (try { BasisBreak8019.refuses8019(ts, reason, getActualPrice(ts)) } catch (_: Throwable) { false }) {
+            try { DecisionReasons8031.hold8031(ts, "BASIS_BREAK_8019", reason) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
@@ -22852,6 +22854,7 @@ class Executor(
         }
         // V5.0.8030 — net profit always: a green profit-taking exit below the round trip + 1% holds (NetEdge8030).
         if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = false) } catch (_: Throwable) { false }) {
+            try { DecisionReasons8031.hold8031(ts, "NET_PROFIT_8030", reason) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
@@ -23237,6 +23240,7 @@ class Executor(
         if (pct <= 0) return
         // V5.0.8030 — a partial take-profit is profit-taking too: none below the round trip + 1%.
         if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = true) } catch (_: Throwable) { false }) {
+            try { DecisionReasons8031.hold8031(ts, "NET_PROFIT_PARTIAL_8030", reason) } catch (_: Throwable) {}
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }

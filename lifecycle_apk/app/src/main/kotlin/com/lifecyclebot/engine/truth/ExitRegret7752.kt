@@ -98,6 +98,7 @@ object ExitRegret7752 {
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
         // V5.0.7897 — the exit cortex grades its hold/sell samples on the same clock.
         try { com.lifecyclebot.engine.cortex.CortexExit7897.tick(priceFor, nowMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.DecisionReasons8031.tick8031(priceFor, nowMs) } catch (_: Throwable) {}  // V5.0.8031
         try { com.lifecyclebot.engine.cortex.CortexTiming7900.tick(priceFor, nowMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.cortex.CortexInvariants7911.check(nowMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.LaunchTape7921.tick() } catch (_: Throwable) {}

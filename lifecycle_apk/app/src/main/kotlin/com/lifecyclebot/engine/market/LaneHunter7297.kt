@@ -164,8 +164,11 @@ object LaneHunter7297 {
         ),
         Profile(
             "DIP_HUNTER", DipHunterAI.MIN_MCAP_USD, DipHunterAI.MAX_MCAP_USD,
-            fits = { r -> r.priceChangeH1Pct < 0.0 && r.liquidityUsd >= r.mcapUsd * DipHunterAI.MIN_LIQUIDITY_RATIO },
-            rank = { r -> -r.priceChangeH1Pct / 5.0 + log10(1.0 + r.volumeH1Usd) },
+            // V5.0.8031 — the native mandate (DipHunterAI): 2h+ old, $10k+ liquidity and 10% of cap, a real pullback
+            // (15-55% over the day, or 5-35% in the hour) and not still falling in the last 5 minutes. Ranked on the
+            // pullback sweet spot (~25%), not the deepest knife.
+            fits = { r -> HunterMandates8031.dipFits8031(r.ageHours, r.liquidityUsd, r.mcapUsd, r.priceChangeH1Pct, r.priceChangeH24Pct, r.priceChange5mPct) },
+            rank = { r -> HunterMandates8031.dipRank8031(r.priceChangeH1Pct, r.priceChangeH24Pct) + log10(1.0 + r.volumeH1Usd) },
         ),
         Profile(
             "MOONSHOT", MoonshotTraderAI.MIN_MARKET_CAP_BOOTSTRAP_USD_7719, MoonshotTraderAI.MAX_MARKET_CAP_USD,
@@ -214,9 +217,11 @@ object LaneHunter7297 {
         // to qualify the token before ownership can change.
         Profile(
             "EXPRESS", 1_000.0, 300_000.0,
+            // V5.0.8031 — the native mandate (ShitCoinExpress): known age 5 min+, 1h continuation 1-30% (above 30%
+            // it rejects as CHASE_EXTENDED), the last 5 minutes still up but not vertical.
             fits = { r ->
-                r.priceChangeH1Pct > 1.0 && r.txCountH1 >= 4 &&
-                    r.volumeH1Usd > 0.0 && r.liquidityUsd > 0.0
+                r.txCountH1 >= 4 && r.volumeH1Usd > 0.0 && r.liquidityUsd >= 1_000.0 &&
+                    HunterMandates8031.expressFits8031(r.ageHours, r.priceChangeH1Pct, r.priceChange5mPct)
             },
             rank = { r ->
                 // Momentum ignition / acceleration: prefer active turnover and
@@ -230,8 +235,9 @@ object LaneHunter7297 {
             "PROJECT_SNIPER", 3_000.0, 500_000.0,
             fits = { r ->
                 // ProjectSniperAI is explicitly a pre-ignition / first-minutes desk.
-                r.ageHours in 0.0..0.05 && r.priceChangeH1Pct in -5.0..35.0 &&
-                    r.liquidityUsd >= 1_500.0
+                // V5.0.8031 — age must be KNOWN (0 meant unknown and let old coins in) and liquidity at the native $2k.
+                HunterMandates8031.knownAgeWithin8031(r.ageHours, 0.05) && r.priceChangeH1Pct in -5.0..35.0 &&
+                    r.liquidityUsd >= 2_000.0
             },
             rank = { r ->
                 val youth = (1.0 - (r.ageHours / 0.05)).coerceIn(0.0, 1.0) * 5.0
@@ -245,7 +251,8 @@ object LaneHunter7297 {
                 // The hunter finds young, violently one-sided candidates; the
                 // native ManipulatedTraderAI still requires actual manipulation
                 // evidence (bundle/order-flow/etc.) before qualification.
-                r.ageHours in 0.0..0.20 && r.txCountH1 >= 6 &&
+                // V5.0.8031 — known age within the native 8 minutes; the native gate still wants bundle / one-sided flow.
+                HunterMandates8031.knownAgeWithin8031(r.ageHours, 8.0 / 60.0) && r.txCountH1 >= 6 &&
                     r.priceChangeH1Pct >= 5.0 && r.liquidityUsd >= 1_500.0
             },
             rank = { r ->

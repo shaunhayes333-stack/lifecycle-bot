@@ -67,6 +67,9 @@ object MarketSweep7297 {
         val verified: Boolean,
         val ageHours: Double,
         val providers: Set<String>,
+        // V5.0.8031 — the 5-minute and 24-hour moves (Jupiter stats5m / stats24h). NaN = no provider supplied it.
+        val priceChange5mPct: Double = Double.NaN,
+        val priceChangeH24Pct: Double = Double.NaN,
     )
 
     enum class Band(val minMcap: Double, val maxMcap: Double) {
@@ -336,6 +339,8 @@ object MarketSweep7297 {
                     verified = g.any { it.verified },
                     ageHours = g.map { it.ageHours }.filter { it > 0.0 }.minOrNull() ?: 0.0,
                     providers = g.flatMap { it.providers }.toSet(),
+                    priceChange5mPct = g.map { it.priceChange5mPct }.firstOrNull { it.isFinite() } ?: Double.NaN,
+                    priceChangeH24Pct = g.map { it.priceChangeH24Pct }.firstOrNull { it.isFinite() } ?: Double.NaN,
                 )
             }
 
@@ -614,6 +619,7 @@ object MarketSweep7297 {
             if (mint.length < 32) continue
             val s1 = o.optJSONObject("stats1h")
             val s24 = o.optJSONObject("stats24h")
+            val s5 = o.optJSONObject("stats5m")
             fun vol(s: JSONObject?) = if (s == null) 0.0 else s.optDouble("buyVolume", 0.0).finite() + s.optDouble("sellVolume", 0.0).finite()
             val created = o.optJSONObject("firstPool")?.optString("createdAt", "").orEmpty()
             val createdMs = try { if (created.isBlank()) 0L else java.time.Instant.parse(created).toEpochMilli() } catch (_: Throwable) { 0L }
@@ -633,6 +639,8 @@ object MarketSweep7297 {
                 verified = o.optBoolean("isVerified", false),
                 ageHours = if (createdMs > 0L) ((now - createdMs) / 3_600_000.0).coerceAtLeast(0.0) else 0.0,
                 providers = setOf(provider),
+                priceChange5mPct = s5?.optDouble("priceChange", Double.NaN) ?: Double.NaN,
+                priceChangeH24Pct = s24?.optDouble("priceChange", Double.NaN) ?: Double.NaN,
             )
         }
         return out

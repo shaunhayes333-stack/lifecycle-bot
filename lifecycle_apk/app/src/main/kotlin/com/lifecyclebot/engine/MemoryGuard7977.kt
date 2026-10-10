@@ -119,13 +119,40 @@ object MemoryGuard7977 {
         try { TokenMetaCache.instanceOrNull7979()?.evictToMemoryCap7979(if (hard) 1_500 else 3_000) } catch (_: Throwable) {}
     }
 
+    // ── V5.0.8031 — what is actually big ──
+    // 8029 died of OutOfMemoryError at 15.4 min inside QueuedWork (SharedPreferences apply), with the token rows already
+    // pruned to 147 and every cache this guard trims small. A SharedPreferences file is held in memory whole and
+    // re-serialised whole on every apply(): the census lists the largest prefs files and data files on disk, so the
+    // next report names the store that fills the heap.
+    @Volatile private var censusAt8031 = 0L
+    @Volatile private var census8031 = "-"
+
+    /** Pure: "name:KB" for the [n] largest of [sizes] (bytes). */
+    fun topSizes8031(sizes: Map<String, Long>, n: Int = 6): String =
+        sizes.entries.sortedByDescending { it.value }.take(n).joinToString(",") { "${it.key.take(32)}:${it.value / 1024}KB" }.ifBlank { "-" }
+
+    private fun census8031(): String {
+        val now = System.currentTimeMillis()
+        if (now - censusAt8031 < 60_000L) return census8031
+        censusAt8031 = now
+        census8031 = try {
+            val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return "-"
+            val prefsDir = java.io.File(ctx.applicationInfo.dataDir, "shared_prefs")
+            val prefs = prefsDir.listFiles()?.associate { it.name.removeSuffix(".xml") to it.length() }.orEmpty()
+            val files = ctx.filesDir.walkTopDown().maxDepth(2).filter { it.isFile }.associate { it.name to it.length() }
+            "prefsTotal=${prefs.values.sum() / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
+                "labelLoad=${"%.2f".format(try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingLoad8031() } catch (_: Throwable) { -1.0 })}"
+        } catch (_: Throwable) { "census_failed" }
+        return census8031
+    }
+
     private fun sizes(): String =
         "miner=${try { com.lifecyclebot.engine.truth.SpecialistMiner7972.size7977() } catch (_: Throwable) { -1 }} " +
             "colours=${try { com.lifecyclebot.engine.chart.CandleColors7968.size7977() } catch (_: Throwable) { -1 }} " +
             "chartReads=${try { com.lifecyclebot.engine.chart.ChartReader7950.size7977() } catch (_: Throwable) { -1 }} " +
             "tokenArchiveResident=${try { TokenMetaCache.snapshotIfPresent()?.liveRows ?: -1 } catch (_: Throwable) { -1 }} " +
             "archiveDiskLoads=${try { TokenMetaCache.instanceOrNull7979()?.diskLoads7979() ?: -1L } catch (_: Throwable) { -1L }} " +
-            "watchTokens=${try { BotService.status.tokens.size } catch (_: Throwable) { -1 }} tokensPruned8025=${tokensPruned8025.get()}"
+            "watchTokens=${try { BotService.status.tokens.size } catch (_: Throwable) { -1 }} tokensPruned8025=${tokensPruned8025.get()} | ${census8031()}"
 
     fun statusLine7977(): String =
         "heap=${lastUsedMb}/${maxMb}MB (${"%.0f".format(lastFrac * 100)}%) peak=${"%.0f".format(peakFrac * 100)}% " +

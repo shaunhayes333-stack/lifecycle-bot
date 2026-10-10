@@ -14980,6 +14980,8 @@ class BotService : Service() {
             if (!allowed) try { SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane) } catch (_: Throwable) {}
         }
 
+    private val RESCUE_EXCLUDED_8031 = setOf("CORE", "CYCLIC")
+
     private fun laneEvaluationAllowed7951(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
         // V5.0.6002 — LANE QUARANTINE (operator directive 2026-07-02).
         // MANIPULATED, PROJECT_SNIPER, DIP_HUNTER are hard-paused for new
@@ -15114,7 +15116,9 @@ class BotService : Service() {
         } catch (_: Throwable) { false }
         val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null || huntedByLane7297
         val candidateVersion6600 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-        val qualifiedDeskLanes6600 = designatedDeskSheet6599?.deskHypotheses?.keys.orEmpty().filter { !ExecutionAuthorityPolicy6533.isTrunkLane(it) }
+        // V5.0.8031 — CORE and CYCLIC have no per-token buy block: as the one rescue lane they burned the slot a
+        // specialist (BLUECHIP / TREASURY / QUALITY ...) could have used.
+        val qualifiedDeskLanes6600 = designatedDeskSheet6599?.deskHypotheses?.keys.orEmpty().filter { !ExecutionAuthorityPolicy6533.isTrunkLane(it) && it.uppercase() !in RESCUE_EXCLUDED_8031 }
         val boundedRescue6600 = ExecutionAuthorityPolicy6533.selectOneRescue(
             mint = ts.mint,
             candidateVersion = candidateVersion6600,
