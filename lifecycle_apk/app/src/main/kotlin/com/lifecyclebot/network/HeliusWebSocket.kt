@@ -107,7 +107,9 @@ class HeliusWebSocket(
     private companion object {
         // V5.0.7981 — 128 mention-filtered log streams moved 4.7 GB in ~3 h (5.0.7976) and the
         // process died in OkHttp's TLS reader. Held mints are pinned; 64 slots keep every hot launch.
-        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 64
+        // V5.0.8066 — 64 -> 16: each logsSubscribe on a busy coin streams every log that mentions it; 5.0.8063 streamed
+        // 6.9 GB in 16 minutes (~138k credits) and the month's Helius credits were gone. PumpPortal carries launch tape free.
+        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 16
         const val MAX_WALLET_SUBSCRIPTIONS_7794 = 64
         // V5.0.7807 — a subscribe request whose ACK never arrives (dropped frame,
         // JSON-RPC error, socket died mid-flight) must not pin a request-map entry
@@ -296,6 +298,8 @@ class HeliusWebSocket(
         if (!admitMint7819(mint)) return // V5.0.7819 — Field Manual L186: Solana mints only
         expireStaleRequests7807(System.currentTimeMillis())
         val pinned = pinnedMints7807()
+        // V5.0.8066 — past the day's Helius budget only held positions get a tape.
+        if (mint !in pinned && (try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066() } catch (_: Throwable) { false })) return
         var evictedMint: String? = null
         var evictedServerId: Int? = null
         var requestId = -1

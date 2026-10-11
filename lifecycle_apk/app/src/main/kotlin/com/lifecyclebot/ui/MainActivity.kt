@@ -6310,6 +6310,8 @@ for legal compliance.
             // in the row title so the open-positions card can never be
             // mistaken for a live wallet view.
             val paperBadge = if (pos.isPaperPosition) " PAPER" else ""
+            // V5.0.8066 — a lifecycle hold is labelled (it survives Stop and holds for days / weeks).
+            val holdBadge8066 = try { com.lifecyclebot.engine.LifecycleHold8065.label8066(ts) } catch (_: Throwable) { "" }.let { if (it.isBlank()) "" else " $it" }
             // V5.9.923 — append mint suffix when symbol is duplicated across
             // the rendered set, so two "Luisa" positions on different mints
             // are visually distinguishable.
@@ -6319,7 +6321,7 @@ for legal compliance.
                 " ·${ts.mint.takeLast(4)}"
             } else ""
             info.addView(TextView(this).apply {
-                text = "$modeEmoji ${ts.symbol.ifBlank { ts.mint.take(8) }}$mintSuffix$paperBadge"
+                text = "$modeEmoji ${ts.symbol.ifBlank { ts.mint.take(8) }}$mintSuffix$paperBadge$holdBadge8066"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(if (pos.isPaperPosition) 0xFFB58CFF.toInt() else white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD

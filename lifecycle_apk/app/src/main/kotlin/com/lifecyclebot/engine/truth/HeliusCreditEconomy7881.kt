@@ -54,7 +54,9 @@ object HeliusCreditEconomy7881 {
     }
 
     /** Default daily target. 5.0.7880 era: ~5M credits/day observed by the operator. */
-    private const val DAILY_BUDGET_CREDITS = 1_500_000.0
+    // V5.0.8066 — owner, 2026-10-12: the month's 10M plan credits AND the $250 autoscaling cap were burnt with 13 days
+    // left (59.7M used). The plan pays for ~333k a day; the target is 300k, and it is now enforced (overBudget8066).
+    private const val DAILY_BUDGET_CREDITS = 300_000.0
     private const val ENRICHMENT_POOL_SHARE = 0.50
     private const val WS_CREDITS_PER_100KB = 2.0
     private const val PERSIST_EVERY_MS = 60_000L
@@ -197,6 +199,23 @@ object HeliusCreditEconomy7881 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8066 — HARD budget: true when today's metered credits (REST + websocket bytes) are past the day's pace
+     * (budget x (fraction of the day + 1 h)). HeliusCreditMeterInterceptor7881 then answers every non-execution Helius
+     * call locally with a 429, and the token websocket takes no new non-held subscription. Execution never stops.
+     */
+    fun overBudget8066(nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        rollIfNewDay(nowMs)
+        val pace = (dayFraction(nowMs) + 1.0 / 24.0).coerceIn(0.0, 1.0)
+        val over = synchronized(this) { total } > DAILY_BUDGET_CREDITS * pace
+        if (over) refused8066.incrementAndGet()
+        over
+    } catch (_: Throwable) { false }
+    private val refused8066 = AtomicLong(0)
+
+    /** Pure (V5.0.8066): is a request of this tier ever refused by the hard budget? Execution is never refused. */
+    fun budgetGated8066(tier: Tier): Boolean = tier != Tier.EXECUTION
+
     /** Measured value of a consumer's signal, 0..1. */
     fun valueOf(consumer: Consumer): Double = when (consumer) {
         Consumer.INSIDER_SCAN, Consumer.SMART_MONEY_DISCOVERY, Consumer.SMART_MONEY_STREAM ->
@@ -284,7 +303,7 @@ object HeliusCreditEconomy7881 {
         val projected = if (f > 0.01) total / f else total
         fun k(v: Double) = if (v >= 1_000_000) "%.2fM".format(v / 1_000_000) else if (v >= 1_000) "%.1fk".format(v / 1_000) else "%.0f".format(v)
         return synchronized(this) {
-            "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%)\n" +
+            "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%) hardGate8066[refused=${refused8066.get()}]\n" +
                 "  tiers: " + Tier.values().joinToString(" · ") { t -> byTier[t]?.let { "${t.name}=${k(it[1])}(${it[0].toLong()} calls)" } ?: "${t.name}=0" } + "\n" +
                 "  top methods: " + byMethod.entries.sortedByDescending { it.value[1] }.take(8)
                     .joinToString(" · ") { "${it.key}=${k(it.value[1])}(${it.value[0].toLong()})" }.ifBlank { "-" } + "\n" +

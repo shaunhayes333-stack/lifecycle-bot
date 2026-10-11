@@ -57,7 +57,6 @@ object LaneTransitionManager {
     )
 
     private const val PROMOTION_PNL_MOONSHOT = 100.0        // +100% → MOONSHOT
-    private const val PROMOTION_PNL_TREASURY_BANK = 25.0    // +25% → CashGen banks + restart
     private const val MCAP_BLUECHIP_FLOOR = 500_000.0
     private const val MCAP_QUALITY_FLOOR = 100_000.0
     private const val MCAP_MOONSHOT_ORBITAL = 50_000.0
@@ -84,16 +83,19 @@ object LaneTransitionManager {
             }
         }
 
-        // 3) MOONSHOT promotion on +100% (per docstring)
-        if (pnlPct >= PROMOTION_PNL_MOONSHOT && lane != "MOONSHOT") {
-            return TransitionDecision(Decision.PROMOTE, "MOONSHOT", "pnl_ge_${PROMOTION_PNL_MOONSHOT.toInt()}_pct_moonshot_promotion")
+        // V5.0.8066 — OWNERSHIP BY MARKET CAP (owner: "they are meant to transfer ownership to the lane that covers their
+        // appropriate market cap. they can remain held"). A position whose coin grew into a higher cap band than the one
+        // it was bought in is handed to that band's lane — MOONSHOT ($50k+), QUALITY ($100k+), BLUECHIP ($500k+) — and
+        // stays held (LifecycleHold8065: once held, always held). Upward only, with 15% hysteresis, so a coin
+        // oscillating on a band edge is not passed back and forth and a falling coin is never handed to a scalp lane.
+        // The old "+25% established -> CASHGEN bank" rule (a winner handed to a scalp lane) is retired.
+        capTransfer8066(lane, mcap, ts.position.entryMcap)?.let { target ->
+            if (!isLanePaused(target)) return TransitionDecision(Decision.PROMOTE, target, "mcap_band_owner_8066_$target")
         }
 
-        // 4) CashGen bank on +25% established (per docstring: compounding)
-        //    Only for non-CashGen non-MOONSHOT positions on established mcap
-        if (pnlPct >= PROMOTION_PNL_TREASURY_BANK && mcap >= MCAP_QUALITY_FLOOR
-            && lane !in setOf("CASHGEN", "TREASURY", "MOONSHOT")) {
-            return TransitionDecision(Decision.PROMOTE, "CASHGEN", "pnl_ge_${PROMOTION_PNL_TREASURY_BANK.toInt()}_pct_treasury_bank_compound")
+        // 3) MOONSHOT promotion on +100% (per docstring) — V5.0.8066: only from a scalp lane (never down the cap ladder).
+        if (pnlPct >= PROMOTION_PNL_MOONSHOT && capRank8066(lane) == 0) {
+            return TransitionDecision(Decision.PROMOTE, "MOONSHOT", "pnl_ge_${PROMOTION_PNL_MOONSHOT.toInt()}_pct_moonshot_promotion")
         }
 
         // 5) PROJECT_SNIPER graduation handoff
@@ -115,6 +117,36 @@ object LaneTransitionManager {
         }
 
         return TransitionDecision(Decision.KEEP, null, "no_transition_criteria_met")
+    }
+
+    /** Pure (V5.0.8066): the lane that owns a coin at [mcap] (null under $50k: no lifecycle band). */
+    private fun capOwner8066(mcap: Double): String? = when {
+        !mcap.isFinite() -> null
+        mcap >= MCAP_BLUECHIP_FLOOR -> "BLUECHIP"
+        mcap >= MCAP_QUALITY_FLOOR -> "QUALITY"
+        mcap >= MCAP_MOONSHOT_ORBITAL -> "MOONSHOT"
+        else -> null
+    }
+
+    /** Pure (V5.0.8066): a lane's rung on the cap ladder (0 = a scalp / launch lane). */
+    private fun capRank8066(lane: String?): Int = when (lane?.trim()?.uppercase()) {
+        "BLUECHIP" -> 3
+        "QUALITY" -> 2
+        "MOONSHOT" -> 1
+        else -> 0
+    }
+
+    /**
+     * Pure (V5.0.8066): the lane a held position transfers to now, or null. It moves UP only: the coin's cap (with
+     * 15% hysteresis) owns a higher rung than both its current lane and the cap it was bought at.
+     */
+    fun capTransfer8066(lane: String, mcap: Double, entryMcap: Double): String? {
+        val target = capOwner8066(mcap / 1.15) ?: return null
+        val r = capRank8066(target)
+        if (r <= capRank8066(lane)) return null
+        // An unknown entry cap never transfers (a $10M CASHGEN scalp would otherwise read as "grown into BLUECHIP").
+        if (!entryMcap.isFinite() || entryMcap <= 0.0 || r <= capRank8066(capOwner8066(entryMcap) ?: "")) return null
+        return target
     }
 
     private fun isLanePaused(lane: String): Boolean = try {

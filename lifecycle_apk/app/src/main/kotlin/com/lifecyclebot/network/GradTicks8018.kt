@@ -208,7 +208,11 @@ object GradTicks8018 {
                 pending.clear(); subByVault.clear(); vaultBySub.clear()
                 desired.values.forEach { subscribe(it.baseVault); subscribe(it.quoteVault) }
             }
-            override fun onMessage(webSocket: WebSocket, text: String) { try { handle(text) } catch (_: Throwable) {} }
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                // V5.0.8066 — metered like every Helius stream (2 credits per 0.1 MB).
+                try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.meterWs("GRAD_TICKS", text.length) } catch (_: Throwable) {}
+                try { handle(text) } catch (_: Throwable) {}
+            }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { closed(webSocket) }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closed(webSocket) }
         })

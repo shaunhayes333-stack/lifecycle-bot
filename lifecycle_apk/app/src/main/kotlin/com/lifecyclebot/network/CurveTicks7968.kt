@@ -110,7 +110,11 @@ object CurveTicks7968 {
                 pending.clear(); subByMint.clear(); mintBySub.clear()
                 desired.forEach { (m, c) -> subscribe(m, c) }
             }
-            override fun onMessage(webSocket: WebSocket, text: String) { try { handle(text) } catch (_: Throwable) {} }
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                // V5.0.8066 — metered like every Helius stream (2 credits per 0.1 MB).
+                try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.meterWs("CURVE_TICKS", text.length) } catch (_: Throwable) {}
+                try { handle(text) } catch (_: Throwable) {}
+            }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { failures.incrementAndGet(); closed(webSocket) }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closed(webSocket) }
         })

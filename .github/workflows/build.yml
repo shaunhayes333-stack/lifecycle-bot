@@ -361,6 +361,7 @@ jobs:
             --tests '*Aate8063*' \
             --tests '*Aate8064*' \
             --tests '*Aate8065*' \
+            --tests '*Aate8066*' \
             --tests '*GoldenTapeRegressionTest.V5_0_7723_the_autonomous_stack_closes_its_loops_and_paper_proof_does_not_sell_live' \
             --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 

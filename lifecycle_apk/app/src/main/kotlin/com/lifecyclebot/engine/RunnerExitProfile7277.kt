@@ -120,6 +120,8 @@ object RunnerExitProfile7277 {
      * stop the runner profile would have held through.
      */
     fun refusesLaneChange(fromLane: String?, toLane: String?): Boolean {
+        // V5.0.8066 — a transfer INTO a lifecycle lane (by market cap) keeps the hold: LifecycleHold8065 owns its exits.
+        if (LifecycleHold8065.lifecycleLane8065(toLane.orEmpty())) return false
         val refused = isRunnerLane(fromLane) && !isRunnerLane(toLane)
         if (refused) {
             try { PipelineHealthCollector.labelInc("RUNNER_LANE_IDENTITY_KEPT_7369") } catch (_: Throwable) {}

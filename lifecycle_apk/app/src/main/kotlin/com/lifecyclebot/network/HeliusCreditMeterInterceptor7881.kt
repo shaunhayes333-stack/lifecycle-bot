@@ -2,14 +2,16 @@ package com.lifecyclebot.network
 
 import com.lifecyclebot.engine.truth.HeliusCreditEconomy7881
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.Response
 import okio.Buffer
 
 /**
  * V5.0.7881 — prices every Helius REST call that reaches the wire through
  * SharedHttpClient (JSON-RPC methods read from the body, batch-aware;
- * Enhanced v0 endpoints by path). Meters only: it never refuses, delays or
- * rewrites a request. Synthetic short-circuits (HostCircuitInterceptor sits
+ * Enhanced v0 endpoints by path). Meters it; V5.0.8066 — and past the hard daily
+ * budget answers non-execution calls locally (429), see HeliusCreditEconomy7881.overBudget8066. Synthetic short-circuits (HostCircuitInterceptor sits
  * before this one) never reach it and are not counted.
  */
 object HeliusCreditMeterInterceptor7881 : Interceptor {
@@ -28,6 +30,14 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
             if (b == null || b.isOneShot() || b.contentLength() > MAX_BODY_BYTES) emptyList()
             else Buffer().also { b.writeTo(it) }.readUtf8().let { methodsIn(it) }
         } catch (_: Throwable) { emptyList() }
+        // V5.0.8066 — the hard daily budget: past the day's pace, every non-execution Helius call is answered here with
+        // a 429 (no network, no credits). Callers already treat a 429 as "back off / use the next source".
+        val tier8066 = try { HeliusCreditEconomy7881.tierFor(host, req.url.encodedPath, methods) } catch (_: Throwable) { null }
+        if (tier8066 != null && HeliusCreditEconomy7881.budgetGated8066(tier8066) && HeliusCreditEconomy7881.overBudget8066()) {
+            return Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(429).message("AATE_HELIUS_BUDGET_8066")
+                .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_BUDGET_8066\"}}".toResponseBody("application/json".toMediaType()))
+                .build()
+        }
         val resp = chain.proceed(req)
         try { HeliusCreditEconomy7881.meter(host, req.url.encodedPath, methods) } catch (_: Throwable) {}
         return resp

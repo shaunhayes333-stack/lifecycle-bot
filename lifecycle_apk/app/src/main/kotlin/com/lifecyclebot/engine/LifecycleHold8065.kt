@@ -112,7 +112,17 @@ object LifecycleHold8065 {
         if (!pos.isOpen || pos.isPaperPosition || pos.entryTime <= 0L || !(pos.entryPrice > 0.0)) return false
         load()
         if (lifecycleLane8065(laneOf(ts))) return true
-        return states[key(ts)]?.promoted == true
+        // V5.0.8066 — once held, always held: a lane transfer (LaneTransitionManager, by market cap) never releases it.
+        return states[key(ts)] != null
+    }
+
+    /** V5.0.8066 — the owner's Stop leaves lifecycle holds in the wallet (BotService.stopBot). */
+    fun keepOnStop8066(ts: TokenState): Boolean = holding8065(ts)
+
+    /** V5.0.8066 — the open-positions label: "" when not held, else HOLD / FREE RIDE. */
+    fun label8066(ts: TokenState): String {
+        if (!holding8065(ts)) return ""
+        return if ((states[key(ts)]?.taken ?: 0) >= 1) "🧬 FREE RIDE" else "🧬 HOLD"
     }
 
     /** LiveRiskPolicy7807: a lifecycle position past its 2x take is a free ride — it takes no lane slot. */

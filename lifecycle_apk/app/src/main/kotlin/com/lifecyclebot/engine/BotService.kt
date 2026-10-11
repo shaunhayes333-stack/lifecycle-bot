@@ -10100,8 +10100,17 @@ class BotService : Service() {
                     // PositionPersistence.clear() intentionally moved AFTER closeAllPositions below.
                 }
 
+                // V5.0.8066 — owner: Stop leaves lifecycle holds alone ("yes but label them"). They stay in the wallet,
+                // stay persisted, are labelled in the log here and on the positions card, and are managed again on start.
+                val kept8066 = if (cfg.paperMode) emptyMap() else tokensCopy.filterValues {
+                    try { LifecycleHold8065.keepOnStop8066(it) } catch (_: Throwable) { false }
+                }
+                kept8066.values.forEach { k ->
+                    val g8066 = if (k.position.entryPrice > 0.0 && k.lastPrice > 0.0) ((k.lastPrice / k.position.entryPrice - 1.0) * 100.0).toInt() else 0
+                    addLog("🧬 LIFECYCLE HOLD kept through Stop: ${k.symbol} (${if (g8066 >= 0) "+" else ""}$g8066%) — still held, managed again on start")
+                }
                 val closedCount = executor.closeAllPositions(
-                    tokens = tokensCopy,
+                    tokens = tokensCopy - kept8066.keys,
                     wallet = wallet,
                     walletSol = effectiveBalance,
                     paperMode = cfg.paperMode,
@@ -10115,7 +10124,9 @@ class BotService : Service() {
                 // positions aren't orphaned if the process dies mid-sell.
                 try {
                     PositionPersistence.clear()
-                    ForensicLogger.lifecycle("STOP_PERSIST_CLEARED_POST_CLOSE", "closedCount=$closedCount")
+                    // V5.0.8066 — the kept lifecycle holds are written back.
+                    kept8066.values.forEach { k -> try { PositionPersistence.savePosition(k) } catch (_: Throwable) {} }
+                    ForensicLogger.lifecycle("STOP_PERSIST_CLEARED_POST_CLOSE", "closedCount=$closedCount keptLifecycle8066=${kept8066.size}")
                 } catch (e: Throwable) {
                     ErrorLogger.warn("BotService", "post-close persist clear: ${e.message}")
                 }
@@ -10130,7 +10141,7 @@ class BotService : Service() {
                 // ═══════════════════════════════════════════════════════════════════
                 if (!cfg.paperMode && wallet != null) {
                     try {
-                        val swept = executor.liveSweepWalletTokens(wallet!!, effectiveBalance)
+                        val swept = executor.liveSweepWalletTokens(wallet!!, effectiveBalance, kept8066.keys)
                         if (swept > 0) {
                             addLog("💰 Wallet sweep: liquidated $swept on-chain holding(s) to SOL")
                         }
