@@ -55,6 +55,6 @@ class Aate7981DrawdownFeedsStreamsTest {
     }
 
     @Test fun logStreamsHalved() {
-        assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 16")  // V5.0.8066 — Helius credit budget)
+        assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 16"))  // V5.0.8066 — Helius credit budget
     }
 }
