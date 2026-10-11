@@ -11,7 +11,9 @@ class Aate8020ExitTruthTest {
         val e = src("engine/Executor.kt")
         val core = e.substringAfter("private fun requestSellCore7948(").substringBefore("// V5.0.7768")
         assertTrue(core.contains("RunnerGrab7967.deferSell7967(ts, reason)"))
-        assertTrue(core.split("ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)").size == 3)
+        // V5.0.8065 — + the lifecycle hold: three holds (lifecycle, runner, basis break) each withdraw the stamp.
+        assertTrue(core.contains("LifecycleHold8065.defer8065(ts, reason)"))
+        assertTrue(core.split("ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)").size == 4)
     }
 
     @Test fun aRedRunnerHoldNeedsATapeThatSaysTheRunStands() {
