@@ -43,3 +43,15 @@ class Aate8048ProfitRetentionTest {
         assertTrue(lease.contains("r.startsWith(\"TICK_PROFIT_LOCK\")"))
     }
 }
+
+/** V5.0.8058 — a peak past net break-even locks break-even even while the raw trail is not yet positive. */
+class Aate8058BreakEvenLockTest {
+    @Test fun peakLocksBreakEven() {
+        // Hk5pde: peak +13%, cost 4.5% -> break-even 5.0%; raw trail -3% must not leave it unlocked.
+        assertEquals(5.0, com.lifecyclebot.engine.truth.FieldManual7715.costArmedStop7928(-3.0, 13.0, 4.5) { -12.0 }, 1e-9)
+        // Below the arm level the raw stop stands.
+        assertEquals(-3.0, com.lifecyclebot.engine.truth.FieldManual7715.costArmedStop7928(-3.0, 4.0, 4.5) { -12.0 }, 1e-9)
+        assertEquals(RejectTaxonomy.Category.HARD_SAFETY, RejectTaxonomy.classify("MAYHEM_MODE").category)
+        assertEquals(RejectTaxonomy.Category.ADVISORY, RejectTaxonomy.classify("REBUY_LOCKOUT_8019").category)
+    }
+}

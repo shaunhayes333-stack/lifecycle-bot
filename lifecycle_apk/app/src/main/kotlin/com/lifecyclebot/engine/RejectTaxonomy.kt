@@ -49,12 +49,14 @@ object RejectTaxonomy {
             // V5.0.8051 — 5.0.8046 filed 646 refusals as UNKNOWN_REVIEW (trainable=false: excluded from learning). Scam /
             // honeypot rules are hard; market-evidence refusals the bot grades (watch first, net edge, dead launch, chain
             // price, repeat loser, stage, native verdicts ...) are trainable advisories; hydration gaps are penalties.
-            r.contains("SCAM") || r.contains("HONEYPOT") || r.contains("HARD_BLOCK") || r.contains("BLACKLIST") || r.contains("MINT_AUTH") || r.contains("FREEZE") -> Category.HARD_SAFETY
+            r.contains("SCAM") || r.contains("HONEYPOT") || r.contains("HARD_BLOCK") || r.contains("BLACKLIST") || r.contains("MINT_AUTH") || r.contains("FREEZE") || r.contains("MAYHEM") -> Category.HARD_SAFETY
             r.contains("TOKEN_MAP_INCOMPLETE") || r.contains("PAIR_") || r.contains("HYDRAT") || r.contains("STALE") || r.contains("NOT_FRESH") || r.contains("NO_PRICE") -> Category.PENALTY
             blockLevel != TradeAuthorizer.BlockLevel.HARD && listOf("WATCH_FIRST", "NET_EDGE", "REPEAT_LOSER", "EXPLORATION", "NATIVE_", "TOO_OLD",
                 "MCAP", "FLATLINE", "CURVE_NOBODY", "LAUNCH_CAP", "PRICE_COLLAPSED", "MOMENTUM", "STAGE", "TACTIC", "VETO", "OWNED_BY", "SIZE_",
                 "CONVICTION", "BAND", "CELL", "SPECIALIST", "REGIME", "CHOP", "DUMP", "EXHAUST", "CHASING", "SPREAD", "BUY_PRESSURE", "HOLDER",
-                "NARRATIVE", "DISTRIBUTION", "PIVOT", "THRESHOLD", "NOT_PRIMARY", "PRIMARY").any { r.contains(it) } -> Category.ADVISORY
+                "NARRATIVE", "DISTRIBUTION", "PIVOT", "THRESHOLD", "NOT_PRIMARY", "PRIMARY",
+                // V5.0.8058 — 5.0.8055 "Unclassified refusals": these are graded evidence too.
+                "REBUY_LOCKOUT", "FIELD_MANUAL", "ALREADY_RAN", "RSI", "OVERBOUGHT").any { r.contains(it) } -> Category.ADVISORY
             blockLevel == TradeAuthorizer.BlockLevel.HARD -> Category.HARD_SAFETY
             else -> Category.UNKNOWN_REVIEW
         }

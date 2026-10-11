@@ -291,10 +291,13 @@ object FieldManual7715 {
      * a [preTrail] failure propagates to the caller's own fallback.
      */
     fun costArmedStop7928(rawStop: Double, peakPnlPct: Double, costPct: Double, preTrail: () -> Double): Double {
-        if (!rawStop.isFinite() || rawStop <= 0.0) return rawStop
+        if (!rawStop.isFinite()) return rawStop
         val breakEven = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
+        // V5.0.8058 — a peak that cleared net break-even is locked there whatever the raw trail says: 5.0.8055
+        // Hk5pde (QUALITY) peaked +13% with the fluid trail not yet positive (raw <= 0 skipped the lock) and sold -1%.
+        if (peakPnlPct.isFinite() && peakPnlPct >= breakEven + 1.5) return maxOf(rawStop, breakEven)
+        if (rawStop <= 0.0) return rawStop
         if (rawStop >= breakEven) return rawStop
-        if (peakPnlPct >= breakEven + 1.5) return breakEven
         return preTrail().coerceAtMost(0.0)
     }
 
