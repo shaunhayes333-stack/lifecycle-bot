@@ -39,11 +39,10 @@ permissions:
 # itself. The trigger is already minimal (one workflows entry, one type), so
 # the duplication is in event delivery, not in the condition — a concurrency
 # group is the fix that holds regardless of how many times the event arrives.
-# Keyed on the built commit so pushes still get independent verdicts, and
-# superseded duplicates report `cancelled`, never `failure`, so a cancelled
-# duplicate can never be mistaken for a real red.
+# Keyed on source branch, so a newer repair commit cancels older emulators.
+# A cancelled superseded run is neither an acceptance pass nor a failure.
 concurrency:
-  group: runtime-smoke-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+  group: runtime-smoke-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
