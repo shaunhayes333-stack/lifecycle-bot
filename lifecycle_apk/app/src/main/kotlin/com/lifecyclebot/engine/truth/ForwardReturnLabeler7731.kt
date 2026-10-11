@@ -58,7 +58,8 @@ object ForwardReturnLabeler7731 {
      *   slot "240" -> 60 minutes (the late read that spares runner lanes)
      * The table is stored under new keys, so no 60-minute label mixes into it.
      */
-    private const val H15_MS_7731 = 2L * 60_000L
+    // V5.0.8040 — owner's schedule: 1 min, 5 min, 1 hour, then 4 h and 24 h only while the tokenomics are worth watching.
+    private const val H15_MS_7731 = 1L * 60_000L
     private const val H60_MS_7731 = 5L * 60_000L
     private const val H240_MS_7731 = 60L * 60_000L
     /** A mark older than this is not a price for this purpose (tightened for the 5-minute read). */
@@ -622,9 +623,16 @@ object ForwardReturnLabeler7731 {
         // V5.0.8029 — graded on THIS lane's play: its own stop first (a coin through the stop before its peak is a
         // stopped trade, not a run), then the spike ladder on the peak with the rest at the mark — or at the stop.
         val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane) } catch (_: Throwable) { Double.NaN }
-        val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross) { pk, rest ->
+        val ladder8040: (Double, Double) -> Double = { pk, rest ->
             com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(pk, rest).let { if (it.isFinite() && it > rest) it else rest }
         }
+        val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
+        // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
+        if (stop8029 > 0.0) try {
+            com.lifecyclebot.engine.cortex.StopLearner8040.onPath8040(o.lane, "${o.mint}|${o.atMs}", stop8029) { s ->
+                com.lifecyclebot.engine.LaneParticipation8029.playGross8029(s, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
+            }
+        } catch (_: Throwable) {}
         if (!g.isFinite() || g == gross) return net to gross
         val dipFirst8029 = if (o.dipBeforePeak7962.isFinite()) o.dipBeforePeak7962 else o.minPct7962
         if (g < gross || (stop8029 > 0.0 && o.minPct7962 <= -stop8029)) try {
@@ -669,8 +677,11 @@ object ForwardReturnLabeler7731 {
     // decision is never counted twice. Past 1 hour only coins still up 20%+ keep being followed.
     // V5.0.8013 — the owner's schedule: 5 m (the first label), 15 m, 30 m, 1 h, 5 h, 24 h, and beyond
     // (48 h, 72 h, 7 d) for a coin that is still running, holding liquidity and up 20%+ past the hour.
-    private val CK_MS_7997 = longArrayOf(15L * 60_000L, 30L * 60_000L, 60L * 60_000L, 5L * 3_600_000L,
-        24L * 3_600_000L, 48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)
+    // V5.0.8040 — owner: "grading coins over 1 min, 5 min, 1 hour, 4 hours and 24 hours, but only beyond 1 hour if
+    // the tokenomics say it's worth watching". The 1 m and 5 m labels are the first reads; the checkpoints revise
+    // them at 1 h, 4 h and 24 h. Past the hour a coin is followed on its tokenomics ([worthWatching8040]), not on
+    // its price alone (was: up 20%+).
+    private val CK_MS_7997 = longArrayOf(60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L)
     private const val RUNNING_GROSS_7997 = 20.0
     private const val DEAD_GROSS_7997 = -60.0
     private const val MAX_EXTENDED_7997 = 1_500
@@ -689,7 +700,43 @@ object ForwardReturnLabeler7731 {
 
     private fun keepRunning7997(o: Obs, gross: Double): Boolean =
         pending.size < MAX_PENDING_7731 && extended7997.get() - diedEarly7997.get() < MAX_EXTENDED_7997 &&
-            gross >= RUNNING_GROSS_7997 && alive7997(gross, o.entryLiq7997, nowLiq7997(o.mint))
+            worthWatchingNow8040(o, gross)
+
+    private val tokenomicsKept8040 = AtomicLong(0)
+    private val tokenomicsDropped8040 = AtomicLong(0)
+    private const val MAX_TOP_HOLDER_PCT_8040 = 50.0
+    private const val MAX_CAP_TO_LIQ_8040 = 200.0
+    private const val STALE_MARK_MS_8040 = 15L * 60_000L
+
+    /**
+     * Pure. V5.0.8040 — past the hour, is the coin worth watching on its tokenomics? Alive (not down 60%, liquidity
+     * held above 40% of the decision's), not safety-blocked, still trading (a mark under 15 minutes old), no single
+     * holder over half the supply, and a cap its pool can carry (cap / liquidity <= 200). Unknown facts do not
+     * disqualify; known bad ones do. Without the coin's live row only the price rule can judge (up 20%+ and alive).
+     */
+    fun worthWatching8040(grossPct: Double, entryLiq: Double, nowLiq: Double, markAgeMs: Long?, topHolderPct: Double?,
+                          capUsd: Double, safetyBlocked: Boolean?): Boolean {
+        if (!alive7997(grossPct, entryLiq, nowLiq)) return false
+        if (safetyBlocked == null) return grossPct >= RUNNING_GROSS_7997
+        if (safetyBlocked) return false
+        if (markAgeMs != null && markAgeMs > STALE_MARK_MS_8040) return false
+        if (topHolderPct != null && topHolderPct.isFinite() && topHolderPct > MAX_TOP_HOLDER_PCT_8040) return false
+        if (capUsd.isFinite() && capUsd > 0.0 && nowLiq.isFinite() && nowLiq > 0.0 && capUsd / nowLiq > MAX_CAP_TO_LIQ_8040) return false
+        return true
+    }
+
+    private fun worthWatchingNow8040(o: Obs, gross: Double): Boolean {
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[o.mint] } catch (_: Throwable) { null }
+        val ok = worthWatching8040(
+            gross, o.entryLiq7997, nowLiq7997(o.mint),
+            ts?.lastPriceUpdate?.takeIf { it > 0L }?.let { System.currentTimeMillis() - it },
+            ts?.topHolderPct,
+            ts?.let { try { TrustedMcap8019.mcap8019(it) } catch (_: Throwable) { it.lastMcap } } ?: Double.NaN,
+            ts?.safety?.isBlocked,
+        )
+        if (ok) tokenomicsKept8040.incrementAndGet() else tokenomicsDropped8040.incrementAndGet()
+        return ok
+    }
 
     /** Revises the 5-minute label at each due checkpoint; true when the coin is no longer followed. */
     private fun checkpoint7997(o: Obs, net0: Double, gross0: Double, age: Long, nowMs: Long): Boolean {
@@ -707,7 +754,7 @@ object ForwardReturnLabeler7731 {
         }
         val alive = alive7997(gross0, o.entryLiq7997, nowLiq7997(o.mint))
         if (!alive) { diedEarly7997.incrementAndGet(); o.ck7997 = CK_MS_7997.size }
-        return !alive || (age >= H240_MS_7731 && gross0 < RUNNING_GROSS_7997) || o.ck7997 >= CK_MS_7997.size
+        return !alive || (age >= H240_MS_7731 && !worthWatchingNow8040(o, gross0)) || o.ck7997 >= CK_MS_7997.size
     }
 
     private fun revise7997(o: Obs, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
@@ -731,7 +778,7 @@ object ForwardReturnLabeler7731 {
     }
 
     fun progressiveLine7997(): String =
-        "checkpoints=5m,15m,30m,1h,5h,24h,48h,72h,7d revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
+        "checkpoints=1m,5m,1h,4h,24h (past 1h on tokenomics: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false) {
@@ -1073,7 +1120,7 @@ object ForwardReturnLabeler7731 {
         val worst = cellStats.sortedBy { it.meanNet60Pct }.take(3)
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
-        return "read=5m(slot60) early=2m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
+        return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
             "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +

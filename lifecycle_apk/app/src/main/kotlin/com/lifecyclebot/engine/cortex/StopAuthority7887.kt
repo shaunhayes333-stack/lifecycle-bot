@@ -61,11 +61,13 @@ object StopAuthority7887 {
             catch (_: Throwable) { "" }.ifBlank { pos.tradingMode.trim().uppercase() }
         val plan = try { com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, pos.entryTime) } catch (_: Throwable) { null }
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
-        val base = LANE_BASE[lane] ?: try {
+        // V5.0.8040 — the stop this lane's own graded paths chose replaces the constant (and its multiplier).
+        val learned8040 = try { StopLearner8040.learnedStop8040(lane) } catch (_: Throwable) { null }
+        val base = learned8040 ?: LANE_BASE[lane] ?: try {
             kotlin.math.abs(com.lifecyclebot.engine.HoldingLogicLayer.getHoldParams(lane).stopLossPct)
         } catch (_: Throwable) { 15.0 }
-        val mult = try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(lane) } catch (_: Throwable) { 1.0 }
-        sources.computeIfAbsent(if (plan != null) "PLAN" else if (LANE_BASE.containsKey(lane)) "LANE" else "STYLE") { AtomicLong(0) }.incrementAndGet()
+        val mult = if (learned8040 != null) 1.0 else try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(lane) } catch (_: Throwable) { 1.0 }
+        sources.computeIfAbsent(if (plan != null) "PLAN" else if (learned8040 != null) "LEARNED_8040" else if (LANE_BASE.containsKey(lane)) "LANE" else "STYLE") { AtomicLong(0) }.incrementAndGet()
         val composed = compose(plan?.stopPnlPct, base, mult, runner)
         // V5.0.7962 — the key's own winners decide how much room they need (ExitProfile7955).
         val learned = try {
@@ -85,8 +87,9 @@ object StopAuthority7887 {
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) } catch (_: Throwable) { false }
         // Not a trading lane (a plan / audit key labelled through the same book): no play to grade on.
         if (!LANE_BASE.containsKey(l) && !runner && l != "MOONSHOT") return Double.NaN
-        val base = LANE_BASE[l] ?: try { kotlin.math.abs(com.lifecyclebot.engine.HoldingLogicLayer.getHoldParams(l).stopLossPct) } catch (_: Throwable) { 15.0 }
-        val mult = try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(l) } catch (_: Throwable) { 1.0 }
+        val learned8040 = try { StopLearner8040.learnedStop8040(l) } catch (_: Throwable) { null }
+        val base = learned8040 ?: LANE_BASE[l] ?: try { kotlin.math.abs(com.lifecyclebot.engine.HoldingLogicLayer.getHoldParams(l).stopLossPct) } catch (_: Throwable) { 15.0 }
+        val mult = if (learned8040 != null) 1.0 else try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(l) } catch (_: Throwable) { 1.0 }
         return compose(null, base, mult, runner || l == "MOONSHOT")
     }
 

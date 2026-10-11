@@ -1465,6 +1465,9 @@ object PipelineHealthCollector {
         sb.append("  Lane participation (§8029): ").append(
             try { LaneParticipation8029.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Stop learner (§8040): ").append(
+            try { com.lifecyclebot.engine.cortex.StopLearner8040.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Dead charts (§8027): ").append(
             try { FlatChart8027.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
