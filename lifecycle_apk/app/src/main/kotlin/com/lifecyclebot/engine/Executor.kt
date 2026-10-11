@@ -23244,6 +23244,11 @@ class Executor(
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }
+        // V5.0.8034 — a moonbag tail sells no ordinary slice (only its own TAIL_ milestones or a structural exit).
+        if (try { TailBag8034.partialHeld8034(ts, reason) } catch (_: Throwable) { false }) {
+            receipt6566?.invoke(PartialSellReceipt6566(false))
+            return
+        }
         
         // V5.9.475 — rehydrate ts.position from sub-trader maps if empty.
         // Without this, partial-sell would compute originalHolding = 0
@@ -24019,7 +24024,36 @@ class Executor(
     }
 
     /** V5.0.7322 — non-null short-circuits the sell (moonbag banked or held). */
+    /**
+     * V5.0.8034 — the moonbag tail (TailBag8034): the first ordinary exit on a meme-lane position sells 75% and keeps
+     * 25% as a tail; the tail holds through every ordinary exit and sells only on a rug / structural exit, at its
+     * +400 / +1,900 / +4,900% multiples, or after 7 days. A slice that does not apply falls through to the full exit.
+     */
+    private fun tailBagGate8034(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult? {
+        val d = try { TailBag8034.decide8034(ts, reason) } catch (_: Throwable) { TailBag8034.Decision.Pass }
+        if (d == TailBag8034.Decision.Pass) return null
+        if (d == TailBag8034.Decision.Hold) {
+            try { DecisionReasons8031.hold8031(ts, "TAIL_BAG_8034", reason) } catch (_: Throwable) {}
+            com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
+            return SellResult.FAILED_RETRYABLE
+        }
+        if (d == TailBag8034.Decision.SetAside) {
+            val r = requestPartialSellConfirmed6566(ts, 1.0 - TailBag8034.TAIL_FRACTION, "TAIL_SET_ASIDE_8034_${reason.take(40)}", wallet, walletSol)
+            if (!r.applied) return null
+            TailBag8034.markSetAside8034(ts)
+            com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
+            return SellResult.FAILED_RETRYABLE
+        }
+        val m = d as? TailBag8034.Decision.Milestone ?: return null
+        if (m.fraction >= 1.0) return null
+        val r = requestPartialSellConfirmed6566(ts, m.fraction, "TAIL_MILESTONE_8034_${m.index + 1}", wallet, walletSol)
+        if (!r.applied) return null
+        TailBag8034.markMilestone8034(ts, m.index)
+        return SellResult.FAILED_RETRYABLE
+    }
+
     private fun moonbagGate7322(ts: TokenState, requestReason: String, wallet: SolanaWallet?, walletSol: Double): SellResult? {
+        if (!ts.position.isPaperPosition) tailBagGate8034(ts, requestReason, wallet, walletSol)?.let { return it }
         // V5.0.7349 — paper is no longer excluded; see moonbagWouldAct7349.
         // V5.0.7807 — B2: a class 1-3 exit (lane-aware: only structural / catastrophe on
         // Moonshot) bypasses the moonbag hold and sells the whole bag (Field Manual L311).

@@ -1447,6 +1447,9 @@ object PipelineHealthCollector {
         ).append(" | rebuy ").append(
             try { RebuyLockout8019.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Moonbag tails (§8034): ").append(
+            try { TailBag8034.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Decision reasons (§8031): ").append(
             try { DecisionReasons8031.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

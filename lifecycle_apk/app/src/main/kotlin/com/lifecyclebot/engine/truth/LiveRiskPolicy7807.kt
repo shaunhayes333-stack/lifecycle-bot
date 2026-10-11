@@ -484,7 +484,8 @@ object LiveRiskPolicy7807 {
     fun laneOpenLive(lane: String): Int = try {
         val key = canonicalLane(lane)
         CanonicalPositionAuthority6441.openPositions().count {
-            it.mode.equals("live", ignoreCase = true) && canonicalLane(it.lane) == key
+            // V5.0.8034 — a moonbag tail is a lottery ticket, not a working position: it takes no lane slot.
+            it.mode.equals("live", ignoreCase = true) && canonicalLane(it.lane) == key && !com.lifecyclebot.engine.TailBag8034.isTailMint8034(it.mint)
         }
     } catch (_: Throwable) { 0 }
 

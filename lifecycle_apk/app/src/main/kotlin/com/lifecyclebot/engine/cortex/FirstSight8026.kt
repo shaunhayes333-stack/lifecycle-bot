@@ -49,8 +49,22 @@ object FirstSight8026 {
             meanPct.isFinite() && sePct.isFinite() && meanPct - sePct > 0.0 &&
             winRate.isFinite() && winRate >= MIN_WIN_RATE
 
-    /** Open probes allowed at this lane maturity: 1 while immature, up to 5 at full (unreachable) maturity. */
-    fun maxOpen8026(maturity: Double): Int = 1 + (4.0 * maturity.coerceIn(0.0, 1.0)).toInt()
+    /** Open probes allowed at this lane maturity: 2 while immature (8034, was 1), up to 5 at full (unreachable) maturity. */
+    fun maxOpen8026(maturity: Double): Int = 2 + (3.0 * maturity.coerceIn(0.0, 1.0)).toInt()
+
+    // V5.0.8034 — owner: "it should be buying the winning setups it's seeing". 8031's scoreboard: STRONG reads beat
+    // refusals in six lanes (EXPRESS +51.8% n10, PROJECT_SNIPER +36.3% n7, MANIPULATED +34.7% n17, BLUECHIP +22.4% n7,
+    // SHITCOIN +15.2% n33, CORE +14.4% n14) while first sight refused 46 times: the evidence fraction needs ~40 reads
+    // to pass 0.5. A small sample now clears on its own record — 5+ graded STRONG reads, lower bound (mean - SE) at
+    // least +[SMALL_SAMPLE_MARGIN_8034]% net of cost, win rate >= 25% — in a lane that is consistent and not inverted.
+    // The caps are unchanged: a route-minimum probe, 20% of the wallet, the day's loss cap, the probes' own record.
+    const val SMALL_SAMPLE_MIN_N_8034 = 5.0
+    const val SMALL_SAMPLE_MARGIN_8034 = 2.0
+
+    /** Pure: a small STRONG sample that clears on its own lower bound. */
+    fun smallSampleClears8034(n: Double, meanPct: Double, sePct: Double, winRate: Double): Boolean =
+        n >= SMALL_SAMPLE_MIN_N_8034 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct >= SMALL_SAMPLE_MARGIN_8034 &&
+            winRate.isFinite() && winRate >= MIN_WIN_RATE
 
     /** Cash still allows another probe of [nextCostSol]? */
     fun cashAllows8026(openCostSol: Double, nextCostSol: Double, walletSol: Double, lossTodaySol: Double, dayStartSol: Double): Boolean {
@@ -108,7 +122,10 @@ object FirstSight8026 {
         if (coinProvenLoser8026(refusal)) return false
         tickets[ts.mint]?.let { if (nowMs - it in 0L..TICKET_MS) return true }
         val se = if (strong.n > 1.0) kotlin.math.sqrt(strong.variance() / strong.n) else Double.POSITIVE_INFINITY
-        if (!edgeClears8026(evidence, strong.mean(), se, strong.winRate())) { refusedEdge.incrementAndGet(); return false }
+        // evidence < 0 = the Cortex is inconsistent or the lane is inverted: no first sight at all.
+        val clears = edgeClears8026(evidence, strong.mean(), se, strong.winRate()) ||
+            (evidence >= 0.0 && smallSampleClears8034(strong.n, strong.mean(), se, strong.winRate()))
+        if (!clears) { refusedEdge.incrementAndGet(); return false }
         if (!integrityOk8026(ts, nowMs)) {
             refusedIntegrity.incrementAndGet()
             try { PipelineHealthCollector.labelInc("FIRST_SIGHT_REFUSED_INTEGRITY_8026") } catch (_: Throwable) {}

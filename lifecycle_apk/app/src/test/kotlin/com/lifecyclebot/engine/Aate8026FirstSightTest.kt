@@ -19,7 +19,7 @@ class Aate8026FirstSightTest {
     }
 
     @Test fun cashIsProtectedAndSlotsGrowWithMaturity() {
-        assertEquals(1, FirstSight8026.maxOpen8026(0.06))                      // immature lane: one probe at a time
+        assertEquals(2, FirstSight8026.maxOpen8026(0.06))                      // immature lane: two probes (8034)
         assertEquals(3, FirstSight8026.maxOpen8026(0.5))
         assertEquals(4, FirstSight8026.maxOpen8026(0.95))
         // 0.5 SOL wallet: probes may hold at most 20% of wallet + open

@@ -665,7 +665,8 @@ object Cortex7885 {
         val (evidence, strong, maturity) = synchronized(this) {
             val s = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal)
             val copy = CortexLedger7885.Stat().also { c -> if (s != null) c.decode(s.encode()) }
-            Triple(if (consistent(a.lane)) board.evidenceFor8025(a.lane) else 0.0, copy, CortexScoreboard7885.maturity8025(board.strongLifetime8025(a.lane)))
+            // V5.0.8034 — -1 marks an inconsistent Cortex or an inverted lane: first sight never fires there.
+            Triple(if (consistent(a.lane) && !board.inverted7948(a.lane)) board.evidenceFor8025(a.lane) else -1.0, copy, CortexScoreboard7885.maturity8025(board.strongLifetime8025(a.lane)))
         }
         FirstSight8026.grant8026(ts, a.lane, refusal, evidence, strong, maturity)
     } catch (_: Throwable) { false }
