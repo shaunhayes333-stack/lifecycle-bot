@@ -233,7 +233,7 @@ object OnChainDepth8038 {
         // V5.0.8047 — 5.0.8046 bought PUMPTg at a $3,218 cap (29 SOL at $109.67): a launchpad coin whose mint is not
         // pump-suffixed (LetsBonk, Meteora, un-suffixed pump.fun) skipped the curve check above. Any coin still at a
         // launch curve's opening cap has no buyers behind it, whichever launchpad minted it.
-        val capSol8047 = try { TrustedMcap8019.mcap8019(ts) / solUsd() } catch (_: Throwable) { Double.NaN }
+        val capSol8047 = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }
         if (atLaunchCap8047(capSol8047)) {
             launchCapRefused8047.incrementAndGet()
             lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL"
