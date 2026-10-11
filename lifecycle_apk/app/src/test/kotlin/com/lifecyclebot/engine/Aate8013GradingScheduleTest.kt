@@ -12,13 +12,14 @@ class Aate8013GradingScheduleTest {
 
     @Test fun theOwnersScheduleAndBeyond() {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(f.contains("longArrayOf(15L * 60_000L, 30L * 60_000L, 60L * 60_000L, 5L * 3_600_000L,"))
-        assertTrue(f.contains("24L * 3_600_000L, 48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)"))
+        // V5.0.8040 — owner's schedule: 1 m / 5 m labels, then 1 h, 4 h, 24 h and beyond for coins worth watching.
+        assertTrue(f.contains("longArrayOf(60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L,"))
+        assertTrue(f.contains("48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)"))
         assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(0, 1 * h))
-        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(4, 30 * h))      // the 24 h checkpoint passed, 48 h next
-        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(7, 6 * 24 * h))  // the 7 d checkpoint still ahead
-        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(8, 2 * h))      // schedule finished
-        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(7, 8 * 24 * h)) // past the last checkpoint's grace
+        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(3, 30 * h))      // the 24 h checkpoint passed, 48 h next
+        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(5, 6 * 24 * h))  // the 7 d checkpoint still ahead
+        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(6, 2 * h))      // schedule finished
+        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(5, 8 * 24 * h)) // past the last checkpoint's grace
     }
 
     @Test fun followedCoinsSurviveRestartsAndLeavingTheWatchlist() {
