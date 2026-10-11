@@ -104,7 +104,7 @@ for i in range(4096):
         "positionId":pid, "mint":mint, "symbol":f"P{i}",
         "idempotencyKey":buy_key, "executedCostSol":0.001,
         "entryFeesSol":0.000001, "filledQty":qty,
-        "fillPrice":0.000000000001, "tokenDecimals":9, "quantityScale":9,
+        "fillPrice":0.1, "tokenDecimals":9, "quantityScale":9,
     }
     sell = {
         "type":"SELL", "atMs":base + i*2 + 1, "mode":"paper",
@@ -112,9 +112,18 @@ for i in range(4096):
         "idempotencyKey":sell_key, "partial":False, "soldQty":qty,
         "allocatedCostBasisSol":0.001, "grossProceedsSol":0.0011,
         "exitFeesSol":0.000001, "netProceedsSol":0.001099,
-        "realizedPnlSol":0.0001, "realizedReturnPct":10.0,
+        "realizedPnlSol":0.000099, "realizedReturnPct":9.9,
         "remainingQty":"0", "remainingCostBasisSol":0.0,
+        "exitPriceUsd":0.11, "solUsdAtExit":100.0,
     }
+    # Stress rows must be economically true, not merely parseable JSON.
+    # 1e9 raw at 9 decimals is one token; 0.001 SOL at $100/SOL buys $0.10.
+    qty_token = int(qty) / (10 ** buy["tokenDecimals"])
+    assert abs(buy["fillPrice"] * qty_token - buy["executedCostSol"] * sell["solUsdAtExit"]) < 1e-12
+    assert abs(sell["netProceedsSol"] - (sell["grossProceedsSol"] - sell["exitFeesSol"])) < 1e-12
+    assert abs(sell["realizedPnlSol"] - (sell["netProceedsSol"] - sell["allocatedCostBasisSol"])) < 1e-12
+    assert abs(sell["realizedReturnPct"] - 100.0 * sell["realizedPnlSol"] / sell["allocatedCostBasisSol"]) < 1e-9
+    assert abs(sell["exitPriceUsd"] * qty_token - sell["grossProceedsSol"] * sell["solUsdAtExit"]) < 1e-12
     ET.SubElement(root, "string", {"name":f"event:paper:{buy_key}"}).text = json.dumps(buy, separators=(",",":"))
     ET.SubElement(root, "string", {"name":f"event:paper:{sell_key}"}).text = json.dumps(sell, separators=(",",":"))
 ET.ElementTree(root).write(out, encoding="utf-8", xml_declaration=True)
