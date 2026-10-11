@@ -873,6 +873,15 @@ object TradeHistoryStore {
             .takeIf { it.isFinite() }
     }
 
+    /** Paper historical receipt projection, not a new executed trade. */
+    internal fun historicalProjection8042(trade: Trade): Boolean =
+        trade.mode.equals("paper", true) && trade.reason in setOf(
+            "CROSS_ASSET_CANONICAL_OPEN_6659",
+            "CROSS_ASSET_HISTORY_REPAIR_6660",
+            "JOURNAL_REBUILT_FROM_RECEIPT_7360",
+            "ORPHANED_STOP_LOT_REFUND_6662",
+        )
+
     fun recordTrade(trade: Trade) {
         ensureInitialized()
         // V5.0.6653 — canonical economic identity outranks heuristic mint/time
@@ -1077,12 +1086,25 @@ object TradeHistoryStore {
             latestBuyByMintCacheMs = 0L
             latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
         }
-        bumpLifetimeFor(tradeToStore)
+        val historical8042 = historicalProjection8042(tradeToStore)
+        bumpLifetimeFor(tradeToStore, historical8042)
         insertTradeAsync(tradeToStore)
         // Journal commit is stamped by insertTradeAsync only after SQLite
         // confirms the durable row. Never advertise an enqueued write as
         // committed: process death between post() and INSERT caused false
         // canonical parity and replay holes.
+        // The durable SQLite row and canonical journal witness are still
+        // persisted above. Historical receipt reconstruction must NOT fan out
+        // thousands of artificial "new" profits into remote collective
+        // learning, the 30D live tracker, or terminal strategy-learning buses.
+        // Real new PAPER and all LIVE economic fills keep those side effects.
+        if (historical8042) {
+            try {
+                PipelineHealthCollector.onTradeJournal()
+                PipelineHealthCollector.labelInc("HISTORY_REPLAY_NO_EXECUTION_FANOUT_8042")
+            } catch (_: Throwable) {}
+            return
+        }
         // V5.9.658 — operator triage: user reports "Journal shows 0 trades but
         // bot is clearly trading (875 24h trades, 15 open positions)." Emit a
         // structured INFO log on every recordTrade so the operator can grep
@@ -2696,7 +2718,12 @@ object TradeHistoryStore {
         val handler = ioHandler ?: return false
         if (android.os.Looper.myLooper() == handler.looper) return true
         val reached = java.util.concurrent.CountDownLatch(1)
-        if (!handler.post { reached.countDown() }) return false
+        if (!handler.post {
+                // Final durable journal boundary closes any batched historical
+                // lifetime-stat update. No replay stats are silently lost.
+                try { saveLifetimeStats() } catch (_: Throwable) {}
+                reached.countDown()
+            }) return false
         return try {
             reached.await(timeoutMs.coerceAtLeast(1L), java.util.concurrent.TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
@@ -3039,7 +3066,7 @@ object TradeHistoryStore {
         }
     }
 
-    private fun bumpLifetimeFor(trade: Trade) {
+    private fun bumpLifetimeFor(trade: Trade, historical8042: Boolean = false) {
         if (!isJournalSellLike(trade.side)) return
         if (!isValidAccountingTrade(trade)) return
         lifetimeSells++
@@ -3064,7 +3091,10 @@ object TradeHistoryStore {
                 else          -> lifetimeTerminalScratches7205++
             }
         }
-        saveLifetimeStats()
+        // Keeping persistence per fill for actual trades; recovered history
+        // is batched so 4096 receipts do not issue 4096 SharedPreferences
+        // mutations on startup. The journal boundary below flushes the tail.
+        if (!historical8042 || lifetimeSells % 64 == 0) saveLifetimeStats()
     }
 
     /**
