@@ -370,7 +370,12 @@ object DynamicAltTokenRegistry {
     private const val PERSIST_FILE = "dynamic_alt_token_registry.json"
     private val persistLock = Any()
     private val persistDirty = java.util.concurrent.atomic.AtomicBoolean(false)
-    private const val PERSIST_DEBOUNCE_MS = 5_000L
+    // V5.0.8033 — 5.0.8031 census: this file was 11,475 KB and was re-serialised as ONE string every 5 s of discovery.
+    // At most [MAX_PERSIST_ROWS_8033] rows are written (statics + the most recently updated), streamed row by row, at
+    // most once a minute; a file too big to parse safely is set aside at start instead of loaded.
+    private const val PERSIST_DEBOUNCE_MS = 60_000L
+    const val MAX_PERSIST_ROWS_8033 = 3_000
+    private const val MAX_RESTORE_BYTES_8033 = 4L * 1024 * 1024
     @Volatile private var persistJob: Job? = null
     private val persistScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -539,12 +544,17 @@ object DynamicAltTokenRegistry {
     private fun saveToDisk() {
         val ctx = appCtx ?: return
         try {
-            val arr = JSONArray()
-            for (tok in registry.values) {
+            val file = java.io.File(ctx.filesDir, PERSIST_FILE)
+            var n = 0
+            val rows8033 = registry.values.filter { !it.mint.startsWith("cg:") }
+                .sortedWith(compareByDescending<DynToken> { it.isStatic }.thenByDescending { it.lastUpdatedMs })
+                .take(MAX_PERSIST_ROWS_8033)
+            file.bufferedWriter().use { w ->
+              w.write("[")
+              for (tok in rows8033) {
                 // Skip CoinGecko-only placeholders — they aren't tradeable and
                 // bloat the file. Static keys ARE persisted so logos / sector
                 // tags survive restarts.
-                if (tok.mint.startsWith("cg:")) continue
                 val o = JSONObject().apply {
                     put("mint", tok.mint)
                     put("symbol", tok.symbol)
@@ -575,11 +585,13 @@ object DynamicAltTokenRegistry {
                     if (tok.sector.isNotBlank()) put("sector", tok.sector)
                     put("lastUpdatedMs", tok.lastUpdatedMs)
                 }
-                arr.put(o)
+                if (n > 0) w.write(",")
+                w.write(o.toString())
+                n++
+              }
+              w.write("]")
             }
-            val file = java.io.File(ctx.filesDir, PERSIST_FILE)
-            file.writeText(arr.toString())
-            ErrorLogger.info(TAG, "💾 Persisted ${arr.length()} tokens to ${file.name} (${file.length() / 1024}KB)")
+            ErrorLogger.info(TAG, "💾 Persisted $n tokens to ${file.name} (${file.length() / 1024}KB)")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "saveToDisk failed: ${e.message}")
         }
@@ -592,6 +604,12 @@ object DynamicAltTokenRegistry {
         val file = java.io.File(ctx.filesDir, PERSIST_FILE)
         if (!file.exists()) {
             ErrorLogger.info(TAG, "📂 No persisted token file yet — fresh start")
+            return
+        }
+        if (file.length() > MAX_RESTORE_BYTES_8033) {
+            try { file.renameTo(java.io.File(ctx.filesDir, "$PERSIST_FILE.oversize_8033")) || file.delete() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ALT_REGISTRY_OVERSIZE_SET_ASIDE_8033") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "📂 ${file.length() / 1024}KB registry file is over the restore cap — set aside, fresh start")
             return
         }
         try {

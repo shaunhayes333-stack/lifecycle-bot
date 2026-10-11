@@ -42,8 +42,15 @@ object MemeMintRegistry {
 
     private const val TAG = "MemeMintRegistry"
     private const val PERSIST_FILE = "meme_mint_registry.json"
-    private const val PERSIST_DEBOUNCE_MS = 5_000L
-    private const val MINT_RETENTION_MS = 14L * 24 * 60 * 60_000L  // 14 days for vetted mints
+    // V5.0.8033 — the registry was the heap. 5.0.8031's census: meme_mint_registry.json = 23,371 KB on disk (14 days of
+    // every pump.fun mint, unbounded), the heap at 511/512 MB, OOM after 4 h. The whole map lived in memory and was
+    // re-serialised into ONE string (2x the file in UTF-16, plus a JSONObject per row) every 5 seconds a mint was
+    // touched. Now: at most [MAX_MINTS_8033] mints (most recently seen kept), 3 days, saved at most once a minute and
+    // streamed row by row; a file too big to parse safely is set aside instead of loaded.
+    private const val PERSIST_DEBOUNCE_MS = 60_000L
+    private const val MINT_RETENTION_MS = 3L * 24 * 60 * 60_000L
+    const val MAX_MINTS_8033 = 5_000
+    const val MAX_RESTORE_BYTES_8033 = 4L * 1024 * 1024
 
     data class MemeMint(
         val mint: String,
@@ -154,7 +161,7 @@ object MemeMintRegistry {
     fun stats(): String {
         val now = System.currentTimeMillis()
         val today = registry.values.count { now - it.firstSeenMs < 24 * 60 * 60_000L }
-        return "Total: ${registry.size} · +$today today · 14d retention"
+        return "Total: ${registry.size} · +$today today · 3d retention · cap $MAX_MINTS_8033"
     }
 
     // ─── persistence ─────────────────────────────────────────────────────────
@@ -173,26 +180,42 @@ object MemeMintRegistry {
         }
     }
 
+    /** V5.0.8033 — keep the [MAX_MINTS_8033] most recently seen mints. Returns how many were dropped. */
+    fun capToMax8033(): Int {
+        val over = registry.size - MAX_MINTS_8033
+        if (over <= 0) return 0
+        val drop = registry.values.sortedBy { it.lastSeenMs }.take(over).map { it.mint }
+        drop.forEach { registry.remove(it) }
+        return drop.size
+    }
+
     @Synchronized
     private fun saveToDisk() {
         val ctx = appCtx ?: return
         try {
-            val arr = JSONArray()
-            for (m in registry.values) {
-                arr.put(JSONObject().apply {
-                    put("mint", m.mint)
-                    put("symbol", m.symbol)
-                    put("name", m.name)
-                    put("source", m.source)
-                    put("firstSeenMs", m.firstSeenMs)
-                    put("lastSeenMs", m.lastSeenMs)
-                    put("sightings", m.sightings)
-                    if (m.gradeAtFirstSeen.isNotBlank()) put("grade", m.gradeAtFirstSeen)
-                })
-            }
+            capToMax8033()
             val file = File(ctx.filesDir, PERSIST_FILE)
-            file.writeText(arr.toString())
-            ErrorLogger.info(TAG, "💾 persisted ${arr.length()} meme mints (${file.length() / 1024}KB)")
+            var n = 0
+            // Streamed one row at a time: never one string the size of the whole file.
+            file.bufferedWriter().use { w ->
+                w.write("[")
+                for (m in registry.values) {
+                    if (n > 0) w.write(",")
+                    w.write(JSONObject().apply {
+                        put("mint", m.mint)
+                        put("symbol", m.symbol)
+                        put("name", m.name)
+                        put("source", m.source)
+                        put("firstSeenMs", m.firstSeenMs)
+                        put("lastSeenMs", m.lastSeenMs)
+                        put("sightings", m.sightings)
+                        if (m.gradeAtFirstSeen.isNotBlank()) put("grade", m.gradeAtFirstSeen)
+                    }.toString())
+                    n++
+                }
+                w.write("]")
+            }
+            ErrorLogger.info(TAG, "💾 persisted $n meme mints (${file.length() / 1024}KB)")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "saveToDisk failed: ${e.message}")
         }
@@ -203,6 +226,14 @@ object MemeMintRegistry {
         val ctx = appCtx ?: return
         val file = File(ctx.filesDir, PERSIST_FILE)
         if (!file.exists()) return
+        // V5.0.8033 — a file this size is the pre-8033 unbounded registry: parsing it alone fills the heap. It is a
+        // cache of metadata (the scanner re-discovers live mints), so it is set aside, not loaded.
+        if (file.length() > MAX_RESTORE_BYTES_8033) {
+            try { file.renameTo(File(ctx.filesDir, "$PERSIST_FILE.oversize_8033")) || file.delete() } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("MEME_MINT_REGISTRY_OVERSIZE_SET_ASIDE_8033") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "restoreFromDisk: ${file.length() / 1024}KB > cap — set aside, starting fresh")
+            return
+        }
         try {
             val arr = JSONArray(file.readText())
             var loaded = 0
@@ -222,8 +253,9 @@ object MemeMintRegistry {
                 )
                 loaded++
             }
-            // Clean up anything older than 14d on the way in.
+            // Clean up anything older than the retention, then keep the most recent [MAX_MINTS_8033].
             evictStale()
+            capToMax8033()
             ErrorLogger.info(TAG, "📂 restored $loaded meme mints from disk")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "restoreFromDisk failed: ${e.message}")

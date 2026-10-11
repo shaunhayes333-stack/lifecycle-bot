@@ -24,7 +24,7 @@ object DecisionReasons8031 {
     private const val GRADE_RUNNER_MS = 60L * 60_000L
     private const val HOLD_DEDUP_MS = 3L * 60_000L
     private const val MAX_PENDING = 3_000
-    private const val LABEL_LOAD_CAP = 0.5
+    private const val LABEL_LOAD_CAP = 0.3  // V5.0.8033 — 0.5 held ~3,000 pending labels in a 1.5 MB prefs file; native labels yield sooner
 
     data class Pending(val mint: String, val key: String, val px: Double, val dueMs: Long)
     class Agg { var n = 0; var sum = 0.0; var up = 0

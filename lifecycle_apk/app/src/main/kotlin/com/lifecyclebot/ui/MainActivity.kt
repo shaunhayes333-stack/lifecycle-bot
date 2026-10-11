@@ -749,13 +749,23 @@ class MainActivity : AppCompatActivity() {
         try {
             for (t in com.lifecyclebot.engine.HostWalletTokenTracker.snapshot()) {
                 if (t.uiAmount <= 0.0 || now - t.lastSeenWalletMs > 10 * 60_000L) continue
-                val px = t.currentPriceUsd
+                // V5.0.8033 — a token is valued only at a FRESH mark (5 min). The tracker's own price could be the
+                // last print before a rug: USDP (-99.99% in the wallet app) was still counted at its entry price,
+                // and the headline read A$158.95 against a A$66.64 wallet.
+                val px = heroFreshPrice8033(t.mint, t.currentPriceUsd, now)
                 if (px == null || !px.isFinite() || px <= 0.0) { unpriced++; continue }
                 val v = com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(t.uiAmount * px, solUsd)
                 if (v.isFinite()) sol += v else unpriced++
             }
         } catch (_: Throwable) {}
         return sol to unpriced
+    }
+
+    /** V5.0.8033 — the token's live mark if it is under 5 minutes old, else (no fresh mark) the tracker price only if it agrees. */
+    private fun heroFreshPrice8033(mint: String, trackerPx: Double?, nowMs: Long): Double? {
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        val live = ts?.takeIf { it.lastPrice.isFinite() && it.lastPrice > 0.0 && nowMs - it.lastPriceUpdate in 0L..5 * 60_000L }?.lastPrice
+        return live ?: if (ts == null) null else trackerPx?.takeIf { ts.lastPrice > 0.0 && it <= ts.lastPrice * 1.5 }
     }
 
     private fun liveHeroSubtitle7315(cashSol: Double, tokens: Pair<Double, Int>?): String {
