@@ -73,6 +73,8 @@ class JupiterApi(
 
     companion object {
         const val SOL_MINT = "So11111111111111111111111111111111111111112"
+        /** V5.0.8045 — route account cap so the swap plus our CU-price / tip instructions fits one transaction. */
+        const val MAX_ROUTE_ACCOUNTS_8045 = 48
 
         internal fun retryableSlippageSimulation7688(error: String?): Boolean {
             if (error == null || !error.startsWith("Simulate failed:")) return false
@@ -439,9 +441,14 @@ class JupiterApi(
             append("&outputMint=").append(outputMint)
             append("&amount=").append(amountRaw)
         }
+        // V5.0.8045 — owner's notifications: "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE: RPC error: base64 encoded
+        // solana_transaction::... too large" — a multi-hop route plus our CU-price and sender-tip instructions went past
+        // Solana's 1,232-byte limit, so the transaction could never be sent. Routes are capped at
+        // [MAX_ROUTE_ACCOUNTS_8045] accounts (Jupiter's maxAccounts), leaving room for the envelope; the direct-route
+        // attempt stays last.
         val attempts = listOf(
-            "slippageBps=${slippageBps.coerceIn(50, 2500)}&restrictIntermediateTokens=true",
-            "slippageBps=${maxOf(slippageBps, 1500).coerceIn(50, 5000)}&restrictIntermediateTokens=false",
+            "slippageBps=${slippageBps.coerceIn(50, 2500)}&restrictIntermediateTokens=true&maxAccounts=$MAX_ROUTE_ACCOUNTS_8045",
+            "slippageBps=${maxOf(slippageBps, 1500).coerceIn(50, 5000)}&restrictIntermediateTokens=false&maxAccounts=$MAX_ROUTE_ACCOUNTS_8045",
             "slippageBps=${maxOf(slippageBps, 2500).coerceIn(50, 8000)}&onlyDirectRoutes=true",
         )
         var lastErr: Exception? = null

@@ -14,5 +14,8 @@ class Aate8045SolanaHandoffTest {
         assertTrue(od.contains("ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint))"))
         val tm = File("src/main/kotlin/com/lifecyclebot/engine/TokenMapAuthority.kt").readText()
         assertTrue(tm.contains("((tm.liquidityUsd ?: 0.0) > 0.0 && (cached6492.liquidityUsd ?: 0.0) <= 0.0)"))
+        // A swap must fit one transaction: routes are capped in accounts.
+        org.junit.Assert.assertEquals(48, com.lifecyclebot.network.JupiterApi.MAX_ROUTE_ACCOUNTS_8045)
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText().contains("&maxAccounts=\$MAX_ROUTE_ACCOUNTS_8045"))
     }
 }
