@@ -74,7 +74,12 @@ object LiveBootRecovery8074 {
             val open = try {
                 CanonicalPositionAuthority6441.openPositions().filter { it.mode.equals("live", true) }.map { it.mint }.toSet()
             } catch (_: Throwable) { emptySet() }
-            val want = openLiveMints8074(EconomicEventSchema6464.snapshot(), nowMs - LOOKBACK_MS) - open
+            // V5.0.8076 — only coins the wallet actually holds (fresh cached read, no RPC here). 5.0.8075 kicked 118
+            // historical mints a minute (unmanagedLiveBuys=118, kicks=82): most were long sold, and each kick for a mint
+            // missing from the cache fires its own RPC read — load the rate-limited endpoints could not afford.
+            val held = try { com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 180_000L) } catch (_: Throwable) { null } ?: return
+            val want = (openLiveMints8074(EconomicEventSchema6464.snapshot(), nowMs - LOOKBACK_MS) - open)
+                .filter { m -> held[m]?.let { it.raw > BigInteger.ONE } == true }.toSet()
             lastCandidates = want.size
             if (want.isEmpty()) return
             com.lifecyclebot.engine.LiveCanonicalRecovery6686.requestAdoptionAsync7718(want)

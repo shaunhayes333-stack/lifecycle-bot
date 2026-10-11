@@ -21,11 +21,11 @@ class Aate8064HonestLabelsTest {
     }
 
     @Test fun freshBooks() {
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("CELLS_KEY_7946 = \"cells_8064\""))
-        assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("\"LANE_PLAYBOOK_8064\""))
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("\"CORTEX_7885_V8064\""))
-        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("\"specialists8064.bin\""))
-        assertTrue(src("engine/truth/HiveEdge8000.kt").contains("\"hive_edge_8064\""))
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("CELLS_KEY_7946 = \"cells_8076\""))
+        assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("\"LANE_PLAYBOOK_8076\""))
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("\"CORTEX_7885_V8076\""))
+        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("\"specialists8076.bin\""))
+        assertTrue(src("engine/truth/HiveEdge8000.kt").contains("\"hive_edge_8076\""))
     }
 
     @Test fun liveBookLosingHoldsTheLane() {

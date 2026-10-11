@@ -222,7 +222,7 @@ object SpecialistMiner7972 {
     fun attach7972(context: Context) {
         if (file != null) return
         // V5.0.8064 — the fact combinations restart on labels without spike credit.
-        val f = File(context.applicationContext.filesDir, "specialists8064.bin")
+        val f = File(context.applicationContext.filesDir, "specialists8076.bin")
         file = f
         Thread({ try { load(f) } catch (_: Throwable) {} finally { loaded = true } }, "specialists-7972-load").apply { isDaemon = true }.start()
     }

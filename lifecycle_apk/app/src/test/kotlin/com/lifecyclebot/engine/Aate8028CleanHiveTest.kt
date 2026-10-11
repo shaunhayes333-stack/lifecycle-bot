@@ -14,7 +14,7 @@ class Aate8028CleanHiveTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
     @Test fun newTablesOnlyAndOldOnesUntouched() {
-        assertEquals("hive_edge_8064", HiveEdge8000.EDGE_TABLE_8028)  // V5.0.8064 — second clean hive
+        assertEquals("hive_edge_8076", HiveEdge8000.EDGE_TABLE_8028)  // V5.0.8064 — second clean hive
         assertEquals("hive_runners_8028", HiveEdge8000.RUNNER_TABLE_8028)
         val code = src("engine/truth/HiveEdge8000.kt").lines().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }.joinToString("\n")
         assertFalse(code.contains("hive_edge_8000"))

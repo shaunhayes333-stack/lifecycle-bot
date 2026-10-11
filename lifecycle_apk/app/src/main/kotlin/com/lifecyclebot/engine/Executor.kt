@@ -24177,6 +24177,12 @@ class Executor(
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
         val reason = freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE
+        // V5.0.8076 — the lifecycle hold at the lowest sell door too: 5.0.8075 sold ABU (MOONSHOT, a lifecycle lane)
+        // on STRICT_SL_-12, which calls doSell directly and never passed requestSellCore7948's hold.
+        if (try { LifecycleHold8065.defer8065(ts, reason) } catch (_: Throwable) { null } != null) {
+            try { DecisionReasons8031.hold8031(ts, "LIFECYCLE_HOLD_8065", reason) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
 
         val paperCloseAuthorityActive = ts.position.isPaperPosition
         if (paperCloseAuthorityActive) {

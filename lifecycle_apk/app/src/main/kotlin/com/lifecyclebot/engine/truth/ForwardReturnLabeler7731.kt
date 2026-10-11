@@ -69,7 +69,7 @@ object ForwardReturnLabeler7731 {
     /** V5.0.7946 — one observation per mint and lane per 15 minutes (the read is 5). */
     private const val REOBSERVE_MS_7731 = 15L * 60_000L
     // V5.0.8064 — a fresh book: every cell before it was graded with spike credit live never banks (see captured7945).
-    private const val CELLS_KEY_7946 = "cells_8064"
+    private const val CELLS_KEY_7946 = "cells_8076"
     private const val PENDING_KEY_7946 = "pending_7946"
 
     /** V5.0.7946 — Pure: how late a horizon may still be read: half the horizon, between 1 and 10 minutes. */
@@ -172,7 +172,7 @@ object ForwardReturnLabeler7731 {
         val quality: String,
         val regime: String,
         val phase: String,
-        val entryPrice: Double,
+        var entryPrice: Double,   // V5.0.8076 — re-based once to the first reachable mark
         val costPct: Double,
         val atMs: Long,
     ) {
@@ -201,6 +201,8 @@ object ForwardReturnLabeler7731 {
          * it): a level a sell can actually land at. A one-print spike that reverts inside seconds never sets it.
          */
         @Volatile var heldPeak8071 = 0.0
+        /** V5.0.8076 — the entry has been re-based to the first mark a buy could reach (or the window passed). */
+        @Volatile var rebased8076 = false
         val recent8071 = ArrayDeque<DoubleArray>()   // [atMs, gross], the last ~30 s of marks
         /** V5.0.8006 — the exit-profile sample waits for the end of a followed run. */
         @Volatile var exitDeferred8006: Boolean = false
@@ -731,6 +733,18 @@ object ForwardReturnLabeler7731 {
 
     private val capturedLabels7945 = AtomicLong(0)
 
+    /**
+     * V5.0.8076 — the label's entry is the first mark 5-60 s after the decision, not the decision price. 5.0.8075:
+     * PUMP_PORTAL_WS|MOONSHOT|MC_10K_100K|AGE_LT15M read +784% (wr 100%, runners 98%) and SHITCOIN +752% (wr 100%)
+     * while the live book closed 1 win in 7: a launch's decision price is the PumpPortal frame's curve price,
+     * stale by the time any buy lands — every launch "ran" from a price nobody could buy at.
+     */
+    private const val REBASE_MIN_MS_8076 = 5_000L
+    private const val REBASE_MAX_MS_8076 = 60_000L
+    private val rebasedUp8076 = AtomicLong(0)
+    private val rebasedDown8076 = AtomicLong(0)
+    @Volatile private var rebaseGapSum8076 = 0.0
+
     /** V5.0.8071 — how long a level must hold before a sell is counted as able to land there. */
     private const val HELD_MS_8071 = 20_000L
 
@@ -1130,6 +1144,17 @@ object ForwardReturnLabeler7731 {
                 }
                 continue
             }
+            // V5.0.8076 — the label starts where a buy could actually land: the first mark 5-60 s after the decision.
+            if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {
+                o.rebased8076 = true
+                if (age <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
+                    if (px > o.entryPrice) rebasedUp8076.incrementAndGet() else rebasedDown8076.incrementAndGet()
+                    rebaseGapSum8076 += (px / o.entryPrice - 1.0) * 100.0
+                    o.entryPrice = px
+                    o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN
+                    synchronized(o.recent8071) { o.recent8071.clear() }
+                }
+            }
             if (basisSuspect7738(o.entryPrice, px) && !runCorroborated7769(
                     o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
                     try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
@@ -1270,7 +1295,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}%] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
