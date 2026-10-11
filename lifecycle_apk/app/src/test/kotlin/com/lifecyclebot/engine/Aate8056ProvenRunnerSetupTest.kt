@@ -37,3 +37,14 @@ class Aate8059ProvenOnlyLiveTest {
         assertTrue(g.contains("if (!paper) {\n            val l8059"))
     }
 }
+
+/** V5.0.8060 — any measured edge (proven cell, runner cell, specialist, tail ticket) carries live money, not only a named setup. */
+class Aate8060MeasuredEdgeTest {
+    @Test fun cellBar() {
+        assertTrue(com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellProven8060(211, 5.0, 1.5))
+        assertFalse(com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellProven8060(20, 9.0, 1.0))
+        assertFalse(com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellProven8060(100, 1.0, 2.0))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
+            .contains("proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)"))
+    }
+}

@@ -56,7 +56,7 @@ object RejectTaxonomy {
                 "CONVICTION", "BAND", "CELL", "SPECIALIST", "REGIME", "CHOP", "DUMP", "EXHAUST", "CHASING", "SPREAD", "BUY_PRESSURE", "HOLDER",
                 "NARRATIVE", "DISTRIBUTION", "PIVOT", "THRESHOLD", "NOT_PRIMARY", "PRIMARY",
                 // V5.0.8058 — 5.0.8055 "Unclassified refusals": these are graded evidence too.
-                "REBUY_LOCKOUT", "FIELD_MANUAL", "ALREADY_RAN", "RSI", "OVERBOUGHT").any { r.contains(it) } -> Category.ADVISORY
+                "REBUY_LOCKOUT", "FIELD_MANUAL", "PROVEN_SETUP_ONLY", "ALREADY_RAN", "RSI", "OVERBOUGHT").any { r.contains(it) } -> Category.ADVISORY
             blockLevel == TradeAuthorizer.BlockLevel.HARD -> Category.HARD_SAFETY
             else -> Category.UNKNOWN_REVIEW
         }

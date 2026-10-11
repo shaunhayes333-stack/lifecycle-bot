@@ -382,7 +382,11 @@ object LiveEdgeGate7877 {
         if (!paper) {
             val l8059 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
-            if (proven8059 == null) {
+            // V5.0.8060 — any MEASURED edge counts, not only a named setup: 5.0.8059 refused 4,879 vs 145 admitted and
+            // turned away POKEMON +1,077% and Gemini +708% — runners often fire no named setup. The coin's own cell
+            // proven (30+ labels, mean - SE > 0), a lane-beating runner cell, a proven specialist or a tail ticket also
+            // carry live money.
+            if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)) {
                 provenOnlyRefused8059.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
                 observeTail7996(ts, lane, "LIVE_PROVEN_SETUP_ONLY_8059", nowMs)
@@ -399,6 +403,23 @@ object LiveEdgeGate7877 {
             if (com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs)) notePositive7975(ts.mint, nowMs)
         } catch (_: Throwable) {}
         return why
+    }
+
+    private val measuredEdgeAdmitted8060 = AtomicLong(0)
+
+    /** Pure (V5.0.8060): a cell's record proves it pays — 30+ graded labels, mean - SE > 0 net of cost. */
+    fun cellProven8060(n: Int, meanPct: Double, sePct: Double): Boolean =
+        n >= 30 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct > 0.0
+
+    /** V5.0.8060 — measured edge other than a named setup: proven cell, runner cell, specialist, tail ticket. */
+    private fun measuredEdge8060(ts: TokenState, lane: String, nowMs: Long): Boolean {
+        val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val ok = (st != null && cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct)) ||
+            (try { com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
+            (try { SpecialistMiner7972.match7972(ts, lane, nowMs) } catch (_: Throwable) { null }) != null ||
+            (try { TailHunter7996.ticket7996(ts, lane, nowMs) } catch (_: Throwable) { false })
+        if (ok) measuredEdgeAdmitted8060.incrementAndGet()
+        return ok
     }
 
     // ── V5.0.7994 — WATCH FIRST ──
@@ -507,7 +528,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
