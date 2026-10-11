@@ -11327,6 +11327,23 @@ class BotService : Service() {
         return null
     }
 
+    /**
+     * V5.0.8032 — the sub-trader floor measures the loss from the position's FILL, not the sub-trader's own map price.
+     * 5.0.8031 live: brigitte, qUSB and two others were force-closed as RAPID_SUB_TRADER_HARD_FLOOR (a -15% floor) at a
+     * realised -3.8 / -4.0%: the sub-trader map held a decision price well above the fill, so a -4% position read -15%.
+     */
+    private fun subTraderPnl8032(ts: com.lifecyclebot.data.TokenState, mapEntryPrice: Double, currentPrice: Double) =
+        com.lifecyclebot.engine.OpenPnlSanity.inspect(
+            entryPrice = ts.position.entryPrice.takeIf { ts.position.isOpen && it.isFinite() && it > 0.0 } ?: mapEntryPrice,
+            currentPrice = currentPrice,
+            entrySource = ts.position.entryPriceSource,
+            currentSource = ts.lastPriceSource,
+            entryPool = ts.position.entryPoolAddress,
+            currentPool = ts.lastPricePoolAddr,
+            priceBasisRescaled = ts.position.priceBasisRescaled,
+            context = "BotService.rapidSubTraderFloor/${ts.symbol}/${ts.mint.take(8)}",
+        )
+
     private suspend fun rapidStopLossMonitor() {
         ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STARTED (adaptive 500ms / 5s cycle)")
         
@@ -12578,16 +12595,7 @@ class BotService : Service() {
                             // Cheapest price source: status.tokens (no RPC hit)
                             val ts = synchronized(status.tokens) { status.tokens[mint] }
                             val currentPrice = ts?.lastPrice?.takeIf { it > 0.0 } ?: continue
-                            val subPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
-                                entryPrice = entryPrice,
-                                currentPrice = currentPrice,
-                                entrySource = ts.position.entryPriceSource,
-                                currentSource = ts.lastPriceSource,
-                                entryPool = ts.position.entryPoolAddress,
-                                currentPool = ts.lastPricePoolAddr,
-                                priceBasisRescaled = ts.position.priceBasisRescaled,
-                                context = "BotService.rapidSubTraderFloor/${ts.symbol}/${mint.take(8)}",
-                            )
+                            val subPnlVerdict = subTraderPnl8032(ts, entryPrice, currentPrice)
                             if (!subPnlVerdict.ok) continue
                             val pnlPct = subPnlVerdict.pnlPct
                             if (pnlPct <= subFloor) {
