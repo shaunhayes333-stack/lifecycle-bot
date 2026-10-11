@@ -82,6 +82,17 @@ object CrossAssetCortex7931 {
         if (!c.price.isFinite() || c.price <= 0.0) return null
         val key = keyOf(c.assetId, c.symbol, routedMint(c.assetClass, c.symbol))
         if (key.isBlank()) return null
+        // V5.0.8063 — owner: "crypto has meme coins, stable coins, utility coins the works". Every CRYPTO_ALT label fell
+        // in ONE cell (XASSET_CRYPTO_ALT_CRYPTO|CRYPTO_ALT|MC_UNKNOWN|AGE_UNKNOWN, n343): no type, cap or age. The
+        // registry's facts now give each coin its kind, its cap tier and its real age; stablecoins are not graded.
+        val dyn8063 = if (c.assetClass == AssetClass.CRYPTO_ALT) try {
+            com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenByMint(key)
+                ?: com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(c.assetId)
+        } catch (_: Throwable) { null } else null
+        val mcap8063 = dyn8063?.let { if (it.mcap > 0.0) it.mcap else it.fdv } ?: 0.0
+        if (c.assetClass == AssetClass.CRYPTO_ALT && (try {
+                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(c.symbol, c.price, mcap8063, key)
+            } catch (_: Throwable) { false })) { stablesSkipped8063.incrementAndGet(); return null }
         if (assets.size > 4_000) {
             assets.entries.sortedBy { it.value.atMs }.take(assets.size - 3_000).forEach { assets.remove(it.key, it.value) }
         }
@@ -89,8 +100,12 @@ object CrossAssetCortex7931 {
         val ts = TokenState(mint = key, symbol = c.symbol, name = c.symbol).apply {
             lastPrice = c.price
             lastPriceUpdate = nowMs
-            source = "XASSET_${c.assetClass.tag}_${c.source}".take(64)
-            addedToWatchlistAt = 0L
+            source = if (c.assetClass == AssetClass.CRYPTO_ALT)
+                "XC_${cryptoKind8063(c.symbol, dyn8063?.sector.orEmpty(), key)}_${capTier8063(mcap8063)}"
+            else "XASSET_${c.assetClass.tag}_${c.source}".take(64)
+            // V5.0.8063 — the coin's real age (pair creation) so the cell's age band means something; unknown stays unknown.
+            addedToWatchlistAt = dyn8063?.pairCreatedAtMs?.takeIf { it in 1L..nowMs } ?: 0L
+            if (mcap8063 > 0.0) lastMcap = mcap8063
             entryScore = if (c.score.isFinite()) c.score else 0.0
             lastLiquidityUsd = when {
                 c.liquidityUsd.isFinite() && c.liquidityUsd > 0.0 -> c.liquidityUsd
@@ -99,6 +114,33 @@ object CrossAssetCortex7931 {
             }
         }
         return ts to lane
+    }
+
+    private val stablesSkipped8063 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure (V5.0.8063): what kind of crypto coin this is — MEME / MAJOR / WRAPPED / DEFI / AI / GAMING / L1 / INFRA / OTHER. */
+    fun cryptoKind8063(symbol: String, sector: String, mint: String): String {
+        val sym = symbol.trim().uppercase(); val sec = sector.trim().uppercase()
+        return when {
+            sym in setOf("WBTC", "WETH", "CBBTC", "TBTC") || sym.endsWith("SOL") && sym.length in 4..8 && sym != "SOL" -> "WRAPPED"
+            sym in setOf("BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX", "TRX", "DOT", "LINK", "TON", "LTC", "BCH", "SUI") -> "MAJOR"
+            sec.contains("MEME") || mint.endsWith("pump", true) || mint.endsWith("bonk", true) -> "MEME"
+            sec.contains("DEFI") || sec.contains("DEX") || sec.contains("LEND") -> "DEFI"
+            sec.split(Regex("[^A-Z0-9]+")).any { it == "AI" } || sec.contains("ARTIFICIAL") || sec.contains("AGENT") -> "AI"
+            sec.contains("GAM") || sec.contains("NFT") || sec.contains("META") -> "GAMING"
+            sec.contains("L1") || sec.contains("L2") || sec.contains("LAYER") || sec.contains("CHAIN") -> "L1"
+            sec.contains("INFRA") || sec.contains("ORACLE") || sec.contains("STORAGE") || sec.contains("DEPIN") -> "INFRA"
+            else -> "OTHER"
+        }
+    }
+
+    /** Pure (V5.0.8063): crypto cap tier above the meme bands (the shared bands stop at "over $1M"). */
+    fun capTier8063(mcapUsd: Double): String = when {
+        !mcapUsd.isFinite() || mcapUsd <= 0.0 -> "CAPU"
+        mcapUsd < 10_000_000.0 -> "CAP_LT10M"
+        mcapUsd < 100_000_000.0 -> "CAP_10M_100M"
+        mcapUsd < 1_000_000_000.0 -> "CAP_100M_1B"
+        else -> "CAP_GT1B"
     }
 
     /** ForwardReturnLabeler7731.tick fallback: a fresh price for a cross-asset identity, else null. */
@@ -137,7 +179,7 @@ object CrossAssetCortex7931 {
         return try { com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper) } catch (_: Throwable) { null }
     }
 
-    fun statusLine(): String = "tracked=${assets.size} byClass=" +
+    fun statusLine(): String = "tracked=${assets.size} stablesSkipped8063=${stablesSkipped8063.get()} byClass=" +
         assets.values.groupingBy { it.assetClass.tag }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" } +
         // V5.0.7962 — everything but SOL: per chain gas, live/shadow, candidates, labels, cell EV (own diag line;
         // carried here because PipelineHealthCollector.dumpText is a pinned method that may only shrink).

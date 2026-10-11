@@ -411,10 +411,21 @@ object LiveEdgeGate7877 {
     fun cellProven8060(n: Int, meanPct: Double, sePct: Double): Boolean =
         n >= 30 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct > 0.0
 
+    private val kindProven8063 = AtomicLong(0)
+
+    /** V5.0.8063 — a 30+ label kind book (lane x venue x cap band, or lane x narrative) for [ts] reads mean - SE > 0. */
+    private fun kindProven8063(ts: TokenState, lane: String): Boolean {
+        val ok = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) } } catch (_: Throwable) { false }
+        if (ok) kindProven8063.incrementAndGet()
+        return ok
+    }
+
     /** V5.0.8060 — measured edge other than a named setup: proven cell, runner cell, specialist, tail ticket. */
     private fun measuredEdge8060(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         val ok = (st != null && cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct)) ||
+            // V5.0.8063 — or the coin's kind has proven it pays in this lane (venue x cap band, or narrative).
+            kindProven8063(ts, lane) ||
             (try { com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
             (try { SpecialistMiner7972.match7972(ts, lane, nowMs) } catch (_: Throwable) { null }) != null ||
             (try { TailHunter7996.ticket7996(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
@@ -534,7 +545,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has

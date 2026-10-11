@@ -187,7 +187,13 @@ object LiveRiskPolicy7807 {
         val c = try { ForwardReturnLabeler7731.cellStatFor(ts, l) } catch (_: Throwable) { null }
         val cellFrac = if (c != null && LiveEdgeGate7877.cellProven8060(c.n60, c.meanNet60Pct, c.stderr60Pct))
             kellyFrac8057(c.meanNet60Pct, c.stderr60Pct * c.stderr60Pct * c.n60, c.n60.toDouble()) else 0.0
-        maxOf(setupFrac, cellFrac)
+        // V5.0.8063 — or the coin's proven kind book (venue x cap band, narrative).
+        val kindFrac = try {
+            ForwardReturnLabeler7731.kindStatsFor8063(ts, l)
+                .filter { LiveEdgeGate7877.cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) }
+                .maxOfOrNull { kellyFrac8057(it.meanNet60Pct, it.stderr60Pct * it.stderr60Pct * it.n60, it.n60.toDouble()) } ?: 0.0
+        } catch (_: Throwable) { 0.0 }
+        maxOf(setupFrac, cellFrac, kindFrac)
     } catch (_: Throwable) { 0.0 }
 
     // ── V5.0.8057 — the daily doubling scoreboard (report only) ──

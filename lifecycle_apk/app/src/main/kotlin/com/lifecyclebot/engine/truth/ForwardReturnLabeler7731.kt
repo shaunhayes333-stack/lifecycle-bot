@@ -77,7 +77,7 @@ object ForwardReturnLabeler7731 {
 
     /** V5.0.8031 — how full the pending book is (0..1): low-priority labels (native verdicts) back off above half. */
     fun pendingLoad8031(): Double = pending.size.toDouble() / MAX_PENDING_7731
-    private const val MAX_CELLS_7731 = 560 // V5.0.7928 — +lane x stage aggregates (never pruned)
+    private const val MAX_CELLS_7731 = 1_000 // V5.0.7928 — +lane x stage aggregates (never pruned); V5.0.8063 — +coin kind / narrative books
     private const val MAX_SEEN_7731 = 12_000
     private const val PERSIST_EVERY_BOOKINGS_7731 = 25
     private const val PREFS_7731 = "forward_return_labeler_7731"
@@ -201,6 +201,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var bookedGross7997 = Double.NaN
         @Volatile var ck7997 = 0
         @Volatile var entryLiq7997 = 0.0
+        /** V5.0.8063 — the coin's kind at the decision: "VENUE/NARRATIVE" (memes), blank for cross-asset rows. */
+        @Volatile var kind8063: String = ""
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -283,7 +285,11 @@ object ForwardReturnLabeler7731 {
             "BAND|${o.lane}|${o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN"}")  // V5.0.8019 — lane x cap band
         // V5.0.7930 — plan pseudo-lanes (PLANWAIT_/PLANADMIT_) carry no stage book.
         val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_")
-        return if (o.stage.isBlank() || pseudo) base else base + stageKey7928(o.lane, o.stage)
+        val withStage = if (o.stage.isBlank() || pseudo) base else base + stageKey7928(o.lane, o.stage)
+        // V5.0.8063 — the coin's kind: lane x venue x cap band, and lane x narrative.
+        val k = o.kind8063.split('/')
+        if (pseudo || k.size != 2 || k[0].isBlank()) return withStage
+        return withStage + kindKey8063(o.lane, k[0], o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN") + narrKey8063(o.lane, k[1])
     }
 
     @Synchronized
@@ -369,6 +375,8 @@ object ForwardReturnLabeler7731 {
                     o.feats7972.joinToString("\u0002") { it.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' ') },
                     // V5.0.8016 — the refusal reason survives a restart (missed runners read UNKNOWN without it).
                     o.reason7967.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
+                    // V5.0.8063 — the coin's kind (field 33).
+                    o.kind8063.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
                 ).joinToString(fs)
             }
     }
@@ -389,7 +397,7 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..32) return@forEach
+            if (f.size !in 17..33) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
             if (atMs <= 0L) return@forEach
@@ -416,6 +424,7 @@ object ForwardReturnLabeler7731 {
                 o.feats7972 = f[30].split('\u0002').filter { it.isNotBlank() }
             }
             if (f.size >= 32) o.reason7967 = f[31]
+            if (f.size >= 33) o.kind8063 = f[32]
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -446,6 +455,44 @@ object ForwardReturnLabeler7731 {
         ageMs < 2L * 60L * 60_000L -> "AGE_15M_2H"
         ageMs < 24L * 60L * 60_000L -> "AGE_2H_24H"
         else -> "AGE_GT24H"
+    }
+
+    /**
+     * V5.0.8063 — owner: "crypto has meme coins, stable coins, utility coins the works ... the same thing could be said
+     * for the meme trader". A meme cell was scanner | lane | cap | age: a pump.fun curve coin, a graduated PumpSwap coin,
+     * a Raydium pool and a bonk launch with the same scanner and cap shared one record, as did an AI coin and a cat coin.
+     * Two more books ride beside the cells (the cells keep their history): lane x venue x cap band, and lane x narrative.
+     *
+     * Pure: the venue a meme trades on — CURVE (pump.fun bonding curve), PUMPSWAP (graduated pump coin), BONK,
+     * RAYDIUM, METEORA, ORCA or OTHER.
+     */
+    fun memeVenue8063(mint: String, dex: String, curveActive: Boolean): String {
+        val d = dex.trim().uppercase()
+        val m = mint.trim()
+        return when {
+            curveActive -> "CURVE"
+            "BONK" in d || m.endsWith("bonk") -> "BONK"
+            "PUMPSWAP" in d || "PUMP_SWAP" in d || "PUMP_AMM" in d -> "PUMPSWAP"
+            "PUMP" in d -> if (m.endsWith("pump") && !d.contains("FUN")) "PUMPSWAP" else "CURVE"
+            "RAYDIUM" in d -> "RAYDIUM"
+            "METEORA" in d -> "METEORA"
+            "ORCA" in d || "WHIRLPOOL" in d -> "ORCA"
+            m.endsWith("pump") -> "PUMPSWAP"
+            else -> "OTHER"
+        }
+    }
+
+    fun kindKey8063(lane: String, venue: String, band: String) = "KIND|${lane.trim().uppercase()}|${venue.trim().uppercase()}|$band"
+    private fun narrKey8063(lane: String, narrative: String) = "NARR|${lane.trim().uppercase()}|${narrative.trim().uppercase().ifBlank { "UNKNOWN" }}"
+
+    /** V5.0.8063 — the coin's kind "VENUE/NARRATIVE"; blank for cross-asset rows (their source already names the kind). */
+    private fun kindOf8063(ts: TokenState): String {
+        val src = ts.source.uppercase()
+        if (src.startsWith("XC_") || src.startsWith("XASSET_")) return ""
+        val curve = try { CurveReserves7951.realSolIfActive8046(ts.mint) != null } catch (_: Throwable) { false }
+        val dex = ts.lastPriceDex.ifBlank { try { ts.tokenMap.dexId } catch (_: Throwable) { "" } }
+        val narr = try { com.lifecyclebot.engine.NarrativeDetectorAI.detectNarrative(ts.symbol, ts.name).name } catch (_: Throwable) { "UNKNOWN" }
+        return "${memeVenue8063(ts.mint, dex, curve)}/$narr"
     }
 
     fun cellKey(source: String, lane: String, mcapUsd: Double, ageMs: Long): String =
@@ -566,6 +613,7 @@ object ForwardReturnLabeler7731 {
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
+                it.kind8063 = try { kindOf8063(ts) } catch (_: Throwable) { "" }
             }
         lastSeenAt[key] = nowMs
         // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
@@ -1140,6 +1188,17 @@ object ForwardReturnLabeler7731 {
         return cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs))  // V5.0.8019
     }
 
+    /**
+     * V5.0.8063 — the 5-minute record of [lane] for coins of [ts]'s kind: (venue x cap band, narrative). A kind proven to
+     * pay is measured edge (LiveEdgeGate7877) and sizes like a proven cell (LiveRiskPolicy7807).
+     */
+    fun kindStatsFor8063(ts: TokenState, lane: String): List<CellStat> {
+        val k = kindOf8063(ts).split('/')
+        if (k.size != 2) return emptyList()
+        val l = lane.trim().uppercase()
+        return listOfNotNull(cellStat(kindKey8063(l, k[0], mcapBand(TrustedMcap8019.mcap8019(ts)))), cellStat(narrKey8063(l, k[1])))
+    }
+
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))
 
     /** V5.0.7928 — the 60-minute record of every [lane] decision taken at lifecycle [stage]. */
@@ -1153,11 +1212,15 @@ object ForwardReturnLabeler7731 {
 
     fun statusLine(): String {
         val cellStats = cells.keys
-            .filter { !it.startsWith("AGG|") && !it.startsWith("LANE|") && !it.startsWith("SRC|") && !it.startsWith("STAGE|") }
+            .filter { !it.startsWith("AGG|") && !it.startsWith("LANE|") && !it.startsWith("SRC|") && !it.startsWith("STAGE|") && !it.startsWith("KIND|") && !it.startsWith("NARR|") }
             .mapNotNull { cellStat(it) }
             .filter { it.n60 >= 30 }
         val best = cellStats.sortedByDescending { it.meanNet60Pct }.take(3)
         val worst = cellStats.sortedBy { it.meanNet60Pct }.take(3)
+        // V5.0.8063 — the coin-kind books (lane x venue x cap, lane x narrative) at n >= 30.
+        val kinds = cells.keys.filter { it.startsWith("KIND|") || it.startsWith("NARR|") }.mapNotNull { cellStat(it) }.filter { it.n60 >= 30 }
+        val kindBest = kinds.sortedByDescending { it.meanNet60Pct }.take(4)
+        val kindWorst = kinds.sortedBy { it.meanNet60Pct }.take(3)
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
@@ -1165,6 +1228,7 @@ object ForwardReturnLabeler7731 {
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
+            "      kinds8063 best: ${kindBest.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }} | worst: ${kindWorst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none" }}\n" +
             "      lanes60: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}"
     }
 
