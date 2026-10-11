@@ -469,6 +469,23 @@ object ForwardReturnLabeler7731 {
         return o.entryPrice to o.atMs
     }
 
+    /**
+     * V5.0.8051 — the (quality, phase) of a forecast signature for [ts] in [lane]: the token's setup shape (PUL / REA /
+     * BRE / MOM, NON when no setup fires) and its lifecycle stage (TokenMetricStageRouter).
+     */
+    fun signature8051(ts: TokenState, lane: String): Pair<String, String> {
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) } catch (_: Throwable) { null }
+        val shape = if (setup == null || setup == com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER) "NON"
+            else try { com.lifecyclebot.engine.learning.TacticSwitcher.seedTactic8049(lane, setup).name.take(3) } catch (_: Throwable) { "NON" }
+        val stage = try {
+            val snap = com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts)
+            if (snap.stage != com.lifecyclebot.engine.TokenMetricStageRouter.Stage.UNKNOWN) snap.stage.name
+            else com.lifecyclebot.engine.TokenMetricStageRouter.nearestStage8051(snap.currentVsPeak, snap.drawdownFromPeakPct,
+                snap.runupFromLocalLowPct, snap.buyPressurePct, snap.sellPressurePct)
+        } catch (_: Throwable) { "UNKNOWN" }
+        return shape to stage
+    }
+
     fun observe(mint: String, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {
         if (mint.isBlank()) return
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return
@@ -537,7 +554,12 @@ object ForwardReturnLabeler7731 {
         // model keys it; the token state carries no setup quality or edge phase,
         // so the label lands on the coarse signature (lane | band | regime).
         val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
-        pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score, "U", regime, "UNKNOWN", px, cost.coerceIn(0.0, 60.0), nowMs)
+        // V5.0.8051 — the forecast signature is filled from the token: its score (was -1 -> every label in S00 while the
+        // readers asked at the coin's score), the shape of the setup it shows in this lane (was "U") and its lifecycle
+        // stage (was "UNKNOWN"). The Cortex forecasters read the same signature ([signature8051]).
+        val sig8051 = signature8051(ts, l)
+        val score8051 = if (score >= 0) score else ts.entryScore.toInt()
+        pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
                 it.reason7967 = reason.orEmpty().take(120)

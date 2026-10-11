@@ -93,11 +93,11 @@ object CortexVoters7885 {
         },
         // ── forecasters ──
         Voter("FORWARD_MODEL_EV", "FORECASTER", PCT, setOf("fwd_labels")) { ts, lane, _ ->
-            val f = com.lifecyclebot.engine.ForwardOutcomeModel.forecast(lane, ts.entryScore.toInt(), "U", regime(), "UNKNOWN")
+            val f = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.signature8051(ts, lane).let { sig -> com.lifecyclebot.engine.ForwardOutcomeModel.forecast(lane, ts.entryScore.toInt(), sig.first, regime(), sig.second) }
             if (f.samples <= 0L) null else fin(f.expectedPnl)
         },
         Voter("FORWARD_MODEL_PWIN", "FORECASTER", PROB, setOf("fwd_labels")) { ts, lane, _ ->
-            val f = com.lifecyclebot.engine.ForwardOutcomeModel.forecast(lane, ts.entryScore.toInt(), "U", regime(), "UNKNOWN")
+            val f = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.signature8051(ts, lane).let { sig -> com.lifecyclebot.engine.ForwardOutcomeModel.forecast(lane, ts.entryScore.toInt(), sig.first, regime(), sig.second) }
             if (f.samples <= 0L) null else fin(f.pWin)
         },
         Voter("SCORE_EXPECTANCY", "FORECASTER", e(-10.0, -3.0, 0.0, 3.0, 10.0), setOf("closes")) { ts, lane, _ ->

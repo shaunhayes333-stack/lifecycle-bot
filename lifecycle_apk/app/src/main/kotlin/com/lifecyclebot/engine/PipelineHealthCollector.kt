@@ -1456,6 +1456,8 @@ object PipelineHealthCollector {
         sb.append("  Net edge (§8030): ").append(
             try { com.lifecyclebot.engine.truth.NetEdge8030.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Unclassified refusals (§8051): ").append(
+            try { RejectTaxonomyLedger.unknownTop8051() } catch (_: Throwable) { "-" }).append("\n")
         sb.append("  Finality store (§8047): ").append(
             try { com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.statusLine8047() } catch (_: Throwable) { "-" }).append("\n")
         sb.append("  Liquidity truth (§8037): ").append(

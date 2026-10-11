@@ -9,6 +9,11 @@ object RejectTaxonomyLedger {
     private val laneCounts = ConcurrentHashMap<String, AtomicLong>()
     private val hardSafetyCount = AtomicLong(0L)
     private val trainableCount = AtomicLong(0L)
+    private val unknownRules8051 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** V5.0.8051 — the top still-unclassified refusal rules (diag). */
+    fun unknownTop8051(): String =
+        unknownRules8051.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
 
     fun record(classification: RejectTaxonomy.Classification, lane: String, reason: String = "") {
         counts.computeIfAbsent(classification.category) { AtomicLong(0L) }.incrementAndGet()
@@ -18,6 +23,11 @@ object RejectTaxonomyLedger {
         if (classification.category == RejectTaxonomy.Category.UNKNOWN_REVIEW) {
             try { PipelineHealthCollector.labelInc("REJECT_TAXONOMY_UNKNOWN_REVIEW_4425") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("REJECT_TAXONOMY_UNKNOWN_REVIEW_4425", "lane=$lane reason=${reason.take(96)}") } catch (_: Throwable) {}
+            // V5.0.8051 — name the rules still unclassified, so the next build can file them.
+            val rule = reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").split('_').filter { it.isNotEmpty() }
+                .takeWhile { w -> w.none { it.isDigit() } }.take(4).joinToString("_").ifBlank { "BLANK" }
+            if (unknownRules8051.size < 200) unknownRules8051.computeIfAbsent(rule) { AtomicLong(0L) }.incrementAndGet()
+            else unknownRules8051[rule]?.incrementAndGet()
         }
     }
 

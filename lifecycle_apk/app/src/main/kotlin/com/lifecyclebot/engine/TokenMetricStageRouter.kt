@@ -317,6 +317,19 @@ object TokenMetricStageRouter {
         why
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.8051 — a descriptive stage for grading when no stage rule fires (5.0.8046: STAGE..._UNKNOWN 16,472). Decisions
+     * keep UNKNOWN ("no stage evidence"); the forecast signature files the coin under its nearest shape, prefixed N_ so
+     * it never mixes with a rule-clean stage. Pure.
+     */
+    fun nearestStage8051(currentVsPeak: Double, drawdownPct: Double, runupPct: Double, buyPressurePct: Double, sellPressurePct: Double): String = when {
+        drawdownPct >= 18.0 -> if (buyPressurePct >= 52.0 && sellPressurePct <= 52.0) "N_PULLBACK" else "N_FALLING"
+        currentVsPeak >= 0.88 && runupPct >= 25.0 -> "N_MARKUP"
+        currentVsPeak >= 0.88 -> "N_FLAT_HIGH"
+        buyPressurePct >= 50.0 -> "N_PULLBACK"
+        else -> "N_FADING"
+    }
+
     fun reasonFor(stage: Stage, rug: Boolean, peak: Boolean, dump: Boolean, base: Boolean, mid: Boolean, markup: Boolean, fresh: Boolean = false): String = when (stage) {
         Stage.RUG_PRONE -> "rugProne=$rug topHeavy/liquidityAir/thinRunup"
         Stage.PEAK_EXHAUSTION -> "peakExhaustion=$peak nearHigh+extended+sellPressure"
