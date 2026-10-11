@@ -280,6 +280,12 @@ object ProtectiveExitScheduler6450 {
             return null
         }
         armed.incrementAndGet()
+        // The 120-second execution-spine witness must count REAL, fresh-mark
+        // threshold comparisons from the independent 500ms risk clock too.
+        // Previously only BotService's occasional sweep stamped this witness,
+        // so armed>0 and live positions could still report exitEval=0.
+        // Deliberate heartbeat pings and no-threshold observations never arrive here.
+        ExecutionSpineAcceptanceWindow6647.onExitEvaluation()
         // V5.0.7213 — the moment a price was actually compared to a threshold.
         // Staleness of THIS clock while inventory is open is the real fault the
         // old merged starvation counter was hiding.
