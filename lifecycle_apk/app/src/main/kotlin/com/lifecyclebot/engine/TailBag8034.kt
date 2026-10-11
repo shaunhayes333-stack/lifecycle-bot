@@ -98,7 +98,7 @@ object TailBag8034 {
     }
 
     /** The tail of [ts]'s open position, if it has one (a tail of an older position is dropped). */
-    fun tailOf8034(ts: TokenState): Tail? {
+    private fun tailOf8034(ts: TokenState): Tail? {
         load()
         val t = tails[ts.mint] ?: return null
         if (!ts.position.isOpen || t.entryTime != ts.position.entryTime) { tails.remove(ts.mint); save(); return null }

@@ -19,6 +19,10 @@ class Aate8034MoonbagAndFirstSightTest {
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decidePure8034("MOONSHOT", "RUG_DETECTED_LIQUIDITY_PULLED", -80.0, null, now))
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decidePure8034("MOONSHOT", "MANUAL_SELL", 5.0, null, now))
         assertEquals(0.25, TailBag8034.TAIL_FRACTION, 0.0)
+        assertEquals(5, TailBag8034.TAIL_LANES_8034.size)
+        assertEquals(listOf(400.0, 1_900.0, 4_900.0), TailBag8034.MILESTONES_8034.map { it.first })
+        assertTrue(TailBag8034.structural8034("DEV_SOLD_ALL"))
+        assertFalse(TailBag8034.structural8034("RAPID_CATASTROPHE_STOP"))
     }
 
     @Test fun theTailHoldsUntilARugOrItsMultiples() {
