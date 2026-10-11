@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object StopLearner8040 {
     val CANDIDATES_8040 = doubleArrayOf(5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 18.0, 21.0, 25.0)
-    const val RING_8040 = 300
+    private const val RING_8040 = 300
     const val MIN_N_8040 = 60
     const val MIN_EDGE_PCT_8040 = 0.5
     private const val REDECIDE_EVERY_8040 = 20
