@@ -32,3 +32,14 @@ class Aate8049LaneTacticSeedTest {
         assertTrue(t.contains("LanePlaybook7907.bestSetup8049(lane)"))
     }
 }
+
+/** V5.0.8050 — a trade's tactic is the token's shape (its classified setup), so cohorts are graded by what the coin did. */
+class Aate8050TokenTacticTest {
+    @Test fun stampedFromTheToken() {
+        val e = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertEquals(3, Regex("TacticSwitcher\\.tacticForToken8050\\(ts, ").findAll(e).count())
+        assertTrue(!e.contains("TacticSwitcher.currentTactic(safeLane, score.toInt())"))
+        val t = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        assertTrue(t.contains("LanePlaybook7907.classify(ts, lane)"))
+    }
+}

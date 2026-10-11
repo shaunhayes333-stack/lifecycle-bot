@@ -14361,7 +14361,7 @@ class Executor(
         val source = ts.lastPriceSource.ifBlank { scannerSource }
         val mult = if (plannedSol > 0.0) (finalSol / plannedSol).coerceIn(0.0, 50.0) else 1.0
         val reasonText = reasons.filter { it.isNotBlank() }.joinToString("|").take(240)
-        val electedTactic6568 = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(safeLane, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+        val electedTactic6568 = try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, safeLane, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }  // V5.0.8050 — the token's shape
         val brainVerdict6568 = if (ts.lastConsensusObjections.isEmpty()) "ALLOW" else "SOFT_BLOCK"
         val policySignals6568 = UnifiedPolicyHead.Signals(
             mlEntryConf = (score / 100.0).coerceIn(0.0, 1.0), symGreenLight = 0.5, evRatio = 0.5,
@@ -16563,7 +16563,7 @@ class Executor(
                     // V5.0.7427 — entryTactic is ONLY the TacticSwitcher enum.
                     // Toolkit free-form entryStyle has its own field below.
                     entryTactic = policyField6568(paperPolicySnapshot, "entryTactic").ifBlank {
-                        try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+                        try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
                     },
                     entryRiskProfile = entryDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
                     entryExitProfile = entryDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(),
@@ -21332,7 +21332,7 @@ class Executor(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
                             entryStrategyPid = "", entryTactic = policyField6568(ts.position.entryPolicySnapshot, "entryTactic").ifBlank {
-                                try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+                                try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
                             },
                             entryRiskProfile = liveDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
                             entryExitProfile = liveDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(), entrySource = entryEvidence7863.source,

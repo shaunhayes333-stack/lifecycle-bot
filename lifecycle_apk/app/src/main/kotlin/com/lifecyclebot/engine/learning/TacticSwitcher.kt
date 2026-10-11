@@ -230,6 +230,22 @@ object TacticSwitcher {
         try { PipelineHealthCollector.labelInc("TACTIC_SEEDED_8049_${t.name}") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8050 — the tactic a TRADE is, read from the token: the shape of the setup the coin is actually showing in
+     * this lane (LanePlaybook7907.classify — pullback, base, breakout, tape). Owner: "shouldn't that be how its all
+     * graded? perhaps token?" The (lane, band) cell tactic stays the lane's preference (ShitCoin's fit bias, rotation);
+     * the stamp on the trade — and so every cohort, causal size book and journal row graded by tactic — is the token's.
+     * A coin that fires no setup takes the lane's current tactic.
+     */
+    fun tacticForToken8050(ts: com.lifecyclebot.data.TokenState, lane: String, score: Int): Tactic {
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) } catch (_: Throwable) { null }
+        if (setup != null && setup != com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER) {
+            try { PipelineHealthCollector.labelInc("TACTIC_FROM_TOKEN_8050") } catch (_: Throwable) {}
+            return seedTactic8049(lane, setup)
+        }
+        return currentTactic(lane, score)
+    }
+
     /** Pure (V5.0.8049): a lane's starting tactic — its best setup's shape, else the lane's native style. */
     fun seedTactic8049(lane: String, bestSetup: String?): Tactic {
         val s = bestSetup.orEmpty().uppercase()
