@@ -21,7 +21,10 @@ object LiveTruth8064 {
     private const val WINDOW_MS = 6L * 60L * 60_000L
     private const val MIN_N = 8
     private const val MAX_PER_LANE = 60
-    private const val KEY = "LIVE_TRUTH_8064"
+    // V5.0.8070 — a fresh book: the 8064 book was filled from the boot replay with closes made before the honest era.
+    private const val KEY = "LIVE_TRUTH_8070"
+    /** V5.0.8070 — the first build of the honest era (labels without spike credit, 8064). */
+    private const val HONEST_ERA_BUILD = 8064
 
     private val byLane = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()  // [atMs, netPct]
     private val subscribed = AtomicBoolean(false)
@@ -38,6 +41,12 @@ object LiveTruth8064 {
         return mean + kotlin.math.sqrt(variance / xs.size) < 0.0
     }
 
+    /** Pure (V5.0.8070): was a close produced by an honest-era build (5.0.8064 or later)? Unknown builds do not count. */
+    fun honestEra8070(version: String?): Boolean {
+        val build = version?.trim()?.substringAfterLast('.')?.takeWhile { it.isDigit() }?.toIntOrNull() ?: return false
+        return build >= HONEST_ERA_BUILD
+    }
+
     private fun laneOf(raw: String?): String {
         val c = try { CanonicalLaneIdentity6506.canonical(raw).uppercase() } catch (_: Throwable) { "" }
         return c.ifBlank { raw?.trim()?.uppercase().orEmpty() }.ifBlank { "UNKNOWN" }
@@ -45,7 +54,12 @@ object LiveTruth8064 {
 
     private fun ensure() {
         if (subscribed.compareAndSet(false, true)) try {
-            CanonicalTradeFinalizedBus6450.subscribe { e -> if (e.mode.equals("live", ignoreCase = true)) record(laneOf(e.entryLane), e.netReturnPct, e.settledAtMs) }
+            CanonicalTradeFinalizedBus6450.subscribe { e ->
+                // V5.0.8070 — only closes made in the honest era count. 5.0.8064 at 577 s held CASHGEN / MOONSHOT /
+                // SHITCOIN on closes the pre-8064 (spike-credited) regime bought — 0 trades of the new regime — and
+                // that hold refused INUX (+1,724%) and DOPE (+486%).
+                if (e.mode.equals("live", ignoreCase = true) && honestEra8070(e.producedByVersion7103)) record(laneOf(e.entryLane), e.netReturnPct, e.settledAtMs)
+            }
         } catch (_: Throwable) { subscribed.set(false) }
         if (!loaded && (try { LearningPersistence.ready() } catch (_: Throwable) { false })) synchronized(this) {
             if (loaded) return
