@@ -423,6 +423,16 @@ object LiveEdgeGate7877 {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val specialist = try { SpecialistMiner7972.match7972(ts, l, nowMs) } catch (_: Throwable) { null }
         if (specialist != null) { cleared7994.incrementAndGet(); return null }
+        // V5.0.8056 — a coin showing a setup this lane has PROVEN pays (30+ labels, mean - SE > 0) is bought now, not
+        // watched for its thin cell: runners live in thin cells by nature (5.0.8051: 10 runners 4x+, caught 0). It is
+        // planned at once (no plan wait), may be promoted to the route minimum, and a runner setup is held as a runner.
+        val proven8056 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) } catch (_: Throwable) { null }
+        if (proven8056 != null) {
+            cleared7994.incrementAndGet(); provenSetupCleared8056.incrementAndGet(); notePositive7975(ts.mint, nowMs)
+            if (proven8056.second) try { com.lifecyclebot.engine.RunnerGrab7967.holdAsRunner7972(ts, nowMs) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("WATCH_FIRST_CLEARED_PROVEN_SETUP_8056_${proven8056.first.take(24)}") } catch (_: Throwable) {}
+            return null
+        }
         // V5.0.8018 — a confirmed run the bot missed or sold early gets a second entry (RunnerPlay8018).
         if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) {
             cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
@@ -468,6 +478,7 @@ object LiveEdgeGate7877 {
     private val planSkips7995 = java.util.concurrent.atomic.AtomicLong(0)
     private val standDown8006 = java.util.concurrent.atomic.AtomicLong(0)
     private val cortexCleared8016 = java.util.concurrent.atomic.AtomicLong(0)
+    private val provenSetupCleared8056 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** V5.0.7996 — every live decision opens a 4-hour ladder replay (TailHunter7996). */
     private fun observeTail7996(ts: TokenState, lane: String, reason: String?, nowMs: Long) {
@@ -477,7 +488,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has

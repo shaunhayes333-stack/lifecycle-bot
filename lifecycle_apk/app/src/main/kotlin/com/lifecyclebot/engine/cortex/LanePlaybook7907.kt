@@ -625,6 +625,24 @@ object LanePlaybook7907 {
         return st.mean() - se > 0.0
     }
 
+    /**
+     * V5.0.8056 — owner: "I want to get back to banking 500% runs". The setup this coin is showing in this lane, when
+     * the lane's own record of that setup is proven to pay (30+ graded labels, mean - SE > 0 net of cost: 5.0.8051
+     * SHITCOIN ACCELERATING_TAPE n61 +23.1%, MOONSHOT LAUNCH_LADDER_PROVEN n48 +13.8%), with whether it is a runner
+     * setup (10%+ of its labels ran, or it averages +10%+). Null otherwise.
+     */
+    fun provenSetup8056(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Pair<String, Boolean>? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
+            val st = stat(lane, setup)
+            if (st == null || !setupProvenPositive7948(st)) null
+            else setup to (st.runnerRate() >= TAIL_RATE || st.mean() >= RUNNER_SETUP_MEAN_8056)
+        }
+    } catch (_: Throwable) { null }
+
+    private const val RUNNER_SETUP_MEAN_8056 = 10.0
+
     /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */
     fun classifiedSampleN7948(ts: TokenState, laneRaw: String): Int = try {
         val lane = canon(laneRaw)

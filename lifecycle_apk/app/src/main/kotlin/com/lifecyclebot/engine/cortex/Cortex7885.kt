@@ -528,6 +528,9 @@ object Cortex7885 {
             val setup = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
             val st = setup?.let { synchronized(this) { jointBook7961[jointKey7961(a.lane, a.bucket, it)] } }
             if (jointProvenPositive7961(st)) { inc("C3_STOOD_DOWN_SETUP_PROVEN_7961"); return null }
+            // V5.0.8056 — or the setup's whole lane record is proven (the lane-wide refuse bucket averages every setup;
+            // SHITCOIN refuse n243 -12% while its ACCELERATING_TAPE coins read n61 +23%).
+            if ((try { LanePlaybook7907.provenSetup8056(ts, a.lane) } catch (_: Throwable) { null }) != null) { inc("C3_STOOD_DOWN_LANE_SETUP_PROVEN_8056"); return null }
             return "C3_PROVEN_NEGATIVE_EDGE"
         }
         if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL && lastSlot(ts)) {
