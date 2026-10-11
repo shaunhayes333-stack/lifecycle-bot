@@ -52,6 +52,14 @@ object FlatChart8027 {
             flatline8027(bars.filter { nowMs - it.ts in 0L..FLAT_WINDOW_MS }.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) } + now) -> {
                 flatRefused.incrementAndGet(); "FLATLINE_8027"
             }
+            // V5.0.8036 — USDP (CASHGEN, entry "$204M"): a market cap climbing $140M -> $250M in a straight line
+            // with no pullback, on depth nowhere near that size, then rugged to -99.99%. Organic charts breathe.
+            manufacturedClimb8036(bars.filter { nowMs - it.ts in 0L..CLIMB_WINDOW_MS_8036 }.sortedBy { it.ts }.map { it.priceUsd }) -> {
+                climbRefused.incrementAndGet(); "MANUFACTURED_CLIMB_8036"
+            }
+            thinDepthForCap8036(try { com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { ts.lastMcap }, ts.lastLiquidityUsd) -> {
+                thinRefused.incrementAndGet(); "THIN_DEPTH_FOR_CAP_8036"
+            }
             else -> return null
         }
         try {
@@ -61,5 +69,28 @@ object FlatChart8027 {
         return why
     }
 
-    fun statusLine(): String = "deadRunnerRefused=${deadRefused.get()} flatlineRefused=${flatRefused.get()} bar=top>=${DEAD_RATIO.toInt()}x now | ${FLAT_MIN_BARS}+ bars in ${FLAT_WINDOW_MS / 60_000}m inside ${FLAT_RANGE_PCT}%"
+    // ── V5.0.8036 — fake charts ──
+    const val CLIMB_WINDOW_MS_8036 = 60L * 60_000L
+    const val CLIMB_MIN_BARS_8036 = 20
+    const val CLIMB_MIN_RISE_PCT_8036 = 30.0
+    const val CLIMB_MAX_DOWN_SHARE_8036 = 0.10
+    const val MAX_CAP_TO_DEPTH_8036 = 200.0
+    private val climbRefused = AtomicLong(0)
+    private val thinRefused = AtomicLong(0)
+
+    /** Pure: [closes] (oldest first, the last hour) rise 30%+ with almost no down bars — a laddered, wash-built climb. */
+    fun manufacturedClimb8036(closes: List<Double>): Boolean {
+        val c = closes.filter { it.isFinite() && it > 0.0 }
+        if (c.size < CLIMB_MIN_BARS_8036) return false
+        val rise = (c.last() / c.first() - 1.0) * 100.0
+        if (rise < CLIMB_MIN_RISE_PCT_8036) return false
+        val downs = c.zipWithNext().count { (a, b) -> b < a * 0.995 }
+        return downs.toDouble() / (c.size - 1) <= CLIMB_MAX_DOWN_SHARE_8036
+    }
+
+    /** Pure: a market cap 200x+ its pool depth is a number nobody can sell into. Unknown depth (0) is not judged. */
+    fun thinDepthForCap8036(capUsd: Double, liqUsd: Double): Boolean =
+        capUsd.isFinite() && liqUsd.isFinite() && capUsd > 0.0 && liqUsd > 0.0 && capUsd / liqUsd > MAX_CAP_TO_DEPTH_8036
+
+    fun statusLine(): String = "deadRunnerRefused=${deadRefused.get()} flatlineRefused=${flatRefused.get()} manufacturedClimb=${climbRefused.get()} thinDepth=${thinRefused.get()} bar=top>=${DEAD_RATIO.toInt()}x now | ${FLAT_MIN_BARS}+ bars in ${FLAT_WINDOW_MS / 60_000}m inside ${FLAT_RANGE_PCT}%"
 }
