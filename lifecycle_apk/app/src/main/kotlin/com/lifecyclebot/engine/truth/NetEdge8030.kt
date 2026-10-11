@@ -46,7 +46,7 @@ object NetEdge8030 {
     fun structural8030(reason: String): Boolean {
         val r = reason.uppercase()
         // A trailing stop or a profit lock on a green position is profit-taking, so "STOP" alone is not structural.
-        return listOf("STOP_LOSS", "STRICT_SL", "CATASTROPH", "HARD_FLOOR", "BACKSTOP", "RUG", "DEV_", "DEV SOLD", "LIQUIDITY",
+        return listOf("STOP_LOSS", "HARD_STOP", "STRICT_SL", "UNIVERSAL_SL", "RAPID_STOP", "CATASTROPH", "HARD_FLOOR", "BACKSTOP", "RUG", "DEV_", "DEV SOLD", "LIQUIDITY",
             "HONEYPOT", "FREEZE", "FROZEN", "MANUAL", "EMERGENCY", "KILL", "SHUTDOWN", "QUARANTINE", "ORPHAN", "RESURRECT",
             "STARTUP", "STALE_FEED", "EVICT", "DUST", "ZOMBIE", "RECONCIL", "DEAD_TOKEN", "NO_PRICE", "WALLET", "MAYHEM").any { r.contains(it) }
     }
