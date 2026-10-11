@@ -22,7 +22,7 @@ object RunnerCapture8017 {
     private const val KEEP_MS = 24L * 3_600_000L
     private const val MAX_RUNS = 300
 
-    class Run(val mint: String, val symbol: String, val lane: String, val startPx: Double, val atMs: Long, val refusedBy: String) {
+    class Run(val mint: String, val symbol: String, val lane: String, val startPx: Double, val atMs: Long, @Volatile var refusedBy: String) {
         @Volatile var peakPct = 0.0
         @Volatile var held = false
         @Volatile var live = false
@@ -45,6 +45,11 @@ object RunnerCapture8017 {
         if (downstream8047.size > 3_000) downstream8047.clear()
         downstream8047[mint] = reason.substringBefore(':').trim().take(40)
     }
+
+    /** Pure (V5.0.8055): should [candidate] replace [current] as a missed runner's reason? A gate refusal beats a native lane opinion. */
+    fun betterMissReason8055(current: String, candidate: String): Boolean =
+        candidate.isNotBlank() && !candidate.startsWith("NATIVE_") && candidate != "SHADOW_NOT_PRIMARY_8029" &&
+            (current.isBlank() || current.startsWith("NATIVE_") || current == "SHADOW_NOT_PRIMARY_8029")
 
     /** Pure: the label a missed runner prints — its gate refusal, else what stopped the admitted buy. */
     fun missedWhy8047(refusedBy: String, downstream: String?): String = when {
@@ -76,6 +81,10 @@ object RunnerCapture8017 {
             Run(mint, symbol, lane, startPx, nowMs, refusedBy)
         }
         if (peakPct > r.peakPct) r.peakPct = peakPct
+        // V5.0.8055 — a lane's native opinion (TREASURY "role floor" on a $30K meme) is not what stopped the buy: the
+        // first label of a runner is often a lane that would never own it. A gate refusal (watch first, Cortex, net
+        // edge ...) from a later label of the same coin names the real stop.
+        if (betterMissReason8055(r.refusedBy, refusedBy)) r.refusedBy = refusedBy
         // Is the bot holding it right now?
         try {
             val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]

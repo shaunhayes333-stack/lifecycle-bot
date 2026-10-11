@@ -36,3 +36,13 @@ class Aate8047GoodTradesTest {
         assertTrue(lt.contains("OnChainDepth8038.needDepth8047(ts)"))
     }
 }
+
+/** V5.0.8055 — a missed runner names the gate that stopped it, not another lane's native opinion. */
+class Aate8055RunnerMissReasonTest {
+    @Test fun gateRefusalBeatsNativeOpinion() {
+        assertTrue(RunnerCapture8017.betterMissReason8055("NATIVE_TREASURY_ROLE_FLOOR", "WATCH_FIRST_7994_THIN_CELL"))
+        assertTrue(RunnerCapture8017.betterMissReason8055("", "CORTEX_7885_C3_PROVEN_NEGATIVE_EDGE_SHITCOIN"))
+        assertFalse(RunnerCapture8017.betterMissReason8055("WATCH_FIRST_7994_THIN_CELL", "NATIVE_MCAP_TOO_LOW"))
+        assertFalse(RunnerCapture8017.betterMissReason8055("WATCH_FIRST_7994_THIN_CELL", "NET_EDGE_COIN_TOO_SLOW_8035"))
+    }
+}
