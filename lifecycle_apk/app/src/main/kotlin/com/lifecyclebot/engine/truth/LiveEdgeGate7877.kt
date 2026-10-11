@@ -491,7 +491,9 @@ object LiveEdgeGate7877 {
     private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long): String? {
         // V5.0.8072 — a runner ticket is the deliberate unproven buy: it is not watched first.
         if (try { com.lifecyclebot.engine.RunnerTicket8073.isTicket8073(ts.mint, nowMs) } catch (_: Throwable) { false }) {
-            cleared7994.incrementAndGet(); return null
+            // V5.0.8073 — and it is a positive admit: planned at once (no plan wait) and sized up to the route minimum.
+            // 5.0.8072: 3 tickets issued, 0 bought — the size resolver refused them sub-routable (288 refusals).
+            cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs); return null
         }
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         if (st != null && cellEarnsLive7994(st.n60, st.meanNet60Pct)) {

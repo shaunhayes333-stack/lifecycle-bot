@@ -141,10 +141,16 @@ object HeliusCreditEconomy7881 {
 
     private fun rollIfNewDay(nowMs: Long) {
         val d = utcDay(nowMs)
+        // V5.0.8073 — the day's book is restored once the store is READY. It used to be tried on the very first metered
+        // call (before LearningPersistence opened), found nothing, never retried, and the next save overwrote the day:
+        // 5.0.8063 read today=738k at 16:15 UTC, 5.0.8064 read 39.9k at 17:19 UTC the same day — every install reset
+        // the budget the hard gate (8066) enforces.
+        if (!loaded && (try { LearningPersistence.ready() } catch (_: Throwable) { false })) synchronized(this) {
+            if (!loaded) { loaded = true; restore(d) }
+        }
         if (d == day) return
         synchronized(this) {
             if (d == day) return
-            if (!loaded) { loaded = true; restore(d) }
             if (d != day) {
                 byMethod.clear(); byConsumer.clear(); byTier.clear(); wsBytes.clear()
                 total = 0.0; enrichmentAdmitted = 0.0; day = d
@@ -265,6 +271,8 @@ object HeliusCreditEconomy7881 {
 
     private fun maybePersist(nowMs: Long) {
         if (nowMs - lastPersistMs < PERSIST_EVERY_MS) return
+        // V5.0.8073 — never save over the stored day before it has been read back.
+        if (!loaded) return
         lastPersistMs = nowMs
         try {
             val o = org.json.JSONObject()
@@ -288,11 +296,15 @@ object HeliusCreditEconomy7881 {
                 for (i in 0 until minOf(n, f.size)) a[i] = f[i].toDoubleOrNull() ?: 0.0
                 return a
             }
-            o.optJSONObject("method")?.let { j -> for (k in j.keys()) byMethod[k] = parse(j.optString(k), 2) }
-            o.optJSONObject("consumer")?.let { j -> for (k in j.keys()) byConsumer[k] = parse(j.optString(k), 3) }
-            o.optJSONObject("tier")?.let { j -> for (k in j.keys()) try { byTier[Tier.valueOf(k)] = parse(j.optString(k), 2) } catch (_: Throwable) {} }
-            o.optJSONObject("ws")?.let { j -> for (k in j.keys()) wsBytes[k] = AtomicLong(j.optLong(k)) }
-            total = o.optDouble("total", 0.0); enrichmentAdmitted = o.optDouble("enrich", 0.0)
+            // V5.0.8073 — merged onto what this run already metered before the store opened (not replaced).
+            fun add(a: DoubleArray?, b: DoubleArray): DoubleArray = if (a == null) b else DoubleArray(maxOf(a.size, b.size)) { i -> a.getOrElse(i) { 0.0 } + b.getOrElse(i) { 0.0 } }
+            val sameDay = day == today || day == -1L || total == 0.0
+            if (!sameDay) return
+            o.optJSONObject("method")?.let { j -> for (k in j.keys()) byMethod[k] = add(byMethod[k], parse(j.optString(k), 2)) }
+            o.optJSONObject("consumer")?.let { j -> for (k in j.keys()) byConsumer[k] = add(byConsumer[k], parse(j.optString(k), 3)) }
+            o.optJSONObject("tier")?.let { j -> for (k in j.keys()) try { val t = Tier.valueOf(k); byTier[t] = add(byTier[t], parse(j.optString(k), 2)) } catch (_: Throwable) {} }
+            o.optJSONObject("ws")?.let { j -> for (k in j.keys()) wsBytes.getOrPut(k) { AtomicLong(0L) }.addAndGet(j.optLong(k)) }
+            total += o.optDouble("total", 0.0); enrichmentAdmitted += o.optDouble("enrich", 0.0)
             day = today
         } catch (_: Throwable) {}
     }
