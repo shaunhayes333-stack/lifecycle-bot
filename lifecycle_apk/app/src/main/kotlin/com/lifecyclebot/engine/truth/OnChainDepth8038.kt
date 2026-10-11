@@ -313,7 +313,7 @@ object OnChainDepth8038 {
     }
 
     /** V5.0.8046 — SOL other buyers must have put into a curve before live money joins (a dev buy alone is not a market). */
-    const val MIN_CURVE_REAL_SOL_8046 = 3.0
+    private const val MIN_CURVE_REAL_SOL_8046 = 3.0
     private val emptyCurveRefused8046 = AtomicLong(0)
 
     /** Pure: an active curve's real SOL is known and below the floor. Unknown is not judged here. */
