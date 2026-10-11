@@ -31,6 +31,16 @@ class Aate8037TradeOneEvidenceTest {
         assertFalse(FlatChart8027.flatline8027(List(4) { 0.0000044 }))
     }
 
+    @Test fun theRiskClockWitnessCountsOnlyArmedThresholdComparisons() {
+        val source = File("src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt").readText()
+        val armed = source.indexOf("armed.incrementAndGet()")
+        val witness = source.indexOf("ExecutionSpineAcceptanceWindow6647.onExitEvaluation()", armed)
+        val checks = source.indexOf("val kind: TriggerKind?", armed)
+        assertTrue(armed >= 0 && witness > armed && checks > witness)
+        assertTrue(source.indexOf("if (!markPx.isFinite()", 0) < armed)
+        assertTrue(source.indexOf("noThreshold.incrementAndGet()", 0) < armed)
+    }
+
     @Test fun localHydrationNeverClaimsNewProviderObservation() {
         val source = File("src/main/kotlin/com/lifecyclebot/engine/RouteTruthHydrator.kt").readText()
         assertFalse(source.contains("tm.providerTimestamps[src] = now"))
