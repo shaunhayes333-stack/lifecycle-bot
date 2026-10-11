@@ -24,7 +24,7 @@ class Aate8041LiveJournalChainTruthTest {
 
     @Test fun aRealRunnerAndAMoonbagSliceAreKept() {
         // Altai-like: +16,516% on chain.
-        val runner = Trade(side = "SELL", mode = "live", sol = 4.5, price = 1.0, ts = 1L, pnlSol = 4.47, pnlPct = 16_516.0, sig = sig, proofState = "LIVE_FINALIZED")
+        val runner = Trade(side = "SELL", mode = "live", sol = 4.5, price = 1.0, ts = 1L, pnlSol = 4.47, pnlPct = 16_516.0, sig = sig, proofState = "LIVE_FINALIZED", entryCostSol = 0.027, entryPriceSnapshot = 1.0e-5)
         assertTrue(LearningPnlSanitizer.inspectTrade(runner, emit = false).ok)
         // A 1,500x runner beyond the old +100,000% ceiling.
         val mega = runner.copy(pnlPct = 150_000.0, pnlSol = 40.0)

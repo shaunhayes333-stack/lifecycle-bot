@@ -84,9 +84,10 @@ object LearningPnlSanitizer {
     fun inspectTrade(t: Trade, context: String = "trade", emit: Boolean = true): Verdict {
         val side = t.side.uppercase()
         if (side != "SELL" && side != "PARTIAL_SELL") return Verdict(true, t.pnlPct)
-        if (liveChainProven8041(t) && t.pnlPct.isFinite()) { chainProvenPassed8041.incrementAndGet(); return Verdict(true, t.pnlPct) }
         if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return reject("MISSING_ENTRY_COST_BASIS", t.pnlPct, context, emit = emit)
         if (t.entryPriceSnapshot <= 0.0 || !t.entryPriceSnapshot.isFinite()) return reject("MISSING_ENTRY_PRICE_BASIS", t.pnlPct, context, emit = emit)
+        // V5.0.8042 — the chain exemption skips the % checks only; a missing entry basis is not a % rule.
+        if (liveChainProven8041(t) && t.pnlPct.isFinite()) { chainProvenPassed8041.incrementAndGet(); return Verdict(true, t.pnlPct) }
         val labelVerdict = try { CloseOutcomeLabelSanitizer.inspect(t) } catch (_: Throwable) { null }
         if (labelVerdict?.dirty == true && side == "PARTIAL_SELL") {
             return reject(labelVerdict.dirtyReason.ifBlank { "DIRTY_PARTIAL_LABEL" }, t.pnlPct, context, emit = emit)

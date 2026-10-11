@@ -566,7 +566,10 @@ object TradeHistoryStore {
         if (isXrefRugRow7364(t)) return false
         // V5.0.8041 — a LIVE row the chain proves is an on-chain fact: it is never excluded on its numbers (no % ceiling,
         // no %-vs-SOL basis check, no notional cap, no price-field rule). Only a non-number cannot be shown.
-        if (LearningPnlSanitizer.liveChainProven8041(t)) {
+        // V5.0.8042 — SELLS only, and only with their entry basis: a BUY row without its fill price / cost (written
+        // before the fill landed) entered accounting under 8041 with a zero basis — the "basis unknown" IM card.
+        if (LearningPnlSanitizer.liveChainProven8041(t) && isJournalSellLike(t.side) &&
+            t.entryCostSol > 0.0 && t.entryCostSol.isFinite() && t.entryPriceSnapshot > 0.0 && t.entryPriceSnapshot.isFinite()) {
             return t.price.isFinite() && t.sol.isFinite() && t.pnlSol.isFinite() && t.pnlPct.isFinite() && t.netPnlSol.isFinite()
         }
         val paperVerdict = com.lifecyclebot.engine.PaperLearningSanity.inspect(t)

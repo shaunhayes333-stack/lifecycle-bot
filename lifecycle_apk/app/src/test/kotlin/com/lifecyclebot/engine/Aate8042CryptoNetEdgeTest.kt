@@ -19,5 +19,8 @@ class Aate8042CryptoNetEdgeTest {
         val ct = File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(ct.contains("NetEdge8030.cryptoEntryRefusal8042(signal.priceChange24h, finalSize, candidate.liquidityUsd)"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/NetEdge8030.kt").readText().contains("NET_EDGE_CRYPTO_TOO_SLOW_8042"))
+        // A live BUY row needs its fill basis; the chain exemption covers sells' % numbers only.
+        val ths = File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(ths.contains("LearningPnlSanitizer.liveChainProven8041(t) && isJournalSellLike(t.side)"))
     }
 }
