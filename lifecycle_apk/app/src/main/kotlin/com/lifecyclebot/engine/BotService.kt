@@ -2992,6 +2992,55 @@ class BotService : Service() {
         try { android.util.Log.e("AATE_BOOT_FAIL_7855", "${t.javaClass.name}: ${t.message.orEmpty().take(3000)}", t) } catch (_: Throwable) {}
     }
 
+    /** 8041: optional CryptoAlt launch cannot hold the main service bootstrap. */
+    private fun startCryptoAltSidecar8041(
+        cfg: com.lifecyclebot.data.BotConfig,
+        traderStep7447: suspend (String, Long, () -> Unit) -> Boolean,
+    ) {
+        // Trade One 8041 — CryptoAlt is an optional autonomous SIDE-CAR.
+        // Its persisted-state init can wait on old history/brain locks for
+        // longer than the interruptible timeout (observed CI bootstrap wedge).
+        // Never make the main meme loop wait for an unrelated market universe.
+        // Init and start remain serial on their own coroutine; enabled mode
+        // is derived from the same canonical runtime plan as before.
+        val cryptoPlan6526 = com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
+            cfg = cfg, marketsKill = MARKET_TRADER_KILL_SWITCH,
+            marketsLaneOnFn = { isMarketsLaneEnabled(it) },
+        )
+        val cryptoUniverseOn = cryptoPlan6526.cryptoUniverseOn
+        if (cryptoUniverseOn) {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO +
+                kotlinx.coroutines.CoroutineName("crypto-alt-sidecar-8041")) {
+                try {
+                    val initOk8041 = traderStep7447("CRYPTO_ALT_INIT", 12_000L) {
+                        com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+                        com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
+                    }
+                    if (!initOk8041) {
+                        try { PipelineHealthCollector.labelInc("CRYPTO_ALT_INIT_DEFERRED_8041") } catch (_: Throwable) {}
+                        return@launch
+                    }
+                    com.lifecyclebot.perps.CryptoAltTrader.setEnabled(true)
+                    check(traderStep7447("CRYPTO_ALT_START", 12_000L) {
+                        com.lifecyclebot.perps.CryptoAltTrader.start()
+                    }) { "CRYPTO_ALT_START_NOT_READY_7447" }
+                    ErrorLogger.info("BotService", "TRADER_GATE CRYPTO_ALT enabled=true started=true independent_sidecar=8041")
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "CryptoAltTrader sidecar start error: ${e.message}", e)
+                    try { PipelineHealthCollector.labelInc("CRYPTO_ALT_SIDECAR_INIT_FAILED_8041") } catch (_: Throwable) {}
+                }
+            }
+        } else {
+            // Disabled CryptoAlt must not initialize/reinitialize shared market
+            // brains merely to stop a trader that never started.
+            try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(false) } catch (_: Throwable) {}
+            try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Throwable) {}
+            ErrorLogger.info("BotService", "CRYPTO_RUNTIME_DISABLED reason=MEME_ONLY_MODE independent_sidecar=8041 cryptoToggle=${cfg.cryptoAltsEnabled}")
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=ENTERED")
@@ -4173,48 +4222,7 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
         }
 
-        // Trade One 8041 — CryptoAlt is an optional autonomous SIDE-CAR.
-        // Its persisted-state init can wait on old history/brain locks for
-        // longer than the interruptible timeout (observed CI bootstrap wedge).
-        // Never make the main meme loop wait for an unrelated market universe.
-        // Init and start remain serial on their own coroutine; enabled mode
-        // is derived from the same canonical runtime plan as before.
-        val cryptoPlan6526 = com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
-            cfg = cfg, marketsKill = MARKET_TRADER_KILL_SWITCH,
-            marketsLaneOnFn = { isMarketsLaneEnabled(it) },
-        )
-        val cryptoUniverseOn = cryptoPlan6526.cryptoUniverseOn
-        if (cryptoUniverseOn) {
-            scope.launch(kotlinx.coroutines.Dispatchers.IO +
-                kotlinx.coroutines.CoroutineName("crypto-alt-sidecar-8041")) {
-                try {
-                    val initOk8041 = traderStep7447("CRYPTO_ALT_INIT", 12_000L) {
-                        com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
-                        com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
-                    }
-                    if (!initOk8041) {
-                        try { PipelineHealthCollector.labelInc("CRYPTO_ALT_INIT_DEFERRED_8041") } catch (_: Throwable) {}
-                        return@launch
-                    }
-                    com.lifecyclebot.perps.CryptoAltTrader.setEnabled(true)
-                    check(traderStep7447("CRYPTO_ALT_START", 12_000L) {
-                        com.lifecyclebot.perps.CryptoAltTrader.start()
-                    }) { "CRYPTO_ALT_START_NOT_READY_7447" }
-                    ErrorLogger.info("BotService", "TRADER_GATE CRYPTO_ALT enabled=true started=true independent_sidecar=8041")
-                } catch (cancel: kotlinx.coroutines.CancellationException) {
-                    throw cancel
-                } catch (e: Exception) {
-                    ErrorLogger.error("BotService", "CryptoAltTrader sidecar start error: ${e.message}", e)
-                    try { PipelineHealthCollector.labelInc("CRYPTO_ALT_SIDECAR_INIT_FAILED_8041") } catch (_: Throwable) {}
-                }
-            }
-        } else {
-            // Disabled CryptoAlt must not initialize/reinitialize shared market
-            // brains merely to stop a trader that never started.
-            try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(false) } catch (_: Throwable) {}
-            try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Throwable) {}
-            ErrorLogger.info("BotService", "CRYPTO_RUNTIME_DISABLED reason=MEME_ONLY_MODE independent_sidecar=8041 cryptoToggle=${cfg.cryptoAltsEnabled}")
-        }
+        startCryptoAltSidecar8041(cfg, traderStep7447)
         bootstrapPhase6516("TRADER_ENGINES_STARTED")
 
         // V5.9.54: One-time unified-paper-wallet reconciliation migration.
