@@ -197,7 +197,56 @@ object TacticSwitcher {
                 lastRotationReason = java.util.concurrent.atomic.AtomicReference("initial"),
             )
             loadFromPersistenceIfAny(k, cell)
+            seed8049(lane, k, cell)
             cell
+        }
+    }
+
+    // ── V5.0.8049 — each lane starts in its own tactic ──
+    //
+    // Owner: "everything is buying momentum tho. thats not right for every lane to start in the same tactics surely".
+    // Every (lane, band) cell was created on MOMENTUM, and in 5.0.8046 every live cohort still sat there (rotation needs
+    // 8+ closes). A cell that never rotated on evidence (reason "initial") now starts on the tactic of its lane's best
+    // setup in LanePlaybook7907 (cheat-sheet prior + graded labels + hive): SHITCOIN pre-ignition base -> REACCUMULATION,
+    // MOONSHOT breakout runner -> BREAKOUT, a pullback/reclaim setup -> PULLBACK; the lane's native style when unknown.
+    private val seeded8049 = AtomicInteger(0)
+
+    private fun seed8049(lane: String, k: String, cell: Cell) {
+        if (cell.lastRotationReason.get() != "initial") return
+        val best = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.bestSetup8049(lane) } catch (_: Throwable) { null }
+        val t = seedTactic8049(lane, best?.first)
+        val reason = "seed8049:${best?.first ?: "lane_default"}"
+        synchronized(mutex) {
+            if (t.ordinal != cell.tactic.get()) {
+                cell.tactic.set(t.ordinal)
+                cell.tradesSinceRotation.set(0); cell.pnlSumSinceRotation.set(0L)
+                cell.winsSinceRotation.set(0); cell.lossesSinceRotation.set(0)
+                cell.trialStartedAt.set(System.currentTimeMillis())
+            }
+            cell.lastRotationReason.set(reason)
+            persist(k, cell)
+        }
+        seeded8049.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("TACTIC_SEEDED_8049_${t.name}") } catch (_: Throwable) {}
+    }
+
+    /** Pure (V5.0.8049): a lane's starting tactic — its best setup's shape, else the lane's native style. */
+    fun seedTactic8049(lane: String, bestSetup: String?): Tactic {
+        val s = bestSetup.orEmpty().uppercase()
+        val fromSetup = when {
+            s.isBlank() || s == "NO_TRIGGER" -> null
+            listOf("PULLBACK", "DIP", "RECLAIM", "BOUNCE").any { s.contains(it) } -> Tactic.PULLBACK
+            listOf("BASE", "ACCUM", "LADDER", "PRE_IGNITION", "COIL", "CONSOLID").any { s.contains(it) } -> Tactic.REACCUMULATION
+            listOf("BREAKOUT", "RS_LEADER", "GRADUATION", "NEW_HIGH", "RUNNER").any { s.contains(it) } -> Tactic.BREAKOUT
+            else -> Tactic.MOMENTUM
+        }
+        if (fromSetup != null) return fromSetup
+        val l = lane.uppercase()
+        return when {
+            listOf("QUALITY", "BLUECHIP", "DIP", "CORE", "CYCLIC").any { l.contains(it) } -> Tactic.PULLBACK
+            listOf("SHITCOIN", "CASHGEN", "PROJECT_SNIPER").any { l.contains(it) } -> Tactic.REACCUMULATION
+            l.contains("MOONSHOT") -> Tactic.BREAKOUT
+            else -> Tactic.MOMENTUM   // EXPRESS, MANIPULATED, TREASURY: tape / momentum lanes
         }
     }
 

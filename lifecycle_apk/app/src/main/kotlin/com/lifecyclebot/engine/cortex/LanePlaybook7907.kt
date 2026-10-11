@@ -680,6 +680,17 @@ object LanePlaybook7907 {
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) { expected(lane, setup) }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.8049 — TacticSwitcher seeds each lane's starting tactic from this: the lane's setup with the best shrunk
+     * expectancy (its cheat-sheet prior, moved by every graded label and the hive), with its expectancy; null when the
+     * lane has no menu.
+     */
+    fun bestSetup8049(laneRaw: String): Pair<String, Double>? = try {
+        ensureLoaded()
+        val lane = canon(laneRaw)
+        synchronized(this) { menuOf7962(lane)?.map { it.id to expected(lane, it.id) }?.maxByOrNull { it.second } }
+    } catch (_: Throwable) { null }
+
     /** Cortex7885.capture: tag the decision with its setup for its forward label. */
     fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long) {
         ensureLoaded()
