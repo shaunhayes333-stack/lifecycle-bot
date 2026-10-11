@@ -84,6 +84,23 @@ object LiveCanonicalRecovery6686 {
 
     private fun dustUnroutableCount7714(): Int = dustUnroutableAt7714.size
 
+    /** Pure (V5.0.8053, Executor 7714): a below-minimum holding bought at routable size, still worth half a ticket — not dust. */
+    fun dustIsRouteFailure8053(entryCostSol: Double, valueSol: Double, routableMinSol: Double): Boolean =
+        entryCostSol.isFinite() && valueSol.isFinite() && routableMinSol > 0.0 &&
+            entryCostSol >= routableMinSol && valueSol >= 0.5 * routableMinSol
+
+    /**
+     * V5.0.8053 — [mint] is a bot buy released as dust before anything was sold: the bot's journal traded it live AND a
+     * never-sold live row for it was quarantined DUST_UNROUTABLE_7714. Leftover dust after a real sell (sold basis > 0)
+     * is not this, so the 7714 dust loop (WBTC) stays closed.
+     */
+    private fun botJournalBought8053(mint: String): Boolean = try {
+        BotJournalMints8024.botTraded8024(mint) &&
+            CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint).any {
+                it.quarantineReason.startsWith("DUST_UNROUTABLE_7714") && it.soldCostBasisSol <= 1e-12 && it.realizedProceedsSol <= 1e-12
+            }
+    } catch (_: Throwable) { false }
+
     /** V5.0.7967 — the bot has evidence it bought [mint] (tracker row it signed/sourced, or coverage attribution). */
     private fun botAttributed7967(mint: String): Boolean = try {
         val p = HostWalletTokenTracker.getEntry(mint)
@@ -324,7 +341,9 @@ object LiveCanonicalRecovery6686 {
                 continue
             }
             if (mint.isBlank() || mint in covered7807 || amount.raw <= BigInteger.ONE) continue
-            if (isDustUnroutable7714(mint)) continue
+            // V5.0.8053 — a holding the bot's own journal bought is never left unmanaged: the dust stamp does not
+            // exempt it from protective ownership (5.0.8051 Normie: coverage VIOLATION, 14 heal kicks, adopted 0).
+            if (isDustUnroutable7714(mint) && !botJournalBought8053(mint)) continue
             val row7807 = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
             val r7807 = try {
                 CanonicalPositionAuthority6441.ensureProtectiveLiveOwnership7807(
@@ -701,7 +720,9 @@ object LiveCanonicalRecovery6686 {
             "EXIT_ELIGIBILITY_6570:INVALID_REMAINING_QUANTITY",
         ) ||
             // V5.0.7807 — protective BASIS_UNCERTAIN rows promote to OPEN on proof (Field Manual L39).
-            position.quarantineReason.startsWith("BASIS_UNCERTAIN_7807")) && position.soldCostBasisSol <= 1e-12 &&
+            position.quarantineReason.startsWith("BASIS_UNCERTAIN_7807") ||
+            // V5.0.8053 — a never-sold bot buy released as "dust" by a failed route reopens at its own basis.
+            (position.quarantineReason.startsWith("DUST_UNROUTABLE_7714") && botJournalBought8053(position.mint))) && position.soldCostBasisSol <= 1e-12 &&
             position.realizedProceedsSol <= 1e-12 && position.realizedPnlSol == 0.0
 
     fun recoverWalletSnapshot(
@@ -720,8 +741,14 @@ object LiveCanonicalRecovery6686 {
             if (mint.isBlank() || amount.raw <= BigInteger.ONE || existingLive.contains(mint)) continue
             // V5.0.7714 — see DUST_THE_ROUTES_REFUSE above.
             if (isDustUnroutable7714(mint)) {
-                try { PipelineHealthCollector.labelInc("LIVE_WALLET_DUST_UNROUTABLE_SKIPPED_7714") } catch (_: Throwable) {}
-                continue
+                if (botJournalBought8053(mint)) {
+                    // V5.0.8053 — the bot bought it: lift the stamp so the never-sold row reopens at its journaled basis.
+                    dustUnroutableAt7714.remove(mint)
+                    try { PipelineHealthCollector.labelInc("LIVE_WALLET_DUST_STAMP_LIFTED_BOT_BUY_8053") } catch (_: Throwable) {}
+                } else {
+                    try { PipelineHealthCollector.labelInc("LIVE_WALLET_DUST_UNROUTABLE_SKIPPED_7714") } catch (_: Throwable) {}
+                    continue
+                }
             }
             val ts = try { status.tokens[mint] } catch (_: Throwable) { null }
             val runtimePos = ts?.position

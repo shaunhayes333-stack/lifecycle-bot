@@ -9482,6 +9482,14 @@ class Executor(
                 com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd7714).routableMinSol
             } catch (_: Throwable) { 0.0 }
             if (!valueSol7714.isFinite() || routableMin7714 <= 0.0 || valueSol7714 >= routableMin7714) return@run
+            // V5.0.8053 — 5.0.8051: Normie, bought at 0.0306 SOL (above the 0.0256 routable minimum), dipped ~17% to
+            // just under it while three sells failed on route, and was stamped "dust" and released: $4 of tokens left
+            // in the wallet with no position, no stop and no exit. A holding bought at routable size that is still worth
+            // half a routable ticket is a position whose route failed, not dust: it stays managed and keeps retrying.
+            if (com.lifecyclebot.engine.LiveCanonicalRecovery6686.dustIsRouteFailure8053(p7714.costSol, valueSol7714, routableMin7714)) {
+                try { PipelineHealthCollector.labelInc("DUST_UNROUTABLE_SKIPPED_ROUTABLE_ENTRY_8053") } catch (_: Throwable) {}
+                return@run
+            }
             val now7714 = System.currentTimeMillis()
             val failures7714 = try {
                 com.lifecyclebot.engine.sell.SellFailureHistory.snapshot()[ts.mint]
