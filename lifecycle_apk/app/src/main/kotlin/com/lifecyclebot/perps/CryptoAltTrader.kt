@@ -805,6 +805,12 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=$initPaper7803 | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
     }
 
+    /** V5.0.8043 — the operator's crypto toggle (entries only; open positions stay managed). */
+    private fun cryptoToggleOff8043(): Boolean = try {
+        (ctx ?: com.lifecyclebot.engine.BotService.instance?.applicationContext)
+            ?.let { com.lifecyclebot.data.ConfigStore.load(it) }?.cryptoAltsEnabled == false
+    } catch (_: Throwable) { false }
+
     private fun runtimeDisabledReason(): String? {
         if (com.lifecyclebot.engine.BotService.isShuttingDown) return "runtime_stopping"
         // V5.0.3744 — OPERATOR EXPLICIT-ENABLE ESCAPE HATCH (crypto-isolated fix).
@@ -3599,6 +3605,14 @@ object CryptoAltTrader {
                 hardSafetyReasons = candidate.hardNoReasons + listOfNotNull(
                     livePreflight7835.second,
                     if (!disciplinePassed6647) "CRYPTO_DISCIPLINE_REFUSED_7835" else null,
+                    // V5.0.8043 — owner: "it is off. and still running" — the crypto toggle OFF stops every new live crypto
+                    // entry here (the monitor keeps managing positions already open). 6015's sidecar rule ran the crypto
+                    // universe whenever the meme trader was on, regardless of the toggle.
+                    if (!paper7803 && cryptoToggleOff8043()) "CRYPTO_TOGGLE_OFF_8043" else null,
+                    // V5.0.8043 — "the crypto trader claimed several sol coins": a coin discovered on Solana belongs to the
+                    // meme stack (its lanes, its capital); the crypto lane never opens one live.
+                    if (!paper7803 && signal.market == PerpsMarket.DYN && (signal.dynChainId ?: "").trim().equals("solana", true))
+                        "SOLANA_COIN_OWNED_BY_MEME_STACK_8043" else null,
                     // V5.0.8042 — live money only where the coin's own move clears 2x the round trip.
                     if (paper7803) null else try {
                         com.lifecyclebot.engine.truth.NetEdge8030.cryptoEntryRefusal8042(signal.priceChange24h, finalSize, candidate.liquidityUsd)
