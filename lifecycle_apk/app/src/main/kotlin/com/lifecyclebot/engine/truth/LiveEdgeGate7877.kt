@@ -489,6 +489,8 @@ object LiveEdgeGate7877 {
         // V5.0.8030 — positive EV only: the lane's expected move must be at least 2x the round trip. Hard: no
         // chart read, specialist, ticket or Cortex overrule buys a trade whose cost eats half its move.
         NetEdge8030.entryRefusal8030(ts, lane)?.let { return it }
+        // V5.0.8054 — scalp lanes need a coin that moves (3x cost in its last hour); swing lanes don't buy a finished run.
+        NetEdge8030.laneFitRefusal8054(ts, CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane })?.let { return it }
         // V5.0.8030 — a Cortex refusal that has EARNED authority (proven on its own record) is not bypassed by a
         // chart-reader BUY any more; the chart read still clears every unproven soft prior below.
         cortex7950?.let { return it }

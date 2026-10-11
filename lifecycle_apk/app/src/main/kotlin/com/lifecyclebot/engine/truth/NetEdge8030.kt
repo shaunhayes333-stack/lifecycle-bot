@@ -104,6 +104,61 @@ object NetEdge8030 {
     }
 
     private val slowRefused8035 = AtomicLong(0)
+
+    // ── V5.0.8054 — lane fit: scalp lanes need a coin that moves; swing lanes don't buy the top of a moonshot ──
+    //
+    // Owner (wallet screenshot, 5.0.8051): CASHGEN bought NEET ($53.6M cap), OTC ($4.6M) and SLOPCORE ($1.9M) — two
+    // stopped out within minutes; QUALITY bought Normie at a $364K cap after a +4,576% day (now -17%). "yes!!" to:
+    // stop CASHGEN buying big caps that barely move, stop QUALITY buying coins that just made a huge run.
+    private val SCALP_LANES_8054 = setOf("CASHGEN", "TREASURY")
+    private val SWING_LANES_8054 = setOf("QUALITY", "BLUECHIP")
+    private const val SCALP_EDGE_MULT_8054 = 3.0
+    private const val OVEREXTENDED_1H_PCT_8054 = 100.0
+    private const val OVEREXTENDED_LAUNCH_MULT_8054 = 50.0
+    private const val OVEREXTENDED_MAX_AGE_MIN_8054 = 48.0 * 60.0
+    private const val LAUNCH_CAP_SOL_8054 = 28.0
+    private val scalpRefused8054 = AtomicLong(0)
+    private val overextendedRefused8054 = AtomicLong(0)
+
+    /** Pure: a scalp lane needs the coin's own last-hour move (known) at 3x the round trip. */
+    fun scalpMoveTooSmall8054(realizedPct: Double?, costPct: Double): Boolean =
+        realizedPct == null || !realizedPct.isFinite() || !(costPct.isFinite() && costPct > 0.0) || realizedPct < SCALP_EDGE_MULT_8054 * costPct
+
+    /**
+     * Pure: a coin that already made its run — up 100%+ in the last hour, or a launchpad coin under 48 h old already
+     * at 50x+ its launch cap (pump.fun opens at ~28 SOL; Normie $364K = ~83x).
+     */
+    fun overextended8054(change1hPct: Double, launchpad: Boolean, ageMin: Double?, capSol: Double): Boolean =
+        (change1hPct.isFinite() && change1hPct >= OVEREXTENDED_1H_PCT_8054) ||
+            (launchpad && ageMin != null && ageMin.isFinite() && ageMin <= OVEREXTENDED_MAX_AGE_MIN_8054 &&
+                capSol.isFinite() && capSol >= OVEREXTENDED_LAUNCH_MULT_8054 * LAUNCH_CAP_SOL_8054)
+
+    /** LiveEdgeGate7877 (live): the scalp-lane and swing-lane fit refusals, or null. */
+    fun laneFitRefusal8054(ts: TokenState, laneRaw: String): String? {
+        val lane = laneRaw.trim().uppercase()
+        if (lane in SCALP_LANES_8054) {
+            val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
+            val cost = costPct8030(lane, DEFAULT_TICKET_SOL, liquidity8037(ts))
+            if (scalpMoveTooSmall8054(realized, cost)) {
+                scalpRefused8054.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("NET_EDGE_SCALP_COIN_TOO_FLAT_8054_$lane") } catch (_: Throwable) {}
+                return "NET_EDGE_SCALP_COIN_TOO_FLAT_8054"
+            }
+        }
+        if (lane in SWING_LANES_8054) {
+            val launchpad = ts.mint.endsWith("pump", true) || ts.mint.endsWith("bonk", true) ||
+                (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) } catch (_: Throwable) { null }) != null
+            val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts) } catch (_: Throwable) { null }
+            val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            val capSol = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd) } catch (_: Throwable) { Double.NaN }
+            if (overextended8054(ts.lastPriceChange1h, launchpad, age, capSol)) {
+                overextendedRefused8054.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("SWING_LANE_OVEREXTENDED_8054_$lane") } catch (_: Throwable) {}
+                return "SWING_LANE_ALREADY_RAN_8054"
+            }
+        }
+        return null
+    }
     private val cryptoRefused8042 = AtomicLong(0)
 
     /**
@@ -180,6 +235,6 @@ object NetEdge8030 {
     }
 
     fun statusLine(): String =
-        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
+        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)"
 }
