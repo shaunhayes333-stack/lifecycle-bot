@@ -137,6 +137,20 @@ class Bundle6387CanonicalAndPriceTest {
     }
 
     @Test
+    fun successive_partial_exits_allocate_remaining_chain_basis_exactly() {
+        val originalQty = BigInteger.valueOf(10_000)
+        val originalCost = BigInteger.valueOf(1_000_000)
+        val rung1 = CanonicalLedger6387.allocateSellBasis8038(originalQty, BigInteger.valueOf(4_000), originalCost)
+        assertEquals(BigInteger.valueOf(400_000), rung1)
+        val remQty = originalQty - BigInteger.valueOf(4_000)
+        val remCost = originalCost - rung1!!
+        val rung2 = CanonicalLedger6387.allocateSellBasis8038(remQty, remQty, remCost)
+        assertEquals(BigInteger.valueOf(600_000), rung2)
+        assertEquals(BigInteger.ZERO, remCost - rung2!!)
+        assertNull(CanonicalLedger6387.allocateSellBasis8038(remQty, remQty + BigInteger.ONE, remCost))
+    }
+
+    @Test
     fun buy_never_uses_price_math_reconstructed_quantity() {
         // Operator's export: buy's wallet proof was 1,550,673.559463 while the
         // price estimate was only 42,485.0437. The ledger MUST reject any BUY

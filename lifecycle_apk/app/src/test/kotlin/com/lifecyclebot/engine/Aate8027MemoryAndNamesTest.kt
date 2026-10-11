@@ -33,6 +33,8 @@ class Aate8027MemoryAndNamesTest {
         assertFalse(FlatChart8027.flatline8027(listOf(0.0000044, 0.0000044, 0.0000044)))   // too new to judge
         assertTrue(FlatChart8027.FLAT_MIN_BARS == 5 && FlatChart8027.FLAT_RANGE_PCT == 2.0 && FlatChart8027.DEAD_RATIO == 5.0)
         assertTrue(FlatChart8027.FLAT_WINDOW_MS == 6L * 60_000L)
+        // Only five distinct real candles prove a flat chart: one bar has three price fields.
+        assertTrue(src("engine/FlatChart8027.kt").contains("recentBars8027.size >= FLAT_MIN_BARS"))
         assertTrue(src("engine/Executor.kt").contains("        if (flatChartRefused8027(ts, sol)) return false"))
         assertTrue(FlatChart8027.statusLine().contains("deadRunnerRefused="))
     }

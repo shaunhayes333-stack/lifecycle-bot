@@ -403,7 +403,8 @@ object CanonicalPaperTransaction6486 {
                 notionalSol = sell.grossProceedsSol, feeSol = sell.exitFeesSol,
                 cashDeltaSol = sell.grossProceedsSol - sell.exitFeesSol,
                 positionQtyDeltaRaw = sell.soldQty.negate(),
-                realizedPnlDeltaSol = sell.realizedPnlSol - sell.exitFeesSol,
+                // The typed receipt already nets exit fees from proceeds.
+                realizedPnlDeltaSol = sell.realizedPnlSol,
                 terminalFillIndex = sequence.toInt(),
             ))
             val fillId = FillLotLedger6504.recordSellFill(
@@ -426,8 +427,13 @@ object CanonicalPaperTransaction6486 {
                     "CanonicalPaperTransaction6486.historyProjection6660",
                 ) == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED
             ) {
-                try { PipelineHealthCollector.labelInc("ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050") } catch (_: Throwable) {}
-                return@forEach
+                // Ledger-stamped != journal-durable. Do not abandon the precise
+                // on-disk typed SELL receipt on a prior interrupted write.
+                if (TradeHistoryStore.isDurableEconomicEvent7371(eventId)) {
+                    try { PipelineHealthCollector.labelInc("ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050") } catch (_: Throwable) {}
+                    return@forEach
+                }
+                try { PipelineHealthCollector.labelInc("HISTORY_LEDGER_ONLY_JOURNAL_REPAIR_8038") } catch (_: Throwable) {}
             }
             val buy = buyByPosition[sell.positionId]
             val grossPnl = sell.grossProceedsSol - sell.allocatedCostBasisSol

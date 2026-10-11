@@ -23,6 +23,13 @@ class Aate8035CoinMoveTest {
         assertEquals(20.0, NetEdge8030.expectedMove8035(20.0, 80.0), 1e-9)
     }
 
+    @Test fun earlyChartHasTooFewIndependentCandlesToCapItsExpectedMove() {
+        val s = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/NetEdge8030.kt").readText()
+        assertTrue(s.contains("if (bars.size >= 6)"))
+        assertEquals(0.0, NetEdge8030.expectedMove8035(20.0, 0.0), 0.0)
+        assertEquals(20.0, NetEdge8030.expectedMove8035(20.0, null), 0.0)
+    }
+
     @Test fun theRangeNeedsEnoughPrints() {
         assertNull(NetEdge8030.rangePct8035(listOf(1.0, 1.01, 1.02)))
         assertEquals(10.0, NetEdge8030.rangePct8035(listOf(1.0, 1.02, 1.05, 1.1, 1.03, 1.0))!!, 1e-9)

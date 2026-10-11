@@ -56,6 +56,20 @@ object FinalDecisionGate {
             } else null
 
         init {
+            // 8040: every actual FDG refusal must expose its selected primary's
+            // failure to the one bounded READY-rescue election. Previously
+            // onFdgVerdict7951 had no production writer: handoff was always cold.
+            // Observe the immutable verdict only. No entry, score or risk
+            // authority is created here; non-specialist lanes are ignored.
+            if (!canExecute() && candidateVersion7835 > 0L && mint.isNotBlank()) try {
+                val refusedLane8040 = canonicalLane7835.ifBlank {
+                    tags.firstOrNull { it.startsWith("lane:") }?.removePrefix("lane:").orEmpty()
+                }
+                SpecialistOwnership7951.onFdgVerdict7951(
+                    mint, refusedLane8040, candidateVersion7835,
+                    false, blockReason ?: approvalReason,
+                )
+            } catch (_: Throwable) {}
             val taxonomy = rejectTaxonomy
             if (taxonomy != null) {
                 // V5.0.7920 — a refused verdict is also observed for its forward

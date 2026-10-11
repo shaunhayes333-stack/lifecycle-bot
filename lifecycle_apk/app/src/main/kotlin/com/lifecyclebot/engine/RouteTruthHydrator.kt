@@ -101,7 +101,10 @@ object RouteTruthHydrator {
             tm.hydrationComplete = true
             tm.hydrationConfidence = maxOf(tm.hydrationConfidence, 0.75)
             tm.updatedAtMs = now
-            tm.providerTimestamps[src] = now
+            // Hydration only reuses scanner/cache evidence. It is NOT a new
+            // provider observation: stamping "now" here manufactures freshness
+            // for old route evidence and makes cross-source latency invisible.
+            // Real fetchers own providerTimestamps; keep their source time.
             inc("ROUTE_TRUTH_HIT")
             inc("ROUTE_TRUTH_FROM_$src")
             return Result(true, src, reason)
@@ -177,10 +180,13 @@ object RouteTruthHydrator {
             tm.marketCap = ts.lastMcap.takeIf { it > 0.0 }
             tm.routeStatus = "ROUTE_TRUTH_PROVIDER_PRICE_LIQ_PENDING_EXEC_ROUTE"
             tm.hydrationConfidence = maxOf(tm.hydrationConfidence, 0.50)
-            tm.updatedAtMs = now
-            inc("ROUTE_TRUTH_HIT")
-            inc("ROUTE_TRUTH_FROM_HELIUS")
-            return Result(true, "HELIUS", "providerPriceLiq source=${ts.lastPriceSource.ifBlank { ts.source }}")
+            // A price observation is not a swap route or an executable quote.
+            // Preserve the observed timestamp, and let the normal quote /
+            // direct-venue ladder resolve a real pool route asynchronously.
+            tm.hydrationComplete = false
+            inc("ROUTE_TRUTH_PRICE_ONLY_PENDING_EXEC_ROUTE_8040")
+            return Result(false, "PROVIDER_PRICE_ONLY",
+                "providerPriceLiq source=${ts.lastPriceSource.ifBlank { ts.source }}; quote/pool unproved")
         }
 
         // 6. Birdeye is explicitly not route authority. Surface bypass during CU exhaustion.

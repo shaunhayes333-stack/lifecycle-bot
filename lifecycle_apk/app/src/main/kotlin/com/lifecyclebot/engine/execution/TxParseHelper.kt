@@ -35,7 +35,8 @@ object TxParseHelper {
         val confirmed: Boolean,
         val metaErr: String?,
         val solDeltaLamports: Long,      // owner SOL delta (positive = received, negative = spent)
-        val tokenDeltas: Map<String, MintDelta>,  // keyed by mint address
+        val tokenDeltas: Map<String, MintDelta>,
+        val feeLamports: Long = 0L,     // on-chain meta.fee; not an estimate  // keyed by mint address
     )
 
     /**
@@ -51,6 +52,54 @@ object TxParseHelper {
             ErrorLogger.debug(TAG, "parseAll($signature) err: ${e.message?.take(80)}")
             null
         }
+    }
+
+    /**
+     * Pure chain-meta parser. preTokenBalances/postTokenBalances contain one row
+     * per token ACCOUNT, not one per mint. Summing owner-account raw balances
+     * is essential for a wallet holding the same mint in multiple ATAs.
+     * Malformed amounts/decimals are insufficient proof, never zero defaults.
+     */
+    fun tokenDeltasFromOwnerBalances8038(meta: JSONObject, owner: String): Map<String, MintDelta>? {
+        if (owner.isBlank()) return null
+        data class Acc(var raw: BigInteger = BigInteger.ZERO, var decimals: Int = -1, var existed: Boolean = false)
+        val before = HashMap<String, Acc>()
+        val after = HashMap<String, Acc>()
+        fun ingest(arr: JSONArray, into: MutableMap<String, Acc>): Boolean {
+            for (i in 0 until arr.length()) {
+                val entry = arr.optJSONObject(i) ?: continue
+                if (entry.optString("owner") != owner) continue
+                val mint = entry.optString("mint")
+                if (mint.isBlank()) return false
+                val amount = entry.optJSONObject("uiTokenAmount") ?: return false
+                val dec = amount.optInt("decimals", -1)
+                if (dec !in 0..18) return false
+                val raw = try { BigInteger(amount.optString("amount", "")) } catch (_: Throwable) { return false }
+                if (raw.signum() < 0) return false
+                val acc = into.getOrPut(mint) { Acc() }
+                if (acc.existed && acc.decimals != dec) return false
+                acc.raw += raw
+                acc.decimals = dec
+                acc.existed = true
+            }
+            return true
+        }
+        if (!ingest(meta.optJSONArray("preTokenBalances") ?: JSONArray(), before) ||
+            !ingest(meta.optJSONArray("postTokenBalances") ?: JSONArray(), after)) return null
+        val out = HashMap<String, MintDelta>()
+        for (mint in before.keys + after.keys) {
+            val old = before[mint]
+            val new = after[mint]
+            if (old != null && new != null && old.decimals != new.decimals) return null
+            out[mint] = MintDelta(
+                mint = mint,
+                rawDelta = (new?.raw ?: BigInteger.ZERO) - (old?.raw ?: BigInteger.ZERO),
+                decimals = new?.decimals ?: old?.decimals ?: return null,
+                preExisted = old?.existed == true,
+                postExisted = new?.existed == true,
+            )
+        }
+        return out
     }
 
     private fun doParse(wallet: SolanaWallet, signature: String): ParseResult? {
@@ -80,54 +129,21 @@ object TxParseHelper {
             }
             if (pk == wallet.publicKeyB58) { ownerIdx = i; break }
         }
-        val preBalArr = meta.optJSONArray("preBalances") ?: JSONArray()
-        val postBalArr = meta.optJSONArray("postBalances") ?: JSONArray()
+        // RPC metadata without the requested signer/account cannot prove the
+        // host wallet's lamport change. Never silently substitute zero.
+        if (ownerIdx < 0) return null
+        val sigs = tx?.optJSONArray("signatures") ?: return null
+        if (sigs.optString(0) != signature) return null
+        val preBalArr = meta.optJSONArray("preBalances") ?: return null
+        val postBalArr = meta.optJSONArray("postBalances") ?: return null
+        if (ownerIdx >= preBalArr.length() || ownerIdx >= postBalArr.length()) return null
         val solBefore = if (ownerIdx in 0 until preBalArr.length()) preBalArr.optLong(ownerIdx, 0L) else 0L
         val solAfter  = if (ownerIdx in 0 until postBalArr.length()) postBalArr.optLong(ownerIdx, 0L) else 0L
         val solDelta = solAfter - solBefore
+        val feeLamports8038 = meta.optLong("fee", -1L)
+        if (feeLamports8038 < 0L) return null
 
-        val preTok = meta.optJSONArray("preTokenBalances") ?: JSONArray()
-        val postTok = meta.optJSONArray("postTokenBalances") ?: JSONArray()
-
-        // Collect pre + post balances for owner-matched entries, indexed by mint.
-        data class TokSlot(var raw: BigInteger = BigInteger.ZERO, var dec: Int = 0, var existed: Boolean = false)
-        val preMap = HashMap<String, TokSlot>()
-        val postMap = HashMap<String, TokSlot>()
-
-        fun ingest(arr: JSONArray, target: HashMap<String, TokSlot>) {
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                if (o.optString("owner") != wallet.publicKeyB58) continue
-                val mint = o.optString("mint")
-                if (mint.isBlank()) continue
-                val ta = o.optJSONObject("uiTokenAmount") ?: continue
-                val raw = runCatching { BigInteger(ta.optString("amount", "0")) }
-                    .getOrElse { BigInteger.ZERO }
-                val dec = ta.optInt("decimals", 0)
-                val slot = target.getOrPut(mint) { TokSlot() }
-                slot.raw = raw
-                slot.dec = dec
-                slot.existed = true
-            }
-        }
-        ingest(preTok, preMap)
-        ingest(postTok, postMap)
-
-        val allMints = (preMap.keys + postMap.keys).toSet()
-        val deltas = HashMap<String, MintDelta>()
-        for (mint in allMints) {
-            val pre = preMap[mint]
-            val post = postMap[mint]
-            val raw = (post?.raw ?: BigInteger.ZERO) - (pre?.raw ?: BigInteger.ZERO)
-            val dec = (post?.dec ?: 0).takeIf { it > 0 } ?: (pre?.dec ?: 0)
-            deltas[mint] = MintDelta(
-                mint = mint,
-                rawDelta = raw,
-                decimals = dec,
-                preExisted = pre?.existed == true,
-                postExisted = post?.existed == true,
-            )
-        }
+        val deltas = tokenDeltasFromOwnerBalances8038(meta, wallet.publicKeyB58) ?: return null
 
         return ParseResult(
             signature = signature,
@@ -135,6 +151,7 @@ object TxParseHelper {
             metaErr = metaErr,
             solDeltaLamports = solDelta,
             tokenDeltas = deltas,
+            feeLamports = feeLamports8038,
         )
     }
 

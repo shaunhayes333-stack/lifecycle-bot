@@ -36,7 +36,12 @@ object OnChainCost8024 {
     data class Move(val blockTime: Long, val slot: Long, val tokenRaw: BigInteger, val solLamports: Long)
 
     /** A replay's end state: tokens still held and the SOL (lamports) they cost, plus the moves used. */
-    data class Replay(val heldRaw: BigInteger, val costLamports: Double, val buys: Int, val sells: Int, val transfersIn: Int)
+    data class Replay(
+        val heldRaw: BigInteger, val costLamports: Double,
+        val buys: Int, val sells: Int, val transfersIn: Int,
+        val unpricedHeldRaw: BigInteger = BigInteger.ZERO,
+        val missingPriorRaw: BigInteger = BigInteger.ZERO,
+    )
 
     enum class State { PENDING, READY, UNRECONCILED }
     data class Result(val state: State, val costSol: Double, val heldRaw: BigInteger, val buys: Int, val sells: Int, val atMs: Long, val why: String)
@@ -48,22 +53,38 @@ object OnChainCost8024 {
         var held = BigInteger.ZERO
         var cost = 0.0
         var buys = 0; var sells = 0; var tIn = 0
+        var unpricedHeld = BigInteger.ZERO
+        var missingPrior = BigInteger.ZERO
         for (m in moves.sortedWith(compareBy<Move> { it.slot }.thenBy { it.blockTime })) {
             when {
                 m.tokenRaw.signum() > 0 -> {
-                    if (m.solLamports < 0L) { cost += -m.solLamports.toDouble(); buys++ } else tIn++
+                    if (m.solLamports < 0L) { cost += -m.solLamports.toDouble(); buys++ }
+                    else {
+                        // Incoming tokens without SOL spend have no proved SOL
+                        // acquisition basis. Zero must never mean "free buy".
+                        tIn++
+                        unpricedHeld += m.tokenRaw
+                    }
                     held += m.tokenRaw
                 }
                 m.tokenRaw.signum() < 0 -> {
-                    val out = m.tokenRaw.negate().min(held)
-                    if (held.signum() > 0) cost -= cost * (out.toDouble() / held.toDouble())
+                    val requested = m.tokenRaw.negate()
+                    val out = requested.min(held)
+                    if (requested > held) missingPrior += requested - held
+                    if (held.signum() > 0) {
+                        cost -= cost * (out.toDouble() / held.toDouble())
+                        unpricedHeld -= unpricedHeld * out / held
+                    }
                     held -= out
                     sells++
-                    if (held.signum() == 0) cost = 0.0
+                    if (held.signum() == 0) {
+                        cost = 0.0
+                        unpricedHeld = BigInteger.ZERO
+                    }
                 }
             }
         }
-        return Replay(held, cost.coerceAtLeast(0.0), buys, sells, tIn)
+        return Replay(held, cost.coerceAtLeast(0.0), buys, sells, tIn, unpricedHeld, missingPrior)
     }
 
     /** Pure: does the replayed quantity match the wallet's on-chain balance (0.1% tolerance)? */
@@ -143,21 +164,31 @@ object OnChainCost8024 {
         for ((sig, at) in sigs) {
             val p = com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, sig)
                 ?: return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, now, "TX_UNREADABLE")
-            if (p.metaErr != null) continue
+            if (!p.confirmed || p.metaErr != null) continue
             val d = p.tokenDeltas[mint]?.rawDelta ?: continue
             if (d.signum() == 0) continue
             val wsol = p.tokenDeltas[WSOL]?.rawDelta?.toLong() ?: 0L
-            moves.add(Move(blockTime = at.second, slot = at.first, tokenRaw = d, solLamports = p.solDeltaLamports + wsol))
+            // On-chain wallet change includes network fee. Remove meta.fee
+            // before classifying acquisition vs transfer, but retain the
+            // original real cash movement for accounting elsewhere.
+            moves.add(Move(blockTime = at.second, slot = at.first, tokenRaw = d,
+                solLamports = p.solDeltaLamports + wsol + p.feeLamports))
         }
         val r = replay8024(moves)
-        return if (reconciles8024(r.heldRaw, walletRaw) && r.buys > 0) {
+        return if (reconciles8024(r.heldRaw, walletRaw) && r.buys > 0 &&
+            r.unpricedHeldRaw == BigInteger.ZERO && r.missingPriorRaw == BigInteger.ZERO) {
             reconciled.incrementAndGet()
             try { PipelineHealthCollector.labelInc("ONCHAIN_COST_RECONCILED_8024") } catch (_: Throwable) {}
             Result(State.READY, r.costLamports / 1e9, walletRaw, r.buys, r.sells, now, "OK")
         } else {
             unreconciled.incrementAndGet()
             try { PipelineHealthCollector.labelInc("ONCHAIN_COST_UNRECONCILED_8024") } catch (_: Throwable) {}
-            Result(State.UNRECONCILED, Double.NaN, walletRaw, r.buys, r.sells, now, if (r.buys == 0) "NO_BUY_ON_CHAIN" else "QTY_MISMATCH_${r.heldRaw}_VS_$walletRaw")
+            Result(State.UNRECONCILED, Double.NaN, walletRaw, r.buys, r.sells, now, when {
+                r.missingPriorRaw > BigInteger.ZERO -> "CHAIN_HISTORY_MISSING_PRIOR_QTY_${r.missingPriorRaw}"
+                r.unpricedHeldRaw > BigInteger.ZERO -> "TRANSFER_IN_UNKNOWN_BASIS_${r.unpricedHeldRaw}"
+                r.buys == 0 -> "NO_BUY_ON_CHAIN"
+                else -> "QTY_MISMATCH_${r.heldRaw}_VS_$walletRaw"
+            })
         }
     }
 

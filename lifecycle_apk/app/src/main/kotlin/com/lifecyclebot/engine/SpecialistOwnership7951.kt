@@ -300,10 +300,20 @@ object SpecialistOwnership7951 {
      */
     internal fun handOffAllowed7960(lane: String, mint: String, primaryLane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val l = lane7951(lane)
-        if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) return false
+        val primary = lane7951(primaryLane)
+        if (l == primary || l !in SpecialistCandidateBooks7803.LANES) return false
         if (!primaryRefused7960(mint, primaryLane, nowMs)) return false
-        val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
-        if (ready) notePreIntent7951(l, "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
-        return ready
+        // Same candidate generation; deterministic single rescue on the native
+        // common conviction scale. The prior rule let every READY lane through,
+        // consuming parallel FDG capacity and producing competing seals.
+        val version = try { LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { return false }
+        val eligible = try { SpecialistCandidateBooks7803.readyFor(mint, version) } catch (_: Throwable) { emptyMap() }
+        val winner = eligible.entries.asSequence().filter { it.key != primary }
+            .sortedWith(compareByDescending<Map.Entry<String, SpecialistCandidateBooks7803.Entry>> { it.value.conviction }
+                .thenBy { it.key })
+            .firstOrNull()?.key
+        if (l != winner) return false
+        notePreIntent7951(l, "READY_HANDED_OFF_FROM_${primary}_8040")
+        return true
     }
 }

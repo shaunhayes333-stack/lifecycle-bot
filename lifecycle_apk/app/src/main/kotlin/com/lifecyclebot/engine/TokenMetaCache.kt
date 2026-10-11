@@ -489,15 +489,17 @@ class TokenMetaCache private constructor(ctx: Context) :
         if (createdSupplyRow7483) bumpCompletenessRevision7483()
         val archived = e.supplyTokens
         if (archived.isFinite() && archived >= 1.0) {
-            // Same-supply re-observation is the normal case and is silent.
+            // This method is called exclusively with an RPC-confirmed ON-CHAIN
+            // supply from TokenMetricsAuthority7069.acceptOnChainSupply7075.
+            // Historical cache rows may contain pre-7075 inferred supplies.
+            // Report a conflict, but do not let an old guess permanently defeat
+            // the observed chain fact on this boot or the next.
             val ratio = supplyTokens / archived
-            if (ratio < 0.995 || ratio > 1.005) {
-                try {
-                    com.lifecyclebot.engine.truth.TokenMetricsAuthority7069
-                        .noteSupplyConflict7069(key, archived, supplyTokens)
-                } catch (_: Throwable) {}
-            }
-            return
+            if (ratio in 0.995..1.005) return
+            try {
+                com.lifecyclebot.engine.truth.TokenMetricsAuthority7069
+                    .noteSupplyConflict7069(key, archived, supplyTokens)
+            } catch (_: Throwable) {}
         }
         e.supplyTokens = supplyTokens
         e.supplyCapturedAtMs = now

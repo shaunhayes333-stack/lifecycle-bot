@@ -45,10 +45,32 @@ object OracleTradeHistory7287 {
     @Volatile private var liveClosesByLane: Map<String, Int> = emptyMap()
     @Volatile private var computedAtMs = 0L
 
-    private fun netPct(t: com.lifecyclebot.data.Trade): Double? {
-        val cost = t.entryCostSol
-        val v = if (cost.isFinite() && cost > 0.0 && t.netPnlSol.isFinite()) t.netPnlSol / cost * 100.0 else t.pnlPct
-        return if (v.isFinite()) v.coerceIn(-100.0, 100_000.0) else null
+    /**
+     * LIVE expectancy is realised blockchain evidence, not the reported chart
+     * price or legacy pnlPct. Require the closing signature, raw sold quantity,
+     * proved lot basis, explicit wallet/finality state and actual net proceeds.
+     * A paper sample is never promoted to the LIVE cohort.
+     */
+    internal fun netPct(t: com.lifecyclebot.data.Trade): Double? {
+        val live = t.mode.equals("live", true)
+        val soldBasis = t.soldCostBasisSol
+        if (live) {
+            if (!LiveTerminalSemanticsAuthority7236.hasSettlementProof8039(t.proofState) ||
+                t.sig.isBlank() || t.canonicalConsumedRaw.signum() <= 0 ||
+                !soldBasis.isFinite() || soldBasis <= 0.0 ||
+                !t.grossProceedsSol.isFinite() || t.grossProceedsSol < 0.0 ||
+                !t.feeSol.isFinite() || t.feeSol < 0.0) return null
+            val realized = t.grossProceedsSol - t.feeSol - soldBasis
+            val recorded = t.netPnlSol
+            if (!recorded.isFinite() ||
+                kotlin.math.abs(recorded - realized) > maxOf(1e-7, soldBasis * 0.001)) return null
+            val pct = 100.0 * realized / soldBasis
+            return pct.takeIf { it.isFinite() }
+        }
+        val cost = soldBasis.takeIf { it.isFinite() && it > 0.0 }
+            ?: t.entryCostSol.takeIf { it.isFinite() && it > 0.0 } ?: return null
+        val realized = t.netPnlSol
+        return if (realized.isFinite()) (realized / cost * 100.0).takeIf { it.isFinite() } else null
     }
 
     // V5.0.7346 — read the volatile stamp before taking the monitor. Every

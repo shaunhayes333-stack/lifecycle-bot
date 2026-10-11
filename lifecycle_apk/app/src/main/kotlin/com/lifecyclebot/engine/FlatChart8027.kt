@@ -47,9 +47,13 @@ object FlatChart8027 {
         if (bars.isEmpty()) return null
         // The second-highest bar is the top: one rogue print cannot call a coin dead.
         val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
+        // Only real candles count toward FLAT_MIN_BARS. Three price fields per candle
+        // previously let two candles masquerade as six observations, blocking fresh launches.
+        val recentBars8027 = bars.filter { nowMs - it.ts in 0L..FLAT_WINDOW_MS }
         val why = when {
             deadRunner8027(peak, now) -> { deadRefused.incrementAndGet(); "DEAD_RUNNER_8027" }
-            flatline8027(bars.filter { nowMs - it.ts in 0L..FLAT_WINDOW_MS }.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) } + now) -> {
+            recentBars8027.size >= FLAT_MIN_BARS &&
+                flatline8027(recentBars8027.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) } + now) -> {
                 flatRefused.incrementAndGet(); "FLATLINE_8027"
             }
             // V5.0.8036 — USDP (CASHGEN, entry "$204M"): a market cap climbing $140M -> $250M in a straight line

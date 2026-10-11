@@ -66,13 +66,13 @@ object FinalizedSellProof6386 {
             return Result(false, RawTokenAmount.ZERO, Lamports.ZERO,
                 "SELL_RAW_QTY_DELTA_NON_POSITIVE pre=${proof.preRawBalance.value} post=${proof.postRawBalance.value}")
         }
-        // Realised proceeds = post-lamports - pre-lamports + fee (fee was paid alongside).
-        val lamportsIn = proof.postLamports - proof.preLamports
-        val netReceived = lamportsIn + proof.feeLamports  // caller records absolute fee; net proceeds include fee back-add
+        // The blockchain wallet's net SOL change already includes the fee.
+        // Adding meta.fee here converted NET proceeds back into GROSS while
+        // telling the position ledger it was net, overstating realised profit.
+        val netReceived = proof.postLamports - proof.preLamports
         if (netReceived.isNegative()) {
-            // A finalized on-chain SELL that comes back with negative net proceeds
-            // means the fee exceeded the payout — genuinely possible on dust; still
-            // valid proof, just a real loss.
+            // A finalized sell with negative net SOL flow (fee > proceeds)
+            // is a real dust loss, not an estimated failed sale.
             return Result(true, sold, netReceived,
                 "OK_NET_NEGATIVE (fee>payout, real dust loss)")
         }

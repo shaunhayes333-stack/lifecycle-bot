@@ -15,8 +15,17 @@ class Aate7447TraderBootstrapIsolationTest {
         assertTrue(region.contains("traderStep7447"))
         assertTrue(region.contains("withTimeout(timeoutMs)"))
         assertTrue(region.contains("runInterruptible(kotlinx.coroutines.Dispatchers.IO)"))
-        listOf("PERPS", "STOCK", "COMMODITY", "METAL", "FOREX", "CRYPTO_ALT_INIT", "CRYPTO_ALT_START")
+        assertTrue(region.contains("startCryptoAltSidecar8041(cfg, traderStep7447)"))
+        val sidecar = src.substringAfter("private fun startCryptoAltSidecar8041(")
+            .substringBefore("    override fun onCreate()")
+        assertTrue("CryptoAlt startup must not block primary service bootstrap",
+            sidecar.contains("CoroutineName(\"crypto-alt-sidecar-8041\")"))
+        assertTrue("CryptoAlt must be conditional on runtime plan",
+            sidecar.contains("if (cryptoUniverseOn)"))
+        listOf("PERPS", "STOCK", "COMMODITY", "METAL", "FOREX")
             .forEach { assertTrue("missing bounded startup for $it", region.contains("traderStep7447(\"$it\"")) }
+        listOf("CRYPTO_ALT_INIT", "CRYPTO_ALT_START")
+            .forEach { assertTrue("missing isolated startup for $it", sidecar.contains("traderStep7447(\"$it\"")) }
     }
 
     @Test fun timeout_or_failure_does_not_abort_remaining_trader_bootstrap() {

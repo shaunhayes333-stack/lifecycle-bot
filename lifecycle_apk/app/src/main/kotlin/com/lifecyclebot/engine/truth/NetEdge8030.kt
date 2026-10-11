@@ -46,7 +46,7 @@ object NetEdge8030 {
     fun structural8030(reason: String): Boolean {
         val r = reason.uppercase()
         // A trailing stop or a profit lock on a green position is profit-taking, so "STOP" alone is not structural.
-        return listOf("STOP_LOSS", "STRICT_SL", "CATASTROPH", "HARD_FLOOR", "BACKSTOP", "RUG", "DEV_", "DEV SOLD", "LIQUIDITY",
+        return listOf("STOP_LOSS", "HARD_STOP", "STRICT_SL", "UNIVERSAL_SL", "RAPID_STOP", "CATASTROPH", "HARD_FLOOR", "BACKSTOP", "RUG", "DEV_", "DEV SOLD", "LIQUIDITY",
             "HONEYPOT", "FREEZE", "FROZEN", "MANUAL", "EMERGENCY", "KILL", "SHUTDOWN", "QUARANTINE", "ORPHAN", "RESURRECT",
             "STARTUP", "STALE_FEED", "EVICT", "DUST", "ZOMBIE", "RECONCIL", "DEAD_TOKEN", "NO_PRICE", "WALLET", "MAYHEM").any { r.contains(it) }
     }
@@ -100,7 +100,11 @@ object NetEdge8030 {
     /** The coin's own recent move: the last hour's high-low range from its real candles, or its 1h change; null if unknown. */
     private fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
-        val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
+        // Six OHLC price fields are only two candles. Require six separate
+        // real candles before treating a measured range as a mature EV cap.
+        val range = if (bars.size >= 6)
+            rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
+        else null
         val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
         return when {
             range != null && h1 != null -> maxOf(range, h1)

@@ -641,10 +641,10 @@ object TradeHistoryStore {
         // canonical accounting predicate; the row is preserved
         // forensically but not surfaced in WR/PnL/expectancy until it
         // reaches a terminal proof state.
-        val liveTerminal7236 = try {
+        val liveTerminal7236 = if (!isJournalSellLike(t.side)) true else try {
             com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236
                 .isTerminalOutcome(t.mode, t.proofState)
-        } catch (_: Throwable) { true }
+        } catch (_: Throwable) { false }
         if (!liveTerminal7236) return false
         return true
     }
@@ -848,20 +848,39 @@ object TradeHistoryStore {
 
     private fun normalizeProofState(t: Trade): String {
         val explicit = t.proofState.trim().uppercase()
-        if (explicit in setOf("PAPER_SIMULATED", "LIVE_BROADCAST", "LIVE_SIG_CONFIRMED", "LIVE_BALANCE_CONFIRMED", "LIVE_FINALIZED")) return explicit
+        if (explicit in setOf("PAPER_SIMULATED", "LIVE_BROADCAST", "LIVE_SIG_CONFIRMED", "LIVE_BALANCE_CONFIRMED", "LIVE_FINALIZED", "LIVE_RECONCILED")) return explicit
         val m = t.mode.trim().lowercase()
         if (m == "paper") return "PAPER_SIMULATED"
         if (m == "live") {
-            val r = t.reason.uppercase()
-            return when {
-                r.contains("FINALIZED") || r.contains("SELL_FINALIZED") -> "LIVE_FINALIZED"
-                r.contains("ZERO_BALANCE") || r.contains("BALANCE_CONFIRMED") || r.contains("WALLET") -> "LIVE_BALANCE_CONFIRMED"
-                t.sig.isNotBlank() -> "LIVE_SIG_CONFIRMED"
-                else -> "LIVE_BROADCAST"
-            }
+            // A reason string or signature is not a chain receipt. SELLs only
+            // become realised when the execution/reconciler supplies an explicit
+            // canonical proof state from verified wallet deltas.
+            if (isJournalSellLike(t.side)) return "LIVE_BROADCAST"
+            return if (t.sig.isNotBlank()) "LIVE_SIG_CONFIRMED" else "LIVE_BROADCAST"
         }
         return ""
     }
+
+    /** Net SOL proceeds minus paid exit fees and sold-lot basis. Never quotes. */
+    internal fun verifiedNetReturnPct8038(
+        soldCostBasisSol: Double, grossProceedsSol: Double, exitFeesSol: Double,
+    ): Double? {
+        if (!soldCostBasisSol.isFinite() || soldCostBasisSol <= 0.0 ||
+            !grossProceedsSol.isFinite() || grossProceedsSol < 0.0 ||
+            !exitFeesSol.isFinite() || exitFeesSol < 0.0 ||
+            exitFeesSol > grossProceedsSol) return null
+        return (100.0 * (grossProceedsSol - exitFeesSol - soldCostBasisSol) / soldCostBasisSol)
+            .takeIf { it.isFinite() }
+    }
+
+    /** Paper historical receipt projection, not a new executed trade. */
+    internal fun historicalProjection8042(trade: Trade): Boolean =
+        trade.mode.equals("paper", true) && trade.reason in setOf(
+            "CROSS_ASSET_CANONICAL_OPEN_6659",
+            "CROSS_ASSET_HISTORY_REPAIR_6660",
+            "JOURNAL_REBUILT_FROM_RECEIPT_7360",
+            "ORPHANED_STOP_LOT_REFUND_6662",
+        )
 
     fun recordTrade(trade: Trade) {
         ensureInitialized()
@@ -883,39 +902,22 @@ object TradeHistoryStore {
                 return
             }
         }
-        // V5.0.6373d — PHANTOM PNL% RECOMPUTE (Bug A of the wide bundle).
-        // Operator saw journal display +$7,819.45 with +1003.5% AVG WIN while
-        // the ACTUAL wallet was -65% from start. Root cause: stored pnlPct on
-        // some SELL rows was fabricated against a phantom cost basis
-        // (qty × entryPrice diverges from cost). Recompute pnlPct against
-        // wallet-truthful SOL flow whenever the row's stored basis is
-        // inconsistent by more than 5%. Labels the recomputed rows so the
-        // operator can see how many rows were corrected.
+        // A terminal receipt's P&L% must use SOLD lot cost, not whole-open
+        // cost or a unit-incompatible USD-price/SOL-cost comparison.
+        // No typed basis => no silent guess; the original observation remains.
         run {
-            val side = trade.side.orEmpty().uppercase()
-            if (side == "SELL" || side.startsWith("PARTIAL")) {
-                val cost = trade.entryCostSol
-                val qty  = trade.entryQtyToken
-                val price = trade.entryPriceSnapshot
-                val soldSol = trade.sol
-                if (cost > 0.0 && qty > 0.0 && price > 0.0 && soldSol >= 0.0) {
-                    val impliedFromBasis = qty * price
-                    val basisRatio = if (impliedFromBasis > 0) impliedFromBasis / cost else 1.0
-                    val basisConsistent = basisRatio in 0.95..1.05
-                    if (!basisConsistent) {
-                        val realPnlPct = ((soldSol - cost) / cost) * 100.0
-                        val storedPnlPct = trade.pnlPct
-                        val delta = kotlin.math.abs(realPnlPct - storedPnlPct)
-                        if (delta > 5.0) {
-                            try {
-                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
-                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D|lane=${trade.tradingMode.uppercase().take(24)}")
-                            } catch (_: Throwable) {}
-                            try {
-                                trade.pnlPct = realPnlPct
-                            } catch (_: Throwable) {}
-                        }
-                    }
+            if (isJournalSellLike(trade.side)) {
+                val verifiedPct8038 = verifiedNetReturnPct8038(
+                    trade.soldCostBasisSol, trade.grossProceedsSol, trade.feeSol,
+                )
+                if (verifiedPct8038 == null) {
+                    try { PipelineHealthCollector.labelInc("TRADE_JOURNAL_PNL_UNKNOWN_NOT_RECOMPUTED_8038") } catch (_: Throwable) {}
+                } else if (kotlin.math.abs(verifiedPct8038 - trade.pnlPct) > 0.01) {
+                    trade.pnlPct = verifiedPct8038
+                    try {
+                        PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
+                        PipelineHealthCollector.labelInc("TRADE_JOURNAL_VERIFIED_NET_RETURN_8038")
+                    } catch (_: Throwable) {}
                 }
             }
         }
@@ -1084,12 +1086,25 @@ object TradeHistoryStore {
             latestBuyByMintCacheMs = 0L
             latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
         }
-        bumpLifetimeFor(tradeToStore)
+        val historical8042 = historicalProjection8042(tradeToStore)
+        bumpLifetimeFor(tradeToStore, historical8042)
         insertTradeAsync(tradeToStore)
         // Journal commit is stamped by insertTradeAsync only after SQLite
         // confirms the durable row. Never advertise an enqueued write as
         // committed: process death between post() and INSERT caused false
         // canonical parity and replay holes.
+        // The durable SQLite row and canonical journal witness are still
+        // persisted above. Historical receipt reconstruction must NOT fan out
+        // thousands of artificial "new" profits into remote collective
+        // learning, the 30D live tracker, or terminal strategy-learning buses.
+        // Real new PAPER and all LIVE economic fills keep those side effects.
+        if (historical8042) {
+            try {
+                PipelineHealthCollector.onTradeJournal()
+                PipelineHealthCollector.labelInc("HISTORY_REPLAY_NO_EXECUTION_FANOUT_8042")
+            } catch (_: Throwable) {}
+            return
+        }
         // V5.9.658 — operator triage: user reports "Journal shows 0 trades but
         // bot is clearly trading (875 24h trades, 15 open positions)." Emit a
         // structured INFO log on every recordTrade so the operator can grep
@@ -2703,7 +2718,12 @@ object TradeHistoryStore {
         val handler = ioHandler ?: return false
         if (android.os.Looper.myLooper() == handler.looper) return true
         val reached = java.util.concurrent.CountDownLatch(1)
-        if (!handler.post { reached.countDown() }) return false
+        if (!handler.post {
+                // Final durable journal boundary closes any batched historical
+                // lifetime-stat update. No replay stats are silently lost.
+                try { saveLifetimeStats() } catch (_: Throwable) {}
+                reached.countDown()
+            }) return false
         return try {
             reached.await(timeoutMs.coerceAtLeast(1L), java.util.concurrent.TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
@@ -3046,7 +3066,7 @@ object TradeHistoryStore {
         }
     }
 
-    private fun bumpLifetimeFor(trade: Trade) {
+    private fun bumpLifetimeFor(trade: Trade, historical8042: Boolean = false) {
         if (!isJournalSellLike(trade.side)) return
         if (!isValidAccountingTrade(trade)) return
         lifetimeSells++
@@ -3071,7 +3091,10 @@ object TradeHistoryStore {
                 else          -> lifetimeTerminalScratches7205++
             }
         }
-        saveLifetimeStats()
+        // Keeping persistence per fill for actual trades; recovered history
+        // is batched so 4096 receipts do not issue 4096 SharedPreferences
+        // mutations on startup. The journal boundary below flushes the tail.
+        if (!historical8042 || lifetimeSells % 64 == 0) saveLifetimeStats()
     }
 
     /**
