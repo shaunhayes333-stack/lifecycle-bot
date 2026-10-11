@@ -125,6 +125,7 @@ object NetEdge8030 {
         if (!(pnl > 0.0)) return false
         val structural = structural8030(reason)
         if (structural) return false
+        try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}
         val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts))
         val floor = exitFloorPct8030(cost)
         if (!profitExitHeld8030(pnl, floor, structural)) return false

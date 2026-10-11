@@ -1459,6 +1459,9 @@ object PipelineHealthCollector {
         sb.append("  Liquidity truth (§8037): ").append(
             try { com.lifecyclebot.engine.truth.LiquidityTruth8037.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  On-chain pools (§8038): ").append(
+            try { com.lifecyclebot.engine.truth.OnChainDepth8038.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Lane participation (§8029): ").append(
             try { LaneParticipation8029.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

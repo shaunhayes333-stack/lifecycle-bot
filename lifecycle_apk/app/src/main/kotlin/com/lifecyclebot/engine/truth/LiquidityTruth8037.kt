@@ -14,12 +14,14 @@ import java.util.concurrent.atomic.AtomicLong
  * lastCost=23.5% refusing 80 coins · first sight refused 76.
  *
  * [hydrate8037] fills a missing (<= 0) tick liquidity with the observed value before a decision reads it. It never
- * lowers or overrides a real tick value, and never invents depth: an unobserved coin stays 0 and its own gates
- * (ZERO_LIQUIDITY, Field Manual "no priced liquidity") still decide it.
+ * lowers or overrides a real tick value with an API number, and never invents depth: an unobserved coin stays 0 and
+ * its own gates (ZERO_LIQUIDITY, Field Manual "no priced liquidity") still decide it. V5.0.8038: a fresh read of the
+ * pool's vaults on chain (OnChainDepth8038) replaces any API figure, up or down — the chain is the depth.
  */
 object LiquidityTruth8037 {
     private val hydrated = AtomicLong(0)
     private val stillUnknown = AtomicLong(0)
+    private val chainApplied = AtomicLong(0)
 
     /** Pure: the value to write when the tick has no liquidity but an observation does, else null. */
     fun fill8037(tickUsd: Double, observedUsd: Double): Double? =
@@ -27,6 +29,15 @@ object LiquidityTruth8037 {
 
     /** The liquidity every decision should read for [ts]; fills the tick field when it is missing. */
     fun hydrate8037(ts: TokenState): Double {
+        // V5.0.8038 — a fresh on-chain read of the pool's vaults (OnChainDepth8038) is the depth, ahead of any API figure.
+        val chain = try { OnChainDepth8038.chainDepthUsd8038(ts.mint) } catch (_: Throwable) { Double.NaN }
+        if (chain.isFinite() && chain > 0.0) {
+            if (ts.lastLiquidityUsd != chain) {
+                try { OnChainDepth8038.noteApi8038(ts.mint, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+                ts.lastLiquidityUsd = chain; chainApplied.incrementAndGet()
+            }
+            return chain
+        }
         val obs = try { com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
         fill8037(ts.lastLiquidityUsd, obs)?.let { ts.lastLiquidityUsd = it; hydrated.incrementAndGet() }
         val v = ts.lastLiquidityUsd
@@ -35,5 +46,5 @@ object LiquidityTruth8037 {
     }
 
     fun statusLine(): String =
-        "hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
+        "chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
 }

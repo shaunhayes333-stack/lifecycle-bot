@@ -13501,7 +13501,10 @@ class Executor(
 
     /** V5.0.8027 — never buy a dead or flatlined chart (FlatChart8027); a hard current-market check like route and safety. */
     private fun flatChartRefused8027(ts: TokenState, sol: Double): Boolean {
-        val why = try { FlatChart8027.refusal8027(ts) } catch (_: Throwable) { null } ?: return false
+        // V5.0.8038 — then the pool itself, read from the chain: API depth or price it contradicts is refused.
+        val why = try { FlatChart8027.refusal8027(ts) } catch (_: Throwable) { null }
+            ?: try { com.lifecyclebot.engine.truth.OnChainDepth8038.buyRefusal8038(ts) } catch (_: Throwable) { null }
+            ?: return false
         emitLiveBuyFail(ts, sol, why)
         return true
     }
