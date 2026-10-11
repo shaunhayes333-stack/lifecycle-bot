@@ -55,6 +55,9 @@ class Aate8040LearnsItsStopsTest {
         assertFalse(ForwardReturnLabeler7731.worthWatching8040(5.0, 0.0, Double.NaN, null, null, Double.NaN, null))
         val frl = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(frl.contains("StopLearner8040.onPath8040") && frl.contains("1L * 60_000L") && frl.contains("7L * 24L * 3_600_000L"))
+        // V5.0.8042 — only hour-old paths teach a stop, and a runner lane's floor bounds the choice.
+        assertTrue(frl.contains("System.currentTimeMillis() - o.atMs) { s ->"))
+        assertEquals(60L * 60_000L, StopLearner8040.MATURE_PATH_MS_8042)
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/cortex/StopAuthority7887.kt").readText().contains("StopLearner8040.learnedStop8040"))
     }
 }

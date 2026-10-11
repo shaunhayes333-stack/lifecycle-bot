@@ -629,7 +629,7 @@ object ForwardReturnLabeler7731 {
         val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
         if (stop8029 > 0.0) try {
-            com.lifecyclebot.engine.cortex.StopLearner8040.onPath8040(o.lane, "${o.mint}|${o.atMs}", stop8029) { s ->
+            com.lifecyclebot.engine.cortex.StopLearner8040.onPath8040(o.lane, "${o.mint}|${o.atMs}", stop8029, System.currentTimeMillis() - o.atMs) { s ->
                 com.lifecyclebot.engine.LaneParticipation8029.playGross8029(s, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
             }
         } catch (_: Throwable) {}

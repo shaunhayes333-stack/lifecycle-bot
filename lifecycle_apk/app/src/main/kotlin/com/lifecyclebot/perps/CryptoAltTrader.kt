@@ -3599,6 +3599,10 @@ object CryptoAltTrader {
                 hardSafetyReasons = candidate.hardNoReasons + listOfNotNull(
                     livePreflight7835.second,
                     if (!disciplinePassed6647) "CRYPTO_DISCIPLINE_REFUSED_7835" else null,
+                    // V5.0.8042 — live money only where the coin's own move clears 2x the round trip.
+                    if (paper7803) null else try {
+                        com.lifecyclebot.engine.truth.NetEdge8030.cryptoEntryRefusal8042(signal.priceChange24h, finalSize, candidate.liquidityUsd)
+                    } catch (_: Throwable) { null },
                     if (remainingExposure7835 <= 0.0) "CRYPTO_EXPOSURE_CAP_7835" else null,
                 ), candidateVersion = candidate.candidateVersion,
                 diagnosticSignal = candidate.preFdgVerdict.name,

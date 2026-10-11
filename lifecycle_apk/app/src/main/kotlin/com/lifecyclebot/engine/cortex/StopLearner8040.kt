@@ -24,10 +24,13 @@ import java.util.concurrent.atomic.AtomicLong
 object StopLearner8040 {
     val CANDIDATES_8040 = doubleArrayOf(5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 18.0, 21.0, 25.0)
     private const val RING_8040 = 300
-    const val MIN_N_8040 = 60
+    const val MIN_N_8040 = 100
     const val MIN_EDGE_PCT_8040 = 0.5
     private const val REDECIDE_EVERY_8040 = 20
-    private const val FILE = "stop_learner_8040.txt"
+    // V5.0.8042 — decisions made on 1-5 minute paths (5.0.8041: 5% for six lanes inside 8 minutes) are discarded.
+    private const val FILE = "stop_learner_8042.txt"
+    /** V5.0.8042 — a path teaches a stop only once it is an hour old: a 5-minute path has not had time to run. */
+    const val MATURE_PATH_MS_8042 = 60L * 60_000L
 
     class Decision(val stopPct: Double, val n: Int, val edgePct: Double, val atMs: Long)
 
@@ -55,11 +58,12 @@ object StopLearner8040 {
      * Pure: from per-label banked gross under each candidate ([rows], one array per label), the candidate that beats
      * [currentIdx] by a paired mean - SE of at least [MIN_EDGE_PCT_8040], as (index, edge); null when none does.
      */
-    fun decide8040(rows: List<DoubleArray>, currentIdx: Int): Pair<Int, Double>? {
+    fun decide8040(rows: List<DoubleArray>, currentIdx: Int, minStopPct: Double = 0.0): Pair<Int, Double>? {
         if (rows.size < MIN_N_8040) return null
         var best: Pair<Int, Double>? = null
         for (c in CANDIDATES_8040.indices) {
-            if (c == currentIdx) continue
+            // V5.0.8042 — never below the lane's floor (runner lanes 15%): a stop the authority would clamp is not a choice.
+            if (c == currentIdx || CANDIDATES_8040[c] < minStopPct) continue
             val d = rows.map { it[c] - it[currentIdx] }.filter { it.isFinite() }
             if (d.size < MIN_N_8040) continue
             val mean = d.average()
@@ -76,9 +80,10 @@ object StopLearner8040 {
      * ForwardReturnLabeler7731.captured7945: one label's path. [play] banks the path under a stop (positive
      * magnitude) — the same exits the label is graded with.
      */
-    fun onPath8040(lane: String, key: String, baseStopPct: Double, play: (Double) -> Double) {
+    fun onPath8040(lane: String, key: String, baseStopPct: Double, pathAgeMs: Long, play: (Double) -> Double) {
         val l = lane.trim().uppercase()
         if (l.isBlank() || !baseStopPct.isFinite() || baseStopPct <= 0.0) return
+        if (pathAgeMs < MATURE_PATH_MS_8042) return
         load()
         val row = DoubleArray(CANDIDATES_8040.size) { i -> try { play(CANDIDATES_8040[i]) } catch (_: Throwable) { Double.NaN } }
         val book = books.computeIfAbsent(l) { Book() }
@@ -96,7 +101,8 @@ object StopLearner8040 {
     private fun redecide(lane: String, book: Book, baseStopPct: Double) {
         val rows = synchronized(book) { book.sinceDecide = 0; book.paths.values.toList() }
         val current = learned[lane]?.stopPct ?: baseStopPct
-        val pick = decide8040(rows, nearest8040(current)) ?: return
+        val floor = if (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false } || lane == "MOONSHOT") 15.0 else 0.0
+        val pick = decide8040(rows, nearest8040(current), floor) ?: return
         val stop = CANDIDATES_8040[pick.first]
         learned[lane] = Decision(stop, rows.size, pick.second, System.currentTimeMillis())
         decisions.incrementAndGet()

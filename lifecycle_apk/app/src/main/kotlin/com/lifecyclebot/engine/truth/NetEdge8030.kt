@@ -90,6 +90,23 @@ object NetEdge8030 {
     }
 
     private val slowRefused8035 = AtomicLong(0)
+    private val cryptoRefused8042 = AtomicLong(0)
+
+    /**
+     * V5.0.8042 — the crypto lane through the same rule. 5.0.8041: CRYPTO_ALT bought SHIB live (a large-cap wrapped
+     * token whose day moves a few percent) on a lane whose 120 live closes read WR 19%, -6.7% a trade, -0.69 SOL. The
+     * expected move is no more than the coin's own 24 h move (the crypto mandate caps it); it must clear 2x the round
+     * trip at this size and depth. Returns the refusal, or null.
+     */
+    fun cryptoEntryRefusal8042(change24hPct: Double, sizeSol: Double, liquidityUsd: Double): String? {
+        val mandate = try { FieldManual7715.mandateFor("CRYPTO_ALT").expectedGrossPct } catch (_: Throwable) { 12.0 }
+        val realized = kotlin.math.abs(change24hPct).takeIf { it.isFinite() }
+        val cost = costPct8030("CRYPTO_ALT", sizeSol, liquidityUsd)
+        if (entryClears8030(expectedMove8035(mandate, realized), cost)) return null
+        cryptoRefused8042.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("NET_EDGE_CRYPTO_REFUSED_8042") } catch (_: Throwable) {}
+        return "NET_EDGE_CRYPTO_TOO_SLOW_8042"
+    }
     private val unpricedDepth8037 = AtomicLong(0)
 
     private fun liquidity8037(ts: TokenState): Double =
@@ -143,6 +160,6 @@ object NetEdge8030 {
     }
 
     fun statusLine(): String =
-        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
+        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)"
 }
