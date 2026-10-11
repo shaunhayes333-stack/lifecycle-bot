@@ -116,6 +116,7 @@ SuperPolicyTree7638	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/SuperPolic
 SuperWorldModel7634	SUPER_UPSTREAM_ROOT	com/lifecyclebot/engine/SuperWorldModel7634.kt	False
 SupervisorAdmissionPlanner	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/SupervisorAdmissionPlanner.kt	False
 SymbolicExitReasoner	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/SymbolicExitReasoner.kt	False
+TailBag8034	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/TailBag8034.kt	False
 TimeOptimizationAI	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/TimeOptimizationAI.kt	False
 TokenRefreshPolicy	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/TokenRefreshPolicy.kt	False
 TrailingStopManager	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/TrailingStopManager.kt	False
