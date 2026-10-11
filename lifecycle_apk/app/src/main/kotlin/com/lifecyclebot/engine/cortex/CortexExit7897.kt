@@ -260,7 +260,7 @@ object CortexExit7897 {
                 val sizeSol = ts.position.costSol
                 val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                 com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(
-                    sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd,
+                    sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts),
                 ).takeIf { it.isFinite() } ?: 0.0
             } catch (_: Throwable) { 0.0 }
             if ((px / entry - 1.0) * 100.0 <= costPct7925) return false

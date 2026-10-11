@@ -962,7 +962,7 @@ class BotService : Service() {
     private fun planCostPct7766(ts: com.lifecyclebot.data.TokenState): Double = try {
         val solUsd = WalletManager.lastKnownSolPrice
         val sizeSol = ts.position.costSol
-        com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(sizeSol, if (solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd)
+        com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(sizeSol, if (solUsd > 0.0) sizeSol * solUsd else 0.0, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts))
     } catch (_: Throwable) { PLAN_COST_PCT_7739 }
 
     /**

@@ -367,6 +367,8 @@ object LiveEdgeGate7877 {
     private const val POSITIVE_TTL_MS_7975 = 2L * 60_000L
 
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        // V5.0.8037 — every edge read below sees the observed liquidity, not a missing tick's 0.
+        try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.7994 — watch first: live money only goes where the bot's own labels already point.
         if (!paper) watchFirst7994(ts, lane, nowMs)?.let { observeTail7996(ts, lane, it, nowMs); return it }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)

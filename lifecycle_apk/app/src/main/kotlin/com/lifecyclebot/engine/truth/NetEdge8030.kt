@@ -62,7 +62,12 @@ object NetEdge8030 {
         val size = if (sizeSol.isFinite() && sizeSol > 0.0) sizeSol else DEFAULT_TICKET_SOL
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val sizeUsd = if (solUsd.isFinite() && solUsd > 0.0) size * solUsd else 0.0
-        val model = try { FieldManual7715.roundTripCostPct7766(size, sizeUsd, if (liquidityUsd.isFinite()) liquidityUsd else 0.0) } catch (_: Throwable) { 5.0 }
+        // V5.0.8037 — unknown depth (0) is not 20% impact here: on 8036 that priced every curve coin at a 23.5% round
+        // trip and refused 80 entries. Unobserved liquidity has its own gates (ZERO_LIQUIDITY, Field Manual "no priced
+        // liquidity"); this rule charges fees, tips and slippage and the impact only of depth it can see.
+        val depthKnown = liquidityUsd.isFinite() && liquidityUsd > 0.0
+        if (!depthKnown) unpricedDepth8037.incrementAndGet()
+        val model = try { FieldManual7715.roundTripCostPct7766(size, if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0) } catch (_: Throwable) { 5.0 }
         val measured = try { CostLedger7962.measuredCostPct7962(lane, size) } catch (_: Throwable) { null }
         return maxOf(model, measured ?: 0.0).also { lastCostPct = it }
     }
@@ -75,7 +80,7 @@ object NetEdge8030 {
         // expects no more than the coin itself is actually moving: its last hour's range (or 1h change).
         val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
         val expected = expectedMove8035(mandate, realized)
-        val cost = costPct8030(lane, DEFAULT_TICKET_SOL, ts.lastLiquidityUsd)
+        val cost = costPct8030(lane, DEFAULT_TICKET_SOL, liquidity8037(ts))
         if (entryClears8030(expected, cost)) return null
         entryRefused.incrementAndGet()
         val slow = realized != null && realized < mandate
@@ -85,6 +90,10 @@ object NetEdge8030 {
     }
 
     private val slowRefused8035 = AtomicLong(0)
+    private val unpricedDepth8037 = AtomicLong(0)
+
+    private fun liquidity8037(ts: TokenState): Double =
+        try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
 
     /** Pure: the move to expect — the lane's mandate, capped by what the coin is actually moving when that is known. */
     fun expectedMove8035(mandatePct: Double, realizedPct: Double?): Double =
@@ -116,7 +125,7 @@ object NetEdge8030 {
         if (!(pnl > 0.0)) return false
         val structural = structural8030(reason)
         if (structural) return false
-        val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, ts.lastLiquidityUsd)
+        val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts))
         val floor = exitFloorPct8030(cost)
         if (!profitExitHeld8030(pnl, floor, structural)) return false
         if (partial) partialHeld.incrementAndGet() else exitHeld.incrementAndGet()
@@ -133,6 +142,6 @@ object NetEdge8030 {
     }
 
     fun statusLine(): String =
-        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} profitExitsHeld=${exitHeld.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
+        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)"
 }

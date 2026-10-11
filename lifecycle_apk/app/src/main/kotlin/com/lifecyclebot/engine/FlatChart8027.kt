@@ -57,7 +57,7 @@ object FlatChart8027 {
             manufacturedClimb8036(bars.filter { nowMs - it.ts in 0L..CLIMB_WINDOW_MS_8036 }.sortedBy { it.ts }.map { it.priceUsd }) -> {
                 climbRefused.incrementAndGet(); "MANUFACTURED_CLIMB_8036"
             }
-            thinDepthForCap8036(try { com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { ts.lastMcap }, ts.lastLiquidityUsd) -> {
+            thinDepthForCap8036(try { com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { ts.lastMcap }, try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }) -> {
                 thinRefused.incrementAndGet(); "THIN_DEPTH_FOR_CAP_8036"
             }
             else -> return null

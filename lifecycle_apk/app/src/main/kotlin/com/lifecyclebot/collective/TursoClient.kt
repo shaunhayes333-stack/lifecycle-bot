@@ -331,6 +331,12 @@ class TursoClient(
             .url(url)
             .header("Authorization", "Bearer $authToken")
             .header("Content-Type", "application/json")
+            // V5.0.8037 — the hive's own database is not a market-data provider to protect. 5.0.8036 showed
+            // turso sr=0% "Connection test failed after 3 attempts: HTTP 599:" (empty body = HostCircuitInterceptor's
+            // local block): one start-up DNS/5xx blip cooled the host down and the 3-attempt handshake never reached
+            // the wire, so the hive never synced (uploadedRows=0). A probe bypasses the local circuit (stripped before
+            // the wire); a real failure now reports its real error.
+            .header(com.lifecyclebot.network.HostCircuitInterceptor.PROBE_HEADER_6976, "1")
             .post(body.toRequestBody("application/json".toMediaType()))
             .build()
         Log.d(TAG, "POST $url")

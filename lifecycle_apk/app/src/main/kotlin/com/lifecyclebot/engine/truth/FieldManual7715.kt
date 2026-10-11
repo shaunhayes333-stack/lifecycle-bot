@@ -559,7 +559,7 @@ object FieldManual7715 {
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val size = if (proposedSizeSol.isFinite()) proposedSizeSol.coerceAtLeast(0.0) else 0.0
         val sizeUsd = if (solUsd > 0.0) size * solUsd else 0.0
-        val liq = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0
+        val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0 }
         // H/I/J are priced by their owning venue trader (fees, funding, margin),
         // not by an AMM curve; the pool-impact model does not apply to them.
         val ammPriced = isAmmPriced(mandate.setup)

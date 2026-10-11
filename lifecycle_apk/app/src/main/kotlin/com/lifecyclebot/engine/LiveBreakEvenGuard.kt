@@ -132,7 +132,7 @@ object LiveBreakEvenGuard {
         // learned slip counted the same impact several times over.
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val roundTripCostPct = com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(
-            sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0, ts.lastLiquidityUsd,
+            sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts),
         )
         val givebackBufferPct = when (BleederMemoryRouter.canon(lane)) {
             "SHITCOIN", "EXPRESS", "CYCLIC", "COPYTRADE" -> 5.0
