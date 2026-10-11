@@ -46,11 +46,15 @@ class Aate8040LearnsItsStopsTest {
         assertFalse(ForwardReturnLabeler7731.worthWatching8040(40.0, 10_000.0, 3_000.0, 60_000L, 12.0, 400_000.0, false))
         // Safety-blocked (rug / honeypot).
         assertFalse(ForwardReturnLabeler7731.worthWatching8040(40.0, 10_000.0, 9_000.0, 60_000L, 12.0, 400_000.0, true))
+        // Down 70% but the pool holds and it still trades: followed, so a recovery is graded.
+        assertTrue(ForwardReturnLabeler7731.worthWatching8040(-70.0, 10_000.0, 6_000.0, 60_000L, 12.0, 400_000.0, false))
+        // Down 70% with no live mark: dead.
+        assertFalse(ForwardReturnLabeler7731.worthWatching8040(-70.0, 10_000.0, 6_000.0, null, 12.0, 400_000.0, false))
         // Off the watchlist: only the price rule can judge.
         assertTrue(ForwardReturnLabeler7731.worthWatching8040(25.0, 0.0, Double.NaN, null, null, Double.NaN, null))
         assertFalse(ForwardReturnLabeler7731.worthWatching8040(5.0, 0.0, Double.NaN, null, null, Double.NaN, null))
         val frl = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(frl.contains("StopLearner8040.onPath8040") && frl.contains("1L * 60_000L"))
+        assertTrue(frl.contains("StopLearner8040.onPath8040") && frl.contains("1L * 60_000L") && frl.contains("7L * 24L * 3_600_000L"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/cortex/StopAuthority7887.kt").readText().contains("StopLearner8040.learnedStop8040"))
     }
 }

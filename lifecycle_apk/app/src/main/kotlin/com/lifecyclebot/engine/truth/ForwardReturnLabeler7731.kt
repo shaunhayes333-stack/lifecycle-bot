@@ -681,7 +681,10 @@ object ForwardReturnLabeler7731 {
     // the tokenomics say it's worth watching". The 1 m and 5 m labels are the first reads; the checkpoints revise
     // them at 1 h, 4 h and 24 h. Past the hour a coin is followed on its tokenomics ([worthWatching8040]), not on
     // its price alone (was: up 20%+).
-    private val CK_MS_7997 = longArrayOf(60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L)
+    // Owner: "it should still extend beyond 24 hours if the token is surviving or the token recovers ... not every coin
+    // has to be followed" — 48 h, 72 h and 7 d checkpoints for coins that pass the same tokenomics gate.
+    private val CK_MS_7997 = longArrayOf(60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L,
+        48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)
     private const val RUNNING_GROSS_7997 = 20.0
     private const val DEAD_GROSS_7997 = -60.0
     private const val MAX_EXTENDED_7997 = 1_500
@@ -716,8 +719,12 @@ object ForwardReturnLabeler7731 {
      */
     fun worthWatching8040(grossPct: Double, entryLiq: Double, nowLiq: Double, markAgeMs: Long?, topHolderPct: Double?,
                           capUsd: Double, safetyBlocked: Boolean?): Boolean {
-        if (!alive7997(grossPct, entryLiq, nowLiq)) return false
-        if (safetyBlocked == null) return grossPct >= RUNNING_GROSS_7997
+        if (safetyBlocked == null) return grossPct >= RUNNING_GROSS_7997 && alive7997(grossPct, entryLiq, nowLiq)
+        // Its pool must still be there (above 40% of the decision's liquidity, when both are known).
+        if (entryLiq > 0.0 && nowLiq.isFinite() && nowLiq > 0.0 && nowLiq < 0.4 * entryLiq) return false
+        // A deep drawdown is not death while the pool holds and the coin still trades: it may recover, and the
+        // recovery is graded. Without a live mark, a coin down 60%+ is treated as dead.
+        if (!(grossPct > DEAD_GROSS_7997) && markAgeMs == null) return false
         if (safetyBlocked) return false
         if (markAgeMs != null && markAgeMs > STALE_MARK_MS_8040) return false
         if (topHolderPct != null && topHolderPct.isFinite() && topHolderPct > MAX_TOP_HOLDER_PCT_8040) return false
@@ -752,9 +759,10 @@ object ForwardReturnLabeler7731 {
             revisions7997.incrementAndGet()
             if (net > oldNet) upgraded7997.incrementAndGet()
         }
-        val alive = alive7997(gross0, o.entryLiq7997, nowLiq7997(o.mint))
+        // V5.0.8040 — past the hour, alive means worth watching on tokenomics (a surviving or recovering coin).
+        val alive = if (age >= H240_MS_7731) worthWatchingNow8040(o, gross0) else alive7997(gross0, o.entryLiq7997, nowLiq7997(o.mint))
         if (!alive) { diedEarly7997.incrementAndGet(); o.ck7997 = CK_MS_7997.size }
-        return !alive || (age >= H240_MS_7731 && !worthWatchingNow8040(o, gross0)) || o.ck7997 >= CK_MS_7997.size
+        return !alive || o.ck7997 >= CK_MS_7997.size
     }
 
     private fun revise7997(o: Obs, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
@@ -778,7 +786,7 @@ object ForwardReturnLabeler7731 {
     }
 
     fun progressiveLine7997(): String =
-        "checkpoints=1m,5m,1h,4h,24h (past 1h on tokenomics: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
+        "checkpoints=1m,5m,1h,4h,24h,48h,72h,7d (past 1h on tokenomics: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false) {
