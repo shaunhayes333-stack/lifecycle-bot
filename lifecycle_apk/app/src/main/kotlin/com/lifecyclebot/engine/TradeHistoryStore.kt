@@ -911,9 +911,22 @@ object TradeHistoryStore {
                     val basisRatio = if (impliedFromBasis > 0) impliedFromBasis / cost else 1.0
                     val basisConsistent = basisRatio in 0.95..1.05
                     if (!basisConsistent) {
-                        val realPnlPct = ((soldSol - cost) / cost) * 100.0
+                        // V5.0.8044 — owner: "profit lock fired on a 40% loss". It did not: WJJkGm's quick take banked
+                        // +0.0082 SOL on chain, and this rewrite set its % to -40 = (trade.sol - WHOLE cost) / whole cost,
+                        // where a profit-lock row's trade.sol is the sold slice's cost (V5.0.3683), not proceeds. The
+                        // realised SOL (pnlSol) is the wallet truth: the % is pnlSol over the slice's cost when known,
+                        // else over the whole cost (never a wrong sign); a stored % that agrees in sign and is at least
+                        // the whole-cost % (a slice's % can only be larger) is kept.
+                        val pnlSolTruth = trade.pnlSol
+                        val sliceCost = trade.soldCostBasisSol.takeIf { it.isFinite() && it > 0.0 }
+                        val realPnlPct = if (pnlSolTruth.isFinite()) {
+                            if (sliceCost != null) pnlSolTruth / sliceCost * 100.0 else pnlSolTruth / cost * 100.0
+                        } else ((soldSol - cost) / cost) * 100.0
                         val storedPnlPct = trade.pnlPct
-                        val delta = kotlin.math.abs(realPnlPct - storedPnlPct)
+                        val storedAgrees8044 = sliceCost == null && pnlSolTruth.isFinite() &&
+                            ((storedPnlPct >= 0.0) == (pnlSolTruth >= 0.0) || kotlin.math.abs(pnlSolTruth) < 1e-9) &&
+                            kotlin.math.abs(storedPnlPct) + 5.0 >= kotlin.math.abs(realPnlPct)
+                        val delta = if (storedAgrees8044) 0.0 else kotlin.math.abs(realPnlPct - storedPnlPct)
                         if (delta > 5.0) {
                             try {
                                 PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
