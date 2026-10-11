@@ -417,7 +417,13 @@ object LiveEdgeGate7877 {
         val ok = (st != null && cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct)) ||
             (try { com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
             (try { SpecialistMiner7972.match7972(ts, lane, nowMs) } catch (_: Throwable) { null }) != null ||
-            (try { TailHunter7996.ticket7996(ts, lane, nowMs) } catch (_: Throwable) { false })
+            (try { TailHunter7996.ticket7996(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
+            // V5.0.8062 — an expert wallet (owner / top trader) bought it in the last 15 min and the copy book clears
+            // this lane's measured round trip.
+            (try {
+                com.lifecyclebot.engine.ExpertWallets7962.expertEntryLive7962(ts.mint, nowMs) &&
+                    SignalSourceProof7291.copyEdgeAtGap8062(NetEdge8030.costPct8030(lane, NetEdge8030.DEFAULT_TICKET_SOL, ts.lastLiquidityUsd) / 100.0)
+            } catch (_: Throwable) { false })
         if (ok) measuredEdgeAdmitted8060.incrementAndGet()
         return ok
     }

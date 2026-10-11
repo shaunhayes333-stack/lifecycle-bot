@@ -428,6 +428,9 @@ class JupiterApi(
     /**
      * Legacy v6 fallback.
      */
+    /** Pure (V5.0.8062): a buy's widest slippage — its own tolerance, never above 500 bps (5%). */
+    private fun buyMaxSlippageBps8062(requestedBps: Int): Int = requestedBps.coerceIn(50, 500)
+
     private fun getQuoteV6(
         inputMint: String,
         outputMint: String,
@@ -446,10 +449,16 @@ class JupiterApi(
         // Solana's 1,232-byte limit, so the transaction could never be sent. Routes are capped at
         // [MAX_ROUTE_ACCOUNTS_8045] accounts (Jupiter's maxAccounts), leaving room for the envelope; the direct-route
         // attempt stays last.
+        // V5.0.8062 — a BUY (SOL in) never widens past the caller's own tolerance: the 1500 / 2500 bps fallbacks are for
+        // exits that must land. 5.0.8059 measured buy-side cost at 5-7.5% on CASHGEN / QUALITY (a quote that fails at
+        // 200 bps was re-quoted at 15-25%); paying that to enter eats the whole move. Sells keep the escalation.
+        val buy8062 = inputMint == SOL_MINT
+        val widen1 = if (buy8062) buyMaxSlippageBps8062(slippageBps) else maxOf(slippageBps, 1500).coerceIn(50, 5000)
+        val widen2 = if (buy8062) buyMaxSlippageBps8062(slippageBps) else maxOf(slippageBps, 2500).coerceIn(50, 8000)
         val attempts = listOf(
             "slippageBps=${slippageBps.coerceIn(50, 2500)}&restrictIntermediateTokens=true&maxAccounts=$MAX_ROUTE_ACCOUNTS_8045",
-            "slippageBps=${maxOf(slippageBps, 1500).coerceIn(50, 5000)}&restrictIntermediateTokens=false&maxAccounts=$MAX_ROUTE_ACCOUNTS_8045",
-            "slippageBps=${maxOf(slippageBps, 2500).coerceIn(50, 8000)}&onlyDirectRoutes=true",
+            "slippageBps=$widen1&restrictIntermediateTokens=false&maxAccounts=$MAX_ROUTE_ACCOUNTS_8045",
+            "slippageBps=$widen2&onlyDirectRoutes=true",
         )
         var lastErr: Exception? = null
         var body: String? = null

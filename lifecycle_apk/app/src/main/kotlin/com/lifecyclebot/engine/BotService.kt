@@ -2986,7 +2986,12 @@ class BotService : Service() {
 
     /** V5.0.7962 — ...or on forward labels that clear the statistical bar (n>=20, mean-SE>gap, pf>=1.5; self-demoting). */
     private fun copyRouteLive7962(): Boolean =
-        com.lifecyclebot.engine.truth.SignalSourceProof7291.liveEligible7962(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY)
+        com.lifecyclebot.engine.truth.SignalSourceProof7291.liveEligible7962(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY) ||
+            // V5.0.8062 — or the copy book clears the meme lane's measured round trip (labels are already net).
+            try {
+                com.lifecyclebot.engine.truth.SignalSourceProof7291.copyEdgeAtGap8062(
+                    com.lifecyclebot.engine.truth.NetEdge8030.costPct8030("SHITCOIN", com.lifecyclebot.engine.truth.NetEdge8030.DEFAULT_TICKET_SOL, 0.0) / 100.0)
+            } catch (_: Throwable) { false }
 
     /** V5.0.7855 — device log carries the full ART verifier text (method, dex pc, reason). */
     private fun bootFailure7855(t: Throwable) {

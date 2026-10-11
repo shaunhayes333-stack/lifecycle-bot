@@ -295,7 +295,7 @@ object OnChainDepth8038 {
     // thousand calls a day). The next decision reads the reserves through TokenMapAuthority.observedLiquidityUsd.
     private const val CURVE_FLUSH_MS = 10_000L
     private const val CURVE_RETRY_MS = 60_000L
-    private const val CURVE_BATCH = 80
+    private const val CURVE_BATCH = 40   // V5.0.8062
     private val curveQueue = ConcurrentHashMap<String, Long>()       // mint -> queued at
     private val curveAsked = ConcurrentHashMap<String, Long>()       // mint -> last read at
     private val curveFlushing = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -317,7 +317,11 @@ object OnChainDepth8038 {
         val mint = ts.mint
         if (mint.isBlank()) return
         val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
-        if (!graduated) needCurve8039(mint, nowMs)
+        // V5.0.8062 — only coins that can have a pump.fun curve are queued: every other mint was a wasted key (NO_ACCOUNT).
+        val curveCoin = mint.endsWith("pump", ignoreCase = true) ||
+            (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }) != null ||
+            (try { CurveReserves7951.known7951(mint) } catch (_: Throwable) { false })
+        if (!graduated && curveCoin) needCurve8039(mint, nowMs)
         if (!curveDue8039(poolAsked8047[mint] ?: 0L, nowMs) || pools(ts).isEmpty()) return
         poolAsked8047[mint] = nowMs
         if (poolAsked8047.size > 6_000) poolAsked8047.entries.removeIf { nowMs - it.value > 10 * CURVE_RETRY_MS }

@@ -180,6 +180,25 @@ object SignalSourceProof7291 {
     fun legacySd7971(n: Int, meanFrac: Double): Double? =
         if (n < 20 || !meanFrac.isFinite()) null else maxOf(1.0, 2.0 * kotlin.math.abs(meanFrac))
 
+    /**
+     * V5.0.8062 — the copy book judged against the lane's MEASURED round trip instead of the flat 10% label-to-live
+     * gap. Its labels are already 60-minute NET returns; 5.0.8059 read mean-SE +10.0% pf 2.88 on n53 — right on the
+     * flat gap and PAPER_ONLY — while SHITCOIN's measured round trip is 4.7%. Same n / pf bars; a negative live record
+     * still overrules.
+     */
+    @Synchronized
+    fun copyEdgeAtGap8062(gapFrac: Double): Boolean {
+        if (isProven(Source.COPY)) return true
+        val t = tallies.getValue(Source.COPY)
+        if (t.n >= 10 && t.mean() < 0.0) return false
+        val l = labeled7731.getValue(Source.COPY)
+        val sq = labeledSq7962.getValue(Source.COPY)
+        val sd = if (sq[0] >= 8.0) com.lifecyclebot.engine.ExpertWallets7962.sdOf7962(sq[0].toInt(), sq[1], sq[2])
+            else legacySd7971(l.n, l.mean()) ?: return false
+        if (!sd.isFinite() || !gapFrac.isFinite()) return false
+        return com.lifecyclebot.engine.ExpertWallets7962.labeledPromotes7962(l.n, l.mean(), sd, l.pf(), gapFrac.coerceAtLeast(0.0))
+    }
+
     /** V5.0.7962 — the COPY source's standing for the Expert wallets diag line. */
     @Synchronized
     fun copyTier7962(): String {

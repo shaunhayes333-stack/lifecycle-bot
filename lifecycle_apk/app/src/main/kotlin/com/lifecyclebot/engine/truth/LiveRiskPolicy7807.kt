@@ -179,8 +179,15 @@ object LiveRiskPolicy7807 {
 
     /** V5.0.8057 — the proven-edge quarter-Kelly share for [ts] in [lane], or 0. */
     fun edgeKellyFracFor8057(ts: com.lifecyclebot.data.TokenState, lane: String): Double = try {
-        val st = com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetupStat8057(ts, canonicalLane(lane))
-        if (st == null) 0.0 else kellyFrac8057(st[0], st[1], st[2])
+        val l = canonicalLane(lane)
+        val st = com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetupStat8057(ts, l)
+        val setupFrac = if (st == null) 0.0 else kellyFrac8057(st[0], st[1], st[2])
+        // V5.0.8062 — or the coin's own proven cell (5.0.8059: PUMP_PORTAL_WS|SHITCOIN|MC_10K_100K|AGE_LT15M live book
+        // n19 +124.7%, label book n33 +474%): the best measured edge the bot has gets the compounding size too.
+        val c = try { ForwardReturnLabeler7731.cellStatFor(ts, l) } catch (_: Throwable) { null }
+        val cellFrac = if (c != null && LiveEdgeGate7877.cellProven8060(c.n60, c.meanNet60Pct, c.stderr60Pct))
+            kellyFrac8057(c.meanNet60Pct, c.stderr60Pct * c.stderr60Pct * c.n60, c.n60.toDouble()) else 0.0
+        maxOf(setupFrac, cellFrac)
     } catch (_: Throwable) { 0.0 }
 
     // ── V5.0.8057 — the daily doubling scoreboard (report only) ──

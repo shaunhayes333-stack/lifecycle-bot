@@ -916,15 +916,25 @@ object ForwardReturnLabeler7731 {
     private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? {
         val fromLoop = try { priceFor(mint) } catch (_: Throwable) { null }
         if (fromLoop != null && fromLoop.isFinite() && fromLoop > 0.0) return fromLoop
+        // V5.0.8062 — the freshest mark across every purpose. get(mint) returned the first purpose holding ANY mark, so a
+        // stale executable quote hid a fresh observation mark: 5.0.8059 skipped 4,557 decisions for noPrice vs 764 labelled.
         val fromRegistry = try {
-            val m = CanonicalPriceMarkRegistry6522.get(mint)
-            if (m == null || m.timestampMs <= 0L || nowMs - m.timestampMs > MARK_MAX_AGE_MS_7731) null
-            else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
+            CanonicalMarkPurpose6570.values().mapNotNull { CanonicalPriceMarkRegistry6522.get(mint, it) }
+                .filter { it.timestampMs > 0L && nowMs - it.timestampMs in 0L..MARK_MAX_AGE_MS_7731 }
+                .maxByOrNull { it.timestampMs }?.priceUsd?.value?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
         } catch (_: Throwable) { null }
         if (fromRegistry != null) return fromRegistry
-        val off = offWatchMarks7737[mint] ?: return null
-        return if (nowMs - off.second <= MARK_MAX_AGE_MS_7731) off.first else null
+        val off = offWatchMarks7737[mint]
+        if (off != null && nowMs - off.second <= MARK_MAX_AGE_MS_7731) return off.first
+        // V5.0.8062 — an active pump.fun curve's own observed reserves (PumpPortal frame or chain read) are a real price.
+        return try {
+            val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val pxSol = CurveReserves7951.priceSolFor7951(mint, nowMs, MARK_MAX_AGE_MS_7731)
+            if (solUsd.isFinite() && solUsd > 0.0 && pxSol.isFinite() && pxSol > 0.0) { curvePriced8062.incrementAndGet(); pxSol * solUsd } else null
+        } catch (_: Throwable) { null }
     }
+
+    private val curvePriced8062 = AtomicLong(0)
 
     /**
      * V5.0.7809 §THE_OLDEST_DEAD_MINTS_HELD_THE_BATCH. Off-watch marks are
@@ -1151,7 +1161,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +

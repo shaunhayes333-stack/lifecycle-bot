@@ -33,6 +33,33 @@ object DecisionReasons8031 {
 
     private val pending = ConcurrentHashMap<String, Pending>()
     private val book = ConcurrentHashMap<String, Agg>()
+
+    // V5.0.8062 — the graded HOLD / SELL book survives restarts. It lived in memory only, so every install (several a
+    // night) wiped what the bot had learned about its own holds and sells (5.0.8059: graded=0 after 17 min).
+    private const val PERSIST_KEY_8062 = "decision_reasons_book_8062"
+    @Volatile private var loaded8062 = false
+    private val sinceSave8062 = AtomicLong(0)
+
+    private fun load8062() {
+        if (loaded8062) return
+        if (!(try { com.lifecyclebot.engine.LearningPersistence.ready() } catch (_: Throwable) { false })) return
+        loaded8062 = true
+        try {
+            com.lifecyclebot.engine.LearningPersistence.load(PERSIST_KEY_8062)?.lineSequence()?.forEach { line ->
+                val f = line.split('\t')
+                if (f.size == 4) synchronized(book) {
+                    book.getOrPut(f[0]) { Agg() }.apply { n += f[1].toIntOrNull() ?: 0; sum += f[2].toDoubleOrNull() ?: 0.0; up += f[3].toIntOrNull() ?: 0 }
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun save8062() {
+        try {
+            val body = synchronized(book) { book.entries.filter { it.value.n > 0 }.joinToString("\n") { (k, a) -> "$k\t${a.n}\t${a.sum}\t${a.up}" } }
+            com.lifecyclebot.engine.LearningPersistence.save(PERSIST_KEY_8062, body)
+        } catch (_: Throwable) {}
+    }
     private val lastHold = ConcurrentHashMap<String, Long>()
     private val nativeLabelled = AtomicLong(0)
     private val nativeNamed = AtomicLong(0)
@@ -100,6 +127,7 @@ object DecisionReasons8031 {
 
     /** ExitRegret7752.tick: grade the due decisions on the loop's fresh prices. */
     fun tick8031(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+        load8062()
         if (pending.isEmpty()) return
         for ((id, p) in pending.entries.toList()) {
             if (nowMs < p.dueMs) continue
@@ -108,6 +136,7 @@ object DecisionReasons8031 {
             pending.remove(id)
             if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(p.px, px)) continue
             synchronized(book) { book.getOrPut(p.key) { Agg() }.add((px / p.px - 1.0) * 100.0) }
+            if (sinceSave8062.incrementAndGet() % 10L == 0L) save8062()
         }
         if (book.size > 2_000) synchronized(book) { book.entries.removeIf { it.value.n < 3 } }
     }

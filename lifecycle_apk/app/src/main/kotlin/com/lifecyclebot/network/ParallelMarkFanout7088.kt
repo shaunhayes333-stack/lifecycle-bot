@@ -579,7 +579,7 @@ object ParallelMarkFanout7088 {
     private const val PUMP_TOKEN_DECIMALS_7269 = 6
     // V5.0.7279 — one getMultipleAccounts call carries up to 100 keys, so the
     // cap covers every held curve instead of the first sixteen.
-    private const val CURVE_MAX_MINTS_7269 = 80
+    private const val CURVE_MAX_MINTS_7269 = 40   // V5.0.8062 — 80 -> 40: smaller calls finish inside the read timeout
     // V5.0.7281 — six rungs; locked rungs are skipped without a request.
     private const val CURVE_LADDER_RUNGS_7279 = 6
 
@@ -663,7 +663,9 @@ object ParallelMarkFanout7088 {
      * 233 times). Each host now backs off on its own record.
      */
     private fun rpcHostLabel7279(url: String): String {
-        if (url.contains("helius", ignoreCase = true)) return "helius"
+        // V5.0.8062 — curve reads back off on their own Helius key: the shared "helius" key is locked by DAS / websocket
+        // 429s, and the curve reader then skipped Helius (5.0.8059: RUNG_SKIPPED_LOCKED=46, NO_RUNG_ANSWERED=35, read 5/781).
+        if (url.contains("helius", ignoreCase = true)) return "helius_curve"
         val host = try { java.net.URI(url).host?.lowercase().orEmpty() } catch (_: Throwable) { "" }
         return if (host.isBlank()) "solana_rpc" else "rpc_$host"
     }
@@ -679,7 +681,7 @@ object ParallelMarkFanout7088 {
      * so one slow read here never benches it.
      */
     private fun noteCurveRungFailure7809(hostLabel: String) {
-        if (hostLabel == "helius") return
+        if (hostLabel.startsWith("helius")) return
         try {
             com.lifecyclebot.engine.ApiBackoff.markFailure(hostLabel, 504)
             PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_RUNG_BENCHED_7809")
@@ -736,7 +738,9 @@ object ParallelMarkFanout7088 {
                 .put("jsonrpc", "2.0")
                 .put("id", "7279")
                 .put("method", "getMultipleAccounts")
-                .put("params", JSONArray().put(keysJson7279).put(JSONObject().put("encoding", "base64").put("commitment", "processed")))
+                // V5.0.8062 — only the 49 bytes the reader uses (discriminator, five u64s, complete flag).
+                .put("params", JSONArray().put(keysJson7279).put(JSONObject().put("encoding", "base64").put("commitment", "processed")
+                    .put("dataSlice", JSONObject().put("offset", 0).put("length", 49))))
                 .toString()
         val out = HashMap<String, Double>()
         var skippedComplete = 0
