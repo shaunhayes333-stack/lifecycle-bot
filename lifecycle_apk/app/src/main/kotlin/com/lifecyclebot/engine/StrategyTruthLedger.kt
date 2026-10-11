@@ -384,6 +384,10 @@ object StrategyTruthLedger {
             return "UNOBSERVED_PAPER_FILL_7274"
         }
         val proof = t.proofState.trim().uppercase()
+        // LIVE realised edge requires chain/wallet settlement evidence on EVERY
+        // close, not only on exceptionally large gains. Paper stays isolated.
+        if (live && !com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236
+                .hasSettlementProof8039(proof)) return "LIVE_SETTLEMENT_UNPROVEN_8039"
         val basis = t.entryCostSol.takeIf { it.isFinite() && it > 0.0 } ?: return "MISSING_ENTRY_COST_BASIS"
         if (mode == "PAPER" && t.economicEventId.isNotBlank()) {
             if (!t.soldCostBasisSol.isFinite() || t.soldCostBasisSol <= 0.0) return "MISSING_CANONICAL_SOLD_BASIS"

@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong
  *   PAPER              — always terminal (deterministic simulator).
  *   LIVE_FINALIZED     — terminal (canonical settlement).
  *   LIVE_BALANCE_CONFIRMED — terminal (wallet observed).
- *   LIVE_SIG_CONFIRMED — terminal (transaction confirmed on chain).
+ *   LIVE_SIG_CONFIRMED — NOT terminal; a signature alone has no sale-delta proof.
  *   LIVE_BROADCAST     — NOT terminal. Broadcast intent, no proof.
  *   blank/unknown live — NOT terminal.
  *
@@ -60,6 +60,12 @@ object LiveTerminalSemanticsAuthority7236 {
      *                    LIVE_FINALIZED / LIVE_BALANCE_CONFIRMED /
      *                    LIVE_SIG_CONFIRMED / LIVE_BROADCAST / blank)
      */
+    /** Strict read-only truth predicate for LIVE realised strategy samples. */
+    fun hasSettlementProof8039(proofState: String): Boolean =
+        proofState.trim().uppercase() in setOf(
+            "LIVE_FINALIZED", "LIVE_RECONCILED", "LIVE_BALANCE_CONFIRMED",
+        )
+
     fun isTerminalOutcome(mode: String, proofState: String): Boolean {
         val m = mode.trim().lowercase()
         val ps = proofState.trim().uppercase()
@@ -93,8 +99,11 @@ object LiveTerminalSemanticsAuthority7236 {
                     return true
                 }
                 "LIVE_SIG_CONFIRMED" -> {
-                    terminalLiveSig.incrementAndGet()
-                    return true
+                    // A signature can exist for a failed or unparsed transaction.
+                    // Do not turn a BUY/SELL broadcast into realised economics.
+                    excludedUnknown.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("LIVE_TERMINAL_SIGNATURE_ONLY_EXCLUDED_8039") } catch (_: Throwable) {}
+                    return false
                 }
                 "LIVE_BROADCAST" -> {
                     excludedBroadcast.incrementAndGet()

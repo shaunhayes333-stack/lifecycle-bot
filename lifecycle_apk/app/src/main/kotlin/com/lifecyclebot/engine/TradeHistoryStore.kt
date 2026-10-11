@@ -641,10 +641,10 @@ object TradeHistoryStore {
         // canonical accounting predicate; the row is preserved
         // forensically but not surfaced in WR/PnL/expectancy until it
         // reaches a terminal proof state.
-        val liveTerminal7236 = try {
+        val liveTerminal7236 = if (!isJournalSellLike(t.side)) true else try {
             com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236
                 .isTerminalOutcome(t.mode, t.proofState)
-        } catch (_: Throwable) { true }
+        } catch (_: Throwable) { false }
         if (!liveTerminal7236) return false
         return true
     }
@@ -848,17 +848,15 @@ object TradeHistoryStore {
 
     private fun normalizeProofState(t: Trade): String {
         val explicit = t.proofState.trim().uppercase()
-        if (explicit in setOf("PAPER_SIMULATED", "LIVE_BROADCAST", "LIVE_SIG_CONFIRMED", "LIVE_BALANCE_CONFIRMED", "LIVE_FINALIZED")) return explicit
+        if (explicit in setOf("PAPER_SIMULATED", "LIVE_BROADCAST", "LIVE_SIG_CONFIRMED", "LIVE_BALANCE_CONFIRMED", "LIVE_FINALIZED", "LIVE_RECONCILED")) return explicit
         val m = t.mode.trim().lowercase()
         if (m == "paper") return "PAPER_SIMULATED"
         if (m == "live") {
-            val r = t.reason.uppercase()
-            return when {
-                r.contains("FINALIZED") || r.contains("SELL_FINALIZED") -> "LIVE_FINALIZED"
-                r.contains("ZERO_BALANCE") || r.contains("BALANCE_CONFIRMED") || r.contains("WALLET") -> "LIVE_BALANCE_CONFIRMED"
-                t.sig.isNotBlank() -> "LIVE_SIG_CONFIRMED"
-                else -> "LIVE_BROADCAST"
-            }
+            // A reason string or signature is not a chain receipt. SELLs only
+            // become realised when the execution/reconciler supplies an explicit
+            // canonical proof state from verified wallet deltas.
+            if (isJournalSellLike(t.side)) return "LIVE_BROADCAST"
+            return if (t.sig.isNotBlank()) "LIVE_SIG_CONFIRMED" else "LIVE_BROADCAST"
         }
         return ""
     }
