@@ -40,9 +40,10 @@ object HiveEdge8000 {
     // read new tables only; the old ones are left untouched (nothing deleted, simply no longer read). On the
     // switch, everything this install already holds is counted as uploaded, so only what it learns from now
     // on enters the clean hive. Every row carries the build that last wrote it.
-    const val EDGE_TABLE_8028 = "hive_edge_8028"
+    // V5.0.8064 — a second clean hive: every network label before 8064 carried spike credit live never banks.
+    const val EDGE_TABLE_8028 = "hive_edge_8064"
     const val RUNNER_TABLE_8028 = "hive_runners_8028"
-    private const val FILE = "hive_uploaded_8028.txt"
+    private const val FILE = "hive_uploaded_8064.txt"
     @Volatile private var baselineDue8028 = false
     private val baselined8028 = AtomicLong(0)
     private fun build8028(): String = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "?" }

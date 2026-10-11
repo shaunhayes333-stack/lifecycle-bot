@@ -68,7 +68,8 @@ object ForwardReturnLabeler7731 {
     private const val LOST_GRACE_MS_7731 = 10L * 60_000L
     /** V5.0.7946 — one observation per mint and lane per 15 minutes (the read is 5). */
     private const val REOBSERVE_MS_7731 = 15L * 60_000L
-    private const val CELLS_KEY_7946 = "cells_7946"
+    // V5.0.8064 — a fresh book: every cell before it was graded with spike credit live never banks (see captured7945).
+    private const val CELLS_KEY_7946 = "cells_8064"
     private const val PENDING_KEY_7946 = "pending_7946"
 
     /** V5.0.7946 — Pure: how late a horizon may still be read: half the horizon, between 1 and 10 minutes. */
@@ -693,9 +694,12 @@ object ForwardReturnLabeler7731 {
         // V5.0.8029 — graded on THIS lane's play: its own stop first (a coin through the stop before its peak is a
         // stopped trade, not a run), then the spike ladder on the peak with the rest at the mark — or at the stop.
         val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane) } catch (_: Throwable) { Double.NaN }
-        val ladder8040: (Double, Double) -> Double = { pk, rest ->
-            com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(pk, rest).let { if (it.isFinite() && it > rest) it else rest }
-        }
+        // V5.0.8064 — NO spike credit. Owner, 5.0.8063: "its got worse not better" — 44 live closes, 3 wins, PF 0.09,
+        // while the label book read its best cells at +529% (wr 95%) and +588% (wr 86%): 302 of 341 graded labels were
+        // credited the spike ladder on their peak. Live never banks those prints (spike tiers fired=0; a +156% quick take
+        // landed at -40%; a +236% peak closed at -18%) — a pump.fun spike is one or two trades, gone before a sell lands.
+        // A label is now the lane's own play (its stop first) with the position worth the mark at the read.
+        val ladder8040: (Double, Double) -> Double = { pk, rest -> spikeCredit8064(pk, rest) }
         val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
         if (stop8029 > 0.0) try {
@@ -713,6 +717,9 @@ object ForwardReturnLabeler7731 {
     }
 
     private val capturedLabels7945 = AtomicLong(0)
+
+    /** Pure (V5.0.8064): what a label credits for a peak [peakPct] above the mark at the read [restPct] — nothing. */
+    fun spikeCredit8064(@Suppress("UNUSED_PARAMETER") peakPct: Double, restPct: Double): Double = restPct
 
     private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long) {
         // V5.0.7955 — the give-back from the peak to the 5-minute read rides on the observation to its 60-minute sample.

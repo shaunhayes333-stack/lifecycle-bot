@@ -43,8 +43,10 @@ object Cortex7885 {
      * ("real") are fills and exits, still true, and carry over. The old key is left in
      * place, untouched.
      */
-    private const val PERSIST_KEY = "CORTEX_7885_V7947"
-    private const val LEGACY_PERSIST_KEY_7947 = "CORTEX_7885"
+    // V5.0.8064 — the voters were graded on spike-credited labels; they restart on the honest label (the realised-trade
+    // ledgers carry over from the 7947 key, as they did from the original).
+    private const val PERSIST_KEY = "CORTEX_7885_V8064"
+    private const val LEGACY_PERSIST_KEY_7947 = "CORTEX_7885_V7947"
     private const val PERSIST_EVERY = 40
     private const val MARK_STALE_MS = 180_000L
 

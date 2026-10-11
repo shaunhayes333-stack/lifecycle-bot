@@ -221,7 +221,8 @@ object SpecialistMiner7972 {
     /** ForwardReturnLabeler7731.attach: where the miner keeps its record. */
     fun attach7972(context: Context) {
         if (file != null) return
-        val f = File(context.applicationContext.filesDir, "specialists7972.bin")
+        // V5.0.8064 — the fact combinations restart on labels without spike credit.
+        val f = File(context.applicationContext.filesDir, "specialists8064.bin")
         file = f
         Thread({ try { load(f) } catch (_: Throwable) {} finally { loaded = true } }, "specialists-7972-load").apply { isDaemon = true }.start()
     }

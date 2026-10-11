@@ -381,6 +381,9 @@ object LiveEdgeGate7877 {
         // after this one (watch first, Cortex, net edge, lane fit, dead launch, buy door) still applies.
         if (!paper) {
             val l8059 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+            // V5.0.8064 — the live book has the last word: a lane whose recent live closes are proven losing takes no new
+            // entry, whatever its labels say (LiveTruth8064; 6-hour window, so it comes back on its own).
+            (try { LiveTruth8064.refusal8064(l8059, nowMs) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8060 — any MEASURED edge counts, not only a named setup: 5.0.8059 refused 4,879 vs 145 admitted and
             // turned away POKEMON +1,077% and Gemini +708% — runners often fire no named setup. The coin's own cell
@@ -428,7 +431,8 @@ object LiveEdgeGate7877 {
             kindProven8063(ts, lane) ||
             (try { com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
             (try { SpecialistMiner7972.match7972(ts, lane, nowMs) } catch (_: Throwable) { null }) != null ||
-            (try { TailHunter7996.ticket7996(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
+            // V5.0.8064 — a tail ticket is no longer live money: it is proven on a replayed exit ladder at the peak, the
+            // exit live cannot bank (spike tiers fired=0 in 5.0.8063). It still clears watch-first for a proven coin.
             // V5.0.8062 — an expert wallet (owner / top trader) bought it in the last 15 min and the copy book clears
             // this lane's measured round trip.
             (try {
@@ -545,7 +549,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has

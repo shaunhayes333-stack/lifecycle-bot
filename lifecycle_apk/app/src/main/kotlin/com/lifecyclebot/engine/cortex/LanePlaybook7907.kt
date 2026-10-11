@@ -858,7 +858,8 @@ object LanePlaybook7907 {
 
     private const val PENDING_KEY_7920 = "LANE_PLAYBOOK_PENDING_7920"
     /** V5.0.7947 — setup records graded on the 5-minute, spike-credited read (old key "LANE_PLAYBOOK_7907" left untouched). */
-    private const val BOOKS_KEY_7947 = "LANE_PLAYBOOK_7947"
+    // V5.0.8064 — setup records restart on labels without spike credit (the 7947 books promised exits live never banked).
+    private const val BOOKS_KEY_7947 = "LANE_PLAYBOOK_8064"
     @Volatile private var lastPendingPersistMs = 0L
 
     /** Cortex7885.captureNow: save the pending setup tags at most every 2 minutes. */
