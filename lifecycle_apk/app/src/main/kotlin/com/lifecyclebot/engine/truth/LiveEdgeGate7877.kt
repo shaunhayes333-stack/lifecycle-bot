@@ -380,6 +380,9 @@ object LiveEdgeGate7877 {
         // Everything else is watched and graded; as setups prove themselves they unlock automatically. Every gate
         // after this one (watch first, Cortex, net edge, lane fit, dead launch, buy door) still applies.
         if (!paper) {
+            // V5.0.8074 — unmanaged live buys from before a restart are handed to wallet adoption; a blind wallet buys nothing.
+            try { LiveBootRecovery8074.tick8074(nowMs) } catch (_: Throwable) {}
+            (try { LiveBootRecovery8074.blind8074(nowMs) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
             val l8059 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
             // V5.0.8064 — the live book has the last word: a lane whose recent live closes are proven losing takes no new
             // entry, whatever its labels say (LiveTruth8064; 6-hour window, so it comes back on its own).
@@ -574,7 +577,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} chaseRefused8065=${chaseRefused8065.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} bootRecovery8074[${try { LiveBootRecovery8074.statusLine() } catch (_: Throwable) { "-" }}] chaseRefused8065=${chaseRefused8065.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has

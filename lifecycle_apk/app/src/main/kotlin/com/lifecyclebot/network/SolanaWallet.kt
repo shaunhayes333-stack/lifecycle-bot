@@ -1211,6 +1211,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         }
 
         if (!splProgramOk) {
+            // V5.0.8074 — a failed token read makes the wallet blind: no new live buys until one succeeds.
+            try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(false) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "successPrograms=0/2 required=Tokenkeg failures=${failures.joinToString(";").take(220)}") } catch (_: Throwable) {}
             throw RuntimeException("wallet token snapshot indeterminate: required SPL Token program failed; ${failures.joinToString(";")}")
         }
@@ -1239,6 +1241,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // IS in the map is held, and that needs no completeness. Only the
         // absence inference does, and WalletSnapshotCompleteness7140 is what
         // that inference now has to consult.
+        // V5.0.8074 — the SPL token program read: the wallet can be seen.
+        try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(true) } catch (_: Throwable) {}
         try {
             if (token2022Ok) {
                 com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.markComplete()
