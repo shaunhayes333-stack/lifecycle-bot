@@ -70,7 +70,7 @@ object FlatChart8027 {
     }
 
     // ── V5.0.8036 — fake charts ──
-    const val CLIMB_WINDOW_MS_8036 = 60L * 60_000L
+    private const val CLIMB_WINDOW_MS_8036 = 60L * 60_000L
     const val CLIMB_MIN_BARS_8036 = 20
     const val CLIMB_MIN_RISE_PCT_8036 = 30.0
     const val CLIMB_MAX_DOWN_SHARE_8036 = 0.10
