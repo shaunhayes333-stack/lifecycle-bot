@@ -137,12 +137,13 @@ object TokenMetricsAuthority7069 {
             supplyByMint[mint] = onChain
             return onChain
         }
-        // Durable cache holds ON-CHAIN values only (V5.0.7075); a pre-7075
-        // archive may still contain inferred rows, so it is read but any value
-        // it returns is re-confirmed against chain state by the request below.
-        val durable = try { cacheRef.get()?.supplyOf7069(mint) ?: 0.0 } catch (_: Throwable) { 0.0 }
+        // Pre-7075 archives contain inferred values without a chain-proof bit.
+        // Reading one and returning it while the asynchronous RPC is still
+        // pending treated a legacy guess as confirmed supply. That manufactured
+        // price/mcap identity failures and suppressed real executable marks.
+        // Archive data remains available for discovery; only the chain authority
+        // can validate the identity used by LIVE decisions. This never waits.
         try { OnChainSupplyAuthority7075.requestAsync7075(mint) } catch (_: Throwable) {}
-        if (durable.isFinite() && durable >= MIN_SUPPLY) return durable
         return 0.0
     }
 
