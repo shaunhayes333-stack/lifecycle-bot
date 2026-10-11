@@ -101,7 +101,10 @@ object RouteTruthHydrator {
             tm.hydrationComplete = true
             tm.hydrationConfidence = maxOf(tm.hydrationConfidence, 0.75)
             tm.updatedAtMs = now
-            tm.providerTimestamps[src] = now
+            // Hydration only reuses scanner/cache evidence. It is NOT a new
+            // provider observation: stamping "now" here manufactures freshness
+            // for old route evidence and makes cross-source latency invisible.
+            // Real fetchers own providerTimestamps; keep their source time.
             inc("ROUTE_TRUTH_HIT")
             inc("ROUTE_TRUTH_FROM_$src")
             return Result(true, src, reason)
