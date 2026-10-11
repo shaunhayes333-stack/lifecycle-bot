@@ -15,6 +15,10 @@ class Aate7447TraderBootstrapIsolationTest {
         assertTrue(region.contains("traderStep7447"))
         assertTrue(region.contains("withTimeout(timeoutMs)"))
         assertTrue(region.contains("runInterruptible(kotlinx.coroutines.Dispatchers.IO)"))
+        assertTrue("CryptoAlt startup must not block primary service bootstrap",
+            region.contains("CoroutineName(\"crypto-alt-sidecar-8041\")"))
+        assertTrue("CryptoAlt must be conditional on runtime plan",
+            region.contains("if (cryptoUniverseOn)"))
         listOf("PERPS", "STOCK", "COMMODITY", "METAL", "FOREX", "CRYPTO_ALT_INIT", "CRYPTO_ALT_START")
             .forEach { assertTrue("missing bounded startup for $it", region.contains("traderStep7447(\"$it\"")) }
     }
