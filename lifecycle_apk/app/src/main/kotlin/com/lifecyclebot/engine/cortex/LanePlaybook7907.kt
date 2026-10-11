@@ -289,6 +289,39 @@ object LanePlaybook7907 {
     private val MEME_LANES_7978 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED")
     private val MICRO_PULLBACK_TREND = Setup("MICRO_PULLBACK_TREND", FLOW) { f -> ge(f.chg1h, 3.0) && ok(f.dd, 2.0, 8.0) && ge(f.bp, 50.0) }
 
+    // ── V5.0.8061 — more setups. Owner: "we need more setups if so many tokens miss them". 5.0.8059: SHITCOIN tagged
+    // NO_TRIGGER on most coins and the runners it refused (POKEMON +1,077%, Gemini +708%) fired no named setup. Two
+    // fixes: (1) the owner's own chart reads as setups that need only price-history facts (always known): buyers in
+    // control at the highs, a base breaking out, a 5-minute ignition, the first pullback after a run, a dip inside an
+    // hourly uptrend, quiet accumulation, a fresh high on a push; (2) each meme lane now reads the library setups its
+    // menu skipped (MOONSHOT never read ACCELERATING_TAPE, SHITCOIN's best record). Every one starts at a flow prior and
+    // is graded per lane; live money still waits for a proven record (8059/8060).
+    private val BUYERS_DOMINATING = Setup("BUYERS_DOMINATING", FLOW) { f -> ge(f.bp, 65.0) && ge(f.chg5m, 0.0) && ge(f.pxPeak, 0.90) && leOrUnknown(f.runup, 200.0) }
+    private val BASE_BREAKOUT_FLOW = Setup("BASE_BREAKOUT_FLOW", FLOW) { f -> le(f.runup, 40.0) && ge(f.pxPeak, 0.98) && ge(f.chg5m, 3.0) && ge(f.bp, 55.0) }
+    private val IGNITION_5M = Setup("IGNITION_5M", FLOW) { f -> ge(f.chg5m, 8.0) && ge(f.bp, 60.0) && leOrUnknown(f.runup, 60.0) && le(f.age, 240.0) }
+    private val FIRST_PULLBACK_AFTER_RUN = Setup("FIRST_PULLBACK_AFTER_RUN", FLOW) { f -> ge(f.runup, 50.0) && ok(f.dd, 10.0, 25.0) && ge(f.bp, 50.0) && ge(f.chg5m, 0.0) }
+    private val DIP_IN_UPTREND = Setup("DIP_IN_UPTREND", FLOW) { f -> ge(f.chg1h, 20.0) && ok(f.dd, 10.0, 30.0) && ge(f.chg5m, 0.0) && ge(f.bp, 50.0) }
+    private val QUIET_ACCUMULATION = Setup("QUIET_ACCUMULATION", FLOW) { f -> le(f.runup, 20.0) && le(f.dd, 10.0) && ge(f.bp, 58.0) && ok(f.chg5m, -2.0, 3.0) }
+    private val NEW_HIGH_PUSH = Setup("NEW_HIGH_PUSH", FLOW) { f -> ge(f.pxPeak, 0.99) && ok(f.runup, 40.0, 400.0) && ge(f.chg5m, 2.0) && ge(f.bp, 58.0) }
+    private val SHAPE_8061 = listOf(BUYERS_DOMINATING, BASE_BREAKOUT_FLOW, IGNITION_5M, FIRST_PULLBACK_AFTER_RUN, DIP_IN_UPTREND, QUIET_ACCUMULATION, NEW_HIGH_PUSH)
+    /** V5.0.8061 — library setups each meme lane's menu skipped (appended; never duplicates its own menu). */
+    private val CROSS_8061: Map<String, List<Setup>> = mapOf(
+        "SHITCOIN" to listOf(BREAKOUT_RUNNER, RS_LEADER, VOLUME_IGNITION, MOMENTUM_PULLBACK_5M, HIGHER_LOW_CONTINUATION, HIGHER_LOW_PULLBACK,
+            MICRO_FLAG, FLAG_CONTINUATION, POST_EVENT_RECLAIM, SECOND_LEG, TX_VELOCITY_BREAK, VOLUME_CONTINUATION, HOLDER_EXPANSION,
+            OPP_BREAKOUT_EXPANSION, OPP_RS_LEADER),
+        "MOONSHOT" to listOf(ACCELERATING_TAPE, PRE_IGNITION_BASE, FIRST_PULLBACK, MOMENTUM_PULLBACK_5M, HIGHER_LOW_PULLBACK, FLAG_CONTINUATION,
+            MICRO_FLAG, TX_VELOCITY_BREAK, FIRST_DIP_BOUGHT, BROAD_DISTRIBUTION, DEV_HOLDS_CROWD_BUYS),
+        "EXPRESS" to listOf(PRE_IGNITION_BASE, BREAKOUT_RUNNER, RS_LEADER, FIRST_PULLBACK, LAUNCH_CONTINUATION, NET_INFLOW_SURGE, FIRST_DIP_BOUGHT),
+        "MANIPULATED" to listOf(VOLUME_IGNITION, BREAKOUT_RUNNER, MOMENTUM_PULLBACK_5M, RS_LEADER, FAST_CROWD, NET_INFLOW_SURGE),
+        "PROJECT_SNIPER" to listOf(PRE_IGNITION_BASE, ACCELERATING_TAPE, FAST_CROWD, FIRST_DIP_BOUGHT),
+    )
+
+    /** V5.0.8061 — the setups 8061 appends to [lane]'s menu (cross-lane + shapes), never one its menu already has. */
+    private fun extras8061(lane: String, existing: List<Setup>): List<Setup> {
+        val have = existing.map { it.id }.toHashSet()
+        return ((CROSS_8061[lane] ?: emptyList()) + SHAPE_8061).filter { have.add(it.id) }
+    }
+
     /** Lane -> its playbook (FIELD_MANUAL §4 families per lane; doc-derived). */
     private val MENU: Map<String, List<Setup>> = mapOf(
         "QUALITY" to listOf(PLAN_PULLBACK_RECLAIM, PLAN_BASE_BREAKOUT, PLAN_SWEEP_RECLAIM, HIGHER_LOW_PULLBACK, BREAKOUT_HOLD, RECLAIM_AFTER_WEAKNESS,
@@ -323,8 +356,9 @@ object LanePlaybook7907 {
     private val EXPERT_ENTRY_7962 = Setup("EXPERT_ENTRY", FLOW) { f -> f.expertEntry7962 }
     private val EXPERT_LANES_7962 = setOf("SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER")
     private fun menuOf7962(lane: String): List<Setup>? = MENU[lane]?.let { base ->
-        (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
+        val upTo7978 = (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
             (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)   // V5.0.7978
+        upTo7978 + extras8061(lane, upTo7978)   // V5.0.8061
     }
 
     /** Pure: the setups of [lane]'s menu that [f] fires (empty = no trigger; unknown lane = null). */
@@ -783,9 +817,15 @@ object LanePlaybook7907 {
             // V5.0.7978 — appended the same way, so every earlier bin is unchanged.
             "SPECIALIST_EDGE", "FRESH_LAUNCH_MOMENTUM", "MICRO_CAP_IGNITION", "HOLDER_SURGE", "TURNOVER_SPIKE",
             "GRADUATION_APPROACH", "LIVESTREAM_LAUNCH", "COPYCAT_BETA", "COLOUR_SEQUENCE")
-        val menu = menuIds(lane).filter { it !in added7962 }
+        // V5.0.8061 — this lane's 8061 extras are appended after every earlier bin as well.
+        val added8061 = MENU[lane]?.let { base ->
+            val upTo7978 = (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
+                (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)
+            extras8061(lane, upTo7978).map { it.id }
+        }.orEmpty()
+        val menu = menuIds(lane).filter { it !in added7962 && it !in added8061 }
         val i = menu.indexOf(id)
-        val j = added7962.indexOf(id)
+        val j = (added7962 + added8061).indexOf(id)
         return (if (i >= 0) i else if (j >= 0) menu.size + 1 + j else menu.size).toDouble()
     }
 
