@@ -380,10 +380,10 @@ object LiveEdgeGate7877 {
         // Everything else is watched and graded; as setups prove themselves they unlock automatically. Every gate
         // after this one (watch first, Cortex, net edge, lane fit, dead launch, buy door) still applies.
         if (!paper) {
+            val l8059 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
             // V5.0.8074 — unmanaged live buys from before a restart are handed to wallet adoption; a blind wallet buys nothing.
             try { LiveBootRecovery8074.tick8074(nowMs) } catch (_: Throwable) {}
             (try { LiveBootRecovery8074.blind8074(nowMs) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
-            val l8059 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
             // V5.0.8064 — the live book has the last word: a lane whose recent live closes are proven losing takes no new
             // entry, whatever its labels say (LiveTruth8064; 6-hour window, so it comes back on its own).
             (try { LiveTruth8064.refusal8064(l8059, nowMs) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
