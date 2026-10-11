@@ -2217,6 +2217,7 @@ object PipelineHealthCollector {
                 sb.append("  (canonical stats unavailable this snapshot)\n")
             }
             sb.append("  Excluded from canon: broadcast=${c6312("LIVE_PNL_BROADCAST_EXCLUDED")} duplicate=${c6312("LIVE_PNL_DUPLICATE_EXCLUDED")} quarantined=${c6312("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")}\n")
+            sb.append("  Chain-proven live rows kept (§8041): ${try { LearningPnlSanitizer.chainProvenPassed8041() } catch (_: Throwable) { 0L }} (no % ceiling / basis check on on-chain trades)\n")
 
             sb.append('\n')
             sb.append("===== QUANTITY / DECIMAL INTEGRITY [SESSION HISTORICAL COUNTERS] =====\n")

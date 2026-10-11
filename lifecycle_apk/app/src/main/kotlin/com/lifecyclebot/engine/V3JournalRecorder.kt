@@ -218,7 +218,8 @@ object V3JournalRecorder {
 
         val pnlPctLearn: Double = run {
             val lo = -100.0
-            val hi = 5000.0
+            // V5.0.8041 — a LIVE close is on chain: its real gain trains the learners (Altai +16,516% was taught as +5,000%).
+            val hi = if (isPaper) 5000.0 else Double.MAX_VALUE
             when {
                 pnlPct.isNaN() || pnlPct.isInfinite() -> {
                     try { PipelineHealthCollector.labelInc("LEARNING_PNL_ARTIFACT_DROPPED|reason=NAN_INF") } catch (_: Throwable) {}

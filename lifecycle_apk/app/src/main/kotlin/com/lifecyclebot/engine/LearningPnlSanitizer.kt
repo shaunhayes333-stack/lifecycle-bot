@@ -58,9 +58,33 @@ object LearningPnlSanitizer {
         return Verdict(true, pnlPct)
     }
 
+    // V5.0.8041 — owner: "all trades are blockchain verifiable so nothing should be excluded from the live journal".
+    // A LIVE row with chain proof (a confirmed / finalized / reconciled / balance-confirmed proof state, or — on rows
+    // written before proof states — a transaction signature) is an on-chain fact: no % ceiling, no %-vs-SOL basis
+    // check and no clamp excludes or reshapes it. Live partial sells (the moonbag set-aside, milestones) failed the
+    // basis check because a slice's SOL is measured against the whole position's cost. Only a non-number cannot be
+    // shown. A LIVE_BROADCAST row (sent, not yet confirmed) is still pending, not proven.
+    private val CHAIN_PROOF_STATES_8041 = setOf("LIVE_FINALIZED", "LIVE_RECONCILED", "LIVE_BALANCE_CONFIRMED", "LIVE_SIG_CONFIRMED")
+    private val SOLANA_SIG_8041 = Regex("^[1-9A-HJ-NP-Za-km-z]{64,90}$")
+    private val chainProvenPassed8041 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure: is [t] a LIVE row the chain proves (proof state, or a signature on a pre-proof-state row)? */
+    fun liveChainProven8041(mode: String, proofState: String, sig: String): Boolean {
+        if (!mode.trim().equals("live", ignoreCase = true)) return false
+        val ps = proofState.trim().uppercase()
+        if (ps in CHAIN_PROOF_STATES_8041) return true
+        if (ps == "LIVE_BROADCAST" || ps == "PAPER_SIMULATED") return false
+        return SOLANA_SIG_8041.matches(sig.trim())
+    }
+
+    fun liveChainProven8041(t: Trade): Boolean = liveChainProven8041(t.mode, t.proofState, t.sig)
+
+    fun chainProvenPassed8041(): Long = chainProvenPassed8041.get()
+
     fun inspectTrade(t: Trade, context: String = "trade", emit: Boolean = true): Verdict {
         val side = t.side.uppercase()
         if (side != "SELL" && side != "PARTIAL_SELL") return Verdict(true, t.pnlPct)
+        if (liveChainProven8041(t) && t.pnlPct.isFinite()) { chainProvenPassed8041.incrementAndGet(); return Verdict(true, t.pnlPct) }
         if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return reject("MISSING_ENTRY_COST_BASIS", t.pnlPct, context, emit = emit)
         if (t.entryPriceSnapshot <= 0.0 || !t.entryPriceSnapshot.isFinite()) return reject("MISSING_ENTRY_PRICE_BASIS", t.pnlPct, context, emit = emit)
         val labelVerdict = try { CloseOutcomeLabelSanitizer.inspect(t) } catch (_: Throwable) { null }

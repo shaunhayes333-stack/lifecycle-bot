@@ -564,6 +564,11 @@ object TradeHistoryStore {
 
     fun isValidAccountingTrade(t: Trade): Boolean {
         if (isXrefRugRow7364(t)) return false
+        // V5.0.8041 — a LIVE row the chain proves is an on-chain fact: it is never excluded on its numbers (no % ceiling,
+        // no %-vs-SOL basis check, no notional cap, no price-field rule). Only a non-number cannot be shown.
+        if (LearningPnlSanitizer.liveChainProven8041(t)) {
+            return t.price.isFinite() && t.sol.isFinite() && t.pnlSol.isFinite() && t.pnlPct.isFinite() && t.netPnlSol.isFinite()
+        }
         val paperVerdict = com.lifecyclebot.engine.PaperLearningSanity.inspect(t)
         if (!paperVerdict.ok) {
             com.lifecyclebot.engine.PaperLearningSanity.emitQuarantine(t, paperVerdict.reason)
