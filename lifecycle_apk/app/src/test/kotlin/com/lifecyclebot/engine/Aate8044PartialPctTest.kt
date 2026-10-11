@@ -19,3 +19,14 @@ class Aate8044PartialPctTest {
         assertTrue(src.contains("if (sliceCost != null) pnlSolTruth / sliceCost * 100.0 else pnlSolTruth / cost * 100.0"))
     }
 }
+
+class Aate8044FullWinTest {
+    @Test fun aBigFirstSpikeBanksAllButTheMoonbag() {
+        val sel = com.lifecyclebot.engine.truth.FreshLaunchSelector7737
+        assertEquals(0.75, sel.quickTakeFraction(156.0, 0), 1e-9)
+        assertEquals(0.75, sel.quickTakeFraction(sel.QUICK_TAKE_FULL_WIN_PCT_8044, 0), 1e-9)
+        // Below +100% the first take is unchanged; the second step is unchanged.
+        assertEquals(0.60, sel.quickTakeFraction(55.0, 0), 1e-9)
+        assertEquals(0.50, sel.quickTakeFraction(120.0, 1), 1e-9)
+    }
+}

@@ -60,6 +60,8 @@ object FreshLaunchSelector7737 {
     private const val QUICK_TAKE_FIRST_FRACTION_7737 = 0.60
     private const val QUICK_TAKE_SECOND_FRACTION_7737 = 0.50
     private const val QUICK_TAKE_SECOND_PCT_7737 = 100.0
+    const val QUICK_TAKE_FULL_WIN_PCT_8044 = 100.0
+    private val TailBag8034Fraction8044: Double get() = com.lifecyclebot.engine.TailBag8034.TAIL_FRACTION
     private const val LEARNED_MIN_N_7737 = 20
     private const val OVERTURN_MIN_N_7737 = 30
     private const val EARLY_OVERTURN_N_7925 = 15
@@ -287,6 +289,9 @@ object FreshLaunchSelector7737 {
      * so the steps are counted here, per position.
      */
     fun quickTakeFraction(gainPct: Double, stepsDone: Int): Double = when {
+        // V5.0.8044 — owner: "I'd have taken the full win". WJJkGm hit +156% at its first quick take, sold 60% and
+        // rode the rest back below entry. A first take at +100% or more banks everything but the moonbag (25%, TailBag8034).
+        stepsDone <= 0 && gainPct >= QUICK_TAKE_FULL_WIN_PCT_8044 -> 1.0 - TailBag8034Fraction8044
         stepsDone <= 0 && gainPct >= TP_PCT_7737 -> QUICK_TAKE_FIRST_FRACTION_7737
         stepsDone == 1 && gainPct >= QUICK_TAKE_SECOND_PCT_7737 -> QUICK_TAKE_SECOND_FRACTION_7737
         else -> 0.0
