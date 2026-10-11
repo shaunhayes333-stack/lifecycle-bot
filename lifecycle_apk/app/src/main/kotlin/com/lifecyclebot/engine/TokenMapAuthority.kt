@@ -26,6 +26,11 @@ object TokenMapAuthority {
      * SOL price. Never inferred from market cap.
      */
     fun observedLiquidityUsd(ts: TokenState): Double {
+        // V5.0.8048 — an active curve's own account (real SOL bought) outranks any stored figure, up or down.
+        try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }?.let { real ->
+            val px = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            if (px.isFinite() && px > 0.0) return real * px
+        }
         ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
         val tm = ts.tokenMap
         tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }

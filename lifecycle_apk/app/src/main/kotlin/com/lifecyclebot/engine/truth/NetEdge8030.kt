@@ -31,6 +31,7 @@ object NetEdge8030 {
     private val entryRefused = AtomicLong(0)
     private val exitHeld = AtomicLong(0)
     private val partialHeld = AtomicLong(0)
+    private val giveBackReleased = AtomicLong(0)
     @Volatile private var lastCostPct = Double.NaN
 
     // ── pure ──
@@ -54,6 +55,19 @@ object NetEdge8030 {
     /** Is a green exit at [pnlPct] below the net floor (and not structural)? */
     fun profitExitHeld8030(pnlPct: Double, floorPct: Double, structural: Boolean): Boolean =
         !structural && pnlPct.isFinite() && pnlPct > 0.0 && pnlPct < floorPct
+
+    /**
+     * V5.0.8048 — a give-back exit (trail, profit lock, peak capture, drawdown) on a position whose peak already cleared
+     * the net floor is protecting what is left, not taking a scalp. Holding it only waits for a worse print: 5.0.8046
+     * MINERS peaked +15.8%, the trail fired at ~0% and was held; the profit-lock floor (cost+0.5, model cost) always
+     * breached under this door's floor (cost+1, measured-or-model), so every lock sold at <= 0% as
+     * REALIZED_LOSS_AFTER_PROFIT_SIGNAL. Pure.
+     */
+    fun giveBackReleased8048(reason: String, peakPct: Double, floorPct: Double): Boolean {
+        if (!peakPct.isFinite() || !floorPct.isFinite() || peakPct < floorPct) return false
+        val r = reason.uppercase()
+        return listOf("TRAIL", "PROFIT_LOCK", "PEAK", "GIVEBACK", "GIVE_BACK", "DRAWDOWN", "BREAKEVEN", "BREAK_EVEN", "LOCK").any { r.contains(it) }
+    }
 
     // ── live ──
 
@@ -146,6 +160,12 @@ object NetEdge8030 {
         val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts))
         val floor = exitFloorPct8030(cost)
         if (!profitExitHeld8030(pnl, floor, structural)) return false
+        val peak = if (pos.highestPrice > 0.0) (pos.highestPrice / pos.entryPrice - 1.0) * 100.0 else Double.NaN
+        if (giveBackReleased8048(reason, peak, floor)) {
+            giveBackReleased.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("NET_PROFIT_GIVEBACK_RELEASED_8048") } catch (_: Throwable) {}
+            return false
+        }
         if (partial) partialHeld.incrementAndGet() else exitHeld.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc(if (partial) "NET_PROFIT_PARTIAL_HELD_8030" else "NET_PROFIT_EXIT_HELD_8030")
@@ -160,6 +180,6 @@ object NetEdge8030 {
     }
 
     fun statusLine(): String =
-        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
+        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)"
 }

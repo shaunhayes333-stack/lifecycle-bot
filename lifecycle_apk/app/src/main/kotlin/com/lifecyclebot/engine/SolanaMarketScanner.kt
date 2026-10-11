@@ -1912,7 +1912,10 @@ class SolanaMarketScanner(
                     // virtual_sol_reserves (lamports) / 1e9 * ~$170 SOL ≈ reasonable liq floor.
                     val mcap = coin.optDouble("usd_market_cap", 0.0)
                     val virtualSolReserves = coin.optDouble("virtual_sol_reserves", 0.0) / 1_000_000_000.0
-                    val liq = if (virtualSolReserves > 0.0) virtualSolReserves * 170.0 else mcap * 0.05
+                    // V5.0.8048 — real SOL in the curve (virtual - 30) at the live SOL price; was virtual x a hard-coded $170.
+                    val solUsd8048 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                    val liq = if (virtualSolReserves > 0.0 && solUsd8048 > 0.0) (virtualSolReserves - 30.0).coerceAtLeast(0.0) * solUsd8048
+                        else if (solUsd8048 > 0.0) com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(mcap / solUsd8048) * solUsd8048 else 0.0
                     val vol = 0.0
 
                     val createdTs = coin.optLong("created_timestamp", 0L)

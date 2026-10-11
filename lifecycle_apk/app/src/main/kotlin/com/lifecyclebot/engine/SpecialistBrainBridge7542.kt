@@ -42,6 +42,8 @@ object SpecialistBrainBridge7542 {
     /** V5.0.8031 — READY means electable: the TREASURY role floor (mcap / liquidity) the election applies is applied here too. */
     private fun treasuryFloorOk8031(ts:com.lifecyclebot.data.TokenState):Boolean=
         ts.lastMcap>=TreasuryScannerFeed.MIN_TREASURY_MCAP&&ts.lastLiquidityUsd>=TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
+    /** Pure (V5.0.8048): may the veto audit retire this native refusal? Never safety, rug, dev, bundle or liquidity rules. */
+    fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR").none{r.contains(it)}}
     /** V5.0.7948 — SHITCOIN passes at score 15-48 while MOONSHOT needs 30-60; arbitrate on each lane's own bar. */
     private fun onLaneBar7948(o:Opinion,scoreBar:Int,confBar:Int):Opinion=
         o.copy(ownershipConviction7948=SpecialistExecution7948.laneRelativeConviction7948(o.score,o.confidence,scoreBar,confBar))
@@ -200,6 +202,18 @@ object SpecialistBrainBridge7542 {
         if (owns7828("CASHGEN")) out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin);op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
         if (owns7828("CYCLIC")) out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
 
+        // V5.0.8048 — closed loop for native refusals: the Cortex veto audit grades every NATIVE_<rule> (8031) and 5.0.8046
+        // read NATIVE_NO_CONTINUATION@EXPRESS refusing winners (n56, +7.5%), but nothing ever asked it back. A native rule
+        // the audit proves is refusing winners in its own lane (40+ graded, mean - SE > +2% net) stands down; every
+        // downstream gate (watch first, net edge, FDG, the buy door) still decides. Safety and liquidity rules never do.
+        for ((lane, o) in out.toList()) {
+            if (o.eligible || !o.authoritative || !o.gradeable || !nativeRuleRetirable8048(o.reason)) continue
+            val rule = "NATIVE_${DecisionReasons8031.rule8031(o.reason)}"
+            if (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, lane) } catch (_: Throwable) { false }) {
+                out[lane] = o.copy(eligible = true, reason = "NATIVE_VETO_RETIRED_8048:${o.reason.take(60)}")
+                try { PipelineHealthCollector.labelInc("NATIVE_VETO_RETIRED_8048_$lane") } catch (_: Throwable) {}
+            }
+        }
         val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
         val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
         val coreScore=(if(s.isNotEmpty())s.take(4).map{maxOf(it.score,it.confidence)}.average().toInt()else v3).coerceIn(0,100)

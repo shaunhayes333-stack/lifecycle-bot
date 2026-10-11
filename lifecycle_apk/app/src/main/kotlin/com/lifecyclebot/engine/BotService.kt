@@ -960,9 +960,11 @@ class BotService : Service() {
      */
     /** V5.0.7766 — the plan's first target must clear the one round-trip cost for this position (was a fixed 4%). */
     private fun planCostPct7766(ts: com.lifecyclebot.data.TokenState): Double = try {
-        val solUsd = WalletManager.lastKnownSolPrice
-        val sizeSol = ts.position.costSol
-        com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(sizeSol, if (solUsd > 0.0) sizeSol * solUsd else 0.0, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts))
+        // V5.0.8048 — the sell door's own floor (NetEdge8030: the measured-or-model round trip + 1%). The plan and the
+        // profit locks priced the model cost alone (lock at cost+0.5), always under the door's floor, so a lock could
+        // never sell green. A lock at this break-even clears the door.
+        com.lifecyclebot.engine.truth.NetEdge8030.exitFloorPct8030(com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(
+            ts.position.tradingMode.ifBlank { "UNKNOWN" }, ts.position.costSol, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts)))
     } catch (_: Throwable) { PLAN_COST_PCT_7739 }
 
     /**
@@ -11058,8 +11060,9 @@ class BotService : Service() {
                             val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                                 .takeIf { it > 0.0 } ?: 150.0
                             val mcapUsd = mcapSol * solUsd
-                            // pump.fun bonding-curve liquidity ≈ mcap pre-graduation.
-                            val estLiq = (mcapUsd * 0.85).coerceAtLeast(0.0)
+                            // V5.0.8048 — the curve's real SOL from its cap (was mcap x 0.85: a fresh launch read ~$2.6K deep
+                            // with nobody in it — BOWNARROW). The chain read (CurveReserves7951) replaces it once it lands.
+                            val estLiq = com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(mcapSol) * solUsd
                             // V5.9.1463 — DERIVED intake confidence (was hardcoded 80 for
                             // EVERY WS token). That constant lie was the root of the 6.3% WR:
                             // a brand-new bonding-curve launch with vol1h=$0 and ~$1.5k liq is

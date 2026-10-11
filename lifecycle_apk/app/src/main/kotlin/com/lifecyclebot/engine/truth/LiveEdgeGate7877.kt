@@ -371,6 +371,8 @@ object LiveEdgeGate7877 {
         try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8038 — a live candidate's pool is read from the chain in the background, ready for the buy door.
         if (!paper) try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}
+        // V5.0.8048 — a dead launch (empty curve, launch cap) is refused here, before the FDG / sizing / ticket.
+        if (!paper) (try { OnChainDepth8038.earlyLaunchRefusal8048(ts) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
         // V5.0.7994 — watch first: live money only goes where the bot's own labels already point.
         if (!paper) watchFirst7994(ts, lane, nowMs)?.let { observeTail7996(ts, lane, it, nowMs); return it }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)

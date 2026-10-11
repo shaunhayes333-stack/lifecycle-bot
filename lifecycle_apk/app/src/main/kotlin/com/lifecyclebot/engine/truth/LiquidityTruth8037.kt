@@ -39,6 +39,9 @@ object LiquidityTruth8037 {
             if (solUsd.isFinite() && solUsd > 0.0) {
                 val usd = curveReal * solUsd
                 if (ts.lastLiquidityUsd != usd) { ts.lastLiquidityUsd = usd; curveRealApplied8046.incrementAndGet() }
+                // V5.0.8048 — the token map keeps the same truth (it held the intake estimate, mcap x 0.85: BOWNARROW $2,608
+                // in the map while V3 read $0), so every reader of the map agrees with the curve's own account.
+                try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
                 return usd
             }
         }
@@ -62,6 +65,14 @@ object LiquidityTruth8037 {
         }
         return if (v.isFinite() && v > 0.0) v else 0.0
     }
+
+    /**
+     * Pure (V5.0.8048): the SOL buyers have put into a pump.fun curve, from its market cap in SOL. The curve holds
+     * 30 + r virtual SOL against 30 x 1.073B / (30 + r) virtual tokens over a 1B supply, so cap = (30 + r)^2 / 32.19.
+     * Replaces the intake guesses (cap x 0.85, virtual reserves x a hard-coded $170) that fed every gate a fake depth.
+     */
+    fun curveRealSolFromCap8048(capSol: Double): Double =
+        if (capSol.isFinite() && capSol > 0.0) (kotlin.math.sqrt(capSol * 30.0 * 1.073) - 30.0).coerceAtLeast(0.0) else 0.0
 
     fun statusLine(): String =
         "curveReal=${curveRealApplied8046.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"

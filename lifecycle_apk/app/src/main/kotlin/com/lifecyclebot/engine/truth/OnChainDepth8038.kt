@@ -363,11 +363,30 @@ object OnChainDepth8038 {
     private val launchCapRefused8047 = AtomicLong(0)
     @Volatile private var lastRefusal8047 = "-"
 
+    private val earlyRefused8048 = AtomicLong(0)
+
+    /**
+     * V5.0.8048 — LiveEdgeGate7877 (before the FDG, sizing and a ticket): the same two dead-launch refusals as the buy
+     * door, on what is already known (no RPC). 5.0.8046: 28 buys reached the door only to die CURVE_NOBODY_BOUGHT /
+     * launch cap after being sealed and sized, crowding the lane's tickets (SHITCOIN 35 tickets -> 2 executions).
+     */
+    fun earlyLaunchRefusal8048(ts: TokenState): String? {
+        val real = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        val why = when {
+            curveNobodyBought8046(real) -> "CURVE_NOBODY_BOUGHT_8046"
+            atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> "AT_LAUNCH_CAP_8047"
+            else -> return null
+        }
+        earlyRefused8048.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("LIVE_EDGE_EARLY_${why}") } catch (_: Throwable) {}
+        return why
+    }
+
     /** Pure: the coin's cap in SOL is known and still at a launch curve's opening level. */
     fun atLaunchCap8047(capSol: Double): Boolean = capSol.isFinite() && capSol > 0.0 && capSol < LAUNCH_CAP_SOL_8047
 
     fun statusLine(): String =
-        "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} last=[$lastRefusal8047] " +
+        "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} earlyRefused8048=${earlyRefused8048.get()} last=[$lastRefusal8047] " +
             "poolDepthAsked=${poolDepthAsked8047.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${curveQueue.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
             "venues=PumpSwap,RaydiumV4,RaydiumCPMM rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
