@@ -243,8 +243,52 @@ object OnChainDepth8038 {
         return why
     }
 
+    // ── V5.0.8039 — curve coins whose depth nobody has read ──
+    //
+    // 5.0.8038 log: liquidity stillUnknown=1,254 · SHITCOIN NATIVE_LIQ_TOO_LOW=1,162 · EXPRESS 1,154 · V3 ZERO_LIQUIDITY=165.
+    // A pump.fun curve's depth is its own account (real SOL reserves); PumpPortal's trade stream (which used to carry
+    // them) is refused for an unfunded key, and the batched chain read of curve accounts (ParallelMarkFanout7088
+    // .curvePrices7392 -> CurveReserves7951) only ran for held coins and labels. A candidate whose liquidity is unknown
+    // is now queued, and one getMultipleAccounts call reads up to 80 queued curves every [CURVE_FLUSH_MS] (a few
+    // thousand calls a day). The next decision reads the reserves through TokenMapAuthority.observedLiquidityUsd.
+    private const val CURVE_FLUSH_MS = 10_000L
+    private const val CURVE_RETRY_MS = 60_000L
+    private const val CURVE_BATCH = 80
+    private val curveQueue = ConcurrentHashMap<String, Long>()       // mint -> queued at
+    private val curveAsked = ConcurrentHashMap<String, Long>()       // mint -> last read at
+    private val curveFlushing = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastCurveFlushMs = 0L
+    private val curveRequested = AtomicLong(0)
+    private val curveRead = AtomicLong(0)
+
+    /** Pure: may [mint] be asked for again ([lastAskedMs] = last read, 0 = never)? */
+    fun curveDue8039(lastAskedMs: Long, nowMs: Long): Boolean = lastAskedMs <= 0L || nowMs - lastAskedMs >= CURVE_RETRY_MS
+
+    /** LiquidityTruth8037: [mint]'s depth is unknown — read its curve from the chain in the next batch. Returns immediately. */
+    fun needCurve8039(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || !curveDue8039(curveAsked[mint] ?: 0L, nowMs)) return
+        curveQueue.putIfAbsent(mint, nowMs)
+        if (curveQueue.size > 2_000) curveQueue.keys.take(500).forEach { curveQueue.remove(it) }
+        if (nowMs - lastCurveFlushMs < CURVE_FLUSH_MS || !curveFlushing.compareAndSet(false, true)) return
+        lastCurveFlushMs = nowMs
+        val batch = curveQueue.entries.sortedBy { it.value }.take(CURVE_BATCH).map { it.key }
+        batch.forEach { curveQueue.remove(it); curveAsked[it] = nowMs }
+        if (curveAsked.size > 6_000) curveAsked.entries.removeIf { nowMs - it.value > 10 * CURVE_RETRY_MS }
+        try {
+            pool.execute {
+                try {
+                    curveRequested.addAndGet(batch.size.toLong())
+                    val got = com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(batch)
+                    curveRead.addAndGet(got.size.toLong())
+                    try { PipelineHealthCollector.labelInc("ONCHAIN_CURVE_DEPTH_READ_8039") } catch (_: Throwable) {}
+                } catch (_: Throwable) {
+                } finally { curveFlushing.set(false) }
+            }
+        } catch (_: Throwable) { curveFlushing.set(false) }
+    }
+
     fun statusLine(): String =
-        "verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
+        "curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${curveQueue.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
             "venues=PumpSwap,RaydiumV4,RaydiumCPMM rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
 }

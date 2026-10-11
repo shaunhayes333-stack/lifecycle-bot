@@ -41,7 +41,11 @@ object LiquidityTruth8037 {
         val obs = try { com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
         fill8037(ts.lastLiquidityUsd, obs)?.let { ts.lastLiquidityUsd = it; hydrated.incrementAndGet() }
         val v = ts.lastLiquidityUsd
-        if (!(v > 0.0)) stillUnknown.incrementAndGet()
+        if (!(v > 0.0)) {
+            stillUnknown.incrementAndGet()
+            // V5.0.8039 — unknown depth: read the coin's curve from the chain in the next batch.
+            try { OnChainDepth8038.needCurve8039(ts.mint) } catch (_: Throwable) {}
+        }
         return if (v.isFinite() && v > 0.0) v else 0.0
     }
 
