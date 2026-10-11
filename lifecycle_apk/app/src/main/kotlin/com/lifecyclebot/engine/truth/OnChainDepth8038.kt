@@ -40,8 +40,8 @@ object OnChainDepth8038 {
     const val RAYDIUM_V4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
     const val RAYDIUM_CPMM = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
     const val WSOL = "So11111111111111111111111111111111111111112"
-    const val CONTRADICTION_MULT_8038 = 4.0
-    const val PRICE_DROP_TOLERANCE_8038 = 0.40
+    private const val CONTRADICTION_MULT_8038 = 4.0
+    private const val PRICE_DROP_TOLERANCE_8038 = 0.40
     private const val FRESH_MS = 90_000L
     private const val UNSUPPORTED_RETRY_MS = 30L * 60_000L
     private const val BLOCKING_TIMEOUT_S = 3L

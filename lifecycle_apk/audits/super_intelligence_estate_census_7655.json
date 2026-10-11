@@ -1,6 +1,6 @@
 {
-  "all_kotlin": 1379,
-  "intelligence_candidates": 264,
+  "all_kotlin": 1380,
+  "intelligence_candidates": 265,
   "classifications": {
     "BACKGROUND_RESEARCH_REVIEW": 5,
     "CACHE_OR_READBACK_REVIEW": 72,
@@ -13,7 +13,7 @@
     "EXIT_EVIDENCE_UPSTREAM": 1,
     "EXIT_LEARNED_UPSTREAM": 2,
     "LAYER_BRAIN_LEARNED_UPSTREAM": 16,
-    "PROVIDER_BACKED_REVIEW": 11,
+    "PROVIDER_BACKED_REVIEW": 12,
     "REPORT_INFRASTRUCTURE": 23,
     "REPRESENTED_BY_AGGREGATOR": 54,
     "RISK_SHAPING_UPSTREAM": 1,
