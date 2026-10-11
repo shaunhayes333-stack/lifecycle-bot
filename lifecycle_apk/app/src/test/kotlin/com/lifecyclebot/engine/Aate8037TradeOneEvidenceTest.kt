@@ -41,6 +41,18 @@ class Aate8037TradeOneEvidenceTest {
         assertTrue(source.indexOf("noThreshold.incrementAndGet()", 0) < armed)
     }
 
+    @Test fun archivedPreProofSupplyCannotCertifyLiveIdentity() {
+        val metrics = File("src/main/kotlin/com/lifecyclebot/engine/truth/TokenMetricsAuthority7069.kt").readText()
+        val method = metrics.substringAfter("private fun storedSupplyOf(").substringBefore("fun acceptOnChainSupply7075")
+        assertTrue(method.contains("OnChainSupplyAuthority7075.supplyOf7075(mint)"))
+        assertTrue(method.contains("OnChainSupplyAuthority7075.requestAsync7075(mint)"))
+        assertFalse(method.contains("return durable"))
+        val cache = File("src/main/kotlin/com/lifecyclebot/engine/TokenMetaCache.kt").readText()
+        val upsert = cache.substringAfter("fun upsertSupply7069(").substringBefore("fun supplyOf7069(")
+        assertTrue(upsert.contains("if (ratio in 0.995..1.005) return"))
+        assertTrue(upsert.indexOf("e.supplyTokens = supplyTokens") > upsert.indexOf("if (ratio in 0.995..1.005) return"))
+    }
+
     @Test fun localHydrationNeverClaimsNewProviderObservation() {
         val source = File("src/main/kotlin/com/lifecyclebot/engine/RouteTruthHydrator.kt").readText()
         assertFalse(source.contains("tm.providerTimestamps[src] = now"))
