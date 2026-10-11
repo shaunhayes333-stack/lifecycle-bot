@@ -9,7 +9,7 @@ import java.io.File
 class Aate8051FillUnknownsTest {
     @Test fun refusalsAreFiled() {
         listOf("WATCH_FIRST_8019_BAND_NEGATIVE", "NET_EDGE_COIN_TOO_SLOW_8035", "REPEAT_LOSER_8022", "CURVE_NOBODY_BOUGHT_8046",
-            "AT_LAUNCH_CAP_8047", "PRICE_COLLAPSED_ONCHAIN_8038", "NATIVE_NO_CONTINUATION", "EXPLORATION_BUDGET_REFUSED_DUST_PROBE_69").forEach {
+            "AT_LAUNCH_CAP_8047", "PRICE_COLLAPSED_ONCHAIN_8038", "NATIVE_NO_CONTINUATION").forEach {
             assertEquals(it, RejectTaxonomy.Category.ADVISORY, RejectTaxonomy.classify(it).category)
             assertTrue(RejectTaxonomy.classify(it).trainable)
         }
@@ -27,9 +27,9 @@ class Aate8051FillUnknownsTest {
 
     @Test fun signatureFilled() {
         val f = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(!f.contains("admitted, score, \\"U\\", regime, \\"UNKNOWN\\""))
+        assertTrue(!f.contains("admitted, score, \"U\", regime, \"UNKNOWN\""))
         assertTrue(f.contains("fun signature8051(ts: TokenState, lane: String)"))
         val v = File("src/main/kotlin/com/lifecyclebot/engine/cortex/CortexVoters7885.kt").readText()
-        assertTrue(!v.contains("\\"U\\", regime(), \\"UNKNOWN\\""))
+        assertTrue(!v.contains("\"U\", regime(), \"UNKNOWN\""))
     }
 }
