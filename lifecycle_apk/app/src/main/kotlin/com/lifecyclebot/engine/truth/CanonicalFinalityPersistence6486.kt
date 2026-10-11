@@ -29,6 +29,7 @@ object CanonicalFinalityPersistence6486 {
         // EconomicEventSchema6464 SELL while consumers are replayed.
         try { EconomicEventSchema6464.init6486(context) } catch (_: Throwable) {}
         initialized = true
+        census8047(prefs!!)
         val events = prefs!!.all.entries.asSequence()
             .filter { it.key.startsWith(PREFIX) && it.value is String }
             .mapNotNull { decode(it.value as String) }
@@ -48,6 +49,23 @@ object CanonicalFinalityPersistence6486 {
     }
 
     @Volatile private var replaying7387 = false
+
+    // V5.0.8047 — 5.0.8046: this store was 4,092 KB of the app's 10 MB of preferences with the heap at 89% (peak 99%).
+    // SharedPreferences holds the whole file in memory and rewrites all of it on every apply(). The retired "ack:"
+    // namespace has not been read since 6697; its keys are removed once at start, and the diag names what is left.
+    @Volatile private var census8047 = "-"
+
+    private fun census8047(p: SharedPreferences) {
+        try {
+            val keys = p.all.keys
+            val retired = keys.filter { it.startsWith(ACK_PREFIX_6486_RETIRED_FORENSIC) }
+            if (retired.isNotEmpty()) p.edit().apply { retired.forEach { remove(it) } }.apply()
+            census8047 = "final=${keys.count { it.startsWith(PREFIX) }} ack=${keys.count { it.startsWith(ACK_PREFIX_6697) }} " +
+                "excluded=${keys.count { it.startsWith(EXCLUDED_PREFIX_6734) }} retiredAckPurged=${retired.size} total=${keys.size - retired.size}"
+        } catch (_: Throwable) {}
+    }
+
+    fun statusLine8047(): String = census8047
 
     fun record(event: CanonicalTradeFinalizedBus6450.Event) {
         // Only rows already stored are skipped, so a new terminal that lands during

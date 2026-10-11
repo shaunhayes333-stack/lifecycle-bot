@@ -230,6 +230,20 @@ object OnChainDepth8038 {
             } catch (_: Throwable) {}
             return "CURVE_NOBODY_BOUGHT_8046"
         }
+        // V5.0.8047 — 5.0.8046 bought PUMPTg at a $3,218 cap (29 SOL at $109.67): a launchpad coin whose mint is not
+        // pump-suffixed (LetsBonk, Meteora, un-suffixed pump.fun) skipped the curve check above. Any coin still at a
+        // launch curve's opening cap has no buyers behind it, whichever launchpad minted it.
+        val capSol8047 = try { TrustedMcap8019.mcap8019(ts) / solUsd() } catch (_: Throwable) { Double.NaN }
+        if (atLaunchCap8047(capSol8047)) {
+            launchCapRefused8047.incrementAndGet()
+            lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL"
+            try {
+                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} capSol=${"%.1f".format(capSol8047)} min=$LAUNCH_CAP_SOL_8047")
+            } catch (_: Throwable) {}
+            return "AT_LAUNCH_CAP_8047"
+        }
         // V5.0.8045 — 5.0.8043: 13 of 16 sized MOONSHOT buys died TOKEN_MAP_INCOMPLETE (liquidity pending) at this door.
         // An unknown depth is read from the chain now (the coin's pump.fun curve, one call), before the token-map check.
         if (!(ts.lastLiquidityUsd > 0.0)) try {
@@ -254,6 +268,9 @@ object OnChainDepth8038 {
             priceCollapsed8038(ts.lastPrice, chainPx) -> { priceCollapsed.incrementAndGet(); "PRICE_COLLAPSED_ONCHAIN_8038" }
             else -> null
         }
+        // V5.0.8047 — the last refusal's numbers, so the diag shows whether the chain or the quote was wrong.
+        if (why != null) lastRefusal8047 = "${if (why.startsWith("PRICE")) "PRICE" else "LIQ"} ${ts.symbol} pool=${read.pool.take(6)} " +
+            "chainPx=${"%.3g".format(chainPx)} buyPx=${"%.3g".format(ts.lastPrice)} chainLiq=${"%.0f".format(chainUsd)} apiLiq=${"%.0f".format(apiUsd)}"
         if (why == null) {
             verified.incrementAndGet()
             if (chainUsd.isFinite() && chainUsd > 0.0) ts.lastLiquidityUsd = chainUsd
@@ -289,6 +306,25 @@ object OnChainDepth8038 {
     /** Pure: may [mint] be asked for again ([lastAskedMs] = last read, 0 = never)? */
     fun curveDue8039(lastAskedMs: Long, nowMs: Long): Boolean = lastAskedMs <= 0L || nowMs - lastAskedMs >= CURVE_RETRY_MS
 
+    // V5.0.8047 — 5.0.8046: curves asked=884 read=52 while liquidity stillUnknown=971. Graduated coins and coins on
+    // other venues have no curve to read (the batch skips them), so their depth stayed unknown. A coin with a pool
+    // address now gets that pool's vaults read (throttled per mint like the curve queue).
+    private val poolAsked8047 = ConcurrentHashMap<String, Long>()
+    private val poolDepthAsked8047 = AtomicLong(0)
+
+    /** LiquidityTruth8037: [ts]'s depth is unknown — read its curve and, when it names a pool, the pool's vaults. */
+    fun needDepth8047(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+        val mint = ts.mint
+        if (mint.isBlank()) return
+        val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
+        if (!graduated) needCurve8039(mint, nowMs)
+        if (!curveDue8039(poolAsked8047[mint] ?: 0L, nowMs) || pools(ts).isEmpty()) return
+        poolAsked8047[mint] = nowMs
+        if (poolAsked8047.size > 6_000) poolAsked8047.entries.removeIf { nowMs - it.value > 10 * CURVE_RETRY_MS }
+        poolDepthAsked8047.incrementAndGet()
+        request8038(ts)
+    }
+
     /** LiquidityTruth8037: [mint]'s depth is unknown — read its curve from the chain in the next batch. Returns immediately. */
     fun needCurve8039(mint: String, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || !curveDue8039(curveAsked[mint] ?: 0L, nowMs)) return
@@ -319,8 +355,20 @@ object OnChainDepth8038 {
     /** Pure: an active curve's real SOL is known and below the floor. Unknown is not judged here. */
     fun curveNobodyBought8046(realSol: Double?): Boolean = realSol != null && realSol.isFinite() && realSol < MIN_CURVE_REAL_SOL_8046
 
+    /**
+     * V5.0.8047 — a launch curve opens near 28 SOL of cap (pump.fun: 30 virtual SOL over 1.073B virtual tokens, 1B
+     * supply) and reaches ~34 SOL once buyers have put in 3 SOL. A coin capped under this has no market behind it.
+     */
+    private const val LAUNCH_CAP_SOL_8047 = 34.0
+    private val launchCapRefused8047 = AtomicLong(0)
+    @Volatile private var lastRefusal8047 = "-"
+
+    /** Pure: the coin's cap in SOL is known and still at a launch curve's opening level. */
+    fun atLaunchCap8047(capSol: Double): Boolean = capSol.isFinite() && capSol > 0.0 && capSol < LAUNCH_CAP_SOL_8047
+
     fun statusLine(): String =
-        "emptyCurveRefused=${emptyCurveRefused8046.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${curveQueue.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
+        "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} last=[$lastRefusal8047] " +
+            "poolDepthAsked=${poolDepthAsked8047.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${curveQueue.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
             "venues=PumpSwap,RaydiumV4,RaydiumCPMM rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
 }

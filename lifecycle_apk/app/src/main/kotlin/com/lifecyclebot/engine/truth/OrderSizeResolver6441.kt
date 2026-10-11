@@ -585,6 +585,7 @@ object OrderSizeResolver6441 {
             try { PipelineHealthCollector.labelInc("ORDER_SIZE_NO_EDGE_REFUSED_MIN_PROMOTION_7877_${laneName.uppercase()}") } catch (_: Throwable) {}
         }
         if (refuseMinPromotion6909) {
+            try { RunnerCapture8017.noteDownstream8047(mint, if (convictionCollapsed6909) "SIZE_CONVICTION_6909" else "SIZE_NO_EDGE_7877") } catch (_: Throwable) {}  // V5.0.8047
             try {
                 PipelineHealthCollector.labelInc("ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909")
                 PipelineHealthCollector.labelInc("ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909_${laneName.uppercase()}")
@@ -908,7 +909,14 @@ object OrderSizeResolver6441 {
     /** V5.0.7877 — side-effect-free predicted-edge read for the route-minimum promotion. */
     private fun liveEdgeAllows7877(mint: String, laneName: String): Boolean = try {
         val ts = if (mint.isBlank()) null else com.lifecyclebot.engine.BotService.status.tokens[mint]
-        if (ts != null) {
+        // V5.0.8047 — the edge gate just admitted this mint on POSITIVE evidence (a specialist, a proven runner cell,
+        // a runner re-entry ticket, a tail ticket, a Cortex STRONG read, a cell paying +5%). Re-asking only the
+        // coarse cell verdict here refused those buys at the minimum size: 5.0.8046 ORDER_SIZE_CONVICTION_REFUSED=708,
+        // with three 4x+ runners admitted and never bought. Collapsed conviction still refuses.
+        if (mint.isNotBlank() && LiveEdgeGate7877.positiveAdmit7975(mint)) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ORDER_SIZE_POSITIVE_ADMIT_PROMOTED_8047") } catch (_: Throwable) {}
+            true
+        } else if (ts != null) {
             LiveEdgeGate7877.verdictFor(ts, laneName).allow
         } else {
             val l = CanonicalLaneIdentity6506.canonical(laneName).uppercase()

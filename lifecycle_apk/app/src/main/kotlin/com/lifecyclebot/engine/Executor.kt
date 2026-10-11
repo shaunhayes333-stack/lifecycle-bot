@@ -13695,6 +13695,7 @@ class Executor(
 
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         terminalizeCanonicalLiveFailure7790(ts, reason)
+        try { com.lifecyclebot.engine.truth.RunnerCapture8017.noteDownstream8047(ts.mint, reason) } catch (_: Throwable) {}  // V5.0.8047
         WalletCapacitySeal7868.release(ts.mint)
         try {
             val r = reason.uppercase()

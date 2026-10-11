@@ -34,6 +34,25 @@ object RunnerCapture8017 {
     private val runs = ConcurrentHashMap<String, Run>()
     private val seen = AtomicLong(0)
 
+    // V5.0.8047 — 5.0.8046: DeepSeek +939%, Van Cleef +846%, Gemini +642% read "MISSED(?)": the edge gate ADMITTED
+    // them (Field Manual: ENTER Van Cleef) and the buy died downstream (sizing, buy door) without the runner report
+    // saying where. The last downstream refusal per mint is kept so a missed admit names what stopped it.
+    private val downstream8047 = ConcurrentHashMap<String, String>()
+
+    /** Sizing / the live buy door refused [mint] after the gates admitted it. */
+    fun noteDownstream8047(mint: String, reason: String) {
+        if (mint.isBlank() || reason.isBlank()) return
+        if (downstream8047.size > 3_000) downstream8047.clear()
+        downstream8047[mint] = reason.substringBefore(':').trim().take(40)
+    }
+
+    /** Pure: the label a missed runner prints — its gate refusal, else what stopped the admitted buy. */
+    fun missedWhy8047(refusedBy: String, downstream: String?): String = when {
+        refusedBy.isNotBlank() -> refusedBy
+        !downstream.isNullOrBlank() -> "ADMITTED>$downstream"
+        else -> "ADMITTED>NO_BUY_ATTEMPT"
+    }
+
     /** Pure: the entry's distance above (+) or below (-) the coin's start mark, in %. */
     fun entryVsStart8017(entryPx: Double, startPx: Double): Double =
         if (entryPx > 0.0 && startPx > 0.0) (entryPx / startPx - 1.0) * 100.0 else Double.NaN
@@ -90,7 +109,7 @@ object RunnerCapture8017 {
         val rows = recent.take(8).joinToString(" · ") { r ->
             val e = entryVsStart8017(r.entryPx, r.startPx)
             when {
-                !r.held -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% MISSED(${r.refusedBy.ifBlank { "?" }.take(24)})"
+                !r.held -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% MISSED(${missedWhy8047(r.refusedBy, downstream8047[r.mint]).take(40)})"
                 r.bankedPct.isFinite() -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} banked ${"%+.0f".format(r.bankedPct)}% (${"%.0f".format((bankedShare8017(r.bankedPct, r.peakPct, e).takeIf { it.isFinite() } ?: 0.0) * 100)}% of run)${if (r.live) " LIVE" else " paper"}"
                 else -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} HOLDING ${if (r.openNowPct.isFinite()) "%+.0f%%".format(r.openNowPct) else ""}${if (r.live) " LIVE" else " paper"}"
             }

@@ -16,7 +16,7 @@ class Aate8039CurveDepthTest {
 
     @Test fun unknownDepthQueuesTheCurveRead() {
         val lt = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiquidityTruth8037.kt").readText()
-        assertTrue(lt.contains("OnChainDepth8038.needCurve8039(ts.mint)"))
+        assertTrue(lt.contains("OnChainDepth8038.needDepth8047(ts)"))
         val od = File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainDepth8038.kt").readText()
         assertTrue(od.contains("ParallelMarkFanout7088.curvePrices7392(batch)"))
     }

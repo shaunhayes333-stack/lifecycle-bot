@@ -57,7 +57,8 @@ object LiquidityTruth8037 {
         if (!(v > 0.0)) {
             stillUnknown.incrementAndGet()
             // V5.0.8039 — unknown depth: read the coin's curve from the chain in the next batch.
-            try { OnChainDepth8038.needCurve8039(ts.mint) } catch (_: Throwable) {}
+            // V5.0.8047 — and its pool's vaults when it names one (graduated / other venues have no curve).
+            try { OnChainDepth8038.needDepth8047(ts) } catch (_: Throwable) {}
         }
         return if (v.isFinite() && v > 0.0) v else 0.0
     }
