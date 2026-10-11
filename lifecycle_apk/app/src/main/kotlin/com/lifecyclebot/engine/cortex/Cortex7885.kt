@@ -1133,6 +1133,48 @@ object Cortex7885 {
         } catch (t: Throwable) { "  unavailable: ${t.javaClass.simpleName}" }
     }
 
+    // ── V5.0.8069 — the Cortex panel (Learning screen): the same numbers as the scoreboard card, as data ──
+
+    data class UiLane8069(
+        val lane: String, val graded: Int,
+        val strongN: Int, val strongMean: Double, val neutralN: Int, val neutralMean: Double,
+        val refuseN: Int, val refuseMean: Double, val slope: Double, val auth: Double, val powers: String,
+    )
+    data class UiSeat8069(val key: String, val authority: Double, val skillPct: Double, val n: Int)
+    data class UiVeto8069(val reason: String, val n: Int, val meanPct: Double, val sePct: Double)
+    data class Ui8069(
+        val assessed: Long, val graded: Long, val seated: Int, val pending: Int,
+        val lanes: List<UiLane8069>, val seats: List<UiSeat8069>, val vetoes: List<UiVeto8069>,
+    )
+
+    fun ui8069(): Ui8069? = try {
+        ensureLoaded()
+        synchronized(this) {
+            val seatList = ledger.seats.entries
+                .filter { !it.key.contains('@') && !it.key.endsWith("|${CortexLedger7885.GLOBAL}") }
+                .map { (k, s) -> UiSeat8069(k, s.authority(), s.skill() * 100.0, s.scored) }
+            val lanes = board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(12).map { (lane, b) ->
+                val runner = isRunner(lane)
+                val auth = board.fractionFor7955(lane)
+                val powers = buildString {
+                    if (board.refusalAuthority(lane, runner, true)) append("refuse-paper ")
+                    if (board.refusalAuthority(lane, runner, false)) append("refuse-live ")
+                    if (auth >= OVERRULE_FRACTION_7955) append("overrule ")
+                    if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("suspended ")
+                    if (board.inverted7948(lane)) append("inverted")
+                }.trim().ifBlank { "shadow" }
+                val r = b.byBucket[0]; val nu = b.byBucket[1]; val s = b.byBucket[2]
+                UiLane8069(lane, b.byBucket.sumOf { it.n }.toInt(), s.n.toInt(), s.mean(), nu.n.toInt(), nu.mean(),
+                    r.n.toInt(), r.mean(), calibration.slope(lane), auth, powers)
+            }
+            val vetoes = vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(10).map { (k, st) ->
+                UiVeto8069(k, st.n.toInt(), st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN)
+            }
+            Ui8069(assessed.get(), graded.get(), seatList.count { it.authority > 0.0 }, pending.size, lanes,
+                seatList.filter { it.n > 0 }.sortedByDescending { it.authority * 1000 + it.skillPct }.take(10), vetoes)
+        }
+    } catch (_: Throwable) { null }
+
     fun statusLine(): String {
         ensureLoaded()
         val credits = credits7888()

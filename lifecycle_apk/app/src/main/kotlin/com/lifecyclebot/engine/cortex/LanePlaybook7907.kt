@@ -749,6 +749,22 @@ object LanePlaybook7907 {
      */
     private const val SEED_MIN_N_8052 = 10.0
 
+    /** V5.0.8069 — the Cortex panel: one setup's record in one lane. */
+    data class SetupRow8069(val lane: String, val setup: String, val n: Int, val meanPct: Double, val sePct: Double, val proven: Boolean)
+
+    /** V5.0.8069 — the Cortex panel: the setups with the most graded labels (5+), best mean first within the cut. */
+    fun setupRows8069(limit: Int = 16): List<SetupRow8069> = try {
+        ensureLoaded()
+        synchronized(this) {
+            books.flatMap { (lane, b) ->
+                b.stats.entries.filter { it.value.n >= 5.0 }.map { (setup, st) ->
+                    val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN
+                    SetupRow8069(lane, setup, st.n.toInt(), st.mean(), se, setupProvenPositive7948(st))
+                }
+            }.sortedByDescending { it.n }.take(limit * 2).sortedByDescending { it.meanPct }.take(limit)
+        }
+    } catch (_: Throwable) { emptyList() }
+
     fun bestSetup8049(laneRaw: String): Pair<String, Double>? = try {
         ensureLoaded()
         val lane = canon(laneRaw)

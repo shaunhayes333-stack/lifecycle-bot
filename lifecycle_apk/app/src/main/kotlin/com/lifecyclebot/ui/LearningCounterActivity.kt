@@ -56,6 +56,10 @@ class LearningCounterActivity : Activity() {
     private val ioThread = HandlerThread("LearningCounter-IO").apply { start() }
     private val ioHandler = Handler(ioThread.looper)
     @Volatile private var cachedTradeHistorySize: String = "loading…"
+    // V5.0.8069 — the Cortex panel's data, read off the UI thread (the Cortex locks its books while it reads them).
+    @Volatile private var cachedCortex8069: com.lifecyclebot.engine.cortex.Cortex7885.Ui8069? = null
+    @Volatile private var cachedSetups8069: List<com.lifecyclebot.engine.cortex.LanePlaybook7907.SetupRow8069> = emptyList()
+    @Volatile private var cachedTruth8069: List<Pair<String, String>> = emptyList()
 
     private val backgroundPrewarm = object : Runnable {
         override fun run() {
@@ -63,6 +67,13 @@ class LearningCounterActivity : Activity() {
             cachedTradeHistorySize = try {
                 TradeHistoryStore.getStatsCached().totalStoredTrades.toString()
             } catch (_: Throwable) { "?" }
+            cachedCortex8069 = try { com.lifecyclebot.engine.cortex.Cortex7885.ui8069() } catch (_: Throwable) { null }
+            cachedSetups8069 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.setupRows8069(14) } catch (_: Throwable) { emptyList() }
+            cachedTruth8069 = listOf(
+                "Live book (§8064)" to (try { com.lifecyclebot.engine.truth.LiveTruth8064.statusLine() } catch (_: Throwable) { "unavailable" }),
+                "Lifecycle holds (§8065)" to (try { com.lifecyclebot.engine.LifecycleHold8065.statusLine() } catch (_: Throwable) { "unavailable" }),
+                "Helius credits (§8066)" to (try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.statusLine().lineSequence().firstOrNull()?.trim().orEmpty() } catch (_: Throwable) { "unavailable" }),
+            )
             ioHandler.postDelayed(this, 2_000L)
         }
     }
@@ -118,6 +129,9 @@ class LearningCounterActivity : Activity() {
         // open card but leaves this field pointing at it, so every subsequent
         // add* would land in an orphan and the screen would render blank.
         currentCard7023 = null
+
+        // ── Section 0: the Cortex (V5.0.8069) ─────────────────────────
+        renderCortex8069()
 
         // ── Section 1: Wallet truth digest ────────────────────────────
         // V5.9.781 — operator audit item I: read HostWalletTokenTracker as
@@ -339,6 +353,80 @@ class LearningCounterActivity : Activity() {
     private var currentCard7023: LinearLayout? = null
 
     private fun target7023(): LinearLayout = currentCard7023 ?: rootColumn
+
+    // ── V5.0.8069 — the Cortex panel ──────────────────────────────────
+    //
+    // Owner: "do you want to make a Cortex display ui in the learning panel? it would be cool to see the details".
+    // What the Cortex has learned per lane (what its STRONG and REFUSE reads did next), which setups have proven
+    // themselves, which voters earned a seat, whether its refusals are blocking losers or winners, and the
+    // live-book / lifecycle-hold / Helius-budget lines. Every figure is a net 5-minute (lifecycle lanes: lifecycle)
+    // forward return after costs, from the honest labels (no spike credit, §8064).
+
+    private fun pct8069(v: Double): String = if (v.isFinite()) "${if (v >= 0) "+" else ""}${"%.1f".format(v)}%" else "–"
+
+    private fun signColor8069(v: Double): Int = when {
+        !v.isFinite() -> AateUi.TEXT_MUTED
+        v > 0.0 -> AateUi.GREEN
+        v < 0.0 -> AateUi.RED
+        else -> AateUi.TEXT
+    }
+
+    private fun renderCortex8069() {
+        val ui = cachedCortex8069
+        addHeader("🧠 Cortex")
+        if (ui == null) { addText("loading the Cortex…", AateUi.TEXT_MUTED); return }
+        target7023().addView(AateComponents6994.metricRow(this, "Decisions assessed", ui.assessed.toString(), AateUi.TEXT,
+            "every buy / refuse the bot ruled on, read by the Cortex"))
+        target7023().addView(AateComponents6994.metricRow(this, "Graded on their outcome", ui.graded.toString(), AateUi.CYAN,
+            "${ui.pending} still waiting for their forward read"))
+        target7023().addView(AateComponents6994.metricRow(this, "Voters with a seat", ui.seated.toString(),
+            if (ui.seated > 0) AateUi.GREEN else AateUi.AMBER, "a seat = predictions that beat the lane average out of sample"))
+
+        addHeader("🛣️ Cortex · lanes")
+        if (ui.lanes.isEmpty()) addText("no graded decisions yet", AateUi.TEXT_MUTED)
+        ui.lanes.forEach { l ->
+            val gap = if (l.strongN > 0 && l.refuseN > 0) l.strongMean - l.refuseMean else Double.NaN
+            target7023().addView(AateComponents6994.metricRow(this, l.lane,
+                "${pct8069(l.strongMean)} / ${pct8069(l.refuseMean)}",
+                when { !gap.isFinite() -> AateUi.TEXT_MUTED; gap > 0.0 -> AateUi.GREEN; else -> AateUi.RED },
+                "STRONG n${l.strongN} vs REFUSE n${l.refuseN} · neutral ${pct8069(l.neutralMean)} n${l.neutralN} · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}"))
+            target7023().addView(AateComponents6994.barRow(this, "authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
+                if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
+        }
+        addText("left = what coins it read STRONG did next, right = what coins it read REFUSE did next. Green: it tells winners from losers.", AateUi.TEXT_MUTED, small = true)
+
+        addHeader("🎯 Cortex · setups")
+        val setups = cachedSetups8069
+        if (setups.isEmpty()) addText("no setup has 5+ graded labels yet (fresh honest books since 8064)", AateUi.TEXT_MUTED)
+        setups.forEach { r ->
+            target7023().addView(AateComponents6994.metricRow(this,
+                "${if (r.proven) "✅ " else ""}${r.setup}",
+                "${pct8069(r.meanPct)} ±${if (r.sePct.isFinite()) "%.1f".format(r.sePct) else "–"}",
+                if (r.proven) AateUi.GREEN else if (r.meanPct > 0.0) AateUi.AMBER else AateUi.RED,
+                "${r.lane} · n${r.n}${if (r.proven) " · PROVEN — live money allowed" else ""}"))
+        }
+
+        addHeader("🗳️ Cortex · voters")
+        if (ui.seats.isEmpty()) addText("no voter has been graded yet", AateUi.TEXT_MUTED)
+        ui.seats.forEach { v ->
+            target7023().addView(AateComponents6994.metricRow(this, v.key.replace('|', ' '),
+                "skill ${pct8069(v.skillPct)}",
+                if (v.authority > 0.0) AateUi.GREEN else signColor8069(v.skillPct),
+                "n${v.n}${if (v.authority > 0.0) " · seated, authority ${"%.2f".format(v.authority)}" else " · not seated"}"))
+        }
+
+        addHeader("🚫 Cortex · refusals audit")
+        if (ui.vetoes.isEmpty()) addText("no refusal reason has 5+ graded coins yet", AateUi.TEXT_MUTED)
+        ui.vetoes.forEach { v ->
+            // A refusal whose coins went DOWN saved money (green); one whose coins went UP refused winners (red).
+            target7023().addView(AateComponents6994.metricRow(this, v.reason.take(34),
+                pct8069(v.meanPct), if (v.meanPct < 0.0) AateUi.GREEN else AateUi.RED,
+                "n${v.n} refused coins · ${if (v.meanPct < 0.0) "blocked losers" else "blocked winners"}"))
+        }
+
+        addHeader("🧬 Live book · holds · data budget")
+        cachedTruth8069.forEach { (k, v) -> addKv(k, ""); addText(v, AateUi.TEXT_SECONDARY, small = true) }
+    }
 
     private fun addHeader(text: String) {
         val label = text.replace(Regex("^[^A-Za-z]*"), "").trim().ifBlank { text }
