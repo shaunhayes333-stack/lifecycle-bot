@@ -729,7 +729,7 @@ object ForwardReturnLabeler7731 {
     private val capturedLabels7945 = AtomicLong(0)
 
     /** V5.0.8071 — how long a level must hold before a sell is counted as able to land there. */
-    const val HELD_MS_8071 = 20_000L
+    private const val HELD_MS_8071 = 20_000L
 
     /**
      * Pure (V5.0.8071): one mark into the held-peak tracker. [window] keeps the last ~30 s of [atMs, gross]; once it spans
