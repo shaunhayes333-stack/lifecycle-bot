@@ -115,6 +115,8 @@ object LifecycleHold8065 {
         if (!pos.isOpen || pos.isPaperPosition || pos.entryTime <= 0L || !(pos.entryPrice > 0.0)) return false
         load()
         if (lifecycleLane8065(laneOf(ts))) return true
+        // V5.0.8072 — a runner ticket is held for its lifecycle whatever lane bought it.
+        if (try { RunnerTicket8073.isTicket8073(ts.mint) } catch (_: Throwable) { false }) return true
         // V5.0.8066 — once held, always held: a lane transfer (LaneTransitionManager, by market cap) never releases it.
         return states[key(ts)] != null
     }
@@ -264,6 +266,7 @@ object LifecycleHold8065 {
         load()
         return "holds=${states.size} freeRides=${states.values.count { it.taken >= 1 }} promoted=${promotions.get()} exitsHeld=${held.get()} slicesHeld=${partialsHeld.get()} " +
             "exits=[${exits.entries.joinToString(",") { "${it.key.removePrefix("LIFECYCLE_")}=${it.value.get()}" }.ifBlank { "-" }}] " +
+            "tickets8073[${try { RunnerTicket8073.statusLine() } catch (_: Throwable) { "-" }}] " +
             "lanes=${LANES_8065.joinToString("/")} rule=floor -${FLOOR_PCT.toInt()}% · half at 2x · 30% at 5x/10x · 15m base/trend breaks · dead money 72h"
     }
 }

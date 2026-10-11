@@ -123,7 +123,10 @@ object ForwardReturnLabeler7731 {
     private const val BASIS_MAX_RATIO_7738 = 20.0
     // V5.0.7769 — 300 clipped every real 4x-20x launch to +300% before the cell
     // mean saw it; the corroboration check below is what keeps basis errors out.
-    private const val NET_CEILING_PCT_7738 = 1000.0
+    // V5.0.8072 — NO win cap. Owner, 2026-10-12: "remove caps on blockchain provable data ... no win caps. the whole data set is blockchain verifiable".
+    // A 1000x is graded as a 1000x. Basis errors are still kept out where they are caught: a move past 20x books only
+    // when the market cap moved by the same multiple (runCorroborated7769, the chain-side witness), else it is dropped.
+    private const val NET_CEILING_PCT_7738 = Double.POSITIVE_INFINITY
     private val basisSuspect7738 = AtomicLong(0)
     private val purgedCells7738 = AtomicLong(0)
 

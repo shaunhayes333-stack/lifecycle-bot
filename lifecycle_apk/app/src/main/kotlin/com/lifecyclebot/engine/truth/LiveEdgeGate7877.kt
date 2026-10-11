@@ -389,7 +389,10 @@ object LiveEdgeGate7877 {
             // turned away POKEMON +1,077% and Gemini +708% — runners often fire no named setup. The coin's own cell
             // proven (30+ labels, mean - SE > 0), a lane-beating runner cell, a proven specialist or a tail ticket also
             // carry live money.
-            if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)) {
+            // V5.0.8072 — or a runner ticket: a small capped budget of unproven buys in the best honest-label group
+            // (graduated PumpSwap coins at $10k-$100k), held on the lifecycle rules (RunnerTicket8073).
+            if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) &&
+                !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false })) {
                 provenOnlyRefused8059.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
                 observeTail7996(ts, lane, "LIVE_PROVEN_SETUP_ONLY_8059", nowMs)
@@ -486,6 +489,10 @@ object LiveEdgeGate7877 {
         n >= BAND_MIN_N_8019 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
 
     private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long): String? {
+        // V5.0.8072 — a runner ticket is the deliberate unproven buy: it is not watched first.
+        if (try { com.lifecyclebot.engine.RunnerTicket8073.isTicket8073(ts.mint, nowMs) } catch (_: Throwable) { false }) {
+            cleared7994.incrementAndGet(); return null
+        }
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         if (st != null && cellEarnsLive7994(st.n60, st.meanNet60Pct)) {
             cleared7994.incrementAndGet()

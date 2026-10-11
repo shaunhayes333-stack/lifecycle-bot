@@ -288,7 +288,8 @@ object StrategyTelemetry {
                 // close in this app deploys more than ~5 SOL, so a >25 SOL single-close
                 // swing is physically impossible and must be a feed/unit artifact.
                 // A row must pass BOTH ceilings to enter the SOL total.
-                val relCap = if (size > 0.0) size * 50.0 else 5.0
+                // V5.0.8072 — no win cap below the learnable 1,000x (was 50x the size: a real 60x was deleted as an outlier).
+                val relCap = if (size > 0.0) size * (LEARNABLE_GAIN_CEILING_PCT_7349 / 100.0) else 5.0
                 // V5.0.7349 — was a flat 25 SOL: a real 600x on a 0.4 SOL entry
                 // (~240 SOL) was deleted from the lane's SOL total as an artifact.
                 // Bounded by the position's own entry cost at the learnable

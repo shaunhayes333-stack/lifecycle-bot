@@ -29,7 +29,9 @@ class CortexLedger7885 {
         const val MIN_SKILL = 0.005
         const val FULL_SKILL = 0.05
         const val Y_MIN = -100.0
-        const val Y_MAX = 200.0
+        // V5.0.8072 — NO win cap (was +200%: a setup whose 10% of coins ran 10x and 90% lost 20% read +2% instead of
+        // +72%, so the Cortex, the playbooks and the scoreboard all under-rated the runner setups). Owner, 2026-10-12: "remove caps on blockchain provable data ... no win caps. the whole data set is blockchain verifiable".
+        const val Y_MAX = Double.POSITIVE_INFINITY
         const val RUNNER_GROSS_PCT = 50.0
         const val STAT_WINDOW_8014 = 500.0
 

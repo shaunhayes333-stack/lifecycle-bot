@@ -302,21 +302,22 @@ object ForwardOutcomeModel {
      */
     private const val LABEL_TAG_7734 = "S"
     /** V5.0.7738 — the most one forward label may contribute to a label cell's mean. */
-    private const val LABEL_GAIN_CEILING_PCT_7738 = 300.0
-    /** V5.0.7738 — a label cell whose mean is above this was built on basis artefacts. */
-    private const val LABEL_MEAN_PLAUSIBLE_PCT_7738 = 150.0
+    // V5.0.8072 — NO win cap (was +300%). Owner, 2026-10-12: "remove caps on blockchain provable data ... no win caps. the whole data set is blockchain verifiable".
+    private const val LABEL_GAIN_CEILING_PCT_7738 = Double.POSITIVE_INFINITY
 
     /** V5.0.7738 — drops label cells poisoned before the ceiling existed; returns how many. */
     private fun purgeImplausibleLabelCells7738(): Int {
         var n = 0
         for (map in listOf(fine, coarse)) {
-            val bad = map.entries.filter { it.key.startsWith("$LABEL_TAG_7734|") && (it.value.mean > LABEL_MEAN_PLAUSIBLE_PCT_7738 || it.value.stdev > 1_000.0) }
+            // V5.0.8072 — a big mean is a big winner, not an artefact: only a non-finite cell is dropped (it was dropping
+            // every cell whose real runners lifted its mean past +150% on each start).
+            val bad = map.entries.filter { it.key.startsWith("$LABEL_TAG_7734|") && (!it.value.mean.isFinite() || !it.value.stdev.isFinite()) }
             bad.forEach { if (map.remove(it.key, it.value)) n++ }
         }
         if (n > 0) {
             try {
                 PipelineHealthCollector.labelInc("FORWARD_OUTCOME_LABEL_CELLS_PURGED_7738")
-                ForensicLogger.lifecycle("FORWARD_OUTCOME_LABEL_CELLS_PURGED_7738", "purged=$n bar=mean<=${LABEL_MEAN_PLAUSIBLE_PCT_7738}% stdev<=1000 action=basis_artefact_cells_dropped")
+                ForensicLogger.lifecycle("FORWARD_OUTCOME_LABEL_CELLS_PURGED_7738", "purged=$n bar=finite mean and stdev (8072: no win cap) action=non_finite_cells_dropped")
             } catch (_: Throwable) {}
         }
         return n
