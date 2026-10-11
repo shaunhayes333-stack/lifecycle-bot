@@ -193,6 +193,12 @@ object ForwardReturnLabeler7731 {
         @Volatile var dipBeforePeak7962 = Double.NaN
         /** V5.0.7967 — the refusal reason at the decision (missed-runner audit). */
         @Volatile var reason7967: String = ""
+        /**
+         * V5.0.8071 — the highest gain the price HELD for [HELD_MS_8071] (every mark in a 20-second window at or above
+         * it): a level a sell can actually land at. A one-print spike that reverts inside seconds never sets it.
+         */
+        @Volatile var heldPeak8071 = 0.0
+        val recent8071 = ArrayDeque<DoubleArray>()   // [atMs, gross], the last ~30 s of marks
         /** V5.0.8006 — the exit-profile sample waits for the end of a followed run. */
         @Volatile var exitDeferred8006: Boolean = false
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
@@ -694,12 +700,16 @@ object ForwardReturnLabeler7731 {
         // V5.0.8029 — graded on THIS lane's play: its own stop first (a coin through the stop before its peak is a
         // stopped trade, not a run), then the spike ladder on the peak with the rest at the mark — or at the stop.
         val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane) } catch (_: Throwable) { Double.NaN }
+        // V5.0.8071 — a REAL move is credited, a one-print spike is not. The ladder sells into the level the price HELD
+        // for 20 seconds (heldPeak8071) — a level a live sell can land at — on the lane's own ladder (lifecycle lanes:
+        // half at 2x, 30% at 5x and 10x; scalp lanes: the spike tiers). The 8064 note below is why the raw peak is not.
         // V5.0.8064 — NO spike credit. Owner, 5.0.8063: "its got worse not better" — 44 live closes, 3 wins, PF 0.09,
         // while the label book read its best cells at +529% (wr 95%) and +588% (wr 86%): 302 of 341 graded labels were
         // credited the spike ladder on their peak. Live never banks those prints (spike tiers fired=0; a +156% quick take
         // landed at -40%; a +236% peak closed at -18%) — a pump.fun spike is one or two trades, gone before a sell lands.
         // A label is now the lane's own play (its stop first) with the position worth the mark at the read.
-        val ladder8040: (Double, Double) -> Double = { pk, rest -> spikeCredit8064(pk, rest) }
+        val tiers8071 = try { if (com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
+        val ladder8040: (Double, Double) -> Double = { pk, rest -> heldCredit8071(minOf(pk, o.heldPeak8071), rest, tiers8071) }
         val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
         if (stop8029 > 0.0) try {
@@ -717,6 +727,30 @@ object ForwardReturnLabeler7731 {
     }
 
     private val capturedLabels7945 = AtomicLong(0)
+
+    /** V5.0.8071 — how long a level must hold before a sell is counted as able to land there. */
+    const val HELD_MS_8071 = 20_000L
+
+    /**
+     * Pure (V5.0.8071): one mark into the held-peak tracker. [window] keeps the last ~30 s of [atMs, gross]; once it spans
+     * [HELD_MS_8071], the lowest gross inside the last 20 s is a level the price held, and the held peak is the best such.
+     */
+    fun heldPeakStep8071(window: ArrayDeque<DoubleArray>, nowMs: Long, gross: Double, heldPeak: Double): Double {
+        if (!gross.isFinite()) return heldPeak
+        window.addLast(doubleArrayOf(nowMs.toDouble(), gross))
+        // Keep exactly one mark at or before (now - 20 s) — the start of the hold — and everything after it.
+        while (window.size >= 2 && nowMs - window.elementAt(1)[0].toLong() >= HELD_MS_8071) window.removeFirst()
+        if (nowMs - window.first()[0].toLong() < HELD_MS_8071) return heldPeak
+        // Every mark from the hold's start to now was at or above this level: the price held it for 20 s or more.
+        return maxOf(heldPeak, window.minOf { it[1] })
+    }
+
+    /** Pure (V5.0.8071): the ladder credit for a level the price held ([heldPeakPct]), the rest at the read ([restPct]). */
+    fun heldCredit8071(heldPeakPct: Double, restPct: Double, tiers: List<Pair<Double, Double>>): Double {
+        if (!heldPeakPct.isFinite() || !restPct.isFinite()) return restPct
+        val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(heldPeakPct, restPct, tiers)
+        return if (g.isFinite() && g > restPct) g else restPct
+    }
 
     /** Pure (V5.0.8064): what a label credits for a peak [peakPct] above the mark at the read [restPct] — nothing. */
     fun spikeCredit8064(@Suppress("UNUSED_PARAMETER") peakPct: Double, restPct: Double): Double = restPct
@@ -1118,6 +1152,8 @@ object ForwardReturnLabeler7731 {
             if (gross >= com.lifecyclebot.engine.RunnerPlay8018.RUN_CONFIRM_PCT_8018) try { com.lifecyclebot.engine.RunnerPlay8018.onRun8018(o.mint, gross, nowMs - o.atMs, nowMs) } catch (_: Throwable) {}
             if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs) } catch (_: Throwable) {}
             if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
+            // V5.0.8071 — the level the price held long enough to sell into.
+            synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, nowMs, gross, o.heldPeak8071) }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
             o.lastPx = px; o.lastPxAtMs = nowMs
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)

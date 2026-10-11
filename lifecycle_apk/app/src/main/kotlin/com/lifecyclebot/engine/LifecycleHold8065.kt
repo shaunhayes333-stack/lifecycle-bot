@@ -65,6 +65,9 @@ object LifecycleHold8065 {
         return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r)
     }
 
+    /** V5.0.8071 — the lifecycle ladder, for the forward labels that grade lifecycle lanes on it. */
+    fun ladder8071(): List<Pair<Double, Double>> = TAKES_8065
+
     /** Pure: the take (index, fraction) due at [grossPct] with [taken] already done, or null. */
     fun takeDue8065(grossPct: Double, taken: Int): Pair<Int, Double>? {
         if (!grossPct.isFinite() || taken >= TAKES_8065.size) return null

@@ -16,7 +16,8 @@ class Aate8064HonestLabelsTest {
         // foff: +276% peak, back to 0 at the read -> the label is 0, not the +50% the ladder promised.
         assertEquals(0.0, ForwardReturnLabeler7731.spikeCredit8064(276.0, 0.0), 1e-9)
         assertEquals(-12.0, ForwardReturnLabeler7731.spikeCredit8064(40.0, -12.0), 1e-9)
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("{ pk, rest -> spikeCredit8064(pk, rest) }"))
+        // V5.0.8071 — the ladder now credits the level the price HELD for 20 s, never the raw one-print peak.
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("heldCredit8071(minOf(pk, o.heldPeak8071), rest, tiers8071)"))
     }
 
     @Test fun freshBooks() {
