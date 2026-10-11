@@ -98,7 +98,7 @@ object NetEdge8030 {
     }
 
     /** The coin's own recent move: the last hour's high-low range from its real candles, or its 1h change; null if unknown. */
-    fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
+    private fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
         val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
