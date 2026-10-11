@@ -8,6 +8,12 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# Do not spend CI minutes rebuilding superseded PR heads.
+# Each new commit still receives its own check; only the latest remains running.
+concurrency:
+  group: aate-build-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
