@@ -212,6 +212,13 @@ object OnChainDepth8038 {
      * the refusal label when the chain contradicts the numbers the bot is buying on, else null.
      */
     fun buyRefusal8038(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
+        // V5.0.8045 — 5.0.8043: 13 of 16 sized MOONSHOT buys died TOKEN_MAP_INCOMPLETE (liquidity pending) at this door.
+        // An unknown depth is read from the chain now (the coin's pump.fun curve, one call), before the token-map check.
+        if (!(ts.lastLiquidityUsd > 0.0)) try {
+            com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint))
+            LiquidityTruth8037.hydrate8037(ts)
+            if (ts.lastLiquidityUsd > 0.0) PipelineHealthCollector.labelInc("BUY_DOOR_CURVE_DEPTH_READ_8045")
+        } catch (_: Throwable) {}
         val read = fresh(ts.mint, nowMs) ?: pools(ts).takeIf { it.isNotEmpty() }?.let { fetch(ts.mint, it) }
         if (read == null) {
             unverified.incrementAndGet()

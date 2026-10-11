@@ -199,7 +199,9 @@ object TokenMapAuthority {
             val ttl = if (pending) PENDING_RESULT_RETRY_MS_6492 else ROUTE_TTL_MS
             val strongerLocalEvidence = (tm.pairAddress.isNotBlank() && cached6492.pairAddress.isBlank()) ||
                 (tm.poolAddress.isNotBlank() && cached6492.poolAddress.isBlank()) ||
-                tm.priceObservedAtMs7858 > cached6492.priceObservedAtMs7858 || tm.jupiterQuoteOk || tm.dexRouteOk
+                tm.priceObservedAtMs7858 > cached6492.priceObservedAtMs7858 || tm.jupiterQuoteOk || tm.dexRouteOk ||
+                // V5.0.8045 — liquidity now known (chain / curve read) beats a cached "liquidity pending" result.
+                ((tm.liquidityUsd ?: 0.0) > 0.0 && (cached6492.liquidityUsd ?: 0.0) <= 0.0)
             if (!strongerLocalEvidence && cached6492.updatedAtMs > 0L && now - cached6492.updatedAtMs < ttl) {
                 tokenMapComplete.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("TOKEN_MAP_SHARED_RESULT_HIT_6492") } catch (_: Throwable) {}

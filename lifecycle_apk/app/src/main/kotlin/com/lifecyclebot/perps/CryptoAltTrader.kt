@@ -805,6 +805,30 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=$initPaper7803 | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
     }
 
+    // V5.0.8045 — owner: "yeah thats not good missing that!!" — TON (+1,448%) was a Solana coin the crypto brain picked;
+    // 8043 refused it to the crypto lane and the meme lanes never saw it. A Solana coin the crypto brain selects is handed
+    // to the meme intake (TokenMergeQueue, the scanners' own path) — at most once per mint per 10 minutes.
+    private val handedOff8045 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val SOLANA_MINT_8045 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+    private fun handOffSolanaToMeme8045(signal: AltSignal, liquidityUsd: Double, mcapUsd: Double) {
+        try {
+            val mint = signal.dynMint?.trim().orEmpty()
+            if (!SOLANA_MINT_8045.matches(mint)) return
+            val now = System.currentTimeMillis()
+            if (now - (handedOff8045[mint] ?: 0L) < 10L * 60_000L) return
+            handedOff8045[mint] = now
+            if (handedOff8045.size > 2_000) handedOff8045.entries.removeIf { now - it.value > 60L * 60_000L }
+            com.lifecyclebot.engine.TokenMergeQueue.enqueue(
+                mint = mint, symbol = signal.marketSymbol.ifBlank { mint.take(6) }, scanner = "DEX_TRENDING",
+                marketCapUsd = if (mcapUsd.isFinite()) mcapUsd else 0.0,
+                liquidityUsd = if (liquidityUsd.isFinite()) liquidityUsd else 0.0,
+                toolAffinity = setOf("CRYPTO_HANDOFF_8045"),
+            )
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_SOLANA_HANDOFF_TO_MEME_8045")
+        } catch (_: Throwable) {}
+    }
+
     /** V5.0.8043 — the operator's crypto toggle (entries only; open positions stay managed). */
     private fun cryptoToggleOff8043(): Boolean = try {
         (ctx ?: com.lifecyclebot.engine.BotService.instance?.applicationContext)
@@ -3612,7 +3636,7 @@ object CryptoAltTrader {
                     // V5.0.8043 — "the crypto trader claimed several sol coins": a coin discovered on Solana belongs to the
                     // meme stack (its lanes, its capital); the crypto lane never opens one live.
                     if (!paper7803 && signal.market == PerpsMarket.DYN && (signal.dynChainId ?: "").trim().equals("solana", true))
-                        "SOLANA_COIN_OWNED_BY_MEME_STACK_8043" else null,
+                        "SOLANA_COIN_OWNED_BY_MEME_STACK_8043".also { handOffSolanaToMeme8045(signal, candidate.liquidityUsd, candidate.marketCapUsd6493) } else null,
                     // V5.0.8042 — live money only where the coin's own move clears 2x the round trip.
                     if (paper7803) null else try {
                         com.lifecyclebot.engine.truth.NetEdge8030.cryptoEntryRefusal8042(signal.priceChange24h, finalSize, candidate.liquidityUsd)
