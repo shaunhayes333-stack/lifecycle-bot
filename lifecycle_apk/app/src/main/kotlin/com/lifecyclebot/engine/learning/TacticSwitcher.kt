@@ -212,10 +212,12 @@ object TacticSwitcher {
     private val seeded8049 = AtomicInteger(0)
 
     private fun seed8049(lane: String, k: String, cell: Cell) {
-        if (cell.lastRotationReason.get() != "initial") return
+        val prior8052 = cell.lastRotationReason.get().orEmpty()
+        // V5.0.8052 — cells 8049/8051 seeded on a noisy 1-4 label setup are seeded again (once) on the corrected pick.
+        if (prior8052 != "initial" && !(prior8052.startsWith("seed8049:") && !prior8052.endsWith("|8052"))) return
         val best = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.bestSetup8049(lane) } catch (_: Throwable) { null }
         val t = seedTactic8049(lane, best?.first)
-        val reason = "seed8049:${best?.first ?: "lane_default"}"
+        val reason = "seed8049:${best?.first ?: "lane_default"}|8052"
         synchronized(mutex) {
             if (t.ordinal != cell.tactic.get()) {
                 cell.tactic.set(t.ordinal)
@@ -253,7 +255,7 @@ object TacticSwitcher {
             s.isBlank() || s == "NO_TRIGGER" -> null
             listOf("PULLBACK", "DIP", "RECLAIM", "BOUNCE").any { s.contains(it) } -> Tactic.PULLBACK
             listOf("BASE", "ACCUM", "LADDER", "PRE_IGNITION", "COIL", "CONSOLID").any { s.contains(it) } -> Tactic.REACCUMULATION
-            listOf("BREAKOUT", "RS_LEADER", "GRADUATION", "NEW_HIGH", "RUNNER").any { s.contains(it) } -> Tactic.BREAKOUT
+            listOf("BREAKOUT", "RS_LEADER", "RELATIVE_STRENGTH", "RS_IN", "GRADUATION", "NEW_HIGH", "RUNNER", "FLAG").any { s.contains(it) } -> Tactic.BREAKOUT
             else -> Tactic.MOMENTUM
         }
         if (fromSetup != null) return fromSetup

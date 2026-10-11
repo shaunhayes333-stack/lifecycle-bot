@@ -14,6 +14,10 @@ class Aate8049LaneTacticSeedTest {
         assertEquals(Tactic.BREAKOUT, TacticSwitcher.seedTactic8049("MOONSHOT", "BREAKOUT_RUNNER"))
         assertEquals(Tactic.PULLBACK, TacticSwitcher.seedTactic8049("SHITCOIN", "FIRST_PULLBACK"))
         assertEquals(Tactic.MOMENTUM, TacticSwitcher.seedTactic8049("EXPRESS", "ACCELERATING_TAPE"))
+        // V5.0.8052
+        assertEquals(Tactic.BREAKOUT, TacticSwitcher.seedTactic8049("BLUECHIP", "RELATIVE_STRENGTH"))
+        assertEquals(Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("QUALITY", "LP_LOCKED_BASE"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/cortex/LanePlaybook7907.kt").readText().contains("n <= 0.0 || n >= SEED_MIN_N_8052"))
     }
 
     @Test fun laneDefaultsWhenNoSetup() {

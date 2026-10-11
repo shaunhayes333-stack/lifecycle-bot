@@ -685,10 +685,17 @@ object LanePlaybook7907 {
      * expectancy (its cheat-sheet prior, moved by every graded label and the hive), with its expectancy; null when the
      * lane has no menu.
      */
+    private const val SEED_MIN_N_8052 = 10.0
+
     fun bestSetup8049(laneRaw: String): Pair<String, Double>? = try {
         ensureLoaded()
         val lane = canon(laneRaw)
-        synchronized(this) { menuOf7962(lane)?.map { it.id to expected(lane, it.id) }?.maxByOrNull { it.second } }
+        // V5.0.8052 — a setup is a candidate on its cheat-sheet prior (no labels) or on a real record (10+ labels):
+        // 5.0.8051 seeded nearly every lane from TURNOVER_SPIKE on 1-4 labels (+45%, +118%) — noise, not a style.
+        synchronized(this) {
+            menuOf7962(lane)?.filter { val n = stat(lane, it.id)?.n ?: 0.0; n <= 0.0 || n >= SEED_MIN_N_8052 }
+                ?.map { it.id to expected(lane, it.id) }?.maxByOrNull { it.second }
+        }
     } catch (_: Throwable) { null }
 
     /** Cortex7885.capture: tag the decision with its setup for its forward label. */
