@@ -69,12 +69,43 @@ object NetEdge8030 {
 
     /** LiveEdgeGate7877 (live): the refusal when [lane]'s expected move is under 2x the round trip, else null. */
     fun entryRefusal8030(ts: TokenState, lane: String): String? {
-        val expected = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return null }
+        val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return null }
+        // V5.0.8035 — owner: "why is it buying bonk ... wouldn't this be common sense everywhere". The lane's textbook
+        // move (20% for quality / bluechip) let BLUECHIP buy BONK ($300M cap) whose hour moves 1-3%. Every lane now
+        // expects no more than the coin itself is actually moving: its last hour's range (or 1h change).
+        val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
+        val expected = expectedMove8035(mandate, realized)
         val cost = costPct8030(lane, DEFAULT_TICKET_SOL, ts.lastLiquidityUsd)
         if (entryClears8030(expected, cost)) return null
         entryRefused.incrementAndGet()
+        val slow = realized != null && realized < mandate
+        if (slow) slowRefused8035.incrementAndGet()
         try { PipelineHealthCollector.labelInc("NET_EDGE_ENTRY_REFUSED_8030_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
-        return "NET_EDGE_BELOW_2X_COST_8030"
+        return if (slow) "NET_EDGE_COIN_TOO_SLOW_8035" else "NET_EDGE_BELOW_2X_COST_8030"
+    }
+
+    private val slowRefused8035 = AtomicLong(0)
+
+    /** Pure: the move to expect — the lane's mandate, capped by what the coin is actually moving when that is known. */
+    fun expectedMove8035(mandatePct: Double, realizedPct: Double?): Double =
+        if (realizedPct != null && realizedPct.isFinite() && realizedPct >= 0.0) minOf(mandatePct, realizedPct) else mandatePct
+
+    /** Pure: the range (%) of [prices] (the last hour's prints), or null with fewer than [minPrints]. */
+    fun rangePct8035(prices: List<Double>, minPrints: Int = 6): Double? {
+        val p = prices.filter { it.isFinite() && it > 0.0 }
+        if (p.size < minPrints) return null
+        return (p.max() / p.min() - 1.0) * 100.0
+    }
+
+    /** The coin's own recent move: the last hour's high-low range from its real candles, or its 1h change; null if unknown. */
+    fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
+        val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
+        val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
+        val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
+        return when {
+            range != null && h1 != null -> maxOf(range, h1)
+            else -> range ?: h1
+        }
     }
 
     /** Executor sell door (live): true holds a green profit-taking exit that would not clear the net floor. */
@@ -102,6 +133,6 @@ object NetEdge8030 {
     }
 
     fun statusLine(): String =
-        "entryRefused=${entryRefused.get()} profitExitsHeld=${exitHeld.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
+        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} profitExitsHeld=${exitHeld.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)"
 }
