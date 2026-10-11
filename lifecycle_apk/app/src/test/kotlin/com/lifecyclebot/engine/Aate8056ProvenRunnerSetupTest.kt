@@ -26,3 +26,14 @@ class Aate8056ProvenRunnerSetupTest {
         assertTrue(c.contains("C3_STOOD_DOWN_LANE_SETUP_PROVEN_8056"))
     }
 }
+
+/** V5.0.8059 — live money only goes into a coin showing a proven setup; everything else is watched and graded. */
+class Aate8059ProvenOnlyLiveTest {
+    @Test fun gateIsFirstAndLiveOnly() {
+        val g = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
+        val gate = g.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\"")
+        val watch = g.indexOf("if (!paper) watchFirst7994(ts, lane, nowMs)")
+        assertTrue(gate in 1 until watch)
+        assertTrue(g.contains("if (!paper) {\n            val l8059"))
+    }
+}

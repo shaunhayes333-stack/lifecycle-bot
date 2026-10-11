@@ -373,6 +373,23 @@ object LiveEdgeGate7877 {
         if (!paper) try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}
         // V5.0.8048 — a dead launch (empty curve, launch cap) is refused here, before the FDG / sizing / ticket.
         if (!paper) (try { OnChainDepth8038.earlyLaunchRefusal8048(ts) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
+        // V5.0.8059 — PROVEN-ONLY LIVE. Owner: "its still losing money!!!" — 5.0.8055: 29 live closes, 2 wins, PF 0.11.
+        // The forward labeler grades every coin the bot sees (thousands a day) whether it buys or not, so a live buy
+        // teaches nothing the labels don't: it only costs SOL. Live money now goes ONLY into a coin showing a setup
+        // its lane has proven pays (LanePlaybook7907.provenSetup8056: 30+ graded labels, mean - SE > 0 net of cost).
+        // Everything else is watched and graded; as setups prove themselves they unlock automatically. Every gate
+        // after this one (watch first, Cortex, net edge, lane fit, dead launch, buy door) still applies.
+        if (!paper) {
+            val l8059 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+            val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            if (proven8059 == null) {
+                provenOnlyRefused8059.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
+                observeTail7996(ts, lane, "LIVE_PROVEN_SETUP_ONLY_8059", nowMs)
+                return "LIVE_PROVEN_SETUP_ONLY_8059"
+            }
+            provenOnlyAdmitted8059.incrementAndGet()
+        }
         // V5.0.7994 — watch first: live money only goes where the bot's own labels already point.
         if (!paper) watchFirst7994(ts, lane, nowMs)?.let { observeTail7996(ts, lane, it, nowMs); return it }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)
@@ -479,6 +496,8 @@ object LiveEdgeGate7877 {
     private val standDown8006 = java.util.concurrent.atomic.AtomicLong(0)
     private val cortexCleared8016 = java.util.concurrent.atomic.AtomicLong(0)
     private val provenSetupCleared8056 = java.util.concurrent.atomic.AtomicLong(0)
+    private val provenOnlyRefused8059 = java.util.concurrent.atomic.AtomicLong(0)
+    private val provenOnlyAdmitted8059 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** V5.0.7996 — every live decision opens a 4-hour ladder replay (TailHunter7996). */
     private fun observeTail7996(ts: TokenState, lane: String, reason: String?, nowMs: Long) {
@@ -488,7 +507,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
