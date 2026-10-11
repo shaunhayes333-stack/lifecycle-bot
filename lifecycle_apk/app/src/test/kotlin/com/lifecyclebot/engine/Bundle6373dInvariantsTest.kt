@@ -14,18 +14,12 @@ import java.io.File
 class Bundle6373dInvariantsTest {
 
     @Test
-    fun tradehistorystore_recomputes_phantom_pnl_pct() {
-        val txt = File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
-        assertTrue(
-            "V5.0.6373d: recordTrade must recompute pnl% against wallet-truthful SOL flow when basis is inconsistent",
-            txt.contains("V5.0.6373d — PHANTOM PNL% RECOMPUTE") &&
-                txt.contains("basisRatio in 0.95..1.05") &&
-                txt.contains("val realPnlPct = ((soldSol - cost) / cost) * 100.0"),
-        )
-        assertTrue(
-            "V5.0.6373d: recomputed rows must be counter-labelled for operator visibility",
-            txt.contains("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D"),
-        )
+    fun tradehistorystore_recomputes_only_from_sold_lot_sol_economics() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(src.contains("verifiedNetReturnPct8038("))
+        assertTrue(src.contains("TRADE_JOURNAL_PNL_UNKNOWN_NOT_RECOMPUTED_8038"))
+        assertTrue(!src.contains("val impliedFromBasis = qty * price"))
+        assertTrue(src.contains("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D"))
     }
 
     @Test

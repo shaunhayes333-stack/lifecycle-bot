@@ -863,6 +863,18 @@ object TradeHistoryStore {
         return ""
     }
 
+    /** Net SOL proceeds minus paid exit fees and sold-lot basis. Never quotes. */
+    internal fun verifiedNetReturnPct8038(
+        soldCostBasisSol: Double, grossProceedsSol: Double, exitFeesSol: Double,
+    ): Double? {
+        if (!soldCostBasisSol.isFinite() || soldCostBasisSol <= 0.0 ||
+            !grossProceedsSol.isFinite() || grossProceedsSol < 0.0 ||
+            !exitFeesSol.isFinite() || exitFeesSol < 0.0 ||
+            exitFeesSol > grossProceedsSol) return null
+        return (100.0 * (grossProceedsSol - exitFeesSol - soldCostBasisSol) / soldCostBasisSol)
+            .takeIf { it.isFinite() }
+    }
+
     fun recordTrade(trade: Trade) {
         ensureInitialized()
         // V5.0.6653 — canonical economic identity outranks heuristic mint/time
@@ -883,39 +895,22 @@ object TradeHistoryStore {
                 return
             }
         }
-        // V5.0.6373d — PHANTOM PNL% RECOMPUTE (Bug A of the wide bundle).
-        // Operator saw journal display +$7,819.45 with +1003.5% AVG WIN while
-        // the ACTUAL wallet was -65% from start. Root cause: stored pnlPct on
-        // some SELL rows was fabricated against a phantom cost basis
-        // (qty × entryPrice diverges from cost). Recompute pnlPct against
-        // wallet-truthful SOL flow whenever the row's stored basis is
-        // inconsistent by more than 5%. Labels the recomputed rows so the
-        // operator can see how many rows were corrected.
+        // A terminal receipt's P&L% must use SOLD lot cost, not whole-open
+        // cost or a unit-incompatible USD-price/SOL-cost comparison.
+        // No typed basis => no silent guess; the original observation remains.
         run {
-            val side = trade.side.orEmpty().uppercase()
-            if (side == "SELL" || side.startsWith("PARTIAL")) {
-                val cost = trade.entryCostSol
-                val qty  = trade.entryQtyToken
-                val price = trade.entryPriceSnapshot
-                val soldSol = trade.sol
-                if (cost > 0.0 && qty > 0.0 && price > 0.0 && soldSol >= 0.0) {
-                    val impliedFromBasis = qty * price
-                    val basisRatio = if (impliedFromBasis > 0) impliedFromBasis / cost else 1.0
-                    val basisConsistent = basisRatio in 0.95..1.05
-                    if (!basisConsistent) {
-                        val realPnlPct = ((soldSol - cost) / cost) * 100.0
-                        val storedPnlPct = trade.pnlPct
-                        val delta = kotlin.math.abs(realPnlPct - storedPnlPct)
-                        if (delta > 5.0) {
-                            try {
-                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
-                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D|lane=${trade.tradingMode.uppercase().take(24)}")
-                            } catch (_: Throwable) {}
-                            try {
-                                trade.pnlPct = realPnlPct
-                            } catch (_: Throwable) {}
-                        }
-                    }
+            if (isJournalSellLike(trade.side)) {
+                val verifiedPct8038 = verifiedNetReturnPct8038(
+                    trade.soldCostBasisSol, trade.grossProceedsSol, trade.feeSol,
+                )
+                if (verifiedPct8038 == null) {
+                    try { PipelineHealthCollector.labelInc("TRADE_JOURNAL_PNL_UNKNOWN_NOT_RECOMPUTED_8038") } catch (_: Throwable) {}
+                } else if (kotlin.math.abs(verifiedPct8038 - trade.pnlPct) > 0.01) {
+                    trade.pnlPct = verifiedPct8038
+                    try {
+                        PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
+                        PipelineHealthCollector.labelInc("TRADE_JOURNAL_VERIFIED_NET_RETURN_8038")
+                    } catch (_: Throwable) {}
                 }
             }
         }
