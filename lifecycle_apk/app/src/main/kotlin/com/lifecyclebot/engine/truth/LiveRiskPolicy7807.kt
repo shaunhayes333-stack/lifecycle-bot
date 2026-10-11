@@ -149,6 +149,70 @@ object LiveRiskPolicy7807 {
         return m.coerceIn(LEARNED_FLOOR_7807, MAX_GROWTH_MULT_7807)
     }
 
+    // ── V5.0.8057 — compounding sizer ──
+    //
+    // Owner: "growing the cash balance exponentially!! its meant to be trying first 2x to 5x cash balance growth daily.
+    // or the classic $50 to $1,000,000 thru the classic doubling". Every live order sat at the 0.0273 SOL route
+    // minimum whatever the wallet did, so a winning streak added linearly. A coin whose classified setup is PROVEN
+    // (LanePlaybook7907: 30+ graded labels, mean - SE > 0 net of cost) is sized at a quarter of the Kelly fraction of
+    // its record — f = 0.25 x (mean - SE) / variance — times current equity. The daily 2x-5x target is a scoreboard
+    // (dailyScoreLine8057), never a size input: chasing a target with size is how a small wallet is ruined.
+    private const val KELLY_FRACTION_8057 = 0.25
+    private const val KELLY_MAX_EQUITY_FRAC_8057 = 0.30
+
+    /** Pure: the quarter-Kelly notional share of equity for a setup record ([meanPct], [variancePct2], [n]). */
+    fun kellyFrac8057(meanPct: Double, variancePct2: Double, n: Double): Double {
+        if (!meanPct.isFinite() || !variancePct2.isFinite() || variancePct2 <= 0.0 || !n.isFinite() || n < 2.0) return 0.0
+        val se = kotlin.math.sqrt(variancePct2 / n)
+        val edge = (meanPct - se) / 100.0
+        if (edge <= 0.0) return 0.0
+        return (KELLY_FRACTION_8057 * edge / (variancePct2 / 10_000.0)).coerceIn(0.0, KELLY_MAX_EQUITY_FRAC_8057)
+    }
+
+    /** Pure: the compounding size (SOL) for [frac] of [equitySol], inside the lane cap, depth cap and hard loss at the stop. */
+    fun edgeKellySizeSol8057(equitySol: Double, frac: Double, laneCapSol: Double, liqCapSol: Double, stopPct: Double, costPct: Double): Double {
+        if (!equitySol.isFinite() || equitySol <= 0.0 || !frac.isFinite() || frac <= 0.0) return 0.0
+        val lossFrac = ((stopPct + costPct) / 100.0).coerceAtLeast(0.005)
+        val hardLossCap = equitySol * hardPerTradeRiskCapFrac(equitySol) / lossFrac
+        return minOf(equitySol * frac, laneCapSol, liqCapSol, hardLossCap).coerceAtLeast(0.0)
+    }
+
+    /** V5.0.8057 — the proven-edge quarter-Kelly share for [ts] in [lane], or 0. */
+    fun edgeKellyFracFor8057(ts: com.lifecyclebot.data.TokenState, lane: String): Double = try {
+        val st = com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetupStat8057(ts, canonicalLane(lane))
+        if (st == null) 0.0 else kellyFrac8057(st[0], st[1], st[2])
+    } catch (_: Throwable) { 0.0 }
+
+    // ── V5.0.8057 — the daily doubling scoreboard (report only) ──
+    @Volatile private var dayKey8057 = ""
+    @Volatile private var dayStartEquity8057 = 0.0
+    @Volatile private var dayLastEquity8057 = 0.0
+
+    private fun noteEquity8057(equitySol: Double, nowMs: Long) {
+        if (!equitySol.isFinite() || equitySol <= 0.0) return
+        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(nowMs))
+        if (dayKey8057.isEmpty()) try {
+            com.lifecyclebot.engine.LearningPersistence.load("day_start_equity_8057")?.split(',')?.let { f ->
+                if (f.size == 2 && f[0] == day) { dayKey8057 = day; dayStartEquity8057 = f[1].toDoubleOrNull() ?: 0.0 }
+            }
+        } catch (_: Throwable) {}
+        if (day != dayKey8057 || dayStartEquity8057 <= 0.0) {
+            dayKey8057 = day; dayStartEquity8057 = equitySol
+            try { com.lifecyclebot.engine.LearningPersistence.save("day_start_equity_8057", "$day,$equitySol") } catch (_: Throwable) {}
+        }
+        dayLastEquity8057 = equitySol
+    }
+
+    /** V5.0.8057 — today's equity multiple against the 2x floor / 5x stretch (CapitalPreservationCreed6439). */
+    fun dailyScoreLine8057(): String {
+        val start = dayStartEquity8057; val now = dayLastEquity8057
+        if (start <= 0.0 || now <= 0.0) return "day=- (no live equity read yet)"
+        val x = now / start
+        return "day=$dayKey8057 start=${"%.4f".format(start)} now=${"%.4f".format(now)} multiple=${"%.2f".format(x)}x " +
+            "target=${CapitalPreservationCreed6439.DAILY_TARGET_MULTIPLE_7223}x stretch=${CapitalPreservationCreed6439.DAILY_STRETCH_MULTIPLE_7223}x " +
+            "doublingsToday=${"%.2f".format(kotlin.math.ln(x) / kotlin.math.ln(2.0))} sizing=proven-edge quarter-Kelly of equity (target never sizes)"
+    }
+
     /** B8: rolling-24h net loss against the lane cap: 1.0, then 0.5 at the cap, 0.3 at twice it. */
     fun dailyLossMultiplier(laneLossSol: Double, capSol: Double): Double {
         if (!laneLossSol.isFinite() || laneLossSol <= 0.0 || !capSol.isFinite() || capSol <= 0.0) return 1.0
@@ -321,6 +385,8 @@ object LiveRiskPolicy7807 {
         val partialProviderEvidence: Boolean,
         val oracleUnproven: Boolean,
         val laneOpenLive: Int,
+        /** V5.0.8057 — quarter-Kelly share of equity the coin's PROVEN setup earns (0 = no proven edge). */
+        val edgeKellyFrac8057: Double = 0.0,
     )
 
     data class Decision(
@@ -389,6 +455,11 @@ object LiveRiskPolicy7807 {
             (i.liquidityUsd * 0.5 * LIQ_MAX_ONE_WAY_IMPACT_PCT_7807 / 100.0) / i.solUsd else Double.POSITIVE_INFINITY
         if (size > laneCap) { size = laneCap; labels += "LANE_MAX_POSITION_CAP_7807" }
         if (size > liqCap) { size = liqCap; labels += "LIQUIDITY_IMPACT_CAP_7807" }
+        // V5.0.8057 — compounding on proven edge: the bet is a quarter-Kelly share of CURRENT equity, so it grows as
+        // the wallet grows and shrinks as it falls, still bounded by drawdown / daily loss / governor shrink, the lane's
+        // position cap, the pool depth and the hard per-trade loss at the stop.
+        val kellySol = edgeKellySizeSol8057(i.equitySol, i.edgeKellyFrac8057 * ddMult * dailyMult * gov, laneCap, liqCap, stop, cost1)
+        if (kellySol > size) { size = kellySol; labels += "PROVEN_EDGE_COMPOUNDING_SIZE_8057" }
         if (i.upstreamSol > 0.0 && size > i.upstreamSol) size = i.upstreamSol
 
         if (i.execMinSol > 0.0 && size < i.execMinSol) {
@@ -531,6 +602,7 @@ object LiveRiskPolicy7807 {
         val effectiveLane7811 = canonicalLane(lane)
 
         val equity = liveEquitySol(walletSol)
+        noteEquity8057(equity, nowMs)
         // V5.0.7948 — one drawdown authority (CapitalDrawdown7948): marked live equity of
         // the whole wallet vs its rolling-24h peak, the same number KillSwitch reports.
         // The free cash passed here is sizing input; a sealed in-flight buy is not a loss.
@@ -562,6 +634,7 @@ object LiveRiskPolicy7807 {
             partialProviderEvidence = partialProviderEvidence,
             oracleUnproven = ll.closes < MIN_LIVE_SAMPLE_DEEP_SHRINK_7807 && plan == null,
             laneOpenLive = laneOpenLive(effectiveLane7811),
+            edgeKellyFrac8057 = try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { edgeKellyFracFor8057(it, effectiveLane7811) } ?: 0.0 } catch (_: Throwable) { 0.0 },
         )
     }
 

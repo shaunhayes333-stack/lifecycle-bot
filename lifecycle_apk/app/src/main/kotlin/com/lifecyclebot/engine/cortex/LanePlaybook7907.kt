@@ -643,6 +643,16 @@ object LanePlaybook7907 {
 
     private const val RUNNER_SETUP_MEAN_8056 = 10.0
 
+    /** V5.0.8057 — [mean %, variance %², n] of the coin's classified setup when that setup is proven (provenSetup8056). */
+    fun provenSetupStat8057(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
+            val st = stat(lane, setup)
+            if (st == null || !setupProvenPositive7948(st)) null else doubleArrayOf(st.mean(), st.variance(), st.n)
+        }
+    } catch (_: Throwable) { null }
+
     /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */
     fun classifiedSampleN7948(ts: TokenState, laneRaw: String): Int = try {
         val lane = canon(laneRaw)

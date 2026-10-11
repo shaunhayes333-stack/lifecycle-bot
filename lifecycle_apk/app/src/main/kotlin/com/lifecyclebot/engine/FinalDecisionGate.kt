@@ -6017,6 +6017,16 @@ object FinalDecisionGate {
         val shaped7871 = com.lifecyclebot.engine.truth.LaunchEntryShaping7871.shapedSize(
             requested, com.lifecyclebot.engine.truth.LaunchEntryShaping7871.sizeMult(ts, config.paperMode), minimum)
         var riskSized = minOf(shaped7871, depthCap, curveCap)
+        // V5.0.8057 — a proven-edge coin may ask for its compounding size (quarter-Kelly of current equity); depth,
+        // curve, the risk policy's caps, the wallet-share cap and the resolver still bound it.
+        if (!config.paperMode) try {
+            val kelly8057 = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.edgeKellyFracFor8057(ts, lane)
+            // Unknown depth (depthCap 0) is never sized up: it has no wallet-share substitute.
+            if (kelly8057 > 0.0 && depthCap > 0.0) {
+                val ask8057 = minOf(cash * kelly8057, depthCap, curveCap)
+                if (ask8057 > riskSized) { riskSized = ask8057; PipelineHealthCollector.labelInc("FDG_PROVEN_EDGE_COMPOUNDING_ASK_8057") }
+            }
+        } catch (_: Throwable) {}
         if (!config.paperMode) {
             val inputs = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.runtimeInputs(
                 mint = ts.mint, lane = lane, walletSol = cash, upstreamSol = riskSized,

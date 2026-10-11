@@ -138,6 +138,7 @@ object CapitalPreservationCreed6439 {
             // and by isAlignedWithDailyTarget(), which nothing calls. The growth
             // target is not wired into any sizer, ladder or learner. Said here
             // so nobody reads a big number and assumes the bot is chasing it.
-            "| consumers=statusLine_only growthTargetWiredToSizing=false " +
+            "| consumers=statusLine_only growthTargetWiredToSizing=false (V5.0.8057: sizing compounds on proven edge, the target is the scoreboard) " +
+            "today=[${try { LiveRiskPolicy7807.dailyScoreLine8057() } catch (_: Throwable) { "-" }}] " +
             "legacyPre7221=${LEGACY_DAILY_TARGET_PCT_PRE_7221}%/${LEGACY_WEEKLY_TARGET_PCT_PRE_7221}%"
 }
