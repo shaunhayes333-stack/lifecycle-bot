@@ -51,6 +51,8 @@ object SpikeCapture7943 {
      */
     fun rapidMark(ts: TokenState, nowMs: Long, sell: (TokenState, Double, String) -> Unit): Double? {
         val px = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd
+        // V5.0.8065 — a lifecycle hold runs its own exits (floor, 2x take, 15m base / trend breaks), not the scalp ones.
+        if (try { LifecycleHold8065.onMark8065(ts, px, nowMs, sell) } catch (_: Throwable) { false }) return px
         if (px != null && px > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate <= FRESH_MARK_MS_7944) {
             try { onMark(ts, px, sell) } catch (_: Throwable) {}
         }
@@ -167,7 +169,10 @@ object SpikeCapture7943 {
      * learned exit profiles (ExitProfile7955: n per key, top keys' tiers/trail/maxHold, tier fires by key).
      */
     fun diagLines7955(): String =
-        statusLine() + " · mayhem " + MayhemMode7943.statusLine() + "\n  Exit profiles (§7955):       " +
+        statusLine() + " · mayhem " + MayhemMode7943.statusLine() +
+            // V5.0.8065 — the lifecycle holds.
+            "\n  Lifecycle hold (§8065):      " + (try { LifecycleHold8065.statusLine() } catch (_: Throwable) { "unavailable" }) +
+            "\n  Exit profiles (§7955):       " +
             (try { ExitProfile7955.statusLine7955() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7961 — fill price against decision price, per lane (feeds every label's cost).
             "\n  Entry chase (§7961):         " + (try { com.lifecyclebot.engine.truth.EntryChase7961.statusLine() } catch (_: Throwable) { "unavailable" }) +

@@ -87,6 +87,8 @@ object StopAuthority7887 {
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) } catch (_: Throwable) { false }
         // Not a trading lane (a plan / audit key labelled through the same book): no play to grade on.
         if (!LANE_BASE.containsKey(l) && !runner && l != "MOONSHOT") return Double.NaN
+        // V5.0.8065 — a lifecycle lane is graded on the lifecycle hold's floor, not a scalp stop.
+        if (com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(l)) return com.lifecyclebot.engine.LifecycleHold8065.FLOOR_PCT
         val learned8040 = try { StopLearner8040.learnedStop8040(l) } catch (_: Throwable) { null }
         val base = learned8040 ?: LANE_BASE[l] ?: try { kotlin.math.abs(com.lifecyclebot.engine.HoldingLogicLayer.getHoldParams(l).stopLossPct) } catch (_: Throwable) { 15.0 }
         val mult = if (learned8040 != null) 1.0 else try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(l) } catch (_: Throwable) { 1.0 }

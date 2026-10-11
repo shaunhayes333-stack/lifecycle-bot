@@ -22844,6 +22844,12 @@ class Executor(
     }
 
     private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        // V5.0.8065 — a lifecycle hold holds through every ordinary exit above its floor (LifecycleHold8065).
+        if (try { LifecycleHold8065.defer8065(ts, reason) } catch (_: Throwable) { null } != null) {
+            try { DecisionReasons8031.hold8031(ts, "LIFECYCLE_HOLD_8065", reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
         // V5.0.7967 — a grabbed runner holds through soft exits while its 1m structure stands.
         // V5.0.8020 — a deliberate hold / refusal withdraws the trigger stamp: 8018's NORMAL_STOP "queue" of 232 s
         // was the runner hold being timed as dispatch latency (ExitStageTiming7876 / ExitTelemetryStamper6732).
@@ -23258,6 +23264,11 @@ class Executor(
         }
         // V5.0.8034 — a moonbag tail sells no ordinary slice (only its own TAIL_ milestones or a structural exit).
         if (try { TailBag8034.partialHeld8034(ts, reason) } catch (_: Throwable) { false }) {
+            receipt6566?.invoke(PartialSellReceipt6566(false))
+            return
+        }
+        // V5.0.8065 — nor does a lifecycle hold (only its own takes / stops or an integrity exit).
+        if (try { LifecycleHold8065.partialHeld8065(ts, reason) } catch (_: Throwable) { false }) {
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }

@@ -396,6 +396,16 @@ object LiveEdgeGate7877 {
                 return "LIVE_PROVEN_SETUP_ONLY_8059"
             }
             provenOnlyAdmitted8059.incrementAndGet()
+            // V5.0.8065 — no buying the top of a spike: 5.0.8063 filled at $300-700k caps right after the rip and was
+            // stopped out within a minute (FdZRSo -22% in 11 s). A coin up 80%+ off its recent low and still within
+            // 12% of its high, or up 100%+ in 5 minutes, waits for its pullback / base.
+            val snap8065 = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
+            if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m)) {
+                chaseRefused8065.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
+                observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
+                return "CHASING_SPIKE_8065"
+            }
         }
         // V5.0.7994 — watch first: live money only goes where the bot's own labels already point.
         if (!paper) watchFirst7994(ts, lane, nowMs)?.let { observeTail7996(ts, lane, it, nowMs); return it }
@@ -415,6 +425,12 @@ object LiveEdgeGate7877 {
         n >= 30 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct > 0.0
 
     private val kindProven8063 = AtomicLong(0)
+    private val chaseRefused8065 = AtomicLong(0)
+
+    /** Pure (V5.0.8065): is a buy here chasing a spike (extended off its low and at its high, or a 5-minute rip)? */
+    fun chasing8065(runupPct: Double, currentVsPeak: Double, change5mPct: Double): Boolean =
+        (runupPct.isFinite() && runupPct >= 80.0 && currentVsPeak.isFinite() && currentVsPeak >= 0.88) ||
+            (change5mPct.isFinite() && change5mPct >= 100.0)
 
     /** V5.0.8063 — a 30+ label kind book (lane x venue x cap band, or lane x narrative) for [ts] reads mean - SE > 0. */
     private fun kindProven8063(ts: TokenState, lane: String): Boolean {
@@ -549,7 +565,7 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} chaseRefused8065=${chaseRefused8065.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has

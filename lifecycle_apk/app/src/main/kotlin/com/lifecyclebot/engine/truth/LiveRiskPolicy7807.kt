@@ -569,7 +569,9 @@ object LiveRiskPolicy7807 {
         val key = canonicalLane(lane)
         CanonicalPositionAuthority6441.openPositions().count {
             // V5.0.8034 — a moonbag tail is a lottery ticket, not a working position: it takes no lane slot.
-            it.mode.equals("live", ignoreCase = true) && canonicalLane(it.lane) == key && !com.lifecyclebot.engine.TailBag8034.isTailMint8034(it.mint)
+            it.mode.equals("live", ignoreCase = true) && canonicalLane(it.lane) == key && !com.lifecyclebot.engine.TailBag8034.isTailMint8034(it.mint) &&
+                // V5.0.8065 — a lifecycle hold past its 2x take is a free ride: no lane slot.
+                !com.lifecyclebot.engine.LifecycleHold8065.freeRide8065(it.mint)
         }
     } catch (_: Throwable) { 0 }
 
