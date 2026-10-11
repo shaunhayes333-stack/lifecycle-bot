@@ -121,6 +121,17 @@ object CurveReserves7951 {
         return priceSol7951(r.virtualSol, r.virtualTokens)
     }
 
+    /**
+     * V5.0.8046 — the SOL buyers have actually put into an ACTIVE (not graduated) curve, from a reading inside the
+     * curve TTL; null when the curve is unknown, stale or graduated. 0.2 means "nobody bought": distinct from unknown.
+     */
+    fun realSolIfActive8046(mint: String, nowMs: Long = System.currentTimeMillis()): Double? {
+        val r = rows[mint.trim()] ?: return null
+        if (nowMs - r.atMs !in 0L..CURVE_TTL_MS) return null
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return null
+        return r.realSol.takeIf { it.isFinite() && it >= 0.0 }
+    }
+
     /** True when this mint's curve reserves have been observed. */
     fun known7951(mint: String): Boolean = rows.containsKey(mint.trim())
 

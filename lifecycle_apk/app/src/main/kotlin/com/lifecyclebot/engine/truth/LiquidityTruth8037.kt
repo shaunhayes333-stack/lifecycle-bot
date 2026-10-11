@@ -22,6 +22,7 @@ object LiquidityTruth8037 {
     private val hydrated = AtomicLong(0)
     private val stillUnknown = AtomicLong(0)
     private val chainApplied = AtomicLong(0)
+    private val curveRealApplied8046 = AtomicLong(0)
 
     /** Pure: the value to write when the tick has no liquidity but an observation does, else null. */
     fun fill8037(tickUsd: Double, observedUsd: Double): Double? =
@@ -29,6 +30,18 @@ object LiquidityTruth8037 {
 
     /** The liquidity every decision should read for [ts]; fills the tick field when it is missing. */
     fun hydrate8037(ts: TokenState): Double {
+        // V5.0.8046 — an active pump.fun curve's liquidity is the SOL buyers actually put in, not its 30 SOL of virtual
+        // reserves: 5.0.8043 MOONSHOT read DOGO-type launches as liq=$2.6-3.1K at a $3-4K cap while the wallet showed
+        // $1-2 (nobody had bought). Set up or down — this is the curve's own account.
+        val curveReal = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        if (curveReal != null) {
+            val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            if (solUsd.isFinite() && solUsd > 0.0) {
+                val usd = curveReal * solUsd
+                if (ts.lastLiquidityUsd != usd) { ts.lastLiquidityUsd = usd; curveRealApplied8046.incrementAndGet() }
+                return usd
+            }
+        }
         // V5.0.8038 — a fresh on-chain read of the pool's vaults (OnChainDepth8038) is the depth, ahead of any API figure.
         val chain = try { OnChainDepth8038.chainDepthUsd8038(ts.mint) } catch (_: Throwable) { Double.NaN }
         if (chain.isFinite() && chain > 0.0) {
@@ -50,5 +63,5 @@ object LiquidityTruth8037 {
     }
 
     fun statusLine(): String =
-        "chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
+        "curveReal=${curveRealApplied8046.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
 }

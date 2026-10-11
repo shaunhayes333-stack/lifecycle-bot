@@ -212,6 +212,24 @@ object OnChainDepth8038 {
      * the refusal label when the chain contradicts the numbers the bot is buying on, else null.
      */
     fun buyRefusal8038(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
+        // V5.0.8046 — owner: "these are all ... shit buys": DOGO, Gawkbot, BUNKER bought at pump.fun's creation cap with
+        // $1-2 real in the curve. An active curve whose buyers have put in under [MIN_CURVE_REAL_SOL_8046] is refused;
+        // an unknown curve on a pump mint is read from the chain first.
+        val pumpLike = ts.mint.endsWith("pump", ignoreCase = true) ||
+            (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) } catch (_: Throwable) { null }) != null
+        if (pumpLike && (try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }) == null) {
+            try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
+        }
+        val curveReal8046 = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        if (curveNobodyBought8046(curveReal8046)) {
+            emptyCurveRefused8046.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_CURVE_NOBODY_BOUGHT_8046")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_REFUSED_CURVE_NOBODY_BOUGHT_8046",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} realSol=${"%.3f".format(curveReal8046 ?: 0.0)} min=$MIN_CURVE_REAL_SOL_8046 cap=${ts.lastMcap.toInt()}")
+            } catch (_: Throwable) {}
+            return "CURVE_NOBODY_BOUGHT_8046"
+        }
         // V5.0.8045 — 5.0.8043: 13 of 16 sized MOONSHOT buys died TOKEN_MAP_INCOMPLETE (liquidity pending) at this door.
         // An unknown depth is read from the chain now (the coin's pump.fun curve, one call), before the token-map check.
         if (!(ts.lastLiquidityUsd > 0.0)) try {
@@ -294,8 +312,15 @@ object OnChainDepth8038 {
         } catch (_: Throwable) { curveFlushing.set(false) }
     }
 
+    /** V5.0.8046 — SOL other buyers must have put into a curve before live money joins (a dev buy alone is not a market). */
+    const val MIN_CURVE_REAL_SOL_8046 = 3.0
+    private val emptyCurveRefused8046 = AtomicLong(0)
+
+    /** Pure: an active curve's real SOL is known and below the floor. Unknown is not judged here. */
+    fun curveNobodyBought8046(realSol: Double?): Boolean = realSol != null && realSol.isFinite() && realSol < MIN_CURVE_REAL_SOL_8046
+
     fun statusLine(): String =
-        "curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${curveQueue.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
+        "emptyCurveRefused=${emptyCurveRefused8046.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${curveQueue.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
             "venues=PumpSwap,RaydiumV4,RaydiumCPMM rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
 }
