@@ -171,6 +171,20 @@ object CanonicalLedger6387 {
         val ataClosedProven: Boolean,
     )
 
+    /** Exact remaining-lot SOL cost allocation using proven chain raw deltas. */
+    internal fun allocateSellBasis8038(
+        remainingRaw: java.math.BigInteger,
+        soldRaw: java.math.BigInteger,
+        remainingCost: java.math.BigInteger,
+    ): java.math.BigInteger? {
+        if (remainingRaw.signum() <= 0 || soldRaw.signum() <= 0 ||
+            soldRaw > remainingRaw || remainingCost.signum() < 0) return null
+        // Never strand a rounding residual when a final proven sell takes all
+        // remaining raw tokens.
+        return if (soldRaw == remainingRaw) remainingCost
+        else remainingCost.multiply(soldRaw).divide(remainingRaw)
+    }
+
     @Synchronized
     fun commitSell(input: SellCommitInput): CommitResult {
         val posRef = positions[input.positionId]
@@ -191,14 +205,13 @@ object CanonicalLedger6387 {
             ConservationInvariants6387.onFailure("SELL_RAW_QTY_EXCEEDS_REMAINING pid=${input.positionId.take(8)} sold=${validate.rawQuantitySold.value} remaining=${pos.remainingRawQty.value}")
             return CommitResult.Rejected("SELL_QTY_CONSERVATION_FAIL")
         }
-        // Proportional cost basis allocation.
-        val basisRatio = if (pos.entryRawQty.value.signum() > 0) {
-            java.math.BigDecimal(validate.rawQuantitySold.value)
-                .divide(java.math.BigDecimal(pos.entryRawQty.value), 30, java.math.RoundingMode.HALF_UP)
-        } else java.math.BigDecimal.ZERO
-        val allocatedBasis = java.math.BigDecimal(pos.remainingCostBasisLamports.value)
-            .multiply(basisRatio)
-            .setScale(0, java.math.RoundingMode.DOWN).toBigInteger()
+        // A partial consumes its share of the REMAINING live lot, never the
+        // original entry quantity again. The original denominator left
+        // phantom cost on a fully exited two-rung trade.
+        val allocatedBasis = allocateSellBasis8038(
+            pos.remainingRawQty.value, validate.rawQuantitySold.value,
+            pos.remainingCostBasisLamports.value,
+        ) ?: return CommitResult.Rejected("SELL_BASIS_ALLOCATION_INVALID_8038")
         val newRemainingBasis = pos.remainingCostBasisLamports.value.subtract(allocatedBasis)
         // Realised P&L on THIS partial: proceeds - allocated basis.
         val partialPnl = validate.netLamportsReceived.value.subtract(allocatedBasis).toLong()

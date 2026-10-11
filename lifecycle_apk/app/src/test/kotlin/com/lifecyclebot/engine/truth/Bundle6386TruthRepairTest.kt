@@ -348,8 +348,8 @@ class Bundle6386TruthRepairTest {
         val r = FinalizedSellProof6386.validate("wallet1", "mintABC", proof)
         assertTrue(r.reason, r.proofComplete)
         assertEquals(RawTokenAmount.of(800L).value, r.rawQuantitySold.value)
-        // Net proceeds = (post - pre) lamports + fee = 500_000 + 5_000 = 505_000.
-        assertEquals(Lamports.of(505_000L).value, r.netLamportsReceived.value)
+        // Net SOL change is ALREADY fee-inclusive. Never add fee back as profit.
+        assertEquals(Lamports.of(500_000L).value, r.netLamportsReceived.value)
     }
 
     // ── Section 8: Partial sells without proof become PENDING_RECONCILIATION ─
