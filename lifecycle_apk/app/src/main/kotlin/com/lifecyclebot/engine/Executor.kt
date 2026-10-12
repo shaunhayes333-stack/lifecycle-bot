@@ -3130,12 +3130,20 @@ class Executor(
             proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null || proof.rawTokenConsumed.signum() <= 0) return null
         val position = liveCanonicalOpen7362(ts.mint) ?: return null
         val lifecycleEntryTime8076 = ts.position.entryTime
+        // Chain-confirmed token consumption decides partial versus terminal,
+        // not a free-form exit reason or a rounding-prone Double fraction.
+        val fullConsumed8081 = proof.rawTokenConsumed >= proof.preTokenRaw7835
+        val partialBps8081 = proof.rawTokenConsumed
+            .multiply(java.math.BigInteger.valueOf(10_000L))
+            .divide(proof.preTokenRaw7835).toInt().coerceIn(1, 10_000)
         val intent = com.lifecyclebot.engine.sell.SellIntent.build(
             mint = ts.mint, symbol = ts.symbol,
-            reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
-            requestedFractionBps = ((proof.rawTokenConsumed.toDouble() / proof.preTokenRaw7835.toDouble()) * 10000).toInt().coerceIn(1, 10000),
+            reason = if (fullConsumed8081)
+                com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason)
+            else com.lifecyclebot.engine.sell.SellReasonClassifier.fromString(reason),
+            requestedFractionBps = partialBps8081,
             confirmedWalletRaw = proof.preTokenRaw7835, decimals = proof.decimals,
-            slippageBps = 0, emergencyDrain = false,
+            slippageBps = 0, emergencyDrain = fullConsumed8081,
             entrySolSpent = (position.entryCostSol - position.soldCostBasisSol).coerceAtLeast(0.0),
             entryTokenRaw = position.remainingQtyRaw,
         )
