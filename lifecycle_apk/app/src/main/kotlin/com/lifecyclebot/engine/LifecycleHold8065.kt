@@ -222,8 +222,8 @@ object LifecycleHold8065 {
         val age = nowMs - pos.entryTime
         val why: Pair<String, Double>? = when {
             g <= -FLOOR_PCT -> "LIFECYCLE_STOP_FLOOR_8065_${g.toInt()}PCT" to 1.0
-            profitablePeakReversal8079(st.peak, g, ts.lastPriceUpdate > 0L &&
-                nowMs - ts.lastPriceUpdate in 0L..5_000L) ->
+            profitablePeakReversal8079(st.peak, g, ts.lastPrice > 0.0 && px == ts.lastPrice &&
+                ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate in 0L..5_000L) ->
                 "LIFECYCLE_PROFIT_GIVEBACK_8065_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
             cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
             st.taken == 0 && age >= SETTLE_MS && g < BASE_BROKE_RED_PCT && closedBarBroke(b, 16) ->
