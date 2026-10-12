@@ -45,4 +45,22 @@ class Aate8079SetupSelectionTest {
         assertTrue(cap.routeFloorLifted)
         assertTrue(cap.maxSpendableSol >= cap.routableMinSol * 1.03 - 1e-9 || cap.maxSpendableSol >= cap.tradeableSol - 1e-9)
     }
+
+    @Test fun exitQuoteBudgetLeavesTimeForTheNextEndpoint() {
+        com.lifecyclebot.network.ExitQuoteBudget7863.run(0L) {
+            // a stalled first hop gets 2 s, leaving 3 s for Ultra after it
+            assertEquals(2000L, com.lifecyclebot.network.ExitQuoteBudget7863.remainingMs(0L))
+            assertEquals(2000L, com.lifecyclebot.network.ExitQuoteBudget7863.remainingMs(2_000_000_000L))
+        }
+        val j = src("network/JupiterApi.kt")
+        val timeoutBreak = j.indexOf("JUPITER_V6_TIMEOUT_YIELDS_NEXT_ENDPOINT_8079")
+        assertTrue(timeoutBreak > j.indexOf("if (msg.contains(\" 429\")) continue@hosts"))
+        assertTrue(timeoutBreak < j.indexOf("Jupiter v6 quote exhausted adaptive fallbacks"))
+    }
+
+    @Test fun pumpPortalSellAmountIsAJsonNumber() {
+        val p = src("network/PumpFunDirectApi.kt")
+        assertTrue(p.contains("amountField = java.math.BigDecimal(uiAmount)"))
+        assertTrue(!p.contains("                amountField = uiAmount\n"))
+    }
 }

@@ -477,6 +477,13 @@ class JupiterApi(
                 log("⚠️ V6 quote attempt failed params=$params err=${msg.take(100)}")
                 // A 429 is the host's quota, not the route: try the next host.
                 if (msg.contains(" 429")) continue@hosts
+                // V5.0.8079 — a timeout is the host, not the route: wider slippage on the same stalled host cannot
+                // help and only spent the exit budget Ultra needed. Stop the v6 ladder and let the caller's next
+                // endpoint (Ultra binding order) use the time that is left.
+                if (msg.contains("timeout", ignoreCase = true) || msg.contains("budget exhausted", ignoreCase = true)) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_V6_TIMEOUT_YIELDS_NEXT_ENDPOINT_8079") } catch (_: Throwable) {}
+                    break@hosts
+                }
                 // 4xx from route constraints is often recoverable by changing route params;
                 // keep trying the adaptive ladder. Network/5xx also gets the next attempt.
             }

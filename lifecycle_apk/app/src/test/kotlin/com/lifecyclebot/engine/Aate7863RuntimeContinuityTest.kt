@@ -144,10 +144,12 @@ class Aate7863RuntimeContinuityTest {
     @Test fun nested_quote_fallbacks_share_deadline_and_restore_thread_state() {
         assertNull(ExitQuoteBudget7863.remainingMs(0L))
         ExitQuoteBudget7863.run(0L) {
-            assertEquals(3500L, ExitQuoteBudget7863.remainingMs(0L))
+            // V5.0.8079 — 5 s shared budget, no single hop may take more than 2 s of it.
+            assertEquals(2000L, ExitQuoteBudget7863.remainingMs(0L))
             ExitQuoteBudget7863.run(1_000_000_000L) {
-                assertEquals(2500L, ExitQuoteBudget7863.remainingMs(1_000_000_000L))
-                try { ExitQuoteBudget7863.remainingMs(3_500_000_000L); fail("must time out") }
+                assertEquals(2000L, ExitQuoteBudget7863.remainingMs(1_000_000_000L))
+                assertEquals(1000L, ExitQuoteBudget7863.remainingMs(4_000_000_000L))
+                try { ExitQuoteBudget7863.remainingMs(5_000_000_000L); fail("must time out") }
                 catch (_: java.net.SocketTimeoutException) { }
             }
         }

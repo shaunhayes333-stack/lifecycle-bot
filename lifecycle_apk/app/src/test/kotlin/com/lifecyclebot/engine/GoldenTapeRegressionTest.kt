@@ -14932,4 +14932,11 @@ class GoldenTapeRegressionTest {
         assertEquals("PLAYBOOK_SETUP_PROVEN_LOSING@EXPRESS_LAUNCH_CONTINUATION",
             com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("PLAYBOOK_SETUP_PROVEN_LOSING_7907_EXPRESS_LAUNCH_CONTINUATION"))
     }
+
+    @Test fun V5_0_8079_exit_quote_hop_cannot_starve_ultra_fallback() {
+        assertEquals(2_000L, com.lifecyclebot.network.ExitQuoteBudget7863.HOP_CAP_MS)
+        assertTrue(com.lifecyclebot.network.ExitQuoteBudget7863.TOTAL_MS > 2 * com.lifecyclebot.network.ExitQuoteBudget7863.HOP_CAP_MS)
+        val j = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        assertTrue(j.contains("JUPITER_V6_TIMEOUT_YIELDS_NEXT_ENDPOINT_8079"))
+    }
 }

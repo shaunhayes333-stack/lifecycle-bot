@@ -241,7 +241,9 @@ object PumpFunDirectApi {
                     throw PumpSellPayloadInvalid(
                         "PumpPortal SELL: invalid canonical amount raw=$tokenAmount decimals=$safeDecimals ui=$uiAmount")
                 }
-                amountField = uiAmount
+                // V5.0.8079 — sent as a JSON NUMBER (PumpPortal docs: amount is a number of tokens, or a "%" string).
+                // The quoted decimal "4390132.035522" (HIRE, 8078) came back HTTP 400 Bad Request on every rescue.
+                amountField = java.math.BigDecimal(uiAmount)
                 amountKind = "CANONICAL_UI"
                 com.lifecyclebot.engine.sell.SellForensics.inc(
                     com.lifecyclebot.engine.sell.SellForensics.SELL_AMOUNT_CANONICAL_RAW,
