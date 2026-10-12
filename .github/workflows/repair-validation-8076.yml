@@ -1,0 +1,22 @@
+name: 8076 isolated repair validation
+on:
+  push:
+    branches: [repair/8076-integrated]
+    paths: [.github/workflows/repair-validation-8076.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 02d91d62b96e823e940531b2b1e4048eb9082a10
+      - name: Export pinned source for repair
+        run: git archive --format=zip --output=/tmp/aate-source-8076.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aate-source-8076
+          path: /tmp/aate-source-8076.zip
+          retention-days: 1
