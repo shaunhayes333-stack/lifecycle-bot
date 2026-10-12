@@ -706,13 +706,17 @@ object HostWalletTokenTracker {
      * A genuine rebuy goes through a separately verified new canonical position,
      * and must be reconciled from a current wallet balance before host reopening.
      */
-    private fun oldBuyCannotReopen8079(mint: String, buySig: String?): Boolean {
-        val prior = positions[mint] ?: return false
-        val closed = prior.status in setOf(
+    /** A SELL in progress is not reversed by an older asynchronous BUY receipt. */
+    internal fun historicalBuyBlocked8079(status: PositionStatus, sellSignature: String?): Boolean =
+        status in setOf(
             PositionStatus.CLOSED, PositionStatus.CLOSED_VERIFIED, PositionStatus.SOLD_CONFIRMED,
             PositionStatus.CLOSED_SOLD_BY_AATE, PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
             PositionStatus.CLOSED_STALE_RECOVERY_UNHELD, PositionStatus.CLOSED_DUST_UNROUTABLE,
-        )
+        ) || (!sellSignature.isNullOrBlank() && status.priority >= PositionStatus.SELL_PENDING.priority)
+
+    private fun oldBuyCannotReopen8079(mint: String, buySig: String?): Boolean {
+        val prior = positions[mint] ?: return false
+        val closed = historicalBuyBlocked8079(prior.status, prior.sellSignature)
         if (!closed) return false
         val sameBuy = !buySig.isNullOrBlank() && buySig == prior.buySignature
         // Even a different signature cannot by itself overturn a *later* full
@@ -726,6 +730,7 @@ object HostWalletTokenTracker {
     }
 
     /** Called the instant a buy is broadcast — speculative, not yet confirmed. */
+    @Synchronized
     fun recordBuyPending(mint: String, symbol: String?, sig: String?) {
         if (mint.isBlank() || mint == SOL_MINT) return
         if (oldBuyCannotReopen8079(mint, sig)) return
@@ -1043,6 +1048,7 @@ object HostWalletTokenTracker {
      * dust the position transitions to SOLD_CONFIRMED → CLOSED. Otherwise
      * we keep tracking the residual qty.
      */
+    @Synchronized
     fun recordSellConfirmed(mint: String, symbol: String?, exitPrice: Double, pnlPct: Double, reason: String?) {
         val p = positions[mint] ?: return
         // V5.9.601: host-wallet tracker is live-wallet truth only. Paper exits
@@ -2051,6 +2057,7 @@ object HostWalletTokenTracker {
         return true
     }
 
+    @Synchronized
     fun confirmZeroBalanceClose(
         mint: String,
         hasConfirmedSellSig: Boolean,
