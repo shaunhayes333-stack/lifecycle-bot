@@ -49,6 +49,18 @@ changes in their means are not a controlled before/after comparison.
    requires five distinct real candles, checks the full OHLC range and current
    price, and excludes synthetic/stale bars. Lifecycle take progress advances
    after a verified canonical sell slice, not after asynchronous dispatch.
+9. **Realized learning used a mutable mint-level entry read.** Later candidate
+   assessments could replace the entry read while its position remained open.
+   The common canonical-open hook now binds an immutable read to position ID,
+   mint and mode; that binding is checkpointed with the Cortex. A close consumes
+   only its own binding. Missing historical bindings are counted as unmatched,
+   rather than substituted with a newer opinion about the same mint.
+10. **Finality consumers repeatedly reloaded the entire preference map.**
+    Registration occurs during ACK/exclusion/retry processing. It now hydrates
+    each consumer once after the durable store is ready, with retry after a
+    failed load. Identical ACK/exclusion writes are skipped. These remove a
+    confirmed source of allocation and write churn; they do not prove the
+    allocator responsible for the reported OOM.
 
 ## Lane findings
 
@@ -93,4 +105,5 @@ changes in their means are not a controlled before/after comparison.
 
 Regression coverage is in `Aate8076CortexRevisionTest`,
 `Aate8076CortexScoreIntegrityTest`, `Aate8076LaneSetupIdentityTest`, and
-`Aate8076EntryAndTakeTest`, alongside the existing required lane/history suite.
+`Aate8076EntryAndTakeTest` and `Aate8076PositionAndHydrationTest`, alongside the
+existing required lane/history suite.

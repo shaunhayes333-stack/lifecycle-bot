@@ -80,6 +80,16 @@ object CanonicalFinalizedTradeBus6464 {
     private val consumerAcks = ConcurrentHashMap<String, MutableSet<String>>() // consumer -> actually processed tradeIds
     private val consumerExcluded = ConcurrentHashMap<String, MutableSet<String>>() // consumer -> intentionally not mutated
     private val exclusionReasons = ConcurrentHashMap<String, String>() // consumer|tradeId -> reason
+    internal class ConsumerHydration8076 {
+        private val loaded = HashSet<String>()
+        @Synchronized fun once(consumer: String, ready: Boolean, load: () -> Unit) {
+            if (!ready || consumer in loaded) return
+            load()
+            loaded.add(consumer)
+        }
+        @Synchronized fun clear() { loaded.clear() }
+    }
+    private val hydration8076 = ConsumerHydration8076()
     private val publishes = AtomicLong(0L)
     private val duplicates = AtomicLong(0L)
     // V5.0.7493 — monotonic revision of UNIQUE canonical bus population.
@@ -105,9 +115,14 @@ object CanonicalFinalizedTradeBus6464 {
         val beforeAck7494 = consumerAcks[name]?.size ?: -1
         val beforeEx7494 = consumerExcluded[name]?.size ?: -1
         val acks = consumerAcks.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
-        consumerExcluded.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
-            .addAll(CanonicalFinalityPersistence6486.excludedIds6734(name))
-        acks.addAll(CanonicalFinalityPersistence6486.ackedIds6486(name).filterNot { isExcluded(name, it) })
+        val exclusions = consumerExcluded.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
+        // getAll() copies the full preference map. Registration is called again
+        // on each ACK/exclusion/retry; durable history only needs hydration once.
+        // Registration before the store opens must not latch an empty history.
+        hydration8076.once(name, CanonicalFinalityPersistence6486.isReady8076()) {
+            exclusions.addAll(CanonicalFinalityPersistence6486.excludedIds6734(name))
+            acks.addAll(CanonicalFinalityPersistence6486.ackedIds6486(name).filterNot { isExcluded(name, it) })
+        }
         if (beforeAck7494 != acks.size || beforeEx7494 != (consumerExcluded[name]?.size ?: 0)) {
             consumerParityRevision7494.incrementAndGet()
         }
@@ -488,6 +503,7 @@ object CanonicalFinalizedTradeBus6464 {
     }
 
     internal fun resetForTest() {
+        hydration8076.clear()
         retryAfter7863.clear()
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
         publishes.set(0L); duplicates.set(0L); canonicalRevision7493.set(0L)

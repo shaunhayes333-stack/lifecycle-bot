@@ -500,6 +500,10 @@ object CanonicalPositionAuthority6441 {
         val mint = p.mint
         val lane = p.lane
         val canonicalMode6490 = p.mode
+        try {
+            val cortexLane8076 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor(p.assetClass) ?: lane
+            com.lifecyclebot.engine.cortex.Cortex7885.bindPosition8076(positionId, mint, cortexLane8076, canonicalMode6490, p.openedAtMs)
+        } catch (_: Throwable) {}
         try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane, candidateVersion7863) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.bindPosition(positionId, mint, lane) } catch (_: Throwable) {}
         // V5.0.7813 — freeze the exact expert-trader feature vector that existed

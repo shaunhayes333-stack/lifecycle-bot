@@ -287,7 +287,11 @@ object Cortex7885 {
                     .put("i", ids).put("x", xs).put("pr", pr).put("pw", pw)
                     .put("rs", rs).put("sc", sc).put("bs", jsonNumbers(g.bookScales)).put("aux", jsonNumbers(g.auxScales)))
             }
-            return org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr).put("g8013", garr)
+            val bound = org.json.JSONArray()
+            positionReads8076.snapshot().forEach { b ->
+                bound.put(encodeEntryRead8076(b.read).put("pid", b.positionId).put("mint", b.mint).put("mode", b.mode))
+            }
+            return org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr).put("g8013", garr).put("bound8076", bound)
     }
 
     private fun jsonNumber(value: Double?): Any = value?.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL
@@ -338,6 +342,13 @@ object Cortex7885 {
             inc("PENDING_RESTORED")
         }
         restoreGraded8013(root, dict, nowMs)
+        root.optJSONArray("bound8076")?.let { bound ->
+            for (i in 0 until bound.length()) {
+                val o = bound.optJSONObject(i) ?: continue
+                val a = decodeEntryRead8076(o) ?: continue
+                positionReads8076.bind(o.optString("pid"), o.optString("mint"), o.optString("mode"), a)
+            }
+        }
     }
 
     /** V5.0.8013 — graded decisions still on the progressive schedule, back after a restart. */
@@ -1014,7 +1025,48 @@ object Cortex7885 {
     // ── OutcomeTruth cross-check: entry verdict -> whole-position close ──
 
     private val entryReads = ConcurrentHashMap<String, Assessment>()   // mint|MODE
+    private val positionReads8076 = CortexEntryReadBook8076<Assessment>()
     private const val ENTRY_READ_MATCH_MS = 15L * 60_000L
+
+    /** The common canonical-open hook covers direct fills and pending-entry promotion. */
+    fun bindPosition8076(positionId: String, mint: String, lane: String, mode: String, openedAtMs: Long) {
+        val m = mode.uppercase()
+        val normalized = try { CrossAssetCortex7931.normalizeCloseKey(mint) } catch (_: Throwable) { mint }
+        val a = entryReads["$normalized|$m"] ?: run { inc("ENTRY_BIND_MISSING_8076"); return }
+        if (a.lane != canon(lane) || openedAtMs - a.atMs !in 0L..ENTRY_READ_MATCH_MS) {
+            inc("ENTRY_BIND_MISMATCH_8076"); return
+        }
+        if (positionReads8076.bind(positionId, normalized, m, a)) {
+            inc("ENTRY_BOUND_8076")
+            // Never serialize the learning book while holding the canonical position lock.
+            submit("ENTRY_CHECKPOINT") { persist() }
+        }
+    }
+
+    private fun encodeEntryRead8076(a: Assessment): org.json.JSONObject = org.json.JSONObject()
+        .put("l", a.lane).put("g", a.regime).put("r", a.runnerLane).put("at", a.atMs).put("b", a.bucket.ordinal)
+        .put("ids", org.json.JSONArray(a.ids)).put("raw", jsonNumbers(a.raws))
+        .put("pred", jsonNumbers(a.prediction8076?.preds)).put("win", jsonNumbers(a.prediction8076?.pWins))
+        .put("base", jsonNumber(a.prediction8076?.base)).put("bw", jsonNumber(a.prediction8076?.baseWin))
+
+    private fun decodeEntryRead8076(o: org.json.JSONObject): Assessment? {
+        val ji = o.optJSONArray("ids") ?: return null
+        val jr = o.optJSONArray("raw") ?: return null
+        val jp = o.optJSONArray("pred"); val jw = o.optJSONArray("win")
+        val ids = ArrayList<String>(); val edges = ArrayList<DoubleArray>()
+        val raws = ArrayList<Double>(); val preds = ArrayList<Double>(); val wins = ArrayList<Double>()
+        for (i in 0 until minOf(ji.length(), jr.length())) {
+            val id = ji.optString(i)
+            val edge = CortexVoters7885.edgesFor(id) ?: continue
+            ids.add(id); edges.add(edge); raws.add(jr.optDouble(i, Double.NaN))
+            preds.add(jp?.optDouble(i, Double.NaN) ?: Double.NaN); wins.add(jw?.optDouble(i, Double.NaN) ?: Double.NaN)
+        }
+        val bucket = CortexScoreboard7885.Bucket.values().getOrNull(o.optInt("b", -1)) ?: return null
+        val fused = CortexLedger7885.Fused(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList())
+        return Assessment(o.optString("l"), o.optBoolean("r"), raws.toDoubleArray(), ids, edges, o.optString("g"),
+            fused, 0.0, bucket, 0, false, o.optLong("at"),
+            CortexLedger7885.PredictionSnapshot8076(preds.toDoubleArray(), wins.toDoubleArray(), o.optDouble("base", Double.NaN), o.optDouble("bw", Double.NaN)))
+    }
 
     private fun noteEntryRead(mint: String, paper: Boolean, a: Assessment) {
         if (entryReads.size > 4_000) entryReads.entries.removeIf { System.currentTimeMillis() - it.value.atMs > PENDING_TTL_MS * 4 }
@@ -1023,33 +1075,31 @@ object Cortex7885 {
 
     /** CanonicalFinalizedTradeBus6464 publish: one whole-position outcome (all legs, fees once). */
     fun onCanonicalClose(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
-        if (!env.terminal || !env.realizedReturnPct.isFinite()) return
-        // V5.0.7930 — inferred-basis / quarantined rows are not learning truth; and load first.
-        if (!env.learningEligible) { inc("REALIZED_NOT_ELIGIBLE"); return }
+        if (!env.terminal) return
         ensureLoaded()
         val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return
         // V5.0.7931 — cross-asset rows close under "solana|<mint>" / ticker / traded mint;
         // all map onto the identity the entry was captured under.
         val closeKey7931 = try { CrossAssetCortex7931.normalizeCloseKey(env.mint) } catch (_: Throwable) { env.mint }
-        val a = entryReads.remove("$closeKey7931|$mode") ?: return
-        // V5.0.7925 — many envelopes carry holdingTimeMs=0; then the entry time is unknown
-        // and the read is matched on mint+mode alone (it is removed at the first close).
-        if (env.holdingTimeMs > 0L) {
-            val entryAt = env.atMs - env.holdingTimeMs
-            if (kotlin.math.abs(entryAt - a.atMs) > ENTRY_READ_MATCH_MS) { inc("REALIZED_UNMATCHED"); return }
-        } else if (env.atMs - a.atMs > PENDING_TTL_MS * 4) { inc("REALIZED_UNMATCHED"); return }
-        val wasChosen = mode == "PAPER" && chosen.remove(env.mint) != null
+        val eligible = env.learningEligible && env.realizedReturnPct.isFinite()
         synchronized(this) {
-            board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct)
-            if (wasChosen) board.recordRealized("PAPER_CHOSEN", a.lane, a.bucket, env.realizedReturnPct)
-            // V5.0.7912 — Cortex v12, OutcomeTruth (v1 §2.7): every voter's entry-time
-            // opinion is also graded on the WHOLE-POSITION realised return, per mode,
-            // in its own ledger — skill on real fills and real exits, beside the
-            // forward-label skill that grants authority.
-            realLedgers.getOrPut(mode) { CortexLedger7885() }
-                .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime, predictionForGrade8076(a))
+            val a = positionReads8076.take(env.positionId, closeKey7931, mode) ?: run { inc("REALIZED_UNMATCHED"); return }
+            entryReads.remove("$closeKey7931|$mode", a)
+            val wasChosen = mode == "PAPER" && chosen.remove(env.mint) != null
+            // Ineligible closes still release their captured entry; they never teach.
+            if (eligible) {
+                board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct)
+                if (wasChosen) board.recordRealized("PAPER_CHOSEN", a.lane, a.bucket, env.realizedReturnPct)
+                // V5.0.7912 — Cortex v12, OutcomeTruth (v1 §2.7): every voter's entry-time
+                // opinion is also graded on the WHOLE-POSITION realised return, per mode,
+                // in its own ledger — skill on real fills and real exits, beside the
+                // forward-label skill that grants authority.
+                realLedgers.getOrPut(mode) { CortexLedger7885() }
+                    .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime, predictionForGrade8076(a))
+            }
         }
-        inc("REALIZED_${mode}")
+        inc(if (eligible) "REALIZED_${mode}" else "REALIZED_NOT_ELIGIBLE")
+        submit("CLOSE_CHECKPOINT") { persist() }
     }
 
     // ── persistence ──

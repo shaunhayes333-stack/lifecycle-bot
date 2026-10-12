@@ -19,6 +19,8 @@ object CanonicalFinalityPersistence6486 {
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var initialized = false
 
+    fun isReady8076(): Boolean = initialized && prefs != null
+
     @Synchronized
     fun initAndReplay(context: Context): Int {
         if (initialized) return 0
@@ -76,14 +78,20 @@ object CanonicalFinalityPersistence6486 {
 
     fun recordAck6486(consumer: String, positionId: String) {
         if (consumer.isBlank() || positionId.isBlank()) return
-        prefs?.edit()?.remove(EXCLUDED_PREFIX_6734 + consumer + ":" + positionId)
-            ?.putBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, true)?.apply()
+        val p = prefs ?: return
+        val ack = ACK_PREFIX_6697 + consumer + ":" + positionId
+        val excluded = EXCLUDED_PREFIX_6734 + consumer + ":" + positionId
+        if (p.getBoolean(ack, false) && !p.contains(excluded)) return
+        p.edit().remove(excluded).putBoolean(ack, true).apply()
     }
 
     fun recordExclusion6734(consumer: String, tradeId: String, reason: String) {
         if (consumer.isBlank() || tradeId.isBlank()) return
-        prefs?.edit()?.remove(ACK_PREFIX_6697 + consumer + ":" + tradeId)
-            ?.putString(EXCLUDED_PREFIX_6734 + consumer + ":" + tradeId, reason)?.apply()
+        val p = prefs ?: return
+        val ack = ACK_PREFIX_6697 + consumer + ":" + tradeId
+        val excluded = EXCLUDED_PREFIX_6734 + consumer + ":" + tradeId
+        if (!p.contains(ack) && p.getString(excluded, null) == reason) return
+        p.edit().remove(ack).putString(excluded, reason).apply()
     }
 
     fun excludedIds6734(consumer: String): Set<String> {
