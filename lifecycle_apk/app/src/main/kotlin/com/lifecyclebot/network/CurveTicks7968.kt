@@ -49,6 +49,7 @@ object CurveTicks7968 {
     private val subByMint = ConcurrentHashMap<String, Int>()           // mint -> server sub id
     private val mintBySub = ConcurrentHashMap<Int, String>()
     private val nextId = AtomicInteger(1)
+    private val wsEndpointAttempt8079 = AtomicInteger(0)
     private val ticks = AtomicLong(0)
     private val connects = AtomicLong(0)
     private val failures = AtomicLong(0)
@@ -101,9 +102,13 @@ object CurveTicks7968 {
         if (now - lastConnectMs < RECONNECT_GAP_MS) return
         lastConnectMs = now
         val key = try { keyProvider() } catch (_: Throwable) { "" }
-        if (key.isBlank()) return
+        val endpoints = com.lifecyclebot.engine.RuntimeProviderAuthority6685.websocketCandidates8079(key)
+        if (endpoints.isEmpty()) return
+        val attempt = wsEndpointAttempt8079.getAndIncrement()
+        val selected = Math.floorMod(attempt, endpoints.size)
         connects.incrementAndGet()
-        val req = Request.Builder().url("wss://mainnet.helius-rpc.com/?api-key=$key").build()
+        if (selected > 0) try { PipelineHealthCollector.labelInc("CURVE_WS_PROVIDER_FALLBACK_8079") } catch (_: Throwable) {}
+        val req = Request.Builder().url(endpoints[selected]).build()
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 open = true
