@@ -84,6 +84,19 @@ class Aate8065LifecycleHoldTest {
             TailBag8034.decidePure8034("MOONSHOT", "LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT", 150.0, null, 1000L))
     }
 
+    @Test fun unconfirmedSpikeIsRetryableAndVerifiedSpikeHasDedicatedCommitPath() {
+        assertFalse(SpikeCapture7943.pendingExpired8081(null, 10_000L))
+        assertFalse(SpikeCapture7943.pendingExpired8081(8_000L, 10_000L))
+        assertTrue(SpikeCapture7943.pendingExpired8081(1_000L, 10_000L))
+        val spikeSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpikeCapture7943.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(spikeSrc.contains("onConfirmedPartial8081"))
+        assertTrue(spikeSrc.contains("SellExecutionLocks.isLocked(ts.mint)"))
+        assertTrue(executor.contains("SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw)"))
+        assertFalse(executor.contains("if (pct >= 0.9)"))
+        assertTrue(executor.contains("if (pct >= 1.0 - 1e-9)"))
+    }
+
     @Test fun lateHistoricalBuyCannotUndoPendingOrFinalizedSell() {
         val t = HostWalletTokenTracker
         assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.CLOSED, "sellTx"))
