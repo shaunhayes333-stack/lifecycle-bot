@@ -709,7 +709,7 @@ object HostWalletTokenTracker {
     private fun oldBuyCannotReopen8079(mint: String, buySig: String?): Boolean {
         val prior = positions[mint] ?: return false
         val closed = prior.status in setOf(
-            PositionStatus.CLOSED, PositionStatus.CLOSED_VERIFIED,
+            PositionStatus.CLOSED, PositionStatus.CLOSED_VERIFIED, PositionStatus.SOLD_CONFIRMED,
             PositionStatus.CLOSED_SOLD_BY_AATE, PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
             PositionStatus.CLOSED_STALE_RECOVERY_UNHELD, PositionStatus.CLOSED_DUST_UNROUTABLE,
         )
