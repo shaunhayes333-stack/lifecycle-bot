@@ -13,3 +13,5 @@ Verification: nine local numeric groups passed on production Cortex classes with
 Not asserted closed: original OOM allocator, provider entitlements/quotas, device-specific stop/finality latency, exact-mint quantity/orphan reconciliation and all missing causal predecessors. A raw confirmed OPEN with a zero validated funnel is an instrumentation discrepancy, not proof no trade occurred.
 
 Lane-local playbook ordinal bins no longer borrow unrelated setup meanings from other lanes. Shared numeric feature priors remain active. Regression verifies both paths.
+
+Final alignment: canonical lane aliases are used for tactic defaults. Generic launch-ladder setups preserve lane-native tactics. Untrained legacy seeds refresh once; any completed-trade evidence prevents reseeding. Crossed playbook ordinal voters are also lane-local. Ten local numeric groups pass, including extracted production tactic mapping and actual canonical lane identity; full Android CI remains the release check.

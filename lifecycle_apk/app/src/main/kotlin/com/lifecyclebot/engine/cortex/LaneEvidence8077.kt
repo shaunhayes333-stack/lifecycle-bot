@@ -35,4 +35,8 @@ object LaneEvidence8077 {
         val lower = (sum / n) * sum
         return lower.isFinite() && sumSq + 1e-8 * max(1.0, abs(lower)) >= lower
     }
+    /** Correct old defaults only before they carry completed-trade evidence. */
+    fun refreshUntrainedSeed(reason: String, tradesSinceRotation: Int): Boolean =
+        tradesSinceRotation == 0 && (reason == "initial" || (reason.startsWith("seed8049:") && !reason.endsWith("|8077")))
+
 }

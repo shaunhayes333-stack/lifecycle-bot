@@ -254,7 +254,7 @@ class CortexLedger7885 {
      */
     private fun globalDeviation(voterId: String, bin: Int, ownLane: String): Double {
         // Playbook ordinals mean different setups in different lane menus.
-        if (voterId.startsWith("PLAYBOOK_SETUP")) return 0.0
+        if (voterId.contains("PLAYBOOK_SETUP")) return 0.0
         if (CrossAssetCortex7931.isCrossAssetLane(ownLane)) return 0.0
         // Setup indices are lane-local categories, not comparable numeric scores.
         // The same index can name different strategies in two lane menus.

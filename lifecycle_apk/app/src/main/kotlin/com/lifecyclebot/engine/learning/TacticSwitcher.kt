@@ -213,11 +213,11 @@ object TacticSwitcher {
 
     private fun seed8049(lane: String, k: String, cell: Cell) {
         val prior8052 = cell.lastRotationReason.get().orEmpty()
-        // V5.0.8052 — cells 8049/8051 seeded on a noisy 1-4 label setup are seeded again (once) on the corrected pick.
-        if (prior8052 != "initial" && !(prior8052.startsWith("seed8049:") && !prior8052.endsWith("|8052"))) return
+        // 8077: refresh old defaults only before completed-trade evidence exists; preserve learned tactics.
+        if (!com.lifecyclebot.engine.cortex.LaneEvidence8077.refreshUntrainedSeed(prior8052, cell.tradesSinceRotation.get())) return
         val best = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.bestSetup8049(lane) } catch (_: Throwable) { null }
         val t = seedTactic8049(lane, best?.first)
-        val reason = "seed8049:${best?.first ?: "lane_default"}|8052"
+        val reason = "seed8049:${best?.first ?: "lane_default"}|8077"
         synchronized(mutex) {
             if (t.ordinal != cell.tactic.get()) {
                 cell.tactic.set(t.ordinal)
@@ -252,7 +252,7 @@ object TacticSwitcher {
     fun seedTactic8049(lane: String, bestSetup: String?): Tactic {
         val s = bestSetup.orEmpty().uppercase()
         val fromSetup = when {
-            s.isBlank() || s == "NO_TRIGGER" || s == "SPECIALIST_EDGE" || s == "EXPERT_ENTRY" -> null
+            s.isBlank() || s == "NO_TRIGGER" || s == "SPECIALIST_EDGE" || s == "EXPERT_ENTRY" || s == "LAUNCH_LADDER_PROVEN" -> null
             // BASE_BREAKOUT describes a breakout, not accumulation merely because it contains BASE.
             s.contains("BREAKOUT") -> Tactic.BREAKOUT
             listOf("PULLBACK", "DIP", "RECLAIM", "BOUNCE").any { s.contains(it) } -> Tactic.PULLBACK
@@ -261,7 +261,7 @@ object TacticSwitcher {
             else -> Tactic.MOMENTUM
         }
         if (fromSetup != null) return fromSetup
-        val l = lane.uppercase()
+        val l = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
         return when {
             listOf("QUALITY", "BLUECHIP", "DIP", "CORE", "CYCLIC").any { l.contains(it) } -> Tactic.PULLBACK
             listOf("SHITCOIN", "CASHGEN", "PROJECT_SNIPER").any { l.contains(it) } -> Tactic.REACCUMULATION

@@ -99,4 +99,21 @@ class Aate8077StrategyAlignmentTest {
         assertTrue(l.predict("PRICE", "MOONSHOT", doubleArrayOf(0.5), 0.0).netPct > 0.0)
     }
 
+    @Test fun aliasesAndUntrainedDefaultsRetainTheirLaneAndCompletedEvidence() {
+        assertEquals(Tactic.PULLBACK, TacticSwitcher.seedTactic8049("BLUE_CHIP", "SPECIALIST_EDGE"))
+        assertEquals(Tactic.PULLBACK, TacticSwitcher.seedTactic8049("BLUE CHIP", "NO_TRIGGER"))
+        assertEquals(Tactic.BREAKOUT, TacticSwitcher.seedTactic8049("MOON_SHOT", "LAUNCH_LADDER_PROVEN"))
+        assertEquals(Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("SHIT_COIN", "LAUNCH_LADDER_PROVEN"))
+        assertTrue(LaneEvidence8077.refreshUntrainedSeed("initial", 0))
+        assertFalse(LaneEvidence8077.refreshUntrainedSeed("initial", 5))
+        assertTrue(LaneEvidence8077.refreshUntrainedSeed("seed8049:PLAN_BASE_BREAKOUT|8052", 0))
+        assertFalse(LaneEvidence8077.refreshUntrainedSeed("seed8049:PLAN_BASE_BREAKOUT|8052", 1))
+        assertFalse(LaneEvidence8077.refreshUntrainedSeed("seed8049:PLAN_BASE_BREAKOUT|8077", 0))
+        assertFalse(LaneEvidence8077.refreshUntrainedSeed("bayes:loss", 0))
+        val l = CortexLedger7885()
+        repeat(60) { l.lane("QUALITY").add(0.0, false); l.lane("MOONSHOT").add(0.0, false) }
+        repeat(60) { l.seat("X_PLAYBOOK_SETUP_V3__PRICE", "QUALITY", 2).bins[0].add(100.0, true) }
+        assertEquals(0.0, l.predict("X_PLAYBOOK_SETUP_V3__PRICE", "MOONSHOT", doubleArrayOf(0.5), 0.0).netPct, 1e-12)
+    }
+
 }
