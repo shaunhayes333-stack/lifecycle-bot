@@ -20,7 +20,7 @@ import com.lifecyclebot.data.TokenState
  * Read-only: no ledger, position or registry mutation. Safe on the UI thread (map reads only).
  */
 object PositionDisplayTruth8078 {
-    const val VERIFIED_MARK_MAX_AGE_MS = 30_000L
+    private const val VERIFIED_MARK_MAX_AGE_MS = 30_000L
     private val divergenceLoggedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     data class View(
