@@ -23640,7 +23640,10 @@ class Executor(
             ErrorLogger.info("Executor", "🔄 LIVE PARTIAL SELL: ${ts.symbol} | " +
                 "${(pct * 100).toInt()}% of holdings")
             
-            if (pct >= 0.9) {
+            // A 96.4% compounded spike ladder is still a PARTIAL: the
+            // remaining 3.6% is the strategy's runner tail. The old 90%
+            // shortcut silently turned it into a full liquidation.
+            if (pct >= 1.0 - 1e-9) {
                 val fullResult6566 = doSell(ts, "[PARTIAL→FULL] $reason", activeWallet, walletBalance)
                 receipt6566?.invoke(PartialSellReceipt6566(
                     applied = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),
@@ -23941,6 +23944,8 @@ class Executor(
                     
                     val proof7835 = verifiedSlice7835 ?: return
                     val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return
+                    // Only chain-verified token consumption graduates a spike tier.
+                    try { SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw) } catch (_: Throwable) {}
                     val solBack = settled7835.solReceived
                     val livePartialCostBasisSol = settled7835.realizedPnl.proportionalCostBasisSol
                     val livePnl = settled7835.realizedPnl.realizedPnlSol
