@@ -714,6 +714,24 @@ object HostWalletTokenTracker {
             PositionStatus.CLOSED_STALE_RECOVERY_UNHELD, PositionStatus.CLOSED_DUST_UNROUTABLE,
         ) || (!sellSignature.isNullOrBlank() && status.priority >= PositionStatus.SELL_PENDING.priority)
 
+    /**
+     * A genuine rebuy after terminal SELL has a DIFFERENT confirmed BUY signature,
+     * a later immutable entry and CURRENT owner-account balance proof. A historical
+     * TX_META_OWNER_DELTA (old BUY receipt) cannot ever satisfy this exception.
+     */
+    internal fun currentChainRebuy8079(
+        priorBuySignature: String?, newBuySignature: String?,
+        source: BalanceProofSource, balanceAuthoritative: Boolean,
+        rawPositive: Boolean, entryAfterExit: Boolean,
+    ): Boolean = !newBuySignature.isNullOrBlank() &&
+        newBuySignature != priorBuySignature && balanceAuthoritative && rawPositive &&
+        entryAfterExit &&
+        source in setOf(
+            BalanceProofSource.RPC_FINALIZED_OWNER_TOKEN_ACCOUNT,
+            BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT,
+            BalanceProofSource.RPC_CONFIRMED_SECOND_PROVIDER,
+        )
+
     private fun oldBuyCannotReopen8079(mint: String, buySig: String?): Boolean {
         val prior = positions[mint] ?: return false
         val closed = historicalBuyBlocked8079(prior.status, prior.sellSignature)
@@ -880,7 +898,21 @@ object HostWalletTokenTracker {
     @Synchronized
     fun recordBuyConfirmedWithProof(ts: TokenState, proof: BalanceProof, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
-        if (oldBuyCannotReopen8079(ts.mint, sig ?: proof.signature)) return
+        val prior8079 = positions[ts.mint]
+        val newSignature8079 = sig ?: proof.signature
+        val freshRebuy8079 = prior8079 != null && historicalBuyBlocked8079(prior8079.status, prior8079.sellSignature) &&
+            currentChainRebuy8079(
+                prior8079.buySignature, newSignature8079, proof.source, proof.authoritative,
+                proof.mint == ts.mint && proof.amountRaw.signum() > 0,
+                ts.position.entryTime > maxOf(prior8079.lastExitCheckMs ?: 0L, prior8079.buyTimeMs ?: 0L) &&
+                    proof.observedAtMs >= ts.position.entryTime,
+            )
+        if (!freshRebuy8079 && oldBuyCannotReopen8079(ts.mint, newSignature8079)) return
+        if (freshRebuy8079) try {
+            PipelineHealthCollector.labelInc("CURRENT_CHAIN_NEW_BUY_REOPEN_ALLOWED_8079")
+            ForensicLogger.lifecycle("CURRENT_CHAIN_NEW_BUY_REOPEN_ALLOWED_8079",
+                "mint=${ts.mint.take(10)} proof=${proof.source} newSig=${newSignature8079?.take(10)}")
+        } catch (_: Throwable) {}
         if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != ts.mint) {
             try { ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PROOF_REJECTED source=${proof.source}") } catch (_: Throwable) {}
             recordBuyPending(ts.mint, ts.symbol, sig)
