@@ -32,6 +32,7 @@ object SellReasonClassifier {
             r.contains("STOPLOSS") ||
             r.contains("HARD_SL") ||
             r.contains("UNIVERSAL_HARD_FLOOR_SL") -> ExitReason.STOP_LOSS
+            r.startsWith("SPIKE_CAPTURE_7943") ||
             r.startsWith("LIFECYCLE_PROFIT_TAKE") ||
             r.contains("PARTIAL_TAKE_PROFIT") ||
             r.contains("PARTIAL_PROFIT_LOCK") ||
