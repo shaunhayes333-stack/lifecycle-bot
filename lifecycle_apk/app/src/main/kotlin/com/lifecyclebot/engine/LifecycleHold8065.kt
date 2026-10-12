@@ -117,6 +117,15 @@ object LifecycleHold8065 {
     fun peakGiveback8065(peakPct: Double, grossPct: Double): Boolean =
         peakPct >= 300.0 && grossPct.isFinite() && (1.0 + grossPct / 100.0) <= 0.45 * (1.0 + peakPct / 100.0)
 
+    /**
+     * An unbanked runner must not be held through a major reversal merely
+     * because its earlier profit-take transaction failed to land.
+     * Only act on a fresh price observation while meaningful gross profit remains;
+     * downstream sell quote/chain finality still determine actual economics.
+     */
+    internal fun profitablePeakReversal8079(peakPct: Double, currentPct: Double, fresh: Boolean): Boolean =
+        fresh && peakPct >= 300.0 && currentPct >= 20.0 && peakGiveback8065(peakPct, currentPct)
+
     /** Pure: the dead-money release. */
     fun deadMoney8065(ageMs: Long, grossPct: Double, sinceHighMs: Long): Boolean =
         ageMs >= DEAD_AFTER_MS && grossPct in -15.0..20.0 && sinceHighMs >= NO_HIGH_MS
@@ -210,6 +219,9 @@ object LifecycleHold8065 {
         val age = nowMs - pos.entryTime
         val why: Pair<String, Double>? = when {
             g <= -FLOOR_PCT -> "LIFECYCLE_STOP_FLOOR_8065_${g.toInt()}PCT" to 1.0
+            profitablePeakReversal8079(st.peak, g, ts.lastPriceUpdate > 0L &&
+                nowMs - ts.lastPriceUpdate in 0L..5_000L) ->
+                "LIFECYCLE_PROFIT_GIVEBACK_8065_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
             cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
             st.taken == 0 && age >= SETTLE_MS && g < BASE_BROKE_RED_PCT && closedBarBroke(b, 16) ->
                 "LIFECYCLE_STOP_BASE_BROKE_8065_${g.toInt()}PCT" to 1.0
