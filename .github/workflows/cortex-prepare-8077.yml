@@ -1,0 +1,46 @@
+name: Prepare reviewed Cortex source
+on:
+  push:
+    branches: ['repair/8076-exit-integrity']
+    paths: ['.github/workflows/cortex-prepare-8077.yml']
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Execute pinned, assertion-checked source repair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          source=Path('.github/workflows/cortex-apply-8077.yml').read_text().splitlines()
+          scripts=[]
+          for i,line in enumerate(source):
+              if line == '        run: |':
+                  out=[]
+                  for following in source[i+1:]:
+                      if following and not following.startswith('          '):
+                          break
+                      out.append(following[10:] if following else '')
+                  scripts.append('\n'.join(out))
+          assert len(scripts)==2
+          # File text is not an Actions expression: target CI group expressions stay literal.
+          scripts[1]=scripts[1].replace("'.github/workflows/cortex-apply-8077.yml'):","'.github/workflows/cortex-apply-8077.yml','.github/workflows/cortex-prepare-8077.yml'):")
+          for i,script in enumerate(scripts):
+              target=Path('/tmp')/('cortex-source-step-'+str(i)+'.py')
+              target.write_text(script)
+              compile(script,str(target),'exec')
+              subprocess.run(['python3',str(target)],check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aate-reviewed-source-8077
+          path: /tmp/cortex-reviewed-8077/
+          retention-days: 2
