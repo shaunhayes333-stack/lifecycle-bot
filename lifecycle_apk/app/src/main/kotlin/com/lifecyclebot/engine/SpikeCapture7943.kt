@@ -23,6 +23,7 @@ object SpikeCapture7943 {
     // The prior confirmed/attempted rung before an aggregated spike order was dispatched.
     // On failed execution restore it, not reached-1: otherwise lower crossed rungs vanish.
     private val previousFiredTiers8079 = ConcurrentHashMap<String, Int>()
+    private val pendingSince8081 = ConcurrentHashMap<String, Long>()
     private val fired = java.util.concurrent.atomic.AtomicLong(0)
     /** V5.0.7944 — a tier whose sell did not land is re-armed, at most this many times per position. */
     // V5.0.7965 — 4 re-arms ran out on Frank while sells were suppressed; a spike keeps trying while it lasts.
@@ -44,9 +45,31 @@ object SpikeCapture7943 {
         firedTiers.compute(key) { _, done ->
             if (done != null && done >= tier) previousFiredTiers8079.remove(key) ?: (tier - 1) else done
         }
+        pendingSince8081.remove(key)
         rearmed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_REARMED_7944") } catch (_: Throwable) {}
         return true
+    }
+
+    /**
+     * A dispatched spike order isn't an on-chain fill. If no partial reached
+     * chain finality and the sell lock is no longer held, make the tier
+     * retryable after the existing close backoff. A confirmed tier has no
+     * pending timestamp and is never reopened by this recovery.
+     */
+    internal fun pendingExpired8081(atMs: Long?, nowMs: Long): Boolean =
+        atMs != null && nowMs - atMs >= 5_000L
+
+    fun onConfirmedPartial8081(ts: TokenState, reason: String, consumedRaw: java.math.BigInteger) {
+        if (consumedRaw.signum() <= 0) return
+        val tier = Regex("SPIKE_CAPTURE_7943_T([0-9]+)").find(reason)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: return
+        if (tier !in 1..3) return
+        val key = "${ts.mint}|${ts.position.entryTime}"
+        firedTiers.merge(key, tier, ::maxOf)
+        pendingSince8081.remove(key)
+        previousFiredTiers8079.remove(key)
+        try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_CHAIN_PARTIAL_CONFIRMED_8081") } catch (_: Throwable) {}
     }
 
     /**
@@ -93,6 +116,7 @@ object SpikeCapture7943 {
     fun resetTiers8018(ts: TokenState) {
         firedTiers.remove("${ts.mint}|${ts.position.entryTime}")
         previousFiredTiers8079.remove("${ts.mint}|${ts.position.entryTime}")
+        pendingSince8081.remove("${ts.mint}|${ts.position.entryTime}")
     }
 
     /** V5.0.7945 — the fill a spike sell is assumed to give up against its tier price. */
@@ -162,14 +186,23 @@ object SpikeCapture7943 {
         val reached = tierReached(gross, tiers)
         if (reached == 0) return 0
         val key = "${ts.mint}|${pos.entryTime}"
-        val done = firedTiers[key] ?: 0
+        var done = firedTiers[key] ?: 0
+        val pending8081 = pendingSince8081[key]
+        if (reached <= done && pendingExpired8081(pending8081, now7955) &&
+            !com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint) &&
+            !com.lifecyclebot.engine.sell.CloseLease.sellInFlight7948(ts.mint)) {
+            rearm(ts, done)
+            done = firedTiers[key] ?: 0
+        }
         if (reached <= done) return 0
         if (firedTiers.size > 2_000) {
             firedTiers.clear()
             previousFiredTiers8079.clear()
+            pendingSince8081.clear()
         }
         previousFiredTiers8079[key] = done
         firedTiers[key] = reached
+        pendingSince8081[key] = now7955
         val frac = crossedTierFraction8079(tiers, done, reached)
         fired.incrementAndGet()
         try { ExitProfile7955.onTierFired7955(plan7955, reached) } catch (_: Throwable) {}
