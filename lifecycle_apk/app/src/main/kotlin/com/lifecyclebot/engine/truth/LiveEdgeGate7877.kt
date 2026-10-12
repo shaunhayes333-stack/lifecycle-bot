@@ -401,7 +401,8 @@ object LiveEdgeGate7877 {
             // V5.0.8072 — or a runner ticket: a small capped budget of unproven buys in the best honest-label group
             // (graduated PumpSwap coins at $10k-$100k), held on the lifecycle rules (RunnerTicket8073).
             if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) &&
-                !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false })) {
+                !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false }) &&
+                !coldStartAdmits8080(ts, l8059, nowMs)) {
                 auditedAdmission8076 = try {
                     com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076("LIVE_PROVEN_SETUP_ONLY_8059", l8059) ||
                         com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l8059, "LIVE_PROVEN_SETUP_ONLY_8059")
@@ -461,6 +462,42 @@ object LiveEdgeGate7877 {
     }
 
     /** V5.0.8060 — measured edge other than a named setup: proven cell, runner cell, specialist, tail ticket. */
+    /**
+     * V5.0.8080 — bounded cold start: the coin's exact setup clears LanePlaybook7907.coldStartSetup8080 on its own exit
+     * family, and fewer than [COLD_BUDGET_8080] live entries were admitted this way in the last [COLD_WINDOW_MS_8080].
+     * Every later gate (proven-losing setup, Cortex, net edge, lane fit, dead launch, buy door, route, rug) still applies.
+     */
+    private val coldAdmits8080 = ConcurrentHashMap<String, Long>()   // mint -> first cold-start admission
+    internal const val COLD_BUDGET_8080 = 3
+    internal const val COLD_WINDOW_MS_8080 = 6L * 3_600_000L
+
+    /**
+     * Pure (V5.0.8080): may [mint] be admitted on cold start, given [admits] (mint -> first admission)? A mint already
+     * admitted in the window keeps its place (it is re-evaluated every cycle); a new mint needs a free slot of the
+     * [COLD_BUDGET_8080] distinct coins per window.
+     */
+    fun coldBudgetOpen8080(admits: Map<String, Long>, mint: String, nowMs: Long): Boolean {
+        val live = admits.filterValues { nowMs - it in 0L until COLD_WINDOW_MS_8080 }
+        return mint in live || live.size < COLD_BUDGET_8080
+    }
+
+    private fun coldStartAdmits8080(ts: TokenState, lane: String, nowMs: Long): Boolean {
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.coldStartSetup8080(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return false
+        synchronized(coldAdmits8080) {
+            coldAdmits8080.entries.removeIf { nowMs - it.value >= COLD_WINDOW_MS_8080 }
+            if (!coldBudgetOpen8080(coldAdmits8080, ts.mint, nowMs)) {
+                try { PipelineHealthCollector.labelInc("LIVE_COLD_START_BUDGET_SPENT_8080") } catch (_: Throwable) {}
+                return false
+            }
+            coldAdmits8080.putIfAbsent(ts.mint, nowMs)
+        }
+        try {
+            PipelineHealthCollector.labelInc("LIVE_COLD_START_SETUP_ADMIT_8080_$lane")
+            ForensicLogger.lifecycle("LIVE_COLD_START_SETUP_ADMIT_8080", "mint=${ts.mint.take(10)} lane=$lane setup=$setup")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     private fun measuredEdge8060(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         val ok = (st != null && cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct)) ||

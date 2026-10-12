@@ -216,6 +216,9 @@ object ForwardReturnLabeler7731 {
         @Volatile var entryLiq7997 = 0.0
         /** V5.0.8063 — the coin's kind at the decision: "VENUE/NARRATIVE" (memes), blank for cross-asset rows. */
         @Volatile var kind8063: String = ""
+        /** V5.0.8080 — the label on the LONG-HOLD exit family (the setup books grade each setup on its own family). */
+        @Volatile var bookedLongNet8080 = Double.NaN
+        @Volatile var bookedLongGross8080 = Double.NaN
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
@@ -705,12 +708,14 @@ object ForwardReturnLabeler7731 {
      * (SpikeCapture7943) now sell into those prints live, so the label books what
      * they bank on the observed peak plus the remainder at the horizon.
      */
-    private fun captured7945(o: Obs, net: Double, gross: Double): Pair<Double, Double> {
+    private fun captured7945(o: Obs, net: Double, gross: Double, longFamily8080: Boolean? = null): Pair<Double, Double> {
         // V5.0.7955 review — labels are credited on the FIXED ladder: crediting on the learned
         // ladder (fit to these same labels) inflated the grades that drive authority and size.
         // V5.0.8029 — graded on THIS lane's play: its own stop first (a coin through the stop before its peak is a
         // stopped trade, not a run), then the spike ladder on the peak with the rest at the mark — or at the stop.
-        val longHold8077 = com.lifecyclebot.engine.TradeExitContract8077.longHoldStyle(o.entryStyle8077)?.let {
+        // V5.0.8080 — an explicit exit family (scalp / long hold) grades one STRATEGY on its own exits; null = the
+        // decision's frozen style (lane / cell tallies).
+        val longHold8077 = (longFamily8080 ?: com.lifecyclebot.engine.TradeExitContract8077.longHoldStyle(o.entryStyle8077))?.let {
             it && com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)
         }
         val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane, longHold8077) } catch (_: Throwable) { Double.NaN }
@@ -726,7 +731,7 @@ object ForwardReturnLabeler7731 {
         val ladder8040: (Double, Double) -> Double = { pk, rest -> heldCredit8071(minOf(pk, o.heldPeak8071), rest, tiers8071) }
         val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
-        if (stop8029 > 0.0) try {
+        if (stop8029 > 0.0 && longFamily8080 == null) try {
             com.lifecyclebot.engine.cortex.StopLearner8040.onPath8040(o.lane, "${o.mint}|${o.atMs}", stop8029, System.currentTimeMillis() - o.atMs) { s ->
                 com.lifecyclebot.engine.LaneParticipation8029.playGross8029(s, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
             }
@@ -788,7 +793,14 @@ object ForwardReturnLabeler7731 {
         book(o, 60, net, gross)
         o.bookedNet7997 = net; o.bookedGross7997 = gross
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross) } catch (_: Throwable) {}
+        // V5.0.8080 §ONE_PATH_TWO_EXIT_FAMILIES. The setup books graded every setup that fired on one value, so a
+        // momentum scalp and a breakout runner on the same coin were credited the same return. The same observed path is
+        // now played under the scalp exits and under the long-hold exits; each setup is graded on its own family.
+        val scalp8080 = captured7945(o, net0, gross0, longFamily8080 = false)
+        val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
+        o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
+        val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080) } catch (_: Throwable) {}
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
         // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
@@ -888,6 +900,14 @@ object ForwardReturnLabeler7731 {
         if (age < CK_MS_7997[o.ck7997]) return false
         o.ck7997 += 1
         val (net, gross) = captured7945(o, net0, gross0)
+        // V5.0.8080 — only a LONG-HOLD setup's grade follows the coin past its first read: a scalp has exited by then,
+        // so the 1 h / 4 h / 24 h path is not its return (LanePlaybook7907.reviseLabel7997 revises long-hold setups only).
+        val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
+        val oldLong8080 = o.bookedLongNet8080
+        if (oldLong8080.isFinite() && long8080.first.isFinite() && kotlin.math.abs(long8080.first - oldLong8080) >= 0.5) {
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second) } catch (_: Throwable) {}
+            o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
+        }
         val oldNet = o.bookedNet7997
         val oldGross = o.bookedGross7997
         if (oldNet.isFinite() && net.isFinite() && kotlin.math.abs(net - oldNet) >= 0.5) {
@@ -915,7 +935,7 @@ object ForwardReturnLabeler7731 {
                 if (ro != rn) t.runner60 = (t.runner60 + if (rn) 1 else -1).coerceIn(0, t.n60)
             }
         }
-        try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
+        // V5.0.8080 — the setup books are revised on the long-hold family in checkpoint7997, not on this decision value.
         try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
         // V5.0.8006 — the Cortex (every voter seat, scoreboard bucket, veto audit, setup x verdict book) too.

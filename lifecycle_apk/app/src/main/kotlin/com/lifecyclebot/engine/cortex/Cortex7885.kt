@@ -390,7 +390,7 @@ object Cortex7885 {
     private val sourceGraded = ConcurrentHashMap<String, Long>()   // mint -> decision time (ScannerSourceBrain once per mint)
 
     /** ForwardReturnLabeler7731.tick: a horizon label booked for (mint, labelLane). */
-    fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double) {
+    fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null) {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = pending[key] ?: return
@@ -399,7 +399,7 @@ object Cortex7885 {
         // a runner's first minutes carry its capture, and the Cortex learns 48x sooner.
         if (horizonMin != 60) return
         if (!netPct.isFinite() || !pending.remove(key, p)) return
-        try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct) } catch (_: Throwable) {}
+        try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080) } catch (_: Throwable) {}
         // V5.0.7908 — discovery quality: the scanner source brain orders and weights
         // intake by each source's record, but learned only from closed trades (a
         // handful a day). Every graded decision now teaches it what that source's

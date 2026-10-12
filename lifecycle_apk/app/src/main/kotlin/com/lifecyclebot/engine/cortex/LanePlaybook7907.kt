@@ -695,6 +695,31 @@ object LanePlaybook7907 {
     private const val RUNNER_SETUP_MEAN_8056 = 10.0
 
     /**
+     * V5.0.8080 §BOUNDED_COLD_START. A fresh install has no setup with 30 graded labels, so [provenSetup8056] refuses
+     * every live entry until hours of labels accrue (8078 clean user: LIVE_PROVEN_SETUP_ONLY_8059=4182, zero buys).
+     * This is the same exact-strategy test on fewer labels with a stricter margin: the coin's classified setup, graded
+     * on its OWN exit family (familyLabel8080), with [COLD_MIN_N_8080]+ labels and mean - 1.5 SE above zero net of
+     * cost. Missing evidence is never edge: no record, or a record that does not clear the margin, returns null.
+     * The caller (LiveEdgeGate7877) bounds how many live entries this may admit.
+     */
+    fun coldStartSetup8080(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
+            stat(lane, setup)?.takeIf { coldStartPositive8080(it.n, it.mean(), it.variance()) }?.let { setup }
+        }
+    } catch (_: Throwable) { null }
+
+    /** Pure (V5.0.8080): [n] labels, mean and variance (%, %²) clear the cold-start margin. */
+    fun coldStartPositive8080(n: Double, mean: Double, variance: Double): Boolean {
+        if (!n.isFinite() || n < COLD_MIN_N_8080 || !mean.isFinite() || !variance.isFinite() || variance < 0.0) return false
+        return mean - COLD_SE_MULT_8080 * kotlin.math.sqrt(variance / n) > 0.0
+    }
+
+    internal const val COLD_MIN_N_8080 = 12.0
+    internal const val COLD_SE_MULT_8080 = 1.5
+
+    /**
      * V5.0.8079 — the coin's classified setup is PROVEN LOSING in this lane (same record and test as [liveRefusal]),
      * returned with liveRefusal's exact reason so the setup-scoped veto audit grades the same key. LiveEdgeGate checks
      * it before the chart-reader BUY and specialist doors, which used to admit ahead of the playbook priors.
@@ -826,24 +851,47 @@ object LanePlaybook7907 {
     private val firedCount = ConcurrentHashMap<String, AtomicLong>()
 
     /** Cortex7885.onLabel (graded horizon only): learn (lane, setup) from the forward label. */
-    fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double) {
+    fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null) {
         ensureLoaded()
         if (!netPct.isFinite()) return
+        val fam = fam8080?.takeIf { it.size == 4 && it.all { v -> v.isFinite() } }
         val (lane, tag) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
         // V5.0.7924 — the tagged setup and every other setup that fired are each graded.
         val graded = listOf(tag.substringBefore(';')) + tag.substringAfter(';', "").split(',').filter { it.isNotBlank() }
         // V5.0.7997 — kept so later checkpoints can revise this label (ForwardReturnLabeler7731).
         synchronized(this) {
             val stamps = graded.distinct().associateWith { setup ->
+                // V5.0.8080 — each setup is graded on its own exit family (scalp vs long hold) of the same path.
+                val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)
                 books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
-                    .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
             if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
-            graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps, netPct, grossPct, System.currentTimeMillis())
+            // Revisions only ever move long-hold setups, so the grade keeps the long-hold family's value.
+            graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps,
+                fam?.get(2) ?: netPct, fam?.get(3) ?: grossPct, System.currentTimeMillis())
             bookRevision8077.incrementAndGet()
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
     }
+
+    /**
+     * Pure (V5.0.8080): does [setup] in [lane] trade on the long-hold exits? Same mapping as the trade itself:
+     * TacticSwitcher.seedTactic8049 -> AgenticStyleRouter style -> TradeExitContract8077 long styles
+     * (BREAKOUT -> BREAKOUT_RUNNER, REACCUMULATION -> REACCUMULATION hold; PULLBACK / MOMENTUM exit as scalps),
+     * and only in a lifecycle lane, as captured7945 credits it.
+     */
+    fun setupHoldsLong8080(lane: String, setup: String): Boolean {
+        val t = try { com.lifecyclebot.engine.learning.TacticSwitcher.seedTactic8049(lane, setup) } catch (_: Throwable) { return false }
+        val long = t == com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.BREAKOUT ||
+            t == com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.REACCUMULATION
+        return long && (try { com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(lane) } catch (_: Throwable) { false })
+    }
+
+    /** Pure (V5.0.8080): the (net, gross) a setup is graded on; [fam] = [scalpNet, scalpGross, longNet, longGross]. */
+    internal fun familyLabel8080(lane: String, setup: String, net: Double, gross: Double, fam: DoubleArray?): Pair<Double, Double> =
+        if (fam == null) net to gross
+        else if (setupHoldsLong8080(lane, setup)) fam[2] to fam[3] else fam[0] to fam[1]
 
     private class Grade8076(val lane: String, val stamps: Map<String, Double>, var net: Double, var gross: Double, val atMs: Long)
     private val graded7997 = ConcurrentHashMap<String, Grade8076>()
@@ -857,7 +905,8 @@ object LanePlaybook7907 {
             val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
             val ro = g.gross.isFinite() && g.gross >= CortexLedger7885.RUNNER_GROSS_PCT
             val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
-            for ((setup, stamp) in g.stamps) books[g.lane]?.stats?.get(setup)?.let { st ->
+            // V5.0.8080 — a scalp setup keeps its first-read grade: the later path is not a scalp's return.
+            for ((setup, stamp) in g.stamps) if (setupHoldsLong8080(g.lane, setup)) books[g.lane]?.stats?.get(setup)?.let { st ->
                 st.revise(yo, yn, ro, rn, st.revisionWeight(stamp))
             }
             g.net = newNet; g.gross = newGross

@@ -12061,7 +12061,8 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("val cls6752 = com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.classify(requestReason)"))
         assertTrue(ex.contains("if (deferPendingTokenMap7371(\"pre_plan\")) return false"))
         assertTrue(ex.contains("if (deferPendingTokenMap7371(\"late\")) return false"))
-        assertTrue(ex.contains("ExecutionAttemptLease.releaseNonTerminal(buyLease.key, \"BUY\", ts.mint, ts.symbol, \"TOKEN_MAP_PENDING_DEFERRED_7371\")"))
+        // V5.0.8080 — pending deferrals release non-terminally; an exhausted one is the named DEFERRED_DATA outcome.
+        assertTrue(ex.contains("if (!exhausted8080) ExecutionAttemptLease.releaseNonTerminal(buyLease.key, \"BUY\", ts.mint, ts.symbol, reason8080)"))
         assertEquals(com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.HARD_STOP,
             com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.classify("STRICT_SL_-8"))
         val kv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/KeyValidator.kt").readText()
@@ -14938,5 +14939,16 @@ class GoldenTapeRegressionTest {
         assertTrue(com.lifecyclebot.network.ExitQuoteBudget7863.TOTAL_MS > 2 * com.lifecyclebot.network.ExitQuoteBudget7863.HOP_CAP_MS)
         val j = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
         assertTrue(j.contains("JUPITER_V6_TIMEOUT_YIELDS_NEXT_ENDPOINT_8079"))
+    }
+
+    @Test fun V5_0_8080_setups_graded_on_own_exit_family_and_cold_start_is_bounded() {
+        val pb = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/LanePlaybook7907.kt").readText()
+        assertTrue(pb.contains("val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)"))
+        assertTrue(pb.contains("if (setupHoldsLong8080(g.lane, setup)) books[g.lane]"))
+        val fl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(fl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080)"))
+        assertEquals(3, com.lifecyclebot.engine.truth.LiveEdgeGate7877.COLD_BUDGET_8080)
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("DEFERRED_DATA_TOKEN_MAP_8080"))
     }
 }

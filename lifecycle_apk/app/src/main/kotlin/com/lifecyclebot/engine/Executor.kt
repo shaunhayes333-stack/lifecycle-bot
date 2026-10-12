@@ -19392,17 +19392,24 @@ class Executor(
             if (!pending) return false
             val now = System.currentTimeMillis()
             val prior = tokenMapDeferrals7371[ts.mint]?.filter { now - it < 5 * 60_000L }.orEmpty()
-            if (prior.size >= 3) return false
+            // V5.0.8080 §DATA_IS_NOT_AN_EXECUTION_FAILURE. A route still resolving after three deferrals is missing DATA:
+            // nothing was quoted, built or sent. It was booked as BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE (8077: 12 of
+            // 15 live "buy failures"), which the buy-failure books and lane health read as broken execution. It now
+            // ends as the named DEFERRED_DATA outcome: claim and lease released, no buy-failure emitted, no buy made.
+            val exhausted8080 = prior.size >= 3
             if (tokenMapDeferrals7371.size > 2_000) tokenMapDeferrals7371.clear()
-            tokenMapDeferrals7371[ts.mint] = prior + now
-            liveBuyDeferred(ts, sol, "TOKEN_MAP_PENDING_DEFERRED_7371", "stage=$stage route=$status")
-            ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "TOKEN_MAP_PENDING_DEFERRED_7371")
+            if (!exhausted8080) tokenMapDeferrals7371[ts.mint] = prior + now
+            val reason8080 = if (exhausted8080) "DEFERRED_DATA_TOKEN_MAP_8080" else "TOKEN_MAP_PENDING_DEFERRED_7371"
+            if (exhausted8080) try { PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_DATA_TOKEN_MAP_8080") } catch (_: Throwable) {}
+            liveBuyDeferred(ts, sol, reason8080, "stage=$stage route=$status deferrals=${prior.size}")
+            // Exhausted keeps the lease's terminal cooldown (no re-attempt churn on a coin whose route never resolves).
+            if (!exhausted8080) ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, reason8080)
             try {
                 val deferredAttempt7371 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
                     .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() }
-                ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7371, ts.mint, "TOKEN_MAP_PENDING_DEFERRED_7371")
+                ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7371, ts.mint, reason8080)
             } catch (_: Throwable) {}
-            buyTerminalRecorded = true
+            if (exhausted8080) buyTerminalFail(reason8080) else buyTerminalRecorded = true
             return true
         }
         liveStage("TOKEN_MAP_START", "source=${ts.source.take(80)}")

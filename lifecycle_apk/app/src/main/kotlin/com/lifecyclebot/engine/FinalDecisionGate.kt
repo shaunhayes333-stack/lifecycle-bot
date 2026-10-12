@@ -4115,7 +4115,15 @@ object FinalDecisionGate {
                 // paper-only sampling (LLM Lab shadow proof), but the FDG
                 // production admission path returns to strict.
                 val pauseState = LaneAutoPauseGuard.statusFor(laneName)
-                if (pauseState != null) {
+                // V5.0.8080 §EXACT_STRATEGY_BEATS_LANE_MIX. The lane's mixed record (every setup it traded) cut every
+                // candidate to 35% and stamped a "pivot" that changed nothing about the trade: the same setup, smaller.
+                // A coin whose OWN setup is proven paying in this lane (LanePlaybook7907.provenSetup8056, graded on that
+                // setup's exits) is not the losing mix and keeps its size; everything else is still damped.
+                val exactProven8080 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneName) != null } catch (_: Throwable) { false }
+                if (pauseState != null && exactProven8080) {
+                    checks.add(GateCheck("lane_pressure_exact_setup_proven_8080", true, "${pauseState.lane} mixed record damped; this coin's setup is proven"))
+                    try { PipelineHealthCollector.labelInc("LANE_PRESSURE_EXEMPT_PROVEN_SETUP_8080_${pauseState.lane}") } catch (_: Throwable) {}
+                } else if (pauseState != null) {
                     val pivoted6482 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(pauseState.lane, laneScoreBanded, "lane_auto_pause_${pauseState.reason}").name } catch (_: Throwable) { "UNKNOWN" }
                     finalSize = (finalSize * 0.35).coerceAtLeast(0.01)
                     checks.add(GateCheck("lane_auto_pivot", true, "${pauseState.lane} pressure n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% tactic=$pivoted6482"))
@@ -4142,7 +4150,10 @@ object FinalDecisionGate {
         if (blockReason == null) {
             try {
                 val toxic = LosingPatternMemory.stats(laneName, laneScoreBanded)
-                if (toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
+                val exactProven8080 = toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0 &&
+                    (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneName) != null } catch (_: Throwable) { false })
+                if (exactProven8080) try { PipelineHealthCollector.labelInc("TOXIC_BUCKET_EXEMPT_PROVEN_SETUP_8080") } catch (_: Throwable) {}
+                if (!exactProven8080 && toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
                     val bucketId = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
                     val pivoted6482 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(laneName, laneScoreBanded, "toxic_pattern_$bucketId").name } catch (_: Throwable) { "UNKNOWN" }
                     finalSize = (finalSize * 0.35).coerceAtLeast(0.01)
