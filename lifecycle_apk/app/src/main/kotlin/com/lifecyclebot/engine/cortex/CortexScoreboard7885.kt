@@ -75,26 +75,35 @@ class CortexScoreboard7885 {
             return true
         }
 
-        // ── V5.0.8025 — NOTHING IS EVER FULLY LEARNT ──
-        // Owner, 5.0.8023: "moonshot shouldn't be at max maturity ... it needs thousands of trades to have a
-        // proper sample size. it can prove edge but nothing should ever be considered fully learnt." MOONSHOT
-        // reached authority 1.00 on 62 STRONG grades, overruled 112 refusals (the proven-losing no-trigger rule
-        // among them) and its first four live buys stopped out within 80 s. Authority is now the evidence
-        // fraction times MATURITY = n / (n + [MATURITY_HALF_N_8025]) over every STRONG grade the lane has ever
-        // had (the books decay to ~330, so a separate lifetime count), capped at [MAX_AUTHORITY_8025]: half
-        // weight at 1,000 grades, 0.75 at 3,000, never 1.0 — so every full-authority power (overruling a
-        // proven-losing record, a measured-negative cell or band) is out of reach for ever, and the 0.5 overrule
-        // bar needs on the order of a thousand graded STRONG reads with the evidence still holding.
+        // ── V5.0.8025 / V5.0.8078 — EARNED AUTHORITY, NEVER FINISHED LEARNING ──
+        // Owner, 5.0.8023: "nothing should ever be considered fully learnt". 8025 read that as "authority can never be
+        // 1.0" and capped it at 0.95, which made every full-authority power (overruling a proven-losing record, a
+        // measured-negative cell or band) unreachable for ever. Owner, 8078: that was never the design. The Cortex keeps
+        // LEARNING, EXPLORING and RECALIBRATING for ever; a lane whose evidence is fully proven on a large lifetime sample
+        // may hold FULL decision authority, and loses it on the very next read the moment its record stops supporting it.
+        //
+        // Authority = evidence x maturity, maturity = n / (n + [MATURITY_HALF_N_8025]) over every STRONG grade the lane
+        // has ever had (the books decay to ~330, so a separate lifetime count). The partial ceiling [MAX_AUTHORITY_8025]
+        // still applies below full proof. FULL authority (1.0) needs ALL of: the evidence at 1.0 (the full bar: n >= 40,
+        // mean - SE > +2% over the lane's neutral baseline, not inverted) and a lifetime sample of at least
+        // [FULL_AUTHORITY_MIN_LIFETIME_8078] STRONG grades. Calibration consistency and hard safety are checked by the callers.
         const val MATURITY_HALF_N_8025 = 1_000.0
         const val MAX_AUTHORITY_8025 = 0.95
+        const val FULL_AUTHORITY_MIN_LIFETIME_8078 = 1_000.0
 
-        /** Pure: a lane's maturity after [lifetimeN] STRONG grades — always below 1. */
+        /** Pure: a lane's maturity after [lifetimeN] STRONG grades. Approaches, but does not itself reach, 1. */
         fun maturity8025(lifetimeN: Double): Double =
             if (!lifetimeN.isFinite() || lifetimeN <= 0.0) 0.0 else lifetimeN / (lifetimeN + MATURITY_HALF_N_8025)
 
-        /** Pure: authority = evidence x maturity, never above [MAX_AUTHORITY_8025]. */
-        fun matureAuthority8025(evidence: Double, lifetimeN: Double): Double =
-            if (!evidence.isFinite() || evidence <= 0.0) 0.0 else (evidence * maturity8025(lifetimeN)).coerceIn(0.0, MAX_AUTHORITY_8025)
+        /**
+         * Pure: authority = evidence x maturity, capped at [MAX_AUTHORITY_8025] until the evidence is FULLY proven
+         * (evidence >= 1.0) on at least [FULL_AUTHORITY_MIN_LIFETIME_8078] lifetime STRONG grades, which earns 1.0.
+         */
+        fun matureAuthority8025(evidence: Double, lifetimeN: Double): Double {
+            if (!evidence.isFinite() || evidence <= 0.0) return 0.0
+            if (evidence >= 1.0 && lifetimeN.isFinite() && lifetimeN >= FULL_AUTHORITY_MIN_LIFETIME_8078) return 1.0
+            return (evidence * maturity8025(lifetimeN)).coerceIn(0.0, MAX_AUTHORITY_8025)
+        }
 
         /** Pure: does the STRONG record prove the Cortex finds edge the gates miss? */
         fun overruleProven(strong: CortexLedger7885.Stat): Boolean =

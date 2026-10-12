@@ -14910,4 +14910,12 @@ class GoldenTapeRegressionTest {
             executor.indexOf("PaperPositionCloseAuthority.markCloseRequested", executor.indexOf("internal fun doSell(")))
     }
 
+    @Test fun V5_0_8078_full_cortex_authority_reaches_execution_and_ohlcv_errors_are_not_absence() {
+        val score = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/CortexScoreboard7885.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
+        val feed = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaOhlcvFeed6916.kt").readText()
+        assertTrue(score.contains("if (evidence >= 1.0 && lifetimeN.isFinite() && lifetimeN >= FULL_AUTHORITY_MIN_LIFETIME_8078) return 1.0"))
+        assertTrue(gate.contains("Cortex7885.fullAuthorityOverrules8078(ts, l8059, r8064)"))
+        assertTrue(feed.contains("if (lookup6982.askedProvider && lookup6982.failed8078) {"))
+    }
 }

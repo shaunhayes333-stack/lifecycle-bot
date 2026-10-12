@@ -743,6 +743,33 @@ object Cortex7885 {
         } catch (_: Throwable) { false }
     }
 
+    /**
+     * V5.0.8078 — the lane-wide live loss book (LiveTruth8064) yields ONLY to full, evidence-earned Cortex authority:
+     * a STRONG, fresh read on a lane that is calibrated, not inverted and holds authority 1.0 (full proof on 1,000+
+     * lifetime STRONG grades). No partial authority, no first-sight probe, never a hard safety / route / Mayhem refusal.
+     * Authority is re-read every call, so it is lost the moment the record stops supporting it.
+     */
+    fun fullAuthorityOverrules8078(ts: TokenState, laneRaw: String, refusal: String): Boolean {
+        return try {
+            val a = cachedOrSchedule(ts, laneRaw) ?: return false
+            if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
+            if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
+            if (!softBlock(refusal, false)) return false
+            if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return false
+            val fraction = synchronized(this) { laneFraction7955(a.lane) }
+            if (fraction < 1.0) { inc("SHADOW_FULL_AUTHORITY_8078"); return false }
+            inc("FULL_AUTHORITY_OVERRULED_8078")
+            try {
+                PipelineHealthCollector.labelInc("CORTEX_FULL_AUTHORITY_OVERRULED_8078_${a.lane}")
+                ForensicLogger.lifecycle(
+                    "CORTEX_FULL_AUTHORITY_OVERRULED_8078",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${a.lane} edge=${"%.2f".format(a.fused.edgePct)} was=${refusal.take(60)}",
+                )
+            } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
+    }
+
     /** V5.0.8026 — FirstSight8026 with this lane's evidence, STRONG record and maturity. */
     private fun firstSight8026(a: Assessment, ts: TokenState, refusal: String): Boolean = try {
         val (evidence, strong, maturity) = synchronized(this) {

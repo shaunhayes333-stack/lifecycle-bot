@@ -387,7 +387,12 @@ object LiveEdgeGate7877 {
             (try { LiveBootRecovery8074.blind8074(nowMs) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
             // V5.0.8064 — the live book has the last word: a lane whose recent live closes are proven losing takes no new
             // entry, whatever its labels say (LiveTruth8064; 6-hour window, so it comes back on its own).
-            (try { LiveTruth8064.refusal8064(l8059, nowMs) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
+            // V5.0.8078 — ...except where the Cortex holds FULL, evidence-earned authority on this lane (never partial).
+            (try { LiveTruth8064.refusal8064(l8059, nowMs) } catch (_: Throwable) { null })?.let { r8064 ->
+                val full8078 = try { com.lifecyclebot.engine.cortex.Cortex7885.fullAuthorityOverrules8078(ts, l8059, r8064) } catch (_: Throwable) { false }
+                if (!full8078) { observeTail7996(ts, lane, r8064, nowMs); return r8064 }
+                try { PipelineHealthCollector.labelInc("LIVE_BOOK_LOSING_8064_FULL_CORTEX_OVERRULE_8078_$l8059") } catch (_: Throwable) {}
+            }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8060 — any MEASURED edge counts, not only a named setup: 5.0.8059 refused 4,879 vs 145 admitted and
             // turned away POKEMON +1,077% and Gemini +708% — runners often fire no named setup. The coin's own cell

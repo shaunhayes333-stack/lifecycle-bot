@@ -80,7 +80,7 @@ class Aate7955GraduatedAuthorityTest {
 
     @Test fun theBooleanPowerIsFullAuthority() {
         // V5.0.8025 — evidence still grades the record (partial at 30, full at the old bar), but authority is
-        // evidence x maturity over every STRONG grade ever: 70 grades is nowhere near "learnt".
+        // evidence x maturity over every STRONG grade ever: 70 grades is nowhere near the 1,000-grade floor for full authority.
         val board = CortexScoreboard7885()
         assertEquals(0.0, board.fractionFor7955("MOONSHOT"), 1e-12)
         repeat(30) { i -> board.record("MOONSHOT", Bucket.STRONG, false, 10.0 + if (i % 2 == 0) 2.0 else -2.0, 0.0) }

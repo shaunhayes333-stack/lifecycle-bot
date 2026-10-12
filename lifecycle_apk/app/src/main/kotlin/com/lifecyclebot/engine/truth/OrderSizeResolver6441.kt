@@ -278,6 +278,8 @@ object OrderSizeResolver6441 {
                 minimumExecutableSol = minExec6758,
             )
             lastResolution.set(blocked6758)
+            // V5.0.8078 — this early return must stamp its own account, or a PAPER refusal displays beside the last LIVE wallet.
+            try { noteResolveAccount7217(paperMode, if (paperMode) throughput6758.cashSol else walletSol, laneName) } catch (_: Throwable) {}
             skippedCount.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758")

@@ -152,6 +152,7 @@ object SolanaOhlcvFeed6916 {
      * evidence about a mint.
      */
     private val localSkips6982 = AtomicLong(0L)
+    private val providerErrors8078 = AtomicLong(0L)  // V5.0.8078 — asked, errored, NOT cached as absence
 
     /** True when a call may proceed now; also claims the slot. */
     private fun rateGateOpen6944(): Boolean {
@@ -255,7 +256,9 @@ object SolanaOhlcvFeed6916 {
      * went on the wire. A null [json] then carries no information whatsoever
      * about the mint or the provider, and must never be recorded as if it did.
      */
-    private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean)
+    // V5.0.8078 — [failed8078]: the provider was asked but errored (HTTP error, empty body, transport). That is NOT
+    // confirmed absence and must never be negative-cached as "this mint has no pool".
+    private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean, val failed8078: Boolean = false)
 
     private fun fetch6982(url: String): Fetched6982 {
         val started = System.currentTimeMillis()
@@ -280,14 +283,14 @@ object SolanaOhlcvFeed6916 {
                     ApiHealthMonitor.record(HOST, resp.code, System.currentTimeMillis() - started)
                 } catch (_: Throwable) {}
                 noteResponse6944(resp.code)
-                if (!resp.isSuccessful) return Fetched6982(null, askedProvider = true)
+                if (!resp.isSuccessful) return Fetched6982(null, askedProvider = true, failed8078 = true)
                 val body = resp.body?.string()
-                if (body.isNullOrBlank()) return Fetched6982(null, askedProvider = true)
+                if (body.isNullOrBlank()) return Fetched6982(null, askedProvider = true, failed8078 = true)
                 Fetched6982(JSONObject(body), askedProvider = true)
             }
         } catch (e: Throwable) {
             try { ApiHealthMonitor.recordNetworkError(HOST, e.message) } catch (_: Throwable) {}
-            Fetched6982(null, askedProvider = true)
+            Fetched6982(null, askedProvider = true, failed8078 = true)
         }
     }
 
@@ -297,7 +300,7 @@ object SolanaOhlcvFeed6916 {
      * `lastPricePoolAddr` for most tokens, so the common path costs no extra
      * request at all).
      */
-    private class PoolLookup6982(val pool: String?, val askedProvider: Boolean)
+    private class PoolLookup6982(val pool: String?, val askedProvider: Boolean, val failed8078: Boolean = false)
 
     private fun resolvePool(mint: String, poolHint: String): PoolLookup6982 {
         val hint = poolHint.trim()
@@ -312,10 +315,10 @@ object SolanaOhlcvFeed6916 {
         }
         poolResolves.incrementAndGet()
         val fetched = fetch6982("$BASE/tokens/$mint/pools?page=1")
-        val json = fetched.json ?: return PoolLookup6982(null, fetched.askedProvider)
+        val json = fetched.json ?: return PoolLookup6982(null, fetched.askedProvider, fetched.failed8078)
         val resolved = try {
             val arr = json.optJSONArray("data")
-                ?: return PoolLookup6982(null, askedProvider = true)
+                ?: return PoolLookup6982(null, askedProvider = true, failed8078 = true)  // malformed answer, not an empty list
             var best: String? = null
             var bestLiq = -1.0
             for (i in 0 until arr.length()) {
@@ -436,7 +439,9 @@ object SolanaOhlcvFeed6916 {
         val lookup6982 = resolvePool(mint, poolHint)
         val pool = lookup6982.pool
         if (pool == null) {
-            if (lookup6982.askedProvider) {
+            if (lookup6982.askedProvider && lookup6982.failed8078) {
+                providerErrors8078.incrementAndGet()
+            } else if (lookup6982.askedProvider) {
                 emptyResults.incrementAndGet()
                 negativeCache[mint] = now
             } else {
@@ -447,7 +452,8 @@ object SolanaOhlcvFeed6916 {
         val url = "$BASE/pools/$pool/ohlcv/$unit?aggregate=$aggregate&limit=$n&currency=usd"
         val candles6982 = fetch6982(url)
         val json = candles6982.json ?: run {
-            if (candles6982.askedProvider) emptyResults.incrementAndGet()
+            if (candles6982.failed8078) providerErrors8078.incrementAndGet()
+            else if (candles6982.askedProvider) emptyResults.incrementAndGet()
             else localSkips6982.incrementAndGet()
             return emptyList()
         }
@@ -672,7 +678,7 @@ object SolanaOhlcvFeed6916 {
             "rateLimited6944=${rateLimited.get()} cooldownSkips6944=${cooldownSkips.get()} " +
             "negativeHits6944=${negativeHits.get()} negCached6944=${negativeCache.size} " +
             "sameKeyCoalesced7484=${sameKeyCoalesced7484.get()} " +
-            "localSkips6982=${localSkips6982.get()} " +
+            "localSkips6982=${localSkips6982.get()} providerErrors8078=${providerErrors8078.get()} " +
             "minIntervalMs=$MIN_INTERVAL_MS " +
             "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size} " +
             "terminalDisabled=${paprikaTerminalDisabled7446.get()} terminalCode=$paprikaTerminalCode7446 " +
@@ -689,7 +695,7 @@ object SolanaOhlcvFeed6916 {
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
         negativeCache.clear(); lastCallAtMs.set(0L); cooldownUntilMs.set(0L)
         cooldownLevel7819.set(0L); cooldowns7819.set(0L); geckoServed7819.set(0L); geckoBars7819.set(0L); paprikaBars7819.set(0L)
-        consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L); localSkips6982.set(0L)
+        consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L); localSkips6982.set(0L); providerErrors8078.set(0L)
         sameKeyLastAttempt7484.clear(); sameKeyCoalesced7484.set(0L)
         paprikaTerminalDisabled7446.set(false); paprikaTerminalCode7446 = 0
         paprikaLastCode7295 = 0; paprikaCooldownUntilMs7293.set(0L); paprikaLastCallMs7293.set(0L)
