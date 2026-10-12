@@ -279,6 +279,7 @@ object HostWalletTokenTracker {
      * Called from init() (boot scrub) and periodically via the
      * existing reconciler tick.
      */
+    @Synchronized
     fun reviveStaleUnprovenBotBuys(): Int {
         val now = System.currentTimeMillis()
         var revived = 0
@@ -897,6 +898,7 @@ object HostWalletTokenTracker {
 
 
     @Synchronized
+    @Synchronized
     fun recordBuyConfirmedWithProof(ts: TokenState, proof: BalanceProof, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
         val prior8079 = positions[ts.mint]
@@ -1184,6 +1186,7 @@ object HostWalletTokenTracker {
      *   - Will never overwrite a higher status (e.g. EXIT_SIGNALLED) with
      *     a lower one (HELD_IN_WALLET).
      */
+    @Synchronized
     fun applyWalletSnapshot(walletMints: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
         if (walletMints.isEmpty()) return  // RPC blip — defended elsewhere too
         val now = System.currentTimeMillis()
