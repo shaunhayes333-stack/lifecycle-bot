@@ -19392,7 +19392,9 @@ class Executor(
             if (!pending) return false
             val now = System.currentTimeMillis()
             val prior = tokenMapDeferrals7371[ts.mint]?.filter { now - it < 5 * 60_000L }.orEmpty()
-            if (prior.size >= 3) return false
+            // Repeated pending hydration is not a terminal BUY failure. The
+            // canonical intent is released and rescanned only while still fresh.
+            if (prior.size >= 3) try { PipelineHealthCollector.labelInc("TOKEN_MAP_PENDING_LONG_HYDRATION_8081") } catch (_: Throwable) {}
             if (tokenMapDeferrals7371.size > 2_000) tokenMapDeferrals7371.clear()
             tokenMapDeferrals7371[ts.mint] = prior + now
             liveBuyDeferred(ts, sol, "TOKEN_MAP_PENDING_DEFERRED_7371", "stage=$stage route=$status")
@@ -19407,7 +19409,17 @@ class Executor(
         }
         liveStage("TOKEN_MAP_START", "source=${ts.source.take(80)}")
         try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) {}
-        val prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+        var prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+        if (!prePlanRouteOk) {
+            // Reuse already observed market pool/route facts before failing a
+            // live BUY. No new network provider, fabricated quote or fresh mark.
+            val hydrated8081 = try { RouteTruthHydrator.hydrate(ts) } catch (_: Throwable) { null }
+            if (hydrated8081?.source in setOf("POOL", "DEX", "JUPITER", "ENTRY_POOL", "ENTRY_JUPITER")) {
+                try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) {}
+                prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+                if (prePlanRouteOk) try { PipelineHealthCollector.labelInc("BUY_ROUTE_TRUTH_REPAIRED_8081") } catch (_: Throwable) {}
+            }
+        }
         if (!prePlanRouteOk) {
             if (deferPendingTokenMap7371("pre_plan")) return false
             val missing = missingTokenMapFields()
