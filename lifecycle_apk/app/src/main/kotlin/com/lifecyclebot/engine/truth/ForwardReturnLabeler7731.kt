@@ -710,7 +710,9 @@ object ForwardReturnLabeler7731 {
         // ladder (fit to these same labels) inflated the grades that drive authority and size.
         // V5.0.8029 — graded on THIS lane's play: its own stop first (a coin through the stop before its peak is a
         // stopped trade, not a run), then the spike ladder on the peak with the rest at the mark — or at the stop.
-        val longHold8077 = com.lifecyclebot.engine.TradeExitContract8077.longHoldStyle(o.entryStyle8077)
+        val longHold8077 = com.lifecyclebot.engine.TradeExitContract8077.longHoldStyle(o.entryStyle8077)?.let {
+            it && com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)
+        }
         val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane, longHold8077) } catch (_: Throwable) { Double.NaN }
         // V5.0.8071 — a REAL move is credited, a one-print spike is not. The ladder sells into the level the price HELD
         // for 20 seconds (heldPeak8071) — a level a live sell can land at — on the lane's own ladder (lifecycle lanes:

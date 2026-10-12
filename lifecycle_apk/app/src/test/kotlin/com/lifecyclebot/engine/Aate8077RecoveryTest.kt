@@ -36,6 +36,9 @@ class Aate8077RecoveryTest {
         assertFalse(LifecycleHold8065.onMark8065(quick, 3.0, 1000L) { _, _, _ -> fail("quick trade cannot become a long hold at 2x") })
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decide8034(quick, "TAKE_PROFIT"))
         assertNull(TradeExitContract8077.longHoldStyle("UNKNOWN"))
+        val tacticalLaneRunner = token("non-lifecycle-runner", "DIAMOND_HANDS_RUNNER")
+        tacticalLaneRunner.position.tradingMode = "MANIPULATED"
+        assertNull(LifecycleHold8065.defer8065(tacticalLaneRunner, "STOP_LOSS"))
     }
 
     @Test fun manipulatedBanksFirstMinuteWinnerAndKeepsPeakTrailArmed() {
