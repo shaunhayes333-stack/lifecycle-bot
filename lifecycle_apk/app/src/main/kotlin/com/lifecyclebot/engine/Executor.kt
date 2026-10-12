@@ -3127,7 +3127,9 @@ class Executor(
 
     private fun commitVerifiedLiveSlice7835(ts: TokenState, proof: TradeVerifier.SellResult, reason: String): com.lifecyclebot.engine.sell.SellFinalizationCoordinator.Result? {
         if (proof.outcome != TradeVerifier.Outcome.LANDED || proof.mint != ts.mint ||
-            proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null || proof.rawTokenConsumed.signum() <= 0) return null
+            proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null ||
+            proof.preTokenRaw7835.signum() <= 0 || proof.rawTokenConsumed.signum() <= 0 ||
+            proof.rawTokenConsumed > proof.preTokenRaw7835) return null
         val position = liveCanonicalOpen7362(ts.mint) ?: return null
         val lifecycleEntryTime8076 = ts.position.entryTime
         // Chain-confirmed token consumption decides partial versus terminal,
@@ -3138,9 +3140,8 @@ class Executor(
             .divide(proof.preTokenRaw7835).toInt().coerceIn(1, 10_000)
         val intent = com.lifecyclebot.engine.sell.SellIntent.build(
             mint = ts.mint, symbol = ts.symbol,
-            reason = if (fullConsumed8081)
-                com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason)
-            else com.lifecyclebot.engine.sell.SellReasonClassifier.fromString(reason),
+            reason = com.lifecyclebot.engine.sell.SellReasonClassifier
+                .fromChainConsumption8081(reason, fullConsumed8081),
             requestedFractionBps = partialBps8081,
             confirmedWalletRaw = proof.preTokenRaw7835, decimals = proof.decimals,
             slippageBps = 0, emergencyDrain = fullConsumed8081,
