@@ -45,7 +45,20 @@ object LifecycleHold8065 {
     private val TAKES_8065 = listOf(100.0 to 0.50, 400.0 to 0.30, 900.0 to 0.30)
 
     /** Per position (mint|entryTime): takes done, promoted, peak gross, when the peak was set. */
-    private class State(var taken: Int, var promoted: Boolean, var peak: Double, var peakAt: Long)
+    internal class TakeProgress8076(initial: Int = 0) {
+        var taken = initial.coerceIn(0, TAKES_8065.size)
+            private set
+        @Synchronized fun confirm(reason: String): Boolean {
+            val rung = Regex("^LIFECYCLE_PROFIT_TAKE([1-3])_8065_").find(reason)?.groupValues?.get(1)?.toIntOrNull() ?: return false
+            if (rung != taken + 1) return false
+            taken = rung
+            return true
+        }
+    }
+    private class State(taken: Int, var promoted: Boolean, var peak: Double, var peakAt: Long) {
+        val takes = TakeProgress8076(taken)
+        val taken get() = takes.taken
+    }
 
     private val states = ConcurrentHashMap<String, State>()
     private val bars = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()  // mint -> [startMs, o, h, l, c]
@@ -191,9 +204,8 @@ object LifecycleHold8065 {
         if (lastSell.size > 2_000) lastSell.clear()
         lastSell[k] = nowMs
         val (reason, frac) = why
-        // Do not mark a lifecycle profit rung as consumed before the sell dispatch
-        // has actually been accepted by its caller. A synchronous dispatch failure
-        // must leave both the rung and retry eligibility intact.
+        // Dispatch is asynchronous and may refuse without throwing. Only a verified
+        // canonical slice can consume a rung (onConfirmedTake8076).
         try {
             sell(ts, frac, reason)
         } catch (failure: Exception) {
@@ -201,7 +213,6 @@ object LifecycleHold8065 {
             try { PipelineHealthCollector.labelInc("LIFECYCLE_SELL_DISPATCH_FAILED_8065") } catch (_: Throwable) {}
             return true
         }
-        if (reason.contains("_PROFIT_TAKE")) st.taken += 1
         exits.getOrPut(reason.substringBefore("_8065")) { AtomicLong(0) }.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc(reason.substringBefore("_8065") + "_8065")
@@ -209,6 +220,16 @@ object LifecycleHold8065 {
         } catch (_: Throwable) {}
         saveMaybe(nowMs, force = true)
         return true
+    }
+
+    /** Called only after the verified live slice has committed to canonical inventory. */
+    fun onConfirmedTake8076(mint: String, entryTime: Long, reason: String, signature: String, consumedRaw: java.math.BigInteger) {
+        if (entryTime <= 0L || signature.isBlank() || consumedRaw.signum() <= 0) return
+        load()
+        val st = states["$mint|$entryTime"] ?: return
+        if (!st.takes.confirm(reason)) return
+        try { PipelineHealthCollector.labelInc("LIFECYCLE_TAKE_CONFIRMED_8076") } catch (_: Throwable) {}
+        saveMaybe(System.currentTimeMillis(), force = true)
     }
 
     /** The last CLOSED bar broke the range (the open bar is still forming). */

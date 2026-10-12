@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.data.Candle
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -39,6 +40,16 @@ object FlatChart8027 {
         return (p.max() / lo - 1.0) * 100.0 < FLAT_RANGE_PCT
     }
 
+    /** Count distinct candles, then test their full range and the executable current price. */
+    fun flatCandles8076(bars: List<Candle>, nowPrice: Double, nowMs: Long): Boolean {
+        if (!nowPrice.isFinite() || nowPrice <= 0.0) return false
+        val recent = bars.filter { !it.synthetic && nowMs - it.ts in 0L..FLAT_WINDOW_MS &&
+            it.priceUsd.isFinite() && it.priceUsd > 0.0 }
+        if (recent.map { it.ts }.distinct().size < FLAT_MIN_BARS) return false
+        val prices = recent.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd, it.openUsd) } + nowPrice
+        return flatline8027(prices)
+    }
+
     /** Executor.liveBuy: the refusal label when [ts]'s chart is dead or flat, else null. */
     fun refusal8027(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
         val now = ts.lastPrice
@@ -49,7 +60,7 @@ object FlatChart8027 {
         val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
         val why = when {
             deadRunner8027(peak, now) -> { deadRefused.incrementAndGet(); "DEAD_RUNNER_8027" }
-            flatline8027(bars.filter { nowMs - it.ts in 0L..FLAT_WINDOW_MS }.map { it.priceUsd }) -> {
+            flatCandles8076(bars, now, nowMs) -> {
                 flatRefused.incrementAndGet(); "FLATLINE_8027"
             }
             // V5.0.8036 — USDP (CASHGEN, entry "$204M"): a market cap climbing $140M -> $250M in a straight line

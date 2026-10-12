@@ -354,6 +354,26 @@ object LearningPersistence {
     /** V5.9.1321 — public KV load (delegates to internal blob get). */
     fun load(key: String): String? = getBlob(key)
 
+    /** Paired learning books and revision receipts must survive or roll back together. */
+    fun saveTogether8076(blobs: Map<String, String>) {
+        val d = db ?: return
+        if (Looper.getMainLooper().thread == Thread.currentThread()) {
+            GlobalScope.launch(Dispatchers.IO) { saveTogether8076(blobs) }
+            return
+        }
+        try {
+            d.beginTransaction()
+            try {
+                val now = System.currentTimeMillis()
+                for ((name, json) in blobs) d.execSQL(
+                    "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOB',?,?,?)",
+                    arrayOf(name, json, now),
+                )
+                d.setTransactionSuccessful()
+            } finally { d.endTransaction() }
+        } catch (e: Exception) { ErrorLogger.warn(TAG, "paired learning checkpoint failed: ${e.message}") }
+    }
+
     private fun putBlob(name: String, json: String) {
         val d = db ?: return
         if (Looper.getMainLooper().thread == Thread.currentThread() && !d.inTransaction()) {

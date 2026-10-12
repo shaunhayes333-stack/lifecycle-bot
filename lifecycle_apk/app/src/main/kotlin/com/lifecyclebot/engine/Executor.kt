@@ -3126,6 +3126,7 @@ class Executor(
         if (proof.outcome != TradeVerifier.Outcome.LANDED || proof.mint != ts.mint ||
             proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null || proof.rawTokenConsumed.signum() <= 0) return null
         val position = liveCanonicalOpen7362(ts.mint) ?: return null
+        val lifecycleEntryTime8076 = ts.position.entryTime
         val intent = com.lifecyclebot.engine.sell.SellIntent.build(
             mint = ts.mint, symbol = ts.symbol,
             reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
@@ -3151,6 +3152,9 @@ class Executor(
                 partialSoldPct = if (updated.originalQtyRaw.signum() > 0)
                     100.0 * (1.0 - updated.remainingQtyRaw.toDouble() / updated.originalQtyRaw.toDouble()) else 0.0,
             )
+        }
+        if (ts.position.entryTime == lifecycleEntryTime8076) {
+            LifecycleHold8065.onConfirmedTake8076(ts.mint, lifecycleEntryTime8076, reason, proof.sig, result.actualConsumedRaw)
         }
         return result
     }

@@ -500,6 +500,7 @@ object LanePlaybook7907 {
         val local = books[lane]?.stats?.get(setup)
         // V5.0.8000 — the rest of the hive's grades of this setup ride on the local book.
         val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null } ?: return local
+        if (!CortexLedger7885.validHiveBin8076(hive)) return local
         val c = CortexLedger7885.Stat()
         if (local != null) { c.n = local.n; c.sum = local.sum; c.sumSq = local.sumSq; c.runners = local.runners; c.wins = local.wins }
         c.n += hive[0]; c.sum += hive[1]; c.sumSq += hive[2]; c.wins += hive[3]; c.runners += hive[4]
@@ -794,32 +795,39 @@ object LanePlaybook7907 {
     /** Cortex7885.onLabel (graded horizon only): learn (lane, setup) from the forward label. */
     fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double) {
         ensureLoaded()
-        val (lane, tag) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
         if (!netPct.isFinite()) return
+        val (lane, tag) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
         // V5.0.7924 — the tagged setup and every other setup that fired are each graded.
         val graded = listOf(tag.substringBefore(';')) + tag.substringAfter(';', "").split(',').filter { it.isNotBlank() }
         // V5.0.7997 — kept so later checkpoints can revise this label (ForwardReturnLabeler7731).
-        graded7997["$mint|${labelLane.trim().uppercase()}"] = lane to graded.distinct()
-        if (graded7997.size > 8_000) graded7997.clear()
         synchronized(this) {
-            for (setup in graded.distinct()) {
+            val stamps = graded.distinct().associateWith { setup ->
                 books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
+            if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
+            graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps, netPct, grossPct, System.currentTimeMillis())
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
     }
 
-    private val graded7997 = ConcurrentHashMap<String, Pair<String, List<String>>>()
+    private class Grade8076(val lane: String, val stamps: Map<String, Double>, var net: Double, var gross: Double, val atMs: Long)
+    private val graded7997 = ConcurrentHashMap<String, Grade8076>()
 
     /** V5.0.7997 — ForwardReturnLabeler7731: a later checkpoint revises a graded label in every setup book it went to. */
     fun reviseLabel7997(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
-        val (lane, setups) = graded7997["$mint|${labelLane.trim().uppercase()}"] ?: return
-        val yo = oldNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
-        val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
-        val ro = oldGross.isFinite() && oldGross >= CortexLedger7885.RUNNER_GROSS_PCT
-        val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
-        synchronized(this) { for (s in setups) books[lane]?.stats?.get(s)?.revise(yo, yn, ro, rn) }
+        if (!newNet.isFinite()) return
+        synchronized(this) {
+            val g = graded7997["$mint|${labelLane.trim().uppercase()}"] ?: return
+            val yo = g.net.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+            val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+            val ro = g.gross.isFinite() && g.gross >= CortexLedger7885.RUNNER_GROSS_PCT
+            val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
+            for ((setup, stamp) in g.stamps) books[g.lane]?.stats?.get(setup)?.let { st ->
+                st.revise(yo, yn, ro, rn, st.revisionWeight(stamp))
+            }
+            g.net = newNet; g.gross = newGross
+        }
     }
 
     /** Index of the setup in the lane menu (NO_TRIGGER = menu size), for the Cortex voter. */

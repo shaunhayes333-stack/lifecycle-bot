@@ -227,7 +227,11 @@ object Cortex7885 {
         if (!loaded) return
         if (nowMs - lastPendingPersistMs < PENDING_PERSIST_EVERY_MS) return
         lastPendingPersistMs = nowMs
-        try {
+        persist()
+    }
+
+    /** Caller holds the Cortex lock: the traces and books must describe the same checkpoint. */
+    private fun pendingSnapshot8076(): org.json.JSONObject {
             // Voter ids are written once in a dictionary; each decision stores indices (keeps the blob well under 1 MB).
             val dict = LinkedHashMap<String, Int>()
             val arr = org.json.JSONArray()
@@ -246,27 +250,37 @@ object Cortex7885 {
                         .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs),
                 )
             }
-            // V5.0.8013 — graded decisions held for progressive revision ride along (best runs first),
+            // V5.0.8013 — graded decisions held for progressive revision ride along (newest decisions first),
             // so a 5 h / 24 h / later re-grade still reaches the voters after an app restart.
             val garr = org.json.JSONArray()
-            synchronized(this) { graded8006.entries.sortedByDescending { it.value.gross }.take(GRADED_PERSIST_MAX_8013).toList() }.forEach { (k, g) ->
+            graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013).forEach { (k, g) ->
                 val a = g.p.a
                 val ids = org.json.JSONArray(); val xs = org.json.JSONArray(); val pr = org.json.JSONArray(); val pw = org.json.JSONArray()
+                val rs = org.json.JSONArray(); val sc = org.json.JSONArray()
                 for (i in a.ids.indices) {
                     val r = a.raws.getOrNull(i) ?: continue
                     if (!r.isFinite()) continue
                     ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(fin0(r))
-                    pr.put(fin0(g.trace.preds.getOrNull(i) ?: Double.NaN)); pw.put(fin0(g.trace.pWins.getOrNull(i) ?: Double.NaN))
+                    pr.put(jsonNumber(g.trace.preds.getOrNull(i))); pw.put(jsonNumber(g.trace.pWins.getOrNull(i)))
+                    sc.put(g.trace.scoreAt?.getOrNull(i) ?: -1)
+                    repeat(4) { rs.put(jsonNumber(g.trace.scales?.getOrNull(i * 4 + it))) }
                 }
+                repeat(3) { rs.put(jsonNumber(g.trace.scales?.getOrNull(a.ids.size * 4 + it))) }
                 garr.put(org.json.JSONObject().put("k", k).put("l", a.lane).put("g", a.regime).put("b", a.bucket.ordinal)
                     .put("adm", g.p.legacyAdmitted).put("at", g.atMs).put("v", g.p.vetoRule.orEmpty()).put("su", g.p.setup7961)
-                    .put("base", fin0(g.trace.base)).put("bw", fin0(g.trace.baseWin)).put("n", fin0(g.net)).put("gr", fin0(g.gross))
-                    .put("i", ids).put("x", xs).put("pr", pr).put("pw", pw))
+                    .put("base", jsonNumber(g.trace.base)).put("bw", jsonNumber(g.trace.baseWin)).put("n", jsonNumber(g.net)).put("gr", jsonNumber(g.gross))
+                    .put("i", ids).put("x", xs).put("pr", pr).put("pw", pw)
+                    .put("rs", rs).put("sc", sc).put("bs", jsonNumbers(g.bookScales)).put("aux", jsonNumbers(g.auxScales)))
             }
-            val out = org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr).put("g8013", garr)
-            LearningPersistence.save(PENDING_PERSIST_KEY, out.toString())
-            inc("PENDING_PERSISTED")
-        } catch (_: Throwable) { inc("PENDING_PERSIST_FAILED") }
+            return org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr).put("g8013", garr)
+    }
+
+    private fun jsonNumber(value: Double?): Any = value?.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL
+    private fun jsonNumbers(values: DoubleArray?): org.json.JSONArray = org.json.JSONArray().also { a ->
+        values?.forEach { a.put(jsonNumber(it)) }
+    }
+    private fun readNumbers(o: org.json.JSONObject, key: String): DoubleArray? = o.optJSONArray(key)?.let { a ->
+        if (a.length() == 0) null else DoubleArray(a.length()) { a.optDouble(it, Double.NaN) }
     }
 
     /** Caller holds the lock (ensureLoaded). */
@@ -315,19 +329,26 @@ object Cortex7885 {
             if (k.isBlank() || at <= 0L || nowMs - at > GRADED_KEEP_MS_8013 || graded8006.containsKey(k)) continue
             val ids = ArrayList<String>(); val edges = ArrayList<DoubleArray>()
             val raws = ArrayList<Double>(); val preds = ArrayList<Double>(); val pws = ArrayList<Double>()
+            val scales = ArrayList<Double>(); val counts = ArrayList<Int>()
+            val rs = o.optJSONArray("rs"); val sc = o.optJSONArray("sc")
             val ji = o.optJSONArray("i") ?: continue; val jx = o.optJSONArray("x") ?: continue
             val jp = o.optJSONArray("pr") ?: continue; val jw = o.optJSONArray("pw") ?: continue
             for (j in 0 until minOf(ji.length(), jx.length(), jp.length(), jw.length())) {
                 val id = dict.getOrNull(ji.optInt(j, -1)) ?: continue
                 val e = CortexVoters7885.edgesFor(id) ?: continue
                 ids.add(id); edges.add(e); raws.add(jx.optDouble(j)); preds.add(jp.optDouble(j)); pws.add(jw.optDouble(j))
+                counts.add(sc?.optInt(j, -1) ?: -1)
+                repeat(4) { scales.add(rs?.optDouble(j * 4 + it, Double.NaN) ?: Double.NaN) }
             }
             val b = buckets.getOrNull(o.optInt("b", 1)) ?: CortexScoreboard7885.Bucket.NEUTRAL
             val fused = CortexLedger7885.Fused(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList())
             val a = Assessment(o.optString("l"), false, raws.toDoubleArray(), ids, edges, o.optString("g"), fused, 0.0, b, 0, false, at)
             val p = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, "", o.optString("su"))
-            val trace = CortexLedger7885.GradeTrace8006(preds.toDoubleArray(), pws.toDoubleArray(), o.optDouble("base", 0.0), o.optDouble("bw", 0.5))
-            graded8006[k] = Graded8006(p, trace, o.optDouble("n", Double.NaN), o.optDouble("gr", Double.NaN), at)
+            repeat(3) { scales.add(rs?.optDouble(ji.length() * 4 + it, Double.NaN) ?: Double.NaN) }
+            val trace = CortexLedger7885.GradeTrace8006(preds.toDoubleArray(), pws.toDoubleArray(), o.optDouble("base", 0.0), o.optDouble("bw", 0.5),
+                if (rs != null) scales.toDoubleArray() else null, if (sc != null) counts.toIntArray() else null)
+            graded8006[k] = Graded8006(p, trace, o.optDouble("n", Double.NaN), o.optDouble("gr", Double.NaN), at,
+                readNumbers(o, "bs"), readNumbers(o, "aux"))
             inc("GRADED_RESTORED_8013")
         }
     }
@@ -343,8 +364,7 @@ object Cortex7885 {
         // used to wait for the 4-hour label; with the spike tiers credited in the label,
         // a runner's first minutes carry its capture, and the Cortex learns 48x sooner.
         if (horizonMin != 60) return
-        pending.remove(key)
-        if (!netPct.isFinite()) return
+        if (!netPct.isFinite() || !pending.remove(key, p)) return
         try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct) } catch (_: Throwable) {}
         // V5.0.7908 — discovery quality: the scanner source brain orders and weights
         // intake by each source's record, but learned only from closed trades (a
@@ -358,22 +378,28 @@ object Cortex7885 {
         }
         synchronized(this) {
             val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
-            if (trace8006 != null) retain8006(key, p, trace8006, netPct, grossPct)
-            board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
+            val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
+            val auxScales = DoubleArray(3) { Double.NaN }
             calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
             if (p.setup7961.isNotBlank()) {
                 val jk = jointKey7961(p.a.lane, p.a.bucket, p.setup7961)
-                if (!jointBook7961.containsKey(jk) && jointBook7961.size >= 600) jointBook7961.entries.minByOrNull { it.value.n }?.key?.let { jointBook7961.remove(it) }
-                jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }
+                if (!jointBook7961.containsKey(jk) && jointBook7961.size >= 600) jointBook7961.entries.minByOrNull { it.value.n }?.key?.let { evicted ->
+                    jointBook7961.remove(evicted)
+                    // A recreated cell must not receive revisions belonging to its predecessor.
+                    graded8006.values.filter { jointKey7961(it.p.a.lane, it.p.a.bucket, it.p.setup7961) == evicted }
+                        .forEach { it.auxScales?.set(0, Double.NaN) }
+                }
+                auxScales[0] = jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
             p.vetoRule?.let { r ->
-                vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
+                auxScales[1] = vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
                 // V5.0.8006 — the same rule per lane: a rule can refuse winners in one lane and losers in another.
-                vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane)) { CortexLedger7885.Stat() }
+                auxScales[2] = vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane)) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
+            if (trace8006 != null) retain8006(key, p, trace8006, netPct, grossPct, bookScales, auxScales)
         }
         graded.incrementAndGet()
         if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
@@ -462,9 +488,10 @@ object Cortex7885 {
     // while the coin lives (7997). The Cortex graded once at 5 minutes and never heard again, so
     // every voter, the scoreboard buckets, the veto audit and the setup×verdict book learned what
     // a coin did in its first five minutes. Graded decisions are kept (bounded; the weakest
-    // labels are dropped first, runners kept) and every revision is applied to all of them.
+    // decisions age out without selecting by outcome) and revisions retain their original weight.
     private class Graded8006(
         val p: Pending, val trace: CortexLedger7885.GradeTrace8006, var net: Double, var gross: Double, val atMs: Long,
+        val bookScales: DoubleArray? = null, val auxScales: DoubleArray? = null,
     )
     private val graded8006 = HashMap<String, Graded8006>()
     private const val MAX_GRADED_8006 = 600
@@ -473,13 +500,13 @@ object Cortex7885 {
     private val revised8006 = java.util.concurrent.atomic.AtomicLong(0)
     private val revisedUp8006 = java.util.concurrent.atomic.AtomicLong(0)
 
-    private fun retain8006(key: String, p: Pending, trace: CortexLedger7885.GradeTrace8006, net: Double, gross: Double) {
+    private fun retain8006(key: String, p: Pending, trace: CortexLedger7885.GradeTrace8006, net: Double, gross: Double, bookScales: DoubleArray?, auxScales: DoubleArray?) {
         if (graded8006.size >= MAX_GRADED_8006) {
             val cutoff = System.currentTimeMillis() - GRADED_KEEP_MS_8013
             graded8006.entries.removeIf { it.value.atMs < cutoff }
-            if (graded8006.size >= MAX_GRADED_8006) graded8006.entries.minByOrNull { it.value.gross }?.key?.let { graded8006.remove(it) }
+            if (graded8006.size >= MAX_GRADED_8006) graded8006.entries.minByOrNull { it.value.atMs }?.key?.let { graded8006.remove(it) }
         }
-        graded8006[key] = Graded8006(p, trace, net, gross, p.atMs)
+        graded8006[key] = Graded8006(p, trace, net, gross, p.atMs, bookScales, auxScales)
     }
 
     /** ForwardReturnLabeler7731.revise7997: a decision's label moved; re-grade it everywhere it was booked. */
@@ -488,18 +515,25 @@ object Cortex7885 {
         val key = "$mint|${labelLane.trim().uppercase()}"
         synchronized(this) {
             val g = graded8006[key] ?: return
+            if (g.trace.scales == null || g.trace.scoreAt == null || g.bookScales == null || g.auxScales == null) {
+                inc("REVISION_LEGACY_WEIGHT_UNKNOWN")
+                return
+            }
             val yo = g.net; val go = g.gross
             if (!yo.isFinite()) return
             val a = g.p.a
             ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, yo, newNet, go, newGross, a.regime)
-            board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, yo, newNet, go, newGross)
+            board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, yo, newNet, go, newGross, g.bookScales)
             val cy = { v: Double -> v.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX) }
             val ro = go >= CortexLedger7885.RUNNER_GROSS_PCT; val rn = newGross >= CortexLedger7885.RUNNER_GROSS_PCT
-            g.p.vetoRule?.let { r ->
-                vetoBook[r]?.revise(cy(yo), cy(newNet), ro, rn)
-                vetoBook[vetoLaneKey8006(r, a.lane)]?.revise(cy(yo), cy(newNet), ro, rn)
+            fun reviseAux(st: CortexLedger7885.Stat?, index: Int) {
+                st?.revise(cy(yo), cy(newNet), ro, rn, st.revisionWeight(g.auxScales[index]))
             }
-            if (g.p.setup7961.isNotBlank()) jointBook7961[jointKey7961(a.lane, a.bucket, g.p.setup7961)]?.revise(cy(yo), cy(newNet), ro, rn)
+            g.p.vetoRule?.let { r ->
+                reviseAux(vetoBook[r], 1)
+                reviseAux(vetoBook[vetoLaneKey8006(r, a.lane)], 2)
+            }
+            if (g.p.setup7961.isNotBlank()) reviseAux(jointBook7961[jointKey7961(a.lane, a.bucket, g.p.setup7961)], 0)
             g.net = newNet; g.gross = newGross
         }
         revised8006.incrementAndGet()
@@ -997,13 +1031,13 @@ object Cortex7885 {
         synchronized(this) {
             if (loaded) return
             loaded = true
-            try { restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis()) } catch (_: Throwable) { inc("PENDING_RESTORE_FAILED") }
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: run {
                     LearningPersistence.load(LEGACY_PERSIST_KEY_7947)?.let { legacy ->
                         org.json.JSONObject(legacy).optJSONObject("real")?.let { j -> for (k in j.keys()) j.optJSONObject(k)?.let { realLedgers[k] = CortexLedger7885().also { l -> l.decode(it) } } }
                         inc("LEGACY_REAL_CARRIED_7947")
                     }
+                    restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis())
                     return
                 })
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
@@ -1012,6 +1046,7 @@ object Cortex7885 {
                 o.optJSONObject("real")?.let { j -> for (k in j.keys()) j.optJSONObject(k)?.let { realLedgers[k] = CortexLedger7885().also { l -> l.decode(it) } } }
                 o.optJSONObject("vetoes")?.let { j -> for (k in j.keys()) vetoBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
                 o.optJSONObject("joint7961")?.let { j -> for (k in j.keys()) jointBook7961[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
+                restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis())
             } catch (_: Throwable) {}
         }
     }
@@ -1036,9 +1071,8 @@ object Cortex7885 {
     }
 
     /**
-     * V5.0.8001 — a thin local seat inherits the network's: a seat this instance has scored fewer
-     * than MIN_SCORED times takes the hive's skill sums and bins (new installs start from the
-     * network's learnt authority instead of zero). Returns seats inherited.
+     * V5.0.8001/8076 — an empty local seat can inherit a valid network snapshot.
+     * Local observations are never overwritten while their progressive labels are outstanding.
      */
     fun hiveInherit8001(): Int {
         ensureLoaded()
@@ -1048,14 +1082,19 @@ object Cortex7885 {
             for (hk in hive.netKeys8000("CX|S|")) {
                 val id = hk.removePrefix("CX|S|")
                 val net = hive.net8000(hk) ?: continue
-                if (net[0] < CortexLedger7885.MIN_SCORED) continue
-                val bins = net[5].toInt().coerceIn(1, 64)
                 val parts = id.split('|')
                 if (parts.size < 2) continue
+                val bins = (CortexVoters7885.edgesFor(parts[0]) ?: continue).size + 1
+                if (!CortexLedger7885.validHiveSeat8076(net, bins)) { inc("HIVE_SCORE_INVALID_8076"); continue }
+                val importedBins = (0 until bins).map { hive.net8000("CX|B|$id|$it") }
+                if (importedBins.all { it == null } || importedBins.any { it != null && !CortexLedger7885.validHiveBin8076(it) }) {
+                    inc("HIVE_BIN_INVALID_8076"); continue
+                }
                 val st = ledger.seat(parts[0], parts.drop(1).joinToString("|"), bins)
-                if (st.scored >= CortexLedger7885.MIN_SCORED || st.bins.size != bins) continue
+                // Seed an empty seat only. Replacing a local book invalidates outstanding label contributions.
+                if (st.scored > 0 || st.bins.any { it.n > 0.0 } || st.bins.size != bins) continue
                 st.scored = net[0].toInt(); st.sseModel = net[1]; st.sseBase = net[2]; st.brierModel = net[3]; st.brierBase = net[4]
-                for (i in st.bins.indices) hive.net8000("CX|B|$id|$i")?.let { b ->
+                for (i in st.bins.indices) importedBins[i]?.let { b ->
                     val s = CortexLedger7885.Stat(); s.n = b[0]; s.sum = b[1]; s.sumSq = b[2]; s.wins = b[3]; s.runners = b[4]
                     st.bins[i].n = s.n; st.bins[i].sum = s.sum; st.bins[i].sumSq = s.sumSq; st.bins[i].wins = s.wins; st.bins[i].runners = s.runners
                 }
@@ -1068,7 +1107,6 @@ object Cortex7885 {
 
     fun persistNow7930() {
         if (!loaded) return
-        persist()
         lastPendingPersistMs = 0L
         persistPendingMaybe(System.currentTimeMillis())
         try { LanePlaybook7907.persistNow7930() } catch (_: Throwable) {}
@@ -1077,7 +1115,7 @@ object Cortex7885 {
         try { CortexTiming7900.persistNow7930() } catch (_: Throwable) {}
     }
 
-    private fun persist() {
+    @Synchronized private fun persist() {
         if (!loaded) return
         try {
             val json = synchronized(this) {
@@ -1086,7 +1124,8 @@ object Cortex7885 {
                     .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("joint7961", org.json.JSONObject().also { j -> jointBook7961.forEach { (k, v) -> j.put(k, v.encode()) } }).toString()
             }
-            LearningPersistence.save(PERSIST_KEY, json)
+            // Keep individual SQLite rows bounded; one transaction binds the two snapshots.
+            LearningPersistence.saveTogether8076(mapOf(PERSIST_KEY to json, PENDING_PERSIST_KEY to pendingSnapshot8076().toString()))
         } catch (_: Throwable) {}
     }
 
@@ -1127,7 +1166,7 @@ object Cortex7885 {
                 sb.append("  realised: " + board.realized.entries.sortedBy { it.key }.take(6).joinToString(" · ") { (k, arr) ->
                     "$k ${fmtStat(arr[2])}/${fmtStat(arr[1])}/${fmtStat(arr[0])}"
                 }.ifBlank { "none yet" } + "  (strong/neutral/refuse)\n")
-                sb.append("  key: Rp/Rl refuse paper/live · O overrule (auth>=0.5) · auth graduated strong authority, scales size-up · SUSPENDED calibration < 0.5 · INVERTED strong < neutral")
+                sb.append("  key: Rp/Rl refuse paper/live · O overrule (auth>=0.5) · auth graduated strong authority, scales size-up · SUSPENDED calibration < 0.5 · INVERTED strong < neutral/refuse")
                 sb.toString().take(1_900)
             }
         } catch (t: Throwable) { "  unavailable: ${t.javaClass.simpleName}" }

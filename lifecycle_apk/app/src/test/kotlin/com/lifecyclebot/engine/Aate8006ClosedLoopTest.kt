@@ -54,7 +54,7 @@ class Aate8006ClosedLoopTest {
         assertTrue(frl.contains("if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)"))
         assertTrue(frl.contains("endRun8006(o, gross)"))
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("if (trace8006 != null) retain8006(key, p, trace8006, netPct, grossPct)"))
+        assertTrue(cx.contains("if (trace8006 != null) retain8006(key, p, trace8006, netPct, grossPct, bookScales, auxScales)"))
         assertTrue(cx.contains("vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane))"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("Cortex7885.vetoRefusesWinners8006(why, l)"))

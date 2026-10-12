@@ -81,6 +81,21 @@ class CortexLedger7885 {
             return d.coerceIn(-cap, cap)
         }
 
+        /** Network deltas are not necessarily valid score snapshots. Never import negative SSE. */
+        fun validHiveSeat8076(v: DoubleArray, bins: Int): Boolean =
+            v.size >= 6 && v.take(6).all { it.isFinite() } &&
+                v[0] >= MIN_SCORED && v[0] <= Int.MAX_VALUE &&
+                v[1] >= 0.0 && v[2] > 0.0 && v[3] >= 0.0 && v[4] >= 0.0 &&
+                v[3] <= v[0] && v[4] <= v[0] && v[5] == bins.toDouble()
+
+        fun validHiveBin8076(v: DoubleArray): Boolean {
+            if (v.size < 5 || v.take(5).any { !it.isFinite() } || v[0] <= 0.0) return false
+            val n = v[0]
+            return v[1] / n >= Y_MIN - 1e-8 && v[2] >= 0.0 &&
+                v[2] / n + 1e-8 >= (v[1] / n) * (v[1] / n) &&
+                v[3] in 0.0..n && v[4] in 0.0..n
+        }
+
         /** Pure: bin index of [v] on ascending [edges] (0..edges.size). */
         fun binOf(edges: DoubleArray, v: Double): Int {
             var i = 0
@@ -91,31 +106,40 @@ class CortexLedger7885 {
 
     class Stat {
         var n = 0.0; var sum = 0.0; var sumSq = 0.0; var runners = 0.0; var wins = 0.0
+        // Cumulative decay, persisted with the book. A delayed correction must
+        // replace only the weight that its original observation still owns.
+        var logScale = 0.0
         fun mean(): Double = if (n > 0.0) sum / n else 0.0
         fun variance(): Double = if (n > 1.0) ((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
-        fun add(y: Double, runner: Boolean) {
+        fun add(y: Double, runner: Boolean): Double {
+            val stamp = logScale
             n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0
             // V5.0.8014 — fresh edge: past [STAT_WINDOW_8014] outcomes the oldest evidence fades, so a busy
             // cell's record is its most recent ~500 outcomes and turns when the market turns.
             if (n > STAT_WINDOW_8014) scale(STAT_WINDOW_8014 / n)
+            return stamp
         }
-        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k }
+        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k; logScale += kotlin.math.ln(k) }
+        fun revisionWeight(stamp: Double): Double =
+            if (stamp.isFinite() && logScale.isFinite() && logScale <= stamp + 1e-9)
+                kotlin.math.exp(logScale - stamp).coerceIn(0.0, 1.0) else 0.0
         /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value (n unchanged). */
-        fun revise(yOld: Double, yNew: Double, runnerOld: Boolean, runnerNew: Boolean) {
-            if (n <= 0.0 || !yOld.isFinite() || !yNew.isFinite()) return
-            sum += yNew - yOld; sumSq = (sumSq + yNew * yNew - yOld * yOld).coerceAtLeast(0.0)
-            if (runnerNew != runnerOld) runners = (runners + if (runnerNew) 1.0 else -1.0).coerceIn(0.0, n)
+        fun revise(yOld: Double, yNew: Double, runnerOld: Boolean, runnerNew: Boolean, weight: Double = 1.0) {
+            if (n <= 0.0 || !yOld.isFinite() || !yNew.isFinite() || !weight.isFinite() || weight <= 0.0 || weight > 1.0) return
+            sum += weight * (yNew - yOld); sumSq = (sumSq + weight * (yNew * yNew - yOld * yOld)).coerceAtLeast(0.0)
+            if (runnerNew != runnerOld) runners = (runners + weight * (if (runnerNew) 1.0 else -1.0)).coerceIn(0.0, n)
             val dw = (if (yNew > 0.0) 1.0 else 0.0) - (if (yOld > 0.0) 1.0 else 0.0)
-            if (dw != 0.0) wins = (wins + dw).coerceIn(0.0, n)
+            if (dw != 0.0) wins = (wins + weight * dw).coerceIn(0.0, n)
         }
-        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins"
+        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale"
         fun decode(s: String) {
-            val f = s.split(','); if (f.size != 4 && f.size != 5) return
+            val f = s.split(','); if (f.size !in 4..6) return
             n = f[0].toDoubleOrNull() ?: 0.0; sum = f[1].toDoubleOrNull() ?: 0.0
             sumSq = f[2].toDoubleOrNull() ?: 0.0; runners = f[3].toDoubleOrNull() ?: 0.0
-            wins = if (f.size == 5) f[4].toDoubleOrNull() ?: 0.0 else 0.0
+            wins = if (f.size >= 5) f[4].toDoubleOrNull() ?: 0.0 else 0.0
+            logScale = f.getOrNull(5)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
         }
     }
 
@@ -255,6 +279,8 @@ class CortexLedger7885 {
         val baseWin8006 = l.winRate()
         val preds8006 = DoubleArray(voterIds.size) { Double.NaN }
         val pWins8006 = DoubleArray(voterIds.size) { Double.NaN }
+        val scales = DoubleArray(voterIds.size * 4 + 3) { Double.NaN }
+        val scoreAt = IntArray(voterIds.size) { -1 }
         val residuals = ArrayList<Pair<String, Double>>()
         for (i in voterIds.indices) {
             val raw = raws.getOrNull(i) ?: continue
@@ -277,15 +303,17 @@ class CortexLedger7885 {
             st.sseModel = st.sseModel * DECAY + (y - p) * (y - p)
             st.sseBase = st.sseBase * DECAY + (y - base) * (y - base)
             st.scored++
-            if (p >= base) st.above.add(y, runner) else st.below.add(y, runner)
-            st.bins[binOf(edges[i], raw)].add(y, runner)
+            scoreAt[i] = st.scored
+            scales[i * 4 + 1] = (if (p >= base) st.above else st.below).add(y, runner)
+            scales[i * 4] = st.bins[binOf(edges[i], raw)].add(y, runner)
             // Regime cells only for seasoned voters (bounds the store).
             if (regime.isNotBlank() && st.scored >= MIN_SCORED / 2) {
-                seat(voterIds[i], "$lane@$regime", edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner)
+                scales[i * 4 + 2] = seat(voterIds[i], "$lane@$regime", edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner)
             }
         }
-        l.add(y, runner)
-        if (regime.isNotBlank()) lane("$lane@$regime").add(y, runner)
+        val laneOffset = voterIds.size * 4
+        scales[laneOffset] = l.add(y, runner)
+        if (regime.isNotBlank()) scales[laneOffset + 1] = lane("$lane@$regime").add(y, runner)
         // V5.0.7905 — the all-lane cell every voter's bins also feed.
         // V5.0.7931 — cross-asset lanes (crypto universe, Markets) learn in their own
         // lanes only: their outcomes must not move the memecoin all-lane prior.
@@ -293,9 +321,9 @@ class CortexLedger7885 {
             for (i in voterIds.indices) {
                 val raw = raws.getOrNull(i) ?: continue
                 if (!raw.isFinite()) continue
-                seat(voterIds[i], GLOBAL, edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner)
+                scales[i * 4 + 3] = seat(voterIds[i], GLOBAL, edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner)
             }
-            lane(GLOBAL).add(y, runner)
+            scales[laneOffset + 2] = lane(GLOBAL).add(y, runner)
         }
         // Error co-movement between seasoned voters (v1 §2.4): voters that are
         // wrong together are one opinion, not two.
@@ -305,11 +333,12 @@ class CortexLedger7885 {
             val c = pairs.getOrPut(k) { DoubleArray(3) }
             c[0] = c[0] * DECAY + ra * rb; c[1] = c[1] * DECAY + ra * ra; c[2] = c[2] * DECAY + rb * rb
         }
-        return GradeTrace8006(preds8006, pWins8006, base, baseWin8006)
+        return GradeTrace8006(preds8006, pWins8006, base, baseWin8006, scales, scoreAt)
     }
 
     /** V5.0.8006 — what a grade predicted, kept so a later checkpoint can revise the label. */
-    class GradeTrace8006(val preds: DoubleArray, val pWins: DoubleArray, val base: Double, val baseWin: Double)
+    class GradeTrace8006(val preds: DoubleArray, val pWins: DoubleArray, val base: Double, val baseWin: Double,
+        val scales: DoubleArray? = null, val scoreAt: IntArray? = null)
 
     /**
      * V5.0.8006 — progressive revision. A decision graded at 5 minutes is re-graded when the
@@ -325,9 +354,17 @@ class CortexLedger7885 {
         oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, regime: String = "",
     ) {
         if (!oldNet.isFinite() || !newNet.isFinite()) return
+        // Legacy traces have no contribution weights; preserving their booked
+        // label is preferable to subtracting somebody else's evidence.
+        val scales = trace.scales ?: return
+        val scoreAt = trace.scoreAt ?: return
+        fun revise(st: Stat?, at: Int) {
+            val stamp = scales.getOrNull(at) ?: return
+            st?.revise(oldNet.coerceIn(Y_MIN, Y_MAX), newNet.coerceIn(Y_MIN, Y_MAX),
+                oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT,
+                newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp))
+        }
         val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, Y_MAX)
-        val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT
-        val rn = newGross.isFinite() && newGross >= RUNNER_GROSS_PCT
         if (yo == yn && ro == rn) return
         val wo = if (yo > 0.0) 1.0 else 0.0; val wn = if (yn > 0.0) 1.0 else 0.0
         val bw = trace.baseWin.coerceIn(0.01, 0.99)
@@ -339,27 +376,30 @@ class CortexLedger7885 {
             if (!p.isFinite()) continue
             val st = seats["${voterIds[i]}|$lane"] ?: continue
             val bin = binOf(edges[i], raw)
-            st.bins.getOrNull(bin)?.revise(yo, yn, ro, rn)
-            (if (p >= trace.base) st.above else st.below).revise(yo, yn, ro, rn)
-            st.sseModel = (st.sseModel + (yn - p) * (yn - p) - (yo - p) * (yo - p)).coerceAtLeast(0.0)
-            st.sseBase = (st.sseBase + (yn - trace.base) * (yn - trace.base) - (yo - trace.base) * (yo - trace.base)).coerceAtLeast(0.0)
+            val scoredAt = scoreAt.getOrNull(i) ?: continue
+            if (scoredAt < 0 || scoredAt > st.scored) continue
+            val weight = Math.pow(DECAY, (st.scored - scoredAt).toDouble())
+            revise(st.bins.getOrNull(bin), i * 4)
+            revise(if (p >= trace.base) st.above else st.below, i * 4 + 1)
+            st.sseModel = (st.sseModel + weight * ((yn - p) * (yn - p) - (yo - p) * (yo - p))).coerceAtLeast(0.0)
+            st.sseBase = (st.sseBase + weight * ((yn - trace.base) * (yn - trace.base) - (yo - trace.base) * (yo - trace.base))).coerceAtLeast(0.0)
             if (wn != wo) {
                 val pw = (trace.pWins.getOrNull(i) ?: Double.NaN).takeIf { it.isFinite() }?.coerceIn(0.01, 0.99)
                 if (pw != null) {
-                    st.brierModel = (st.brierModel + (wn - pw) * (wn - pw) - (wo - pw) * (wo - pw)).coerceAtLeast(0.0)
-                    st.logLossModel = (st.logLossModel - (wn * kotlin.math.ln(pw) + (1 - wn) * kotlin.math.ln(1 - pw)) +
-                        (wo * kotlin.math.ln(pw) + (1 - wo) * kotlin.math.ln(1 - pw))).coerceAtLeast(0.0)
+                    st.brierModel = (st.brierModel + weight * ((wn - pw) * (wn - pw) - (wo - pw) * (wo - pw))).coerceAtLeast(0.0)
+                    st.logLossModel = (st.logLossModel + weight * (-(wn * kotlin.math.ln(pw) + (1 - wn) * kotlin.math.ln(1 - pw)) +
+                        (wo * kotlin.math.ln(pw) + (1 - wo) * kotlin.math.ln(1 - pw)))).coerceAtLeast(0.0)
                 }
-                st.brierBase = (st.brierBase + (wn - bw) * (wn - bw) - (wo - bw) * (wo - bw)).coerceAtLeast(0.0)
-                st.logLossBase = (st.logLossBase - (wn * kotlin.math.ln(bw) + (1 - wn) * kotlin.math.ln(1 - bw)) +
-                    (wo * kotlin.math.ln(bw) + (1 - wo) * kotlin.math.ln(1 - bw))).coerceAtLeast(0.0)
+                st.brierBase = (st.brierBase + weight * ((wn - bw) * (wn - bw) - (wo - bw) * (wo - bw))).coerceAtLeast(0.0)
+                st.logLossBase = (st.logLossBase + weight * (-(wn * kotlin.math.ln(bw) + (1 - wn) * kotlin.math.ln(1 - bw)) +
+                    (wo * kotlin.math.ln(bw) + (1 - wo) * kotlin.math.ln(1 - bw)))).coerceAtLeast(0.0)
             }
-            if (regime.isNotBlank()) seats["${voterIds[i]}|$lane@$regime"]?.bins?.getOrNull(bin)?.revise(yo, yn, ro, rn)
-            if (lane != GLOBAL && !crossAsset) seats["${voterIds[i]}|$GLOBAL"]?.bins?.getOrNull(bin)?.revise(yo, yn, ro, rn)
+            if (regime.isNotBlank()) revise(seats["${voterIds[i]}|$lane@$regime"]?.bins?.getOrNull(bin), i * 4 + 2)
+            if (lane != GLOBAL && !crossAsset) revise(seats["${voterIds[i]}|$GLOBAL"]?.bins?.getOrNull(bin), i * 4 + 3)
         }
-        lanes[lane]?.revise(yo, yn, ro, rn)
-        if (regime.isNotBlank()) lanes["$lane@$regime"]?.revise(yo, yn, ro, rn)
-        if (lane != GLOBAL && !crossAsset) lanes[GLOBAL]?.revise(yo, yn, ro, rn)
+        revise(lanes[lane], voterIds.size * 4)
+        if (regime.isNotBlank()) revise(lanes["$lane@$regime"], voterIds.size * 4 + 1)
+        if (lane != GLOBAL && !crossAsset) revise(lanes[GLOBAL], voterIds.size * 4 + 2)
     }
 
     /** voterA|voterB (sorted) -> decayed sum(ra*rb), sum(ra^2), sum(rb^2). */

@@ -194,31 +194,36 @@ class CortexScoreboard7885 {
 
     val books = HashMap<String, Book>()
 
-    fun record(lane: String, bucket: Bucket, legacyAdmitted: Boolean, netPct: Double, grossPct: Double) {
-        if (!netPct.isFinite()) return
+    fun record(lane: String, bucket: Bucket, legacyAdmitted: Boolean, netPct: Double, grossPct: Double): DoubleArray? {
+        if (!netPct.isFinite()) return null
         val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
         val runner = grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT
         val b = books.getOrPut(lane) { Book() }
         // Decayed memory (~330 decisions): authority earned in an old regime fades
         // unless the recent record keeps supporting it (v1 §2.8 automatic demotion).
         for (st in b.all()) st.scale(BOOK_DECAY)
-        b.byBucket[bucket.ordinal].add(y, runner)
+        val scales = DoubleArray(3) { Double.NaN }
+        scales[0] = b.byBucket[bucket.ordinal].add(y, runner)
         if (bucket == Bucket.STRONG) b.strongLifetime8025 += 1.0
-        if (legacyAdmitted) b.legacyAdmitted.add(y, runner) else b.legacyRefused.add(y, runner)
-        if (!legacyAdmitted && bucket == Bucket.STRONG) b.missedStrong.add(y, runner)
+        scales[1] = (if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused).add(y, runner)
+        if (!legacyAdmitted && bucket == Bucket.STRONG) scales[2] = b.missedStrong.add(y, runner)
+        return scales
     }
 
     /** V5.0.8006 — a progressive label revision replaces the booked value in this decision's books. */
-    fun revise8006(lane: String, bucket: Bucket, legacyAdmitted: Boolean, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+    fun revise8006(lane: String, bucket: Bucket, legacyAdmitted: Boolean, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, scales: DoubleArray? = null) {
         if (!oldNet.isFinite() || !newNet.isFinite()) return
+        if (scales == null) return
         val b = books[lane] ?: return
         val yo = oldNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
         val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
         val ro = oldGross.isFinite() && oldGross >= CortexLedger7885.RUNNER_GROSS_PCT
         val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
-        b.byBucket[bucket.ordinal].revise(yo, yn, ro, rn)
-        (if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused).revise(yo, yn, ro, rn)
-        if (!legacyAdmitted && bucket == Bucket.STRONG) b.missedStrong.revise(yo, yn, ro, rn)
+        fun revise(st: CortexLedger7885.Stat, index: Int) =
+            st.revise(yo, yn, ro, rn, st.revisionWeight(scales.getOrNull(index) ?: Double.NaN))
+        revise(b.byBucket[bucket.ordinal], 0)
+        revise(if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused, 1)
+        if (!legacyAdmitted && bucket == Bucket.STRONG) revise(b.missedStrong, 2)
     }
 
     fun refusalAuthority(lane: String, runnerLane: Boolean, paper: Boolean): Boolean {
@@ -258,17 +263,20 @@ class CortexScoreboard7885 {
     fun strongLifetime8025(lane: String): Double = books[lane]?.strongLifetime8025 ?: 0.0
 
     /**
-     * V5.0.7948 — STRONG measurably below NEUTRAL on this lane's forward labels, or on
+     * V5.0.7948 — STRONG measurably below NEUTRAL or REFUSE on this lane's forward labels, or on
      * the realised whole-position closes of either mode. The books keep recording STRONG
      * reads (decayed), so the lane re-proves — and regains its powers — on new evidence.
      */
     fun inverted7948(lane: String): Boolean {
+        fun inverted(a: Array<CortexLedger7885.Stat>): Boolean =
+            invertedProven7948(a[Bucket.STRONG.ordinal], a[Bucket.NEUTRAL.ordinal]) ||
+                invertedProven7948(a[Bucket.STRONG.ordinal], a[Bucket.REFUSE.ordinal])
         books[lane]?.let { b ->
-            if (invertedProven7948(b.byBucket[Bucket.STRONG.ordinal], b.byBucket[Bucket.NEUTRAL.ordinal])) return true
+            if (inverted(b.byBucket)) return true
         }
         for (mode in listOf("LIVE", "PAPER")) {
             val r = realized["$mode|$lane"] ?: continue
-            if (invertedProven7948(r[Bucket.STRONG.ordinal], r[Bucket.NEUTRAL.ordinal])) return true
+            if (inverted(r)) return true
         }
         return false
     }
