@@ -14925,4 +14925,11 @@ class GoldenTapeRegressionTest {
         assertTrue(ui.contains("PositionDisplayTruth8078.view(ts)"))
         assertTrue(pop.contains("PositionDisplayTruth8078.view(t)"))
     }
+
+    @Test fun V5_0_8079_proven_losing_setup_has_no_side_door_and_is_graded_per_setup() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
+        assertTrue(g.indexOf("provenLosingSetupRefusal8079") in 1 until g.indexOf("if (chartAdmits7950(ts, lane, nowMs)) return null"))
+        assertEquals("PLAYBOOK_SETUP_PROVEN_LOSING@EXPRESS_LAUNCH_CONTINUATION",
+            com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("PLAYBOOK_SETUP_PROVEN_LOSING_7907_EXPRESS_LAUNCH_CONTINUATION"))
+    }
 }

@@ -342,6 +342,8 @@ object LiveRiskPolicy7807 {
      * It grants no admission authority: LiveRiskPolicy.decide still has to prove
      * stop+cost loss at that minimum is inside the hard per-trade risk budget.
      */
+    private const val ROUTE_FLOOR_HEADROOM_8079 = 1.03
+
     fun routeAwareSpendCap7842(
         walletSol: Double,
         solUsd: Double,
@@ -357,7 +359,9 @@ object LiveRiskPolicy7807 {
         val routableMin = preflight?.routableMinSol?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val routeFloorLifted = preflight != null && !preflight.wouldRefuse &&
             routableMin > configuredWalletCap + 1e-12 && routableMin <= tradeable + 1e-12
-        val allowedWalletCap = maxOf(configuredWalletCap, if (routeFloorLifted) routableMin else 0.0)
+        // V5.0.8079 — the bridged floor carries the FDG seal headroom (FinalDecisionGate SEAL_FLOOR_HEADROOM_8079) so a
+        // ticket sealed just above the SOL/USD-priced floor is not then refused as over the cap; never above tradeable.
+        val allowedWalletCap = maxOf(configuredWalletCap, if (routeFloorLifted) minOf(routableMin * ROUTE_FLOOR_HEADROOM_8079, tradeable) else 0.0)
         val absoluteMax = maxLiveBuySol.takeIf { it.isFinite() && it > 0.0 } ?: Double.POSITIVE_INFINITY
         return RouteAwareSpendCap7842(
             maxSpendableSol = minOf(tradeable, absoluteMax, allowedWalletCap).coerceAtLeast(0.0),

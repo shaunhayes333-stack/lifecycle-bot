@@ -587,10 +587,25 @@ object Cortex7885 {
     fun progressiveLine8006(): String = "retained=${synchronized(this) { graded8006.size }} revised=${revised8006.get()} up=${revisedUp8006.get()}"
 
     /** Pure: a stable rule id from a refusal reason (leading upper-case words, max 4). */
-    fun vetoRuleOf(reason: String): String =
-        reason.trim().split('_', ':', ' ').filter { w -> w.isNotEmpty() && !w.all { it.isDigit() } }
+    fun vetoRuleOf(reason: String): String {
+        val base = reason.trim().split('_', ':', ' ').filter { w -> w.isNotEmpty() && !w.all { it.isDigit() } }
             .takeWhile { w -> w.all { it.isUpperCase() || it.isDigit() } }
             .take(4).joinToString("_").ifBlank { "UNNAMED" }
+        // V5.0.8079 §SETUP_SCOPED_VETO_RETIREMENT. A setup refusal names its lane and setup
+        // ("PLAYBOOK_SETUP_PROVEN_LOSING_7907_MOONSHOT_LAUNCH_CONTINUATION") but the four-word cut kept only
+        // "PLAYBOOK_SETUP_PROVEN_LOSING", so the veto audit graded every proven-losing setup of a lane as one rule.
+        // 5.0.7951's refused SHITCOIN launch-ladder winners retired it for the whole lane and LAUNCH_CONTINUATION
+        // (-32.7% MOONSHOT, -38.0% EXPRESS) walked back into live money. The rule is now graded per lane+setup:
+        // a winning setup's refusal still retires; a losing setup stays refused.
+        if (base in SETUP_SCOPED_RULES_8079) {
+            val scope = SETUP_SCOPE_8079.find(reason.trim())?.groupValues?.getOrNull(1).orEmpty()
+            if (scope.isNotBlank()) return "$base@$scope"
+        }
+        return base
+    }
+
+    private val SETUP_SCOPED_RULES_8079: Set<String> by lazy { setOf("PLAYBOOK_SETUP_PROVEN_LOSING", "PLAYBOOK_SETUP_EXPECTED_NEGATIVE") }
+    private val SETUP_SCOPE_8079: Regex by lazy { Regex("""^PLAYBOOK_SETUP_(?:PROVEN_LOSING|EXPECTED_NEGATIVE)_\d+_([A-Z0-9_]+)""") }
 
     // ── Constitution (refuse-only; every refusal names its rule) ──
 

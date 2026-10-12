@@ -613,6 +613,20 @@ object LiveEdgeGate7877 {
         // V5.0.8030 — a Cortex refusal that has EARNED authority (proven on its own record) is not bypassed by a
         // chart-reader BUY any more; the chart read still clears every unproven soft prior below.
         cortex7950?.let { return it }
+        // V5.0.8079 §NO_SIDE_DOOR_FOR_A_PROVEN_LOSER. The chart reader's BUY and a specialist match returned "admit"
+        // above the playbook priors, so a setup this lane has PROVEN loses (MOONSHOT LAUNCH_CONTINUATION -32.7%,
+        // EXPRESS -38.0%) still bought. It now yields only to its own setup-scoped veto audit proving the refusal
+        // refuses winners, or to full evidence-earned Cortex authority (never partial).
+        val l8079 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenLosingSetupRefusal8079(ts, l8079, nowMs) } catch (_: Throwable) { null })?.let { r ->
+            val retired = try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(r, l8079) } catch (_: Throwable) { false }
+            val full = !retired && (try { com.lifecyclebot.engine.cortex.Cortex7885.fullAuthorityOverrules8078(ts, l8079, r) } catch (_: Throwable) { false })
+            if (!retired && !full) {
+                try { PipelineHealthCollector.labelInc("LIVE_SETUP_PROVEN_LOSING_NO_SIDE_DOOR_8079_$l8079") } catch (_: Throwable) {}
+                return r
+            }
+            try { PipelineHealthCollector.labelInc("LIVE_SETUP_PROVEN_LOSING_CLEARED_8079_${if (retired) "AUDIT" else "FULL_CORTEX"}_$l8079") } catch (_: Throwable) {}
+        }
         // V5.0.7950 — the chart reader's BUY passes every learned/soft refusal; hard safety
         // (the safety tier's HARD_BLOCK, Mayhem) still refuses inside chartAdmits7950.
         if (chartAdmits7950(ts, lane, nowMs)) return null

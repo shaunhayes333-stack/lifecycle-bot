@@ -19,6 +19,9 @@ import java.util.concurrent.ConcurrentHashMap
     level = DeprecationLevel.WARNING
 )
 object FinalDecisionGate {
+    /** V5.0.8079 — headroom over the SOL/USD-priced route floor when a live ticket is sealed at that floor. */
+    private const val SEAL_FLOOR_HEADROOM_8079 = 0.03
+
 
     data class FinalDecision(
         val shouldTrade: Boolean,
@@ -5998,7 +6001,25 @@ object FinalDecisionGate {
                 solUsd,
             ).routableMinSol
         } catch (_: Throwable) { 0.0 } else 0.0
-        val minimum = maxOf(configuredMinimum7835, currentRoutableMinimum7835)
+        // V5.0.8079 §SEAL_ABOVE_THE_MOVING_FLOOR. The live route minimum is a USD floor priced in SOL, so it moves
+        // with SOL/USD between seal and broadcast. A small wallet seals exactly at that floor, and 8078 lost 2 of 17
+        // live buys to SEALED_SIZE_BELOW_CURRENT_MINIMUM_7835 when the floor ticked up. When the route floor binds
+        // and the wallet can carry it, seal with 3% headroom; otherwise the plain floor (never a refusal from this).
+        val routeFloorBinds8079 = !config.paperMode && currentRoutableMinimum7835 > 0.0 &&
+            currentRoutableMinimum7835 >= configuredMinimum7835
+        val headroomMin8079 = currentRoutableMinimum7835 * (1.0 + SEAL_FLOOR_HEADROOM_8079)
+        val tradeable8079 = cash - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL
+        // Same cap the seal and the executor enforce (route floor bridge includes the headroom, LiveRiskPolicy7807).
+        val cap8079 = if (routeFloorBinds8079) try {
+            com.lifecyclebot.engine.truth.LiveRiskPolicy7807.routeAwareSpendCap7842(
+                walletSol = cash, solUsd = solUsd,
+                maxLiveBuySol = config.maxLiveBuySol, walletSharePct = config.maxWalletRiskPerTradePct,
+            ).maxSpendableSol
+        } catch (_: Throwable) { 0.0 } else 0.0
+        val minimum = if (routeFloorBinds8079 && tradeable8079 >= headroomMin8079 && cap8079 >= headroomMin8079 - 1e-12) {
+            try { PipelineHealthCollector.labelInc("FDG_SEAL_FLOOR_HEADROOM_8079") } catch (_: Throwable) {}
+            headroomMin8079
+        } else maxOf(configuredMinimum7835, currentRoutableMinimum7835)
         // V5.0.7951 — an approved live entry the wallet cannot fund (SIZE_NOT_EXECUTABLE_7835):
         // when the chart reader says BUY it is real demand that capital rotation may serve.
         MemeChokes7951.noteCapitalStarved7951(ts.mint, lane, cash - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL, minimum, config.paperMode)

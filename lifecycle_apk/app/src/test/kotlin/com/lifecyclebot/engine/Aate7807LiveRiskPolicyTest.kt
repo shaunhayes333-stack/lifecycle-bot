@@ -150,7 +150,8 @@ class Aate7807LiveRiskPolicyTest {
         assertEquals(0.2113 * 0.10, cap.configuredWalletCapSol, 1e-9)
         assertTrue(cap.routableMinSol > cap.configuredWalletCapSol)
         assertTrue(cap.routeFloorLifted)
-        assertEquals(cap.routableMinSol, cap.maxSpendableSol, 1e-9)
+        // V5.0.8079 — the bridged floor carries the 3% FDG seal headroom (never above tradeable).
+        assertEquals(minOf(cap.routableMinSol * 1.03, cap.tradeableSol), cap.maxSpendableSol, 1e-9)
         assertTrue(cap.maxSpendableSol < 0.2113 * 0.25)
     }
 

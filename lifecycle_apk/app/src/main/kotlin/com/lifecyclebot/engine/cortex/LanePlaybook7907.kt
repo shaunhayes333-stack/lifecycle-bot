@@ -694,6 +694,21 @@ object LanePlaybook7907 {
 
     private const val RUNNER_SETUP_MEAN_8056 = 10.0
 
+    /**
+     * V5.0.8079 — the coin's classified setup is PROVEN LOSING in this lane (same record and test as [liveRefusal]),
+     * returned with liveRefusal's exact reason so the setup-scoped veto audit grades the same key. LiveEdgeGate checks
+     * it before the chart-reader BUY and specialist doors, which used to admit ahead of the playbook priors.
+     */
+    fun provenLosingSetupRefusal8079(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) null else {
+            val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+            val losing = synchronized(this) { stat(lane, setup)?.let { provenLosing(it, runner) } ?: false }
+            if (losing) "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup" else null
+        }
+    } catch (_: Throwable) { null }
+
     /** V5.0.8057 — [mean %, variance %², n] of the coin's classified setup when that setup is proven (provenSetup8056). */
     fun provenSetupStat8057(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
         val lane = canon(laneRaw)
