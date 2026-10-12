@@ -89,6 +89,26 @@ object ProcessorAmountPlanner {
     }
 
     /**
+     * 8079: the requested PARTIAL amount is a hard upper bound, not just
+     * presentation metadata. The previous processor defaulted to the entire
+     * available wallet holding when fraction == null, even when the caller
+     * explicitly requested 60%. This is pure, raw-unit, fail-closed sizing.
+     */
+    internal fun partialRequestedRaw8079(
+        availableRaw: BigInteger, requestedUiQty: Double, decimals: Int, fraction: Double?,
+    ): BigInteger? {
+        if (availableRaw.signum() <= 0 || !requestedUiQty.isFinite() || requestedUiQty <= 0.0 ||
+            decimals !in 0..18 || (fraction != null && (!fraction.isFinite() || fraction !in 0.0..1.0))) return null
+        val uiRaw = BigDecimal.valueOf(requestedUiQty).movePointRight(decimals)
+            .setScale(0, java.math.RoundingMode.DOWN).toBigInteger()
+        val fractionRaw = if (fraction != null)
+            availableRaw.toBigDecimal().multiply(BigDecimal.valueOf(fraction))
+                .setScale(0, java.math.RoundingMode.DOWN).toBigInteger()
+        else availableRaw
+        return uiRaw.min(fractionRaw).min(availableRaw).takeIf { it.signum() > 0 }
+    }
+
+    /**
      * V5.0.3801 — processor-bound sell authority extracted from Executor.
      *
      * This is still synchronous by design: a live sell route must refresh owner-filtered
@@ -235,10 +255,16 @@ object ProcessorAmountPlanner {
             return null
         }
         val availableRaw = canonical.remainingQtyRaw.min(walletRaw)
-        val requestedRaw = if (fraction != null) {
-            availableRaw.toBigDecimal().multiply(BigDecimal.valueOf(fraction.coerceIn(0.0, 1.0)))
-                .setScale(0, java.math.RoundingMode.DOWN).toBigInteger().max(BigInteger.ONE)
-        } else availableRaw
+        val partial8079 = fraction != null || processor.contains("PARTIAL", ignoreCase = true)
+        val requestedRaw = if (partial8079)
+            partialRequestedRaw8079(availableRaw, requestedUiQty, decimals, fraction) ?: return null
+        else availableRaw
+        // Never convert a partial into an unrequested full-wallet drain after
+        // an external balance change. Revalidate the trade contract instead.
+        if (processor.contains("PARTIAL", ignoreCase = true) && requestedRaw >= availableRaw) {
+            try { ForensicLogger.lifecycle("PARTIAL_FULL_WALLET_BLOCKED_8079", "mint=${ts.mint.take(10)} processor=$processor raw=$requestedRaw") } catch (_: Throwable) {}
+            return null
+        }
         val requestedUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(requestedRaw, decimals).uiDoubleForDisplay()
         return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
     }
@@ -258,8 +284,15 @@ object ProcessorAmountPlanner {
             .filter { it.mint == ts.mint && it.mode == "live" }
             .maxByOrNull { it.lastMutationMs } ?: return null
         if (canonical.quantityScale != decimals || canonical.remainingQtyRaw.signum() <= 0) return null
-        val requestedRaw = canonical.remainingQtyRaw.min(walletRaw)
-        if (requestedRaw.signum() <= 0) return null
+        val availableRaw = canonical.remainingQtyRaw.min(walletRaw)
+        val partial8079 = processor.contains("PARTIAL", ignoreCase = true)
+        val requestedRaw = if (partial8079)
+            partialRequestedRaw8079(availableRaw, requestedUiQty, decimals, null) ?: return null
+        else availableRaw
+        if (requestedRaw.signum() <= 0 || (partial8079 && requestedRaw >= availableRaw)) {
+            try { ForensicLogger.lifecycle("PARTIAL_FALLBACK_FULL_WALLET_BLOCKED_8079", "mint=${ts.mint.take(10)} processor=$processor") } catch (_: Throwable) {}
+            return null
+        }
         val requestedUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(requestedRaw, decimals).uiDoubleForDisplay()
         val walletUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(walletRaw, decimals).uiDoubleForDisplay()
         ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", ts, "processor=$processor reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals")
