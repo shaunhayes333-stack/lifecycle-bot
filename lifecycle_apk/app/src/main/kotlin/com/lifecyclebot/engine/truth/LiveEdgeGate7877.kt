@@ -367,6 +367,7 @@ object LiveEdgeGate7877 {
     private const val POSITIVE_TTL_MS_7975 = 2L * 60_000L
 
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        var auditedAdmission8076 = false
         // V5.0.8037 — every edge read below sees the observed liquidity, not a missing tick's 0.
         try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8038 — a live candidate's pool is read from the chain in the background, ready for the buy door.
@@ -396,10 +397,17 @@ object LiveEdgeGate7877 {
             // (graduated PumpSwap coins at $10k-$100k), held on the lifecycle rules (RunnerTicket8073).
             if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) &&
                 !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false })) {
-                provenOnlyRefused8059.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
-                observeTail7996(ts, lane, "LIVE_PROVEN_SETUP_ONLY_8059", nowMs)
-                return "LIVE_PROVEN_SETUP_ONLY_8059"
+                auditedAdmission8076 = try {
+                    com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076("LIVE_PROVEN_SETUP_ONLY_8059", l8059) ||
+                        com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l8059, "LIVE_PROVEN_SETUP_ONLY_8059")
+                } catch (_: Throwable) { false }
+                if (!auditedAdmission8076) {
+                    provenOnlyRefused8059.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
+                    observeTail7996(ts, lane, "LIVE_PROVEN_SETUP_ONLY_8059", nowMs)
+                    return "LIVE_PROVEN_SETUP_ONLY_8059"
+                }
+                try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_AUDIT_CLEARED_8076_$l8059") } catch (_: Throwable) {}
             }
             provenOnlyAdmitted8059.incrementAndGet()
             // V5.0.8065 — no buying the top of a spike: 5.0.8063 filled at $300-700k caps right after the rip and was
@@ -414,7 +422,9 @@ object LiveEdgeGate7877 {
             }
         }
         // V5.0.7994 — watch first: live money only goes where the bot's own labels already point.
-        if (!paper) watchFirst7994(ts, lane, nowMs)?.let { observeTail7996(ts, lane, it, nowMs); return it }
+        // The audit can supply missing evidence for a thin cell. A measured-negative
+        // cell/band still needs its own existing refusal audit or full Cortex authority.
+        if (!paper) watchFirst7994(ts, lane, nowMs, auditedAdmission8076)?.let { observeTail7996(ts, lane, it, nowMs); return it }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)
         if (!paper) observeTail7996(ts, lane, why, nowMs)
         // V5.0.7970 — a live admit in a proven runner cell is held like a runner.
@@ -491,7 +501,7 @@ object LiveEdgeGate7877 {
     fun bandLoses8019(n: Int, meanPct: Double, sePct: Double): Boolean =
         n >= BAND_MIN_N_8019 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
 
-    private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long): String? {
+    private fun watchFirst7994(ts: TokenState, lane: String, nowMs: Long, auditedAdmission8076: Boolean = false): String? {
         // V5.0.8072 — a runner ticket is the deliberate unproven buy: it is not watched first.
         if (try { com.lifecyclebot.engine.RunnerTicket8073.isTicket8073(ts.mint, nowMs) } catch (_: Throwable) { false }) {
             // V5.0.8073 — and it is a positive admit: planned at once (no plan wait) and sized up to the route minimum.
@@ -541,6 +551,10 @@ object LiveEdgeGate7877 {
             bandNegative -> "WATCH_FIRST_8019_BAND_NEGATIVE"
             st == null || st.n60 < WATCH_MIN_N_7994 -> "WATCH_FIRST_7994_THIN_CELL"
             else -> "WATCH_FIRST_7994_CELL_NEGATIVE"
+        }
+        if (auditedAdmission8076 && why == "WATCH_FIRST_7994_THIN_CELL") {
+            cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
+            return null
         }
         // V5.0.8006 — closed loop: watch-first is graded like every other refusal (the veto audit,
         // per lane, on progressively revised labels). When the coins it held back in this lane are

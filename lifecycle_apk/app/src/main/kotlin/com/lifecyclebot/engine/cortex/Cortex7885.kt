@@ -474,6 +474,16 @@ object Cortex7885 {
         return vetoRefusesWinners7953(reason)
     }
 
+    /** A lane-specific refusal can retire only on that lane's own consistent outcome book. */
+    fun ownLaneVetoRefusesWinners8076(reason: String, lane: String): Boolean {
+        ensureLoaded()
+        return synchronized(this) {
+            val st = vetoBook[vetoLaneKey8006(vetoRuleOf(reason), canon(lane))] ?: return@synchronized false
+            CortexLedger7885.validHiveBin8076(doubleArrayOf(st.n, st.sum, st.sumSq, st.wins, st.runners)) &&
+                vetoProvenWinners8006(st)
+        }
+    }
+
     /** Pure. V5.0.8006 — refused candidates proven to win: 40+ graded, mean minus one SE above +2% net. */
     fun vetoProvenWinners8006(st: CortexLedger7885.Stat?): Boolean {
         if (st == null || st.n < 40.0) return false

@@ -365,6 +365,8 @@ class CortexLedger7885 {
                 newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp))
         }
         val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, Y_MAX)
+        val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT
+        val rn = newGross.isFinite() && newGross >= RUNNER_GROSS_PCT
         if (yo == yn && ro == rn) return
         val wo = if (yo > 0.0) 1.0 else 0.0; val wn = if (yn > 0.0) 1.0 else 0.0
         val bw = trace.baseWin.coerceIn(0.01, 0.99)

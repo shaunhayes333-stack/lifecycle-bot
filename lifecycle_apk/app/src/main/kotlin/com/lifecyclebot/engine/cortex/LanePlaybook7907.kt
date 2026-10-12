@@ -834,6 +834,11 @@ object LanePlaybook7907 {
     fun setupIndex(ts: TokenState, laneRaw: String, nowMs: Long): Double? {
         val lane = canon(laneRaw)
         val id = classify(ts, lane, nowMs) ?: return null
+        return setupIndexFor8076(lane, id)
+    }
+
+    /** Pure, stable setup identities; appended setups retain their own bin. */
+    fun setupIndexFor8076(lane: String, id: String): Double {
         // V5.0.7962 — the 7962 setups are appended AFTER NO_TRIGGER's bin, so every setup the
         // voter learned before (and NO_TRIGGER = base menu size) keeps its bin.
         // V5.0.7974 — RANGE_SUPPORT_SWING / SECOND_WAVE appended after them the same way.
@@ -851,6 +856,14 @@ object LanePlaybook7907 {
         val i = menu.indexOf(id)
         val j = (added7962 + added8061).indexOf(id)
         return (if (i >= 0) i else if (j >= 0) menu.size + 1 + j else menu.size).toDouble()
+    }
+
+    /** The voter covers the complete current menu, including NO_TRIGGER and appended strategies. */
+    fun setupBinEdges8076(): DoubleArray {
+        val maximum = MENU.keys.maxOf { lane ->
+            (menuIds(lane) + NO_TRIGGER).maxOf { setupIndexFor8076(lane, it).toInt() }
+        }
+        return DoubleArray(maximum) { it + 0.5 }
     }
 
     private fun ensureLoaded() {
