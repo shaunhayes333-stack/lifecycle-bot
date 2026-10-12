@@ -32,9 +32,11 @@ object SellReasonClassifier {
             r.contains("STOPLOSS") ||
             r.contains("HARD_SL") ||
             r.contains("UNIVERSAL_HARD_FLOOR_SL") -> ExitReason.STOP_LOSS
+            r.startsWith("LIFECYCLE_PROFIT_TAKE") ||
             r.contains("PARTIAL_TAKE_PROFIT") ||
             r.contains("PARTIAL_PROFIT_LOCK") ||
             r.contains("PARTIAL")            -> ExitReason.PARTIAL_TAKE_PROFIT
+            r.startsWith("LIFECYCLE_PROFIT_GIVEBACK") ||
             r.contains("PROFIT_LOCK") ||
             r.contains("TAKE_PROFIT") ||
             r.contains("DRAWDOWN_FROM_PEAK") ||
