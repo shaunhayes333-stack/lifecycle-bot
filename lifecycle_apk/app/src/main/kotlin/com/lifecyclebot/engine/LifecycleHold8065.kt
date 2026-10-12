@@ -50,7 +50,8 @@ object LifecycleHold8065 {
             private set
         @Synchronized fun confirm(reason: String): Boolean {
             val rung = Regex("^LIFECYCLE_PROFIT_TAKE([1-3])_8065_").find(reason)?.groupValues?.get(1)?.toIntOrNull() ?: return false
-            if (rung != taken + 1) return false
+            // A verified partial can cover several tiers crossed in a single price print.
+            if (rung <= taken || rung > TAKES_8065.size) return false
             taken = rung
             return true
         }
@@ -86,6 +87,21 @@ object LifecycleHold8065 {
         if (!grossPct.isFinite() || taken >= TAKES_8065.size) return null
         val (bar, frac) = TAKES_8065[taken]
         return if (grossPct >= bar) taken to frac else null
+    }
+
+    /**
+     * 8079 rapid peak capture: if one observed executable mark crosses two or
+     * three rungs, combine their residual fractions into one partial attempt.
+     * The runner remainder remains held; only chain-confirmed token consumption
+     * advances the highest crossed rung via onConfirmedTake8076.
+     */
+    internal fun cumulativeTakeDue8079(grossPct: Double, taken: Int): Pair<Int, Double>? {
+        if (!grossPct.isFinite() || taken !in 0 until TAKES_8065.size) return null
+        val highest = TAKES_8065.indexOfLast { grossPct >= it.first }
+        if (highest < taken) return null
+        var remainder = 1.0
+        for (i in taken..highest) remainder *= (1.0 - TAKES_8065[i].second.coerceIn(0.0, 1.0))
+        return highest to (1.0 - remainder)
     }
 
     /** Pure: a close below the lowest low of the [lookback] bars before the last one (bars: [start, o, h, l, c]). */
@@ -194,7 +210,7 @@ object LifecycleHold8065 {
         val age = nowMs - pos.entryTime
         val why: Pair<String, Double>? = when {
             g <= -FLOOR_PCT -> "LIFECYCLE_STOP_FLOOR_8065_${g.toInt()}PCT" to 1.0
-            takeDue8065(g, st.taken) != null -> takeDue8065(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
+            cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
             st.taken == 0 && age >= SETTLE_MS && g < BASE_BROKE_RED_PCT && closedBarBroke(b, 16) ->
                 "LIFECYCLE_STOP_BASE_BROKE_8065_${g.toInt()}PCT" to 1.0
             st.taken >= 1 && (closedBarBroke(b, 24) || peakGiveback8065(st.peak, g)) ->
