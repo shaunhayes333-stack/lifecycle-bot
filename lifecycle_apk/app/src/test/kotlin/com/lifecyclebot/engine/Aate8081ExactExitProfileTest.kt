@@ -19,6 +19,8 @@ class Aate8081ExactExitProfileTest {
         assertTrue(entry.contains("val lane = canon(sealed8081?.entryLane ?: pos.tradingMode)"))
         val close = src.substringAfter("fun onClose7955(env:")
             .substringBefore("fun setupFired7961(")
+        assertTrue(close.contains("terminalEconomicsEligible8081(env.mode, env.proofState)"))
+        assertTrue(close.contains("!env.learningEligible"))
         assertTrue(close.contains("env.entrySetup.takeIf { setupFired7961(it) }"))
         assertTrue(close.contains("val setup = keyParts?.getOrNull(1) ?: sealed8081 ?: \"NONE\""))
     }
