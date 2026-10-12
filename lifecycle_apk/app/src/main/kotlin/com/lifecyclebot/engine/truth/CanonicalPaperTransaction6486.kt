@@ -216,7 +216,11 @@ object CanonicalPaperTransaction6486 {
         ) return ""
 
         val eventId = "PAPER6486:OPEN:${position.positionId}"
-        if (CanonicalEconomicEvent6635.isCommitted(eventId) && TradeHistoryStore.isDurableEconomicEvent7371(eventId)) return eventId
+        // A completed receipt may have aged out of the bounded volatile ring.
+        // Reopening every durable old BUY thrashes that ring during history replay.
+        if (TradeHistoryStore.isDurableEconomicEvent7371(eventId) &&
+            (CanonicalEconomicEvent6635.isCommitted(eventId) ||
+                CanonicalEconomicEvent6635.eventById(eventId) == null)) return eventId
         val event = CanonicalEconomicEvent6635.Event(
             economicEventId = eventId,
             positionId = position.positionId,

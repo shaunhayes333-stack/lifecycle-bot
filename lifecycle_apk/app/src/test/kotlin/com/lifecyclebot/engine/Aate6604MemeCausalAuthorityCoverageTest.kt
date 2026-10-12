@@ -31,9 +31,9 @@ class Aate6604MemeCausalAuthorityCoverageTest {
     fun aate6604_tactic_rotation_shapes_weakwait_branch_before_fdg() {
         val botSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(
-            "V5.0.6613: weakWait must consult TacticSwitcher and apply lane-local bounded shaping",
+            "V5.0.6613: weakWait must consult the token tactic and apply bounded shaping",
             botSrc.contains("tacticGateActive6604") &&
-                botSrc.contains("com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(") &&
+                botSrc.contains("com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(") &&
                 botSrc.contains("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613") &&
                 botSrc.contains("tacticWaitShape6613")
         )

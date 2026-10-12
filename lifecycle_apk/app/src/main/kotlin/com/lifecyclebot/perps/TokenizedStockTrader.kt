@@ -1519,6 +1519,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     continue
                 }
                 position.currentPrice = data.price
+                com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onTraderExitEvaluation8077(position.id, position.isPaper)
                 
                 // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner every cycle
                 val holdSec = (System.currentTimeMillis() - position.entryTime) / 1000

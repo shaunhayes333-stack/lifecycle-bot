@@ -279,7 +279,7 @@ object PaperEconomicAtomicCommit6632 {
             // tick observe both sides atomically. Defensive: journal
             // authority may not be initialised in early boot.
             try {
-                JournalEconomicAuthority6616.notifyEconomicMutation("ATOMIC_${e.side.name}")
+                JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("ATOMIC_${e.side.name}")
             } catch (_: Throwable) {}
         }
     }

@@ -336,7 +336,7 @@ class GoldenTapeRegressionTest {
         assertTrue(router.contains("CHART_BREAKOUT"))
         assertTrue(router.contains("MAINSTREAM_CRYPTO_SWING"))
         assertTrue(router.contains("ToolkitSignalSheet.snapshot"))
-        assertTrue(router.contains("TacticSwitcher.currentTactic"))
+        assertTrue(router.contains("TacticSwitcher.tacticForToken8050(ts,"))
     }
 
     @Test
@@ -5234,7 +5234,10 @@ class GoldenTapeRegressionTest {
     fun manipulated4329ConsumesUltimateEdgeCardsCacheOnly() {
         val manip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ManipulatedTraderAI.kt").readText()
         assertTrue("V5.0.4329: Manipulated must consume cached UltimateEdge cards as bounded soft shaping", manip.contains("ULTIMATE_EDGE_MANIP_CACHE_SHAPE_4329") && manip.contains("UltimateEdgeEngine.cached(mint, \"MANIPULATED\")") && manip.contains("edgeCard4329.sizeMult.coerceIn(0.90, 1.08)"))
-        assertTrue("V5.0.4329: Manipulated open/close must warm UltimateEdge cards", manip.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"MANIPULATED\"") && manip.contains("MANIP_CLOSE"))
+        assertTrue("MANIPULATED open still warms cached cards", manip.contains("MANIP_OPEN"))
+        val close = manip.substringAfter("fun closePosition(").substringBefore("// STATS")
+        assertTrue(close.contains("CanonicalPositionAuthority6441.closedPositions()"))
+        assertFalse("canonical settlement owns outcome publication", close.contains("recordTrade("))
     }
 
     @Test

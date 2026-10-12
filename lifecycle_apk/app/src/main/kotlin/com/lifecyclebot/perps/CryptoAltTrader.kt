@@ -4441,6 +4441,7 @@ object CryptoAltTrader {
                 // Exit functions read the map. Publish the validated tick before
                 // any SL/TP/floor decision so settlement cannot use the old mark.
                 positions[id] = updated
+                com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onTraderExitEvaluation8077(updated.id, updated.isPaper)
                 if (updated.isSpot) spotPositions[id] = updated else leveragePositions[id] = updated
 
                 // ═══════════════════════════════════════════════════════════════

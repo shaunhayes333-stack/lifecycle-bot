@@ -90,6 +90,20 @@ object JournalEconomicAuthority6616 {
     private val parityFail = AtomicLong(0L)
     private val heroRenders = AtomicLong(0L)
     private val mutationsObserved = AtomicLong(0L)
+    private val snapshotWorker8077 = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "AATE-JournalSnapshot-8077").apply { isDaemon = true }
+    }
+    private val snapshotWork8077 = CoalescedJournalWork8077(
+        schedule = { snapshotWorker8077.schedule(it, 250L, java.util.concurrent.TimeUnit.MILLISECONDS) },
+        publish = { publishMutation8077(it, journalEconomicRevision.get()) },
+    )
+
+    /** Durability receipts stay synchronous; their expensive display replay is coalesced. */
+    fun notifyEconomicMutationAsync8077(kind: String) {
+        mutationsObserved.incrementAndGet()
+        journalEconomicRevision.incrementAndGet()
+        snapshotWork8077.request(kind)
+    }
 
     /**
      * Called from PaperAccountLedger6430 after every economic mutation.
@@ -101,6 +115,10 @@ object JournalEconomicAuthority6616 {
     fun notifyEconomicMutation(kind: String) {
         mutationsObserved.incrementAndGet()
         val rev = journalEconomicRevision.incrementAndGet()
+        publishMutation8077(kind, rev)
+    }
+
+    private fun publishMutation8077(kind: String, rev: Long) {
         // V5.0.6619 §JOURNAL_DERIVED_HERO_AUTHORITY — the three heroes
         //   are the journal's mirror. Compute cash/equity/realized from
         //   the durable journal rows directly (JournalEconomicReplay6619),

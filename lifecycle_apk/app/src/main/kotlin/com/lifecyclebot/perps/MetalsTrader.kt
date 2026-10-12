@@ -816,6 +816,7 @@ positionMap[position.id] = position
             val data = PerpsMarketDataFetcher.getMarketData(position.market)
             if (data.price > 0) {
                 position.currentPrice = data.price
+                com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onTraderExitEvaluation8077(position.id, position.isPaper)
 
                 val holdSec = (System.currentTimeMillis() - position.openTime) / 1000
                 val pnlPct = position.getPnlPercent()

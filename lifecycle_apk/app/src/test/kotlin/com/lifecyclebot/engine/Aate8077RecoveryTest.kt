@@ -20,6 +20,42 @@ class Aate8077RecoveryTest {
         false, qty, 0.001, 0.0011, 0.000001, 0.001099, 0.000099, 9.9,
         BigInteger.ZERO, 0.0, 0.132, 120.0)
 
+    @Test fun historySnapshotRequestsAreBoundedAndRetainWorkArrivingDuringPublish() {
+        val queue = java.util.ArrayDeque<Runnable>()
+        val published = mutableListOf<String>()
+        lateinit var work: com.lifecyclebot.engine.truth.CoalescedJournalWork8077
+        work = com.lifecyclebot.engine.truth.CoalescedJournalWork8077(
+            schedule = { queue.add(it) },
+            publish = { kind ->
+                published.add(kind)
+                if (kind == "8191") work.request("late")
+            },
+        )
+        repeat(8192) { work.request(it.toString()) }
+        assertEquals(1, queue.size)
+        assertTrue(published.isEmpty())
+        queue.remove().run()
+        assertEquals(listOf("8191"), published)
+        assertEquals(1, queue.size)
+        queue.remove().run()
+        assertEquals(listOf("8191", "late"), published)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test fun failedSnapshotDoesNotStrandLaterReceiptNotifications() {
+        val queue = java.util.ArrayDeque<Runnable>()
+        var calls = 0
+        val work = com.lifecyclebot.engine.truth.CoalescedJournalWork8077(
+            schedule = { queue.add(it) }, publish = { if (++calls == 1) error("replay failed") },
+        )
+        work.request("first")
+        try { queue.remove().run(); fail("expected publish failure") } catch (_: IllegalStateException) { }
+        work.request("second")
+        assertEquals(1, queue.size)
+        queue.remove().run()
+        assertEquals(2, calls)
+    }
+
     @Test fun sameLaneCanHaveQuickTradesAndLongHoldsWithoutScannerReclassification() {
         fun token(mint: String, style: String) = com.lifecyclebot.data.TokenState(mint = mint,
             position = com.lifecyclebot.data.Position(qtyToken = 1.0, entryPrice = 1.0,

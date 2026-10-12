@@ -143,6 +143,21 @@ object ExecutionSpineAcceptanceWindow6647 {
     fun onExitSweepDone() { exitSweepDone.incrementAndGet() }
     fun onExitEvaluation() { exitEvaluations.incrementAndGet() }
 
+    /** Trader-owned off-chain positions bypass the meme risk clock. Count their
+     * actual priced exit evaluations against the same active canonical scope. */
+    fun onTraderExitEvaluation8077(positionId: String, isPaper: Boolean): Boolean {
+        val activePaper = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() }
+            catch (_: Throwable) { return false }
+        if (isPaper != activePaper) return false
+        val p = CanonicalPositionAuthority6441.getPosition(positionId) ?: return false
+        if (!p.mode.equals(if (isPaper) "paper" else "live", true) ||
+            p.remainingQtyRaw <= java.math.BigInteger.ZERO ||
+            p.lifecycle !in setOf(CanonicalPositionAuthority6441.Lifecycle.OPEN,
+                CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)) return false
+        onExitEvaluation()
+        return true
+    }
+
     /**
      * V5.0.6689 — startup capture must be total. This witness is invoked at the
      * accepted service-start boundary, when one of the specialist registries can

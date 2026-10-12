@@ -109,6 +109,8 @@ object CanonicalEconomicEvent6635 {
     private const val CAP = 8192
 
     private val opened = AtomicLong(0L)
+    private val receiptRevision8077 = AtomicLong(0L)
+    fun receiptRevision8077(): Long = receiptRevision8077.get()
     private val committed = AtomicLong(0L)
     private val pending = AtomicLong(0L)
     private val stuck = AtomicLong(0L)
@@ -172,6 +174,7 @@ object CanonicalEconomicEvent6635 {
             return false
         }
         opened.incrementAndGet()
+        receiptRevision8077.incrementAndGet()
         try {
             byMint.computeIfAbsent(event.canonicalMint) { java.util.Collections.synchronizedList(mutableListOf()) }
                 .add(event.economicEventId)
@@ -230,6 +233,7 @@ object CanonicalEconomicEvent6635 {
             }
             return false
         }
+        receiptRevision8077.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_COMMIT_6635")
             PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_COMMIT_${store.name}_6635")
@@ -270,6 +274,7 @@ object CanonicalEconomicEvent6635 {
                     s.snapshotCommittedFlags()
                 }
             } ?: continue
+            receiptRevision8077.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("ACCOUNTING_RECONCILIATION_PENDING_6635")
                 PipelineHealthCollector.labelInc("ACCOUNTING_RECONCILIATION_PENDING_${s.event.side.name}_6635")
@@ -376,6 +381,7 @@ object CanonicalEconomicEvent6635 {
             "stuck=${stuck.get()} dupStore=${duplicateStoreCommits7412.get()} inRing=${events.size}"
 
     internal fun resetForTest() {
+        receiptRevision8077.set(0L)
         events.clear(); positionIndex.clear(); byMint.clear(); duplicateEmitAt7412.clear()
         opened.set(0L); committed.set(0L); pending.set(0L); stuck.set(0L); duplicateStoreCommits7412.set(0L)
     }

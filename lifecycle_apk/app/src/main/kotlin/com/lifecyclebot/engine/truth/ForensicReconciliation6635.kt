@@ -84,6 +84,7 @@ object ForensicReconciliation6635 {
         val key7387 = try {
             "${com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()}|" +
                 "${CanonicalPositionAuthority6441.mutationCount7387()}|" +
+                "${CanonicalEconomicEvent6635.receiptRevision8077()}|" +
                 "${"%.9f".format(PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294())}"
         } catch (_: Throwable) { null }
         if (key7387 != null && key7387 == lastKey7387.getAndSet(key7387)) {
