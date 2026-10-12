@@ -5950,8 +5950,13 @@ for legal compliance.
             // Entry: label on the card and every other USD-priced surface
             // (journal, sell toast, dashboard). Always take USD first.
             val fill6321 = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
-            val entryPriceForCard6321: Double = fill6321?.entryPriceUsd?.takeIf { it > 0.0 } ?: pos.entryPrice
-            val entryQtyForCard6321: Double = fill6321?.walletVerifiedQty?.takeIf { it > 0.0 } ?: pos.qtyToken
+            // V5.0.8078 — ONE PRICE, ONE BASIS, EVERY SCREEN: the card and the detail sheet read the same view
+            // (canonical remaining qty / entry / remaining cost + the verified exit-economic mark).
+            val view8078 = try { com.lifecyclebot.engine.truth.PositionDisplayTruth8078.view(ts) } catch (_: Throwable) { null }
+            val entryPriceForCard6321: Double = view8078?.takeIf { it.canonicalBasis }?.entryUsd
+                ?: fill6321?.entryPriceUsd?.takeIf { it > 0.0 } ?: pos.entryPrice
+            val entryQtyForCard6321: Double = view8078?.takeIf { it.canonicalBasis }?.qty
+                ?: fill6321?.walletVerifiedQty?.takeIf { it > 0.0 } ?: pos.qtyToken
             // V5.0.6412 — COST-BASIS REPAIR AUTHORITY.
             // Screenshot showed ANTHROPIC "-100.0% Size 0.0000◎" while the
             // wallet held 4667 tokens at $0.000148 — an actual +277%
@@ -5961,7 +5966,7 @@ for legal compliance.
             // whenever the ledger value is missing. Read-only; the
             // position record isn't mutated here (SQLite portfolio store
             // repair lands in a follow-up commit).
-            val repairedCostSol6412 = try {
+            val repairedCostSol6412 = view8078?.takeIf { it.canonicalBasis && it.costSol > 0.0 }?.costSol ?: try {
                 com.lifecyclebot.engine.truth.PositionCostBasisRepair6412.repairedCostSol(
                     mint = ts.mint, symbol = ts.symbol,
                     qtyToken = entryQtyForCard6321,
@@ -6085,6 +6090,11 @@ for legal compliance.
                         .labelInc("UI_ECONOMIC_INVARIANT_SUPPRESSED_6537")
                 } catch (_: Throwable) {}
             }
+            if (view8078 != null && !invariantBroken6500 && !economicBroken6537 &&
+                !(view8078.pnlPct <= -95.0 && !view8078.markVerified)) {
+                basisTrusted = view8078.basisOk
+                gainPct = if (view8078.basisOk) view8078.pnlPct else 0.0
+            }
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
             val pnlSol  = if (basisTrusted) repairedCostSol6412 * gainPct / 100.0 else 0.0
 
@@ -6118,7 +6128,11 @@ for legal compliance.
             val basis7807 = try {
                 com.lifecyclebot.engine.truth.OpenPositionPanel7807.basisFor7807(ts, invariantBroken6500)
             } catch (_: Throwable) { com.lifecyclebot.engine.truth.OpenPositionPanel7807.BasisState7807.BASIS_UNCERTAIN }
-            val markLine7807 = com.lifecyclebot.engine.truth.OpenPositionPanel7807.markLine7807(
+            val markLine7807 = if (view8078 != null) {
+                val mk = view8078.markUsd.takeIf { it.isFinite() && it > 0.0 }?.fmtPrice() ?: "—"
+                val age = if (view8078.markAgeMs >= 0L) "${view8078.markAgeMs / 1000L}s" else "n/a"
+                "Mark $mk · ${view8078.markTag} $age"
+            } else com.lifecyclebot.engine.truth.OpenPositionPanel7807.markLine7807(
                 ts.ref.takeIf { it.isFinite() && it > 0.0 }?.fmtPrice() ?: "—",
                 System.currentTimeMillis(), ts.lastPriceUpdate,
             )
@@ -6128,6 +6142,9 @@ for legal compliance.
                 pos.entryPrice.hashCode() * 17 +
                 pos.costSol.hashCode() * 13 +
                 pos.qtyToken.hashCode() * 7 +
+                (view8078?.entryUsd ?: 0.0).hashCode() * 19 +
+                (view8078?.qty ?: 0.0).hashCode() * 23 +
+                (view8078?.costSol ?: 0.0).hashCode() * 29 +
                 pos.isPaperPosition.hashCode() * 5 +
                 invariantBroken6500.hashCode() * 11 +
                 (if (duplicateSymbols.contains(ts.symbol.uppercase())) 1 else 0) * 3 +
@@ -6366,7 +6383,8 @@ for legal compliance.
                     callSite = "MainActivity.openPositionCard",
                 )
             } catch (_: Throwable) {}
-            val entryToRender6634 = lockedEntry6634?.entryPriceUsd?.takeIf { it > 0.0 } ?: entryPriceForCard6321
+            val entryToRender6634 = view8078?.takeIf { it.canonicalBasis }?.entryUsd
+                ?: lockedEntry6634?.entryPriceUsd?.takeIf { it > 0.0 } ?: entryPriceForCard6321
             // Entry price per token and time — V5.0.6321 prefer canonical fill
             info.addView(TextView(this).apply {
                 // V5.0.7143 — A HELD BAG IS NOT AN ERROR MESSAGE.

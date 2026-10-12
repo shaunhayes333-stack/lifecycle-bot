@@ -1,0 +1,122 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.data.TokenState
+
+/**
+ * V5.0.8078 — ONE PRICE, ONE BASIS, EVERY SCREEN.
+ *
+ * Operator, 8077 screenshots: the Open Positions card showed SI "Entry $0.001973 · 2.00K tokens · mark $0.001710
+ * · +19.9%" while the detail sheet showed "Entry $0.001850 · 1.62K · -7.58%" and the engine stopped it at -7%.
+ * Every surface read its own mix of TokenState.position, the buy-fill registry, locked entry metrics, the host
+ * wallet tracker and ts.ref. This is the single read-only projection every position display consumes:
+ *
+ *   basis  the canonical position (wallet-proven entry USD/token, REMAINING raw quantity, remaining cost =
+ *          entry cost - cost basis already sold) when one exists for this positionId and mode; else the runtime
+ *          position, labelled as such.
+ *   mark   the canonical EXIT_ECONOMIC mark (the chain/route-verified price the exit engine acts on) when fresh;
+ *          otherwise the runtime mark, labelled unverified. Never mixed within one view.
+ *   pnl    mark / entry - 1, validated by OpenPnlSanity on exactly the pair displayed.
+ *
+ * Read-only: no ledger, position or registry mutation. Safe on the UI thread (map reads only).
+ */
+object PositionDisplayTruth8078 {
+    const val VERIFIED_MARK_MAX_AGE_MS = 30_000L
+    private val divergenceLoggedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    data class View(
+        val entryUsd: Double,
+        val qty: Double,
+        val costSol: Double,
+        val markUsd: Double,
+        val markSource: String,
+        val markAgeMs: Long,
+        val markVerified: Boolean,
+        val canonicalBasis: Boolean,
+        val basisOk: Boolean,
+        val basisReason: String,
+        val pnlPct: Double,
+        val pnlSol: Double,
+        val valueSol: Double,
+    ) {
+        /** Short tag for the mark line: the operator can see which price they are reading. */
+        val markTag: String get() = if (markVerified) "chain" else "est"
+    }
+
+    fun view(ts: TokenState, nowMs: Long = System.currentTimeMillis()): View {
+        val pos = ts.position
+        val mode = if (pos.isPaperPosition) "PAPER" else "LIVE"
+        val canon = try {
+            pos.positionId.takeIf { it.isNotBlank() }?.let { CanonicalPositionAuthority6441.getPosition(it) }
+                ?.takeIf {
+                    it.mode.equals(mode, true) && it.mint == ts.mint &&
+                        (it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                            it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) &&
+                        it.remainingQtyRaw.signum() > 0 && it.quantityScale in 0..18 && it.entryPriceUsd > 0.0
+                }
+        } catch (_: Throwable) { null }
+
+        val entryUsd: Double
+        val qty: Double
+        val costSol: Double
+        if (canon != null) {
+            entryUsd = canon.entryPriceUsd
+            qty = canon.remainingQtyRaw.toBigDecimal().movePointLeft(canon.quantityScale).toDouble()
+            costSol = (canon.entryCostSol - canon.soldCostBasisSol).coerceAtLeast(0.0)
+            noteDivergence(ts, pos.entryPrice, entryUsd, pos.qtyToken, qty)
+        } else {
+            entryUsd = pos.entryPrice
+            qty = pos.qtyToken
+            costSol = pos.costSol
+        }
+
+        val verified = try {
+            CanonicalPriceMarkRegistry6522.get(ts.mint, CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+                ?.takeIf { nowMs - it.timestampMs in -5_000L..VERIFIED_MARK_MAX_AGE_MS }
+                ?.let { m -> m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }?.let { Triple(it, m.source, nowMs - m.timestampMs) } }
+        } catch (_: Throwable) { null }
+        val markUsd = verified?.first ?: ts.ref
+        val markSource = verified?.second ?: ts.lastPriceSource
+        val markAge = verified?.third ?: if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else -1L
+
+        val verdict = try {
+            com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                entryPrice = entryUsd, currentPrice = markUsd,
+                entrySource = canon?.entryPriceSource ?: pos.entryPriceSource,
+                currentSource = markSource,
+                entryPool = canon?.entryPoolAddress ?: pos.entryPoolAddress,
+                currentPool = ts.lastPricePoolAddr,
+                priceBasisRescaled = pos.priceBasisRescaled,
+                context = "PositionDisplayTruth8078/${ts.symbol}/${ts.mint.take(8)}",
+                emit = false, mint = ts.mint, tokenDecimals = ts.tokenMap.decimals ?: -1,
+            )
+        } catch (_: Throwable) { null }
+        val ok = verdict?.ok == true && costSol > 0.0 && qty > 0.0
+        val pct = if (ok) verdict!!.pnlPct else 0.0
+        val pnlSol = if (ok) costSol * pct / 100.0 else 0.0
+        return View(
+            entryUsd = entryUsd, qty = qty, costSol = costSol,
+            markUsd = markUsd, markSource = markSource, markAgeMs = markAge, markVerified = verified != null,
+            canonicalBasis = canon != null, basisOk = ok, basisReason = verdict?.reason.orEmpty(),
+            pnlPct = pct, pnlSol = pnlSol, valueSol = if (ok) costSol + pnlSol else costSol,
+        )
+    }
+
+    /** The runtime position drifted from the canonical one: surfaced so the engine basis can be repaired at source. */
+    private fun noteDivergence(ts: TokenState, runtimeEntry: Double, canonEntry: Double, runtimeQty: Double, canonQty: Double) {
+        val entryOff = runtimeEntry > 0.0 && kotlin.math.abs(runtimeEntry / canonEntry - 1.0) > 0.02
+        val qtyOff = runtimeQty > 0.0 && canonQty > 0.0 && kotlin.math.abs(runtimeQty / canonQty - 1.0) > 0.02
+        if (!entryOff && !qtyOff) return
+        val now = System.currentTimeMillis()
+        val last = divergenceLoggedAt[ts.mint] ?: 0L
+        if (now - last < 60_000L) return
+        divergenceLoggedAt[ts.mint] = now
+        if (divergenceLoggedAt.size > 500) divergenceLoggedAt.entries.removeIf { now - it.value > 600_000L }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DISPLAY_RUNTIME_BASIS_DIVERGES_8078")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "DISPLAY_RUNTIME_BASIS_DIVERGES_8078",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} runtimeEntry=$runtimeEntry canonEntry=$canonEntry runtimeQty=$runtimeQty canonQty=$canonQty",
+            )
+        } catch (_: Throwable) {}
+    }
+}

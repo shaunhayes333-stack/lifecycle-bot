@@ -14918,4 +14918,11 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("Cortex7885.fullAuthorityOverrules8078(ts, l8059, r8064)"))
         assertTrue(feed.contains("if (lookup6982.askedProvider && lookup6982.failed8078) {"))
     }
+
+    @Test fun V5_0_8078_position_card_and_detail_sheet_paint_one_basis_and_one_mark() {
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val pop = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MemePositionPopout.kt").readText()
+        assertTrue(ui.contains("PositionDisplayTruth8078.view(ts)"))
+        assertTrue(pop.contains("PositionDisplayTruth8078.view(t)"))
+    }
 }

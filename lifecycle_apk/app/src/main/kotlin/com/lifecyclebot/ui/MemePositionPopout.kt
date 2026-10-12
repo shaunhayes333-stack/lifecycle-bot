@@ -107,12 +107,11 @@ object MemePositionPopout {
         val t = openTs ?: last
         val pos = t.position
         val open = openTs != null
-        val verdict = try {
-            com.lifecyclebot.engine.OpenPnlSanity.inspect(t, "MemePositionPopout/${t.symbol}/${t.mint.take(8)}", emit = false)
-        } catch (_: Throwable) { null }
-        val basisOk = open && verdict?.ok == true
-        val pnlPct = if (basisOk) (verdict?.pnlPct ?: 0.0) else 0.0
-        val costSol = try { pos.costSol } catch (_: Throwable) { 0.0 }
+        // V5.0.8078 — the same view the Open Positions card paints (canonical basis + verified mark).
+        val view8078 = try { com.lifecyclebot.engine.truth.PositionDisplayTruth8078.view(t) } catch (_: Throwable) { null }
+        val basisOk = open && view8078?.basisOk == true
+        val pnlPct = if (basisOk) view8078!!.pnlPct else 0.0
+        val costSol = view8078?.costSol ?: try { pos.costSol } catch (_: Throwable) { 0.0 }
         val now = System.currentTimeMillis()
         val holdMs = if (pos.entryTime > 0L) (now - pos.entryTime).coerceAtLeast(0L) else 0L
         val peak = if (basisOk) kotlin.math.max(pos.peakGainPct, pnlPct) else pos.peakGainPct
@@ -146,14 +145,14 @@ object MemePositionPopout {
             name = t.name,
             lane = pos.tradingMode.ifBlank { "STANDARD" },
             paper = pos.isPaperPosition,
-            entry = pos.entryPrice,
-            current = t.ref,
+            entry = view8078?.entryUsd ?: pos.entryPrice,
+            current = view8078?.markUsd ?: t.ref,
             basisOk = basisOk,
-            basisReason = verdict?.reason.orEmpty(),
+            basisReason = view8078?.basisReason.orEmpty(),
             pnlPct = pnlPct,
-            pnlSol = if (basisOk) costSol * pnlPct / 100.0 else 0.0,
+            pnlSol = if (basisOk) view8078!!.pnlSol else 0.0,
             costSol = costSol,
-            qty = pos.qtyToken,
+            qty = view8078?.qty ?: pos.qtyToken,
             holdMs = holdMs,
             peakPct = peak,
             stopTxt = stopTxt,
