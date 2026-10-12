@@ -30145,9 +30145,15 @@ class Executor(
             // silently in buildSwapTx. Now we request the binding order at
             // quote time when we have the taker pubkey, so RFQ rejections
             // surface as SELL_QUOTE_FAIL rather than ghosting the trade.
-            return com.lifecyclebot.network.ExitQuoteBudget7863.run {
-                if (!sellTaker.isNullOrBlank()) jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
-                else jupiter.getQuote(inMint, outMint, amount, slippageBps)
+            // 8079: this shared helper is called by the stand-alone partial
+            // route too, which is not wrapped by liveSell's ExitHttpScope.
+            // Preserve the 5s quote budget inside the sell-priority scope so
+            // the app's own provider backoff cannot reject profit-taking.
+            return com.lifecyclebot.network.ExitHttpScope7314.run {
+                com.lifecyclebot.network.ExitQuoteBudget7863.run {
+                    if (!sellTaker.isNullOrBlank()) jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
+                    else jupiter.getQuote(inMint, outMint, amount, slippageBps)
+                }
             }
         }
         // V5.0.7241 — SOURCE FIX for the exact sibling of the V5.9.468 sell
