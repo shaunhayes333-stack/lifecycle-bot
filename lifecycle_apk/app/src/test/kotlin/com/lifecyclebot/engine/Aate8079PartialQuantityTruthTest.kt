@@ -46,6 +46,23 @@ class Aate8079PartialQuantityTruthTest {
         assertTrue(exe.contains("emergencyDrain = fullConsumed8081"))
     }
 
+    @Test fun chainPartialOfHardStopStaysPartialAndFullDrainsRemainTerminal() {
+        val classifier = com.lifecyclebot.engine.sell.SellReasonClassifier
+        val reason = classifier.fromChainConsumption8081("RAPID_CATASTROPHE_STOP", false)
+        assertEquals(com.lifecyclebot.engine.sell.ExitReason.STOP_LOSS, reason)
+        val raw = BigInteger("142650442934")
+        val partial = com.lifecyclebot.engine.sell.SellIntent.build(
+            "mint", "Simple", reason, 6000, raw, 6, 100, false, 0.0296, raw)
+        assertTrue(partial.requestedSellRaw < raw)
+        assertEquals(com.lifecyclebot.engine.sell.ExitReason.RUG_DRAIN,
+            classifier.fromChainConsumption8081("RUG_DRAIN", true))
+        assertEquals(com.lifecyclebot.engine.sell.ExitReason.HARD_STOP,
+            classifier.fromChainConsumption8081("RAPID_CATASTROPHE_STOP", true))
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(executor.contains("proof.preTokenRaw7835.signum() <= 0"))
+        assertTrue(executor.contains("fromChainConsumption8081(reason, fullConsumed8081)"))
+    }
+
     @Test fun sharedJupiterSellQuoteUsesExitHttpPriorityScope() {
         val scope = com.lifecyclebot.network.ExitHttpScope7314
         assertFalse(scope.active())
