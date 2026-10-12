@@ -1314,7 +1314,8 @@ object HostWalletTokenTracker {
                     } catch (_: Throwable) {}
                     // Release any terminal sell-job + close-lease so the lifecycle can restart.
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
-                } else if (com.lifecyclebot.engine.truth.AccountingIntegrity7948.reopenForCanonicalLive7948(
+                } else if (existing.sellSignature.isNullOrBlank() &&
+                    com.lifecyclebot.engine.truth.AccountingIntegrity7948.reopenForCanonicalLive7948(
                         existing.status.name, walletHasTradableRaw,
                         walletHasTradableRaw && com.lifecyclebot.engine.truth.AccountingIntegrity7948.canonicalLiveOpen7948(mint),
                     )
