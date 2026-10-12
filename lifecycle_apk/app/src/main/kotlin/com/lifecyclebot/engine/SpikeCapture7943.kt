@@ -20,6 +20,9 @@ object SpikeCapture7943 {
     val TIERS: List<Pair<Double, Double>> = listOf(40.0 to 0.60, 120.0 to 0.70, 400.0 to 0.70)
 
     private val firedTiers = ConcurrentHashMap<String, Int>()
+    // The prior confirmed/attempted rung before an aggregated spike order was dispatched.
+    // On failed execution restore it, not reached-1: otherwise lower crossed rungs vanish.
+    private val previousFiredTiers8079 = ConcurrentHashMap<String, Int>()
     private val fired = java.util.concurrent.atomic.AtomicLong(0)
     /** V5.0.7944 — a tier whose sell did not land is re-armed, at most this many times per position. */
     // V5.0.7965 — 4 re-arms ran out on Frank while sells were suppressed; a spike keeps trying while it lasts.
@@ -38,7 +41,9 @@ object SpikeCapture7943 {
         val key = "${ts.mint}|${ts.position.entryTime}"
         val n = rearms.merge(key, 1, Int::plus) ?: 1
         if (n > MAX_REARMS_7944 || !ts.position.isOpen) return false
-        firedTiers.compute(key) { _, done -> if (done != null && done >= tier) tier - 1 else done }
+        firedTiers.compute(key) { _, done ->
+            if (done != null && done >= tier) previousFiredTiers8079.remove(key) ?: (tier - 1) else done
+        }
         rearmed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_REARMED_7944") } catch (_: Throwable) {}
         return true
@@ -87,6 +92,7 @@ object SpikeCapture7943 {
     /** V5.0.8018 — a promoted runner starts its runner ladder fresh (a scalp rung fired earlier is not runner tier 1). */
     fun resetTiers8018(ts: TokenState) {
         firedTiers.remove("${ts.mint}|${ts.position.entryTime}")
+        previousFiredTiers8079.remove("${ts.mint}|${ts.position.entryTime}")
     }
 
     /** V5.0.7945 — the fill a spike sell is assumed to give up against its tier price. */
@@ -158,7 +164,11 @@ object SpikeCapture7943 {
         val key = "${ts.mint}|${pos.entryTime}"
         val done = firedTiers[key] ?: 0
         if (reached <= done) return 0
-        if (firedTiers.size > 2_000) firedTiers.clear()
+        if (firedTiers.size > 2_000) {
+            firedTiers.clear()
+            previousFiredTiers8079.clear()
+        }
+        previousFiredTiers8079[key] = done
         firedTiers[key] = reached
         val frac = crossedTierFraction8079(tiers, done, reached)
         fired.incrementAndGet()
