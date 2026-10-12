@@ -115,6 +115,11 @@ object KillSwitch {
         if (maxConsecutiveLosses > 0 && consecutiveLosses >= maxConsecutiveLosses) add("LOSS_STREAK")
     }
 
+    /** Bounded cooldown only after confirmed economic closes, not marked-equity spikes. */
+    internal fun verifiedLossCooldown8081(losses: Int, limit: Int, lastLossMs: Long, nowMs: Long, pauseMinutes: Int): Boolean =
+        limit > 0 && losses >= limit && lastLossMs > 0L &&
+            nowMs - lastLossMs in 0L until (pauseMinutes.coerceIn(1, 180) * 60_000L)
+
     fun initConfigured7835(context: Context, config: com.lifecyclebot.data.BotConfig) {
         config7835 = config
         init(context, com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol))
@@ -174,10 +179,19 @@ object KillSwitch {
             return true
         }
         if (!env.realizedReturnPct.isFinite()) return false
+        // Chain-verified terminal economic events alone may arm the loss-streak brake.
+        val chainProven8081 = env.proofState.equals("LIVE_FINALIZED", true) ||
+            env.proofState.equals("LIVE_RECONCILED", true)
+        if (!chainProven8081 || !env.learningEligible) {
+            try { PipelineHealthCollector.labelInc("KILL_SWITCH_NONCHAIN_OUTCOME_EXCLUDED_8081") } catch (_: Throwable) {}
+            return true
+        }
         recordTrade(ctx, env.realizedReturnPct, equity,
             maxDailyLossPct = config7835.maxDailyLossPct,
             maxConsecutiveLosses = config7835.circuitBreakerLosses,
             paperOutcome7835 = false)
+        if (env.realizedReturnPct <= -2.0) lastProvenLossAt8081 = env.atMs
+        else if (env.realizedReturnPct >= 0.5) lastProvenLossAt8081 = 0L
         canonicalOutcomes7835.add(key)
         save(ctx)
         return true
@@ -203,6 +217,7 @@ object KillSwitch {
     private var dailyStartBalance: Double = 0.0
     private var dailyStartDate: Long = 0
     private var consecutiveLosses: Int = 0
+    @Volatile private var lastProvenLossAt8081: Long = 0L
     private var tradesThisHour: Int = 0
     private var hourStart: Long = 0
     private var isKilled: Boolean = false
@@ -256,6 +271,7 @@ object KillSwitch {
         dailyStartBalance = prefs.getFloat("daily_start_balance", currentBalance.toFloat()).toDouble()
         dailyStartDate = prefs.getLong("daily_start_date", System.currentTimeMillis())
         consecutiveLosses = prefs.getInt("consecutive_losses", 0)
+        lastProvenLossAt8081 = prefs.getLong("last_proven_loss_at_8081", 0L)
         isKilled = prefs.getBoolean("is_killed", false)
         killReason = prefs.getString("kill_reason", "") ?: ""
         killTime = prefs.getLong("kill_time", 0)
@@ -497,6 +513,10 @@ object KillSwitch {
         
         // Check hourly rate limit
         val now = System.currentTimeMillis()
+        if (verifiedLossCooldown8081(consecutiveLosses, maxConsecutiveLosses,
+                lastProvenLossAt8081, now, config7835.circuitBreakerPauseMin)) {
+            return Pair(false, "CHAIN_FINALIZED_LOSS_STREAK_COOLDOWN_8081: $consecutiveLosses/$maxConsecutiveLosses")
+        }
         if (isSameHour(hourStart, now) && tradesThisHour >= maxTradesPerHour) {
             return Pair(false, "RATE_LIMITED: $tradesThisHour trades this hour (max $maxTradesPerHour)")
         }
@@ -573,6 +593,7 @@ object KillSwitch {
         killReason = ""
         killTime = 0
         consecutiveLosses = 0
+        lastProvenLossAt8081 = 0L
         peakBalance = newBalance
         peakAt7948 = System.currentTimeMillis()
         if (!isPaperMode) com.lifecyclebot.engine.truth.CapitalDrawdown7948.seed7948(newBalance, peakAt7948)
@@ -676,6 +697,7 @@ object KillSwitch {
             putFloat("daily_start_balance", dailyStartBalance.toFloat())
             putLong("daily_start_date", dailyStartDate)
             putInt("consecutive_losses", consecutiveLosses)
+            putLong("last_proven_loss_at_8081", lastProvenLossAt8081)
             putBoolean("is_killed", isKilled)
             putString("kill_reason", killReason)
             putLong("kill_time", killTime)
