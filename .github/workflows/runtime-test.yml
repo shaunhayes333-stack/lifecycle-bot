@@ -151,3 +151,5 @@ jobs:
             ui_first_cycle_logcat.txt
             logcat_second_start.txt
             runtime_evidence.json
+            bootstrap_stage_witness.log
+            runtime_anr/

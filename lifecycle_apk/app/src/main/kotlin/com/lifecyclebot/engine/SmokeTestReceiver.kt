@@ -80,6 +80,8 @@ class SmokeTestReceiver : BroadcastReceiver() {
                 ctx.getSharedPreferences("bot_config", Context.MODE_PRIVATE)
             botPrefs.edit()
                 .putBoolean("paper_mode", paper)
+                // CI's synthetic persisted history must never train the hive.
+                .putBoolean("collective_learning_enabled", false)
                 .commit()
 
             // V5.0.6517 — UI-only runtime smoke mode. Open MainActivity from

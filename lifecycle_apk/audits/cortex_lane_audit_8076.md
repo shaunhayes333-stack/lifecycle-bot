@@ -84,6 +84,16 @@ changes in their means are not a controlled before/after comparison.
 
 ## Limits and release acceptance
 
+CI follow-up (8077): persisted-history replay launched thousands of Turso
+journal uploads onto the shared trader/startup I/O pool. Turso blocking calls
+now share a four-request budget on the separate side-effect dispatcher;
+queued calls suspend and cancellation releases capacity. This addresses the
+observed contention mechanism, not a claim that every startup stall is solved.
+The existing collective-learning toggle is now checked at initialization,
+reconnection and use. Smoke CI sets it off before its first app launch so its
+8192 synthetic events remain local; all trader, replay and acceptance-window
+checks still run. No operator learning history is deleted or reset.
+
 - Preserving aggregate history does not reconstruct already corrupted historical
   contributions. Legacy revision receipts without weights are not replayed as
   full-weight corrections. A device export is needed to reconstruct exact past

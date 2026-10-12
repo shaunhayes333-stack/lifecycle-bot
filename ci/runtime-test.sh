@@ -13,6 +13,17 @@ WS="${GITHUB_WORKSPACE:-$(pwd)}"
 runtime_failure_witness_7437() {
     local result=$?
     if [ "$result" -ne 0 ]; then
+        # Preserve actual blocked-thread stacks for a failed restart. This runs
+        # only after failure and cannot turn an incomplete window into a pass.
+        local failed_pid
+        failed_pid=$(adb shell pidof com.lifecyclebot.aate 2>/dev/null | tr -d '\r') || true
+        if [[ "${failed_pid:-}" =~ ^[0-9]+$ ]]; then
+            timeout 10s adb shell run-as com.lifecyclebot.aate kill -3 "$failed_pid" || true
+            sleep 2
+            timeout 10s adb root >/dev/null 2>&1 || true
+            timeout 10s adb wait-for-device || true
+            timeout 10s adb pull /data/anr "$WS/runtime_anr" >/dev/null 2>&1 || true
+        fi
         python3 - "$WS/logcat_full.txt" <<'PYWITNESS'
 import pathlib, re, sys
 path = pathlib.Path(sys.argv[1])
@@ -128,6 +139,20 @@ adb shell rm -f /data/local/tmp/canonical_economic_events_6486.xml
 SEED_COUNT=$(adb shell run-as com.lifecyclebot.aate grep -o 'event:paper:' shared_prefs/canonical_economic_events_6486.xml | wc -l | tr -d '\r ')
 echo "Persisted canonical seed count=$SEED_COUNT"
 [ "$SEED_COUNT" = "8192" ] || { echo "::error::Persisted seed incomplete: $SEED_COUNT"; exit 1; }
+# Set this before the first Activity/Application launch, not just the later
+# debug receiver. All trader and canonical learning paths remain exercised;
+# the synthetic fixture is local and must not upload into the shared hive.
+python3 - "$WS/runtime_bot_config.xml" <<'PYCONFIG'
+import sys, xml.etree.ElementTree as ET
+root = ET.Element("map")
+ET.SubElement(root, "boolean", name="paper_mode", value="true")
+ET.SubElement(root, "boolean", name="collective_learning_enabled", value="false")
+ET.ElementTree(root).write(sys.argv[1], encoding="utf-8", xml_declaration=True)
+PYCONFIG
+adb push "$WS/runtime_bot_config.xml" /data/local/tmp/runtime_bot_config.xml
+adb shell chmod 644 /data/local/tmp/runtime_bot_config.xml
+adb shell run-as com.lifecyclebot.aate cp /data/local/tmp/runtime_bot_config.xml shared_prefs/bot_config.xml
+adb shell rm -f /data/local/tmp/runtime_bot_config.xml
 echo "::endgroup::"
 
 echo "::group::Clear logcat + launch LAUNCHER activity"

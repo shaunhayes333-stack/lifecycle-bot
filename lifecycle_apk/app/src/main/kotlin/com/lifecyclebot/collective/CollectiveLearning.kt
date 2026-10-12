@@ -117,6 +117,11 @@ object CollectiveLearning {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     suspend fun init(ctx: Context): Boolean = initMutex.withLock {
+        appContext = ctx.applicationContext
+        if (!sharingEnabled8077(ctx)) {
+            lastInitError = "Disabled by collective_learning_enabled"
+            return@withLock false
+        }
         Log.i(TAG, "INIT CALLED | alreadyInit=$isInitialized | clientExists=${client != null}")
 
         if (isInitialized && client != null) {
@@ -339,8 +344,13 @@ object CollectiveLearning {
         }
     }
 
+    private fun sharingEnabled8077(ctx: Context? = appContext): Boolean = try {
+        val context = ctx ?: com.lifecyclebot.AATEApp.appContextOrNull()
+        context != null && com.lifecyclebot.data.ConfigStore.load(context).collectiveLearningEnabled
+    } catch (_: Exception) { false }
+
     fun isEnabled(): Boolean {
-        val enabled = isInitialized && client != null
+        val enabled = sharingEnabled8077() && isInitialized && client != null
         if (!enabled) {
             Log.d(TAG, "isEnabled=false | init=$isInitialized | client=${client != null}")
         }
@@ -348,6 +358,7 @@ object CollectiveLearning {
     }
 
     suspend fun ensureConnected(force: Boolean = false): Boolean {
+        if (!sharingEnabled8077()) return false
         if (isEnabled()) return true
 
         val now = System.currentTimeMillis()

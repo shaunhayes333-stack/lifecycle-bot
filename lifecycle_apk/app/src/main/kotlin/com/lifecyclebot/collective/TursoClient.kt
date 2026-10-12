@@ -35,6 +35,9 @@ class TursoClient(
         private const val TAG = "TursoClient"
         private const val TIMEOUT_MS = 8_000   // V5.9.1349 — was 30_000; telemetry upload must not hold a thread 30s (stall fix)
         private const val PIPELINE_PATH = "/v2/pipeline"
+        // Shared across every client, including reconnect handshakes. Waiting
+        // uploads suspend; only four blocking calls use the side-effect pool.
+        private val requestBudget8077 = CloudRequestBudget8077()
     }
 
     private val httpDbUrl: String = normalizeDbUrl(dbUrl)
@@ -73,8 +76,10 @@ class TursoClient(
                     .put("requests", requests)
                     .toString()
 
-                val responseText = httpPost(body)
+                val responseText = requestBudget8077.run { httpPost(body) }
                 parseBatchResponse(responseText)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Batch error: ${e.message}", e)
                 statements.map {
@@ -217,8 +222,10 @@ class TursoClient(
                 Log.d(TAG, "SQL: ${sql.take(180)}")
                 Log.d(TAG, "ARGS: ${args.joinToString(prefix = "[", postfix = "]") { describeArg(it) }}")
 
-                val responseText = httpPost(body)
+                val responseText = requestBudget8077.run { httpPost(body) }
                 parseSingleResponse(responseText, expectRows)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Execute error: ${e.message}", e)
                 QueryResult(
