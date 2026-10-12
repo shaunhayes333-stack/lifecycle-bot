@@ -1271,6 +1271,21 @@ object HostWalletTokenTracker {
                     // clean. This is the parity repair: walletHeldMints will now match
                     // canonical open/held after this snapshot.
                     val priorSellSig7373 = existing.sellSignature
+                    // 8079: RPC snapshots do not carry a banked chain slot in this
+                    // legacy API. An older positive balance response may arrive
+                    // after a verified full SELL. Never revoke that SELL finality
+                    // solely because a newer *HTTP response* includes tokens.
+                    // A distinct confirmed BUY plus current owner-account proof
+                    // is required to establish a new position lifecycle.
+                    if (!priorSellSig7373.isNullOrBlank()) {
+                        existing.notes.add("POSITIVE_WALLET_AFTER_VERIFIED_SELL_AWAIT_NEW_BUY_PROOF_8079")
+                        try {
+                            PipelineHealthCollector.labelInc("WALLET_REOPEN_AFTER_SELL_NEEDS_NEW_BUY_8079")
+                            ForensicLogger.lifecycle("WALLET_REOPEN_AFTER_SELL_NEEDS_NEW_BUY_8079",
+                                "mint=${mint.take(10)} priorSell=${priorSellSig7373.take(12)} reason=slotless_rpc_balance")
+                        } catch (_: Throwable) {}
+                        continue
+                    }
                     existing.status = PositionStatus.OPEN_TRACKING
                     existing.sellSignature = null
                     existing.activeSellAttemptId = null
