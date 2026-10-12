@@ -22,7 +22,7 @@ class Aate8029LaneParticipationTest {
         assertEquals(-6.0, LaneParticipation8029.playGross8029(6.0, 0.0, Double.NaN, -25.0, -25.0, ladder), 1e-9)
         // No known play (NaN stop): the old ladder grade.
         assertEquals(ladder(50.0, 5.0), LaneParticipation8029.playGross8029(Double.NaN, 50.0, -30.0, -30.0, 5.0, ladder), 1e-9)
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("StopAuthority7887.laneStopMag8029(o.lane)"))
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("StopAuthority7887.laneStopMag8029(o.lane, longHold8077)"))
     }
 
     @Test fun readySpecialistsLearnWithoutOwningTheCoin() {
@@ -40,6 +40,12 @@ class Aate8029LaneParticipationTest {
         assertEquals(0.5, LaneParticipation8029.PUMP_MAX_SHARE, 0.0)
         assertTrue(src("engine/GlobalTradeRegistry.kt").contains("LaneParticipation8029.PUMP_MAX_SHARE * watchlist.size"))
         assertTrue(src("engine/market/MarketSweep7297.kt").contains("\"/toptraded/24h?limit=50\""))
+    }
+
+    @Test fun quickAndLongContractsInTheSameLaneUseDifferentStopFamilies() {
+        assertEquals(LifecycleHold8065.FLOOR_PCT,
+            com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029("MOONSHOT", true), 1e-9)
+        assertTrue(com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029("MOONSHOT", false) < LifecycleHold8065.FLOOR_PCT)
     }
 
     @Test fun nonTradingKeysHaveNoPlay() {
