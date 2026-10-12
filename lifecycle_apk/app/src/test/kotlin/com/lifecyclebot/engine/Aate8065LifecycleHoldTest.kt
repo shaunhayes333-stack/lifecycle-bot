@@ -76,6 +76,7 @@ class Aate8065LifecycleHoldTest {
         val reasons = com.lifecyclebot.engine.sell.SellReasonClassifier
         assertTrue(lease.urgentProfitCapture7965("LIFECYCLE_PROFIT_TAKE2_8065_781PCT"))
         assertTrue(lease.urgentProfitCapture7965("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT"))
+        assertFalse(RunnerGrab7967.deferrable7967("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT", 150.0))
         assertEquals(com.lifecyclebot.engine.sell.ExitReason.PARTIAL_TAKE_PROFIT,
             reasons.fromString("LIFECYCLE_PROFIT_TAKE2_8065_781PCT"))
         assertEquals(com.lifecyclebot.engine.sell.ExitReason.PROFIT_LOCK, reasons.fromString("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT"))
