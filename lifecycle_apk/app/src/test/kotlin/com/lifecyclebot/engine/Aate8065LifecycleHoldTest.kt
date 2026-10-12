@@ -71,6 +71,18 @@ class Aate8065LifecycleHoldTest {
         assertEquals(0.0, SpikeCapture7943.crossedTierFraction8079(SpikeCapture7943.TIERS, 3, 3), 1e-9)
     }
 
+    @Test fun profitTakeAndGivebackReachCorrectDownstreamSellAuthorities() {
+        val lease = com.lifecyclebot.engine.sell.CloseLease
+        val reasons = com.lifecyclebot.engine.sell.SellReasonClassifier
+        assertTrue(lease.urgentProfitCapture7965("LIFECYCLE_PROFIT_TAKE2_8065_781PCT"))
+        assertTrue(lease.urgentProfitCapture7965("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT"))
+        assertEquals(com.lifecyclebot.engine.sell.ExitReason.PARTIAL_TAKE_PROFIT,
+            reasons.fromString("LIFECYCLE_PROFIT_TAKE2_8065_781PCT"))
+        assertEquals(com.lifecyclebot.engine.sell.ExitReason.PROFIT_LOCK, reasons.fromString("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT"))
+        assertEquals(TailBag8034.Decision.Pass,
+            TailBag8034.decidePure8034("MOONSHOT", "LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT", 150.0, null, 1000L))
+    }
+
     @Test fun lateHistoricalBuyCannotUndoPendingOrFinalizedSell() {
         val t = HostWalletTokenTracker
         assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.CLOSED, "sellTx"))
