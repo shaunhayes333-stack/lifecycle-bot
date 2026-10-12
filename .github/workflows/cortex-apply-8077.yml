@@ -1,0 +1,413 @@
+name: Prepare Cortex alignment 8077
+on:
+  push:
+    branches: ['repair/8076-exit-integrity']
+    paths: ['.github/workflows/cortex-apply-8077.yml']
+permissions:
+  contents: write
+concurrency:
+  group: cortex-prepare-8077
+  cancel-in-progress: true
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Apply reviewed strategy changes
+        shell: python
+        run: |
+          from pathlib import Path
+          R=Path.cwd()
+          K=R/'lifecycle_apk/app/src/main/kotlin/com/lifecyclebot'
+          T=R/'lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine'
+          def change(path,old,new):
+              s=path.read_text(); n=s.count(old)
+              assert n==1,(str(path),old[:100],n)
+              path.write_text(s.replace(old,new))
+          def create(path,content):
+              assert not path.exists(), ('New file already exists; reconcile before retry',str(path))
+              path.write_text(content)
+          helper='''package com.lifecyclebot.engine.cortex
+
+          import kotlin.math.abs
+          import kotlin.math.max
+          import kotlin.math.sqrt
+
+          /** Selection and evidence arithmetic only. Never grants a BUY or changes a risk limit. */
+          object LaneEvidence8077 {
+              data class Setup(val id: String, val expected: Double, val n: Double, val mean: Double, val variance: Double) {
+                  val se: Double get() = if (n > 1.0 && variance.isFinite() && variance >= 0.0) sqrt(variance / n) else Double.POSITIVE_INFINITY
+                  val proven: Boolean get() = n >= 30.0 && mean.isFinite() && mean - se > 0.0
+                  val rank: Double get() = if (n >= 10.0 && se.isFinite()) expected - se * n / (n + 20.0) else expected
+              }
+              /** Inputs are only setups already fired in this lane; no cross-lane or invented trigger. */
+              fun choose(candidates: List<Setup>): Setup? {
+                  val valid = candidates.filter { it.id.isNotBlank() && it.expected.isFinite() && it.n.isFinite() && it.n >= 0.0 &&
+                      (it.n == 0.0 || (it.mean.isFinite() && it.variance.isFinite() && it.variance >= 0.0)) }
+                  val proven = valid.filter { it.proven }
+                  return (if (proven.isNotEmpty()) proven else valid).maxWithOrNull(
+                      compareBy<Setup> { it.rank }.thenBy { it.n }.thenBy { it.expected }.thenBy { it.id }
+                  )
+              }
+              fun lowWinRateNeedsPivot(trades: Int, lossRate: Double, meanNetPct: Double): Boolean =
+                  trades >= 50 && lossRate.isFinite() && lossRate > 0.70 && meanNetPct.isFinite() && meanNetPct <= 0.0
+              fun skill(scored: Int, model: Double, baseline: Double): Double {
+                  if (scored < CortexLedger7885.MIN_SCORED || !model.isFinite() || !baseline.isFinite() || model < 0.0 || baseline <= 0.0) return 0.0
+                  return (1.0 - model / baseline).takeIf { it.isFinite() } ?: 0.0
+              }
+              /** Validate moments without clipping legitimate large runner returns. */
+              fun coherent(n: Double, sum: Double, sumSq: Double, wins: Double, runners: Double): Boolean {
+                  if (!n.isFinite() || !sum.isFinite() || !sumSq.isFinite() || !wins.isFinite() || !runners.isFinite() || n < 0.0 || sumSq < 0.0) return false
+                  val tol = 1e-8 * max(1.0, n)
+                  if (wins < -tol || wins > n + tol || runners < -tol || runners > n + tol) return false
+                  if (n == 0.0) return sum == 0.0 && sumSq == 0.0 && abs(wins) <= tol && abs(runners) <= tol
+                  val lower = (sum / n) * sum
+                  return lower.isFinite() && sumSq + 1e-8 * max(1.0, abs(lower)) >= lower
+              }
+          }
+          '''
+          create(K/'engine/cortex/LaneEvidence8077.kt',helper)
+          p=K/'engine/learning/TacticSwitcher.kt'
+          change(p,'if (tradesIn >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE) {',
+              'if (com.lifecyclebot.engine.cortex.LaneEvidence8077.lowWinRateNeedsPivot(tradesIn, lossRate, meanPnl)) {')
+          change(p,'val aggBadBand = totalSamples >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE',
+              'val aggBadBand = com.lifecyclebot.engine.cortex.LaneEvidence8077.lowWinRateNeedsPivot(totalSamples, lossRate, st.meanPnl)')
+          change(p,'''            s.isBlank() || s == "NO_TRIGGER" -> null
+                      listOf("PULLBACK", "DIP", "RECLAIM", "BOUNCE").any { s.contains(it) } -> Tactic.PULLBACK'''.replace('                      listOf','            listOf'),
+              '''            s.isBlank() || s == "NO_TRIGGER" || s == "SPECIALIST_EDGE" || s == "EXPERT_ENTRY" -> null
+                      // BASE_BREAKOUT describes a breakout, not accumulation merely because it contains BASE.
+                      s.contains("BREAKOUT") -> Tactic.BREAKOUT
+                      listOf("PULLBACK", "DIP", "RECLAIM", "BOUNCE").any { s.contains(it) } -> Tactic.PULLBACK'''.replace('\n                      ','\n            '))
+          change(p,'''    // itself must clear 30%. Regardless of mean-pnl / pivot state, if a
+              // (lane, band) tactic has settled >= 50 decisive closes and win-rate is
+              // still under 30% (i.e. loss-rate >= 70%), rotate — this is the''',
+              '''    // alone cannot justify discarding a profitable asymmetric runner strategy.
+              // With >= 50 closes, WR < 30%, AND nonpositive net expectancy, rotate.
+              // Positive-EV low-WR strategies remain intact. This is the''')
+          p=K/'engine/cortex/LanePlaybook7907.kt'
+          change(p,'return synchronized(this) { m.maxByOrNull { expected(lane, it.id) }?.id ?: NO_TRIGGER }',
+              '''return synchronized(this) {
+                      LaneEvidence8077.choose(m.map { setupEvidence8077(lane, it.id) })?.id ?: NO_TRIGGER
+                  }''')
+          change(p,'''    /** The setup this candidate is traded as: the matching setup with the best record, or NO_TRIGGER. */
+              private val classifyCache = ConcurrentHashMap<String, Pair<Long, String?>>()''',
+              '''    /** Caller holds the lock. Unmeasured setups retain their original cheat-sheet prior. */
+              private fun setupEvidence8077(lane: String, id: String): LaneEvidence8077.Setup {
+                  val st = stat(lane, id)
+                  return LaneEvidence8077.Setup(id, expected(lane, id), st?.n ?: 0.0, st?.mean() ?: 0.0, st?.variance() ?: 0.0)
+              }
+              private val bookRevision8077 = AtomicLong(0)
+              private data class CachedClassification8077(val at: Long, val observedAt: Long, val price: Double,
+                  val cap: Double, val liquidity: Double, val revision: Long, val setup: String?)
+              private val classifyCache = ConcurrentHashMap<String, CachedClassification8077>()''')
+          change(p,'''        classifyCache[ck]?.let { (at, v) -> if (nowMs - at in 0L..15_000L) return v }
+                  val v = classifyNow(ts, lane, nowMs)
+                  if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.first > 15_000L }
+                  classifyCache[ck] = nowMs to v''',
+              '''        val revision = bookRevision8077.get()
+                  val observedAt = ts.lastPriceUpdate; val price = ts.lastPrice
+                  val cap = ts.lastMcap; val liquidity = ts.lastLiquidityUsd
+                  classifyCache[ck]?.let { c ->
+                      if (nowMs - c.at in 0L..15_000L && c.observedAt == observedAt && c.price == price &&
+                          c.cap == cap && c.liquidity == liquidity && c.revision == revision) return c.setup
+                  }
+                  val v = classifyNow(ts, lane, nowMs)
+                  if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.at > 15_000L }
+                  classifyCache[ck] = CachedClassification8077(nowMs, observedAt, price, cap, liquidity, revision, v)''')
+          change(p,'                ?.map { it.id to expected(lane, it.id) }?.maxByOrNull { it.second }',
+              '''                ?.map { setupEvidence8077(lane, it.id) }?.let { LaneEvidence8077.choose(it) }
+                          ?.let { it.id to it.expected }''')
+          change(p,'''        val local = books[lane]?.stats?.get(setup)
+                  // V5.0.8000''',
+              '''        val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
+                      LaneEvidence8077.coherent(it.n, it.sum, it.sumSq, it.wins, it.runners) }
+                  // V5.0.8000''')
+          change(p,'''            graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps, netPct, grossPct, System.currentTimeMillis())
+                  }''',
+              '''            graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps, netPct, grossPct, System.currentTimeMillis())
+                      bookRevision8077.incrementAndGet()
+                  }''')
+          change(p,'''            g.net = newNet; g.gross = newGross
+                  }
+              }
+
+              /** Index of the setup''',
+              '''            g.net = newNet; g.gross = newGross
+                      bookRevision8077.incrementAndGet()
+                  }
+              }
+
+              /** Index of the setup''')
+          change(p,'''                b.stats.entries.filter { it.value.n >= 5.0 }.map { (setup, st) ->
+                              val se''',
+              '''                b.stats.keys.mapNotNull { setup -> stat(lane, setup)?.let { setup to it } }
+                              .filter { it.second.n >= 5.0 }.map { (setup, st) ->
+                              val se''')
+          change(p,'''                for (lane in o.keys()) {
+                              val j = o.optJSONObject(lane) ?: continue''',
+              '''                for (lane in o.keys()) {
+                              if (lane == "_grades8077") continue
+                              val j = o.optJSONObject(lane) ?: continue''')
+          change(p,'''                    for (k in j.keys()) b.stats[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) }
+                          }
+                      } catch (_: Throwable) {}''',
+              '''                    for (k in j.keys()) b.stats[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) }
+                          }
+                          o.optJSONArray("_grades8077")?.let { rows ->
+                              val now = System.currentTimeMillis()
+                              for (i in 0 until minOf(rows.length(), 600)) {
+                                  val row = rows.optJSONObject(i) ?: continue
+                                  val at = row.optLong("at"); val key = row.optString("k"); val lane = row.optString("l")
+                                  val net = row.optDouble("n", Double.NaN); val gross = row.optDouble("g", Double.NaN)
+                                  if (key.isBlank() || lane.isBlank() || !net.isFinite() || at <= 0L || at > now || now - at > 8L * 86_400_000L) continue
+                                  val weights = row.optJSONObject("s") ?: continue
+                                  val stamps = HashMap<String, Double>()
+                                  for (id in weights.keys()) {
+                                      val stamp = weights.optDouble(id, Double.NaN)
+                                      val st = books[lane]?.stats?.get(id) ?: continue
+                                      if (stamp.isFinite() && st.logScale <= stamp + 1e-9) stamps[id] = stamp
+                                  }
+                                  if (stamps.isNotEmpty()) graded7997[key] = Grade8076(lane, stamps, net, gross, at)
+                              }
+                          }
+                          bookRevision8077.incrementAndGet()
+                      } catch (_: Throwable) {}''')
+          change(p,'''                    books.forEach { (lane, b) -> o.put(lane, org.json.JSONObject().also { j -> b.stats.forEach { (k, v) -> j.put(k, v.encode()) } }) }
+                          }.toString()''',
+              '''                    books.forEach { (lane, b) -> o.put(lane, org.json.JSONObject().also { j -> b.stats.forEach { (k, v) -> j.put(k, v.encode()) } }) }
+                              val rows = org.json.JSONArray()
+                              graded7997.entries.sortedByDescending { it.value.atMs }.take(600).forEach { (key, g) ->
+                                  if (g.net.isFinite()) rows.put(org.json.JSONObject().put("k", key).put("l", g.lane).put("at", g.atMs)
+                                      .put("n", g.net).put("g", g.gross.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL)
+                                      .put("s", org.json.JSONObject().also { j -> g.stamps.forEach { (id, stamp) ->
+                                          if (stamp.isFinite()) j.put(id, stamp)
+                                      } }))
+                              }
+                              o.put("_grades8077", rows)
+                          }.toString()''')
+          p=K/'engine/cortex/CortexScoreboard7885.kt'
+          change(p,'baseline, PROOF_MARGIN_PCT, MIN_N_LIVE, overruleProven(strong))',
+              '''baseline, PROOF_MARGIN_PCT, MIN_N_LIVE,
+                          overruleProven(strong) && strong.mean() - se(strong) > baseline + PROOF_MARGIN_PCT)''')
+          change(p,'''            if (fullProven) return 1.0
+                      if (!(n >= GRAD_MIN_N_7955) || !mean.isFinite()) return 0.0''',
+              '''            if (!(n >= GRAD_MIN_N_7955) || !n.isFinite() || !mean.isFinite() || !baselinePct.isFinite() ||
+                          !marginPct.isFinite() || !se.isFinite() || se < 0.0) return 0.0
+                      if (fullProven) return 1.0''')
+          change(p,'fun inverted7948(lane: String): Boolean {','fun inverted7948(lane: String, mode: String = "LIVE"): Boolean {')
+          change(p,'''        for (mode in listOf("LIVE", "PAPER")) {
+                      val r = realized["$mode|$lane"] ?: continue
+                      if (inverted(r)) return true
+                  }''',
+              '''        // Paper execution outcomes must not suspend LIVE authority, or vice versa.
+                  realized["${mode.uppercase()}|$lane"]?.let { if (inverted(it)) return true }''')
+          change(p,'fun fractionFor7955(lane: String): Double {','fun fractionFor7955(lane: String, mode: String = "LIVE"): Double {')
+          change(p,'return matureAuthority8025(evidenceFor8025(lane), b.strongLifetime8025)','return matureAuthority8025(evidenceFor8025(lane, mode), b.strongLifetime8025)')
+          change(p,'fun evidenceFor8025(lane: String): Double {','fun evidenceFor8025(lane: String, mode: String = "LIVE"): Double {')
+          change(p,'b.byBucket[Bucket.NEUTRAL.ordinal], inverted7948(lane))','b.byBucket[Bucket.NEUTRAL.ordinal], inverted7948(lane, mode))')
+          p=K/'engine/cortex/Cortex7885.kt'
+          s=p.read_text()
+          for before,after in [
+              ('board.inverted7948(canon(laneRaw))','board.inverted7948(canon(laneRaw), accountMode8077())'),
+              ('board.inverted7948(a.lane)','board.inverted7948(a.lane, accountMode8077())'),
+              ('board.inverted7948(lane)','board.inverted7948(lane, accountMode8077())'),
+              ('board.evidenceFor8025(a.lane)','board.evidenceFor8025(a.lane, accountMode8077())'),
+              ('board.fractionFor7955(lane)','board.fractionFor7955(lane, accountMode8077())')]:
+              assert before in s, before
+              s=s.replace(before,after)
+          anchor='    private fun credits7888(): Double'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,'    private fun accountMode8077(): String = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"\n\n'+anchor)
+          p.write_text(s)
+          p=K/'engine/cortex/CortexLedger7885.kt'
+          change(p,'fun brierSkill(): Double = if (scored >= MIN_SCORED && brierBase > 0.0) 1.0 - brierModel / brierBase else 0.0','fun brierSkill(): Double = LaneEvidence8077.skill(scored, brierModel, brierBase)')
+          change(p,'fun logLossSkill(): Double = if (scored >= MIN_SCORED && logLossBase > 0.0) 1.0 - logLossModel / logLossBase else 0.0','fun logLossSkill(): Double = LaneEvidence8077.skill(scored, logLossModel, logLossBase)')
+          change(p,'''        fun add(y: Double, runner: Boolean): Double {
+                      val stamp = logScale''',
+              '''        fun add(y: Double, runner: Boolean): Double {
+                      if (!y.isFinite() || !(y * y).isFinite()) return Double.NaN
+                      val stamp = logScale''')
+          p=R/'.github/workflows/build.yml'
+          change(p,'\njobs:\n','\nconcurrency:\n  group: aate-build-${{ github.event.pull_request.head.ref || github.ref_name }}\n  cancel-in-progress: true\n\njobs:\n')
+          change(p,"            --tests '*Aate8076*' \\","            --tests '*Aate8076*' \\\n            --tests '*Aate8077*' \\")
+          p=R/'.github/workflows/runtime-test.yml'
+          change(p,'group: runtime-smoke-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}',
+              'group: runtime-smoke-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref_name }}')
+          for path in [R/'AATE_VERSION',R/'lifecycle_apk/AATE_VERSION']:
+              assert path.read_text().strip() in ('5.0.8076','5.0.8077'), 'Concurrent version changed'
+              path.write_text('5.0.8077\n')
+          p=T/'Aate8034MoonbagAndFirstSightTest.kt'
+          change(p,'!board.inverted7948(a.lane)) board.evidenceFor8025(a.lane) else -1.0','!board.inverted7948(a.lane, accountMode8077())) board.evidenceFor8025(a.lane, accountMode8077()) else -1.0')
+          p=T/'Bundle6374InvariantsTest.kt'
+          s=p.read_text().replace('tradesIn >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE','lowWinRateNeedsPivot(tradesIn, lossRate, meanPnl)')
+          s=s.replace('val aggBadBand = totalSamples >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE','lowWinRateNeedsPivot(totalSamples, lossRate, st.meanPnl)')
+          s=s.replace('fun tacticSwitcher_agg_bad_band_rotates_50trade_bleeder()', 'fun tacticSwitcher_retains_profitable_asymmetric_50trade_strategy()')
+          old='''        assertNotEquals(
+                      "V5.0.6374: a 15W/45L bleeder (WR=25%, μ=+71%) MUST NOT sit on the initial MOMENTUM tactic — agg-bad-band gate is required to force rotation",'''
+          new='''        assertEquals(
+                      "8077: low WR alone must not rotate a positive-net-expectancy strategy",'''
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new))
+          test='''package com.lifecyclebot.engine
+
+          import com.lifecyclebot.engine.cortex.CortexLedger7885
+          import com.lifecyclebot.engine.cortex.CortexScoreboard7885
+          import com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket
+          import com.lifecyclebot.engine.cortex.LaneEvidence8077
+          import com.lifecyclebot.engine.learning.TacticSwitcher
+          import com.lifecyclebot.engine.learning.TacticSwitcher.Tactic
+          import org.junit.Assert.*
+          import org.junit.Test
+          import java.io.File
+
+          class Aate8077StrategyAlignmentTest {
+              private fun stat(n: Int, mean: Double, sd: Double = 0.0) = CortexLedger7885.Stat().also { s ->
+                  repeat(n) { s.add(mean + if (it % 2 == 0) sd else -sd, mean >= 50.0) }
+              }
+              @Test fun lowWinRateDoesNotDiscardPositiveNetRunnerExpectancy() {
+                  val expectancy = (15 * 300.0 - 45 * 4.0) / 60.0
+                  assertFalse(LaneEvidence8077.lowWinRateNeedsPivot(60, 0.75, expectancy))
+                  assertFalse(LaneEvidence8077.lowWinRateNeedsPivot(60, 0.75, 0.001))
+                  assertTrue(LaneEvidence8077.lowWinRateNeedsPivot(60, 0.75, -0.1))
+                  assertTrue(LaneEvidence8077.lowWinRateNeedsPivot(60, 0.75, 0.0))
+                  assertFalse(LaneEvidence8077.lowWinRateNeedsPivot(49, 0.9, -8.0))
+                  assertFalse(LaneEvidence8077.lowWinRateNeedsPivot(60, 0.70, -8.0))
+                  assertFalse(LaneEvidence8077.lowWinRateNeedsPivot(60, 0.75, Double.NaN))
+              }
+              @Test fun tradeTacticMatchesTheActualSetupRatherThanTheFirstSubstring() {
+                  assertEquals(Tactic.BREAKOUT, TacticSwitcher.seedTactic8049("QUALITY", "PLAN_BASE_BREAKOUT"))
+                  assertEquals(Tactic.BREAKOUT, TacticSwitcher.seedTactic8049("SHITCOIN", "BASE_BREAKOUT_FLOW"))
+                  assertEquals(Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("SHITCOIN", "PRE_IGNITION_BASE"))
+                  assertEquals(Tactic.PULLBACK, TacticSwitcher.seedTactic8049("QUALITY", "PLAN_PULLBACK_RECLAIM"))
+                  assertEquals(Tactic.BREAKOUT, TacticSwitcher.seedTactic8049("MOONSHOT", "SPECIALIST_EDGE"))
+                  assertEquals(Tactic.PULLBACK, TacticSwitcher.seedTactic8049("QUALITY", "SPECIALIST_EDGE"))
+                  assertEquals(Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("SHITCOIN", "SPECIALIST_EDGE"))
+                  assertEquals(Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("CASHGEN", "EXPERT_ENTRY"))
+                  assertEquals(Tactic.MOMENTUM, TacticSwitcher.seedTactic8049("EXPRESS", "ACCELERATING_TAPE"))
+              }
+              @Test fun thinOutlierCannotHideAnAlreadyFiredProvenSetup() {
+                  val proven = LaneEvidence8077.Setup("SPECIALIST_EDGE", 40.0, 240.0, 43.8, 240.0 * 16.8 * 16.8)
+                  val noisy = LaneEvidence8077.Setup("NOISY_NEW_HIGH", 500.0, 2.0, 5000.0, 20_000_000.0)
+                  assertEquals("SPECIALIST_EDGE", LaneEvidence8077.choose(listOf(noisy, proven))?.id)
+                  val runner = LaneEvidence8077.Setup("LAUNCH_LADDER_PROVEN", 270.1, 41.0, 401.3, 41.0 * 73.5 * 73.5)
+                  assertEquals("LAUNCH_LADDER_PROVEN", LaneEvidence8077.choose(listOf(proven, runner))?.id)
+                  assertEquals("NOISY_NEW_HIGH", LaneEvidence8077.choose(listOf(noisy))?.id)
+                  assertNull(LaneEvidence8077.choose(emptyList()))
+                  assertNull(LaneEvidence8077.choose(listOf(noisy.copy(expected = Double.NaN))))
+              }
+              @Test fun fullAbsoluteProofDoesNotSkipItsPositiveNeutralBenchmark() {
+                  val strong = stat(60, 6.0, 0.2)
+                  val neutral = stat(30, 5.0, 0.2)
+                  assertTrue(CortexScoreboard7885.overruleProven(strong))
+                  assertEquals(0.0, CortexScoreboard7885.authorityFraction7955(strong, neutral, false), 1e-12)
+                  assertEquals(1.0, CortexScoreboard7885.authorityFraction7955(strong, stat(30, -5.0), false), 1e-12)
+                  assertEquals(0.0, CortexScoreboard7885.graduatedFraction7955(50.0, Double.NaN, 0.0, 0.0, 2.0, 40, true), 0.0)
+              }
+              @Test fun paperLossesDoNotSuspendLiveLaneAuthority() {
+                  val b = CortexScoreboard7885()
+                  repeat(60) { b.record("MOONSHOT", Bucket.STRONG, true, 40.0, 40.0) }
+                  repeat(30) { b.recordRealized("PAPER", "MOONSHOT", Bucket.STRONG, -20.0) }
+                  repeat(20) { b.recordRealized("PAPER", "MOONSHOT", Bucket.REFUSE, 60.0) }
+                  assertTrue(b.inverted7948("MOONSHOT", "PAPER"))
+                  assertFalse(b.inverted7948("MOONSHOT", "LIVE"))
+                  assertTrue(b.fractionFor7955("MOONSHOT", "LIVE") > 0.0)
+                  assertEquals(0.0, b.fractionFor7955("MOONSHOT", "PAPER"), 0.0)
+                  repeat(30) { b.recordRealized("LIVE", "MOONSHOT", Bucket.STRONG, -20.0) }
+                  repeat(20) { b.recordRealized("LIVE", "MOONSHOT", Bucket.REFUSE, 60.0) }
+                  assertTrue(b.inverted7948("MOONSHOT", "LIVE"))
+              }
+              @Test fun invalidErrorMetricsNeverBecomeGiganticSkills() {
+                  val seat = CortexLedger7885.Seat(2).also { it.scored = 100 }
+                  seat.brierBase = 10.0; seat.brierModel = -5000.0
+                  seat.logLossBase = 10.0; seat.logLossModel = Double.NaN
+                  assertEquals(0.0, seat.brierSkill(), 0.0)
+                  assertEquals(0.0, seat.logLossSkill(), 0.0)
+                  seat.brierModel = 2.5
+                  assertEquals(0.75, seat.brierSkill(), 1e-12)
+                  assertTrue(LaneEvidence8077.coherent(2.0, 20_000.0, 200_000_000.0, 2.0, 2.0))
+                  assertFalse(LaneEvidence8077.coherent(2.0, 20.0, 100.0, 2.0, 0.0))
+                  val s = stat(1, 10.0)
+                  s.add(Double.MAX_VALUE, true)
+                  assertEquals(1.0, s.n, 0.0)
+                  assertEquals(10.0, s.mean(), 0.0)
+              }
+              @Test fun liveReadersConsumeAlignmentAndRevisionBindingsPersistWithTheirBook() {
+                  val p = File("src/main/kotlin/com/lifecyclebot/engine/cortex/LanePlaybook7907.kt").readText()
+                  assertTrue(p.contains("LaneEvidence8077.choose(m.map { setupEvidence8077(lane, it.id) })"))
+                  assertTrue(p.contains("c.observedAt == observedAt"))
+                  assertTrue(p.contains("c.revision == revision"))
+                  assertTrue(p.contains("_grades8077"))
+                  val t = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+                  assertTrue(t.contains("lowWinRateNeedsPivot(tradesIn, lossRate, meanPnl)"))
+                  assertTrue(t.contains("lowWinRateNeedsPivot(totalSamples, lossRate, st.meanPnl)"))
+              }
+          }
+          '''
+          create(T/'Aate8077StrategyAlignmentTest.kt',test)
+          create(R/'lifecycle_apk/audits/cortex_8077_alignment.md', '''# Cortex 8077 strategy alignment
+
+          Preserved baseline: operator report 545, canonical LIVE 26 closes, 8W/18L, 30.8% WR, PF 1.49, +0.0014 SOL/trade. This is not the separate 21-trade strategy subset. No risk-limit change, live accounting rewrite, winner cap or learning reset.
+
+          Source fixes: retain positive-EV low-WR tactics in both rotation paths; classify BASE_BREAKOUT as breakout before BASE; generic SPECIALIST_EDGE/EXPERT_ENTRY retain native lane tactics; rank only fired same-lane setups and prefer proven matches over thin outliers; invalidate setup cache on changed market/evidence; UI reads the same local+hive record; persist bounded progressive setup receipts with their exact books; positive neutral benchmark applies to full Cortex proof; realized PAPER and LIVE inversions are isolated; invalid Brier/log-loss and overflow inputs cannot create authority.
+
+          Preserve existing branch fixes: decision-time forecasts, decay-weighted revisions, distinct setup bins, validated own-lane refusal audit, verified lifecycle takes, exact-position realized binding and finality-write coalescing.
+
+          Reading lanes: negative REFUSE means for QUALITY/BLUECHIP are avoided losers, not a reason to invert those lanes. EXPRESS STRONG n=2 and SHITCOIN REFUSE n=2 are insufficient to reverse strategies. CORE/MANIPULATED missed candidates need same-lane evidence, never automatic buying of every old refusal. Forward returns are not verified executable profits.
+
+          Verification: eight local numeric groups passed on production Cortex classes with compile-only JSON/Android boundaries; comment, authority and economic-unit scans passed. Aate8077StrategyAlignmentTest is required in CI. Full Android compile, blocking regressions and runtime smoke must pass on the final source before production acceptance.
+
+          Not asserted closed: original OOM allocator, provider entitlements/quotas, device-specific stop/finality latency, exact-mint quantity/orphan reconciliation and all missing causal predecessors. A raw confirmed OPEN with a zero validated funnel is an instrumentation discrepancy, not proof no trade occurred.
+          ''')
+          print('All exact source assertions passed; reviewed strategy changes applied.')
+      - name: Source checks and prepare commit object
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import subprocess, pathlib, json, os, base64, urllib.request, tarfile
+          def git(*args):
+              return subprocess.check_output(['git',*args],text=True).strip()
+          for scan in ('comment_balance.py','authority_contradiction_scan.py','economic_units_scan.py'):
+              subprocess.run(['python3','ci/'+scan],cwd='lifecycle_apk',check=True)
+          subprocess.run(['git','diff','--check'],check=True)
+          parent=git('rev-parse','HEAD')
+          changed=git('diff','--name-only').splitlines()
+          changed += ['lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/cortex/LaneEvidence8077.kt','lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8077StrategyAlignmentTest.kt','lifecycle_apk/audits/cortex_8077_alignment.md']
+          for p in ('.github/workflows/cortex-source-review-8077.yml','.github/workflows/cortex-apply-8077.yml'):
+              if pathlib.Path(p).exists():
+                  subprocess.run(['git','rm',p],check=True)
+          subprocess.run(['git','add','--',*changed],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          api='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          def post(path,data):
+              req=urllib.request.Request(api+path,data=json.dumps(data).encode(),method='POST',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
+              with urllib.request.urlopen(req,timeout=60) as response:
+                  return json.load(response)
+          paths=git('diff','--cached','--name-only').splitlines()
+          tree=[]
+          for name in paths:
+              p=pathlib.Path(name)
+              if not p.exists():
+                  tree.append({'path':name,'mode':'100644','type':'blob','sha':None})
+              else:
+                  blob=post('/git/blobs',{'content':base64.b64encode(p.read_bytes()).decode(),'encoding':'base64'})
+                  tree.append({'path':name,'mode':'100644','type':'blob','sha':blob['sha']})
+          t=post('/git/trees',{'base_tree':git('rev-parse','HEAD^{tree}'),'tree':tree})
+          c=post('/git/commits',{'message':'fix: align lane tactics, proven setup selection and mode-isolated Cortex authority','tree':t['sha'],'parents':[parent]})
+          out=pathlib.Path('/tmp/cortex-reviewed-8077'); out.mkdir()
+          manifest={'parent_sha':parent,'commit_sha':c['sha'],'tree_sha':t['sha'],'changed_files':paths,'source_checks':'passed','branch_updated':False}
+          (out/'manifest.json').write_text(json.dumps(manifest,indent=2))
+          with tarfile.open(out/'reviewed-source.tar.gz','w:gz') as tar:
+              for root in ('lifecycle_apk','ci','.github','AATE_VERSION'):
+                  tar.add(root,arcname=root)
+          print(json.dumps(manifest,indent=2))
+          # Deliberately no ref update: connector CAS publishes this exact object and triggers normal PR CI.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aate-reviewed-source-8077
+          path: /tmp/cortex-reviewed-8077/
+          retention-days: 2
