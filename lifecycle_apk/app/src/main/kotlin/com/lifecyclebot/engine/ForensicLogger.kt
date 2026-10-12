@@ -211,8 +211,8 @@ object ForensicLogger {
     private fun shouldEmitExactLifecycle7479(event: String, fields: String): Pair<Boolean, Long> {
         // A second user action is a new transition, even when its fields match.
         // Coalescing this receipt hid successful restart dispatches from the runtime audit.
-        if (event == "UI_START_DISPATCHED" || event == "UI_START_FALLBACK_DISPATCHED" ||
-            event == "UI_START_DISPATCH_FAILED" || event == "LIFECYCLE_STOP_COMPLETE") {
+        if (event == "UI_START_DISPATCHED_6517" || event == "UI_START_FALLBACK_DISPATCHED_6517" ||
+            event == "UI_START_DISPATCH_FAILED_6517" || event == "LIFECYCLE_STOP_COMPLETE") {
             return true to 0L
         }
         return try {
