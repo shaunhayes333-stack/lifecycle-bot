@@ -191,6 +191,16 @@ object LifecycleHold8065 {
         if (lastSell.size > 2_000) lastSell.clear()
         lastSell[k] = nowMs
         val (reason, frac) = why
+        // Do not mark a lifecycle profit rung as consumed before the sell dispatch
+        // has actually been accepted by its caller. A synchronous dispatch failure
+        // must leave both the rung and retry eligibility intact.
+        try {
+            sell(ts, frac, reason)
+        } catch (failure: Throwable) {
+            lastSell.remove(k, nowMs)
+            try { PipelineHealthCollector.labelInc("LIFECYCLE_SELL_DISPATCH_FAILED_8065") } catch (_: Throwable) {}
+            return true
+        }
         if (reason.contains("_PROFIT_TAKE")) st.taken += 1
         exits.getOrPut(reason.substringBefore("_8065")) { AtomicLong(0) }.incrementAndGet()
         try {
@@ -198,7 +208,6 @@ object LifecycleHold8065 {
             ForensicLogger.lifecycle("LIFECYCLE_EXIT_8065", "mint=${ts.mint.take(10)} sym=${ts.symbol} gross=${"%.1f".format(g)}% peak=${"%.1f".format(st.peak)}% frac=$frac why=$reason")
         } catch (_: Throwable) {}
         saveMaybe(nowMs, force = true)
-        sell(ts, frac, reason)
         return true
     }
 
