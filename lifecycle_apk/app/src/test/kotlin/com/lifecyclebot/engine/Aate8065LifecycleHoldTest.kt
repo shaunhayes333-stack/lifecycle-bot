@@ -73,5 +73,13 @@ class Aate8065LifecycleHoldTest {
         assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED, "sellTx"))
         assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.SELL_VERIFYING, "sellTx"))
         assertFalse(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.OPEN_TRACKING, null))
+        assertTrue(t.currentChainRebuy8079("olderBuy", "newerBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT, true, true, true))
+        assertFalse(t.currentChainRebuy8079("olderBuy", "olderBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT, true, true, true))
+        assertFalse(t.currentChainRebuy8079("olderBuy", "newerBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.TX_META_OWNER_DELTA, true, true, true))
+        assertFalse(t.currentChainRebuy8079("olderBuy", "newerBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT, true, true, false))
     }
 }
