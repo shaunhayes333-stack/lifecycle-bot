@@ -180,7 +180,15 @@ object SpikeCapture7943 {
                 "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${pos.tradingMode} gross=${"%.1f".format(gross)}% tier=$reached sell=${(frac * 100).toInt()}% key7955=${plan7955?.key ?: "PRIOR"}/${plan7955?.source ?: "PRIOR"} action=sell_into_spike",
             )
         } catch (_: Throwable) {}
-        sell(ts, frac, "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT")
+        try {
+            sell(ts, frac, "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT")
+        } catch (failure: Exception) {
+            // Dispatch failed before the asynchronous executor accepted the sale:
+            // do not permanently consume the spike's profit tiers.
+            rearm(ts, reached)
+            try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_DISPATCH_REARMED_8079") } catch (_: Throwable) {}
+            return 0
+        }
         if (rearms.size > 2_000) rearms.clear()
         return reached
     }
