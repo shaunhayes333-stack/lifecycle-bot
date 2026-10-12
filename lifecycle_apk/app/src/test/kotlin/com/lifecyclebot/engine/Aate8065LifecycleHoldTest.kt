@@ -53,4 +53,25 @@ class Aate8065LifecycleHoldTest {
         assertFalse(LiveEdgeGate7877.chasing8065(120.0, 0.6, 10.0))   // pulled back off the high
         assertFalse(LiveEdgeGate7877.chasing8065(30.0, 0.99, 20.0))
     }
+
+    @Test fun onePrintCrossingMultipleTiersCombinesPartialWithoutSellingRunnerRemainder() {
+        val twoTiers = LifecycleHold8065.cumulativeTakeDue8079(781.0, 0)
+        assertEquals(1, twoTiers?.first)
+        assertEquals(0.65, twoTiers!!.second, 1e-9)
+        val afterFirst = LifecycleHold8065.cumulativeTakeDue8079(950.0, 1)
+        assertEquals(2, afterFirst?.first)
+        assertEquals(0.51, afterFirst!!.second, 1e-9)
+        assertNull(LifecycleHold8065.cumulativeTakeDue8079(70.0, 0))
+        assertEquals(0.964, SpikeCapture7943.crossedTierFraction8079(SpikeCapture7943.TIERS, 0, 3), 1e-9)
+        assertEquals(0.70, SpikeCapture7943.crossedTierFraction8079(SpikeCapture7943.TIERS, 2, 3), 1e-9)
+        assertEquals(0.0, SpikeCapture7943.crossedTierFraction8079(SpikeCapture7943.TIERS, 3, 3), 1e-9)
+    }
+
+    @Test fun lateHistoricalBuyCannotUndoPendingOrFinalizedSell() {
+        val t = HostWalletTokenTracker
+        assertTrue(t.historicalBuyBlocked8079(t.PositionStatus.CLOSED, "sellTx"))
+        assertTrue(t.historicalBuyBlocked8079(t.PositionStatus.SOLD_CONFIRMED, "sellTx"))
+        assertTrue(t.historicalBuyBlocked8079(t.PositionStatus.SELL_VERIFYING, "sellTx"))
+        assertFalse(t.historicalBuyBlocked8079(t.PositionStatus.OPEN_TRACKING, null))
+    }
 }
