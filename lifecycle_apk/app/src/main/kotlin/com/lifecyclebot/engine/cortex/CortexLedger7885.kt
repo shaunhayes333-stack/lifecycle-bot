@@ -134,7 +134,8 @@ class CortexLedger7885 {
         var logLossModel = 0.0
         var logLossBase = 0.0
 
-        fun skill(): Double = if (scored >= MIN_SCORED && sseBase > 0.0) 1.0 - sseModel / sseBase else 0.0
+        fun skill(): Double = if (scored >= MIN_SCORED && sseBase.isFinite() && sseModel.isFinite() && sseBase > 0.0 && sseModel >= 0.0)
+            (1.0 - sseModel / sseBase).coerceAtMost(1.0) else 0.0
 
         /** Brier skill score of the voter's win probability (0 until MIN_SCORED). */
         fun brierSkill(): Double = if (scored >= MIN_SCORED && brierBase > 0.0) 1.0 - brierModel / brierBase else 0.0
