@@ -39,7 +39,10 @@ object LifecycleHold8065 {
     private const val MAX_BARS = 700
     private const val DEAD_AFTER_MS = 72L * 3_600_000L
     private const val NO_HIGH_MS = 48L * 3_600_000L
-    private const val SELL_RETRY_MS = 30_000L
+    // The previous 30s interval prevented a second profit attempt during many
+    // one-minute meme runs. CloseLease and SellExecutionLocks already provide
+    // authoritative per-mint single-flight and provider backoff.
+    private const val SELL_RETRY_MS = 3_000L
     private const val FILE = "lifecycle_8065.txt"
     /** (gross %, share of the CURRENT holding sold). */
     private val TAKES_8065 = listOf(100.0 to 0.50, 400.0 to 0.30, 900.0 to 0.30)
