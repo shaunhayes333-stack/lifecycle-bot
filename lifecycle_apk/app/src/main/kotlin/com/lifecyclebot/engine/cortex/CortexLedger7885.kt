@@ -232,7 +232,7 @@ class CortexLedger7885 {
         // V5.0.7905 — Cortex v10: hierarchical prior (cell -> lane -> global). A
         // thin lane borrows the voter's cross-lane bin deviation, so what a voter
         // learned on every lane informs a new one from its first decisions.
-        val prior = m + globalDeviation(voterId, bin, b, lanes[lane])
+        val prior = m + globalDeviation(voterId, bin, lane)
         var pred = ((b?.sum ?: 0.0) + SHRINK_K * prior) / (n + SHRINK_K)
         var runner = ((b?.runners ?: 0.0) + SHRINK_K * lr) / (n + SHRINK_K)
         if (regime.isNotBlank()) {
@@ -251,32 +251,52 @@ class CortexLedger7885 {
      * Shrunk deviation of [voterId]'s [bin] from the mean of the OTHER lanes
      * (this lane's own cell is subtracted out, so its evidence is not counted twice).
      */
-    private fun globalDeviation(voterId: String, bin: Int, laneBin: Stat?, laneStat: Stat?): Double {
-        val g = lanes[GLOBAL] ?: return 0.0
-        val gb = seats["$voterId|$GLOBAL"]?.bins?.getOrNull(bin) ?: return 0.0
-        val n = gb.n - (laneBin?.n ?: 0.0)
-        if (n <= 0.5) return 0.0
-        val sum = gb.sum - (laneBin?.sum ?: 0.0)
-        val gn = g.n - (laneStat?.n ?: 0.0)
-        if (gn <= 0.5) return 0.0
-        val gMean = (g.sum - (laneStat?.sum ?: 0.0)) / gn
-        return (sum - n * gMean) / (n + SHRINK_K)
+    private fun globalDeviation(voterId: String, bin: Int, ownLane: String): Double {
+        if (CrossAssetCortex7931.isCrossAssetLane(ownLane)) return 0.0
+        // Global and lane windows decay independently. Subtracting them is not
+        // leave-one-lane-out evidence: it can manufacture negative counts/means.
+        // Pool the actual other-lane books instead (one direct lookup per lane).
+        var n = 0.0; var sum = 0.0; var laneN = 0.0; var laneSum = 0.0
+        for ((other, baseline) in lanes) {
+            if (other == ownLane || other == GLOBAL || '@' in other || CrossAssetCortex7931.isCrossAssetLane(other)) continue
+            val cell = seats["$voterId|$other"]?.bins?.getOrNull(bin) ?: continue
+            if (cell.n <= 0.0 || baseline.n <= 0.0) continue
+            n += cell.n; sum += cell.sum; laneN += baseline.n; laneSum += baseline.sum
+        }
+        if (n <= 0.5 || laneN <= 0.5) return 0.0
+        return (sum - n * (laneSum / laneN)) / (n + SHRINK_K)
     }
 
     data class Prediction(val netPct: Double, val runnerRate: Double, val authority: Double, val binN: Double, val pWin: Double = 0.5)
+
+    /** Predictions made before the outcome exists, aligned with the captured voter identities. */
+    class PredictionSnapshot8076(val preds: DoubleArray, val pWins: DoubleArray, val base: Double, val baseWin: Double)
+
+    fun predictionSnapshot8076(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, regime: String = ""): PredictionSnapshot8076 {
+        val preds = DoubleArray(voterIds.size) { Double.NaN }
+        val wins = DoubleArray(voterIds.size) { Double.NaN }
+        for (i in voterIds.indices) {
+            val raw = raws.getOrNull(i)?.takeIf { it.isFinite() } ?: continue
+            val p = predict(voterIds[i], lane, edges[i], raw, regime)
+            preds[i] = p.netPct; wins[i] = p.pWin
+        }
+        return PredictionSnapshot8076(preds, wins, laneMean(lane, regime).first, lanes[lane]?.winRate() ?: 0.5)
+    }
 
     /**
      * Grade one decision. [raws] holds each voter's raw value (NaN = abstained)
      * in [voterIds] order with matching [edges]. Scores every voter on the
      * outcome before learning it, then learns it.
      */
-    fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = ""): GradeTrace8006? {
+    fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = "",
+        prediction8076: PredictionSnapshot8076? = null): GradeTrace8006? {
         if (!netPct.isFinite()) return null
         val y = netPct.coerceIn(Y_MIN, Y_MAX)
         val runner = grossPct.isFinite() && grossPct >= RUNNER_GROSS_PCT
         val l = lane(lane)
-        val base = laneMean(lane, regime).first
-        val baseWin8006 = l.winRate()
+        val predicted = prediction8076 ?: predictionSnapshot8076(lane, voterIds, edges, raws, regime)
+        val base = predicted.base
+        val baseWin8006 = predicted.baseWin
         val preds8006 = DoubleArray(voterIds.size) { Double.NaN }
         val pWins8006 = DoubleArray(voterIds.size) { Double.NaN }
         val scales = DoubleArray(voterIds.size * 4 + 3) { Double.NaN }
@@ -286,25 +306,28 @@ class CortexLedger7885 {
             val raw = raws.getOrNull(i) ?: continue
             if (!raw.isFinite()) continue
             val st = seat(voterIds[i], lane, edges[i].size + 1)
-            val pr = predict(voterIds[i], lane, edges[i], raw, regime)
-            val p = pr.netPct
-            preds8006[i] = p; pWins8006[i] = pr.pWin
+            val p = predicted.preds.getOrNull(i) ?: Double.NaN
+            val predictedWin = predicted.pWins.getOrNull(i) ?: Double.NaN
+            preds8006[i] = p; pWins8006[i] = predictedWin
             val won = if (y > 0.0) 1.0 else 0.0
-            val baseWin = l.winRate()
-            val pw = pr.pWin.coerceIn(0.01, 0.99)
-            val bw = baseWin.coerceIn(0.01, 0.99)
-            st.brierModel = st.brierModel * DECAY + (won - pw) * (won - pw)
-            st.brierBase = st.brierBase * DECAY + (won - bw) * (won - bw)
-            st.logLossModel = st.logLossModel * DECAY - (won * kotlin.math.ln(pw) + (1 - won) * kotlin.math.ln(1 - pw))
-            st.logLossBase = st.logLossBase * DECAY - (won * kotlin.math.ln(bw) + (1 - won) * kotlin.math.ln(1 - bw))
-            // Error co-movement is tracked among seated voters only (fusion only
-            // discounts seated voters; ~140 voters would otherwise mean ~10k pairs).
-            if (st.authority() > 0.0) residuals.add(voterIds[i] to (y - p))
-            st.sseModel = st.sseModel * DECAY + (y - p) * (y - p)
-            st.sseBase = st.sseBase * DECAY + (y - base) * (y - base)
-            st.scored++
-            scoreAt[i] = st.scored
-            scales[i * 4 + 1] = (if (p >= base) st.above else st.below).add(y, runner)
+            val pw = predictedWin.coerceIn(0.01, 0.99)
+            val bw = baseWin8006.coerceIn(0.01, 0.99)
+            // Restored legacy observations can teach their outcome bins without
+            // inventing a historical prediction or earning an out-of-sample score.
+            if (p.isFinite() && pw.isFinite() && base.isFinite() && bw.isFinite()) {
+                st.brierModel = st.brierModel * DECAY + (won - pw) * (won - pw)
+                st.brierBase = st.brierBase * DECAY + (won - bw) * (won - bw)
+                st.logLossModel = st.logLossModel * DECAY - (won * kotlin.math.ln(pw) + (1 - won) * kotlin.math.ln(1 - pw))
+                st.logLossBase = st.logLossBase * DECAY - (won * kotlin.math.ln(bw) + (1 - won) * kotlin.math.ln(1 - bw))
+                // Error co-movement is tracked among seated voters only (fusion only
+                // discounts seated voters; ~140 voters would otherwise mean ~10k pairs).
+                if (st.authority() > 0.0) residuals.add(voterIds[i] to (y - p))
+                st.sseModel = st.sseModel * DECAY + (y - p) * (y - p)
+                st.sseBase = st.sseBase * DECAY + (y - base) * (y - base)
+                st.scored++
+                scoreAt[i] = st.scored
+                scales[i * 4 + 1] = (if (p >= base) st.above else st.below).add(y, runner)
+            }
             scales[i * 4] = st.bins[binOf(edges[i], raw)].add(y, runner)
             // Regime cells only for seasoned voters (bounds the store).
             if (regime.isNotBlank() && st.scored >= MIN_SCORED / 2) {
@@ -374,14 +397,16 @@ class CortexLedger7885 {
         for (i in voterIds.indices) {
             val raw = raws.getOrNull(i) ?: continue
             if (!raw.isFinite()) continue
-            val p = trace.preds.getOrNull(i) ?: continue
-            if (!p.isFinite()) continue
             val st = seats["${voterIds[i]}|$lane"] ?: continue
             val bin = binOf(edges[i], raw)
+            revise(st.bins.getOrNull(bin), i * 4)
+            if (regime.isNotBlank()) revise(seats["${voterIds[i]}|$lane@$regime"]?.bins?.getOrNull(bin), i * 4 + 2)
+            if (lane != GLOBAL && !crossAsset) revise(seats["${voterIds[i]}|$GLOBAL"]?.bins?.getOrNull(bin), i * 4 + 3)
+            val p = trace.preds.getOrNull(i) ?: continue
+            if (!p.isFinite()) continue
             val scoredAt = scoreAt.getOrNull(i) ?: continue
             if (scoredAt < 0 || scoredAt > st.scored) continue
             val weight = Math.pow(DECAY, (st.scored - scoredAt).toDouble())
-            revise(st.bins.getOrNull(bin), i * 4)
             revise(if (p >= trace.base) st.above else st.below, i * 4 + 1)
             st.sseModel = (st.sseModel + weight * ((yn - p) * (yn - p) - (yo - p) * (yo - p))).coerceAtLeast(0.0)
             st.sseBase = (st.sseBase + weight * ((yn - trace.base) * (yn - trace.base) - (yo - trace.base) * (yo - trace.base))).coerceAtLeast(0.0)
@@ -396,8 +421,6 @@ class CortexLedger7885 {
                 st.logLossBase = (st.logLossBase + weight * (-(wn * kotlin.math.ln(bw) + (1 - wn) * kotlin.math.ln(1 - bw)) +
                     (wo * kotlin.math.ln(bw) + (1 - wo) * kotlin.math.ln(1 - bw)))).coerceAtLeast(0.0)
             }
-            if (regime.isNotBlank()) revise(seats["${voterIds[i]}|$lane@$regime"]?.bins?.getOrNull(bin), i * 4 + 2)
-            if (lane != GLOBAL && !crossAsset) revise(seats["${voterIds[i]}|$GLOBAL"]?.bins?.getOrNull(bin), i * 4 + 3)
         }
         revise(lanes[lane], voterIds.size * 4)
         if (regime.isNotBlank()) revise(lanes["$lane@$regime"], voterIds.size * 4 + 1)

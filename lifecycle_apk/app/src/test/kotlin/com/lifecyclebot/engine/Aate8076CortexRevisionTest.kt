@@ -6,6 +6,50 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Aate8076CortexRevisionTest {
+    @Test fun delayedOutcomeScoresThePredictionCapturedBeforeInterveningLearning() {
+        val ledger = CortexLedger7885()
+        val ids = listOf("V"); val edges = listOf(doubleArrayOf(0.5)); val raw = doubleArrayOf(1.0)
+        val captured = ledger.predictionSnapshot8076("QUALITY", ids, edges, raw)
+        repeat(100) { ledger.grade("QUALITY", ids, edges, raw, 80.0, 80.0) }
+        val seat = ledger.seats["V|QUALITY"]!!
+        val before = seat.sseModel
+        val beforeBrier = seat.brierModel
+        assertTrue(ledger.predict("V", "QUALITY", edges[0], 1.0).netPct > 50.0)
+        val trace = ledger.grade("QUALITY", ids, edges, raw, -20.0, -20.0, prediction8076 = captured)!!
+        assertEquals(0.0, trace.preds[0], 0.0)
+        assertEquals(before * CortexLedger7885.DECAY + 400.0, seat.sseModel, 1e-7)
+        assertEquals(beforeBrier * CortexLedger7885.DECAY + 0.25, seat.brierModel, 1e-8)
+    }
+
+    @Test fun legacyOutcomeWithoutDecisionPredictionTrainsAndRevisesWithoutInventingSkill() {
+        val ledger = CortexLedger7885()
+        val ids = listOf("V"); val edges = listOf(doubleArrayOf(0.5)); val raw = doubleArrayOf(1.0)
+        val unknown = CortexLedger7885.PredictionSnapshot8076(doubleArrayOf(Double.NaN), doubleArrayOf(Double.NaN), Double.NaN, Double.NaN)
+        val trace = ledger.grade("QUALITY", ids, edges, raw, 50.0, 50.0, prediction8076 = unknown)!!
+        val seat = ledger.seats["V|QUALITY"]!!
+        assertEquals(0, seat.scored)
+        assertEquals(50.0, seat.bins[1].mean(), 0.0)
+        ledger.revise8006("QUALITY", ids, edges, raw, trace, 50.0, -30.0, 50.0, -30.0)
+        assertEquals(-30.0, seat.bins[1].mean(), 1e-8)
+        assertEquals(0, seat.scored)
+        assertEquals(0.0, seat.sseModel, 0.0)
+    }
+
+    @Test fun otherLanePriorSurvivesIndependentWindowDecayWithoutSubtractingOwnHistory() {
+        val ledger = CortexLedger7885()
+        val ids = listOf("V"); val edges = listOf(doubleArrayOf(0.5))
+        repeat(400) { i ->
+            val high = i % 2 == 0
+            ledger.grade("SHITCOIN", ids, edges, doubleArrayOf(if (high) 1.0 else 0.0), if (high) 20.0 else -20.0, 0.0)
+        }
+        repeat(4000) { ledger.grade("QUALITY", ids, edges, doubleArrayOf(1.0), 1000.0, 1000.0) }
+        // QUALITY's full 500-label window cannot erase the separate SHITCOIN signal
+        // by being subtracted from a differently aged 500-label global window.
+        val prediction = ledger.predict("V", "QUALITY", edges[0], 1.0).netPct
+        assertTrue("prediction=$prediction", prediction > 1000.0 && prediction < 1020.0)
+        assertEquals(0.0, ledger.predict("V", "CRYPTO_ALT", edges[0], 1.0).netPct, 0.0)
+    }
+
     @Test fun lateRevisionMatchesDirectObservationAfterWindowDecayAndRestore() {
         val revised = CortexLedger7885.Stat()
         val direct = CortexLedger7885.Stat()

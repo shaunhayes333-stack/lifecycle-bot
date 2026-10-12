@@ -63,7 +63,13 @@ object Cortex7885 {
         val unknownFeatures: Int,
         val staleMark: Boolean,
         val atMs: Long,
+        val prediction8076: CortexLedger7885.PredictionSnapshot8076? = null,
     )
+
+    private fun predictionForGrade8076(a: Assessment): CortexLedger7885.PredictionSnapshot8076 =
+        a.prediction8076 ?: CortexLedger7885.PredictionSnapshot8076(
+            DoubleArray(a.ids.size) { Double.NaN }, DoubleArray(a.ids.size) { Double.NaN }, Double.NaN, Double.NaN,
+        )
 
     private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null, val source: String = "", val setup7961: String = "")
 
@@ -115,14 +121,16 @@ object Cortex7885 {
         val votes = voters.mapIndexed { i, v -> CortexLedger7885.Vote(v.id, v.edges, staticRaws[i], v.evidence) } + dyn
         // V5.0.7898 — Cortex v4: the decision is read in the current market regime.
         val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" }
-        val fused = synchronized(this) { ledger.fuse(lane, votes, regime) }
+        val (fused, prediction8076) = synchronized(this) {
+            ledger.fuse(lane, votes, regime) to ledger.predictionSnapshot8076(lane, ids, edges, raws, regime)
+        }
         // V5.0.7901 — Cortex v7: buckets read the calibrated edge, not the raw one.
         val calibrated = synchronized(this) { calibration.calibrate(lane, fused.edgePct, fused.laneMean) }
         val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
         val freshestAt = maxOf(ts.lastPriceUpdate, registryAt)
         val priceAge = if (freshestAt > 0L) nowMs - freshestAt else Long.MAX_VALUE
-        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs)
+        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs, prediction8076)
         try { CortexInvariants7911.recordProvenance(ts, nowMs) } catch (_: Throwable) {}
         assessNanos.addAndGet(System.nanoTime() - t0)
         assessed.incrementAndGet()
@@ -239,15 +247,22 @@ object Cortex7885 {
                 val a = p.a
                 val ids = org.json.JSONArray()
                 val xs = org.json.JSONArray()
+                val pr = org.json.JSONArray(); val pw = org.json.JSONArray()
                 for (i in a.ids.indices) {
                     val r = a.raws.getOrNull(i) ?: continue
-                    if (r.isFinite()) { ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(fin0(r)) }
+                    if (r.isFinite()) {
+                        ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(r))
+                        pr.put(jsonNumber(a.prediction8076?.preds?.getOrNull(i)))
+                        pw.put(jsonNumber(a.prediction8076?.pWins?.getOrNull(i)))
+                    }
                 }
                 arr.put(
                     org.json.JSONObject().put("k", k).put("l", a.lane).put("r", a.runnerLane).put("g", a.regime)
                         .put("b", a.bucket.ordinal).put("e", fin0(a.fused.edgePct)).put("m", fin0(a.fused.laneMean))
                         .put("ce", fin0(a.calibratedEdge)).put("adm", p.legacyAdmitted).put("at", p.atMs)
-                        .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs),
+                        .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs)
+                        .put("pr8076", pr).put("pw8076", pw)
+                        .put("base8076", jsonNumber(a.prediction8076?.base)).put("bw8076", jsonNumber(a.prediction8076?.baseWin)),
                 )
             }
             // V5.0.8013 — graded decisions held for progressive revision ride along (newest decisions first),
@@ -260,7 +275,7 @@ object Cortex7885 {
                 for (i in a.ids.indices) {
                     val r = a.raws.getOrNull(i) ?: continue
                     if (!r.isFinite()) continue
-                    ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(fin0(r))
+                    ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(r))
                     pr.put(jsonNumber(g.trace.preds.getOrNull(i))); pw.put(jsonNumber(g.trace.pWins.getOrNull(i)))
                     sc.put(g.trace.scoreAt?.getOrNull(i) ?: -1)
                     repeat(4) { rs.put(jsonNumber(g.trace.scales?.getOrNull(i * 4 + it))) }
@@ -302,17 +317,23 @@ object Cortex7885 {
             val ids = ArrayList<String>()
             val edges = ArrayList<DoubleArray>()
             val raws = ArrayList<Double>()
+            val preds = ArrayList<Double>(); val wins = ArrayList<Double>()
             val ji = o.optJSONArray("i") ?: continue
             val jx = o.optJSONArray("x") ?: continue
+            val jp = o.optJSONArray("pr8076"); val jw = o.optJSONArray("pw8076")
             for (j in 0 until minOf(ji.length(), jx.length())) {
                 val id = dict.getOrNull(ji.optInt(j, -1)) ?: continue
                 val e = CortexVoters7885.edgesFor(id) ?: continue
                 ids.add(id); edges.add(e); raws.add(jx.optDouble(j))
+                preds.add(jp?.optDouble(j, Double.NaN) ?: Double.NaN)
+                wins.add(jw?.optDouble(j, Double.NaN) ?: Double.NaN)
             }
             val b = buckets.getOrNull(o.optInt("b", 1)) ?: CortexScoreboard7885.Bucket.NEUTRAL
             val fused = CortexLedger7885.Fused(o.optDouble("e", 0.0), 0.0, o.optDouble("m", 0.0), 0.0, 0.0, 0.0, 0.0, emptyList())
             val a = Assessment(o.optString("l"), o.optBoolean("r"), raws.toDoubleArray(), ids, edges, o.optString("g"),
-                fused, o.optDouble("ce", 0.0), b, 0, false, at)
+                fused, o.optDouble("ce", 0.0), b, 0, false, at,
+                CortexLedger7885.PredictionSnapshot8076(preds.toDoubleArray(), wins.toDoubleArray(),
+                    o.optDouble("base8076", Double.NaN), o.optDouble("bw8076", Double.NaN)))
             pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"))
             inc("PENDING_RESTORED")
         }
@@ -377,7 +398,7 @@ object Cortex7885 {
             if (sourceGraded.size > 6_000) sourceGraded.entries.removeIf { p.atMs - it.value > PENDING_TTL_MS }
         }
         synchronized(this) {
-            val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime)
+            val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, netPct, grossPct, p.a.regime, predictionForGrade8076(p.a))
             val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, netPct, grossPct)
             val auxScales = DoubleArray(3) { Double.NaN }
             calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
@@ -1026,7 +1047,7 @@ object Cortex7885 {
             // in its own ledger — skill on real fills and real exits, beside the
             // forward-label skill that grants authority.
             realLedgers.getOrPut(mode) { CortexLedger7885() }
-                .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime)
+                .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime, predictionForGrade8076(a))
         }
         inc("REALIZED_${mode}")
     }
