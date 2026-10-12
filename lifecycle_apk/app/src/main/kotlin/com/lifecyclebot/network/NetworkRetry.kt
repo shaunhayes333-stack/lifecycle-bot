@@ -32,6 +32,15 @@ class NetworkRetry(
 
     val isOpen get() = state == State.OPEN
 
+    /** Manual transports (WebSockets) must obey the same cooldown as call(). */
+    @Synchronized
+    fun allowManualAttempt8077(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (state != State.OPEN) return true
+        if (nowMs - openedAt.get() < openDurationMs) return false
+        state = State.HALF_OPEN
+        return true
+    }
+
     suspend fun <T> call(block: suspend () -> T): T? {
         when (state) {
             State.OPEN -> {

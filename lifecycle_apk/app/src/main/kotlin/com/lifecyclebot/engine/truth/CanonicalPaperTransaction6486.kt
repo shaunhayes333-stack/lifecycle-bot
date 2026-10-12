@@ -340,6 +340,8 @@ object CanonicalPaperTransaction6486 {
         val typedEvents = EconomicEventSchema6464.snapshot()
             .filter { it.mode.equals("paper", true) && positions.containsKey(it.positionId) }
             .sortedBy { it.atMs }
+        val buys8077 = typedEvents.filterIsInstance<EconomicEventSchema6464.Buy>().groupBy { it.positionId }
+        val sells8077 = typedEvents.filterIsInstance<EconomicEventSchema6464.Sell>().groupBy { it.positionId }
         val positionsWithDurableSell7521 = typedEvents
             .filterIsInstance<EconomicEventSchema6464.Sell>()
             .mapTo(HashSet()) { it.positionId }
@@ -347,7 +349,13 @@ object CanonicalPaperTransaction6486 {
             if (p.lifecycle != CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
                 p.positionId in positionsWithDurableSell7521
             ) {
-                ensureOpenProjection6659(p)
+                // Position.feesSol includes exits after a close/partial. Reusing
+                // it on BUY charges those exit fees twice in journal replay.
+                val entryFees8077 = historicalEntryFees8077(p.entryCostSol, p.originalQtyRaw,
+                    p.feesSol, p.soldCostBasisSol, p.originalQtyRaw - p.remainingQtyRaw,
+                    buys8077[p.positionId].orEmpty(), sells8077[p.positionId].orEmpty())
+                if (entryFees8077 != null) ensureOpenProjection6659(p.copy(feesSol = entryFees8077))
+                else PipelineHealthCollector.labelInc("HISTORY_ENTRY_FEE_UNPROVEN_8077")
             } else try {
                 PipelineHealthCollector.labelInc("HISTORY_OPEN_PROJECTION_WITHHELD_NO_TERMINAL_7521")
             } catch (_: Throwable) {}
@@ -453,6 +461,28 @@ object CanonicalPaperTransaction6486 {
             PipelineHealthCollector.labelInc("CROSS_ASSET_HISTORY_REPROJECTED_6660")
             PipelineHealthCollector.labelInc("PAPER_CANONICAL_HISTORY_REPROJECTED_6692")
         } catch (_: Throwable) {}
+    }
+
+    internal fun historicalEntryFees8077(
+        entryCost: Double, originalRaw: BigInteger, totalFees: Double,
+        soldBasis: Double, soldRaw: BigInteger,
+        buys: List<EconomicEventSchema6464.Buy>, sells: List<EconomicEventSchema6464.Sell>,
+    ): Double? {
+        if (!entryCost.isFinite() || entryCost < 0.0 || !totalFees.isFinite() || totalFees < 0.0 ||
+            !soldBasis.isFinite() || soldBasis < 0.0 || originalRaw.signum() < 0 || soldRaw.signum() < 0 ||
+            soldRaw > originalRaw ||
+            buys.any { !it.executedCostSol.isFinite() || it.executedCostSol < 0.0 || it.filledQty.signum() < 0 ||
+                !it.entryFeesSol.isFinite() || it.entryFeesSol < 0.0 } ||
+            sells.any { !it.allocatedCostBasisSol.isFinite() || it.allocatedCostBasisSol < 0.0 ||
+                it.soldQty.signum() < 0 || !it.exitFeesSol.isFinite() || it.exitFeesSol < 0.0 }) return null
+        if (buys.isNotEmpty() && kotlin.math.abs(buys.sumOf { it.executedCostSol } - entryCost) <= 1e-9 &&
+            buys.fold(BigInteger.ZERO) { n, b -> n + b.filledQty } == originalRaw &&
+            buys.all { it.entryFeesSol.isFinite() && it.entryFeesSol >= 0.0 }) return buys.sumOf { it.entryFeesSol }.takeIf { it.isFinite() }
+        // A truncated BUY prefix can still be recovered from complete exit fees.
+        if (kotlin.math.abs(sells.sumOf { it.allocatedCostBasisSol } - soldBasis) > 1e-9 ||
+            sells.fold(BigInteger.ZERO) { n, s -> n + s.soldQty } != soldRaw ||
+            sells.any { !it.exitFeesSol.isFinite() || it.exitFeesSol < 0.0 }) return null
+        return (totalFees - sells.sumOf { it.exitFeesSol }).takeIf { it.isFinite() && it >= -1e-12 }?.coerceAtLeast(0.0)
     }
 
     fun open(positionId: String, mint: String, symbol: String, lane: String, source: String,

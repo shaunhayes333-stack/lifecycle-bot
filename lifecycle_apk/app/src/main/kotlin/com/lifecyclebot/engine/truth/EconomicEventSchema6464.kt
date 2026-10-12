@@ -376,7 +376,7 @@ object EconomicEventSchema6464 {
         }
     }
 
-    private fun encode6486(e: Event): String = JSONObject().apply {
+    internal fun encode6486(e: Event): String = JSONObject().apply {
         put("type", if (e is Buy) "BUY" else "SELL")
         put("atMs", e.atMs); put("mode", e.mode); put("positionId", e.positionId)
         put("mint", e.mint); put("symbol", e.symbol); put("idempotencyKey", e.idempotencyKey)
@@ -395,11 +395,12 @@ object EconomicEventSchema6464 {
                 put("exitFeesSol", e.exitFeesSol); put("netProceedsSol", e.netProceedsSol)
                 put("realizedPnlSol", e.realizedPnlSol); put("realizedReturnPct", e.realizedReturnPct)
                 put("remainingQty", e.remainingQty.toString()); put("remainingCostBasisSol", e.remainingCostBasisSol)
+                put("exitPriceUsd", e.exitPriceUsd); put("solUsdAtExit", e.solUsdAtExit)
             }
         }
     }.toString()
 
-    private fun decode6486(raw: String): Event? = try {
+    internal fun decode6486(raw: String): Event? = try {
         val j = JSONObject(raw)
         val baseAt = j.getLong("atMs"); val mode = j.getString("mode")
         val pid = j.getString("positionId"); val mint = j.getString("mint")
@@ -419,6 +420,7 @@ object EconomicEventSchema6464 {
             j.getDouble("grossProceedsSol"), j.getDouble("exitFeesSol"), j.getDouble("netProceedsSol"),
             j.getDouble("realizedPnlSol"), j.getDouble("realizedReturnPct"),
             java.math.BigInteger(j.getString("remainingQty")), j.getDouble("remainingCostBasisSol"),
+            j.optDouble("exitPriceUsd", 0.0), j.optDouble("solUsdAtExit", 0.0),
         )
     } catch (_: Throwable) { null }
 

@@ -123,22 +123,6 @@ object HeldHotMarkAuthority7419 {
         }
     }
 
-    private fun <T> boundedBatch7510(block: () -> T?): Pair<T?, Boolean> {
-        val f = try {
-            providerPool.submit<T?> { block() }
-        } catch (_: java.util.concurrent.RejectedExecutionException) {
-            try { PipelineHealthCollector.labelInc("HELD_HOT_PROVIDER_POOL_SATURATED_7606") } catch (_: Throwable) {}
-            return null to true
-        }
-        return try {
-            f.get(BATCH_FANOUT_DEADLINE_MS_7510, TimeUnit.MILLISECONDS) to false
-        } catch (_: TimeoutException) {
-            f.cancel(true); null to true
-        } catch (_: Throwable) {
-            f.cancel(true); null to false
-        }
-    }
-
     private fun refreshPass() {
         val now = System.currentTimeMillis()
         // V5.0.7822 — the risk clock consumes CanonicalPriceMarkRegistry6522
@@ -147,7 +131,9 @@ object HeldHotMarkAuthority7419 {
         // mark; using only runtimeTokenAge let a position look "fresh" here while
         // the risk clock logged NO_MARK thousands of times. Refresh whenever
         // EITHER surface is stale, and always when the canonical exit mark is absent.
-        val stale = activeOpen().filter { p ->
+        val held8077 = activeOpen()
+        execAttempt7876.keys.retainAll(held8077.map { it.mint }.toSet())
+        val stale = held8077.filter { p ->
             val runtimeStale7822 = runtimeTokenAgeMs(p.mint, now) > HOT_FRESH_MS
             val canonicalTs7822 = currentCanonicalTs(p.mint)
             val canonicalStale7822 = canonicalTs7822 <= 0L || now - canonicalTs7822 > HOT_FRESH_MS
@@ -179,6 +165,9 @@ object HeldHotMarkAuthority7419 {
         //   locked venue wins when present;
         //   otherwise a corroborated fanout may publish;
         //   single-source fanout stays non-authoritative.
+        // Conservative acquisition time for fresh HTTP/RPC reads; completion must
+        // not make a slow response younger. Registry observations retain their own time.
+        val acquiredAt8077 = System.currentTimeMillis()
         val heldBare7546 = solanaByBare7510.keys.toList()
         val lockedFuture7546 = if (heldBare7546.isNotEmpty()) {
             try { providerPool.submit<Map<String, LockedVenueMarks7392.Mark>> {
@@ -241,6 +230,25 @@ object HeldHotMarkAuthority7419 {
             if (fan7510.isNotEmpty()) PipelineHealthCollector.labelInc("HELD_HOT_BATCH_FANOUT_PRICED_7510")
         } catch (_: Throwable) {}
 
+        val quoteCandidates8077 = stale.filter { p ->
+            val bare = p.mint.removePrefix("solana|").trim()
+            val locked = locked7510[bare]
+            val fan = fan7510[bare]
+            solanaPriced7960(p) &&
+                !(locked != null && locked.priceUsd.isFinite() && locked.priceUsd > 0.0) &&
+                !(fan != null && fan.corroborated && fan.priceUsd.isFinite() && fan.priceUsd > 0.0) &&
+                now - currentCanonicalTs(p.mint) > EXEC_FALLBACK_STALE_MS_7876 &&
+                now - (execAttempt7876[p.mint] ?: 0L) >= EXEC_DEBOUNCE_MS_7876 &&
+                p.remainingQtyRaw.signum() > 0 && p.remainingQtyRaw.bitLength() <= 62
+        }.sortedBy { execAttempt7876[it.mint] ?: 0L }
+        val quoteAt8077 = System.currentTimeMillis()
+        val quotes8077 = HeldQuoteBatch8077.resolve(quoteCandidates8077.associate { p ->
+            p.positionId to {
+                execAttempt7876[p.mint] = quoteAt8077
+                quoteSellPriceUsd7876(p.mint, p.remainingQtyRaw, p.quantityScale)
+            }
+        }, providerPool, BATCH_FANOUT_DEADLINE_MS_7510)
+
         for (p in stale) {
             requests.incrementAndGet()
             try { PipelineHealthCollector.labelInc("HELD_HOT_MARK_REQUEST") } catch (_: Throwable) {}
@@ -252,6 +260,7 @@ object HeldHotMarkAuthority7419 {
             val beforeTs = maxOf(currentCanonicalTs(p.mint), beforeRuntime)
             var px = 0.0
             var source = ""
+            var observedAt8077 = acquiredAt8077
             var timedOut = false
 
             when (p.assetClass) {
@@ -289,6 +298,7 @@ object HeldHotMarkAuthority7419 {
                         dyn.price.isFinite() && dyn.price > 0.0
                     ) {
                         px = dyn.price
+                        observedAt8077 = dyn.observedAtMs
                         source = "HELD_HOT_CRYPTO_REGISTRY_7419"
                     } else if (solanaPriced7960(p)) {
                         // V5.0.7960 — a CRYPTO_ALT position on a Solana SPL mint is priced like
@@ -319,9 +329,12 @@ object HeldHotMarkAuthority7419 {
                 solanaPriced7960(p) &&
                 now - currentCanonicalTs(p.mint) > EXEC_FALLBACK_STALE_MS_7876
             ) {
-                val ex = executableHeldMark7876(p, now)
-                timedOut = timedOut || ex.second
-                ex.first?.let { px = it; source = EXEC_SOURCE_7876; fallbacks.incrementAndGet() }
+                val ex = quotes8077[p.positionId]
+                timedOut = timedOut || (ex?.timedOut == true)
+                ex?.price?.let {
+                    px = it; source = EXEC_SOURCE_7876; observedAt8077 = quoteAt8077
+                    fallbacks.incrementAndGet()
+                }
             }
 
             if (timedOut) {
@@ -331,7 +344,8 @@ object HeldHotMarkAuthority7419 {
 
             // No provider observation means no publication. The prior canonical
             // mark keeps its original timestamp and can age into the stale path.
-            if (!(px.isFinite() && px > 0.0)) {
+            if (!(px.isFinite() && px > 0.0) || observedAt8077 <= 0L ||
+                observedAt8077 > System.currentTimeMillis()) {
                 unchanged.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("HELD_HOT_MARK_UNCHANGED") } catch (_: Throwable) {}
                 continue
@@ -348,6 +362,7 @@ object HeldHotMarkAuthority7419 {
             val publishOk = try {
                 CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(
                     p.mint, px, source, verifiedIdentity7424 = verified7424,
+                    observedAtMs7884 = observedAt8077,
                 )
             } catch (_: Throwable) { false }
             try {
@@ -415,28 +430,6 @@ object HeldHotMarkAuthority7419 {
             quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, rawQty.toLong(), 300)
         } catch (_: Throwable) { null } ?: return null
         return sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd)
-    }
-
-    /** (price or null, timed out). Debounced per mint; bounded on the held-mark pool. */
-    private fun executableHeldMark7876(p: CanonicalPositionAuthority6441.Position, now: Long): Pair<Double?, Boolean> {
-        val bare = p.mint.removePrefix("solana|").trim()
-        val raw = p.remainingQtyRaw
-        if (bare.isBlank() || bare.contains('|') || raw.signum() <= 0 || raw.bitLength() > 62) return null to false
-        if (now - (execAttempt7876[p.mint] ?: 0L) < EXEC_DEBOUNCE_MS_7876) return null to false
-        execAttempt7876[p.mint] = now
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        val (q, timedOut) = boundedBatch7510 {
-            quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, raw.toLong(), 300)
-        }
-        val px = q?.let { sellQuotePriceUsd7876(it.outAmount, raw, p.quantityScale, solUsd) }
-        try {
-            PipelineHealthCollector.labelInc(when {
-                px != null -> "HELD_HOT_EXECUTABLE_MARK_PUBLISHED_7876"
-                timedOut -> "HELD_HOT_EXECUTABLE_MARK_TIMEOUT_7876"
-                else -> "HELD_HOT_EXECUTABLE_MARK_NO_ROUTE_7876"
-            })
-        } catch (_: Throwable) {}
-        return px to timedOut
     }
 
     fun summary(): Summary = Summary(requests.get(), advanced.get(), unchanged.get(), timeouts.get(), fallbacks.get(), waitedOnEnrichment.get(), waitedOnUi.get(), waitedOnKeyless.get())

@@ -161,7 +161,7 @@ class HeliusWebSocket(
     private var reconnectDelay = 2_000L
     private val networkRetry = NetworkRetry("HeliusWS", maxRetries = 5, baseDelayMs = 2_000L, maxDelayMs = 30_000L, failureThreshold = 3, openDurationMs = 120_000L)
 
-    val isConnected get() = ws != null && running
+    val isConnected get() = running && ws != null && openSocket7819 === ws
 
     fun connect() {
         if (apiKey.isBlank()) {
@@ -389,6 +389,11 @@ class HeliusWebSocket(
     }
 
     private fun doConnect() {
+        if (!running) return
+        if (!networkRetry.allowManualAttempt8077()) {
+            scheduleReconnect()
+            return
+        }
         val url = "wss://mainnet.helius-rpc.com/?api-key=$apiKey"
         val req = Request.Builder().url(url).build()
 

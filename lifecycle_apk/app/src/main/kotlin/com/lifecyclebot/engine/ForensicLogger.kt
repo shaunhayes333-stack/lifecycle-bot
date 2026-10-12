@@ -209,6 +209,12 @@ object ForensicLogger {
      * Frequency counters and canonical event bridging remain uncoalesced.
      */
     private fun shouldEmitExactLifecycle7479(event: String, fields: String): Pair<Boolean, Long> {
+        // A second user action is a new transition, even when its fields match.
+        // Coalescing this receipt hid successful restart dispatches from the runtime audit.
+        if (event == "UI_START_DISPATCHED" || event == "UI_START_FALLBACK_DISPATCHED" ||
+            event == "UI_START_DISPATCH_FAILED" || event == "LIFECYCLE_STOP_COMPLETE") {
+            return true to 0L
+        }
         return try {
             val eh = event.hashCode()
             val fh = fields.hashCode()

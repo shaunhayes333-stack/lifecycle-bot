@@ -115,7 +115,8 @@ for i in range(4096):
         "positionId":pid, "mint":mint, "symbol":f"P{i}",
         "idempotencyKey":buy_key, "executedCostSol":0.001,
         "entryFeesSol":0.000001, "filledQty":qty,
-        "fillPrice":0.000000000001, "tokenDecimals":9, "quantityScale":9,
+        "fillPrice":0.12, "tokenDecimals":9, "quantityScale":9,
+        "lane":"CRYPTO_ALT", "assetClassTag":"CRYPTO_ALT",
     }
     sell = {
         "type":"SELL", "atMs":base + i*2 + 1, "mode":"paper",
@@ -125,6 +126,7 @@ for i in range(4096):
         "exitFeesSol":0.000001, "netProceedsSol":0.001099,
         "realizedPnlSol":0.0001, "realizedReturnPct":10.0,
         "remainingQty":"0", "remainingCostBasisSol":0.0,
+        "exitPriceUsd":0.132, "solUsdAtExit":120.0,
     }
     ET.SubElement(root, "string", {"name":f"event:paper:{buy_key}"}).text = json.dumps(buy, separators=(",",":"))
     ET.SubElement(root, "string", {"name":f"event:paper:{sell_key}"}).text = json.dumps(sell, separators=(",",":"))
