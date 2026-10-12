@@ -66,7 +66,7 @@ object SpikeCapture7943 {
             ?: return
         if (tier !in 1..3) return
         val key = "${ts.mint}|${ts.position.entryTime}"
-        firedTiers.merge(key, tier, ::maxOf)
+        firedTiers.merge(key, tier) { oldTier, newTier -> maxOf(oldTier, newTier) }
         pendingSince8081.remove(key)
         previousFiredTiers8079.remove(key)
         try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_CHAIN_PARTIAL_CONFIRMED_8081") } catch (_: Throwable) {}
