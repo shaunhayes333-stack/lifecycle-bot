@@ -114,6 +114,17 @@ object SpikeCapture7943 {
         return banked + remaining * horizonGrossPct
     }
 
+    /**
+     * When the next executable print skips several tiers, sell the compound
+     * fraction of the remaining bag in one request, not only the last rung.
+     */
+    internal fun crossedTierFraction8079(tiers: List<Pair<Double, Double>>, done: Int, reached: Int): Double {
+        if (done < 0 || reached <= done || reached > tiers.size) return 0.0
+        var remainder = 1.0
+        for (i in done until reached) remainder *= 1.0 - tiers[i].second.coerceIn(0.0, 1.0)
+        return 1.0 - remainder
+    }
+
     /** Pure: the highest tier index (1-based) this gross gain reaches, or 0. */
     fun tierReached(grossPct: Double, tiers: List<Pair<Double, Double>> = TIERS): Int {
         if (!grossPct.isFinite()) return 0
@@ -149,7 +160,7 @@ object SpikeCapture7943 {
         if (reached <= done) return 0
         if (firedTiers.size > 2_000) firedTiers.clear()
         firedTiers[key] = reached
-        val frac = tiers[reached - 1].second
+        val frac = crossedTierFraction8079(tiers, done, reached)
         fired.incrementAndGet()
         try { ExitProfile7955.onTierFired7955(plan7955, reached) } catch (_: Throwable) {}
         try {
