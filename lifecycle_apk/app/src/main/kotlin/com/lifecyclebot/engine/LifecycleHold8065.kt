@@ -196,7 +196,7 @@ object LifecycleHold8065 {
         // must leave both the rung and retry eligibility intact.
         try {
             sell(ts, frac, reason)
-        } catch (failure: Throwable) {
+        } catch (failure: Exception) {
             lastSell.remove(k, nowMs)
             try { PipelineHealthCollector.labelInc("LIFECYCLE_SELL_DISPATCH_FAILED_8065") } catch (_: Throwable) {}
             return true
