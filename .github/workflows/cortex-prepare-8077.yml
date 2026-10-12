@@ -14,7 +14,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Execute pinned, assertion-checked source repair
+      - name: Execute pinned assertion-checked source repair
         env:
           GH_TOKEN: ${{ github.token }}
         shell: python
@@ -27,19 +27,52 @@ jobs:
               if line == '        run: |':
                   out=[]
                   for following in source[i+1:]:
-                      if following and not following.startswith('          '):
-                          break
+                      if following and not following.startswith('          '): break
                       out.append(following[10:] if following else '')
                   scripts.append('\n'.join(out))
           assert len(scripts)==2
-          # File text is not an Actions expression: target CI group expressions stay literal.
-          scripts[1]=scripts[1].replace("'.github/workflows/cortex-apply-8077.yml'):","'.github/workflows/cortex-apply-8077.yml','.github/workflows/cortex-prepare-8077.yml'):")
-          for i,script in enumerate(scripts):
-              target=Path('/tmp')/('cortex-source-step-'+str(i)+'.py')
-              target.write_text(script)
-              compile(script,str(target),'exec')
-              subprocess.run(['python3',str(target)],check=True)
+          p=Path('/tmp/cortex-source-step-0.py'); p.write_text(scripts[0])
+          compile(scripts[0],str(p),'exec')
+          subprocess.run(['python3',str(p)],check=True)
+          # A playbook ordinal is lane-local, unlike a price or probability bin.
+          p=Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/cortex/CortexLedger7885.kt')
+          text=p.read_text()
+          anchor='    private fun globalDeviation(voterId: String, bin: Int, ownLane: String): Double {\n'
+          assert text.count(anchor)==1
+          p.write_text(text.replace(anchor,anchor+'        // Playbook ordinals mean different setups in different lane menus.\n        if (voterId.startsWith("PLAYBOOK_SETUP")) return 0.0\n'))
+          p=Path('lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8077StrategyAlignmentTest.kt')
+          text=p.read_text(); at=text.rfind('\n}')
+          assert at>0
+          test='''
+              @Test fun laneLocalSetupOrdinalsNeverBorrowAnotherLanesDifferentSetup() {
+                  val l = CortexLedger7885()
+                  repeat(60) { l.lane("QUALITY").add(0.0, false); l.lane("MOONSHOT").add(0.0, false) }
+                  for (id in listOf("PLAYBOOK_SETUP_V3", "PRICE")) repeat(60) { l.seat(id, "QUALITY", 2).bins[0].add(100.0, true) }
+                  assertEquals(0.0, l.predict("PLAYBOOK_SETUP_V3", "MOONSHOT", doubleArrayOf(0.5), 0.0).netPct, 1e-12)
+                  assertTrue(l.predict("PRICE", "MOONSHOT", doubleArrayOf(0.5), 0.0).netPct > 0.0)
+              }
+          '''
+          p.write_text(text[:at]+test+text[at:])
+          p=Path('lifecycle_apk/audits/cortex_8077_alignment.md')
+          text=p.read_text().replace('eight local numeric groups','nine local numeric groups')
+          p.write_text(text+'\nLane-local playbook ordinal bins no longer borrow unrelated setup meanings from other lanes. Shared numeric feature priors remain active. Regression verifies both paths.\n')
+          # Workflow writes use the connector, not the lower-privilege runner token.
+          script=scripts[1].replace("'.github/workflows/cortex-apply-8077.yml'):","'.github/workflows/cortex-apply-8077.yml','.github/workflows/cortex-prepare-8077.yml'):")
+          script=script.replace("subprocess.run(['python3','ci/'+scan],cwd='lifecycle_apk',check=True)","subprocess.run(['python3','ci/'+scan]+(['app/src'] if scan=='comment_balance.py' else []),cwd='lifecycle_apk',check=True)")
+          anchor="t=post('/git/trees'"
+          assert script.count(anchor)==1
+          script=script[:script.index(anchor)]+'''out=pathlib.Path('/tmp/cortex-reviewed-8077'); out.mkdir(exist_ok=True)
+          manifest={'parent_sha':parent,'base_tree_sha':git('rev-parse','HEAD^{tree}'),'tree_elements':tree,'changed_files':paths,'source_checks':'passed','branch_updated':False}
+          (out/'manifest.json').write_text(json.dumps(manifest,indent=2))
+          with tarfile.open(out/'reviewed-source.tar.gz','w:gz') as tar:
+              for root in ('lifecycle_apk','ci','.github','AATE_VERSION'): tar.add(root,arcname=root)
+          print(json.dumps(manifest,indent=2))
+          '''
+          p=Path('/tmp/cortex-source-step-1.py'); p.write_text(script)
+          compile(script,str(p),'exec')
+          subprocess.run(['python3',str(p)],check=True)
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: aate-reviewed-source-8077
           path: /tmp/cortex-reviewed-8077/
