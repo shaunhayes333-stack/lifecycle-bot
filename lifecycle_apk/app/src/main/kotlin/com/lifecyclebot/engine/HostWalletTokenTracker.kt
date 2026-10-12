@@ -898,7 +898,6 @@ object HostWalletTokenTracker {
 
 
     @Synchronized
-    @Synchronized
     fun recordBuyConfirmedWithProof(ts: TokenState, proof: BalanceProof, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
         val prior8079 = positions[ts.mint]
