@@ -69,9 +69,9 @@ class Aate8065LifecycleHoldTest {
 
     @Test fun lateHistoricalBuyCannotUndoPendingOrFinalizedSell() {
         val t = HostWalletTokenTracker
-        assertTrue(t.historicalBuyBlocked8079(t.PositionStatus.CLOSED, "sellTx"))
-        assertTrue(t.historicalBuyBlocked8079(t.PositionStatus.SOLD_CONFIRMED, "sellTx"))
-        assertTrue(t.historicalBuyBlocked8079(t.PositionStatus.SELL_VERIFYING, "sellTx"))
-        assertFalse(t.historicalBuyBlocked8079(t.PositionStatus.OPEN_TRACKING, null))
+        assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.CLOSED, "sellTx"))
+        assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED, "sellTx"))
+        assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.SELL_VERIFYING, "sellTx"))
+        assertFalse(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.OPEN_TRACKING, null))
     }
 }
