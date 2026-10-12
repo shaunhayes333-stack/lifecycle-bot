@@ -27,7 +27,7 @@ class Aate7430ExactStrategyCausalLoopTest {
         val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("exactStrategyIdentity7430"))
         assertTrue(fdg.contains("cls7430.tradeType.name"))
-        assertTrue(fdg.contains("style7430.toolkit.setup.name"))
+        assertTrue(fdg.contains("AgenticStyleRouter.sealedSetup8080(ts, style7430.toolkit, learningOwnerLane7534)"))
         assertTrue(fdg.contains("style7430.style.name"))
         assertTrue(fdg.contains("style7430.tactic.name"))
         assertTrue(fdg.contains("StrategyHypothesisEngine.getSizeBias("))

@@ -246,6 +246,24 @@ object AgenticStyleRouter {
         }
     }
 
+    /** V5.0.8080: does the sheet's setup belong to [laneHint]? Same test decide() applies before using it. */
+    fun toolkitFitsLane8080(sheet: ToolkitSignalSheet.Sheet?, laneHint: String): Boolean {
+        val st = sheet?.let { styleForToolkit(it) } ?: return false
+        return toolkitStyleFitsLane8080(st.lanes, laneHint)
+    }
+
+    /** V5.0.8080: the setup to seal for [laneHint]: the sheet's when this lane can run it, else the coin's own lane setup. */
+    fun sealedSetup8080(ts: TokenState, sheet: ToolkitSignalSheet.Sheet?, laneHint: String): String =
+        if (toolkitFitsLane8080(sheet, laneHint)) sheet!!.setup.name
+        else (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, laneHint) } catch (_: Throwable) { null } ?: "NONE")
+
+    /** Pure (V5.0.8080): may a style declared for [styleLanes] run in [laneHint]? Blank lane / CORE accept any. */
+    fun toolkitStyleFitsLane8080(styleLanes: Set<String>, laneHint: String): Boolean {
+        val lane = try { BleederMemoryRouter.canon(laneHint) } catch (_: Throwable) { laneHint.trim().uppercase() }
+        if (lane.isBlank() || lane == "CORE" || styleLanes.isEmpty()) return true
+        return styleLanes.any { (try { BleederMemoryRouter.canon(it) } catch (_: Throwable) { it.uppercase() }) == lane }
+    }
+
     fun decide(ts: TokenState, classification: ModeRouter.Classification, laneHintIn: String = ""): Decision {
         // V5.0.7883 — the per-candidate call in processTokenCycle passes no lane,
         // so every token read the SHITCOIN tactic bucket and tuner (audit 08 Oct).
@@ -269,7 +287,13 @@ object AgenticStyleRouter {
         val lowScoreBleedContext = score <= 10 && try { CatastrophicPaperBleedGuard.isActive() } catch (_: Throwable) { false }
 
         val weakChopSheet = isWeakChopSheet(sheet) || isWeakRuntimeRegime()
-        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet, weakChopSheet, laneHint) } else null
+        val toolkitStyle0 = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet, weakChopSheet, laneHint) } else null
+        // V5.0.8080 §A_STRATEGY_THE_LANE_CANNOT_RUN_IS_NOT_ITS_STRATEGY. The sheet's best setup is token-wide, not
+        // lane-aware: a CASHGEN-only CASHFLOW_SCALP was sealed on MOONSHOT trades (5.0.8079 identity
+        // "UNKNOWN>CASHFLOW_SCALP>CASHFLOW_SCALP>BREAKOUT"), so a breakout coin exited on a cashflow scalp's rules. A
+        // toolkit style whose declared lanes exclude this lane is not eligible here; the token's own setup tactic decides.
+        val toolkitStyle = toolkitStyle0?.takeIf { toolkitStyleFitsLane8080(it.lanes, laneHint) }
+        if (toolkitStyle0 != null && toolkitStyle == null) try { PipelineHealthCollector.labelInc("STYLE_TOOLKIT_LANE_MISFIT_8080_${BleederMemoryRouter.canon(laneHint)}") } catch (_: Throwable) {}
         val electedStyle7044 = when {
             // V5.0.7402 — post-pump/fade can never be expressed as a sniper style,
             // even if a cached toolkit sheet or stale tradeType still says FRESH_LAUNCH.

@@ -14370,7 +14370,11 @@ class Executor(
         val strategyDecision7427 = try {
             strategyClass7427?.let { AgenticStyleRouter.decide(ts, it, safeLane) }
         } catch (_: Throwable) { null }
-        val strategySheet7427 = strategyDecision7427?.toolkit
+        // V5.0.8080 — seal only a setup this lane can run. A token-wide sheet setup declared for another desk
+        // (CASHFLOW_SCALP on MOONSHOT) is replaced by the coin's own lane setup, and its exit rule is not inherited.
+        val sheetFit8080 = AgenticStyleRouter.toolkitFitsLane8080(strategyDecision7427?.toolkit, safeLane)
+        val strategySheet7427 = strategyDecision7427?.toolkit?.takeIf { sheetFit8080 }
+        val laneSetup8080 = if (sheetFit8080) null else AgenticStyleRouter.sealedSetup8080(ts, null, safeLane)
         val safeStyle = strategyDecision7427?.style?.name ?: style.ifBlank { safeLane }
         val scannerSource = ts.source.ifBlank { ts.tokenMap.sourceScanner.ifBlank { "UNKNOWN" } }
         val source = ts.lastPriceSource.ifBlank { scannerSource }
@@ -14391,7 +14395,7 @@ class Executor(
             "lane=$safeLane",
             "style=$safeStyle",
             "tradeType7427=${strategyClass7427?.tradeType?.name ?: "UNKNOWN"}",
-            "setup7427=${strategySheet7427?.setup?.name ?: "NONE"}",
+            "setup7427=${strategySheet7427?.setup?.name ?: laneSetup8080 ?: "NONE"}",
             "entryStyle7427=${strategySheet7427?.entryStyle?.replace(";", "_")?.take(80) ?: ""}",
             "exitStyle7427=${strategySheet7427?.exitStyle?.replace(";", "_")?.take(80) ?: ""}",
             "entryTactic=$electedTactic6568",

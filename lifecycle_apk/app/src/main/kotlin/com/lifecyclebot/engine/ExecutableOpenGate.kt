@@ -3914,7 +3914,7 @@ object ExecutableOpenGate {
                 edgePhaseHint = oracleToken7260?.phase.orEmpty(),
                 emaFanHint = oracleToken7260?.meta?.emafanAlignment.orEmpty(),
                 tradeTypeHint = exactClass7431?.tradeType?.name.orEmpty(),
-                setupHint = exactStyle7431?.toolkit?.setup?.name.orEmpty(),
+                setupHint = oracleToken7260?.let { t -> AgenticStyleRouter.sealedSetup8080(t, exactStyle7431?.toolkit, lane) }.orEmpty(),  // V5.0.8080 same seal rule as Executor/FDG
                 styleHint = exactStyle7431?.style?.name.orEmpty(),
                 tacticHint = exactStyle7431?.tactic?.name.orEmpty(),
                 candidateConfidenceHint =

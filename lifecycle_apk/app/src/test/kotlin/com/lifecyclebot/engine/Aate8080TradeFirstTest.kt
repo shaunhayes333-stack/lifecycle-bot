@@ -77,4 +77,35 @@ class Aate8080TradeFirstTest {
         assertTrue(f.indexOf("} else if (pauseState != null) {", i) in i..cut)   // the cut only runs when not proven
         assertTrue(f.contains("if (!exactProven8080 && toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {"))
     }
+
+    @Test fun aSetupDeclaredForAnotherDeskIsNotSealedOnThisLane() {
+        // CASHFLOW_SCALP is declared for CASHGEN only: not MOONSHOT's strategy, still CASHGEN's.
+        assertFalse(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("CASHGEN"), "MOONSHOT"))
+        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("CASHGEN"), "CASHGEN"))
+        // shared multi-desk styles still run on each declared desk; blank/CORE are unconstrained
+        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("MOONSHOT", "QUALITY"), "QUALITY"))
+        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("CASHGEN"), ""))
+        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("CASHGEN"), "CORE"))
+    }
+
+    @Test fun everySealSiteUsesTheSameLaneEligibleSetup() {
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue(r.contains("val toolkitStyle = toolkitStyle0?.takeIf { toolkitStyleFitsLane8080(it.lanes, laneHint) }"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("val strategySheet7427 = strategyDecision7427?.toolkit?.takeIf { sheetFit8080 }"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("AgenticStyleRouter.sealedSetup8080(ts, style7430.toolkit, learningOwnerLane7534)"))
+        assertFalse(fdg.contains("style7430.toolkit.setup.name,"))
+        val og = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(og.contains("AgenticStyleRouter.sealedSetup8080(t, exactStyle7431?.toolkit, lane)"))
+    }
+
+    @Test fun rewardChainReachesExactStrategyPerformanceFromTheSealedSnapshot() {
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        assertTrue(bus.contains("entrySetup = entrySnap6567?.entrySetup ?: \"\""))
+        val br = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        assertTrue(br.contains("ExactStrategyPerformance7429.record(env)"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("entrySetup = policyField6568(ts.position.entryPolicySnapshot, \"setup7427\")"))
+    }
 }

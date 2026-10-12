@@ -27,7 +27,7 @@ class Aate7430ExactStrategyEvLoopTest {
         val f = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(f.contains("exactStrategyIdentity7430"))
         assertTrue(f.contains("cls7430.tradeType.name"))
-        assertTrue(f.contains("style7430.toolkit.setup.name"))
+        assertTrue(f.contains("AgenticStyleRouter.sealedSetup8080(ts, style7430.toolkit, learningOwnerLane7534)"))
         assertTrue(f.contains("style7430.style.name"))
         assertTrue(f.contains("style7430.tactic.name"))
         assertTrue(f.contains("FDG_EXACT_STRATEGY_IDENTITY_7430"))

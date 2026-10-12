@@ -55,7 +55,7 @@ class Aate7431ExactStrategyEvAdmissionTest {
         assertTrue(src.contains("val exactStyle7431"))
         assertTrue(src.contains("AgenticStyleRouter.decide(it, cls, lane)"))
         assertTrue(src.contains("tradeTypeHint = exactClass7431?.tradeType?.name.orEmpty()"))
-        assertTrue(src.contains("setupHint = exactStyle7431?.toolkit?.setup?.name.orEmpty()"))
+        assertTrue(src.contains("AgenticStyleRouter.sealedSetup8080(t, exactStyle7431?.toolkit, lane)"))
         assertTrue(src.contains("styleHint = exactStyle7431?.style?.name.orEmpty()"))
         assertTrue(src.contains("tacticHint = exactStyle7431?.tactic?.name.orEmpty()"))
     }

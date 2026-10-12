@@ -5578,7 +5578,7 @@ object FinalDecisionGate {
                             val style7430 = AgenticStyleRouter.decide(ts, cls7430, learningOwnerLane7534)
                             listOf(
                                 cls7430.tradeType.name,
-                                style7430.toolkit.setup.name,
+                                AgenticStyleRouter.sealedSetup8080(ts, style7430.toolkit, learningOwnerLane7534),  // V5.0.8080
                                 style7430.style.name,
                                 style7430.tactic.name,
                             ).joinToString(">")
