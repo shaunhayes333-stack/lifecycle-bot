@@ -230,12 +230,13 @@ raise SystemExit(1)
 PYTAP
 }
 
+RUNTIME_SINCE_ARGS=()
 wait_log_marker() {
     local marker="$1" timeout="$2" label="$3"
     local deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
         adb logcat -d -v time > "$WS/runtime_marker_probe.txt" || return 1
-        if python3 "$WS/ci/runtime_liveness.py" has-marker "$WS/runtime_marker_probe.txt" "$marker"; then
+        if python3 "$WS/ci/runtime_liveness.py" has-marker "$WS/runtime_marker_probe.txt" "$marker" "${RUNTIME_SINCE_ARGS[@]}"; then
             echo "$label marker reached: $marker"
             return 0
         fi
@@ -329,6 +330,10 @@ adb logcat -d -v time > "$WS/ui_first_cycle_logcat.txt"
 
 adb logcat -c
 sleep 3
+# logcat -c can leave earlier records in the subsequent read. A first-session
+# loop must never certify that the restarted runtime has actually entered.
+second_start_epoch=$(adb shell date +%s | tr -d '\r')
+RUNTIME_SINCE_ARGS=(--since-epoch "$second_start_epoch")
 ui_tap id btnToggle ui_start_2.xml
 wait_log_marker "UI_RUNTIME_TOGGLE_TAP_6517" 20 "second UI tap"
 wait_log_marker "UI_START_DISPATCHED_6517" 20 "second UI dispatch"
