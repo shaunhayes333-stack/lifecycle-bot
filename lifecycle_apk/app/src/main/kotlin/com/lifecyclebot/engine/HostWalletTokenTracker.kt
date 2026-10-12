@@ -699,9 +699,36 @@ object HostWalletTokenTracker {
     // BUY flow
     // ─────────────────────────────────────────────────────────────────
 
+    /**
+     * 8079: A transaction's historical BUY receipt does not establish CURRENT wallet
+     * ownership after a later full SELL. A closed mint must not be resurrected by
+     * asynchronous proof callbacks from the earlier position generation.
+     * A genuine rebuy goes through a separately verified new canonical position,
+     * and must be reconciled from a current wallet balance before host reopening.
+     */
+    private fun oldBuyCannotReopen8079(mint: String, buySig: String?): Boolean {
+        val prior = positions[mint] ?: return false
+        val closed = prior.status in setOf(
+            PositionStatus.CLOSED, PositionStatus.CLOSED_VERIFIED,
+            PositionStatus.CLOSED_SOLD_BY_AATE, PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
+            PositionStatus.CLOSED_STALE_RECOVERY_UNHELD, PositionStatus.CLOSED_DUST_UNROUTABLE,
+        )
+        if (!closed) return false
+        val sameBuy = !buySig.isNullOrBlank() && buySig == prior.buySignature
+        // Even a different signature cannot by itself overturn a *later* full
+        // close: new entry lifecycle and current-chain-wallet proof are required.
+        try {
+            PipelineHealthCollector.labelInc("DELAYED_BUY_AFTER_CLOSE_REJECTED_8079")
+            ForensicLogger.lifecycle("DELAYED_BUY_AFTER_CLOSE_REJECTED_8079",
+                "mint=${mint.take(10)} sameBuy=$sameBuy action=retain_terminal_until_new_chain_held_proof")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     /** Called the instant a buy is broadcast — speculative, not yet confirmed. */
     fun recordBuyPending(mint: String, symbol: String?, sig: String?) {
         if (mint.isBlank() || mint == SOL_MINT) return
+        if (oldBuyCannotReopen8079(mint, sig)) return
         val now = System.currentTimeMillis()
         val existing = positions[mint]
         if (existing != null && existing.status.priority >= PositionStatus.BUY_PENDING.priority) {
@@ -738,8 +765,10 @@ object HostWalletTokenTracker {
      * (BUY_VERIFIED_LANDED / BUY_TX_PARSE_OK / phantom rescue).
      * Promotes the tracked position to OPEN_TRACKING.
      */
+    @Synchronized
     fun recordBuyConfirmed(ts: TokenState, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
+        if (oldBuyCannotReopen8079(ts.mint, sig)) return
         // V5.0.3727 — live buy handoff must not depend on Position.isOpen.
         // Signature-managed live buys may still be pendingVerify while the indexer
         // catches up, but they already carry a confirmed signature and positive
@@ -846,6 +875,7 @@ object HostWalletTokenTracker {
     @Synchronized
     fun recordBuyConfirmedWithProof(ts: TokenState, proof: BalanceProof, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
+        if (oldBuyCannotReopen8079(ts.mint, sig ?: proof.signature)) return
         if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != ts.mint) {
             try { ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PROOF_REJECTED source=${proof.source}") } catch (_: Throwable) {}
             recordBuyPending(ts.mint, ts.symbol, sig)
