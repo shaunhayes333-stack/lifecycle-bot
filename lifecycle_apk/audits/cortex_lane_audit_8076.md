@@ -23,7 +23,9 @@ changes in their means are not a controlled before/after comparison.
    current lane menus contain many appended strategies. `PLAYBOOK_SETUP_V3`
    provides a bin for every current setup and NO_TRIGGER. V2 history remains
    stored separately because its mixed bin cannot honestly be split after the
-   fact. This is one new voter identity, not a learning reset.
+   fact. Setup indices also stay lane-local: the same numeric index in another
+   lane may name a different strategy and cannot be borrowed as setup evidence.
+   This is one new voter identity, not a learning reset.
 4. **Cross-lane evidence subtracted independently aged windows.** A 500-label
    global window minus a separately aged 500-label lane window is not the other
    lanes' history. Predictions now pool the actual other-lane books, excluding

@@ -253,6 +253,9 @@ class CortexLedger7885 {
      */
     private fun globalDeviation(voterId: String, bin: Int, ownLane: String): Double {
         if (CrossAssetCortex7931.isCrossAssetLane(ownLane)) return 0.0
+        // Setup indices are lane-local categories, not comparable numeric scores.
+        // The same index can name different strategies in two lane menus.
+        if (voterId.startsWith("PLAYBOOK_SETUP_")) return 0.0
         // Global and lane windows decay independently. Subtracting them is not
         // leave-one-lane-out evidence: it can manufacture negative counts/means.
         // Pool the actual other-lane books instead (one direct lookup per lane).

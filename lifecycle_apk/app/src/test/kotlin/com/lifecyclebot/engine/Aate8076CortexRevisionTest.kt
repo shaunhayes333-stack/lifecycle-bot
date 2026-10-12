@@ -66,6 +66,21 @@ class Aate8076CortexRevisionTest {
         assertTrue(restored.mean() >= -100.0)
     }
 
+    @Test fun laneLocalSetupNumbersCannotBorrowAnUnrelatedOtherLaneStrategy() {
+        val ledger = CortexLedger7885()
+        val ids = listOf("PLAYBOOK_SETUP_V3")
+        val edges = listOf(doubleArrayOf(0.5))
+        repeat(200) { i ->
+            val high = i % 2 == 0
+            ledger.grade("SHITCOIN", ids, edges, doubleArrayOf(if (high) 1.0 else 0.0),
+                if (high) 80.0 else -40.0, 0.0)
+        }
+        // QUALITY's bin 1 names its own setup, not SHITCOIN's bin 1 setup.
+        assertEquals(0.0, ledger.predict(ids[0], "QUALITY", edges[0], 1.0).netPct, 0.0)
+        repeat(100) { ledger.grade("QUALITY", ids, edges, doubleArrayOf(1.0), 12.0, 12.0) }
+        assertEquals(12.0, ledger.predict(ids[0], "QUALITY", edges[0], 1.0).netPct, 1e-8)
+    }
+
     @Test fun sparseStrongBucketCannotFallBelowItsLabelFloorOnRevision() {
         val revised = CortexScoreboard7885()
         val direct = CortexScoreboard7885()
