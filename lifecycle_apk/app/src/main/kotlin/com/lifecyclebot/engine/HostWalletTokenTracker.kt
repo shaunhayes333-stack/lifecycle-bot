@@ -289,17 +289,18 @@ object HostWalletTokenTracker {
             val sigOk = !p.buySignature.isNullOrBlank()
             val botSource = p.source == PositionSource.BOT_BUY || p.source == PositionSource.TX_PARSE
             if (!sigOk && !botSource) continue
-            if (!hasLastPositiveRaw(p)) continue
-            // Sanity: don't revive ancient rows past the bot-bought 45-min
-            // liability window — those are genuinely lost.
-            val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
-            if (anchor > 0L && (now - anchor) > 45 * 60_000L) continue
+            // 8079 blockchain-first: historical BUY quantity is NEVER current wallet proof.
+            // Do not revive a sold mint on a remembered buy or a stale RPC response.
+            if (!p.sellSignature.isNullOrBlank()) continue
+            val held8079 = walletAuthority[p.mint] as? WalletAuthoritySnapshot.HELD ?: continue
+            if (held8079.raw <= BigInteger.valueOf(DUST_RAW) ||
+                now - held8079.observedAtMs !in 0L..15_000L) continue
             p.status = PositionStatus.OPEN_BALANCE_PROOF_PENDING
-            p.notes.add("STALE_REVIVED_TO_OPEN reason=bot_buy_lineage_proven")
+            p.notes.add("STALE_REVIVED_TO_OPEN reason=fresh_onchain_wallet_held")
             try {
                 ForensicLogger.lifecycle(
                     "STALE_UNPROVEN_REVIVED_TO_OPEN",
-                    "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} buySig=${p.buySignature?.take(10) ?: "?"} entrySol=${p.entrySol ?: 0.0} reason=bot_buy_lineage_proven — re-enrolling in sell-management",
+                    "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} buySig=${p.buySignature?.take(10) ?: "?"} entrySol=${p.entrySol ?: 0.0} reason=fresh_onchain_wallet_held — re-enrolling in sell-management",
                 )
                 PipelineHealthCollector.labelInc("STALE_UNPROVEN_REVIVED_TO_OPEN")
             } catch (_: Throwable) {}
