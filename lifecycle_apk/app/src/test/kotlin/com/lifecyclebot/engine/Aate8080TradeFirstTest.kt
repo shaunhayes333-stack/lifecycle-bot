@@ -71,11 +71,14 @@ class Aate8080TradeFirstTest {
 
     @Test fun provenExactSetupIsNotCutForTheLanesMixedRecord() {
         val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val i = f.indexOf("val exactProven8080 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneName) != null }")
+        val i = f.indexOf("if (pauseState != null && laneMixExemptProven8080(ts, laneName, pauseState.lane, checks)) {")
         assertTrue(i > 0)
         val cut = f.indexOf("finalSize = (finalSize * 0.35).coerceAtLeast(0.01)", i)
         assertTrue(f.indexOf("} else if (pauseState != null) {", i) in i..cut)   // the cut only runs when not proven
-        assertTrue(f.contains("if (!exactProven8080 && toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {"))
+        assertTrue(f.contains("toxic.meanPnl <= -8.0 && !toxicExemptProven8080(ts, laneName)) {"))
+        // ART verifier: evaluate() is at its size limit (5.0.8080 smoke VerifyError) - logic lives in helpers
+        val ev = f.substring(f.indexOf("    fun evaluate(\n        ts: TokenState,"))
+        assertFalse(ev.substring(0, ev.indexOf("\n    fun ", 10).let { if (it < 0) ev.length else it }).contains("val exactProven8080"))
     }
 
     @Test fun aSetupDeclaredForAnotherDeskIsNotSealedOnThisLane() {

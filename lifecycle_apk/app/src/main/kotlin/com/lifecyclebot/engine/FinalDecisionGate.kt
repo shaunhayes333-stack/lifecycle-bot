@@ -1149,6 +1149,23 @@ object FinalDecisionGate {
             u == "copy_trade_live_micro_probe" || u == "rc_timeout_live_probe"
     }
 
+    /** V5.0.8080 — the coin's own setup is proven paying in [laneName]: the lane's mixed record does not cut it. */
+    private fun exactSetupProven8080(ts: TokenState, laneName: String): Boolean =
+        try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneName) != null } catch (_: Throwable) { false }
+
+    private fun laneMixExemptProven8080(ts: TokenState, laneName: String, pausedLane: String, checks: MutableList<GateCheck>): Boolean {
+        if (!exactSetupProven8080(ts, laneName)) return false
+        checks.add(GateCheck("lane_pressure_exact_setup_proven_8080", true, "$pausedLane mixed record damped; this coin's setup is proven"))
+        try { PipelineHealthCollector.labelInc("LANE_PRESSURE_EXEMPT_PROVEN_SETUP_8080_$pausedLane") } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun toxicExemptProven8080(ts: TokenState, laneName: String): Boolean {
+        if (!exactSetupProven8080(ts, laneName)) return false
+        try { PipelineHealthCollector.labelInc("TOXIC_BUCKET_EXEMPT_PROVEN_SETUP_8080") } catch (_: Throwable) {}
+        return true
+    }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -4119,10 +4136,8 @@ object FinalDecisionGate {
                 // candidate to 35% and stamped a "pivot" that changed nothing about the trade: the same setup, smaller.
                 // A coin whose OWN setup is proven paying in this lane (LanePlaybook7907.provenSetup8056, graded on that
                 // setup's exits) is not the losing mix and keeps its size; everything else is still damped.
-                val exactProven8080 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneName) != null } catch (_: Throwable) { false }
-                if (pauseState != null && exactProven8080) {
-                    checks.add(GateCheck("lane_pressure_exact_setup_proven_8080", true, "${pauseState.lane} mixed record damped; this coin's setup is proven"))
-                    try { PipelineHealthCollector.labelInc("LANE_PRESSURE_EXEMPT_PROVEN_SETUP_8080_${pauseState.lane}") } catch (_: Throwable) {}
+                // (helper kept outside evaluate(): this method is at the ART verifier's size limit)
+                if (pauseState != null && laneMixExemptProven8080(ts, laneName, pauseState.lane, checks)) {
                 } else if (pauseState != null) {
                     val pivoted6482 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(pauseState.lane, laneScoreBanded, "lane_auto_pause_${pauseState.reason}").name } catch (_: Throwable) { "UNKNOWN" }
                     finalSize = (finalSize * 0.35).coerceAtLeast(0.01)
@@ -4150,10 +4165,7 @@ object FinalDecisionGate {
         if (blockReason == null) {
             try {
                 val toxic = LosingPatternMemory.stats(laneName, laneScoreBanded)
-                val exactProven8080 = toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0 &&
-                    (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneName) != null } catch (_: Throwable) { false })
-                if (exactProven8080) try { PipelineHealthCollector.labelInc("TOXIC_BUCKET_EXEMPT_PROVEN_SETUP_8080") } catch (_: Throwable) {}
-                if (!exactProven8080 && toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
+                if (toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0 && !toxicExemptProven8080(ts, laneName)) {
                     val bucketId = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
                     val pivoted6482 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(laneName, laneScoreBanded, "toxic_pattern_$bucketId").name } catch (_: Throwable) { "UNKNOWN" }
                     finalSize = (finalSize * 0.35).coerceAtLeast(0.01)
