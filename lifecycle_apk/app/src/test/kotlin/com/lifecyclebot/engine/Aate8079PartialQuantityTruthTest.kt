@@ -29,6 +29,17 @@ class Aate8079PartialQuantityTruthTest {
         assertEquals(wallet, ProcessorAmountPlanner.partialRequestedRaw8079(wallet, 99999999.0, 6, null))
     }
 
+    @Test fun sharedJupiterSellQuoteUsesExitHttpPriorityScope() {
+        val scope = com.lifecyclebot.network.ExitHttpScope7314
+        assertFalse(scope.active())
+        scope.run { assertTrue(scope.active()) }
+        assertFalse(scope.active())
+        val exe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sellQuote = exe.substringAfter("private fun getQuoteWithSlippageGuard(")
+            .substringBefore("// V5.0.7241")
+        assertTrue(sellQuote.contains("return com.lifecyclebot.network.ExitHttpScope7314.run"))
+    }
+
     @Test fun regressionSourceIncludesRpcAndRecoveredPartialSizing() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
         assertTrue(src.contains("partialRequestedRaw8079(availableRaw, requestedUiQty, decimals, fraction)"))
