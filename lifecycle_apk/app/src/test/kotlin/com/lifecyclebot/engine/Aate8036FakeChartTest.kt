@@ -7,6 +7,16 @@ import java.io.File
 
 /** V5.0.8036 — USDP: a laddered climb with no pullbacks on depth far too thin for its cap is refused. */
 class Aate8036FakeChartTest {
+    @Test fun flatlineRequiresFiveActualCandles() {
+        // One OHLC candle cannot masquerade as three independent price observations.
+        assertFalse(FlatChart8027.flatline8027(listOf(1.0, 1.0, 1.0, 1.0)))
+        assertTrue(FlatChart8027.flatline8027(List(5) { 1.0 }))
+        assertFalse(FlatChart8027.flatline8027(listOf(1.0, 1.0, 1.0, 1.0, 1.08)))
+        val source = File("src/main/kotlin/com/lifecyclebot/engine/FlatChart8027.kt").readText()
+        assertTrue(source.contains(".map { it.priceUsd }"))
+        assertFalse(source.contains(".flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) }"))
+    }
+
     @Test fun aStraightLadderIsManufactured() {
         val ladder = (0 until 25).map { 1.0 + it * (0.4 / 24) }   // +40%, never a red bar
         assertTrue(FlatChart8027.manufacturedClimb8036(ladder))

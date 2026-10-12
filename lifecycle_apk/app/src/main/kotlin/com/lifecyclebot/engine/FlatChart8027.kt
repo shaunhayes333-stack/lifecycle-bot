@@ -49,7 +49,7 @@ object FlatChart8027 {
         val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
         val why = when {
             deadRunner8027(peak, now) -> { deadRefused.incrementAndGet(); "DEAD_RUNNER_8027" }
-            flatline8027(bars.filter { nowMs - it.ts in 0L..FLAT_WINDOW_MS }.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) } + now) -> {
+            flatline8027(bars.filter { nowMs - it.ts in 0L..FLAT_WINDOW_MS }.map { it.priceUsd }) -> {
                 flatRefused.incrementAndGet(); "FLATLINE_8027"
             }
             // V5.0.8036 — USDP (CASHGEN, entry "$204M"): a market cap climbing $140M -> $250M in a straight line
