@@ -757,6 +757,7 @@ object PipelineHealthCollector {
         entryQtyToken: Double = 0.0,
         entryCostSol: Double = 0.0,
         entryPriceSource: String = "",
+        occurredAtMs8077: Long = System.currentTimeMillis(),
     ) {
         if (!attached) return
         val eventMode = when (mode.trim().uppercase()) {
@@ -807,7 +808,7 @@ object PipelineHealthCollector {
         if (positionId.isNotBlank()) bump(labelCounts, "TRADEJRNL_POSITION_LINKED")
         if (entryPriceSnapshot > 0.0) bump(labelCounts, "TRADEJRNL_ENTRY_SNAPSHOT_VISIBLE")
         recentExecs.addLast(ExecRecord(
-            tsMs = System.currentTimeMillis(),
+            tsMs = occurredAtMs8077,
             side = side,
             mode = eventMode,
             symbol = symbol,

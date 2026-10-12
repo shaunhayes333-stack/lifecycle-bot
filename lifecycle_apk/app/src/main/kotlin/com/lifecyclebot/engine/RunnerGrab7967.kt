@@ -314,6 +314,7 @@ object RunnerGrab7967 {
 
     /** A held position this module grabbed (within the hold window). */
     private fun holding7967(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (TradeExitContract8077.longHold(ts) == false) return false
         val at = grabbed[ts.mint] ?: return false
         return ts.position.isOpen && ts.position.entryTime >= at - 5L * 60_000L && nowMs - at <= HOLD_WINDOW_MS
     }
@@ -356,6 +357,7 @@ object RunnerGrab7967 {
 
     /** Executor.requestSellCore7948: the deferral label when a held runner should not take this exit. */
     fun deferSell7967(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): String? {
+        if (TradeExitContract8077.longHold(ts) == false) return null
         if (ts.position.isPaperPosition || !holding7967(ts, nowMs)) return null
         val g = gross(ts, null)
         if (!deferrable7967(reason, g)) return null

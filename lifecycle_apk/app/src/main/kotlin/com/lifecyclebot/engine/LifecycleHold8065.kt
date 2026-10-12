@@ -127,6 +127,8 @@ object LifecycleHold8065 {
         val pos = ts.position
         if (!pos.isOpen || pos.isPaperPosition || pos.entryTime <= 0L || !(pos.entryPrice > 0.0)) return false
         load()
+        // Known entry style owns this trade. Only legacy unknown styles use lane defaults.
+        TradeExitContract8077.longHold(ts)?.let { return it }
         if (lifecycleLane8065(laneOf(ts))) return true
         // V5.0.8072 — a runner ticket is held for its lifecycle whatever lane bought it.
         if (try { RunnerTicket8073.isTicket8073(ts.mint) } catch (_: Throwable) { false }) return true
@@ -172,6 +174,7 @@ object LifecycleHold8065 {
         val pos = ts.position
         if (!pos.isOpen || pos.isPaperPosition || pos.entryTime <= 0L) return false
         load()
+        if (TradeExitContract8077.longHold(ts) == false) return false
         val g = gross(ts, px)
         val k = key(ts)
         if (!holding8065(ts)) {

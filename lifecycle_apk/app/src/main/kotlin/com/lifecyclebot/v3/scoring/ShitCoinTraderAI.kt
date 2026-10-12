@@ -812,6 +812,7 @@ object ShitCoinTraderAI {
         // way Crypto polluted Meme learning. Default true = Meme Trader behaviour
         // is unchanged; Crypto passes false to score without contaminating.
         recordEducationScores: Boolean = true,
+        tokenState8077: com.lifecyclebot.data.TokenState? = null,
     ): ShitCoinSignal {
         
         // Check current mode
@@ -1251,10 +1252,12 @@ object ShitCoinTraderAI {
         // signal filter. NEVER disables the bucket, just changes the entry
         // criterion. Personality traits add a small bounded score-floor bias.
         run {
-            val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(shitScore) } catch (_: Throwable) { "" }
-            val tactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic("SHITCOIN", band) }
-                catch (_: Throwable) { com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM }
+            // This candidate chooses its own setup. A lane-wide trial is not its strategy.
+            val tactic = try { tokenState8077?.let {
+                com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(it, "SHITCOIN", shitScore)
+            } } catch (_: Throwable) { null }
             val tacticDelta = when (tactic) {
+                null -> 0
                 com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM -> 0
                 com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.PULLBACK -> {
                     // Reward modest pullback entries (-3 to -8% from a recent high), penalize chase.
@@ -1291,7 +1294,7 @@ object ShitCoinTraderAI {
             }
             if (tacticDelta != 0) {
                 shitScore = (shitScore + tacticDelta).coerceAtLeast(0)
-                scoreReasons.add("tac:${tactic.name.take(4)}${if(tacticDelta>0)"+" else ""}$tacticDelta")
+                scoreReasons.add("tac:${tactic?.name?.take(4)}${if(tacticDelta>0)"+" else ""}$tacticDelta")
             }
         }
         // Personality score-floor bias (-2..+6 pts subtracted, never blocks):

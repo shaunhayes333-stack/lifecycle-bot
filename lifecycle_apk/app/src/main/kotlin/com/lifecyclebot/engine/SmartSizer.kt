@@ -112,6 +112,7 @@ object SmartSizer {
         brain: BotBrain? = null,
         setupQuality: String = "C",       // A+ / B / C from strategy
         laneMode: String = "",            // V5.9.718 — trading lane for phase-aware size scaling
+        entryTactic8077: String? = null, // Candidate tactic; absent identity must not borrow a lane-wide cohort.
     ): SizeResult {
 
         val isPaperMode = cfg.paperMode
@@ -871,8 +872,11 @@ object SmartSizer {
             ErrorLogger.info("SmartSizer", "🥶 Cold-streak damp: ${coldMult.fmt1}x [$laneMode] (size now ${size.fmt(4)} SOL)")
         }
 
-        val causalTactic6568 = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(laneMode, entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
-        val causalMult6568 = try { com.lifecyclebot.engine.truth.MemeCausalLearning6568.sizeMultiplier(laneMode, causalTactic6568) } catch (_: Throwable) { 1.0 }
+        val causalMult6568 = try {
+            entryTactic8077?.takeIf { it.isNotBlank() && it != "UNKNOWN" }?.let {
+                com.lifecyclebot.engine.truth.MemeCausalLearning6568.sizeMultiplier(laneMode, it)
+            } ?: 1.0
+        } catch (_: Throwable) { 1.0 }
         if (causalMult6568 < 1.0) {
             size *= causalMult6568
             if (size < 0.05) size = 0.05

@@ -35,6 +35,12 @@ class Aate8077StrategyAlignmentTest {
         assertEquals(Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("CASHGEN", "EXPERT_ENTRY"))
         assertEquals(Tactic.MOMENTUM, TacticSwitcher.seedTactic8049("EXPRESS", "ACCELERATING_TAPE"))
     }
+    @Test fun unnamedSetupFallsBackToTokenTradeTypeWithoutALanePin() {
+        assertEquals(Tactic.BREAKOUT, TacticSwitcher.tacticForTradeType8077(ModeRouter.TradeType.BREAKOUT_CONTINUATION))
+        assertEquals(Tactic.PULLBACK, TacticSwitcher.tacticForTradeType8077(ModeRouter.TradeType.REVERSAL_RECLAIM))
+        assertEquals(Tactic.REACCUMULATION, TacticSwitcher.tacticForTradeType8077(ModeRouter.TradeType.WHALE_ACCUMULATION))
+        assertEquals(Tactic.MOMENTUM, TacticSwitcher.tacticForTradeType8077(ModeRouter.TradeType.UNKNOWN))
+    }
     @Test fun thinOutlierCannotHideAnAlreadyFiredProvenSetup() {
         val proven = LaneEvidence8077.Setup("SPECIALIST_EDGE", 40.0, 240.0, 43.8, 240.0 * 16.8 * 16.8)
         val noisy = LaneEvidence8077.Setup("NOISY_NEW_HIGH", 500.0, 2.0, 5000.0, 20_000_000.0)

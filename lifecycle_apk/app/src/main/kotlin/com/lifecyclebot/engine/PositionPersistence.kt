@@ -412,7 +412,7 @@ object PositionPersistence {
             } catch (_: Throwable) {}
             try {
                 if (restoredLayer.equals("MANIPULATED", ignoreCase = true) &&
-                    !com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(mint)) {
+                    !com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(mint, saved.isPaperPosition)) {
                     com.lifecyclebot.v3.scoring.ManipulatedTraderAI.addPosition(
                         com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition(
                             mint = mint,

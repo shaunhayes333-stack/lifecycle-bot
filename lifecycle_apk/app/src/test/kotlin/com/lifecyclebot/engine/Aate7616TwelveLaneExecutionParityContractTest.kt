@@ -41,9 +41,9 @@ class Aate7616TwelveLaneExecutionParityContractTest {
         assertFalse(sheet.contains("TREASURY_SHARED_EXEC_ALIAS"))
     }
 
-    @Test fun manipulatedPaperRestorationContractRemainsPinned() {
+    @Test fun manipulatedCandidateParticipationRetainsCanonicalAdmission() {
         val bot=src("engine/BotService.kt")
-        assertTrue(bot.contains("MANIPULATED_LIVE_BUYER_7395 = false"))
-        assertTrue(bot.contains("RuntimeModeAuthority.isPaper() || MANIPULATED_LIVE_BUYER_7395"))
+        assertTrue(BotService.manipulatedBuyerEnabled7609())
+        assertTrue(bot.contains("manipSignal.shouldEnter && manipulatedBuyerEnabled7609()"))
     }
 }

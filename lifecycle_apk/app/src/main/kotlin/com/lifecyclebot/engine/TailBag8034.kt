@@ -118,6 +118,7 @@ object TailBag8034 {
     fun decide8034(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): Decision {
         val pos = ts.position
         if (!pos.isOpen || pos.isPaperPosition || !(pos.entryPrice > 0.0)) return Decision.Pass
+        if (TradeExitContract8077.longHold(ts) == false) return Decision.Pass
         val tail = tailOf8034(ts)
         val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(pos.tradingMode) } catch (_: Throwable) { "" }
             .ifBlank { pos.tradingMode }

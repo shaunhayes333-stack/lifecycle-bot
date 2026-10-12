@@ -6,13 +6,31 @@ set -euo pipefail
 
 CAPTURE_SECONDS="${CAPTURE_SECONDS:-180}"
 WS="${GITHUB_WORKSPACE:-$(pwd)}"
+LOGCAT_PID=""
+CURRENT_RUNTIME_LOG=""
+capture_runtime_log8077() {
+    if [ -n "$LOGCAT_PID" ]; then kill "$LOGCAT_PID" 2>/dev/null || true; wait "$LOGCAT_PID" 2>/dev/null || true; fi
+    CURRENT_RUNTIME_LOG="$1"
+    adb logcat -v time > "$CURRENT_RUNTIME_LOG" &
+    LOGCAT_PID=$!
+}
+read_runtime_log8077() {
+    # Stream from before each UI action so Android's chatty/ring pruning cannot
+    # erase a short-lived lifecycle receipt between polling reads.
+    if [ -n "$CURRENT_RUNTIME_LOG" ]; then cat "$CURRENT_RUNTIME_LOG"; else adb logcat -d -v time; fi
+}
 
 # A subprocess can fail before a wait helper emits its timeout summary. The
 # EXIT witness always reports the last observed startup stage on a red smoke
 # step, without making partial startup count as a passing execution window.
 runtime_failure_witness_7437() {
     local result=$?
+    if [ -n "$LOGCAT_PID" ]; then kill "$LOGCAT_PID" 2>/dev/null || true; wait "$LOGCAT_PID" 2>/dev/null || true; fi
     if [ "$result" -ne 0 ]; then
+        if [ -f "$WS/ui_first_cycle_logcat.txt" ]; then
+            cat "$WS/ui_first_cycle_logcat.txt" > "$WS/logcat_full.txt"
+            if [ -f "$WS/logcat_second_start.txt" ]; then cat "$WS/logcat_second_start.txt" >> "$WS/logcat_full.txt"; fi
+        fi
         # Preserve actual blocked-thread stacks for a failed restart. This runs
         # only after failure and cannot turn an incomplete window into a pass.
         local failed_pid
@@ -159,6 +177,7 @@ echo "::endgroup::"
 
 echo "::group::Clear logcat + launch LAUNCHER activity"
 adb logcat -c
+capture_runtime_log8077 "$WS/ui_first_cycle_logcat.txt"
 adb shell monkey -p com.lifecyclebot.aate -c android.intent.category.LAUNCHER 1 || true
 sleep 4
 adb shell uiautomator dump /sdcard/ui.xml 2>/dev/null || true
@@ -227,7 +246,7 @@ ui_tap() {
         echo "=== last dump ($WS/$dump) head ==="
         head -c 4000 "$WS/$dump" 2>/dev/null || echo "(no dump file)"
         echo ""
-        adb logcat -d -v time > "$WS/logcat_full.txt" || true
+        read_runtime_log8077 > "$WS/logcat_full.txt" || true
         adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
         adb shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' || true
         return 1
@@ -262,7 +281,7 @@ wait_log_marker() {
     local marker="$1" timeout="$2" label="$3"
     local deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-        adb logcat -d -v time > "$WS/runtime_marker_probe.txt" || return 1
+        read_runtime_log8077 > "$WS/runtime_marker_probe.txt" || return 1
         if python3 "$WS/ci/runtime_liveness.py" has-marker "$WS/runtime_marker_probe.txt" "$marker" "${RUNTIME_SINCE_ARGS[@]}"; then
             echo "$label marker reached: $marker"
             return 0
@@ -270,7 +289,7 @@ wait_log_marker() {
         sleep 2
     done
     echo "::error::$label timed out waiting for $marker"
-    adb logcat -d -v time > "$WS/logcat_full.txt" || true
+    read_runtime_log8077 > "$WS/logcat_full.txt" || true
     adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
     adb shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' || true
     echo "=== timeout diagnostics: AATE lifecycle/bootstrap tail ==="
@@ -284,7 +303,7 @@ wait_log_marker_any() {
     local markers="$1" timeout="$2" label="$3"
     local deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-        adb logcat -d -v time > "$WS/runtime_marker_probe.txt" || return 1
+        read_runtime_log8077 > "$WS/runtime_marker_probe.txt" || return 1
         # The Android ring buffer may evict the earliest startup line during the
         # 360-second persisted-history acceptance. Preserve only phase evidence
         # from every poll before another read can overwrite it.
@@ -297,7 +316,7 @@ wait_log_marker_any() {
         sleep 2
     done
     echo "::error::$label timed out waiting for proof $markers"
-    adb logcat -d -v time > "$WS/logcat_full.txt" || true
+    read_runtime_log8077 > "$WS/logcat_full.txt" || true
     adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
     # Preserve the last reached bootstrap stage in a check-run annotation.
     # Artifacts and job logs may be inaccessible to remote diagnosis, but this
@@ -350,12 +369,13 @@ ui_tap id btnToggle ui_stop_button.xml
 sleep 1
 ui_tap text "Stop bot" ui_stop_confirm.xml
 wait_log_marker "LIFECYCLE_STOP_COMPLETE" 90 "confirmed UI stop"
-FIRST_UI_TAPS=$(adb logcat -d | grep -c "UI_RUNTIME_TOGGLE_TAP_6517" || true)
-FIRST_STARTS=$(adb logcat -d | grep -c "UI_START_DISPATCHED_6517" || true)
-FIRST_STOPS=$(adb logcat -d | grep -c "LIFECYCLE_STOP_COMPLETE" || true)
-adb logcat -d -v time > "$WS/ui_first_cycle_logcat.txt"
+FIRST_UI_TAPS=$(read_runtime_log8077 | grep -c "UI_RUNTIME_TOGGLE_TAP_6517" || true)
+FIRST_STARTS=$(read_runtime_log8077 | grep -c "UI_START_DISPATCHED_6517" || true)
+FIRST_STOPS=$(read_runtime_log8077 | grep -c "LIFECYCLE_STOP_COMPLETE" || true)
+
 
 adb logcat -c
+capture_runtime_log8077 "$WS/logcat_second_start.txt"
 sleep 3
 # logcat -c can leave earlier records in the subsequent read. A first-session
 # loop must never certify that the restarted runtime has actually entered.
@@ -368,10 +388,10 @@ wait_log_marker "BOT_LOOP_TICK" 90 "second runtime loop"
 echo "::endgroup::"
 
 echo "::group::Capture logcat for ${CAPTURE_SECONDS}s after second UI Start"
-adb logcat -v time > "$WS/logcat_second_start.txt" &
-LOGCAT_PID=$!
 sleep "$CAPTURE_SECONDS"
 kill "$LOGCAT_PID" || true
+wait "$LOGCAT_PID" 2>/dev/null || true
+LOGCAT_PID=""
 sleep 2
 cat "$WS/ui_first_cycle_logcat.txt" "$WS/logcat_second_start.txt" > "$WS/logcat_full.txt"
 echo "::endgroup::"

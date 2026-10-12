@@ -2942,6 +2942,9 @@ class Executor(
             brain                = brain,
             setupQuality         = setupQuality,
             laneMode             = laneMode,
+            entryTactic8077       = ts?.let {
+                com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(it, laneMode, entryScore.toInt()).name
+            },
         )
 
         if (result.solAmount <= 0.0) {

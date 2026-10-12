@@ -7,10 +7,10 @@ import org.junit.Test
 class Aate7615ManipulatedPaperExecutionRestorationTest {
     private fun bot()=File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
 
-    @Test fun paperCanUseManipulatedPathButLiveConstantRemainsClosed() {
+    @Test fun manipulatedParticipationIsRestoredWithoutRemovingItsFdgPath() {
         val s=bot()
-        assertTrue(s.contains("MANIPULATED_LIVE_BUYER_7395 = false"))
-        assertTrue(s.contains("RuntimeModeAuthority.isPaper() || MANIPULATED_LIVE_BUYER_7395"))
+        assertTrue(BotService.manipulatedBuyerEnabled7609())
+        assertFalse(s.contains("MANIPULATED_LIVE_BUYER_7395 = false"))
         assertTrue(s.contains("manipSignal.shouldEnter && manipulatedBuyerEnabled7609()"))
         assertFalse(s.contains("manipSignal.shouldEnter && MANIPULATED_IS_A_BUYER_7395"))
     }

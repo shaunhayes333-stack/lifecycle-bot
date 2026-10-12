@@ -20,6 +20,67 @@ class Aate8077RecoveryTest {
         false, qty, 0.001, 0.0011, 0.000001, 0.001099, 0.000099, 9.9,
         BigInteger.ZERO, 0.0, 0.132, 120.0)
 
+    @Test fun sameLaneCanHaveQuickTradesAndLongHoldsWithoutScannerReclassification() {
+        fun token(mint: String, style: String) = com.lifecyclebot.data.TokenState(mint = mint,
+            position = com.lifecyclebot.data.Position(qtyToken = 1.0, entryPrice = 1.0,
+                entryTime = 1L, tradingMode = "MOONSHOT", isPaperPosition = false,
+                entryPolicySnapshot = "style=$style;entryTactic=BREAKOUT"))
+        val quick = token("quick", "QUICK_FLIP")
+        val runner = token("runner", "DIAMOND_HANDS_RUNNER")
+        assertEquals(false, TradeExitContract8077.longHold(quick))
+        assertEquals(true, TradeExitContract8077.longHold(runner))
+        quick.position.tradingMode = "BLUECHIP"
+        assertEquals(false, TradeExitContract8077.longHold(quick))
+        assertNull(LifecycleHold8065.defer8065(quick, "MANIPULATED_TAKE_PROFIT"))
+        assertFalse(LifecycleHold8065.partialHeld8065(quick, "CHART_PARTIAL"))
+        assertFalse(LifecycleHold8065.onMark8065(quick, 3.0, 1000L) { _, _, _ -> fail("quick trade cannot become a long hold at 2x") })
+        assertEquals(TailBag8034.Decision.Pass, TailBag8034.decide8034(quick, "TAKE_PROFIT"))
+        assertNull(TradeExitContract8077.longHoldStyle("UNKNOWN"))
+    }
+
+    @Test fun manipulatedBanksFirstMinuteWinnerAndKeepsPeakTrailArmed() {
+        val p = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition(
+            "m", "M", 1.0, 0.03, 0L, 14.0, -11.0, 60, 45.0, 80.0, true,
+            highWaterMark = 1.12, peakPnlPct = 12.0)
+        val ai = com.lifecyclebot.v3.scoring.ManipulatedTraderAI
+        assertEquals(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT, ai.tacticalExit8077(p, 25.0, 1.25, 20))
+        assertEquals(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TRAILING_STOP, ai.tacticalExit8077(p, 0.0, 1.0, 30))
+        assertEquals(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS, ai.tacticalExit8077(p, -16.0, 0.84, 10))
+        val unconfirmed = p.copy(highWaterMark = 1.0, peakPnlPct = 0.0)
+        assertNull(ai.tacticalExit8077(unconfirmed, -4.0, 0.96, 20))
+        assertEquals(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS, ai.tacticalExit8077(unconfirmed, -4.0, 0.96, 61))
+        assertEquals(0, p.partialRungsTaken)
+        val pending = p.copy(takeProfitPct = 50.0, pendingPartialRung8077 = 0)
+        // A request may be repeated while its sell has not landed; it is not a receipt.
+        repeat(3) { ai.tacticalExit8077(pending, 25.0, 1.25, 20) }
+        assertEquals(0, pending.partialRungsTaken)
+        assertSame(pending, ai.confirmedPartial8077(pending, 0.0))
+        val confirmed = ai.confirmedPartial8077(pending, 0.5)
+        assertEquals(1, confirmed.partialRungsTaken)
+        assertEquals(0.015, confirmed.entrySol, 1e-12)
+        assertNull(confirmed.pendingPartialRung8077)
+    }
+
+    @Test fun coreYieldNeedsOwnProofAndPreservesItsOriginalSizingAndScore() {
+        val o = SpecialistBrainBridge7542.Opinion("CORE", false, 35, 35, 0.0,
+            "CORE_YIELD_CLEAR_SPECIALIST_OWNER", "MAINSTREAM_CRYPTO_SWING", "core", "core")
+        assertSame(o, SpecialistBrainBridge7542.reviewCoreYield8077(o) { _, _ -> false })
+        val rescued = SpecialistBrainBridge7542.reviewCoreYield8077(o) { rule, lane ->
+            assertEquals("CORE", lane)
+            assertEquals("NATIVE_${DecisionReasons8031.rule8031(o.reason)}", rule)
+            true
+        }
+        assertTrue(rescued.eligible)
+        assertEquals(o.score, rescued.score)
+        assertEquals(o.requestedSizeSol, rescued.requestedSizeSol, 0.0)
+        for (blocked in listOf(o.copy(reason = "LIQ_TOO_LOW"), o.copy(gradeable = false),
+            o.copy(authoritative = false), o.copy(score = 0), o.copy(lane = "MOONSHOT"))) {
+            assertSame(blocked, SpecialistBrainBridge7542.reviewCoreYield8077(blocked) { _, _ ->
+                fail("ineligible refusal must not ask for an override"); true
+            })
+        }
+    }
+
     @Test fun durableSellRetainsItsOriginalValuationProof() {
         val original = sell()
         assertEquals(original, EconomicEventSchema6464.decode6486(EconomicEventSchema6464.encode6486(original)))

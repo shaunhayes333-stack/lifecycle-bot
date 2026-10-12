@@ -176,6 +176,7 @@ object ForwardReturnLabeler7731 {
         val costPct: Double,
         val atMs: Long,
     ) {
+        var entryStyle8077: String = "" // frozen decision style; old pending labels retain legacy semantics
         @Volatile var done15 = false
         @Volatile var done60 = false
         @Volatile var done240 = false
@@ -389,6 +390,7 @@ object ForwardReturnLabeler7731 {
                     o.reason7967.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
                     // V5.0.8063 — the coin's kind (field 33).
                     o.kind8063.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
+                    o.entryStyle8077,
                 ).joinToString(fs)
             }
     }
@@ -409,7 +411,7 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..33) return@forEach
+            if (f.size !in 17..34) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
             if (atMs <= 0L) return@forEach
@@ -437,6 +439,7 @@ object ForwardReturnLabeler7731 {
             }
             if (f.size >= 32) o.reason7967 = f[31]
             if (f.size >= 33) o.kind8063 = f[32]
+            if (f.size >= 34) o.entryStyle8077 = f[33]
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -620,6 +623,9 @@ object ForwardReturnLabeler7731 {
         val score8051 = if (score >= 0) score else ts.entryScore.toInt()
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
+                it.entryStyle8077 = try {
+                    com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
+                } catch (_: Throwable) { "" }
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
                 it.reason7967 = reason.orEmpty().take(120)
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
@@ -704,7 +710,8 @@ object ForwardReturnLabeler7731 {
         // ladder (fit to these same labels) inflated the grades that drive authority and size.
         // V5.0.8029 — graded on THIS lane's play: its own stop first (a coin through the stop before its peak is a
         // stopped trade, not a run), then the spike ladder on the peak with the rest at the mark — or at the stop.
-        val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane) } catch (_: Throwable) { Double.NaN }
+        val longHold8077 = com.lifecyclebot.engine.TradeExitContract8077.longHoldStyle(o.entryStyle8077)
+        val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane, longHold8077) } catch (_: Throwable) { Double.NaN }
         // V5.0.8071 — a REAL move is credited, a one-print spike is not. The ladder sells into the level the price HELD
         // for 20 seconds (heldPeak8071) — a level a live sell can land at — on the lane's own ladder (lifecycle lanes:
         // half at 2x, 30% at 5x and 10x; scalp lanes: the spike tiers). The 8064 note below is why the raw peak is not.
@@ -713,7 +720,7 @@ object ForwardReturnLabeler7731 {
         // credited the spike ladder on their peak. Live never banks those prints (spike tiers fired=0; a +156% quick take
         // landed at -40%; a +236% peak closed at -18%) — a pump.fun spike is one or two trades, gone before a sell lands.
         // A label is now the lane's own play (its stop first) with the position worth the mark at the read.
-        val tiers8071 = try { if (com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
+        val tiers8071 = try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
         val ladder8040: (Double, Double) -> Double = { pk, rest -> heldCredit8071(minOf(pk, o.heldPeak8071), rest, tiers8071) }
         val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).

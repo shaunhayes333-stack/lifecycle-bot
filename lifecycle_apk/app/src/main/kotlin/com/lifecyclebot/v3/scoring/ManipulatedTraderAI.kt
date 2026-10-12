@@ -107,6 +107,7 @@ object ManipulatedTraderAI {
         // V5.9.168 — shared laddered profit-lock
         var peakPnlPct: Double = 0.0,
         var partialRungsTaken: Int = 0,
+        var pendingPartialRung8077: Int? = null,
     )
 
     data class ManipSignal(
@@ -487,7 +488,8 @@ object ManipulatedTraderAI {
             "${if (pos.isPaper) "PAPER" else "LIVE"}")
     }
 
-    fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+    fun hasPosition(mint: String, isPaper: Boolean = isPaperMode): Boolean =
+        (if (isPaper) paperPositions else livePositions).containsKey(mint)
 
     fun getActivePositions(): List<ManipulatedPosition> {
         return synchronized(activePositions) {
@@ -509,7 +511,7 @@ object ManipulatedTraderAI {
         val frac = soldFraction.coerceIn(0.0, 1.0)
         if (frac <= 0.0) return
         val pos = partialPositions7858[mint] ?: return
-        val updated = pos.copy(entrySol = pos.entrySol * (1.0 - frac))
+        val updated = confirmedPartial8077(pos, frac)
         partialPositions7858[mint] = updated
         ErrorLogger.debug(TAG, "🎭🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
     }
@@ -519,13 +521,21 @@ object ManipulatedTraderAI {
     // EXIT CHECK — called every tick for open positions
     // ═══════════════════════════════════════════════════════════════════════════
 
+    internal fun confirmedPartial8077(pos: ManipulatedPosition, fraction: Double): ManipulatedPosition {
+        if (!fraction.isFinite() || fraction <= 0.0 || fraction > 1.0) return pos
+        val confirmedRung = pos.pendingPartialRung8077 == pos.partialRungsTaken
+        return pos.copy(entrySol = pos.entrySol * (1.0 - fraction),
+            partialRungsTaken = pos.partialRungsTaken + if (confirmedRung) 1 else 0,
+            pendingPartialRung8077 = null)
+    }
+
     fun checkExit(mint: String, currentPrice: Double, isPaper: Boolean = isPaperMode): ManipExitSignal {
         val exitPositions7858 = if (isPaper) paperPositions else livePositions
         val pos = exitPositions7858[mint] ?: return ManipExitSignal.HOLD
 
         val pnlPct = if (pos.entryPrice > 0) {
-            com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "ManipulatedTraderAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
-        } else 0.0
+            com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "ManipulatedTraderAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: return ManipExitSignal.HOLD
+        } else return ManipExitSignal.HOLD
 
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000L
@@ -534,39 +544,20 @@ object ManipulatedTraderAI {
         if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
         if (currentPrice > pos.highWaterMark) pos.highWaterMark = currentPrice
 
-        // V5.9.1464 — BIRTH-GRACE SETTLE-IN (operator: "still firing exits on entry
-        // like slippage"). MANIPULATED was the ONLY meme lane with NO settle-in
-        // window — ShitCoin (line ~1679) and Moonshot (line ~1409) both hold the
-        // price-stop for the first 60s, but MANIPULATED fired STOP_LOSS / fluid
-        // TRAILING_STOP on the VERY FIRST tick. A fresh entry filled ~5-11% high
-        // from paper/live slippage instantly read <= stopLossPct (-11%) and booked
-        // a synthetic loss before any price move — directly poisoning the 3.6% WR /
-        // -37% EV. FIX: for the first 60s, suppress the price-based stop UNLESS the
-        // unconditional -15% hard floor is breached (genuine crash still exits now).
-        // Slippage noise gets the same breathing room the other lanes already grant.
-        if (holdSeconds < 60L && pnlPct > -15.0) {
-            return ManipExitSignal.HOLD
-        }
-        // V5.9.1464 — MFE-CONFIRMATION EARLY CUT (spec item 3: "no MFE > +1.0%
-        // within 45-60s ⇒ exit early / tighten"). A MANIPULATED entry that has
-        // NEVER printed +1% MFE by 60s is unconfirmed manipulation flow — cut the
-        // dead entry at the lane stop instead of letting it bleed to the -15% floor.
-        // Any entry that showed real MFE keeps full runner protection below.
-        if (holdSeconds in 60L..600L && pos.peakPnlPct < 1.0 && pnlPct < -3.0) {
-            ErrorLogger.info(TAG, "☠️⏱️ MANIP EARLY-WEAKNESS: ${pos.symbol} | never +1% by ${holdSeconds}s (peak ${"%.1f".format(pos.peakPnlPct)}%, now ${"%.1f".format(pnlPct)}%) — cutting unconfirmed entry")
-            return ManipExitSignal.STOP_LOSS
-        }
+        // The selected position's target/stop own this native tactical exit.
+        // Grace is a stop-noise allowance, never a ban on banking a first-minute winner.
+        tacticalExit8077(pos, pnlPct, currentPrice, holdSeconds)?.let { return it }
 
         // V5.9.168 — SHARED LADDERED PROFIT-LOCK
         val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
-            pos.partialRungsTaken += 1
+            pos.pendingPartialRung8077 = pos.partialRungsTaken
             return ManipExitSignal.PARTIAL_TAKE
         }
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
         val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
-        if (pnlPct < profitFloor) return ManipExitSignal.TRAILING_STOP
+        if ((holdSeconds >= 60L || pos.peakPnlPct >= TRAILING_STOP_ACTIVATION_PCT) && pnlPct < profitFloor) return ManipExitSignal.TRAILING_STOP
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Manipulated bags
         // whose hold-duration bucket has proven net-losing expectancy.
@@ -578,28 +569,29 @@ object ManipulatedTraderAI {
             return ManipExitSignal.TIME_EXIT
         }
 
-        // 1. Take profit — V5.9.899: skip hard-TP once the partial ladder has
-        // started. Pre-fix, Manipulated TP=+25 fired a full exit between rung #1
-        // (+20%) and rung #2 (+50%), killing every runner at +25%. Ladder + fluid
-        // profit floor manage exits cleanly once rung #1 has fired.
-        if (pos.partialRungsTaken == 0 && pnlPct >= pos.takeProfitPct) return ManipExitSignal.TAKE_PROFIT
-
-        // 2. Stop loss
-        if (pnlPct <= pos.stopLossPct) return ManipExitSignal.STOP_LOSS
-
         // 3. Hard time exit — manipulators have already left
         // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
         val manipTimeExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
             layer = "MANIPULATED", exitReason = "TIME_EXIT", pnlPct = pnlPct)
         if (holdMinutes >= FORCE_EXIT_MINUTES * manipTimeExt) return ManipExitSignal.TIME_EXIT
 
-        // 4. Trailing stop — only activates once we've hit +10% pnl
-        if (pnlPct >= TRAILING_STOP_ACTIVATION_PCT) {
-            val trailLevel = pos.highWaterMark * (1.0 - TRAILING_STOP_FROM_HWM_PCT / 100.0)
-            if (currentPrice <= trailLevel) return ManipExitSignal.TRAILING_STOP
-        }
-
         return ManipExitSignal.HOLD
+    }
+
+    /** No dispatch state changes: receipt confirmation alone consumes a partial rung. */
+    internal fun tacticalExit8077(pos: ManipulatedPosition, pnlPct: Double,
+        currentPrice: Double, holdSeconds: Long): ManipExitSignal? {
+        if (!pnlPct.isFinite() || !currentPrice.isFinite() || currentPrice <= 0.0) return ManipExitSignal.HOLD
+        if (pnlPct <= -15.0) return ManipExitSignal.STOP_LOSS
+        if (pos.partialRungsTaken == 0 && pnlPct >= pos.takeProfitPct) return ManipExitSignal.TAKE_PROFIT
+        // Once armed at a peak, the trail stays armed after price falls below activation.
+        if (pos.peakPnlPct >= TRAILING_STOP_ACTIVATION_PCT &&
+            currentPrice <= pos.highWaterMark * (1.0 - TRAILING_STOP_FROM_HWM_PCT / 100.0))
+            return ManipExitSignal.TRAILING_STOP
+        if (holdSeconds >= 60L && pnlPct <= pos.stopLossPct) return ManipExitSignal.STOP_LOSS
+        if (holdSeconds in 60L..600L && pos.peakPnlPct < 1.0 && pnlPct < -3.0)
+            return ManipExitSignal.STOP_LOSS
+        return null
     }
 
     fun closePosition(mint: String, exitPrice: Double, reason: ManipExitSignal, isPaper: Boolean = isPaperMode) {
@@ -608,62 +600,22 @@ object ManipulatedTraderAI {
         if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
         if (!closePositions7858.remove(mint, pos)) return
 
-        val pnlPct = if (pos.entryPrice > 0) {
-            (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0
-        } else 0.0
-
-        val pnlSol = pos.entrySol * (pnlPct / 100.0)
-        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MANIPULATED", "MANIP_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${reason.name}_pnl_${String.format(java.util.Locale.US, "%.2f", pnlPct)}") } catch (_: Throwable) {}
-        val pnlBps = (pnlSol * 10_000).toLong()
-        _dailyPnlSolBps.addAndGet(pnlBps)
-        val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
-
-        // V5.9.434 — journal every V3 sub-trader close so the persistent
-        // Trade Journal reflects ALL trades across the universe.
-        // V5.9.436 — recorder also feeds outcome-attribution trackers.
-        // V5.0.6303 — feed peakPnlPct so MFE give-back records for MANIPULATED.
-                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
-        val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
-        try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "smartsizer skip: ${e.message}") }
-        // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
-        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("MANIPULATED", pnlPct) } catch (_: Throwable) {}
-        if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "fluid_learning skip: ${e.message}") }
-
-        // V5.9.495z17 — operator-mandated 70/30 profit split + missing
-        // sentience hook (this trader was 1 of 4/8 not feeding SentienceHooks).
-        // Captures the share returned so we can deduct it from the wallet
-        // credit below (otherwise we'd double-count).
-        val treasuryShare: Double = if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) { 0.0 }
-        } else 0.0
-        try {
-            com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlSol > 0.0)
-        } catch (_: Exception) {}
-
-        // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
-        val manipExitTs = System.currentTimeMillis()
-        // V5.0.6567 — canonical finalized bus is published by TerminalBridge/Executor only.
-
-        // V5.9.8: Sync paper P&L to shared wallet
-        // V5.9.495z17: deduct treasuryShare so wallet only gets 70%.
-        if (pos.isPaper) {
-            val walletDelta = pnlSol - treasuryShare
-            com.lifecyclebot.engine.BotService.status.paperWalletSol =
-                (com.lifecyclebot.engine.BotService.status.paperWalletSol + walletDelta).coerceAtLeast(0.0)
+        // Canonical settlement owns wallet, treasury and learning. This native
+        // inventory projection may display the receipt, never fabricate a second
+        // outcome from exitPrice or publish another reward.
+        val receipt = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.closedPositions()
+            .filter { it.mint == mint && it.mode.equals(if (isPaper) "PAPER" else "LIVE", true) &&
+                it.lastMutationMs >= pos.entryTime && it.remainingQtyRaw.signum() == 0 }
+            .singleOrNull()
+        if (receipt != null) {
+            val pnlSol = receipt.realizedProceedsSol - receipt.soldCostBasisSol - receipt.feesSol
+            if (pnlSol.isFinite()) {
+                _dailyPnlSolBps.addAndGet((pnlSol * 10_000).toLong())
+                if (pnlSol > 0.0) _dailyWins.incrementAndGet() else if (pnlSol < 0.0) _dailyLosses.incrementAndGet()
+            }
         }
-
-        if (pnlPct >= 1.0) _dailyWins.incrementAndGet() else _dailyLosses.incrementAndGet()  // V5.9.225: 1% win floor
-
-        ErrorLogger.info(TAG, "☠️ POSITION CLOSED: ${pos.symbol} | " +
-            "reason=${reason.name} | " +
-            "pnl=${String.format("%+.2f", pnlPct)}% | " +
-            "pnlSol=${String.format("%+.4f", pnlSol)} | " +
-            "${if (pos.isPaper) "PAPER" else "LIVE"}")
+        ErrorLogger.info(TAG, "POSITION PROJECTION CLOSED: ${pos.symbol} reason=${reason.name} " +
+            "canonicalReceipt=${receipt?.positionId ?: "ambiguous"} mode=${if (isPaper) "PAPER" else "LIVE"}")
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

@@ -32,22 +32,10 @@ class BotService : Service() {
         // V5.0.7884 — intake rug window bounds (Cortex Phase 0, Marks H1).
         private const val RUG_WINDOW_MAX_MS_7884 = 10L * 60_000L
         private const val RUG_NEWEST_MAX_AGE_MS_7884 = 120_000L
-        // V5.0.7615 — MANIPULATED paper execution is restored so the lane can
-        // learn and prove itself like the other 11 specialists. The 7395 live-money
-        // safeguard remains: live manipulation buying stays disabled until separately
-        // promoted by an explicit live contract.
-        private const val MANIPULATED_LIVE_BUYER_7395 = false
-        // V5.0.7876 — the "explicit live contract" is the lane's own evidence: live
-        // MANIPULATED buying opens only when its record proves positive under
-        // LivePivotAuthority7876 (live closes, forward labels net of one SE, or a
-        // 30-close paper record above the cost margin). Until then it trades paper.
-        fun manipulatedBuyerEnabled7609(): Boolean =
-            try {
-                RuntimeModeAuthority.isPaper() || MANIPULATED_LIVE_BUYER_7395 ||
-                    com.lifecyclebot.engine.truth.LivePivotAuthority7876.laneVerdict("MANIPULATED") ==
-                    com.lifecyclebot.engine.truth.LivePivotAuthority7876.Evidence.PROVEN
-            }
-            catch (_: Throwable) { MANIPULATED_LIVE_BUYER_7395 }
+        // 8077: operator restored live participation. This is capability only:
+        // each token must still pass its native setup, configured lane policy,
+        // sealed FDG, capital, market integrity and execution authorities.
+        fun manipulatedBuyerEnabled7609(): Boolean = true
 
         // V5.9.1355 P0.3 — WAIT-override dust-probe controls.
         // Below this liquidity a weak-WAIT candidate is hard-rejected from EXEC
@@ -14073,6 +14061,11 @@ class BotService : Service() {
         // an unpopulated (0) aiConfidence carries it instead of reaching FDG as
         // ZERO_CONFIDENCE_LIVE_DEFER_7403 (TREASURY / MANIPULATED / PROJECT_SNIPER / V3 trunk).
         val base = MemeChokes7951.laneConfidence7951(candidate7951, confidenceFloor)
+        val tokenTactic8077 by lazy {
+            status.tokens[mintForProbe]?.let {
+                com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(it, lane, base.entryScore.toInt())
+            }
+        }
         // V5.0.7950 — the chart read decides first: a shape that historically runs is a buy.
         chartBuyDecision7950(base, lane, liquidityUsd, mintForProbe)?.let { return it }
         val cleanQuality = when {
@@ -14574,7 +14567,7 @@ class BotService : Service() {
                 try {
                     PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613")
                     PipelineHealthCollector.labelInc("PREFDG_LEARNED_SHAPE_${lane.uppercase()}")
-                    val pivot6613 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(lane, laneBase.entryScore.toInt()).name
+                    val pivot6613 = tokenTactic8077?.name ?: "UNKNOWN"
                     ForensicLogger.lifecycle(
                         "LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613",
                         "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} tactic=$pivot6613 action=shape_probability_size_confirmation_then_fdg"
@@ -14608,18 +14601,13 @@ class BotService : Service() {
             //   TacticSwitcher continues rotating on outcomes so the block
             //   self-heals when the rotator finds a working shape.
             val tacticGateActive6604 = try {
-                val laneUpper6604 = lane.uppercase()
-                val currentTactic6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
-                    laneUpper6604, laneBase.entryScore.toInt(),
-                )
-                currentTactic6604 != com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM
+                val currentTactic6604 = tokenTactic8077
+                currentTactic6604 != null && currentTactic6604 != com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM
             } catch (_: Throwable) { false }
             val tacticWaitShape6613 = if (tacticGateActive6604) 0.60 else 1.0
             if (tacticGateActive6604) {
                 try {
-                    val currentTacticName6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
-                        lane.uppercase(), laneBase.entryScore.toInt(),
-                    ).name
+                    val currentTacticName6604 = tokenTactic8077?.name ?: "UNKNOWN"
                     PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613_${lane.uppercase()}")
                     ForensicLogger.lifecycle(
                         "TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613",
@@ -29840,6 +29828,7 @@ if (hotExitHandledSweep) {
                             dexTrendingRank = dexTrendingRank,
                             isCopyCat = isCopyCat,
                             graduationProgress = graduationProgress,
+                            tokenState8077 = ts,
                         )
 
                         // V5.9.618 — BRIDGE ADVISORY BOOST (additive, never blocks).
@@ -30345,9 +30334,7 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
                 try {
-                    val manipTokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
-                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                    } else 60.0
+                    val manipTokenAgeMinutes = com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) / 60_000.0
 
                     val manipBundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0
                                         else if (ts.safety.bundleRisk == "MEDIUM") 50.0
@@ -30368,17 +30355,6 @@ if (hotExitHandledSweep) {
                         isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                     )
 
-                    // V5.0.7615 — live remains closed under 7395; PAPER is restored for canonical learning.
-                    // 5.0.7389 took MANIPULATED out of cycle ownership and the meme ring,
-                    // but this direct ManipulatedTraderAI entry still reached FDG and the
-                    // live executor, and 5.0.7394 opened a live MANIPULATED position. The
-                    // read above stays (it is the danger overlay); it never buys.
-                    if (manipSignal.shouldEnter) {
-                        try {
-                            PipelineHealthCollector.labelInc("MANIPULATED_DIRECT_ENTRY_CLOSED_7395")
-                            ForensicLogger.lifecycle("MANIPULATED_DIRECT_ENTRY_CLOSED_7395", "symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${manipSignal.manipScore}")
-                        } catch (_: Throwable) {}
-                    }
                     // V5.0.7389 — labeled lane scope: MANIPULATED disabled exits only this lane.
                     if (manipSignal.shouldEnter && manipulatedBuyerEnabled7609()) run manipEntry7389@{
                         // V5.9.1110 — QUALITY-only containment must happen BEFORE FDG.
@@ -33144,7 +33120,8 @@ if (hotExitHandledSweep) {
         // ☠️ MANIPULATED EXIT CHECK
         // Hard 4-minute time exit — manipulators have already left
         // ═══════════════════════════════════════════════════════════════════
-        if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint)) {
+        if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint, ts.position.isPaperPosition) &&
+            TradeExitContract8077.longHold(ts) != true) {
             val currentPrice = resolveLivePrice(ts)
             val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
             // V5.9.170 — firehose learning feedback.
@@ -33176,7 +33153,7 @@ if (hotExitHandledSweep) {
                 
                 // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
                 if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
-                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal, isPaper = ts.position.isPaperPosition)
                 com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)

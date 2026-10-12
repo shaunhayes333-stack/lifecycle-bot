@@ -1153,6 +1153,7 @@ object TradeHistoryStore {
                 entryQtyToken = tradeToStore.entryQtyToken,
                 entryCostSol = tradeToStore.entryCostSol,
                 entryPriceSource = tradeToStore.entryPriceSource,
+                occurredAtMs8077 = tradeToStore.ts,
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
         try { uploadCollectiveJournalRow(tradeToStore) } catch (_: Throwable) {}

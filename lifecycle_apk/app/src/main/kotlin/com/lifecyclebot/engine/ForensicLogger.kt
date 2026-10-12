@@ -99,6 +99,12 @@ object ForensicLogger {
     // Effect: one main-thread MessageQueue op per ~128 events instead of one
     // per event. Never blocks on disk — writes happen on ioThread.
     private val eventQueue = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    private val lifecycleReceipts8077 = java.util.concurrent.ArrayBlockingQueue<String>(32)
+    private val lifecycleReceiptNames8077 = setOf(
+        "UI_RUNTIME_TOGGLE_TAP_6517", "UI_START_DISPATCHED_6517",
+        "UI_START_FALLBACK_DISPATCHED_6517", "UI_START_DISPATCH_FAILED_6517",
+        "BOT_STOP_REQUESTED", "LIFECYCLE_STOP_COMPLETE")
+    internal fun lifecycleReceipt8077(event: String): Boolean = event in lifecycleReceiptNames8077
     private val drainScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
     private const val BATCH_MAX_DRAIN = 128
 
@@ -211,10 +217,7 @@ object ForensicLogger {
     private fun shouldEmitExactLifecycle7479(event: String, fields: String): Pair<Boolean, Long> {
         // A second user action is a new transition, even when its fields match.
         // Coalescing this receipt hid successful restart dispatches from the runtime audit.
-        if (event == "UI_START_DISPATCHED_6517" || event == "UI_START_FALLBACK_DISPATCHED_6517" ||
-            event == "UI_START_DISPATCH_FAILED_6517" || event == "LIFECYCLE_STOP_COMPLETE") {
-            return true to 0L
-        }
+        if (lifecycleReceipt8077(event)) return true to 0L
         return try {
             val eh = event.hashCode()
             val fh = fields.hashCode()
@@ -280,7 +283,14 @@ object ForensicLogger {
                 )
             }
             val n = seq.incrementAndGet()
-            emitAsync(PHASE.LIFECYCLE, "🧬[LIFECYCLE] #$n $event  $fields")
+            val line = "🧬[LIFECYCLE] #$n $event  $fields"
+            if (lifecycleReceipt8077(event)) {
+                if (!lifecycleReceipts8077.offer(line)) {
+                    lifecycleReceipts8077.poll()
+                    lifecycleReceipts8077.offer(line)
+                }
+                scheduleDrain()
+            } else emitAsync(PHASE.LIFECYCLE, line)
         }
         // Frequency truth is never coalesced.
         try { PipelineHealthCollector.onLifecycle(event, fields) } catch (_: Throwable) {}
@@ -424,6 +434,12 @@ object ForensicLogger {
 
     private val drainRunnable: Runnable = Runnable {
         try {
+            // Low-volume transition receipts must survive both forensic and SQLite
+            // logger pressure. Logcat write stays on this worker, never on Main.
+            repeat(32) {
+                val receipt = lifecycleReceipts8077.poll() ?: return@repeat
+                try { android.util.Log.i("AATE.FORENSIC", receipt) } catch (_: Throwable) {}
+            }
             var drained = 0
             while (drained < BATCH_MAX_DRAIN) {
                 val next = eventQueue.pollFirst() ?: break
@@ -435,7 +451,7 @@ object ForensicLogger {
             drainScheduled.set(false)
             // If new events arrived during the drain, re-schedule once so
             // they don't stall waiting for the next emit.
-            if (!eventQueue.isEmpty()) scheduleDrain()
+            if (!eventQueue.isEmpty() || !lifecycleReceipts8077.isEmpty()) scheduleDrain()
         }
     }
 }

@@ -44,6 +44,15 @@ object SpecialistBrainBridge7542 {
         ts.lastMcap>=TreasuryScannerFeed.MIN_TREASURY_MCAP&&ts.lastLiquidityUsd>=TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
     /** Pure (V5.0.8048): may the veto audit retire this native refusal? Never safety, rug, dev, bundle or liquidity rules. */
     fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR").none{r.contains(it)}}
+    /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
+    internal fun reviewCoreYield8077(o: Opinion, ownLaneProof: (String, String) -> Boolean): Opinion {
+        if (o.lane != "CORE" || o.eligible || !o.authoritative || !o.gradeable ||
+            o.reason != "CORE_YIELD_CLEAR_SPECIALIST_OWNER" || o.score <= 0) return o
+        val rule = "NATIVE_${DecisionReasons8031.rule8031(o.reason)}"
+        if (!ownLaneProof(rule, o.lane)) return o
+        return o.copy(eligible = true, reason = "NATIVE_VETO_RETIRED_8048:${o.reason}")
+    }
+
     /** V5.0.7948 — SHITCOIN passes at score 15-48 while MOONSHOT needs 30-60; arbitrate on each lane's own bar. */
     private fun onLaneBar7948(o:Opinion,scoreBar:Int,confBar:Int):Opinion=
         o.copy(ownershipConviction7948=SpecialistExecution7948.laneRelativeConviction7948(o.score,o.confidence,scoreBar,confBar))
@@ -192,7 +201,7 @@ object SpecialistBrainBridge7542 {
         val out=linkedMapOf<String,Opinion>()
         if (owns7828("QUALITY")) out["QUALITY"]=try{val x=QualityTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,bp.toInt(),ageMin,holders,top,v3,false);op("QUALITY",x.shouldEnter,x.qualityScore,x.qualityScore,x.positionSizeSol,x.reason,"LIQUIDITY_DEPTH_QUALITY","quality_native_entry","quality_native_exit",1.35,0.95,1.15,setOf("QUALITY_DEPTH","HOLDER_DISTRIBUTION","V3"))}catch(t:Throwable){err("QUALITY",t)}
         if (owns7828("BLUECHIP")) out["BLUECHIP"]=try{val x=BlueChipTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol);op("BLUECHIP",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"MAINSTREAM_CRYPTO_SWING","bluechip_native_swing","bluechip_native_exit",2.1,1.0,1.35,setOf("BLUECHIP_DEPTH","MCAP_LIQ_SANITY","SWING"))}catch(t:Throwable){err("BLUECHIP",t)}
-        if (owns7828("SHITCOIN")) out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=bp,momentum=mom,volatility=vol,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=ts.tokenMap.creatorOrDevWallet.ifBlank{null},bundlePct=bundle,socialScore=try{ts.sentiment.score.toInt().coerceIn(0,100)}catch(_:Throwable){0},hasWebsite=socialMeta7556?.website?.isNotBlank()==true,hasTwitter=socialMeta7556?.twitter?.isNotBlank()==true,hasTelegram=socialMeta7556?.telegram?.isNotBlank()==true,hasGithub=false,isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=ts.meta.curveProgress.coerceIn(0.0,100.0),recordEducationScores=true);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL_CACHE","GRADUATION")).let{onLaneBar7948(it,ShitCoinTraderAI.getFluidScoreThreshold(),ShitCoinTraderAI.getFluidConfidenceThreshold())}}catch(t:Throwable){err("SHITCOIN",t)}
+        if (owns7828("SHITCOIN")) out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=bp,momentum=mom,volatility=vol,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=ts.tokenMap.creatorOrDevWallet.ifBlank{null},bundlePct=bundle,socialScore=try{ts.sentiment.score.toInt().coerceIn(0,100)}catch(_:Throwable){0},hasWebsite=socialMeta7556?.website?.isNotBlank()==true,hasTwitter=socialMeta7556?.twitter?.isNotBlank()==true,hasTelegram=socialMeta7556?.telegram?.isNotBlank()==true,hasGithub=false,isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=ts.meta.curveProgress.coerceIn(0.0,100.0),recordEducationScores=true,tokenState8077=ts);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL_CACHE","GRADUATION")).let{onLaneBar7948(it,ShitCoinTraderAI.getFluidScoreThreshold(),ShitCoinTraderAI.getFluidConfidenceThreshold())}}catch(t:Throwable){err("SHITCOIN",t)}
         if (owns7828("EXPRESS")) out["EXPRESS"]=try{val x=ShitCoinExpress.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,expressMomentum7555,bp,volVs,ts.lastPriceChange5m,trending,boosted,ageMin);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
         if (owns7828("MOONSHOT")) out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,ts.meta.volScore.toInt().coerceIn(0,100),bp,rug,v3.toDouble(),v3c.toDouble(),launch?.phase?.name?:ts.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
         if (owns7828("PROJECT_SNIPER")) out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
@@ -218,6 +227,17 @@ object SpecialistBrainBridge7542 {
         val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
         val coreScore=(if(s.isNotEmpty())s.take(4).map{maxOf(it.score,it.confidence)}.average().toInt()else v3).coerceIn(0,100)
         if (owns7828("CORE")) out["CORE"]=op("CORE",coreOk,coreScore,coreScore,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->"CORE_YIELD_CLEAR_SPECIALIST_OWNER"},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
+        out["CORE"]?.let { original ->
+            val reviewed = reviewCoreYield8077(original) { rule, lane ->
+                try { com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(rule, lane) }
+                catch (_: Throwable) { false }
+            }
+            if (reviewed !== original) {
+                out["CORE"] = reviewed
+                lastOpinion["CORE"] = reviewed
+                try { PipelineHealthCollector.labelInc("CORE_YIELD_RESCUED_8077") } catch (_: Throwable) {}
+            }
+        }
         // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
         try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).

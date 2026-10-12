@@ -237,15 +237,24 @@ object TacticSwitcher {
      * this lane (LanePlaybook7907.classify — pullback, base, breakout, tape). Owner: "shouldn't that be how its all
      * graded? perhaps token?" The (lane, band) cell tactic stays the lane's preference (ShitCoin's fit bias, rotation);
      * the stamp on the trade — and so every cohort, causal size book and journal row graded by tactic — is the token's.
-     * A coin that fires no setup takes the lane's current tactic.
+     * Unnamed proof setups and missing setups use the token's trade classification, never a lane-wide pin.
      */
     fun tacticForToken8050(ts: com.lifecyclebot.data.TokenState, lane: String, score: Int): Tactic {
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) } catch (_: Throwable) { null }
-        if (setup != null && setup != com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER) {
+        if (!setup.isNullOrBlank() && setup !in setOf("NO_TRIGGER", "SPECIALIST_EDGE", "EXPERT_ENTRY", "LAUNCH_LADDER_PROVEN")) {
             try { PipelineHealthCollector.labelInc("TACTIC_FROM_TOKEN_8050") } catch (_: Throwable) {}
             return seedTactic8049(lane, setup)
         }
-        return currentTactic(lane, score)
+        return tacticForTradeType8077(com.lifecyclebot.engine.ModeRouter.classify(ts).tradeType)
+    }
+
+    internal fun tacticForTradeType8077(type: com.lifecyclebot.engine.ModeRouter.TradeType): Tactic = when (type) {
+        com.lifecyclebot.engine.ModeRouter.TradeType.BREAKOUT_CONTINUATION,
+        com.lifecyclebot.engine.ModeRouter.TradeType.GRADUATION -> Tactic.BREAKOUT
+        com.lifecyclebot.engine.ModeRouter.TradeType.REVERSAL_RECLAIM,
+        com.lifecyclebot.engine.ModeRouter.TradeType.TREND_PULLBACK -> Tactic.PULLBACK
+        com.lifecyclebot.engine.ModeRouter.TradeType.WHALE_ACCUMULATION -> Tactic.REACCUMULATION
+        else -> Tactic.MOMENTUM
     }
 
     /** Pure (V5.0.8049): a lane's starting tactic — its best setup's shape, else the lane's native style. */

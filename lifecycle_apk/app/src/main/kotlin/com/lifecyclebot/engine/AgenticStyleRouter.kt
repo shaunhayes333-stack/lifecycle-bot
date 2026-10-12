@@ -257,7 +257,7 @@ object AgenticStyleRouter {
         }
         val sheet = try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
-        val tactic = try { TacticSwitcher.currentTactic(if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
+        val tactic = try { TacticSwitcher.tacticForToken8050(ts, if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
         val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
         val ageMin = try { (launch7402?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts)) / 60_000.0 } catch (_: Throwable) { 999.0 }
