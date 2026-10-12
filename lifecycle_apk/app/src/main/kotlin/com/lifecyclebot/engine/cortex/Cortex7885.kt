@@ -94,6 +94,8 @@ object Cortex7885 {
         return if (c.isBlank()) lane.trim().uppercase() else c
     }
 
+    private fun accountMode8077(): String = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+
     private fun credits7888(): Double = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.creditsToday7888() } catch (_: Throwable) { 0.0 }
 
     private fun fmtStat(s: CortexLedger7885.Stat): String = if (s.n < 1.0) "-" else "n${s.n.toInt()}/${"%+.1f".format(s.mean())}%"
@@ -169,7 +171,7 @@ object Cortex7885 {
 
     /** V5.0.7948 — CortexTiming7900: an inverted lane's STRONG read is not exempt from the dip wait. */
     fun laneInverted7948(laneRaw: String): Boolean =
-        try { ensureLoaded(); synchronized(this) { board.inverted7948(canon(laneRaw)) } } catch (_: Throwable) { false }
+        try { ensureLoaded(); synchronized(this) { board.inverted7948(canon(laneRaw), accountMode8077()) } } catch (_: Throwable) { false }
 
     /** For CortexInvariants7911. */
     fun queuedTasks(): Int = try { pool.queue.size } catch (_: Throwable) { 0 }
@@ -644,7 +646,7 @@ object Cortex7885 {
 
     /** Caller holds the lock. */
     private fun laneFraction7955(lane: String): Double {
-        val f = board.fractionFor7955(lane)
+        val f = board.fractionFor7955(lane, accountMode8077())
         return if (f > 0.0 && consistent(lane)) f else 0.0
     }
 
@@ -747,7 +749,7 @@ object Cortex7885 {
             val s = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal)
             val copy = CortexLedger7885.Stat().also { c -> if (s != null) c.decode(s.encode()) }
             // V5.0.8034 — -1 marks an inconsistent Cortex or an inverted lane: first sight never fires there.
-            Triple(if (consistent(a.lane) && !board.inverted7948(a.lane)) board.evidenceFor8025(a.lane) else -1.0, copy, CortexScoreboard7885.maturity8025(board.strongLifetime8025(a.lane)))
+            Triple(if (consistent(a.lane) && !board.inverted7948(a.lane, accountMode8077())) board.evidenceFor8025(a.lane, accountMode8077()) else -1.0, copy, CortexScoreboard7885.maturity8025(board.strongLifetime8025(a.lane)))
         }
         FirstSight8026.grant8026(ts, a.lane, refusal, evidence, strong, maturity)
     } catch (_: Throwable) { false }
@@ -900,7 +902,7 @@ object Cortex7885 {
             // V5.0.7948 — the lane's authority (not inverted, self-consistent), not the bare STRONG record.
             val f = laneFraction7955(a.lane)
             if (f <= 0.0) {
-                inc(if (board.inverted7948(a.lane)) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return none
+                inc(if (board.inverted7948(a.lane, accountMode8077())) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return none
             }
             if (f < 1.0) inc("PARTIAL_AUTHORITY_SIZE_7955")
             kellyStakeSol(strong.mean(), strong.variance(), equitySol) to f
@@ -1228,14 +1230,14 @@ object Cortex7885 {
                 board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(8).forEach { (lane, b) ->
                     val runner = isRunner(lane)
                     // V5.0.7955 — graduated authority: O from auth >= 0.5, size-up scaled by auth.
-                    val auth7955 = board.fractionFor7955(lane)
+                    val auth7955 = board.fractionFor7955(lane, accountMode8077())
                     val powers = buildString {
                         if (board.refusalAuthority(lane, runner, true)) append("Rp ")
                         if (board.refusalAuthority(lane, runner, false)) append("Rl ")
                         if (auth7955 >= OVERRULE_FRACTION_7955) append("O ")
                         if (auth7955 > 0.0) append("auth=${"%.2f".format(auth7955)} ")
                         if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("SUSPENDED ")
-                        if (board.inverted7948(lane)) append("INVERTED")
+                        if (board.inverted7948(lane, accountMode8077())) append("INVERTED")
                     }.trim().ifBlank { "shadow" }
                     sb.append("  ${lane.take(9).padEnd(9)} ${b.byBucket.sumOf { it.n }.toInt().toString().padStart(6)}  " +
                         "${fmtStat(b.byBucket[2]).padEnd(9)} ${fmtStat(b.byBucket[0]).padEnd(9)} ${"%.2f".format(calibration.slope(lane))}  $powers\n")
@@ -1275,13 +1277,13 @@ object Cortex7885 {
                 .map { (k, s) -> UiSeat8069(k, s.authority(), s.skill() * 100.0, s.scored) }
             val lanes = board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(12).map { (lane, b) ->
                 val runner = isRunner(lane)
-                val auth = board.fractionFor7955(lane)
+                val auth = board.fractionFor7955(lane, accountMode8077())
                 val powers = buildString {
                     if (board.refusalAuthority(lane, runner, true)) append("refuse-paper ")
                     if (board.refusalAuthority(lane, runner, false)) append("refuse-live ")
                     if (auth >= OVERRULE_FRACTION_7955) append("overrule ")
                     if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("suspended ")
-                    if (board.inverted7948(lane)) append("inverted")
+                    if (board.inverted7948(lane, accountMode8077())) append("inverted")
                 }.trim().ifBlank { "shadow" }
                 val r = b.byBucket[0]; val nu = b.byBucket[1]; val s = b.byBucket[2]
                 UiLane8069(lane, b.byBucket.sumOf { it.n }.toInt(), s.n.toInt(), s.mean(), nu.n.toInt(), nu.mean(),
@@ -1310,9 +1312,9 @@ object Cortex7885 {
                 .values.filterNotNull().sortedByDescending { it.second.skill() }
             val laneLines = board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(8).joinToString("\n") { (lane, b) ->
                 val runner = isRunner(lane)
-                "      $lane(5m${if (runner) ",runner" else ""}${if (board.inverted7948(lane)) ",INVERTED" else ""}): refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])} " +
+                "      $lane(5m${if (runner) ",runner" else ""}${if (board.inverted7948(lane, accountMode8077())) ",INVERTED" else ""}): refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])} " +
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
-                    "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)} auth=${"%.2f".format(board.fractionFor7955(lane))}"
+                    "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)} auth=${"%.2f".format(board.fractionFor7955(lane, accountMode8077()))}"
             }
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +

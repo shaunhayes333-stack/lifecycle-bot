@@ -125,7 +125,7 @@ class Bundle6374InvariantsTest {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
         assertTrue(
             "V5.0.6374: onTradeClosed must fire agg-bad-band rotate when n>=50 && lossRate>0.70 regardless of pivot state",
-            txt.contains("tradesIn >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE")
+            txt.contains("lowWinRateNeedsPivot(tradesIn, lossRate, meanPnl)")
         )
         assertTrue(
             "V5.0.6374: rotation reason string must be 'agg-bad-band' so telemetry surfaces the gate",
@@ -138,7 +138,7 @@ class Bundle6374InvariantsTest {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
         assertTrue(
             "V5.0.6374: maybeRotateFromMemory must include the aggregate-bad-band check so lifetime bleeders rotate",
-            txt.contains("val aggBadBand = totalSamples >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE")
+            txt.contains("lowWinRateNeedsPivot(totalSamples, lossRate, st.meanPnl)")
         )
         assertTrue(
             "V5.0.6374: memory-sweep tag must be 'mem-agg-bad-band' so lifetime rotations are distinguishable",
@@ -147,7 +147,7 @@ class Bundle6374InvariantsTest {
     }
 
     @Test
-    fun tacticSwitcher_agg_bad_band_rotates_50trade_bleeder() {
+    fun tacticSwitcher_retains_profitable_asymmetric_50trade_strategy() {
         // Replay a 60-close scenario where lossRate stays >=0.60 throughout
         // so the pre-existing healthy-reset gate (meanPnl>0 && lossRate<0.60)
         // NEVER fires, and the pre-existing bayes gate (meanPnl<=-2) doesn't
@@ -173,8 +173,8 @@ class Bundle6374InvariantsTest {
         // The 60-trade cell has 15 wins / 45 losses = 25% WR, μ ≈ +71%
         // (positive), so bayes/hardBleed/persistBleed all pass on it; only
         // the AGG_BAD_BAND gate at n>=50 && lossRate>0.70 can rotate.
-        assertNotEquals(
-            "V5.0.6374: a 15W/45L bleeder (WR=25%, μ=+71%) MUST NOT sit on the initial MOMENTUM tactic — agg-bad-band gate is required to force rotation",
+        assertEquals(
+            "8077: low WR alone must not rotate a positive-net-expectancy strategy",
             com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM,
             finalTactic
         )

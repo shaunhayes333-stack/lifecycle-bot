@@ -114,6 +114,7 @@ class CortexLedger7885 {
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
         fun add(y: Double, runner: Boolean): Double {
+            if (!y.isFinite() || !(y * y).isFinite()) return Double.NaN
             val stamp = logScale
             n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0
             // V5.0.8014 — fresh edge: past [STAT_WINDOW_8014] outcomes the oldest evidence fades, so a busy
@@ -162,10 +163,10 @@ class CortexLedger7885 {
             (1.0 - sseModel / sseBase).coerceAtMost(1.0) else 0.0
 
         /** Brier skill score of the voter's win probability (0 until MIN_SCORED). */
-        fun brierSkill(): Double = if (scored >= MIN_SCORED && brierBase > 0.0) 1.0 - brierModel / brierBase else 0.0
+        fun brierSkill(): Double = LaneEvidence8077.skill(scored, brierModel, brierBase)
 
         /** Log-loss skill of the voter's win probability (0 until MIN_SCORED). */
-        fun logLossSkill(): Double = if (scored >= MIN_SCORED && logLossBase > 0.0) 1.0 - logLossModel / logLossBase else 0.0
+        fun logLossSkill(): Double = LaneEvidence8077.skill(scored, logLossModel, logLossBase)
 
         /** 0..1. Zero until MIN_SCORED out-of-sample scores show positive skill. */
         // V5.0.7899 — the bar falls with evidence: a no-information voter's
@@ -252,6 +253,8 @@ class CortexLedger7885 {
      * (this lane's own cell is subtracted out, so its evidence is not counted twice).
      */
     private fun globalDeviation(voterId: String, bin: Int, ownLane: String): Double {
+        // Playbook ordinals mean different setups in different lane menus.
+        if (voterId.startsWith("PLAYBOOK_SETUP")) return 0.0
         if (CrossAssetCortex7931.isCrossAssetLane(ownLane)) return 0.0
         // Setup indices are lane-local categories, not comparable numeric scores.
         // The same index can name different strategies in two lane menus.

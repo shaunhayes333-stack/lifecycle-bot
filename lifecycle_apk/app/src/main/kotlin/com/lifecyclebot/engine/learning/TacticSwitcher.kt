@@ -133,9 +133,9 @@ object TacticSwitcher {
     //     so MEAN_PNL_TRIGGER (-5%) never fired.
     //
     // The correct signal is BAND HEALTH: over any long-tail sample the WR
-    // itself must clear 30%. Regardless of mean-pnl / pivot state, if a
-    // (lane, band) tactic has settled >= 50 decisive closes and win-rate is
-    // still under 30% (i.e. loss-rate >= 70%), rotate — this is the
+    // alone cannot justify discarding a profitable asymmetric runner strategy.
+    // With >= 50 closes, WR < 30%, AND nonpositive net expectancy, rotate.
+    // Positive-EV low-WR strategies remain intact. This is the
     // "clinging bleeder" gate. Rotation, never disable.
     private const val AGG_BAD_BAND_MIN_SAMPLES = 50
     private const val AGG_BAD_BAND_MAX_WR      = 0.30
@@ -252,7 +252,9 @@ object TacticSwitcher {
     fun seedTactic8049(lane: String, bestSetup: String?): Tactic {
         val s = bestSetup.orEmpty().uppercase()
         val fromSetup = when {
-            s.isBlank() || s == "NO_TRIGGER" -> null
+            s.isBlank() || s == "NO_TRIGGER" || s == "SPECIALIST_EDGE" || s == "EXPERT_ENTRY" -> null
+            // BASE_BREAKOUT describes a breakout, not accumulation merely because it contains BASE.
+            s.contains("BREAKOUT") -> Tactic.BREAKOUT
             listOf("PULLBACK", "DIP", "RECLAIM", "BOUNCE").any { s.contains(it) } -> Tactic.PULLBACK
             listOf("BASE", "ACCUM", "LADDER", "PRE_IGNITION", "COIL", "CONSOLID").any { s.contains(it) } -> Tactic.REACCUMULATION
             listOf("BREAKOUT", "RS_LEADER", "RELATIVE_STRENGTH", "RS_IN", "GRADUATION", "NEW_HIGH", "RUNNER", "FLAG").any { s.contains(it) } -> Tactic.BREAKOUT
@@ -460,7 +462,7 @@ object TacticSwitcher {
         // long-tail bleeders (e.g. MOONSHOT|S41-60 REACCUMULATION 15W/52L on
         // 67 trades) cannot cling. Evaluated at the since-rotation window;
         // sweepAllBuckets / maybeRotateFromMemory covers lifetime memory.
-        if (tradesIn >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE) {
+        if (com.lifecyclebot.engine.cortex.LaneEvidence8077.lowWinRateNeedsPivot(tradesIn, lossRate, meanPnl)) {
             val wrPct = (1.0 - lossRate) * 100.0
             rotate(lane, scoreBand, cell, "agg-bad-band wr=${"%.0f".format(wrPct)}% lossRate=${"%.0f".format(lossRate * 100)}% n=$tradesIn")
             return
@@ -591,7 +593,7 @@ object TacticSwitcher {
         // V5.0.6374 — aggregate-bad-band on lifetime memory. Same threshold as
         // the inline gate but evaluated against LosingPatternMemory so quiet
         // buckets carrying a poison history rotate even without a fresh close.
-        val aggBadBand = totalSamples >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE
+        val aggBadBand = com.lifecyclebot.engine.cortex.LaneEvidence8077.lowWinRateNeedsPivot(totalSamples, lossRate, st.meanPnl)
         if (hardBleed || persistBleed || memBayesBleed || aggBadBand) {
             val tag = when {
                 aggBadBand -> "mem-agg-bad-band"

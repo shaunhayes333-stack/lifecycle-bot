@@ -54,6 +54,6 @@ class Aate8034MoonbagAndFirstSightTest {
         assertFalse(FirstSight8026.smallSampleClears8034(10.0, 51.8, 20.0, 0.1))    // win rate
         assertEquals(5.0, FirstSight8026.SMALL_SAMPLE_MIN_N_8034, 0.0)
         assertEquals(2.0, FirstSight8026.SMALL_SAMPLE_MARGIN_8034, 0.0)
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("!board.inverted7948(a.lane)) board.evidenceFor8025(a.lane) else -1.0"))
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("!board.inverted7948(a.lane, accountMode8077())) board.evidenceFor8025(a.lane, accountMode8077()) else -1.0"))
     }
 }

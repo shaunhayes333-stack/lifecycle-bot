@@ -497,7 +497,8 @@ object LanePlaybook7907 {
     private val sincePersist = AtomicLong(0)
 
     private fun stat(lane: String, setup: String): CortexLedger7885.Stat? {
-        val local = books[lane]?.stats?.get(setup)
+        val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
+            LaneEvidence8077.coherent(it.n, it.sum, it.sumSq, it.wins, it.runners) }
         // V5.0.8000 — the rest of the hive's grades of this setup ride on the local book.
         val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null } ?: return local
         if (!CortexLedger7885.validHiveBin8076(hive)) return local
@@ -524,16 +525,29 @@ object LanePlaybook7907 {
         return ((st?.sum ?: 0.0) + SHRINK_K * priorOf(lane, setup)) / (n + SHRINK_K)
     }
 
-    /** The setup this candidate is traded as: the matching setup with the best record, or NO_TRIGGER. */
-    private val classifyCache = ConcurrentHashMap<String, Pair<Long, String?>>()
+    /** Caller holds the lock. Unmeasured setups retain their original cheat-sheet prior. */
+    private fun setupEvidence8077(lane: String, id: String): LaneEvidence8077.Setup {
+        val st = stat(lane, id)
+        return LaneEvidence8077.Setup(id, expected(lane, id), st?.n ?: 0.0, st?.mean() ?: 0.0, st?.variance() ?: 0.0)
+    }
+    private val bookRevision8077 = AtomicLong(0)
+    private data class CachedClassification8077(val at: Long, val observedAt: Long, val price: Double,
+        val cap: Double, val liquidity: Double, val revision: Long, val setup: String?)
+    private val classifyCache = ConcurrentHashMap<String, CachedClassification8077>()
 
     fun classify(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
         val lane = canon(laneRaw)
         val ck = "${ts.mint}|$lane"
-        classifyCache[ck]?.let { (at, v) -> if (nowMs - at in 0L..15_000L) return v }
+        val revision = bookRevision8077.get()
+        val observedAt = ts.lastPriceUpdate; val price = ts.lastPrice
+        val cap = ts.lastMcap; val liquidity = ts.lastLiquidityUsd
+        classifyCache[ck]?.let { c ->
+            if (nowMs - c.at in 0L..15_000L && c.observedAt == observedAt && c.price == price &&
+                c.cap == cap && c.liquidity == liquidity && c.revision == revision) return c.setup
+        }
         val v = classifyNow(ts, lane, nowMs)
-        if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.first > 15_000L }
-        classifyCache[ck] = nowMs to v
+        if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.at > 15_000L }
+        classifyCache[ck] = CachedClassification8077(nowMs, observedAt, price, cap, liquidity, revision, v)
         return v
     }
 
@@ -551,7 +565,9 @@ object LanePlaybook7907 {
         matchCache["${ts.mint}|$lane"] = m.map { it.id }
         if (m.isEmpty()) return NO_TRIGGER
         ensureLoaded()
-        return synchronized(this) { m.maxByOrNull { expected(lane, it.id) }?.id ?: NO_TRIGGER }
+        return synchronized(this) {
+            LaneEvidence8077.choose(m.map { setupEvidence8077(lane, it.id) })?.id ?: NO_TRIGGER
+        }
     }
 
     /** Pure: is a (lane, setup) record a proven loser? */
@@ -758,7 +774,8 @@ object LanePlaybook7907 {
         ensureLoaded()
         synchronized(this) {
             books.flatMap { (lane, b) ->
-                b.stats.entries.filter { it.value.n >= 5.0 }.map { (setup, st) ->
+                b.stats.keys.mapNotNull { setup -> stat(lane, setup)?.let { setup to it } }
+                    .filter { it.second.n >= 5.0 }.map { (setup, st) ->
                     val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN
                     SetupRow8069(lane, setup, st.n.toInt(), st.mean(), se, setupProvenPositive7948(st))
                 }
@@ -773,7 +790,8 @@ object LanePlaybook7907 {
         // 5.0.8051 seeded nearly every lane from TURNOVER_SPIKE on 1-4 labels (+45%, +118%) — noise, not a style.
         synchronized(this) {
             menuOf7962(lane)?.filter { val n = stat(lane, it.id)?.n ?: 0.0; n <= 0.0 || n >= SEED_MIN_N_8052 }
-                ?.map { it.id to expected(lane, it.id) }?.maxByOrNull { it.second }
+                ?.map { setupEvidence8077(lane, it.id) }?.let { LaneEvidence8077.choose(it) }
+                ?.let { it.id to it.expected }
         }
     } catch (_: Throwable) { null }
 
@@ -807,6 +825,7 @@ object LanePlaybook7907 {
             }
             if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
             graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps, netPct, grossPct, System.currentTimeMillis())
+            bookRevision8077.incrementAndGet()
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
     }
@@ -827,6 +846,7 @@ object LanePlaybook7907 {
                 st.revise(yo, yn, ro, rn, st.revisionWeight(stamp))
             }
             g.net = newNet; g.gross = newGross
+            bookRevision8077.incrementAndGet()
         }
     }
 
@@ -885,10 +905,29 @@ object LanePlaybook7907 {
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(BOOKS_KEY_7947) ?: return)
                 for (lane in o.keys()) {
+                    if (lane == "_grades8077") continue
                     val j = o.optJSONObject(lane) ?: continue
                     val b = books.getOrPut(lane) { Book() }
                     for (k in j.keys()) b.stats[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) }
                 }
+                o.optJSONArray("_grades8077")?.let { rows ->
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until minOf(rows.length(), 600)) {
+                        val row = rows.optJSONObject(i) ?: continue
+                        val at = row.optLong("at"); val key = row.optString("k"); val lane = row.optString("l")
+                        val net = row.optDouble("n", Double.NaN); val gross = row.optDouble("g", Double.NaN)
+                        if (key.isBlank() || lane.isBlank() || !net.isFinite() || at <= 0L || at > now || now - at > 8L * 86_400_000L) continue
+                        val weights = row.optJSONObject("s") ?: continue
+                        val stamps = HashMap<String, Double>()
+                        for (id in weights.keys()) {
+                            val stamp = weights.optDouble(id, Double.NaN)
+                            val st = books[lane]?.stats?.get(id) ?: continue
+                            if (stamp.isFinite() && st.logScale <= stamp + 1e-9) stamps[id] = stamp
+                        }
+                        if (stamps.isNotEmpty()) graded7997[key] = Grade8076(lane, stamps, net, gross, at)
+                    }
+                }
+                bookRevision8077.incrementAndGet()
             } catch (_: Throwable) {}
         }
     }
@@ -927,6 +966,15 @@ object LanePlaybook7907 {
             val json = synchronized(this) {
                 org.json.JSONObject().also { o ->
                     books.forEach { (lane, b) -> o.put(lane, org.json.JSONObject().also { j -> b.stats.forEach { (k, v) -> j.put(k, v.encode()) } }) }
+                    val rows = org.json.JSONArray()
+                    graded7997.entries.sortedByDescending { it.value.atMs }.take(600).forEach { (key, g) ->
+                        if (g.net.isFinite()) rows.put(org.json.JSONObject().put("k", key).put("l", g.lane).put("at", g.atMs)
+                            .put("n", g.net).put("g", g.gross.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL)
+                            .put("s", org.json.JSONObject().also { j -> g.stamps.forEach { (id, stamp) ->
+                                if (stamp.isFinite()) j.put(id, stamp)
+                            } }))
+                    }
+                    o.put("_grades8077", rows)
                 }.toString()
             }
             LearningPersistence.save(BOOKS_KEY_7947, json)

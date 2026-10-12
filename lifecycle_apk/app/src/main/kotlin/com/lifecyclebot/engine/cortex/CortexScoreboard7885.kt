@@ -121,8 +121,9 @@ class CortexScoreboard7885 {
          * record's full bar (1.0); [fullN] is the n at which the size factor saturates.
          */
         fun graduatedFraction7955(n: Double, mean: Double, se: Double, baselinePct: Double, marginPct: Double, fullN: Int, fullProven: Boolean): Double {
+            if (!(n >= GRAD_MIN_N_7955) || !n.isFinite() || !mean.isFinite() || !baselinePct.isFinite() ||
+                !marginPct.isFinite() || !se.isFinite() || se < 0.0) return 0.0
             if (fullProven) return 1.0
-            if (!(n >= GRAD_MIN_N_7955) || !mean.isFinite()) return 0.0
             val excess = mean - baselinePct - marginPct
             if (!excess.isFinite() || excess <= 0.0) return 0.0
             val t = if (se.isFinite() && se > 0.0) excess / se else if (se == 0.0) Double.POSITIVE_INFINITY else return 0.0
@@ -141,7 +142,8 @@ class CortexScoreboard7885 {
         fun authorityFraction7955(strong: CortexLedger7885.Stat, neutral: CortexLedger7885.Stat, inverted: Boolean): Double {
             if (inverted) return 0.0
             val baseline = if (neutral.n >= GRAD_NEUTRAL_MIN_N_7955) neutral.mean().coerceAtLeast(0.0) else 0.0
-            return graduatedFraction7955(strong.n, strong.mean(), se(strong), baseline, PROOF_MARGIN_PCT, MIN_N_LIVE, overruleProven(strong))
+            return graduatedFraction7955(strong.n, strong.mean(), se(strong), baseline, PROOF_MARGIN_PCT, MIN_N_LIVE,
+                overruleProven(strong) && strong.mean() - se(strong) > baseline + PROOF_MARGIN_PCT)
         }
 
         // V5.0.7948 — an inverted lane. 5.0.7947: SHITCOIN STRONG n=39 at -8.1% against
@@ -247,16 +249,16 @@ class CortexScoreboard7885 {
      * V5.0.7955 — this lane's graduated authority in [0, 1]. V5.0.7948: an inverted
      * lane's STRONG read is not strong, so it holds 0 (no strong-side power) until it re-proves.
      */
-    fun fractionFor7955(lane: String): Double {
+    fun fractionFor7955(lane: String, mode: String = "LIVE"): Double {
         val b = books[lane] ?: return 0.0
         // V5.0.8025 — the evidence fraction times the lane's maturity: never fully learnt.
-        return matureAuthority8025(evidenceFor8025(lane), b.strongLifetime8025)
+        return matureAuthority8025(evidenceFor8025(lane, mode), b.strongLifetime8025)
     }
 
     /** V5.0.8025 — the evidence alone (how strongly the recent STRONG record beats the margin), before maturity. */
-    fun evidenceFor8025(lane: String): Double {
+    fun evidenceFor8025(lane: String, mode: String = "LIVE"): Double {
         val b = books[lane] ?: return 0.0
-        return authorityFraction7955(b.byBucket[Bucket.STRONG.ordinal], b.byBucket[Bucket.NEUTRAL.ordinal], inverted7948(lane))
+        return authorityFraction7955(b.byBucket[Bucket.STRONG.ordinal], b.byBucket[Bucket.NEUTRAL.ordinal], inverted7948(lane, mode))
     }
 
     /** V5.0.8025 — every STRONG grade this lane has ever had (diag). */
@@ -267,17 +269,15 @@ class CortexScoreboard7885 {
      * the realised whole-position closes of either mode. The books keep recording STRONG
      * reads (decayed), so the lane re-proves — and regains its powers — on new evidence.
      */
-    fun inverted7948(lane: String): Boolean {
+    fun inverted7948(lane: String, mode: String = "LIVE"): Boolean {
         fun inverted(a: Array<CortexLedger7885.Stat>): Boolean =
             invertedProven7948(a[Bucket.STRONG.ordinal], a[Bucket.NEUTRAL.ordinal]) ||
                 invertedProven7948(a[Bucket.STRONG.ordinal], a[Bucket.REFUSE.ordinal])
         books[lane]?.let { b ->
             if (inverted(b.byBucket)) return true
         }
-        for (mode in listOf("LIVE", "PAPER")) {
-            val r = realized["$mode|$lane"] ?: continue
-            if (inverted(r)) return true
-        }
+        // Paper execution outcomes must not suspend LIVE authority, or vice versa.
+        realized["${mode.uppercase()}|$lane"]?.let { if (inverted(it)) return true }
         return false
     }
 
