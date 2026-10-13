@@ -114,6 +114,22 @@ object LiveConcentrationDoctrine7697 {
         return if (wallet.isFinite()) (wallet - reserve).coerceAtLeast(0.0) else 0.0
     }
 
+    /**
+     * V5.0.8083 §LIVE_CAPITAL_IS_THE_WALLET — LIVE capital deployed = remaining cost basis of the canonical LIVE
+     * open rows. CanonicalCapitalAuthority6450 is the PAPER account (its header: CASH = PaperCapitalAuthority6577),
+     * so live slots / throughput read paper deployment (8077: 0.0967 SOL live wallet sized against 2.3 SOL paper).
+     */
+    fun liveOpenCostSol8083(): Double = try {
+        CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mode.equals("live", ignoreCase = true) }
+            .sumOf { (it.entryCostSol - it.soldCostBasisSol).takeIf { v -> v.isFinite() && v > 0.0 } ?: 0.0 }
+    } catch (_: Throwable) { 0.0 }
+
+    /** V5.0.8083 — live free cash: the wallet, never the paper bankroll. NaN when the wallet is unknown. */
+    fun liveCashSol8083(): Double = try {
+        com.lifecyclebot.engine.BotService.status.walletSol.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN
+    } catch (_: Throwable) { Double.NaN }
+
     fun liveOpenCount(): Int = try {
         CanonicalPositionAuthority6441.openPositions().count { it.mode.equals("live", ignoreCase = true) }
     } catch (_: Throwable) { 0 }
@@ -126,9 +142,7 @@ object LiveConcentrationDoctrine7697 {
         // Slots are judged on the wallet as a whole (cash + what is already
         // deployed), otherwise the second position would read a half-spent
         // wallet and halve itself again.
-        val deployed = try {
-            CanonicalCapitalAuthority6450.snapshot().openMarketValueSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-        } catch (_: Throwable) { 0.0 }
+        val deployed = liveOpenCostSol8083()   // V5.0.8083 — live rows, not the paper account's open value
         val n = slots(tradeable + deployed)
         // V5.0.7708 — inventory adopted from the wallet (WALLET_RECOVERED) is
         // legacy capital being walked back to SOL, not a conviction entry; it

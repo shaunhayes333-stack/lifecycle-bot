@@ -61,3 +61,17 @@ class Aate8083MoonshotClosedLoopTest {
         assertFalse(src("v3/scoring/MoonshotTraderAI.kt").contains("MoonshotAdaptiveGate.recordOutcome(pnlPct)"))
     }
 }
+
+class Aate8083LiveCapitalTest {
+    private fun src(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$p").readText()
+    @Test fun liveThroughputAndSlotsReadTheWalletNotThePaperAccount() {
+        val t = src("engine/truth/ExitThroughputAuthority6727.kt")
+        val live = t.substringAfter("if (m == \"live\") {").substringBefore("} else {")
+        assertFalse(live.contains("CanonicalCapitalAuthority6450.snapshot()"))
+        assertTrue(live.contains("LiveConcentrationDoctrine7697.liveCashSol8083()"))
+        assertTrue(live.contains("LiveConcentrationDoctrine7697.liveOpenCostSol8083()"))
+        val d = src("engine/truth/LiveConcentrationDoctrine7697.kt")
+        assertFalse(d.contains("CanonicalCapitalAuthority6450.snapshot().openMarketValueSol"))
+        assertTrue(d.contains("val deployed = liveOpenCostSol8083()"))
+    }
+}

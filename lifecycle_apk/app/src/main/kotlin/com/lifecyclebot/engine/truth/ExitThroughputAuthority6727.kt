@@ -108,9 +108,13 @@ object ExitThroughputAuthority6727 {
         val open: Double
         try {
             if (m == "live") {
-                val cap = CanonicalCapitalAuthority6450.snapshot()
-                cash = cap.cashSol
-                open = cap.openMarketValueSol
+                // V5.0.8083 §LIVE_CAPITAL_IS_THE_WALLET — CanonicalCapitalAuthority6450 is the PAPER account, so the
+                // live cashRatio / hard caps / lane-overspend contention read paper cash and paper open value.
+                val wallet8083 = LiveConcentrationDoctrine7697.liveCashSol8083()
+                if (!wallet8083.isFinite()) return Verdict(true, "OK_FAIL_OPEN_LIVE_WALLET_UNKNOWN_8083", 0, 0.0, 0.0, 1.0)
+                cash = wallet8083
+                open = LiveConcentrationDoctrine7697.liveOpenCostSol8083()
+                try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_LIVE_ON_WALLET_8083") } catch (_: Throwable) {}
             } else {
                 val cap = PaperCapitalAuthority6577.snapshot()
                 cash = cap.availableCashSol
