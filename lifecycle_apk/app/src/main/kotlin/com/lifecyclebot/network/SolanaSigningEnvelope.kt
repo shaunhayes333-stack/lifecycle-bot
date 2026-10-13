@@ -13,6 +13,8 @@ internal object SolanaSigningEnvelope {
         val messageOffset: Int,
         val messageVersion: Int,
         val staticAccountCount: Int,
+        /** V5.0.8085 — offset of the 32-byte recent blockhash (expiry proof), -1 when the message is truncated there. */
+        val blockhashOffset: Int = -1,
     )
 
     private data class ShortVec(val value: Int, val nextOffset: Int)
@@ -63,6 +65,7 @@ internal object SolanaSigningEnvelope {
             messageOffset = messageOffset,
             messageVersion = messageVersion,
             staticAccountCount = accountCount.value,
+            blockhashOffset = if (accountBytesEnd + 32 <= txBytes.size) accountBytesEnd else -1,
         )
     }
 

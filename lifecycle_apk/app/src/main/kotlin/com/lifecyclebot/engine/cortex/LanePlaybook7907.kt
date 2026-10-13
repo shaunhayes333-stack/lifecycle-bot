@@ -677,6 +677,23 @@ object LanePlaybook7907 {
     fun classify(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
         classify8084(ts, laneRaw, nowMs)?.tag
 
+    /** V5.0.8085 — set by DataOrchestrator.start(): asynchronous re-fetch of missing setup inputs for one mint. */
+    @Volatile var inputRefresher8085: ((mint: String, symbol: String, missing: List<String>) -> Unit)? = null
+    private val inputRequestedAt8085 = ConcurrentHashMap<String, Long>()
+    private const val INPUT_REFRESH_GAP_MS_8085 = 30_000L
+
+    /** Pure throttle: one missing-input re-fetch per mint per 30 s. */
+    fun inputRefreshDue8085(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs - lastMs >= INPUT_REFRESH_GAP_MS_8085
+
+    private fun requestInputs8085(mint: String, symbol: String, missing: List<String>, nowMs: Long) {
+        val r = inputRefresher8085 ?: return
+        if (mint.isBlank() || !inputRefreshDue8085(inputRequestedAt8085[mint], nowMs)) return
+        inputRequestedAt8085[mint] = nowMs
+        if (inputRequestedAt8085.size > 4_000) inputRequestedAt8085.entries.removeIf { nowMs - it.value > 600_000L }
+        try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_REQUESTED_8085") } catch (_: Throwable) {}
+        try { r(mint, symbol, missing) } catch (_: Throwable) {}
+    }
+
     /** V5.0.8084 — the structured classification of this candidate version (null only on an internal failure). */
     fun classify8084(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Classification8084? {
         val lane = canon(laneRaw)
@@ -706,6 +723,9 @@ object LanePlaybook7907 {
             if (cached != null) try { PipelineHealthCollector.labelInc("SETUP_CACHE_STALE_INVALIDATED_8084") } catch (_: Throwable) {}
             evaluate8084(lane, f, fp, nowMs).also { count8084(it) }
         }
+        // V5.0.8085 — a DATA_INCOMPLETE classification asks the data layer to re-fetch the missing inputs now (async,
+        // per-mint throttled), instead of waiting for the next ordinary poll; the next cycle re-classifies on new stamps.
+        if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
         if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.featuresAt > 60_000L }
         classifyCache[ck] = Cached8084(key, revision, nowMs, nowMs, c)
         return c
@@ -1123,6 +1143,14 @@ object LanePlaybook7907 {
         for (id in fired) firedCount.computeIfAbsent("$lane|$id") { AtomicLong(0) }.incrementAndGet()
     }
 
+    /** V5.0.8085 — the decision-time tag captured for (mint, label lane), or null; read by the entry snapshot. */
+    fun decisionTag8085(mint: String, labelLane: String): String? = pending["$mint|${labelLane.trim().uppercase()}"]?.second
+
+    /** V5.0.8085 — does a realised close grade the same setup + version its entry snapshot recorded? */
+    fun sameDecision8085(entryTag: String, gradeTag: String): Boolean =
+        entryTag.isNotBlank() && entryTag.substringBefore(';').substringBefore('#') == gradeTag.substringBefore(';').substringBefore('#') &&
+            entryTag.substringAfter("#V=", "") == gradeTag.substringAfter("#V=", "")
+
     private val firedCount = ConcurrentHashMap<String, AtomicLong>()
     /** V5.0.8084 — forward labels by decision outcome per lane: [n, sum net %] (diagnostic; books are unchanged). */
     private val outcomeForward8084 = ConcurrentHashMap<String, DoubleArray>()
@@ -1133,6 +1161,12 @@ object LanePlaybook7907 {
         if (!netPct.isFinite()) return
         val fam = fam8080?.takeIf { it.size == 4 && it.all { v -> v.isFinite() } }
         val (lane, full) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
+        // V5.0.8085 — the label must grade the decision the entry snapshot recorded (same setup, same feature version).
+        try {
+            val entryTag = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.latestFor8085(mint, labelLane)?.cortexSetupTag8085.orEmpty()
+            if (entryTag.isNotBlank()) PipelineHealthCollector.labelInc(
+                if (sameDecision8085(entryTag, full)) "SETUP_ENTRY_SNAPSHOT_MATCH_8085" else "SETUP_ENTRY_SNAPSHOT_MISMATCH_8085")
+        } catch (_: Throwable) {}
         // V5.0.8084 — "setup;alts#O=OUTCOME#V=fp" (a pre-8084 tag has no '#': its outcome is unknown, graded as before).
         val tag = full.substringBefore('#')
         val outcome8084 = full.split('#').firstOrNull { it.startsWith("O=") }?.removePrefix("O=")
@@ -1260,10 +1294,19 @@ object LanePlaybook7907 {
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(BOOKS_KEY_7947) ?: return)
                 for (lane in o.keys()) {
-                    if (lane == "_grades8077") continue
+                    if (lane == "_grades8077" || lane == "_outcomeFwd8085") continue
                     val j = o.optJSONObject(lane) ?: continue
                     val b = books.getOrPut(lane) { Book() }
                     for (k in j.keys()) b.stats[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) }
+                }
+                // V5.0.8085 — forward results per classification outcome survive restarts (were session-only).
+                o.optJSONObject("_outcomeFwd8085")?.let { fw ->
+                    for (k in fw.keys()) {
+                        val parts = fw.optString(k).split(',')
+                        val n = parts.getOrNull(0)?.toDoubleOrNull() ?: continue
+                        val sum = parts.getOrNull(1)?.toDoubleOrNull() ?: continue
+                        if (n > 0.0 && n.isFinite() && sum.isFinite() && k.contains('|')) outcomeForward8084[k] = doubleArrayOf(n, sum)
+                    }
                 }
                 o.optJSONArray("_grades8077")?.let { rows ->
                     val now = System.currentTimeMillis()
@@ -1330,6 +1373,9 @@ object LanePlaybook7907 {
                             } }))
                     }
                     o.put("_grades8077", rows)
+                    o.put("_outcomeFwd8085", org.json.JSONObject().also { j ->
+                        outcomeForward8084.forEach { (k, a) -> synchronized(a) { if (a[0] > 0.0 && a[1].isFinite()) j.put(k, "${a[0]},${a[1]}") } }
+                    })
                 }.toString()
             }
             LearningPersistence.save(BOOKS_KEY_7947, json)

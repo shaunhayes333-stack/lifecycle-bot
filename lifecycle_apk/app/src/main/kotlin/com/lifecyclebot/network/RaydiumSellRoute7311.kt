@@ -185,12 +185,16 @@ object RaydiumSellRoute7311 {
      * V5.0.7325 — broadcast built Raydium transactions Helius Sender first
      * (tip + CU envelope), then Jito / RPC. Returns the last landed signature.
      */
-    fun sendBuilt(wallet: SolanaWallet, built: Built, senderTipLamports: Long, jitoEnabled: Boolean, jitoTipLamports: Long): String? {
+    fun sendBuilt(wallet: SolanaWallet, built: Built, senderTipLamports: Long, jitoEnabled: Boolean, jitoTipLamports: Long,
+                  intent8085: SignedTxLedger8085.Intent? = null): String? {
         var sig: String? = null
         for (tx in built.transactions) {
             val env = try {
                 HeliusSenderEnvelope7250.build(tx, wallet.publicKeyB58, senderTipLamports)
             } catch (_: Throwable) { null }
+            // V5.0.8085 — every signed tx of the build carries the caller's (mint, side) intent; a sent-but-unconfirmed
+            // throw stops the build (no further tx is signed against an unverified quantity) and reaches the caller.
+            if (intent8085 != null) SignedTxLedger8085.intend(intent8085)
             sig = wallet.signAndSend(
                 env?.txBase64 ?: tx,
                 useJito = jitoEnabled && env == null,

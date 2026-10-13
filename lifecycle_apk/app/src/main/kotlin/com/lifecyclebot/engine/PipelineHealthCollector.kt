@@ -4436,6 +4436,7 @@ object PipelineHealthCollector {
               .append(com.lifecyclebot.engine.truth.CanonicalIdentityModel6464.statusLine()).append("\n")
             sb.append("  stopLatency:        ")
               .append(com.lifecyclebot.engine.truth.StopLatencyClasses6464.statusLine()).append("\n")
+              .append("  signed tx identity (8085): ").append(try { com.lifecyclebot.network.SignedTxLedger8085.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
             sb.append("  rootCauseTtl:       ")
               .append(com.lifecyclebot.engine.truth.RootCauseTtl6464.statusLine()).append("\n")
             sb.append("  authorityVersion:   ")

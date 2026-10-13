@@ -530,6 +530,9 @@ object JupiterPerps {
             )
             ErrorLogger.info(TAG, "✅ SPOT fallback confirmed for ${market.symbol}: ${signature.take(20)}…")
             signature
+        } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_PERPS_SPOT_8085") } catch (_: Throwable) {}
+            e.signature
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Spot fallback error for ${market.symbol}: ${e.message}", e)
             null
@@ -658,6 +661,10 @@ object JupiterPerps {
             
             return@withContext signature
             
+        } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+            // V5.0.8085 — sent, confirmation unknown: the signature is kept for position verification.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_PERPS_8085") } catch (_: Throwable) {}
+            return@withContext e.signature
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Sign and send error: ${e.message}", e)
             return@withContext null

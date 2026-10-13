@@ -23,11 +23,33 @@ object SellRouteRace8083 {
     class Race(val future: CompletableFuture<com.lifecyclebot.network.RaydiumSellRoute7311.Built?>, val startedAtMs: Long,
                val rawAmount: Long, val slipBps: Int) {
         @Volatile var sent: Boolean = false
+        /** V5.0.8085 — typed result of the one signed race transaction (null = not sent). */
+        @Volatile var outcome8085: TxOutcome8085? = null
         fun readyOrNull(waitMs: Long): com.lifecyclebot.network.RaydiumSellRoute7311.Built? = try {
             if (waitMs <= 0L) future.getNow(null) else future.get(waitMs, TimeUnit.MILLISECONDS)
         } catch (_: Throwable) { null }
         fun fresh(nowMs: Long = System.currentTimeMillis()) = nowMs - startedAtMs <= FRESH_MS
     }
+
+    /**
+     * V5.0.8085 — the race result is a typed transaction outcome, not a nullable signature: a build failure, a
+     * definite rejection and a chain-proven failure free the quantity for the next route; OUTCOME_UNKNOWN does not.
+     */
+    enum class TxOutcome8085 { LANDED, OUTCOME_UNKNOWN, ROUTE_BUILD_FAILED, SIGN_FAILED, SUBMIT_REJECTED, ONCHAIN_FAILED, EXPIRED_PROVEN }
+
+    fun classify8085(t: Throwable?): TxOutcome8085 = when (t) {
+        null -> TxOutcome8085.LANDED
+        is com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733,
+        is com.lifecyclebot.network.SolanaWallet.DuplicateOrderPrevented8085 -> TxOutcome8085.OUTCOME_UNKNOWN
+        is com.lifecyclebot.network.SolanaWallet.SubmitRejected8085 -> TxOutcome8085.SUBMIT_REJECTED
+        is com.lifecyclebot.network.SolanaWallet.OnChainFailed8085 -> TxOutcome8085.ONCHAIN_FAILED
+        is com.lifecyclebot.network.SolanaWallet.TxExpiredProven8085 -> TxOutcome8085.EXPIRED_PROVEN
+        is IllegalArgumentException -> TxOutcome8085.SIGN_FAILED   // SolanaSigningEnvelope refusal
+        else -> TxOutcome8085.SUBMIT_REJECTED
+    }
+
+    /** May another route sign a sell for this quantity? Only when the race tx provably did not and cannot fill. */
+    fun quantityFree8085(o: TxOutcome8085?): Boolean = o == null || o != TxOutcome8085.OUTCOME_UNKNOWN && o != TxOutcome8085.LANDED
 
     const val FRESH_MS = 20_000L
     const val DRAIN_WAIT_MS = 1_200L
@@ -46,7 +68,7 @@ object SellRouteRace8083 {
         val f = try {
             CompletableFuture.supplyAsync({
                 try { build() } catch (_: Throwable) {
-                    try { PipelineHealthCollector.labelInc("SELL_RACE_RAYDIUM_BUILD_FAILED_8083") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("SELL_RACE_RAYDIUM_BUILD_FAILED_8083"); PipelineHealthCollector.labelInc("TX_ROUTE_BUILD_FAILED_8085") } catch (_: Throwable) {}
                     null
                 }
             }, pool)

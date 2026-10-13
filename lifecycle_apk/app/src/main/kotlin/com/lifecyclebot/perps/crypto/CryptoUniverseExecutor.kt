@@ -27,13 +27,18 @@ object CryptoUniverseExecutor {
     /** V5.0.7326 — Raydium SOL -> target buy, Helius Sender first. Null on any failure. */
     private fun tryRaydiumBuy7326(wallet: com.lifecyclebot.network.SolanaWallet, mint: String, lamports: Long): String? = try {
         val built = com.lifecyclebot.network.RaydiumSellRoute7311.buildBuy(wallet, mint, lamports, SLIPPAGE_BPS * 2)
-        val sig = com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(wallet, built, 200_000L, false, 0L)
+        val sig = com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(wallet, built, 200_000L, false, 0L,
+            intent8085 = com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", route = "CU_RAYDIUM"))
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                 if (sig.isNullOrBlank()) "CU_RAYDIUM_BUY_FAILED_7326" else "CU_RAYDIUM_BUY_LANDED_7326",
             )
         } catch (_: Throwable) {}
         sig?.takeIf { it.isNotBlank() }
+    } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+        // V5.0.8085 — possibly landed: the caller's VerifyPending wallet proof decides; never a second venue buy.
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_CU_RAYDIUM_8085") } catch (_: Throwable) {}
+        e.signature
     } catch (e: Throwable) {
         if (e is CancellationException) throw e
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CU_RAYDIUM_BUY_FAILED_7326") } catch (_: Throwable) {}

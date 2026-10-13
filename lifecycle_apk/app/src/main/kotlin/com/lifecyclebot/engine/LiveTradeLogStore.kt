@@ -162,6 +162,13 @@ object LiveTradeLogStore {
         SELL_QUOTE_OK,
         SELL_QUOTE_FAIL,
         SELL_TX_BUILT,
+        // V5.0.8085 — transaction identity stages (either side): signed id persisted, submit attempted, an RPC returned
+        // the local id, chain confirmed, and the outcome-unknown state kept open for chain verification.
+        TX_SIGNED,
+        TX_SUBMIT_ATTEMPTED,
+        TX_RPC_ACCEPTED,
+        TX_CHAIN_CONFIRMED,
+        TX_SUBMIT_OUTCOME_UNKNOWN,
         SELL_BROADCAST,
         SELL_CONFIRMED,
         SELL_VERIFY_TOKEN_GONE,   // wallet no longer holds the token

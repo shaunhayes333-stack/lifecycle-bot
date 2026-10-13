@@ -74,6 +74,11 @@ object EntryStrategySnapshot6450 {
         val entryExitStyle: String = "",
         val entryStrategyVariantId: String = "",
         val assetClassTag: String = AssetClass.SOLANA_TOKEN.tag,
+        /**
+         * V5.0.8085 — the Cortex playbook decision this entry was made under, frozen at decision time:
+         * "setup[;fired,...]#O=<Outcome8084>#V=<featureVersion>". Blank = no Cortex decision tag existed for the entry.
+         */
+        val cortexSetupTag8085: String = "",
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -82,8 +87,15 @@ object EntryStrategySnapshot6450 {
     private val migrations = AtomicLong(0L)
     private val laneChangeAttempts = AtomicLong(0L)
 
-    fun setEntry(snap: Snapshot): Boolean {
-        if (snap.positionId.isBlank()) { rejects.incrementAndGet(); return false }
+    fun setEntry(snapIn: Snapshot): Boolean {
+        if (snapIn.positionId.isBlank()) { rejects.incrementAndGet(); return false }
+        // V5.0.8085 — the entry snapshot carries the same setup + outcome + feature version the Cortex decision used.
+        val snap = if (snapIn.cortexSetupTag8085.isNotBlank()) snapIn else {
+            val tag = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.decisionTag8085(snapIn.mint, snapIn.entryLane) } catch (_: Throwable) { null }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                if (tag.isNullOrBlank()) "SETUP_ENTRY_SNAPSHOT_NO_DECISION_TAG_8085" else "SETUP_ENTRY_SNAPSHOT_TAGGED_8085") } catch (_: Throwable) {}
+            if (tag.isNullOrBlank()) snapIn else snapIn.copy(cortexSetupTag8085 = tag)
+        }
         val restoredPrior6567 = snapshot(snap.positionId)
         val prior = restoredPrior6567 ?: snapshots.putIfAbsent(snap.positionId, snap)
         if (prior != null) {
@@ -142,6 +154,7 @@ object EntryStrategySnapshot6450 {
                 .put("exitStyle7427", snap.entryExitStyle)
                 .put("variant7427", snap.entryStrategyVariantId)
                 .put("assetClass", snap.assetClassTag)
+                .put("cortexSetup8085", snap.cortexSetupTag8085)
             LearningPersistence.save(persistenceKey6567(snap.positionId), j.toString())
         } catch (_: Throwable) {}
     }
@@ -172,11 +185,16 @@ object EntryStrategySnapshot6450 {
             entryStyle = j.optString("style7427", ""), entryEntryStyle = j.optString("entryStyle7427", ""),
             entryExitStyle = j.optString("exitStyle7427", ""), entryStrategyVariantId = j.optString("variant7427", ""),
             assetClassTag = j.optString("assetClass", AssetClass.SOLANA_TOKEN.tag),
+            cortexSetupTag8085 = j.optString("cortexSetup8085", ""),
         ).also { snapshots.putIfAbsent(positionId, it) }
     } catch (_: Throwable) { null }
     }
 
     fun snapshot(positionId: String): Snapshot? = snapshots[positionId] ?: restore6567(positionId)
+
+    /** V5.0.8085 — the newest in-memory entry snapshot for a mint+lane (realised-label identity check). */
+    fun latestFor8085(mint: String, lane: String): Snapshot? = snapshots.values
+        .filter { it.mint == mint && it.entryLane.equals(lane.trim(), true) }.maxByOrNull { it.entryTimestampMs }
 
     /**
      * V5.0.7164 — DIAGNOSTIC ONLY. Returns the positionId of any snapshot

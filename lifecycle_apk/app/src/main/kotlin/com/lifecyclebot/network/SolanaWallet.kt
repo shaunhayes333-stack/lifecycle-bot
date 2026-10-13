@@ -71,6 +71,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     private val idGen   = AtomicLong(1)
 
     companion object {
+        /** V5.0.8085 — one durable ledger wiring per process; one bounded finality-read pool shared by every wallet. */
+        @Volatile private var ledgerWired8085 = false
+        private val resolver8085 = java.util.concurrent.ThreadPoolExecutor(0, 2, 30L, TimeUnit.SECONDS,
+            java.util.concurrent.LinkedBlockingQueue<Runnable>(128)) { r -> Thread(r, "aate-tx-resolve-8085").apply { isDaemon = true } }
         // V5.0.7927 — token programs and wrapped SOL (rent reclaim).
         private const val TOKEN_PROGRAM_7927 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         private const val TOKEN_2022_PROGRAM_7927 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
@@ -229,6 +233,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     /** signature -> (signed tx, sent via Sender) while it awaits confirmation: re-broadcast until it lands. */
     private val inFlight8009 = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
     private val echoing8009 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    /** V5.0.8085 — per-thread: did this sendTransaction possibly reach an endpoint (timeout / 5xx), or provably not. */
+    private val sendMaybeDelivered8085 = ThreadLocal<Boolean?>()
+    private val resolving8085 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val echo8009 = java.util.concurrent.ThreadPoolExecutor(
         2, 2, 30L, TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(64),
         java.util.concurrent.ThreadFactory { r -> Thread(r, "TxEcho8009").apply { isDaemon = true } },
@@ -265,10 +272,22 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         try {
                             http.newCall(Request.Builder().url(endpoint).header("Content-Type", "application/json")
                                 .post(body8083.toRequestBody(JSON_MT)).build()).execute().use { r ->
-                                if (r.isSuccessful) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                                    if (endpoint.contains("alchemy", true)) "TX_FANOUT_ACCEPTED_ALCHEMY_8083"
-                                    else if (endpoint.contains("helius", true)) "TX_FANOUT_ACCEPTED_HELIUS_RPC_8083"
-                                    else "TX_FANOUT_ACCEPTED_SAVED_RPC_8083") } catch (_: Throwable) {}
+                                // V5.0.8085 — HTTP 200 is transport only: acceptance is a JSON-RPC result equal to the
+                                // signature. A failing endpoint never erases another endpoint's acceptance.
+                                val provider = if (endpoint.contains("alchemy", true)) "alchemy" else if (endpoint.contains("helius", true)) "helius_rpc" else "saved_rpc"
+                                val body = try { JSONObject(r.body?.string().orEmpty()) } catch (_: Throwable) { null }
+                                val ack = SignedTxLedger8085.classifyRpcReply(r.isSuccessful && body != null, body?.optString("result", ""),
+                                    body?.optJSONObject("error")?.optString("message", ""), sig)
+                                if (ack == SignedTxLedger8085.Submit.ACCEPTED) {
+                                    SignedTxLedger8085.transition(sig, SignedTxLedger8085.State.ACCEPTED, acceptedBy = provider)
+                                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                                        if (provider == "alchemy") "TX_FANOUT_ACCEPTED_ALCHEMY_8083"
+                                        else if (provider == "helius_rpc") "TX_FANOUT_ACCEPTED_HELIUS_RPC_8083"
+                                        else "TX_FANOUT_ACCEPTED_SAVED_RPC_8083") } catch (_: Throwable) {}
+                                } else if (ack == SignedTxLedger8085.Submit.REJECTED) try {
+                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_RPC_REJECTED_8085")
+                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_RPC_REJECTED_${provider.uppercase()}_8085")
+                                } catch (_: Throwable) {}
                             }
                         } catch (_: Throwable) {} finally { latch8083.countDown() }
                     }
@@ -388,11 +407,13 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         senderCompatible: Boolean = false,
         awaitFinality: Boolean = true,
     ): String {
-        val txBytes    = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
-        val signedBytes = signVersionedTx(txBytes)
-        val signedB64   = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
+        // V5.0.8085 — the transaction id is derived from the signed bytes here and persisted before any send.
+        val local8085 = signTracked8085(txBase64, SignedTxLedger8085.consumeIntent())
+        val signedB64   = local8085.signedBase64
+        val localSig8085 = local8085.signature
+        var maybeElsewhere8085 = false
         fun finalized(signature: String): String {
-            if (awaitFinality) awaitConfirmation(signature)
+            if (awaitFinality) awaitConfirmationKeepingSignature7733(signature)
             return signature
         }
         
@@ -401,10 +422,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // appended Helius tip transfer. Sender is transport, not a swap builder;
         // on any miss the same signed transaction falls through to Jito/RPC.
         if (senderCompatible) {
-            val senderSig = try {
-                com.lifecyclebot.network.HeliusSender.send(signedB64)
-            } catch (_: Throwable) { null }
+            SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.SUBMIT_ATTEMPTED, "helius_sender")
+            val sent8085 = try {
+                com.lifecyclebot.network.HeliusSender.send8085(signedB64, localSig8085)
+            } catch (_: Throwable) { null to SignedTxLedger8085.Submit.UNKNOWN }
+            val senderSig = if (sent8085.second == SignedTxLedger8085.Submit.ACCEPTED) localSig8085 else null
+            if (sent8085.second == SignedTxLedger8085.Submit.UNKNOWN) maybeElsewhere8085 = true
             if (!senderSig.isNullOrBlank()) {
+                SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.ACCEPTED, acceptedBy = "helius_sender")
                 com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet",
                     "⚡ Broadcast via Helius Sender: ${senderSig.take(16)}…")
                 // V5.0.8009 — the same bytes also go out through RPC at once (two routes, not one).
@@ -421,6 +446,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         }
 
         // Try Jito MEV protection if enabled
+        var jitoSent8085 = false
         if (useJito) {
             try {
                 // V5.0.6489 — bounded no-wait Jito submission. The same signed
@@ -432,6 +458,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 echo8009.execute {
                     try { com.lifecyclebot.engine.JitoMEVProtection.submitProtectedNoWait6489(signedB64, jitoTipLamports) } catch (_: Throwable) {}
                 }
+                jitoSent8085 = true
                 val jitoResult = com.lifecyclebot.engine.JitoMEVProtection.BundleResult(false, null, null, "ASYNC_8009")
 
                 
@@ -468,19 +495,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             .put(JSONObject().put("encoding", "base64")
                              .put("preflightCommitment", "confirmed"))
 
-        val resp = rpc("sendTransaction", params)
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // CRITICAL FIX: optString returns "" (empty string) on RPC errors,
-        // NOT null. We must check for both null AND empty string, otherwise
-        // sells silently "succeed" with no actual transaction broadcast!
-        // ═══════════════════════════════════════════════════════════════════
-        val result = resp.optString("result", "")
-        if (result.isBlank()) {
-            val errorObj = resp.optJSONObject("error")
-            val errorMsg = errorObj?.optString("message", "unknown RPC error") ?: "unknown error"
-            throw RuntimeException("sendTransaction failed: $errorMsg")
-        }
+        // V5.0.8085 — the reply is classified against the local signature: acceptance needs result == local id; a
+        // JSON-RPC error is a rejection only when no other copy may be in flight; a timeout / 5xx / blank reply is
+        // OUTCOME_UNKNOWN and goes to confirmation under the local id (never "NO_SIGNATURE").
+        val result = submitRpc8085(signedB64, params, localSig8085, maybeElsewhere8085, jitoSent8085)
         solBalance8009 = null
         if (inFlight8009.size > 200) inFlight8009.clear()
         inFlight8009[result] = signedB64 to false
@@ -489,6 +507,198 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         echoSend8009(result, signedB64, viaSender = false)
         return finalized(result)
     }
+
+    // ── V5.0.8085 §SIGNED_TX_IDENTITY ─────────────────────
+
+    /** Rejected by every transport that could have received it: no copy is in flight, a new transaction is safe. */
+    class SubmitRejected8085(msg: String) : RuntimeException("sendTransaction failed: $msg")
+    /** Chain truth: the signature is in a block with meta.err — no fill. */
+    class OnChainFailed8085(val signature: String, err: String) : RuntimeException("Transaction failed on-chain: $err (sig=$signature)")
+    /** Chain truth: signature unseen while its recent blockhash is no longer valid — it can never land. */
+    class TxExpiredProven8085(val signature: String, elapsedS: Long) :
+        RuntimeException("Transaction not found after ${elapsedS}s — blockhash expired (proven): $signature")
+    /** A previous transaction for the same mint+side is still unresolved: no second order is signed. */
+    class DuplicateOrderPrevented8085(val existingSignature: String, side: String) :
+        RuntimeException("TX_DUPLICATE_ORDER_PREVENTED_8085 side=$side pending=${existingSignature.take(16)}")
+
+    /** Sign, derive the id from the signed bytes, refuse a competing order, persist — all before any network call. */
+    private fun signTracked8085(txBase64: String, intent: SignedTxLedger8085.Intent?): SignedSerializedTransaction6649 {
+        if (intent != null) guardDuplicate8085(intent)
+        val signed = signSerializedTransaction6649(txBase64)
+        ensureLedgerDurable8085()
+        SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, intent)
+        return signed
+    }
+
+    private fun guardDuplicate8085(intent: SignedTxLedger8085.Intent) {
+        val prev = SignedTxLedger8085.unresolvedFor(intent.mint, intent.side) ?: return
+        try { resolveOnce8085(prev) } catch (_: Throwable) {}
+        if (!prev.unresolved) return
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_DUPLICATE_ORDER_PREVENTED_8085")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_DUPLICATE_ORDER_PREVENTED_8085",
+                "mint=${intent.mint.take(10)} side=${intent.side} pending=${prev.signature.take(16)} state=${prev.state} route=${intent.route}")
+        } catch (_: Throwable) {}
+        throw DuplicateOrderPrevented8085(prev.signature, intent.side)
+    }
+
+    /** One bounded finality read for a ledger row: status first, then (signature unseen) the blockhash expiry proof. */
+    private fun resolveOnce8085(e: SignedTxLedger8085.Entry): SignedTxLedger8085.State {
+        val status = signatureStatus8085(e.signature)
+        when {
+            status == null -> {}
+            status.first.isNotBlank() -> SignedTxLedger8085.transition(e.signature, SignedTxLedger8085.State.FAILED_ON_CHAIN, status.first.take(120))
+            confirmedEnough7980(status.second) -> SignedTxLedger8085.transition(e.signature, SignedTxLedger8085.State.CONFIRMED, "status=${status.second}")
+        }
+        if (status == null && SignedTxLedger8085.expiredProven(false, blockhashValid8085(e.blockhash)))
+            SignedTxLedger8085.transition(e.signature, SignedTxLedger8085.State.EXPIRED_PROVEN, "blockhash_invalid_signature_unseen")
+        return e.state
+    }
+
+    /** (errText, confirmationStatus) when the signature is seen; null when unseen. Throws on a failed read. */
+    private fun signatureStatus8085(sig: String): Pair<String, String>? {
+        val resp = rpc("getSignatureStatuses", JSONArray().put(JSONArray().put(sig)).put(JSONObject().put("searchTransactionHistory", true)))
+        val v = resp.optJSONObject("result")?.optJSONArray("value")?.optJSONObject(0) ?: return null
+        val err = if (v.has("err") && !v.isNull("err")) (v.optJSONObject("err")?.toString() ?: v.opt("err").toString()) else ""
+        return err to v.optString("confirmationStatus", "")
+    }
+
+    /** isBlockhashValid at processed commitment: true / false, or null when unknown (no proof either way). */
+    private fun blockhashValid8085(blockhash: String): Boolean? {
+        if (blockhash.isBlank()) return null
+        return try {
+            val r = rpc("isBlockhashValid", JSONArray().put(blockhash).put(JSONObject().put("commitment", "processed")))
+            val v = r.optJSONObject("result") ?: return null
+            if (!v.has("value")) null else v.optBoolean("value")
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * One JSON-RPC sendTransaction of the exact signed bytes, classified against the local id. Returns the id when the
+     * transaction may be in flight (accepted or unknown); throws [SubmitRejected8085] only on a definite rejection.
+     */
+    private fun submitRpc8085(signedB64: String, params: JSONArray, localSig: String, maybeElsewhere: Boolean, jitoSent: Boolean): String {
+        SignedTxLedger8085.transition(localSig, SignedTxLedger8085.State.SUBMIT_ATTEMPTED, "rpc")
+        sendMaybeDelivered8085.set(false)
+        val resp = try { rpc("sendTransaction", params) } catch (t: Throwable) {
+            val maybe = maybeElsewhere || jitoSent || sendMaybeDelivered8085.get() == true
+            val why = t.message ?: t.javaClass.simpleName
+            if (!maybe) {
+                SignedTxLedger8085.transition(localSig, SignedTxLedger8085.State.SUBMIT_REJECTED, "no_endpoint_reached: ${why.take(100)}")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_RPC_REJECTED_8085") } catch (_: Throwable) {}
+                throw SubmitRejected8085("no endpoint reached: $why")
+            }
+            SignedTxLedger8085.transition(localSig, SignedTxLedger8085.State.OUTCOME_UNKNOWN, "rpc_threw: ${why.take(100)}")
+            unknownInFlight8085(localSig, signedB64)
+            return localSig
+        }
+        val result = resp.optString("result", "")
+        val error = resp.optJSONObject("error")?.optString("message", "unknown RPC error")
+        when (SignedTxLedger8085.classifyRpcReply(true, result, error, localSig)) {
+            SignedTxLedger8085.Submit.ACCEPTED -> {
+                SignedTxLedger8085.transition(localSig, SignedTxLedger8085.State.ACCEPTED, acceptedBy = "rpc")
+                return localSig
+            }
+            SignedTxLedger8085.Submit.REJECTED -> {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_RPC_REJECTED_8085") } catch (_: Throwable) {}
+                val msg = error ?: "unknown RPC error"
+                if (SignedTxLedger8085.rejectionIsDefinite(msg, maybeElsewhere || sendMaybeDelivered8085.get() == true, jitoSent)) {
+                    SignedTxLedger8085.transition(localSig, SignedTxLedger8085.State.SUBMIT_REJECTED, msg.take(120))
+                    throw SubmitRejected8085(msg)
+                }
+                SignedTxLedger8085.transition(localSig, SignedTxLedger8085.State.OUTCOME_UNKNOWN, "rpc_rejected_other_copy_in_flight: ${msg.take(90)}")
+                unknownInFlight8085(localSig, signedB64)
+                return localSig
+            }
+            SignedTxLedger8085.Submit.UNKNOWN -> {
+                if (result.isNotBlank() && result != localSig) try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SIGNATURE_MISMATCH_8085")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_SIGNATURE_MISMATCH_8085", "local=${localSig.take(16)} returned=${result.take(16)}")
+                } catch (_: Throwable) {}
+                SignedTxLedger8085.transition(localSig, SignedTxLedger8085.State.OUTCOME_UNKNOWN, if (result.isBlank()) "blank_jsonrpc_result" else "signature_mismatch")
+                unknownInFlight8085(localSig, signedB64)
+                return localSig
+            }
+        }
+    }
+
+    /** Unknown outcome: keep re-broadcasting the identical bytes while confirmation decides (one signature lands once). */
+    private fun unknownInFlight8085(sig: String, signedB64: String) {
+        if (inFlight8009.size > 200) inFlight8009.clear()
+        inFlight8009[sig] = signedB64 to false
+        echoSend8009(sig, signedB64, viaSender = false)
+    }
+
+    /** Unresolved after the caller's confirmation window: a bounded background finality read (+ same-bytes echo while valid). */
+    fun scheduleResolve8085(sig: String, recovered: Boolean = false) {
+        if (!resolving8085.add(sig)) return
+        try {
+            resolver8085.execute {
+                try {
+                    var echoes = 0
+                    for (i in 0 until 30) {
+                        val e = SignedTxLedger8085.get(sig) ?: return@execute
+                        if (!e.unresolved) break
+                        try {
+                            val before = e.state
+                            resolveOnce8085(e)
+                            if (e.state == SignedTxLedger8085.State.CONFIRMED && before != e.state) onFinalityRecovered8085(e, recovered)
+                            if (e.unresolved && e.signedB64.isNotBlank() && echoes++ < 12) echoSend8009(sig, e.signedB64, viaSender = false)
+                        } catch (_: Throwable) {}
+                        Thread.sleep(5_000L)
+                    }
+                } catch (_: Throwable) {} finally { resolving8085.remove(sig) }
+            }
+        } catch (_: Throwable) { resolving8085.remove(sig) }
+    }
+
+    private fun onFinalityRecovered8085(e: SignedTxLedger8085.Entry, recovered: Boolean) {
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_FINALITY_RECOVERED_8085")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_FINALITY_RECOVERED_8085",
+                "sig=${e.signature.take(16)} mint=${e.mint.take(10)} side=${e.side} route=${e.route} afterRestart=$recovered")
+        } catch (_: Throwable) {}
+        // A row restored after a restart has no live caller holding its signature: the reconcile queue takes it
+        // (deduplicated by signature) so the wallet delta is booked once through the canonical reconcile path.
+        if (!recovered || e.mint.isBlank()) return
+        try {
+            val key = "RECOVERED_8085_${e.signature.take(12)}"
+            if (e.side == "BUY") com.lifecyclebot.engine.PendingReconcileQueue.registerBuy(sig = e.signature, mint = e.mint, symbol = "",
+                tradeKey = key, traderTag = "MEME", wallet = this)
+            else com.lifecyclebot.engine.PendingReconcileQueue.registerSell(sig = e.signature, mint = e.mint, symbol = "",
+                tradeKey = key, traderTag = "MEME", wallet = this)
+        } catch (_: Throwable) {}
+    }
+
+    /** Durable rows: encrypted prefs, written synchronously before the send; restored once per process (restart). */
+    private fun ensureLedgerDurable8085() {
+        if (ledgerWired8085) return
+        synchronized(SolanaWallet::class.java) {
+            if (ledgerWired8085) return
+            val prefs = ledgerPrefs8085() ?: return
+            ledgerWired8085 = true
+            SignedTxLedger8085.persister = { rows ->
+                prefs.edit().putString("rows", rows.joinToString("\n") { SignedTxLedger8085.encode(it) }).commit()
+            }
+            val saved = prefs.getString("rows", "").orEmpty().split('\n').filter { it.isNotBlank() }
+            SignedTxLedger8085.restore(saved) { e -> scheduleResolve8085(e.signature, recovered = true) }
+        }
+    }
+
+    /** Called at wallet connect: a restart with unresolved signed transactions resumes their finality reads. */
+    fun restoreSignedLedger8085() { try { ensureLedgerDurable8085() } catch (_: Throwable) {} }
+
+    private fun ledgerPrefs8085(): android.content.SharedPreferences? = try {
+        val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
+        if (ctx == null) null else {
+            val master = androidx.security.crypto.MasterKey.Builder(ctx.applicationContext)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build()
+            androidx.security.crypto.EncryptedSharedPreferences.create(ctx.applicationContext, "aate_signed_tx_8085", master,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
+        }
+    } catch (_: Throwable) { null }
+
 
     /**
      * Versioned Transaction binary layout:
@@ -515,7 +725,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * The deterministic signature is persisted before broadcast, so restart
      * recovery can rebroadcast the exact same bytes instead of creating a
      * second order with a fresh blockhash. */
-    data class SignedSerializedTransaction6649(val signature: String, val signedBase64: String)
+    data class SignedSerializedTransaction6649(val signature: String, val signedBase64: String, val blockhash8085: String = "")
 
     fun signSerializedTransaction6649(txBase64: String): SignedSerializedTransaction6649 {
         val txBytes = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
@@ -525,19 +735,20 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         return SignedSerializedTransaction6649(
             signature = Base58.base58Encode(signatureBytes),
             signedBase64 = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP),
+            blockhash8085 = if (envelope.blockhashOffset >= 0)
+                Base58.base58Encode(signedBytes.copyOfRange(envelope.blockhashOffset, envelope.blockhashOffset + 32)) else "",
         )
     }
 
     fun sendSignedAndConfirm6649(signed: SignedSerializedTransaction6649): String {
-        val returned = try {
-            sendRawTransaction(signed.signedBase64)
-        } catch (t: Throwable) {
-            val message = t.message.orEmpty().lowercase()
-            if (!message.contains("already processed") && !message.contains("already known")) throw t
-            signed.signature
+        // V5.0.8085 — the bridge source tx joins the ledger under its own id; a send timeout / blank reply is no longer
+        // a "submit failed" (the source could still land and the bridge order fill): confirmation decides.
+        if (SignedTxLedger8085.get(signed.signature) == null) {
+            SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, SignedTxLedger8085.consumeIntent())
+            ensureLedgerDurable8085()
         }
-        check(returned == signed.signature) { "SOLANA_SIGNATURE_MISMATCH expected=${signed.signature} returned=$returned" }
-        awaitConfirmation(signed.signature)
+        sendRawTransaction(signed.signedBase64, signed.signature)
+        awaitConfirmationKeepingSignature7733(signed.signature)
         return signed.signature
     }
 
@@ -564,8 +775,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // V5.0.8009 — while the signature is not yet seen, the signed bytes are re-broadcast every
         // 2 s (both routes) until ~25 s: Sender/RPC were sent once with maxRetries 0, so a dropped
         // transaction used to wait the full 30 s "not found" window before anything happened.
-        val echo = inFlight8009[signature]
+        val echo = inFlight8009[signature] ?: SignedTxLedger8085.get(signature)?.signedB64?.takeIf { it.isNotBlank() }?.let { it to false }
         var lastEcho = start
+        var lastExpiryCheck8085 = 0L
         try {
         while (System.currentTimeMillis() < deadline) {
             val elapsed = System.currentTimeMillis() - start
@@ -590,19 +802,29 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 when {
                     value == null -> {
                         // Not yet propagated — normal for the first second or two.
-                        if (elapsed > 30_000L) {
-                            throw RuntimeException(
-                                "Transaction not found after ${elapsed / 1000}s — " +
-                                "blockhash may have expired: $signature")
+                        // V5.0.8085 — "not found after 30 s" was thrown as if expired. Expiry is now PROVEN (signature
+                        // unseen + recent blockhash invalid) before the caller may build a new transaction; otherwise
+                        // the wait runs to its deadline and the outcome stays unknown under this signature.
+                        if (elapsed > 30_000L && System.currentTimeMillis() - lastExpiryCheck8085 >= 4_000L) {
+                            lastExpiryCheck8085 = System.currentTimeMillis()
+                            val bh = SignedTxLedger8085.get(signature)?.blockhash.orEmpty()
+                            if (SignedTxLedger8085.expiredProven(false, blockhashValid8085(bh))) {
+                                SignedTxLedger8085.transition(signature, SignedTxLedger8085.State.EXPIRED_PROVEN, "await_unseen_blockhash_invalid")
+                                throw TxExpiredProven8085(signature, elapsed / 1000)
+                            }
                         }
                         Thread.sleep(pause)
                     }
                     value.has("err") && !value.isNull("err") -> {
                         val err = value.optJSONObject("err")?.toString() ?: value.opt("err").toString()
-                        throw RuntimeException("Transaction failed on-chain: $err (sig=$signature)")
+                        SignedTxLedger8085.transition(signature, SignedTxLedger8085.State.FAILED_ON_CHAIN, err.take(120))
+                        throw OnChainFailed8085(signature, err)
                     }
                     else -> {
-                        if (confirmedEnough7980(value.optString("confirmationStatus", ""))) return true
+                        if (confirmedEnough7980(value.optString("confirmationStatus", ""))) {
+                            SignedTxLedger8085.transition(signature, SignedTxLedger8085.State.CONFIRMED, "await")
+                            return true
+                        }
                         Thread.sleep(pause)
                     }
                 }
@@ -669,9 +891,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             awaitConfirmation(sig)
         } catch (e: SentButUnconfirmed7733) {
             throw e
+        } catch (e: OnChainFailed8085) {
+            throw e          // V5.0.8085 — chain truth: no fill, a new transaction is safe
+        } catch (e: TxExpiredProven8085) {
+            throw e          // V5.0.8085 — chain truth: can never land
         } catch (e: Exception) {
             if (e is InterruptedException) Thread.currentThread().interrupt()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SENT_CONFIRMATION_THREW_7733") } catch (_: Throwable) {}
+            SignedTxLedger8085.transition(sig, SignedTxLedger8085.State.OUTCOME_UNKNOWN, "confirmation_window_ended: ${(e.message ?: "").take(80)}")
+            scheduleResolve8085(sig)
             throw SentButUnconfirmed7733(sig, e)
         }
     }
@@ -693,9 +921,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         jupiterApiKey: String = "",
         isRfqRoute: Boolean = false,
     ): String {
-        val txBytes = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
-        val signedBytes = signVersionedTx(txBytes)
-        val signedB64 = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
+        val local8085 = signTracked8085(txBase64, SignedTxLedger8085.consumeIntent())
+        val signedB64 = local8085.signedBase64
+        val localSig8085 = local8085.signature
+        var executeMaybeDelivered8085 = false
         
         // ═══════════════════════════════════════════════════════════════════
         // CRITICAL FIX: Retry /execute for RFQ routes, only self-broadcast for Metis
@@ -707,7 +936,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         for (attempt in 1..maxAttempts) {
             try {
                 val jupiter = JupiterApi(jupiterApiKey)
-                val signature = jupiter.executeUltra(signedB64, requestId)
+                SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.SUBMIT_ATTEMPTED, "jupiter_ultra_execute")
+                val returned8085 = jupiter.executeUltra(signedB64, requestId)
+                // V5.0.8085 — /execute's reply is provider acknowledgement; the transaction id is the local one.
+                if (returned8085 != localSig8085) try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SIGNATURE_MISMATCH_8085")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_SIGNATURE_MISMATCH_8085", "route=ULTRA local=${localSig8085.take(16)} returned=${returned8085.take(16)}")
+                } catch (_: Throwable) {}
+                SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.ACCEPTED, acceptedBy = "jupiter_ultra")
+                val signature = localSig8085
                 // V5.0.8083 §ULTRA_WAS_SINGLE_ROUTE — most Jupiter buys AND sells land through /execute, which had no
                 // Helius RPC / Alchemy copy and no re-broadcast. A non-RFQ Ultra tx is complete with our signature, so
                 // the identical bytes now fan out to every paid endpoint and join the confirm-loop re-broadcast.
@@ -728,8 +965,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 return signature
             } catch (e: SentButUnconfirmed7733) {
                 throw e
+            } catch (e: OnChainFailed8085) {
+                throw e
+            } catch (e: TxExpiredProven8085) {
+                throw e
             } catch (e: Exception) {
                 lastException = e
+                // V5.0.8085 — /execute that reached Jupiter may have submitted these bytes; only a request-validation
+                // refusal (400/422/invalid) proves it did not.
+                if (!ultraRequestRefused8085(e.message.orEmpty())) executeMaybeDelivered8085 = true
                 android.util.Log.w("SolanaWallet", "⚠️ Ultra execute attempt $attempt/$maxAttempts failed: ${e.message?.take(60)}")
                 
                 // Check if error is retryable
@@ -759,6 +1003,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // ═══════════════════════════════════════════════════════════════════
         if (isRfqRoute) {
             android.util.Log.e("SolanaWallet", "❌ RFQ route failed - cannot self-broadcast, Jupiter signature required")
+            // V5.0.8085 — never self-broadcast an RFQ order, but an /execute that may have submitted it is not a
+            // failure: its own id goes to confirmation (unknown -> SentButUnconfirmed7733 for the caller).
+            if (executeMaybeDelivered8085) {
+                SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.OUTCOME_UNKNOWN, "rfq_execute_unconfirmed")
+                awaitConfirmationKeepingSignature7733(localSig8085)
+                return localSig8085
+            }
+            SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.SUBMIT_REJECTED, "rfq_execute_refused")
             throw lastException ?: RuntimeException("RFQ execute failed after $maxAttempts attempts")
         }
         
@@ -772,13 +1024,17 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // only when tx was explicitly built senderCompatible=true.
         try {
             // Last resort: plain RPC self-broadcast (already signed).
-            val signature = sendRawTransaction(signedB64)
+            val signature = sendRawTransaction(signedB64, localSig8085, executeMaybeDelivered8085)
             android.util.Log.i("SolanaWallet", "✅ RPC fallback broadcast succeeded! sig=${signature.take(20)}...")
             awaitConfirmationKeepingSignature7733(signature)
             return signature
         } catch (sent: SentButUnconfirmed7733) {
             // V5.0.7733 — the fallback DID broadcast; the caller gets the signature, not the older Ultra error.
             throw sent
+        } catch (e: OnChainFailed8085) {
+            throw e
+        } catch (e: TxExpiredProven8085) {
+            throw e
         } catch (fallbackEx: Exception) {
             android.util.Log.e("SolanaWallet", "❌ Fallback also failed: ${fallbackEx.message}")
             // Throw original Ultra error as it's more descriptive
@@ -790,7 +1046,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Send already-signed raw transaction bytes to RPC.
      * Used as fallback when Ultra execute fails.
      */
-    private fun sendRawTransaction(signedTxB64: String): String {
+    private fun sendRawTransaction(signedTxB64: String, localSig8085: String, maybeElsewhere8085: Boolean = false): String {
         val params = JSONArray()
             .put(signedTxB64)
             .put(JSONObject()
@@ -800,29 +1056,19 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 .put("maxRetries", 3)
             )
         
-        val result = rpc("sendTransaction", params)
-        
-        // Check for error
-        val error = result.optJSONObject("error")
-        if (error != null) {
-            val msg = error.optString("message", "unknown")
-            val code = error.optInt("code", -1)
-            throw RuntimeException("sendTransaction RPC error ($code): $msg")
-        }
-        // V5.0.8083 — preflight passed: the same bytes fan out to Helius RPC + Alchemy and join the re-broadcast loop.
-        result.optString("result", "").takeIf { it.isNotBlank() }?.let { sig8083 ->
-            solBalance8009 = null
-            if (inFlight8009.size > 200) inFlight8009.clear()
-            inFlight8009[sig8083] = signedTxB64 to false
-            echoSend8009(sig8083, signedTxB64, viaSender = false)
-        }
-        
-        val signature = result.optString("result", "")
-        if (signature.isBlank()) {
-            throw RuntimeException("sendTransaction returned empty signature")
-        }
-        
+        // V5.0.8085 — classified against the local id (accepted / definite rejection / unknown -> confirmation).
+        val signature = submitRpc8085(signedTxB64, params, localSig8085, maybeElsewhere8085, jitoSent = false)
+        // V5.0.8083 — the same bytes fan out to Helius RPC + Alchemy and join the re-broadcast loop.
+        solBalance8009 = null
+        if (inFlight8009.size > 200) inFlight8009.clear()
+        inFlight8009[signature] = signedTxB64 to false
+        echoSend8009(signature, signedTxB64, viaSender = false)
         return signature
+    }
+
+    private fun ultraRequestRefused8085(msg: String): Boolean {
+        val m = msg.lowercase()
+        return m.contains("400") || m.contains("422") || m.contains("invalid") || m.contains("unauthorized") || m.contains("401")
     }
 
     // ── JSON-RPC helper ────────────────────────────────────
@@ -905,10 +1151,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         return json
                     }
                     // V5.0.8083 — a sendTransaction 429/5xx fails over to the next paid endpoint at once, no 1 s sleep.
+                    // V5.0.8085 — a 5xx may have forwarded the bytes: the outcome of this send is no longer provable.
+                    if (method == "sendTransaction" && code >= 500) sendMaybeDelivered8085.set(true)
                     if (method == "sendTransaction") break
                     if (attempt == 0) Thread.sleep(1_000)
                 } catch (e: Exception) {
                     lastError = e
+                    // V5.0.8085 — only a refused connection / unresolved host / TLS rejection proves nothing was sent.
+                    if (method == "sendTransaction" && e !is java.net.ConnectException && e !is java.net.UnknownHostException &&
+                        !isTlsTrustFailure(e)) sendMaybeDelivered8085.set(true)
                     if (isTlsTrustFailure(e)) {
                         markEndpointUnhealthy(endpoint, "TLS_REJECTED")
                         try {

@@ -13870,9 +13870,12 @@ class GoldenTapeRegressionTest {
         // A sent transaction is not a failed buy: the signature survives the confirmation throw ...
         val w = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
         assertTrue(w.contains("class SentButUnconfirmed7733(val signature: String, cause: Throwable) :"))
-        assertEquals(3, Regex("awaitConfirmationKeepingSignature7733\\((sig|signature)\\)").findAll(w).count())
+        // V5.0.8085 — every confirmation wait now keeps the signature (Raydium finalized(), bridge source, RFQ unknown
+        // were added); chain-proven failure / expiry pass through as typed exceptions ahead of the generic catch.
+        assertTrue(Regex("awaitConfirmationKeepingSignature7733\\((sig|signature|localSig8085|signed\\.signature)\\)").findAll(w).count() >= 3)
+        assertTrue(w.contains("if (awaitFinality) awaitConfirmationKeepingSignature7733(signature)"))
         assertTrue(w.contains("} catch (sent: SentButUnconfirmed7733) {"))
-        assertTrue(w.contains("} catch (e: SentButUnconfirmed7733) {\n                throw e\n            } catch (e: Exception) {\n                lastException = e"))
+        assertTrue(w.contains("} catch (e: SentButUnconfirmed7733) {\n                throw e\n            } catch (e: OnChainFailed8085) {\n                throw e\n            } catch (e: TxExpiredProven8085) {\n                throw e\n            } catch (e: Exception) {\n                lastException = e"))
         // ... the receipt is stamped on the pending row before anything after the send can throw ...
         assertTrue(ex.contains("try { HostWalletTokenTracker.recordSignedBuyBasis7708(ts.mint, ts.symbol, price, sol, sig, routedLaneTag) } catch (_: Throwable) {}"))
         assertEquals(2, Regex("\\s*broadcastSig7733 = sig").findAll(ex).count())
@@ -14983,5 +14986,21 @@ class GoldenTapeRegressionTest {
         assertTrue("full authority from 300 lifetime STRONG grades", s.contains("const val FULL_AUTHORITY_MIN_LIFETIME_8078 = 300.0"))
         assertTrue("per-book ~100-grade memory", s.contains("const val BOOK_DECAY = 0.99"))
         assertTrue("realised books decay", s.contains("a[bucket.ordinal].scale(BOOK_DECAY)"))
+    }
+
+    @Test
+    fun V5_0_8085_signed_tx_identity_no_competing_order_on_unknown_outcome() {
+        val w = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue("tx id derived from signed bytes and persisted before send", w.contains("SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, intent)"))
+        assertTrue("unresolved mint+side refuses a second signature", w.contains("throw DuplicateOrderPrevented8085(prev.signature, intent.side)"))
+        assertTrue("send reply classified against local id", w.contains("SignedTxLedger8085.classifyRpcReply(true, result, error, localSig)"))
+        assertTrue("expiry proven by blockhash, not a 30 s timer", w.contains("throw TxExpiredProven8085(signature, elapsed / 1000)"))
+        assertTrue("no blank-result NO_SIGNATURE throw", !w.contains("sendTransaction returned empty signature"))
+        assertTrue("restart resumes finality reads", java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletManager.kt").readText().contains("candidate.restoreSignedLedger8085()"))
+        val x = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("sell unknown outcome adopted under its signature", x.contains("TX_SELL_UNKNOWN_ADOPTED_8085"))
+        assertTrue("possibly-landed buy never falls through to a competing venue", x.contains("throw e   // V5.0.8085 — possibly-landed buy"))
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellRouteRace8083.kt").readText()
+        assertTrue("race outcome is typed", r.contains("enum class TxOutcome8085"))
     }
 }

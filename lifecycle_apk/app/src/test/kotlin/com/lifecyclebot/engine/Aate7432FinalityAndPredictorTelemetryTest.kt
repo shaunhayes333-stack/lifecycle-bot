@@ -10,9 +10,16 @@ class Aate7432FinalityAndPredictorTelemetryTest {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedLearningReconciler7423.kt").readText()
         assertTrue(s.contains("HISTORICAL_NO_DURABLE_FINALITY"))
         assertTrue(s.contains("fullTerminalByPosition7432"))
-        assertTrue(s.contains("filterIsInstance<EconomicEventSchema6464.Sell>()"))
-        assertTrue(s.contains("!it.partial"))
-        assertTrue(s.contains("p.positionId in fullTerminalByPosition7432 -> Reason.BUS_PUBLISH_FAILED"))
+        // V5.0.8085 — the invariant moved (7544/8082): full terminal sells come from the cached durable-economics view,
+        // and BUS_PUBLISH_FAILED requires a repairable full terminal sell for the same canonical positionId.
+        assertTrue(s.contains("EconomicEventSchema6464.fullTerminalSellsByPosition7500()"))
+        assertTrue(s.contains("val terminal7544 = fullTerminalSells7544[p.positionId]"))
+        assertTrue(s.contains("val repairable7544 = terminal7544 != null && hasUsableBasis7544"))
+        assertTrue(s.contains("repairable7544 -> Reason.BUS_PUBLISH_FAILED"))
+        val e = File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicEventSchema6464.kt").readText()
+        val full = e.substringAfter("fun fullTerminalSellsByPosition7500()").take(900)
+        assertTrue(full.contains(".filterIsInstance<Sell>()"))
+        assertTrue(full.contains("!it.partial && it.positionId.isNotBlank()"))
     }
 
     @Test fun predictorCountersSeparateConsultedFromContributed() {

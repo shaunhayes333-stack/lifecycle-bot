@@ -56,6 +56,16 @@ class DataOrchestrator(
     // ── startup ───────────────────────────────────────────────────────
 
     fun start() {
+        // V5.0.8085 — the playbook's DATA_INCOMPLETE classifications request their missing inputs here: the next
+        // shouldPoll() for the mint bypasses the 15 s socket throttle (REST price/flow/liquidity refresh) and a missing
+        // candle shape re-seeds history, both off the hot path.
+        com.lifecyclebot.engine.cortex.LanePlaybook7907.inputRefresher8085 = { mint, symbol, missing ->
+            forcePoll8085.add(mint)
+            if (missing.any { it.startsWith("shape") }) scope.launch {
+                try { seedCandleHistory(mint, symbol) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("SETUP_INPUT_SHAPE_RESEEDED_8085") } catch (_: Throwable) {}
+            }
+        }
         val c = cfg()
         // V5.0.4169 — DUPLICATE PUMP WS REMOVED.
         // BotService.kt:7242 already starts the primary PumpFunWS client.
@@ -1100,6 +1110,10 @@ class DataOrchestrator(
      * the WS data is more current anyway.
      */
     fun shouldPoll(mint: String): Boolean {
+        if (forcePoll8085.remove(mint)) {
+            try { PipelineHealthCollector.labelInc("SETUP_INPUT_FORCED_POLL_8085") } catch (_: Throwable) {}
+            return true
+        }
         val lastEvent = lastWsEventMs[mint] ?: return true
         val now = System.currentTimeMillis()
         if (now - lastEvent > 15_000L) return true
@@ -1116,6 +1130,8 @@ class DataOrchestrator(
     }
 
     private val lastWsCycleAllowedMs7762 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** V5.0.8085 — mints whose next poll must not be throttled (missing setup inputs). Bounded by the 30 s/mint request gap. */
+    private val forcePoll8085 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 }
 
 private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)

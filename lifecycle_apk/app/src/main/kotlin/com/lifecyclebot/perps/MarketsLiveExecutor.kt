@@ -1093,6 +1093,9 @@ object MarketsLiveExecutor {
                 )
             } catch (_: Throwable) {}
             sig?.takeIf { it.isNotBlank() }
+        } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_MARKETS_RAYDIUM_8085") } catch (_: Throwable) {}
+            e.signature
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_RAYDIUM_FALLBACK_FAILED_7326") } catch (_: Throwable) {}
@@ -1173,6 +1176,10 @@ object MarketsLiveExecutor {
                             senderCompatible = txResult.senderCompatible,  // V5.0.7326 — Helius Sender
                         )
                     }
+                } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+                    // V5.0.8085 — sent, confirmation unknown: return its signature for wallet proof; never re-quote a second order.
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_MARKETS_JUPITER_8085") } catch (_: Throwable) {}
+                    e.signature
                 } catch (e: Exception) {
                     // 422 means the transaction was stale — retry with a fresh quote
                     if (attempt == 0 && e.message?.contains("422") == true) {

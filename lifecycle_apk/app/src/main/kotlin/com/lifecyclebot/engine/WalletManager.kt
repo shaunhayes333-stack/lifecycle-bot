@@ -368,6 +368,8 @@ class WalletManager private constructor(private val ctx: Context) {
 
                 currentRpcUrl = tryRpc
                 wallet = candidate
+                // V5.0.8085 — a restart with unresolved signed transactions resumes their finality reads now.
+                candidate.restoreSignedLedger8085()
 
                 // Price discovery is presentation/accounting enrichment, not signer
                 // connectivity. Never disconnect a valid wallet because CoinGecko/

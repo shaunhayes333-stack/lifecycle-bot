@@ -216,6 +216,9 @@ object CryptoBridgeAdapter {
         try {
             val signed = wallet.signSerializedTransaction6649(Base64.encodeToString(hexBytes(txHex), Base64.NO_WRAP))
             wallet.sendSignedAndConfirm6649(signed)
+        } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+            // V5.0.8085 — the source tx may still land: the bridge order's terminal state decides, not this throw.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_BRIDGE_GAS_8085") } catch (_: Throwable) {}
         } catch (t: Throwable) { return "gas order submit failed: ${t.message?.take(120)}" }
         val terminal = awaitTerminal(orderId)
         if (terminal.first !in terminalOk) return "gas order state=${terminal.first}"
@@ -353,7 +356,11 @@ object CryptoBridgeAdapter {
         ensureDestinationGas7316(wallet, chain, stored.ethereumAddress)?.let { why ->
             return@withContext Execution.Rejected("DESTINATION_GAS_MISSING", why)
         }
-        val sourceSig = try { wallet.sendSignedAndConfirm6649(signed) } catch (t: Throwable) {
+        val sourceSig = try { wallet.sendSignedAndConfirm6649(signed) } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+            // V5.0.8085 — submitted with unknown confirmation: the bridge order + destination balance decide below.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_BRIDGE_SOURCE_8085") } catch (_: Throwable) {}
+            e.signature
+        } catch (t: Throwable) {
             return@withContext Execution.Rejected("SOURCE_SUBMIT_FAILED", t.message ?: "Solana submit failed")
         }
         val terminal = awaitTerminal(orderId)

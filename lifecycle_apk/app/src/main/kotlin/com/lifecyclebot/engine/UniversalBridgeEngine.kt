@@ -717,15 +717,21 @@ object UniversalBridgeEngine {
                         )
                     } catch (_: Throwable) {}
 
-                    val sig7673 = wallet.signSendAndConfirm(
-                        txBase64 = txResult.txBase64,
-                        useJito = false,
-                        jitoTipLamports = 0,
-                        ultraRequestId = if (quote.isUltra) txResult.requestId else null,
-                        jupiterApiKey = "",
-                        isRfqRoute = txResult.isRfqRoute,
-                        senderCompatible = txResult.senderCompatible,
-                    )
+                    val sig7673 = try {
+                        wallet.signSendAndConfirm(
+                            txBase64 = txResult.txBase64,
+                            useJito = false,
+                            jitoTipLamports = 0,
+                            ultraRequestId = if (quote.isUltra) txResult.requestId else null,
+                            jupiterApiKey = "",
+                            isRfqRoute = txResult.isRfqRoute,
+                            senderCompatible = txResult.senderCompatible,
+                        )
+                    } catch (e: com.lifecyclebot.network.SolanaWallet.SentButUnconfirmed7733) {
+                        // V5.0.8085 — sent, confirmation unknown: keep the signature (no fresh-quote second order).
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_BRIDGE_SWAP_8085") } catch (_: Throwable) {}
+                        e.signature
+                    }
                     return@withContext sig7673?.takeIf { it.isNotBlank() }?.let {
                         JupiterSwapMeasurement7673(it, quote.outAmount)
                     }

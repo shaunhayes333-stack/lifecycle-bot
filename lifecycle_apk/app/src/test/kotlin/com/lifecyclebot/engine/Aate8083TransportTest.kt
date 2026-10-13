@@ -30,12 +30,14 @@ class Aate8083TransportTest {
     @Test fun ultraAndRawSendsFanOutButRfqNeverSelfBroadcasts() {
         val w = src("network/SolanaWallet.kt")
         val ultra = w.substringAfter("private fun signAndExecuteUltra(").substringBefore("private fun sendRawTransaction(")
-        val afterExec = ultra.substringAfter("jupiter.executeUltra(signedB64, requestId)").take(900)
+        val afterExec = ultra.substringAfter("jupiter.executeUltra(signedB64, requestId)").take(2400)
         assertTrue(afterExec.contains("if (!isRfqRoute) {"))
         assertTrue(afterExec.contains("echoSend8009(signature, signedB64, viaSender = false)"))
         val raw = w.substringAfter("private fun sendRawTransaction(").take(1600)
-        assertTrue(raw.contains("echoSend8009(sig8083, signedTxB64, viaSender = false)"))
+        // V5.0.8085 — classified against the local id, then the same bytes fan out.
+        assertTrue(raw.contains("submitRpc8085(signedTxB64, params, localSig8085"))
+        assertTrue(raw.contains("echoSend8009(signature, signedTxB64, viaSender = false)"))
         val sign = w.substringAfter("fun signAndSend(").substringBefore("private fun signVersionedTx(")
-        assertTrue(sign.contains("com.lifecyclebot.network.HeliusSender.send(signedB64)"))
+        assertTrue(sign.contains("com.lifecyclebot.network.HeliusSender.send8085(signedB64, localSig8085)"))
     }
 }
