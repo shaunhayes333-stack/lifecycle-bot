@@ -1530,7 +1530,7 @@ class SolanaMarketScanner(
                     // established-asset feeders get a 1.5x intake boost for the
                     // next 60s. Soft-shape only — no source ever disabled.
                     try {
-                        val laneStats = PipelineHealthCollector.snapshot().laneEvalCounts
+                        val laneStats = PipelineHealthCollector.laneEvalCountsLight8081()
                         val established = (laneStats["BLUECHIP"] ?: 0L) +
                             (laneStats["DIP_HUNTER"] ?: 0L) +
                             (laneStats["QUALITY"] ?: 0L)
