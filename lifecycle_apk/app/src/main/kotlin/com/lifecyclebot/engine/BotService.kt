@@ -14688,13 +14688,24 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
                 return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967")
             }
+            // V5.0.8080 §NO_DOOMED_DUST_PROBE_BUY. Since 7548 FinalDecision.canExecute() needs a clean
+            // verdict, so a PROBE_ONLY candidate is refused in PAPER and LIVE alike (45 of them in the
+            // 8080 smoke window): it only burned FDG, authorizer, lease and budget work. A confirmed
+            // run ticket (8025) or a Cortex STRONG read (8019) is a real signal, so it becomes one
+            // canonical BUY at full shaped size (no dust shrink); anything else is shadow-only
+            // learning, already recorded by LearningLifecycleBus.preFdgProbe above.
+            if (!cortexSignal8019 && !runTicket8025) {
+                try { PipelineHealthCollector.labelInc("DUST_PROBE_SHADOW_ONLY_8080_${lane.uppercase()}") } catch (_: Throwable) {}
+                return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "DUST_PROBE_SHADOW_ONLY_8080")
+            }
+            try { PipelineHealthCollector.labelInc("DUST_PROBE_PROMOTED_CANONICAL_BUY_8080_${lane.uppercase()}") } catch (_: Throwable) {}
             return laneBase.copy(
                 signal = "BUY", finalSignal = "BUY", shouldTrade = true,
-                blockReason = "PROBE_ONLY",
+                blockReason = "",
                 edgeVeto = false,
                 edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
-                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262 * learnedWaitShape6613 * tacticWaitShape6613).coerceIn(0.05, 1.18),
+                qualityPenalty = (crossTalkSizeMult4262 * learnedWaitShape6613 * tacticWaitShape6613).coerceIn(0.05, 1.18),
                 aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
             )
         }

@@ -5156,29 +5156,20 @@ object FinalDecisionGate {
             }"
             !config.paperMode -> ApprovalClass.LIVE to "live mode approval (adaptive conf: ${liveAdaptiveConf.toInt()}%)"
             else -> {
-                val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP
-                val wouldPassLiveQuality = candidate.setupQuality in listOf("A+", "A", "B")
-                val wouldPassLiveConfidence = adjustedConfidence >= liveAdaptiveConf
-
+                // V5.0.8080 §PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS. The LIVE branch above approves every
+                // decision that reached here; PAPER additionally demanded quality A/B and a live
+                // edge, which LIVE itself never requires (C-grade is size-only in live, 4099/4162).
+                // In 5.0.8079/8080 smoke that refused every paper buy (NON_ECONOMIC_APPROVAL_7835),
+                // so paper could not rehearse the trades live takes. Only rescues that exist in
+                // PAPER alone stay off the canonical book: the bootstrap confidence rescue, the
+                // behaviour-block paper bypass, and confidence below the live adaptive bar.
                 when {
-                    isAnyProbe -> {
-                        val probeReasons = mutableListOf<String>()
-                        if (dangerZonePenalty > 0) probeReasons.add("time_danger")
-                        if (memoryPenalty > 0) probeReasons.add("memory_neg")
-                        if (behaviorPenalty > 0) probeReasons.add("behavior_100pct")
-                        if (confidenceProbe) probeReasons.add("confidence_override")
-                        ApprovalClass.PAPER_PROBE to "probe: soft blocks→penalties (${probeReasons.joinToString(",")}), size×${combinedSizeMultiplier.format(2)}"
-                    }
-                    wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence -> {
-                        ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${adjustedConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}%)"
-                    }
-                    else -> {
-                        val relaxedReasons = mutableListOf<String>()
-                        if (!wouldPassLiveEdge) relaxedReasons.add("edge=${edgeVerdict.name}")
-                        if (!wouldPassLiveQuality) relaxedReasons.add("quality=${candidate.setupQuality}")
-                        if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${adjustedConfidence.toInt()}%<${liveAdaptiveConf.toInt()}%")
-                        ApprovalClass.PAPER_EXPLORATION to "exploration: relaxed ${relaxedReasons.joinToString(", ")}"
-                    }
+                    confidenceProbe || "behavior_paper_full_bypass" in tags ->
+                        ApprovalClass.PAPER_PROBE to "probe: paper-only rescue (conf_probe=$confidenceProbe behavior_bypass=${"behavior_paper_full_bypass" in tags}) size×${combinedSizeMultiplier.format(2)}"
+                    adjustedConfidence < liveAdaptiveConf ->
+                        ApprovalClass.PAPER_EXPLORATION to "exploration: conf=${adjustedConfidence.toInt()}%<${liveAdaptiveConf.toInt()}% (live bar)"
+                    else ->
+                        ApprovalClass.PAPER_BENCHMARK to "benchmark: live-equivalent (edge=${edgeVerdict.name} quality=${candidate.setupQuality} conf=${adjustedConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}% softProbe=$isAnyProbe)"
                 }
             }
         }

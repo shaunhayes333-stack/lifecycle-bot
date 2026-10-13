@@ -111,4 +111,29 @@ class Aate8080TradeFirstTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("entrySetup = policyField6568(ts.position.entryPolicySnapshot, \"setup7427\")"))
     }
+
+    @Test fun paperApprovesWhatLiveApprovesAtTheEconomicStep() {
+        val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val c = f.substring(f.indexOf("§PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS"), f.indexOf("tags.add(\"class:\${approvalClass.name}\")"))
+        // no paper-only quality/edge benchmark: live never requires them (C-grade is size-only live)
+        assertFalse(c.contains("wouldPassLiveQuality"))
+        assertFalse(c.contains("wouldPassLiveEdge"))
+        // paper-only rescues stay off the canonical book
+        assertTrue(c.contains("confidenceProbe || \"behavior_paper_full_bypass\" in tags ->"))
+        assertTrue(c.contains("adjustedConfidence < liveAdaptiveConf ->"))
+        assertTrue(c.contains("ApprovalClass.PAPER_BENCHMARK to \"benchmark: live-equivalent"))
+        assertTrue(f.contains("TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK"))
+    }
+
+    @Test fun laneLogicNeverEmitsAProbeBuyTheGateMustRefuse() {
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertFalse(b.contains("blockReason = \"PROBE_ONLY\","))
+        val i = b.indexOf("§NO_DOOMED_DUST_PROBE_BUY")
+        assertTrue(i > 0)
+        val blk = b.substring(i, b.indexOf("aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591)", i))
+        assertTrue(blk.contains("if (!cortexSignal8019 && !runTicket8025) {"))
+        assertTrue(blk.contains("shouldTrade = false, blockReason = \"DUST_PROBE_SHADOW_ONLY_8080\""))
+        assertTrue(blk.contains("blockReason = \"\","))
+        assertFalse(blk.contains("resolveProbeSizeMult"))   // promoted signal is not dust-shrunk
+    }
 }
