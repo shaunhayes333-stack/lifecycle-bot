@@ -28,6 +28,8 @@ object SignedTxLedger8085 {
         val rawQty: Long, val positionId: String, val intentId: String, val route: String, val createdAtMs: Long,
         @Volatile var state: State, @Volatile var updatedAtMs: Long, @Volatile var acceptedBy: String = "",
         @Volatile var detail: String = "",
+        // V5.0.8087 — first real submission time (expiry attribution: sign -> submit -> expiry).
+        @Volatile var submittedAtMs8087: Long = 0L,
     ) {
         val unresolved: Boolean get() = state == State.SIGNED || state == State.SUBMIT_ATTEMPTED ||
             state == State.ACCEPTED || state == State.OUTCOME_UNKNOWN
@@ -65,6 +67,9 @@ object SignedTxLedger8085 {
         if (e.state == State.CONFIRMED || e.state == State.FAILED_ON_CHAIN || e.state == State.EXPIRED_PROVEN || e.state == State.SUBMIT_REJECTED) return
         if (to == State.SUBMIT_ATTEMPTED && e.state != State.SIGNED) return
         if (to == State.OUTCOME_UNKNOWN && e.state == State.ACCEPTED && acceptedBy.isBlank()) { e.detail = detail; return }
+        if (e.side == "SELL") stage8087(e.mint, to)
+        if (to == State.SUBMIT_ATTEMPTED && e.submittedAtMs8087 == 0L) e.submittedAtMs8087 = nowMs
+        if (to == State.EXPIRED_PROVEN) attributeExpiry8087(e, detail, nowMs)
         e.state = to; e.updatedAtMs = nowMs
         if (detail.isNotBlank()) e.detail = detail.take(160)
         if (acceptedBy.isNotBlank()) e.acceptedBy = (if (e.acceptedBy.isBlank()) acceptedBy else "${e.acceptedBy},$acceptedBy").take(80)
@@ -169,14 +174,61 @@ object SignedTxLedger8085 {
     /** Signature unseen + blockhash no longer valid = the transaction can never land. Unknown validity proves nothing. */
     fun expiredProven(statusSeen: Boolean, blockhashValid: Boolean?): Boolean = !statusSeen && blockhashValid == false
 
+    /**
+     * V5.0.8087 — every proven expiry is attributed: route, signed age at expiry, sign -> submit delay (a stale
+     * build signed long after its quote), and whether any provider ever accepted the bytes. 8086 live: 24 proven
+     * expiries beside 21 confirmations, with nothing saying which route or which delay produced them.
+     */
+    private val expiryByRoute8087 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    private fun attributeExpiry8087(e: Entry, detail: String, nowMs: Long) {
+        val route = e.route.ifBlank { "UNKNOWN" }
+        val signToSubmitMs = if (e.submittedAtMs8087 > 0L) e.submittedAtMs8087 - e.createdAtMs else -1L
+        val ageMs = nowMs - e.createdAtMs
+        val accepted = if (e.acceptedBy.isBlank()) "NONE" else e.acceptedBy
+        val cause = when {
+            signToSubmitMs < 0L -> "NEVER_SUBMITTED"
+            signToSubmitMs > 15_000L -> "STALE_AT_SUBMIT"
+            e.acceptedBy.isBlank() -> "NO_PROVIDER_ACCEPTED"
+            else -> "ACCEPTED_NOT_LANDED"
+        }
+        expiryByRoute8087.computeIfAbsent("$route|$cause") { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
+        count("TX_EXPIRED_${route}_8087"); count("TX_EXPIRED_CAUSE_${cause}_8087")
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_EXPIRED_ATTRIBUTED_8087",
+                "sig=${e.signature.take(16)} mint=${e.mint.take(10)} side=${e.side} route=$route cause=$cause ageMs=$ageMs " +
+                    "signToSubmitMs=$signToSubmitMs acceptedBy=$accepted blockhash=${e.blockhash.take(10)} detail=${detail.take(60)}")
+        } catch (_: Throwable) {}
+    }
+
+    fun expiryLine8087(): String = expiryByRoute8087.entries.sortedByDescending { it.value.get() }
+        .joinToString(" ") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
+
+    /** V5.0.8087 — one place a live sell's submission / acceptance / chain stage reaches the exit clocks. */
+    private fun stage8087(mint: String, to: State) {
+        if (mint.isBlank()) return
+        try {
+            when (to) {
+                State.SUBMIT_ATTEMPTED -> {
+                    com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteBroadcast7807(mint)
+                    com.lifecyclebot.engine.truth.ExitStageTiming7876.onPhase(mint, "TX_SUBMIT_ATTEMPTED")
+                }
+                State.ACCEPTED -> com.lifecyclebot.engine.truth.ExitStageTiming7876.onPhase(mint, "TX_RPC_ACCEPTED")
+                State.CONFIRMED -> com.lifecyclebot.engine.truth.ExitStageTiming7876.onPhase(mint, "SELL_TX_CONFIRMED")
+                else -> {}
+            }
+        } catch (_: Throwable) {}
+    }
+
     private fun count(label: String) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {} }
 
     fun statusLine(nowMs: Long = System.currentTimeMillis()): String {
         val by = rows.values.groupingBy { it.state }.eachCount()
         val open = unresolved(nowMs)
         return "rows=${rows.size} ${by.entries.joinToString(",") { "${it.key.name}=${it.value}" }} unresolved=${open.size}" +
-            open.take(4).joinToString("") { " [${it.side} ${it.mint.take(6)} ${it.signature.take(10)} ${it.state.name} via=${it.acceptedBy.ifBlank { "-" }}]" }
+            open.take(4).joinToString("") { " [${it.side} ${it.mint.take(6)} ${it.signature.take(10)} ${it.state.name} via=${it.acceptedBy.ifBlank { "-" }}]" } +
+            " expiries=${expiryLine8087()}"
     }
 
-    internal fun resetForTest() { rows.clear(); intent.set(null) }
+    internal fun resetForTest() { rows.clear(); intent.set(null); expiryByRoute8087.clear() }
 }

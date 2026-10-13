@@ -106,8 +106,30 @@ object MemoryGuard7977 {
         return victims.size
     }
 
+    // V5.0.8087 — 8086 sat at 500/512 MB: candle histories of rows nobody watches or holds were kept at full depth,
+    // the smart-chart read cache never dropped a stale mint, and the mint registry was only capped at restore/save.
+    private const val COLD_ROW_CANDLES_8087 = 120
+    private val candlesTrimmed8087 = java.util.concurrent.atomic.AtomicLong(0)
+
+    private fun trimColdHistories8087(): Int {
+        val watch = try { GlobalTradeRegistry.getWatchlist().toHashSet() } catch (_: Throwable) { return 0 }
+        var dropped = 0
+        val rows = try { synchronized(BotService.status.tokens) { BotService.status.tokens.entries.toList() } } catch (_: Throwable) { return 0 }
+        for ((mint, ts) in rows) {
+            if (ts.position.isOpen || mint in watch) continue
+            try {
+                synchronized(ts.history) { while (ts.history.size > COLD_ROW_CANDLES_8087) { ts.history.removeFirst(); dropped++ } }
+            } catch (_: Throwable) {}
+        }
+        if (dropped > 0) candlesTrimmed8087.addAndGet(dropped.toLong())
+        return dropped
+    }
+
     private fun trimAll(hard: Boolean) {
         try { pruneTokens8025() } catch (_: Throwable) {}
+        try { SmartChartCache.pruneStale8087() } catch (_: Throwable) {}
+        try { MemeMintRegistry.evictStale(); MemeMintRegistry.capToMax8033() } catch (_: Throwable) {}
+        if (hard) try { trimColdHistories8087() } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SpecialistMiner7972.trim7977(hard) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.chart.CandleColors7968.trim7977(hard) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.MemeMeta7973.trim7977() } catch (_: Throwable) {}
@@ -152,7 +174,9 @@ object MemoryGuard7977 {
             "chartReads=${try { com.lifecyclebot.engine.chart.ChartReader7950.size7977() } catch (_: Throwable) { -1 }} " +
             "tokenArchiveResident=${try { TokenMetaCache.snapshotIfPresent()?.liveRows ?: -1 } catch (_: Throwable) { -1 }} " +
             "archiveDiskLoads=${try { TokenMetaCache.instanceOrNull7979()?.diskLoads7979() ?: -1L } catch (_: Throwable) { -1L }} " +
-            "watchTokens=${try { BotService.status.tokens.size } catch (_: Throwable) { -1 }} tokensPruned8025=${tokensPruned8025.get()} | ${census8031()}"
+            "watchTokens=${try { BotService.status.tokens.size } catch (_: Throwable) { -1 }} tokensPruned8025=${tokensPruned8025.get()} " +
+            "smartChart=${try { SmartChartCache.size() } catch (_: Throwable) { -1 }} mintRegistry=${try { MemeMintRegistry.count() } catch (_: Throwable) { -1 }} " +
+            "coldCandlesTrimmed8087=${candlesTrimmed8087.get()} | ${census8031()}"
 
     fun statusLine7977(): String =
         "heap=${lastUsedMb}/${maxMb}MB (${"%.0f".format(lastFrac * 100)}%) peak=${"%.0f".format(peakFrac * 100)}% " +

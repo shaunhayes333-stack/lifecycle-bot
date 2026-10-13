@@ -162,7 +162,11 @@ object InvariantGuardian {
         // block reason; keep the raw number in the diagnostic detail.
         val cappedFdgBlocks7254 = pipe?.blockReasonCounts
             ?.get("FDG/FDG_FANOUT_CAP_7232") ?: 0L
-        val fdgDecisions = (fdgDecisionsRaw7254 - cappedFdgBlocks7254).coerceAtLeast(0L)
+        val fdgGateEffective8087 = (fdgDecisionsRaw7254 - cappedFdgBlocks7254).coerceAtLeast(0L)
+        // V5.0.8087 — fanout is unique causal decisions (mode, mint, candidateVersion, lane, evidenceVersion); repeated
+        // evaluation of an unchanged candidate, cache reuse and legacy mirror rows are overhead, reported separately.
+        val unique8087 = try { FdgReEvalThrottle.uniqueDecisions8087() } catch (_: Throwable) { 0L }
+        val fdgDecisions = if (unique8087 > 0L) unique8087 else fdgGateEffective8087
         val fdgRatio = if (s.intake > 0) fdgDecisions.toDouble() / s.intake else 0.0
         // V5.0.6591 — accept multi-lane FDG breadth up to 4x/intake when the
         // pipeline is producing journal rows. 3.0 was set before FdgReEvalThrottle
@@ -170,7 +174,7 @@ object InvariantGuardian {
         // and legitimate MULTI_LANE_ACTIVE evaluations naturally push the ratio
         // near lane-count. Only fault when ratio is genuinely runaway (>4x)
         // OR the ratio exceeds 3x AND the pipeline is not producing journal rows.
-        if (s.intake > 0 && (fdgRatio > 4.0 || (fdgRatio > 3.0 && journalRows6591 == 0L))) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG_effective/intake=${"%.2f".format(fdgRatio)} fdgEffective=$fdgDecisions fdgGateRaw=$fdgDecisionsRaw7254 capped=$cappedFdgBlocks7254 rawFdgRows=${pipe?.phaseCounts?.get("FDG") ?: s.fdg} intake=${s.intake} journalRows=$journalRows6591")
+        if (s.intake > 0 && (fdgRatio > 4.0 || (fdgRatio > 3.0 && journalRows6591 == 0L))) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG_unique/intake=${"%.2f".format(fdgRatio)} fdgUnique=$fdgDecisions fdgGateEffective=$fdgGateEffective8087 ${try { FdgReEvalThrottle.fanoutLine8087() } catch (_: Throwable) { "" }} fdgGateRaw=$fdgDecisionsRaw7254 capped=$cappedFdgBlocks7254 rawFdgRows=${pipe?.phaseCounts?.get("FDG") ?: s.fdg} intake=${s.intake} journalRows=$journalRows6591")
         val ignoredSignal = pipe?.labelCounts?.get("LIFECYCLE/FDG_BASE_SIGNAL_BLOCK_IGNORED") ?: 0L
         if (ignoredSignal > 0L) out += Fault(FaultCode.FDG_SIGNAL_BYPASS, "CRITICAL", "FDG_BASE_SIGNAL_BLOCK_IGNORED=$ignoredSignal")
         // V5.0.3740 — live sell finality authority. Doctor must not report NO_FAULT

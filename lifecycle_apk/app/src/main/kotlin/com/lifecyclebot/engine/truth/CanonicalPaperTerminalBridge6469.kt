@@ -508,7 +508,7 @@ object CanonicalPaperTerminalBridge6469 {
                 positionId = positionId, mint = mint, outcome = outcome6485,
                 netRealizedPnlSol = realizedSol, grossRealizedPnlSol = whole7835.grossSol,
                 returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = whole7835.feesSol,
-                entryLane = entrySnap6485?.entryLane ?: lane,
+                entryLane = entrySnap6485?.entryLane ?: EntryCohortAttribution7051.entryOwnerLane8087(positionId, lane),
                 entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
                 entryTactic = entrySnap6485?.entryTactic ?: "",
                 exitReason = exitReason, holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,

@@ -208,7 +208,7 @@ object Cortex7885 {
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
-        val setup7961 = (snap8084?.takeIf { it.lane == a.lane }?.tag
+        val setup7961 = (snap8084?.takeIf { it.lane == a.lane }?.consumerTag8087
             ?: try { LanePlaybook7907.classify(ts, a.lane, nowMs) } catch (_: Throwable) { null }).orEmpty()
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961)
         // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).

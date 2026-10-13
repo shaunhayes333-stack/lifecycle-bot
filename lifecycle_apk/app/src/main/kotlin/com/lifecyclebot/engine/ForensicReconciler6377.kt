@@ -88,6 +88,63 @@ object ForensicReconciler6377 {
      * Emits a PipelineHealthCollector counter per check and stores the
      * full report in [_lastReport] for the pipeline dump to render.
      */
+    /** V5.0.8087 — result of the per-lineage quantity check. */
+    internal class Skew8087(
+        val lineages: Int, val violators: List<String>, val violatorMints: List<String>,
+        val unverifiable: Int, val recovered: Int, val duplicateCloses: List<String>,
+    )
+
+    private fun recoveredInventory8087(t: Trade): Boolean {
+        val r = t.reason.uppercase(); val p = t.positionId.uppercase()
+        return r.contains("RECOVER") || r.contains("ORPHAN") || p.startsWith("RECOVER") || p.startsWith("ORPHAN")
+    }
+
+    /**
+     * Pure: compare sold vs bought quantity per position lineage. [canonicalQty] answers the original quantity of a
+     * position whose BUY is no longer in the in-memory ring (durable canonical record), or null when unknown.
+     */
+    internal fun qtySkew8087(buys: List<Trade>, sells: List<Trade>, canonicalQty: (String) -> Double?): Skew8087 {
+        val violators = ArrayList<String>(); val vMints = LinkedHashSet<String>(); val dups = ArrayList<String>()
+        var unverifiable = 0; var recovered = 0; var lineages = 0
+        val buysByPid = buys.filter { it.positionId.isNotBlank() }.groupBy { it.positionId }
+        val (recSells, stratSells) = sells.partition { recoveredInventory8087(it) }
+        recovered = recSells.size
+        for ((pid, rows) in stratSells.filter { it.positionId.isNotBlank() }.groupBy { it.positionId }) {
+            lineages++
+            if (rows.size > 1) dups += "${rows.first().mint.take(6)}:${pid.take(10)}x${rows.size}"
+            val sold = rows.sumOf { it.soldQtyToken.coerceAtLeast(0.0) }
+            val bought = buysByPid[pid]?.sumOf { it.entryQtyToken.coerceAtLeast(0.0) }?.takeIf { it > 0.0 }
+                ?: canonicalQty(pid)?.takeIf { it > 0.0 }
+            if (bought == null) { unverifiable++; continue }
+            if (sold > bought * (1.0 + SAFE_REL_TOL) && (sold - bought) > 1.0) {
+                violators += "${rows.first().mint.take(6)}:${pid.take(10)}=(buy${fmt(bought)}/sell${fmt(sold)})"
+                vMints += rows.first().mint
+            }
+        }
+        // Legacy rows without a positionId: per mint, only when the window holds the mint's first BUY before its first SELL.
+        val legacyBuys = buys.filter { it.positionId.isBlank() }.groupBy { it.mint }
+        for ((mint, rows) in stratSells.filter { it.positionId.isBlank() }.groupBy { it.mint }) {
+            lineages++
+            val b = legacyBuys[mint].orEmpty()
+            val firstBuy = b.minOfOrNull { it.ts }; val firstSell = rows.minOf { it.ts }
+            if (firstBuy == null || firstBuy > firstSell) { unverifiable++; continue }
+            val bought = b.sumOf { it.entryQtyToken.coerceAtLeast(0.0) }
+            val sold = rows.sumOf { it.soldQtyToken.coerceAtLeast(0.0) }
+            if (bought > 0.0 && sold > bought * (1.0 + SAFE_REL_TOL) && (sold - bought) > 1.0) {
+                violators += "${mint.take(6)}=(buy${fmt(bought)}/sell${fmt(sold)})"; vMints += mint
+            }
+        }
+        // a lineage closed twice is a duplicate economic close: its mint's outcomes are contaminated too
+        dups.forEach { d -> stratSells.firstOrNull { d.startsWith(it.mint.take(6) + ":") }?.let { vMints += it.mint } }
+        return Skew8087(lineages, violators + dups.map { "DUPLICATE_CLOSE:$it" }, vMints.toList(), unverifiable, recovered, dups)
+    }
+
+    private fun canonicalOriginalQty8087(positionId: String): Double? = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)?.let { p ->
+            java.math.BigDecimal(p.originalQtyRaw).movePointLeft(p.quantityScale.coerceIn(0, 18)).toDouble()
+        }
+    } catch (_: Throwable) { null }
+
     @JvmStatic
     /** V5.0.7868 — every mint the canonical authority parents (open, closed, live quarantined). */
     private fun canonicalParentMints7868(): Set<String> {
@@ -180,24 +237,22 @@ object ForensicReconciler6377 {
 
         // ── 3. BUY_SELL_QTY_SKEW (per-mint) ──────────────────────────────
         run {
-            val buyByMint = buys.groupBy { it.mint }.mapValues { e -> e.value.sumOf { it.entryQtyToken.coerceAtLeast(0.0) } }
-            val sellByMint = sells.groupBy { it.mint }.mapValues { e -> e.value.sumOf { it.soldQtyToken.coerceAtLeast(0.0) } }
-            val violators = sellByMint.entries.filter { (mint, sellQty) ->
-                val buyQty = buyByMint[mint] ?: 0.0
-                // Only flag when sold qty materially exceeds bought qty.
-                buyQty > 0.0 && sellQty > buyQty * (1.0 + SAFE_REL_TOL) && (sellQty - buyQty) > 1.0
-            }
-            val ok = violators.isEmpty()
-            val summary = if (ok) "buyMints=${buyByMint.size} sellMints=${sellByMint.size}"
-                          else "over-sold mints=${violators.size} e.g. ${violators.first().key.take(6)}=(buy${fmt(buyByMint[violators.first().key] ?: 0.0)}/sell${fmt(violators.first().value)})"
+            // V5.0.8087 — skew is measured per position lineage (positionId links BUY + top-ups + terminal SELL), not
+            // summed by mint across unrelated positions in a bounded in-memory ring. 8086 live read "49PU6E buy 63,838 /
+            // sell 85,291" because the ring had evicted an earlier position's BUY while keeping its SELL, and the result
+            // quarantined the mint's outcomes. A lineage whose BUY left the ring is checked against the canonical
+            // position's original quantity; one that cannot be reconstructed is UNVERIFIABLE (reported, never quarantined).
+            val skew = qtySkew8087(buys, sells) { pid -> canonicalOriginalQty8087(pid) }
+            val ok = skew.violators.isEmpty()
+            val summary = (if (ok) "lineages=${skew.lineages} buyMints=${buys.mapTo(HashSet()) { it.mint }.size}"
+                else "over-sold lineages=${skew.violators.size} e.g. ${skew.violators.first()}") +
+                " unverifiableBoundedWindow=${skew.unverifiable} recoveredInventory=${skew.recovered} duplicateCloses=${skew.duplicateCloses.size}"
             results += CheckResult("BUY_SELL_QTY_SKEW", ok, summary)
-            // V5.0.6496 §2 — feed skewed mints into the historical
-            // economic quarantine so their (contaminated) outcomes
-            // never reach learners / tactic μ / WR / FOM / UPH / sizing.
+            // V5.0.6496 §2 — only a proven skew (complete lineage) feeds the historical economic quarantine.
             if (!ok) {
                 try {
                     com.lifecyclebot.engine.truth.HistoricalEconomicQuarantine6496
-                        .reportBuySellSkew(violators.map { it.key })
+                        .reportBuySellSkew(skew.violatorMints)
                 } catch (_: Throwable) {}
             }
         }

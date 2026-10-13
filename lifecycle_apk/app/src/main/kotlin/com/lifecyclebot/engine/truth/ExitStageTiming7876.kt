@@ -28,6 +28,15 @@ object ExitStageTiming7876 {
         var attempts = 0
         var lastStartAtMs = 0L
         var broadcastAtMs = 0L
+        // V5.0.8087 — why the trigger was still queued (lease in flight, proof wait, backoff, hold).
+        var queueCause8087 = ""
+        var builtAtMs8087 = 0L
+    }
+
+    /** V5.0.8087 — the last reason this mint's exit was refused a worker; attributed when the worker starts. */
+    fun noteQueueCause8087(mint: String, cause: String) {
+        val t = tracks[mint] ?: return
+        synchronized(t) { if (t.attempts == 0 || t.broadcastAtMs == 0L) t.queueCause8087 = cause }
     }
 
     private const val MAX_AGE_MS = 10L * 60_000L
@@ -89,7 +98,10 @@ object ExitStageTiming7876 {
         synchronized(t) {
             when (phase) {
                 "SELL_START" -> {
-                    if (t.attempts == 0) add(t.cls, "queue(trigger->start)", nowMs - t.triggerAtMs)
+                    if (t.attempts == 0) {
+                        add(t.cls, "queue(trigger->start)", nowMs - t.triggerAtMs)
+                        if (t.queueCause8087.isNotBlank()) add(t.cls, "queueCause[${t.queueCause8087}]", nowMs - t.triggerAtMs)
+                    }
                     else add(t.cls, "redispatchGap", nowMs - t.lastStartAtMs)
                     t.attempts++
                     t.lastStartAtMs = nowMs
@@ -103,9 +115,13 @@ object ExitStageTiming7876 {
                 }
                 else -> if (t.broadcastAtMs == 0L && t.attempts > 0) add(t.cls, "${t.lastPhase}->$phase", nowMs - t.lastAtMs)
             }
-            if (phase == "SELL_BROADCAST" && t.broadcastAtMs == 0L) {
+            // V5.0.8087 — SELL_BROADCAST is logged before the network call; the sample closes at the
+            // signed transaction's first real submission (SignedTxLedger8085 SUBMIT_ATTEMPTED).
+            if (phase == "SELL_BROADCAST" || phase == "SELL_TX_BUILT") { if (t.builtAtMs8087 == 0L) t.builtAtMs8087 = nowMs }
+            if (phase == "TX_SUBMIT_ATTEMPTED" && t.broadcastAtMs == 0L) {
                 t.broadcastAtMs = nowMs
                 add(t.cls, "attemptsToBroadcast", t.attempts.toLong())
+                if (t.builtAtMs8087 > 0L) add(t.cls, "built->submitted", nowMs - t.builtAtMs8087)
             }
             t.lastPhase = phase
             t.lastAtMs = nowMs

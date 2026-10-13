@@ -60,11 +60,7 @@ class DataOrchestrator(
         // shouldPoll() for the mint bypasses the 15 s socket throttle (REST price/flow/liquidity refresh) and a missing
         // candle shape re-seeds history, both off the hot path.
         com.lifecyclebot.engine.cortex.LanePlaybook7907.inputRefresher8085 = { mint, symbol, missing ->
-            forcePoll8085.add(mint)
-            if (missing.any { it.startsWith("shape") }) scope.launch {
-                try { seedCandleHistory(mint, symbol) } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("SETUP_INPUT_SHAPE_RESEEDED_8085") } catch (_: Throwable) {}
-            }
+            refreshMissingInputs8087(mint, symbol, missing)
         }
         val c = cfg()
         // V5.0.4169 — DUPLICATE PUMP WS REMOVED.
@@ -1128,6 +1124,39 @@ class DataOrchestrator(
         try { PipelineHealthCollector.labelInc("WS_ACTIVE_TOKEN_CYCLED_7762") } catch (_: Throwable) {}
         return true
     }
+
+    /**
+     * V5.0.8087 — each missing setup input is refreshed from its own source (8085 only re-seeded candles for
+     * "shape" and forced a poll for everything else). Only the affected inputs are requested; a failed provider
+     * request leaves the input unobserved (the playbook re-classifies the same candidate when fresh data lands).
+     *   bp / chg / liq / mcap  -> forced REST poll on the next cycle (price, flow, liquidity)
+     *   shape                  -> candle history re-seed
+     *   tape / buy flow        -> trade-stream subscriptions (PumpPortal + Helius), plus the pair stream when known
+     *   opp                    -> recomputed by the scanner from the refreshed poll (forced poll)
+     */
+    internal fun refreshMissingInputs8087(mint: String, symbol: String, missing: List<String>) {
+        val keys = missing.map { it.substringBefore(':').trim().lowercase() }.toSet()
+        fun lbl(k: String) { try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_${k.uppercase()}_8087") } catch (_: Throwable) {} }
+        if (keys.any { it in POLL_INPUTS_8087 }) { forcePoll8085.add(mint); keys.filter { it in POLL_INPUTS_8087 }.forEach(::lbl) }
+        if ("shape" in keys) scope.launch {
+            try { seedCandleHistory(mint, symbol) } catch (_: Throwable) {}
+            lbl("shape")
+        }
+        if (keys.any { it in TAPE_INPUTS_8087 }) scope.launch {
+            try { pumpWs?.subscribeToken(mint) } catch (_: Throwable) {}
+            try { heliusWs?.subscribeToken(mint) } catch (_: Throwable) {}
+            try {
+                val ts = status.tokens[mint]
+                if (ts != null && ts.pairAddress.isNotBlank()) dexWs?.subscribeToken(mint, ts.pairAddress)
+            } catch (_: Throwable) {}
+            lbl("tape")
+        }
+        val unknown = keys - POLL_INPUTS_8087 - TAPE_INPUTS_8087 - "shape"
+        if (unknown.isNotEmpty()) { forcePoll8085.add(mint); lbl("other") }
+    }
+
+    private val POLL_INPUTS_8087 = setOf("bp", "chg", "liq", "mcap", "opp", "vol")
+    private val TAPE_INPUTS_8087 = setOf("tape", "flow", "buyers", "tx")
 
     private val lastWsCycleAllowedMs7762 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     /** V5.0.8085 — mints whose next poll must not be throttled (missing setup inputs). Bounded by the 30 s/mint request gap. */

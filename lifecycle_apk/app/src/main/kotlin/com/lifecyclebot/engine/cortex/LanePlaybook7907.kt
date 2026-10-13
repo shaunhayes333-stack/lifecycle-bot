@@ -38,6 +38,11 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object LanePlaybook7907 {
     const val NO_TRIGGER = "NO_TRIGGER"
+    // V5.0.8087 — cohorts for coins that could not be classified (never pooled into NO_TRIGGER).
+    const val DATA_INCOMPLETE_8087 = "DATA_INCOMPLETE"
+    const val UNRANKABLE_8087 = "MATCHES_UNRANKABLE"
+    const val CLASSIFIER_ERROR_8087 = "CLASSIFIER_ERROR"
+    val UNCLASSIFIED_8087 = setOf(DATA_INCOMPLETE_8087, UNRANKABLE_8087, CLASSIFIER_ERROR_8087)
     private const val SHRINK_K = 20.0
     private const val NONE_PROOF_N = 40
     private const val NONE_PROOF_PCT = 1.0
@@ -117,11 +122,31 @@ object LanePlaybook7907 {
         val lane: String, val outcome: Outcome8084, val chosen: String?, val matched: List<String>,
         val missing: List<String>, val errors: List<String>, val featureVersion: Int, val atMs: Long, val reason: String,
     ) {
-        /** The historic tag: the chosen setup, NO_TRIGGER when none is selectable, null when the lane has no playbook. */
-        val tag: String? get() = when (outcome) { Outcome8084.NO_PLAYBOOK -> null; Outcome8084.MATCHED -> chosen; else -> NO_TRIGGER }
+        /**
+         * V5.0.8087 — the learning cohort of this classification. Until 8086 every non-matched outcome was tagged
+         * NO_TRIGGER, so coins with unobserved candles / tape, unrankable matches and classifier throws were graded
+         * into the NO_TRIGGER record. Each outcome is now its own cohort; only a genuine NO_MATCH is NO_TRIGGER.
+         */
+        val tag: String? get() = when (outcome) {
+            Outcome8084.NO_PLAYBOOK -> null
+            Outcome8084.MATCHED -> chosen
+            Outcome8084.NO_MATCH -> NO_TRIGGER
+            Outcome8084.DATA_INCOMPLETE -> DATA_INCOMPLETE_8087
+            Outcome8084.MATCHES_UNRANKABLE -> UNRANKABLE_8087
+            Outcome8084.CLASSIFIER_ERROR -> CLASSIFIER_ERROR_8087
+        }
+        /**
+         * V5.0.8087 — the setup other components may act on: the chosen setup, NO_TRIGGER for a genuine no-match, and
+         * null (nothing to act on, no economic prior) when the coin could not be classified.
+         */
+        val consumerTag8087: String? get() = when (outcome) {
+            Outcome8084.MATCHED -> chosen
+            Outcome8084.NO_MATCH -> NO_TRIGGER
+            else -> null
+        }
         val alternatives: List<String> get() = matched.filter { it != chosen }
         /** Only a genuine no-match is the NO_TRIGGER cohort a refusal or a NO_TRIGGER grade may read. */
-        val noMatchCohort: Boolean get() = outcome == Outcome8084.NO_MATCH || outcome == Outcome8084.MATCHES_UNRANKABLE
+        val noMatchCohort: Boolean get() = outcome == Outcome8084.NO_MATCH
     }
 
     internal const val OBS_FRESH_MS_8084 = 15L * 60_000L
@@ -631,7 +656,7 @@ object LanePlaybook7907 {
     }
 
     private fun priorOf(lane: String, setup: String): Double =
-        if (setup == NO_TRIGGER) -1.0 else menuOf7962(lane)?.firstOrNull { it.id == setup }?.prior ?: 0.0
+        if (setup == NO_TRIGGER) -1.0 else if (setup in UNCLASSIFIED_8087) 0.0 else menuOf7962(lane)?.firstOrNull { it.id == setup }?.prior ?: 0.0
 
     /** Shrunk expected net % of (lane, setup). Caller holds the lock. */
     private fun expected(lane: String, setup: String): Double {
@@ -674,8 +699,9 @@ object LanePlaybook7907 {
         return h
     }
 
+    /** The setup consumers act on (consumerTag8087): null when the coin could not be classified this tick. */
     fun classify(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
-        classify8084(ts, laneRaw, nowMs)?.tag
+        classify8084(ts, laneRaw, nowMs)?.consumerTag8087
 
     /** V5.0.8085 — set by DataOrchestrator.start(): asynchronous re-fetch of missing setup inputs for one mint. */
     @Volatile var inputRefresher8085: ((mint: String, symbol: String, missing: List<String>) -> Unit)? = null
@@ -836,7 +862,7 @@ object LanePlaybook7907 {
             val setup = c8084.tag ?: return null
             // V5.0.8084 — DATA_INCOMPLETE / CLASSIFIER_ERROR are not the NO_TRIGGER cohort: no economic refusal is drawn
             // from them (the proven-only live step still needs the candidate's own positive evidence to carry money).
-            if (setup == NO_TRIGGER && !c8084.noMatchCohort) return null
+            if (c8084.outcome != Outcome8084.MATCHED && c8084.outcome != Outcome8084.NO_MATCH) return null
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val why: String? = synchronized(this) {
                 val st = stat(lane, setup)

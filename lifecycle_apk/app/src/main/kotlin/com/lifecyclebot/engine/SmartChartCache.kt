@@ -66,4 +66,11 @@ object SmartChartCache {
     }
 
     fun size(): Int = store.size
+
+    /** V5.0.8087 — entries past [MAX_AGE_MS] are never read again; the map was unbounded (one row per mint ever scanned). */
+    fun pruneStale8087(nowMs: Long = System.currentTimeMillis()): Int {
+        val before = store.size
+        store.entries.removeIf { nowMs - it.value.timestamp > MAX_AGE_MS }
+        return before - store.size
+    }
 }

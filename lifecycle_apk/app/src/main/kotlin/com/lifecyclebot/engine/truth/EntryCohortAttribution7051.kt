@@ -66,7 +66,7 @@ object EntryCohortAttribution7051 {
         val finalLane = t.tradingMode.ifBlank { "STANDARD" }
         val entry = try {
             LaneAttributionLedger6427.getEntryLane(t.positionId)?.takeIf { it.isNotBlank() }
-        } catch (_: Throwable) { null }
+        } catch (_: Throwable) { null } ?: canonicalEntryLane8087(t.positionId)
         if (entry == null) {
             fellBackToFinalLane.incrementAndGet()
             return finalLane
@@ -89,13 +89,43 @@ object EntryCohortAttribution7051 {
         return entry
     }
 
+    // ── V5.0.8087 — the entry owner of a position, from its immutable records ──
+    //
+    // 8086 live: MOONSHOT entries closed credited to "MEME" (SellFinalizationCoordinator's traderTag default) or to
+    // the lane a mid-hold layer transition moved them into, so canonical MOONSHOT attribution was missing its live
+    // closes. Mid-hold specialist influence changes how a position is held, never who entered it. Resolution order:
+    // entry strategy snapshot, lane attribution ledger (both written at entry, persisted), the canonical position's
+    // own immutable lane; the caller's fallback only when none exists (counted).
+    private val ownerFallback8087 = AtomicLong(0L)
+    private val ownerResolved8087 = AtomicLong(0L)
+
+    private fun canonicalEntryLane8087(positionId: String): String? = if (positionId.isBlank()) null else try {
+        CanonicalPositionAuthority6441.getPosition(positionId)?.lane?.takeIf { it.isNotBlank() && !it.startsWith("UNRESOLVED") }
+    } catch (_: Throwable) { null }
+
+    fun entryOwnerLane8087(positionId: String, fallback: String): String {
+        val owner = (if (positionId.isBlank()) null else try {
+            EntryStrategySnapshot6450.snapshot(positionId)?.entryLane?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) { null })
+            ?: (if (positionId.isBlank()) null else try { LaneAttributionLedger6427.getEntryLane(positionId)?.takeIf { it.isNotBlank() } } catch (_: Throwable) { null })
+            ?: canonicalEntryLane8087(positionId)
+        if (owner == null) {
+            ownerFallback8087.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("ENTRY_OWNER_FALLBACK_8087") } catch (_: Throwable) {}
+            return fallback
+        }
+        ownerResolved8087.incrementAndGet()
+        return owner
+    }
+
     fun statusLine7051(): String =
         "resolved=${resolvedFromLedger.get()} fallbackFinalLane=${fellBackToFinalLane.get()} " +
             "promotionLeaks=${promotionLeaks.get()} leakWins=${leakWins.get()} " +
+            "ownerResolved8087=${ownerResolved8087.get()} ownerFallback8087=${ownerFallback8087.get()} " +
             "read=a_leak_win_is_a_runner_the_entering_lane_was_never_credited_with"
 
     internal fun resetForTest() {
         resolvedFromLedger.set(0L); fellBackToFinalLane.set(0L)
-        promotionLeaks.set(0L); leakWins.set(0L)
+        promotionLeaks.set(0L); leakWins.set(0L); ownerFallback8087.set(0L); ownerResolved8087.set(0L)
     }
 }

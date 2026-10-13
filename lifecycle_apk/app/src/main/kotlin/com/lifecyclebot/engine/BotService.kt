@@ -3434,6 +3434,22 @@ class BotService : Service() {
             sounds    = soundManager,
         )
         
+        // V5.0.8087 — an emergency coalesced onto a running sell's lease is dispatched the moment that
+        // attempt ends, on the emergency pool (never behind discovery, never waiting a redispatch window).
+        com.lifecyclebot.engine.sell.CloseLease.emergencyHandoff8087 = { mint8087, reason8087 ->
+            scope.launch(com.lifecyclebot.engine.sell.EmergencyExitDispatcher7807.forReason(reason8087)) {
+                val ts8087 = synchronized(status.tokens) { status.tokens[mint8087] }
+                if (ts8087 != null && ts8087.position.isOpen && !ts8087.position.isPaperPosition) {
+                    try {
+                        executor.requestSell(ts8087, reason8087, WalletManager.getWallet(),
+                            status.getEffectiveBalance(ConfigStore.load(applicationContext).paperMode))
+                    } catch (_: Throwable) {
+                        try { PipelineHealthCollector.labelInc("EXIT_EMERGENCY_HANDOFF_SELL_ERROR_8087") } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+
         // Initialize FluidLearning for paper mode simulation
         val cfg = ConfigStore.load(applicationContext)
         FluidLearning.init(applicationContext, cfg.paperSimulatedBalance)
@@ -32656,7 +32672,14 @@ if (hotExitHandledSweep) {
                 currentPrice = currentPrice,
             )
             
-            if (transition.shouldTransition) {
+            // V5.0.8087 — the layer-up was the one mid-hold lane rewrite without the runner identity guard every sibling
+            // (lane promotion, holding-logic switch, mode switch) applies: a MOONSHOT entry moved into a QUALITY layer lost
+            // its runner exits. The entry owner itself is never rewritten (EntryCohortAttribution7051.entryOwnerLane8087).
+            if (transition.shouldTransition && RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, transition.toLayer.name)) {
+                try { PipelineHealthCollector.labelInc("LAYER_TRANSITION_RUNNER_IDENTITY_KEPT_8087") } catch (_: Throwable) {}
+            } else if (transition.shouldTransition) {
+                ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) "${ts.position.tradingMode}>${transition.toLayer.name}"
+                    else "${ts.position.modeHistory}>${transition.toLayer.name}"
                 // Update position's trading mode to new layer
                 ts.position.tradingMode = transition.toLayer.name  // V5.9.217: use enum.name not displayName — prevents BLUECHIP/BLUE_CHIP split
                 ts.position.tradingModeEmoji = transition.toLayer.emoji

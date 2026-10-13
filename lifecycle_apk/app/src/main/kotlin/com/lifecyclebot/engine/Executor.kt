@@ -2377,7 +2377,7 @@ class Executor(
     /** V5.0.7311 Raydium sell broadcast (moved out of liveSellInScope7314 in 8083 for the ART method budget): Helius Sender envelope first, else Jito/RPC. */
     private fun sendRaydiumBuilt8083(wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
                                      built: com.lifecyclebot.network.RaydiumSellRoute7311.Built, fastLand: Boolean,
-                                     mint: String = "", race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race? = null): String? {
+                                     mint: String = "", race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race? = null): com.lifecyclebot.engine.sell.TxResult8087? {
         val senderTip7311 = effectiveSenderTipLamports(c, urgent = fastLand)
         var raySig7311: String? = null
         for (rayTx in built.transactions) {
@@ -2407,16 +2407,20 @@ class Executor(
                 throw e
             }
         }
-        race?.outcome8085 = com.lifecyclebot.engine.sell.SellRouteRace8083.TxOutcome8085.LANDED
-        return raySig7311
+        val res8087 = raySig7311?.let { com.lifecyclebot.engine.sell.TxResult8087.afterSend(it, mint, "SELL", "RAYDIUM", race?.rawAmount ?: 0L) }
+        // V5.0.8087 — LANDED only on a chain-confirmed result; anything else stays unknown for reconciliation.
+        race?.outcome8085 = if (res8087?.confirmed == true) com.lifecyclebot.engine.sell.SellRouteRace8083.TxOutcome8085.LANDED
+            else com.lifecyclebot.engine.sell.SellRouteRace8083.TxOutcome8085.OUTCOME_UNKNOWN
+        return res8087
     }
 
     /** V5.0.8085 — every Jupiter live SELL send: bound to (mint, SELL); a sent-but-unconfirmed outcome is ADOPTED. */
     private fun sellSend8085(wallet: SolanaWallet, mint: String, tx: com.lifecyclebot.network.SwapTxResult, useJito: Boolean,
-                             jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig, tradeKey: String = ""): String {
-        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "SELL", route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
+                             jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig, tradeKey: String = ""): com.lifecyclebot.engine.sell.TxResult8087 {
+        val route8087 = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"
+        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "SELL", route = route8087))
         return try {
-            wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
+            com.lifecyclebot.engine.sell.TxResult8087.afterSend(wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible), mint, "SELL", route8087)
         } catch (e: SolanaWallet.SentButUnconfirmed7733) {
             adoptSellUnknown8085(mint, e.signature, "JUPITER", tradeKey, "SENT_UNCONFIRMED")
         } catch (e: SolanaWallet.DuplicateOrderPrevented8085) {
@@ -2436,7 +2440,7 @@ class Executor(
      * returned under that signature: the caller's TradeVerifier / wallet-settlement path decides finality from chain,
      * and no competing sell is signed against the same unverified quantity. Never booked as SELL_FAILED.
      */
-    private fun adoptSellUnknown8085(mint: String, sig: String, route: String, tradeKey: String, why: String): String {
+    private fun adoptSellUnknown8085(mint: String, sig: String, route: String, tradeKey: String, why: String): com.lifecyclebot.engine.sell.TxResult8087 {
         try {
             PipelineHealthCollector.labelInc("TX_SELL_UNKNOWN_ADOPTED_8085")
             PipelineHealthCollector.labelInc("TX_SELL_UNKNOWN_ADOPTED_${route}_8085")
@@ -2446,7 +2450,7 @@ class Executor(
             LiveTradeLogStore.log(tradeKey, mint, "", "SELL", LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN,
                 "⏳ $route sell outcome unknown ($why) — signature kept, chain verification decides; no competing sell", sig = sig, traderTag = "MEME")
         } catch (_: Throwable) {}
-        return sig
+        return com.lifecyclebot.engine.sell.TxResult8087.unknown(sig, mint, "SELL", route)
     }
 
     /** V5.0.8085 — a buy refused because the mint already has an unresolved signed buy is deferred, not failed. */
@@ -2476,7 +2480,7 @@ class Executor(
     private fun raydiumSerialSell8083(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
                                       race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?,
                                       rayPlan7311: ProcessorAmountPlanner.SellPlan, raySlip7311: Int, fastLand: Boolean,
-                                      sellTradeKey: String): String? {
+                                      sellTradeKey: String): com.lifecyclebot.engine.sell.TxResult8087? {
         val reuse8083 = race?.takeIf { it.fresh() && it.rawAmount == rayPlan7311.rawAmount }?.readyOrNull(0L)
         if (reuse8083 != null) try { PipelineHealthCollector.labelInc("SELL_RACE_PREBUILD_REUSED_8083") } catch (_: Throwable) {}
         val built7311 = reuse8083 ?: try {
@@ -2487,8 +2491,8 @@ class Executor(
         }
         LiveTradeLogStore.log(
             sellTradeKey, ts.mint, ts.symbol, "SELL",
-            LiveTradeLogStore.Phase.SELL_BROADCAST,
-            "RAYDIUM sell @ ${raySlip7311}bps | txs=${built7311.transactions.size} | out≈${built7311.outLamports} lamports | sender=HELIUS_FIRST",
+            LiveTradeLogStore.Phase.SELL_TX_BUILT,
+            "RAYDIUM sell built @ ${raySlip7311}bps | txs=${built7311.transactions.size} | out≈${built7311.outLamports} lamports | sender=HELIUS_FIRST",
             slippageBps = raySlip7311, traderTag = "MEME",
         )
         return sendRaydiumBuilt8083(wallet, c, built7311, fastLand, ts.mint)
@@ -2507,7 +2511,7 @@ class Executor(
      */
     private fun trySellRace8083(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
                                 race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?, reason: String, jupiterOut: Long?,
-                                fastLand: Boolean, sellTradeKey: String): String? {
+                                fastLand: Boolean, sellTradeKey: String): com.lifecyclebot.engine.sell.TxResult8087? {
         if (race == null || race.sent) return null
         val drain = drainExit8083(reason)
         val built = race.readyOrNull(if (drain) com.lifecyclebot.engine.sell.SellRouteRace8083.DRAIN_WAIT_MS else 0L)
@@ -2517,13 +2521,19 @@ class Executor(
         }
         race.sent = true
         com.lifecyclebot.engine.sell.SellRouteRace8083.selected("RAYDIUM", ts.mint, System.currentTimeMillis() - race.startedAtMs)
-        var landed: String? = null
+        var landed: com.lifecyclebot.engine.sell.TxResult8087? = null
         try { landed = sendRaydiumBuilt8083(wallet, c, built, fastLand, ts.mint, race) } catch (e: Throwable) {
             try { ForensicLogger.lifecycle("SELL_RACE_RAYDIUM_SEND_FAILED_8083", "mint=${ts.mint.take(10)} err=${security.sanitiseForLog(e.message ?: "send_failed").take(140)}") } catch (_: Throwable) {}
         }
-        try { PipelineHealthCollector.labelInc(if (landed != null) "SELL_RACE_RAYDIUM_LANDED_8083" else "SELL_RACE_RAYDIUM_NOT_LANDED_8083") } catch (_: Throwable) {}
-        LiveTradeLogStore.log(sellTradeKey, ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BROADCAST,
-            "RACE→RAYDIUM @ ${race.slipBps}bps | out≈${built.outLamports} lamports vs jupiter=${jupiterOut ?: 0} | landed=${landed != null}",
+        // V5.0.8087 — "landed" means chain-confirmed; a kept signature with an unknown outcome is its own count.
+        try { PipelineHealthCollector.labelInc(when {
+            landed?.confirmed == true -> "SELL_RACE_RAYDIUM_LANDED_8083"
+            landed != null -> "SELL_RACE_RAYDIUM_OUTCOME_UNKNOWN_8087"
+            else -> "SELL_RACE_RAYDIUM_NOT_LANDED_8083"
+        }) } catch (_: Throwable) {}
+        LiveTradeLogStore.log(sellTradeKey, ts.mint, ts.symbol, "SELL",
+            if (landed?.confirmed == true) LiveTradeLogStore.Phase.TX_CHAIN_CONFIRMED else if (landed != null) LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN else LiveTradeLogStore.Phase.SELL_TX_BUILT,
+            "RACE→RAYDIUM @ ${race.slipBps}bps | out≈${built.outLamports} lamports vs jupiter=${jupiterOut ?: 0} | state=${landed?.state ?: "NOT_SUBMITTED"}",
             slippageBps = race.slipBps, traderTag = "MEME")
         return landed
     }
@@ -7559,11 +7569,12 @@ class Executor(
                         "Broadcasting @ ${currentSlip}bps | route=${if (activeQuote7228.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
                         traderTag = "MEME",
                     )
-                    sig = sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                    val sent8087 = sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                    sig = sent8087.signature
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                        "✅ Sig confirmed @ ${currentSlip}bps (attempt $broadcastAttempts): ${sig.take(20)}…",
+                        if (sent8087.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN,  // V5.0.8087
+                        "${if (sent8087.confirmed) "✅ Sig confirmed" else "⏳ Sig ${sent8087.state}"} @ ${currentSlip}bps (attempt $broadcastAttempts): ${sig.take(20)}…",
                         sig = sig, traderTag = "MEME",
                     )
                     break
@@ -10481,7 +10492,7 @@ class Executor(
                     val jitoTip = effectiveJitoTipLamports(c, urgent = false)
                     val ultraReqId = if (quote.isUltra) txResult.requestId else null
                     sig = try {
-                        sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c)
+                        sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c).signature
                     } catch (jupEx: Exception) {
                         // Jupiter exhausted too — final PumpPortal retry as last resort.
                         val rescue = tryPumpPortalSell(
@@ -23993,11 +24004,12 @@ class Executor(
                                 "Broadcasting @ ${currentSlip}bps | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
                                 traderTag = "MEME",
                             )
-                            sig = sellSend8085(activeWallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                            val sent8087 = sellSend8085(activeWallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                    sig = sent8087.signature
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                                "✅ Sig confirmed @ ${currentSlip}bps (attempt $broadcastAttempts): ${sig.take(20)}…",
+                                if (sent8087.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN,  // V5.0.8087
+                                "${if (sent8087.confirmed) "✅ Sig confirmed" else "⏳ Sig ${sent8087.state}"} @ ${currentSlip}bps (attempt $broadcastAttempts): ${sig.take(20)}…",
                                 sig = sig, traderTag = "MEME",
                             )
                             break
@@ -27968,7 +27980,7 @@ class Executor(
             )
             // V5.0.8083 §PARALLEL_SELL_ROUTE_RACING — the first route missed: take the racing Raydium build before walking
             // the Jupiter ladder when it is ready (drain exits wait briefly; others never block). One signed tx per attempt.
-            if (sig == null) sig = trySellRace8083(ts, wallet, c, race8083, reason, quote?.outAmount, fastLand7980, sellTradeKey)
+            if (sig == null) sig = trySellRace8083(ts, wallet, c, race8083, reason, quote?.outAmount, fastLand7980, sellTradeKey)?.signature
             // V5.9.492 — skip Jupiter ladder entirely if PUMP-FIRST landed.
             // V5.9.495d — Ultra-first fallback signal. liveSell uses
             // getQuoteWithTaker which prefers Jupiter Ultra v2 then v6
@@ -27983,6 +27995,12 @@ class Executor(
                 )
             }
             for (currentSlip in if (sig != null || jupiterQuoteUnavailable) emptyList<Int>() else broadcastSlipLadder) {
+                // V5.0.8087 — a catastrophic / stop exit waiting on this lease takes over between tiers; nothing
+                // signed is outstanding (checked), so stepping aside cannot double a sell.
+                if (com.lifecyclebot.engine.sell.CloseLease.preemptForEmergency8087(ts.mint, reason)) {
+                    lastBroadcastException = RuntimeException("PREEMPTED_BY_EMERGENCY_8087: ${ts.symbol}: stood down before signing")
+                    break
+                }
                 broadcastAttempts++
                 try {
                     // Re-quote at the new slippage tier on attempts 2+. The
@@ -28077,7 +28095,8 @@ class Executor(
 
                     onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
                     val ultraReqId = if (quote!!.isUltra) txResult.requestId else null
-                    sig = sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                    val sent8087 = sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                    sig = sent8087.signature
                     closeAuthoritySig = sig
                     try {
                         com.lifecyclebot.engine.sell.LivePositionCloseAuthority.markBroadcast(
@@ -28091,11 +28110,11 @@ class Executor(
                             generation = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
                         )
                     } catch (_: Throwable) {}
-                    onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
+                    onLog("📊 SELL DEBUG: tx ${sent8087.state} sig=${sig.take(20)}...", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                        "✅ Sell tx confirmed on-chain @ ${currentSlip}bps (attempt $broadcastAttempts)",
+                        if (sent8087.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN,  // V5.0.8087
+                        "${if (sent8087.confirmed) "✅ Sell tx confirmed on-chain" else "⏳ Sell tx ${sent8087.state} (chain + wallet decide)"} @ ${currentSlip}bps (attempt $broadcastAttempts)",
                         sig = sig, traderTag = "MEME",
                     )
                     // V5.9.767 — drive SellJobRegistry state machine end-to-end.
@@ -28196,9 +28215,12 @@ class Executor(
                     )
                     if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L && race8083?.sent != true) {
                         val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, emergencyDirectSlipBps7807(ts, reason) ?: if (isDrainExit) 2_500 else 500)
-                        val landed7311 = raydiumSerialSell8083(ts, wallet, c, race8083, rayPlan7311, raySlip7311, fastLand7980, sellTradeKey)
+                        val sent8087 = raydiumSerialSell8083(ts, wallet, c, race8083, rayPlan7311, raySlip7311, fastLand7980, sellTradeKey)
+                        val landed7311 = sent8087?.signature
                         sig = landed7311
-                        if (landed7311 != null) {
+                        // V5.0.8087 — "landed" only when chain-confirmed; an unknown outcome keeps its signature for the verifier.
+                        if (sent8087 != null && !sent8087.confirmed) onLog("⏳ RAYDIUM sell ${sent8087.state}: ${sent8087.signature.take(16)}… (chain + wallet decide)", ts.mint)
+                        if (landed7311 != null && sent8087?.confirmed == true) {
                             try {
                                 PipelineHealthCollector.labelInc("RAYDIUM_SELL_LANDED_7311")
                                 ForensicLogger.lifecycle("RAYDIUM_SELL_LANDED_7311", "mint=${ts.mint.take(10)} sig=${landed7311.take(16)} slipBps=$raySlip7311")
@@ -28269,6 +28291,15 @@ class Executor(
                 }  // end else (Pump rescue allowed branch)
             }
 
+            // V5.0.8087 — a sell that was signed (its id derived from the bytes and persisted) is never "no signature":
+            // if any route left an unresolved signed SELL for this mint, the outcome goes to confirmation under that id.
+            if (sig == null) {
+                val pending8087 = try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(ts.mint, "SELL") } catch (_: Throwable) { null }
+                if (pending8087 != null) {
+                    sig = adoptSellUnknown8085(ts.mint, pending8087.signature, pending8087.route.ifBlank { "LEDGER" }, sellTradeKey, "SIGNED_NOT_RETURNED").signature
+                    try { PipelineHealthCollector.labelInc("SELL_NO_SIGNATURE_AVOIDED_SIGNED_EXISTS_8087") } catch (_: Throwable) {}
+                }
+            }
             if (sig == null) {
                 // All in-line slippage tiers exhausted — re-throw to outer
                 // catch so we get a classified route failure. V5.0.4029 keeps
@@ -28593,7 +28624,7 @@ class Executor(
                                 senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
                             )
                             val dustSig = sellSend8085(wallet, ts.mint, dustTx, c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
-                                if (dustQuote.isUltra) dustTx.requestId else null, c)
+                                if (dustQuote.isUltra) dustTx.requestId else null, c).signature
                             
                             onLog("🧹 DUST-BUSTER SUCCESS: Sold remaining tokens | sig=${dustSig.take(20)}...", tradeId.mint)
                             
@@ -28666,7 +28697,7 @@ class Executor(
                                 senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
                             )
                                 val dustSig = sellSend8085(wallet, ts.mint, dustTx, c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
-                                    if (dustQuote.isUltra) dustTx.requestId else null, c)
+                                    if (dustQuote.isUltra) dustTx.requestId else null, c).signature
                                 onLog("🧹 DUST-BUSTER (retry) SUCCESS: sig=${dustSig.take(20)}...", tradeId.mint)
                             } catch (dustEx: Exception) {
                                 onLog("⚠️ DUST-BUSTER (retry) FAILED: ${dustEx.message?.take(60)}", tradeId.mint)
@@ -30266,7 +30297,7 @@ class Executor(
                         sweepSig = sellSend8085(wallet, mint, txResultSweep,
                             useJito, effectiveJitoTipLamports(c, urgent = true),
                             ultraReqId, c,
-                        )
+                        ).signature
                         break@sweep
                     } catch (bex: Exception) {
                         sweepLastEx = bex
@@ -30533,7 +30564,7 @@ class Executor(
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
             val sig = try {
-                sellSend8085(wallet, mint, txResult, useJito, jitoTip, ultraReqId, c)
+                sellSend8085(wallet, mint, txResult, useJito, jitoTip, ultraReqId, c).signature
             } catch (jupEx: Exception) {
                 // Final PumpPortal retry at higher slip if Jupiter died too.
                 val rescueKey = LiveTradeLogStore.keyFor(mint, System.currentTimeMillis())
@@ -30928,18 +30959,19 @@ class Executor(
             // V5.0.8085 — the PumpPortal sell is bound to (mint, SELL); a sent-but-unconfirmed outcome is adopted under its
             // own signature (the wallet verifier below decides), never returned as null for a competing route.
             com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "SELL", tokenUnits ?: 0L, route = "PUMPPORTAL"))
-            val sig = try {
-                wallet.signSendAndConfirm(
+            val res8087 = try {
+                com.lifecyclebot.engine.sell.TxResult8087.afterSend(wallet.signSendAndConfirm(
                     pumpEnv7311?.txBase64 ?: built.txBase64,
                     useJito && pumpEnv7311 == null,
                     maxOf(jitoTipLamports, 200_000L),
                     senderCompatible = pumpEnv7311 != null,
-                )
+                ), ts.mint, "SELL", "PUMPPORTAL", tokenUnits ?: 0L)
             } catch (e: SolanaWallet.SentButUnconfirmed7733) {
                 adoptSellUnknown8085(ts.mint, e.signature, "PUMPPORTAL", sellTradeKey, "SENT_UNCONFIRMED")
             } catch (e: SolanaWallet.DuplicateOrderPrevented8085) {
                 adoptSellUnknown8085(ts.mint, e.existingSignature, "PUMPPORTAL", sellTradeKey, "DUPLICATE_PREVENTED")
             }
+            val sig = res8087.signature
             if (sig.isBlank()) {
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -30949,13 +30981,16 @@ class Executor(
                 )
                 return null
             }
-            onLog("✅ PUMP-FIRST [$labelTag] SELL CONFIRMED: sig=${sig.take(20)}… (verifying wallet settlement)", ts.mint)
-            LiveTradeLogStore.log(
-                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                "✅ Tx confirmed via PumpPortal [$labelTag] @ ${slipPct}% slip — wallet settlement verify scheduled",
-                sig = sig, traderTag = traderTag,
-            )
+            // V5.0.8087 — "confirmed" only when the chain confirmed it; an adopted unknown keeps its signature for reconciliation.
+            if (res8087.confirmed) {
+                onLog("✅ PUMP-FIRST [$labelTag] SELL CONFIRMED: sig=${sig.take(20)}… (verifying wallet settlement)", ts.mint)
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                    "✅ Tx confirmed via PumpPortal [$labelTag] @ ${slipPct}% slip — wallet settlement verify scheduled",
+                    sig = sig, traderTag = traderTag,
+                )
+            } else onLog("⏳ PUMP-FIRST [$labelTag] sell ${res8087.state}: sig=${sig.take(20)}… (chain + wallet reconciliation decide)", ts.mint)
             // V5.9.767 — drive SellJobRegistry state machine end-to-end (pump path).
             // Final LANDED transition is asserted by the reconciler when on-chain
             // balance reaches zero (the bg verify launches below; we cannot

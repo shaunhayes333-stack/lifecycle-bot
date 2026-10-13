@@ -168,7 +168,9 @@ class Aate7807ProtectiveExitPolicyTest {
         assertTrue(ex.contains("\"EMERGENCY_EXIT_SLIP_ESCALATED_7807\""))
         assertTrue(src("engine/sell/CloseLease.kt").contains("\"EMERGENCY_EXIT_RETRY_7807\""))
         assertTrue(src("engine/truth/ProtectiveExitScheduler6450.kt").contains("\"EMERGENCY_EXIT_RETRY_7807\""))
-        assertTrue(src("engine/LiveTradeLogStore.kt").contains("ExitTelemetryStamper6732.noteBroadcast7807(mint)"))
+        // V5.0.8087 — the broadcast stamp moved from the pre-send SELL_BROADCAST log to the first real submission.
+        assertFalse(src("engine/LiveTradeLogStore.kt").contains("ExitTelemetryStamper6732.noteBroadcast7807(mint)"))
+        assertTrue(src("network/SignedTxLedger8085.kt").contains("ExitTelemetryStamper6732.noteBroadcast7807(mint)"))
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("ExitTelemetryStamper6732.noteTrigger7807("))
         assertTrue(bot.contains("ProtectiveExitClass7807.retryDelayMs(exit.reason, 1, 10_000L)"))

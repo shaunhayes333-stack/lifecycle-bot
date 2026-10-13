@@ -61,7 +61,8 @@ object FdgReEvalThrottle {
         val e = cache[key] ?: return null
         val now = System.currentTimeMillis()
         if (now - e.atMs > TTL_MS) { cache.remove(key); return null }
-        if (kotlin.math.abs(scoreNow - e.score) >= SCORE_DELTA_BUST) { cache.remove(key); return null }
+        if (kotlin.math.abs(scoreNow - e.score) >= SCORE_DELTA_BUST) { cache.remove(key); scoreBusts8087.incrementAndGet(); return null }
+        cacheReuse8087.incrementAndGet()
         return e.verdict
     }
 
@@ -75,9 +76,52 @@ object FdgReEvalThrottle {
     ) {
         cache[Key(mint, candidateVersion, lane.uppercase(), evidenceVersion)] =
             Entry(verdict, score, System.currentTimeMillis())
+        noteDecision8087(mint, candidateVersion, lane, evidenceVersion)
+    }
+
+    // ── V5.0.8087 — unique causal FDG decisions, separate from repeated evaluations ──
+    //
+    // The doctor divided every gate outcome (cache reuse, watchlist re-proposals, legacy mirror rows) by intake and
+    // raised FDG_FANOUT_EXPLOSION HIGH at 4.05/intake while only 33 sealed allows existed. A decision is unique per
+    // (mode, mint, candidateVersion, lane, evidenceVersion); a re-evaluation of the same identity is overhead, not fanout.
+    private const val SEEN_CAP_8087 = 20_000
+    private val seen8087 = java.util.Collections.synchronizedMap(object : java.util.LinkedHashMap<String, Boolean>(1024, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean = size > SEEN_CAP_8087
+    })
+    private val unique8087 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val repeatSameEvidence8087 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val cacheReuse8087 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val scoreBusts8087 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val lanesPerCandidate8087 = ConcurrentHashMap<String, MutableSet<String>>()
+
+    internal fun noteDecision8087(mint: String, candidateVersion: Long, lane: String, evidenceVersion: String) {
+        val mode = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "?" }
+        val id = "$mode|$mint|$candidateVersion|${lane.uppercase()}|$evidenceVersion"
+        val fresh = seen8087.put(id, true) == null
+        if (fresh) unique8087.incrementAndGet() else repeatSameEvidence8087.incrementAndGet()
+        if (fresh) {
+            val cand = "$mode|$mint|$candidateVersion"
+            lanesPerCandidate8087.computeIfAbsent(cand) { ConcurrentHashMap.newKeySet() }.add(lane.uppercase())
+            if (lanesPerCandidate8087.size > SEEN_CAP_8087) lanesPerCandidate8087.keys.take(SEEN_CAP_8087 / 4).forEach { lanesPerCandidate8087.remove(it) }
+        }
+    }
+
+    /** Unique causal decisions; 0 on builds/paths that never sealed through this throttle. */
+    fun uniqueDecisions8087(): Long = unique8087.get()
+
+    /** unique, re-evaluated with unchanged evidence, cache reuse, score busts, mean lanes per candidate. */
+    fun fanoutLine8087(): String {
+        val cands = lanesPerCandidate8087.size
+        val lanes = lanesPerCandidate8087.values.sumOf { it.size }
+        val perCand = if (cands > 0) lanes.toDouble() / cands else 0.0
+        return "unique=${unique8087.get()} repeatSameEvidence=${repeatSameEvidence8087.get()} cacheReuse=${cacheReuse8087.get()} " +
+            "scoreBusts=${scoreBusts8087.get()} candidates=$cands lanesPerCandidate=${"%.2f".format(perCand)}"
     }
 
     fun invalidate(mint: String) { cache.keys.removeIf { it.mint == mint } }
-    fun clear() { cache.clear() }
+    fun clear() {
+        cache.clear(); seen8087.clear(); lanesPerCandidate8087.clear()
+        unique8087.set(0L); repeatSameEvidence8087.set(0L); cacheReuse8087.set(0L); scoreBusts8087.set(0L)
+    }
     fun size(): Int = cache.size
 }

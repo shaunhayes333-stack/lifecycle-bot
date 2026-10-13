@@ -15016,4 +15016,25 @@ class GoldenTapeRegressionTest {
         assertTrue("backup carries learning store", java.io.File("src/main/kotlin/com/lifecyclebot/engine/PersistentLearning.kt").readText().contains("LearningPersistence.exportRows8086()"))
         assertTrue("android backup is learning-only", java.io.File("src/main/res/xml/learning_data_extraction_8086.xml").readText().contains("path=\"learning_kv.db\""))
     }
+
+    @Test
+    fun V5_0_8087_execution_truth_is_typed_and_emergencies_never_queue_behind_ordinary_sells() {
+        fun f(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
+        val ex = f("engine/Executor.kt")
+        assertTrue("typed tx result exists", f("engine/sell/TxResult8087.kt").contains("SUBMITTED_UNKNOWN"))
+        assertTrue("pumpportal confirms only on chain truth", ex.contains("if (res8087.confirmed) {"))
+        assertTrue("race outcome unknown labelled", ex.contains("SELL_RACE_RAYDIUM_OUTCOME_UNKNOWN_8087"))
+        assertTrue("signed sell never no-signature", ex.contains("SELL_NO_SIGNATURE_AVOIDED_SIGNED_EXISTS_8087"))
+        assertTrue("ordinary sell preempted before signing", ex.contains("CloseLease.preemptForEmergency8087(ts.mint, reason)"))
+        assertTrue("emergency handoff wired", f("engine/BotService.kt").contains("CloseLease.emergencyHandoff8087 = { mint8087, reason8087 ->"))
+        assertTrue("broadcast stamped at real submission", f("network/SignedTxLedger8085.kt").contains("ExitTelemetryStamper6732.noteBroadcast7807(mint)"))
+        assertFalse("pre-send log no longer stamps broadcast", f("engine/LiveTradeLogStore.kt").contains("ExitTelemetryStamper6732.noteBroadcast7807(mint)"))
+        assertTrue("expiry attributed", f("network/SignedTxLedger8085.kt").contains("TX_EXPIRED_ATTRIBUTED_8087"))
+        assertTrue("only genuine no-match is NO_TRIGGER", f("engine/cortex/LanePlaybook7907.kt").contains("classify8084(ts, laneRaw, nowMs)?.consumerTag8087"))
+        assertTrue("unique fdg fanout", f("engine/InvariantGuardian.kt").contains("val fdgDecisions = if (unique8087 > 0L) unique8087 else fdgGateEffective8087"))
+        assertTrue("skew per lineage", f("engine/ForensicReconciler6377.kt").contains("val skew = qtySkew8087(buys, sells) { pid -> canonicalOriginalQty8087(pid) }"))
+        assertTrue("close credited to entry owner", f("engine/sell/SellFinalizationCoordinator.kt").contains("EntryCohortAttribution7051.entryOwnerLane8087(positionId, traderTag)"))
+        assertTrue("layer-up keeps runner identity", f("engine/BotService.kt").contains("LAYER_TRANSITION_RUNNER_IDENTITY_KEPT_8087"))
+        assertTrue("cold histories trimmed", f("engine/MemoryGuard7977.kt").contains("trimColdHistories8087()"))
+    }
 }

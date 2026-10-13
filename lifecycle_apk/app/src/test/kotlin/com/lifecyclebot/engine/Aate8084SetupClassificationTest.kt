@@ -81,7 +81,8 @@ class Aate8084SetupClassificationTest {
         assertNull(LaneEvidence8077.choose(listOf(LaneEvidence8077.Setup("X", Double.NaN, 3.0, Double.NaN, Double.NaN))))
         val c = LanePlaybook7907.decide8084("SHITCOIN", listOf("X", "Y"), emptyList(), null, emptyList(), emptyList(), 1, now)
         assertEquals(Outcome8084.MATCHES_UNRANKABLE, c.outcome); assertEquals(listOf("X", "Y"), c.matched)
-        assertEquals(LanePlaybook7907.NO_TRIGGER, c.tag); assertTrue(c.noMatchCohort)
+        // V5.0.8087 — unrankable matches are their own cohort, never pooled into NO_TRIGGER.
+        assertEquals(LanePlaybook7907.UNRANKABLE_8087, c.tag); assertFalse(c.noMatchCohort); assertNull(c.consumerTag8087)
         // a "best" that never fired is not a selection
         assertEquals(Outcome8084.MATCHES_UNRANKABLE, LanePlaybook7907.decide8084("SHITCOIN", listOf("X"), emptyList(), "Z", emptyList(), emptyList(), 1, now).outcome)
     }
@@ -148,6 +149,6 @@ class Aate8084SetupClassificationTest {
         assertTrue(src("engine/BotService.kt").contains("ts.priceChangeObservedAtMs8084 = System.currentTimeMillis()"))
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(g.contains("LanePlaybook7907.liveRefusal(ts, l, nowMs)"))
-        assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("if (setup == NO_TRIGGER && !c8084.noMatchCohort) return null"))
+        assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("if (c8084.outcome != Outcome8084.MATCHED && c8084.outcome != Outcome8084.NO_MATCH) return null"))
     }
 }

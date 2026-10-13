@@ -47,7 +47,7 @@ class Aate7876PivotAndExitTimingTest {
         ExitStageTiming7876.onPhase(mint, "SELL_START", t0 + 4_000L)        // queued 4 s
         ExitStageTiming7876.onPhase(mint, "SELL_QUOTE_FAIL", t0 + 10_000L)  // 6 s quote ladder
         ExitStageTiming7876.onPhase(mint, "SELL_START", t0 + 18_000L)       // 8 s until re-dispatch
-        ExitStageTiming7876.onPhase(mint, "SELL_BROADCAST", t0 + 19_000L)
+        ExitStageTiming7876.onPhase(mint, "TX_SUBMIT_ATTEMPTED", t0 + 19_000L)   // V5.0.8087 — real submission
         ExitStageTiming7876.onPhase(mint, "SELL_CONFIRMED", t0 + 30_000L)
         val line = ExitStageTiming7876.statusLine()
         assertTrue(line, line.contains("HARD_STOP[queue=avg4000/max4000ms"))

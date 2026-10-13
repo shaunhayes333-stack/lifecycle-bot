@@ -66,7 +66,7 @@ class Aate7948ExitLatencyTest {
         assertTrue(ExitStageTiming7876.onTrigger(m, StopLatencyClasses6464.Class.TRAILING_STOP, t0, t0))
         ExitStageTiming7876.onPhase(m, "SELL_START", t0 + 500L)
         ExitStageTiming7876.withdrawUndispatched7948(m)    // dispatched: kept
-        ExitStageTiming7876.onPhase(m, "SELL_BROADCAST", t0 + 1_500L)
+        ExitStageTiming7876.onPhase(m, "TX_SUBMIT_ATTEMPTED", t0 + 1_500L)   // V5.0.8087 — real submission
         ExitStageTiming7876.closeUnbroadcast7948(m)        // awaiting outcome: kept
         assertFalse(ExitStageTiming7876.onTrigger(m, StopLatencyClasses6464.Class.TRAILING_STOP, t0 + 30_000L, t0 + 30_000L))
         // past the outcome window a new condition stamps again

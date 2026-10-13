@@ -353,9 +353,9 @@ object LiveTradeLogStore {
         // Sender) logs SELL_BROADCAST immediately before it signs and sends, so
         // this is the one place a trigger -> broadcast sample can close for all
         // of them (Field Manual L248).
-        if (phase == Phase.SELL_BROADCAST && side == "SELL") {
-            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteBroadcast7807(mint) } catch (_: Throwable) {}
-        }
+        // V5.0.8087 — that log precedes the network call; trigger -> broadcast now closes at the signed
+        // transaction's first submission (SignedTxLedger8085.transition SUBMIT_ATTEMPTED), so a slow quote,
+        // build or sign is inside the sample instead of hiding after it.
         // V5.0.7876 — per-stage live exit timing (trigger stamped by ExitTelemetryStamper6732).
         if (side == "SELL" && modeTag == "LIVE") {
             try { com.lifecyclebot.engine.truth.ExitStageTiming7876.onPhase(mint, phase.name) } catch (_: Throwable) {}

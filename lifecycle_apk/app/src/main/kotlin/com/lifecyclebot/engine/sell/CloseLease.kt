@@ -50,6 +50,11 @@ object CloseLease {
         // Retryable failures keep the lease but flip this false so a later tick
         // can reuse the lease after backoff instead of waiting for 10m TTL.
         @Volatile var inFlight: Boolean = true,
+        // V5.0.8087 — an emergency that arrived while this attempt was running. The attempt ends and the
+        // emergency is handed straight to a worker (no redispatch wait); before the attempt has signed
+        // anything it is asked to stand down (preemptForEmergency8087).
+        @Volatile var emergencyWaiting8087: String? = null,
+        @Volatile var emergencyWaitingSinceMs8087: Long = 0L,
         // V5.0.3996 — atomic sell-finality contract. Pending finality is NOT an
         // active buy-blocking lease, but it must keep retry metadata alive until
         // proof arrives or the hard TTL clears it. Generic residue reaping may
@@ -159,6 +164,7 @@ object CloseLease {
             // Idempotent merge: raise the exit-reason priority on the wait, but
             // do not spawn a second worker / lease / suppressed-duplicate metric.
             BalanceProofWaitState.markWaiting(mint, symbol, rawReason)
+            queueCause8087(mint, rawReason, "PROOF_WAIT")
             try {
                 ForensicLogger.lifecycle("SELL_LEASE_DEFERRED_PROOF_WAIT",
                     "mint=${mint.take(10)} symbol=$symbol reason=$rawReason " +
@@ -185,6 +191,13 @@ object CloseLease {
             }
             if (existing.inFlight || (now < existing.nextEligibleMs && !emergencyEligible7807)) {
                 _dupSuppressed.incrementAndGet()
+                if (emergency7807 && existing.inFlight) {
+                    // Coalesce: one owner per mint; the stronger reason rides the existing lease and is
+                    // dispatched the instant the running attempt ends (or stands down before signing).
+                    existing.emergencyReason7807?.let { existing.emergencyWaiting8087 = it }
+                    if (existing.emergencyWaitingSinceMs8087 == 0L) existing.emergencyWaitingSinceMs8087 = now
+                }
+                queueCause8087(mint, rawReason, if (existing.inFlight) "LEASE_IN_FLIGHT" else "BACKOFF")
                 try {
                     ForensicLogger.lifecycle("SELL_DUPLICATE_SUPPRESSED",
                         "mint=${mint.take(10)} symbol=$symbol heldAttempts=${existing.closeAttemptCount} " +
@@ -230,6 +243,8 @@ object CloseLease {
         // If the route did not set provider-specific backoff, still prevent an
         // immediate same-tick retry storm while allowing the next cycle through.
         if (l.nextEligibleMs <= now) l.nextEligibleMs = now + 2_000L
+        // V5.0.8087 — an emergency queued behind this attempt does not inherit its backoff.
+        l.emergencyWaiting8087?.let { r -> l.nextEligibleMs = now; handoff8087(mint, r, l) }
         try {
             ForensicLogger.lifecycle("SELL_RETRY_SCHEDULED",
                 "mint=${mint.take(10)} attempt=${l.closeAttemptCount} reason=$failureCode " +
@@ -312,6 +327,7 @@ object CloseLease {
     @Synchronized
     fun release(mint: String, terminal: String) {
         val l = leases.remove(mint) ?: return
+        l.emergencyWaiting8087?.let { r -> handoff8087(mint, r, l) }
         try {
             ForensicLogger.lifecycle("SELL_LEASE_RELEASED",
                 "mint=${mint.take(10)} terminal=$terminal attempts=${l.closeAttemptCount} " +
@@ -320,6 +336,53 @@ object CloseLease {
     }
 
     fun attemptCount(mint: String): Int = current(mint)?.closeAttemptCount ?: 0
+
+    // ── V5.0.8087 — catastrophic exits do not queue behind a running attempt ──
+    //
+    // 5.0.8086 live: a catastrophic exit spent 58 s between trigger and its first worker. The lease was held
+    // by an attempt already running for the mint; the emergency was suppressed as a duplicate and waited for
+    // the protective redispatch to come round again. Now it is coalesced onto the lease, the running attempt
+    // stands down between tiers if it has not signed anything, and the emergency is handed to a worker the
+    // moment the attempt ends. A signed-but-unresolved sell is never doubled: its own confirmation and
+    // same-bytes rebroadcast continue, and the hand-off answers from that outcome.
+
+    /** Set by BotService: dispatch [reason] for [mint] on the emergency pool. */
+    @Volatile var emergencyHandoff8087: ((mint: String, reason: String) -> Unit)? = null
+
+    private fun handoff8087(mint: String, reason: String, l: Lease) {
+        val waitedMs = if (l.emergencyWaitingSinceMs8087 > 0L) System.currentTimeMillis() - l.emergencyWaitingSinceMs8087 else 0L
+        l.emergencyWaiting8087 = null
+        l.emergencyWaitingSinceMs8087 = 0L
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_EMERGENCY_HANDOFF_8087")
+            ForensicLogger.lifecycle("EXIT_EMERGENCY_HANDOFF_8087", "mint=${mint.take(10)} reason=${reason.take(60)} waitedMs=$waitedMs")
+        } catch (_: Throwable) {}
+        val h = emergencyHandoff8087 ?: run {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_EMERGENCY_HANDOFF_NO_DISPATCHER_8087") } catch (_: Throwable) {}
+            return
+        }
+        try { h(mint, reason) } catch (_: Throwable) {}
+    }
+
+    /**
+     * True when a running, non-emergency attempt should stand down: an emergency is waiting on its lease and
+     * no signed sell for the mint is unresolved (nothing on the wire can be doubled by the hand-off).
+     */
+    fun preemptForEmergency8087(mint: String, runningReason: String): Boolean {
+        val l = current(mint) ?: return false
+        if (l.emergencyWaiting8087 == null) return false
+        if (ProtectiveExitClass7807.isEmergency(runningReason)) return false
+        if (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(mint, "SELL") != null } catch (_: Throwable) { true }) return false
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_ATTEMPT_PREEMPTED_BY_EMERGENCY_8087") } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun queueCause8087(mint: String, reason: String, cause: String) {
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_QUEUE_CAUSE_${cause}_8087")
+            com.lifecyclebot.engine.truth.ExitStageTiming7876.noteQueueCause8087(mint, cause)
+        } catch (_: Throwable) {}
+    }
 
     fun canonicalReason(raw: String): String =
         raw.replace(Regex("^(PENDING_RETRY_\\d+:\\s*)+"), "").trim().ifBlank { "exit" }
