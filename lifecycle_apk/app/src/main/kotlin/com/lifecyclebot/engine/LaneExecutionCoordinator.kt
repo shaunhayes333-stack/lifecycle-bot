@@ -293,6 +293,32 @@ object LaneExecutionCoordinator {
         return winner
     }
 
+    /**
+     * 8081 READY-owner handoff: upstream cycle routing must consume the SAME
+     * candidate-specific election it will face at the executor. Do not elect
+     * a new owner over a forced operator lane or an already sealed FDG decision.
+     * No gates are bypassed: identity, enabled desks, FDG and capital still apply.
+     */
+    internal fun readyOwnerForCycle8081(
+        ts: com.lifecyclebot.data.TokenState,
+        proposed: String,
+        eligibleLanes: Set<String>,
+        operatorForced: Boolean,
+    ): String {
+        if (operatorForced) return proposed
+        if (currentElection6600(ts.mint)?.sealed == true) return proposed
+        val ready = preferredReadyOwner7820(ts.mint) ?: return proposed
+        if (ready !in eligibleLanes ||
+            !LaneEntryContract6342.isLaneIdentityEligible7252(ts, ready)) return proposed
+        if (ready == "CYCLIC" && !CyclicTradeEngine.isEnabled()) return proposed
+        if (ready != proposed) try {
+            PipelineHealthCollector.labelInc("CYCLE_READY_OWNER_HANDOFF_8081_$ready")
+            ForensicLogger.lifecycle("CYCLE_READY_OWNER_HANDOFF_8081",
+                "mint=${ts.mint.take(10)} previously=$proposed ready=$ready action=preseal_only")
+        } catch (_: Throwable) {}
+        return ready
+    }
+
     private fun secondaryFresh7803(
         mint: String,
         candidateVersion: Long,
