@@ -489,14 +489,18 @@ object LaneHunter7297 {
             val (lo, hi) = fluidBand(p.baseMin, p.baseMax, bucketStatsFor(p.lane))
             p.lane to snap.rows
                 .filter { it.mcapUsd in lo..hi && p.fits(it) }
-                .sortedByDescending { r ->
+                // Compute each expensive evidence/ranking multiplier exactly
+                // once per candidate, not O(n log n) times inside TimSort's
+                // comparator. Preserve the original score and stable tie order.
+                .map { r ->
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
-                    p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
+                    r to (p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
                         (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r) *
                         commonSenseMult7797(p.lane, r) * adaptiveTimingMultiplier7812(p.lane, r) *
-                        com.lifecyclebot.engine.ExpertTraderKnowledge7813.marketRankMultiplier7813(p.lane, r)
+                        com.lifecyclebot.engine.ExpertTraderKnowledge7813.marketRankMultiplier7813(p.lane, r))
                 }
-                .map { it.mint }
+                .sortedByDescending { it.second }
+                .map { it.first.mint }
         }
         // V5.0.7803 — DO NOT deal the market into mutually-exclusive hunter
         // buckets. Each specialist owns a resident candidate book and may watch
