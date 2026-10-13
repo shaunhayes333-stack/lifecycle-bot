@@ -54,7 +54,17 @@ object SellReasonClassifier {
      * for that verified partial without inventing the missing remainder.
      */
     fun fromChainConsumption8081(reason: String?, fullConsumed: Boolean): ExitReason {
-        if (fullConsumed) return fullExitFromString(reason)
+        if (fullConsumed) {
+            val r = reason.orEmpty().uppercase()
+            // A catastrophe STOP is a hard protective stop, not necessarily
+            // evidence of an actual rug/drain. Preserve the structural class
+            // only when the reason expressly identifies structural danger.
+            if (r.contains("CATASTROPHE") && r.contains("STOP") &&
+                listOf("RUG", "LIQUIDITY", "DRAIN", "HONEYPOT").none { r.contains(it) }) {
+                return ExitReason.HARD_STOP
+            }
+            return fullExitFromString(reason)
+        }
         return when (val classified = fromString(reason)) {
             ExitReason.RUG_DRAIN, ExitReason.HARD_STOP, ExitReason.MANUAL_FULL_EXIT -> ExitReason.STOP_LOSS
             else -> classified
