@@ -114,15 +114,18 @@ class Aate8080TradeFirstTest {
 
     @Test fun paperApprovesWhatLiveApprovesAtTheEconomicStep() {
         val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val c = f.substring(f.indexOf("§PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS"), f.indexOf("tags.add(\"class:\${approvalClass.name}\")"))
-        // no paper-only quality/edge benchmark: live never requires them (C-grade is size-only live)
-        assertFalse(c.contains("wouldPassLiveQuality"))
-        assertFalse(c.contains("wouldPassLiveEdge"))
-        // paper-only rescues stay off the canonical book
-        assertTrue(c.contains("confidenceProbe || \"behavior_paper_full_bypass\" in tags ->"))
-        assertTrue(c.contains("adjustedConfidence < liveAdaptiveConf ->"))
-        assertTrue(c.contains("ApprovalClass.PAPER_BENCHMARK to \"benchmark: live-equivalent"))
+        val eval = f.substringAfter("fun evaluate(").substringBefore("fun invalidateCandidate6734")
+        assertFalse(eval.contains("wouldPassLiveQuality"))
+        assertFalse(eval.contains("wouldPassLiveEdge"))
+        assertTrue(eval.contains("else -> paperApprovalClass8080("))
         assertTrue(f.contains("TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK"))
+
+        // C-grade, SKIP edge, soft-shape probe at the live bar: live takes it, so paper does
+        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_BENCHMARK, FinalDecisionGate.paperApprovalClass8080(false, false, 40.0, 35.0, "SKIP", "C", true, 0.25).first)
+        // paper-only rescues stay shadow
+        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_PROBE, FinalDecisionGate.paperApprovalClass8080(true, false, 40.0, 35.0, "STRONG", "A", false, 1.0).first)
+        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_PROBE, FinalDecisionGate.paperApprovalClass8080(false, true, 40.0, 35.0, "STRONG", "A", false, 1.0).first)
+        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_EXPLORATION, FinalDecisionGate.paperApprovalClass8080(false, false, 30.0, 35.0, "STRONG", "A", false, 1.0).first)
     }
 
     @Test fun laneLogicNeverEmitsAProbeBuyTheGateMustRefuse() {

@@ -195,6 +195,27 @@ object FinalDecisionGate {
         return verdict
     }
 
+    /**
+     * V5.0.8080 §PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS. The LIVE branch of evaluate() approves every
+     * decision that reaches classification; PAPER additionally demanded quality A/B and a live
+     * edge, which LIVE itself never requires (C-grade is size-only in live, 4099/4162). In the
+     * 5.0.8079/8080 smoke that refused every paper buy (NON_ECONOMIC_APPROVAL_7835), so paper
+     * could not rehearse the trades live takes. Only rescues that exist in PAPER alone stay off
+     * the canonical book: the bootstrap confidence rescue, the behaviour-block paper bypass, and
+     * confidence below the live adaptive bar.
+     */
+    internal fun paperApprovalClass8080(
+        confidenceProbe: Boolean, behaviorPaperBypass: Boolean, adjustedConfidence: Double,
+        liveAdaptiveConf: Double, edgeName: String, setupQuality: String, softProbe: Boolean, sizeMult: Double,
+    ): Pair<ApprovalClass, String> = when {
+        confidenceProbe || behaviorPaperBypass ->
+            ApprovalClass.PAPER_PROBE to "probe: paper-only rescue (conf_probe=$confidenceProbe behavior_bypass=$behaviorPaperBypass) size×${"%.2f".format(sizeMult)}"
+        adjustedConfidence < liveAdaptiveConf ->
+            ApprovalClass.PAPER_EXPLORATION to "exploration: conf=${adjustedConfidence.toInt()}%<${liveAdaptiveConf.toInt()}% (live bar)"
+        else ->
+            ApprovalClass.PAPER_BENCHMARK to "benchmark: live-equivalent (edge=$edgeName quality=$setupQuality conf=${adjustedConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}% softProbe=$softProbe)"
+    }
+
     fun invalidateCandidate6734(mint: String) {
         fdgVerdictCache.keys.removeIf { it.contains("|${runtimeGenerationKey()}|$mint|") }
         FdgReEvalThrottle.invalidate(mint)
@@ -5155,23 +5176,12 @@ object FinalDecisionGate {
                     }
             }"
             !config.paperMode -> ApprovalClass.LIVE to "live mode approval (adaptive conf: ${liveAdaptiveConf.toInt()}%)"
-            else -> {
-                // V5.0.8080 §PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS. The LIVE branch above approves every
-                // decision that reached here; PAPER additionally demanded quality A/B and a live
-                // edge, which LIVE itself never requires (C-grade is size-only in live, 4099/4162).
-                // In 5.0.8079/8080 smoke that refused every paper buy (NON_ECONOMIC_APPROVAL_7835),
-                // so paper could not rehearse the trades live takes. Only rescues that exist in
-                // PAPER alone stay off the canonical book: the bootstrap confidence rescue, the
-                // behaviour-block paper bypass, and confidence below the live adaptive bar.
-                when {
-                    confidenceProbe || "behavior_paper_full_bypass" in tags ->
-                        ApprovalClass.PAPER_PROBE to "probe: paper-only rescue (conf_probe=$confidenceProbe behavior_bypass=${"behavior_paper_full_bypass" in tags}) size×${combinedSizeMultiplier.format(2)}"
-                    adjustedConfidence < liveAdaptiveConf ->
-                        ApprovalClass.PAPER_EXPLORATION to "exploration: conf=${adjustedConfidence.toInt()}%<${liveAdaptiveConf.toInt()}% (live bar)"
-                    else ->
-                        ApprovalClass.PAPER_BENCHMARK to "benchmark: live-equivalent (edge=${edgeVerdict.name} quality=${candidate.setupQuality} conf=${adjustedConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}% softProbe=$isAnyProbe)"
-                }
-            }
+            // V5.0.8080 §PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS — classified in a helper so evaluate()
+            // gains no locals or string templates (ART verifier register limit, smoke 65cc9e0ec).
+            else -> paperApprovalClass8080(
+                confidenceProbe, "behavior_paper_full_bypass" in tags, adjustedConfidence,
+                liveAdaptiveConf, edgeVerdict.name, candidate.setupQuality, isAnyProbe, combinedSizeMultiplier,
+            )
         }
 
         tags.add("class:${approvalClass.name}")
