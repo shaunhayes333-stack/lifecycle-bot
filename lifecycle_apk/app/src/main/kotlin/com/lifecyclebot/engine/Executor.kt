@@ -20405,6 +20405,13 @@ class Executor(
             if (pumpFirstResult == null) run jupiterBuy7325@{
             // V5.0.7327 — the Jupiter quote lives inside this block so it smart-casts; the outer `quote` is published at the end.
             var jq7325: com.lifecyclebot.network.SwapQuote? = null
+            // V5.0.8089 — Jupiter's swap builder has been answering 5xx: try the Raydium builder first for this
+            // buy (venue pivot, advisory). Jupiter is still attempted below when Raydium has no pool.
+            if (JupiterApi.swapBuildDegraded8089()) {
+                try { PipelineHealthCollector.labelInc("LIVE_BUY_VENUE_FIRST_JUPITER_DEGRADED_8089") } catch (_: Throwable) {}
+                raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+                if (raydiumBuy7325 != null) return@jupiterBuy7325
+            }
             // V5.9.495d — explicit Ultra-first signal for forensics.
             // getQuoteWithSlippageGuard internally tries Jupiter Ultra v2
             // first then falls back to v6 Metis on RFQ rejection — log
@@ -20581,10 +20588,8 @@ class Executor(
             }
 
             var executionQuote7688 = requireNotNull(jq7325) { "JUPITER_QUOTE_MISSING_BEFORE_BUILD_7688" }
-            var txResultLocal = buildTxWithRetry(
-                        executionQuote7688, wallet.publicKeyB58,
-                        senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
-                    )
+            var txResultLocal = buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c) { raydiumBuy7325 = it }
+                ?: return@jupiterBuy7325  // V5.0.8089 — Jupiter /swap 5xx: the Raydium builder filled this buy instead
             txResult = txResultLocal
             buyPhase("SWAP_BUILT")
             LiveTradeLogStore.log(
@@ -30407,6 +30412,35 @@ class Executor(
         return validated.quote
     }
 
+    /**
+     * V5.0.8089 — build the live buy through Jupiter; when the builder answers 5xx (503 Service Unavailable),
+     * the quote is sound but the provider is down, so the buy pivots to the Raydium builder instead of aborting.
+     * Returns the Jupiter tx, or null after Raydium filled the buy (reported through [onRaydiumFill]); any other
+     * build failure, or a Raydium miss, rethrows the Jupiter error so the buy fails with its true cause.
+     */
+    private fun buildBuyTxOrRaydium8089(
+        ts: TokenState, wallet: SolanaWallet, sol: Double, tradeKey: String,
+        quote: com.lifecyclebot.network.SwapQuote, c: com.lifecyclebot.data.BotConfig,
+        onRaydiumFill: (Pair<String, Double>) -> Unit,
+    ): com.lifecyclebot.network.SwapTxResult? {
+        return try {
+            buildTxWithRetry(quote, wallet.publicKeyB58, senderTipLamports = effectiveSenderTipLamports(c, urgent = false))
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (!JupiterApi.isTransientPostFailure8089(e.message)) throw e
+            try { PipelineHealthCollector.labelInc("LIVE_BUY_BUILD_5XX_RAYDIUM_FALLBACK_8089") } catch (_: Throwable) {}
+            LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.INFO,
+                "Jupiter builder unavailable (${e.message?.take(60)}) → RAYDIUM builder", solAmount = sol, traderTag = "MEME")
+            val fill = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+            if (fill == null) {
+                try { PipelineHealthCollector.labelInc("LIVE_BUY_BUILD_5XX_NO_VENUE_8089") } catch (_: Throwable) {}
+                throw e
+            }
+            onRaydiumFill(fill)
+            null
+        }
+    }
+
     private fun buildTxWithRetry(
         quote: com.lifecyclebot.network.SwapQuote, pubkey: String,
         dynamicSlippageMaxBps: Int? = null,
@@ -30417,6 +30451,9 @@ class Executor(
             jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports)
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "⚠️ buildSwapTx attempt 1 failed: ${e.javaClass.simpleName} | ${e.message?.take(120)}")
+            // V5.0.8089 — a Jupiter 5xx was already retried per host inside postOrThrow; a second full build
+            // only burns the buy window, so the transient error goes straight to the venue pivot.
+            if (JupiterApi.isTransientPostFailure8089(e.message)) throw e
             Thread.sleep(1000)
             try {
                 jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports)

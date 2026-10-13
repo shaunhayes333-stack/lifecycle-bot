@@ -978,10 +978,18 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 
                 // Check if error is retryable
                 val errorMsg = e.message?.lowercase() ?: ""
+                // V5.0.8089 — a 5xx from /execute is Jupiter's outage: an RFQ order can only land through /execute,
+                // so it is retried; a non-RFQ order skips the retries and goes straight to RPC self-broadcast below.
+                val post5xx8089 = JupiterApi.isTransientPostFailure8089(e.message) && !errorMsg.contains("timeout")
+                if (post5xx8089 && !isRfqRoute) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ULTRA_EXECUTE_5XX_RPC_FALLBACK_8089") } catch (_: Throwable) {}
+                    break
+                }
                 val isRetryable = errorMsg.contains("timeout") || 
                                   errorMsg.contains("rate") ||
                                   errorMsg.contains("network") ||
                                   errorMsg.contains("server") ||
+                                  post5xx8089 ||                  // V5.0.8089 — RFQ: /execute 5xx retried with backoff
                                   errorMsg.contains("-1000") ||  // Failed to land
                                   errorMsg.contains("-1005") ||  // Expired after attempts
                                   errorMsg.contains("-1006")     // Timed out

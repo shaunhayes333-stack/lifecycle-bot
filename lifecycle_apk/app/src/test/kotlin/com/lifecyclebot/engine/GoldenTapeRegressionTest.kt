@@ -15018,6 +15018,18 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
+    fun V5_0_8089_jupiter_post_outage_pivots_live_buys_to_raydium_instead_of_aborting() {
+        fun f(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
+        val ex = f("engine/Executor.kt"); val jup = f("network/JupiterApi.kt")
+        assertTrue("5xx is transient, retried per host", jup.contains("if (isPost5xx8089(code)) {"))
+        assertTrue("builder degradation gauge", jup.contains("JUPITER_BUILD_DEGRADED_VENUE_FIRST_8089"))
+        assertTrue("live buy build 5xx falls to Raydium", ex.contains("LIVE_BUY_BUILD_5XX_RAYDIUM_FALLBACK_8089"))
+        assertTrue("degraded builder → venue first", ex.contains("LIVE_BUY_VENUE_FIRST_JUPITER_DEGRADED_8089"))
+        assertTrue("non-RFQ ultra execute 5xx → RPC", f("network/SolanaWallet.kt").contains("ULTRA_EXECUTE_5XX_RPC_FALLBACK_8089"))
+        assertFalse("no new hard block", ex.contains("JUPITER_DEGRADED_BUY_BLOCKED"))
+    }
+
+    @Test
     fun V5_0_8087_execution_truth_is_typed_and_emergencies_never_queue_behind_ordinary_sells() {
         fun f(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
         val ex = f("engine/Executor.kt")

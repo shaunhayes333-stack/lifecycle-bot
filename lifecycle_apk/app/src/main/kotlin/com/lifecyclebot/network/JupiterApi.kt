@@ -100,6 +100,36 @@ class JupiterApi(
         private const val OBSERVATION_YIELD_MS_7397 = 30_000L
         @Volatile private var last429AtMs7397 = 0L
         private const val BASE_URL = "https://api.jup.ag"
+        // V5.0.8089 — Jupiter POST 5xx (503 Service Unavailable on /swap and /execute) is a provider outage, not a
+        // candidate fault. Three 5xx within the window mark the builder degraded so live buys go venue-first
+        // (Raydium / Pump direct) for a short while instead of burning the buy window on a dead builder.
+        private const val POST_5XX_WINDOW_MS_8089 = 90_000L
+        private const val POST_5XX_DEGRADED_N_8089 = 3
+        private const val POST_5XX_DEGRADED_HOLD_MS_8089 = 60_000L
+        private val post5xxAt8089 = java.util.concurrent.ConcurrentLinkedDeque<Long>()
+        @Volatile private var swapBuildDegradedUntil8089 = 0L
+        fun isPost5xx8089(code: Int) = code == 500 || code == 502 || code == 503 || code == 504
+        /** True while Jupiter's swap builder has recently answered 5xx; advisory venue ordering only, never a block. */
+        fun swapBuildDegraded8089(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < swapBuildDegradedUntil8089
+        internal fun notePost5xx8089(endpoint: String, code: Int, nowMs: Long = System.currentTimeMillis()) {
+            post5xxAt8089.addLast(nowMs)
+            while (post5xxAt8089.size > 32) post5xxAt8089.pollFirst()
+            while ((post5xxAt8089.peekFirst() ?: nowMs) < nowMs - POST_5XX_WINDOW_MS_8089) post5xxAt8089.pollFirst()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_POST_5XX_8089_${endpoint}_$code") } catch (_: Throwable) {}
+            if (post5xxAt8089.size >= POST_5XX_DEGRADED_N_8089 && !swapBuildDegraded8089(nowMs)) {
+                swapBuildDegradedUntil8089 = nowMs + POST_5XX_DEGRADED_HOLD_MS_8089
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_BUILD_DEGRADED_VENUE_FIRST_8089")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("JUPITER_BUILD_DEGRADED_VENUE_FIRST_8089", "endpoint=$endpoint code=$code n=${post5xxAt8089.size} holdMs=$POST_5XX_DEGRADED_HOLD_MS_8089")
+                } catch (_: Throwable) {}
+            }
+        }
+        /** V5.0.8089 — a Jupiter POST failure that says nothing about the candidate (5xx / timeout / network / host). */
+        fun isTransientPostFailure8089(msg: String?): Boolean {
+            val m = msg ?: return false
+            return Regex("Jupiter POST (500|502|503|504|429)").containsMatchIn(m) || m.contains("Jupiter POST timeout") ||
+                m.contains("Jupiter POST network error") || m.contains("Cannot resolve Jupiter host") || m.contains("Empty Jupiter POST response")
+        }
         private const val ORDER_ENDPOINT = "$BASE_URL/swap/v2/order"
         private const val EXECUTE_ENDPOINT = "$BASE_URL/swap/v2/execute"
 
@@ -1063,6 +1093,14 @@ class JupiterApi(
                     if (code == 429) {
                         val msg = "Jupiter POST $code: ${body?.take(300) ?: "no body"}"
                         lastErr = RuntimeException(msg)
+                        return@use
+                    }
+                    // V5.0.8089 — 5xx is Jupiter's outage: retry this host with backoff, then the next host; the
+                    // caller sees a transient failure (isTransientPostFailure8089) and may pivot venue, not abort.
+                    if (isPost5xx8089(code)) {
+                        notePost5xx8089(endpoint, code)
+                        lastErr = RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
+                        if (attempt >= 1) throw lastErr   // two tries per host, then the next host / venue pivot
                         return@use
                     }
                     if (!resp.isSuccessful) {
