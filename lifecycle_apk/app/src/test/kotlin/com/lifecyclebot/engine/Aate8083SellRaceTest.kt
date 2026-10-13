@@ -19,11 +19,11 @@ class Aate8083SellRaceTest {
     }
     @Test fun raceIsWiredBeforeTheJupiterLadderAndNeverDoubleSends() {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val start = s.indexOf("SellRouteRace8083.start(")
-        val use = s.indexOf("if (sig == null && race8083 != null && !race8083.sent) sig = trySellRace8083(")
+        val start = s.indexOf("val race8083 = startSellRace8083(ts, wallet, reason, confirmedSellUiQty, sellTradeKey)")
+        val use = s.indexOf("if (sig == null) sig = trySellRace8083(ts, wallet, c, race8083,")
         val ladder = s.indexOf("for (currentSlip in if (sig != null || jupiterQuoteUnavailable) emptyList<Int>() else broadcastSlipLadder)")
-        val serial = s.indexOf("if (race8083?.sent != true && rayPlan7311 != null && rayPlan7311.rawAmount > 0L)")
+        val serial = s.indexOf("if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L && race8083?.sent != true)")
         assertTrue(start in 0 until use); assertTrue(use < ladder); assertTrue(ladder < serial)
-        assertTrue(s.contains("race.sent = true"))
+        assertTrue(s.contains("race.sent = true")); assertTrue(s.contains("if (race == null || race.sent) return null"))
     }
 }

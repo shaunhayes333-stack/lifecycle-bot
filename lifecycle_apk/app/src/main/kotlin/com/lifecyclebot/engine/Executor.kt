@@ -2374,6 +2374,46 @@ class Executor(
         }
     } catch (_: Throwable) { null }
 
+    /** V5.0.7311 Raydium sell broadcast (moved out of liveSellInScope7314 in 8083 for the ART method budget): Helius Sender envelope first, else Jito/RPC. */
+    private fun sendRaydiumBuilt8083(wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
+                                     built: com.lifecyclebot.network.RaydiumSellRoute7311.Built, fastLand: Boolean): String? {
+        val senderTip7311 = effectiveSenderTipLamports(c, urgent = fastLand)
+        var raySig7311: String? = null
+        for (rayTx in built.transactions) {
+            val env7311 = try {
+                com.lifecyclebot.network.HeliusSenderEnvelope7250.build(rayTx, wallet.publicKeyB58, senderTip7311)
+            } catch (_: Throwable) { null }
+            raySig7311 = wallet.signAndSend(
+                env7311?.txBase64 ?: rayTx,
+                useJito = c.jitoEnabled && env7311 == null,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = fastLand),
+                senderCompatible = env7311 != null,
+                awaitFinality = true,
+            )
+        }
+        return raySig7311
+    }
+
+    /**
+     * V5.0.7311 serial Raydium (third builder) step. 8083: reuses a fresh race prebuild on the same raw quantity
+     * instead of re-quoting; never called once the race already sent Raydium this pass (no second Raydium sell).
+     */
+    private fun raydiumSerialSell8083(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
+                                      race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?,
+                                      rayPlan7311: ProcessorAmountPlanner.SellPlan, raySlip7311: Int, fastLand: Boolean,
+                                      sellTradeKey: String): String? {
+        val reuse8083 = race?.takeIf { it.fresh() && it.rawAmount == rayPlan7311.rawAmount }?.readyOrNull(0L)
+        if (reuse8083 != null) try { PipelineHealthCollector.labelInc("SELL_RACE_PREBUILD_REUSED_8083") } catch (_: Throwable) {}
+        val built7311 = reuse8083 ?: com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)
+        LiveTradeLogStore.log(
+            sellTradeKey, ts.mint, ts.symbol, "SELL",
+            LiveTradeLogStore.Phase.SELL_BROADCAST,
+            "RAYDIUM sell @ ${raySlip7311}bps | txs=${built7311.transactions.size} | out≈${built7311.outLamports} lamports | sender=HELIUS_FIRST",
+            slippageBps = raySlip7311, traderTag = "MEME",
+        )
+        return sendRaydiumBuilt8083(wallet, c, built7311, fastLand)
+    }
+
     private fun drainExit8083(reason: String): Boolean =
         com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
             (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) ||
@@ -2386,8 +2426,9 @@ class Executor(
      * or not landed (the serial ladder continues exactly as before).
      */
     private fun trySellRace8083(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
-                                race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race, reason: String, jupiterOut: Long?,
+                                race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?, reason: String, jupiterOut: Long?,
                                 fastLand: Boolean, sellTradeKey: String): String? {
+        if (race == null || race.sent) return null
         val drain = drainExit8083(reason)
         val built = race.readyOrNull(if (drain) com.lifecyclebot.engine.sell.SellRouteRace8083.DRAIN_WAIT_MS else 0L)
         if (built == null || !race.fresh() || !com.lifecyclebot.engine.sell.SellRouteRace8083.preferRaydium(built, drain, jupiterOut)) {
@@ -2396,17 +2437,9 @@ class Executor(
         }
         race.sent = true
         com.lifecyclebot.engine.sell.SellRouteRace8083.selected("RAYDIUM", ts.mint, System.currentTimeMillis() - race.startedAtMs)
-        val senderTip = effectiveSenderTipLamports(c, urgent = fastLand)
         var landed: String? = null
-        try {
-            for (rayTx in built.transactions) {
-                val env = try { com.lifecyclebot.network.HeliusSenderEnvelope7250.build(rayTx, wallet.publicKeyB58, senderTip) } catch (_: Throwable) { null }
-                landed = wallet.signAndSend(env?.txBase64 ?: rayTx, useJito = c.jitoEnabled && env == null,
-                    jitoTipLamports = effectiveJitoTipLamports(c, urgent = fastLand), senderCompatible = env != null, awaitFinality = true)
-            }
-        } catch (e: Throwable) {
+        try { landed = sendRaydiumBuilt8083(wallet, c, built, fastLand) } catch (e: Throwable) {
             try { ForensicLogger.lifecycle("SELL_RACE_RAYDIUM_SEND_FAILED_8083", "mint=${ts.mint.take(10)} err=${security.sanitiseForLog(e.message ?: "send_failed").take(140)}") } catch (_: Throwable) {}
-            landed = null
         }
         try { PipelineHealthCollector.labelInc(if (landed != null) "SELL_RACE_RAYDIUM_LANDED_8083" else "SELL_RACE_RAYDIUM_NOT_LANDED_8083") } catch (_: Throwable) {}
         LiveTradeLogStore.log(sellTradeKey, ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BROADCAST,
@@ -27853,7 +27886,7 @@ class Executor(
             )
             // V5.0.8083 §PARALLEL_SELL_ROUTE_RACING — the first route missed: take the racing Raydium build before walking
             // the Jupiter ladder when it is ready (drain exits wait briefly; others never block). One signed tx per attempt.
-            if (sig == null && race8083 != null && !race8083.sent) sig = trySellRace8083(ts, wallet, c, race8083, reason, quote?.outAmount, fastLand7980, sellTradeKey)
+            if (sig == null) sig = trySellRace8083(ts, wallet, c, race8083, reason, quote?.outAmount, fastLand7980, sellTradeKey)
             // V5.9.492 — skip Jupiter ladder entirely if PUMP-FIRST landed.
             // V5.9.495d — Ultra-first fallback signal. liveSell uses
             // getQuoteWithTaker which prefers Jupiter Ultra v2 then v6
@@ -28079,35 +28112,9 @@ class Executor(
                         sellTradeKey = sellTradeKey,
                         traderTag = "MEME",
                     )
-                    // V5.0.8083 — skipped when the race already sent Raydium this pass (no second Raydium sell); a fresh
-                    // prebuild on the same raw quantity is reused instead of re-quoting.
-                    if (race8083?.sent == true) try { PipelineHealthCollector.labelInc("SELL_RACE_SERIAL_RAYDIUM_SKIPPED_8083") } catch (_: Throwable) {}
-                    if (race8083?.sent != true && rayPlan7311 != null && rayPlan7311.rawAmount > 0L) {
+                    if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L && race8083?.sent != true) {
                         val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, emergencyDirectSlipBps7807(ts, reason) ?: if (isDrainExit) 2_500 else 500)
-                        val reuse8083 = race8083?.takeIf { it.fresh() && it.rawAmount == rayPlan7311.rawAmount }?.readyOrNull(0L)
-                        if (reuse8083 != null) try { PipelineHealthCollector.labelInc("SELL_RACE_PREBUILD_REUSED_8083") } catch (_: Throwable) {}
-                        val built7311 = reuse8083 ?: com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)
-                        val senderTip7311 = effectiveSenderTipLamports(c, urgent = fastLand7980)
-                        LiveTradeLogStore.log(
-                            sellTradeKey, ts.mint, ts.symbol, "SELL",
-                            LiveTradeLogStore.Phase.SELL_BROADCAST,
-                            "RAYDIUM sell @ ${raySlip7311}bps | txs=${built7311.transactions.size} | out≈${built7311.outLamports} lamports | sender=HELIUS_FIRST",
-                            slippageBps = raySlip7311, traderTag = "MEME",
-                        )
-                        var raySig7311: String? = null
-                        for (rayTx in built7311.transactions) {
-                            val env7311 = try {
-                                com.lifecyclebot.network.HeliusSenderEnvelope7250.build(rayTx, wallet.publicKeyB58, senderTip7311)
-                            } catch (_: Throwable) { null }
-                            raySig7311 = wallet.signAndSend(
-                                env7311?.txBase64 ?: rayTx,
-                                useJito = c.jitoEnabled && env7311 == null,
-                                jitoTipLamports = effectiveJitoTipLamports(c, urgent = fastLand7980),
-                                senderCompatible = env7311 != null,
-                                awaitFinality = true,
-                            )
-                        }
-                        val landed7311 = raySig7311
+                        val landed7311 = raydiumSerialSell8083(ts, wallet, c, race8083, rayPlan7311, raySlip7311, fastLand7980, sellTradeKey)
                         sig = landed7311
                         if (landed7311 != null) {
                             try {
