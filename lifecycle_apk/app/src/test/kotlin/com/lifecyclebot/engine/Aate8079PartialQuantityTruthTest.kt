@@ -70,7 +70,7 @@ class Aate8079PartialQuantityTruthTest {
         assertFalse(scope.active())
         val exe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val sellQuote = exe.substringAfter("private fun getQuoteWithSlippageGuard(")
-            .substringBefore("// V5.0.7241")
+            .substringBefore("// V5.0.7241 — SOURCE FIX")
         assertTrue(sellQuote.contains("return com.lifecyclebot.network.ExitHttpScope7314.run"))
     }
 
