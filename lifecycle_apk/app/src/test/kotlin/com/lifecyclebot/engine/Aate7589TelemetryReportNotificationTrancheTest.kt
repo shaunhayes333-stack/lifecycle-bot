@@ -20,5 +20,5 @@ class Aate7589TelemetryReportNotificationTrancheTest {
   val s=src("engine/StrategyTelemetry.kt"); assertTrue(s.contains("fun computePaperTerminalLeaderboard(")); assertTrue(s.contains("fun bleeders(")); assertTrue(s.contains("fun getDisabled(): Set<String> = emptySet()"))
   assertTrue(src("engine/UniversalBridgeEngine.kt").contains("fun getBridgeStats()"))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("229 / 1,458")); assertTrue(a.contains("1,229 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("229 / 1,458")); assertTrue(a.contains("1,229 remain")) }
 }

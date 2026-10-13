@@ -11,5 +11,5 @@ class Aate7588PureHelperStateAccessorTrancheTest {
   val c=src("engine/BirdeyeCreationInfoProvider.kt"); assertTrue(c.contains("fun isFreshDeploy(): Boolean")); assertTrue(c.contains("fun isYoungToken(): Boolean"))
   assertTrue(src("engine/BirdeyeWhaleFeeder.kt").contains("fun isKnownWhale("))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("207 / 1,458")); assertTrue(a.contains("1,251 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("207 / 1,458")); assertTrue(a.contains("1,251 remain")) }
 }

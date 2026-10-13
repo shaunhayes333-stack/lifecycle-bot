@@ -12,5 +12,5 @@ class Aate7585OperatorConfigControlTrancheTest {
   val f=src("engine/FreeRangeMode.kt"); assertTrue(f.contains("fun forceOff()")); assertTrue(f.contains("fun forceOn()")); assertTrue(f.contains("fun clearOverride()"))
   assertTrue(src("engine/LeveragePreference.kt").contains("fun setLeveragePreferred("))
  }
- @Test fun `corrected audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("150 / 1,458 classified; 1,308 remain")); assertTrue(a.contains("164 / 1,458")); assertTrue(a.contains("1,294 remain")) }
+ @Test fun `corrected audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("150 / 1,458 classified; 1,308 remain")); assertTrue(a.contains("164 / 1,458")); assertTrue(a.contains("1,294 remain")) }
 }

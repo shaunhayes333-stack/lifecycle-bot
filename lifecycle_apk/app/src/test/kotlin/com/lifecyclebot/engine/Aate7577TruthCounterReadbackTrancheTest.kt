@@ -26,7 +26,7 @@ class Aate7577TruthCounterReadbackTrancheTest {
 
     @Test
     fun `audit updates wider remaining count`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7577 — F_DEAD engine/truth counter-readback tranche (12 rows)"))
         assertTrue(audit.contains("74 / 1,458"))
         assertTrue(audit.contains("1,384 remain"))

@@ -17,5 +17,5 @@ class Aate7590CachedStateAccessorTrancheTest {
   val v=src("engine/V3ConfidenceConfig.kt"); assertTrue(v.contains("fun getAllModes()")); assertTrue(v.contains("fun getModeDescription()")); assertTrue(v.contains("fun hasCustomOverrides()"))
   val w=src("engine/WhaleWalletTracker.kt"); assertTrue(w.contains("fun getWatchedWhales()")); assertTrue(w.contains("fun getWatchedWhaleMovements()"))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("253 / 1,458")); assertTrue(a.contains("1,205 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("253 / 1,458")); assertTrue(a.contains("1,205 remain")) }
 }

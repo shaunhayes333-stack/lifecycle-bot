@@ -9,5 +9,5 @@ class Aate7602CollectiveRemainingTrancheTest { private fun src(r:String)=File("s
   run { val s=src("collective/LocalOrphanStore.kt"); assertTrue(s.contains("fun reconcileAll")) }
   run { val s=src("collective/TursoClient.kt"); assertTrue(s.contains("fun nukeBadData")); assertTrue(s.contains("fun saveLeadLagPair")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("547 / 1,458")); assertTrue(a.contains("911 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("547 / 1,458")); assertTrue(a.contains("911 remain")) }
 }

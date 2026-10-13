@@ -37,7 +37,7 @@ class Aate7564ExitRecoveryAuthorityClassificationTest {
 
     @Test
     fun `audit records recovery and compatibility classifications`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7564 — C_EXIT recovery/compatibility authority classification"))
         assertTrue(audit.contains("RECOVERY_SUBSTRATE / TESTED HELPER"))
         assertTrue(audit.contains("FORWARD-COMPAT NO-OP"))

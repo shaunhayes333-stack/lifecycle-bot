@@ -38,7 +38,7 @@ class Aate7455HeldManagementLearningLoopTest {
     @Test fun duplicate_symbolic_exit_pressure_is_not_added_to_meme_hot_path() {
         val s = src("engine/HoldingLogicLayer.kt")
         assertFalse(s.contains("SmartExitOptimizer.getExitPressure("))
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md")
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md")
         if (audit.exists()) {
             assertTrue(audit.readText().contains("ALIAS_REDUNDANT_FOR_MEME_HOLD"))
         }

@@ -39,5 +39,5 @@ class Aate7604EngineStatePredicateTrancheTest { private fun src(r:String)=File("
   run { val s=src("engine/TreasuryOpportunityEngine.kt"); assertTrue(s.contains("fun getActiveDeployments")) }
   run { val s=src("engine/VoiceManager.kt"); assertTrue(s.contains("fun getBackend")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("628 / 1,458")); assertTrue(a.contains("830 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("628 / 1,458")); assertTrue(a.contains("830 remain")) }
 }

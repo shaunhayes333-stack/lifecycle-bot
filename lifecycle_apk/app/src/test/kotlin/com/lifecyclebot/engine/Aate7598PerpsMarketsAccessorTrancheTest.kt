@@ -26,5 +26,5 @@ class Aate7598PerpsMarketsAccessorTrancheTest {
   run { val s=src("perps/TokenizedStockTrader.kt"); assertTrue(s.contains("fun isRegularTradingHours")) }
   run { val s=src("perps/WatchlistEngine.kt"); assertTrue(s.contains("fun isOnWatchlist")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("499 / 1,458")); assertTrue(a.contains("959 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("499 / 1,458")); assertTrue(a.contains("959 remain")) }
 }

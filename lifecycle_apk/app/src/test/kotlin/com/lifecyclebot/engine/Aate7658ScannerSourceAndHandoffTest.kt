@@ -15,7 +15,7 @@ class Aate7658ScannerSourceAndHandoffTest {
     }
 
     @Test fun durableSuperIntelligenceHandoffExists() {
-        val h = File("../../audits/SUPER_INTELLIGENCE_HANDOFF.md")
+        val h = File("../audits/SUPER_INTELLIGENCE_HANDOFF.md")
         assertTrue(h.exists())
         val text = h.readText()
         assertTrue(text.contains("AATE Super Intelligence Handoff"))

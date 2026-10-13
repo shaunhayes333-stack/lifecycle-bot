@@ -57,7 +57,7 @@ class Aate7561PredictiveSidecarContractTest {
 
     @Test
     fun `audit records sidecar classifications`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7561 — predictive sidecar/background contract bundle"))
         assertTrue(audit.contains("CoinGeckoTrending.getSolanaEcosystemMomentum"))
         assertTrue(audit.contains("BACKGROUND_CACHE_REQUIRED"))

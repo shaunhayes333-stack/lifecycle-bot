@@ -36,7 +36,7 @@ class Aate7680ProviderDataWasteContractTest {
     }
 
     @Test fun p0NineSourceTasksAreClosed() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertFalse(a.contains("- [ ] Remove repeated known-dead provider work"))
         assertFalse(a.contains("- [ ] Coalesce repeated token birth/metric hydration"))
         assertFalse(a.contains("- [ ] Cache negative/no-capability results"))

@@ -14,5 +14,5 @@ class Aate7586MaintenanceCallbackControlTrancheTest {
   assertTrue(src("perps/PriceAggregator.kt").contains("fun clearPrune("))
   assertTrue(src("perps/PerpsTradeVisualizer.kt").contains("fun clearAllHistory()"))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("174 / 1,458")); assertTrue(a.contains("1,284 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("174 / 1,458")); assertTrue(a.contains("1,284 remain")) }
 }

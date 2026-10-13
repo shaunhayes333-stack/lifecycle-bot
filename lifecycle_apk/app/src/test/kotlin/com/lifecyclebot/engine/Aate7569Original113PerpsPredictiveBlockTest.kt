@@ -28,7 +28,7 @@ class Aate7569Original113PerpsPredictiveBlockTest {
 
     @Test
     fun `audit explicitly closes original 113 items 20 through 30`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7569 — original-113 A_PREDICT perps/markets block (items 20–30)"))
         assertTrue(audit.contains("Original-113 A_PREDICT items 20–30 are now classified/closed as a contiguous block."))
     }

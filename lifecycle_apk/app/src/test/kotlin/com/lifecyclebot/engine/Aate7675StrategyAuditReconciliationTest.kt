@@ -7,7 +7,7 @@ import org.junit.Test
 
 class Aate7675StrategyAuditReconciliationTest {
     @Test fun staleExactStrategyAndEdgeParityItemsAreClosed() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("Exact hypothesis context expansion completed in 7430"))
         assertTrue(a.contains("Exact style/setup outcome consumption completed in 7431"))
         assertTrue(a.contains("FDG edge-evidence PAPER/LIVE parity completed by 7431/7549"))
@@ -16,7 +16,7 @@ class Aate7675StrategyAuditReconciliationTest {
     }
 
     @Test fun legacyFreshLaunchAuthoritiesStayRetired() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("EarlyEntryScout6390.evaluate() is superseded/do-not-resurrect"))
         assertTrue(a.contains("ModeSpecificScanners.scanFreshLaunch() classified legacy/superseded"))
     }

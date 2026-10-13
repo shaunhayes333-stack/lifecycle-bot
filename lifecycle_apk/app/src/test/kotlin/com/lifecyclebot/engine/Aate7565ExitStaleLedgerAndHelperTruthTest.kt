@@ -29,7 +29,7 @@ class Aate7565ExitStaleLedgerAndHelperTruthTest {
 
     @Test
     fun `audit records stale ledger closure`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7565 — C_EXIT stale-ledger + classifier/idempotency cleanup"))
         assertTrue(audit.contains("PositionStateLedger6454.onPartial"))
         assertTrue(audit.contains("CLOSED_LOOP / LEDGER_STALE (7457)"))

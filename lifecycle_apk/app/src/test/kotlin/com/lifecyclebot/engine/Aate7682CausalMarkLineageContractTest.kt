@@ -39,7 +39,7 @@ class Aate7682CausalMarkLineageContractTest {
     }
 
     @Test fun topLevelSourceRowsAreClosedWhileRuntimeChecksRemain() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertFalse(a.contains("- [ ] Preserve the same immutable candidate/attempt identity"))
         assertFalse(a.contains("- [ ] Trace exact source-valid -> canonical mark"))
         assertFalse(a.contains("- [ ] No candidate may reach executable sizing"))

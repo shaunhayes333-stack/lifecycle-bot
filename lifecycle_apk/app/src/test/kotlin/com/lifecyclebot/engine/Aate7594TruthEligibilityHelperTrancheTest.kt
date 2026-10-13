@@ -35,5 +35,5 @@ class Aate7594TruthEligibilityHelperTrancheTest {
   run { val s=src("engine/truth/WalletAssetClassification6387.kt"); assertTrue(s.contains("fun countsAsFreeEntrySlot")); assertTrue(s.contains("fun isDeletedMint")); assertTrue(s.contains("fun isLearningEligible")) }
   run { val s=src("engine/truth/WorkerPoolDomainRegistry6411.kt"); assertTrue(s.contains("fun canDegradedEntry")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("352 / 1,458")); assertTrue(a.contains("1,106 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("352 / 1,458")); assertTrue(a.contains("1,106 remain")) }
 }

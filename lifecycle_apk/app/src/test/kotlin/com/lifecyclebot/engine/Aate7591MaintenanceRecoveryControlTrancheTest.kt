@@ -21,5 +21,5 @@ class Aate7591MaintenanceRecoveryControlTrancheTest {
   assertTrue(src("engine/TokenMetaCache.kt").contains("fun pruneStale("))
   assertTrue(src("engine/WhaleDetector.kt").contains("fun clearToken("))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("269 / 1,458")); assertTrue(a.contains("1,189 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("269 / 1,458")); assertTrue(a.contains("1,189 remain")) }
 }

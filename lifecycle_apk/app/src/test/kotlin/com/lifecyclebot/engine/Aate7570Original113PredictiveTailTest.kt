@@ -38,7 +38,7 @@ class Aate7570Original113PredictiveTailTest {
 
     @Test
     fun `audit closes original 113 items 31 through 47`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7570 — original-113 A_PREDICT tail (items 31–47)"))
         assertTrue(audit.contains("Original-113 A_PREDICT items 31–47 are now classified/closed."))
     }

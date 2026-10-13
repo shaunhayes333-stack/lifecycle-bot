@@ -19,7 +19,7 @@ class Aate7580LearningReportReadbackTrancheTest {
         assertTrue(src("v3/learning/ShadowLearningEngine.kt").contains("fun getVolatilityPlayStats(): VolatilityStats"))
     }
     @Test fun `audit count advances`() {
-        val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("107 / 1,458"))
         assertTrue(a.contains("1,351 remain"))
     }

@@ -43,7 +43,7 @@ class Aate7678CoreBluechipSourceContractTest {
     }
 
     @Test fun oldSourceTasksAreClosedButRuntimeProofStaysOpen() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertFalse(a.contains("- [ ] Trace BLUECHIP mark -> canonical sizing bridge"))
         assertFalse(a.contains("- [ ] Preserve CORE as ensemble/coordinator"))
         assertTrue(a.contains("Runtime acceptance: fresh BLUECHIP mark-ready attempts"))

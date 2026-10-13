@@ -21,7 +21,7 @@ class Aate7581CryptoLearningStateTrancheTest {
         assertTrue(m.contains("fun meanPnl(): Double"))
     }
     @Test fun `audit count advances`() {
-        val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("117 / 1,458"))
         assertTrue(a.contains("1,341 remain"))
     }

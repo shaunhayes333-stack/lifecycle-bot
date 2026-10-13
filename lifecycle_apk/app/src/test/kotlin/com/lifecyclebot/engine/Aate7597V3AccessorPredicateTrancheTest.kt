@@ -32,5 +32,5 @@ class Aate7597V3AccessorPredicateTrancheTest {
   run { val s=src("v3/bridge/V3Adapter.kt"); assertTrue(s.contains("fun getLearningStore")); assertTrue(s.contains("fun getOrchestrator")) }
   run { val s=src("v3/V3EngineManager.kt"); assertTrue(s.contains("fun getMode")); assertTrue(s.contains("fun isSuccess")); assertTrue(s.contains("fun shouldExecute")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("452 / 1,458")); assertTrue(a.contains("1006 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("452 / 1,458")); assertTrue(a.contains("1006 remain")) }
 }

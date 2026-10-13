@@ -14,5 +14,5 @@ class Aate7582ProviderHealthReadbackTrancheTest {
   assertTrue(src("perps/PythOracle.kt").contains("fun isPriceFeedHealthy(symbol: String): Boolean"))
   val c=src("engine/CloudLearningSync.kt"); assertTrue(c.contains("fun isOptedIn(): Boolean = optedIn")); assertTrue(c.contains("fun isUsingCommunityWeights(): Boolean = usingCommunityWeights"))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("131 / 1,458")); assertTrue(a.contains("1,327 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("131 / 1,458")); assertTrue(a.contains("1,327 remain")) }
 }

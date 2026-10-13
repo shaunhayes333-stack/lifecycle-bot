@@ -31,7 +31,7 @@ class Aate7684FinalizedRepairCursorTest {
     }
 
     @Test fun fieldAcceptanceEvidenceIsRecorded() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("fresh reaching V3/FDG=14"))
         assertTrue(a.contains("EXPRESS canonical handoff runtime acceptance passed"))
     }

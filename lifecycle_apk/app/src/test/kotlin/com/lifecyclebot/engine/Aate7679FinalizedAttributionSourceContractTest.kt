@@ -38,7 +38,7 @@ class Aate7679FinalizedAttributionSourceContractTest {
     }
 
     @Test fun sourceItemsClosedWhileFreshRuntimeMissAcceptanceStaysOpen() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertFalse(a.contains("- [ ] Repair only provable durable finalized-bus publication gaps"))
         assertFalse(a.contains("- [ ] Exact entry identity must bind at open"))
         assertTrue(a.contains("Runtime acceptance: reduce hypothesis/variant bind/outcome misses"))

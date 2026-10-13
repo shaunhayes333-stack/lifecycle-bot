@@ -9,8 +9,8 @@ import org.junit.Test
 class Aate7605FDeadDispositionCompletenessTest {
     @Test
     fun `every F DEAD ledger row has exactly one explicit disposition`() {
-        val source = File("../../../ci/UNWIRED_LEDGER.tsv")
-        val disposition = File("../../audits/f_dead_disposition_7605.tsv")
+        val source = File("../../ci/UNWIRED_LEDGER.tsv")
+        val disposition = File("../audits/f_dead_disposition_7605.tsv")
         assertTrue(source.exists())
         assertTrue(disposition.exists())
 
@@ -36,7 +36,7 @@ class Aate7605FDeadDispositionCompletenessTest {
 
     @Test
     fun `audit declares zero unresolved F DEAD rows`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("F_DEAD unresolved count: 0 / 1,458"))
         assertTrue(audit.contains("1,458 / 1,458 classified"))
     }

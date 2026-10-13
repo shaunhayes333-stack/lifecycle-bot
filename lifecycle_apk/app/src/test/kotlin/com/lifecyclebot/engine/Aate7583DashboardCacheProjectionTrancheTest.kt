@@ -9,5 +9,5 @@ class Aate7583DashboardCacheProjectionTrancheTest {
   val c=src("v3/scoring/CollectiveIntelligenceAI.kt"); assertTrue(c.contains("fun getMintMemory(")); assertTrue(c.contains("fun getEndpointHealthRecords()"))
   val l=src("collective/CollectiveLearning.kt"); assertTrue(l.contains("fun lastSyncAgeMs6943(): Long")); assertTrue(l.contains("fun getWhaleEffectiveness("))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("138 / 1,458")); assertTrue(a.contains("1,320 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("138 / 1,458")); assertTrue(a.contains("1,320 remain")) }
 }

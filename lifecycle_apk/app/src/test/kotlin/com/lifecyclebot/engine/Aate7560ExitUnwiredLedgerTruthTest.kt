@@ -43,7 +43,7 @@ class Aate7560ExitUnwiredLedgerTruthTest {
 
     @Test
     fun `audit ledger records classifications instead of blindly wiring aliases`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7560 — exit-intelligence ledger truth + duplicate-authority guard"))
         assertTrue(audit.contains("ExitManager.shouldPartialSell"))
         assertTrue(audit.contains("LEGACY_DEAD / DO_NOT_WIRE"))

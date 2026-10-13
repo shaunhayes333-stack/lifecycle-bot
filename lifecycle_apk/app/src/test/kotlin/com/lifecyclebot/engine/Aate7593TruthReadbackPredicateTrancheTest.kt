@@ -23,5 +23,5 @@ class Aate7593TruthReadbackPredicateTrancheTest {
   run { val s=src("engine/truth/TokenMapVersionGuard6411.kt"); assertTrue(s.contains("fun currentLaneRoutingVersion")); assertTrue(s.contains("fun currentMappingVersion")) }
   run { val s=src("engine/truth/UniversalSlLeaseRegistry6402.kt"); assertTrue(s.contains("fun oldestLeaseAgeMs")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("314 / 1,458")); assertTrue(a.contains("1,144 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("314 / 1,458")); assertTrue(a.contains("1,144 remain")) }
 }

@@ -23,7 +23,7 @@ class Aate7567FinalCExitTailClassificationTest {
 
     @Test
     fun `audit marks c exit ledger fully classified`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7567 — final C_EXIT tail classification"))
         assertTrue(audit.contains("NETWORK DATA HELPER / BACKGROUND ONLY"))
         assertTrue(audit.contains("EXPLICIT LEARNING RESET CONTROL"))

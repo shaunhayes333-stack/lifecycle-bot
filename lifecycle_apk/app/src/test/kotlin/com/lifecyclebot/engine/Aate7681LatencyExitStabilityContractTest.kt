@@ -32,7 +32,7 @@ class Aate7681LatencyExitStabilityContractTest {
     }
 
     @Test fun p0TenSourceTasksAreClosed() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertFalse(a.contains("- [ ] Attribute >5s cycle time"))
         assertFalse(a.contains("- [ ] Keep UI/report and learner maintenance"))
         assertFalse(a.contains("- [ ] Bound provider calls and fanout per cycle"))

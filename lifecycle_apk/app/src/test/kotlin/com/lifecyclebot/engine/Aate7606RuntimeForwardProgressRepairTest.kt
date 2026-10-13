@@ -31,7 +31,7 @@ class Aate7606RuntimeForwardProgressRepairTest {
 
     @Test
     fun `audit records runtime repair`() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("V5.0.7606 — runtime forward-progress repair"))
         assertTrue(a.contains("held=101 fresh=4 staleRefresh=1 missing=94"))
     }

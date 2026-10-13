@@ -15,5 +15,5 @@ class Aate7599NetworkProviderHelperTrancheTest {
   run { val s=src("network/SolscanDevTracker.kt"); assertTrue(s.contains("fun getRecentTransactions")) }
   run { val s=src("network/JupiterApi.kt"); assertTrue(s.contains("fun isTransient")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("520 / 1,458")); assertTrue(a.contains("938 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("520 / 1,458")); assertTrue(a.contains("938 remain")) }
 }

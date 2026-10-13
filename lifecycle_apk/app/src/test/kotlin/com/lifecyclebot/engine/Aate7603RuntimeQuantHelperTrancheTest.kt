@@ -10,5 +10,5 @@ class Aate7603RuntimeQuantHelperTrancheTest { private fun src(r:String)=File("sr
   run { val s=src("learning/LayerVoteStore.kt"); assertTrue(s.contains("fun drainVotes")); assertTrue(s.contains("fun purgeStale")) }
   run { val s=src("engine/quant/QuantMetrics.kt"); assertTrue(s.contains("fun calculateCVaR")); assertTrue(s.contains("fun calculateCalmarRatio")); assertTrue(s.contains("fun calculateSharpeRatio")); assertTrue(s.contains("fun calculateSortinoRatio")); assertTrue(s.contains("fun calculateVaR")); assertTrue(s.contains("fun updateEquity")) }
  }
- @Test fun `corrected audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("554 / 1,458 classified; 904 remain")); assertTrue(a.contains("575 / 1,458")); assertTrue(a.contains("883 remain")) }
+ @Test fun `corrected audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("554 / 1,458 classified; 904 remain")); assertTrue(a.contains("575 / 1,458")); assertTrue(a.contains("883 remain")) }
 }

@@ -7,7 +7,7 @@ import org.junit.Test
 class Aate7574PreTriagedTierDispositionTest {
     @Test
     fun `audit records machine triaged tiers as resolved dispositions`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7574 — wider-ledger pre-triaged disposition tiers (182 rows)"))
         assertTrue(audit.contains("INTERNAL_VERIFIED_7079"))
         assertTrue(audit.contains("RETIRED_*"))

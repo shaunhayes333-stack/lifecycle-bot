@@ -24,7 +24,7 @@ class Aate7563ExitHelperLedgerTruthTest {
 
     @Test
     fun `audit records helper classifications without inventing sell authority`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7563 — C_EXIT helper/report ledger cleanup"))
         assertTrue(audit.contains("HistoricalChartScanner.getProgress"))
         assertTrue(audit.contains("DIAGNOSTIC COUNTER ACCESSOR"))

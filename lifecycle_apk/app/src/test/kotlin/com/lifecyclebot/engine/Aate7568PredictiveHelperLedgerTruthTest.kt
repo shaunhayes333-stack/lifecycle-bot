@@ -35,7 +35,7 @@ class Aate7568PredictiveHelperLedgerTruthTest {
 
     @Test
     fun `audit records stale and helper classifications`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7568 — A_PREDICT stale-ledger + calibration/helper cleanup"))
         assertTrue(audit.contains("CLOSED_LOOP / LEDGER_STALE (7537)"))
         assertTrue(audit.contains("INTENTIONALLY NEUTRALIZED COMPAT ACCESSOR"))

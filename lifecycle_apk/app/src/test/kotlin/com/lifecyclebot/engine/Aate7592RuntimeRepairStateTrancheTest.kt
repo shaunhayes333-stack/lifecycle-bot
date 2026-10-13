@@ -14,5 +14,5 @@ class Aate7592RuntimeRepairStateTrancheTest {
   assertTrue(s.contains("fun shouldForcePaper(): Boolean = false"))
   assertTrue(s.contains("fun uiRebindGeneration(): Long ="))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("277 / 1,458")); assertTrue(a.contains("1,181 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("277 / 1,458")); assertTrue(a.contains("1,181 remain")) }
 }

@@ -26,5 +26,5 @@ class Aate7596ClassificationValidationHelperTrancheTest {
   run { val s=src("engine/execution/UniversalRouteEngine.kt"); assertTrue(s.contains("fun isPumpFamilyMint")) }
   run { val s=src("engine/WalletReconciler.kt"); assertTrue(s.contains("fun isHeldOrOpen")); assertTrue(s.contains("fun knownMintContains")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("409 / 1,458")); assertTrue(a.contains("1049 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("409 / 1,458")); assertTrue(a.contains("1049 remain")) }
 }

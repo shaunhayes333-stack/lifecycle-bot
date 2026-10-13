@@ -37,7 +37,7 @@ class Aate7571Original113FrontAndCompletionTest {
 
     @Test
     fun `audit marks original 113 fully reconciled`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7571 — original-113 A_PREDICT front (items 1–19) + 113 reconciliation complete"))
         assertTrue(audit.contains("ORIGINAL 113 COMPLETE:"))
         assertTrue(audit.contains("A_PREDICT 47/47"))

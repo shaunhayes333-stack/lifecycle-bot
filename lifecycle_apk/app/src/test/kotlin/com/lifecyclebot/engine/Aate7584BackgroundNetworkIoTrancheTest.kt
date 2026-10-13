@@ -11,5 +11,5 @@ class Aate7584BackgroundNetworkIoTrancheTest {
   assertTrue(src("network/XScraper.kt").contains("fun checkSolanaAccounts("))
   val c=src("collective/CollectiveLearning.kt"); assertTrue(c.contains("suspend fun getActiveUsersCount()")); assertTrue(c.contains("suspend fun getCollectiveTradeCount()")); assertTrue(c.contains("suspend fun getLegalAgreementCount()"))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("149 / 1,458")); assertTrue(a.contains("1,309 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("149 / 1,458")); assertTrue(a.contains("1,309 remain")) }
 }

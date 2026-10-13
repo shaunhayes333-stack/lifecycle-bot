@@ -20,7 +20,7 @@ class Aate7579PerpsReadbackTrancheTest {
         assertTrue(src("perps/PriceAggregator.kt").contains("fun getSourceStats(): Map<String, Map<String, Int>>"))
     }
     @Test fun `audit count advances`() {
-        val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("97 / 1,458"))
         assertTrue(a.contains("1,361 remain"))
     }

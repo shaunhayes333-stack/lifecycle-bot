@@ -30,7 +30,7 @@ class Aate7566PerpsExitHelperContractTest {
 
     @Test
     fun `audit records helper classifications`() {
-        val audit = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7566 — C_EXIT perps/market helper + operator-control classification"))
         assertTrue(audit.contains("BACKGROUND NETWORK HELPER"))
         assertTrue(audit.contains("OPERATOR-AUTHORITY NO-OP"))

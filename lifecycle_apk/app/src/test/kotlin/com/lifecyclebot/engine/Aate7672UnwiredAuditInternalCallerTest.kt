@@ -6,13 +6,13 @@ import org.junit.Test
 
 class Aate7672UnwiredAuditInternalCallerTest {
     @Test fun generatorClassifiesSameFileConsumersAsInfileWired() {
-        val s = File("../../../ci/triage_unwired.py").readText()
+        val s = File("../../ci/triage_unwired.py").readText()
         assertTrue(s.contains("internal_calls=max(0"))
         assertTrue(s.contains("if internal_calls>0: tier=\"E_INFILE\""))
     }
 
     @Test fun recheckHasExplicitInfileWiredVerdict() {
-        val s = File("../../ci/ledger_recheck_7072.py").readText()
+        val s = File("../ci/ledger_recheck_7072.py").readText()
         assertTrue(s.contains("INFILE_WIRED"))
         assertTrue(s.contains("remainder = txt[:dm.start()] + txt[dm.end():]"))
     }

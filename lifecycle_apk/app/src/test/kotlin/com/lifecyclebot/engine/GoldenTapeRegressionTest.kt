@@ -4655,7 +4655,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun asiSsiReauditSweeper4257IsRegisteredAndChecksMissedWiring() {
         val audit = java.io.File("../audits/asi_ssi_audit_queue_2026-06-27.md").takeIf { it.exists() }?.readText()
-            ?: java.io.File("audits/asi_ssi_audit_queue_2026-06-27.md").readText()
+            ?: java.io.File("../audits/asi_ssi_audit_queue_2026-06-27.md").readText()
         val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").readText()
         val prover = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt").readText()
         assertTrue("V5.0.4257: ASI/SSI audit queue must include recursive reaudit item", audit.contains("A21 — Recursive ASI/SSI ReAuditSweeper") && audit.contains("missed wiring") && audit.contains("hot-path API/LLM"))
@@ -4827,7 +4827,7 @@ class GoldenTapeRegressionTest {
     private fun readRootWorkflowFor4280s(): String {
         val candidates = listOf(
             java.io.File("../.github/workflows/build.yml"),
-            java.io.File(".github/workflows/build.yml"),
+            java.io.File("../../.github/workflows/build.yml"),
             java.io.File("../../.github/workflows/build.yml"),
         )
         return candidates.firstOrNull { it.exists() && it.readText().contains("Golden Tape literal static scan") }?.readText().orEmpty()

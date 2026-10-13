@@ -12,5 +12,5 @@ class Aate7587AnalyticsAdvisoryTrancheTest {
   val h=src("perps/PerpsTradeHeatmap.kt"); assertTrue(h.contains("fun getAvgPnl()")); assertTrue(h.contains("fun getHeatmapData()")); assertTrue(h.contains("fun getBestSetup()")); assertTrue(h.contains("fun getBestTierForMarket(")); assertTrue(h.contains("fun getBestTimeSlot()"))
   val q=src("engine/quant/QuantMindV2.kt"); assertTrue(q.contains("fun getOverallGrade()")); assertTrue(q.contains("fun getRegimePerformance()")); assertTrue(q.contains("fun getStrategyMetrics()")); assertTrue(q.contains("fun getRegimeSharpe("))
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("195 / 1,458")); assertTrue(a.contains("1,263 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("195 / 1,458")); assertTrue(a.contains("1,263 remain")) }
 }

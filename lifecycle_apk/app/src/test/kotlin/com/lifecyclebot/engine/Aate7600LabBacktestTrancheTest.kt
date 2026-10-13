@@ -10,5 +10,5 @@ class Aate7600LabBacktestTrancheTest {
   run { val s=src("engine/lab/LlmLabEngine.kt"); assertTrue(s.contains("fun requestTransferToMainPaper")) }
   run { val s=src("engine/lab/LlmLabStore.kt"); assertTrue(s.contains("fun adjustLiveBalance")); assertTrue(s.contains("fun getLiveBalance")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("527 / 1,458")); assertTrue(a.contains("931 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("527 / 1,458")); assertTrue(a.contains("931 remain")) }
 }

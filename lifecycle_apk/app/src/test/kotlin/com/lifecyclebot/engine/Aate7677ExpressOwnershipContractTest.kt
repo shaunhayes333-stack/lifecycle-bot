@@ -23,7 +23,7 @@ class Aate7677ExpressOwnershipContractTest {
     }
 
     @Test fun sourceItemsClosedButRuntimeAcceptanceStaysOpen() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertFalse(a.contains("- [ ] Find why EXPRESS can reach FDG accounting"))
         assertFalse(a.contains("- [ ] Require same-lane owner/intent proof"))
         assertTrue(a.contains("- [ ] Runtime acceptance: EXPRESS ownerSelected/buyIntent become non-zero"))

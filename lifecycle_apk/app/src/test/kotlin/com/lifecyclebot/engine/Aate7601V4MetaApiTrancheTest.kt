@@ -12,5 +12,5 @@ class Aate7601V4MetaApiTrancheTest { private fun src(r:String)=File("src/main/ko
   run { val s=src("v4/meta/StrategyTrustAI.kt"); assertTrue(s.contains("fun getQuarantineUntil")); assertTrue(s.contains("fun getTrustRecord")); assertTrue(s.contains("fun setQuarantine")) }
   run { val s=src("v4/meta/TradeLessonRecorder.kt"); assertTrue(s.contains("fun getLeverageLessons")); assertTrue(s.contains("fun getNarrativeLessons")); assertTrue(s.contains("fun getRegimeLessons")) }
  }
- @Test fun `audit count advances`() { val a=File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("539 / 1,458")); assertTrue(a.contains("919 remain")) }
+ @Test fun `audit count advances`() { val a=File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText(); assertTrue(a.contains("539 / 1,458")); assertTrue(a.contains("919 remain")) }
 }

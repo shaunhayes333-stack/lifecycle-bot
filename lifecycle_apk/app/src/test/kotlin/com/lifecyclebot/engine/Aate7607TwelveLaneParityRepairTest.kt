@@ -33,7 +33,7 @@ class Aate7607TwelveLaneParityRepairTest {
 
     @Test
     fun `audit records 12 lane repair without strategy tuning`() {
-        val a = File("../../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
+        val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(a.contains("V5.0.7607 — 12-lane specialist parity + causal intent continuity"))
         assertTrue(a.contains("No lane threshold, score floor, TP/SL, sizing multiplier"))
     }
