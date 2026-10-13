@@ -1133,7 +1133,11 @@ object Cortex7885 {
         // V5.0.7931 — cross-asset rows close under "solana|<mint>" / ticker / traded mint;
         // all map onto the identity the entry was captured under.
         val closeKey7931 = try { CrossAssetCortex7931.normalizeCloseKey(env.mint) } catch (_: Throwable) { env.mint }
-        val eligible = env.learningEligible && env.realizedReturnPct.isFinite()
+        // V5.0.8082 — the realised books learn only from typed, verified economic finality (LIVE_FINALIZED /
+        // LIVE_RECONCILED / PAPER_SIMULATED); an unverified close releases its entry read without teaching.
+        val verified8082 = com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)
+        if (!verified8082) inc("REALIZED_UNVERIFIED_FINALITY_8082")
+        val eligible = env.learningEligible && env.realizedReturnPct.isFinite() && verified8082
         synchronized(this) {
             val a = positionReads8076.take(env.positionId, closeKey7931, mode) ?: run { inc("REALIZED_UNMATCHED"); return }
             entryReads.remove("$closeKey7931|$mode|${canon(a.lane)}", a)

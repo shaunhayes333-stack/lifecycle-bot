@@ -78,4 +78,10 @@ class Aate8082CausalPipelineTest {
         assertTrue(x.substringAfter("fun tick(").substringBefore("fun onCanonicalClose8082(").contains("grade8082(r, fwd)"))
         assertTrue(src("engine/truth/CanonicalFinalizedTradeBus6464.kt").contains("CortexExit7897.onCanonicalClose8082(env)"))
     }
+
+    @Test fun cortexRealisedBooksLearnOnlyFromVerifiedFinality() {
+        val c = src("engine/cortex/Cortex7885.kt").substringAfter("fun onCanonicalClose(").substringBefore("// ── persistence")
+        assertTrue(c.contains("terminalEconomicsEligible8081(env.mode, env.proofState)"))
+        assertTrue(c.contains("env.learningEligible && env.realizedReturnPct.isFinite() && verified8082"))
+    }
 }
