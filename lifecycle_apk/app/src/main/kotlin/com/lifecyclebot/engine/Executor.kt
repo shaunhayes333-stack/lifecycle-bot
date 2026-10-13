@@ -2358,6 +2358,63 @@ class Executor(
 
     /** V5.0.3801 — amount proof/clamp/formatting lives in ProcessorAmountPlanner; Executor remains route orchestration. */
 
+    /** V5.0.8083 §PARALLEL_SELL_ROUTE_RACING — start the unsigned Raydium prebuild for an urgent live sell. */
+    private fun startSellRace8083(ts: TokenState, wallet: SolanaWallet, reason: String, confirmedSellUiQty: Double,
+                                  sellTradeKey: String): com.lifecyclebot.engine.sell.SellRouteRace8083.Race? = try {
+        val drain = drainExit8083(reason)
+        val fast = drain || com.lifecyclebot.engine.sell.CloseLease.urgentProfitCapture7965(reason) ||
+            reason.uppercase().startsWith("RUNNER_STRUCTURE_BREAK_7967") || reason.uppercase().startsWith("RUNNER_HARD_STOP_7967")
+        if (!com.lifecyclebot.engine.sell.SellRouteRace8083.urgent(reason, drain, fast)) null else {
+            val raw = recalcSellPlanForProcessor(ts = ts, wallet = wallet, processor = "RAYDIUM_SELL_7311",
+                requestedUiQty = confirmedSellUiQty, sellTradeKey = sellTradeKey, traderTag = "MEME")?.rawAmount ?: 0L
+            val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, emergencyDirectSlipBps7807(ts, reason) ?: if (drain) 2_500 else 500)
+            com.lifecyclebot.engine.sell.SellRouteRace8083.start({
+                com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, raw, slip)
+            }, raw, slip, ts.mint)
+        }
+    } catch (_: Throwable) { null }
+
+    private fun drainExit8083(reason: String): Boolean =
+        com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
+            (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) ||
+                com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason) ||
+                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.acceptsPoorImpact(reason))
+
+    /**
+     * V5.0.8083 — the first route missed: send the racing Raydium build before the Jupiter ladder when it is ready
+     * (drain exits wait briefly; others never block) and pays at least the Jupiter quote. One signed tx; null = not used
+     * or not landed (the serial ladder continues exactly as before).
+     */
+    private fun trySellRace8083(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
+                                race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race, reason: String, jupiterOut: Long?,
+                                fastLand: Boolean, sellTradeKey: String): String? {
+        val drain = drainExit8083(reason)
+        val built = race.readyOrNull(if (drain) com.lifecyclebot.engine.sell.SellRouteRace8083.DRAIN_WAIT_MS else 0L)
+        if (built == null || !race.fresh() || !com.lifecyclebot.engine.sell.SellRouteRace8083.preferRaydium(built, drain, jupiterOut)) {
+            com.lifecyclebot.engine.sell.SellRouteRace8083.selected(if (built == null) "JUPITER_RACE_NOT_READY" else "JUPITER", ts.mint, System.currentTimeMillis() - race.startedAtMs)
+            return null
+        }
+        race.sent = true
+        com.lifecyclebot.engine.sell.SellRouteRace8083.selected("RAYDIUM", ts.mint, System.currentTimeMillis() - race.startedAtMs)
+        val senderTip = effectiveSenderTipLamports(c, urgent = fastLand)
+        var landed: String? = null
+        try {
+            for (rayTx in built.transactions) {
+                val env = try { com.lifecyclebot.network.HeliusSenderEnvelope7250.build(rayTx, wallet.publicKeyB58, senderTip) } catch (_: Throwable) { null }
+                landed = wallet.signAndSend(env?.txBase64 ?: rayTx, useJito = c.jitoEnabled && env == null,
+                    jitoTipLamports = effectiveJitoTipLamports(c, urgent = fastLand), senderCompatible = env != null, awaitFinality = true)
+            }
+        } catch (e: Throwable) {
+            try { ForensicLogger.lifecycle("SELL_RACE_RAYDIUM_SEND_FAILED_8083", "mint=${ts.mint.take(10)} err=${security.sanitiseForLog(e.message ?: "send_failed").take(140)}") } catch (_: Throwable) {}
+            landed = null
+        }
+        try { PipelineHealthCollector.labelInc(if (landed != null) "SELL_RACE_RAYDIUM_LANDED_8083" else "SELL_RACE_RAYDIUM_NOT_LANDED_8083") } catch (_: Throwable) {}
+        LiveTradeLogStore.log(sellTradeKey, ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BROADCAST,
+            "RACE→RAYDIUM @ ${race.slipBps}bps | out≈${built.outLamports} lamports vs jupiter=${jupiterOut ?: 0} | landed=${landed != null}",
+            slippageBps = race.slipBps, traderTag = "MEME")
+        return landed
+    }
+
     private fun recalcSellPlanForProcessor(
         ts: TokenState,
         wallet: SolanaWallet,
@@ -27461,6 +27518,9 @@ class Executor(
             val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
             val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast"] ?: 0
             onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits | broadcastRetries=$priorBroadcastRetries", tradeId.mint)
+            // V5.0.8083 §PARALLEL_SELL_ROUTE_RACING — urgent exits start the independent Raydium build NOW (helper keeps
+            // this ART-verified function's register file unchanged but for one local).
+            val race8083 = startSellRace8083(ts, wallet, reason, confirmedSellUiQty, sellTradeKey)
             
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastError: Exception? = null
@@ -27791,6 +27851,9 @@ class Executor(
                 traderTag = "MEME",
                 labelTag = (if (isDrainExit) "EXIT-DRAIN" else "EXIT") + (if (emergencyDirectSlipBps7807(ts, reason) != null) "-EMERGENCY_7807" else ""),
             )
+            // V5.0.8083 §PARALLEL_SELL_ROUTE_RACING — the first route missed: take the racing Raydium build before walking
+            // the Jupiter ladder when it is ready (drain exits wait briefly; others never block). One signed tx per attempt.
+            if (sig == null && race8083 != null && !race8083.sent) sig = trySellRace8083(ts, wallet, c, race8083, reason, quote?.outAmount, fastLand7980, sellTradeKey)
             // V5.9.492 — skip Jupiter ladder entirely if PUMP-FIRST landed.
             // V5.9.495d — Ultra-first fallback signal. liveSell uses
             // getQuoteWithTaker which prefers Jupiter Ultra v2 then v6
@@ -28016,9 +28079,14 @@ class Executor(
                         sellTradeKey = sellTradeKey,
                         traderTag = "MEME",
                     )
-                    if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L) {
+                    // V5.0.8083 — skipped when the race already sent Raydium this pass (no second Raydium sell); a fresh
+                    // prebuild on the same raw quantity is reused instead of re-quoting.
+                    if (race8083?.sent == true) try { PipelineHealthCollector.labelInc("SELL_RACE_SERIAL_RAYDIUM_SKIPPED_8083") } catch (_: Throwable) {}
+                    if (race8083?.sent != true && rayPlan7311 != null && rayPlan7311.rawAmount > 0L) {
                         val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, emergencyDirectSlipBps7807(ts, reason) ?: if (isDrainExit) 2_500 else 500)
-                        val built7311 = com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)
+                        val reuse8083 = race8083?.takeIf { it.fresh() && it.rawAmount == rayPlan7311.rawAmount }?.readyOrNull(0L)
+                        if (reuse8083 != null) try { PipelineHealthCollector.labelInc("SELL_RACE_PREBUILD_REUSED_8083") } catch (_: Throwable) {}
+                        val built7311 = reuse8083 ?: com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)
                         val senderTip7311 = effectiveSenderTipLamports(c, urgent = fastLand7980)
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
