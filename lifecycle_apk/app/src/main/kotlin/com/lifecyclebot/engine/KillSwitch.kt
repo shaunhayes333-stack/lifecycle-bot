@@ -182,7 +182,9 @@ object KillSwitch {
         // Chain-verified terminal economic events alone may arm the loss-streak brake.
         val chainProven8081 = env.proofState.equals("LIVE_FINALIZED", true) ||
             env.proofState.equals("LIVE_RECONCILED", true)
-        if (!chainProven8081 || !env.learningEligible) {
+        // Risk counts ALL proven economic losses. A trade excluded from Cortex
+        // learning (missing exact strategy stamp, for example) still lost SOL.
+        if (!chainProven8081) {
             try { PipelineHealthCollector.labelInc("KILL_SWITCH_NONCHAIN_OUTCOME_EXCLUDED_8081") } catch (_: Throwable) {}
             return true
         }

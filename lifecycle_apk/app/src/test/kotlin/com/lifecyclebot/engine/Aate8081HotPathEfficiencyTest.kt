@@ -26,6 +26,22 @@ class Aate8081HotPathEfficiencyTest {
         assertFalse(block.contains(".sortedByDescending { r ->"))
     }
 
+    @Test fun readySpecialistOwnershipReachesPresealCycleWithoutOverridingForcedLane() {
+        val bot = src("engine/BotService.kt")
+        val cycle = bot.substringAfter("private fun canonicalCycleLaneFor(")
+            .substringBefore("private fun laneTopHolderPct7809")
+        assertTrue(cycle.contains("LaneExecutionCoordinator.readyOwnerForCycle8081("))
+        val elect = src("engine/LaneExecutionCoordinator.kt")
+        val owner = elect.substringAfter("internal fun readyOwnerForCycle8081(")
+            .substringBefore("private fun secondaryFresh7803(")
+        assertTrue(owner.contains("if (operatorForced) return proposed"))
+        assertTrue(owner.contains("currentElection6600(ts.mint)?.takeIf { it.sealed }?.let { return it.primaryLane }"))
+        assertTrue(owner.contains("preferredReadyOwner7820(ts.mint)"))
+        val ts = com.lifecyclebot.data.TokenState(mint = "test-owner")
+        assertEquals("MOONSHOT", LaneExecutionCoordinator.readyOwnerForCycle8081(
+            ts, "MOONSHOT", setOf("SHITCOIN", "MOONSHOT"), operatorForced = true))
+    }
+
     @Test fun scannerReadsOnlyCounterSnapshotNotWholeEconomicBook() {
         val scanner = src("engine/SolanaMarketScanner.kt")
         assertTrue(scanner.contains("PipelineHealthCollector.laneEvalCountsLight8081()"))

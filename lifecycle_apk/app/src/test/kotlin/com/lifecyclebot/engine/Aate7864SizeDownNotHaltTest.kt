@@ -36,6 +36,8 @@ class Aate7864SizeDownNotHaltTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/KillSwitch.kt").readText()
         assertTrue(src.contains("CHAIN_FINALIZED_LOSS_STREAK_COOLDOWN_8081"))
         assertTrue(src.contains("env.proofState.equals(\"LIVE_FINALIZED\""))
+        assertFalse("Chain-proven SOL loss cannot be excluded merely for missing strategy learning identity",
+            src.contains("!env.learningEligible"))
     }
 
     @Test fun groqScoutFallsBackToBrowserSearchModel() {
