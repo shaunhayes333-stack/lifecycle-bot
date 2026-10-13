@@ -59,6 +59,7 @@ class LearningCounterActivity : Activity() {
     // V5.0.8069 — the Cortex panel's data, read off the UI thread (the Cortex locks its books while it reads them).
     @Volatile private var cachedCortex8069: com.lifecyclebot.engine.cortex.Cortex7885.Ui8069? = null
     @Volatile private var cachedSetups8069: List<com.lifecyclebot.engine.cortex.LanePlaybook7907.SetupRow8069> = emptyList()
+    @Volatile private var cachedNoTrigger8084: List<com.lifecyclebot.engine.cortex.LanePlaybook7907.SetupRow8069> = emptyList()
     @Volatile private var cachedTruth8069: List<Pair<String, String>> = emptyList()
 
     private val backgroundPrewarm = object : Runnable {
@@ -69,6 +70,7 @@ class LearningCounterActivity : Activity() {
             } catch (_: Throwable) { "?" }
             cachedCortex8069 = try { com.lifecyclebot.engine.cortex.Cortex7885.ui8069() } catch (_: Throwable) { null }
             cachedSetups8069 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.setupRows8069(14) } catch (_: Throwable) { emptyList() }
+            cachedNoTrigger8084 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.noTriggerRows8084(6) } catch (_: Throwable) { emptyList() }
             cachedTruth8069 = listOf(
                 "Live book (§8064)" to (try { com.lifecyclebot.engine.truth.LiveTruth8064.statusLine() } catch (_: Throwable) { "unavailable" }),
                 "Lifecycle holds (§8065)" to (try { com.lifecyclebot.engine.LifecycleHold8065.statusLine() } catch (_: Throwable) { "unavailable" }),
@@ -398,13 +400,24 @@ class LearningCounterActivity : Activity() {
         addHeader("🎯 Cortex · setups")
         val setups = cachedSetups8069
         if (setups.isEmpty()) addText("no setup has 5+ graded labels yet (fresh honest books since 8064)", AateUi.TEXT_MUTED)
+        // V5.0.8084 — ranked on the whole set (proven, developing, then negative) by lower bound; NO_TRIGGER shown apart.
         setups.forEach { r ->
             target7023().addView(AateComponents6994.metricRow(this,
                 "${if (r.proven) "✅ " else ""}${r.setup}",
                 "${pct8069(r.meanPct)} ±${if (r.sePct.isFinite()) "%.1f".format(r.sePct) else "–"}",
                 if (r.proven) AateUi.GREEN else if (r.meanPct > 0.0) AateUi.AMBER else AateUi.RED,
-                "${r.lane} · n${r.n}${if (r.proven) " · PROVEN — live money allowed" else ""}"))
+                "${r.lane} · n${r.n} · lb ${if (r.lowerPct.isFinite()) pct8069(r.lowerPct) else "–"} · ${r.tier.ifBlank { "-" }}" +
+                    (if (r.proven) " · PROVEN on forward labels (not realised live P&L)" else "")))
         }
+        val noTrig = cachedNoTrigger8084
+        if (noTrig.isNotEmpty()) {
+            addText("NO_TRIGGER (no recognised setup) cohorts:", AateUi.TEXT_MUTED, small = true)
+            noTrig.forEach { r ->
+                target7023().addView(AateComponents6994.metricRow(this, "NO_TRIGGER",
+                    "${pct8069(r.meanPct)} ±${if (r.sePct.isFinite()) "%.1f".format(r.sePct) else "–"}", AateUi.TEXT_MUTED, "${r.lane} · n${r.n}"))
+            }
+        }
+        addText("n = effective graded weight (decayed and capped), not a lifetime count. Forward labels are forecasts, not realised live trades.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🗳️ Cortex · voters")
         if (ui.seats.isEmpty()) addText("no voter has been graded yet", AateUi.TEXT_MUTED)

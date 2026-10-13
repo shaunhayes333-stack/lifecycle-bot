@@ -89,9 +89,12 @@ class Aate8077StrategyAlignmentTest {
     }
     @Test fun liveReadersConsumeAlignmentAndRevisionBindingsPersistWithTheirBook() {
         val p = File("src/main/kotlin/com/lifecyclebot/engine/cortex/LanePlaybook7907.kt").readText()
-        assertTrue(p.contains("LaneEvidence8077.choose(m.map { setupEvidence8077(lane, it.id) })"))
-        assertTrue(p.contains("c.observedAt == observedAt"))
-        assertTrue(p.contains("c.revision == revision"))
+        // V5.0.8084 — the same evidence chooser ranks the fired setups; the one cache keys on every token-local input
+        // (price stamp included) instead of price/mcap/liquidity only.
+        assertTrue(p.contains("LaneEvidence8077.choose(fired.map { setupEvidence8077(lane, it) })"))
+        assertTrue(p.contains("cached.inputKey == key"))
+        assertTrue(p.contains("l(ts.lastPriceUpdate)"))
+        assertTrue(p.contains("cached.revision == revision"))   // V5.0.8084 — book revision still invalidates (re-ranks) the one cache
         assertTrue(p.contains("_grades8077"))
         val t = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
         assertTrue(t.contains("lowWinRateNeedsPivot(tradesIn, lossRate, meanPnl)"))

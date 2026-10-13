@@ -266,7 +266,7 @@ object LiveEdgeGate7877 {
      * The label count a prior refusal rests on, or null when it is not a measured
      * read a larger cohort may outweigh (safety, peak/dump stages, plain priors).
      */
-    private fun refusalSampleN7948(ts: TokenState, lane: String, prior: String): Int? {
+    private fun refusalSampleN7948(ts: TokenState, lane: String, prior: String, nowMs: Long = System.currentTimeMillis()): Int? {
         if (prior.endsWith("_PEAK_EXHAUSTION") || prior.endsWith("_DUMPING") || prior.contains("RUG")) return null
         // V5.0.7948 review — a lane's own PROVEN_LOSING record (setup, NO_TRIGGER, stage) is never
         // outweighed by a pooled cohort, nor is a runner lane's runner-setups-only rule (7939).
@@ -274,7 +274,7 @@ object LiveEdgeGate7877 {
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         if (runner && prior.startsWith("PLAYBOOK_NO_TRIGGER")) return null
         return when {
-            prior.startsWith("PLAYBOOK_") -> try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedSampleN7948(ts, lane) } catch (_: Throwable) { null }
+            prior.startsWith("PLAYBOOK_") -> try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedSampleN7948(ts, lane, nowMs) } catch (_: Throwable) { null }
             prior.startsWith("STAGE_PROVEN_LOSING_7928") -> try {
                 val fit = com.lifecyclebot.engine.TokenMetricStageRouter.laneFit(ts, lane)
                 ForwardReturnLabeler7731.stageStatFor7928(fit.lane, fit.stage.name)?.n60 ?: 0
@@ -734,7 +734,7 @@ object LiveEdgeGate7877 {
         // measured evidence: a cell proven above the live margin, or a proven Cortex
         // STRONG read. A proven-losing setup/stage and rug-prone are never overruled.
         val priors7930 = listOfNotNull(
-            com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l),
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l, nowMs),   // V5.0.8084 — same decision clock = same classification
             com.lifecyclebot.engine.TokenMetricStageRouter.liveStageRefusal7928(ts, l),
             CostLedger7962.liveRefusal7962(ts, l),   // V5.0.7962 — measured all-in cost above the setup's gross
         )
@@ -758,7 +758,7 @@ object LiveEdgeGate7877 {
             // PLAYBOOK_NO_TRIGGER refusal while SHITCOIN's STRONG reads paid +22% at authority 0.84. Hard safety,
             // Mayhem and a proven-losing record below full authority are still refused inside overrulesEdgeRefusal.
             if (com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, prior)) { priorsCleared8019.incrementAndGet(); notePositive7975(ts.mint, nowMs); continue }
-            val sampleN = refusalSampleN7948(ts, l, prior)
+            val sampleN = refusalSampleN7948(ts, l, prior, nowMs)
             if (sampleN != null && cohortOverrulesSmaller7948(cohort7948, sampleN)) {
                 try { PipelineHealthCollector.labelInc("LIVE_PRIOR_REFUSAL_OUTWEIGHED_BY_COHORT_7948") } catch (_: Throwable) {}
                 continue

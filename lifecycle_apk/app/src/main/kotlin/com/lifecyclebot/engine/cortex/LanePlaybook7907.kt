@@ -80,7 +80,94 @@ object LanePlaybook7907 {
         val colourBuy7978: Boolean = false,          // a proven candle-colour sequence
         /** Lane-specific: a promoted specialist of the lane matches (set by classifyNow). */
         var specialistEdge7978: Boolean = false,
-    )
+    ) {
+        /** V5.0.8084 — provenance of the core inputs (bp / chg / shape / age / liq ...): OBSERVED, STALE, UNKNOWN, INVALID, DEFAULT_UNOBSERVED. */
+        var obs8084: Map<String, Obs8084> = emptyMap()
+
+        /** V5.0.8084 — SetupFeatureSnapshot version: every setup-dependent input (NaN-stable), so a change re-matches at once. */
+        fun fingerprint8084(): Int {
+            var h = 17
+            fun d(v: Double) { h = 31 * h + (if (v.isNaN()) 0x7ff8 else java.lang.Double.hashCode(v)) }
+            fun b(v: Boolean) { h = 31 * h + (if (v) 1 else 0) }
+            fun t(v: String) { h = 31 * h + v.hashCode() }
+            d(age); d(runup); d(pxPeak); d(dd); d(bp); d(liq); d(mcap); d(top); d(chg5m); d(chg1h); d(holderGrowth); d(volAccel)
+            t(planSetup); t(launchPhase); b(crowdForming)
+            d(tapeCrowd); d(tapeNetSol); d(tapeBuyersPerMin); d(tapeBuyShare); d(tapeLargest); d(tapeTop3); d(tapeDevSold); d(tapeFromPeak); d(tapeFromFirst)
+            d(buyTx15s); d(buyTxPrev15s); d(repeatBuyers60s); t(oppSetup); d(oppPercentile); d(oppRs); d(oppVolAccel); d(oppTxAccel); d(oppLiqDelta)
+            d(boost); d(socials); b(cto); d(devTokens); d(devRugRate); b(devKnownRugger); d(holders); d(insider); d(narrativeHeat); d(narrativeExhaustion)
+            d(bundleLargest); d(lpLock); d(txVelocity); d(volatility); t(regime); b(launchLadderProven); b(expertEntry7962); b(structureHlReclaim)
+            b(secondWave7974); d(holderVel7978); d(turnover7978); d(curve7978); b(live7978); b(beta7978); b(colourBuy7978); b(specialistEdge7978)
+            return h
+        }
+    }
+
+    // ── V5.0.8084 §SETUP_CLASSIFICATION — observation provenance and structured outcomes ──
+    enum class Obs8084 { OBSERVED, STALE, UNKNOWN, INVALID, DEFAULT_UNOBSERVED }
+
+    /**
+     * MATCHED: setups fired and one was ranked. NO_MATCH: core inputs observed, nothing fired. DATA_INCOMPLETE: nothing
+     * fired and a core input is unobserved/stale/invalid. MATCHES_UNRANKABLE: setups fired, none rankable. NO_PLAYBOOK:
+     * the lane has no menu. CLASSIFIER_ERROR: nothing fired and a setup predicate threw. Only NO_MATCH is the historic
+     * "no recognised setup" NO_TRIGGER cohort; the rest explain why a coin could not be classified.
+     */
+    enum class Outcome8084 { MATCHED, NO_MATCH, DATA_INCOMPLETE, MATCHES_UNRANKABLE, NO_PLAYBOOK, CLASSIFIER_ERROR }
+
+    /** One immutable classification of one candidate version (features, matches, choice, reason) — cached atomically. */
+    class Classification8084(
+        val lane: String, val outcome: Outcome8084, val chosen: String?, val matched: List<String>,
+        val missing: List<String>, val errors: List<String>, val featureVersion: Int, val atMs: Long, val reason: String,
+    ) {
+        /** The historic tag: the chosen setup, NO_TRIGGER when none is selectable, null when the lane has no playbook. */
+        val tag: String? get() = when (outcome) { Outcome8084.NO_PLAYBOOK -> null; Outcome8084.MATCHED -> chosen; else -> NO_TRIGGER }
+        val alternatives: List<String> get() = matched.filter { it != chosen }
+        /** Only a genuine no-match is the NO_TRIGGER cohort a refusal or a NO_TRIGGER grade may read. */
+        val noMatchCohort: Boolean get() = outcome == Outcome8084.NO_MATCH || outcome == Outcome8084.MATCHES_UNRANKABLE
+    }
+
+    internal const val OBS_FRESH_MS_8084 = 15L * 60_000L
+    internal const val SHAPE_FRESH_MS_8084 = 20L * 60_000L
+
+    /** Pure: buy pressure provenance. A stamped 50/50 is a real balanced tape; an unstamped 50/50 pair is the default. */
+    fun bpObs8084(bp: Double, sp: Double, observedAtMs: Long, nowMs: Long): Obs8084 = when {
+        !bp.isFinite() || bp < 0.0 || bp > 100.0 -> Obs8084.INVALID
+        observedAtMs > 0L -> if (nowMs - observedAtMs <= OBS_FRESH_MS_8084) Obs8084.OBSERVED else Obs8084.STALE
+        bp == 50.0 && sp == 50.0 -> Obs8084.DEFAULT_UNOBSERVED
+        else -> Obs8084.OBSERVED   // an unstamped legacy writer's non-default reading
+    }
+
+    /** Pure: price-change provenance. A stamped 0.0 is a real flat read; an unstamped 0/0 is the default. */
+    fun chgObs8084(chg5m: Double, chg1h: Double, observedAtMs: Long, nowMs: Long): Obs8084 = when {
+        !chg5m.isFinite() || !chg1h.isFinite() -> Obs8084.INVALID
+        observedAtMs > 0L -> if (nowMs - observedAtMs <= OBS_FRESH_MS_8084) Obs8084.OBSERVED else Obs8084.STALE
+        chg5m == 0.0 && chg1h == 0.0 -> Obs8084.DEFAULT_UNOBSERVED
+        else -> Obs8084.OBSERVED
+    }
+
+    /**
+     * Pure: price-history (shape) provenance from the last three points: positive finite prices, strictly increasing
+     * timestamps spanning 10 s+, no dimensional jump (>1000x between points), newest within 20 min and not in the future.
+     */
+    fun shapeObs8084(pts: List<com.lifecyclebot.data.Candle>, nowMs: Long): Obs8084 {
+        if (pts.size < 3) return Obs8084.UNKNOWN
+        val last3 = pts.takeLast(3)
+        for (i in last3.indices) {
+            val c = last3[i]
+            if (!c.priceUsd.isFinite() || c.priceUsd <= 0.0 || c.ts <= 0L) return Obs8084.INVALID
+            if (i > 0) {
+                val p = last3[i - 1]
+                if (c.ts <= p.ts) return Obs8084.INVALID
+                val r = c.priceUsd / p.priceUsd
+                if (!r.isFinite() || r > 1_000.0 || r < 0.001) return Obs8084.INVALID
+            }
+        }
+        if (last3.last().ts - last3.first().ts < 10_000L) return Obs8084.INVALID
+        val age = nowMs - last3.last().ts
+        if (age < -60_000L) return Obs8084.INVALID
+        return if (age > SHAPE_FRESH_MS_8084) Obs8084.STALE else Obs8084.OBSERVED
+    }
+
+    /** The inputs a lane's setups most need; one unobserved means a no-fire is DATA_INCOMPLETE, not NO_MATCH. */
+    internal val CORE_8084 = listOf("bp", "chg", "shape", "liq")
 
     class Setup(val id: String, val prior: Double, val fires: (F) -> Boolean)
 
@@ -362,7 +449,20 @@ object LanePlaybook7907 {
     }
 
     /** Pure: the setups of [lane]'s menu that [f] fires (empty = no trigger; unknown lane = null). */
-    fun matches(lane: String, f: F): List<Setup>? = menuOf7962(lane)?.filter { s -> try { s.fires(f) } catch (_: Throwable) { false } }
+    fun matches(lane: String, f: F): List<Setup>? = menuOf7962(lane)?.filter { s ->
+        try { s.fires(f) } catch (_: Throwable) {
+            try { PipelineHealthCollector.labelInc("SETUP_CLASSIFIER_ERROR_8084_${s.id}") } catch (_: Throwable) {}
+            false
+        }
+    }
+
+    /** V5.0.8084 — every setup of [lane]'s menu evaluated: (fired ids, ids whose predicate threw); null = no playbook. */
+    internal fun matchDetailed8084(lane: String, f: F): Pair<List<String>, List<String>>? {
+        val menu = menuOf7962(lane) ?: return null
+        val fired = ArrayList<String>(4); val errs = ArrayList<String>(0)
+        for (s in menu) try { if (s.fires(f)) fired.add(s.id) } catch (_: Throwable) { errs.add(s.id) }
+        return fired to errs
+    }
 
     fun menuIds(lane: String): List<String> = menuOf7962(lane)?.map { it.id }.orEmpty()
 
@@ -393,10 +493,16 @@ object LanePlaybook7907 {
         // peak/drawdown/run-up read 1.0/0/0 on a one-point history. Those defaults
         // satisfied setups (e.g. VOLUME_CONTINUATION on a token with no data), so a
         // candidate with no evidence escaped the NO_TRIGGER refusal. Unobserved = NaN.
-        val shapeKnown = ts.history.size >= 3
+        // V5.0.8084 — validity from observation metadata, not value guesses: a stamped 50/50 tape and a stamped 0% move
+        // are real readings; an unstamped default is not; three points must be time-ordered, spaced, sane and fresh.
         val bpRaw = s?.buyPressurePct ?: ts.lastBuyPressurePct
-        val bpKnown = !(bpRaw == 50.0 && ts.lastSellPressurePct == 50.0)
-        val chgKnown = ts.history.size >= 2 || ts.lastPriceChange5m != 0.0 || ts.lastPriceChange1h != 0.0
+        val shapeObs = try { shapeObs8084(ts.history.toList(), nowMs) } catch (_: Throwable) { Obs8084.UNKNOWN }
+        val bpObs = bpObs8084(bpRaw, ts.lastSellPressurePct, ts.buyPressureObservedAtMs8084, nowMs)
+        val chgObs = chgObs8084(ts.lastPriceChange5m, ts.lastPriceChange1h, ts.priceChangeObservedAtMs8084, nowMs)
+        val shapeKnown = shapeObs == Obs8084.OBSERVED
+        val bpKnown = bpObs == Obs8084.OBSERVED
+        val chgKnown = chgObs == Obs8084.OBSERVED
+        val liqObs = if (pos(s?.liquidityUsd).isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN
         return F(
             age = nn(s?.ageMin),
             runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else Double.NaN,
@@ -482,7 +588,16 @@ object LanePlaybook7907 {
             } catch (_: Throwable) { false },
             beta7978 = try { com.lifecyclebot.engine.market.MemeMeta7973.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false },
             colourBuy7978 = try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)?.colorBuy7968 == true } catch (_: Throwable) { false },
-        )
+        ).also { f ->
+            f.obs8084 = mapOf("bp" to bpObs, "chg" to chgObs, "shape" to shapeObs, "liq" to liqObs,
+                "age" to (if (f.age.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
+                "mcap" to (if (f.mcap.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
+                "tape" to (if (tape != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
+                "flow" to (if (flow != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
+                "holders" to (if (f.holders.isFinite() || f.holderGrowth.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
+                "opp" to (if (opp != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
+                "volAccel" to (if (f.volAccel.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN))
+        }
     }
 
     // ── learning ──
@@ -531,43 +646,126 @@ object LanePlaybook7907 {
         return LaneEvidence8077.Setup(id, expected(lane, id), st?.n ?: 0.0, st?.mean() ?: 0.0, st?.variance() ?: 0.0)
     }
     private val bookRevision8077 = AtomicLong(0)
-    private data class CachedClassification8077(val at: Long, val observedAt: Long, val price: Double,
-        val cap: Double, val liquidity: Double, val revision: Long, val setup: String?)
-    private val classifyCache = ConcurrentHashMap<String, CachedClassification8077>()
 
-    fun classify(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val lane = canon(laneRaw)
-        val ck = "${ts.mint}|$lane"
-        val revision = bookRevision8077.get()
-        val observedAt = ts.lastPriceUpdate; val price = ts.lastPrice
-        val cap = ts.lastMcap; val liquidity = ts.lastLiquidityUsd
-        classifyCache[ck]?.let { c ->
-            if (nowMs - c.at in 0L..15_000L && c.observedAt == observedAt && c.price == price &&
-                c.cap == cap && c.liquidity == liquidity && c.revision == revision) return c.setup
-        }
-        val v = classifyNow(ts, lane, nowMs)
-        if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.at > 15_000L }
-        classifyCache[ck] = CachedClassification8077(nowMs, observedAt, price, cap, liquidity, revision, v)
-        return v
+    /**
+     * V5.0.8084 §ONE_CACHE. The 8077 cache validated price/mcap/liquidity only, for 15 s, while a separate matchCache
+     * held the fired list and could disagree with the chosen tag. Now one entry holds the immutable classification;
+     * it is reused while the token-local input key is unchanged (price, bp, chg, history, holders, momentum, exits)
+     * and, for the external peeks (tape, flow, opportunity, specialist), for at most [EXTERNAL_TTL_MS_8084]; after that
+     * the features are rebuilt and an unchanged fingerprint keeps the classification. A book revision re-ranks the
+     * same matches without a feature rebuild. Calls in one decision (same nowMs) see one classification.
+     */
+    private class Cached8084(val inputKey: Long, val revision: Long, val featuresAt: Long, val pinnedAt: Long, val c: Classification8084)
+    private val classifyCache = ConcurrentHashMap<String, Cached8084>()
+    internal const val EXTERNAL_TTL_MS_8084 = 5_000L
+
+    /** Pure-ish: the token-local setup inputs, hashed (no provider call, no feature build). */
+    internal fun inputKey8084(ts: TokenState): Long {
+        var h = 1125899906842597L
+        fun l(v: Long) { h = 31 * h + v }
+        fun d(v: Double) { h = 31 * h + (if (v.isNaN()) 0x7ff8L else java.lang.Double.doubleToLongBits(v)) }
+        l(ts.lastPriceUpdate); d(ts.lastPrice); d(ts.lastMcap); d(ts.lastLiquidityUsd)
+        d(ts.lastBuyPressurePct); d(ts.lastSellPressurePct); l(ts.buyPressureObservedAtMs8084)
+        d(ts.lastPriceChange5m); d(ts.lastPriceChange1h); l(ts.priceChangeObservedAtMs8084)
+        val last = try { ts.history.lastOrNull() } catch (_: Throwable) { null }
+        l(ts.history.size.toLong()); l(last?.ts ?: 0L); l((last?.holderCount ?: 0).toLong())
+        d(ts.holderGrowthRate); l(if (ts.holderDataResolved) 1L else 0L); l(ts.lastExitTs); l(if (ts.position.isOpen) 1L else 0L)
+        d(try { com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.volumeAccelerationScore } catch (_: Throwable) { null } ?: Double.NaN)
+        return h
     }
 
-    /** V5.0.7924 — every setup that fired on the last classification (all are graded, not only the tag). */
-    private val matchCache = ConcurrentHashMap<String, List<String>>()
+    fun classify(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
+        classify8084(ts, laneRaw, nowMs)?.tag
 
-    private fun classifyNow(ts: TokenState, lane: String, nowMs: Long): String? {
-        // V5.0.7931 — a lane with no playbook (crypto universe, Markets) costs no feature build.
-        if (!MENU.containsKey(lane)) return null
-        val f7978 = features(ts, nowMs)
-        // V5.0.7978 — a promoted specialist of this lane is a setup (graded like the rest).
-        f7978.specialistEdge7978 = try { com.lifecyclebot.engine.truth.SpecialistMiner7972.peek7978(ts, lane, nowMs) } catch (_: Throwable) { false }
-        val m = matches(lane, f7978) ?: return null
-        if (matchCache.size > 4_000) matchCache.clear()
-        matchCache["${ts.mint}|$lane"] = m.map { it.id }
-        if (m.isEmpty()) return NO_TRIGGER
-        ensureLoaded()
-        return synchronized(this) {
-            LaneEvidence8077.choose(m.map { setupEvidence8077(lane, it.id) })?.id ?: NO_TRIGGER
+    /** V5.0.8084 — the structured classification of this candidate version (null only on an internal failure). */
+    fun classify8084(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Classification8084? {
+        val lane = canon(laneRaw)
+        if (!MENU.containsKey(lane)) return Classification8084(lane, Outcome8084.NO_PLAYBOOK, null, emptyList(), emptyList(), emptyList(), 0, nowMs, "no playbook for $lane")
+        val ck = "${ts.mint}|$lane"
+        val revision = bookRevision8077.get()
+        val key = try { inputKey8084(ts) } catch (_: Throwable) { 0L }
+        val cached = classifyCache[ck]
+        if (cached != null) {
+            if (cached.pinnedAt == nowMs && cached.revision == revision) return cached.c
+            val fresh = cached.inputKey == key && nowMs - cached.featuresAt in 0L..EXTERNAL_TTL_MS_8084
+            if (fresh) {
+                val c = if (cached.revision == revision) cached.c else rerank8084(cached.c, nowMs)
+                classifyCache[ck] = Cached8084(key, revision, cached.featuresAt, nowMs, c)
+                return c
+            }
         }
+        val f = try { features(ts, nowMs) } catch (_: Throwable) {
+            val c = Classification8084(lane, Outcome8084.CLASSIFIER_ERROR, null, emptyList(), emptyList(), listOf("features"), 0, nowMs, "feature build threw")
+            count8084(c); return c
+        }
+        f.specialistEdge7978 = try { com.lifecyclebot.engine.truth.SpecialistMiner7972.peek7978(ts, lane, nowMs) } catch (_: Throwable) { false }
+        val fp = f.fingerprint8084()
+        val c = if (cached != null && cached.c.featureVersion == fp)
+            (if (cached.revision == revision) cached.c else rerank8084(cached.c, nowMs))
+        else {
+            if (cached != null) try { PipelineHealthCollector.labelInc("SETUP_CACHE_STALE_INVALIDATED_8084") } catch (_: Throwable) {}
+            evaluate8084(lane, f, fp, nowMs).also { count8084(it) }
+        }
+        if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.featuresAt > 60_000L }
+        classifyCache[ck] = Cached8084(key, revision, nowMs, nowMs, c)
+        return c
+    }
+
+    /** The matches of [c] ranked again on the current books (same evidence, new grades). */
+    private fun rerank8084(c: Classification8084, nowMs: Long): Classification8084 {
+        if (c.matched.isEmpty()) return c
+        ensureLoaded()
+        val best = synchronized(this) { LaneEvidence8077.choose(c.matched.map { setupEvidence8077(c.lane, it) })?.id }
+        val out = if (best == null) Outcome8084.MATCHES_UNRANKABLE else Outcome8084.MATCHED
+        return if (best == c.chosen && out == c.outcome) c
+        else Classification8084(c.lane, out, best, c.matched, c.missing, c.errors, c.featureVersion, c.atMs, c.reason + " (re-ranked)")
+    }
+
+    /** Pure over [f]: match every setup, rank the fired ones, name the outcome and its reason. */
+    internal fun evaluate8084(lane: String, f: F, fp: Int, nowMs: Long): Classification8084 {
+        val det = matchDetailed8084(lane, f)
+            ?: return Classification8084(lane, Outcome8084.NO_PLAYBOOK, null, emptyList(), emptyList(), emptyList(), fp, nowMs, "no playbook")
+        val (fired, errs) = det
+        val missing = f.obs8084.filterValues { it != Obs8084.OBSERVED }.map { (k, v) -> "$k:${v.name}" }
+        val best = if (fired.isEmpty()) null else { ensureLoaded(); synchronized(this) { LaneEvidence8077.choose(fired.map { setupEvidence8077(lane, it) })?.id } }
+        val coreMissing = CORE_8084.filter { (f.obs8084[it] ?: Obs8084.UNKNOWN) != Obs8084.OBSERVED }
+            .map { "$it:${f.obs8084[it]?.name ?: Obs8084.UNKNOWN.name}" }
+        return decide8084(lane, fired, errs, best, missing, coreMissing, fp, nowMs)
+    }
+
+    /** Pure (V5.0.8084): the outcome of one evaluation. A selected setup must be one that fired. */
+    fun decide8084(lane: String, fired: List<String>, errs: List<String>, best: String?, missing: List<String>,
+                   coreMissing: List<String>, fp: Int, nowMs: Long): Classification8084 = when {
+        fired.isNotEmpty() && best != null && best in fired ->
+            Classification8084(lane, Outcome8084.MATCHED, best, fired, missing, errs, fp, nowMs, "fired=${fired.size} chose=$best")
+        fired.isNotEmpty() ->
+            Classification8084(lane, Outcome8084.MATCHES_UNRANKABLE, null, fired, missing, errs, fp, nowMs,
+                "fired=${fired.joinToString(",")} but no valid ranking evidence")
+        errs.isNotEmpty() -> Classification8084(lane, Outcome8084.CLASSIFIER_ERROR, null, emptyList(), missing, errs, fp, nowMs,
+            "no setup fired; predicates threw: ${errs.take(4).joinToString(",")}")
+        coreMissing.isNotEmpty() -> Classification8084(lane, Outcome8084.DATA_INCOMPLETE, null, emptyList(), missing, errs, fp, nowMs,
+            "no setup fired; unobserved core inputs: ${coreMissing.joinToString(",")}")
+        else -> Classification8084(lane, Outcome8084.NO_MATCH, null, emptyList(), missing, errs, fp, nowMs, "core inputs observed; no registered setup fired")
+    }
+
+    // Bounded diagnostics: fixed outcome x lane, fixed feature x lane.
+    private val outcomeCounts8084 = ConcurrentHashMap<String, AtomicLong>()
+    private val missingCounts8084 = ConcurrentHashMap<String, AtomicLong>()
+    private fun count8084(c: Classification8084) {
+        try {
+            val name = when (c.outcome) {
+                Outcome8084.MATCHED -> "SETUP_MATCHED_8084"; Outcome8084.NO_MATCH -> "SETUP_NO_MATCH_8084"
+                Outcome8084.DATA_INCOMPLETE -> "SETUP_DATA_INCOMPLETE_8084"; Outcome8084.MATCHES_UNRANKABLE -> "SETUP_MATCHES_UNRANKABLE_8084"
+                Outcome8084.CLASSIFIER_ERROR -> "SETUP_CLASSIFIER_ERROR_8084"; Outcome8084.NO_PLAYBOOK -> "SETUP_NO_PLAYBOOK_8084"
+            }
+            PipelineHealthCollector.labelInc(name); PipelineHealthCollector.labelInc("${name}_${c.lane}")
+            outcomeCounts8084.computeIfAbsent("${c.lane}|${c.outcome.name}") { AtomicLong(0) }.incrementAndGet()
+            if (c.outcome != Outcome8084.MATCHED) for (m in c.missing) {
+                val feat = m.substringBefore(':')
+                PipelineHealthCollector.labelInc("SETUP_FEATURE_MISSING_8084_$feat")
+                missingCounts8084.computeIfAbsent("${c.lane}|$feat") { AtomicLong(0) }.incrementAndGet()
+            }
+        } catch (_: Throwable) {}
     }
 
     /** Pure: is a (lane, setup) record a proven loser? */
@@ -590,7 +788,7 @@ object LanePlaybook7907 {
         val lane = canon(laneRaw)
         val setup = classify(ts, lane, nowMs)
         if (setup == null || setup == NO_TRIGGER) null else {
-            val also = matchCache["${ts.mint}|$lane"].orEmpty().count { it != setup }
+            val also = classify8084(ts, lane, nowMs)?.matched.orEmpty().count { it != setup }
             val exp = synchronized(this) { expected(lane, setup) }
             scoreOf7937(exp, also)
         }
@@ -611,10 +809,14 @@ object LanePlaybook7907 {
     }
 
     /** LiveEdgeGate7877.liveRefusal (LIVE only): the playbook's binding refusal, or null. */
-    fun liveRefusal(ts: TokenState, laneRaw: String): String? {
+    fun liveRefusal(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
         return try {
             val lane = canon(laneRaw)
-            val setup = classify(ts, lane) ?: return null
+            val c8084 = classify8084(ts, lane, nowMs) ?: return null
+            val setup = c8084.tag ?: return null
+            // V5.0.8084 — DATA_INCOMPLETE / CLASSIFIER_ERROR are not the NO_TRIGGER cohort: no economic refusal is drawn
+            // from them (the proven-only live step still needs the candidate's own positive evidence to carry money).
+            if (setup == NO_TRIGGER && !c8084.noMatchCohort) return null
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val why: String? = synchronized(this) {
                 val st = stat(lane, setup)
@@ -696,7 +898,10 @@ object LanePlaybook7907 {
                 if (st == null || !setupProvenPositive7948(st)) null
                 else Triple(setup, st.runnerRate() >= TAIL_RATE || st.mean() >= RUNNER_SETUP_MEAN_8056, st.mean() - kotlin.math.sqrt(st.variance() / st.n))
             }.maxByOrNull { it.third }?.let { best ->
-                if (best.first != classify(ts, lane, nowMs)) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PLAYBOOK_ALT_SETUP_SELECTED_8083_$lane") } catch (_: Throwable) {}
+                if (best.first != classify(ts, lane, nowMs)) try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PLAYBOOK_ALT_SETUP_SELECTED_8083_$lane")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SETUP_ALTERNATIVE_SELECTED_8084_$lane")
+                } catch (_: Throwable) {}
                 best.first to best.second
             }
         }
@@ -707,10 +912,10 @@ object LanePlaybook7907 {
      * has no playbook or nothing fired.
      */
     fun matchedSetups8083(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): List<String> {
-        val lane = canon(laneRaw)
-        val chosen = classify(ts, lane, nowMs) ?: return emptyList()
-        val fired = matchCache["${ts.mint}|$lane"].orEmpty()
-        return (listOf(chosen) + fired).filter { it != NO_TRIGGER }.distinct()
+        // V5.0.8084 — read from the one immutable classification (chosen first, then every alternative that fired);
+        // an unrankable match keeps its fired setups.
+        val c = classify8084(ts, laneRaw, nowMs) ?: return emptyList()
+        return (listOfNotNull(c.chosen) + c.matched).filter { it != NO_TRIGGER }.distinct()
     }
 
     private const val RUNNER_SETUP_MEAN_8056 = 10.0
@@ -767,9 +972,9 @@ object LanePlaybook7907 {
     } catch (_: Throwable) { null }
 
     /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */
-    fun classifiedSampleN7948(ts: TokenState, laneRaw: String): Int = try {
+    fun classifiedSampleN7948(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Int = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane)
+        val setup = classify(ts, lane, nowMs)
         if (setup == null) 0 else synchronized(this) { stat(lane, setup)?.n?.toInt() ?: 0 }
     } catch (_: Throwable) { 0 }
 
@@ -828,21 +1033,56 @@ object LanePlaybook7907 {
      */
     private const val SEED_MIN_N_8052 = 10.0
 
-    /** V5.0.8069 — the Cortex panel: one setup's record in one lane. */
-    data class SetupRow8069(val lane: String, val setup: String, val n: Int, val meanPct: Double, val sePct: Double, val proven: Boolean)
+    /** V5.0.8069 — the Cortex panel: one setup's record in one lane. 8084: lower bound, tier and NO_TRIGGER flag. */
+    data class SetupRow8069(val lane: String, val setup: String, val n: Int, val meanPct: Double, val sePct: Double, val proven: Boolean,
+                            val lowerPct: Double = Double.NaN, val tier: String = "", val noTrigger: Boolean = false)
 
-    /** V5.0.8069 — the Cortex panel: the setups with the most graded labels (5+), best mean first within the cut. */
-    fun setupRows8069(limit: Int = 16): List<SetupRow8069> = try {
-        ensureLoaded()
-        synchronized(this) {
-            books.flatMap { (lane, b) ->
-                b.stats.keys.mapNotNull { setup -> stat(lane, setup)?.let { setup to it } }
-                    .filter { it.second.n >= 5.0 }.map { (setup, st) ->
+    /** Pure (V5.0.8084): tier of a record — PROVEN (30+ and mean-SE > 0), DEVELOPING (mean > 0), NEGATIVE. */
+    fun tier8084(n: Double, mean: Double, se: Double): String = when {
+        n >= LOSING_N && se.isFinite() && mean - se > 0.0 -> "PROVEN"
+        mean > 0.0 -> "DEVELOPING"
+        else -> "NEGATIVE"
+    }
+
+    /**
+     * Pure (V5.0.8084): rank the COMPLETE eligible set before the limit. 8069 cut to the 2*limit largest samples first,
+     * so twelve n500 NO_TRIGGER cohorts hid SHITCOIN SPECIALIST_EDGE. NO_TRIGGER rows are excluded (shown separately);
+     * proven first, then developing, by confidence-aware lower bound (mean - SE); a few negatives stay visible; at most
+     * three rows per lane in the first pass so one lane cannot monopolise the panel.
+     */
+    fun rankRows8084(rows: List<SetupRow8069>, limit: Int): List<SetupRow8069> {
+        val setups = rows.filter { !it.noTrigger }
+        fun lb(r: SetupRow8069) = if (r.lowerPct.isFinite()) r.lowerPct else r.meanPct
+        val order = compareBy<SetupRow8069>({ when (it.tier) { "PROVEN" -> 0; "DEVELOPING" -> 1; else -> 2 } }).thenByDescending { lb(it) }
+        val positive = setups.filter { it.tier != "NEGATIVE" }.sortedWith(order)
+        val negative = setups.filter { it.tier == "NEGATIVE" }.sortedBy { it.meanPct }
+        val negSlots = minOf(negative.size, maxOf(1, limit / 4))
+        val posLimit = limit - negSlots
+        val perLane = HashMap<String, Int>()
+        val first = positive.filter { r -> (perLane.merge(r.lane, 1, Int::plus) ?: 0) <= 3 }.take(posLimit)
+        val fill = positive.filter { it !in first }.take(posLimit - first.size)
+        return (first + fill).sortedWith(order) + negative.take(limit - minOf(posLimit, first.size + fill.size))
+    }
+
+    private fun allRows8084(): List<SetupRow8069> = synchronized(this) {
+        books.flatMap { (lane, b) ->
+            b.stats.keys.mapNotNull { setup -> stat(lane, setup)?.let { setup to it } }
+                .filter { it.second.n >= 5.0 }.map { (setup, st) ->
                     val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN
-                    SetupRow8069(lane, setup, st.n.toInt(), st.mean(), se, setupProvenPositive7948(st))
+                    SetupRow8069(lane, setup, st.n.toInt(), st.mean(), se, setupProvenPositive7948(st),
+                        if (se.isFinite()) st.mean() - se else Double.NaN, tier8084(st.n, st.mean(), se), setup == NO_TRIGGER)
                 }
-            }.sortedByDescending { it.n }.take(limit * 2).sortedByDescending { it.meanPct }.take(limit)
         }
+    }
+
+    /** V5.0.8069/8084 — the Cortex panel's setups (ranked on the full set; NO_TRIGGER excluded). Background thread only. */
+    fun setupRows8069(limit: Int = 16): List<SetupRow8069> = try {
+        ensureLoaded(); rankRows8084(allRows8084(), limit)
+    } catch (_: Throwable) { emptyList() }
+
+    /** V5.0.8084 — the NO_TRIGGER (no-match) cohorts per lane, shown in their own section. */
+    fun noTriggerRows8084(limit: Int = 12): List<SetupRow8069> = try {
+        ensureLoaded(); allRows8084().filter { it.noTrigger }.sortedByDescending { it.n }.take(limit)
     } catch (_: Throwable) { emptyList() }
 
     fun bestSetup8049(laneRaw: String): Pair<String, Double>? = try {
@@ -858,28 +1098,57 @@ object LanePlaybook7907 {
     } catch (_: Throwable) { null }
 
     /** Cortex7885.capture: tag the decision with its setup for its forward label. */
-    fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long) {
+    /**
+     * V5.0.8084 — the classification at decision time, taken synchronously by Cortex7885.capture before its async job,
+     * so the grade credits what the coin showed when it was judged, not the later mutated TokenState.
+     */
+    fun decisionSnapshot8084(ts: TokenState, labelLane: String, nowMs: Long): Classification8084? =
+        try { classify8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
+
+    fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long, snap8084: Classification8084? = null) {
         ensureLoaded()
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs) ?: return
+        val c = snap8084?.takeIf { it.lane == lane } ?: run {
+            if (snap8084 != null) try { PipelineHealthCollector.labelInc("SETUP_DECISION_IDENTITY_MISMATCH_8084") } catch (_: Throwable) {}
+            classify8084(ts, lane, nowMs)
+        } ?: return
+        val setup = c.tag ?: return
         // V5.0.7925 — shed half, not all: clearing dropped every pending label at once.
         if (pending.size > 8_000) pending.keys.take(pending.size / 2).forEach { pending.remove(it) }
-        val fired = matchCache["${ts.mint}|$lane"].orEmpty().filter { it != setup }
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to (if (fired.isEmpty()) setup else setup + ";" + fired.joinToString(","))
+        val fired = c.matched.filter { it != setup }
+        // V5.0.8084 — the tag carries the outcome and feature version of the decision (restart-safe in the same string).
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to ((if (fired.isEmpty()) setup else setup + ";" + fired.joinToString(",")) +
+            "#O=${c.outcome.name}#V=${c.featureVersion}")
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()
         for (id in fired) firedCount.computeIfAbsent("$lane|$id") { AtomicLong(0) }.incrementAndGet()
     }
 
     private val firedCount = ConcurrentHashMap<String, AtomicLong>()
+    /** V5.0.8084 — forward labels by decision outcome per lane: [n, sum net %] (diagnostic; books are unchanged). */
+    private val outcomeForward8084 = ConcurrentHashMap<String, DoubleArray>()
 
     /** Cortex7885.onLabel (graded horizon only): learn (lane, setup) from the forward label. */
-    fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null) {
+    fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null, expectedSetup8084: String? = null) {
         ensureLoaded()
         if (!netPct.isFinite()) return
         val fam = fam8080?.takeIf { it.size == 4 && it.all { v -> v.isFinite() } }
-        val (lane, tag) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
+        val (lane, full) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
+        // V5.0.8084 — "setup;alts#O=OUTCOME#V=fp" (a pre-8084 tag has no '#': its outcome is unknown, graded as before).
+        val tag = full.substringBefore('#')
+        val outcome8084 = full.split('#').firstOrNull { it.startsWith("O=") }?.removePrefix("O=")
+        val primary = tag.substringBefore(';')
+        if (!expectedSetup8084.isNullOrBlank() && expectedSetup8084 != primary)
+            try { PipelineHealthCollector.labelInc("SETUP_DECISION_IDENTITY_MISMATCH_8084") } catch (_: Throwable) {}
+        // DATA_INCOMPLETE / CLASSIFIER_ERROR decisions do not grade the NO_TRIGGER (no-match) cohort they are not part of.
+        val primaryGraded = !(primary == NO_TRIGGER && (outcome8084 == Outcome8084.DATA_INCOMPLETE.name || outcome8084 == Outcome8084.CLASSIFIER_ERROR.name))
         // V5.0.7924 — the tagged setup and every other setup that fired are each graded.
-        val graded = listOf(tag.substringBefore(';')) + tag.substringAfter(';', "").split(',').filter { it.isNotBlank() }
+        val graded = (if (primaryGraded) listOf(primary) else emptyList()) + tag.substringAfter(';', "").split(',').filter { it.isNotBlank() }
+        try {
+            PipelineHealthCollector.labelInc("SETUP_FORWARD_GRADED_8084")
+            val ok = outcome8084 ?: "LEGACY"
+            outcomeForward8084.computeIfAbsent("$lane|$ok") { DoubleArray(2) }.let { a -> synchronized(a) { a[0] += 1.0; a[1] += netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX) } }
+        } catch (_: Throwable) {}
+        if (graded.isEmpty()) return
         // V5.0.7997 — kept so later checkpoints can revise this label (ForwardReturnLabeler7731).
         synchronized(this) {
             val stamps = graded.distinct().associateWith { setup ->
@@ -1081,7 +1350,13 @@ object LanePlaybook7907 {
                     val auth = setupFraction7955(st)
                     "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}% exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0) " auth=${"%.2f".format(auth)}" else ""}]"
                 }
-                "      $lane tagged{$tags} record: $rec"
+                val oc = outcomeCounts8084.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
+                    .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
+                val miss = missingCounts8084.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }.take(5)
+                    .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
+                val fwd = outcomeForward8084.entries.filter { it.key.startsWith("$lane|") }
+                    .joinToString(",") { (k, a) -> "${k.substringAfter('|')} n${a[0].toInt()} ${if (a[0] > 0) "%+.1f".format(a[1] / a[0]) else "-"}%" }.ifBlank { "-" }
+                "      $lane tagged{$tags} record: $rec\n        8084 outcomes{$oc} missing{$miss} forward-by-outcome{$fwd}"
             }
             "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused\n" +
                 "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" + lanes

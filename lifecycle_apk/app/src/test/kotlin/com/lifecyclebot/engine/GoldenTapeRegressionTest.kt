@@ -14459,7 +14459,7 @@ class GoldenTapeRegressionTest {
         assertFalse(cycle.contains("val candleTxns = pair.candle.buysH1 + pair.candle.sellsH1"))
         val helper = bot.substringAfter("private fun applyPollFlow7758(").substringBefore("\n    }\n")
         assertTrue(helper.contains("ts.lastSellPressurePct = pair.sellsM5.toDouble() / m5 * 100.0"))
-        assertTrue(helper.contains("if (pair.priceChangeM5.isFinite()) ts.lastPriceChange5m = pair.priceChangeM5"))
+        assertTrue(helper.contains("if (pair.priceChangeM5.isFinite()) { ts.lastPriceChange5m = pair.priceChangeM5; ts.priceChangeObservedAtMs8084 = System.currentTimeMillis() }"))   // V5.0.8084 — same finite-guarded write, now stamped
         assertTrue(helper.contains("ts.tokenMap.volume1hUsd = pair.candle.volumeH1"))
         val api = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
         assertTrue(api.contains("priceChangeM5    = p.optJSONObject(\"priceChange\")"))

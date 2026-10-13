@@ -1121,13 +1121,15 @@ class BotService : Service() {
                 m5 > 0 -> {
                     ts.lastBuyPressurePct = pair.buysM5.toDouble() / m5 * 100.0
                     ts.lastSellPressurePct = pair.sellsM5.toDouble() / m5 * 100.0
+                    ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()   // V5.0.8084 — measured
                 }
                 h1 > 0 -> {
                     ts.lastBuyPressurePct = pair.candle.buysH1.toDouble() / h1 * 100.0
                     ts.lastSellPressurePct = pair.candle.sellsH1.toDouble() / h1 * 100.0
+                    ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()
                 }
             }
-            if (pair.priceChangeM5.isFinite()) ts.lastPriceChange5m = pair.priceChangeM5
+            if (pair.priceChangeM5.isFinite()) { ts.lastPriceChange5m = pair.priceChangeM5; ts.priceChangeObservedAtMs8084 = System.currentTimeMillis() }
             if (pair.priceChangeH1.isFinite()) ts.lastPriceChange1h = pair.priceChangeH1
             if (pair.candle.volumeH1.isFinite() && pair.candle.volumeH1 > 0.0) ts.tokenMap.volume1hUsd = pair.candle.volumeH1
             if (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) ts.tokenMap.volume5mUsd = pair.volumeM5

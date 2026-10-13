@@ -196,20 +196,25 @@ object Cortex7885 {
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
-        submit("CAPTURE") { captureNow(ts, labelLane, admitted, nowMs, reason) }
+        // V5.0.8084 — the setup classification is frozen NOW (decision time); the async job used to classify the
+        // TokenState as it was whenever the queue reached it, crediting setups the decision never saw.
+        val snap8084 = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
+        submit("CAPTURE") { captureNow(ts, labelLane, admitted, nowMs, reason, snap8084) }
     }
 
-    private fun captureNow(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?) {
+    private fun captureNow(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
+                           snap8084: LanePlaybook7907.Classification8084? = null) {
         val a = assess(ts, labelLane, nowMs) ?: return
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
-        val setup7961 = try { LanePlaybook7907.classify(ts, a.lane, nowMs) } catch (_: Throwable) { null }.orEmpty()
+        val setup7961 = (snap8084?.takeIf { it.lane == a.lane }?.tag
+            ?: try { LanePlaybook7907.classify(ts, a.lane, nowMs) } catch (_: Throwable) { null }).orEmpty()
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961)
         // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).
         if (admitted) noteEntryRead(ts.mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
         // V5.0.7907 — the lane playbook tags the decision with its setup.
-        try { LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs) } catch (_: Throwable) {}
+        try { LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs, snap8084) } catch (_: Throwable) {}
         // V5.0.7900 — Cortex v6: the same decision opens a 5-minute timing label.
         try { CortexTiming7900.capture(ts, a, nowMs) } catch (_: Throwable) {}
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
@@ -399,7 +404,7 @@ object Cortex7885 {
         // a runner's first minutes carry its capture, and the Cortex learns 48x sooner.
         if (horizonMin != 60) return
         if (!netPct.isFinite() || !pending.remove(key, p)) return
-        try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080) } catch (_: Throwable) {}
+        try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961) } catch (_: Throwable) {}
         // V5.0.7908 — discovery quality: the scanner source brain orders and weights
         // intake by each source's record, but learned only from closed trades (a
         // handful a day). Every graded decision now teaches it what that source's

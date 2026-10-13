@@ -766,6 +766,7 @@ class DataOrchestrator(
         val bp = WhaleDetector.tapeBuyPressure7773(flow.buyTx60s, flow.sellTx60s, flow.buySharePct) ?: return
         ts.lastBuyPressurePct = bp
         ts.lastSellPressurePct = 100.0 - bp
+        ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()   // V5.0.8084 — tape-measured
     }
 
     /** V5.0.7747 — BirdeyeWhaleFeeder's MIN_VOLUME_USD_TO_CLASSIFY, the same whale bar. */
@@ -872,14 +873,20 @@ class DataOrchestrator(
                 ts.tokenMap.dexId = ts.lastPriceDex
                 ts.tokenMap.venue = ts.lastPriceDex
                 ts.tokenMap.updatedAtMs = ts.lastPriceUpdate
-                ts.lastBuyPressurePct = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
-                // V5.9.827 — wire previously-dropped distribution + hourly signals
-                ts.lastSellPressurePct = if (txns5m > 0) (sells5m.toDouble() / txns5m) * 100 else 50.0
+                // V5.0.8084 — a 5m window with no trades is no reading: it used to overwrite a measured tape with the
+                // 50/50 default. Only a counted window writes (and stamps) pressure.
+                if (txns5m > 0) {
+                    ts.lastBuyPressurePct = (buys5m.toDouble() / txns5m) * 100
+                    // V5.9.827 — wire previously-dropped distribution + hourly signals
+                    ts.lastSellPressurePct = (sells5m.toDouble() / txns5m) * 100
+                    ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()
+                }
                 // V5.0.7425 — do not throw away the short-horizon direction.
                 // Lifecycle routing needs this exact feed to distinguish ignition
                 // from a token already cascading after its pump.
                 ts.lastPriceChange5m = priceChange5m
                 ts.lastPriceChange1h = priceChange1h
+                if (priceChange5m.isFinite()) ts.priceChangeObservedAtMs8084 = System.currentTimeMillis()   // V5.0.8084
                 
                 // Update volume scores in meta (copy with new values)
                 ts.meta = ts.meta.copy(
