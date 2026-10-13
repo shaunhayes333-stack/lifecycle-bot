@@ -69,6 +69,9 @@ object LearningPersistence {
         // brain consumer guards a not-yet-loaded state via try/?.let so
         // missing blobs return empty defaults until restoration completes).
         appCtx = ctx.applicationContext
+        // V5.0.8086 — BotService and MainActivity both call init(). A second call opened a second
+        // handle and ran a second loadAll() that re-imported disk over the session's learning.
+        if (db != null) return
         try {
             db = KvHelper(ctx).writableDatabase
         } catch (e: Exception) {
@@ -79,8 +82,12 @@ object LearningPersistence {
             try {
                 loadAll()
                 ErrorLogger.info(TAG, "✅ Learning persistence ready — trackers restored from disk (off-main).")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ErrorLogger.warn(TAG, "init loadAll error: ${e.message}")
+            } finally {
+                // Every restore step is individually guarded, so reaching here means each learner either
+                // loaded or had its row held read-only / quarantined; saving is now safe.
+                restoreComplete8086 = true
             }
         }
     }
@@ -153,6 +160,12 @@ object LearningPersistence {
 
     private fun saveAllBlockingInternal() {
         val d = db ?: return
+        // V5.0.8086 — a save before the boot restore finished exported the empty in-memory
+        // learners and replaced the real brain on disk (every restart looked like a reset).
+        if (!restoreComplete8086 || importAwaitingRestart8086) {
+            try { PipelineHealthCollector.labelInc("LEARNING_SAVE_SKIPPED_BEFORE_RESTORE_8086") } catch (_: Throwable) {}
+            return
+        }
         try {
             d.beginTransaction()
             saveTracker(d, "SCORE", ScoreExpectancyTracker.exportState())
@@ -261,12 +274,13 @@ object LearningPersistence {
     /** Restore every tracker from the kv table. */
     private fun loadAll() {
         val d = db ?: return
-        ScoreExpectancyTracker.importState(loadTracker(d, "SCORE"))
-        HoldDurationTracker.importState(loadTracker(d, "HOLD"))
-        ExitReasonTracker.importState(loadTracker(d, "EXIT"))
+        // V5.0.8086 — one learner failing to import must not abort the rest of the restore.
+        try { ScoreExpectancyTracker.importState(loadTracker(d, "SCORE")) } catch (e: Throwable) { ErrorLogger.warn(TAG, "restore SCORE: ${e.message}") }
+        try { HoldDurationTracker.importState(loadTracker(d, "HOLD")) } catch (e: Throwable) { ErrorLogger.warn(TAG, "restore HOLD: ${e.message}") }
+        try { ExitReasonTracker.importState(loadTracker(d, "EXIT")) } catch (e: Throwable) { ErrorLogger.warn(TAG, "restore EXIT: ${e.message}") }
         // V5.9.439 — restore every brain-state blob.
-        getBlob("FLUID_LEARNING")?.let { com.lifecyclebot.v3.scoring.FluidLearningAI.importState(it) }
-        getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) }
+        try { getBlob("FLUID_LEARNING")?.let { com.lifecyclebot.v3.scoring.FluidLearningAI.importState(it) } } catch (e: Throwable) { decodeFailed8086("FLUID_LEARNING", e) }
+        try { getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) } } catch (e: Throwable) { decodeFailed8086("SENTIENCE", e) }
         try { getBlob("DAMAGE_CONTROL_WINDOW")?.let { com.lifecyclebot.engine.runtime.DamageControlGate.importState(it) } } catch (_: Throwable) {}  // V5.9.1357
         try { getBlob("AUTONOMOUS_META_POLICY")?.let { com.lifecyclebot.engine.AutonomousMetaPolicy.importState(it) } } catch (_: Throwable) {}  // V5.9.1260
         try { getBlob("FORWARD_OUTCOME_MODEL")?.let { com.lifecyclebot.engine.ForwardOutcomeModel.importState(it) } } catch (_: Throwable) {}  // V5.9.1261
@@ -365,10 +379,9 @@ object LearningPersistence {
             d.beginTransaction()
             try {
                 val now = System.currentTimeMillis()
-                for ((name, json) in blobs) d.execSQL(
-                    "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOB',?,?,?)",
-                    arrayOf(name, json, now),
-                )
+                // V5.0.8086 — a pair is all-or-nothing: if either half is held unread, write neither.
+                if (blobs.keys.any { writeRefused8086(it) }) return
+                for ((name, json) in blobs) writeRow8086(d, name, json, now)
                 d.setTransactionSuccessful()
             } finally { d.endTransaction() }
         } catch (e: Exception) { ErrorLogger.warn(TAG, "paired learning checkpoint failed: ${e.message}") }
@@ -381,25 +394,191 @@ object LearningPersistence {
             try { PipelineHealthCollector.labelInc("LEARNING_PERSISTENCE_PUTBLOB_OFFMAIN") } catch (_: Throwable) {}
             return
         }
+        if (writeRefused8086(name)) return
+        val own = !d.inTransaction()
         try {
-            d.execSQL("DELETE FROM kv WHERE tracker = 'BLOB' AND bucket = ?", arrayOf(name))
-            d.execSQL(
-                "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOB',?,?,?)",
-                arrayOf(name, json, System.currentTimeMillis()),
-            )
+            if (own) d.beginTransaction()
+            try {
+                writeRow8086(d, name, json, System.currentTimeMillis())
+                if (own) d.setTransactionSuccessful()
+            } finally { if (own) d.endTransaction() }
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "putBlob($name) error: ${e.message}")
         }
     }
 
+    // ── V5.0.8086 — learning that survives restarts ──
+    //
+    // Android reads a row through a 2 MB CursorWindow. The Cortex ledgers, lane books and pending
+    // labels outgrow that, the read threw, getBlob() answered null, the learner started empty and
+    // its next save replaced the real book with the empty one. A row is now written in bounded
+    // parts and read back in bounded slices (old oversized rows included, via substr), and a key
+    // whose read failed this session is never overwritten until it has been read.
+
+    private const val ROW_CHARS_8086 = 256_000
+    private const val PART_PREFIX_8086 = "@@PARTS_8086:"
+    @Volatile private var restoreComplete8086 = false
+    private val unreadable8086 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val readFailAtMs8086 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val READ_RETRY_GAP_MS_8086 = 60_000L
+
+    @Volatile private var importAwaitingRestart8086 = false
+
+    /**
+     * V5.0.8086 — the whole learning store (Cortex ledgers, lane books, pending labels, every brain
+     * blob and tracker) for the uninstall-safe backup. The old backup carried four small JSON files
+     * and none of this, so a reinstall always started the Cortex from zero.
+     */
+    fun exportRows8086(): JSONArray? {
+        val d = db ?: return null
+        val out = JSONArray()
+        val keys = ArrayList<Pair<String, String>>()
+        d.rawQuery("SELECT tracker, bucket FROM kv", null).use { c -> while (c.moveToNext()) keys.add(c.getString(0) to c.getString(1)) }
+        for ((t, b) in keys) {
+            if (b.endsWith("#corrupt_8086")) continue
+            val payload = readSliced8086(d, t, b) ?: continue
+            out.put(JSONArray().put(t).put(b).put(payload))
+        }
+        return out
+    }
+
+    /** Replaces the learning store from a backup; in-memory learners may not save until the app restarts. */
+    fun importRows8086(rows: JSONArray): Int {
+        val d = db ?: return 0
+        var n = 0
+        d.beginTransaction()
+        try {
+            d.execSQL("DELETE FROM kv")
+            val now = System.currentTimeMillis()
+            for (i in 0 until rows.length()) {
+                val r = rows.optJSONArray(i) ?: continue
+                val t = r.optString(0); val b = r.optString(1); val p = r.optString(2)
+                if (t.isBlank() || b.isBlank()) continue
+                if (t == "BLOB" && !p.startsWith(PART_PREFIX_8086)) writeRow8086(d, b, p, now)
+                else d.execSQL("INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES (?,?,?,?)", arrayOf(t, b, p, now))
+                n++
+            }
+            d.setTransactionSuccessful()
+        } finally { d.endTransaction() }
+        importAwaitingRestart8086 = true
+        unreadable8086.clear()
+        try { PipelineHealthCollector.labelInc("LEARNING_STORE_IMPORTED_8086") } catch (_: Throwable) {}
+        return n
+    }
+
+    /** True once the boot restore has run; saves before then would replace disk with empty state. */
+    fun restoreComplete8086(): Boolean = restoreComplete8086
+
+    /** A key that failed to read stays read-only until a read succeeds. */
+    fun readFailed8086(name: String): Boolean = name in unreadable8086
+
+    private fun writeRefused8086(name: String): Boolean {
+        if (importAwaitingRestart8086) {
+            try { PipelineHealthCollector.labelInc("LEARNING_WRITE_HELD_IMPORT_AWAITING_RESTART_8086") } catch (_: Throwable) {}
+            return true
+        }
+        if (name !in unreadable8086) return false
+        try { PipelineHealthCollector.labelInc("LEARNING_OVERWRITE_REFUSED_UNREAD_8086") } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * A learner whose stored state would not decode: keep the bytes under a quarantine key for
+     * forensics, then let it save again (the original row is not silently replaced first).
+     */
+    fun decodeFailed8086(name: String, e: Throwable) {
+        val d = db ?: return
+        try {
+            d.execSQL("INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) SELECT tracker, bucket || '#corrupt_8086', payload, updated FROM kv WHERE tracker IN ('BLOB','BLOBPART') AND (bucket = ? OR bucket LIKE ?)", arrayOf(name, "$name#p%"))
+            try { PipelineHealthCollector.labelInc("LEARNING_DECODE_FAILED_QUARANTINED_8086") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "LEARNING_DECODE_FAILED_8086 $name kept as $name#corrupt_8086: ${e.message}")
+        } catch (q: Throwable) {
+            unreadable8086.add(name)
+            ErrorLogger.warn(TAG, "LEARNING_DECODE_FAILED_8086 $name could not be quarantined; key held read-only: ${q.message}")
+        }
+    }
+
+    /** One logical row. Large payloads go to BLOBPART rows `name#p<i>`; the BLOB row holds the part count. */
+    private fun writeRow8086(d: SQLiteDatabase, name: String, json: String, now: Long) {
+        val pieces = if (json.length <= ROW_CHARS_8086) emptyList() else splitRow8086(json)
+        val parts = pieces.size
+        for (i in 0 until parts) d.execSQL(
+            "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOBPART',?,?,?)",
+            arrayOf("$name#p$i", pieces[i], now),
+        )
+        d.execSQL(
+            "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOB',?,?,?)",
+            arrayOf(name, if (parts == 0) json else "$PART_PREFIX_8086$parts", now),
+        )
+        // Parts beyond the new count belong to an older, longer version.
+        d.rawQuery("SELECT bucket FROM kv WHERE tracker = 'BLOBPART' AND bucket LIKE ?", arrayOf("$name#p%")).use { c ->
+            val stale = ArrayList<String>()
+            while (c.moveToNext()) {
+                val b = c.getString(0)
+                val idx = b.substringAfterLast("#p").toIntOrNull() ?: continue
+                if (b.substringBeforeLast("#p") == name && idx >= parts) stale.add(b)
+            }
+            for (b in stale) d.execSQL("DELETE FROM kv WHERE tracker = 'BLOBPART' AND bucket = ?", arrayOf(b))
+        }
+    }
+
+    /** Bounded pieces that never split a surrogate pair (a lone half would not survive UTF-8). */
+    internal fun splitRow8086(json: String, max: Int = ROW_CHARS_8086): List<String> {
+        val out = ArrayList<String>()
+        var i = 0
+        while (i < json.length) {
+            var end = minOf(json.length, i + max)
+            if (end < json.length && Character.isHighSurrogate(json[end - 1])) end--
+            out.add(json.substring(i, end))
+            i = end
+        }
+        return out
+    }
+
+    /** Reads a row in slices so no single cursor row exceeds the CursorWindow. */
+    private fun readSliced8086(d: SQLiteDatabase, tracker: String, bucket: String): String? {
+        val len = d.rawQuery("SELECT length(payload) FROM kv WHERE tracker = ? AND bucket = ?", arrayOf(tracker, bucket)).use { c ->
+            if (c.moveToNext()) c.getLong(0) else return null
+        }
+        if (len <= ROW_CHARS_8086) {
+            d.rawQuery("SELECT payload FROM kv WHERE tracker = ? AND bucket = ?", arrayOf(tracker, bucket)).use { c ->
+                return if (c.moveToNext()) c.getString(0) else null
+            }
+        }
+        val sb = StringBuilder(len.toInt())
+        var start = 1L
+        while (start <= len) {
+            d.rawQuery("SELECT substr(payload, ?, ?) FROM kv WHERE tracker = ? AND bucket = ?",
+                arrayOf(start.toString(), ROW_CHARS_8086.toString(), tracker, bucket)).use { c ->
+                if (!c.moveToNext()) return null
+                sb.append(c.getString(0))
+            }
+            start += ROW_CHARS_8086
+        }
+        try { PipelineHealthCollector.labelInc("LEARNING_OVERSIZE_ROW_READ_SLICED_8086") } catch (_: Throwable) {}
+        return sb.toString()
+    }
+
     private fun getBlob(name: String): String? {
         val d = db ?: return null
+        // A held key is retried at most once a minute, never on every hot-path ensureLoaded().
+        if (name in unreadable8086 && System.currentTimeMillis() - (readFailAtMs8086[name] ?: 0L) < READ_RETRY_GAP_MS_8086) return null
         try {
-            d.rawQuery("SELECT payload FROM kv WHERE tracker = 'BLOB' AND bucket = ?", arrayOf(name)).use { c ->
-                if (c.moveToNext()) return c.getString(0)
+            val head = readSliced8086(d, "BLOB", name) ?: run { unreadable8086.remove(name); return null }
+            val out = if (!head.startsWith(PART_PREFIX_8086)) head else {
+                val n = head.removePrefix(PART_PREFIX_8086).toInt()
+                val sb = StringBuilder()
+                for (i in 0 until n) sb.append(readSliced8086(d, "BLOBPART", "$name#p$i") ?: throw IllegalStateException("missing part $i/$n"))
+                sb.toString()
             }
-        } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "getBlob($name) error: ${e.message}")
+            unreadable8086.remove(name)
+            return out
+        } catch (e: Throwable) {
+            // Unreadable is not absent: hold the key read-only so the empty fallback cannot replace it.
+            unreadable8086.add(name)
+            readFailAtMs8086[name] = System.currentTimeMillis()
+            try { PipelineHealthCollector.labelInc("LEARNING_READ_FAILED_HELD_8086") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "getBlob($name) error — key held read-only: ${e.message}")
         }
         return null
     }
@@ -455,6 +634,7 @@ object LearningPersistence {
         // ── (1) wipe disk so a reboot can't resurrect old totals ──
         try {
             db?.execSQL("DELETE FROM kv")
+            unreadable8086.clear()
             ErrorLogger.info(TAG, "🧹 resetAll: kv table cleared")
         } catch (e: Exception) { ErrorLogger.warn(TAG, "resetAll db wipe error: ${e.message}") }
 
@@ -495,4 +675,14 @@ object LearningPersistence {
         ErrorLogger.info(TAG, "✅ resetAll: all learning stores zeroed (disk + memory)")
     }
 
+}
+
+/**
+ * V5.0.8086 — learner files are replaced, never truncated in place: a kill mid-write used to leave
+ * a half file that the next boot read as the whole brain.
+ */
+fun java.io.File.writeTextAtomic8086(text: String) {
+    val tmp = java.io.File(parentFile, "$name.tmp8086")
+    tmp.writeText(text)
+    if (!tmp.renameTo(this)) { delete(); if (!tmp.renameTo(this)) { writeText(text); tmp.delete() } }
 }

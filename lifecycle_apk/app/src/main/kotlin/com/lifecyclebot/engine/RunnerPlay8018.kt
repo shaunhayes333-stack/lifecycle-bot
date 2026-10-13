@@ -196,6 +196,7 @@ object RunnerPlay8018 {
 
     private fun ensureLoaded() {
         if (loaded) return
+        if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return   // V5.0.8086 — no store yet: latching now made the next save replace the file with empty state
         loaded = true
         try {
             val lines = file()?.takeIf { it.exists() }?.readLines() ?: return
@@ -206,7 +207,7 @@ object RunnerPlay8018 {
 
     private fun save() {
         try {
-            file()?.writeText(synchronized(promoteRecord) { promoteRecord.encode() } + "\n" + synchronized(reentryRecord) { reentryRecord.encode() } + "\n")
+            file()?.writeTextAtomic8086(synchronized(promoteRecord) { promoteRecord.encode() } + "\n" + synchronized(reentryRecord) { reentryRecord.encode() } + "\n")
         } catch (_: Throwable) {}
     }
 

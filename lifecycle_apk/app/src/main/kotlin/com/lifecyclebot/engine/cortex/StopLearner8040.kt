@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.cortex
 
+import com.lifecyclebot.engine.writeTextAtomic8086
+
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -125,6 +127,7 @@ object StopLearner8040 {
 
     private fun load() {
         if (loaded) return
+        if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return   // V5.0.8086 — no store yet: latching now made the next save replace the file with empty state
         loaded = true
         try {
             file()?.takeIf { it.exists() }?.readLines()?.forEach { line ->
@@ -135,7 +138,7 @@ object StopLearner8040 {
     }
 
     private fun save() {
-        try { file()?.writeText(learned.entries.joinToString("\n") { (l, d) -> "$l,${d.stopPct},${d.n},${d.edgePct},${d.atMs}" }) } catch (_: Throwable) {}
+        try { file()?.writeTextAtomic8086(learned.entries.joinToString("\n") { (l, d) -> "$l,${d.stopPct},${d.n},${d.edgePct},${d.atMs}" }) } catch (_: Throwable) {}
     }
 
     fun statusLine(): String {

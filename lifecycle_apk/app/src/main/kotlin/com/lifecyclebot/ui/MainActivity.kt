@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
                                 if (count < 0) break
                                 total += count
                                 if (total > MAX_LEARNING_BACKUP_BYTES_6637C) {
-                                    throw IllegalArgumentException("Backup exceeds 10 MB limit")
+                                    throw IllegalArgumentException("Backup exceeds 96 MB limit")
                                 }
                                 output.write(buffer, 0, count)
                             }
@@ -1654,7 +1654,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val BATTERY_OPT_BANNER_VIEW_ID = 0x7F990001
-        private const val MAX_LEARNING_BACKUP_BYTES_6637C = 10L * 1024L * 1024L
+        private const val MAX_LEARNING_BACKUP_BYTES_6637C = 96L * 1024L * 1024L
 
         // V5.9.1265 — ANR KILL: drawable XML-inflation cache.
         // Build 3231 ANR forensics: renderMemeReadiness + token-card renders

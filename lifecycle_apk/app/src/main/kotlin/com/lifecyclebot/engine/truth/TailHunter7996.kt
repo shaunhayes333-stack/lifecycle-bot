@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.writeTextAtomic8086
+
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.io.File
@@ -153,6 +155,7 @@ object TailHunter7996 {
 
     private fun ensureLoaded() {
         if (loaded) return
+        if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return   // V5.0.8086 — no store yet: latching now made the next save replace the file with empty state
         loaded = true
         try {
             file()?.takeIf { it.exists() }?.forEachLine { line ->
@@ -165,7 +168,7 @@ object TailHunter7996 {
 
     private fun save() {
         try {
-            file()?.writeText(buildString { for ((k, s) in stats) if (s.n > 0) append(k).append('\t').append(s.encode()).append('\n') })
+            file()?.writeTextAtomic8086(buildString { for ((k, s) in stats) if (s.n > 0) append(k).append('\t').append(s.encode()).append('\n') })
         } catch (_: Throwable) {}
     }
 

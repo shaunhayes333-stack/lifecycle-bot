@@ -15003,4 +15003,17 @@ class GoldenTapeRegressionTest {
         val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellRouteRace8083.kt").readText()
         assertTrue("race outcome is typed", r.contains("enum class TxOutcome8085"))
     }
+
+    @Test
+    fun V5_0_8086_learning_unreadable_or_unrestored_is_never_saved_over() {
+        val lp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("oversized rows read in slices", lp.contains("SELECT substr(payload, ?, ?) FROM kv WHERE tracker = ? AND bucket = ?"))
+        assertTrue("read failure holds the key", lp.contains("unreadable8086.add(name)"))
+        assertTrue("held key refuses overwrite", lp.contains("LEARNING_OVERWRITE_REFUSED_UNREAD_8086"))
+        assertTrue("no save before boot restore", lp.contains("if (!restoreComplete8086 || importAwaitingRestart8086) {"))
+        assertTrue("init idempotent", lp.contains("if (db != null) return"))
+        assertTrue("Cortex decode failure quarantined", java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText().contains("LearningPersistence.decodeFailed8086(PERSIST_KEY, e)"))
+        assertTrue("backup carries learning store", java.io.File("src/main/kotlin/com/lifecyclebot/engine/PersistentLearning.kt").readText().contains("LearningPersistence.exportRows8086()"))
+        assertTrue("android backup is learning-only", java.io.File("src/main/res/xml/learning_data_extraction_8086.xml").readText().contains("path=\"learning_kv.db\""))
+    }
 }

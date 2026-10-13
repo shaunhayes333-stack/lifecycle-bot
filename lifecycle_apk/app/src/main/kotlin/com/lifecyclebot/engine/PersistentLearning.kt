@@ -26,12 +26,13 @@ object PersistentLearning {
     private const val TAG = "PersistentLearning"
     private const val FOLDER_NAME = "AATE"
     private const val VERSION = 2
-    private const val MAX_BACKUP_BYTES_6637C = 10L * 1024L * 1024L
+    private const val MAX_BACKUP_BYTES_6637C = 96L * 1024L * 1024L   // V5.0.8086 — the full learning store rides along
     private val IMPORTABLE_COMPONENTS_6637C = setOf(
         "edge_learning",
         "entry_intelligence",
         "exit_intelligence",
         "token_win_memory",
+        "learning_store_8086",
     )
 
     @Volatile
@@ -375,12 +376,16 @@ object PersistentLearning {
                 put("exportTime", System.currentTimeMillis())
 
                 dir.listFiles()
-                    ?.filter { it.isFile && it.extension.equals("json", true) && !it.name.startsWith("backup_") }
+                    ?.filter { it.isFile && it.extension.equals("json", true) && !it.name.startsWith("backup_") && it.nameWithoutExtension in IMPORTABLE_COMPONENTS_6637C }
                     ?.forEach { file ->
                         runCatching {
                             put(file.nameWithoutExtension, JSONObject(file.readText()))
                         }
                     }
+                // V5.0.8086 — Cortex, lane books, pending labels and every brain blob (no keys live in this store).
+                LearningPersistence.exportRows8086()?.let { rows ->
+                    put("learning_store_8086", JSONObject().put("rows", rows).put("count", rows.length()))
+                }
             }
 
             atomicWrite(backupFile, payload.toString(2))
@@ -441,6 +446,15 @@ object PersistentLearning {
             }
 
             var restored = 0
+            stagedComponents.remove("learning_store_8086")?.let { store ->
+                val rows = store.optJSONArray("rows") ?: run {
+                    ErrorLogger.warn(TAG, "Backup rejected: learning_store_8086 has no rows")
+                    return false
+                }
+                val n = LearningPersistence.importRows8086(rows)
+                ErrorLogger.info(TAG, "LEARNING_STORE_RESTORED_8086 rows=$n")
+                restored++
+            }
             stagedComponents.forEach { (key, obj) ->
                 val outFile = File(dir, "$key.json")
                 atomicWrite(outFile, obj.toString(2))

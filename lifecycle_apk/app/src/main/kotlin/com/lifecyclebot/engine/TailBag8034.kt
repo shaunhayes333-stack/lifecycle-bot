@@ -85,6 +85,7 @@ object TailBag8034 {
 
     private fun load() {
         if (loaded) return
+        if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return   // V5.0.8086 — no store yet: latching now made the next save replace the file with empty state
         loaded = true
         try {
             file()?.takeIf { it.exists() }?.readLines()?.forEach { line ->
@@ -95,7 +96,7 @@ object TailBag8034 {
     }
 
     private fun save() {
-        try { file()?.writeText(tails.entries.joinToString("\n") { (m, t) -> "$m,${t.entryTime},${t.setAt},${t.taken}" }) } catch (_: Throwable) {}
+        try { file()?.writeTextAtomic8086(tails.entries.joinToString("\n") { (m, t) -> "$m,${t.entryTime},${t.setAt},${t.taken}" }) } catch (_: Throwable) {}
     }
 
     /** The tail of [ts]'s open position, if it has one (a tail of an older position is dropped). */

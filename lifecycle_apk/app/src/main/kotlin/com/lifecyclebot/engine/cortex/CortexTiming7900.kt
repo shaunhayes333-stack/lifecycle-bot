@@ -138,7 +138,10 @@ object CortexTiming7900 {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("dip")?.let { j -> for (k in j.keys()) dipBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) { LearningPersistence.decodeFailed8086(PERSIST_KEY, e) } finally {
+                // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
+                if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
+            }
         }
     }
 

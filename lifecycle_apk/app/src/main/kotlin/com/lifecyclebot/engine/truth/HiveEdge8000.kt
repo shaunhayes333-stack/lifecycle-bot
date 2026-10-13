@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.writeTextAtomic8086
+
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -132,6 +134,7 @@ object HiveEdge8000 {
 
     private fun ensureLoaded() {
         if (loaded) return
+        if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return   // V5.0.8086 — no store yet: latching now made the next save replace the file with empty state
         loaded = true
         try {
             val file8028 = file()
@@ -146,7 +149,7 @@ object HiveEdge8000 {
 
     private fun save() {
         try {
-            file()?.writeText(buildString {
+            file()?.writeTextAtomic8086(buildString {
                 append("#pull\t").append(lastPullMs).append('\n')
                 for ((k, v) in uploaded) append(k).append('\t').append(v.joinToString(",")).append('\n')
             })

@@ -28,7 +28,9 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <application
         android:name=".AATEApp"
-        android:allowBackup="false"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/learning_backup_rules_8086"
+        android:dataExtractionRules="@xml/learning_data_extraction_8086"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

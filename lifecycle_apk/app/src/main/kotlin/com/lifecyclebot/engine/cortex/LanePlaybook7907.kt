@@ -1326,7 +1326,10 @@ object LanePlaybook7907 {
                     }
                 }
                 bookRevision8077.incrementAndGet()
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) { LearningPersistence.decodeFailed8086(BOOKS_KEY_7947, e) } finally {
+                // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
+                if (LearningPersistence.readFailed8086(BOOKS_KEY_7947)) loaded = false
+            }
         }
     }
 

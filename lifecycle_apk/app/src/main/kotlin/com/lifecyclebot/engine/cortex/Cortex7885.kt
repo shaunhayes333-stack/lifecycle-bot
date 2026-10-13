@@ -1250,7 +1250,10 @@ object Cortex7885 {
                 o.optJSONObject("vetoes")?.let { j -> for (k in j.keys()) vetoBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
                 o.optJSONObject("joint7961")?.let { j -> for (k in j.keys()) jointBook7961[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
                 restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis())
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) { LearningPersistence.decodeFailed8086(PERSIST_KEY, e) } finally {
+                // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
+                if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
+            }
         }
     }
 

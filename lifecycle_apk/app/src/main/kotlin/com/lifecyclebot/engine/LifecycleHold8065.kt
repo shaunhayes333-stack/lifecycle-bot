@@ -336,6 +336,7 @@ object LifecycleHold8065 {
 
     private fun load() {
         if (loaded) return
+        if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return   // V5.0.8086 — no store yet: latching now made the next save replace the file with empty state
         synchronized(this) {
             if (loaded) return
             loaded = true

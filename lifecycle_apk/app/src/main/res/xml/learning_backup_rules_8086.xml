@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- V5.0.8086 — Android backup carries the learning store only (Cortex ledgers, lane books,
+     brain blobs). Wallet keys, config, positions, ledgers and every SharedPreferences file are
+     excluded by omission: only listed paths are backed up. -->
+<full-backup-content>
+    <include domain="database" path="learning_kv.db" />
+</full-backup-content>

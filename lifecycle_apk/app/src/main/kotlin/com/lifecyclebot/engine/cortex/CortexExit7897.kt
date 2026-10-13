@@ -362,7 +362,10 @@ object CortexExit7897 {
                         books[k] = b
                     }
                 }
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) { LearningPersistence.decodeFailed8086(PERSIST_KEY, e) } finally {
+                // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
+                if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
+            }
         }
     }
 
