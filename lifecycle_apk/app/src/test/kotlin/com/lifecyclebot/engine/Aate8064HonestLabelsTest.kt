@@ -33,7 +33,7 @@ class Aate8064HonestLabelsTest {
         assertFalse(LiveTruth8064.provenLosing8064(listOf(-12.0, -5.0, -20.0)))                       // too few
         assertFalse(LiveTruth8064.provenLosing8064(listOf(-12.0, 80.0, -20.0, 4.0, -7.0, 60.0, -6.0, -9.0)))  // runners pay
         val g = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(g.contains("LiveTruth8064.refusal8064(l8059, nowMs)"))
+        assertTrue(g.contains("LiveTruth8064.lanePrior8083(l8059, nowMs)"))   // V5.0.8083: prior, not a lane-wide hold
         assertFalse(g.contains("TailHunter7996.ticket7996(ts, lane, nowMs) } catch (_: Throwable) { false }) ||"))
     }
 }

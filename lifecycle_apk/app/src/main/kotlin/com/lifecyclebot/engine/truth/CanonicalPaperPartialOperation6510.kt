@@ -384,6 +384,8 @@ object CanonicalPaperPartialOperation6510 {
             // on older rows is what makes those rows unreconstructible.
             exitPriceUsd7032 = markPriceUsd7029,
             solUsdAtExit7032 = solUsd7029,
+            // V5.0.8083 — the 7066-validated basis-derived figure is checked by its own invariant at the bridge too.
+            basisDerivedProceeds8083 = basisDerivedProceeds7066 && !(markPriceUsd7029 > 0.0 && solUsd7029 > 0.0),
         )
         val post = CanonicalPositionAuthority6441.getPosition(positionId) ?: pre
         if (r.applied) {

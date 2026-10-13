@@ -21,9 +21,10 @@ class Aate8078CortexToExecutionTest {
     @Test fun liveLossBookYieldsOnlyToFullCortexAuthority() {
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         val c = src("engine/cortex/Cortex7885.kt")
-        assertTrue(g.contains("LiveTruth8064.refusal8064(l8059, nowMs)"))
-        assertTrue(g.contains("Cortex7885.fullAuthorityOverrules8078(ts, l8059, r8064)"))
-        assertTrue(g.indexOf("fullAuthorityOverrules8078") < g.indexOf("LanePlaybook7907.provenSetup8056(ts, l8059, nowMs)"))
+        // V5.0.8083 — the lane-wide book is a prior now; full authority still guards the candidate's own proven-losing setup.
+        assertFalse(g.contains("LiveTruth8064.refusal8064("))
+        assertTrue(g.contains("LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs)"))
+        assertTrue(g.contains("Cortex7885.fullAuthorityOverrules8078(ts, l8079, r)"))
         val fn = c.substring(c.indexOf("fun fullAuthorityOverrules8078("), c.indexOf("fun firstSight8026(").let { if (it < 0) c.length else it })
         assertTrue(fn.contains("if (fraction < 1.0)"))
         assertTrue(fn.contains("softBlock(refusal, false)"))

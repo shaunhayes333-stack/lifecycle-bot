@@ -126,6 +126,7 @@ object CanonicalPaperTerminalBridge6469 {
         // as unreconstructible; see ContaminatedPartialQuarantine7032.
         exitPriceUsd7032: Double = 0.0,
         solUsdAtExit7032: Double = 0.0,
+        basisDerivedProceeds8083: Boolean = false,
     ): Result {
         val canonicalBefore6522 = CanonicalPositionAuthority6441.getPosition(positionId)
         val sellDecimals6522 = canonicalBefore6522?.quantityScale ?: -1
@@ -162,6 +163,7 @@ object CanonicalPaperTerminalBridge6469 {
                     soldQtyRaw = soldQtyRaw, grossProceedsSol = grossProceedsSol,
                     callerBasisSol = soldCostBasisSol, feesSol = feesSol,
                     exitPriceUsd = exitPriceUsd7032, solUsdAtExit = solUsdAtExit7032,
+                    basisDerivedProceeds8083 = basisDerivedProceeds8083,
                 )
             } catch (_: Throwable) { null }
             if (econ7056 != null && !econ7056.ok) {

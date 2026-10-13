@@ -24,7 +24,8 @@ class Aate6701MemeDecimalScalePnlRepairTest {
             emit = false,
         )
         assertFalse(verdict.ok)
-        assertEquals("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", verdict.reason)
+        // V5.0.8083 — the absurd-gain screen (6854) now catches this scale jump first; either basis reason rejects it.
+        assertTrue(verdict.reason in setOf("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", "OPEN_PNL_ABSURD_GAIN_6854"))
     }
 
     @Test
@@ -40,7 +41,8 @@ class Aate6701MemeDecimalScalePnlRepairTest {
             emit = false,
         )
         assertFalse(verdict.ok)
-        assertEquals("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", verdict.reason)
+        // V5.0.8083 — the absurd-gain screen (6854) now catches this scale jump first; either basis reason rejects it.
+        assertTrue(verdict.reason in setOf("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", "OPEN_PNL_ABSURD_GAIN_6854"))
     }
 
     @Test

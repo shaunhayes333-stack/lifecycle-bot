@@ -49,14 +49,14 @@ class Repair6510AuthorityAcceptanceTest {
         assertTrue(CanonicalPaperTransaction6486.open(pid, mint, "P", "PROJECT_SNIPER", "6510", 1.0, 0.0, raw, 6).applied)
         val cashBefore = PaperAccountLedger6430.cashSol(); val eventsBefore = EconomicEventSchema6464.snapshot().size
         val start = CountDownLatch(1); val pool = Executors.newFixedThreadPool(10)
-        val futures = (1..10).map { pool.submit<CanonicalPaperPartialOperation6510.Receipt> { start.await(); CanonicalPaperPartialOperation6510.commit(pid, mint, "P", 0.25, 0.30, 0.001, "partial_25pct") } }
+        val futures = (1..10).map { pool.submit<CanonicalPaperPartialOperation6510.Receipt> { start.await(); CanonicalPaperPartialOperation6510.commit(pid, mint, "P", 0.25, 0.30, 0.001, "partial_25pct", markPriceUsd7029 = 12.0, solUsd7029 = 100.0) } }
         start.countDown(); val results = futures.map { it.get() }; pool.shutdown()
         assertEquals(1, results.count { it.applied })
         val post = requireNotNull(CanonicalPositionAuthority6441.getPosition(pid))
         assertEquals(BigInteger.valueOf(7_500_000L), post.remainingQtyRaw)
         assertEquals(eventsBefore + 1, EconomicEventSchema6464.snapshot().size)
         val cashAfter = PaperAccountLedger6430.cashSol(); assertEquals(cashBefore + 0.299, cashAfter, 1e-9)
-        val replay = CanonicalPaperPartialOperation6510.commit(pid, mint, "P", 0.25, 0.30, 0.001, "partial_25pct")
+        val replay = CanonicalPaperPartialOperation6510.commit(pid, mint, "P", 0.25, 0.30, 0.001, "partial_25pct", markPriceUsd7029 = 12.0, solUsd7029 = 100.0)
         assertFalse(replay.applied); assertEquals(cashAfter, PaperAccountLedger6430.cashSol(), 0.0)
         assertEquals(BigInteger.valueOf(7_500_000L), CanonicalPositionAuthority6441.getPosition(pid)?.remainingQtyRaw)
     }

@@ -5848,7 +5848,19 @@ object FinalDecisionGate {
             val boundedShape6552 = com.lifecyclebot.engine.cortex.Cortex7885.sizeShape(
                 ts, specialistLane?.trim()?.takeIf { it.isNotBlank() } ?: laneName,
                 kotlin.math.exp(kotlin.math.ln(rawShape6552).coerceIn(kotlin.math.ln(0.35), kotlin.math.ln(1.50))), rawShape6552,
-            )
+            ).let { shape ->
+                // V5.0.8083 — a LIVE candidate admitted in a lane whose recent live book is proven losing carries the
+                // lane's bounded negative prior as size, not as a refusal (LiveEdgeGate7877.Assessment8083). Bounded at
+                // LiveTruth8064.LOSING_LANE_SIZE_FACTOR_8083, never zero; route-minimum promotion downstream still applies.
+                val prior8083 = if (config.paperMode) 1.0 else try {
+                    com.lifecyclebot.engine.truth.LiveEdgeGate7877.sizeFactor8083(ts.mint, specialistLane?.trim()?.takeIf { it.isNotBlank() } ?: laneName)
+                } catch (_: Throwable) { 1.0 }
+                if (prior8083 < 1.0) {
+                    tags.add("live_lane_negative_prior_size_8083")
+                    try { PipelineHealthCollector.labelInc("FDG_LIVE_LANE_PRIOR_SIZE_8083") } catch (_: Throwable) {}
+                }
+                shape * prior8083
+            }
             val beforeCanonical6552 = finalSize
             // V5.0.6827 §CANONICAL_NOTIONAL_OVERRODE_ABSOLUTE_CAPS — this block is
             // algebraically proposedSizeSol * clamp(finalSize/proposedSizeSol, 0.35, 1.50),

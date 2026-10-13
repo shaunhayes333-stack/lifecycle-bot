@@ -627,7 +627,9 @@ object LanePlaybook7907 {
                     // 5.0.7937 MOONSHOT bought NO_TRIGGER 442 of 514 times, 4h labels n29 -24%.
                     // V5.0.7975 — trade-one: a runner lane's unmeasured NO_TRIGGER explores like every
                     // lane (labels arrive within minutes); refused once 40 labels measure it short of proof.
-                    setup == NO_TRIGGER && noTriggerMeasured7936(st) && !noTriggerProvenPositive(st) -> "PLAYBOOK_NO_TRIGGER_7907_$lane"
+                    // V5.0.8083 — NO_TRIGGER means "no recognised setup", not negative expectancy: a measured NO_TRIGGER record
+                    // that is merely short of proof no longer refuses here (only PROVEN losing above does). The candidate still
+                    // needs its own validated positive evidence at LiveEdgeGate7877's proven-only step to carry live money.
                     setup != NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup"
                     // V5.0.7948 — the best setup that fired has a measured record whose shrunk
                     // expectancy is below zero (5.0.7947 SHITCOIN LAUNCH_CONTINUATION n6 -11.0%).
@@ -684,13 +686,32 @@ object LanePlaybook7907 {
      */
     fun provenSetup8056(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Pair<String, Boolean>? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
-        if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
-            val st = stat(lane, setup)
-            if (st == null || !setupProvenPositive7948(st)) null
-            else setup to (st.runnerRate() >= TAIL_RATE || st.mean() >= RUNNER_SETUP_MEAN_8056)
+        // V5.0.8083 §MULTI_STRATEGY — every setup this coin fired in this lane is evaluated, and the best PROVEN one is
+        // selected for this token (lower bound mean - SE), not only the tag classify() chose. Different tokens in one lane
+        // can run different setups at once; losing setups keep their own books.
+        val candidates = matchedSetups8083(ts, lane, nowMs)
+        if (candidates.isEmpty()) null else synchronized(this) {
+            candidates.mapNotNull { setup ->
+                val st = stat(lane, setup)
+                if (st == null || !setupProvenPositive7948(st)) null
+                else Triple(setup, st.runnerRate() >= TAIL_RATE || st.mean() >= RUNNER_SETUP_MEAN_8056, st.mean() - kotlin.math.sqrt(st.variance() / st.n))
+            }.maxByOrNull { it.third }?.let { best ->
+                if (best.first != classify(ts, lane, nowMs)) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PLAYBOOK_ALT_SETUP_SELECTED_8083_$lane") } catch (_: Throwable) {}
+                best.first to best.second
+            }
         }
     } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8083 — the setups [ts] fired in [laneRaw] (the classified one first), excluding NO_TRIGGER. Empty when the lane
+     * has no playbook or nothing fired.
+     */
+    fun matchedSetups8083(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): List<String> {
+        val lane = canon(laneRaw)
+        val chosen = classify(ts, lane, nowMs) ?: return emptyList()
+        val fired = matchCache["${ts.mint}|$lane"].orEmpty()
+        return (listOf(chosen) + fired).filter { it != NO_TRIGGER }.distinct()
+    }
 
     private const val RUNNER_SETUP_MEAN_8056 = 10.0
 
@@ -704,9 +725,10 @@ object LanePlaybook7907 {
      */
     fun coldStartSetup8080(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
-        if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
-            stat(lane, setup)?.takeIf { coldStartPositive8080(it.n, it.mean(), it.variance()) }?.let { setup }
+        // V5.0.8083 — every fired setup is tried on its own record, not only the classified tag.
+        val candidates = matchedSetups8083(ts, lane, nowMs)
+        if (candidates.isEmpty()) null else synchronized(this) {
+            candidates.firstOrNull { setup -> stat(lane, setup)?.let { coldStartPositive8080(it.n, it.mean(), it.variance()) } == true }
         }
     } catch (_: Throwable) { null }
 

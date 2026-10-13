@@ -461,6 +461,27 @@ object Cortex7885 {
 
     fun jointKey7961(lane: String, bucket: CortexScoreboard7885.Bucket, setup: String): String = "$lane|${bucket.name}|$setup"
 
+    /** V5.0.8083 — the Cortex's graduated authority on one lane x setup cell, with its evidence. */
+    data class CellAuthority8083(val fraction: Double, val n: Double, val mean: Double, val se: Double, val baseline: Double)
+
+    /**
+     * V5.0.8083 — graduated authority of this lane's STRONG reads on [setup] (CortexScoreboard7885.graduatedFraction7955:
+     * >= 15 grades, t-statistic of the edge over max(the setup's NEUTRAL mean, 0) + the proof margin, partial cap below
+     * the full bar). 0 on an inverted or self-inconsistent lane. Caller holds the lock.
+     */
+    private fun setupCellAuthority8083(lane: String, setup: String): CellAuthority8083? {
+        val strong = jointBook7961[jointKey7961(lane, CortexScoreboard7885.Bucket.STRONG, setup)] ?: return null
+        if (strong.n < CortexScoreboard7885.GRAD_MIN_N_7955) return null
+        if (board.inverted7948(lane, accountMode8077()) || !consistent(lane)) return null
+        val neutral = jointBook7961[jointKey7961(lane, CortexScoreboard7885.Bucket.NEUTRAL, setup)]
+        val baseline = if (neutral != null && neutral.n >= 5.0) neutral.mean().coerceAtLeast(0.0) else 0.0
+        val se = if (strong.n > 1.0) kotlin.math.sqrt(strong.variance() / strong.n) else Double.POSITIVE_INFINITY
+        val full = strong.n >= CortexScoreboard7885.MIN_N_LIVE && strong.mean() - se - baseline > CortexScoreboard7885.PROOF_MARGIN_PCT
+        val f = CortexScoreboard7885.graduatedFraction7955(strong.n, strong.mean(), se, baseline, CortexScoreboard7885.PROOF_MARGIN_PCT, CortexScoreboard7885.MIN_N_LIVE, full)
+        // Partial: a cell never grants FULL authority by itself (full stays lane-level, lifetime-matured).
+        return CellAuthority8083(f.coerceAtMost(CortexScoreboard7885.GRAD_PARTIAL_CAP_7955), strong.n, strong.mean(), se, baseline)
+    }
+
     /** Pure: a joint cell proven to pay (n >= 30, mean - SE > +2% net). */
     fun jointProvenPositive7961(st: CortexLedger7885.Stat?): Boolean {
         if (st == null || st.n < JOINT_MIN_N_7961) return false
@@ -755,7 +776,14 @@ object Cortex7885 {
             // safety / rug / route refusal, never a Mayhem Mode coin.
             if (!softBlock(refusal, false)) return false
             if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return false
-            val fraction = synchronized(this) { laneFraction7955(a.lane) }
+            val laneFraction8083 = synchronized(this) { laneFraction7955(a.lane) }
+            // V5.0.8083 §CANDIDATE_SPECIFIC_AUTHORITY — the Cortex's record on THIS candidate's own setup (its STRONG reads
+            // in lane x setup) may carry the soft exception even where the lane-wide record is too thin or diluted
+            // (8082: SHITCOIN STRONG n72 +12.3% held lane authority 0). Same graduated, SE-aware, cost-margined test as
+            // the lane, on the setup's own cell; calibration and inversion still gate it. Never a hard refusal.
+            val setup8083 = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+            val cell8083 = setup8083?.let { synchronized(this) { setupCellAuthority8083(a.lane, it) } }
+            val fraction = maxOf(laneFraction8083, cell8083?.fraction ?: 0.0)
             // V5.0.7955 review — a lane's own PROVEN_LOSING / PROVEN_NEGATIVE record yields only to full authority.
             // V5.0.8016 — watch-first's measured-negative cell is a proven record too.
             val provenRefusal = refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE") || refusal.contains("BAND_NEGATIVE")
@@ -767,6 +795,19 @@ object Cortex7885 {
             }
             inc("OVERRULED_LIVE")
             if (fraction < 1.0) inc("PARTIAL_AUTHORITY_OVERRULE_7955")
+            val viaCell8083 = cell8083 != null && cell8083.fraction > laneFraction8083
+            if (viaCell8083) inc("SETUP_CELL_OVERRULE_8083")
+            // V5.0.8083 — every successful override is explained: candidate, setup, evidence, expected net edge,
+            // authority contribution and the soft rule it superseded.
+            try {
+                ForensicLogger.lifecycle(
+                    "CORTEX_OVERRIDE_EXPLAINED_8083",
+                    "candidate=${ts.mint} sym=${ts.symbol} lane=${a.lane} setup=${setup8083 ?: "UNCLASSIFIED"} " +
+                        "authority=${"%.3f".format(fraction)} source=${if (viaCell8083) "SETUP_CELL" else "LANE"} laneAuthority=${"%.3f".format(laneFraction8083)} " +
+                        "cell=${cell8083?.let { "n=${"%.0f".format(it.n)} mean=${"%+.2f".format(it.mean)}% se=${"%.2f".format(it.se)} baseline=${"%+.2f".format(it.baseline)}% expectedNetEdge=${"%+.2f".format(it.mean - it.baseline)}%" } ?: "none"} " +
+                        "fusedEdge=${"%+.2f".format(a.fused.edgePct)}% superseded=${refusal.take(80)}",
+                )
+            } catch (_: Throwable) {}
             try {
                 PipelineHealthCollector.labelInc("CORTEX_7885_OVERRULED_EDGE_${a.lane}")
                 ForensicLogger.lifecycle(

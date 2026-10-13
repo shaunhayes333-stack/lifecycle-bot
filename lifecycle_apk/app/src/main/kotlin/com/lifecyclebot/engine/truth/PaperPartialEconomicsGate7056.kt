@@ -100,6 +100,9 @@ object PaperPartialEconomicsGate7056 {
         feesSol: Double,
         exitPriceUsd: Double,
         solUsdAtExit: Double,
+        // V5.0.8083 — proceeds = soldBasis x (1 + pnl%): SOL by construction (cross-asset contract positions have no
+        // token-qty x USD-price form). CanonicalPaperPartialOperation6510 already bounded the implied ratio (7066).
+        basisDerivedProceeds8083: Boolean = false,
     ): Verdict {
         checked.incrementAndGet()
 
@@ -171,6 +174,15 @@ object PaperPartialEconomicsGate7056 {
         // an absent SOL rate makes the sale unreconstructible, and directive §5
         // says an unreconstructible partial is quarantined, not committed. This
         // is the exact inversion of the 7029 fail-open branch.
+        // V5.0.8083 §CROSS_ASSET_PARTIALS — 8082: every Crypto / Forex / Metals / Commodities / Stock paper partial died
+        // here as UNRECONSTRUCTIBLE_NO_EXIT_PRICE: CanonicalPaperTransaction6486.partial supplies a basis-derived SOL
+        // figure (validated by 6510's 7066 ratio cap) and no token-quantity price. Quantity, pro-rata basis and
+        // conservation above still bind; only the qty x price reconstruction, which cannot exist here, is skipped.
+        if (basisDerivedProceeds8083) {
+            passed.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("PARTIAL_ECONOMICS_BASIS_DERIVED_VALIDATED_8083") } catch (_: Throwable) {}
+            return Verdict(true, "VALIDATED_BASIS_DERIVED_8083", "fraction=${"%.6f".format(fraction)} allocatedBasis=${"%.8f".format(callerBasisSol)}")
+        }
         if (!(exitPriceUsd.isFinite() && exitPriceUsd > 0.0)) {
             return no("UNRECONSTRUCTIBLE_NO_EXIT_PRICE", "positionId=$positionId mint=${mint.take(10)}")
         }

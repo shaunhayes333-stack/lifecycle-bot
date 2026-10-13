@@ -366,6 +366,40 @@ object LiveEdgeGate7877 {
 
     private const val POSITIVE_TTL_MS_7975 = 2L * 60_000L
 
+    // ── V5.0.8083 §ONE_CANDIDATE_ASSESSMENT ──
+    enum class Verdict8083 { ADMIT, DEFER, REFUSE }
+
+    /** Immutable: the single live entry decision for one candidate (mint + lane + setup), read by FDG / sizing / plan. */
+    data class Assessment8083(
+        val mint: String, val lane: String, val setup: String, val verdict: Verdict8083, val reason: String,
+        val sizeFactor: Double, val lanePriorLosing: Boolean, val atMs: Long,
+    )
+
+    private val assessments8083 = ConcurrentHashMap<String, Assessment8083>()
+    private val verdictCounts8083 = ConcurrentHashMap<String, AtomicLong>()
+    private const val ASSESSMENT_TTL_MS_8083 = 120_000L
+
+    private fun recordAssessment8083(ts: TokenState, lane: String, setup: String?, verdict: Verdict8083, reason: String, sizeFactor: Double, nowMs: Long) {
+        val losing = sizeFactor < 1.0
+        val a = Assessment8083(ts.mint, lane, setup ?: "UNCLASSIFIED", verdict, reason, sizeFactor.coerceIn(LiveTruth8064.LOSING_LANE_SIZE_FACTOR_8083, 1.0), losing, nowMs)
+        assessments8083["${ts.mint}|$lane"] = a
+        if (assessments8083.size > 3_000) assessments8083.entries.removeIf { nowMs - it.value.atMs > ASSESSMENT_TTL_MS_8083 }
+        verdictCounts8083.computeIfAbsent(verdict.name) { AtomicLong(0) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("LIVE_ENTRY_ASSESSMENT_8083_${verdict.name}_$lane") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8083 — the fresh live assessment of [mint] in [lane], or null. */
+    fun assessment8083(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Assessment8083? {
+        val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        return assessments8083["$mint|$l"]?.takeIf { nowMs - it.atMs in 0L..ASSESSMENT_TTL_MS_8083 }
+    }
+
+    /** V5.0.8083 — the size factor of an ADMITTED live assessment (bounded lane negative prior), 1.0 otherwise. */
+    fun sizeFactor8083(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Double =
+        assessment8083(mint, lane, nowMs)?.takeIf { it.verdict == Verdict8083.ADMIT }?.sizeFactor ?: 1.0
+
+    fun assessmentLine8083(): String = "verdicts=" + verdictCounts8083.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
+
     fun liveRefusal(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         var auditedAdmission8076 = false
         // V5.0.8037 — every edge read below sees the observed liquidity, not a missing tick's 0.
@@ -385,14 +419,16 @@ object LiveEdgeGate7877 {
             // V5.0.8074 — unmanaged live buys from before a restart are handed to wallet adoption; a blind wallet buys nothing.
             try { LiveBootRecovery8074.tick8074(nowMs) } catch (_: Throwable) {}
             (try { LiveBootRecovery8074.blind8074(nowMs) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
-            // V5.0.8064 — the live book has the last word: a lane whose recent live closes are proven losing takes no new
-            // entry, whatever its labels say (LiveTruth8064; 6-hour window, so it comes back on its own).
-            // V5.0.8078 — ...except where the Cortex holds FULL, evidence-earned authority on this lane (never partial).
-            (try { LiveTruth8064.refusal8064(l8059, nowMs) } catch (_: Throwable) { null })?.let { r8064 ->
-                val full8078 = try { com.lifecyclebot.engine.cortex.Cortex7885.fullAuthorityOverrules8078(ts, l8059, r8064) } catch (_: Throwable) { false }
-                if (!full8078) { observeTail7996(ts, lane, r8064, nowMs); return r8064 }
-                try { PipelineHealthCollector.labelInc("LIVE_BOOK_LOSING_8064_FULL_CORTEX_OVERRULE_8078_$l8059") } catch (_: Throwable) {}
+            // V5.0.8083 §NO_LANE_WIDE_DEADLOCK (replaces the 8064 lane-wide refusal and its 8078 full-authority-only escape).
+            // The lane's live book is a bounded NEGATIVE PRIOR: it shapes size and demands this candidate's OWN validated
+            // positive evidence below, but never refuses every token, setup and strategy of the lane on its own. Only the
+            // candidate's own setup proven losing on live closes refuses (LiveTruth8064.setupRefusal8083).
+            val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            (try { LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs) } catch (_: Throwable) { null })?.let { r8083 ->
+                recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8083, 1.0, nowMs)
+                observeTail7996(ts, lane, r8083, nowMs); return r8083
             }
+            val prior8083 = try { LiveTruth8064.lanePrior8083(l8059, nowMs) } catch (_: Throwable) { null }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8060 — any MEASURED edge counts, not only a named setup: 5.0.8059 refused 4,879 vs 145 admitted and
             // turned away POKEMON +1,077% and Gemini +708% — runners often fire no named setup. The coin's own cell
@@ -410,6 +446,9 @@ object LiveEdgeGate7877 {
                 if (!auditedAdmission8076) {
                     provenOnlyRefused8059.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
+                    // V5.0.8083 — DEFER, not a verdict on the token: no validated positive evidence YET for this exact
+                    // candidate. Recovery path: its setup / cell / Cortex setup cell proving out on graded labels.
+                    recordAssessment8083(ts, l8059, setup8083, Verdict8083.DEFER, "LIVE_PROVEN_SETUP_ONLY_8059", prior8083?.sizeFactor ?: 1.0, nowMs)
                     observeTail7996(ts, lane, "LIVE_PROVEN_SETUP_ONLY_8059", nowMs)
                     return "LIVE_PROVEN_SETUP_ONLY_8059"
                 }
@@ -433,6 +472,15 @@ object LiveEdgeGate7877 {
         if (!paper) watchFirst7994(ts, lane, nowMs, auditedAdmission8076)?.let { observeTail7996(ts, lane, it, nowMs); return it }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs)
         if (!paper) observeTail7996(ts, lane, why, nowMs)
+        // V5.0.8083 — one immutable assessment per candidate: the verdict FDG / sizing / trade plan read, and the setup
+        // this live buy's close is filed under (LiveTruth8064), so refusals stay attributable to token + strategy.
+        if (!paper) try {
+            val l8083 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+            val setupAt = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l8083, nowMs) } catch (_: Throwable) { null }
+            val factor = if (why == null) (try { LiveTruth8064.lanePrior8083(l8083, nowMs).sizeFactor } catch (_: Throwable) { 1.0 }) else 1.0
+            recordAssessment8083(ts, l8083, setupAt, if (why == null) Verdict8083.ADMIT else Verdict8083.REFUSE, why ?: "ADMIT", factor, nowMs)
+            if (why == null) LiveTruth8064.noteLiveAdmit8083(ts.mint, l8083, setupAt, nowMs)
+        } catch (_: Throwable) {}
         // V5.0.7970 — a live admit in a proven runner cell is held like a runner.
         if (why == null && !paper) try {
             if (com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs)) notePositive7975(ts.mint, nowMs)

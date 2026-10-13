@@ -401,7 +401,21 @@ object OpenPnlSanity {
         // runner; we discard a peak that was generated from a mark proven to be
         // unit-incompatible. This also clears the stale TARGET/lock badge after
         // restart once the first canonical PnL read occurs.
-        if (!verdict.ok && verdict.reason == "TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701") {
+        // V5.0.8083 §POISONED_PEAK_ANY_BASIS_REJECT — 8082: an absurd mark is now caught first as OPEN_PNL_ABSURD_GAIN_6854
+        // (or another price-basis poison reason), so this heal never ran and the phantom peak stayed: lock armed at
+        // +2,635% on a +9.65% position, which never sells. The peak is healed whenever the PEAK ITSELF fails the same
+        // price-basis check against the entry (a genuine, verified runner peak passes it and is kept).
+        val peakPoisoned8083 = !verdict.ok && verdict.reason in LEARNING_POISON_REASONS_7083 &&
+            verdict.reason != "TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701" && p.entryPrice > 0.0 && p.highestPrice > p.entryPrice &&
+            !inspect(
+                entryPrice = p.entryPrice, currentPrice = p.highestPrice,
+                entrySource = p.entryPriceSource, currentSource = ts.lastPriceSource,
+                entryPool = p.entryPoolAddress, currentPool = ts.lastPricePoolAddr,
+                priceBasisRescaled = p.priceBasisRescaled, context = "peak_heal_8083", emit = false, mint = "",
+                tokenDecimals = ts.tokenMap.decimals ?: -1,
+            ).ok
+        if (peakPoisoned8083) try { PipelineHealthCollector.labelInc("POISONED_PEAK_HEALED_8083_${verdict.reason.take(40)}") } catch (_: Throwable) {}
+        if (!verdict.ok && (verdict.reason == "TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701" || peakPoisoned8083)) {
             val hadPoisonedPeak = p.peakGainPct > 0.0 || p.highestPrice > p.entryPrice || p.lastRoutePrice > 0.0
             p.peakGainPct = 0.0
             p.highestPrice = p.entryPrice.coerceAtLeast(0.0)

@@ -1207,7 +1207,7 @@ object MoonshotTraderAI {
     // generic SHITCOIN-derived gate only ever made MOONSHOT cut earlier than
     // its own proven threshold.
     fun stopFor(mint: String): Double? {
-        val pos = synchronized(activePositions) { activePositions[mint] } ?: return null
+        val pos = posOf8083(mint) ?: return null
         val predictiveSlPct: Double? = try {
             com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
                 tradingMode = "MOONSHOT",
@@ -1234,13 +1234,16 @@ object MoonshotTraderAI {
 
     fun restorePosition(position: MoonshotPosition) {
         synchronized(activePositions) { activePositions[position.mint] = position }
+        // V5.0.8083 — restored rows join their mode book, so onPartialSell / exits see them like fresh entries.
+        val restoreBook8083 = if (position.isPaperMode) paperPositions else livePositions
+        synchronized(restoreBook8083) { restoreBook8083.putIfAbsent(position.mint, position) }
         ErrorLogger.warn(TAG, "🌙 MOONSHOT RESTORED: ${position.symbol} | mode=${position.spaceMode.name} | entry=${position.entryPrice.fmt(8)} | ${if (position.isPaperMode) "PAPER" else "LIVE"}")
     }
 
     /** V5.9.398 — Push a live price (no exit logic). See ShitCoinTraderAI.updateLivePrice. */
     fun updateLivePrice(mint: String, price: Double) {
         if (price <= 0) return
-        synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
+        posOf8083(mint)?.lastSeenPrice = price
     }
 
     // V5.0.6826 §MOONSHOT_LADDER_SELF_TERMINATION — fraction of the REMAINING
@@ -1263,7 +1266,7 @@ object MoonshotTraderAI {
 
     /** Fraction of remaining position sold at the NEXT rung. */
     fun getPartialSellPct(mint: String): Double {
-        val idx=synchronized(activePositions){activePositions[mint]?.partialRungsTaken?:0}
+        val idx=posOf8083(mint)?.partialRungsTaken?:0
         return PARTIAL_RUNG_FRACTIONS_7791.getOrElse(idx.coerceAtLeast(0)){0.15}
     }
 
@@ -1290,10 +1293,23 @@ object MoonshotTraderAI {
 
     
     fun getActivePositions(): List<MoonshotPosition> {
-        return synchronized(activePositions) {
-            activePositions.values.toList()
-        }
+        // V5.0.8083 — addPosition writes the per-mode books; the legacy map only ever held restored rows, so this
+        // returned [] for every live/paper Moonshot entry (UI counts, BotService sweep, ladder step all blind).
+        val out = LinkedHashMap<String, MoonshotPosition>()
+        synchronized(activePositions) { activePositions.values.forEach { out[it.mint] = it } }
+        synchronized(livePositions) { livePositions.values.forEach { out[it.mint] = it } }
+        synchronized(paperPositions) { paperPositions.values.forEach { out[it.mint] = it } }
+        return out.values.toList()
     }
+
+    /**
+     * V5.0.8083 §ONE_POSITION_BOOK — the position for [mint] from the per-mode books addPosition / onPartialSell
+     * write (legacy restored map last). getPartialSellPct, stopFor and updateLivePrice read the legacy map only, so
+     * every rung sold as rung 1 (10%) and the Moonshot stop / live mark never reached a fresh position.
+     */
+    private fun posOf8083(mint: String): MoonshotPosition? =
+        synchronized(paperPositions) { paperPositions[mint] } ?: synchronized(livePositions) { livePositions[mint] }
+            ?: synchronized(activePositions) { activePositions[mint] }
     
     fun getActivePositionsForMode(isPaper: Boolean): List<MoonshotPosition> {
         val positions = if (isPaper) paperPositions else livePositions
@@ -1370,6 +1386,8 @@ object MoonshotTraderAI {
         val pos = synchronized(closePositions7858) { closePositions7858[mint] } ?: return
         if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, isPaper, pos.entryTime)) return
         if (!closePositions7858.remove(mint, pos)) return
+        // V5.0.8083 — the legacy restored row leaves with it (no ghost in getActivePositions after close).
+        synchronized(activePositions) { activePositions.remove(mint) }
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
