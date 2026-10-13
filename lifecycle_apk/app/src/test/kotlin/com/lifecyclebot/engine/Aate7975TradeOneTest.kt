@@ -21,7 +21,9 @@ class Aate7975TradeOneTest {
     @Test fun runnerLanesExploreUntilMeasured() {
         val pb = src("cortex/LanePlaybook7907.kt")
         assertFalse(pb.contains("(runner || noTriggerMeasured7936(st))"))
-        assertTrue(pb.contains("setup == NO_TRIGGER && noTriggerMeasured7936(st) && !noTriggerProvenPositive(st)"))
+        // V5.0.8083 — NO_TRIGGER is "no recognised setup", refused live only once PROVEN losing (directive P0.4.5).
+        assertTrue(pb.contains("setup == NO_TRIGGER && st != null && provenLosing(st, runner) ->"))
+        assertFalse(pb.contains("setup == NO_TRIGGER && noTriggerMeasured7936(st) && !noTriggerProvenPositive(st) ->"))
     }
 
     @Test fun positiveEvidenceAdmitsArePlannedNotMadeToWait() {
