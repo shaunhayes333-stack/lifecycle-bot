@@ -23,7 +23,7 @@ class Aate7897ExitCortexTest {
         assertTrue(CortexExit7897.holdProven(good, positions = 20))
         // 80 samples from a handful of positions are not 80 independent trades.
         assertFalse(CortexExit7897.holdProven(good, positions = 5))
-        assertFalse(CortexExit7897.holdProven(stat(30, 6.0), positions = 20))
+        assertFalse(CortexExit7897.holdProven(stat(20, 6.0), positions = 20))  // V5.0.8082: proof at 30
     }
 
     @Test fun sellAuthorityNeedsAProvenLosingStretch() {

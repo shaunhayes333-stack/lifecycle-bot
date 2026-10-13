@@ -14973,4 +14973,13 @@ class GoldenTapeRegressionTest {
         val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         assertTrue("cortex entry reads are keyed per lane", c.contains("ENTRY_BIND_OWNER_LANE_UNASSESSED_8082"))
     }
+
+    @Test
+    fun V5_0_8082_cortex_authority_reachable_and_adapts_faster() {
+        val s = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/CortexScoreboard7885.kt").readText()
+        assertTrue("maturity half-N 100", s.contains("const val MATURITY_HALF_N_8025 = 100.0"))
+        assertTrue("full authority from 300 lifetime STRONG grades", s.contains("const val FULL_AUTHORITY_MIN_LIFETIME_8078 = 300.0"))
+        assertTrue("per-book ~100-grade memory", s.contains("const val BOOK_DECAY = 0.99"))
+        assertTrue("realised books decay", s.contains("a[bucket.ordinal].scale(BOOK_DECAY)"))
+    }
 }

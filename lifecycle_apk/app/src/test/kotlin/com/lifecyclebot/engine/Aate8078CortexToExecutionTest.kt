@@ -13,7 +13,7 @@ class Aate8078CortexToExecutionTest {
 
     @Test fun fullAuthorityIsEarnedRevocableAndNeverPartial() {
         assertEquals(1.0, CortexScoreboard7885.matureAuthority8025(1.0, CortexScoreboard7885.FULL_AUTHORITY_MIN_LIFETIME_8078), 0.0)
-        assertTrue(CortexScoreboard7885.matureAuthority8025(1.0, 999.0) < 1.0)
+        assertTrue(CortexScoreboard7885.matureAuthority8025(1.0, CortexScoreboard7885.FULL_AUTHORITY_MIN_LIFETIME_8078 - 1.0) < 1.0)
         assertTrue(CortexScoreboard7885.matureAuthority8025(0.99, 1e9) < 1.0)
         assertEquals(0.0, CortexScoreboard7885.matureAuthority8025(0.0, 1e9), 0.0)
     }

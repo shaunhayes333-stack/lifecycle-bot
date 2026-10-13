@@ -36,7 +36,10 @@ class CortexScoreboard7885 {
         const val MIN_N_PAPER = 20
         const val MIN_N_LIVE = 40
         const val TAIL_RUNNER_RATE = 0.10
-        const val BOOK_DECAY = 0.997
+        // V5.0.8082 §ADAPT_FASTER (operator): each book remembers ~100 of its OWN most recent grades (was ~330 lane
+        // decisions shared by every bucket). A strategy that stops working loses its record within ~100 of its own reads (n 40 proof reachable after ~51),
+        // and a rare bucket (STRONG) is no longer diluted out of its sample by the lane's NEUTRAL volume.
+        const val BOOK_DECAY = 0.99
 
         /** Pure: where a fused verdict falls. */
         fun bucketOf(edgePct: Double, runnerRate: Double, runnerLane: Boolean): Bucket = when {
@@ -87,9 +90,12 @@ class CortexScoreboard7885 {
         // still applies below full proof. FULL authority (1.0) needs ALL of: the evidence at 1.0 (the full bar: n >= 40,
         // mean - SE > +2% over the lane's neutral baseline, not inverted) and a lifetime sample of at least
         // [FULL_AUTHORITY_MIN_LIFETIME_8078] STRONG grades. Calibration consistency and hard safety are checked by the callers.
-        const val MATURITY_HALF_N_8025 = 1_000.0
+        // V5.0.8082 (operator approved): maturity half at 100 lifetime STRONG grades (was 1,000, which kept proven lanes
+        // under the 0.5 overrule bar for ~1,000 grades: 8077 logged shadow overrules with zero live application) and full
+        // authority from 300 (was 1,000). Evidence still has to be fully proven, and it is re-read every call.
+        const val MATURITY_HALF_N_8025 = 100.0
         const val MAX_AUTHORITY_8025 = 0.95
-        const val FULL_AUTHORITY_MIN_LIFETIME_8078 = 1_000.0
+        const val FULL_AUTHORITY_MIN_LIFETIME_8078 = 300.0
 
         /** Pure: a lane's maturity after [lifetimeN] STRONG grades. Approaches, but does not itself reach, 1. */
         fun maturity8025(lifetimeN: Double): Double =
@@ -161,8 +167,10 @@ class CortexScoreboard7885 {
         // strong side measurably under-performs kept the word "strong" for every power
         // keyed on it. Inverted = STRONG below NEUTRAL by more than the proof margin AND
         // by more than one combined standard error, on enough reads of each.
-        const val INVERSION_MIN_STRONG_7948 = 20
-        const val INVERSION_MIN_NEUTRAL_7948 = 10
+        // V5.0.8082 §ADAPT_FASTER — an inverted lane (STRONG measurably below NEUTRAL/REFUSE, still past the margin AND
+        // one combined SE) is caught on 12/6 reads instead of 20/10, so its STRONG side stops steering money sooner.
+        const val INVERSION_MIN_STRONG_7948 = 12
+        const val INVERSION_MIN_NEUTRAL_7948 = 6
 
         /** Pure: does this lane's STRONG record measurably trail its NEUTRAL record? */
         fun invertedProven7948(strong: CortexLedger7885.Stat, neutral: CortexLedger7885.Stat): Boolean {
@@ -210,14 +218,17 @@ class CortexScoreboard7885 {
         val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
         val runner = grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT
         val b = books.getOrPut(lane) { Book() }
-        // Decayed memory (~330 decisions): authority earned in an old regime fades
+        // Decayed memory (~100 own grades per book, V5.0.8082): authority earned in an old regime fades
         // unless the recent record keeps supporting it (v1 §2.8 automatic demotion).
-        for (st in b.all()) st.scale(BOOK_DECAY)
+        // V5.0.8082 — per-book decay: only the books this grade lands in age.
         val scales = DoubleArray(3) { Double.NaN }
+        b.byBucket[bucket.ordinal].scale(BOOK_DECAY)
         scales[0] = b.byBucket[bucket.ordinal].add(y, runner)
         if (bucket == Bucket.STRONG) b.strongLifetime8025 += 1.0
-        scales[1] = (if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused).add(y, runner)
-        if (!legacyAdmitted && bucket == Bucket.STRONG) scales[2] = b.missedStrong.add(y, runner)
+        val legacy8082 = if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused
+        legacy8082.scale(BOOK_DECAY)
+        scales[1] = legacy8082.add(y, runner)
+        if (!legacyAdmitted && bucket == Bucket.STRONG) { b.missedStrong.scale(BOOK_DECAY); scales[2] = b.missedStrong.add(y, runner) }
         return scales
     }
 
@@ -301,6 +312,8 @@ class CortexScoreboard7885 {
     fun recordRealized(mode: String, lane: String, bucket: Bucket, returnPct: Double) {
         if (!returnPct.isFinite()) return
         val a = realized.getOrPut("${mode.uppercase()}|$lane") { Array(Bucket.values().size) { CortexLedger7885.Stat() } }
+        // V5.0.8082 — realised books decayed too (they never forgot: an old regime's closes could invert a lane for ever).
+        a[bucket.ordinal].scale(BOOK_DECAY)
         a[bucket.ordinal].add(returnPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), returnPct >= CortexLedger7885.RUNNER_GROSS_PCT)
     }
 

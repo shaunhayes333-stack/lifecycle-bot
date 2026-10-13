@@ -13,18 +13,18 @@ class Aate8025NeverFullyLearntTest {
 
     @Test fun authorityGrowsWithLifetimeSampleAndFullAuthorityIsEarnedNotForbidden() {
         assertEquals(0.0, CortexScoreboard7885.maturity8025(0.0), 0.0)
-        assertEquals(62.0 / 1_062.0, CortexScoreboard7885.maturity8025(62.0), 1e-12)          // MOONSHOT in 8023: ~0.06
-        assertEquals(0.5, CortexScoreboard7885.maturity8025(1_000.0), 1e-12)
-        assertEquals(0.75, CortexScoreboard7885.maturity8025(3_000.0), 1e-12)
+        assertEquals(62.0 / 162.0, CortexScoreboard7885.maturity8025(62.0), 1e-12)          // MOONSHOT in 8023: ~0.06
+        assertEquals(0.5, CortexScoreboard7885.maturity8025(100.0), 1e-12)
+        assertEquals(0.75, CortexScoreboard7885.maturity8025(300.0), 1e-12)
         assertTrue(CortexScoreboard7885.maturity8025(1e9) < 1.0)                                // maturity itself still never claims "finished"
-        assertEquals(1.0, CortexScoreboard7885.matureAuthority8025(1.0, 1_000.0), 0.0)         // 8078: full proof on a large lifetime sample earns 1.0
+        assertEquals(1.0, CortexScoreboard7885.matureAuthority8025(1.0, 300.0), 0.0)         // 8078: full proof on a large lifetime sample earns 1.0
         assertEquals(1.0, CortexScoreboard7885.matureAuthority8025(1.0, 1e9), 0.0)
-        assertTrue(CortexScoreboard7885.matureAuthority8025(1.0, 999.0) <= CortexScoreboard7885.MAX_AUTHORITY_8025)   // not before the lifetime floor
+        assertTrue(CortexScoreboard7885.matureAuthority8025(1.0, 299.0) <= CortexScoreboard7885.MAX_AUTHORITY_8025)   // not before the lifetime floor
         assertTrue(CortexScoreboard7885.matureAuthority8025(0.99, 1e9) <= CortexScoreboard7885.MAX_AUTHORITY_8025)    // not on partial evidence
         assertEquals(0.0, CortexScoreboard7885.matureAuthority8025(0.0, 1e9), 0.0)             // no evidence, no authority, whatever the sample
         assertEquals(0.0, CortexScoreboard7885.matureAuthority8025(Double.NaN, 1e9), 0.0)
-        assertTrue(CortexScoreboard7885.matureAuthority8025(1.0, 62.0) < 0.5)                  // no overrule at 62 grades
-        assertEquals(1_000.0, CortexScoreboard7885.MATURITY_HALF_N_8025, 0.0)
+        assertTrue(CortexScoreboard7885.matureAuthority8025(1.0, 62.0) < 0.5); assertTrue(CortexScoreboard7885.matureAuthority8025(1.0, 100.0) >= 0.5)                  // no overrule at 62 grades
+        assertEquals(100.0, CortexScoreboard7885.MATURITY_HALF_N_8025, 0.0)
     }
 
     @Test fun theLifetimeCountSurvivesDecayAndASaveRoundTrip() {

@@ -24,7 +24,7 @@ class CortexLedger7885 {
         const val SHRINK_K = 20.0
         const val REGIME_K = 30.0
         const val GLOBAL = "*"
-        const val DECAY = 0.998
+        const val DECAY = 0.995  // V5.0.8082 §ADAPT_FASTER — voter skill memory ~200 grades (was ~500)
         const val MIN_SCORED = 60
         const val MIN_SKILL = 0.005
         const val FULL_SKILL = 0.05

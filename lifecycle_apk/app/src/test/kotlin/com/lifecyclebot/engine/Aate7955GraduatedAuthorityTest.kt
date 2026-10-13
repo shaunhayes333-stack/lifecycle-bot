@@ -89,7 +89,7 @@ class Aate7955GraduatedAuthorityTest {
         assertFalse(board.overruleAuthority("MOONSHOT"))
         repeat(40) { i -> board.record("MOONSHOT", Bucket.STRONG, false, 10.0 + if (i % 2 == 0) 2.0 else -2.0, 0.0) }
         assertEquals(1.0, board.evidenceFor8025("MOONSHOT"), 1e-12)
-        assertEquals(70.0 / 1_070.0, board.fractionFor7955("MOONSHOT"), 1e-9)
+        assertEquals(70.0 / 170.0, board.fractionFor7955("MOONSHOT"), 1e-9)  // V5.0.8082 half-N 100
         assertFalse(board.overruleAuthority("MOONSHOT"))
         // Unknown lane through the runtime: no authority, never a throw.
         assertEquals(0.0, Cortex7885.fractionFor7955("NO_SUCH_LANE_7955"), 1e-12)

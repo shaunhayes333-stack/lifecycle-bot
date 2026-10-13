@@ -34,7 +34,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Until a lane clears the bar, both are counted as SHADOW_*.
  */
 object CortexExit7897 {
-    private const val SAMPLE_EVERY_MS = 180_000L
+    // V5.0.8082 §ADAPT_FASTER — per-trade read every minute (was 3): the hold/sell thinking turns within the trade.
+    private const val SAMPLE_EVERY_MS = 60_000L
     private const val HORIZON_MS = 30L * 60_000L
     private const val RUNNER_HORIZON_MS = 120L * 60_000L
     private const val GRADE_GRACE_MS = 20L * 60_000L
@@ -44,10 +45,11 @@ object CortexExit7897 {
     private const val PERSIST_PENDING_7960 = 600
     private const val STRONG_PCT = 3.0
     private const val PROOF_PCT = 2.0
-    private const val MIN_N = 60
-    private const val MIN_POSITIONS = 15
+    // V5.0.8082 §ADAPT_FASTER — exit proof on 30 grades over 8 positions (was 60/15), still mean-SE gated.
+    private const val MIN_N = 30
+    private const val MIN_POSITIONS = 8
     private const val MAX_HOLD_VETO_MS = 60L * 60_000L
-    private const val BOOK_DECAY = 0.997
+    private const val BOOK_DECAY = 0.99
     private const val PERSIST_KEY = "CORTEX_EXIT_7897"
     private const val PERSIST_EVERY = 30
     private const val FETCH_GAP_MS = 60_000L

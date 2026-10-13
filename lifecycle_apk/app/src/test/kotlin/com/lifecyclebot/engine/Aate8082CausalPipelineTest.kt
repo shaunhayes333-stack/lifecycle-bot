@@ -84,4 +84,17 @@ class Aate8082CausalPipelineTest {
         assertTrue(c.contains("terminalEconomicsEligible8081(env.mode, env.proofState)"))
         assertTrue(c.contains("env.learningEligible && env.realizedReturnPct.isFinite() && verified8082"))
     }
+
+    @Test fun cortexEarnsAuthorityAndAbandonsDeadStrategiesSooner() {
+        val S = com.lifecyclebot.engine.cortex.CortexScoreboard7885
+        assertTrue(S.matureAuthority8025(1.0, 100.0) >= 0.5)            // proven lane can overrule soft refusals at ~100 grades
+        assertEquals(1.0, S.matureAuthority8025(1.0, 300.0), 0.0)       // full authority at 300 on fully proven evidence
+        assertTrue(S.matureAuthority8025(0.99, 1e9) < 1.0)              // never without full proof
+        assertEquals(0.99, S.BOOK_DECAY, 0.0)
+        assertEquals(12, S.INVERSION_MIN_STRONG_7948)
+        assertEquals(0.995, com.lifecyclebot.engine.cortex.CortexLedger7885.DECAY, 0.0)
+        val x = src("engine/cortex/CortexExit7897.kt")
+        assertTrue(x.contains("private const val SAMPLE_EVERY_MS = 60_000L"))
+        assertTrue(x.contains("private const val MIN_N = 30"))
+    }
 }
