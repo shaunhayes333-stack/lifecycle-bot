@@ -235,16 +235,45 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         java.util.concurrent.ThreadPoolExecutor.DiscardPolicy(),
     ).apply { allowCoreThreadTimeOut(true) }
 
+    /** V5.0.8083 — parallel per-endpoint echo workers (the echo task itself waits on them, never the send path). */
+    private val fanout8083 = java.util.concurrent.ThreadPoolExecutor(0, 6, 30L, java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.SynchronousQueue()) { r -> Thread(r, "aate-tx-fanout-8083").apply { isDaemon = true } }
+        .apply { rejectedExecutionHandler = java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy() }
+
     /** The same signed bytes again (idempotent: one signature lands at most once), off the caller's thread. */
     private fun echoSend8009(sig: String, signedB64: String, viaSender: Boolean) {
         if (!echoing8009.add(sig)) return
         echo8009.execute {
             try {
                 if (viaSender) try { com.lifecyclebot.network.HeliusSender.send(signedB64) } catch (_: Throwable) {}
-                try {
-                    rpc("sendTransaction", JSONArray().put(signedB64).put(JSONObject()
-                        .put("encoding", "base64").put("skipPreflight", true).put("maxRetries", 0)))
-                } catch (_: Throwable) {}
+                // V5.0.8083 — the same signed bytes go to EVERY paid endpoint (Helius RPC + Alchemy + saved) at once,
+                // not just the ladder's first responder. Identical bytes = one signature: it lands at most once.
+                val targets8083 = try {
+                    com.lifecyclebot.engine.RuntimeProviderAuthority6685.authenticatedRpcCandidates8083(rpcUrl)
+                } catch (_: Throwable) { emptyList() }
+                if (targets8083.isEmpty()) {
+                    try {
+                        rpc("sendTransaction", JSONArray().put(signedB64).put(JSONObject()
+                            .put("encoding", "base64").put("skipPreflight", true).put("maxRetries", 0)))
+                    } catch (_: Throwable) {}
+                } else {
+                    val body8083 = JSONObject().put("jsonrpc", "2.0").put("id", idGen.getAndIncrement()).put("method", "sendTransaction")
+                        .put("params", JSONArray().put(signedB64).put(JSONObject().put("encoding", "base64").put("skipPreflight", true).put("maxRetries", 0)))
+                        .toString()
+                    val latch8083 = java.util.concurrent.CountDownLatch(targets8083.size)
+                    for (endpoint in targets8083) fanout8083.execute {
+                        try {
+                            http.newCall(Request.Builder().url(endpoint).header("Content-Type", "application/json")
+                                .post(body8083.toRequestBody(JSON_MT)).build()).execute().use { r ->
+                                if (r.isSuccessful) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                                    if (endpoint.contains("alchemy", true)) "TX_FANOUT_ACCEPTED_ALCHEMY_8083"
+                                    else if (endpoint.contains("helius", true)) "TX_FANOUT_ACCEPTED_HELIUS_RPC_8083"
+                                    else "TX_FANOUT_ACCEPTED_SAVED_RPC_8083") } catch (_: Throwable) {}
+                            }
+                        } catch (_: Throwable) {} finally { latch8083.countDown() }
+                    }
+                    try { latch8083.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
+                }
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_ECHO_SENT_8009") } catch (_: Throwable) {}
             } finally { echoing8009.remove(sig) }
         }
@@ -455,6 +484,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         solBalance8009 = null
         if (inFlight8009.size > 200) inFlight8009.clear()
         inFlight8009[result] = signedB64 to false
+        // V5.0.8083 — preflight passed on the ladder head: the same bytes fan out to Alchemy + every paid RPC now
+        // (previously only the confirm loop's later re-broadcast reached a second endpoint).
+        echoSend8009(result, signedB64, viaSender = false)
         return finalized(result)
     }
 
@@ -854,6 +886,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         }
                         return json
                     }
+                    // V5.0.8083 — a sendTransaction 429/5xx fails over to the next paid endpoint at once, no 1 s sleep.
+                    if (method == "sendTransaction") break
                     if (attempt == 0) Thread.sleep(1_000)
                 } catch (e: Exception) {
                     lastError = e

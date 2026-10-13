@@ -73,12 +73,35 @@ object RuntimeProviderAuthority6685 {
         return if (key.isBlank()) "" else "https://mainnet.helius-rpc.com/?api-key=$key"
     }
 
+    /**
+     * V5.0.8083 §ALCHEMY_WAS_SHIPPED_AND_NEVER_READ — DefaultKeys.ALCHEMY carries a working paid key (getLatestBlockhash
+     * ~0.1 s) but no code read it: every send/confirm/balance read fell from Helius straight onto 13 anonymous public
+     * nodes. It is now the second authenticated endpoint. Blank key -> "" (never manufactured).
+     */
+    fun configuredAlchemyRpc(): String {
+        val key = try { com.lifecyclebot.data.DefaultKeys.ALCHEMY.trim() } catch (_: Throwable) { "" }
+        return if (key.isBlank()) "" else "https://solana-mainnet.g.alchemy.com/v2/$key"
+    }
+
+    /** V5.0.8083 — the authenticated (paid) endpoints only, in ladder order: fan-out targets for signed-tx echo. */
+    fun authenticatedRpcCandidates8083(primary: String? = null, explicit: Context? = null): List<String> =
+        rpcCandidates(primary, explicit).filterNot { u -> PUBLIC_SOLANA_RPCS.any { sanitizeRpc(it).equals(u, ignoreCase = true) } }
+
     fun rpcCandidates(primary: String? = null, explicit: Context? = null): List<String> {
         val cfg = config(explicit)
         val ordered = LinkedHashSet<String>()
         fun add(raw: String?) {
             val clean = sanitizeRpc(raw)
             if (clean.isNotBlank()) ordered.add(clean)
+        }
+        // V5.0.8083 — a keyless public PRIMARY (wallet rpcUrl = api.mainnet-beta) no longer leads the paid endpoints;
+        // 7277 fixed this for cfg.rpcUrl but the wallet passes its own rpcUrl as primary, which was added first.
+        val primaryClean8083 = sanitizeRpc(primary)
+        val primaryIsPublic8083 = primaryClean8083.isNotBlank() &&
+            PUBLIC_SOLANA_RPCS.any { sanitizeRpc(it).equals(primaryClean8083, ignoreCase = true) }
+        if (primaryIsPublic8083) {
+            add(configuredHeliusRpc(explicit))
+            add(configuredAlchemyRpc())
         }
         add(primary)
         // V5.0.7277 §THE PAID KEY WAS SECOND IN LINE BEHIND THE FREE ENDPOINT.
@@ -104,6 +127,7 @@ object RuntimeProviderAuthority6685 {
             add(cfg?.rpcUrl)
             add(configuredHeliusRpc(explicit))
         }
+        add(configuredAlchemyRpc())     // V5.0.8083 — paid Alchemy ahead of every keyless public node
         PUBLIC_SOLANA_RPCS.forEach(::add)
         return ordered.toList()
     }
