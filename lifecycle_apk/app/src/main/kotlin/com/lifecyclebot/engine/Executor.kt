@@ -2440,6 +2440,29 @@ class Executor(
      * returned under that signature: the caller's TradeVerifier / wallet-settlement path decides finality from chain,
      * and no competing sell is signed against the same unverified quantity. Never booked as SELL_FAILED.
      */
+    // V5.0.8088 — kept out of the oversized sell methods (ART method-size budget): one log row per sent sell
+    // whose phase and wording follow the typed outcome, never "confirmed" for an unknown signature.
+    private fun logSentSell8087(sent: com.lifecyclebot.engine.sell.TxResult8087, sellTradeKey: String, ts: TokenState,
+                                slipBps: Int, attempt: Int, okText: String, pendingText: String, tail: String = "") {
+        LiveTradeLogStore.log(
+            sellTradeKey, ts.mint, ts.symbol, "SELL",
+            if (sent.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN,
+            "${if (sent.confirmed) okText else "$pendingText ${sent.state}"} @ ${slipBps}bps (attempt $attempt)$tail",
+            sig = sent.signature, traderTag = "MEME",
+        )
+    }
+
+    /** V5.0.8088 — a signed SELL whose id exists in the ledger is never "no signature": adopt it for confirmation. */
+    private fun adoptUnresolvedSignedSell8087(mint: String, sellTradeKey: String): String? {
+        val pending = try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(mint, "SELL") } catch (_: Throwable) { null } ?: return null
+        try { PipelineHealthCollector.labelInc("SELL_NO_SIGNATURE_AVOIDED_SIGNED_EXISTS_8087") } catch (_: Throwable) {}
+        return adoptSellUnknown8085(mint, pending.signature, pending.route.ifBlank { "LEDGER" }, sellTradeKey, "SIGNED_NOT_RETURNED").signature
+    }
+
+    private fun logRaydiumPending8087(sent: com.lifecyclebot.engine.sell.TxResult8087?, mint: String) {
+        if (sent != null && !sent.confirmed) onLog("⏳ RAYDIUM sell ${sent.state}: ${sent.signature.take(16)}… (chain + wallet decide)", mint)
+    }
+
     private fun adoptSellUnknown8085(mint: String, sig: String, route: String, tradeKey: String, why: String): com.lifecyclebot.engine.sell.TxResult8087 {
         try {
             PipelineHealthCollector.labelInc("TX_SELL_UNKNOWN_ADOPTED_8085")
@@ -7571,12 +7594,7 @@ class Executor(
                     )
                     val sent8087 = sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
                     sig = sent8087.signature
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        if (sent8087.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN,  // V5.0.8087
-                        "${if (sent8087.confirmed) "✅ Sig confirmed" else "⏳ Sig ${sent8087.state}"} @ ${currentSlip}bps (attempt $broadcastAttempts): ${sig.take(20)}…",
-                        sig = sig, traderTag = "MEME",
-                    )
+                    logSentSell8087(sent8087, sellTradeKey, ts, currentSlip, broadcastAttempts, "✅ Sig confirmed", "⏳ Sig", ": ${sig.take(20)}…")
                     break
                 } catch (broadcastEx: Exception) {
                     lastBroadcastException = broadcastEx
@@ -28111,12 +28129,7 @@ class Executor(
                         )
                     } catch (_: Throwable) {}
                     onLog("📊 SELL DEBUG: tx ${sent8087.state} sig=${sig.take(20)}...", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        if (sent8087.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN,  // V5.0.8087
-                        "${if (sent8087.confirmed) "✅ Sell tx confirmed on-chain" else "⏳ Sell tx ${sent8087.state} (chain + wallet decide)"} @ ${currentSlip}bps (attempt $broadcastAttempts)",
-                        sig = sig, traderTag = "MEME",
-                    )
+                    logSentSell8087(sent8087, sellTradeKey, ts, currentSlip, broadcastAttempts, "✅ Sell tx confirmed on-chain", "⏳ Sell tx")
                     // V5.9.767 — drive SellJobRegistry state machine end-to-end.
                     try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.CONFIRMING) } catch (_: Throwable) {}
                     break  // success — exit slippage ladder
@@ -28218,8 +28231,7 @@ class Executor(
                         val sent8087 = raydiumSerialSell8083(ts, wallet, c, race8083, rayPlan7311, raySlip7311, fastLand7980, sellTradeKey)
                         val landed7311 = sent8087?.signature
                         sig = landed7311
-                        // V5.0.8087 — "landed" only when chain-confirmed; an unknown outcome keeps its signature for the verifier.
-                        if (sent8087 != null && !sent8087.confirmed) onLog("⏳ RAYDIUM sell ${sent8087.state}: ${sent8087.signature.take(16)}… (chain + wallet decide)", ts.mint)
+                        logRaydiumPending8087(sent8087, ts.mint)  // V5.0.8087 — landed only when chain-confirmed
                         if (landed7311 != null && sent8087?.confirmed == true) {
                             try {
                                 PipelineHealthCollector.labelInc("RAYDIUM_SELL_LANDED_7311")
@@ -28291,15 +28303,8 @@ class Executor(
                 }  // end else (Pump rescue allowed branch)
             }
 
-            // V5.0.8087 — a sell that was signed (its id derived from the bytes and persisted) is never "no signature":
-            // if any route left an unresolved signed SELL for this mint, the outcome goes to confirmation under that id.
-            if (sig == null) {
-                val pending8087 = try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(ts.mint, "SELL") } catch (_: Throwable) { null }
-                if (pending8087 != null) {
-                    sig = adoptSellUnknown8085(ts.mint, pending8087.signature, pending8087.route.ifBlank { "LEDGER" }, sellTradeKey, "SIGNED_NOT_RETURNED").signature
-                    try { PipelineHealthCollector.labelInc("SELL_NO_SIGNATURE_AVOIDED_SIGNED_EXISTS_8087") } catch (_: Throwable) {}
-                }
-            }
+            // V5.0.8087 — a signed sell is never "no signature": an unresolved signed SELL for this mint is adopted.
+            if (sig == null) sig = adoptUnresolvedSignedSell8087(ts.mint, sellTradeKey)
             if (sig == null) {
                 // All in-line slippage tiers exhausted — re-throw to outer
                 // catch so we get a classified route failure. V5.0.4029 keeps

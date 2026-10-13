@@ -60,7 +60,7 @@ class Aate8087ExecutionTruthTest {
         assertTrue(ex.contains("landed?.confirmed == true -> \"SELL_RACE_RAYDIUM_LANDED_8083\""))
         assertTrue(ex.contains("landed != null -> \"SELL_RACE_RAYDIUM_OUTCOME_UNKNOWN_8087\""))
         assertTrue(ex.contains("if (res8087.confirmed) {"))   // PumpPortal
-        assertTrue(ex.contains("if (sent8087.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN"))
+        assertTrue(ex.contains("if (sent.confirmed) LiveTradeLogStore.Phase.SELL_CONFIRMED else LiveTradeLogStore.Phase.TX_SUBMIT_OUTCOME_UNKNOWN"))  // logSentSell8087 helper (8088 method-size budget)
         assertFalse(ex.contains("if (landed != null) \"SELL_RACE_RAYDIUM_LANDED_8083\""))
         assertTrue(ex.contains("return TxResult8087.unknown(sig, mint, \"SELL\", route)") || ex.contains("return com.lifecyclebot.engine.sell.TxResult8087.unknown(sig, mint, \"SELL\", route)"))
     }
@@ -68,9 +68,10 @@ class Aate8087ExecutionTruthTest {
     // P0.3 — a signed sell is never reported "no signature"; expiries are attributed
     @Test fun signedSellNeverFallsIntoNoSignature() {
         val ex = src("engine/Executor.kt")
-        val adopt = ex.indexOf("SELL_NO_SIGNATURE_AVOIDED_SIGNED_EXISTS_8087")
+        val adopt = ex.indexOf("if (sig == null) sig = adoptUnresolvedSignedSell8087(ts.mint, sellTradeKey)")
         val noSig = ex.indexOf("\"NO_SIGNATURE: \${ts.symbol}: all providers exhausted")
         assertTrue(adopt in 1 until noSig)
+        assertTrue(ex.contains("SELL_NO_SIGNATURE_AVOIDED_SIGNED_EXISTS_8087"))
     }
 
     @Test fun provenExpiryIsAttributedToRouteAndDelay() {
