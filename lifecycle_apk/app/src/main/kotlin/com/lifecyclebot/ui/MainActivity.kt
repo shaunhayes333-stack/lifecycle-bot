@@ -6183,7 +6183,9 @@ for legal compliance.
                         !fluidTrailR.isNaN() && gainPct > 3.0 -> "trail ${fluidTrailR.toInt()}%"
                         else -> null
                     }
+                    val hold8080R = try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts) } catch (_: Throwable) { null }
                     val slTxtR = when {
+                        hold8080R != null -> "hold lock +${hold8080R.first.toInt()}%"
                         !fluidStopR.isNaN() && fluidStopR > 0.0 -> "lock +${fluidStopR.toInt()}%"
                         !fluidStopR.isNaN() && fluidStopR < 0.0 -> "SL ${fluidStopR.toInt()}%"
                         else -> null
@@ -6564,7 +6566,9 @@ for legal compliance.
                 staticTp > 0                          -> "TP +${staticTp.toInt()}%"
                 else                                  -> null
             } else null
+            val hold8080 = try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts) } catch (_: Throwable) { null }
             val slTxt: String? = if (basisTrusted) when {
+                hold8080 != null -> "hold lock +${hold8080.first.toInt()}%"
                 !fluidStop.isNaN() && fluidStop < 0.0 -> "SL ${fluidStop.toInt()}%"
                 !fluidStop.isNaN() && fluidStop > 0.0 -> "lock +${fluidStop.toInt()}%"
                 staticSl != 0.0                       -> "SL ${staticSl.toInt()}%"

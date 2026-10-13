@@ -375,9 +375,22 @@ object RunnerGrab7967 {
             try { PipelineHealthCollector.labelInc("RUNNER_HOLD_RELEASED_NO_TAPE_8020") } catch (_: Throwable) {}
             return null
         }
+        // V5.0.8080 — the same rule for a GREEN give-back exit (profit lock, trail, peak lock): holding a
+        // giving-back winner needs a tape that says the run stands; no read, no hold. Bear 5.0.8080 rode
+        // +2872% to +9.65% while profit locks were deferred.
+        if (g >= 0.0 && giveBackExit8080(reason) && !runStanding8019(r60) && !runStanding8019(r15)) {
+            try { PipelineHealthCollector.labelInc("RUNNER_HOLD_RELEASED_GIVEBACK_NO_TAPE_8080") } catch (_: Throwable) {}
+            return null
+        }
         deferred.incrementAndGet()
         try { PipelineHealthCollector.labelInc("RUNNER_HOLD_DEFERRED_7967") } catch (_: Throwable) {}
         return "RUNNER_HOLD_7967"
+    }
+
+    /** V5.0.8080 — pure: is [reason] a give-back exit (it protects a gain already printed)? */
+    fun giveBackExit8080(reason: String): Boolean {
+        val u = reason.uppercase()
+        return listOf("PROFIT_LOCK", "TRAIL", "PEAK", "GIVEBACK", "GIVE_BACK", "LOCK").any { u.contains(it) }
     }
 
     private val peaks7980 = ConcurrentHashMap<String, Double>()

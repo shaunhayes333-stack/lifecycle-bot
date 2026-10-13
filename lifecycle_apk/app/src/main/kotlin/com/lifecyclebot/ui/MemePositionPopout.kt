@@ -126,7 +126,10 @@ object MemePositionPopout {
                 )
             } catch (_: Throwable) { Double.NaN }
         }
+        // V5.0.8080 — a lifecycle hold swallows the fluid lock; show the exit that will actually fire.
+        val hold8080 = try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(t) } catch (_: Throwable) { null }
         val stopTxt = when {
+            hold8080 != null -> "hold lock +${hold8080.first.toInt()}%"
             stop.isNaN() -> "—"
             stop > 0.0 -> "lock +${stop.toInt()}%"
             stop < 0.0 -> "SL ${stop.toInt()}%"

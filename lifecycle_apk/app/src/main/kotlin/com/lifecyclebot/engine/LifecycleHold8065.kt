@@ -101,6 +101,37 @@ object LifecycleHold8065 {
     fun peakGiveback8065(peakPct: Double, grossPct: Double): Boolean =
         peakPct >= 300.0 && grossPct.isFinite() && (1.0 + grossPct / 100.0) <= 0.45 * (1.0 + peakPct / 100.0)
 
+    /**
+     * V5.0.8080 §UNBANKED_PEAK_GIVEBACK. Operator 5.0.8080 live: Bear (SHITCOIN) peaked +2872%, was promoted here at
+     * +100%, its 2x take never confirmed, and it rode back to +9.65% while the card said "lock +2635%". Every
+     * TICK_PROFIT_LOCK was held (defer8065) and the hold's only give-back exit required `taken >= 1`, so an unbanked
+     * hold had no profit protection above the -40% floor. The stake-back premise of the hold never happened: an
+     * unbanked hold that has given back half its peak gain exits.
+     */
+    fun unbankedGiveback8080(peakPct: Double, grossPct: Double, taken: Int): Boolean =
+        taken == 0 && peakPct.isFinite() && peakPct >= PROMOTE_PCT && grossPct.isFinite() && grossPct <= peakPct * 0.5
+
+    /** V5.0.8080 — the hold's own give-back exit is due (either rule, banked or not). */
+    fun givebackDue8080(peakPct: Double, grossPct: Double, taken: Int): Boolean =
+        peakGiveback8065(peakPct, grossPct) || unbankedGiveback8080(peakPct, grossPct, taken)
+
+    /** V5.0.8080 — pure: the gross % at which the hold's give-back exit fires, for the position card. */
+    fun givebackLevel8080(peakPct: Double, taken: Int): Double? {
+        if (!peakPct.isFinite()) return null
+        val multiple = if (peakPct >= 300.0) (0.45 * (1.0 + peakPct / 100.0) - 1.0) * 100.0 else Double.NaN
+        val unbanked = if (taken == 0 && peakPct >= PROMOTE_PCT) peakPct * 0.5 else Double.NaN
+        val lvl = listOf(multiple, unbanked).filter { it.isFinite() }.maxOrNull()
+        return lvl
+    }
+
+    /** V5.0.8080 — the card's lock for a held position: (level %, banked) or null when not held / not armed. */
+    fun displayLock8080(ts: TokenState): Pair<Double, Boolean>? {
+        if (!holding8065(ts)) return null
+        val st = states[key(ts)] ?: return null
+        val peak = maxOf(st.peak, ts.position.peakGainPct.takeIf { it.isFinite() } ?: Double.NEGATIVE_INFINITY)
+        return givebackLevel8080(peak, st.taken)?.let { it to (st.taken >= 1) }
+    }
+
     /** Pure: the dead-money release. */
     fun deadMoney8065(ageMs: Long, grossPct: Double, sinceHighMs: Long): Boolean =
         ageMs >= DEAD_AFTER_MS && grossPct in -15.0..20.0 && sinceHighMs >= NO_HIGH_MS
@@ -156,6 +187,13 @@ object LifecycleHold8065 {
         if (!holding8065(ts) || passes8065(reason)) return null
         val g = gross(ts, null)
         if (g.isFinite() && g <= -FLOOR_PCT) return null
+        // V5.0.8080 — a hold whose own give-back is due never swallows the profit lock / trail that
+        // asked first (the rapid mark that would fire the hold's exit may not have a price this tick).
+        val st8080 = states[key(ts)]
+        if (st8080 != null && givebackDue8080(maxOf(st8080.peak, if (g.isFinite()) g else st8080.peak), g, st8080.taken)) {
+            try { PipelineHealthCollector.labelInc("LIFECYCLE_GIVEBACK_RELEASED_8080") } catch (_: Throwable) {}
+            return null
+        }
         held.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIFECYCLE_HELD_8065") } catch (_: Throwable) {}
         return "LIFECYCLE_HOLD_8065"
@@ -199,6 +237,9 @@ object LifecycleHold8065 {
                 "LIFECYCLE_STOP_BASE_BROKE_8065_${g.toInt()}PCT" to 1.0
             st.taken >= 1 && (closedBarBroke(b, 24) || peakGiveback8065(st.peak, g)) ->
                 "LIFECYCLE_STOP_TREND_BREAK_8065_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
+            // V5.0.8080 — unbanked (the 2x take never confirmed): the same give-back rules guard the whole bag.
+            st.taken == 0 && givebackDue8080(st.peak, g, st.taken) ->
+                "LIFECYCLE_STOP_UNBANKED_GIVEBACK_8065_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
             deadMoney8065(age, g, nowMs - st.peakAt) -> "LIFECYCLE_STOP_DEAD_MONEY_8065_${g.toInt()}PCT" to 1.0
             else -> null
         }

@@ -14951,4 +14951,13 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("DEFERRED_DATA_TOKEN_MAP_8080"))
     }
+
+    @Test
+    fun V5_0_8080_peak_profit_lock_never_swallowed_by_a_hold_without_giveback() {
+        val l = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LifecycleHold8065.kt").readText()
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerGrab7967.kt").readText()
+        assertTrue("lifecycle hold must release a profit lock once its own give-back is due", l.contains("LIFECYCLE_GIVEBACK_RELEASED_8080"))
+        assertTrue("unbanked lifecycle hold must own a give-back exit", l.contains("""st.taken == 0 && givebackDue8080(st.peak, g, st.taken) ->"""))
+        assertTrue("green runner hold needs a standing tape to defer a give-back exit", r.contains("RUNNER_HOLD_RELEASED_GIVEBACK_NO_TAPE_8080"))
+    }
 }
