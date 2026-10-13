@@ -53,4 +53,63 @@ class Aate8065LifecycleHoldTest {
         assertFalse(LiveEdgeGate7877.chasing8065(120.0, 0.6, 10.0))   // pulled back off the high
         assertFalse(LiveEdgeGate7877.chasing8065(30.0, 0.99, 20.0))
     }
+
+    @Test fun onePrintCrossingMultipleTiersCombinesPartialWithoutSellingRunnerRemainder() {
+        val twoTiers = LifecycleHold8065.cumulativeTakeDue8079(781.0, 0)
+        assertEquals(1, twoTiers?.first)
+        assertEquals(0.65, twoTiers!!.second, 1e-9)
+        val afterFirst = LifecycleHold8065.cumulativeTakeDue8079(950.0, 1)
+        assertEquals(2, afterFirst?.first)
+        assertEquals(0.51, afterFirst!!.second, 1e-9)
+        assertNull(LifecycleHold8065.cumulativeTakeDue8079(70.0, 0))
+        assertTrue(LifecycleHold8065.profitablePeakReversal8079(781.0, 150.0, true))
+        assertFalse(LifecycleHold8065.profitablePeakReversal8079(781.0, 150.0, false))
+        assertFalse(LifecycleHold8065.profitablePeakReversal8079(781.0, -4.0, true))
+        assertFalse(LifecycleHold8065.profitablePeakReversal8079(50.0, 30.0, true))
+        assertEquals(0.964, SpikeCapture7943.crossedTierFraction8079(SpikeCapture7943.TIERS, 0, 3), 1e-9)
+        assertEquals(0.70, SpikeCapture7943.crossedTierFraction8079(SpikeCapture7943.TIERS, 2, 3), 1e-9)
+        assertEquals(0.0, SpikeCapture7943.crossedTierFraction8079(SpikeCapture7943.TIERS, 3, 3), 1e-9)
+    }
+
+    @Test fun profitTakeAndGivebackReachCorrectDownstreamSellAuthorities() {
+        val lease = com.lifecyclebot.engine.sell.CloseLease
+        val reasons = com.lifecyclebot.engine.sell.SellReasonClassifier
+        assertTrue(lease.urgentProfitCapture7965("LIFECYCLE_PROFIT_TAKE2_8065_781PCT"))
+        assertTrue(lease.urgentProfitCapture7965("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT"))
+        assertFalse(RunnerGrab7967.deferrable7967("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT", 150.0))
+        assertEquals(com.lifecyclebot.engine.sell.ExitReason.PARTIAL_TAKE_PROFIT,
+            reasons.fromString("LIFECYCLE_PROFIT_TAKE2_8065_781PCT"))
+        assertEquals(com.lifecyclebot.engine.sell.ExitReason.PROFIT_LOCK, reasons.fromString("LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT"))
+        assertEquals(TailBag8034.Decision.Pass,
+            TailBag8034.decidePure8034("MOONSHOT", "LIFECYCLE_PROFIT_GIVEBACK_8065_781PK_150PCT", 150.0, null, 1000L))
+    }
+
+    @Test fun unconfirmedSpikeIsRetryableAndVerifiedSpikeHasDedicatedCommitPath() {
+        assertFalse(SpikeCapture7943.pendingExpired8081(null, 10_000L))
+        assertFalse(SpikeCapture7943.pendingExpired8081(8_000L, 10_000L))
+        assertTrue(SpikeCapture7943.pendingExpired8081(1_000L, 10_000L))
+        val spikeSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpikeCapture7943.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(spikeSrc.contains("onConfirmedPartial8081"))
+        assertTrue(spikeSrc.contains("SellExecutionLocks.isLocked(ts.mint)"))
+        assertTrue(executor.contains("SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw)"))
+        assertFalse(executor.contains("if (pct >= 0.9)"))
+        assertTrue(executor.contains("if (pct >= 1.0 - 1e-9)"))
+    }
+
+    @Test fun lateHistoricalBuyCannotUndoPendingOrFinalizedSell() {
+        val t = HostWalletTokenTracker
+        assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.CLOSED, "sellTx"))
+        assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED, "sellTx"))
+        assertTrue(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.SELL_VERIFYING, "sellTx"))
+        assertFalse(t.historicalBuyBlocked8079(HostWalletTokenTracker.PositionStatus.OPEN_TRACKING, null))
+        assertTrue(t.currentChainRebuy8079("olderBuy", "newerBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT, true, true, true))
+        assertFalse(t.currentChainRebuy8079("olderBuy", "olderBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT, true, true, true))
+        assertFalse(t.currentChainRebuy8079("olderBuy", "newerBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.TX_META_OWNER_DELTA, true, true, true))
+        assertFalse(t.currentChainRebuy8079("olderBuy", "newerBuy",
+            com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT, true, true, false))
+    }
 }

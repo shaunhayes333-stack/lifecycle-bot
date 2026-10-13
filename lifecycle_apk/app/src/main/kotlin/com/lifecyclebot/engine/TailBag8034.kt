@@ -71,7 +71,8 @@ object TailBag8034 {
     fun decidePure8034(lane: String, reason: String, pnlPct: Double, tail: Tail?, nowMs: Long): Decision {
         val l = lane.uppercase()
         if (l !in TAIL_LANES_8034) return Decision.Pass
-        if (reason.uppercase().startsWith("TAIL_") || structural8034(reason)) return Decision.Pass
+        if (reason.uppercase().startsWith("TAIL_") || reason.uppercase().startsWith("LIFECYCLE_") ||
+            structural8034(reason)) return Decision.Pass
         if (tail == null) return Decision.SetAside
         if (nowMs - tail.setAt > TAIL_MAX_AGE_MS) return Decision.Pass
         milestoneAt8034(pnlPct, tail.taken)?.let { (i, f) -> return Decision.Milestone(i, f) }
@@ -152,7 +153,8 @@ object TailBag8034 {
 
     /** Executor.requestPartialSell: a tail never sells a slice on an ordinary partial. */
     fun partialHeld8034(ts: TokenState, reason: String): Boolean {
-        if (ts.position.isPaperPosition || reason.uppercase().startsWith("TAIL_") || structural8034(reason)) return false
+        if (ts.position.isPaperPosition || reason.uppercase().startsWith("TAIL_") ||
+            reason.uppercase().startsWith("LIFECYCLE_") || structural8034(reason)) return false
         val t = tailOf8034(ts) ?: return false
         if (System.currentTimeMillis() - t.setAt > TAIL_MAX_AGE_MS) return false
         held.incrementAndGet()

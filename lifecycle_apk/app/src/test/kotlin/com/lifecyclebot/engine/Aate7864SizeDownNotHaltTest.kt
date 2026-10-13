@@ -27,6 +27,19 @@ class Aate7864SizeDownNotHaltTest {
         assertTrue(src.contains("SIZE_DOWN_NOT_HALT_7864"))
     }
 
+    @Test fun verifiedLossCooldownIsFiniteAndRequiresChainEconomicHistory() {
+        val now = 1_000_000L
+        assertFalse(KillSwitch.verifiedLossCooldown8081(9, 5, 0L, now, 30))
+        assertFalse(KillSwitch.verifiedLossCooldown8081(4, 5, now - 100L, now, 30))
+        assertTrue(KillSwitch.verifiedLossCooldown8081(5, 5, now - 60_000L, now, 30))
+        assertFalse(KillSwitch.verifiedLossCooldown8081(5, 5, now - 31 * 60_000L, now, 30))
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/KillSwitch.kt").readText()
+        assertTrue(src.contains("CHAIN_FINALIZED_LOSS_STREAK_COOLDOWN_8081"))
+        assertTrue(src.contains("env.proofState.equals(\"LIVE_FINALIZED\""))
+        assertFalse("Chain-proven SOL loss cannot be excluded merely for missing strategy learning identity",
+            src.contains("!env.learningEligible"))
+    }
+
     @Test fun groqScoutFallsBackToBrowserSearchModel() {
         val ids = listOf("llama-3.3-70b-versatile", "openai/gpt-oss-20b", "openai/gpt-oss-120b")
         assertNull(GroqTokenScout7830.selectCompoundModel7832(ids))

@@ -106,6 +106,7 @@ object GradTicks8018 {
     private val subByVault = ConcurrentHashMap<String, Int>()
     private val vaultBySub = ConcurrentHashMap<Int, String>()
     private val nextId = AtomicInteger(1)
+    private val wsEndpointAttempt8079 = AtomicInteger(0)
     private val ticks = AtomicLong(0)
     private val resolved = AtomicLong(0)
     private val unresolved = AtomicLong(0)
@@ -201,8 +202,12 @@ object GradTicks8018 {
         if (now - lastConnectMs < RECONNECT_GAP_MS) return
         lastConnectMs = now
         val key = try { keyProvider() } catch (_: Throwable) { "" }
-        if (key.isBlank()) return
-        ws = client.newWebSocket(Request.Builder().url("wss://mainnet.helius-rpc.com/?api-key=$key").build(), object : WebSocketListener() {
+        val preferredRpc = try { rpcProvider() } catch (_: Throwable) { "" }
+        val endpoints = com.lifecyclebot.engine.RuntimeProviderAuthority6685.websocketCandidates8079(key, preferredRpc)
+        if (endpoints.isEmpty()) return
+        val selected = Math.floorMod(wsEndpointAttempt8079.getAndIncrement(), endpoints.size)
+        if (selected > 0) try { PipelineHealthCollector.labelInc("GRAD_WS_PROVIDER_FALLBACK_8079") } catch (_: Throwable) {}
+        ws = client.newWebSocket(Request.Builder().url(endpoints[selected]).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 open = true
                 pending.clear(); subByVault.clear(); vaultBySub.clear()

@@ -16,6 +16,17 @@ class Aate7429ExactStrategyPerformanceTest {
         assertTrue(src.contains("EXACT_STRATEGY_ATTRIBUTION_COMPLETE_7429"))
     }
 
+    @Test fun liveExactStrategyRewardRequiresBlockchainFinality() {
+        val e = com.lifecyclebot.engine.truth.ExactStrategyPerformance7429
+        assertTrue(e.terminalEconomicsEligible8081("LIVE", "LIVE_FINALIZED"))
+        assertTrue(e.terminalEconomicsEligible8081("live", "LIVE_RECONCILED"))
+        assertFalse(e.terminalEconomicsEligible8081("LIVE", "LIVE_BROADCAST"))
+        assertFalse(e.terminalEconomicsEligible8081("LIVE", "LIVE_SIG_CONFIRMED"))
+        assertFalse(e.terminalEconomicsEligible8081("LIVE", "PAPER_SIMULATED"))
+        assertTrue(e.terminalEconomicsEligible8081("PAPER", "PAPER_SIMULATED"))
+        assertFalse(e.terminalEconomicsEligible8081("PAPER", "LIVE_FINALIZED"))
+    }
+
     @Test fun canonicalBusRegistersExactStrategyConsumer() {
         val bus = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
         val bridge = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()

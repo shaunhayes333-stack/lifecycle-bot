@@ -279,6 +279,7 @@ object HostWalletTokenTracker {
      * Called from init() (boot scrub) and periodically via the
      * existing reconciler tick.
      */
+    @Synchronized
     fun reviveStaleUnprovenBotBuys(): Int {
         val now = System.currentTimeMillis()
         var revived = 0
@@ -289,17 +290,18 @@ object HostWalletTokenTracker {
             val sigOk = !p.buySignature.isNullOrBlank()
             val botSource = p.source == PositionSource.BOT_BUY || p.source == PositionSource.TX_PARSE
             if (!sigOk && !botSource) continue
-            if (!hasLastPositiveRaw(p)) continue
-            // Sanity: don't revive ancient rows past the bot-bought 45-min
-            // liability window — those are genuinely lost.
-            val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
-            if (anchor > 0L && (now - anchor) > 45 * 60_000L) continue
+            // 8079 blockchain-first: historical BUY quantity is NEVER current wallet proof.
+            // Do not revive a sold mint on a remembered buy or a stale RPC response.
+            if (!p.sellSignature.isNullOrBlank()) continue
+            val held8079 = walletAuthority[p.mint] as? WalletAuthoritySnapshot.HELD ?: continue
+            if (held8079.raw <= BigInteger.valueOf(DUST_RAW) ||
+                now - held8079.observedAtMs !in 0L..15_000L) continue
             p.status = PositionStatus.OPEN_BALANCE_PROOF_PENDING
-            p.notes.add("STALE_REVIVED_TO_OPEN reason=bot_buy_lineage_proven")
+            p.notes.add("STALE_REVIVED_TO_OPEN reason=fresh_onchain_wallet_held")
             try {
                 ForensicLogger.lifecycle(
                     "STALE_UNPROVEN_REVIVED_TO_OPEN",
-                    "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} buySig=${p.buySignature?.take(10) ?: "?"} entrySol=${p.entrySol ?: 0.0} reason=bot_buy_lineage_proven — re-enrolling in sell-management",
+                    "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} buySig=${p.buySignature?.take(10) ?: "?"} entrySol=${p.entrySol ?: 0.0} reason=fresh_onchain_wallet_held — re-enrolling in sell-management",
                 )
                 PipelineHealthCollector.labelInc("STALE_UNPROVEN_REVIVED_TO_OPEN")
             } catch (_: Throwable) {}
@@ -699,9 +701,59 @@ object HostWalletTokenTracker {
     // BUY flow
     // ─────────────────────────────────────────────────────────────────
 
+    /**
+     * 8079: A transaction's historical BUY receipt does not establish CURRENT wallet
+     * ownership after a later full SELL. A closed mint must not be resurrected by
+     * asynchronous proof callbacks from the earlier position generation.
+     * A genuine rebuy goes through a separately verified new canonical position,
+     * and must be reconciled from a current wallet balance before host reopening.
+     */
+    /** A SELL in progress is not reversed by an older asynchronous BUY receipt. */
+    internal fun historicalBuyBlocked8079(status: PositionStatus, sellSignature: String?): Boolean =
+        status in setOf(
+            PositionStatus.CLOSED, PositionStatus.CLOSED_VERIFIED, PositionStatus.SOLD_CONFIRMED,
+            PositionStatus.CLOSED_SOLD_BY_AATE, PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
+            PositionStatus.CLOSED_STALE_RECOVERY_UNHELD, PositionStatus.CLOSED_DUST_UNROUTABLE,
+        ) || (!sellSignature.isNullOrBlank() && status.priority >= PositionStatus.SELL_PENDING.priority)
+
+    /**
+     * A genuine rebuy after terminal SELL has a DIFFERENT confirmed BUY signature,
+     * a later immutable entry and CURRENT owner-account balance proof. A historical
+     * TX_META_OWNER_DELTA (old BUY receipt) cannot ever satisfy this exception.
+     */
+    internal fun currentChainRebuy8079(
+        priorBuySignature: String?, newBuySignature: String?,
+        source: BalanceProofSource, balanceAuthoritative: Boolean,
+        rawPositive: Boolean, entryAfterExit: Boolean,
+    ): Boolean = !newBuySignature.isNullOrBlank() &&
+        newBuySignature != priorBuySignature && balanceAuthoritative && rawPositive &&
+        entryAfterExit &&
+        source in setOf(
+            BalanceProofSource.RPC_FINALIZED_OWNER_TOKEN_ACCOUNT,
+            BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT,
+            BalanceProofSource.RPC_CONFIRMED_SECOND_PROVIDER,
+        )
+
+    private fun oldBuyCannotReopen8079(mint: String, buySig: String?): Boolean {
+        val prior = positions[mint] ?: return false
+        val closed = historicalBuyBlocked8079(prior.status, prior.sellSignature)
+        if (!closed) return false
+        val sameBuy = !buySig.isNullOrBlank() && buySig == prior.buySignature
+        // Even a different signature cannot by itself overturn a *later* full
+        // close: new entry lifecycle and current-chain-wallet proof are required.
+        try {
+            PipelineHealthCollector.labelInc("DELAYED_BUY_AFTER_CLOSE_REJECTED_8079")
+            ForensicLogger.lifecycle("DELAYED_BUY_AFTER_CLOSE_REJECTED_8079",
+                "mint=${mint.take(10)} sameBuy=$sameBuy action=retain_terminal_until_new_chain_held_proof")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     /** Called the instant a buy is broadcast — speculative, not yet confirmed. */
+    @Synchronized
     fun recordBuyPending(mint: String, symbol: String?, sig: String?) {
         if (mint.isBlank() || mint == SOL_MINT) return
+        if (oldBuyCannotReopen8079(mint, sig)) return
         val now = System.currentTimeMillis()
         val existing = positions[mint]
         if (existing != null && existing.status.priority >= PositionStatus.BUY_PENDING.priority) {
@@ -738,8 +790,10 @@ object HostWalletTokenTracker {
      * (BUY_VERIFIED_LANDED / BUY_TX_PARSE_OK / phantom rescue).
      * Promotes the tracked position to OPEN_TRACKING.
      */
+    @Synchronized
     fun recordBuyConfirmed(ts: TokenState, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
+        if (oldBuyCannotReopen8079(ts.mint, sig)) return
         // V5.0.3727 — live buy handoff must not depend on Position.isOpen.
         // Signature-managed live buys may still be pendingVerify while the indexer
         // catches up, but they already carry a confirmed signature and positive
@@ -846,6 +900,21 @@ object HostWalletTokenTracker {
     @Synchronized
     fun recordBuyConfirmedWithProof(ts: TokenState, proof: BalanceProof, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
+        val prior8079 = positions[ts.mint]
+        val newSignature8079 = sig ?: proof.signature
+        val freshRebuy8079 = prior8079 != null && historicalBuyBlocked8079(prior8079.status, prior8079.sellSignature) &&
+            currentChainRebuy8079(
+                prior8079.buySignature, newSignature8079, proof.source, proof.authoritative,
+                proof.mint == ts.mint && proof.amountRaw.signum() > 0,
+                ts.position.entryTime > maxOf(prior8079.lastExitCheckMs ?: 0L, prior8079.buyTimeMs ?: 0L) &&
+                    proof.observedAtMs >= ts.position.entryTime,
+            )
+        if (!freshRebuy8079 && oldBuyCannotReopen8079(ts.mint, newSignature8079)) return
+        if (freshRebuy8079) try {
+            PipelineHealthCollector.labelInc("CURRENT_CHAIN_NEW_BUY_REOPEN_ALLOWED_8079")
+            ForensicLogger.lifecycle("CURRENT_CHAIN_NEW_BUY_REOPEN_ALLOWED_8079",
+                "mint=${ts.mint.take(10)} proof=${proof.source} newSig=${newSignature8079?.take(10)}")
+        } catch (_: Throwable) {}
         if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != ts.mint) {
             try { ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PROOF_REJECTED source=${proof.source}") } catch (_: Throwable) {}
             recordBuyPending(ts.mint, ts.symbol, sig)
@@ -1013,6 +1082,7 @@ object HostWalletTokenTracker {
      * dust the position transitions to SOLD_CONFIRMED → CLOSED. Otherwise
      * we keep tracking the residual qty.
      */
+    @Synchronized
     fun recordSellConfirmed(mint: String, symbol: String?, exitPrice: Double, pnlPct: Double, reason: String?) {
         val p = positions[mint] ?: return
         // V5.9.601: host-wallet tracker is live-wallet truth only. Paper exits
@@ -1115,6 +1185,7 @@ object HostWalletTokenTracker {
      *   - Will never overwrite a higher status (e.g. EXIT_SIGNALLED) with
      *     a lower one (HELD_IN_WALLET).
      */
+    @Synchronized
     fun applyWalletSnapshot(walletMints: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
         if (walletMints.isEmpty()) return  // RPC blip — defended elsewhere too
         val now = System.currentTimeMillis()
@@ -1202,6 +1273,21 @@ object HostWalletTokenTracker {
                     // clean. This is the parity repair: walletHeldMints will now match
                     // canonical open/held after this snapshot.
                     val priorSellSig7373 = existing.sellSignature
+                    // 8079: RPC snapshots do not carry a banked chain slot in this
+                    // legacy API. An older positive balance response may arrive
+                    // after a verified full SELL. Never revoke that SELL finality
+                    // solely because a newer *HTTP response* includes tokens.
+                    // A distinct confirmed BUY plus current owner-account proof
+                    // is required to establish a new position lifecycle.
+                    if (!priorSellSig7373.isNullOrBlank()) {
+                        existing.notes.add("POSITIVE_WALLET_AFTER_VERIFIED_SELL_AWAIT_NEW_BUY_PROOF_8079")
+                        try {
+                            PipelineHealthCollector.labelInc("WALLET_REOPEN_AFTER_SELL_NEEDS_NEW_BUY_8079")
+                            ForensicLogger.lifecycle("WALLET_REOPEN_AFTER_SELL_NEEDS_NEW_BUY_8079",
+                                "mint=${mint.take(10)} priorSell=${priorSellSig7373.take(12)} reason=slotless_rpc_balance")
+                        } catch (_: Throwable) {}
+                        continue
+                    }
                     existing.status = PositionStatus.OPEN_TRACKING
                     existing.sellSignature = null
                     existing.activeSellAttemptId = null
@@ -1227,7 +1313,8 @@ object HostWalletTokenTracker {
                     } catch (_: Throwable) {}
                     // Release any terminal sell-job + close-lease so the lifecycle can restart.
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
-                } else if (com.lifecyclebot.engine.truth.AccountingIntegrity7948.reopenForCanonicalLive7948(
+                } else if (existing.sellSignature.isNullOrBlank() &&
+                    com.lifecyclebot.engine.truth.AccountingIntegrity7948.reopenForCanonicalLive7948(
                         existing.status.name, walletHasTradableRaw,
                         walletHasTradableRaw && com.lifecyclebot.engine.truth.AccountingIntegrity7948.canonicalLiveOpen7948(mint),
                     )
@@ -2021,6 +2108,7 @@ object HostWalletTokenTracker {
         return true
     }
 
+    @Synchronized
     fun confirmZeroBalanceClose(
         mint: String,
         hasConfirmedSellSig: Boolean,
