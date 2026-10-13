@@ -108,6 +108,26 @@ object RuntimeProviderAuthority6685 {
         return ordered.toList()
     }
 
+    /**
+     * 8079: held-position price streams must not depend exclusively on Helius
+     * when the configured live RPC is Alchemy (or another WebSocket-capable
+     * endpoint). Reuse only the operator's existing HTTPS RPC candidates,
+     * preserving their auth path/query. Never log or return credentials to UI.
+     */
+    internal fun websocketFromRpc8079(rpc: String): String? {
+        val clean = sanitizeRpc(rpc)
+        return if (clean.startsWith("https://", ignoreCase = true))
+            "wss://" + clean.substring(8)
+        else null
+    }
+
+    fun websocketCandidates8079(heliusKey: String? = null, primaryRpc: String? = null): List<String> {
+        val urls = rpcCandidates(primaryRpc)
+        val key = heliusKey?.trim().orEmpty()
+        val extra = if (key.isNotBlank()) listOf("https://mainnet.helius-rpc.com/?api-key=$key") else emptyList()
+        return (urls + extra).mapNotNull(::websocketFromRpc8079).distinct()
+    }
+
     fun preferredRpc(primary: String? = null, explicit: Context? = null): String =
         rpcCandidates(primary, explicit).firstOrNull().orEmpty()
 

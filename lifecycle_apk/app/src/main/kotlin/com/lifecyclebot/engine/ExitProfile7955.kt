@@ -352,6 +352,11 @@ object ExitProfile7955 {
         // V5.0.7992 — live exit ladders learn from live closes only. Paper and replayed cross-asset
         // history (STOCK_SPOT n200, PERPS n30, CROSS_ASSET_HISTORY_REPAIR rows) were setting live exits.
         if (!env.mode.equals("live", true)) return
+        if (!env.learningEligible || !com.lifecyclebot.engine.truth.ExactStrategyPerformance7429
+                .terminalEconomicsEligible8081(env.mode, env.proofState)) {
+            try { PipelineHealthCollector.labelInc("EXIT_PROFILE_NONCHAIN_CLOSE_EXCLUDED_8081") } catch (_: Throwable) {}
+            return
+        }
         val entryMs = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         val planKey = positionPlans.keys.firstOrNull { it.startsWith(env.mint + "|") && kotlin.math.abs((it.substringAfter('|').toLongOrNull() ?: 0L) - entryMs) < 120_000L }
         val plan = planKey?.let { positionPlans.remove(it) }
@@ -362,8 +367,11 @@ object ExitProfile7955 {
         val captured = env.exitReason.contains("SPIKE_CAPTURE") || env.exitReason.contains("CHART_CAPTURE")
         val gb = if (captured) Double.NaN else giveback7955(peak, env.realizedReturnPct)
         val keyParts = plan?.key?.split('|')
+        val sealed8081 = env.entrySetup.takeIf { setupFired7961(it) }
         val lane = keyParts?.getOrNull(0) ?: env.lane
-        val setup = keyParts?.getOrNull(1) ?: "NONE"
+        // A restart can lose the in-memory plan. Never grade an actually stamped
+        // entry as NONE when its immutable exact strategy setup survived the close.
+        val setup = keyParts?.getOrNull(1) ?: sealed8081 ?: "NONE"
         add(lane, setup, doubleArrayOf(peak, ttp / 60_000.0, gb, Double.NaN))
         fromCloses.incrementAndGet()
     }
@@ -407,8 +415,19 @@ object ExitProfile7955 {
         if (!pos.isOpen || pos.entryTime <= 0L) return null
         val k = "${ts.mint}|${pos.entryTime}"
         positionPlans[k]?.let { return it }
-        val lane = canon(pos.tradingMode)
-        val plan = planForKey7955(lane, entrySetup7955(ts, lane, nowMs), nowMs)
+        val sealed8081 = try {
+            com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(pos.positionId)
+                ?.takeIf { it.mint == ts.mint && it.entryLane.isNotBlank() }
+        } catch (_: Throwable) { null }
+        val lane = canon(sealed8081?.entryLane ?: pos.tradingMode)
+        // Entry identity is immutable. A later chart pattern or lane transition
+        // cannot select a new exit ladder for a position already purchased.
+        val entrySetup8081 = sealed8081?.entrySetup?.takeIf { setupFired7961(it) }
+            ?: entrySetup7955(ts, lane, nowMs)
+        if (entrySetup8081 == sealed8081?.entrySetup) try {
+            PipelineHealthCollector.labelInc("EXIT_PROFILE_EXACT_ENTRY_SETUP_8081")
+        } catch (_: Throwable) {}
+        val plan = planForKey7955(lane, entrySetup8081, nowMs)
         if (positionPlans.size > 2_000) positionPlans.clear()
         positionPlans[k] = plan
         try { PipelineHealthCollector.labelInc("EXIT_PROFILE_7955_PLAN_${plan.source}") } catch (_: Throwable) {}

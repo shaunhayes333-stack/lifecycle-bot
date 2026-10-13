@@ -330,6 +330,6 @@ object CloseLease {
         return r.startsWith("SPIKE_CAPTURE_7943") || r.contains("RAPID_DRAWDOWN_FROM_PEAK") || r.contains("MONSTER_LOCK") ||
             r.startsWith("CHART_CAPTURE_TOP_7950") || r.contains("PEAK_CAPTURE") ||
             // V5.0.8048 — a profit lock is protecting a gain on a falling print: it lands at the fast-land tip and cadence.
-            r.startsWith("TICK_PROFIT_LOCK")
+            r.startsWith("TICK_PROFIT_LOCK") || r.startsWith("LIFECYCLE_PROFIT_")
     }
 }

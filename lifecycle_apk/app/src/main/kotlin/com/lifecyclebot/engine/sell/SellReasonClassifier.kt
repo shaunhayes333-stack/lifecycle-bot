@@ -32,14 +32,42 @@ object SellReasonClassifier {
             r.contains("STOPLOSS") ||
             r.contains("HARD_SL") ||
             r.contains("UNIVERSAL_HARD_FLOOR_SL") -> ExitReason.STOP_LOSS
+            r.startsWith("SPIKE_CAPTURE_7943") ||
+            r.startsWith("LIFECYCLE_PROFIT_TAKE") ||
             r.contains("PARTIAL_TAKE_PROFIT") ||
             r.contains("PARTIAL_PROFIT_LOCK") ||
             r.contains("PARTIAL")            -> ExitReason.PARTIAL_TAKE_PROFIT
+            r.startsWith("LIFECYCLE_PROFIT_GIVEBACK") ||
             r.contains("PROFIT_LOCK") ||
             r.contains("TAKE_PROFIT") ||
             r.contains("DRAWDOWN_FROM_PEAK") ||
             r.contains("MICROWIN")           -> ExitReason.PROFIT_LOCK
             else -> ExitReason.UNKNOWN
+        }
+    }
+
+    /**
+     * On-chain token consumption, not an original route's exit intention,
+     * decides whether the economic settlement was partial or terminal.
+     * If a catastrophic/hard/manual sell actually consumed only a slice, it
+     * cannot satisfy SellIntent's full-drain contract. Retain stop semantics
+     * for that verified partial without inventing the missing remainder.
+     */
+    fun fromChainConsumption8081(reason: String?, fullConsumed: Boolean): ExitReason {
+        if (fullConsumed) {
+            val r = reason.orEmpty().uppercase()
+            // A catastrophe STOP is a hard protective stop, not necessarily
+            // evidence of an actual rug/drain. Preserve the structural class
+            // only when the reason expressly identifies structural danger.
+            if (r.contains("CATASTROPHE") && r.contains("STOP") &&
+                listOf("RUG", "LIQUIDITY", "DRAIN", "HONEYPOT").none { r.contains(it) }) {
+                return ExitReason.HARD_STOP
+            }
+            return fullExitFromString(reason)
+        }
+        return when (val classified = fromString(reason)) {
+            ExitReason.RUG_DRAIN, ExitReason.HARD_STOP, ExitReason.MANUAL_FULL_EXIT -> ExitReason.STOP_LOSS
+            else -> classified
         }
     }
 

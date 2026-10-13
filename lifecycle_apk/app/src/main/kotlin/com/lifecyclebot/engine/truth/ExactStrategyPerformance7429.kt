@@ -167,8 +167,19 @@ object ExactStrategyPerformance7429 {
         norm(tactic, "UNSTAMPED_TACTIC"),
     ).joinToString("|")
 
+    /** Exact live strategy economic rewards require verified terminal blockchain settlement. */
+    internal fun terminalEconomicsEligible8081(mode: String, proof: String): Boolean =
+        if (mode.equals("LIVE", true))
+            proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true)
+        else mode.equals("PAPER", true) && proof.equals("PAPER_SIMULATED", true)
+
     fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.terminal || !env.learningEligible || env.positionId.isBlank()) return false
+        if (!terminalEconomicsEligible8081(env.mode, env.proofState)) {
+            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_UNVERIFIED_ECONOMICS_EXCLUDED_8081") } catch (_: Throwable) {}
+            // This is an excluded learning source, not a recoverable failure.
+            return true
+        }
         ensureRestored7431()
         if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return false
 

@@ -43,14 +43,14 @@ permissions:
 # superseded duplicates report `cancelled`, never `failure`, so a cancelled
 # duplicate can never be mistaken for a real red.
 concurrency:
-  group: runtime-smoke-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref_name }}
+  group: runtime-smoke-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
     # Don't run when the upstream build failed.
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
     timeout-minutes: 35
 
     defaults:
