@@ -190,7 +190,7 @@ object LifecycleHold8065 {
         // V5.0.8080 — a hold whose own give-back is due never swallows the profit lock / trail that
         // asked first (the rapid mark that would fire the hold's exit may not have a price this tick).
         val st8080 = states[key(ts)]
-        if (st8080 != null && givebackDue8080(maxOf(st8080.peak, if (g.isFinite()) g else st8080.peak), g, st8080.taken)) {
+        if (st8080 != null && givebackDue8080(maxOf(st8080.peak, ts.position.peakGainPct), g, st8080.taken)) {
             try { PipelineHealthCollector.labelInc("LIFECYCLE_GIVEBACK_RELEASED_8080") } catch (_: Throwable) {}
             return null
         }
@@ -218,8 +218,9 @@ object LifecycleHold8065 {
         val k = key(ts)
         if (!holding8065(ts)) {
             // Promotion: any live position that reaches +100% is held for its lifecycle from here.
-            if (g.isFinite() && g >= PROMOTE_PCT) {
-                states[k] = State(0, true, g, nowMs)
+            // V5.0.8080 — promotion needs the chain-verified peak, not one rapid-mark print.
+            if (g.isFinite() && g >= PROMOTE_PCT && pos.peakGainPct >= PROMOTE_PCT) {
+                states[k] = State(0, true, minOf(g, pos.peakGainPct), nowMs)
                 promotions.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("LIFECYCLE_PROMOTED_8065") } catch (_: Throwable) {}
                 saveMaybe(nowMs, force = true)
@@ -227,7 +228,9 @@ object LifecycleHold8065 {
         }
         if (!g.isFinite() || px == null || !(px > 0.0)) return true
         val st = states.getOrPut(k) { State(0, false, g, nowMs) }
-        if (g > st.peak) { st.peak = g; st.peakAt = nowMs }
+        // V5.0.8080 — the hold's peak never runs ahead of the chain-verified position peak.
+        val gPeak8080 = minOf(g, pos.peakGainPct)
+        if (gPeak8080 > st.peak) { st.peak = gPeak8080; st.peakAt = nowMs }
         val b = barsFor(ts.mint, px, nowMs)
         val age = nowMs - pos.entryTime
         val why: Pair<String, Double>? = when {

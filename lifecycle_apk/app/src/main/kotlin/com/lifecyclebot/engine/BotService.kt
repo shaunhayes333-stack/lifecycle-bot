@@ -2945,11 +2945,12 @@ class BotService : Service() {
     private fun peakAuthorityTick7809(ts: com.lifecyclebot.data.TokenState, pnlPct: Double) {
         try {
             val pos7809 = ts.position
-            if (pnlPct.isFinite() && pnlPct > pos7809.peakGainPct) pos7809.peakGainPct = pnlPct
+            // V5.0.8080 — LIVE peaks ratchet from the chain-verified mark only (PositionDisplayTruth8078).
+            val verifiedPnl8080 = com.lifecyclebot.engine.truth.PositionDisplayTruth8078.ratchetPeak8080(ts, pnlPct, "RAPID_7809") ?: return
             if (pos7809.entryTime <= 0L) return
             val key7809 = com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390.canonicalKey7809(ts.mint, pos7809.entryTime)
             val restore7809 = com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
-                .reconcileCanonical7809(key7809, pnlPct, pos7809.peakGainPct) ?: return
+                .reconcileCanonical7809(key7809, verifiedPnl8080, pos7809.peakGainPct) ?: return
             val live7809 = ts.position
             if (live7809.entryTime == pos7809.entryTime && restore7809 > live7809.peakGainPct) {
                 live7809.peakGainPct = restore7809
@@ -13409,9 +13410,8 @@ class BotService : Service() {
                                 // peak runs ahead of the host peak by seconds-to-minutes
                                 // and the TICK_PROFIT_LOCK reads a near-zero high-water
                                 // mark, never firing while the runner gives it all back.
-                                if (pnlPctNow > pos.peakGainPct) {
-                                    pos.peakGainPct = pnlPctNow
-                                }
+                                // V5.0.8080 — LIVE peaks ratchet from the chain-verified mark only.
+                                com.lifecyclebot.engine.truth.PositionDisplayTruth8078.ratchetPeak8080(ts, pnlPctNow, "TICK_LOCK")
                                 val peakPct = pos.peakGainPct
 
                                 // V5.0.7739 — the position's own plan exits first (TradePlan7739).

@@ -48,4 +48,21 @@ class Aate8080PeakLockTest {
         assertTrue(src("ui/MemePositionPopout.kt").contains("LifecycleHold8065.displayLock8080(t)"))
         assertEquals(2, src("ui/MainActivity.kt").split("LifecycleHold8065.displayLock8080(ts)").size - 1)
     }
+
+    @Test fun livePeakRatchetsOnlyFromTheChainVerifiedMark() {
+        val d = src("engine/truth/PositionDisplayTruth8078.kt").substringAfter("fun ratchetPeak8080(").substringBefore("fun view(")
+        assertTrue(d.contains("!v.markVerified"))
+        assertTrue(d.contains("PEAK_UNVERIFIED_MARK_REFUSED_8080_"))
+        assertTrue(d.contains("if (v.pnlPct > pos.peakGainPct) pos.peakGainPct = v.pnlPct"))
+        val b = src("engine/BotService.kt")
+        assertTrue(b.contains("ratchetPeak8080(ts, pnlPct, \"RAPID_7809\") ?: return"))
+        assertTrue(b.contains("ratchetPeak8080(ts, pnlPctNow, \"TICK_LOCK\")"))
+        assertTrue(b.contains("reconcileCanonical7809(key7809, verifiedPnl8080, pos7809.peakGainPct)"))
+        assertTrue(src("engine/LifecycleStrategy.kt").contains("ratchetPeak8080(ts, liveGain, \"LIFECYCLE_STRATEGY\")"))
+        val ui = src("ui/MainActivity.kt")
+        assertFalse(ui.contains("pos.peakGainPct = gainPct"))
+        val l = src("engine/LifecycleHold8065.kt")
+        assertTrue(l.contains("g >= PROMOTE_PCT && pos.peakGainPct >= PROMOTE_PCT"))
+        assertTrue(l.contains("val gPeak8080 = minOf(g, pos.peakGainPct)"))
+    }
 }

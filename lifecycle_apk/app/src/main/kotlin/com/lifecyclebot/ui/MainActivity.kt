@@ -6164,7 +6164,7 @@ for legal compliance.
                 if (!basisTrusted) {
                     cached.trailLockTv?.visibility = android.view.View.GONE
                 } else {
-                    if (gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
+                    // V5.0.8080 — the card is a projection: it never writes the canonical peak.
                 }
                 val holdSecR = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
                 val volR = ts.volatility ?: 50.0
@@ -6531,7 +6531,7 @@ for legal compliance.
             // peak (e.g. +252% on a +3198% runner) and the fluid lock was
             // calculated from the stale value. Sync inline on every render
             // so peak always reflects the live high-water mark.
-            if (basisTrusted && gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
+            // V5.0.8080 — the card is a projection: it never writes the canonical peak (chain-verified, PositionDisplayTruth8078.ratchetPeak8080).
             val holdSec = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
             val vol = ts.volatility ?: 50.0
             val fluidStop = try {

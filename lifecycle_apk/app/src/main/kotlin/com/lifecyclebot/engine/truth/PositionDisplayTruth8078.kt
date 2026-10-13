@@ -42,6 +42,35 @@ object PositionDisplayTruth8078 {
         val markTag: String get() = if (markVerified) "chain" else "est"
     }
 
+    /**
+     * V5.0.8080 §PEAK_IS_CHAIN_VERIFIED. Operator: "the peak should be real. all pricing is meant to be block chain
+     * verified data." A LIVE position's peak (position.peakGainPct, which arms every profit lock, give-back and
+     * lifecycle promotion) may ratchet only from the fresh chain/route-verified EXIT_ECONOMIC mark, validated by
+     * OpenPnlSanity on that exact pair; a provider/runtime tick that runs ahead of it never writes the peak.
+     * PAPER has no chain mark and ratchets from its market price as before.
+     * Returns the pnl that was eligible to ratchet (verified for LIVE), or null when LIVE has no verified mark.
+     */
+    fun ratchetPeak8080(ts: TokenState, candidatePnlPct: Double, writer: String): Double? {
+        val pos = ts.position
+        if (!pos.isOpen || !candidatePnlPct.isFinite()) return null
+        if (pos.isPaperPosition) {
+            if (candidatePnlPct > pos.peakGainPct) pos.peakGainPct = candidatePnlPct
+            return candidatePnlPct
+        }
+        val v = try { view(ts) } catch (_: Throwable) { null }
+        if (v == null || !v.markVerified || !v.basisOk || !v.pnlPct.isFinite()) {
+            if (candidatePnlPct > pos.peakGainPct) try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PEAK_UNVERIFIED_MARK_REFUSED_8080_$writer")
+            } catch (_: Throwable) {}
+            return null
+        }
+        if (candidatePnlPct > v.pnlPct + 5.0 && candidatePnlPct > pos.peakGainPct) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PEAK_TICK_AHEAD_OF_VERIFIED_MARK_8080_$writer")
+        } catch (_: Throwable) {}
+        if (v.pnlPct > pos.peakGainPct) pos.peakGainPct = v.pnlPct
+        return v.pnlPct
+    }
+
     fun view(ts: TokenState, nowMs: Long = System.currentTimeMillis()): View {
         val pos = ts.position
         val mode = if (pos.isPaperPosition) "PAPER" else "LIVE"

@@ -3135,7 +3135,8 @@ class LifecycleStrategy(
             // fallen below the milestone floor for that peak.
             run {
                 val liveGain = pct(pos.entryPrice, ts.ref)
-                if (liveGain > pos.peakGainPct) pos.peakGainPct = liveGain
+                // V5.0.8080 — LIVE peaks ratchet from the chain-verified mark only.
+                com.lifecyclebot.engine.truth.PositionDisplayTruth8078.ratchetPeak8080(ts, liveGain, "LIFECYCLE_STRATEGY")
                 val livePeak = pos.peakGainPct
                 val liveFloor = when {
                     livePeak >= 500.0 -> 300.0

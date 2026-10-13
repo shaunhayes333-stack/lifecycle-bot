@@ -14959,5 +14959,8 @@ class GoldenTapeRegressionTest {
         assertTrue("lifecycle hold must release a profit lock once its own give-back is due", l.contains("LIFECYCLE_GIVEBACK_RELEASED_8080"))
         assertTrue("unbanked lifecycle hold must own a give-back exit", l.contains("""st.taken == 0 && givebackDue8080(st.peak, g, st.taken) ->"""))
         assertTrue("green runner hold needs a standing tape to defer a give-back exit", r.contains("RUNNER_HOLD_RELEASED_GIVEBACK_NO_TAPE_8080"))
+        val pd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PositionDisplayTruth8078.kt").readText()
+        assertTrue("live peak ratchets only from the chain-verified EXIT_ECONOMIC mark", pd.contains("PEAK_UNVERIFIED_MARK_REFUSED_8080_"))
+        assertTrue("UI projection never writes the canonical peak", !java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText().contains("pos.peakGainPct = gainPct"))
     }
 }
