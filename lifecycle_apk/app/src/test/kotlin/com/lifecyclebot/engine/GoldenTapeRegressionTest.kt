@@ -14963,4 +14963,14 @@ class GoldenTapeRegressionTest {
         assertTrue("live peak ratchets only from the chain-verified EXIT_ECONOMIC mark", pd.contains("PEAK_UNVERIFIED_MARK_REFUSED_8080_"))
         assertTrue("UI projection never writes the canonical peak", !java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText().contains("pos.peakGainPct = gainPct"))
     }
+
+    @Test
+    fun V5_0_8082_typed_finality_reaches_exact_strategy_learning() {
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        assertTrue("envelope proofState must be the typed economic finality", b.contains("proofState = event.economicFinality,"))
+        val x = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExactStrategyPerformance7429.kt").readText()
+        assertTrue("exact strategy outcome is recorded once per position", x.contains("claimOnce8082(env.positionId)"))
+        val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
+        assertTrue("cortex entry reads are keyed per lane", c.contains("ENTRY_BIND_OWNER_LANE_UNASSESSED_8082"))
+    }
 }

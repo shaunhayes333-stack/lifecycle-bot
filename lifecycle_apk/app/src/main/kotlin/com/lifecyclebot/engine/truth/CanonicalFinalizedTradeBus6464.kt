@@ -66,14 +66,18 @@ object CanonicalFinalizedTradeBus6464 {
         val entrySource: String = "",
         val marketRegime: String = "",
         val scoreBand: String = "",
-        val mfePct: Double = 0.0,
-        val maePct: Double = 0.0,
+        // V5.0.8082 — unknown excursion is NaN, never an observed 0.
+        val mfePct: Double = Double.NaN,
+        val maePct: Double = Double.NaN,
         val terminal: Boolean = true,
         val learningEligible: Boolean = true,
         val learningEligibilityReason: String = "ELIGIBLE",
         val assetClassTag: String = AssetClass.fromLane(lane).tag,
         val economicEventId: String = "",
         val exitReason: String = "",
+        // V5.0.8082 §TYPED_ECONOMIC_FINALITY — proofState is the economic finality; quality/integrity travel typed.
+        val dataQuality: String = "",
+        val priceIntegrity: String = "",
     )
 
     private val canonicalSeen = ConcurrentHashMap<String, Envelope>()

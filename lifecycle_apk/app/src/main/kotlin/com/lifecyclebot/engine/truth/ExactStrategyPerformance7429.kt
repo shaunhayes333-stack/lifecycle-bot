@@ -60,6 +60,8 @@ object ExactStrategyPerformance7429 {
         val pnlSolLamports = AtomicLong(0L)
         val mfePctX1000 = AtomicLong(0L)
         val maePctX1000 = AtomicLong(0L)
+        /** V5.0.8082 — closes whose excursion was observed; mean MFE/MAE divide by this, not by n. */
+        val excursionN8082 = AtomicLong(0L)
         val holdMs = AtomicLong(0L)
     }
 
@@ -110,6 +112,7 @@ object ExactStrategyPerformance7429 {
                 cell.pnlSolLamports.set(j.optLong("sol", 0L))
                 cell.mfePctX1000.set(j.optLong("mfe", 0L))
                 cell.maePctX1000.set(j.optLong("mae", 0L))
+                cell.excursionN8082.set(j.optLong("exN8082", 0L))
                 cell.holdMs.set(j.optLong("hold", 0L))
                 if (cell.n.get() > 0L) playbookCells7431[k] = cell
             }
@@ -124,7 +127,7 @@ object ExactStrategyPerformance7429 {
             val j = JSONObject()
                 .put("n", cell.n.get()).put("w", cell.wins.get()).put("l", cell.losses.get())
                 .put("p", cell.pnlPctX1000.get()).put("sol", cell.pnlSolLamports.get())
-                .put("mfe", cell.mfePctX1000.get()).put("mae", cell.maePctX1000.get())
+                .put("mfe", cell.mfePctX1000.get()).put("mae", cell.maePctX1000.get()).put("exN8082", cell.excursionN8082.get())
                 .put("hold", cell.holdMs.get())
             LearningPersistence.save(playbookStorageKey7431(key), j.toString())
             if (newKey) {
@@ -173,15 +176,41 @@ object ExactStrategyPerformance7429 {
             proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true)
         else mode.equals("PAPER", true) && proof.equals("PAPER_SIMULATED", true)
 
+    private const val SEEN_KEY_8082 = "exact_strategy_seen_positions_8082"
+    private const val SEEN_CAP_8082 = 5_000
+    private val seen8082 = java.util.LinkedHashSet<String>()
+    @Volatile private var seenLoaded8082 = false
+
+    /** V5.0.8082 — true exactly once per positionId (persisted, bounded FIFO). */
+    internal fun claimOnce8082(positionId: String): Boolean = synchronized(seen8082) {
+        if (!seenLoaded8082) {
+            seenLoaded8082 = true
+            try { LearningPersistence.load(SEEN_KEY_8082)?.takeIf { it.isNotBlank() }?.let { org.json.JSONArray(it) }
+                ?.let { a -> for (i in 0 until a.length()) seen8082.add(a.optString(i)) } } catch (_: Throwable) {}
+        }
+        if (!seen8082.add(positionId)) return@synchronized false
+        while (seen8082.size > SEEN_CAP_8082) seen8082.remove(seen8082.first())
+        try { LearningPersistence.save(SEEN_KEY_8082, org.json.JSONArray(seen8082.toList()).toString()) } catch (_: Throwable) {}
+        true
+    }
+
+    internal fun clearSeenForTest8082() = synchronized(seen8082) { seen8082.clear(); seenLoaded8082 = true }
+
     fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.terminal || !env.learningEligible || env.positionId.isBlank()) return false
         if (!terminalEconomicsEligible8081(env.mode, env.proofState)) {
+            // V5.0.8082 — typed finality: an UNVERIFIED close stays out; nothing is upgraded here.
             try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_UNVERIFIED_ECONOMICS_EXCLUDED_8081") } catch (_: Throwable) {}
             // This is an excluded learning source, not a recoverable failure.
             return true
         }
         ensureRestored7431()
         if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return false
+        // V5.0.8082 §EXACTLY_ONCE — one terminal outcome per position, across redelivery and restart.
+        if (!claimOnce8082(env.positionId)) {
+            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_DUPLICATE_TERMINAL_SKIPPED_8082") } catch (_: Throwable) {}
+            return true
+        }
 
         // V5.0.7432 — exact-strategy learning starts only once immutable
         // identity exists. Historical/pre-7427 closes still flow to the lane,
@@ -226,8 +255,11 @@ object ExactStrategyPerformance7429 {
         else if (env.realizedReturnPct < 0.0) cell.losses.incrementAndGet()
         cell.pnlPctX1000.addAndGet((env.realizedReturnPct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
         cell.pnlSolLamports.addAndGet((env.realizedPnlSol * 1_000_000_000.0).toLong())
-        cell.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
-        cell.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
+        if (env.mfePct.isFinite() && env.maePct.isFinite()) {
+            cell.excursionN8082.incrementAndGet()
+            cell.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
+            cell.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
+        } else try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EXCURSION_UNOBSERVED_8082") } catch (_: Throwable) {}
         cell.holdMs.addAndGet(env.holdingTimeMs.coerceAtLeast(0L))
 
         // Maintain the variant-agnostic playbook aggregate for constant-time
@@ -254,8 +286,11 @@ object ExactStrategyPerformance7429 {
             else if (env.realizedReturnPct < 0.0) pc7431.losses.incrementAndGet()
             pc7431.pnlPctX1000.addAndGet((env.realizedReturnPct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
             pc7431.pnlSolLamports.addAndGet((env.realizedPnlSol * 1_000_000_000.0).toLong())
-            pc7431.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
-            pc7431.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
+            if (env.mfePct.isFinite() && env.maePct.isFinite()) {
+                pc7431.excursionN8082.incrementAndGet()
+                pc7431.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
+                pc7431.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
+            }
             pc7431.holdMs.addAndGet(env.holdingTimeMs.coerceAtLeast(0L))
             persistPlaybook7431(pk7431, pc7431, wasNew7431)
         } catch (_: Throwable) {}
@@ -362,8 +397,8 @@ object ExactStrategyPerformance7429 {
             losses = c.losses.get(),
             meanPnlPct = c.pnlPctX1000.get().toDouble() / 1000.0 / n,
             pnlSol = c.pnlSolLamports.get().toDouble() / 1_000_000_000.0,
-            meanMfePct = c.mfePctX1000.get().toDouble() / 1000.0 / n,
-            meanMaePct = c.maePctX1000.get().toDouble() / 1000.0 / n,
+            meanMfePct = c.excursionN8082.get().let { en -> if (en > 0L) c.mfePctX1000.get().toDouble() / 1000.0 / en else Double.NaN },
+            meanMaePct = c.excursionN8082.get().let { en -> if (en > 0L) c.maePctX1000.get().toDouble() / 1000.0 / en else Double.NaN },
             meanHoldMinutes = c.holdMs.get().toDouble() / 60_000.0 / n,
         )
     }

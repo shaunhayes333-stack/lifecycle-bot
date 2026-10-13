@@ -54,6 +54,7 @@ object PositionDisplayTruth8078 {
         val pos = ts.position
         if (!pos.isOpen || !candidatePnlPct.isFinite()) return null
         if (pos.isPaperPosition) {
+            try { PositionExcursion8082.observe(pos.positionId, candidatePnlPct, "PAPER_MARK_$writer") } catch (_: Throwable) {}
             if (candidatePnlPct > pos.peakGainPct) pos.peakGainPct = candidatePnlPct
             return candidatePnlPct
         }
@@ -67,6 +68,7 @@ object PositionDisplayTruth8078 {
         if (candidatePnlPct > v.pnlPct + 5.0 && candidatePnlPct > pos.peakGainPct) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PEAK_TICK_AHEAD_OF_VERIFIED_MARK_8080_$writer")
         } catch (_: Throwable) {}
+        try { PositionExcursion8082.observe(pos.positionId, v.pnlPct, "VERIFIED_${v.markSource}") } catch (_: Throwable) {}
         if (v.pnlPct > pos.peakGainPct) pos.peakGainPct = v.pnlPct
         return v.pnlPct
     }

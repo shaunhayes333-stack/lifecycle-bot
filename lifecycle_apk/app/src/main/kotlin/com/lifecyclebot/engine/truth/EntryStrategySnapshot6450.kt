@@ -290,8 +290,8 @@ object MemeCausalLearning6568 {
             env.realizedReturnPct > 0.5, env.realizedReturnPct, snap.entryScore.toDouble(), snap.entryLiquidityUsd,
             snap.entryTokenAgeMs.toDouble(), snap.entryVolumeVelocity, snap.entryBuyPressurePct - snap.entrySellPressurePct,
             snap.policyProbability, snap.forwardPWin, snap.entryHolderConcentrationPct, env.holdingTimeMs / 60000.0,
-            env.maePct.takeIf { it != 0.0 } ?: minOf(0.0, env.realizedReturnPct),
-            env.mfePct.takeIf { it != 0.0 } ?: maxOf(0.0, env.realizedReturnPct), snap.entrySource)
+            // V5.0.8082 — observed excursion or NaN (unknown); the final return is not a measured MFE/MAE.
+            env.maePct, env.mfePct, snap.entrySource)
         synchronized(lock) {
             rows.addLast(row); while (rows.size > 100) rows.removeFirst()
             persist()
@@ -383,8 +383,8 @@ object MemeCausalLearning6568 {
     fun sizeMultiplier(lane:String,tactic:String): Double { ensureRestored(); return synchronized(lock) {
         if (rows.size < 20) return@synchronized 1.0
         val wins=rows.count{it.win}; val losses=rows.size-wins
-        val grossWin=rows.filter{it.win}.sumOf{it.mfe.coerceAtLeast(0.0)}
-        val grossLoss=rows.filter{!it.win}.sumOf{kotlin.math.abs(it.mae.coerceAtMost(0.0))}
+        val grossWin=rows.filter{it.win&&it.mfe.isFinite()}.sumOf{it.mfe.coerceAtLeast(0.0)}
+        val grossLoss=rows.filter{!it.win&&it.mae.isFinite()}.sumOf{kotlin.math.abs(it.mae.coerceAtMost(0.0))}
         val wr=wins.toDouble()/rows.size; val pf=if(grossLoss>1e-6) grossWin/grossLoss else 2.0
         if (wr>=0.15 && pf>=0.5) return@synchronized 1.0
         val cohort=rows.filter{it.lane.equals(lane,true)&&it.tactic.equals(tactic,true)}
@@ -392,8 +392,8 @@ object MemeCausalLearning6568 {
         if (cohort.size>=5 && cohortWr>=wr+0.15) 0.70 else 0.20
     } }
 
-    private fun persist() { try { val a=org.json.JSONArray(); rows.forEach{r->a.put(org.json.JSONObject().put("lane",r.lane).put("tactic",r.tactic).put("tradeType",r.tradeType).put("setup",r.setup).put("style",r.style).put("variantId",r.variantId).put("win",r.win).put("pnl",r.pnlPct).put("score",r.score).put("liq",r.liq).put("age",r.age).put("velocity",r.velocity).put("pressure",r.pressure).put("policy",r.policy).put("fwd",r.fwd).put("holders",r.holders).put("hold",r.hold).put("mae",r.mae).put("mfe",r.mfe).put("source",r.source))}; LearningPersistence.save(KEY,a.toString()) } catch (_:Throwable) {} }
-    fun restore() { try { val a=org.json.JSONArray(LearningPersistence.load(KEY)?:return); synchronized(lock){ rows.clear(); for(i in 0 until a.length()){val j=a.getJSONObject(i); rows.addLast(Row(j.optString("lane"),j.optString("tactic"),j.optString("tradeType"),j.optString("setup"),j.optString("style"),j.optString("variantId"),j.optBoolean("win"),j.optDouble("pnl", Double.NaN),j.optDouble("score"),j.optDouble("liq"),j.optDouble("age"),j.optDouble("velocity"),j.optDouble("pressure"),j.optDouble("policy",.5),j.optDouble("fwd",.5),j.optDouble("holders"),j.optDouble("hold"),j.optDouble("mae"),j.optDouble("mfe"),j.optString("source")))}} } catch (_:Throwable) {} }
+    private fun persist() { try { val a=org.json.JSONArray(); rows.forEach{r->a.put(org.json.JSONObject().put("lane",r.lane).put("tactic",r.tactic).put("tradeType",r.tradeType).put("setup",r.setup).put("style",r.style).put("variantId",r.variantId).put("win",r.win).put("pnl",r.pnlPct).put("score",r.score).put("liq",r.liq).put("age",r.age).put("velocity",r.velocity).put("pressure",r.pressure).put("policy",r.policy).put("fwd",r.fwd).put("holders",r.holders).put("hold",r.hold).apply{if(r.mae.isFinite())put("mae",r.mae);if(r.mfe.isFinite())put("mfe",r.mfe)}.put("source",r.source))}; LearningPersistence.save(KEY,a.toString()) } catch (_:Throwable) {} }
+    fun restore() { try { val a=org.json.JSONArray(LearningPersistence.load(KEY)?:return); synchronized(lock){ rows.clear(); for(i in 0 until a.length()){val j=a.getJSONObject(i); rows.addLast(Row(j.optString("lane"),j.optString("tactic"),j.optString("tradeType"),j.optString("setup"),j.optString("style"),j.optString("variantId"),j.optBoolean("win"),j.optDouble("pnl", Double.NaN),j.optDouble("score"),j.optDouble("liq"),j.optDouble("age"),j.optDouble("velocity"),j.optDouble("pressure"),j.optDouble("policy",.5),j.optDouble("fwd",.5),j.optDouble("holders"),j.optDouble("hold"),j.optDouble("mae",Double.NaN),j.optDouble("mfe",Double.NaN),j.optString("source")))}} } catch (_:Throwable) {} }
     internal fun rowCountForTest() = synchronized(lock) { rows.size }
     internal fun resetForTest(){ synchronized(lock){rows.clear()}; restored.set(true) }
 }

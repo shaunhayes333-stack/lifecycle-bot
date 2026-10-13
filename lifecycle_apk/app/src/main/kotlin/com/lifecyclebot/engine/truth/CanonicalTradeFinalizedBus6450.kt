@@ -75,7 +75,41 @@ object CanonicalTradeFinalizedBus6450 {
          */
         val producedByVersion7103: String =
             CanonicalTradeFinalizedBus6450.currentBuildVersion7103(),
+        /**
+         * V5.0.8082 §TYPED_ECONOMIC_FINALITY. Economic finality is its own typed field, separate from
+         * dataQuality/priceIntegrity. The envelope used to carry "dataQuality:priceIntegrity"
+         * ("confirmed_signature:confirmed_signature") as its proofState, which ExactStrategyPerformance7429,
+         * KillSwitch and LearningEligibility compare against LIVE_FINALIZED / LIVE_RECONCILED / PAPER_SIMULATED:
+         * no real close ever matched, so exact-strategy learning excluded every trade. Producers that hold
+         * signed-transaction or wallet-delta proof state it explicitly; otherwise it is derived from the
+         * producer vocabulary (genuine historical proofs keep their meaning, anything else is UNVERIFIED).
+         */
+        val economicFinality: String = CanonicalTradeFinalizedBus6450.economicFinality8082(mode, dataQuality, priceIntegrity),
+        /** V5.0.8082 §OBSERVED_EXCURSION — NaN when the path was never observed. */
+        val mfePct: Double = PositionExcursion8082.mfeFor(positionId),
+        val maePct: Double = PositionExcursion8082.maeFor(positionId),
     )
+
+    /**
+     * V5.0.8082 — the only finality vocabulary terminal learners accept. LIVE: LIVE_FINALIZED (signed transaction
+     * confirmed: SellFinalizationCoordinator "confirmed_signature", Markets DLN finalized source delta) or
+     * LIVE_RECONCILED (confirmed wallet return delta / durable typed sell). PAPER: PAPER_SIMULATED (canonical paper
+     * fill). Everything else is *_UNVERIFIED and never trains exact strategy economics. Accepts the legacy
+     * "a:b" compound form so historical durable rows are read, never upgraded.
+     */
+    fun economicFinality8082(mode: String, dataQuality: String, priceIntegrity: String = ""): String {
+        val parts = (dataQuality.split(':') + priceIntegrity.split(':')).map { it.trim().uppercase() }.filter { it.isNotEmpty() }
+        fun has(v: String) = v.uppercase() in parts
+        return when (mode.trim().uppercase()) {
+            "LIVE" -> when {
+                has("LIVE_FINALIZED") || has("confirmed_signature") || has("DLN_REVERSE_FINALIZED_SOURCE_SOL_DELTA") -> "LIVE_FINALIZED"
+                has("LIVE_RECONCILED") || has("CONFIRMED_WALLET_RETURN_DELTA") -> "LIVE_RECONCILED"
+                else -> "LIVE_UNVERIFIED"
+            }
+            "PAPER" -> if (has("PAPER_SIMULATED") || has("canonical_paper_fill")) "PAPER_SIMULATED" else "PAPER_UNVERIFIED"
+            else -> "UNVERIFIED"
+        }
+    }
 
     /** V5.0.7103 — the producing build, resolved once and never thrown. */
     private val buildVersion7103: String by lazy {
@@ -253,6 +287,7 @@ object CanonicalTradeFinalizedBus6450 {
         if (economicInvalid6495 == null && !richDuplicate7473) {
             published.incrementAndGet()
             CanonicalFinalityPersistence6486.record(event)
+            try { PositionExcursion8082.release(event.positionId) } catch (_: Throwable) {}
             val quarantined6485 = try {
                 LearningQuarantineGate6470.shouldDropForLearning(positionId = event.positionId, mint = event.mint)
             } catch (_: Throwable) { true }
@@ -363,7 +398,11 @@ object CanonicalTradeFinalizedBus6450 {
                 lane = event.entryLane,
                 positionId = event.positionId,
                 mode = event.mode,
-                proofState = "${event.dataQuality}:${event.priceIntegrity}",
+                proofState = event.economicFinality,
+                dataQuality = event.dataQuality,
+                priceIntegrity = event.priceIntegrity,
+                mfePct = event.mfePct,
+                maePct = event.maePct,
                 holdingTimeMs = event.holdingTimeMs.coerceAtLeast(0L),
                 entryScore = entryScore6567,
                 entryTactic = event.entryTactic,

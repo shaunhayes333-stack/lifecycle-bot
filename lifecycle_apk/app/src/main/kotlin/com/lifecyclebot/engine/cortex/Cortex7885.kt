@@ -1068,7 +1068,9 @@ object Cortex7885 {
 
     // ── OutcomeTruth cross-check: entry verdict -> whole-position close ──
 
-    private val entryReads = ConcurrentHashMap<String, Assessment>()   // mint|MODE
+    // V5.0.8082 §ENTRY_READ_PER_LANE — mint|MODE|LANE. Several lanes assess one mint; keyed by mint|MODE the
+    // last lane overwrote the others and the bind saw the wrong lane (ENTRY_BIND_MISMATCH_8076) or none.
+    private val entryReads = ConcurrentHashMap<String, Assessment>()   // mint|MODE|LANE
     private val positionReads8076 = CortexEntryReadBook8076<Assessment>()
     private const val ENTRY_READ_MATCH_MS = 15L * 60_000L
 
@@ -1076,9 +1078,14 @@ object Cortex7885 {
     fun bindPosition8076(positionId: String, mint: String, lane: String, mode: String, openedAtMs: Long) {
         val m = mode.uppercase()
         val normalized = try { CrossAssetCortex7931.normalizeCloseKey(mint) } catch (_: Throwable) { mint }
-        val a = entryReads["$normalized|$m"] ?: run { inc("ENTRY_BIND_MISSING_8076"); return }
-        if (a.lane != canon(lane) || openedAtMs - a.atMs !in 0L..ENTRY_READ_MATCH_MS) {
-            inc("ENTRY_BIND_MISMATCH_8076"); return
+        val laneKey8082 = canon(lane)
+        val a = entryReads["$normalized|$m|$laneKey8082"] ?: run {
+            // Other lanes' reads of this mint are contributor evidence, never the owner's verdict.
+            inc(if (entryReads.keys.any { it.startsWith("$normalized|$m|") }) "ENTRY_BIND_OWNER_LANE_UNASSESSED_8082" else "ENTRY_BIND_MISSING_8076")
+            return
+        }
+        if (openedAtMs - a.atMs !in 0L..ENTRY_READ_MATCH_MS) {
+            inc("ENTRY_BIND_STALE_READ_8082"); return
         }
         if (positionReads8076.bind(positionId, normalized, m, a)) {
             inc("ENTRY_BOUND_8076")
@@ -1114,7 +1121,8 @@ object Cortex7885 {
 
     private fun noteEntryRead(mint: String, paper: Boolean, a: Assessment) {
         if (entryReads.size > 4_000) entryReads.entries.removeIf { System.currentTimeMillis() - it.value.atMs > PENDING_TTL_MS * 4 }
-        entryReads["$mint|${if (paper) "PAPER" else "LIVE"}"] = a
+        val normalized8082 = try { CrossAssetCortex7931.normalizeCloseKey(mint) } catch (_: Throwable) { mint }
+        entryReads["$normalized8082|${if (paper) "PAPER" else "LIVE"}|${canon(a.lane)}"] = a
     }
 
     /** CanonicalFinalizedTradeBus6464 publish: one whole-position outcome (all legs, fees once). */
@@ -1128,7 +1136,7 @@ object Cortex7885 {
         val eligible = env.learningEligible && env.realizedReturnPct.isFinite()
         synchronized(this) {
             val a = positionReads8076.take(env.positionId, closeKey7931, mode) ?: run { inc("REALIZED_UNMATCHED"); return }
-            entryReads.remove("$closeKey7931|$mode", a)
+            entryReads.remove("$closeKey7931|$mode|${canon(a.lane)}", a)
             val wasChosen = mode == "PAPER" && chosen.remove(env.mint) != null
             // Ineligible closes still release their captured entry; they never teach.
             if (eligible) {

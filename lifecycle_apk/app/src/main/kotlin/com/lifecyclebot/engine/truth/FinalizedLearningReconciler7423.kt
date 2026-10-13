@@ -245,9 +245,14 @@ object FinalizedLearningReconciler7423 {
                 lane = lane,
                 positionId = p.positionId,
                 mode = rich?.mode ?: sell.mode,
-                proofState = if (rich != null)
-                    (rich.dataQuality + ":" + rich.priceIntegrity)
-                else "DURABLE_TYPED_SELL_RECONSTRUCTED_7459",
+                // V5.0.8082 — the same typed finality the live publisher stamps. A durable typed sell exists only
+                // after SellFinalizationCoordinator confirmed the signed sell (LIVE) or the canonical paper fill (PAPER).
+                proofState = rich?.economicFinality
+                    ?: if ((sell.mode).equals("live", true)) "LIVE_RECONCILED" else "PAPER_SIMULATED",
+                dataQuality = rich?.dataQuality ?: "DURABLE_TYPED_SELL_RECONSTRUCTED_7459",
+                priceIntegrity = rich?.priceIntegrity.orEmpty(),
+                mfePct = rich?.mfePct ?: PositionExcursion8082.mfeFor(p.positionId),
+                maePct = rich?.maePct ?: PositionExcursion8082.maeFor(p.positionId),
                 holdingTimeMs = rich?.holdingTimeMs
                     ?: entry?.let { (sell.atMs - it.entryTimestampMs).coerceAtLeast(0L) }
                     ?: 0L,

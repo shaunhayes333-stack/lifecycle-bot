@@ -123,7 +123,8 @@ object CanonicalFinalityPersistence6486 {
         put("returnFraction", e.returnFraction); put("netReturnPct", e.netReturnPct); put("feesSol", e.feesSol)
         put("entryLane", e.entryLane); put("entryStrategyPid", e.entryStrategyPid); put("entryTactic", e.entryTactic)
         put("exitReason", e.exitReason); put("holdingTimeMs", e.holdingTimeMs); put("dataQuality", e.dataQuality)
-        put("priceIntegrity", e.priceIntegrity); put("mode", e.mode); put("settledAtMs", e.settledAtMs); put("assetClass", e.assetClassTag)
+        put("priceIntegrity", e.priceIntegrity); put("finality8082", e.economicFinality)
+        if (e.mfePct.isFinite()) put("mfe8082", e.mfePct); if (e.maePct.isFinite()) put("mae8082", e.maePct); put("mode", e.mode); put("settledAtMs", e.settledAtMs); put("assetClass", e.assetClassTag)
         // V5.0.6697 — preserve exact terminal economic identity across restart.
         // Post-commit learning delivery must be able to prove the same event
         // after process death instead of falling back to position-only lookup.
@@ -148,6 +149,10 @@ object CanonicalFinalityPersistence6486 {
             entryStrategyPid = j.optString("entryStrategyPid"), entryTactic = j.optString("entryTactic"),
             exitReason = j.optString("exitReason"), holdingTimeMs = j.optLong("holdingTimeMs"),
             dataQuality = j.optString("dataQuality"), priceIntegrity = j.optString("priceIntegrity"),
+            economicFinality = j.optString("finality8082").ifBlank {
+                CanonicalTradeFinalizedBus6450.economicFinality8082(j.optString("mode"), j.optString("dataQuality"), j.optString("priceIntegrity"))
+            },
+            mfePct = j.optDouble("mfe8082", Double.NaN), maePct = j.optDouble("mae8082", Double.NaN),
             mode = j.optString("mode", "unknown"), settledAtMs = j.getLong("settledAtMs"),
             assetClassTag = j.optString("assetClass", ""),
             economicEventId = j.optString("economicEventId", ""),

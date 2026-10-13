@@ -316,6 +316,9 @@ object SellFinalizationCoordinator {
                                 holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
                                 dataQuality = "confirmed_signature", priceIntegrity = "confirmed_signature",
                                 mode = "live", settledAtMs = settledAt6485,
+                                economicEventId = idKey,
+                                // V5.0.8082 — finality stated from the evidence in hand: a signed sell that consumed tokens.
+                                economicFinality = if (sellSig.isNotBlank() && actualConsumedRaw.signum() > 0) "LIVE_FINALIZED" else "LIVE_UNVERIFIED",
                             )
                         )
                     }
