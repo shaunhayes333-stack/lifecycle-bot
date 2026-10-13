@@ -5731,6 +5731,10 @@ for legal compliance.
     // Insertion-ordered so we can cheaply diff against the desired sort order.
     private val openPosCardCache = LinkedHashMap<String, OpenPosCard>(48)
 
+    /** V5.0.8080 — the lock the lifecycle hold will actually fire, for the position card (projection only). */
+    private fun holdLockText8080(ts: com.lifecyclebot.data.TokenState): String? =
+        try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts)?.let { "hold lock +${it.first.toInt()}%" } } catch (_: Throwable) { null }
+
     private fun renderOpenPositions(positions: List<TokenState>, preSorted6078: Boolean = false) {
         // V5.0.7012 — publish lane occupancy for the hero's pressure strip.
         // This function is the one place holding the canonical open-position
@@ -6164,7 +6168,6 @@ for legal compliance.
                 if (!basisTrusted) {
                     cached.trailLockTv?.visibility = android.view.View.GONE
                 } else {
-                    // V5.0.8080 — the card is a projection: it never writes the canonical peak.
                 }
                 val holdSecR = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
                 val volR = ts.volatility ?: 50.0
@@ -6183,9 +6186,7 @@ for legal compliance.
                         !fluidTrailR.isNaN() && gainPct > 3.0 -> "trail ${fluidTrailR.toInt()}%"
                         else -> null
                     }
-                    val hold8080R = try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts) } catch (_: Throwable) { null }
-                    val slTxtR = when {
-                        hold8080R != null -> "hold lock +${hold8080R.first.toInt()}%"
+                    val slTxtR = holdLockText8080(ts) ?: when { // V5.0.8080 card is a projection: never writes the canonical peak
                         !fluidStopR.isNaN() && fluidStopR > 0.0 -> "lock +${fluidStopR.toInt()}%"
                         !fluidStopR.isNaN() && fluidStopR < 0.0 -> "SL ${fluidStopR.toInt()}%"
                         else -> null
