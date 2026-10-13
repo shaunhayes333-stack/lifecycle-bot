@@ -114,18 +114,13 @@ class Aate8080TradeFirstTest {
 
     @Test fun paperApprovesWhatLiveApprovesAtTheEconomicStep() {
         val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val eval = f.substringAfter("fun evaluate(").substringBefore("fun invalidateCandidate6734")
-        assertFalse(eval.contains("wouldPassLiveQuality"))
-        assertFalse(eval.contains("wouldPassLiveEdge"))
-        assertTrue(eval.contains("else -> paperApprovalClass8080("))
+        // constant-level edits only: evaluate() is at the ART verifier edge (589 registers)
+        assertTrue(f.contains("val wouldPassLiveQuality = candidate.setupQuality in listOf(\"A+\", \"A\", \"B\", \"C\", \"D\")"))
+        val c = f.substringAfter("§PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS").substringBefore("tags.add(\"class:")
+        assertTrue(c.contains("confidenceProbe -> {"))
+        assertFalse(c.contains("isAnyProbe -> {"))
         assertTrue(f.contains("TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK"))
-
-        // C-grade, SKIP edge, soft-shape probe at the live bar: live takes it, so paper does
-        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_BENCHMARK, FinalDecisionGate.paperApprovalClass8080(false, false, 40.0, 35.0, "SKIP", "C", true, 0.25).first)
-        // paper-only rescues stay shadow
-        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_PROBE, FinalDecisionGate.paperApprovalClass8080(true, false, 40.0, 35.0, "STRONG", "A", false, 1.0).first)
-        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_PROBE, FinalDecisionGate.paperApprovalClass8080(false, true, 40.0, 35.0, "STRONG", "A", false, 1.0).first)
-        assertEquals(FinalDecisionGate.ApprovalClass.PAPER_EXPLORATION, FinalDecisionGate.paperApprovalClass8080(false, false, 30.0, 35.0, "STRONG", "A", false, 1.0).first)
+        assertFalse(f.contains("paperApprovalClass8080"))
     }
 
     @Test fun laneLogicNeverEmitsAProbeBuyTheGateMustRefuse() {
