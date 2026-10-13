@@ -35,7 +35,7 @@ class Aate8081HotPathEfficiencyTest {
         val owner = elect.substringAfter("internal fun readyOwnerForCycle8081(")
             .substringBefore("private fun secondaryFresh7803(")
         assertTrue(owner.contains("if (operatorForced) return proposed"))
-        assertTrue(owner.contains("currentElection6600(ts.mint)?.sealed == true"))
+        assertTrue(owner.contains("currentElection6600(ts.mint)?.takeIf { it.sealed }?.let { return it.primaryLane }"))
         assertTrue(owner.contains("preferredReadyOwner7820(ts.mint)"))
         val ts = com.lifecyclebot.data.TokenState(mint = "test-owner")
         assertEquals("MOONSHOT", LaneExecutionCoordinator.readyOwnerForCycle8081(
