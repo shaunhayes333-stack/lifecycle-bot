@@ -708,6 +708,17 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             try {
                 val jupiter = JupiterApi(jupiterApiKey)
                 val signature = jupiter.executeUltra(signedB64, requestId)
+                // V5.0.8083 §ULTRA_WAS_SINGLE_ROUTE — most Jupiter buys AND sells land through /execute, which had no
+                // Helius RPC / Alchemy copy and no re-broadcast. A non-RFQ Ultra tx is complete with our signature, so
+                // the identical bytes now fan out to every paid endpoint and join the confirm-loop re-broadcast.
+                // RFQ bytes carry only half the signatures (the market maker signs inside /execute): never self-sent.
+                if (!isRfqRoute) {
+                    solBalance8009 = null
+                    if (inFlight8009.size > 200) inFlight8009.clear()
+                    inFlight8009[signature] = signedB64 to false
+                    echoSend8009(signature, signedB64, viaSender = false)
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_FANOUT_ULTRA_8083") } catch (_: Throwable) {}
+                }
 
                 // Still await confirmation to be safe
                 // V5.0.7733 — a confirmation throw after /execute returned a
@@ -797,6 +808,13 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             val msg = error.optString("message", "unknown")
             val code = error.optInt("code", -1)
             throw RuntimeException("sendTransaction RPC error ($code): $msg")
+        }
+        // V5.0.8083 — preflight passed: the same bytes fan out to Helius RPC + Alchemy and join the re-broadcast loop.
+        result.optString("result", "").takeIf { it.isNotBlank() }?.let { sig8083 ->
+            solBalance8009 = null
+            if (inFlight8009.size > 200) inFlight8009.clear()
+            inFlight8009[sig8083] = signedTxB64 to false
+            echoSend8009(sig8083, signedTxB64, viaSender = false)
         }
         
         val signature = result.optString("result", "")
