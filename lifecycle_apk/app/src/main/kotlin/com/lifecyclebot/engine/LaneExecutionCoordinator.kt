@@ -305,8 +305,10 @@ object LaneExecutionCoordinator {
         eligibleLanes: Set<String>,
         operatorForced: Boolean,
     ): String {
+        // An existing sealed FDG election is immutable for this candidate.
+        // Even an operator override only applies to a NEW, unsealed decision.
+        currentElection6600(ts.mint)?.takeIf { it.sealed }?.let { return it.primaryLane }
         if (operatorForced) return proposed
-        if (currentElection6600(ts.mint)?.sealed == true) return proposed
         val ready = preferredReadyOwner7820(ts.mint) ?: return proposed
         if (ready !in eligibleLanes ||
             !LaneEntryContract6342.isLaneIdentityEligible7252(ts, ready)) return proposed
