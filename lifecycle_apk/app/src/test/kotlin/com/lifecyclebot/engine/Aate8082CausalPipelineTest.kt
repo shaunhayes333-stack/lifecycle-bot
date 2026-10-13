@@ -106,4 +106,21 @@ class Aate8082CausalPipelineTest {
         val p = src("engine/truth/CanonicalPositionAuthority6441.kt").substringAfter("fun isCryptoAltTraderOwned8082(").substringBefore("internal fun exitScopeOf7809(")
         assertTrue(p.contains("AssetClass.fromPositionIdPrefix(p.positionId) == AssetClass.CRYPTO_ALT"))
     }
+
+    @Test fun aDeadSetupIsDroppedEarlyAndCanComeBack() {
+        val C = com.lifecyclebot.engine.cortex.Cortex7885
+        fun cell(n: Int, mean: Double) = com.lifecyclebot.engine.cortex.CortexLedger7885.Stat().also { s ->
+            repeat(n) { i -> s.add(mean + if (i % 2 == 0) 2.0 else -2.0, false) }
+        }
+        assertFalse(C.jointProvenDead8082(null))
+        assertFalse(C.jointProvenDead8082(cell(8, -10.0)))     // too few reads to call it
+        assertTrue(C.jointProvenDead8082(cell(12, -10.0)))     // dead on its own short record
+        assertFalse(C.jointProvenDead8082(cell(40, -1.0)))     // a small loss inside the margin is not dead
+        val s = cell(12, -10.0)
+        repeat(150) { i -> s.scale(com.lifecyclebot.engine.cortex.CortexScoreboard7885.BOOK_DECAY); s.add(8.0 + if (i % 2 == 0) 2.0 else -2.0, false) }
+        assertFalse(C.jointProvenDead8082(s))                  // it starts paying: the refusal lifts
+        val src = src("engine/cortex/Cortex7885.kt")
+        assertTrue(src.contains("return \"C6_SETUP_DEAD_8082\""))
+        assertTrue(src.contains("jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }.also { it.scale(CortexScoreboard7885.BOOK_DECAY) }"))
+    }
 }

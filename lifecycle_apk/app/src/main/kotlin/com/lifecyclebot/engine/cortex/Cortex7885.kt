@@ -423,7 +423,8 @@ object Cortex7885 {
                     graded8006.values.filter { jointKey7961(it.p.a.lane, it.p.a.bucket, it.p.setup7961) == evicted }
                         .forEach { it.auxScales?.set(0, Double.NaN) }
                 }
-                auxScales[0] = jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }
+                // V5.0.8082 §ADAPT_FASTER — the setup cell remembers ~100 of its own grades (it never forgot).
+                auxScales[0] = jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }.also { it.scale(CortexScoreboard7885.BOOK_DECAY) }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
             p.vetoRule?.let { r ->
@@ -465,6 +466,20 @@ object Cortex7885 {
         if (st == null || st.n < JOINT_MIN_N_7961) return false
         val se = kotlin.math.sqrt(st.variance() / st.n)
         return st.mean() - se > JOINT_MARGIN_PCT_7961
+    }
+
+    /**
+     * V5.0.8082 §SETUP_DEAD_EARLY (operator: stop flogging a dead horse). A lane's setup whose OWN recent record under
+     * this verdict is proven losing (n >= 12 of its last ~100 grades, mean + SE < -2% net) is refused for this lane:
+     * the lane keeps trading its other setups (an inner-lane pivot, not a lane switch, not a smaller bet). Refused
+     * candidates are still forward-graded into the same cell, so a setup that starts paying again lifts itself.
+     */
+    private const val JOINT_DEAD_MIN_N_8082 = 12.0
+
+    fun jointProvenDead8082(st: CortexLedger7885.Stat?): Boolean {
+        if (st == null || st.n < JOINT_DEAD_MIN_N_8082) return false
+        val se = kotlin.math.sqrt(st.variance() / st.n)
+        return se.isFinite() && st.mean() + se < -JOINT_MARGIN_PCT_7961
     }
 
     /** "lane|bucket|setup n/mean" for the scoreboard: the strongest proven cells. */
@@ -627,6 +642,11 @@ object Cortex7885 {
             // SHITCOIN refuse n243 -12% while its ACCELERATING_TAPE coins read n61 +23%).
             if ((try { LanePlaybook7907.provenSetup8056(ts, a.lane) } catch (_: Throwable) { null }) != null) { inc("C3_STOOD_DOWN_LANE_SETUP_PROVEN_8056"); return null }
             return "C3_PROVEN_NEGATIVE_EDGE"
+        }
+        if (a.bucket != CortexScoreboard7885.Bucket.REFUSE) {
+            val setup8082 = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+            val st8082 = setup8082?.let { synchronized(this) { jointBook7961[jointKey7961(a.lane, a.bucket, it)] } }
+            if (jointProvenDead8082(st8082)) return "C6_SETUP_DEAD_8082"
         }
         if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL && lastSlot(ts)) {
             if (synchronized(this) { board.slotPriorityProven(a.lane) && consistent(a.lane) }) return "C5_SAVE_LAST_SLOT_FOR_STRONG"
