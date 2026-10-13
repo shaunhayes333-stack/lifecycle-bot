@@ -171,19 +171,20 @@ object CortexExit7897 {
         if (lastSample.size > 4_000) lastSample.entries.removeIf { nowMs - it.value > RUNNER_HORIZON_MS }
         if (holdVetoSince.size > 2_000) holdVetoSince.entries.removeIf { nowMs - it.value > MAX_HOLD_VETO_MS * 4 }
         inc("SAMPLED_${r.bucket.name}")
+        persist()
     }
 
     /** Called from ExitRegret7752.tick with the loop's fresh-price closure: grades due samples. */
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
-        if (pending.isEmpty()) return
         ensureLoaded()
+        if (pending.isEmpty()) return
         val unpriced = ArrayList<String>()
         for ((k, r) in pending.entries.toList()) {
             val due = r.atMs + if (r.runner) RUNNER_HORIZON_MS else HORIZON_MS
             if (nowMs < due) continue
             val px = (try { priceFor(r.mint) } catch (_: Throwable) { null })?.takeIf { it.isFinite() && it > 0.0 }
                 ?: registryMark(r.mint, nowMs)
-                ?: offMarks[r.mint]?.takeIf { nowMs - it.second <= MARK_MAX_AGE_MS }?.first
+                ?: offMarks[r.mint]?.takeIf { nowMs - it.second in 0L..MARK_MAX_AGE_MS }?.first
             if (px == null) {
                 if (nowMs - due > GRADE_GRACE_MS) { pending.remove(k); inc("LOST_MARK") } else unpriced.add(r.mint)
                 continue
@@ -194,31 +195,30 @@ object CortexExit7897 {
             grade8082(r, fwd)
         }
         if (unpriced.isNotEmpty()) fetch(unpriced, nowMs)
+        persist()
     }
 
-    /**
-     * V5.0.8082 §EXIT_GRADED_AT_CANONICAL_CLOSE. Exit samples were graded only by a mark 30/120 min after the sample.
-     * Most meme positions close long before that; once closed the mint leaves the loop and the canonical registry, the
-     * Jupiter lite batch rarely prices a curve token, so the samples aged out as LOST_MARK and the exit cortex graded 0
-     * outcomes (8081). A sample whose position closes first is graded by what holding from that sample actually
-     * produced: the verified whole-position realised return relative to the sample's own pnl. Unverified / ineligible
-     * closes release their samples without teaching.
-     */
-    fun onCanonicalClose8082(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
-        if (!env.terminal || env.positionId.isBlank()) return
-        val due = pending.entries.filter { it.value.positionId == env.positionId }
-        if (due.isEmpty()) return
+    /** Realised economics are a separate target. A close cannot supply a future HOLD mark. */
+    fun onCanonicalClose8082(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         ensureLoaded()
-        val verified = env.learningEligible && env.realizedReturnPct.isFinite() &&
-            com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)
-        for ((k, r) in due) {
-            pending.remove(k)
-            val atSample = r.raws.getOrNull(0)?.takeIf { it.isFinite() && it > -99.0 }
-            if (!verified || atSample == null) { inc("RELEASED_UNVERIFIED_CLOSE_8082"); continue }
-            val fwd = ((1.0 + env.realizedReturnPct / 100.0) / (1.0 + atSample / 100.0) - 1.0) * 100.0
-            if (!fwd.isFinite()) continue
-            grade8082(r, fwd)
-            inc("GRADED_AT_CANONICAL_CLOSE_8082")
+        if (!env.terminal || env.positionId.isBlank()) return false
+        if (!env.learningEligible || !env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite() ||
+            !com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)) return false
+        val samples = pending.values.filter { it.positionId == env.positionId }
+        val record = org.json.JSONObject().put("positionId", env.positionId).put("eventId", env.economicEventId)
+            .put("mode", env.mode).put("atMs", env.atMs).put("proof", env.proofState)
+            .put("target", "ACTUAL_WHOLE_POSITION_REALIZED")
+            .put("netSol", env.realizedPnlSol).put("returnPct", env.realizedReturnPct)
+            .put("sampleTimes", org.json.JSONArray(samples.map { it.atMs })).toString()
+        val key = "cortex_exit_actual_8090_${env.mode}_${env.positionId}"
+        return when (LearningPersistence.commitOnce8090("${key}_receipt", mapOf(key to record))) {
+            LearningPersistence.Commit8090.RETRY -> false
+            LearningPersistence.Commit8090.ALREADY_COMMITTED -> true
+            LearningPersistence.Commit8090.COMMITTED -> {
+                inc("ACTUAL_REALIZED_RECORDED_8090")
+                // Keep pending samples until timestamped future observations resolve their own horizons.
+                true
+            }
         }
     }
 
@@ -241,7 +241,7 @@ object CortexExit7897 {
 
     private fun registryMark(mint: String, nowMs: Long): Double? = try {
         val m = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint)
-        if (m == null || nowMs - m.timestampMs > MARK_MAX_AGE_MS) null else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
+        if (m == null || nowMs - m.timestampMs !in 0L..MARK_MAX_AGE_MS) null else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
     } catch (_: Throwable) { null }
 
     private fun fetch(mints: List<String>, nowMs: Long) {
@@ -381,7 +381,7 @@ object CortexExit7897 {
         for ((k, r) in pending.entries.sortedByDescending { it.value.atMs }.take(PERSIST_PENDING_7960)) {
             arr.put(org.json.JSONObject()
                 .put("k", k).put("pid", r.positionId).put("mint", r.mint).put("lane", r.lane).put("runner", r.runner)
-                .put("ids", org.json.JSONArray(r.ids)).put("raws", org.json.JSONArray(r.raws.map { if (it.isFinite()) it else 0.0 }))
+                .put("ids", org.json.JSONArray(r.ids)).put("raws", org.json.JSONArray(r.raws.map { if (it.isFinite()) it else org.json.JSONObject.NULL }))
                 .put("edge", r.fused.edgePct.takeIf { it.isFinite() } ?: 0.0).put("mean", r.fused.laneMean.takeIf { it.isFinite() } ?: 0.0).put("bucket", r.bucket.name)
                 .put("px", r.px).put("at", r.atMs).put("regime", r.regime))
         }
@@ -401,7 +401,7 @@ object CortexExit7897 {
             val ids = ArrayList<String>(); val edges = ArrayList<DoubleArray>(); val raws = ArrayList<Double>()
             for (j in 0 until minOf(idsArr.length(), rawsArr.length())) {
                 val id = idsArr.optString(j); val e = edgeById[id] ?: continue
-                ids += id; edges += e; raws += rawsArr.optDouble(j, 0.0)
+                ids += id; edges += e; raws += rawsArr.optDouble(j, Double.NaN)
             }
             val bucket = try { Bucket.valueOf(o.optString("bucket")) } catch (_: Throwable) { continue }
             val px = o.optDouble("px", 0.0)

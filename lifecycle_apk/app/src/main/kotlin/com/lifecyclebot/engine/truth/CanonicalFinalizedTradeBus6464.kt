@@ -110,7 +110,7 @@ object CanonicalFinalizedTradeBus6464 {
         "ForwardOutcomeModel", "UnifiedExitPolicyHead", "CausalFeedback6715", "SuperIntelligenceCalibration7636", "QuantMetrics7665", "Dashboard",
         // V5.0.7074 — operator/deployer reputation. See
         // FinalizedBusConsumerBridge6465.deliverToOperatorFingerprint7074.
-        "OperatorFingerprint7074", "KillSwitch7835",
+        "OperatorFingerprint7074", "KillSwitch7835", "CortexExit7897", "CostLedger7962",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 
@@ -214,8 +214,6 @@ object CanonicalFinalizedTradeBus6464 {
         if (env.terminal && env.mode.equals("live", true)) try { com.lifecyclebot.engine.RebuyLockout8019.onClose8019(env.mint, env.atMs, env.realizedReturnPct) } catch (_: Throwable) {}
         // V5.0.7885 — Cortex OutcomeTruth cross-check: realised outcome by entry verdict.
         try { com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) } catch (_: Throwable) {}
-        // V5.0.8082 — the exit cortex's hold/sell samples are graded by the verified realised close.
-        try { com.lifecyclebot.engine.cortex.CortexExit7897.onCanonicalClose8082(env) } catch (_: Throwable) {}
         // V5.0.7962 — the realised close grades its decision cell (live and paper books apart).
         try { com.lifecyclebot.engine.CellAllocator7962.onClose7962(env) } catch (_: Throwable) {}
         // V5.0.7232 §SELL_OK_TRUTH — record the unique finality at the

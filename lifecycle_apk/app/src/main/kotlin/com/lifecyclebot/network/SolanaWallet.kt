@@ -73,8 +73,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     companion object {
         /** V5.0.8085 — one durable ledger wiring per process; one bounded finality-read pool shared by every wallet. */
         @Volatile private var ledgerWired8085 = false
-        private val resolver8085 = java.util.concurrent.ThreadPoolExecutor(0, 2, 30L, TimeUnit.SECONDS,
-            java.util.concurrent.LinkedBlockingQueue<Runnable>(128)) { r -> Thread(r, "aate-tx-resolve-8085").apply { isDaemon = true } }
+        private val resolver8085 = java.util.concurrent.ScheduledThreadPoolExecutor(2) { r ->
+            Thread(r, "aate-tx-resolve-8085").apply { isDaemon = true }
+        }.apply { removeOnCancelPolicy = true }
         // V5.0.7927 — token programs and wrapped SOL (rent reclaim).
         private const val TOKEN_PROGRAM_7927 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         private const val TOKEN_2022_PROGRAM_7927 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
@@ -523,10 +524,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
     /** Sign, derive the id from the signed bytes, refuse a competing order, persist — all before any network call. */
     private fun signTracked8085(txBase64: String, intent: SignedTxLedger8085.Intent?): SignedSerializedTransaction6649 {
+        ensureLedgerDurable8085()
         if (intent != null) guardDuplicate8085(intent)
         val signed = signSerializedTransaction6649(txBase64)
-        ensureLedgerDurable8085()
-        SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, intent)
+        SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, intent, requireDurable = true)
         return signed
     }
 
@@ -547,7 +548,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val status = signatureStatus8085(e.signature)
         when {
             status == null -> {}
-            status.first.isNotBlank() -> SignedTxLedger8085.transition(e.signature, SignedTxLedger8085.State.FAILED_ON_CHAIN, status.first.take(120))
+            status.first.isNotBlank() && confirmedEnough7980(status.second) -> SignedTxLedger8085.transition(e.signature, SignedTxLedger8085.State.FAILED_ON_CHAIN, status.first.take(120))
             confirmedEnough7980(status.second) -> SignedTxLedger8085.transition(e.signature, SignedTxLedger8085.State.CONFIRMED, "status=${status.second}")
         }
         if (status == null && SignedTxLedger8085.expiredProven(false, blockhashValid8085(e.blockhash)))
@@ -557,19 +558,26 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
     /** (errText, confirmationStatus) when the signature is seen; null when unseen. Throws on a failed read. */
     private fun signatureStatus8085(sig: String): Pair<String, String>? {
-        val resp = rpc("getSignatureStatuses", JSONArray().put(JSONArray().put(sig)).put(JSONObject().put("searchTransactionHistory", true)))
-        val v = resp.optJSONObject("result")?.optJSONArray("value")?.optJSONObject(0) ?: return null
+        val v = signatureStatusObject8090(sig) ?: return null
         val err = if (v.has("err") && !v.isNull("err")) (v.optJSONObject("err")?.toString() ?: v.opt("err").toString()) else ""
         return err to v.optString("confirmationStatus", "")
     }
 
-    /** isBlockhashValid at processed commitment: true / false, or null when unknown (no proof either way). */
+    private fun signatureStatusObject8090(sig: String): JSONObject? {
+        val resp = rpc("getSignatureStatuses", JSONArray().put(JSONArray().put(sig)).put(JSONObject().put("searchTransactionHistory", true)))
+        check(!resp.has("error")) { "SIGNATURE_STATUS_RPC_ERROR" }
+        val values = resp.getJSONObject("result").getJSONArray("value")
+        check(values.length() == 1) { "SIGNATURE_STATUS_MALFORMED" }
+        return if (values.isNull(0)) null else values.getJSONObject(0)
+    }
+
+    /** isBlockhashValid at finalized commitment: true / false, or null when unknown (no proof either way). */
     private fun blockhashValid8085(blockhash: String): Boolean? {
         if (blockhash.isBlank()) return null
         return try {
-            val r = rpc("isBlockhashValid", JSONArray().put(blockhash).put(JSONObject().put("commitment", "processed")))
+            val r = rpc("isBlockhashValid", JSONArray().put(blockhash).put(JSONObject().put("commitment", "finalized")))
             val v = r.optJSONObject("result") ?: return null
-            if (!v.has("value")) null else v.optBoolean("value")
+            v.opt("value") as? Boolean
         } catch (_: Throwable) { null }
     }
 
@@ -629,27 +637,32 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         echoSend8009(sig, signedB64, viaSender = false)
     }
 
-    /** Unresolved after the caller's confirmation window: a bounded background finality read (+ same-bytes echo while valid). */
+    /** One scheduled read per unresolved signature; waiting consumes no worker thread. */
     fun scheduleResolve8085(sig: String, recovered: Boolean = false) {
         if (!resolving8085.add(sig)) return
-        try {
-            resolver8085.execute {
-                try {
-                    var echoes = 0
-                    for (i in 0 until 30) {
-                        val e = SignedTxLedger8085.get(sig) ?: return@execute
-                        if (!e.unresolved) break
-                        try {
-                            val before = e.state
-                            resolveOnce8085(e)
-                            if (e.state == SignedTxLedger8085.State.CONFIRMED && before != e.state) onFinalityRecovered8085(e, recovered)
-                            if (e.unresolved && e.signedB64.isNotBlank() && echoes++ < 12) echoSend8009(sig, e.signedB64, viaSender = false)
-                        } catch (_: Throwable) {}
-                        Thread.sleep(5_000L)
+        fun enqueue(delaySeconds: Long) {
+            try {
+                resolver8085.schedule({
+                    val e = SignedTxLedger8085.get(sig)
+                    if (e == null || !e.unresolved) {
+                        resolving8085.remove(sig)
+                        return@schedule
                     }
-                } catch (_: Throwable) {} finally { resolving8085.remove(sig) }
-            }
-        } catch (_: Throwable) { resolving8085.remove(sig) }
+                    try {
+                        val before = e.state
+                        resolveOnce8085(e)
+                        if (e.state == SignedTxLedger8085.State.CONFIRMED && before != e.state)
+                            onFinalityRecovered8085(e, recovered)
+                        if (e.unresolved && e.signedB64.isNotBlank() && blockhashValid8085(e.blockhash) == true)
+                            echoSend8009(sig, e.signedB64, viaSender = false)
+                    } catch (_: Exception) {
+                        // A failed read is UNKNOWN, not expiry. Preserve identity and try again.
+                    }
+                    if (e.unresolved) enqueue(15L) else resolving8085.remove(sig)
+                }, delaySeconds, TimeUnit.SECONDS)
+            } catch (_: java.util.concurrent.RejectedExecutionException) { resolving8085.remove(sig) }
+        }
+        enqueue(0L)
     }
 
     private fun onFinalityRecovered8085(e: SignedTxLedger8085.Entry, recovered: Boolean) {
@@ -675,13 +688,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         if (ledgerWired8085) return
         synchronized(SolanaWallet::class.java) {
             if (ledgerWired8085) return
-            val prefs = ledgerPrefs8085() ?: return
-            ledgerWired8085 = true
+            val prefs = ledgerPrefs8085() ?: error("SIGNED_ORDER_STORAGE_UNAVAILABLE")
             SignedTxLedger8085.persister = { rows ->
-                prefs.edit().putString("rows", rows.joinToString("\n") { SignedTxLedger8085.encode(it) }).commit()
+                check(prefs.edit().putString("rows", rows.joinToString("\n") { SignedTxLedger8085.encode(it) }).commit()) {
+                    "SIGNED_ORDER_STORAGE_COMMIT_FAILED"
+                }
             }
             val saved = prefs.getString("rows", "").orEmpty().split('\n').filter { it.isNotBlank() }
             SignedTxLedger8085.restore(saved) { e -> scheduleResolve8085(e.signature, recovered = true) }
+            ledgerWired8085 = true
         }
     }
 
@@ -743,10 +758,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     fun sendSignedAndConfirm6649(signed: SignedSerializedTransaction6649): String {
         // V5.0.8085 — the bridge source tx joins the ledger under its own id; a send timeout / blank reply is no longer
         // a "submit failed" (the source could still land and the bridge order fill): confirmation decides.
-        if (SignedTxLedger8085.get(signed.signature) == null) {
-            SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, SignedTxLedger8085.consumeIntent())
-            ensureLedgerDurable8085()
-        }
+        ensureLedgerDurable8085()
+        SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085,
+            SignedTxLedger8085.consumeIntent(), requireDurable = true)
         sendRawTransaction(signed.signedBase64, signed.signature)
         awaitConfirmationKeepingSignature7733(signed.signature)
         return signed.signature
@@ -787,17 +801,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 echoSend8009(signature, echo.first, echo.second)
             }
             try {
-                val sigArray = JSONArray().put(signature)
-                val params   = JSONArray()
-                    .put(sigArray)
-                    .put(JSONObject().put("searchTransactionHistory", true))
-                val resp = rpc("getSignatureStatuses", params)
-                val value = resp.optJSONObject("result")
-                    ?.optJSONArray("value")
-                    ?.let { arr ->
-                        // value is array of status-or-null; find first non-null
-                        (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.firstOrNull()
-                    }
+                val value = signatureStatusObject8090(signature)
 
                 when {
                     value == null -> {
@@ -815,7 +819,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         }
                         Thread.sleep(pause)
                     }
-                    value.has("err") && !value.isNull("err") -> {
+                    value.has("err") && !value.isNull("err") && confirmedEnough7980(value.optString("confirmationStatus")) -> {
                         val err = value.optJSONObject("err")?.toString() ?: value.opt("err").toString()
                         SignedTxLedger8085.transition(signature, SignedTxLedger8085.State.FAILED_ON_CHAIN, err.take(120))
                         throw OnChainFailed8085(signature, err)

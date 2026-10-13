@@ -14974,7 +14974,7 @@ class GoldenTapeRegressionTest {
         val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
         assertTrue("envelope proofState must be the typed economic finality", b.contains("proofState = event.economicFinality,"))
         val x = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExactStrategyPerformance7429.kt").readText()
-        assertTrue("exact strategy outcome is recorded once per position", x.contains("claimOnce8082(env.positionId)"))
+        assertTrue("exact strategy outcome is recorded once per position", x.contains("commitOnce8090(receipt, writes)"))
         val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         assertTrue("cortex entry reads are keyed per lane", c.contains("ENTRY_BIND_OWNER_LANE_UNASSESSED_8082"))
     }

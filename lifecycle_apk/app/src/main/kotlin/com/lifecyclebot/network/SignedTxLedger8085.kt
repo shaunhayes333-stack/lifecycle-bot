@@ -40,8 +40,6 @@ object SignedTxLedger8085 {
 
     private val intent = ThreadLocal<Intent?>()
     private val rows = ConcurrentHashMap<String, Entry>()
-    /** Blockhash validity is ~150 slots (60-90 s); a row is never held past this without a resolution read. */
-    private const val MAX_UNRESOLVED_MS = 10L * 60_000L
     private const val MAX_ROWS = 400
 
     fun intend(i: Intent) { intent.set(i) }
@@ -49,17 +47,25 @@ object SignedTxLedger8085 {
 
     @Volatile var persister: ((List<Entry>) -> Unit)? = null
 
-    fun record(signature: String, signedB64: String, blockhash: String, i: Intent?, nowMs: Long = System.currentTimeMillis()): Entry {
+    @Synchronized fun record(signature: String, signedB64: String, blockhash: String, i: Intent?, nowMs: Long = System.currentTimeMillis(), requireDurable: Boolean = false): Entry {
+        if (i != null) unresolvedFor(i.mint, i.side, exceptSignature = signature)?.let {
+            throw SolanaWallet.DuplicateOrderPrevented8085(it.signature, i.side)
+        }
         val e = rows[signature] ?: Entry(signature, signedB64, blockhash, i?.mint.orEmpty(), i?.side.orEmpty(), i?.rawQty ?: 0L,
             i?.positionId.orEmpty(), i?.intentId.orEmpty(), i?.route.orEmpty(), nowMs, State.SIGNED, nowMs)
         rows[signature] = e
         trim(nowMs)
-        persist()
+        if (requireDurable) {
+            val writer = persister ?: throw IllegalStateException("SIGNED_ORDER_STORAGE_UNAVAILABLE")
+            writer(rows.values.toList()) // throws before broadcast; retain the signed identity for retry/proof
+        } else persist()
         count("TX_SIGNED_SIGNATURE_PERSISTED_8085")
         return e
     }
 
     fun get(signature: String): Entry? = rows[signature]
+
+    fun historyFor8090(mint: String): List<Entry> = rows.values.filter { it.mint == mint }
 
     fun transition(signature: String, to: State, detail: String = "", acceptedBy: String = "", nowMs: Long = System.currentTimeMillis()) {
         val e = rows[signature] ?: return
@@ -85,24 +91,13 @@ object SignedTxLedger8085 {
     /** The unresolved row signed for (mint, side), other than [exceptSignature], or null. */
     fun unresolvedFor(mint: String, side: String, exceptSignature: String = "", nowMs: Long = System.currentTimeMillis()): Entry? {
         if (mint.isBlank()) return null
-        return rows.values.filter { it.mint == mint && it.side == side && it.signature != exceptSignature && it.unresolved &&
-            nowMs - it.createdAtMs <= MAX_UNRESOLVED_MS }.maxByOrNull { it.createdAtMs }
+        return rows.values.filter { it.mint == mint && it.side == side && it.signature != exceptSignature && it.unresolved }.maxByOrNull { it.createdAtMs }
     }
 
     fun unresolved(nowMs: Long = System.currentTimeMillis()): List<Entry> =
-        rows.values.filter { it.unresolved && nowMs - it.createdAtMs <= MAX_UNRESOLVED_MS }
-
-    /** Rows older than the window that never resolved: their economic truth is the wallet reconciler's, not ours. */
-    private fun ageOut(nowMs: Long): Int {
-        var n = 0
-        for (e in rows.values) if (e.unresolved && nowMs - e.createdAtMs > MAX_UNRESOLVED_MS) {
-            e.state = State.OUTCOME_UNKNOWN; e.detail = "aged_out_to_wallet_reconciler"; e.updatedAtMs = nowMs; n++
-        }
-        return n
-    }
+        rows.values.filter { it.unresolved }
 
     private fun trim(nowMs: Long) {
-        ageOut(nowMs)
         if (rows.size <= MAX_ROWS) return
         rows.values.filter { !it.unresolved }.sortedBy { it.updatedAtMs }.take(rows.size - MAX_ROWS)
             .forEach { rows.remove(it.signature) }
@@ -112,13 +107,13 @@ object SignedTxLedger8085 {
 
     // ── durable row codec (no org.json: pure JVM, field order fixed; base64 bytes contain no '|') ──
     fun encode(e: Entry): String = listOf(e.signature, e.signedB64, e.blockhash, e.mint, e.side, e.rawQty.toString(), e.positionId,
-        e.intentId, e.route, e.createdAtMs.toString(), e.state.name, e.updatedAtMs.toString(), e.acceptedBy, e.detail)
+        e.intentId, e.route, e.createdAtMs.toString(), e.state.name, e.updatedAtMs.toString(), e.acceptedBy, e.detail, e.submittedAtMs8087.toString())
         .joinToString("|") { it.replace("|", "/") }
 
     fun decode(line: String): Entry? = try {
         val f = line.split('|')
         if (f.size < 14) null else Entry(f[0], f[1], f[2], f[3], f[4], f[5].toLong(), f[6], f[7], f[8], f[9].toLong(),
-            State.valueOf(f[10]), f[11].toLong(), f[12], f[13])
+            State.valueOf(f[10]), f[11].toLong(), f[12], f[13], f.getOrNull(14)?.toLongOrNull() ?: 0L)
     } catch (_: Throwable) { null }
 
     /** Restore rows saved before a restart; unresolved ones are handed to [onRecovered] for a finality read. */
@@ -151,25 +146,9 @@ object SignedTxLedger8085 {
         return m.contains("already processed") || m.contains("alreadyprocessed") || m.contains("already known")
     }
 
-    /** The transaction itself fails (simulation program error / funds): no copy of these bytes can fill. */
-    private fun programRejection(msg: String): Boolean {
-        val m = msg.lowercase()
-        return m.contains("custom program error") || m.contains("instructionerror") || m.contains("insufficient") ||
-            m.contains("0x1788") || m.contains("0x1789") || m.contains("slippage") || m.contains("toolittle") ||
-            m.contains("accountnotfound") || m.contains("invalid account data")
-    }
-
-    /**
-     * A definite rejection is proof only when no other copy of the bytes may be in flight: Sender or an RPC endpoint
-     * that may have received them (timeout / 5xx / blank reply) make a later rejection inconclusive, unless the
-     * rejection is a program error every copy would also hit. An async Jito bundle is atomic: it lands only if the
-     * transaction succeeds, so a program rejection still proves it, but a node-state rejection does not.
-     */
-    fun rejectionIsDefinite(msg: String, otherCopyMaybeDelivered: Boolean, jitoCopySent: Boolean): Boolean = when {
-        programRejection(msg) -> true
-        otherCopyMaybeDelivered || jitoCopySent -> false
-        else -> true
-    }
+    /** A later simulation observes a different bank: it cannot disprove an earlier broadcast. */
+    fun rejectionIsDefinite(msg: String, otherCopyMaybeDelivered: Boolean, jitoCopySent: Boolean): Boolean =
+        !otherCopyMaybeDelivered && !jitoCopySent
 
     /** Signature unseen + blockhash no longer valid = the transaction can never land. Unknown validity proves nothing. */
     fun expiredProven(statusSeen: Boolean, blockhashValid: Boolean?): Boolean = !statusSeen && blockhashValid == false

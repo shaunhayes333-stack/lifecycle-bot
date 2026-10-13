@@ -401,6 +401,10 @@ jobs:
           print(f"annotated {n} failing tests")
           PY
 
+      - name: Complete unit regression suite (required)
+        run: |
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+
       # V5.0.7803 — a release APK is an acceptance artifact, not merely
       # compiler output. Publish it only after the required pipeline regressions
       # (including resident meme + Crypto architecture) are green.
@@ -409,11 +413,6 @@ jobs:
           name: AATE_v${{ steps.aate_build.outputs.version_name }}
           path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
           compression-level: 0
-
-      - name: Unit regression suite (diagnostic)
-        continue-on-error: true
-        run: |
-          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 
       - uses: actions/upload-artifact@v4
         if: always()

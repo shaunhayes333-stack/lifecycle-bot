@@ -40,12 +40,12 @@ class Aate8085SignedTxIdentityTest {
         assertTrue(SignedTxLedger8085.alreadyProcessed("AlreadyProcessed"))
     }
 
-    // 3. A rejection after another copy may be in flight proves nothing — unless every copy would fail the same way.
+    // 3. A later bank simulation cannot disprove an earlier copy in flight.
     @Test fun rejectionDefinitenessDependsOnOtherCopies() {
         assertTrue(SignedTxLedger8085.rejectionIsDefinite("Blockhash not found", otherCopyMaybeDelivered = false, jitoCopySent = false))
         assertFalse(SignedTxLedger8085.rejectionIsDefinite("Blockhash not found", otherCopyMaybeDelivered = true, jitoCopySent = false))
         assertFalse(SignedTxLedger8085.rejectionIsDefinite("node is behind", otherCopyMaybeDelivered = false, jitoCopySent = true))
-        assertTrue(SignedTxLedger8085.rejectionIsDefinite("custom program error: 0x1788", otherCopyMaybeDelivered = true, jitoCopySent = true))
+        assertFalse(SignedTxLedger8085.rejectionIsDefinite("custom program error: 0x1788", otherCopyMaybeDelivered = true, jitoCopySent = true))
     }
 
     // 4. Expiry is proven only by an unseen signature AND an invalid blockhash; unknown validity proves nothing.

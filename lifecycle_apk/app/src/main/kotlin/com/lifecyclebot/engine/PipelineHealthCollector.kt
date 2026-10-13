@@ -46,6 +46,12 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object PipelineHealthCollector {
 
+    private fun startupRootCause8090(performanceCauses: List<String>): String {
+        val failure = BotService.startFailure6517()
+        return if (!failure.isNullOrBlank()) "SERVICE_BOOTSTRAP_FAILED: $failure"
+        else performanceCauses.distinct().joinToString(" | ")
+    }
+
     // ════════════════════════════════════════════════════════════════
     // Counters — atomic, non-blocking, monotonically increasing.
     // ════════════════════════════════════════════════════════════════
@@ -1728,7 +1734,7 @@ object PipelineHealthCollector {
                 }
             } catch (_: Throwable) {}
             if (rootCauses.isEmpty()) rootCauses.add("HEALTHY — mechanics and recent performance within deterministic bands")
-            sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ")}\n")
+            sb.append("  Root cause likely:    ${startupRootCause8090(rootCauses)}\n")
         } catch (_: Throwable) {}
         sb.append("\n")
 

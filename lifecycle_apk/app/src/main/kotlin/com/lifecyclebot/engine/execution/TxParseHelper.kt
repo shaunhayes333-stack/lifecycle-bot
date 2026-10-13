@@ -36,6 +36,10 @@ object TxParseHelper {
         val metaErr: String?,
         val solDeltaLamports: Long,      // owner SOL delta (positive = received, negative = spent)
         val tokenDeltas: Map<String, MintDelta>,  // keyed by mint address
+        val slot: Long = 0L,
+        val blockTime: Long = 0L,
+        val feeLamports: Long = 0L,
+        val tokenAccounts: Set<String> = emptySet(),
     )
 
     /**
@@ -62,6 +66,11 @@ object TxParseHelper {
                 .put("maxSupportedTransactionVersion", 0))
         val resp = wallet.rpcCall("getTransaction", params)
         val result = resp.optJSONObject("result") ?: return null
+        return parseTransaction8090(wallet.publicKeyB58, signature, result)
+    }
+
+    /** Pure transaction projection. Sum every owner account; missing metadata remains unproven. */
+    internal fun parseTransaction8090(owner: String, signature: String, result: JSONObject): ParseResult? {
         val meta = result.optJSONObject("meta") ?: return null
         val errObj = meta.opt("err")
         val metaErr: String? = if (errObj == null || errObj == JSONObject.NULL)
@@ -78,34 +87,40 @@ object TxParseHelper {
                 is String -> k
                 else -> ""
             }
-            if (pk == wallet.publicKeyB58) { ownerIdx = i; break }
+            if (pk == owner) { ownerIdx = i; break }
         }
         val preBalArr = meta.optJSONArray("preBalances") ?: JSONArray()
         val postBalArr = meta.optJSONArray("postBalances") ?: JSONArray()
-        val solBefore = if (ownerIdx in 0 until preBalArr.length()) preBalArr.optLong(ownerIdx, 0L) else 0L
-        val solAfter  = if (ownerIdx in 0 until postBalArr.length()) postBalArr.optLong(ownerIdx, 0L) else 0L
+        if (ownerIdx !in 0 until preBalArr.length() || ownerIdx !in 0 until postBalArr.length()) return null
+        val solBefore = preBalArr.getLong(ownerIdx)
+        val solAfter = postBalArr.getLong(ownerIdx)
         val solDelta = solAfter - solBefore
 
-        val preTok = meta.optJSONArray("preTokenBalances") ?: JSONArray()
-        val postTok = meta.optJSONArray("postTokenBalances") ?: JSONArray()
+        val preTok = meta.optJSONArray("preTokenBalances") ?: return null
+        val postTok = meta.optJSONArray("postTokenBalances") ?: return null
 
         // Collect pre + post balances for owner-matched entries, indexed by mint.
         data class TokSlot(var raw: BigInteger = BigInteger.ZERO, var dec: Int = 0, var existed: Boolean = false)
         val preMap = HashMap<String, TokSlot>()
         val postMap = HashMap<String, TokSlot>()
+        val tokenAccounts = linkedSetOf<String>()
 
         fun ingest(arr: JSONArray, target: HashMap<String, TokSlot>) {
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
-                if (o.optString("owner") != wallet.publicKeyB58) continue
+                if (o.optString("owner") != owner) continue
                 val mint = o.optString("mint")
                 if (mint.isBlank()) continue
                 val ta = o.optJSONObject("uiTokenAmount") ?: continue
-                val raw = runCatching { BigInteger(ta.optString("amount", "0")) }
-                    .getOrElse { BigInteger.ZERO }
-                val dec = ta.optInt("decimals", 0)
+                val raw = BigInteger(ta.getString("amount"))
+                val dec = ta.getInt("decimals")
+                require(raw.signum() >= 0 && dec in 0..255)
+                val accountKey = keys.opt(o.getInt("accountIndex"))
+                val account = if (accountKey is JSONObject) accountKey.optString("pubkey") else accountKey as? String
+                if (!account.isNullOrBlank()) tokenAccounts.add(account)
                 val slot = target.getOrPut(mint) { TokSlot() }
-                slot.raw = raw
+                require(!slot.existed || slot.dec == dec)
+                slot.raw += raw
                 slot.dec = dec
                 slot.existed = true
             }
@@ -119,7 +134,8 @@ object TxParseHelper {
             val pre = preMap[mint]
             val post = postMap[mint]
             val raw = (post?.raw ?: BigInteger.ZERO) - (pre?.raw ?: BigInteger.ZERO)
-            val dec = (post?.dec ?: 0).takeIf { it > 0 } ?: (pre?.dec ?: 0)
+            val dec = post?.dec ?: pre?.dec ?: return null
+            if (pre != null && post != null && pre.dec != post.dec) return null
             deltas[mint] = MintDelta(
                 mint = mint,
                 rawDelta = raw,
@@ -135,12 +151,15 @@ object TxParseHelper {
             metaErr = metaErr,
             solDeltaLamports = solDelta,
             tokenDeltas = deltas,
+            slot = result.optLong("slot"), blockTime = result.optLong("blockTime"),
+            feeLamports = meta.getLong("fee"), tokenAccounts = tokenAccounts,
+
         )
     }
 
     /** Convenience: signed long delta for a specific mint, 0 if absent. */
     fun mintDeltaRaw(parse: ParseResult, mint: String): Long =
-        parse.tokenDeltas[mint]?.rawDelta?.toLong() ?: 0L
+        parse.tokenDeltas[mint]?.rawDelta?.longValueExact() ?: 0L
 
     /**
      * Poll for the parse result with a small back-off. RPC may not yet have
