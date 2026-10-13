@@ -187,7 +187,9 @@ object EarlyMoonshotHunter6415 {
         // Apply learned weights.
         var composite = 0.0
         for (s in fired + negative) {
-            val learned = try { MoonshotSignalLearner6415.signalWeight(s.name) } catch (_: Throwable) { 1.0 }
+            val learned0 = try { MoonshotSignalLearner6415.signalWeight(s.name) } catch (_: Throwable) { 1.0 }
+            // V5.0.8083 — a penalty whose tokens did WELL live should penalise LESS, not more: reciprocal for negatives.
+            val learned = if (s.weight < 0.0) (1.0 / learned0).coerceIn(0.25, 2.0) else learned0
             composite += s.weight * learned
             if (s.weight < 0.0) signals.add(s.name)
         }
@@ -221,8 +223,8 @@ object EarlyMoonshotHunter6415 {
      */
     fun registerHoldProfile(mint: String, symbol: String, verdict: Verdict) {
         // V5.0.7764 — keep the signals that fired at entry for the close.
-        signalsAtEntry7764[mint] = verdict.signalsFired
-        if (signalsAtEntry7764.size > 2_000) signalsAtEntry7764.clear()
+        // V5.0.8083 — bound (persisted) in the learner; the canonical LIVE close trains exactly these signals.
+        try { MoonshotSignalLearner6415.bindEntry8083(mint, verdict.signalsFired) } catch (_: Throwable) {}
         when (verdict.tier) {
             Tier.ELITE -> MoonshotHoldProfileRegistry6415.registerElite(mint, symbol,
                 "composite=${"%.1f".format(verdict.composite)} signals=[${verdict.signalsFired.joinToString(",")}]")
@@ -239,12 +241,15 @@ object EarlyMoonshotHunter6415 {
     private val signalsAtEntry7764 = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
 
     /** V5.0.7764 — the signals recorded at entry, consumed once at the close. */
-    fun takeSignalsAtEntry7764(mint: String): Set<String>? = signalsAtEntry7764.remove(mint)
+    fun takeSignalsAtEntry7764(mint: String): Set<String>? = null
 
+    /**
+     * V5.0.8083 — RETIRED emitter. This fed GROSS pnl from one Executor live-sell branch keyed by mint, in parallel
+     * with the canonical close: a second, unverified reward for the same position. The learner now subscribes to
+     * CanonicalTradeFinalizedBus6450 (LIVE, verified finality, deduped by positionId) and trains once there.
+     */
     fun onTradeClosed(mint: String, symbol: String, tier: String, signalsFired: Set<String>, pnlPct: Double) {
-        try {
-            MoonshotSignalLearner6415.recordOutcome(mint, symbol, tier, signalsFired, pnlPct)
-        } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("MOONSHOT_LEGACY_REWARD_EMITTER_RETIRED_8083") } catch (_: Throwable) {}
     }
 
     fun statusLine(): String = try {

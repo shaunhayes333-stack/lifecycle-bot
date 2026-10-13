@@ -1506,7 +1506,8 @@ object MoonshotTraderAI {
 
         // V5.0.4126 — MOONSHOT ADAPTIVE GATE: feed lane outcome so the
         // hybrid recency-weighted WR can fluidly pivot the entry floor.
-        try { com.lifecyclebot.engine.MoonshotAdaptiveGate.recordOutcome(pnlPct) } catch (_: Throwable) {}
+        // V5.0.8083 — retired here: this local close is gross and fires for paper too. MoonshotSignalLearner6415 feeds
+        // the gate from the canonical VERIFIED LIVE close, once per positionId.
         // V5.0.4160 — feed the shared ScratchStreakRegistry so the FLAT_EXIT
         // gate can detect the scratch-loop trap and extend its window.
         try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("MOONSHOT", pnlPct) } catch (_: Throwable) {}
