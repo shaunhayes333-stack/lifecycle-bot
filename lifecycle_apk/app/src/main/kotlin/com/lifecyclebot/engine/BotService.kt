@@ -12856,9 +12856,23 @@ class BotService : Service() {
                 }
                 val chunks = solanaMints6970.filter { it !in locked7392 }.chunked(30)
                 var rateLimitedChunks6970 = 0
+                // V5.0.8087 §P1.5 — the cause of every empty chunk, so the report separates a starved
+                // limiter from a provider failure from tokens DexScreener simply does not list.
+                val emptyCauses8087 = java.util.EnumMap<com.lifecyclebot.network.DexscreenerApi.BatchCause8087, Int>(com.lifecyclebot.network.DexscreenerApi.BatchCause8087::class.java)
+                val unlisted8087 = ArrayList<String>()
+                fun note8087(r: com.lifecyclebot.network.DexscreenerApi.BatchResult8087, chunk: List<String>) {
+                    if (r.prices.isEmpty() && chunk.isNotEmpty()) {
+                        rateLimitedChunks6970++
+                        emptyCauses8087[r.cause] = (emptyCauses8087[r.cause] ?: 0) + 1
+                    }
+                    if (r.cause == com.lifecyclebot.network.DexscreenerApi.BatchCause8087.NO_DATA ||
+                        r.cause == com.lifecyclebot.network.DexscreenerApi.BatchCause8087.PRICED) unlisted8087.addAll(r.unlisted)
+                }
+                val failed8087 = com.lifecyclebot.network.DexscreenerApi.BatchResult8087(emptyMap(), com.lifecyclebot.network.DexscreenerApi.BatchCause8087.PROVIDER_FAILED, emptyList())
                 if (chunks.size == 1) {
-                    val one = try { dex.batchPriceFetch(chunks[0], 200L) } catch (_: Throwable) { emptyMap() }
-                    if (one.isEmpty() && chunks[0].isNotEmpty()) rateLimitedChunks6970++
+                    val oneR = try { dex.batchPriceFetchTyped8087(chunks[0], 200L) } catch (_: Throwable) { failed8087 }
+                    note8087(oneR, chunks[0])
+                    val one = oneR.prices
                     priceMap.putAll(one)
                     for (k in one.keys) markSource6999[k] = "DEXSCREENER_BATCH"
                 } else {
@@ -12868,16 +12882,22 @@ class BotService : Service() {
                                 async {
                                     // Stagger past RateLimiter.minSpacingMs (25ms).
                                     if (idx > 0) kotlinx.coroutines.delay(idx * 30L)
-                                    try { dex.batchPriceFetch(chunk, 200L) } catch (_: Throwable) { emptyMap() } // V5.0.7948 — wait for the limiter slot
+                                    try { dex.batchPriceFetchTyped8087(chunk, 200L) } catch (_: Throwable) { failed8087 } // V5.0.7948 — wait for the limiter slot
                                 }
                             }.awaitAll()
                         }
                     } catch (_: Throwable) { emptyList() }
-                    for ((idx, part) in parts.withIndex()) {
-                        if (part.isEmpty() && chunks.getOrNull(idx)?.isNotEmpty() == true) rateLimitedChunks6970++
+                    for ((idx, partR) in parts.withIndex()) {
+                        note8087(partR, chunks.getOrNull(idx) ?: emptyList())
+                        val part = partR.prices
                         priceMap.putAll(part)
                         for (k in part.keys) markSource6999[k] = "DEXSCREENER_BATCH"
                     }
+                }
+                if (unlisted8087.isNotEmpty()) {
+                    // Known-unlisted at the provider: not a collapse, not zero liquidity — unknown here, priced
+                    // from its venue/chain by the rescue below. Counted so the report can show the gap.
+                    try { PipelineHealthCollector.labelAdd("MARK_PROVIDER_UNLISTED_HELD_8087", unlisted8087.size.toLong()) } catch (_: Throwable) {}
                 }
                 // An empty batch was previously indistinguishable from "no data".
                 // Name it, so a starved limiter can never be silent again.
@@ -12888,8 +12908,9 @@ class BotService : Service() {
                             "MARK_BATCH_EMPTY_6970",
                             "emptyChunks=$rateLimitedChunks6970/${chunks.size} solanaMints=${solanaMints6970.size} " +
                                 "crossAssetSkipped=$nonSolanaSkipped6970 priced=${priceMap.size} " +
-                                "cause=rate_limited_or_no_data",
+                                "cause=" + emptyCauses8087.entries.joinToString(",") { (c, n) -> "${c.name}=$n" }.ifBlank { "unknown" },
                         )
+                        for ((c8087, n8087) in emptyCauses8087) PipelineHealthCollector.labelAdd("MARK_BATCH_EMPTY_CAUSE_8087_${c8087.name}", n8087.toLong())
                     } catch (_: Throwable) {}
                 }
 

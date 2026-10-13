@@ -366,20 +366,32 @@ class DexscreenerApi {
         return out
     }
 
-    fun batchPriceFetch(mints: List<String>, slotWaitMs7948: Long = 0L): Map<String, Double> {
-        if (mints.isEmpty()) return emptyMap()
+    /**
+     * V5.0.8087 §P1.5 — why a held-mark batch came back empty. MARK_BATCH_EMPTY_6970 was logged
+     * "cause=rate_limited_or_no_data" 447 times beside riskClockStale=445: the tick could not tell a
+     * starved limiter (retry now) from a provider refusal (back off) from an unlisted token (go to
+     * chain). An unknown quote is unknown, never zero liquidity; the cause now travels with the batch.
+     */
+    enum class BatchCause8087 { PRICED, LIMITER_REFUSED, PROVIDER_FAILED, NO_DATA, UNPARSEABLE }
+    data class BatchResult8087(val prices: Map<String, Double>, val cause: BatchCause8087, val unlisted: List<String>)
+
+    fun batchPriceFetch(mints: List<String>, slotWaitMs7948: Long = 0L): Map<String, Double> =
+        batchPriceFetchTyped8087(mints, slotWaitMs7948).prices
+
+    fun batchPriceFetchTyped8087(mints: List<String>, slotWaitMs7948: Long = 0L): BatchResult8087 {
+        if (mints.isEmpty()) return BatchResult8087(emptyMap(), BatchCause8087.PRICED, emptyList())
         // V5.0.7948 — the held-mark batch (rapid stop-loss tick) waits briefly for
         // the shared 25 ms limiter slot instead of returning an empty batch whenever
         // any scanner call landed in the same instant (MARK_BATCH_EMPTY_6970=681).
         if (!RateLimiter.waitForSlot("dexscreener", slotWaitMs7948)) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_BATCH_LIMITER_REFUSED_7948") } catch (_: Throwable) {}
-            return emptyMap()
+            return BatchResult8087(emptyMap(), BatchCause8087.LIMITER_REFUSED, emptyList())
         }
 
         // DS hard limit: 30 mints per request. Trim defensively.
         val take = mints.take(30).joinToString(",")
         val url  = "https://api.dexscreener.com/tokens/v1/solana/$take"
-        val body = get(url) ?: return emptyMap()
+        val body = get(url) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
 
         val out = HashMap<String, Double>(mints.size)
         // V5.0.7026 — the liquidity behind each mint's currently-chosen pair,
@@ -432,9 +444,15 @@ class DexscreenerApi {
                     out[mint] = priceUsd
                 }
             }
-        } catch (_: Exception) { /* return whatever we have */ }
+        } catch (_: Exception) {
+            // return whatever we have; a body that parsed to nothing is UNPARSEABLE, not "no such token"
+            if (out.isEmpty()) return BatchResult8087(emptyMap(), BatchCause8087.UNPARSEABLE, emptyList())
+        }
 
-        return out
+        // Mints the provider answered without a pair are unlisted there: the caller routes them
+        // to chain/venue pricing at once instead of re-asking a provider that has no answer.
+        val unlisted = mints.take(30).filter { it !in out }
+        return BatchResult8087(out, if (out.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED, unlisted)
     }
 
     private fun get(url: String, host: String = "dexscreener"): String? = try {

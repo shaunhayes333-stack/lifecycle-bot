@@ -15037,4 +15037,20 @@ class GoldenTapeRegressionTest {
         assertTrue("layer-up keeps runner identity", f("engine/BotService.kt").contains("LAYER_TRANSITION_RUNNER_IDENTITY_KEPT_8087"))
         assertTrue("cold histories trimmed", f("engine/MemoryGuard7977.kt").contains("trimColdHistories8087()"))
     }
+
+    @Test
+    fun V5_0_8088_runner_inversion_is_tail_aware_and_held_mark_gaps_are_attributed() {
+        fun f(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
+        val sb = f("engine/cortex/CortexScoreboard7885.kt")
+        assertTrue("runner lane inversion needs tail failure too", sb.contains("if (runnerLane && strong.runnerRate() >= TAIL_RUNNER_RATE && strong.runnerRate() >= neutral.runnerRate()) return false"))
+        assertTrue("inverted7948 knows runner lanes", sb.contains("invertedProven7948(a[Bucket.STRONG.ordinal], a[Bucket.NEUTRAL.ordinal], runnerLane8087)"))
+        val dex = f("network/DexscreenerApi.kt")
+        assertTrue("typed batch cause", dex.contains("enum class BatchCause8087 { PRICED, LIMITER_REFUSED, PROVIDER_FAILED, NO_DATA, UNPARSEABLE }"))
+        assertTrue("unlisted mints named, not zeroed", dex.contains("val unlisted = mints.take(30).filter { it !in out }"))
+        val bot = f("engine/BotService.kt")
+        assertTrue("held tick uses typed batch", bot.contains("dex.batchPriceFetchTyped8087(chunks[0], 200L)"))
+        assertTrue("empty batch cause split", bot.contains("MARK_BATCH_EMPTY_CAUSE_8087_"))
+        assertFalse("ambiguous cause gone", bot.contains("\"cause=rate_limited_or_no_data\","))
+        assertTrue("provider-unlisted held mints counted", bot.contains("MARK_PROVIDER_UNLISTED_HELD_8087"))
+    }
 }

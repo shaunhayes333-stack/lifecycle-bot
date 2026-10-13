@@ -178,4 +178,21 @@ class Aate8087ExecutionTruthTest {
         val rec = ForensicReconciler6377.qtySkew8087(emptyList(), listOf(sell("M", "", 9_000.0, reason = "RECOVERED_WALLET_ORPHAN"))) { null }
         assertEquals(1, rec.recovered); assertTrue(rec.violators.isEmpty())
     }
+
+    // ── P1.3 — runner-lane inversion is tail-aware ──
+    private fun stat8087(n: Int, mean: Double, sd: Double, runnerEvery: Int = 0): com.lifecyclebot.engine.cortex.CortexLedger7885.Stat {
+        val s = com.lifecyclebot.engine.cortex.CortexLedger7885.Stat()
+        repeat(n) { i -> s.add(mean + if (i % 2 == 0) sd else -sd, runnerEvery > 0 && i % runnerEvery == 0) }
+        return s
+    }
+
+    @org.junit.Test fun runner_lane_strong_that_catches_more_runners_is_not_inverted() {
+        val strong = stat8087(40, -8.0, 2.0, runnerEvery = 5)   // 20% runners
+        val neutral = stat8087(20, 6.0, 2.0, runnerEvery = 20)  // 5% runners
+        val sb = com.lifecyclebot.engine.cortex.CortexScoreboard7885
+        org.junit.Assert.assertTrue(sb.invertedProven7948(strong, neutral))                    // generic lane: inverted
+        org.junit.Assert.assertFalse(sb.invertedProven7948(strong, neutral, runnerLane = true)) // runner lane: tail wins
+        val noTail = stat8087(40, -8.0, 2.0)
+        org.junit.Assert.assertTrue(sb.invertedProven7948(noTail, neutral, runnerLane = true))  // no tail: still inverted
+    }
 }

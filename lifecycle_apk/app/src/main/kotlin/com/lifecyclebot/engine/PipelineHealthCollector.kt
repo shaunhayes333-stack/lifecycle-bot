@@ -4623,6 +4623,12 @@ object PipelineHealthCollector {
         bump(labelCounts, key)
     }
 
+    /** V5.0.8087 — add [n] to a label at once (per-mint counts from one batch). */
+    fun labelAdd(key: String, n: Long) {
+        if (!attached || n <= 0L) return
+        labelCounts.computeIfAbsent(key) { AtomicLong(0L) }.addAndGet(n)
+    }
+
     /**
      * V5.0.7156 — read a family of labels by prefix.
      *
