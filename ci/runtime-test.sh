@@ -387,8 +387,38 @@ wait_log_marker "UI_START_DISPATCHED_6517" 20 "second UI dispatch"
 wait_log_marker "BOT_LOOP_TICK" 90 "second runtime loop"
 echo "::endgroup::"
 
-echo "::group::Capture logcat for ${CAPTURE_SECONDS}s after second UI Start"
-sleep "$CAPTURE_SECONDS"
+echo "::group::Capture current acceptance window after second UI Start"
+# A 120-second window begins only after the service accepts the *second*
+# start. Loading 8192 economic events can delay that boundary substantially:
+# a fixed sleep from UI tap previously ended while the current window was
+# only 19 seconds old (CI 38327788673). Never call that an acceptance result.
+window_started_8081=0
+for ((i=0; i<150; i++)); do
+    if grep -q 'EXECUTION_SPINE_WINDOW_STARTED_6662' "$WS/logcat_second_start.txt"; then
+        window_started_8081=1
+        break
+    fi
+    sleep 2
+done
+if [ "$window_started_8081" -ne 1 ]; then
+    echo "::error::ACCEPTANCE_WINDOW_NEVER_STARTED_8081 after second UI Start"
+    exit 1
+fi
+echo "Current 120s acceptance window began; awaiting real evaluated verdict."
+window_result_8081=0
+# Allow the exact evaluation to finish, rather than trusting a fixed timer.
+# A FAIL verdict is retained as evidence and rejected by runtime_evidence.py.
+for ((i=0; i<150; i++)); do
+    if grep -qE 'EXECUTION_SPINE_ACCEPTANCE_6647_(OK|FAIL)' "$WS/logcat_second_start.txt"; then
+        window_result_8081=1
+        break
+    fi
+    sleep 2
+done
+if [ "$window_result_8081" -ne 1 ]; then
+    echo "::error::ACCEPTANCE_WINDOW_NO_COMPLETED_RESULT_8081 after 300s"
+    exit 1
+fi
 kill "$LOGCAT_PID" || true
 wait "$LOGCAT_PID" 2>/dev/null || true
 LOGCAT_PID=""

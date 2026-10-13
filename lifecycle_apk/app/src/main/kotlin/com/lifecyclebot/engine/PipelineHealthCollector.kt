@@ -79,6 +79,15 @@ object PipelineHealthCollector {
 
     /** V5.9.915 — per-lane active/executable LANE_EVAL counters (SHITCOIN / MOONSHOT / QUALITY / BLUECHIP). */
     private val laneEvalCounts = ConcurrentHashMap<String, AtomicLong>()
+
+    /**
+     * 8081: scanner starvation hints require only lane counts. The full
+     * diagnostic snapshot rebuilds the economic journal, positions, labels
+     * and every registry; taking it from the hot scan loop causes GC churn.
+     * Counts remain observational and cannot authorise or execute trades.
+     */
+    fun laneEvalCountsLight8081(): Map<String, Long> =
+        laneEvalCounts.mapValues { it.value.get() }
     // V5.0.6375 — shadow/read-floor rows are visibility only; counting them as
     // active lane evals made the runtime report scream MULTI_LANE_ACTIVE even
     // when owner rotation correctly suppressed FDG/executor work.

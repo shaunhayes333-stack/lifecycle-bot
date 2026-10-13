@@ -3127,15 +3127,24 @@ class Executor(
 
     private fun commitVerifiedLiveSlice7835(ts: TokenState, proof: TradeVerifier.SellResult, reason: String): com.lifecyclebot.engine.sell.SellFinalizationCoordinator.Result? {
         if (proof.outcome != TradeVerifier.Outcome.LANDED || proof.mint != ts.mint ||
-            proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null || proof.rawTokenConsumed.signum() <= 0) return null
+            proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null ||
+            proof.preTokenRaw7835.signum() <= 0 || proof.rawTokenConsumed.signum() <= 0 ||
+            proof.rawTokenConsumed > proof.preTokenRaw7835) return null
         val position = liveCanonicalOpen7362(ts.mint) ?: return null
         val lifecycleEntryTime8076 = ts.position.entryTime
+        // Chain-confirmed token consumption decides partial versus terminal,
+        // not a free-form exit reason or a rounding-prone Double fraction.
+        val fullConsumed8081 = proof.rawTokenConsumed >= proof.preTokenRaw7835
+        val partialBps8081 = proof.rawTokenConsumed
+            .multiply(java.math.BigInteger.valueOf(10_000L))
+            .divide(proof.preTokenRaw7835).toInt().coerceIn(1, 10_000)
         val intent = com.lifecyclebot.engine.sell.SellIntent.build(
             mint = ts.mint, symbol = ts.symbol,
-            reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
-            requestedFractionBps = ((proof.rawTokenConsumed.toDouble() / proof.preTokenRaw7835.toDouble()) * 10000).toInt().coerceIn(1, 10000),
+            reason = com.lifecyclebot.engine.sell.SellReasonClassifier
+                .fromChainConsumption8081(reason, fullConsumed8081),
+            requestedFractionBps = partialBps8081,
             confirmedWalletRaw = proof.preTokenRaw7835, decimals = proof.decimals,
-            slippageBps = 0, emergencyDrain = false,
+            slippageBps = 0, emergencyDrain = fullConsumed8081,
             entrySolSpent = (position.entryCostSol - position.soldCostBasisSol).coerceAtLeast(0.0),
             entryTokenRaw = position.remainingQtyRaw,
         )
@@ -19401,6 +19410,7 @@ class Executor(
             // 15 live "buy failures"), which the buy-failure books and lane health read as broken execution. It now
             // ends as the named DEFERRED_DATA outcome: claim and lease released, no buy-failure emitted, no buy made.
             val exhausted8080 = prior.size >= 3
+            if (prior.size >= 3) try { PipelineHealthCollector.labelInc("TOKEN_MAP_PENDING_LONG_HYDRATION_8081") } catch (_: Throwable) {}
             if (tokenMapDeferrals7371.size > 2_000) tokenMapDeferrals7371.clear()
             if (!exhausted8080) tokenMapDeferrals7371[ts.mint] = prior + now
             val reason8080 = if (exhausted8080) "DEFERRED_DATA_TOKEN_MAP_8080" else "TOKEN_MAP_PENDING_DEFERRED_7371"
@@ -19418,7 +19428,17 @@ class Executor(
         }
         liveStage("TOKEN_MAP_START", "source=${ts.source.take(80)}")
         try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) {}
-        val prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+        var prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+        if (!prePlanRouteOk) {
+            // Reuse already observed market pool/route facts before failing a
+            // live BUY. No new network provider, fabricated quote or fresh mark.
+            val hydrated8081 = try { RouteTruthHydrator.hydrate(ts) } catch (_: Throwable) { null }
+            if (hydrated8081?.source in setOf("POOL", "DEX", "JUPITER", "ENTRY_POOL", "ENTRY_JUPITER")) {
+                try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) {}
+                prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+                if (prePlanRouteOk) try { PipelineHealthCollector.labelInc("BUY_ROUTE_TRUTH_REPAIRED_8081") } catch (_: Throwable) {}
+            }
+        }
         if (!prePlanRouteOk) {
             if (deferPendingTokenMap7371("pre_plan")) return false
             val missing = missingTokenMapFields()
@@ -23631,7 +23651,10 @@ class Executor(
             ErrorLogger.info("Executor", "🔄 LIVE PARTIAL SELL: ${ts.symbol} | " +
                 "${(pct * 100).toInt()}% of holdings")
             
-            if (pct >= 0.9) {
+            // A 96.4% compounded spike ladder is still a PARTIAL: the
+            // remaining 3.6% is the strategy's runner tail. The old 90%
+            // shortcut silently turned it into a full liquidation.
+            if (pct >= 1.0 - 1e-9) {
                 val fullResult6566 = doSell(ts, "[PARTIAL→FULL] $reason", activeWallet, walletBalance)
                 receipt6566?.invoke(PartialSellReceipt6566(
                     applied = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),
@@ -23932,6 +23955,8 @@ class Executor(
                     
                     val proof7835 = verifiedSlice7835 ?: return
                     val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return
+                    // Only chain-verified token consumption graduates a spike tier.
+                    try { SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw) } catch (_: Throwable) {}
                     val solBack = settled7835.solReceived
                     val livePartialCostBasisSol = settled7835.realizedPnl.proportionalCostBasisSol
                     val livePnl = settled7835.realizedPnl.realizedPnlSol
@@ -30156,9 +30181,15 @@ class Executor(
             // silently in buildSwapTx. Now we request the binding order at
             // quote time when we have the taker pubkey, so RFQ rejections
             // surface as SELL_QUOTE_FAIL rather than ghosting the trade.
-            return com.lifecyclebot.network.ExitQuoteBudget7863.run {
-                if (!sellTaker.isNullOrBlank()) jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
-                else jupiter.getQuote(inMint, outMint, amount, slippageBps)
+            // 8079: this shared helper is called by the stand-alone partial
+            // route too, which is not wrapped by liveSell's ExitHttpScope.
+            // Preserve the 5s quote budget inside the sell-priority scope so
+            // the app's own provider backoff cannot reject profit-taking.
+            return com.lifecyclebot.network.ExitHttpScope7314.run {
+                com.lifecyclebot.network.ExitQuoteBudget7863.run {
+                    if (!sellTaker.isNullOrBlank()) jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
+                    else jupiter.getQuote(inMint, outMint, amount, slippageBps)
+                }
             }
         }
         // V5.0.7241 — SOURCE FIX for the exact sibling of the V5.9.468 sell

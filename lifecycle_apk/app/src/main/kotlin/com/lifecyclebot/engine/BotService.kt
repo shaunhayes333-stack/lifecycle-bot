@@ -14910,12 +14910,17 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
                 RuntimeConfigOverlay.normalizeLane(fallback7252)
             } else moonshotAdmitted7044
+            // 8081: use the candidate's own READY specialist contest before
+            // sealing, rather than leaving that desk shadow-only after routing.
+            // Existing coordinator enforces the same owner downstream.
+            val readyAligned8081 = LaneExecutionCoordinator.readyOwnerForCycle8081(
+                ts, identityEligiblePrimary7252, executableLanes7863, forced != null)
             try {
                 val snap = TokenMetricStageRouter.snapshot(ts)
-                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$identityEligiblePrimary7252 ${snap.compact}")
+                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$readyAligned8081 ${snap.compact}")
                 PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_${snap.stage.name}")
             } catch (_: Throwable) {}
-            identityEligiblePrimary7252
+            readyAligned8081
         } catch (_: Throwable) { "SHITCOIN" }
     }
 
