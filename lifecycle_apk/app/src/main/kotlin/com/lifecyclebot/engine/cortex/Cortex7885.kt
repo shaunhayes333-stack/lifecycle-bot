@@ -210,6 +210,10 @@ object Cortex7885 {
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
         val setup7961 = (snap8084?.takeIf { it.lane == a.lane }?.consumerTag8087
             ?: try { LanePlaybook7907.classify(ts, a.lane, nowMs) } catch (_: Throwable) { null }).orEmpty()
+        // V5.0.8088 — a decision whose coin could not be classified (DATA_INCOMPLETE / MATCHES_UNRANKABLE /
+        // CLASSIFIER_ERROR) carries no setup prior and opens no joint cell; the scoreboard counts how many
+        // decisions ran blind so the UI shows evidence quality beside the NO_TRIGGER cohort, not pooled into it.
+        if (snap8084?.tag in LanePlaybook7907.UNCLASSIFIED_8087) inc("SETUP_UNCLASSIFIED_NO_PRIOR_8087_${snap8084?.outcome?.name}")
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961)
         // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).
         if (admitted) noteEntryRead(ts.mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
