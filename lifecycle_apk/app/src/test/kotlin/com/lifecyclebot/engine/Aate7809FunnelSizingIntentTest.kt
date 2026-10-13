@@ -99,7 +99,8 @@ class Aate7809FunnelSizingIntentTest {
     @Test fun disabledCyclicIsNotElectedAsCyclePrimary() {
         val bot = src("engine/BotService.kt")
         val election = bot.substringAfter("private fun canonicalCycleLaneFor(").substringBefore("private fun sealedSpecialistAttempt7468(")
-        assertEquals(6, Regex("cyclicPolicyAllows7809\\(").findAll(election).count())
+        // The helper definition now sits inside this slice; count call sites only.
+        assertEquals(6, Regex("(?<!fun )cyclicPolicyAllows7809\\(").findAll(election).count())
         val helper = bot.substringAfter("private fun cyclicPolicyAllows7809(").substringBefore("private fun executionBookForLane6494(")
         assertTrue(helper.contains("CyclicTradeEngine.isEnabled()"))
         assertTrue(helper.contains("if (canon != \"CYCLIC\") return true"))

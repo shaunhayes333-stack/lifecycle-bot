@@ -145,8 +145,8 @@ class Aate7809EntryLastMileTest {
         val fdg = src("engine/FinalDecisionGate.kt")
         // evaluate() is at the ART verifier limit (5.0.7807): the 7243 wait-promotion line stays byte-identical.
         assertTrue(fdg.contains("baseEntrySignal7243 !in setOf(\"BUY\", \"EXECUTE\") && effectiveEntryScore7292 < waitFloor7266"))
-        assertTrue(fdg.contains("priorVerdictForCandidate7809(ts.mint, candidateVersion)"))
-        assertTrue(fdg.contains("FDG_FANOUT_CAP_SERVED_PRIOR_VERDICT_7809"))
+        // V5.0.7835 removed the FDG fanout cap (FDG must not re-decide a candidate); its prior-verdict server went with it.
+        assertFalse(fdg.contains("FDG_FANOUT_CAP_7232"))
         val esa = src("engine/truth/ExecutionSnapshotAuthority6496.kt")
         assertTrue(esa.contains("!newerSizingDecision7809(mint, snap, resolvedOrderSizeSol)"))
     }
@@ -173,10 +173,10 @@ class Aate7809EntryLastMileTest {
     }
 
     @Test fun cryptoFreshHandoffTracksFreshAtBrainCandidate7810() {
-        val d = src("../perps/DynamicAltTokenRegistry.kt")
+        val d = src("perps/DynamicAltTokenRegistry.kt")
         assertTrue(d.contains("freshBrainIdentityAt7810"))
         assertTrue(d.contains("FRESH_BRAIN_CAUSAL_TTL_MS_7810"))
-        val c = src("../perps/CryptoAltTrader.kt")
+        val c = src("perps/CryptoAltTrader.kt")
         assertTrue(c.contains("CRYPTO_CANONICAL_PREFDG_HANDOFF_7810"))
     }
 }

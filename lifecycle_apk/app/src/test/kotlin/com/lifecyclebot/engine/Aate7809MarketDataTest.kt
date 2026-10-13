@@ -115,7 +115,7 @@ class Aate7809MarketDataTest {
     @Test fun deadPublicCurveRungsAreBenchedAndPassesBounded() {
         val p = src("network/ParallelMarkFanout7088.kt")
         assertTrue(p.contains("noteCurveRungFailure7809(hostLabel)"))
-        assertTrue(p.contains("if (hostLabel == \"helius\") return"))
+        assertTrue(p.contains("if (hostLabel.startsWith(\"helius\")) return"))
         assertTrue(p.contains("CURVE_MAX_TRANSPORT_FAILS_7809 = 2"))
         assertTrue(p.contains("ApiBackoff.markFailure(hostLabel, 504)"))
     }

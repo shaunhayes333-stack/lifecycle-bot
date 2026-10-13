@@ -20300,7 +20300,7 @@ class BotService : Service() {
             // This eliminates GHOST POSITIONS (Models.kt isOpen no longer auto-promotes after 120s).
             if (System.currentTimeMillis() - lastPendingVerifyWatchdogAt > pendingVerifyWatchdogIntervalMs) {
                 lastPendingVerifyWatchdogAt = System.currentTimeMillis()
-                // V5.9.1036 — extracted to runPendingVerifyWatchdog(wallet)
+                // V5.9.1036 — extracted to runPendingVerifyWatchdog (now launched off-loop, 7809)
                 // to reduce botLoop bytecode (was 110 lines of inline body).
                 launchPendingVerifyWatchdog7809(wallet)
             }

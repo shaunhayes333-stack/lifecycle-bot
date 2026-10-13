@@ -37,6 +37,8 @@ class Aate7809FunnelTicketExecTest {
             executableMarkPriceUsd6613 = 1.0,
         )
         assertNotNull(ExecutableOpenGate.registerCanonicalIntent6554(intent))
+        // V5.0.7810 — an executable SIZE needs its real DISCOVER predecessor on the same record.
+        ToolkitSignalSheet.recordDeskStage(lane, "POOL", intent.attemptId)
         return intent
     }
 
