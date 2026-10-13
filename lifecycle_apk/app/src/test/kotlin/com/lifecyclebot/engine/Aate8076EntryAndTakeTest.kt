@@ -24,12 +24,18 @@ class Aate8076EntryAndTakeTest {
         val progress = LifecycleHold8065.TakeProgress8076()
         assertEquals(0 to 0.5, LifecycleHold8065.takeDue8065(110.0, progress.taken))
         assertFalse(progress.confirm("LIFECYCLE_STOP_FLOOR_8065_-41PCT"))
-        assertFalse(progress.confirm("LIFECYCLE_PROFIT_TAKE2_8065_450PCT"))
-        assertEquals(0, progress.taken)
-        assertTrue(progress.confirm("LIFECYCLE_PROFIT_TAKE1_8065_110PCT"))
-        assertFalse(progress.confirm("LIFECYCLE_PROFIT_TAKE1_8065_110PCT"))
-        assertEquals(1, progress.taken)
+        // 8081: one confirmed compound partial may cover two price thresholds
+        // crossed on the same observed mark. Never permit duplicate or backward
+        // acknowledgement of that finalized economic operation.
         assertTrue(progress.confirm("LIFECYCLE_PROFIT_TAKE2_8065_450PCT"))
         assertEquals(2, progress.taken)
+        assertFalse(progress.confirm("LIFECYCLE_PROFIT_TAKE1_8065_110PCT"))
+        assertFalse(progress.confirm("LIFECYCLE_PROFIT_TAKE2_8065_450PCT"))
+        val sequential = LifecycleHold8065.TakeProgress8076()
+        assertTrue(sequential.confirm("LIFECYCLE_PROFIT_TAKE1_8065_110PCT"))
+        assertEquals(1, sequential.taken)
+        assertTrue(sequential.confirm("LIFECYCLE_PROFIT_TAKE2_8065_450PCT"))
+        assertEquals(2, sequential.taken)
+        assertFalse(sequential.confirm("LIFECYCLE_PROFIT_TAKE2_8065_450PCT"))
     }
 }
