@@ -97,4 +97,13 @@ class Aate8082CausalPipelineTest {
         assertTrue(x.contains("private const val SAMPLE_EVERY_MS = 60_000L"))
         assertTrue(x.contains("private const val MIN_N = 30"))
     }
+
+    @Test fun cryptoAltRowsHaveOneExitOwner() {
+        val b = src("engine/BotService.kt").substringAfter("private fun solanaExitScope7819(").substringBefore("private fun canonicalExitTokenSnapshot6512(")
+        assertTrue(b.contains("isCryptoAltTraderOwned8082(it)"))
+        assertTrue(b.contains("return kept8082"))
+        assertTrue(src("engine/truth/ExecutorCanonicalMirror6442.kt").contains("!CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(it)"))
+        val p = src("engine/truth/CanonicalPositionAuthority6441.kt").substringAfter("fun isCryptoAltTraderOwned8082(").substringBefore("internal fun exitScopeOf7809(")
+        assertTrue(p.contains("AssetClass.fromPositionIdPrefix(p.positionId) == AssetClass.CRYPTO_ALT"))
+    }
 }

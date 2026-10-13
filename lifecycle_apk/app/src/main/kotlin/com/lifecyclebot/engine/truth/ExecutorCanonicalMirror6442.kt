@@ -58,7 +58,8 @@ object ExecutorCanonicalMirror6442 {
     fun positionIdOf(mint: String, paperMode: Boolean? = null): String {
         val cm = canonicalMint(mint)
         val opens = try {
-            CanonicalPositionAuthority6441.openPositions().filter { it.mint == cm }
+            // V5.0.8082 — the meme Executor's id for a mint never resolves to a CryptoAltTrader-owned row.
+            CanonicalPositionAuthority6441.openPositions().filter { it.mint == cm && !CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(it) }
         } catch (_: Throwable) {
             emptyList()
         }

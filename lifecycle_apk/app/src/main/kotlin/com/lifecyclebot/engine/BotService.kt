@@ -24618,7 +24618,12 @@ if (hotExitHandledSweep) {
         if (kept7819.size != rows.size) {
             try { PipelineHealthCollector.labelInc("EXIT_SCOPE_OFFCHAIN_TRADER_OWNED_7819") } catch (_: Throwable) {}
         }
-        return kept7819
+        // V5.0.8082 — CRYPTO_ALT rows have one exit owner, CryptoAltTrader; the meme Executor never sells them.
+        val kept8082 = kept7819.filterNot { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(it) }
+        if (kept8082.size != kept7819.size) {
+            try { PipelineHealthCollector.labelInc("EXIT_SCOPE_CRYPTO_ALT_TRADER_OWNED_8082") } catch (_: Throwable) {}
+        }
+        return kept8082
     }
 
     /** V5.0.6512 — every exit sweep starts from canonical OPEN authority.

@@ -1058,6 +1058,17 @@ object CanonicalPositionAuthority6441 {
             AssetClass.fromPositionIdPrefix(p.positionId).isOffChainMarket ||
             AssetClass.fromLane(p.lane).isOffChainMarket
 
+    /**
+     * V5.0.8082 §ONE_EXIT_OWNER_CRYPTO_ALT. A CRYPTO_ALT row is owned, rehydrated, marked and exited by CryptoAltTrader
+     * (monitorPositions). The meme Executor's exit sweep also managed it because it is on-chain: in the 8082 smoke a
+     * CAT alt was marked by symbol at 799 vs entry 0.00045 (100x), the meme protective peak partial sold 25% of it,
+     * canonical quantity moved while the alt ledger/journal never saw the sale (QUANTITY_DELTA, HERO_JOURNAL_PARITY_FAIL).
+     */
+    fun isCryptoAltTraderOwned8082(p: Position): Boolean =
+        p.assetClass == AssetClass.CRYPTO_ALT ||
+            AssetClass.fromPositionIdPrefix(p.positionId) == AssetClass.CRYPTO_ALT ||
+            AssetClass.fromLane(p.lane) == AssetClass.CRYPTO_ALT
+
     internal fun exitScopeOf7809(rows: List<Position>): List<Position> {
         val open7809 = rows.filter { isOpenLifecycleWithQty6743(it) }
         val openMints7809 = open7809.mapTo(HashSet()) { it.mint }
