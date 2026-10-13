@@ -68,4 +68,14 @@ class Aate8082CausalPipelineTest {
         assertTrue(c.contains("entryReads[\"\$normalized8082|\${if (paper) \"PAPER\" else \"LIVE\"}|\${canon(a.lane)}\"] = a"))
         assertTrue(c.contains("ENTRY_BIND_OWNER_LANE_UNASSESSED_8082"))
     }
+
+    @Test fun exitCortexIsGradedByTheVerifiedCanonicalClose() {
+        val x = src("engine/cortex/CortexExit7897.kt")
+        val f = x.substringAfter("fun onCanonicalClose8082(").substringBefore("private fun grade8082(")
+        assertTrue(f.contains("terminalEconomicsEligible8081(env.mode, env.proofState)"))
+        assertTrue(f.contains("RELEASED_UNVERIFIED_CLOSE_8082"))
+        assertTrue(f.contains("(1.0 + env.realizedReturnPct / 100.0) / (1.0 + atSample / 100.0)"))
+        assertTrue(x.substringAfter("fun tick(").substringBefore("fun onCanonicalClose8082(").contains("grade8082(r, fwd)"))
+        assertTrue(src("engine/truth/CanonicalFinalizedTradeBus6464.kt").contains("CortexExit7897.onCanonicalClose8082(env)"))
+    }
 }

@@ -189,6 +189,39 @@ object CortexExit7897 {
             pending.remove(k)
             if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(r.px, px)) { inc("BASIS_SUSPECT"); continue }
             val fwd = (px / r.px - 1.0) * 100.0
+            grade8082(r, fwd)
+        }
+        if (unpriced.isNotEmpty()) fetch(unpriced, nowMs)
+    }
+
+    /**
+     * V5.0.8082 §EXIT_GRADED_AT_CANONICAL_CLOSE. Exit samples were graded only by a mark 30/120 min after the sample.
+     * Most meme positions close long before that; once closed the mint leaves the loop and the canonical registry, the
+     * Jupiter lite batch rarely prices a curve token, so the samples aged out as LOST_MARK and the exit cortex graded 0
+     * outcomes (8081). A sample whose position closes first is graded by what holding from that sample actually
+     * produced: the verified whole-position realised return relative to the sample's own pnl. Unverified / ineligible
+     * closes release their samples without teaching.
+     */
+    fun onCanonicalClose8082(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
+        if (!env.terminal || env.positionId.isBlank()) return
+        val due = pending.entries.filter { it.value.positionId == env.positionId }
+        if (due.isEmpty()) return
+        ensureLoaded()
+        val verified = env.learningEligible && env.realizedReturnPct.isFinite() &&
+            com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)
+        for ((k, r) in due) {
+            pending.remove(k)
+            val atSample = r.raws.getOrNull(0)?.takeIf { it.isFinite() && it > -99.0 }
+            if (!verified || atSample == null) { inc("RELEASED_UNVERIFIED_CLOSE_8082"); continue }
+            val fwd = ((1.0 + env.realizedReturnPct / 100.0) / (1.0 + atSample / 100.0) - 1.0) * 100.0
+            if (!fwd.isFinite()) continue
+            grade8082(r, fwd)
+            inc("GRADED_AT_CANONICAL_CLOSE_8082")
+        }
+    }
+
+    private fun grade8082(r: Read, fwd: Double) {
+        run {
             synchronized(this) {
                 ledger.grade(r.lane, r.ids, r.edges, r.raws, fwd, fwd, r.regime)
                 calibration.learn(r.lane, r.fused.edgePct, r.fused.laneMean, fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
@@ -202,7 +235,6 @@ object CortexExit7897 {
             graded.incrementAndGet()
             if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
         }
-        if (unpriced.isNotEmpty()) fetch(unpriced, nowMs)
     }
 
     private fun registryMark(mint: String, nowMs: Long): Double? = try {
