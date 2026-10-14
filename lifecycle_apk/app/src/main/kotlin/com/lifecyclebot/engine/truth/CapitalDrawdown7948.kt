@@ -61,6 +61,24 @@ object CapitalDrawdown7948 {
 
     fun currentPeak7948(): Peak7948 = peak7948
 
+    /** An explicitly requested clean learning/proof run starts a NEW risk comparison
+     * window without deleting chain-confirmed losses or economic history. Reset
+     * in-memory valuation/flow observations too, otherwise the next observation
+     * compares against pre-reset equity and invents an external-flow event. */
+    @Synchronized fun reanchorExplicitRun8093(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!equitySol.isFinite() || equitySol <= 0.0) return false
+        peak7948 = Peak7948(equitySol, nowMs)
+        pending7986 = null
+        prevRev7986 = -1L
+        prevEq7981 = Double.NaN
+        prevReal7981 = Double.NaN
+        prevUpnl7981 = Double.NaN
+        prevPeakObs7990 = Double.NaN
+        realCache7981 = null
+        return true
+    }
+
+
     // ── V5.0.7981 — money that moved in or out without a bot trade is not a drawdown ──
     //
     // The owner trades by hand in the bot's wallet and moves SOL in and out. 5.0.7976 read a
