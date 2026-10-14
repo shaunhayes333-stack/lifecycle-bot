@@ -11427,7 +11427,8 @@ class GoldenTapeRegressionTest {
         assertTrue(ray.contains(".put(\"wrapSol\", true)"))
         assertTrue(ray.contains("HeliusSenderEnvelope7250.build(tx, wallet.publicKeyB58, senderTipLamports)"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("if (pumpFirstResult == null) run jupiterBuy7325@{"))
+        assertTrue(ex.contains("val prepared8090 = if (pumpFirstResult == null) {"))
+        assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail)"))
         assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)"))
         assertTrue(ex.contains("val directFill7325 = pumpFirstResult ?: raydiumBuy7325"))
         assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") < ex.indexOf("BUY ABORTED: all slippage levels failed"))
@@ -14991,7 +14992,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_8085_signed_tx_identity_no_competing_order_on_unknown_outcome() {
         val w = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
-        assertTrue("tx id derived from signed bytes and persisted before send", w.contains("SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, intent)"))
+        assertTrue("tx id derived from signed bytes and persisted before send", w.contains("SignedTxLedger8085.record(signed.signature, signed.signedBase64, signed.blockhash8085, intent, requireDurable = true)"))
         assertTrue("unresolved mint+side refuses a second signature", w.contains("throw DuplicateOrderPrevented8085(prev.signature, intent.side)"))
         assertTrue("send reply classified against local id", w.contains("SignedTxLedger8085.classifyRpcReply(true, result, error, localSig)"))
         assertTrue("expiry proven by blockhash, not a 30 s timer", w.contains("throw TxExpiredProven8085(signature, elapsed / 1000)"))

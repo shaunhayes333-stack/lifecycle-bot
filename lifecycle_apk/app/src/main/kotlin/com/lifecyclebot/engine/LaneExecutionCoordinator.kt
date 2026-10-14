@@ -559,10 +559,6 @@ object LaneExecutionCoordinator {
         // existing == null, so caller order could permanently own the mint/version
         // and starve the specialist that actually won FDG.
         val sealedFdgOwner6679 = sealedFdgOwnerLane6679(mint, candidateVersion)
-        if (sealedFdgOwner6679 != null && existing?.sealed == true && existing.primaryLane != sealedFdgOwner6679) {
-            return Verdict(false, "SEALED_OWNER_CONFLICT_8090 existing=${existing.primaryLane} fdg=$sealedFdgOwner6679",
-                existing.primaryLane, candidateVersion, existing.electionId, existing.authorityVersion)
-        }
         if (sealedFdgOwner6679 != null && existing != null &&
             existing.primaryLane != sealedFdgOwner6679) {
             try {
@@ -637,10 +633,9 @@ object LaneExecutionCoordinator {
             if (willing7774.size < qualified7620.size) {
                 try { PipelineHealthCollector.labelInc("LANE_ELECTION_NATIVE_REFUSED_FILTERED_7774") } catch (_: Throwable) {}
             }
-            if (willing7774.isEmpty()) return Verdict(false, "NO_ELIGIBLE_EXECUTABLE_OWNER_8090", "", candidateVersion)
             elect(
                 mint = mint,
-                lanes = willing7774,
+                lanes = willing7774.ifEmpty { qualified7620.ifEmpty { listOf(laneUpper) } },
                 preferred = null,
                 candidateVersion = candidateVersion,
                 runtimeGeneration = runtimeGeneration,

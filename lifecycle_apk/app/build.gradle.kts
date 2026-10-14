@@ -7,7 +7,13 @@ plugins {
 // V5.0 - Clean start with auto-incrementing version
 // versionCode increments with each CI build for seamless updates
 val baseVersionCode = 500
-val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
+// Release verification and local builds must retain the same upgrade identity
+// as the publishing workflow. Without -PbuildNumber the old default was 500,
+// which Android refuses to install over an existing production build.
+val checkedInBuildNumber = rootProject.file("AATE_VERSION").takeIf { it.exists() }
+    ?.readText()?.trim()?.let { Regex("^5\\.0\\.(\\d+)$").matchEntire(it)?.groupValues?.get(1)?.toInt() }
+val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull()
+    ?: checkedInBuildNumber ?: 0
 val finalVersionCode = baseVersionCode + ciBuildNumber
 
 // V5.0.4025: explicit patch version authority. CI run numbers drifted from

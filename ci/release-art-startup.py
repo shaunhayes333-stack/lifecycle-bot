@@ -4,6 +4,7 @@
 No credentials, funding or live trade is supplied. Startup and ART acceptance
 are separate from the existing deterministic execution/economic smoke suite.
 """
+import argparse
 import pathlib
 import re
 import subprocess
@@ -16,11 +17,28 @@ def adb(*args):
     return subprocess.check_output(["adb", *args], text=True, timeout=30)
 
 
-apk = pathlib.Path(sys.argv[1]).resolve()
+args = argparse.ArgumentParser(description=__doc__)
+args.add_argument("apk", type=pathlib.Path)
+args.add_argument("--previous", type=pathlib.Path, required=True)
+options = args.parse_args()
+apk = options.apk.resolve()
 output = pathlib.Path("release_art_evidence")
 output.mkdir(exist_ok=True)
 subprocess.run(["adb", "uninstall", "com.lifecyclebot.aate"], capture_output=True)
-adb("install", "-r", str(apk))
+# Exercise Android's real signature/version upgrade checks. The previous
+# published APK is installed first in this disposable, unfunded emulator.
+(output / "previous_install.txt").write_text(adb("install", str(options.previous.resolve())))
+(output / "previous_package.txt").write_text(adb("shell", "dumpsys", "package", "com.lifecyclebot.aate"))
+(output / "upgrade_install.txt").write_text(adb("install", "-r", str(apk)))
+package = adb("shell", "dumpsys", "package", "com.lifecyclebot.aate")
+(output / "candidate_package.txt").write_text(package)
+version = pathlib.Path("AATE_VERSION").read_text().strip()
+version_match = re.fullmatch(r"5\.0\.(\d+)", version)
+if version_match is None:
+    raise RuntimeError("Invalid candidate AATE_VERSION")
+expected_code = 500 + int(version_match[1])
+if not re.search(rf"versionCode={expected_code}\b", package) or f"versionName={version}" not in package:
+    raise RuntimeError("Installed release version does not match the publishing build")
 adb("logcat", "-c")
 log = (output / "logcat.txt").open("w")
 capture = subprocess.Popen(["adb", "logcat", "-v", "threadtime"], stdout=log)
@@ -37,7 +55,7 @@ try:
         if re.search(r"Verifier rejected class com\.lifecyclebot|java\.lang\.VerifyError|SERVICE_BOOTSTRAP_FAILED_6516|FATAL EXCEPTION", text):
             raise RuntimeError("Release verifier/bootstrap failure; see logcat.txt")
         if "SERVICE_BOOTSTRAP_READY_6516" in text and "BOT_LOOP_TICK" in text:
-            (output / "verdict.txt").write_text("PASS: release ART verification, service bootstrap, UI Start, first bot-loop tick\n")
+            (output / "verdict.txt").write_text("PASS: published-APK upgrade, release version identity, ART verification, service bootstrap, UI Start, first bot-loop tick\n")
             break
         if not start_tapped:
             adb("shell", "uiautomator", "dump", "/sdcard/release_ui.xml")
