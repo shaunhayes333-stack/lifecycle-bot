@@ -25,11 +25,15 @@ class Aate8083CortexLiveEntryTest {
     @Test fun negativeLaneWithPositiveCandidateEvidenceIsStillAssessed() {
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         val body = g.substringAfter("fun liveRefusal(ts: TokenState, lane: String, paper: Boolean").substringBefore("private val measuredEdgeAdmitted8060")
-        // no early lane-wide return before the candidate's own evidence is read
-        assertTrue(body.indexOf("LiveTruth8064.lanePrior8083(l8059, nowMs)") < body.indexOf("LanePlaybook7907.provenSetup8056(ts, l8059, nowMs)"))
+        // 8092: the token's best eligible proven/cold strategy is selected BEFORE its exact losing setup check.
+        val candidateSetup = body.indexOf("val setup8083 = try {")
+        val setupLoss = body.indexOf("LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs)")
+        val provenOnly = body.indexOf("if (proven8059 == null && !measuredEdge8060")
+        assertTrue(candidateSetup > 0 && setupLoss > candidateSetup && provenOnly > setupLoss)
+        assertTrue(body.substring(candidateSetup, setupLoss).contains("LanePlaybook7907.provenSetup8056"))
+        assertTrue(body.substring(candidateSetup, setupLoss).contains("LanePlaybook7907.coldStartSetup8080"))
+        assertTrue(body.indexOf("LiveTruth8064.lanePrior8083(l8059, nowMs)") in setupLoss..provenOnly)
         assertFalse(body.contains("refusal8064"))
-        // the candidate's own losing setup still refuses, before any admission door
-        assertTrue(body.indexOf("LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs)") < body.indexOf("LanePlaybook7907.provenSetup8056(ts, l8059, nowMs)"))
         assertTrue(body.contains("Verdict8083.DEFER, \"LIVE_PROVEN_SETUP_ONLY_8059\""))
         assertTrue(body.contains("LiveTruth8064.noteLiveAdmit8083(ts.mint, l8083, setupAt, nowMs)"))
     }
