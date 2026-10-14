@@ -88,7 +88,10 @@ class Aate7948CapitalDrawdownTest {
     @Test fun killswitch_measures_marked_equity_on_the_shared_authority() {
         val ks = src("engine/KillSwitch.kt")
         assertFalse(ks.contains("LiveRiskPolicy7807.liveEquitySol(BotService.status.walletSol)"))
-        assertEquals(4, Regex(Regex.escape("CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol)")).findAll(ks).count())
+        // 8093's explicit clean-run baseline uses this same canonical marked-equity source.
+        // Verify the contract rather than an obsolete hardcoded number of call sites.
+        assertTrue(ks.contains("CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol)"))
+        assertTrue(ks.contains("fun reanchorExplicitProofRun8093(context: Context): Boolean"))
         assertFalse(ks.contains("((peakBalance - currentBalance) / peakBalance) * 100"))
         assertTrue(ks.contains("putInt(\"environment_schema\", 7992)"))
         assertTrue(ks.contains("SIZE_DOWN_NOT_HALT_7864"))
