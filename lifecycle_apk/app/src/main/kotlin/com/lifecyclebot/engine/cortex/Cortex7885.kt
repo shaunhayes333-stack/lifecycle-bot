@@ -776,6 +776,10 @@ object Cortex7885 {
      * Called by LiveEdgeGate7877 when it would refuse a LIVE entry. True means the
      * Cortex's proven STRONG record overrules that edge refusal for this candidate.
      */
+    /** Pure (V5.0.8094): have this lane x setup's own STRONG reads lost (5+ graded, mean + SE below zero)? */
+    fun strongSetupNegative8094(n: Double, meanPct: Double, sePct: Double): Boolean =
+        n >= 5.0 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
+
     fun overrulesEdgeRefusal(ts: TokenState, laneRaw: String, refusal: String): Boolean {
         return try {
             val a = cachedOrSchedule(ts, laneRaw) ?: return false
@@ -791,6 +795,22 @@ object Cortex7885 {
             // (8082: SHITCOIN STRONG n72 +12.3% held lane authority 0). Same graduated, SE-aware, cost-margined test as
             // the lane, on the setup's own cell; calibration and inversion still gate it. Never a hard refusal.
             val setup8083 = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+            // V5.0.8094 forensic — a STRONG lane read never overrules for a setup whose OWN record is negative: the
+            // playbook's proven-losing setup, or the Cortex's own STRONG reads on this lane x setup losing (8093:
+            // SHITCOIN / EXPRESS STRONG on LAUNCH_CONTINUATION negative while the lane bucket read +28% / +125%).
+            val negSetup8094 = setup8083 != null && (
+                (try { LanePlaybook7907.provenLosingSetupRefusal8079(ts, a.lane) } catch (_: Throwable) { null }) != null ||
+                    synchronized(this) { jointBook7961[jointKey7961(a.lane, CortexScoreboard7885.Bucket.STRONG, setup8083)] }
+                        ?.let { st -> strongSetupNegative8094(st.n, st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY) } == true)
+            if (negSetup8094) {
+                inc("OVERRIDE_REFUSED_NEGATIVE_SETUP_8094")
+                try {
+                    PipelineHealthCollector.labelInc("CORTEX_OVERRIDE_REFUSED_NEGATIVE_SETUP_8094_${a.lane}")
+                    ForensicLogger.lifecycle("CORTEX_OVERRIDE_REFUSED_NEGATIVE_SETUP_8094",
+                        "candidate=${ts.mint} sym=${ts.symbol} lane=${a.lane} setup=$setup8083 superseded=${refusal.take(60)} action=refusal_stands")
+                } catch (_: Throwable) {}
+                return false
+            }
             val cell8083 = setup8083?.let { synchronized(this) { setupCellAuthority8083(a.lane, it) } }
             val fraction = maxOf(laneFraction8083, cell8083?.fraction ?: 0.0)
             // V5.0.7955 review — a lane's own PROVEN_LOSING / PROVEN_NEGATIVE record yields only to full authority.

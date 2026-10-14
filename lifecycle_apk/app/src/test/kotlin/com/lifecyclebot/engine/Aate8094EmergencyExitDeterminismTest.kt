@@ -92,4 +92,17 @@ class Aate8094EmergencyExitDeterminismTest {
         assertTrue(now.contains("persistPool8094.submit(work).get(FLUSH_WAIT_MS_8094"))      // bounded main-thread wait
         assertFalse(c.contains("@Synchronized private fun persist() {"))
     }
+
+    // Cortex: a strong lane read cannot overrule for a candidate whose own setup record is negative.
+    @Test fun aStrongLaneCannotOverruleANegativeSetup() {
+        val c = com.lifecyclebot.engine.cortex.Cortex7885
+        assertTrue(c.strongSetupNegative8094(n = 12.0, meanPct = -9.0, sePct = 4.0))
+        assertFalse(c.strongSetupNegative8094(n = 12.0, meanPct = -2.0, sePct = 4.0))   // not proven negative
+        assertFalse(c.strongSetupNegative8094(n = 3.0, meanPct = -40.0, sePct = 1.0))   // too few reads
+        val src = src("engine/cortex/Cortex7885.kt")
+        val ov = src.substringAfter("fun overrulesEdgeRefusal(").substringBefore("val cell8083 =")
+        assertTrue(ov.contains("LanePlaybook7907.provenLosingSetupRefusal8079(ts, a.lane)"))
+        assertTrue(ov.contains("CORTEX_OVERRIDE_REFUSED_NEGATIVE_SETUP_8094"))
+        assertTrue(src.contains("CORTEX_OVERRIDE_EXPLAINED_8083"))                       // every override attributed
+    }
 }
