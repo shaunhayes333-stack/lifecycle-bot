@@ -33,6 +33,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals("TOP_HOLDER_FATAL", pretradeSubReason8094("TOP_HOLDER_FATAL: 41% > 35%"))
         assertEquals("LIQ_BELOW_HARD_FLOOR", pretradeSubReason8094("liq below hard floor"))
         assertEquals("UNSPECIFIED", pretradeSubReason8094("  "))
+        assertEquals("HARD_BLOCK_LOW_LIQUIDITY", pretradeSubReason8094("HARD BLOCK: Low liquidity $0 (min=$100)"))
         assertEquals("PRESENT_AT_SEAL", pretradeSealRelation8094("SAFE", sealHardNo = true, sealRug = 80))
         assertEquals("PRESENT_AT_SEAL", pretradeSealRelation8094("HARD_BLOCK", false, 80))
         assertEquals("PRESENT_AT_SEAL", pretradeSealRelation8094("SAFE", false, 0))

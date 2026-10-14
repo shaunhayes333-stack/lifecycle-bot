@@ -10,8 +10,11 @@ internal fun closedRuntimeRetirable8094(entryTimeMs: Long, closedAtMs: Long, wal
 
 /** V5.0.8094 — pure: a counter-safe sub-reason token for a pre-trade block. */
 internal fun pretradeSubReason8094(raw: String): String {
-    val t = raw.trim().uppercase().substringBefore(':').substringBefore(' ')
-        .map { if (it.isLetterOrDigit() || it == '_') it else '_' }.joinToString("").take(40)
+    // The leading words up to the first measured value: "HARD BLOCK: Low liquidity $0" -> HARD_BLOCK_LOW_LIQUIDITY.
+    val t = raw.trim().uppercase().replace(':', ' ').split(Regex("\\s+"))
+        .takeWhile { w -> w.isNotEmpty() && w.none { it.isDigit() || it == '$' } }
+        .joinToString("_") { w -> w.map { if (it.isLetterOrDigit() || it == '_') it else '_' }.joinToString("") }
+        .replace(Regex("_+"), "_").trim('_').take(40)
     return t.ifBlank { "UNSPECIFIED" }
 }
 
