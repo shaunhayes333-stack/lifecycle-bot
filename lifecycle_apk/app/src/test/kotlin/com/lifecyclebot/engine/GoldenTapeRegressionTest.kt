@@ -14745,7 +14745,12 @@ class GoldenTapeRegressionTest {
             assertFalse(n, names.contains(n))
         }
         val sweep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearningResetSweep7781.kt").readText()
-        assertTrue(sweep.contains("TradeHistoryStore.clearAllTrades()"))
+        // A learning reset must preserve canonical blockchain economic receipts and
+        // historical trade journal rows. The clean proof run is separated using
+        // a new cohort and reset-scoped LIVE/PAPER 30-day counters instead.
+        assertFalse(sweep.contains("TradeHistoryStore.clearAllTrades()"))
+        assertTrue(sweep.contains("JournalCohort6389.beginNewCohort(generation)"))
+        assertTrue(sweep.contains("RunTracker30D.reset()"))
         assertTrue(sweep.contains("TradingMemory.clearLearned7781()"))
         val app = java.io.File("src/main/kotlin/com/lifecyclebot/AATEApp.kt").readText()
         assertTrue(app.indexOf("LearningResetSweep7781.applyPendingAtBoot") in 1 until app.indexOf("TradeHistoryStore.init(this)"))
