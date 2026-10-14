@@ -36,10 +36,8 @@ object LiveTruth8064 {
     private val byLane = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()  // [atMs, netPct]
     /** V5.0.8083 — lane|setup -> [atMs, netPct] of live closes bought on that exact setup. */
     private val bySetup8083 = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()
-    /** V5.0.8083 — mint -> lane|setup|admittedAtMs of a live admit awaiting its close (persisted). */
-    private val pendingSetup8083 = ConcurrentHashMap<String, String>()
+    // 8092: terminal setup credit reads the immutable position entry rather than a mutable mint admission.
     private const val SETUP_KEY_8083 = "LIVE_TRUTH_SETUP_8083"
-    private const val PENDING_TTL_MS_8083 = 72L * 60L * 60_000L
     const val UNATTRIBUTED_SETUP_8083 = "UNATTRIBUTED"
     /** Bounded negative-prior size factor for a proven-losing lane (never 0, never a block). */
     const val LOSING_LANE_SIZE_FACTOR_8083 = 0.6
@@ -78,7 +76,7 @@ object LiveTruth8064 {
                 if (e.mode.equals("live", ignoreCase = true) && honestEra8070(e.producedByVersion7103)) {
                     val lane8083 = laneOf(e.entryLane)
                     record(lane8083, e.netReturnPct, e.settledAtMs)
-                    recordSetup8083(e.mint, lane8083, e.netReturnPct, e.settledAtMs)
+                    recordSetup8083(e.positionId, e.mint, lane8083, e.netReturnPct, e.settledAtMs)
                 }
             }
         } catch (_: Throwable) { subscribed.set(false) }
@@ -102,7 +100,7 @@ object LiveTruth8064 {
                         for (i in 0 until a.length()) a.optJSONArray(i)?.let { r -> q.addLast(doubleArrayOf(r.optDouble(0), r.optDouble(1))) }
                     }
                 }
-                o.optJSONObject("pending")?.let { p -> for (k in p.keys()) pendingSetup8083[k] = p.optString(k) }
+                // Retired mint-only pending values are never restored into terminal outcome attribution.
             } catch (_: Throwable) {}
         }
     }
@@ -164,23 +162,27 @@ object LiveTruth8064 {
         return "LIVE_SETUP_LOSING_8083"
     }
 
-    /** V5.0.8083 — LiveEdgeGate7877 at a LIVE admit: file this mint's eventual close under its exact lane + setup. */
+    /** Candidate admission is an advisory signal, not a fill or a position-level setup stamp. */
     fun noteLiveAdmit8083(mint: String, lane: String, setup: String?, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return
-        ensure()
-        pendingSetup8083[mint] = "${setupKey8083(lane, setup)}|$nowMs"
-        if (pendingSetup8083.size > 500) pendingSetup8083.entries.removeIf { nowMs - (it.value.substringAfterLast('|').toLongOrNull() ?: 0L) > PENDING_TTL_MS_8083 }
-        persistSetup8083()
+        try { PipelineHealthCollector.labelInc("LIVE_SETUP_CANDIDATE_ADVISORY_8092") } catch (_: Throwable) {}
     }
 
-    private fun recordSetup8083(mint: String, lane: String, netPct: Double, atMs: Long) {
+    /** 8092: the terminal reward belongs to the sealed entry for the exact positionId. */
+    private fun recordSetup8083(positionId: String, mint: String, lane: String, netPct: Double, atMs: Long) {
         if (!netPct.isFinite()) return
-        val p = pendingSetup8083.remove(mint)
-        val key = p?.substringBeforeLast('|')?.takeIf { it.substringBefore('|') == lane } ?: setupKey8083(lane, null)
-        if (key.endsWith("|$UNATTRIBUTED_SETUP_8083")) try { PipelineHealthCollector.labelInc("LIVE_CLOSE_SETUP_UNATTRIBUTED_8083_$lane") } catch (_: Throwable) {}
+        val entry = if (positionId.isNotBlank()) EntryStrategySnapshot6450.snapshot(positionId) else null
+        val setup = entry?.takeIf {
+            it.mint == mint && laneOf(it.entryLane) == lane && it.entrySetup.isNotBlank()
+        }?.entrySetup
+        val key = setupKey8083(lane, setup)
+        if (setup == null) try { PipelineHealthCollector.labelInc("LIVE_CLOSE_SETUP_UNATTRIBUTED_8083_$lane") } catch (_: Throwable) {}
         val t = if (atMs > 0L) atMs else System.currentTimeMillis()
         synchronized(this) {
-            bySetup8083.getOrPut(key) { ArrayDeque() }.apply { addLast(doubleArrayOf(t.toDouble(), netPct)); while (size > MAX_PER_LANE) removeFirst() }
+            bySetup8083.getOrPut(key) { ArrayDeque() }.apply {
+                addLast(doubleArrayOf(t.toDouble(), netPct))
+                while (size > MAX_PER_LANE) removeFirst()
+            }
         }
         persistSetup8083()
     }
@@ -189,8 +191,7 @@ object LiveTruth8064 {
         try {
             val books = org.json.JSONObject()
             synchronized(this) { for ((k, q) in bySetup8083) books.put(k, org.json.JSONArray().apply { q.forEach { put(org.json.JSONArray().put(it[0]).put(it[1])) } }) }
-            val pending = org.json.JSONObject().apply { pendingSetup8083.forEach { (k, v) -> put(k, v) } }
-            LearningPersistence.save(SETUP_KEY_8083, org.json.JSONObject().put("books", books).put("pending", pending).toString())
+            LearningPersistence.save(SETUP_KEY_8083, org.json.JSONObject().put("books", books).toString())
         } catch (_: Throwable) {}
     }
 
