@@ -15247,7 +15247,8 @@ class BotService : Service() {
         )
         val specialistEvaluationAllowed6600 = designatedDeskQualified6599 &&
             (l.equals(primaryLane, true) || l.equals(boundedRescue6600, true) ||
-                SpecialistOwnership7951.handOffAllowed7960(l, ts.mint, primaryLane))  // V5.0.7960
+                SpecialistOwnership7951.handOffAllowed7960(l, ts.mint, primaryLane) ||  // V5.0.7960
+                SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane))  // V5.0.8094
         // V5.0.6604 §SPECIALIST_CONSENSUS_GATE (troubleshoot_agent P0 fix).
         //   Root cause slice of the <10% MemeTrader WR: MEME specialists
         //   (SHITCOIN / EXPRESS / MOONSHOT / PROJECT_SNIPER) could satisfy

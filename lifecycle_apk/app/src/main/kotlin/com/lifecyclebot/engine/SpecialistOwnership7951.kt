@@ -316,6 +316,25 @@ object SpecialistOwnership7951 {
         return ready
     }
 
+    /**
+     * V5.0.8094 — a READY specialist that is not the cycle primary evaluates the token when ITS OWN graded cell / kind for
+     * this token is proven (LiveEdgeGate7877.cellOrKindProven8094). 8094 live: 20 of 29 runners >= +400% were lost to
+     * SHADOW_NOT_PRIMARY_8029 (Meta AI +54,809%, JPWHALE +2,016%, PULT +1,915%) while the lanes' own cells read
+     * PUMP_PORTAL_WS|MANIPULATED|MC_10K_100K|AGE_LT15M n65 +737%, EXPRESS n66 +703%, SHITCOIN n146 +652%. Every gate of
+     * the evaluating lane (quarantine, rug, FDG, edge, sizing) and the one-owner election still decide.
+     */
+    internal fun readyCellProvenEvaluates8094(lane: String, mint: String, primaryLane: String): Boolean = try {
+        val l = lane7951(lane)
+        if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) false
+        else if (SpecialistCandidateBooks7803.entry(l, mint)?.state != SpecialistCandidateBooks7803.State.READY) false
+        else {
+            val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+            val ok = ts != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, l)
+            if (ok) notePreIntent7951(l, "READY_CELL_PROVEN_EVALUATES_8094")
+            ok
+        }
+    } catch (_: Throwable) { false }
+
     // V5.0.8094 — the 7960 hand-off opened only on the primary's FDG refusal; most primaries refuse in their own native
     // brain first (8093: CORE_YIELD_CLEAR_SPECIALIST 15,004 while CASHGEN / QUALITY sat READY_NOT_EVALUATED_PRIMARY_CORE;
     // 8094: MANIPULATED 1,485 qualified, EXPRESS 557, CASHGEN 466 — owner-selected 0). A fresh, graded native refusal on a

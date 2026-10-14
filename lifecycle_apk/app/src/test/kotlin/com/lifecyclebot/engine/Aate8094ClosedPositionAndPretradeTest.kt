@@ -314,7 +314,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(t.tacticLosing8094(5, 0, 1.0))       // positive mean
         assertEquals(0, t.tacticRecord8094("NO_SUCH_LANE_8094", com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM).first)
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(gate.contains("if (proven8059 == null) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
+        assertTrue(gate.contains("TacticSwitcher.losingTacticFor8094(ts, l8059)"))
     }
 
     @Test fun eachSetupIsGradedByWhenInTheMoveItWasTaken() {
@@ -387,5 +387,17 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals("SELECTION_QUALITY_FLOOR", com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("SELECTION_QUALITY_FLOOR_6830 lane=SHITCOIN conf=10% floor=37.0"))
         // No graded evidence: the floor is unchanged.
         assertFalse(com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(q.FLOOR_RULE_8094, "NO_SUCH_LANE_8094"))
+    }
+
+    @Test fun aReadySpecialistWithAProvenCellEvaluatesAndTheTacticGateSparesProvenCells() {
+        val bot = src("engine/BotService.kt")
+        assertTrue(bot.contains("SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane))  // V5.0.8094"))
+        val own = src("engine/SpecialistOwnership7951.kt")
+        assertTrue(own.contains("LiveEdgeGate7877.cellOrKindProven8094(ts, l)"))
+        // Not the primary, not READY, or no token state: no evaluation.
+        assertFalse(SpecialistOwnership7951.readyCellProvenEvaluates8094("MANIPULATED", "NO_SUCH_MINT_8094", "MOONSHOT"))
+        assertFalse(SpecialistOwnership7951.readyCellProvenEvaluates8094("MOONSHOT", "NO_SUCH_MINT_8094", "MOONSHOT"))
+        val gate = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
     }
 }

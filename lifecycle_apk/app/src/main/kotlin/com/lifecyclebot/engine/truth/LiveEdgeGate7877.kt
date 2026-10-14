@@ -450,7 +450,9 @@ object LiveEdgeGate7877 {
             }
             // V5.0.8094 — the tactic this coin would trade as has a losing realised record in this lane: only a proven setup
             // (honest labels, mean - SE > 0 on 30+) may still trade it, so the tactic can re-prove itself; nothing else does.
-            if (proven8059 == null) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->
+            // (a token whose own cell / kind is proven is not refused on the tactic alone: 8094 missed HULKED +1984%,
+            // smol +1862%, MrBeast +972% here.)
+            if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->
                 val r8094 = "TACTIC_RECORD_LOSING_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$t") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
@@ -529,6 +531,15 @@ object LiveEdgeGate7877 {
             (change5mPct.isFinite() && change5mPct >= 100.0)
 
     /** V5.0.8063 — a 30+ label kind book (lane x venue x cap band, or lane x narrative) for [ts] reads mean - SE > 0. */
+    /**
+     * V5.0.8094 — this token's own graded cell (source x lane x cap band x age band) or its kind (venue x cap band, narrative)
+     * is proven to pay in [lane]: 30+ labels at the executable price, mean - SE above the margin.
+     */
+    fun cellOrKindProven8094(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        val st = ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs)
+        (st != null && cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct)) || kindProven8063(ts, lane)
+    } catch (_: Throwable) { false }
+
     private fun kindProven8063(ts: TokenState, lane: String): Boolean {
         val ok = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) } } catch (_: Throwable) { false }
         if (ok) kindProven8063.incrementAndGet()
