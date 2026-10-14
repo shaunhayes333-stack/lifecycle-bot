@@ -486,12 +486,22 @@ object FluidLearningAI {
         // bootstrap while RunTracker30D showed 1550 trades). If we have
         // ANY real multi-trade history we're past cold-start.
         try {
-            val memeTrades = (com.lifecyclebot.engine.RunTracker30D.getLaneStats("MEME")["trades"] as? Int) ?: 0
+            // 8093: LIVE may only graduate from LIVE canonical closes.
+            // The historical 30D MEME bucket contains PAPER and must never
+            // unlock live-admission maturity.
+            val memeTrades = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                (com.lifecyclebot.engine.RunTracker30D.getLaneStats("MEME")["trades"] as? Int) ?: 0
+            } else {
+                (com.lifecyclebot.engine.RunTracker30D.getLiveLaneStats("MEME")["trades"] as? Int) ?: 0
+            }
             if (memeTrades >= EARLY_BOOTSTRAP_TRADES) return false
         } catch (_: Throwable) {}
 
         // After first 50 trades, no blocking
-        if (totalTrades >= EARLY_BOOTSTRAP_TRADES) return false
+        // The fallback legacy count also contains historical (often PAPER)
+        // desk outcomes. It cannot graduate LIVE bootstrap.
+        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() &&
+            totalTrades >= EARLY_BOOTSTRAP_TRADES) return false
 
         // V5.9.179 — effectiveFloor dropped 25 → 5 so fresh launches with
         // V3 scores in the 14-24 band aren't silently shadowed during
