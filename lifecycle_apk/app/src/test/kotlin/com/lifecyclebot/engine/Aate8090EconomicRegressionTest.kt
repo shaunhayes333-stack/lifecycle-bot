@@ -74,7 +74,7 @@ class Aate8090EconomicRegressionTest {
         assertEquals(-30_000_000L, r.solDeltaLamports)
     }
 
-    @Test fun closedToken2022AccountKeepsHistoricalDebit() {
+    @Test fun closedTokenAccountKeepsHistoricalDebit() {
         val r = TxParseHelper.parseTransaction8090("wallet", "sig", tx(JSONArray().put(token(1, "33", 0)), JSONArray()))!!
         assertEquals(BigInteger("-33"), r.tokenDeltas["mint"]!!.rawDelta)
         assertEquals(0, r.tokenDeltas["mint"]!!.decimals)
@@ -86,6 +86,42 @@ class Aate8090EconomicRegressionTest {
         input.getJSONObject("meta").remove("postTokenBalances")
         assertNull(TxParseHelper.parseTransaction8090("wallet", "sig", input))
         assertNull(TxParseHelper.parseTransaction8090("otherWallet", "sig", tx(JSONArray(), JSONArray())))
+    }
+
+    @Test fun missingErrorMetadataCannotClaimSettlement() {
+        val input = tx(JSONArray(), JSONArray())
+        input.getJSONObject("meta").remove("err")
+        assertNull(TxParseHelper.parseTransaction8090("wallet", "sig", input))
+    }
+
+    @Test fun unpaidRunnerCannotCreateOrRetainMoonbag() {
+        assertEquals(TailBag8034.Decision.Pass,
+            TailBag8034.decidePure8034("MOONSHOT", "TIME_EXIT", 900.0, null, 1000L))
+        assertEquals(TailBag8034.Decision.Pass,
+            TailBag8034.decidePure8034("MOONSHOT", "TIME_EXIT", 900.0, TailBag8034.Tail(1L, 1L, 0), 1000L))
+        assertEquals(TailBag8034.Decision.Pass,
+            TailBag8034.decidePure8034("MOONSHOT", "HARD_STOP", -25.0, TailBag8034.Tail(1L, 1L, 0), 1000L, true))
+    }
+
+    @Test fun exactIdentityIsPositionBoundAndSurvivesRestart() {
+        val priorPaper = RuntimeModeAuthority.isPaper()
+        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = true)
+        val h = StrategyHypothesisEngine
+        h.reset()
+        try {
+            val identity = "BREAKOUT_CONTINUATION>LAUNCH_LADDER_PROVEN>DIAMOND_HANDS_RUNNER>MOMENTUM"
+            h.getSizeBias("MOONSHOT", 60, "NORMAL", "runner8090", identity, 8090L)
+            h.bindExecutedPosition7428("position8090", "runner8090", 8090L, "MOONSHOT", "PAPER")
+            h.getSizeBias("MOONSHOT", 60, "NORMAL", "runner8090", "REVERSAL>DIP>SWING>REVERSAL", 8091L)
+            assertEquals(identity.split('>'), h.exactEntryIdentity8090("position8090", "runner8090", "MOONSHOT", 8090L))
+            assertNull(h.exactEntryIdentity8090("position8090", "runner8090", "MOONSHOT", 8091L))
+            val saved = h.exportState()
+            h.importState(saved)
+            assertEquals(identity.split('>'), h.exactEntryIdentity8090("position8090", "runner8090", "MOONSHOT", 8090L))
+        } finally {
+            h.reset()
+            RuntimeModeAuthority.publishConfig(paperMode = priorPaper, autoTrade = true)
+        }
     }
 
     @Test fun costUsesEachPartialSalesOwnSolExchangeRate() {

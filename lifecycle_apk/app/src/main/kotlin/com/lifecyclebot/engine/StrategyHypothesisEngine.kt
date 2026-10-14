@@ -123,6 +123,11 @@ object StrategyHypothesisEngine {
         val context: String,
         val isVariantArm: Boolean,
         val strategyVariantId: String,
+        val exactIdentity8090: String = "",
+        val mint8090: String = "",
+        val candidateVersion8090: Long = 0L,
+        val lane8090: String = "",
+        val mode8090: String = "",
     )
     private val pendingByDecision7428 = ConcurrentHashMap<String, AppliedDecision7428>()
     private val pendingByPosition7428 = ConcurrentHashMap<String, AppliedDecision7428>()
@@ -240,11 +245,17 @@ object StrategyHypothesisEngine {
         try {
             active.getOrPut(ctx) { spawn(ctx) }
             val dk = decisionKey7428(mint, candidateVersion, lane)
-            val applied = AppliedDecision7428(ctx, false, "")
+            val applied = AppliedDecision7428(ctx, false, "", strategyIdentity, mint, candidateVersion, lane, LearningEnvironment7835.mode())
             // Same rule as the main path (7809): an identity-free re-read never overwrites the exact stamp.
-            if (strategyIdentity.isBlank()) pendingByDecision7428.putIfAbsent(dk, applied) else pendingByDecision7428[dk] = applied
+            rememberDecision8090(dk, applied)
             PipelineHealthCollector.labelInc("HYPOTHESIS_SUPPRESSED_CONTROL_STAMPED_7948")
         } catch (_: Throwable) {}
+    }
+
+    private fun rememberDecision8090(key: String, applied: AppliedDecision7428) {
+        pendingByDecision7428.compute(key) { _, old ->
+            if (old == null || (old.exactIdentity8090.isBlank() && applied.exactIdentity8090.isNotBlank())) applied else old
+        }
     }
 
     /** Deterministic arm assignment so a mint always lands in the same arm. */
@@ -355,20 +366,14 @@ object StrategyHypothesisEngine {
             } catch (_: Throwable) { 1.0 }
             try {
                 val cv7428 = candidateVersion
-                val applied7809 = AppliedDecision7428(ctx, variant, exactVariantId7428)
+                val applied7809 = AppliedDecision7428(ctx, variant, exactVariantId7428, strategyIdentity, mint, candidateVersion, lane, LearningEnvironment7835.mode())
                 val dk7809 = decisionKey7428(mint, cv7428, lane)
                 // V5.0.7809 — Field Manual L356 (exact ownership). The executor
                 // re-reads getSizeBias with NO strategy identity for the same
                 // mint/version/lane after FDG stamped the exact playbook context.
                 // The identity-free re-read must never overwrite the exact stamp,
                 // or the position binds to the parent lane|band|regime arm.
-                if (strategyIdentity.isBlank()) {
-                    if (pendingByDecision7428.putIfAbsent(dk7809, applied7809) != null) {
-                        PipelineHealthCollector.labelInc("HYPOTHESIS_EXACT_STAMP_PRESERVED_7809")
-                    }
-                } else {
-                    pendingByDecision7428[dk7809] = applied7809
-                }
+                rememberDecision8090(dk7809, applied7809)
                 PipelineHealthCollector.labelInc("HYPOTHESIS_DECISION_STAMPED_7428")
             } catch (_: Throwable) {}
             (bias * reviewedLabBias * strategyVariantBias4342).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
@@ -533,6 +538,14 @@ object StrategyHypothesisEngine {
                 appContext?.let { save(it) }
             }
         } catch (_: Throwable) {}
+    }
+
+    /** Full decision-time identity; never reconstruct truncated context keys or newer mint evaluations. */
+    fun exactEntryIdentity8090(positionId: String, mint: String, lane: String, candidateVersion: Long): List<String>? {
+        val applied = pendingByPosition7428[positionId] ?: return null
+        if (applied.mint8090 != mint || !applied.lane8090.equals(lane, true) ||
+            candidateVersion <= 0L || applied.candidateVersion8090 != candidateVersion) return null
+        return applied.exactIdentity8090.split('>').takeIf { it.size == 4 && it.all(String::isNotBlank) }
     }
 
     /** Settle only the hypothesis/variant that was bound to this position. */
@@ -748,6 +761,8 @@ object StrategyHypothesisEngine {
                 p.put("ctx", applied.context)
                 p.put("var", applied.isVariantArm)
                 p.put("variantId", applied.strategyVariantId)
+                p.put("exact8090", applied.exactIdentity8090).put("mint8090", applied.mint8090)
+                    .put("candidate8090", applied.candidateVersion8090).put("lane8090", applied.lane8090).put("mode8090", applied.mode8090)
                 bp7445.put(positionId, p)
             }
             put("boundPositions7445", bp7445)
@@ -805,6 +820,8 @@ object StrategyHypothesisEngine {
                         context = ctx,
                         isVariantArm = p.optBoolean("var", false),
                         strategyVariantId = p.optString("variantId", ""),
+                        exactIdentity8090 = p.optString("exact8090"), mint8090 = p.optString("mint8090"),
+                        candidateVersion8090 = p.optLong("candidate8090"), lane8090 = p.optString("lane8090"), mode8090 = p.optString("mode8090"),
                     )
                 }
                 if (pendingByPosition7428.isNotEmpty()) {

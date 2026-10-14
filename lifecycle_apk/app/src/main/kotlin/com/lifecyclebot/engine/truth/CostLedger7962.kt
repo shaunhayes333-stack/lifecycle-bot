@@ -259,6 +259,8 @@ object CostLedger7962 {
 
     // ── persistence ──
 
+    private var excludedLegacy8090 = org.json.JSONObject()
+
     private fun ensureLoaded() {
         if (loaded) return
         if (!LearningPersistence.ready()) return
@@ -267,9 +269,18 @@ object CostLedger7962 {
             loaded = true
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
+                excludedLegacy8090 = o.optJSONObject("excludedLegacy8090") ?: org.json.JSONObject()
                 o.optJSONObject("lanes")?.let { j ->
                     for (k in j.keys()) {
                         val a = j.optJSONArray(k) ?: continue
+                        // Preserve invalid historical samples verbatim outside the cost learner.
+                        val excluded = org.json.JSONArray()
+                        for (i in 0 until a.length()) {
+                            val row = a.optJSONArray(i)
+                            if (row == null || !row.optDouble(0).isFinite() || row.optDouble(0) !in 0.0..MAX_SANE_COST_PCT ||
+                                !row.optDouble(2).isFinite() || row.optDouble(2) !in 0.0..MAX_SANE_COST_PCT) excluded.put(a.opt(i))
+                        }
+                        if (excluded.length() > 0) excludedLegacy8090.put(k, excluded)
                         byLane[k] = ArrayDeque((0 until a.length()).mapNotNull { i ->
                             a.optJSONArray(i)?.let { r -> doubleArrayOf(r.optDouble(0), r.optDouble(1), r.optDouble(2)) }
                         }.filter { it[0].isFinite() && it[0] in 0.0..MAX_SANE_COST_PCT && it[2].isFinite() && it[2] in 0.0..MAX_SANE_COST_PCT }.takeLast(RING))
@@ -305,7 +316,8 @@ object CostLedger7962 {
         }) })) }
         val marks = org.json.JSONObject()
         entryMarks.forEach { (k, m) -> if (k != removePosition) marks.put(k, org.json.JSONArray(listOf(m.mint, m.markUsd, m.solUsd, m.atMs))) }
-        return org.json.JSONObject().put("lanes", lanes).put("marks", marks).toString()
+        return org.json.JSONObject().put("lanes", lanes).put("marks", marks)
+            .put("excludedLegacy8090", excludedLegacy8090).toString()
     }
 
     fun statusLine7962(): String {

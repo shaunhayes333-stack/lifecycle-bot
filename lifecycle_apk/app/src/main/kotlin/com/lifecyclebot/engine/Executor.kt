@@ -13658,6 +13658,7 @@ class Executor(
         val policy = ts?.position?.entryPolicySnapshot.orEmpty()
         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
             positionId = "", mint = intent.mint, entryLane = lane, entryStrategyPid = "",
+            candidateVersion8090 = intent.candidateVersion, mode8090 = intent.mode,
             entryTactic = policyField6568(policy, "entryTactic").ifBlank { "UNKNOWN" },
             entryRiskProfile = "", entryExitProfile = "",
             entrySource = ts?.source.orEmpty(),
@@ -16784,7 +16785,7 @@ class Executor(
             entryDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
             com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                 com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
-                    positionId = pid6450,
+                    positionId = pid6450, candidateVersion8090 = tradeId.fdgCandidateVersion, mode8090 = "PAPER",
                     mint = tradeId.mint,
                     entryLane = entryLane6450,
                     entryStrategyPid = "",
@@ -21299,6 +21300,7 @@ class Executor(
                     com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
+                            candidateVersion8090 = requireNotNull(sealedLiveIntent6613).candidateVersion, mode8090 = "LIVE",
                             entryStrategyPid = "", entryTactic = policyField6568(ts.position.entryPolicySnapshot, "entryTactic").ifBlank {
                                 try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
                             },

@@ -68,11 +68,12 @@ object TailBag8034 {
     }
 
     /** Pure decision for an exit request [reason] at [pnlPct] on a position of [lane]. */
-    fun decidePure8034(lane: String, reason: String, pnlPct: Double, tail: Tail?, nowMs: Long): Decision {
+    fun decidePure8034(lane: String, reason: String, pnlPct: Double, tail: Tail?, nowMs: Long, capitalRecovered: Boolean = false): Decision {
         val l = lane.uppercase()
         if (l !in TAIL_LANES_8034) return Decision.Pass
         if (reason.uppercase().startsWith("TAIL_") || reason.uppercase().startsWith("LIFECYCLE_") ||
-            structural8034(reason)) return Decision.Pass
+            structural8034(reason) || com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return Decision.Pass
+        if (!capitalRecovered) return Decision.Pass
         if (tail == null) return Decision.SetAside
         if (nowMs - tail.setAt > TAIL_MAX_AGE_MS) return Decision.Pass
         milestoneAt8034(pnlPct, tail.taken)?.let { (i, f) -> return Decision.Milestone(i, f) }
@@ -124,7 +125,8 @@ object TailBag8034 {
         val tail = tailOf8034(ts)
         val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(pos.tradingMode) } catch (_: Throwable) { "" }
             .ifBlank { pos.tradingMode }
-        val d = decidePure8034(lane, reason, pnlOf(ts), tail, nowMs)
+        val capitalRecovered = capitalRecovered8090(pos.positionId, ts.mint)
+        val d = decidePure8034(lane, reason, pnlOf(ts), tail, nowMs, capitalRecovered)
         if (d == Decision.Hold) held.incrementAndGet()
         if (d == Decision.Pass && tail != null) {
             released.incrementAndGet()
@@ -133,9 +135,18 @@ object TailBag8034 {
         return d
     }
 
+    /** A retained runner is funded only by settled net proceeds, never by a mark or a tier flag. */
+    fun capitalRecovered8090(positionId: String, mint: String): Boolean {
+        val p = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return false
+        return p.mode.equals("live", true) && p.mint == mint && p.remainingQtyRaw.signum() > 0 &&
+            p.entryCostSol.isFinite() && p.entryCostSol > 0.0 && p.feesSol.isFinite() && p.feesSol >= 0.0 &&
+            p.realizedProceedsSol.isFinite() && p.realizedProceedsSol - p.feesSol >= p.entryCostSol
+    }
+
     /** The set-aside sale applied: the rest of the position is now the tail. */
     fun markSetAside8034(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
         load()
+        if (!capitalRecovered8090(ts.position.positionId, ts.mint)) return
         tails[ts.mint] = Tail(ts.position.entryTime, nowMs, 0)
         setAside.incrementAndGet()
         save()
@@ -155,7 +166,9 @@ object TailBag8034 {
     /** Executor.requestPartialSell: a tail never sells a slice on an ordinary partial. */
     fun partialHeld8034(ts: TokenState, reason: String): Boolean {
         if (ts.position.isPaperPosition || reason.uppercase().startsWith("TAIL_") ||
-            reason.uppercase().startsWith("LIFECYCLE_") || structural8034(reason)) return false
+            reason.uppercase().startsWith("LIFECYCLE_") || structural8034(reason) ||
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return false
+        if (!capitalRecovered8090(ts.position.positionId, ts.mint)) return false
         val t = tailOf8034(ts) ?: return false
         if (System.currentTimeMillis() - t.setAt > TAIL_MAX_AGE_MS) return false
         held.incrementAndGet()

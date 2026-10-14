@@ -31,6 +31,20 @@ class Aate7803ResidentPipelineArchitectureTest {
         assertEquals(setOf("QUALITY"), ready.keys)
     }
 
+    @Test fun repeatedDiscoveryCannotEraseReadyExecutionOffer() {
+        val original = SpecialistCandidateBooks7803.markReady("MOONSHOT", "runner", "R", 12L, 90, 90.0, "ready")!!
+        SpecialistCandidateBooks7803.publishHunt("MOONSHOT", "runner", "R")
+        val retained = SpecialistCandidateBooks7803.readyFor("runner", 12L)["MOONSHOT"]!!
+        assertEquals(original.updatedAtMs, retained.updatedAtMs)
+        assertEquals(original.conviction, retained.conviction, 0.0)
+        SpecialistCandidateBooks7803.markQualified("MOONSHOT", "runner", "R", 11L, 40.0, "late old evaluation")
+        assertEquals(original, SpecialistCandidateBooks7803.readyFor("runner", 12L)["MOONSHOT"])
+        SpecialistCandidateBooks7803.markQualified("MOONSHOT", "runner", "R", 13L, 60.0, "new evidence")
+        assertTrue(SpecialistCandidateBooks7803.readyFor("runner", 12L).isEmpty())
+        assertTrue(SpecialistCandidateBooks7803.readyFor("runner", 13L).isEmpty())
+        assertEquals(13L, SpecialistCandidateBooks7803.qualifiedFor("runner", 13L)["MOONSHOT"]!!.candidateVersion)
+    }
+
     @Test fun cryptoStrategiesRemainResidentUntilReadyReduction() {
         CryptoStrategyCandidateBooks7803.qualify("asset7803","AS","MOMENTUM",7803L,78,76,"q")
         CryptoStrategyCandidateBooks7803.qualify("asset7803","AS","PULLBACK",7803L,82,80,"q")

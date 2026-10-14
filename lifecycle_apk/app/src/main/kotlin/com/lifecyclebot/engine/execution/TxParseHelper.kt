@@ -72,6 +72,7 @@ object TxParseHelper {
     /** Pure transaction projection. Sum every owner account; missing metadata remains unproven. */
     internal fun parseTransaction8090(owner: String, signature: String, result: JSONObject): ParseResult? {
         val meta = result.optJSONObject("meta") ?: return null
+        if (!meta.has("err")) return null
         val errObj = meta.opt("err")
         val metaErr: String? = if (errObj == null || errObj == JSONObject.NULL)
             null else errObj.toString().take(180)

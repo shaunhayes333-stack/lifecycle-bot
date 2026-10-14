@@ -68,7 +68,8 @@ object OnChainCost8024 {
 
     /** Pure: does the replayed quantity match the wallet's on-chain balance (0.1% tolerance)? */
     fun reconciles8024(replayedRaw: BigInteger, walletRaw: BigInteger): Boolean {
-        if (walletRaw.signum() <= 0) return false
+        if (walletRaw.signum() < 0 || replayedRaw.signum() < 0) return false
+        if (walletRaw.signum() == 0) return replayedRaw.signum() == 0
         val diff = (replayedRaw - walletRaw).abs()
         return diff.multiply(BigInteger.valueOf(1000)) <= walletRaw
     }
@@ -87,7 +88,10 @@ object OnChainCost8024 {
      * add up to the balance (nothing claimed).
      */
     fun resultFor8024(mint: String, walletRaw: BigInteger, nowMs: Long = System.currentTimeMillis()): Result {
-        val c = cache[mint]
+        val owner = com.lifecyclebot.engine.WalletManager.getWallet()?.publicKeyB58
+            ?: return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, nowMs, "NO_WALLET")
+        val cacheKey = "$owner|$mint"
+        val c = cache[cacheKey]
         if (c != null && c.heldRaw == walletRaw) {
             val fresh = when (c.state) {
                 State.READY -> nowMs - c.atMs < CACHE_MS
@@ -96,14 +100,14 @@ object OnChainCost8024 {
             }
             if (fresh) return c
         }
-        if (inFlight.add(mint)) {
+        if (inFlight.add(cacheKey)) {
             try {
                 worker.execute {
-                    try { cache[mint] = compute(mint, walletRaw) } catch (_: Throwable) {
-                        cache[mint] = Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, System.currentTimeMillis(), "ERROR")
-                    } finally { inFlight.remove(mint) }
+                    try { cache[cacheKey] = compute(mint, walletRaw) } catch (_: Throwable) {
+                        cache[cacheKey] = Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, System.currentTimeMillis(), "ERROR")
+                    } finally { inFlight.remove(cacheKey) }
                 }
-            } catch (_: Throwable) { inFlight.remove(mint) }
+            } catch (_: Throwable) { inFlight.remove(cacheKey) }
         }
         return Result(State.PENDING, Double.NaN, walletRaw, 0, 0, nowMs, "READING_CHAIN")
     }
@@ -113,20 +117,40 @@ object OnChainCost8024 {
         val wallet = com.lifecyclebot.engine.WalletManager.getWallet()
             ?: return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, now, "NO_WALLET")
         val owner = wallet.publicKeyB58
-        // 1) the owner's token account(s) for this mint
-        val accounts = ArrayList<String>()
+        // Current account absence does not erase historical buys. Persisted signatures and
+        // previously observed owner accounts are discovery pointers, never settlement proof.
+        val accounts = linkedSetOf<String>()
+        val historyKey = "chain_accounts_8090_${owner}_$mint"
+        com.lifecyclebot.engine.LearningPersistence.load(historyKey)?.lineSequence()
+            ?.filter { it.isNotBlank() }?.forEach(accounts::add)
         val ta = wallet.rpcCall("getTokenAccountsByOwner", JSONArray().put(owner).put(JSONObject().put("mint", mint))
-            .put(JSONObject().put("encoding", "jsonParsed")))
-        ta.optJSONObject("result")?.optJSONArray("value")?.let { v -> for (i in 0 until v.length()) v.optJSONObject(i)?.optString("pubkey")?.takeIf { it.isNotBlank() }?.let(accounts::add) }
-        if (accounts.isEmpty()) return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, now, "NO_TOKEN_ACCOUNT")
-        // 2) every signature that touched them (newest first, paged)
-        val sigs = LinkedHashMap<String, Pair<Long, Long>>()   // signature -> (slot, blockTime)
-        for (acct in accounts) {
+            .put(JSONObject().put("encoding", "jsonParsed").put("commitment", "finalized")))
+        val current = ta.optJSONObject("result")?.optJSONArray("value")
+            ?: return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, now, "ACCOUNT_READ_UNKNOWN")
+        for (i in 0 until current.length()) current.optJSONObject(i)?.optString("pubkey")
+            ?.takeIf { it.isNotBlank() }?.let(accounts::add)
+        val sigs = LinkedHashMap<String, Pair<Long, Long>>()
+        val parsed = HashMap<String, com.lifecyclebot.engine.execution.TxParseHelper.ParseResult>()
+        for (entry in com.lifecyclebot.network.SignedTxLedger8085.historyFor8090(mint)) {
+            if (entry.state != com.lifecyclebot.network.SignedTxLedger8085.State.CONFIRMED) continue
+            val proof = com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, entry.signature)
+                ?: return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, now, "PERSISTED_SIGNATURE_PROOF_PENDING")
+            if (proof.metaErr != null || mint !in proof.tokenDeltas) continue
+            parsed[entry.signature] = proof
+            sigs[entry.signature] = proof.slot to proof.blockTime
+            accounts.addAll(proof.tokenAccounts)
+        }
+        if (accounts.isNotEmpty()) com.lifecyclebot.engine.LearningPersistence.save(historyKey, accounts.joinToString("\n"))
+        // Owner history can discover a closed ATA when no account pointer survived. The
+        // bounded page is explicitly incomplete if quantity/history cannot be reconstructed.
+        val historyAddresses = accounts.ifEmpty { linkedSetOf(owner) }
+        for (acct in historyAddresses) {
             var before: String? = null
             while (sigs.size < MAX_TXS) {
-                val opts = JSONObject().put("limit", SIG_PAGE).put("commitment", "confirmed")
+                val opts = JSONObject().put("limit", SIG_PAGE).put("commitment", "finalized")
                 if (before != null) opts.put("before", before)
-                val page = wallet.rpcCall("getSignaturesForAddress", JSONArray().put(acct).put(opts)).optJSONArray("result") ?: break
+                val page = wallet.rpcCall("getSignaturesForAddress", JSONArray().put(acct).put(opts)).optJSONArray("result")
+                    ?: return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, now, "SIGNATURE_HISTORY_UNKNOWN")
                 if (page.length() == 0) break
                 for (i in 0 until page.length()) {
                     val o = page.optJSONObject(i) ?: continue
@@ -141,13 +165,13 @@ object OnChainCost8024 {
         // 3) the owner's own deltas in each transaction
         val moves = ArrayList<Move>()
         for ((sig, at) in sigs) {
-            val p = com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, sig)
+            val p = parsed[sig] ?: com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, sig)
                 ?: return Result(State.UNRECONCILED, Double.NaN, walletRaw, 0, 0, now, "TX_UNREADABLE")
             if (p.metaErr != null) continue
             val d = p.tokenDeltas[mint]?.rawDelta ?: continue
             if (d.signum() == 0) continue
-            val wsol = p.tokenDeltas[WSOL]?.rawDelta?.toLong() ?: 0L
-            moves.add(Move(blockTime = at.second, slot = at.first, tokenRaw = d, solLamports = p.solDeltaLamports + wsol))
+            val wsol = p.tokenDeltas[WSOL]?.rawDelta?.longValueExact() ?: 0L
+            moves.add(Move(blockTime = at.second, slot = at.first, tokenRaw = d, solLamports = Math.addExact(p.solDeltaLamports, wsol)))
         }
         val r = replay8024(moves)
         return if (reconciles8024(r.heldRaw, walletRaw) && r.buys > 0) {
@@ -166,7 +190,8 @@ object OnChainCost8024 {
     /** V5.0.8027 — name every held coin whose chain history does not add up: symbol, mint, why. */
     private fun unreconciledNames8027(): String =
         cache.entries.filter { it.value.state == State.UNRECONCILED }.take(8).joinToString(" · ") { (mint, r) ->
-            val sym = try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.symbol } catch (_: Throwable) { null }
+            val tokenMint = mint.substringAfter('|')
+            val sym = try { com.lifecyclebot.engine.BotService.status.tokens[tokenMint]?.symbol } catch (_: Throwable) { null }
             "${sym ?: "?"} $mint ${r.why.take(40)}"
         }.ifEmpty { "-" }
 }

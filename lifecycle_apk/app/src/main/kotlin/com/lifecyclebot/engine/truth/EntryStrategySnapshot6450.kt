@@ -79,6 +79,8 @@ object EntryStrategySnapshot6450 {
          * "setup[;fired,...]#O=<Outcome8084>#V=<featureVersion>". Blank = no Cortex decision tag existed for the entry.
          */
         val cortexSetupTag8085: String = "",
+        val candidateVersion8090: Long = 0L,
+        val mode8090: String = "unknown",
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -89,13 +91,12 @@ object EntryStrategySnapshot6450 {
 
     fun setEntry(snapIn: Snapshot): Boolean {
         if (snapIn.positionId.isBlank()) { rejects.incrementAndGet(); return false }
-        // V5.0.8085 — the entry snapshot carries the same setup + outcome + feature version the Cortex decision used.
-        val snap = if (snapIn.cortexSetupTag8085.isNotBlank()) snapIn else {
-            val tag = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.decisionTag8085(snapIn.mint, snapIn.entryLane) } catch (_: Throwable) { null }
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                if (tag.isNullOrBlank()) "SETUP_ENTRY_SNAPSHOT_NO_DECISION_TAG_8085" else "SETUP_ENTRY_SNAPSHOT_TAGGED_8085") } catch (_: Throwable) {}
-            if (tag.isNullOrBlank()) snapIn else snapIn.copy(cortexSetupTag8085 = tag)
-        }
+        val exact = com.lifecyclebot.engine.StrategyHypothesisEngine.exactEntryIdentity8090(
+            snapIn.positionId, snapIn.mint, snapIn.entryLane, snapIn.candidateVersion8090)
+        val snap = if (exact == null) snapIn else snapIn.copy(
+            entryTradeType = exact[0], entrySetup = exact[1], entryStyle = exact[2], entryTactic = exact[3])
+        // A missing Cortex tag stays unknown. Looking up the current mint classification
+        // here could attach a later decision to an already executed position.
         val restoredPrior6567 = snapshot(snap.positionId)
         val prior = restoredPrior6567 ?: snapshots.putIfAbsent(snap.positionId, snap)
         if (prior != null) {
@@ -155,6 +156,7 @@ object EntryStrategySnapshot6450 {
                 .put("variant7427", snap.entryStrategyVariantId)
                 .put("assetClass", snap.assetClassTag)
                 .put("cortexSetup8085", snap.cortexSetupTag8085)
+                .put("candidateVersion8090", snap.candidateVersion8090).put("mode8090", snap.mode8090)
             LearningPersistence.save(persistenceKey6567(snap.positionId), j.toString())
         } catch (_: Throwable) {}
     }
@@ -186,6 +188,7 @@ object EntryStrategySnapshot6450 {
             entryExitStyle = j.optString("exitStyle7427", ""), entryStrategyVariantId = j.optString("variant7427", ""),
             assetClassTag = j.optString("assetClass", AssetClass.SOLANA_TOKEN.tag),
             cortexSetupTag8085 = j.optString("cortexSetup8085", ""),
+            candidateVersion8090 = j.optLong("candidateVersion8090"), mode8090 = j.optString("mode8090", "unknown"),
         ).also { snapshots.putIfAbsent(positionId, it) }
     } catch (_: Throwable) { null }
     }

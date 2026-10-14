@@ -342,10 +342,15 @@ object CanonicalFinalizedTradeBus6464 {
         if (!retryRunning6486.compareAndSet(false, true)) return
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                repeat(4) {
-                    kotlinx.coroutines.delay(2_000L * (it + 1))
+                do {
+                    // The former 2/4/6/8-second loop ended before the 30-second
+                    // consumer backoff, permanently stranding recoverable outcomes.
+                    kotlinx.coroutines.delay(31_000L)
                     redeliverPending6486()
-                }
+                } while (canonicalSeen.keys.any { id -> consumerAcks.keys.any { name ->
+                    !isExcluded(name, id) && id !in consumerAcks[name].orEmpty() &&
+                        !CanonicalFinalityPersistence6486.hasAck6486(name, id)
+                } })
             } finally { retryRunning6486.set(false) }
         }
     }

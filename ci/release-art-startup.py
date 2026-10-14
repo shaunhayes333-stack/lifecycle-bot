@@ -44,13 +44,21 @@ try:
             xml = adb("shell", "cat", "/sdcard/release_ui.xml")
             (output / "ui.xml").write_text(xml)
             nodes = list(ET.fromstring(xml).iter("node"))
+            # Fresh Android images show an immersive-mode tutorial over the app.
+            # Dismiss observed first-run dialogs before trying the actual Start control.
+            overlay = next((n for n in nodes if n.get("resource-id") == "android:id/ok"
+                            and n.get("text", "").lower() == "got it"), None)
+            permission = next((n for n in nodes if n.get("resource-id", "").endswith("/permission_allow_button")), None)
             disclaimer = next((n for n in nodes if n.get("text", "").upper() == "I AGREE"), None)
-            target = disclaimer if disclaimer is not None else next((n for n in nodes if n.get("resource-id", "").endswith("/btnToggle") and n.get("enabled") == "true"), None)
+            start = next((n for n in nodes if n.get("resource-id", "").endswith("/btnToggle")
+                          and n.get("enabled") == "true" and "start" in n.get("text", "").lower()), None)
+            target = next((n for n in (overlay, permission, disclaimer, start) if n is not None), None)
             if target is not None:
                 bounds = list(map(int, re.findall(r"\d+", target.get("bounds", ""))))
                 if len(bounds) == 4:
                     adb("shell", "input", "tap", str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
-                    start_tapped = disclaimer is None
+                    start_tapped = target is start
+                    print("Tapped", target.get("resource-id"), target.get("text"), flush=True)
         time.sleep(2)
     else:
         raise RuntimeError("Release did not prove bootstrap and first loop within 240 seconds")
