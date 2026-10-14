@@ -436,6 +436,14 @@ object LiveEdgeGate7877 {
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
                 observeTail7996(ts, lane, r8094, nowMs); return r8094
             }
+            // V5.0.8094 — timing: the picked setup's record AT THIS POINT OF THE MOVE (pullback / mid / extended / peak) is
+            // losing — wait for a band where it pays (graded at the executable price).
+            (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
+                val r8094 = "TIMING_RECORD_NEGATIVE_8094"
+                try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$at") } catch (_: Throwable) {}
+                recordAssessment8083(ts, l8059, setup8083, Verdict8083.DEFER, r8094, 1.0, nowMs)
+                observeTail7996(ts, lane, r8094, nowMs); return r8094
+            }
             val prior8083 = try { LiveTruth8064.lanePrior8083(l8059, nowMs) } catch (_: Throwable) { null }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8094 — the tactic this coin would trade as has a losing realised record in this lane: only a proven setup

@@ -313,4 +313,17 @@ class Aate8094ClosedPositionAndPretradeTest {
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("if (proven8059 == null) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
     }
+
+    @Test fun eachSetupIsGradedByWhenInTheMoveItWasTaken() {
+        val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907
+        assertEquals("PEAK", pb.timingBand8094(120.0, 0.95))
+        assertEquals("EXTENDED", pb.timingBand8094(40.0, 0.95))
+        assertEquals("PULLBACK", pb.timingBand8094(40.0, 0.60))
+        assertEquals("MID", pb.timingBand8094(10.0, 0.85))
+        assertEquals(pb.TIMING_UNKNOWN_8094, pb.timingBand8094(Double.NaN, 0.9))
+        val src = src("engine/cortex/LanePlaybook7907.kt")
+        assertTrue(src.contains("pendingTiming8094[\"${'$'}{ts.mint}|${'$'}{labelLane.trim().uppercase()}\"] = timingBandOf8094(ts)"))
+        assertTrue(src.contains(".getOrPut(\"${'$'}setup|${'$'}timing8094\") { CortexLedger7885.Stat() }"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("LanePlaybook7907.timingNegative8094(ts, l8059, nowMs)"))
+    }
 }

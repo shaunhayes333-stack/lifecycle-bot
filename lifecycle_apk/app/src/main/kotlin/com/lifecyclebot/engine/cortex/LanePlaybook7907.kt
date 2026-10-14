@@ -632,6 +632,10 @@ object LanePlaybook7907 {
     // ── learning ──
 
     private class Book { val stats = HashMap<String, CortexLedger7885.Stat>() }
+    /** V5.0.8094 — per lane: "setup|timingBand" -> the same forward grade, split by WHEN in the move the coin was taken. */
+    private val timingBooks8094 = HashMap<String, HashMap<String, CortexLedger7885.Stat>>()
+    /** V5.0.8094 — mint|labelLane -> the timing band at the decision (session-only; a restart grades without a band). */
+    private val pendingTiming8094 = ConcurrentHashMap<String, String>()
 
     private val books = HashMap<String, Book>()          // lane
     private val pending = ConcurrentHashMap<String, Pair<String, String>>()   // mint|labelLane -> (lane, setup)
@@ -924,6 +928,40 @@ object LanePlaybook7907 {
         return expectedPct < 0.0
     }
 
+    private const val TIMING_KEY_8094 = "_timing8094"
+    const val TIMING_UNKNOWN_8094 = "UNK"
+
+    /**
+     * Pure (V5.0.8094): WHEN in its move a coin is being taken — PEAK (80%+ off its low and within 12% of the high: the
+     * 8065 chase), EXTENDED (30%+ off its low, within 8% of the high), PULLBACK (25%+ below the high), else MID.
+     */
+    fun timingBand8094(runupPct: Double, currentVsPeak: Double): String = when {
+        !runupPct.isFinite() || !currentVsPeak.isFinite() || currentVsPeak <= 0.0 -> TIMING_UNKNOWN_8094
+        runupPct >= 80.0 && currentVsPeak >= 0.88 -> "PEAK"
+        runupPct >= 30.0 && currentVsPeak >= 0.92 -> "EXTENDED"
+        currentVsPeak < 0.75 -> "PULLBACK"
+        else -> "MID"
+    }
+
+    fun timingBandOf8094(ts: TokenState): String = try {
+        val snap = com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts)
+        timingBand8094(snap.runupFromLocalLowPct, snap.currentVsPeak)
+    } catch (_: Throwable) { TIMING_UNKNOWN_8094 }
+
+    /**
+     * V5.0.8094 — "setup@band" when this coin's picked setup, taken at its CURRENT timing band, has a losing record in that
+     * band (12+ labels, mean + SE < 0). The coin is not refused as a coin: it waits for a band its setup pays in.
+     */
+    fun timingNegative8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        val band = timingBandOf8094(ts)
+        if (setup == null || band == TIMING_UNKNOWN_8094) null else synchronized(this) {
+            val st = timingBooks8094[lane]?.get("$setup|$band")
+            if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) "$setup@$band" else null
+        }
+    } catch (_: Throwable) { null }
+
     /** Pure (V5.0.8094): a setup record that is losing on its own evidence — 12+ graded labels and mean + SE below zero. */
     fun setupRecordNegative8094(n: Double, mean: Double, variance: Double): Boolean {
         if (n < NEGATIVE_N_8094 || !mean.isFinite()) return false
@@ -1198,6 +1236,8 @@ object LanePlaybook7907 {
         val fired = c.matched.filter { it != setup }
         // V5.0.8084 — the tag carries the outcome and feature version of the decision (restart-safe in the same string).
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to requireNotNull(decisionTag8091(c))
+        if (pendingTiming8094.size > 8_000) pendingTiming8094.keys.take(pendingTiming8094.size / 2).forEach { pendingTiming8094.remove(it) }
+        pendingTiming8094["${ts.mint}|${labelLane.trim().uppercase()}"] = timingBandOf8094(ts)
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()
         for (id in fired) firedCount.computeIfAbsent("$lane|$id") { AtomicLong(0) }.incrementAndGet()
     }
@@ -1231,6 +1271,7 @@ object LanePlaybook7907 {
         if (!netPct.isFinite()) return
         val fam = fam8080?.takeIf { it.size == 4 && it.all { v -> v.isFinite() } }
         val (lane, full) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
+        val timing8094 = pendingTiming8094.remove("$mint|${labelLane.trim().uppercase()}")
         // V5.0.8085 — the label must grade the decision the entry snapshot recorded (same setup, same feature version).
         try {
             val entryTag = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.latestFor8085(mint, labelLane)?.cortexSetupTag8085.orEmpty()
@@ -1259,6 +1300,9 @@ object LanePlaybook7907 {
                 // V5.0.8080 — each setup is graded on its own exit family (scalp vs long hold) of the same path.
                 val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)
                 books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
+                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
+                if (timing8094 != null && timing8094 != TIMING_UNKNOWN_8094) timingBooks8094.getOrPut(lane) { HashMap() }
+                    .getOrPut("$setup|$timing8094") { CortexLedger7885.Stat() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
             if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
@@ -1365,6 +1409,15 @@ object LanePlaybook7907 {
                 val o = org.json.JSONObject(LearningPersistence.load(BOOKS_KEY_7947) ?: return)
                 for (lane in o.keys()) {
                     if (lane == "_grades8077" || lane == "_outcomeFwd8085") continue
+                    if (lane == TIMING_KEY_8094) {
+                        val tj = o.optJSONObject(lane) ?: continue
+                        for (l in tj.keys()) {
+                            val lj = tj.optJSONObject(l) ?: continue
+                            val tb = timingBooks8094.getOrPut(l) { HashMap() }
+                            for (k in lj.keys()) tb[k] = CortexLedger7885.Stat().also { it.decode(lj.optString(k)) }
+                        }
+                        continue
+                    }
                     val j = o.optJSONObject(lane) ?: continue
                     val b = books.getOrPut(lane) { Book() }
                     for (k in j.keys()) b.stats[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) }
@@ -1446,6 +1499,9 @@ object LanePlaybook7907 {
                             } }))
                     }
                     o.put("_grades8077", rows)
+                    o.put(TIMING_KEY_8094, org.json.JSONObject().also { tj ->
+                        timingBooks8094.forEach { (l, tb) -> tj.put(l, org.json.JSONObject().also { j -> tb.forEach { (k, v) -> j.put(k, v.encode()) } }) }
+                    })
                     o.put("_outcomeFwd8085", org.json.JSONObject().also { j ->
                         outcomeForward8084.forEach { (k, a) -> synchronized(a) { if (a[0] > 0.0 && a[1].isFinite()) j.put(k, "${a[0]},${a[1]}") } }
                     })
