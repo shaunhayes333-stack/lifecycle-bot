@@ -248,6 +248,32 @@ object TacticSwitcher {
         return tacticForTradeType8077(com.lifecyclebot.engine.ModeRouter.classify(ts).tradeType)
     }
 
+    private val SCORE_BANDS_8094 = listOf("S0-10", "S11-25", "S26-40", "S41-60", "S61+")
+
+    /** V5.0.8094 — the current mode's realised record of [tactic] in [lane] over every score band: (n, wins, mean %). */
+    fun tacticRecord8094(lane: String, tactic: Tactic): Triple<Int, Int, Double> {
+        var n = 0; var w = 0; var bps = 0L
+        for (b in SCORE_BANDS_8094) {
+            val row = try { historicalRow6567("${key(lane, b)}|${tactic.name}") } catch (_: Throwable) { continue }
+            n += row.trades.get(); w += row.wins.get(); bps += row.pnlBps.get()
+        }
+        return Triple(n, w, if (n > 0) bps / 100.0 / n else 0.0)
+    }
+
+    /** Pure (V5.0.8094): a tactic proven losing on its realised closes — 3+ closes, mean < 0, P(loss rate > 50%) >= 0.85. */
+    fun tacticLosing8094(n: Int, wins: Int, meanPct: Double): Boolean =
+        n >= 3 && meanPct < 0.0 && posteriorLossProbAbove(n - wins, wins, 0.5) >= 0.85
+
+    /**
+     * V5.0.8094 — the tactic this token would be stamped and traded as (tacticForToken8050) when that tactic's own
+     * realised record in this lane is losing (8094 live: SHITCOIN MOMENTUM 0W/3L -15.6% kept being stamped). Null otherwise.
+     */
+    fun losingTacticFor8094(ts: com.lifecyclebot.data.TokenState, lane: String): String? = try {
+        val t = tacticForToken8050(ts, lane, 0)
+        val (n, w, mean) = tacticRecord8094(lane, t)
+        if (tacticLosing8094(n, w, mean)) t.name else null
+    } catch (_: Throwable) { null }
+
     internal fun tacticForTradeType8077(type: com.lifecyclebot.engine.ModeRouter.TradeType): Tactic = when (type) {
         com.lifecyclebot.engine.ModeRouter.TradeType.BREAKOUT_CONTINUATION,
         com.lifecyclebot.engine.ModeRouter.TradeType.GRADUATION -> Tactic.BREAKOUT

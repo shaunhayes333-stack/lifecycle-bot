@@ -282,4 +282,31 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(src.contains("buyPressureObservedAtMs8084 = at"))
         assertFalse(src.contains("priceChangeObservedAtMs8084 = at"))
     }
+
+    @Test fun tradesAreGradedAtTheExecutablePriceAndTimedAtTheFill() {
+        val lab = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        // Labels re-base at the lane's measured live fill latency (5 s floor, 55 s cap).
+        assertEquals(5_000L, lab.rebaseDelayMs8094(0L))
+        assertEquals(40_000L, lab.rebaseDelayMs8094(40_000L))
+        assertEquals(55_000L, lab.rebaseDelayMs8094(120_000L))
+        assertEquals(0L, com.lifecyclebot.engine.truth.EntryChase7961.laneLatencyMs8094("NO_SUCH_LANE_8094"))
+        // A coin that ran past the graded decision is not the graded trade.
+        assertEquals(15.0, MOVED_MAX_PCT_8094, 1e-9)
+        assertTrue(movedSinceDecision8094(1.0, 1.20, MOVED_MAX_PCT_8094))
+        assertFalse(movedSinceDecision8094(1.0, 1.10, MOVED_MAX_PCT_8094))
+        assertFalse(movedSinceDecision8094(0.0, 1.20, MOVED_MAX_PCT_8094))   // unknown decision never refuses
+        assertTrue(src("engine/Executor.kt").contains("if (RuntimeModeAuthority.isLive() && movedSinceDecisionRefused8094(ts, lane)) return true"))
+        assertTrue(lab.decisionPx8094("NO_SUCH_MINT_8094") == null)
+    }
+
+    @Test fun aTacticWithALosingRealisedRecordIsNotTradedUnproven() {
+        val t = com.lifecyclebot.engine.learning.TacticSwitcher
+        assertTrue(t.tacticLosing8094(3, 0, -15.6))      // SHITCOIN MOMENTUM 0W/3L
+        assertFalse(t.tacticLosing8094(2, 0, -15.6))     // too few closes
+        assertFalse(t.tacticLosing8094(3, 1, -2.0))      // 1 of 3 won: not proven losing
+        assertFalse(t.tacticLosing8094(5, 0, 1.0))       // positive mean
+        assertEquals(0, t.tacticRecord8094("NO_SUCH_LANE_8094", com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM).first)
+        val gate = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("if (proven8059 == null) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
+    }
 }

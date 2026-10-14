@@ -183,6 +183,8 @@ object ForwardReturnLabeler7731 {
         val costPct: Double,
         val atMs: Long,
     ) {
+        /** V5.0.8094 — the price at the decision itself, never re-based (the fill-time move check reads it). */
+        val decisionPx8094: Double = entryPrice
         var entryStyle8077: String = "" // frozen decision style; old pending labels retain legacy semantics
         @Volatile var done15 = false
         @Volatile var done60 = false
@@ -547,6 +549,10 @@ object ForwardReturnLabeler7731 {
         return o.entryPrice to o.atMs
     }
 
+    /** V5.0.8094 — the un-rebased price and time of the latest admitted decision on [mint] (any lane); null when none. */
+    fun decisionPx8094(mint: String): Pair<Double, Long>? =
+        pending.values.filter { it.mint == mint && it.admitted }.maxByOrNull { it.atMs }?.let { it.decisionPx8094 to it.atMs }
+
     /**
      * V5.0.8051 — the (quality, phase) of a forecast signature for [ts] in [lane]: the token's setup shape (PUL / REA /
      * BRE / MOM, NON when no setup fires) and its lifecycle stage (TokenMetricStageRouter).
@@ -768,6 +774,9 @@ object ForwardReturnLabeler7731 {
      */
     private const val REBASE_MIN_MS_8076 = 5_000L
     private const val REBASE_MAX_MS_8076 = 60_000L
+
+    /** Pure (V5.0.8094): when a label re-bases — the lane's measured live fill latency, within the 5-55 s window. */
+    fun rebaseDelayMs8094(laneLatencyMs: Long): Long = laneLatencyMs.coerceIn(REBASE_MIN_MS_8076, REBASE_MAX_MS_8076 - 5_000L)
     private val rebasedUp8076 = AtomicLong(0)
     private val rebasedDown8076 = AtomicLong(0)
     @Volatile private var rebaseGapSum8076 = 0.0
@@ -1187,7 +1196,10 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             // V5.0.8076 — the label starts where a buy could actually land: the first mark 5-60 s after the decision.
-            if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {
+            // V5.0.8094 — at the lane's MEASURED live fill latency (8094 SHITCOIN ~40 s), not the first mark 5 s out: a coin
+            // that pumps between the decision and the fill was graded from a price live never gets, so setups graded
+            // positive lost live (-17..-40% stop-outs within minutes).
+            if (!o.rebased8076 && age >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
                 o.rebased8076 = true
                 if (age <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
                     if (px > o.entryPrice) rebasedUp8076.incrementAndGet() else rebasedDown8076.incrementAndGet()

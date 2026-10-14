@@ -94,6 +94,16 @@ object EntryChase7961 {
         }
     }
 
+    /** V5.0.8094 — the lane's median live decision-to-fill latency in ms; 0 until [MIN_LIVE_N] live fills are measured. */
+    fun laneLatencyMs8094(laneRaw: String): Long {
+        ensureLoaded()
+        val l = lane(laneRaw)
+        return synchronized(this) {
+            val xs = latencyMs[l]?.filter { it.isFinite() && it >= 0.0 }?.sorted().orEmpty()
+            if (xs.size < MIN_LIVE_N) 0L else xs[xs.size / 2].toLong()
+        }
+    }
+
     private fun ensureLoaded() {
         if (loaded) return
         if (!LearningPersistence.ready()) return

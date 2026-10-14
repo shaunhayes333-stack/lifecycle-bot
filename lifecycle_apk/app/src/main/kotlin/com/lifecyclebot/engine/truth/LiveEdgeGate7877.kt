@@ -438,6 +438,14 @@ object LiveEdgeGate7877 {
             }
             val prior8083 = try { LiveTruth8064.lanePrior8083(l8059, nowMs) } catch (_: Throwable) { null }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            // V5.0.8094 — the tactic this coin would trade as has a losing realised record in this lane: only a proven setup
+            // (honest labels, mean - SE > 0 on 30+) may still trade it, so the tactic can re-prove itself; nothing else does.
+            if (proven8059 == null) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->
+                val r8094 = "TACTIC_RECORD_LOSING_8094"
+                try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$t") } catch (_: Throwable) {}
+                recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
+                observeTail7996(ts, lane, r8094, nowMs); return r8094
+            }
             // V5.0.8060 — any MEASURED edge counts, not only a named setup: 5.0.8059 refused 4,879 vs 145 admitted and
             // turned away POKEMON +1,077% and Gemini +708% — runners often fire no named setup. The coin's own cell
             // proven (30+ labels, mean - SE > 0), a lane-beating runner cell, a proven specialist or a tail ticket also

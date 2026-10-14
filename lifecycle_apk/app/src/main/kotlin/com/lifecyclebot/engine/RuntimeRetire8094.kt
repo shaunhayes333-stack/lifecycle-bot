@@ -50,3 +50,11 @@ internal fun refusalInverted8094(refN: Int, refMeanPct: Double, refSePct: Double
     if (lower <= 0.0) return false
     return admN < 10 || !admMeanPct.isFinite() || lower > admMeanPct
 }
+
+/** V5.0.8094 — the most a live candidate may have run between its graded decision and the fill. */
+internal const val MOVED_MAX_PCT_8094 = 15.0
+
+/** Pure (V5.0.8094): has the price run more than [maxPct] above the decision price? Unknown prices never refuse. */
+internal fun movedSinceDecision8094(decisionPx: Double, nowPx: Double, maxPct: Double): Boolean =
+    decisionPx.isFinite() && decisionPx > 0.0 && nowPx.isFinite() && nowPx > 0.0 &&
+        nowPx / decisionPx < 5.0 && (nowPx / decisionPx - 1.0) * 100.0 > maxPct

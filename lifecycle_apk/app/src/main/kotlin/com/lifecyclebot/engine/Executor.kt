@@ -4029,6 +4029,26 @@ class Executor(
         return snap.copy(priceUsd = fan.priceUsd, priceSource = label, capturedAtMs = now)
     }
 
+    /**
+     * V5.0.8094 — timing at the FILL, not only at the decision. The admission was graded on the price at the decision; a
+     * coin that ran [MOVED_MAX_PCT_8094]+ since then, or that is now chasing a spike (LiveEdgeGate7877.chasing8065 on the
+     * current snapshot), is no longer the trade that was graded (8094: SHITCOIN fills ~40 s late, stopped -17..-40%).
+     */
+    private fun movedSinceDecisionRefused8094(ts: TokenState, lane: String): Boolean = try {
+        val d = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.decisionPx8094(ts.mint)
+        val snap = try { TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
+        val moved = d != null && System.currentTimeMillis() - d.second in 0L..10L * 60_000L &&
+            movedSinceDecision8094(d.first, ts.lastPrice, MOVED_MAX_PCT_8094)
+        val chasing = snap != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.chasing8065(
+            snap.runupFromLocalLowPct, snap.currentVsPeak, ts.lastPriceChange5m)
+        if (moved || chasing) {
+            val why = if (moved) "MOVED_SINCE_DECISION_8094" else "CHASING_AT_FILL_8094"
+            PipelineHealthCollector.labelInc("${why}_${lane.uppercase().take(20)}")
+            ForensicLogger.lifecycle(why, "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane decisionPx=${d?.first ?: -1.0} nowPx=${ts.lastPrice}")
+            true
+        } else false
+    } catch (_: Throwable) { false }
+
     private fun costExceedsEdge7162(
         ts: TokenState,
         sizeSol: Double,
@@ -4036,6 +4056,7 @@ class Executor(
         lane: String,
     ): Boolean {
         if (sizeSol <= 0.0) return false
+        if (RuntimeModeAuthority.isLive() && movedSinceDecisionRefused8094(ts, lane)) return true
         return try {
             val laneKey = lane.ifBlank { "STANDARD" }
             val required = com.lifecyclebot.engine.LiveBreakEvenGuard.requiredEdgePct(
