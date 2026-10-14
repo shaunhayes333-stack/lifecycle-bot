@@ -165,12 +165,22 @@ object EntryStrategySnapshot6450 {
                 .put("assetClass", snap.assetClassTag)
                 .put("cortexSetup8085", snap.cortexSetupTag8085)
                 .put("candidateVersion8090", snap.candidateVersion8090).put("mode8090", snap.mode8090)
-            LearningPersistence.save(persistenceKey6567(snap.positionId), j.toString())
+            // The persisted immutable executed entry is a financial audit record,
+            // never resettable learning state. Backward-compatible learning mirror
+            // remains for readers of older builds.
+            val evidence8093 = j.toString()
+            if (!LearningPersistence.saveImmutableExecutionEvidence8093(snap.positionId, evidence8093)) {
+                try { PipelineHealthCollector.labelInc("ENTRY_EVIDENCE_DURABLE_WRITE_FAILED_8093") } catch (_: Throwable) {}
+            }
+            LearningPersistence.save(persistenceKey6567(snap.positionId), evidence8093)
         } catch (_: Throwable) {}
     }
     private fun restore6567(positionId: String): Snapshot? {
         return try {
-        val raw = LearningPersistence.load(persistenceKey6567(positionId)) ?: return null
+        // Read the reset-proof canonical copy first; only legacy positions may
+        // still exist exclusively in the learning database.
+        val raw = LearningPersistence.loadImmutableExecutionEvidence8093(positionId)
+            ?: LearningPersistence.load(persistenceKey6567(positionId)) ?: return null
         val j = JSONObject(raw)
         Snapshot(
             positionId = j.optString("positionId", positionId), mint = j.optString("mint", ""),

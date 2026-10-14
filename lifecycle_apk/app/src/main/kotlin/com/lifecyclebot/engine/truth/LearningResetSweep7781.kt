@@ -18,7 +18,7 @@ import com.lifecyclebot.engine.ErrorLogger
  *
  * Fix, in two halves so nothing can resurrect old state:
  *  1. requestFullReset() — clears the stores that have in-memory resets now,
- *     wipes the journal through the existing TradeHistoryStore.clearAllTrades()
+ *     wipes the journal through the historical journal-clear routine
  *     (fresh cohort), clears every learning prefs file, and arms a marker.
  *  2. applyPendingAtBoot() — runs first in AATEApp.onCreate, before any learner
  *     loads. If the marker is armed it clears the same files again (a learner
@@ -92,13 +92,27 @@ object LearningResetSweep7781 {
         fun z(name: String, block: () -> Unit) {
             try { block() } catch (e: Throwable) { ErrorLogger.warn("LearningReset7781", "$name: ${e.message}") }
         }
-        z("JOURNAL") { com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades() }
+        // 8093: the economic journal is an audit trail, not a learning cache.
+        // Keep canonical blockchain fills, trade rows and signed transaction
+        // identities durable; a fresh learning run is defined by its epoch,
+        // not by deleting financial history (including historical LIVE exits).
+        z("JOURNAL_COHORT") {
+            val generation = try { com.lifecyclebot.engine.BotRuntimeController.currentGeneration() }
+                catch (_: Throwable) { System.currentTimeMillis() }
+            JournalCohort6389.beginNewCohort(generation)
+        }
         z("LIVE_PAUSE") { com.lifecyclebot.engine.LivePauseButton.reset() }
         z("LANE_TIMEOUT") { com.lifecyclebot.engine.LaneTimeoutGate.reset() }
         z("SCANNER_BRIDGE") { com.lifecyclebot.engine.ScannerLaneBridge.reset() }
         z("TOKEN_WIN_MEMORY") { com.lifecyclebot.engine.TokenWinMemory.reset() }
         z("TRADING_MEMORY") { com.lifecyclebot.engine.TradingMemory.clearLearned7781() }
         z("EDUCATION") { com.lifecyclebot.v3.scoring.EducationSubLayerAI.resetAllLearning() }
+        // 8093: a CLEAN run needs to zero its own 30D proof counters.
+        // Neither the paper nor live history is removed from canonical economic records.
+        z("30D_PROOF_RUN") { com.lifecyclebot.engine.RunTracker30D.reset() }
+        // Re-anchor a NEW explicit run to today's observed marked LIVE equity.
+        // Keep on-chain losses, risk cooldown and explicit operator halt intact.
+        z("RISK_RUN_BASELINE") { com.lifecyclebot.engine.KillSwitch.reanchorExplicitProofRun8093(app) }
         wipe(app)
         requestSweeps++
         ErrorLogger.info("LearningReset7781", "Reset armed: ${LEARNING_PREFS_7781.size} stores cleared; finishes on next app start")
@@ -112,6 +126,12 @@ object LearningResetSweep7781 {
         wipe(app)
         for (db in LEARNING_DBS_7975) try { app.deleteDatabase(db) } catch (_: Throwable) {}
         for (f in LEARNING_FILES_7975) try { java.io.File(app.filesDir, f).delete() } catch (_: Throwable) {}
+        // Recreate the new-cohort marker AFTER reboot: the journal stays
+        // immutable, but pre-reset positions cannot masquerade as fresh proof.
+        try {
+            val generation = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+            JournalCohort6389.beginNewCohort(generation)
+        } catch (_: Throwable) {}
         bootSweeps++
         try { marker.edit().putBoolean(KEY_PENDING, false).commit() } catch (_: Throwable) {}
         ErrorLogger.info("LearningReset7781", "Reset completed at boot: ${LEARNING_PREFS_7781.size} stores cleared")

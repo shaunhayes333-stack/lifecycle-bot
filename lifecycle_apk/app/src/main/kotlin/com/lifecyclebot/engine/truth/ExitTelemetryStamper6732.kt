@@ -149,7 +149,13 @@ object ExitTelemetryStamper6732 {
             // redispatch) would count the same condition twice, the second time
             // with the first attempt's whole retry history inside it.
             val lastB7809 = lastBroadcastAtMs7809[mint]
-            if (lastB7809 != null && atMs <= lastB7809) {
+            // A new wall-clock timestamp from a risk sweep is NOT a new sell
+            // condition while the previous submission is awaiting chain outcome.
+            // V5.0.7948 regression: the old (atMs <= lastB) comparison allowed
+            // an immediate 1ms-later re-trigger and double-counted broadcast.
+            // Explicit close/cancel clears this mint's outstanding broadcast.
+            if (lastB7809 != null &&
+                (atMs <= lastB7809 || now - lastB7809 in 0L..90_000L)) {
                 PipelineHealthCollector.labelInc("EXIT_TRIGGER_RESTAMP_AFTER_BROADCAST_IGNORED_7809")
                 return
             }
@@ -200,6 +206,10 @@ object ExitTelemetryStamper6732 {
     fun clearTrigger7807(mint: String) {
         if (mint.isBlank()) return
         try { triggers7807.remove(mint) } catch (_: Throwable) {}
+        // A confirmed terminal outcome/cancellation releases the in-flight
+        // submission latch so a genuinely new position on the same mint can
+        // establish its own trigger and broadcast latency sample.
+        try { lastBroadcastAtMs7809.remove(mint) } catch (_: Throwable) {}
         // V5.0.7948 — the per-stage track goes with it, or its stale trigger time
         // becomes the next position's "queue" on this mint.
         try { ExitStageTiming7876.closeUnbroadcast7948(mint) } catch (_: Throwable) {}

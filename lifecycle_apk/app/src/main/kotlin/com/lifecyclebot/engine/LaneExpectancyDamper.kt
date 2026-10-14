@@ -351,7 +351,12 @@ object LaneExpectancyDamper {
         // live closes override it; negative ones keep the stronger cut.
         // Field Manual §8.1: size and select from the measured edge, net of cost.
         val liveMeanByLane7786 = board.associate { it.strategy.trim().uppercase() to it.meanPnlPct }
-        for (lane in LABEL_PRIOR_LANES_7786) {
+        // 8093: a forward-label observation is not a verified live fill. It may
+        // rank/refuse an entry via the evidence gates, but cannot independently
+        // reduce LIVE real-money sizing on an untraded lane. LIVE size follows
+        // same-mode, chain-verified terminal closes in the loop above; PAPER
+        // continues to learn from its own shadow/forward observations.
+        if (paperRuntime6679) for (lane in LABEL_PRIOR_LANES_7786) {
             val liveMean = liveMeanByLane7786[lane]
             if (liveMean != null && liveMean >= 0.0) continue
             val st = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane) } catch (_: Throwable) { null } ?: continue

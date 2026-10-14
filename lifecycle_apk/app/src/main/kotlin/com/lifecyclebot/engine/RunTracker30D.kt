@@ -73,6 +73,65 @@ object RunTracker30D {
     /** Unknown/legacy outcomes are evidence gaps, never meme trades. */
     val unclassifiedBucket = AssetBucket()
 
+    // 8093: LIVE terminal accounting cannot use legacy 30D global counters,
+    // which aggregate PAPER, LIVE and foreign asset classes.
+    private val liveProofBuckets8093 = listOf(
+        "MEME", "CRYPTO_ALT", "PERPS", "STOCK", "FOREX", "METAL", "COMMODITY", "UNKNOWN"
+    ).associateWith { AssetBucket() }
+    private val liveProofSeen8093 = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val paperProofBuckets8093 = listOf(
+        "MEME", "CRYPTO_ALT", "PERPS", "STOCK", "FOREX", "METAL", "COMMODITY", "UNKNOWN"
+    ).associateWith { AssetBucket() }
+    private val paperProofSeen8093 = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    @Volatile private var proofEpoch8093: Long = System.currentTimeMillis()
+    private fun proofClass8093(raw: String): String = when(raw.uppercase().trim()) {
+        "MEME", "SOLANA_TOKEN" -> "MEME"
+        "ALT", "ALTS", "CRYPTOALT", "CRYPTO_ALT" -> "CRYPTO_ALT"
+        "PERP", "PERPS" -> "PERPS"
+        "STOCK", "STOCKS" -> "STOCK"
+        "FOREX", "FX" -> "FOREX"
+        "METAL", "METALS" -> "METAL"
+        "COMMODITY", "COMMOD", "COMMODITIES" -> "COMMODITY"
+        else -> "UNKNOWN"
+    }
+
+    /** Explicit environment-scoped performance: never returns PAPER counts. */
+    fun getLiveLaneStats(lane: String): Map<String, Any> {
+        val b = liveProofBuckets8093[proofClass8093(lane)] ?: return emptyMap()
+        return mapOf("trades" to b.trades, "wins" to b.wins, "losses" to b.losses,
+            "scratches" to b.scratches, "pnlSol" to b.pnlSol, "winRate" to b.winRate())
+    }
+
+    fun getPaperLaneStats(lane: String): Map<String, Any> {
+        val b = paperProofBuckets8093[proofClass8093(lane)] ?: return emptyMap()
+        return mapOf("trades" to b.trades, "wins" to b.wins, "losses" to b.losses,
+            "scratches" to b.scratches, "pnlSol" to b.pnlSol, "winRate" to b.winRate())
+    }
+
+    /** Only canonical settled outcomes update mode-specific 30D counters. */
+    private fun recordProofByEnvironment8093(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome): Boolean {
+        if (outcome.isPartial || outcome.tradeId.isBlank()) return false
+        // Old canonical history replays on restart. A fresh 30D run can only
+        // count positions which actually closed after the explicit reset epoch.
+        val closedAt = outcome.exitTimeMs ?: outcome.timestampMs
+        if (closedAt <= 0L || closedAt < proofEpoch8093) return false
+        val live = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.LIVE
+        val paper = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.PAPER
+        if (!live && !paper) return false
+        val seen = if (live) liveProofSeen8093 else paperProofSeen8093
+        if (!seen.add(outcome.tradeId)) return false
+        val bucket = (if (live) liveProofBuckets8093 else paperProofBuckets8093)[proofClass8093(outcome.assetClass.name)] ?: return false
+        bucket.trades++
+        when (outcome.result) {
+            com.lifecyclebot.engine.TradeResult.WIN -> bucket.wins++
+            com.lifecyclebot.engine.TradeResult.LOSS -> bucket.losses++
+            else -> bucket.scratches++
+        }
+        bucket.pnlSol += outcome.realizedPnlSol?.takeIf { it.isFinite() } ?: 0.0
+        save()
+        return true
+    }
+
     /**
      * V5.9.432 — unified per-lane stats accessor so UI (Alt Trader card,
      * Live Readiness tab, 30D tracker) can all read from ONE source instead
@@ -80,20 +139,9 @@ object RunTracker30D {
      *   keys: "MEME" | "ALT"/"ALTS"/"CRYPTO_ALT" | "PERPS" | "STOCKS"
      *         "FOREX" | "METALS" | "COMMODITIES"
      */
-    fun getLaneStats(lane: String): Map<String, Any> {
-        val b = bucketFor(lane)
-        val decisive = b.wins + b.losses
-        return mapOf(
-            "trades"    to b.trades,
-            "wins"      to b.wins,
-            "losses"    to b.losses,
-            "scratches" to b.scratches,
-            "winRate"   to b.winRate(),
-            "pnlSol"    to b.pnlSol,
-            "decisive"  to decisive,
-        )
-    }
-    
+    fun getLaneStats(lane: String): Map<String, Any> =
+        if (RuntimeModeAuthority.isPaper()) getPaperLaneStats(lane) else getLiveLaneStats(lane)
+
     @Volatile var peakBalance: Double = 0.0
     @Volatile var maxDrawdown: Double = 0.0  // Stored as negative percentage
     
@@ -725,6 +773,11 @@ SYSTEM
                 saveBucket6648(this, "metals", metalsBucket)
                 saveBucket6648(this, "commodities", commodBucket)
                 saveBucket6648(this, "unclassified", unclassifiedBucket)
+                liveProofBuckets8093.forEach { (key, bucket) -> saveBucket6648(this, "live8093_$key", bucket) }
+                paperProofBuckets8093.forEach { (key, bucket) -> saveBucket6648(this, "paper8093_$key", bucket) }
+                putStringSet("liveProofSeen8093", synchronized(liveProofSeen8093) { liveProofSeen8093.toSet() })
+                putStringSet("paperProofSeen8093", synchronized(paperProofSeen8093) { paperProofSeen8093.toSet() })
+                putLong("proofEpoch8093", proofEpoch8093)
                 putInt("executionFailures", executionFailures)
                 putInt("missedTrades", missedTrades)
                 putString("equityCurve", equityCurveToJson())
@@ -760,6 +813,11 @@ SYSTEM
             loadBucket6648(prefs, "metals", metalsBucket)
             loadBucket6648(prefs, "commodities", commodBucket)
             loadBucket6648(prefs, "unclassified", unclassifiedBucket)
+            liveProofBuckets8093.forEach { (key, bucket) -> loadBucket6648(prefs, "live8093_$key", bucket) }
+            paperProofBuckets8093.forEach { (key, bucket) -> loadBucket6648(prefs, "paper8093_$key", bucket) }
+            synchronized(liveProofSeen8093) { liveProofSeen8093.clear(); liveProofSeen8093.addAll(prefs.getStringSet("liveProofSeen8093", emptySet()).orEmpty()) }
+            synchronized(paperProofSeen8093) { paperProofSeen8093.clear(); paperProofSeen8093.addAll(prefs.getStringSet("paperProofSeen8093", emptySet()).orEmpty()) }
+            proofEpoch8093 = prefs.getLong("proofEpoch8093", System.currentTimeMillis())
             executionFailures = prefs.getInt("executionFailures", 0)
             missedTrades = prefs.getInt("missedTrades", 0)
             
@@ -828,6 +886,18 @@ SYSTEM
         dailySummaries.clear()
         tradeLog.clear()
         metrics.reset()
+        // The pre-8093 30D reset forgot every legacy asset-class bucket.
+        // Clear those too; mode-specific proof books above remain the only
+        // source for a new LIVE/PAPER run.
+        listOf(memeBucket, altsBucket, perpsBucket, stocksBucket, forexBucket,
+            metalsBucket, commodBucket, unclassifiedBucket).forEach {
+            it.trades = 0; it.wins = 0; it.losses = 0; it.scratches = 0; it.pnlSol = 0.0
+        }
+        liveProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
+        liveProofSeen8093.clear()
+        paperProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
+        paperProofSeen8093.clear()
+        proofEpoch8093 = System.currentTimeMillis()
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D reset")
     }
@@ -865,6 +935,11 @@ SYSTEM
         metalsBucket.trades = 0; metalsBucket.wins = 0; metalsBucket.losses = 0; metalsBucket.scratches = 0; metalsBucket.pnlSol = 0.0
         commodBucket.trades = 0; commodBucket.wins = 0; commodBucket.losses = 0; commodBucket.scratches = 0; commodBucket.pnlSol = 0.0
         unclassifiedBucket.trades = 0; unclassifiedBucket.wins = 0; unclassifiedBucket.losses = 0; unclassifiedBucket.scratches = 0; unclassifiedBucket.pnlSol = 0.0
+        liveProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
+        liveProofSeen8093.clear()
+        paperProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
+        paperProofSeen8093.clear()
+        proofEpoch8093 = System.currentTimeMillis()
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D trade stats reset (proof-run timeline preserved)")
     }
@@ -872,46 +947,15 @@ SYSTEM
     // ═══════════════════════════════════════════════════════════════════════
     // V5.6.28f: SYNC FUNCTION - Align stats across different tracking systems
     // ═══════════════════════════════════════════════════════════════════════
+    /** 8093: historical journal totals are NOT 30D proof-run authority.
+     * Its SELL rows can include both PAPER/LIVE, old economic replay and
+     * cross-asset instruments. Mode-scoped canonical outcomes above own the
+     * proof-run stats. This legacy hook deliberately never rewrites them.
+     */
     fun syncStatsFromTradeHistory() {
         try {
-            val stats = TradeHistoryStore.getStats()
-            
-            // V5.9.56: Always recompute totalRealizedPnlSol from the canonical
-            // per-trade pnlSol records. This fixes the "+161,980,464 SOL
-            // realized" bug caused by legacy bad-data accumulation. Each
-            // individual pnlSol is sanity-clamped so one glitch can't
-            // explode the total.
-            val recomputedPnl = try {
-                TradeHistoryStore.getAllSells()
-                    .sumOf { it.pnlSol.coerceIn(-1_000.0, 10_000.0) }
-            } catch (_: Exception) {
-                totalRealizedPnlSol
-            }
-            val driftSol = recomputedPnl - totalRealizedPnlSol
-            if (kotlin.math.abs(driftSol) > 0.01) {
-                ErrorLogger.info(TAG,
-                    "📊 PnL RECOMPUTE: ${"%.4f".format(totalRealizedPnlSol)} → " +
-                    "${"%.4f".format(recomputedPnl)} SOL (drift=${"%.4f".format(driftSol)})")
-                totalRealizedPnlSol = recomputedPnl
-                // currentBalance follows: recompute from the run's start.
-                currentBalance = (startBalance + recomputedPnl).coerceAtLeast(0.0)
-            }
-
-            // V5.9.1117 — align 30D with the Journal exactly. totalTrades is
-            // all closed SELL/PARTIAL_SELL rows including scratches; WR still uses W/L.
-            if (stats.totalStoredTrades != totalTrades || stats.totalWins != wins || stats.totalLosses != losses || stats.totalScratches != scratches) {
-                ErrorLogger.info(TAG, "📊 SYNC: Aligning 30D stats from Journal")
-                ErrorLogger.info(TAG, "   Before: total=$totalTrades W=$wins L=$losses S=$scratches")
-                totalTrades = stats.totalStoredTrades
-                wins = stats.totalWins
-                losses = stats.totalLosses
-                scratches = stats.totalScratches
-                ErrorLogger.info(TAG, "   After:  total=$totalTrades W=$wins L=$losses S=$scratches")
-            }
-            save()
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Sync error: ${e.message}")
-        }
+            PipelineHealthCollector.labelInc("RUN_TRACKER_MIXED_JOURNAL_SYNC_SUPPRESSED_8093")
+        } catch (_: Throwable) {}
     }
 
     // V5.9.369 — asset-class bucket helpers.
@@ -1001,6 +1045,9 @@ SYSTEM
             val sizeSol = outcome.entrySol ?: 0.0
             val holdSec = outcome.holdSeconds ?: 0L
             val assetClass = outcome.candidate?.assetClass?.ifBlank { null } ?: outcome.assetClass.name
+            // Durable mode-scoped tradeId dedup prevents canonical replay from
+            // inflating the 30D proof run on every process restart.
+            if (!recordProofByEnvironment8093(outcome)) return
             recordTrade(
                 symbol = outcome.symbol.ifBlank { outcome.mint.take(6) },
                 mint = outcome.mint,
