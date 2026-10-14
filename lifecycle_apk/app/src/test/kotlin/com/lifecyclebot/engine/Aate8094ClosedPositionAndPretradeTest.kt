@@ -234,4 +234,12 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(lab.runCorroborated7769(1.0e-6, 7.2e-3, 2_000_000.0, 14_400_000_000.0, 150.0))
         assertEquals(1_000_000.0, lab.CORROBORATED_RUN_MAX_ENTRY_MCAP_8094, 1e-9)
     }
+
+    @Test fun theWalletReconcileNoLongerBlocksTheTradingLoop() {
+        val bot = src("engine/BotService.kt")
+        assertTrue(bot.contains("if (!cfg.paperMode) wallet?.let { w -> reconcileWalletOffLoop8094(w) }"))
+        val body = bot.substringAfter("private fun reconcileWalletOffLoop8094(").substringBefore("private fun wireEmergencyHandoff8087()")
+        assertTrue(body.contains("walletReconcileInFlight8094.compareAndSet(false, true)"))      // single-flight
+        assertTrue(body.contains("finally { walletReconcileInFlight8094.set(false) }"))
+    }
 }

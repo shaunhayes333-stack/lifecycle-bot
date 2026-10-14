@@ -1502,6 +1502,29 @@ class BotService : Service() {
      * attempt ends, on the emergency pool (never behind discovery, never waiting a redispatch window).
      * V5.0.8088 — out of onCreate (ART method-size budget).
      */
+    /**
+     * V5.0.8094 — the wallet reconcile (whole-wallet RPC reads) ran ON the trading loop: 8093's slowest cycle spent
+     * 13 s in POST_SUPERVISOR/WALLET_RECONCILE, and every entry / exit evaluation waited behind it. It now runs
+     * single-flight off the loop: never two at once, and a tick whose previous reconcile is still running skips it.
+     */
+    private val walletReconcileInFlight8094 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun reconcileWalletOffLoop8094(w: com.lifecyclebot.network.SolanaWallet) {
+        if (!walletReconcileInFlight8094.compareAndSet(false, true)) {
+            try { PipelineHealthCollector.labelInc("WALLET_RECONCILE_SKIPPED_IN_FLIGHT_8094") } catch (_: Throwable) {}
+            return
+        }
+        try {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    WalletReconciler.reconcileWalletHoldings(status, w, isPaperMode = false)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "WalletReconciler error: ${e.message?.take(80)}")
+                } finally { walletReconcileInFlight8094.set(false) }
+            }
+        } catch (_: Throwable) { walletReconcileInFlight8094.set(false) }
+    }
+
     private fun wireEmergencyHandoff8087() {
         com.lifecyclebot.engine.sell.CloseLease.emergencyHandoff8087 = { mint8087, reason8087 ->
             scope.launch(com.lifecyclebot.engine.sell.EmergencyExitDispatcher7807.forReason(reason8087)) {
@@ -22112,15 +22135,7 @@ if (hotExitHandledSweep) {
             // zombies (open position with zero wallet balance). Throttled
             // to every ~15s internally so calling every loop is fine.
             try { markProgress("POST_SUPERVISOR/WALLET_RECONCILE") } catch (_: Throwable) {}  // V5.0.8020 — sub-phase timing
-            if (!cfg.paperMode) {
-                wallet?.let { w ->
-                    try {
-                        WalletReconciler.reconcileWalletHoldings(status, w, isPaperMode = false)
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "WalletReconciler error: ${e.message?.take(80)}")
-                    }
-                }
-            }
+            if (!cfg.paperMode) wallet?.let { w -> reconcileWalletOffLoop8094(w) }
             // This runs during LIVE mode to learn from background paper trades
             // ═══════════════════════════════════════════════════════════════════
             // V5.0.6073 — SHADOW ALWAYS-ON: runs behind BOTH paper and live
