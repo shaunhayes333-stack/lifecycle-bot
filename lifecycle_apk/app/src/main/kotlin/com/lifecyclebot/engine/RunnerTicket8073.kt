@@ -59,14 +59,14 @@ object RunnerTicket8073 {
     @Synchronized fun admits8073(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
         ensureSubscribed()
         if (ts.mint.isBlank()) return false
-        tickets.entries.removeIf { it.key !in confirmed8092 && nowMs - it.value > UNFILLED_RESERVATION_MS_8092 }
+        tickets.entries.removeIf { !confirmed8092.containsKey(it.key) && nowMs - it.value > UNFILLED_RESERVATION_MS_8092 }
         if (isTicket8073(ts.mint, nowMs)) return true
         val curve = try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(ts.mint) != null } catch (_: Throwable) { false }
         val dex = ts.lastPriceDex.ifBlank { try { ts.tokenMap.dexId } catch (_: Throwable) { "" } }
         val venue = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.memeVenue8063(ts.mint, dex, curve)
         val mcap = try { com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { 0.0 }
         if (!inGroup8073(venue, mcap)) { refusedKind.incrementAndGet(); return false }
-        if (nowMs - lastIssuedMs < TICKET_GAP_MS || tickets.keys.any { it !in confirmed8092 }) {
+        if (nowMs - lastIssuedMs < TICKET_GAP_MS || tickets.keys.any { !confirmed8092.containsKey(it) }) {
             refusedBudget.incrementAndGet(); return false
         }
         val walletSol = try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
@@ -84,7 +84,7 @@ object RunnerTicket8073 {
 
     /** Only a canonical filled position starts the two-minute issuance cooldown. */
     @Synchronized fun onConfirmedBuy8092(mint: String, nowMs: Long = System.currentTimeMillis()) {
-        if (mint.isBlank() || mint !in tickets) return
+        if (mint.isBlank() || !tickets.containsKey(mint)) return
         if (confirmed8092.putIfAbsent(mint, nowMs) == null) {
             lastIssuedMs = nowMs
             try { PipelineHealthCollector.labelInc("RUNNER_TICKET_CONFIRMED_FILL_8092") } catch (_: Throwable) {}
@@ -94,7 +94,7 @@ object RunnerTicket8073 {
     /** An unfilled proposal expires even if no corresponding terminal SELL ever occurs. */
     fun isTicket8073(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val at = tickets[mint] ?: return false
-        if (mint in confirmed8092) return true
+        if (confirmed8092.containsKey(mint)) return true
         if (nowMs - at in 0L..UNFILLED_RESERVATION_MS_8092) return true
         tickets.remove(mint, at)
         return false
