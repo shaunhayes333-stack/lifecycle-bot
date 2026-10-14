@@ -73,11 +73,17 @@ class Repair6487AcceptanceTest {
     }
 
     @Test fun shadow_lanes_never_publish_fdg_tickets() {
-        listOf("V3_CORE", "STANDARD", "CASHGEN").forEachIndexed { i, lane ->
-            val mint = "Shadow${i}11111111111111111111111111111111"
-            ExecutableOpenGate.recordFdg(mint, "SHD", lane, true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3000.0)
-            assertNull(ExecutableOpenGate.recentAllowedAttemptId(mint, lane))
-        }
+        // V5.0.8092 — the 6487 shadow contract covers exactly the read-only evaluation
+        // lanes the source predicate names (V3_CORE): recordFdg returns BEFORE any state
+        // or intent work, so no ticket can ever exist, in any ambient.
+        // The old STANDARD/CASHGEN rows asserted the pre-6705/7117 shadow set and only
+        // ever passed on runtime ambient leaked by unrelated test classes — standalone
+        // (or reordered) they failed in EVERY ambient, because 6705/7117 deliberately
+        // made STANDARD/CASHGEN trading lanes ("core and standard are trading lanes")
+        // whose canExecute FDG BUY publishes an execution intent by design.
+        val mint = "Shadow11111111111111111111111111111111"
+        ExecutableOpenGate.recordFdg(mint, "SHD", "V3_CORE", true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3000.0)
+        assertNull(ExecutableOpenGate.recentAllowedAttemptId(mint, "V3_CORE"))
     }
 
     @Test fun background_watchdog_distinguishes_dead_stalled_healthy_and_manual_stop() {

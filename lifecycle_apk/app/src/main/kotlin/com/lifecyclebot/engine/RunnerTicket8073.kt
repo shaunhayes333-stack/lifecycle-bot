@@ -34,6 +34,8 @@ object RunnerTicket8073 {
     private val tickets = ConcurrentHashMap<String, Long>()
     @Volatile private var lastIssuedMs = 0L
     private val issued = AtomicLong(0)
+    /** V5.0.8092 — tickets that actually CONFIRMED a live fill (attempts that never filled are not economic tickets). */
+    internal val confirmed8092 = AtomicLong(0)
     private val refusedBudget = AtomicLong(0)
     private val refusedKind = AtomicLong(0)
     private val paid = AtomicLong(0)
@@ -71,11 +73,30 @@ object RunnerTicket8073 {
         tickets[ts.mint] = nowMs
         lastIssuedMs = nowMs
         issued.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("RUNNER_TICKET_ATTEMPT_8092") } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc("RUNNER_TICKET_8073_ISSUED")
             ForensicLogger.lifecycle("RUNNER_TICKET_8073", "mint=${ts.mint.take(10)} sym=${ts.symbol} venue=$venue mcap=${mcap.toLong()} equity=${"%.4f".format(equity)}")
         } catch (_: Throwable) {}
         return true
+    }
+
+    /**
+     * V5.0.8092 — a confirmed live fill of [positionId] for [mint]. Only a canonical LIVE position with a
+     * positive entry cost is an economic ticket; an attempt that never filled stays pending and expires.
+     * Wired from EntryStrategySnapshot6450.setEntry (the immutable position write boundary).
+     */
+    fun confirm8092(positionId: String, mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        val pos = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
+        } catch (_: Throwable) { null } ?: return
+        if (pos.mint != mint || !pos.mode.equals("live", true) || !(pos.entryCostSol > 0.0)) return
+        try {
+            tickets.putIfAbsent(mint, nowMs)
+            confirmed8092.incrementAndGet()
+            PipelineHealthCollector.labelInc("RUNNER_TICKET_CONFIRMED_8092")
+        } catch (_: Throwable) {}
     }
 
     /** Is [mint] a runner ticket (issued and either still pending its buy or now an open position)? */
@@ -108,6 +129,6 @@ object RunnerTicket8073 {
     }
 
     fun statusLine(): String =
-        "issued=${issued.get()} open=${tickets.size} record[paid=${paid.get()} died=${died.get()}] refused[kind=${refusedKind.get()} budget=${refusedBudget.get()}] " +
+        "issued=${issued.get()} confirmed=${confirmed8092.get()} open=${tickets.size} record[paid=${paid.get()} died=${died.get()}] refused[kind=${refusedKind.get()} budget=${refusedBudget.get()}] " +
             "rule=PumpSwap \$10k-\$100k, <= ${(BUDGET_FRAC * 100).toInt()}% of equity, 1 per 2 min, held on lifecycle rules"
 }

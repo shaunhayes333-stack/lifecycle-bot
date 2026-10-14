@@ -266,6 +266,8 @@ object StrategyHypothesisEngine {
     @Synchronized fun sealDecision8091(mint: String, candidateVersion: Long, lane: String, mode: String) {
         val key = decisionKey7428(mint, candidateVersion, lane, mode)
         pendingByDecision7428[key]?.let { sealedByDecision8091.putIfAbsent(key, it) }
+        // The transaction may settle after process restart, before any position binding exists.
+        appContext?.let { save(it) }
         if (sealedByDecision8091.size > 4096) {
             val oldest = candidateVersion - 20L
             sealedByDecision8091.entries.removeIf { it.value.candidateVersion8090 < oldest }
@@ -496,7 +498,7 @@ object StrategyHypothesisEngine {
      * actually opened. Non-winning fanout lanes never reach this boundary and
      * therefore can never steal terminal credit.
      */
-    fun bindExecutedPosition7428(
+    @Synchronized fun bindExecutedPosition7428(
         positionId: String,
         mint: String,
         candidateVersion: Long,
@@ -514,6 +516,11 @@ object StrategyHypothesisEngine {
             // why exact variant stamping read zero. Binding is idempotent per
             // positionId: an already-bound position returns its own variant.
             pendingByPosition7428[positionId]?.let { bound7809 ->
+                if (bound7809.mint8090 != mint || bound7809.candidateVersion8090 != candidateVersion ||
+                    !bound7809.lane8090.equals(lane, true) || !bound7809.mode8090.equals(mode7863, true)) {
+                    PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_IDENTITY_CONFLICT_8092")
+                    return ""
+                }
                 PipelineHealthCollector.labelInc("HYPOTHESIS_POSITION_BIND_ALREADY_BOUND_7809")
                 return bound7809.strategyVariantId
             }
@@ -749,7 +756,7 @@ object StrategyHypothesisEngine {
         // position-bound outcomes are the only training source.
     }
 
-    fun exportState(): String = try {
+    @Synchronized fun exportState(): String = try {
         JSONObject().apply {
             put("environmentSchema", 7835)
             put("promotions", promotions); put("retirements", retirements)
@@ -773,9 +780,13 @@ object StrategyHypothesisEngine {
             }
             put("active", ac)
 
-            // V5.0.7445 — persist only position-bound entry attribution.
-            // Decision-level fanout remains session-local because only the
-            // winning executed position has durable economic identity.
+            // Unsealed fanout is ephemeral; the sealed winning decision must survive a
+            // restart between broadcast and confirmed position creation (8092).
+            val seals8092 = JSONObject()
+            sealedByDecision8091.forEach { (key, applied) -> seals8092.put(key, encodeDecision8092(applied)) }
+            put("sealedDecisions8092", seals8092)
+            put("settledPositions8092", JSONArray(settledPositions7428.toList()))
+            // Position-bound entry attribution remains authoritative after the fill.
             val bp7445 = JSONObject()
             pendingByPosition7428.forEach { (positionId, applied) ->
                 val p = JSONObject()
@@ -790,7 +801,7 @@ object StrategyHypothesisEngine {
         }.toString()
     } catch (_: Throwable) { "{}" }
 
-    fun importState(json: String) {
+    @Synchronized fun importState(json: String) {
         try {
             if (json.isBlank() || json == "{}") return
             // Decision-level fanout is session-local. Position-bound
@@ -805,6 +816,17 @@ object StrategyHypothesisEngine {
             val o = JSONObject(json)
             if (o.optInt("environmentSchema") != 7835) {
                 active.clear(); baseline.clear(); stopBaseline.clear(); return
+            }
+            o.optJSONArray("settledPositions8092")?.let { ids ->
+                for (i in 0 until ids.length()) ids.optString(i).takeIf { it.isNotBlank() }?.let(settledPositions7428::add)
+            }
+            o.optJSONObject("sealedDecisions8092")?.let { seals ->
+                for (key in seals.keys()) {
+                    val p = seals.optJSONObject(key) ?: continue
+                    val applied = decodeDecision8092(p) ?: continue
+                    if (decisionKey7428(applied.mint8090, applied.candidateVersion8090, applied.lane8090, applied.mode8090) == key)
+                        sealedByDecision8091[key] = applied
+                }
             }
             promotions = o.optLong("promotions", 0L); retirements = o.optLong("retirements", 0L)
             o.optJSONObject("baseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); baseline[k] = b.optDouble(k, 1.0) } }
@@ -837,7 +859,7 @@ object StrategyHypothesisEngine {
                     val positionId = ks.next()
                     val p = bp.optJSONObject(positionId) ?: continue
                     val ctx = p.optString("ctx", "")
-                    if (ctx.isBlank()) continue
+                    if (ctx.isBlank() || positionId in settledPositions7428) continue
                     pendingByPosition7428[positionId] = AppliedDecision7428(
                         context = ctx,
                         isVariantArm = p.optBoolean("var", false),
@@ -851,6 +873,21 @@ object StrategyHypothesisEngine {
                 }
             }
         } catch (_: Throwable) {}
+    }
+
+    private fun encodeDecision8092(a: AppliedDecision7428): JSONObject = JSONObject()
+        .put("ctx", a.context).put("var", a.isVariantArm).put("variantId", a.strategyVariantId)
+        .put("exact8090", a.exactIdentity8090).put("mint8090", a.mint8090)
+        .put("candidate8090", a.candidateVersion8090).put("lane8090", a.lane8090)
+        .put("mode8090", a.mode8090).put("setupTag8091", a.setupTag8091)
+
+    private fun decodeDecision8092(p: JSONObject): AppliedDecision7428? {
+        if (p.optString("ctx").isBlank() || p.optString("mint8090").isBlank() ||
+            p.optLong("candidate8090") <= 0 || p.optString("lane8090").isBlank() ||
+            p.optString("mode8090").uppercase() !in setOf("LIVE", "PAPER", "SHADOW")) return null
+        return AppliedDecision7428(p.optString("ctx"), p.optBoolean("var"), p.optString("variantId"),
+            p.optString("exact8090"), p.optString("mint8090"), p.optLong("candidate8090"),
+            p.optString("lane8090"), p.optString("mode8090"), p.optString("setupTag8091"))
     }
 
     private fun save(context: Context) { try { context.getSharedPreferences("strategy_hypothesis_engine", Context.MODE_PRIVATE).edit().putString("state", exportState()).apply() } catch (_: Throwable) {} }

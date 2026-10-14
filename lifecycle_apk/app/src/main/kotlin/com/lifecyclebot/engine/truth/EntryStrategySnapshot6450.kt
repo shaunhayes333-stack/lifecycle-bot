@@ -125,6 +125,12 @@ object EntryStrategySnapshot6450 {
         } catch (_: Throwable) {}
         // V5.0.7962 — the market price at this live fill (CostLedger7962 measures the round trip from it).
         try { CostLedger7962.onEntry7962(snap.positionId, snap.mint, snap.entryTimestampMs, com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) } catch (_: Throwable) {}
+        // V5.0.8092 — a CONFIRMED live fill consumes exploration budget (cold start / runner ticket);
+        // failed or deferred attempts release. Snapshots for non-LIVE modes never confirm a ticket.
+        if (snap.mode8090.equals("LIVE", true)) try {
+            com.lifecyclebot.engine.RunnerTicket8073.confirm8092(snap.positionId, snap.mint)
+            com.lifecyclebot.engine.truth.LiveEdgeGate7877.coldStartConfirm8092(snap.mint)
+        } catch (_: Throwable) {}
         return true
     }
 

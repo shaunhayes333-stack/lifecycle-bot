@@ -78,7 +78,7 @@ object LiveTruth8064 {
                 if (e.mode.equals("live", ignoreCase = true) && honestEra8070(e.producedByVersion7103)) {
                     val lane8083 = laneOf(e.entryLane)
                     record(lane8083, e.netReturnPct, e.settledAtMs)
-                    recordSetup8083(e.mint, lane8083, e.netReturnPct, e.settledAtMs)
+                    recordSetup8083(e.mint, lane8083, e.netReturnPct, e.settledAtMs, e.positionId)
                 }
             }
         } catch (_: Throwable) { subscribed.set(false) }
@@ -173,10 +173,34 @@ object LiveTruth8064 {
         persistSetup8083()
     }
 
-    private fun recordSetup8083(mint: String, lane: String, netPct: Double, atMs: Long) {
+    /**
+     * V5.0.8092 — the close files under the EXECUTED position's immutable entry strategy first; the mint-keyed
+     * admit book is only the fallback. The admit book can be overwritten by later admits of the same mint
+     * (LiveEdgeGate re-classifies every cycle), but the frozen strategy of the position that actually filled
+     * cannot: EntryStrategySnapshot6450 rejects rewrites. [positionId] is blank only for legacy replay.
+     */
+    internal fun recordSetup8083(mint: String, lane: String, netPct: Double, atMs: Long, positionId: String = "") {
         if (!netPct.isFinite()) return
+        val l = laneOf(lane)
+        var key: String? = null
+        if (positionId.isNotBlank()) {
+            try {
+                val snap = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId)
+                if (snap != null && snap.mint == mint && laneOf(snap.entryLane) == l) {
+                    val setup = snap.entrySetup.ifBlank {
+                        snap.cortexSetupTag8085.substringBefore(';').substringBefore('#')
+                    }.trim().uppercase()
+                    if (setup.isNotBlank()) {
+                        key = setupKey8083(l, setup)
+                        try { PipelineHealthCollector.labelInc("LIVE_CLOSE_SETUP_FROM_ENTRY_SNAPSHOT_8092") } catch (_: Throwable) {}
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
         val p = pendingSetup8083.remove(mint)
-        val key = p?.substringBeforeLast('|')?.takeIf { it.substringBefore('|') == lane } ?: setupKey8083(lane, null)
+        if (key == null) {
+            key = p?.substringBeforeLast('|')?.takeIf { it.substringBefore('|') == l } ?: setupKey8083(lane, null)
+        }
         if (key.endsWith("|$UNATTRIBUTED_SETUP_8083")) try { PipelineHealthCollector.labelInc("LIVE_CLOSE_SETUP_UNATTRIBUTED_8083_$lane") } catch (_: Throwable) {}
         val t = if (atMs > 0L) atMs else System.currentTimeMillis()
         synchronized(this) {

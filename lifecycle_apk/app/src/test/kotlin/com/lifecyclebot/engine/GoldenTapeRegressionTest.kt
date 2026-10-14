@@ -15068,4 +15068,37 @@ class GoldenTapeRegressionTest {
         assertFalse("ambiguous cause gone", bot.contains("\"cause=rate_limited_or_no_data\","))
         assertTrue("provider-unlisted held mints counted", bot.contains("MARK_PROVIDER_UNLISTED_HELD_8087"))
     }
+
+    @Test
+    fun V5_0_8092_confirmed_fill_attribution_and_exploration_budget() {
+        fun f(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
+        val hyp = f("engine/StrategyHypothesisEngine.kt")
+        assertTrue("sealed winning decision survives a restart between broadcast and fill",
+            hyp.contains("sealedDecisions8092") && hyp.contains("settledPositions8092"))
+        assertTrue("a conflicting rebind of a bound position is refused, not reassigned",
+            hyp.contains("HYPOTHESIS_POSITION_IDENTITY_CONFLICT_8092"))
+        assertTrue("bind/restore/export/import are one atomic attribution boundary",
+            hyp.contains("@Synchronized fun bindExecutedPosition7428(") && hyp.contains("@Synchronized fun exportState():") &&
+                hyp.contains("@Synchronized fun importState(json: String)"))
+        val lt = f("engine/truth/LiveTruth8064.kt")
+        assertTrue("a close files under the executed position's immutable entry snapshot first",
+            lt.contains("EntryStrategySnapshot6450.snapshot(positionId)") &&
+                lt.contains("LIVE_CLOSE_SETUP_FROM_ENTRY_SNAPSHOT_8092") &&
+                lt.contains("recordSetup8083(e.mint, lane8083, e.netReturnPct, e.settledAtMs, e.positionId)"))
+        val gate = f("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue("cold-start budget consumes only confirmed fills",
+            gate.contains("coldPending8092") && gate.contains("COLD_PENDING_MS_8092") &&
+                gate.contains("LIVE_COLD_START_CONFIRMED_8092") && gate.contains("coldPendingSweep8092(nowMs)"))
+        assertTrue("the cold-start door is still consulted in the proven-only live step",
+            gate.contains("!coldStartAdmits8080(ts, l8059, nowMs)) {"))
+        val ticket = f("engine/RunnerTicket8073.kt")
+        assertTrue("a runner ticket confirms only against a canonical live position",
+            ticket.contains("fun confirm8092(positionId: String, mint: String,") &&
+                ticket.contains("RUNNER_TICKET_CONFIRMED_8092") && ticket.contains("entryCostSol > 0.0"))
+        val snap = f("engine/truth/EntryStrategySnapshot6450.kt")
+        assertTrue("the immutable entry write is the confirmation boundary for exploration budget",
+            snap.contains("RunnerTicket8073.confirm8092(snap.positionId, snap.mint)") &&
+                snap.contains("LiveEdgeGate7877.coldStartConfirm8092(snap.mint)") &&
+                snap.contains("snap.mode8090.equals(\"LIVE\", true)"))
+    }
 }

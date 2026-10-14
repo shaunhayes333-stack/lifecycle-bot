@@ -515,9 +515,31 @@ object LiveEdgeGate7877 {
      * family, and fewer than [COLD_BUDGET_8080] live entries were admitted this way in the last [COLD_WINDOW_MS_8080].
      * Every later gate (proven-losing setup, Cortex, net edge, lane fit, dead launch, buy door, route, rug) still applies.
      */
-    private val coldAdmits8080 = ConcurrentHashMap<String, Long>()   // mint -> first cold-start admission
+    /** V5.0.8092 — CONFIRMED cold-start entries only (mint -> confirmed live fill); failed/deferred attempts release. */
+    internal val coldAdmits8080 = ConcurrentHashMap<String, Long>()
+    /** V5.0.8092 — admitted but unconfirmed attempts (mint -> admitMs). */
+    internal val coldPending8092 = ConcurrentHashMap<String, Long>()
     internal const val COLD_BUDGET_8080 = 3
     internal const val COLD_WINDOW_MS_8080 = 6L * 3_600_000L
+    /** V5.0.8092 — an attempt that never filled releases the budget slot after this window. */
+    internal const val COLD_PENDING_MS_8092 = 10L * 60_000L
+
+    /** V5.0.8092 — expire stale pending attempts; a failed/deferred buy must not burn the 6h cold budget. */
+    internal fun coldPendingSweep8092(nowMs: Long) {
+        coldPending8092.entries.removeIf { nowMs - it.value >= COLD_PENDING_MS_8092 }
+    }
+
+    /** V5.0.8092 — a confirmed live fill promotes this mint's pending cold-start attempt into the confirmed budget. */
+    fun coldStartConfirm8092(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        synchronized(coldAdmits8080) {
+            val at = coldPending8092.remove(mint) ?: return
+            if (coldAdmits8080.putIfAbsent(mint, at) == null) try {
+                PipelineHealthCollector.labelInc("LIVE_COLD_START_CONFIRMED_8092")
+                ForensicLogger.lifecycle("LIVE_COLD_START_CONFIRMED_8092", "mint=${mint.take(10)}")
+            } catch (_: Throwable) {}
+        }
+    }
 
     /**
      * Pure (V5.0.8080): may [mint] be admitted on cold start, given [admits] (mint -> first admission)? A mint already
@@ -533,11 +555,14 @@ object LiveEdgeGate7877 {
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.coldStartSetup8080(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return false
         synchronized(coldAdmits8080) {
             coldAdmits8080.entries.removeIf { nowMs - it.value >= COLD_WINDOW_MS_8080 }
-            if (!coldBudgetOpen8080(coldAdmits8080, ts.mint, nowMs)) {
+            coldPendingSweep8092(nowMs)
+            // V5.0.8092 — only CONFIRMED fills consume the 3-mint/6h budget. A pending attempt of
+            // this mint is already in flight; a failed attempt releases after the pending window.
+            if (!coldBudgetOpen8080(coldAdmits8080, ts.mint, nowMs) || coldPending8092.containsKey(ts.mint)) {
                 try { PipelineHealthCollector.labelInc("LIVE_COLD_START_BUDGET_SPENT_8080") } catch (_: Throwable) {}
                 return false
             }
-            coldAdmits8080.putIfAbsent(ts.mint, nowMs)
+            coldPending8092[ts.mint] = nowMs
         }
         try {
             PipelineHealthCollector.labelInc("LIVE_COLD_START_SETUP_ADMIT_8080_$lane")
