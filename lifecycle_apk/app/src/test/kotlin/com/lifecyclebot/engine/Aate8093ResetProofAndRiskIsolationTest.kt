@@ -66,4 +66,13 @@ class Aate8093ResetProofAndRiskIsolationTest {
         assertTrue(CapitalDrawdown7948.peekPct7948(0.3000, 100001L) > 0.0)
         assertFalse(CapitalDrawdown7948.reanchorExplicitRun8093(Double.NaN, 100002L))
     }
+    @Test fun successfulPaperBuyMustTerminallyAcknowledgeRecoveredCanonicalIntent() {
+        val paper = source("engine/truth/CanonicalPaperTransaction6486.kt")
+        assertTrue(paper.contains("val authorizedIntent8093 = if (assetClass != AssetClass.SOLANA_TOKEN)"))
+        assertTrue(paper.contains("executionIntent ?: CanonicalEntryAuthority6551.findPending(mint, \"PAPER\")"))
+        assertTrue(paper.contains("authorizedIntent8093?.let { CanonicalEntryAuthority6551.markConfirmed(it, positionId) }"))
+        assertFalse(paper.contains("executionIntent?.let { CanonicalEntryAuthority6551.markConfirmed(it, positionId) }"))
+        assertTrue(paper.contains("CanonicalEntryAuthority6551.markFailed(intent, result.reason)"))
+    }
+
 }
