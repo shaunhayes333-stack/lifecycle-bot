@@ -50,7 +50,7 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object ForensicReconciliation6635 {
 
-    private const val DELTA_TOLERANCE_SOL = 1e-6
+    internal const val DELTA_TOLERANCE_SOL = 1e-6
 
     private val lastCashLedger = AtomicReference(0.0)
     private val lastCashJournal = AtomicReference(0.0)

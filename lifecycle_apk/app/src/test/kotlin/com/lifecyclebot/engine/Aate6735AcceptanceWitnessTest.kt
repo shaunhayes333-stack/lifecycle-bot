@@ -26,6 +26,28 @@ class Aate6735AcceptanceWitnessTest {
         assertTrue(source.contains("windowStartMs=\${start.atMs}"))
     }
 
+    @Test fun reconciledFloatingPointNoisePassesButRealDiscrepanciesFail() {
+        val zero = ExecutionSpineAcceptance6647.Observation(
+            durationMs = 120_000L, safety = 1L, v3 = 1L,
+            bgSplitRuntimeIntakeZombie = 0L, configuredWorkers = 1,
+            currentWorkerHeartbeats = 1, phantomSizedOnly = 0L, sizePending = 0L,
+            fdgAllowWithoutIntent = 0L, dispatches = 1L,
+            immutableIntentsForDispatches = 1L, terminalResultsForDispatches = 1L,
+            cryptoOpenConfirmed = 0L, maxExitStartDelayCycles = 0L,
+            exitStart = 1L, exitDone = 1L, canonicalOpen = 1L, exitEvaluations = 1L,
+            supervisorForcedLeaseReleases = 0L, cashDeltaSol = 0.0000002,
+            basisDeltaSol = 0.0000002, realizedDeltaSol = 0.0000002,
+            quantityDeltaRaw = BigInteger.ZERO, heroJournalParityFail = 0L,
+            invalidGrowthOrLearningUpdates = 0L,
+        )
+        val noise = ExecutionSpineAcceptance6647.evaluate(zero)
+        assertFalse(noise.failures.toString(), noise.failures.contains("CASH_DELTA"))
+        assertFalse(noise.failures.toString(), noise.failures.contains("BASIS_DELTA"))
+        assertFalse(noise.failures.toString(), noise.failures.contains("REALIZED_DELTA"))
+        val real = ExecutionSpineAcceptance6647.evaluate(zero.copy(cashDeltaSol = 0.000002))
+        assertTrue(real.failures.contains("CASH_DELTA"))
+    }
+
     @Test fun no_evidence_and_unknown_accounting_remain_failures() {
         val missing = ExecutionSpineAcceptance6647.Observation(
             durationMs = 120_000L, safety = 0L, v3 = 0L,
