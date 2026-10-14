@@ -43,10 +43,12 @@ class Aate8082CausalPipelineTest {
 
     @Test fun incompleteExactIdentityDoesNotConsumeTerminalCredit() {
         val e = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
-            "trade-incomplete", 1000L, 0.01, 10.0, "mint", "SHITCOIN",
+            "trade-incomplete", System.currentTimeMillis(), 0.01, 10.0, "mint", "SHITCOIN",
             positionId = "missing-stamp", mode = "live", proofState = "LIVE_FINALIZED")
         assertFalse(ExactStrategyPerformance7429.record(e))
         assertFalse(ExactStrategyPerformance7429.record(e))
+        assertTrue(ExactStrategyPerformance7429.record(e.copy(tradeId = "trade-expired8091", atMs = System.currentTimeMillis() - 181_000L)))
+        assertTrue(com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.isExcluded("ExactStrategyPerformance7429", "trade-expired8091"))
         val source = src("engine/truth/ExactStrategyPerformance7429.kt").substringAfter("fun record(")
         assertTrue(source.indexOf("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429") < source.indexOf("commitOnce8090(receipt, writes)"))
         assertFalse(source.contains("claimOnce8082"))

@@ -5607,7 +5607,7 @@ object FinalDecisionGate {
                             ts.mint,
                             exactStrategyIdentity7430,
                             candidateVersion7623,
-                            com.lifecyclebot.engine.cortex.LanePlaybook7907.decisionTag8085(ts.mint, learningOwnerLane7534).orEmpty(),
+                            com.lifecyclebot.engine.cortex.LanePlaybook7907.entryTag8091(ts, learningOwnerLane7534).orEmpty(),
                         )
                         if (hypoBias != 1.0) {
                             val before = finalSize

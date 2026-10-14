@@ -43,6 +43,21 @@ class Aate8091PolicyInteractionTest {
         }
     }
 
+    @Test fun entryTagTracksCurrentEvidenceEvenWhenForwardCaptureIsOlder() {
+        val p = com.lifecyclebot.engine.cortex.LanePlaybook7907
+        val now = System.currentTimeMillis()
+        val ts = TokenState(mint = "entryTag8091", symbol = "TAG")
+        ts.lastPrice = 0.001; ts.lastPriceUpdate = now; ts.lastMcap = 50_000.0; ts.lastLiquidityUsd = 20_000.0
+        p.capture(ts, "SHITCOIN", "SHITCOIN", now)
+        val old = p.decisionTag8085(ts.mint, "SHITCOIN")
+        assertNotNull(old)
+        ts.lastBuyPressurePct = 71.0; ts.lastSellPressurePct = 29.0; ts.buyPressureObservedAtMs8084 = now + 1_500L
+        val current = p.entryTag8091(ts, "SHITCOIN", now + 2_000L)
+        assertNotNull(current); assertNotEquals(old, current)
+        assertEquals(old, p.decisionTag8085(ts.mint, "SHITCOIN"))
+        assertTrue(current!!.endsWith("#V=" + p.classify8084(ts, "SHITCOIN", now + 2_000L)!!.featureVersion))
+    }
+
     private fun position(style: String) = TokenState(mint = "policy8091$style",
         position = Position(qtyToken = 1.0, entryPrice = 1.0, entryTime = 1L,
             tradingMode = "MOONSHOT", isPaperPosition = false,

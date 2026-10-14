@@ -1164,11 +1164,21 @@ object LanePlaybook7907 {
         if (pending.size > 8_000) pending.keys.take(pending.size / 2).forEach { pending.remove(it) }
         val fired = c.matched.filter { it != setup }
         // V5.0.8084 — the tag carries the outcome and feature version of the decision (restart-safe in the same string).
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to ((if (fired.isEmpty()) setup else setup + ";" + fired.joinToString(",")) +
-            "#O=${c.outcome.name}#V=${c.featureVersion}")
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to requireNotNull(decisionTag8091(c))
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()
         for (id in fired) firedCount.computeIfAbsent("$lane|$id") { AtomicLong(0) }.incrementAndGet()
     }
+
+    private fun decisionTag8091(c: Classification8084): String? {
+        val setup = c.tag ?: return null
+        val fired = c.matched.filter { it != setup }
+        return (if (fired.isEmpty()) setup else setup + ";" + fired.joinToString(",")) +
+            "#O=${c.outcome.name}#V=${c.featureVersion}"
+    }
+
+    /** Exact current classification, independent of an earlier asynchronous forward capture. */
+    fun entryTag8091(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): String? =
+        decisionSnapshot8084(ts, lane, nowMs)?.let(::decisionTag8091)
 
     /** V5.0.8085 — the decision-time tag captured for (mint, label lane), or null; read by the entry snapshot. */
     fun decisionTag8085(mint: String, labelLane: String): String? = pending["$mint|${labelLane.trim().uppercase()}"]?.second
