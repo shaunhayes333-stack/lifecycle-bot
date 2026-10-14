@@ -240,6 +240,9 @@ object JournalEconomicAuthority6616 {
 
     /** Render probes compare one captured account, never two racing cache revisions.
      * Ledger/journal reconciliation remains the independent accounting check. */
+    fun probeHeroBinding(surface: String, displayedCashSol: Double, account: HeroAccountSnapshot7045.Account): Boolean =
+        probeHeroBinding(surface, displayedCashSol, -1.0, account)
+
     fun probeHeroBinding(surface: String, displayedCashSol: Double, displayedEquitySol: Double,
         account: HeroAccountSnapshot7045.Account): Boolean =
         probeCaptured8091(surface, displayedCashSol, displayedEquitySol,

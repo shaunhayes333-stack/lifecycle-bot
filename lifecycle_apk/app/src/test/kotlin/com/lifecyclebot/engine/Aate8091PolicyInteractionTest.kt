@@ -148,8 +148,8 @@ class Aate8091PolicyInteractionTest {
             assertFalse(JournalEconomicAuthority6616.probeHeroBinding("MARKETS", 11.0, 13.0, after))
             val hero = HeroAccountSnapshot7045.Account(11.0, 0.0, 1.0, 0.0, 0.0,
                 0.0, 12.0, 108.07, 1, 0.0, HeroAccountSnapshot7045.Status.FRESH, 2L, 2L)
-            assertTrue(JournalEconomicAuthority6616.probeHeroBinding("MEME", 11.0, -1.0, hero))
-            assertFalse(JournalEconomicAuthority6616.probeHeroBinding("MEME", 12.0, -1.0, hero))
+            assertTrue(JournalEconomicAuthority6616.probeHeroBinding("MEME", 11.0, hero))
+            assertFalse(JournalEconomicAuthority6616.probeHeroBinding("MEME", 12.0, hero))
         } finally { JournalEconomicAuthority6616.resetForTest() }
     }
 }
