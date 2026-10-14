@@ -92,7 +92,15 @@ object LearningResetSweep7781 {
         fun z(name: String, block: () -> Unit) {
             try { block() } catch (e: Throwable) { ErrorLogger.warn("LearningReset7781", "$name: ${e.message}") }
         }
-        z("JOURNAL") { com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades() }
+        // 8093: the economic journal is an audit trail, not a learning cache.
+        // Keep canonical blockchain fills, trade rows and signed transaction
+        // identities durable; a fresh learning run is defined by its epoch,
+        // not by deleting financial history (including historical LIVE exits).
+        z("JOURNAL_COHORT") {
+            val generation = try { com.lifecyclebot.engine.BotRuntimeController.currentGeneration() }
+                catch (_: Throwable) { System.currentTimeMillis() }
+            JournalCohort6389.beginNewCohort(generation)
+        }
         z("LIVE_PAUSE") { com.lifecyclebot.engine.LivePauseButton.reset() }
         z("LANE_TIMEOUT") { com.lifecyclebot.engine.LaneTimeoutGate.reset() }
         z("SCANNER_BRIDGE") { com.lifecyclebot.engine.ScannerLaneBridge.reset() }
@@ -118,6 +126,12 @@ object LearningResetSweep7781 {
         wipe(app)
         for (db in LEARNING_DBS_7975) try { app.deleteDatabase(db) } catch (_: Throwable) {}
         for (f in LEARNING_FILES_7975) try { java.io.File(app.filesDir, f).delete() } catch (_: Throwable) {}
+        // Recreate the new-cohort marker AFTER reboot: the journal stays
+        // immutable, but pre-reset positions cannot masquerade as fresh proof.
+        try {
+            val generation = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+            JournalCohort6389.beginNewCohort(generation)
+        } catch (_: Throwable) {}
         bootSweeps++
         try { marker.edit().putBoolean(KEY_PENDING, false).commit() } catch (_: Throwable) {}
         ErrorLogger.info("LearningReset7781", "Reset completed at boot: ${LEARNING_PREFS_7781.size} stores cleared")
