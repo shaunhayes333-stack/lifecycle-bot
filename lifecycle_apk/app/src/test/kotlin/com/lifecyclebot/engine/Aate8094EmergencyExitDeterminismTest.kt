@@ -77,7 +77,7 @@ class Aate8094EmergencyExitDeterminismTest {
         val rg = src("engine/RunnerGrab7967.kt").substringAfter("fun deferrable7967(").substringBefore("// ── grab ──")
         assertTrue(rg.contains("if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(r)) return false"))
         val lh = src("engine/LifecycleHold8065.kt").substringAfter("fun passes8065(").take(400)
-        assertTrue(lh.contains("Priority.STRUCTURAL_EMERGENCY.rank"))       // catastrophe + structural always pass
+        assertTrue(lh.contains("ProtectiveExitClass7807.isEmergency(r)"))     // every emergency (hard stops too) passes
         val pe = src("engine/sell/PartialNetEconomics8094.kt")
         assertTrue(pe.contains("ProtectiveExitClass7807.isEmergency(reason)"))   // the fee check never holds an emergency
     }
@@ -143,5 +143,20 @@ class Aate8094EmergencyExitDeterminismTest {
         assertFalse(earlyStopContradicted8094(null, 1.0, -25.0, 15.0))
         val b = src("engine/BotService.kt")
         assertTrue(b.contains("return@run !earlyStopContradicted8094(cachedExec8094, entry8094, catastropheThreshold, HARD_FLOOR_STOP_PCT_CONST)"))
+    }
+
+    // Memory: finality acks / exclusions move out of SharedPreferences into the store, losslessly.
+    @Test fun finalityAcksRoundTripThroughTheStoreBlob() {
+        val f = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486
+        val raw = f.encodeConsumer8094(listOf("P2", "P1"), mapOf("T9" to "PAPER_NOT_LIVE_COST_EVIDENCE"))
+        val (acks, ex) = f.decodeConsumer8094(raw)
+        assertEquals(setOf("P1", "P2"), acks)
+        assertEquals("PAPER_NOT_LIVE_COST_EVIDENCE", ex["T9"])
+        assertTrue(f.decodeConsumer8094(null).first.isEmpty())
+        val src = src("engine/truth/CanonicalFinalityPersistence6486.kt")
+        val mig = src.substringAfter("private fun migrateAcksToStore8094(").substringBefore("private fun writeConsumer8094(")
+        // the store is written BEFORE the prefs keys are removed
+        assertTrue(mig.indexOf("for (c in consumers) writeConsumer8094(c)") < mig.indexOf("p.edit().apply { moved.forEach { remove(it) } }.apply()"))
+        assertTrue(mig.contains("if (!com.lifecyclebot.engine.LearningPersistence.ready()) return"))
     }
 }

@@ -21800,6 +21800,9 @@ class Executor(
             // reach this catch — policy redirects short-circuited long
             // before via assessLiveEntry → BUY_POLICY_REDIRECTED_SHADOW_6324.
             try { PipelineHealthCollector.labelInc("BUY_PROVIDER_FAILED_6324") } catch (_: Throwable) {}
+            // V5.0.8094 — the report's reason roll-up cut this at the first ':' (8093 "THROWN:Jupiter"): the exception
+            // class and stage now have their own counter so the cause is named.
+            try { PipelineHealthCollector.labelInc("LIVE_BUY_THROWN_8094_${e.javaClass.simpleName}_${liveBuyLastStage.toString().take(24)}") } catch (_: Throwable) {}
             // V5.0.3679 — TELEMETRY GAP FIX. Every live-buy throw used to log
             // to ErrorLogger / LiveTradeLogStore but NEVER increment
             // EXEC_LIVE_BUY_FAIL, so operator forensics showed

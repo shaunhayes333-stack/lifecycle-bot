@@ -80,8 +80,9 @@ object LifecycleHold8065 {
     fun passes8065(reason: String): Boolean {
         val r = reason.uppercase()
         return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r) ||
-            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(r).rank <=
-                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.STRUCTURAL_EMERGENCY.rank
+            // V5.0.8094 forensic — no discretionary hold in front of ANY emergency exit, hard stops included (8093
+            // HARD_STOP latency up to 222 s). The hold still rides ordinary stops, trails and profit locks.
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(r)
     }
 
     /** V5.0.8071 — the lifecycle ladder, for the forward labels that grade lifecycle lanes on it. */

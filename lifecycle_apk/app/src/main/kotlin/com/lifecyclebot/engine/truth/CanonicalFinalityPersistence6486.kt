@@ -32,6 +32,7 @@ object CanonicalFinalityPersistence6486 {
         try { EconomicEventSchema6464.init6486(context) } catch (_: Throwable) {}
         initialized = true
         census8047(prefs!!)
+        try { migrateAcksToStore8094(prefs!!) } catch (_: Throwable) {}
         val events = prefs!!.all.entries.asSequence()
             .filter { it.key.startsWith(PREFIX) && it.value is String }
             .mapNotNull { decode(it.value as String) }
@@ -78,6 +79,11 @@ object CanonicalFinalityPersistence6486 {
 
     fun recordAck6486(consumer: String, positionId: String) {
         if (consumer.isBlank() || positionId.isBlank()) return
+        if (migrated8094) {
+            val ex = excluded8094[consumer]?.remove(positionId) != null
+            if (acks8094.computeIfAbsent(consumer) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(positionId) || ex) markDirty8094(consumer)
+            return
+        }
         val p = prefs ?: return
         val ack = ACK_PREFIX_6697 + consumer + ":" + positionId
         val excluded = EXCLUDED_PREFIX_6734 + consumer + ":" + positionId
@@ -87,6 +93,12 @@ object CanonicalFinalityPersistence6486 {
 
     fun recordExclusion6734(consumer: String, tradeId: String, reason: String) {
         if (consumer.isBlank() || tradeId.isBlank()) return
+        if (migrated8094) {
+            val un = acks8094[consumer]?.remove(tradeId) == true
+            val prev = excluded8094.computeIfAbsent(consumer) { java.util.concurrent.ConcurrentHashMap() }.put(tradeId, reason)
+            if (prev != reason || un) markDirty8094(consumer)
+            return
+        }
         val p = prefs ?: return
         val ack = ACK_PREFIX_6697 + consumer + ":" + tradeId
         val excluded = EXCLUDED_PREFIX_6734 + consumer + ":" + tradeId
@@ -95,18 +107,108 @@ object CanonicalFinalityPersistence6486 {
     }
 
     fun excludedIds6734(consumer: String): Set<String> {
+        if (migrated8094) return excluded8094[consumer]?.keys?.toSet() ?: emptySet()
         val prefix = EXCLUDED_PREFIX_6734 + consumer + ":"
         return prefs?.all?.asSequence()?.filter { it.key.startsWith(prefix) && it.value is String }
             ?.map { it.key.removePrefix(prefix) }?.toSet() ?: emptySet()
     }
 
     fun hasAck6486(consumer: String, positionId: String): Boolean =
-        prefs?.getBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, false) == true
+        if (migrated8094) acks8094[consumer]?.contains(positionId) == true else prefs?.getBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, false) == true
 
     fun ackedIds6486(consumer: String): Set<String> {
+        if (migrated8094) return acks8094[consumer]?.toSet() ?: emptySet()
         val prefix = ACK_PREFIX_6697 + consumer + ":"
         return prefs?.all?.asSequence()?.filter { it.key.startsWith(prefix) && it.value == true }
             ?.map { it.key.removePrefix(prefix) }?.toSet() ?: emptySet()
+    }
+
+    // ── V5.0.8094 — acks / exclusions out of SharedPreferences ──
+    // 8093: this file held ~22,000 ack + ~10,000 exclusion keys (5.2 MB). SharedPreferences keeps the whole file in the
+    // heap and rewrites ALL of it on every apply() — once per consumer per close — and every ackedIds/excludedIds read
+    // copied the full map (heap 511/512 MB, 56 hard trims). Acks and exclusions now live in memory, persisted to the
+    // SQLite learning store as one small blob per consumer (flushed off-thread, coalesced). Migration writes the store
+    // synchronously BEFORE the old keys are removed; if the store is not open (or this is the main thread) nothing
+    // moves and the prefs path keeps working exactly as before. Finality rows ("final:") stay where they are.
+    @Volatile private var migrated8094 = false
+    private val acks8094 = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+    private val excluded8094 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>()
+    private val dirty8094 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val flushQueued8094 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val flushPool8094 by lazy {
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "finality-acks-8094").apply { isDaemon = true } }
+    }
+    private const val INDEX_KEY_8094 = "finality_ack_index_8094"
+    private fun blobKey8094(consumer: String) = "finality_ack_8094_$consumer"
+
+    /** Pure: one consumer's acks + exclusions as a compact JSON blob. */
+    internal fun encodeConsumer8094(acks: Collection<String>, excluded: Map<String, String>): String =
+        JSONObject().put("a", org.json.JSONArray(acks.sorted())).put("x", JSONObject(excluded.toSortedMap() as Map<*, *>)).toString()
+
+    /** Pure: the inverse of [encodeConsumer8094]. */
+    internal fun decodeConsumer8094(raw: String?): Pair<Set<String>, Map<String, String>> {
+        if (raw.isNullOrBlank()) return emptySet<String>() to emptyMap()
+        val o = JSONObject(raw)
+        val a = o.optJSONArray("a")
+        val acks = HashSet<String>(); if (a != null) for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotBlank() }?.let(acks::add)
+        val x = o.optJSONObject("x"); val ex = HashMap<String, String>()
+        if (x != null) x.keys().forEach { k -> ex[k] = x.optString(k) }
+        return acks to ex
+    }
+
+    private fun migrateAcksToStore8094(p: SharedPreferences) {
+        if (!com.lifecyclebot.engine.LearningPersistence.ready()) return
+        if (android.os.Looper.getMainLooper()?.thread == Thread.currentThread()) return
+        // 1. what the store already holds
+        val index = try { org.json.JSONArray(com.lifecyclebot.engine.LearningPersistence.load(INDEX_KEY_8094) ?: "[]") } catch (_: Throwable) { org.json.JSONArray() }
+        for (i in 0 until index.length()) {
+            val c = index.optString(i).takeIf { it.isNotBlank() } ?: continue
+            val (a, x) = decodeConsumer8094(com.lifecyclebot.engine.LearningPersistence.load(blobKey8094(c)))
+            acks8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.addAll(a)
+            excluded8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap() }.putAll(x)
+        }
+        // 2. the prefs keys still to move
+        val moved = ArrayList<String>()
+        for ((k, v) in p.all) {
+            when {
+                k.startsWith(ACK_PREFIX_6697) && v == true -> {
+                    val rest = k.removePrefix(ACK_PREFIX_6697); val c = rest.substringBefore(':'); val id = rest.substringAfter(':', "")
+                    if (c.isNotBlank() && id.isNotBlank()) { acks8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(id); moved += k }
+                }
+                k.startsWith(EXCLUDED_PREFIX_6734) && v is String -> {
+                    val rest = k.removePrefix(EXCLUDED_PREFIX_6734); val c = rest.substringBefore(':'); val id = rest.substringAfter(':', "")
+                    if (c.isNotBlank() && id.isNotBlank()) { excluded8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap() }[id] = v; moved += k }
+                }
+            }
+        }
+        // 3. write the store synchronously, then (only then) drop the moved keys
+        val consumers = (acks8094.keys + excluded8094.keys).toSortedSet()
+        for (c in consumers) writeConsumer8094(c)
+        com.lifecyclebot.engine.LearningPersistence.save(INDEX_KEY_8094, org.json.JSONArray(consumers.toList()).toString())
+        migrated8094 = true
+        if (moved.isNotEmpty()) p.edit().apply { moved.forEach { remove(it) } }.apply()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FINALITY_ACKS_MOVED_TO_STORE_8094") } catch (_: Throwable) {}
+        census8047 = "$census8047 acksInStore8094=${acks8094.values.sumOf { it.size }} excludedInStore8094=${excluded8094.values.sumOf { it.size }} movedFromPrefs8094=${moved.size}"
+    }
+
+    private fun writeConsumer8094(c: String) {
+        com.lifecyclebot.engine.LearningPersistence.save(blobKey8094(c),
+            encodeConsumer8094(acks8094[c]?.toList().orEmpty(), excluded8094[c]?.toMap().orEmpty()))
+    }
+
+    private fun markDirty8094(consumer: String) {
+        dirty8094.add(consumer)
+        if (!flushQueued8094.compareAndSet(false, true)) return
+        try {
+            flushPool8094.schedule({
+                flushQueued8094.set(false)
+                val batch = dirty8094.toList(); dirty8094.removeAll(batch.toSet())
+                try {
+                    for (c in batch) writeConsumer8094(c)
+                    com.lifecyclebot.engine.LearningPersistence.save(INDEX_KEY_8094, org.json.JSONArray((acks8094.keys + excluded8094.keys).toSortedSet().toList()).toString())
+                } catch (_: Throwable) { dirty8094.addAll(batch) }
+            }, 2_000L, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) { flushQueued8094.set(false) }
     }
 
     /** V5.0.7459 — exact durable rich finality lookup for repairing only the
