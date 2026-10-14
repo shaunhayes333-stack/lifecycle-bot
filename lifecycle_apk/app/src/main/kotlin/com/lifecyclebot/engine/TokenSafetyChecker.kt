@@ -615,10 +615,17 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             // 3. Only score=0 (confirmed rug) is auto-rejected
             // ═══════════════════════════════════════════════════════════════════════
             when {
-                rcScore == 0 -> {
+                rcScore == 0 && rugcheckConfirmsDanger8094(rugcheck.optBoolean("rugged", false), redFlagCount) -> {
                     // Score 0 = CONFIRMED DANGEROUS - hard block in BOTH modes
                     hard.add("Rugcheck score 0/100 (CONFIRMED RUG RISK)")
                     ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=0 (confirmed dangerous)")
+                }
+                rcScore == 0 -> {
+                    // V5.0.8094 — a bare 0 with no rugged flag and no danger-level risk is not a confirmed rug.
+                    // 8093: BLUECHIP ($1M+ established tokens) refused 30 times as RUGCHECK_CATASTROPHIC; RugCheck's
+                    // normalised score reads 0-1 on its safest tokens, so the number alone cannot convict.
+                    soft.add("Rugcheck score 0 without rugged/danger flags (no conviction)" to 0)
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUGCHECK_ZERO_NO_DANGER_FLAGS_8094") } catch (_: Throwable) {}
                 }
                 rcScore == 1 -> {
                     // V5.9.495z33 — deterministic RC PENDING handling.
@@ -1242,3 +1249,6 @@ internal fun primaryMarket7867(markets: org.json.JSONArray): JSONObject? {
     val deepest = (0 until markets.length()).mapNotNull { markets.optJSONObject(it) }.maxByOrNull { depth(it) }
     return if (deepest != null && depth(deepest) > 0.0) deepest else markets.optJSONObject(0)
 }
+
+/** V5.0.8094 — pure: does a RugCheck report carry explicit danger evidence (rugged flag or a danger-level risk)? */
+internal fun rugcheckConfirmsDanger8094(rugged: Boolean, dangerRiskCount: Int): Boolean = rugged || dangerRiskCount >= 1

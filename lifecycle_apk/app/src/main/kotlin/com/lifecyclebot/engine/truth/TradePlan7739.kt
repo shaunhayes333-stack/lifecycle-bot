@@ -198,7 +198,37 @@ object TradePlan7739 {
         try {
             if (barsFrom(ts, nowMs).size > MIN_BARS_7739) return
             HeliusSwapCandles7819.request7819(ts, nowMs)
+            requestKeylessBars8094(ts, nowMs)
         } catch (_: Throwable) {}
+    }
+
+    // V5.0.8094 — Helius swap candles were the only bar source asked here, and the plan credits ran out: CASHGEN and
+    // QUALITY refused established $1M+ tokens as CHOKEPOINT_7742_PLAN_TOO_FEW_BARS (a data gap, not uncertainty).
+    // While Helius is exhausted, an established token (>= 30 min) short of bars gets keyless 1m OHLCV (DexPaprika,
+    // GeckoTerminal; their own rate gates) merged into history — off the decision path, once per mint per 2 min.
+    private val keylessBarsAt8094 = ConcurrentHashMap<String, Long>()
+    private val keylessBarsPool8094 = java.util.concurrent.ThreadPoolExecutor(0, 2, 30L, java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.SynchronousQueue<Runnable>(), { r -> Thread(r, "plan-keyless-bars-8094").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy())
+
+    private fun requestKeylessBars8094(ts: TokenState, nowMs: Long) {
+        if (!HeliusCreditEconomy7881.exhaustedLatched8094(nowMs)) return
+        val age = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null } ?: return
+        if (age < 30L * 60_000L) return
+        val last = keylessBarsAt8094[ts.mint] ?: 0L
+        if (nowMs - last < 120_000L) return
+        keylessBarsAt8094[ts.mint] = nowMs
+        if (keylessBarsAt8094.size > 4_000) keylessBarsAt8094.entries.removeIf { nowMs - it.value > 600_000L }
+        keylessBarsPool8094.execute {
+            try {
+                val pool = ts.pairAddress.ifBlank { ts.lastPricePoolAddr }
+                val bars = com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(ts.mint, "1m", 30, pool)
+                if (bars.isNotEmpty()) {
+                    val merged = HeliusSwapCandles7819.mergeIntoHistory7819(ts, bars)
+                    PipelineHealthCollector.labelInc(if (merged > 0) "PLAN_KEYLESS_BARS_MERGED_8094" else "PLAN_KEYLESS_BARS_NOTHING_NEW_8094")
+                } else PipelineHealthCollector.labelInc("PLAN_KEYLESS_BARS_EMPTY_8094")
+            } catch (_: Throwable) {}
+        }
     }
 
     // ── setups (pure) ──

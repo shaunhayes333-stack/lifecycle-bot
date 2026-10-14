@@ -418,11 +418,21 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             return signature
         }
         
+        // V5.0.8094 — every endpoint at once, from the moment of signing. The fan-out to all paid RPCs used to start
+        // only after Helius Sender (10 s call timeout) and the ladder submit had answered; with Helius out of credit
+        // every exit waited on both before a working endpoint saw the bytes. Identical signed bytes = one signature,
+        // so it still lands at most once; the primary paths below now race the fan-out instead of gating it.
+        SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.SUBMIT_ATTEMPTED, "fanout_8094")
+        echoSend8009(localSig8085, signedB64, viaSender = false)
+        maybeElsewhere8085 = true
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_FANOUT_AT_SIGN_8094") } catch (_: Throwable) {}
+        val heliusExhausted8094 = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.exhaustedLatched8094() } catch (_: Throwable) { false }
+
         // V5.0.7250 — HELIUS SENDER FIRST only after the v0 message has proved
         // both AATE fee-contract instructions: Jupiter's CU price plus a locally
         // appended Helius tip transfer. Sender is transport, not a swap builder;
         // on any miss the same signed transaction falls through to Jito/RPC.
-        if (senderCompatible) {
+        if (senderCompatible && !heliusExhausted8094) {
             SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.SUBMIT_ATTEMPTED, "helius_sender")
             val sent8085 = try {
                 com.lifecyclebot.network.HeliusSender.send8085(signedB64, localSig8085)

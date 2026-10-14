@@ -291,6 +291,7 @@ object SellFinalizationCoordinator {
                         preRemainingQty = intent.entryTokenRaw.takeIf { it.signum() > 0 } ?: intent.confirmedWalletRaw,
                         preRemainingCostBasisSol = intent.entrySolSpent,
                         grossProceedsSol = sellSolReceived, exitFeesSol = feesSol,
+                        solUsdAtExit = liveSolUsd8094(),
                     )
                     if (!partial) {
                         val whole7835 = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(
@@ -348,3 +349,7 @@ object SellFinalizationCoordinator {
         return if (canonicalMutationFailed6486) result6486.copy(pendingRetry = true) else result6486
     }
 }
+
+/** V5.0.8094 — the SOL/USD price a live sale is valued at; CostLedger7962 refused every live close without it. */
+internal fun liveSolUsd8094(): Double =
+    try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }.takeIf { it.isFinite() && it > 0.0 } ?: 0.0

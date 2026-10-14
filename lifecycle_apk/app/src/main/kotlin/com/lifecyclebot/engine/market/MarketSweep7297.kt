@@ -623,6 +623,12 @@ object MarketSweep7297 {
             fun vol(s: JSONObject?) = if (s == null) 0.0 else s.optDouble("buyVolume", 0.0).finite() + s.optDouble("sellVolume", 0.0).finite()
             val created = o.optJSONObject("firstPool")?.optString("createdAt", "").orEmpty()
             val createdMs = try { if (created.isBlank()) 0L else java.time.Instant.parse(created).toEpochMilli() } catch (_: Throwable) { 0L }
+            // V5.0.8094 — Jupiter's FIRST pool is a launch time; the sniper refused 3,623 hunted rows on 8093 as
+            // BIRTH_METADATA_HYDRATING_7440 while this field was on the wire (the RPC birth walk ran on an exhausted
+            // Helius). A later pool (Raydium openTime, a DexScreener best pair) is not a launch and is not recorded here.
+            if (createdMs > 0L) try {
+                com.lifecyclebot.engine.truth.PoolCreationTime7385.record(mint, createdMs, "JUP_FIRST_POOL_8094")
+            } catch (_: Throwable) {}
             out += Row(
                 mint = mint,
                 symbol = o.optString("symbol", ""),

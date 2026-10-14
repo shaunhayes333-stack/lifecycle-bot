@@ -103,4 +103,33 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(w.contains("if (rpcExhaustedReply8094(code, errMsg)) {"))
         assertTrue(w.contains("SignedTxLedger8085.sellGuardLapsed8094(intent.side, prev.createdAtMs"))
     }
+
+    @Test fun aSignedSellIsBroadcastEverywhereAtOnceAndSkipsAnExhaustedSender() {
+        val w = File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        val fan = w.indexOf("\"fanout_8094\"")
+        val sender = w.indexOf("if (senderCompatible && !heliusExhausted8094)")
+        assertTrue(fan > 0 && sender > fan)                             // fan-out precedes the Sender attempt
+        assertTrue(w.substring(fan, sender).contains("echoSend8009(localSig8085, signedB64, viaSender = false)"))
+    }
+
+    @Test fun rugcheckZeroConvictsOnlyWithDangerEvidence() {
+        assertTrue(rugcheckConfirmsDanger8094(rugged = true, dangerRiskCount = 0))
+        assertTrue(rugcheckConfirmsDanger8094(rugged = false, dangerRiskCount = 1))
+        assertFalse(rugcheckConfirmsDanger8094(rugged = false, dangerRiskCount = 0))
+        val auth = src("engine/TradeAuthorizer.kt")
+        assertTrue(auth.contains("hardBlockReasons?.any { it.startsWith(\"Rugcheck score 0\") } != false"))
+        val chk = src("engine/TokenSafetyChecker.kt")
+        assertTrue(chk.contains("hard.add(\"Rugcheck score 0/100 (CONFIRMED RUG RISK)\")"))
+    }
+
+    @Test fun establishedTokensGetKeylessBarsAndJupiterBirthWhileHeliusIsOut() {
+        val plan = src("engine/truth/TradePlan7739.kt")
+        assertTrue(plan.contains("requestKeylessBars8094(ts, nowMs)"))
+        val body = plan.substringAfter("private fun requestKeylessBars8094(").substringBefore("// ── setups (pure) ──")
+        assertTrue(body.contains("if (!HeliusCreditEconomy7881.exhaustedLatched8094(nowMs)) return"))
+        assertTrue(body.contains("if (age < 30L * 60_000L) return"))
+        assertTrue(body.contains("mergeIntoHistory7819(ts, bars)"))
+        val sweep = src("engine/market/MarketSweep7297.kt")
+        assertTrue(sweep.contains("PoolCreationTime7385.record(mint, createdMs, \"JUP_FIRST_POOL_8094\")"))
+    }
 }
