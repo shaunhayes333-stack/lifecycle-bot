@@ -50,7 +50,11 @@ object CortexExit7897 {
     private const val MIN_POSITIONS = 8
     private const val MAX_HOLD_VETO_MS = 60L * 60_000L
     private const val BOOK_DECAY = 0.99
-    private const val PERSIST_KEY = "CORTEX_EXIT_7897"
+    private const val LEGACY_PERSIST_KEY_8091 = "CORTEX_EXIT_7897"
+    private const val PERSIST_KEY = "CORTEX_EXIT_FORWARD_8091"
+    internal const val TARGET_8091 = "FUTURE_MARK_RETURN_V1"
+    @Volatile private var lastPersistMs8091 = 0L
+    @Volatile private var dirty8091 = false
     private const val PERSIST_EVERY = 30
     private const val FETCH_GAP_MS = 60_000L
 
@@ -171,7 +175,8 @@ object CortexExit7897 {
         if (lastSample.size > 4_000) lastSample.entries.removeIf { nowMs - it.value > RUNNER_HORIZON_MS }
         if (holdVetoSince.size > 2_000) holdVetoSince.entries.removeIf { nowMs - it.value > MAX_HOLD_VETO_MS * 4 }
         inc("SAMPLED_${r.bucket.name}")
-        persist()
+        dirty8091 = true
+        persistMaybe8091(nowMs)
     }
 
     /** Called from ExitRegret7752.tick with the loop's fresh-price closure: grades due samples. */
@@ -186,16 +191,17 @@ object CortexExit7897 {
                 ?: registryMark(r.mint, nowMs)
                 ?: offMarks[r.mint]?.takeIf { nowMs - it.second in 0L..MARK_MAX_AGE_MS }?.first
             if (px == null) {
-                if (nowMs - due > GRADE_GRACE_MS) { pending.remove(k); inc("LOST_MARK") } else unpriced.add(r.mint)
+                if (nowMs - due > GRADE_GRACE_MS) { pending.remove(k); dirty8091 = true; inc("LOST_MARK") } else unpriced.add(r.mint)
                 continue
             }
             pending.remove(k)
+            dirty8091 = true
             if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(r.px, px)) { inc("BASIS_SUSPECT"); continue }
             val fwd = (px / r.px - 1.0) * 100.0
             grade8082(r, fwd)
         }
         if (unpriced.isNotEmpty()) fetch(unpriced, nowMs)
-        persist()
+        persistMaybe8091(nowMs)
     }
 
     /** Realised economics are a separate target. A close cannot supply a future HOLD mark. */
@@ -234,6 +240,7 @@ object CortexExit7897 {
                 set.add(r.positionId)
                 if (set.size > 400) set.remove(set.first())
             }
+            dirty8091 = true
             graded.incrementAndGet()
             if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
         }
@@ -346,7 +353,22 @@ object CortexExit7897 {
             if (loaded) return
             loaded = true
             try {
-                val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
+                val current = LearningPersistence.load(PERSIST_KEY)
+                if (LearningPersistence.readFailed8086(PERSIST_KEY)) { loaded = false; return }
+                if (current == null) {
+                    val legacy = LearningPersistence.load(LEGACY_PERSIST_KEY_8091)
+                    if (LearningPersistence.readFailed8086(LEGACY_PERSIST_KEY_8091)) { loaded = false; return }
+                    legacy?.let { old ->
+                        org.json.JSONObject(old).optJSONArray("pending7960")?.let {
+                            decodePending7960(it, System.currentTimeMillis())
+                        }
+                        inc("LEGACY_MIXED_TARGET_RETAINED_8091")
+                    }
+                    dirty8091 = true
+                    return
+                }
+                val o = org.json.JSONObject(current)
+                require(forwardTarget8091(o)) { "Unexpected exit training target" }
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("calibration")?.let { calibration.decode(it) }
                 o.optJSONArray("pending7960")?.let { decodePending7960(it, System.currentTimeMillis()) }
@@ -419,17 +441,25 @@ object CortexExit7897 {
         persist()
     }
 
-    private fun persist() {
+    internal fun forwardTarget8091(state: org.json.JSONObject): Boolean = state.optString("target8091") == TARGET_8091
+
+    private fun persistMaybe8091(nowMs: Long) {
+        if (dirty8091 && nowMs - lastPersistMs8091 >= 30_000L) persist()
+    }
+
+    @Synchronized private fun persist() {
         if (!loaded) return
         try {
             val json = synchronized(this) {
-                org.json.JSONObject().put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("pending7960", encodePending7960()).put("books", org.json.JSONObject().also { j ->
+                org.json.JSONObject().put("target8091", TARGET_8091).put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("pending7960", encodePending7960()).put("books", org.json.JSONObject().also { j ->
                     books.forEach { (k, b) ->
                         j.put(k, (b.byBucket.map { it.encode() } + b.positions.map { s -> s.toList().takeLast(200).joinToString(",") { it.replace(",", "").replace("|", "") } }).joinToString("|"))
                     }
                 }).toString()
             }
             LearningPersistence.save(PERSIST_KEY, json)
+            lastPersistMs8091 = System.currentTimeMillis()
+            dirty8091 = false
         } catch (_: Throwable) {}
     }
 
@@ -439,7 +469,7 @@ object CortexExit7897 {
         ensureLoaded()
         return synchronized(this) {
             val seated = ledger.seats.entries.map { it.key to it.value.authority() }.filter { it.second > 0.0 }.sortedByDescending { it.second }
-            "bar=EXIT_BAR_V1 horizon=30m(runner 120m) sampled/3m pending=${pending.size} graded=${graded.get()} seated=${seated.size} slope=${calibration.line()}\n" +
+            "bar=EXIT_BAR_V1 target=$TARGET_8091 legacy=retained_separate horizon=30m(runner 120m) sampled/1m pending=${pending.size} graded=${graded.get()} seated=${seated.size} slope=${calibration.line()}\n" +
                 "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
                 "      seated: ${seated.take(10).joinToString(" · ") { (k, a) -> "$k a=${"%.2f".format(a)}" }.ifBlank { "none yet" }}\n" +
                 "      lanes: ${books.entries.take(8).joinToString(" · ") { (lane, b) ->

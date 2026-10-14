@@ -56,7 +56,7 @@ class Aate7807ProtectiveExitPolicyTest {
 
     @Test fun moonshot_runner_only_yields_to_structural_or_catastrophe() {
         assertTrue(ProtectiveExitClass7807.bypassesHolds("STRICT_SL_-8", "STANDARD"))
-        assertTrue(ProtectiveExitClass7807.bypassesHolds("STRICT_SL_-8", "MOONSHOT"))
+        assertFalse(ProtectiveExitClass7807.bypassesHolds("STRICT_SL_-8", "MOONSHOT"))
         assertFalse(ProtectiveExitClass7807.bypassesHolds("trailing_stop", "MOONSHOT"))
         assertTrue(ProtectiveExitClass7807.bypassesHolds("dev_dump", "MOONSHOT"))
         assertTrue(ProtectiveExitClass7807.bypassesHolds("RAPID_CATASTROPHE_STOP", "MOONSHOT"))

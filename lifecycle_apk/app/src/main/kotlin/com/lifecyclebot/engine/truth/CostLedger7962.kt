@@ -39,6 +39,8 @@ object CostLedger7962 {
     private const val ENTRY_MARK_LAG_MS = 3_000L
     private const val MAX_SANE_COST_PCT = 60.0
     private const val PERSIST_KEY = "COST_LEDGER_7962"
+    internal fun recoveryExpired8091(eventAtMs: Long, nowMs: Long): Boolean =
+        eventAtMs > 0L && nowMs - eventAtMs > 180_000L
 
     /** One sell leg: raw tokens sold, SOL received net of exit fees, the market price at the sale (USD). */
     data class Leg7962(val qtyRaw: Double, val netSol: Double, val markUsd: Double)
@@ -104,7 +106,7 @@ object CostLedger7962 {
         val band = sizeBand7962(sizeSol)
         val inBand = rows.filter { sizeBand7962(it[1]) == band }
         val use = if (band != "UNK" && inBand.size >= MIN_LIVE_N) inBand else rows
-        return median7962(use.map { it[0] }).takeIf { it.isFinite() }
+        return median7962(use.map { it[0] }).takeIf { it.isFinite() }?.coerceAtLeast(0.0)
     }
 
     /** Pure: refuse when the measured cost exceeds the expected gross move (never on an unmeasured cost). */
@@ -148,6 +150,10 @@ object CostLedger7962 {
             CanonicalFinalizedTradeBus6464.exclude("CostLedger7962", e.tradeId, "ENTRY_MARK_UNOBSERVED")
             return true
         }
+        fun missing8091(reason: String): Boolean =
+            if (recoveryExpired8091(e.atMs, System.currentTimeMillis()))
+                commitMeasurement8090(e, em, null, 0.0, reason)
+            else false
         val rows = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { return false }
         val buys = rows.filterIsInstance<EconomicEventSchema6464.Buy>().filter {
             it.positionId == e.positionId && it.mode.equals("live", true) && it.mint == em.mint
@@ -155,18 +161,18 @@ object CostLedger7962 {
         val sells = rows.filterIsInstance<EconomicEventSchema6464.Sell>().filter {
             it.positionId == e.positionId && it.mode.equals("live", true) && it.mint == em.mint
         }.distinctBy { it.idempotencyKey }
-        if (buys.isEmpty() || sells.isEmpty()) { noLegs.incrementAndGet(); return false }
+        if (buys.isEmpty() || sells.isEmpty()) { noLegs.incrementAndGet(); return missing8091("HISTORICAL_LEGS_UNOBSERVED_8091") }
         // A single entry mark cannot price additional purchases at different times.
         if (buys.size != 1) return commitMeasurement8090(e, em, null, 0.0, "MULTIPLE_BUYS_REQUIRE_PER_FILL_MARKS")
         val buy = buys.single()
         val soldRaw = sells.fold(java.math.BigInteger.ZERO) { n, leg -> n + leg.soldQty }
         if (soldRaw != buy.filledQty || sells.none { !it.partial && it.remainingQty.signum() == 0 }) {
-            noLegs.incrementAndGet(); return false
+            noLegs.incrementAndGet(); return missing8091("HISTORICAL_QUANTITY_INCOMPLETE_8091")
         }
         val legs = ArrayList<TradeCostMeasurement8090.Sale>()
         for (s in sells) {
             val mark = try { com.lifecyclebot.engine.chart.StructureTracker7962.markAt7962(em.mint, s.atMs - ENTRY_MARK_LAG_MS) } catch (_: Throwable) { null }
-            if (mark == null) { noExitMark.incrementAndGet(); return false }
+            if (mark == null) { noExitMark.incrementAndGet(); return missing8091("HISTORICAL_EXIT_MARK_UNOBSERVED_8091") }
             if (!s.solUsdAtExit.isFinite() || s.solUsdAtExit <= 0.0) {
                 return commitMeasurement8090(e, em, null, 0.0, "EXIT_SOL_USD_UNOBSERVED")
             }
@@ -174,7 +180,7 @@ object CostLedger7962 {
         }
         val spent = buy.executedCostSol + buy.entryFeesSol
         val measurement = TradeCostMeasurement8090.measure(spent, buy.filledQty, buy.tokenDecimals, em.markUsd, em.solUsd, legs)
-        return commitMeasurement8090(e, em, measurement, spent, if (measurement == null) "INVALID_OR_NEGATIVE_FRICTION" else "MEASURED")
+        return commitMeasurement8090(e, em, measurement, spent, if (measurement == null) "INVALID_FRICTION" else "MEASURED")
     }
 
     private fun commitMeasurement8090(e: CanonicalFinalizedTradeBus6464.Envelope, em: EntryMark,
@@ -277,13 +283,13 @@ object CostLedger7962 {
                         val excluded = org.json.JSONArray()
                         for (i in 0 until a.length()) {
                             val row = a.optJSONArray(i)
-                            if (row == null || !row.optDouble(0).isFinite() || row.optDouble(0) !in 0.0..MAX_SANE_COST_PCT ||
-                                !row.optDouble(2).isFinite() || row.optDouble(2) !in 0.0..MAX_SANE_COST_PCT) excluded.put(a.opt(i))
+                            if (row == null || !row.optDouble(0).isFinite() || row.optDouble(0) !in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT ||
+                                !row.optDouble(2).isFinite() || row.optDouble(2) !in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT) excluded.put(a.opt(i))
                         }
                         if (excluded.length() > 0) excludedLegacy8090.put(k, excluded)
                         byLane[k] = ArrayDeque((0 until a.length()).mapNotNull { i ->
                             a.optJSONArray(i)?.let { r -> doubleArrayOf(r.optDouble(0), r.optDouble(1), r.optDouble(2)) }
-                        }.filter { it[0].isFinite() && it[0] in 0.0..MAX_SANE_COST_PCT && it[2].isFinite() && it[2] in 0.0..MAX_SANE_COST_PCT }.takeLast(RING))
+                        }.filter { it[0].isFinite() && it[0] in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT && it[2].isFinite() && it[2] in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT }.takeLast(RING))
                     }
                 }
                 o.optJSONObject("marks")?.let { j ->

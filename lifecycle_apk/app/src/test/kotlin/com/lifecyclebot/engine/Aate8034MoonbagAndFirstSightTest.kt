@@ -13,7 +13,7 @@ class Aate8034MoonbagAndFirstSightTest {
     private val now = 1_000_000_000L
 
     @Test fun theFirstOrdinaryExitSetsATailAside() {
-        assertEquals(TailBag8034.Decision.Pass, TailBag8034.decidePure8034("MOONSHOT", "STRICT_SL_-15", -15.0, null, now))
+        assertEquals(TailBag8034.Decision.SetAside, TailBag8034.decidePure8034("MOONSHOT", "STRICT_SL_-15", -15.0, null, now))
         assertEquals(TailBag8034.Decision.SetAside, TailBag8034.decidePure8034("SHITCOIN", "TICK_PROFIT_LOCK_peak60_now40", 40.0, null, now, capitalRecovered = true))
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decidePure8034("QUALITY", "STRICT_SL_-12", -12.0, null, now))       // not a meme lane
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decidePure8034("MOONSHOT", "RUG_DETECTED_LIQUIDITY_PULLED", -80.0, null, now))

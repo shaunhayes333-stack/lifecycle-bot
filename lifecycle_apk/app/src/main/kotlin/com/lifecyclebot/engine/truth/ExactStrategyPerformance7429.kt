@@ -218,6 +218,10 @@ object ExactStrategyPerformance7429 {
         ) else env
         if (listOf(e.entryTradeType, e.entrySetup, e.entryStyle, e.entryTactic).any { it.isBlank() }) {
             PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429")
+            if (CostLedger7962.recoveryExpired8091(e.atMs, System.currentTimeMillis())) {
+                CanonicalFinalizedTradeBus6464.exclude("ExactStrategyPerformance7429", e.tradeId, "HISTORICAL_ENTRY_IDENTITY_UNOBSERVED_8091")
+                return true
+            }
             return false
         }
         ensureRestored7431()

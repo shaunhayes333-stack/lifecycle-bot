@@ -72,8 +72,9 @@ object TailBag8034 {
         val l = lane.uppercase()
         if (l !in TAIL_LANES_8034) return Decision.Pass
         if (reason.uppercase().startsWith("TAIL_") || reason.uppercase().startsWith("LIFECYCLE_") ||
-            structural8034(reason) || com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return Decision.Pass
-        if (!capitalRecovered) return Decision.Pass
+            structural8034(reason) || com.lifecyclebot.engine.sell.ProtectiveExitClass7807.bypassesHolds(reason, lane)) return Decision.Pass
+        if (pnlPct.isFinite() && pnlPct <= -LifecycleHold8065.FLOOR_PCT) return Decision.Pass
+        // The first sale may itself recover capital. A retained tail is not necessarily a free ride.
         if (tail == null) return Decision.SetAside
         if (nowMs - tail.setAt > TAIL_MAX_AGE_MS) return Decision.Pass
         milestoneAt8034(pnlPct, tail.taken)?.let { (i, f) -> return Decision.Milestone(i, f) }
@@ -146,7 +147,6 @@ object TailBag8034 {
     /** The set-aside sale applied: the rest of the position is now the tail. */
     fun markSetAside8034(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
         load()
-        if (!capitalRecovered8090(ts.position.positionId, ts.mint)) return
         tails[ts.mint] = Tail(ts.position.entryTime, nowMs, 0)
         setAside.incrementAndGet()
         save()

@@ -75,6 +75,9 @@ object ExecutionDecisionSnapshot6510 {
             }
             return existing
         }
+        if (executableVerdict7403(sealed.verdict, sealed.mode))
+            com.lifecyclebot.engine.StrategyHypothesisEngine.sealDecision8091(
+                sealed.mint, sealed.candidateVersion, sealed.executionLane, sealed.mode)
         byMint7346.computeIfAbsent(mintKey7346(sealed.runtimeGeneration, sealed.mode, sealed.mint)) {
             ConcurrentHashMap.newKeySet()
         }.add(k)

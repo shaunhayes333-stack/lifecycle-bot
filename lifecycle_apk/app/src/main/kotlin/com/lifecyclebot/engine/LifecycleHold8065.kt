@@ -80,7 +80,8 @@ object LifecycleHold8065 {
     fun passes8065(reason: String): Boolean {
         val r = reason.uppercase()
         return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r) ||
-            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(r)
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(r).rank <=
+                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.STRUCTURAL_EMERGENCY.rank
     }
 
     /** V5.0.8071 — the lifecycle ladder, for the forward labels that grade lifecycle lanes on it. */
@@ -183,7 +184,7 @@ object LifecycleHold8065 {
     }
 
     /** Is [ts]'s open live position held for its lifecycle (a lifecycle lane, or promoted at +100%)? */
-    private fun holding8065(ts: TokenState): Boolean {
+    internal fun holding8065(ts: TokenState): Boolean {
         val pos = ts.position
         if (!pos.isOpen || pos.isPaperPosition || pos.entryTime <= 0L || !(pos.entryPrice > 0.0)) return false
         load()
@@ -214,14 +215,11 @@ object LifecycleHold8065 {
 
     // ── the sell doors ──
 
-    private fun freshHoldEvidence8090(ts: TokenState): Boolean =
-        ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L &&
-            System.currentTimeMillis() - ts.lastPriceUpdate in 0L..5_000L
-
     /** Executor.requestSellCore7948: non-null when this exit is held for the position's lifecycle. */
     fun defer8065(ts: TokenState, reason: String): String? {
         if (!holding8065(ts) || passes8065(reason)) return null
-        if (!freshHoldEvidence8090(ts)) return null
+        // Missing freshness cannot revoke the immutable holding contract.
+        // Price-driven exits validate their observation at the executor boundary.
         val g = gross(ts, null)
         if (g.isFinite() && g <= -FLOOR_PCT) return null
         // V5.0.8080 — a hold whose own give-back is due never swallows the profit lock / trail that
@@ -238,7 +236,7 @@ object LifecycleHold8065 {
 
     /** Executor.requestPartialSell: an ordinary slice (spike tier, ladder, lock) is not sold from a lifecycle hold. */
     fun partialHeld8065(ts: TokenState, reason: String): Boolean {
-        if (!holding8065(ts) || passes8065(reason) || !freshHoldEvidence8090(ts)) return false
+        if (!holding8065(ts) || passes8065(reason)) return false
         partialsHeld.incrementAndGet()
         return true
     }

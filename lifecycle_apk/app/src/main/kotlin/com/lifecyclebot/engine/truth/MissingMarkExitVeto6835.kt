@@ -167,7 +167,7 @@ object MissingMarkExitVeto6835 {
                     // V5.0.7884 — price-based siblings that sold on the same stale mark the
                     // veto refuses for a stop. STALE_PRICE_FORCED stays exempt on purpose:
                     // its trigger is the dark feed itself, not a price.
-                    "FLUID_FLOOR", "EARLY_CUT").any(reason::contains)
+                    "FLUID_FLOOR", "EARLY_CUT", "CORTEX_EXIT_7897").any(reason::contains)
             )
         if (!priceBased) {
             allowCount.incrementAndGet()

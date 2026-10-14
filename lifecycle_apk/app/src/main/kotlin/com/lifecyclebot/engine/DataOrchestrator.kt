@@ -1142,7 +1142,9 @@ class DataOrchestrator(
             try { seedCandleHistory(mint, symbol) } catch (_: Throwable) {}
             lbl("shape")
         }
-        if (keys.any { it in TAPE_INPUTS_8087 }) scope.launch {
+        if (keys.any { it in TAPE_INPUTS_8087 }) {
+            forcePoll8085.add(mint)
+            scope.launch {
             try { pumpWs?.subscribeToken(mint) } catch (_: Throwable) {}
             try { heliusWs?.subscribeToken(mint) } catch (_: Throwable) {}
             try {
@@ -1150,6 +1152,7 @@ class DataOrchestrator(
                 if (ts != null && ts.pairAddress.isNotBlank()) dexWs?.subscribeToken(mint, ts.pairAddress)
             } catch (_: Throwable) {}
             lbl("tape")
+            }
         }
         val unknown = keys - POLL_INPUTS_8087 - TAPE_INPUTS_8087 - "shape"
         if (unknown.isNotEmpty()) { forcePoll8085.add(mint); lbl("other") }

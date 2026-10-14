@@ -376,6 +376,7 @@ jobs:
             --tests '*GoldenTapeRegressionTest.V5_0_7723_the_autonomous_stack_closes_its_loops_and_paper_proof_does_not_sell_live' \
             --tests '*Aate808*' \
             --tests '*Aate8090*' \
+            --tests '*Aate8091*' \
             --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 
       # Keep required release checks strict while measuring every historical

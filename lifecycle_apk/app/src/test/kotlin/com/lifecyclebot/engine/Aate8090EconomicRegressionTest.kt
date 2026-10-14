@@ -95,12 +95,12 @@ class Aate8090EconomicRegressionTest {
     }
 
     @Test fun unpaidRunnerCannotCreateOrRetainMoonbag() {
-        assertEquals(TailBag8034.Decision.Pass,
+        assertEquals(TailBag8034.Decision.SetAside,
             TailBag8034.decidePure8034("MOONSHOT", "TIME_EXIT", 900.0, null, 1000L))
-        assertEquals(TailBag8034.Decision.Pass,
+        assertEquals(TailBag8034.Decision.Milestone(0, 1.0 / 3.0),
             TailBag8034.decidePure8034("MOONSHOT", "TIME_EXIT", 900.0, TailBag8034.Tail(1L, 1L, 0), 1000L))
         assertEquals(TailBag8034.Decision.Pass,
-            TailBag8034.decidePure8034("MOONSHOT", "HARD_STOP", -25.0, TailBag8034.Tail(1L, 1L, 0), 1000L, true))
+            TailBag8034.decidePure8034("MOONSHOT", "RAPID_CATASTROPHE_STOP", -25.0, TailBag8034.Tail(1L, 1L, 0), 1000L, true))
     }
 
     @Test fun exactIdentityIsPositionBoundAndSurvivesRestart() {

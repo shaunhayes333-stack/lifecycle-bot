@@ -21,18 +21,16 @@ object TradeCostMeasurement8090 {
         val spent = BigDecimal.valueOf(spentSol)
         val entryValue = marketSol(raw, entryMarkUsd, entrySolUsd)
         val entryFriction = spent.subtract(entryValue)
-        if (entryFriction.signum() < 0) return null
         var totalFriction = entryFriction
         for (sale in sales) {
             if (sale.raw.signum() <= 0 || !valid(sale.markUsd) || !valid(sale.solUsd) ||
                 !sale.netSol.isFinite() || sale.netSol < 0.0) return null
             val exitFriction = marketSol(sale.raw, sale.markUsd, sale.solUsd).subtract(BigDecimal.valueOf(sale.netSol))
-            if (exitFriction.signum() < 0) return null
             totalFriction = totalFriction.add(exitFriction)
         }
         val cost = totalFriction.divide(spent, mc).multiply(BigDecimal(100)).toDouble()
         val buy = entryFriction.divide(entryValue, mc).multiply(BigDecimal(100)).toDouble()
-        return if (cost.isFinite() && buy.isFinite() && cost in 0.0..60.0 && buy in 0.0..60.0)
+        return if (cost.isFinite() && buy.isFinite() && cost in -60.0..60.0 && buy in -60.0..60.0)
             Measurement(cost, buy) else null
     }
 }

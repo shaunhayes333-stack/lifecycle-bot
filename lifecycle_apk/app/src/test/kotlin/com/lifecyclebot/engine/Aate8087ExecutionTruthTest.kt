@@ -134,7 +134,8 @@ class Aate8087ExecutionTruthTest {
         val d = src("engine/DataOrchestrator.kt")
         assertTrue(d.contains("refreshMissingInputs8087(mint, symbol, missing)"))
         assertTrue(d.contains("if (\"shape\" in keys) scope.launch {"))
-        assertTrue(d.contains("if (keys.any { it in TAPE_INPUTS_8087 }) scope.launch {"))
+        assertTrue(d.contains("if (keys.any { it in TAPE_INPUTS_8087 }) {"))
+        assertTrue(d.substringAfter("if (keys.any { it in TAPE_INPUTS_8087 }) {").substringBefore("val unknown").contains("forcePoll8085.add(mint)"))
     }
 
     // P1.4 — repeated evaluation of one candidate is not fanout
@@ -192,7 +193,7 @@ class Aate8087ExecutionTruthTest {
         val neutral = stat8087(20, 6.0, 2.0, runnerEvery = 20)  // 5% runners
         val sb = com.lifecyclebot.engine.cortex.CortexScoreboard7885
         org.junit.Assert.assertTrue(sb.invertedProven7948(strong, neutral))                    // generic lane: inverted
-        org.junit.Assert.assertFalse(sb.invertedProven7948(strong, neutral, runnerLane = true)) // runner lane: tail wins
+        org.junit.Assert.assertTrue(sb.invertedProven7948(strong, neutral, runnerLane = true)) // 8091: runner incidence cannot hide inverted returns
         val noTail = stat8087(40, -8.0, 2.0)
         org.junit.Assert.assertTrue(sb.invertedProven7948(noTail, neutral, runnerLane = true))  // no tail: still inverted
     }

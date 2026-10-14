@@ -175,10 +175,7 @@ class CortexScoreboard7885 {
         /** Pure: does this lane's STRONG record measurably trail its NEUTRAL record? */
         fun invertedProven7948(strong: CortexLedger7885.Stat, neutral: CortexLedger7885.Stat, runnerLane: Boolean = false): Boolean {
             if (strong.n < INVERSION_MIN_STRONG_7948 || neutral.n < INVERSION_MIN_NEUTRAL_7948) return false
-            // V5.0.8087 — a runner lane is paid by its tail, not by its average short-horizon label: MOONSHOT's STRONG
-            // reads lost the mean race at the forward horizon while catching more runners, and were suspended as
-            // "inverted". On a runner lane STRONG is inverted only when it also fails to out-catch the comparison bucket.
-            if (runnerLane && strong.runnerRate() >= TAIL_RUNNER_RATE && strong.runnerRate() >= neutral.runnerRate()) return false
+            // V5.0.8091 — runner frequency does not erase measured return inversion.
             val gap = neutral.mean() - strong.mean()
             if (!gap.isFinite() || gap <= PROOF_MARGIN_PCT) return false
             val seS = se(strong); val seN = se(neutral)

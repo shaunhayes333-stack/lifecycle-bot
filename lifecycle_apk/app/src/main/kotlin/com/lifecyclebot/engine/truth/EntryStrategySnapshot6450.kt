@@ -94,7 +94,9 @@ object EntryStrategySnapshot6450 {
         val exact = com.lifecyclebot.engine.StrategyHypothesisEngine.exactEntryIdentity8090(
             snapIn.positionId, snapIn.mint, snapIn.entryLane, snapIn.candidateVersion8090)
         val snap = if (exact == null) snapIn else snapIn.copy(
-            entryTradeType = exact[0], entrySetup = exact[1], entryStyle = exact[2], entryTactic = exact[3])
+            entryTradeType = exact[0], entrySetup = exact[1], entryStyle = exact[2], entryTactic = exact[3],
+            cortexSetupTag8085 = com.lifecyclebot.engine.StrategyHypothesisEngine.entrySetupTag8091(
+                snapIn.positionId, snapIn.mint, snapIn.entryLane, snapIn.candidateVersion8090))
         // A missing Cortex tag stays unknown. Looking up the current mint classification
         // here could attach a later decision to an already executed position.
         val restoredPrior6567 = snapshot(snap.positionId)
