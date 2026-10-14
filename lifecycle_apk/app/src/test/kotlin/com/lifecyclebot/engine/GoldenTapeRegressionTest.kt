@@ -15055,7 +15055,9 @@ class GoldenTapeRegressionTest {
     fun V5_0_8088_runner_inversion_is_tail_aware_and_held_mark_gaps_are_attributed() {
         fun f(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
         val sb = f("engine/cortex/CortexScoreboard7885.kt")
-        assertTrue("runner lane inversion needs tail failure too", sb.contains("if (runnerLane && strong.runnerRate() >= TAIL_RUNNER_RATE && strong.runnerRate() >= neutral.runnerRate()) return false"))
+        // Keep this historical test identity so the full-suite coverage gate can track it.
+        // 8091: runner incidence cannot excuse statistically inverted return ordering.
+        assertFalse("runner incidence must not bypass return inversion", sb.contains("if (runnerLane && strong.runnerRate() >= TAIL_RUNNER_RATE && strong.runnerRate() >= neutral.runnerRate()) return false"))
         assertTrue("inverted7948 knows runner lanes", sb.contains("invertedProven7948(a[Bucket.STRONG.ordinal], a[Bucket.NEUTRAL.ordinal], runnerLane8087)"))
         val dex = f("network/DexscreenerApi.kt")
         assertTrue("typed batch cause", dex.contains("enum class BatchCause8087 { PRICED, LIMITER_REFUSED, PROVIDER_FAILED, NO_DATA, UNPARSEABLE }"))
