@@ -29,9 +29,11 @@ object RunnerTicket8073 {
     private const val MCAP_HI = 100_000.0
     private const val TICKET_GAP_MS = 2L * 60_000L
     private const val PENDING_MS = 10L * 60_000L
+    private const val UNFILLED_RESERVATION_MS_8092 = 90_000L
 
-    /** mint -> when its ticket was issued. */
+    /** A ticket is provisional until the canonical LIVE entry opens. */
     private val tickets = ConcurrentHashMap<String, Long>()
+    private val confirmed8092 = ConcurrentHashMap<String, Long>()
     @Volatile private var lastIssuedMs = 0L
     private val issued = AtomicLong(0)
     private val refusedBudget = AtomicLong(0)
@@ -54,22 +56,24 @@ object RunnerTicket8073 {
     } catch (_: Throwable) { Double.POSITIVE_INFINITY }
 
     /** LiveEdgeGate7877: may [ts] take a runner ticket in place of proven edge? Issues the ticket when it may. */
-    fun admits8073(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+    @Synchronized fun admits8073(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
         ensureSubscribed()
         if (ts.mint.isBlank()) return false
-        if (isTicket8073(ts.mint)) return true
+        tickets.entries.removeIf { it.key !in confirmed8092 && nowMs - it.value > UNFILLED_RESERVATION_MS_8092 }
+        if (isTicket8073(ts.mint, nowMs)) return true
         val curve = try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(ts.mint) != null } catch (_: Throwable) { false }
         val dex = ts.lastPriceDex.ifBlank { try { ts.tokenMap.dexId } catch (_: Throwable) { "" } }
         val venue = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.memeVenue8063(ts.mint, dex, curve)
         val mcap = try { com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { 0.0 }
         if (!inGroup8073(venue, mcap)) { refusedKind.incrementAndGet(); return false }
-        if (nowMs - lastIssuedMs < TICKET_GAP_MS) { refusedBudget.incrementAndGet(); return false }
+        if (nowMs - lastIssuedMs < TICKET_GAP_MS || tickets.keys.any { it !in confirmed8092 }) {
+            refusedBudget.incrementAndGet(); return false
+        }
         val walletSol = try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
         val equity = try { com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(walletSol) } catch (_: Throwable) { walletSol }
         val ticketSol = try { com.lifecyclebot.engine.truth.NetEdge8030.DEFAULT_TICKET_SOL } catch (_: Throwable) { 0.03 }
         if (!fits8073(openTicketSol(), ticketSol, equity)) { refusedBudget.incrementAndGet(); return false }
         tickets[ts.mint] = nowMs
-        lastIssuedMs = nowMs
         issued.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("RUNNER_TICKET_8073_ISSUED")
@@ -78,15 +82,22 @@ object RunnerTicket8073 {
         return true
     }
 
-    /** Is [mint] a runner ticket (issued and either still pending its buy or now an open position)? */
+    /** Only a canonical filled position starts the two-minute issuance cooldown. */
+    @Synchronized fun onConfirmedBuy8092(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || mint !in tickets) return
+        if (confirmed8092.putIfAbsent(mint, nowMs) == null) {
+            lastIssuedMs = nowMs
+            try { PipelineHealthCollector.labelInc("RUNNER_TICKET_CONFIRMED_FILL_8092") } catch (_: Throwable) {}
+        }
+    }
+
+    /** An unfilled proposal expires even if no corresponding terminal SELL ever occurs. */
     fun isTicket8073(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val at = tickets[mint] ?: return false
-        if (nowMs - at <= PENDING_MS) return true
-        val open = try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { it.mint == mint && it.mode.equals("live", true) }
-        } catch (_: Throwable) { true }
-        if (!open) tickets.remove(mint)
-        return open
+        if (mint in confirmed8092) return true
+        if (nowMs - at in 0L..UNFILLED_RESERVATION_MS_8092) return true
+        tickets.remove(mint, at)
+        return false
     }
 
     @Volatile private var subscribed = false
@@ -102,12 +113,13 @@ object RunnerTicket8073 {
     }
 
     /** A ticket's live position closed: was it paid or did it die? */
-    private fun onClose8073(mint: String, realizedPnlSol: Double) {
-        if (tickets.remove(mint) == null) return
+    @Synchronized private fun onClose8073(mint: String, realizedPnlSol: Double) {
+        if (confirmed8092.remove(mint) == null) return
+        tickets.remove(mint)
         if (realizedPnlSol.isFinite() && realizedPnlSol > 0.0) paid.incrementAndGet() else died.incrementAndGet()
     }
 
     fun statusLine(): String =
-        "issued=${issued.get()} open=${tickets.size} record[paid=${paid.get()} died=${died.get()}] refused[kind=${refusedKind.get()} budget=${refusedBudget.get()}] " +
+        "issued=${issued.get()} open=${confirmed8092.size} pending=${(tickets.size - confirmed8092.size).coerceAtLeast(0)} record[paid=${paid.get()} died=${died.get()}] refused[kind=${refusedKind.get()} budget=${refusedBudget.get()}] " +
             "rule=PumpSwap \$10k-\$100k, <= ${(BUDGET_FRAC * 100).toInt()}% of equity, 1 per 2 min, held on lifecycle rules"
 }
