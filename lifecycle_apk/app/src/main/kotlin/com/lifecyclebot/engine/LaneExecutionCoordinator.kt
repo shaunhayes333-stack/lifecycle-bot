@@ -508,7 +508,10 @@ object LaneExecutionCoordinator {
      */
     private fun nativeRefused7774(mint: String, lane: String): Boolean = try {
         val o = SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())
-        o != null && o.authoritative && !o.eligible
+        (o != null && o.authoritative && !o.eligible) ||
+            // V5.0.8094 — a lane whose FDG just refused this mint does not win it again: 7960 handed it to a READY
+            // specialist, which then lost the READY election to the refused primary (READY_ARBITRATION_LOST_7803).
+            SpecialistOwnership7951.primaryRefused7960(mint, lane)
     } catch (_: Throwable) { false }
 
     /**

@@ -177,18 +177,26 @@ internal object SpecialistCandidateBooks7803 {
         return LANES.mapNotNull { lane ->
             pruneLane(lane, now)
             val e = books[lane]?.get(mint) ?: return@mapNotNull null
-            if (e.candidateVersion == candidateVersion &&
+            if (versionCurrent8094(e.candidateVersion, candidateVersion) &&
                 (e.state == State.QUALIFIED || e.state == State.READY)
             ) lane to e else null
         }.toMap()
     }
+
+    /**
+     * Pure (V5.0.8094): is an entry written under [entryVersion] current for [candidateVersion]? The same version, or the
+     * previous 30 s bucket (a READY written at :29 must not vanish from the election at :30 while still inside its TTL).
+     * 8094: specialists READY thousands of times, owner-selected 0 — the election saw none after every bucket roll.
+     */
+    internal fun versionCurrent8094(entryVersion: Long, candidateVersion: Long): Boolean =
+        entryVersion == candidateVersion || (candidateVersion > 0L && entryVersion == candidateVersion - 1L)
 
     internal fun readyFor(mint: String, candidateVersion: Long): Map<String, Entry> {
         val now = System.currentTimeMillis()
         return LANES.mapNotNull { lane ->
             pruneLane(lane, now)
             val e = books[lane]?.get(mint) ?: return@mapNotNull null
-            if (e.candidateVersion == candidateVersion && e.state == State.READY) lane to e else null
+            if (versionCurrent8094(e.candidateVersion, candidateVersion) && e.state == State.READY) lane to e else null
         }.toMap()
     }
 

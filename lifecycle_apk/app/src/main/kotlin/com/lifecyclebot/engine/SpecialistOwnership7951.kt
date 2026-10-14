@@ -301,9 +301,42 @@ object SpecialistOwnership7951 {
     internal fun handOffAllowed7960(lane: String, mint: String, primaryLane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val l = lane7951(lane)
         if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) return false
-        if (!primaryRefused7960(mint, primaryLane, nowMs)) return false
+        val fdgRefused = primaryRefused7960(mint, primaryLane, nowMs)
+        val native8094 = !fdgRefused && primaryNativeRefused8094(mint, primaryLane, nowMs)
+        if (!fdgRefused && !native8094) return false
         val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
-        if (ready) notePreIntent7951(l, "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
+        // V5.0.8094 — a native hand-off goes only to a lane whose OWN strategy for this coin is not losing on its graded
+        // record (no fired setup proven and the classified one negative = no hand-off). The withdrawn 8094 hand-off had
+        // no such guard; this one does, and every receiving-lane gate (quarantine, rug, FDG, sizing) still runs.
+        if (ready && native8094 && !receiverRecordSound8094(mint, l)) {
+            try { PipelineHealthCollector.labelInc("READY_HANDOFF_REFUSED_RECEIVER_RECORD_8094_$l") } catch (_: Throwable) {}
+            return false
+        }
+        if (ready) notePreIntent7951(l, if (native8094) "READY_HANDED_OFF_NATIVE_${lane7951(primaryLane)}_8094" else "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
         return ready
     }
+
+    // V5.0.8094 — the 7960 hand-off opened only on the primary's FDG refusal; most primaries refuse in their own native
+    // brain first (8093: CORE_YIELD_CLEAR_SPECIALIST 15,004 while CASHGEN / QUALITY sat READY_NOT_EVALUATED_PRIMARY_CORE;
+    // 8094: MANIPULATED 1,485 qualified, EXPRESS 557, CASHGEN 466 — owner-selected 0). A fresh, graded native refusal on a
+    // lane-fit rule opens the same hand-off; a safety / rug / dev / bundle / hard-block refusal never does.
+    private fun primaryNativeRefused8094(mint: String, primaryLane: String, nowMs: Long): Boolean = try {
+        val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint)
+        snap != null && nativeRefusalHandsOff8094(snap.opinions[lane7951(primaryLane)], snap.evaluatedAtMs, nowMs)
+    } catch (_: Throwable) { false }
+
+    /** Pure (V5.0.8094): a fresh, graded native refusal on a lane-fit rule (never safety). */
+    internal fun nativeRefusalHandsOff8094(op: SpecialistBrainBridge7542.Opinion?, evaluatedAtMs: Long, nowMs: Long): Boolean =
+        op != null && !op.eligible && op.authoritative && op.gradeable && nowMs - evaluatedAtMs in 0..REFUSED_HANDOFF_MS_7960 &&
+            HANDOFF_BLOCKING_8094.none { op.reason.uppercase().contains(it) }
+
+    private val HANDOFF_BLOCKING_8094 = listOf("RUG", "SAFETY", "HONEYPOT", "BLOCK", "DEV", "BUNDLE", "SCAM", "FREEZE",
+        "MINT_AUTH", "BLACKLIST", "ERROR", "ZERO_LIQ", "NO_LIQ", "LIQ_ZERO", "TOXIC", "QUARANTIN")
+
+    /** V5.0.8094 — the receiving lane's strategy for this coin: a proven fired setup, or a classified setup not losing. */
+    private fun receiverRecordSound8094(mint: String, lane: String): Boolean = try {
+        val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+        ts != null && (com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane) != null ||
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, lane) == null)
+    } catch (_: Throwable) { false }
 }

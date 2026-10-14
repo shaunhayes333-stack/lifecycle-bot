@@ -60,8 +60,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(pb.contains("val shapeKnown = shapeObs == Obs8084.OBSERVED"))
         // A primary's native refusal is not a hand-off; only its FDG refusal is.
         val own = src("engine/SpecialistOwnership7951.kt")
-        assertTrue(own.contains("if (!primaryRefused7960(mint, primaryLane, nowMs)) return false"))
-        assertFalse(own.contains("primaryNativeRefused8094"))
+        assertTrue(own.contains("if (ready && native8094 && !receiverRecordSound8094(mint, l)) {"))
         // Aggregator prices never enter the mark bars.
         val fresh = src("engine/truth/CandidateMarkFresh8094.kt")
         assertFalse(fresh.contains("MarkBars7948.note7948"))
@@ -359,5 +358,24 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(cx.contains("for (f in p.fired8094) {"))
         assertTrue(cx.contains("LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis())"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) }"))
+    }
+
+    @Test fun readySpecialistsAreSeenAcrossTheVersionRollAndTheRefusedPrimaryDoesNotWinAgain() {
+        val b = com.lifecyclebot.engine.market.SpecialistCandidateBooks7803
+        assertTrue(b.versionCurrent8094(100L, 100L))
+        assertTrue(b.versionCurrent8094(99L, 100L))        // READY written in the previous 30 s bucket
+        assertFalse(b.versionCurrent8094(98L, 100L))
+        assertFalse(b.versionCurrent8094(101L, 100L))
+        val coord = src("engine/LaneExecutionCoordinator.kt")
+        assertTrue(coord.contains("SpecialistOwnership7951.primaryRefused7960(mint, lane)"))
+        // Native hand-off: lane-fit refusals hand on, safety refusals never; the receiver's own record must be sound.
+        fun op(eligible: Boolean, reason: String) =
+            SpecialistBrainBridge7542.Opinion("CORE", eligible, 40, 40, 0.0, reason, "S", "e", "x", gradeable = true)
+        val o = SpecialistOwnership7951
+        assertTrue(o.nativeRefusalHandsOff8094(op(false, "CORE_YIELD_CLEAR_SPECIALIST_OWNER"), 1_000L, 2_000L))
+        assertFalse(o.nativeRefusalHandsOff8094(op(false, "HARD BLOCK: rug pattern"), 1_000L, 2_000L))
+        assertFalse(o.nativeRefusalHandsOff8094(op(false, "DEV_SELLING"), 1_000L, 2_000L))
+        assertFalse(o.nativeRefusalHandsOff8094(op(true, "OK"), 1_000L, 2_000L))
+        assertTrue(src("engine/SpecialistOwnership7951.kt").contains("if (ready && native8094 && !receiverRecordSound8094(mint, l)) {"))
     }
 }
