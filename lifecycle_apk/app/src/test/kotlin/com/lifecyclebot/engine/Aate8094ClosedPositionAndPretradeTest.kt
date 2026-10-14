@@ -132,4 +132,24 @@ class Aate8094ClosedPositionAndPretradeTest {
         val sweep = src("engine/market/MarketSweep7297.kt")
         assertTrue(sweep.contains("PoolCreationTime7385.record(mint, createdMs, \"JUP_FIRST_POOL_8094\")"))
     }
+
+    @Test fun aReadySpecialistGetsTheTokenWhenThePrimaryRefusesNatively() {
+        fun op(eligible: Boolean, reason: String, gradeable: Boolean = true) =
+            SpecialistBrainBridge7542.Opinion("CORE", eligible, 40, 40, 0.0, reason, "S", "e", "x", gradeable = gradeable)
+        val h = SpecialistOwnership7951
+        // CORE yielding to the specialist is the deadlock 8093 showed (15,004 refusals, CASHGEN/QUALITY never evaluated).
+        assertTrue(h.nativeRefusalHandsOff8094(op(false, "CORE_YIELD_CLEAR_SPECIALIST_OWNER"), 1_000L, 2_000L))
+        assertTrue(h.nativeRefusalHandsOff8094(op(false, "LIQ_TOO_LOW: below SHITCOIN band"), 1_000L, 2_000L))
+        assertFalse(h.nativeRefusalHandsOff8094(op(false, "HARD BLOCK: rug pattern"), 1_000L, 2_000L))
+        assertFalse(h.nativeRefusalHandsOff8094(op(false, "DEV_SELLING"), 1_000L, 2_000L))
+        assertFalse(h.nativeRefusalHandsOff8094(op(true, "OK"), 1_000L, 2_000L))
+        assertFalse("hydrating is not a verdict", h.nativeRefusalHandsOff8094(op(false, "PHASE", gradeable = false), 1_000L, 2_000L))
+        assertFalse("stale opinion", h.nativeRefusalHandsOff8094(op(false, "MCAP_TOO_LOW"), 1_000L, 1_000L + 91_000L))
+        assertFalse(h.nativeRefusalHandsOff8094(null, 1_000L, 2_000L))
+    }
+
+    @Test fun liveSalesCarryTheirSolUsdSoCostIsMeasured() {
+        val c = src("engine/sell/SellFinalizationCoordinator.kt")
+        assertTrue(c.contains("solUsdAtExit = liveSolUsd8094(),"))
+    }
 }
