@@ -253,9 +253,16 @@ object AgenticStyleRouter {
     }
 
     /** V5.0.8080: the setup to seal for [laneHint]: the sheet's when this lane can run it, else the coin's own lane setup. */
-    fun sealedSetup8080(ts: TokenState, sheet: ToolkitSignalSheet.Sheet?, laneHint: String): String =
-        if (toolkitFitsLane8080(sheet, laneHint)) sheet!!.setup.name
+    fun sealedSetup8080(ts: TokenState, sheet: ToolkitSignalSheet.Sheet?, laneHint: String): String {
+        // 8092: a proven strategy in this lane must not be replaced by an unrelated token-wide sheet.
+        val measured = try {
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneHint)?.first
+                ?: com.lifecyclebot.engine.cortex.LanePlaybook7907.coldStartSetup8080(ts, laneHint)
+        } catch (_: Throwable) { null }
+        if (!measured.isNullOrBlank()) return measured
+        return if (toolkitFitsLane8080(sheet, laneHint)) sheet!!.setup.name
         else (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, laneHint) } catch (_: Throwable) { null } ?: "NONE")
+    }
 
     /** Pure (V5.0.8080): may a style declared for [styleLanes] run in [laneHint]? Blank lane / CORE accept any. */
     fun toolkitStyleFitsLane8080(styleLanes: Set<String>, laneHint: String): Boolean {
