@@ -326,4 +326,14 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src.contains(".getOrPut(\"${'$'}setup|${'$'}timing8094\") { CortexLedger7885.Stat() }"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("LanePlaybook7907.timingNegative8094(ts, l8059, nowMs)"))
     }
+
+    @Test fun aProvenSetupTradesAsItsOwnTacticAndStyle() {
+        val t = src("engine/learning/TacticSwitcher.kt")
+        assertTrue(t.contains("val setup = proven8094 ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) }"))
+        val r = src("engine/AgenticStyleRouter.kt")
+        val provenBranch = r.indexOf("provenLead8094 && tactic == TacticSwitcher.Tactic.BREAKOUT -> Style.BREAKOUT_RUNNER")
+        assertTrue(provenBranch > 0 && provenBranch < r.indexOf("toolkitStyle != null -> toolkitStyle"))
+        // A post-pump token still never becomes a sniper/runner style: tooLateForSnipe stays first.
+        assertTrue(r.indexOf("launch7402?.tooLateForSnipe == true -> sameLaneWeakPivotStyle") < provenBranch)
+    }
 }

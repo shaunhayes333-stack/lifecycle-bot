@@ -240,7 +240,10 @@ object TacticSwitcher {
      * Unnamed proof setups and missing setups use the token's trade classification, never a lane-wide pin.
      */
     fun tacticForToken8050(ts: com.lifecyclebot.data.TokenState, lane: String, score: Int): Tactic {
-        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) } catch (_: Throwable) { null }
+        // V5.0.8094 — a coin admitted on a PROVEN setup trades as that setup's tactic (the one its labels were graded on),
+        // not as whatever the token-wide classification maps to; the stamp, the style and the tactic record then agree.
+        val proven8094 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane)?.first } catch (_: Throwable) { null }
+        val setup = proven8094 ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) } catch (_: Throwable) { null }
         if (!setup.isNullOrBlank() && setup !in setOf("NO_TRIGGER", "SPECIALIST_EDGE", "EXPERT_ENTRY", "LAUNCH_LADDER_PROVEN")) {
             try { PipelineHealthCollector.labelInc("TACTIC_FROM_TOKEN_8050") } catch (_: Throwable) {}
             return seedTactic8049(lane, setup)
