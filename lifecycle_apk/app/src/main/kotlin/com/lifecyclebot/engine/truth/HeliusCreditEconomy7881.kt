@@ -210,6 +210,40 @@ object HeliusCreditEconomy7881 {
      * (budget x (fraction of the day + 1 h)). HeliusCreditMeterInterceptor7881 then answers every non-execution Helius
      * call locally with a 429, and the token websocket takes no new non-held subscription. Execution never stops.
      */
+    // ── V5.0.8094 — provider-side exhaustion ─────────────────────────────────
+    // Owner, 2026-10-14: "I ran out of helius credit." The plan's credits were spent, Helius answered every call with
+    // an exhaustion error, and every consumer kept calling: HeliusSwapCandles7819 httpErr with 0 prints, token
+    // subscriptions 0, setups DATA_INCOMPLETE. A provider exhaustion answer now latches for [EXHAUSTED_LATCH_MS_8094];
+    // non-execution calls are answered locally (callers fall to their next source) with one probe per window.
+    private const val EXHAUSTED_LATCH_MS_8094 = 15L * 60_000L
+    @Volatile private var exhaustedUntilMs8094 = 0L
+    @Volatile private var lastProbeMs8094 = 0L
+    private val exhaustedLatches8094 = AtomicLong(0)
+
+    /** Pure: does a Helius error answer say the plan's credits/usage are exhausted (not a burst rate limit)? */
+    fun isExhaustionAnswer8094(code: Int, body: String): Boolean {
+        if (code !in setOf(402, 403, 429)) return false
+        val b = body.lowercase()
+        if (b.contains("aate_helius_budget") || b.contains("aate_helius_exhausted")) return false
+        return b.contains("credit") || b.contains("max usage") || b.contains("usage limit") ||
+            b.contains("quota") || b.contains("upgrade your plan") || b.contains("exceeded your")
+    }
+
+    fun noteExhausted8094(nowMs: Long = System.currentTimeMillis()) {
+        exhaustedUntilMs8094 = nowMs + EXHAUSTED_LATCH_MS_8094
+        exhaustedLatches8094.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("HELIUS_PROVIDER_EXHAUSTED_8094") } catch (_: Throwable) {}
+    }
+
+    /** True while latched, except one probe per latch window (so recovery is noticed without a restart). */
+    fun exhaustedGate8094(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (nowMs >= exhaustedUntilMs8094) return false
+        if (nowMs - lastProbeMs8094 >= EXHAUSTED_LATCH_MS_8094) { lastProbeMs8094 = nowMs; return false }
+        return true
+    }
+
+    fun exhaustedLatched8094(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < exhaustedUntilMs8094
+
     fun overBudget8066(nowMs: Long = System.currentTimeMillis()): Boolean = try {
         rollIfNewDay(nowMs)
         val pace = (dayFraction(nowMs) + 1.0 / 24.0).coerceIn(0.0, 1.0)
@@ -233,7 +267,15 @@ object HeliusCreditEconomy7881 {
      * Enrichment admission: true to spend [estCredits] on [consumer] now. A
      * refusal is the caller's cue to serve its cache or skip — never to retry.
      */
-    fun admit(consumer: Consumer, estCredits: Double, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+    fun admit(consumer: Consumer, estCredits: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (exhaustedLatched8094(nowMs)) {
+            try { PipelineHealthCollector.labelInc("HELIUS_EXHAUSTED_DEFERRED_8094_${consumer.name}") } catch (_: Throwable) {}
+            return false
+        }
+        return admitWithinBudget8094(consumer, estCredits, nowMs)
+    }
+
+    private fun admitWithinBudget8094(consumer: Consumer, estCredits: Double, nowMs: Long): Boolean = try {
         rollIfNewDay(nowMs)
         val value = valueOf(consumer)
         val ok = synchronized(this) {
@@ -315,6 +357,7 @@ object HeliusCreditEconomy7881 {
         val projected = if (f > 0.01) total / f else total
         fun k(v: Double) = if (v >= 1_000_000) "%.2fM".format(v / 1_000_000) else if (v >= 1_000) "%.1fk".format(v / 1_000) else "%.0f".format(v)
         return synchronized(this) {
+            "  exhausted8094=${if (exhaustedLatched8094(nowMs)) "LATCHED" else "no"}(latches=${exhaustedLatches8094.get()})" +
             "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%) hardGate8066[refused=${refused8066.get()}]\n" +
                 "  tiers: " + Tier.values().joinToString(" · ") { t -> byTier[t]?.let { "${t.name}=${k(it[1])}(${it[0].toLong()} calls)" } ?: "${t.name}=0" } + "\n" +
                 "  top methods: " + byMethod.entries.sortedByDescending { it.value[1] }.take(8)

@@ -129,7 +129,20 @@ object RuntimeProviderAuthority6685 {
         }
         add(configuredAlchemyRpc())     // V5.0.8083 — paid Alchemy ahead of every keyless public node
         PUBLIC_SOLANA_RPCS.forEach(::add)
-        return ordered.toList()
+        // V5.0.8094 — Helius out of plan credits (owner, 2026-10-14): every ladder walk — sell broadcast and
+        // balance reads included — paid a failing Helius round trip first. While the exhaustion latch holds,
+        // Helius moves to the back; Alchemy and the public nodes lead.
+        val heliusExhausted8094 = try {
+            com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.exhaustedLatched8094()
+        } catch (_: Throwable) { false }
+        return heliusLastWhenExhausted8094(ordered.toList(), heliusExhausted8094)
+    }
+
+    /** V5.0.8094 — pure: [ladder] with Helius endpoints moved to the end when [exhausted]. */
+    internal fun heliusLastWhenExhausted8094(ladder: List<String>, exhausted: Boolean): List<String> {
+        if (!exhausted) return ladder
+        val (helius, rest) = ladder.partition { it.contains("helius", ignoreCase = true) }
+        return rest + helius
     }
 
     /**

@@ -38,8 +38,18 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
                 .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_BUDGET_8066\"}}".toResponseBody("application/json".toMediaType()))
                 .build()
         }
+        // V5.0.8094 — plan credits exhausted: non-execution calls are answered locally while latched.
+        if (tier8066 != null && HeliusCreditEconomy7881.budgetGated8066(tier8066) && HeliusCreditEconomy7881.exhaustedGate8094()) {
+            return Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(429).message("AATE_HELIUS_EXHAUSTED_8094")
+                .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_EXHAUSTED_8094\"}}".toResponseBody("application/json".toMediaType()))
+                .build()
+        }
         val resp = chain.proceed(req)
         try { HeliusCreditEconomy7881.meter(host, req.url.encodedPath, methods) } catch (_: Throwable) {}
+        if (resp.code == 402 || resp.code == 403 || resp.code == 429) try {
+            val peek = resp.peekBody(4_096).string()
+            if (HeliusCreditEconomy7881.isExhaustionAnswer8094(resp.code, peek)) HeliusCreditEconomy7881.noteExhausted8094()
+        } catch (_: Throwable) {}
         return resp
     }
 }

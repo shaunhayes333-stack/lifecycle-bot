@@ -1387,6 +1387,11 @@ object CanonicalPositionAuthority6441 {
     }
     /** V5.0.6743 — dedicated counter for the strict valuation surface. */
     fun openCountForValuation(): Int = openPositionsForValuation().size
+    /** V5.0.8094 — latest CLOSED live canonical row time for [mint] (0 = none). */
+    fun lastClosedLiveAtMs8094(mint: String): Long =
+        positions.values.filter { it.mint == mint && it.mode.equals("live", true) && it.lifecycle == Lifecycle.CLOSED }
+            .maxOfOrNull { it.lastMutationMs } ?: 0L
+
     fun hasOpenMint(mint: String): Boolean = positions.values.any {
         it.mint == mint && isOpenLifecycleWithQty6743(it)
     }

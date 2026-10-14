@@ -13918,6 +13918,31 @@ class Executor(
         return sol
     }
 
+    /**
+     * V5.0.8094 — every pre-trade block names its exact cause and the sealed FDG
+     * evidence it contradicts. 5.0.8093 logged ten live buys as the bare
+     * PRETRADE_HARD_BLOCK after FDG had sealed them, so a real unsafe token could
+     * not be told apart from stale or contradictory evidence between the seal and
+     * the executor. The gate itself is unchanged.
+     */
+    private fun pretradeFail8094(ts: TokenState, sol: Double, subReason: String) {
+        val sub = pretradeSubReason8094(subReason)
+        val intent = try { liveIntentFor7868(ts.mint) } catch (_: Throwable) { null }
+        val now = System.currentTimeMillis()
+        val atSeal = if (intent == null) "NO_SEALED_INTENT" else
+            pretradeSealRelation8094(intent.safetyTier, intent.hardNoReasons.isNotEmpty(), intent.rugScore)
+        val detail = "sub=$sub seal=$atSeal attempt=${intent?.attemptId.orEmpty().take(24)} version=${intent?.candidateVersion ?: 0} " +
+            "sealAgeMs=${intent?.let { now - it.createdAt } ?: -1} sealTier=${intent?.safetyTier ?: "-"} nowTier=${ts.safety.tier.name} " +
+            "sealLiq=${intent?.liquidityUsd?.toInt() ?: -1} nowLiq=${ts.lastLiquidityUsd.toInt()} sealRug=${intent?.rugScore ?: -1} " +
+            "nowRug=${ts.safety.rugcheckScore} safetyAgeMs=${if (ts.lastSafetyCheck > 0L) now - ts.lastSafetyCheck else -1} raw=${subReason.take(60)}"
+        try {
+            PipelineHealthCollector.labelInc("PRETRADE_HARD_BLOCK_SUB_8094_$sub")
+            PipelineHealthCollector.labelInc("PRETRADE_HARD_BLOCK_SEAL_8094_$atSeal")
+            ForensicLogger.lifecycle("PRETRADE_HARD_BLOCK_ATTRIBUTED_8094", "mint=${ts.mint.take(10)} symbol=${ts.symbol} $detail")
+        } catch (_: Throwable) {}
+        emitLiveBuyFail(ts, sol, "PRETRADE_HARD_BLOCK_$sub", detail)
+    }
+
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         terminalizeCanonicalLiveFailure7790(ts, reason)
         try { com.lifecyclebot.engine.truth.RunnerCapture8017.noteDownstream8047(ts.mint, reason) } catch (_: Throwable) {}  // V5.0.8047
@@ -20029,7 +20054,7 @@ class Executor(
                         ForensicLogger.lifecycle("EXEC_OPEN_ABORT_TERMINAL", "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=TokenMapAuthority reason=${verdict.status} detail=${verdict.reason.take(120)}")
                         PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_${verdict.status}")
                     } catch (_: Throwable) {}
-                    emitLiveBuyFail(ts, sol, "PRETRADE_HARD_BLOCK", verdict.status)
+                    pretradeFail8094(ts, sol, verdict.status)
                     buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:TOKEN_MAP_${verdict.status}")
                     return false
                 }
@@ -20136,7 +20161,7 @@ class Executor(
                         solAmount = sol, traderTag = "MEME",
                     )
                 } catch (_: Throwable) {}
-                emitLiveBuyFail(ts, sol, "PRETRADE_HARD_BLOCK", preTrade.reason)
+                pretradeFail8094(ts, sol, preTrade.reason)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:PRETRADE_${preTrade.reason}")
                 return false
             }
@@ -22806,7 +22831,47 @@ class Executor(
         }
     }
 
+    /**
+     * V5.0.8094 — a runtime position whose canonical LIVE row already closed is
+     * retired, not sold again. 5.0.8093: EMUZCh sold with finalised proof at
+     * 23:56:57; the 500 ms monitor kept requesting PEAK_CAPTURE_TRAIL_6394 on the
+     * stale TokenState.position for minutes (canonical live=0, wallet
+     * BALANCE_MINT_ABSENT, every attempt NO_CANONICAL_POSITION), under a lane the
+     * entry never had. Requires all three proofs: no open canonical LIVE row, a
+     * canonical (or close-ledger) LIVE close at/after this entry, and no wallet
+     * holding. Anything less proceeds to the normal sell path.
+     */
+    private fun retireClosedRuntimePosition8094(ts: TokenState, reason: String): Boolean {
+        return try {
+            val pos = ts.position
+            if (!pos.isOpen || pos.isPaperPosition) return false
+            val mint = ts.mint
+            val openLive = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint)
+                ?.takeIf { it.mode.equals("live", true) }
+            if (openLive != null) return false
+            val closedAt = maxOf(
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.lastClosedLiveAtMs8094(mint),
+                runCatching { PositionCloseLedger.recordOf(mint, mode = "LIVE")?.closedAtMs ?: 0L }.getOrDefault(0L),
+            )
+            if (!closedRuntimeRetirable8094(pos.entryTime, closedAt, HostWalletTokenTracker.hasOpenPosition(mint))) return false
+            synchronized(ts) {
+                ts.position = com.lifecyclebot.data.Position()
+                if (ts.lastExitTs < closedAt) ts.lastExitTs = closedAt
+            }
+            try { PositionPersistence.savePosition(ts) } catch (_: Throwable) {}
+            try { BotService.recentlyClosedMs[mint] = System.currentTimeMillis() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.clearTrigger7807(mint) } catch (_: Throwable) {}
+            PipelineHealthCollector.labelInc("RUNTIME_POSITION_RETIRED_AFTER_CANONICAL_CLOSE_8094")
+            ForensicLogger.lifecycle(
+                "RUNTIME_POSITION_RETIRED_AFTER_CANONICAL_CLOSE_8094",
+                "mint=${mint.take(10)} symbol=${ts.symbol} entryAt=${pos.entryTime} closedAt=$closedAt staleLane=${pos.tradingMode} reason=${reason.take(60)} action=no_sell_after_finality",
+            )
+            true
+        } catch (_: Throwable) { false }
+    }
+
     private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        if (retireClosedRuntimePosition8094(ts, reason)) return SellResult.ALREADY_CLOSED
         // V5.0.8065 — a lifecycle hold holds through every ordinary exit above its floor (LifecycleHold8065).
         if (try { LifecycleHold8065.defer8065(ts, reason) } catch (_: Throwable) { null } != null) {
             try { DecisionReasons8031.hold8031(ts, "LIFECYCLE_HOLD_8065", reason) } catch (_: Throwable) {}

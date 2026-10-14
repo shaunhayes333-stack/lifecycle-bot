@@ -73,6 +73,20 @@ def main():
         print('MISSING TEST:', *identity)
     for identity in sorted(skipped):
         print('SKIPPED TEST:', *identity)
+    # 8094 — job logs are not readable from the build agent and GitHub keeps only
+    # ~10 error annotations per step, which the inherited failures consumed (8093).
+    # Annotate the delta itself first so the cause of a red run is always visible.
+    def esc(text):
+        return str(text).replace('%', '%25').replace('\r', ' ').replace('\n', ' ')[:600]
+    shown = 0
+    for cls, test, typ, msg in unexpected:
+        if shown >= 8:
+            break
+        print(f"::error title=NEW {cls.split('.')[-1]}.{test}::{esc(typ)} {esc(stable_message(msg))}")
+        shown += 1
+    for cls, test in sorted(missing)[:max(0, 8 - shown)]:
+        print(f"::error title=MISSING {cls.split('.')[-1]}.{test}::test absent from the full suite")
+        shown += 1
     if failed:
         print(f"::warning::{len(failed)} full-suite failures remain; see complete test reports. "
               "The baseline comparison does not declare these tests fixed.")

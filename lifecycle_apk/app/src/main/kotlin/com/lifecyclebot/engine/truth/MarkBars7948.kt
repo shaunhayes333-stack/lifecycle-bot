@@ -35,6 +35,8 @@ object MarkBars7948 {
         // minute index -> [open, high, low, close, closeTs, openTs]
         val bars = TreeMap<Long, DoubleArray>()
         @Volatile var lastMs = 0L
+        // V5.0.8094 — the last observed prices themselves, spaced >= TICK_SPACING_MS_8094 (sub-minute shape).
+        val ticks = ArrayDeque<Pair<Long, Double>>()
     }
 
     private val tapes = ConcurrentHashMap<String, Tape>()
@@ -49,12 +51,30 @@ object MarkBars7948 {
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         synchronized(tape) {
             fold7948(tape.bars, priceUsd, atMs)
+            if (atMs >= tape.lastMs) noteTick8094(tape.ticks, priceUsd, atMs)
             if (atMs > tape.lastMs) tape.lastMs = atMs
             val oldest = (tape.lastMs - KEEP_MS) / BUCKET_MS
             while (tape.bars.isNotEmpty() && tape.bars.firstKey() < oldest) tape.bars.pollFirstEntry()
         }
         marksNoted.incrementAndGet()
         if (tapes.size > MAX_MINTS) trimMints7948(atMs)
+    }
+
+    private const val TICK_SPACING_MS_8094 = 3_000L
+    private const val MAX_TICKS_8094 = 60
+
+    /** Pure: append a tick, replacing the newest when it is closer than the spacing (keeps the latest price). */
+    internal fun noteTick8094(ticks: ArrayDeque<Pair<Long, Double>>, priceUsd: Double, atMs: Long) {
+        val last = ticks.lastOrNull()
+        if (last != null && atMs - last.first < TICK_SPACING_MS_8094) ticks.removeLast()
+        ticks.addLast(atMs to priceUsd)
+        while (ticks.size > MAX_TICKS_8094) ticks.removeFirst()
+    }
+
+    /** V5.0.8094 — observed prices for [mint] within [windowMs] of [nowMs], oldest first. */
+    fun recentTicks8094(mint: String, nowMs: Long, windowMs: Long = 20L * 60_000L): List<Pair<Long, Double>> {
+        val tape = tapes[mint] ?: return emptyList()
+        return synchronized(tape) { tape.ticks.filter { nowMs - it.first in 0L..windowMs } }
     }
 
     /**
