@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.0.8094 §NO_CANDIDATE_DECIDES_ON_AN_OLD_PRICE (and §THE_SETUP_INPUTS_COME_WITH_IT).
+ * V5.0.8094 §NO_CANDIDATE_DECIDES_ON_AN_OLD_PRICE.
  *
  * 5.0.8093: CYCLIC refused 977 candidates as PRICE_NOT_FRESH (price older than 90 s) and missed a +1,185% runner.
  * Watchlist prices were only refreshed when the round-robin pair poll reached the token. Owner: "no data should be
@@ -15,16 +15,11 @@ import java.util.concurrent.atomic.AtomicLong
  * [FRESH_MS_8094]: stale mints are batched (50 per call, one call per [BATCH_GAP_MS]) into Jupiter's price API and
  * written back before the next cycle. Held positions are never touched here — their exit marks are route-locked.
  *
- * The same batch fills the setup classifier's CORE inputs: 8093 classified most candidates DATA_INCOMPLETE (missing
- * bp 7,562 / chg 7,765 / shape 7,126 on SHITCOIN alone), so LIVE_PROVEN_SETUP_ONLY refused them unclassified (4,110).
- * DexScreener's batch tokens endpoint (30 mints per call) returns the 5-minute buys / sells, the 5-minute and 1-hour
- * change, liquidity and price in one answer; a candidate whose buy pressure or change is unobserved for
- * [INPUT_STALE_MS] joins the batch. Jupiter prices whatever DexScreener does not list. Values are written only as
- * observations (stamped), never as defaults; liquidity only fills an unknown (0), never lowers a reading.
+ * DexScreener's batch tokens endpoint (30 mints per call) supplies the price; Jupiter prices what it does not list.
+ * Only prices are written: the classifier's flow / change inputs come from the bot's own tape (entry repair).
  */
 object CandidateMarkFresh8094 {
     const val FRESH_MS_8094 = 15_000L
-    const val INPUT_STALE_MS = 10L * 60_000L
     private const val BATCH_GAP_MS = 1_500L
     private const val WANTED_TTL_MS = 60_000L
     private val wanted = ConcurrentHashMap<String, Long>()
@@ -45,16 +40,11 @@ object CandidateMarkFresh8094 {
     fun rescaledMcap8094(oldMcap: Double, oldPrice: Double, newPrice: Double): Double =
         if (oldMcap > 0.0 && oldPrice > 0.0 && newPrice > 0.0) oldMcap * (newPrice / oldPrice) else oldMcap
 
-    /** Pure: are the classifier's flow / change inputs unobserved or older than [INPUT_STALE_MS]? */
-    fun inputsStale8094(bpObservedAtMs: Long, chgObservedAtMs: Long, nowMs: Long): Boolean =
-        bpObservedAtMs <= 0L || chgObservedAtMs <= 0L || nowMs - bpObservedAtMs > INPUT_STALE_MS || nowMs - chgObservedAtMs > INPUT_STALE_MS
-
     /** SpecialistBrainBridge7542.evaluate: request a fresh mark / inputs for a stale candidate. True when requested. */
     fun ensureFresh8094(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
         val mint = ts.mint
         if (mint.length !in 32..44 || ts.position.isOpen) return false
-        if (!stale8094(ts.lastPrice, ts.lastPriceUpdate, nowMs) &&
-            !inputsStale8094(ts.buyPressureObservedAtMs8084, ts.priceChangeObservedAtMs8084, nowMs)) return false
+        if (!stale8094(ts.lastPrice, ts.lastPriceUpdate, nowMs)) return false
         if (wanted.putIfAbsent(mint, nowMs) == null) requested.incrementAndGet()
         if (wanted.size > 2_000) wanted.entries.removeIf { nowMs - it.value > WANTED_TTL_MS }
         maybeRun(nowMs)
@@ -117,7 +107,6 @@ object CandidateMarkFresh8094 {
             .build()
     }
     private val dexReads = AtomicLong(0)
-    private val inputsFilled = AtomicLong(0)
 
     private fun dexBatch8094(mints: List<String>): Map<String, DexRead> = try {
         val req = okhttp3.Request.Builder().url("https://api.dexscreener.com/latest/dex/tokens/" + mints.joinToString(",")).build()
@@ -149,41 +138,17 @@ object CandidateMarkFresh8094 {
         return best.mapValues { it.value.second }
     }
 
+    /**
+     * V5.0.8094 entry repair — only the PRICE is taken. DexScreener's 5-minute transaction counts / change are not written
+     * as the classifier's observed inputs: filling them turned thousands of coins the bot had no native tape for from
+     * DATA_INCOMPLETE (refused live) into "classified" setups matched against records proven on the native tape.
+     */
     private fun applyDex8094(reads: Map<String, DexRead>) {
         if (reads.isEmpty()) return
         dexReads.addAndGet(reads.size.toLong())
         apply8094(reads.mapValues { it.value.priceUsd })
-        val tokens = com.lifecyclebot.engine.BotService.status.tokens
-        val at = System.currentTimeMillis()
-        for ((mint, r) in reads) {
-            val ts = try { synchronized(tokens) { tokens[mint] } } catch (_: Throwable) { null } ?: continue
-            var filled = false
-            synchronized(ts) {
-                if (!ts.position.isOpen) {
-                    val n = r.buys5m + r.sells5m
-                    // Entry repair: fill only an unobserved / stale reading; a fresh native tape is never overwritten.
-                    val bpStale = ts.buyPressureObservedAtMs8084 <= 0L || at - ts.buyPressureObservedAtMs8084 > INPUT_STALE_MS
-                    val chgStale = ts.priceChangeObservedAtMs8084 <= 0L || at - ts.priceChangeObservedAtMs8084 > INPUT_STALE_MS
-                    if (bpStale && r.buys5m >= 0 && r.sells5m >= 0 && n > 0) {
-                        ts.lastBuyPressurePct = r.buys5m * 100.0 / n
-                        ts.lastSellPressurePct = r.sells5m * 100.0 / n
-                        ts.buyPressureObservedAtMs8084 = at
-                        filled = true
-                    }
-                    if (chgStale && r.chg5m.isFinite()) {
-                        ts.lastPriceChange5m = r.chg5m
-                        if (r.chg1h.isFinite()) ts.lastPriceChange1h = r.chg1h
-                        ts.priceChangeObservedAtMs8084 = at
-                        filled = true
-                    }
-                    if (r.liqUsd > 0.0 && !(ts.lastLiquidityUsd > 0.0)) ts.lastLiquidityUsd = r.liqUsd
-                }
-            }
-            if (filled) inputsFilled.incrementAndGet()
-        }
-        try { PipelineHealthCollector.labelInc("CANDIDATE_SETUP_INPUTS_FILLED_8094") } catch (_: Throwable) {}
     }
 
     fun statusLine(): String =
-        "CANDIDATE_MARK_FRESH_8094 freshMs=$FRESH_MS_8094 requested=${requested.get()} refreshed=${refreshed.get()} batches=${batches.get()} dexReads=${dexReads.get()} inputsFilled=${inputsFilled.get()} waiting=${wanted.size}"
+        "CANDIDATE_MARK_FRESH_8094 freshMs=$FRESH_MS_8094 requested=${requested.get()} refreshed=${refreshed.get()} batches=${batches.get()} dexReads=${dexReads.get()} waiting=${wanted.size}"
 }

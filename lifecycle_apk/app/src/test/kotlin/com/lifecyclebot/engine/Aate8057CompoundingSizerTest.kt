@@ -66,7 +66,8 @@ class Aate8057CompoundingSizerTest {
         assertTrue(g.contains("walletSharePct = walletShare8094"))
         assertTrue(!g.contains("FDG_PROVEN_EDGE_COMPOUNDING_ASK_8057"))                  // superseded ask retired
         assertTrue(g.contains("val edgeKelly8094 = if (config.paperMode) 0.0 else"))      // paper never sized up
-        assertTrue(g.contains("alreadyShaped7925 = !config.paperMode ||"))               // no double multipliers
+        // Entry repair: live orders keep the adaptive / streak / bridge shrink (a losing run must cut size).
+        assertFalse(g.contains("alreadyShaped7925 = !config.paperMode ||"))
         assertTrue(g.contains("resolution.finalSizeSol > riskSized + 1e-9) return 0.0")) // resolver never enlarges
         val x = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(x.contains("LiveSizeTarget8094.walletShareFor8094(ts.mint, sol, liveCfg.maxWalletRiskPerTradePct)"))

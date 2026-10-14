@@ -62,13 +62,25 @@ class Aate8094ClosedPositionAndPretradeTest {
         val own = src("engine/SpecialistOwnership7951.kt")
         assertTrue(own.contains("if (!primaryRefused7960(mint, primaryLane, nowMs)) return false"))
         assertFalse(own.contains("primaryNativeRefused8094"))
-        // Aggregator prices never enter the mark bars; a fresh native tape is never overwritten.
+        // Aggregator prices never enter the mark bars.
         val fresh = src("engine/truth/CandidateMarkFresh8094.kt")
         assertFalse(fresh.contains("MarkBars7948.note7948"))
-        assertTrue(fresh.contains("if (bpStale && r.buys5m >= 0"))
-        assertTrue(fresh.contains("if (chgStale && r.chg5m.isFinite())"))
         // A deferred live buy is not chased past a few seconds.
         assertTrue(PendingLiveBuy8094.TTL_MS <= 10_000L)
+        // A picked setup with a losing record (12+ labels, mean + SE < 0) is refused, runner lane or not.
+        val pb8094 = com.lifecyclebot.engine.cortex.LanePlaybook7907
+        assertEquals(12.0, pb8094.NEGATIVE_N_8094, 1e-9)
+        assertTrue(pb8094.setupRecordNegative8094(25.0, -23.6, 900.0))       // LAUNCH_CONTINUATION n25 -23.6%, sd 30
+        assertFalse(pb8094.setupRecordNegative8094(11.0, -23.6, 900.0))      // too few labels
+        assertFalse(pb8094.setupRecordNegative8094(25.0, -3.0, 900.0))       // inside one SE of zero
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("pickedSetupNegative8094(ts, l8059, nowMs)"))
+        assertTrue(pb.contains("if (picked8094 == null || pickedSetupNegative8094(ts, lane, nowMs) != null) emptyList()"))
+        // In-flight cold starts share the 3-coin budget; a mint holding a place keeps it.
+        val g8094 = com.lifecyclebot.engine.truth.LiveEdgeGate7877
+        val now8094 = 10_000_000L
+        assertFalse(g8094.coldBudgetOpen8094(mapOf("a" to now8094), mapOf("b" to now8094, "c" to now8094), "d", now8094))
+        assertTrue(g8094.coldBudgetOpen8094(mapOf("a" to now8094), mapOf("b" to now8094, "c" to now8094), "c", now8094))
+        assertTrue(g8094.coldBudgetOpen8094(emptyMap(), mapOf("b" to now8094), "d", now8094))
         // Measured cost binds from the third live round trip, at the cheapest trip until the median rule takes over.
         val c = com.lifecyclebot.engine.truth.CostLedger7962
         assertEquals(3, c.EARLY_LIVE_N)
@@ -251,7 +263,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src.substringAfter("fun syncTradeSubscriptions7278(").take(200).contains("maybeReprobeAuth8094()"))
     }
 
-    @Test fun candidateSetupInputsComeFromOneDexScreenerBatch() {
+    @Test fun candidatePricesComeFromOneDexScreenerBatch() {
         val f = com.lifecyclebot.engine.truth.CandidateMarkFresh8094
         val mint = "So1anaMintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         val body = """{"pairs":[
@@ -265,8 +277,9 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(30, r.buys5m); assertEquals(10, r.sells5m)
         assertEquals(4.5, r.chg5m, 1e-9); assertEquals(15_000.0, r.liqUsd, 1e-9)
         assertTrue(f.parseDex8094("{}", setOf(mint)).isEmpty())
-        assertTrue(f.inputsStale8094(0L, 1L, 2L))
-        assertFalse(f.inputsStale8094(1_000L, 1_000L, 1_000L + 60_000L))
-        assertTrue(f.inputsStale8094(1_000L, 1_000L, 1_000L + f.INPUT_STALE_MS + 1))
+        // Entry repair: only the price is taken; DexScreener flow / change never becomes a classifier input.
+        val src = src("engine/truth/CandidateMarkFresh8094.kt")
+        assertFalse(src.contains("buyPressureObservedAtMs8084 = at"))
+        assertFalse(src.contains("priceChangeObservedAtMs8084 = at"))
     }
 }

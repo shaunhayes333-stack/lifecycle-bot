@@ -428,6 +428,14 @@ object LiveEdgeGate7877 {
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8083, 1.0, nowMs)
                 observeTail7996(ts, lane, r8083, nowMs); return r8083
             }
+            // V5.0.8094 entry repair — the picked setup's own label record is losing (12+ labels, mean + SE < 0): refused,
+            // whatever else the coin fired; no runner-tail exemption.
+            (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
+                val r8094 = "PICKED_SETUP_RECORD_NEGATIVE_8094"
+                try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$neg") } catch (_: Throwable) {}
+                recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
+                observeTail7996(ts, lane, r8094, nowMs); return r8094
+            }
             val prior8083 = try { LiveTruth8064.lanePrior8083(l8059, nowMs) } catch (_: Throwable) { null }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8060 — any MEASURED edge counts, not only a named setup: 5.0.8059 refused 4,879 vs 145 admitted and
@@ -551,6 +559,12 @@ object LiveEdgeGate7877 {
         return mint in live || live.size < COLD_BUDGET_8080
     }
 
+    /** Pure (V5.0.8094): confirmed AND in-flight cold starts share the [COLD_BUDGET_8080]; a mint holding a place keeps it. */
+    fun coldBudgetOpen8094(confirmed: Map<String, Long>, pending: Map<String, Long>, mint: String, nowMs: Long): Boolean {
+        val live = confirmed.filterValues { nowMs - it in 0L until COLD_WINDOW_MS_8080 }.keys + pending.keys
+        return mint in live || live.size < COLD_BUDGET_8080
+    }
+
     private fun coldStartAdmits8080(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.coldStartSetup8080(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return false
         synchronized(coldAdmits8080) {
@@ -558,11 +572,13 @@ object LiveEdgeGate7877 {
             coldPendingSweep8092(nowMs)
             // V5.0.8092 — only CONFIRMED fills consume the 3-mint/6h budget. A pending attempt of
             // this mint is already in flight; a failed attempt releases after the pending window.
-            if (!coldBudgetOpen8080(coldAdmits8080, ts.mint, nowMs) || coldPending8092.containsKey(ts.mint)) {
+            // V5.0.8094 entry repair — in-flight attempts count against the 3-coin budget too (8092 let any number of
+            // unconfirmed cold starts run at once), and a mint already in flight keeps its place on re-evaluation.
+            if (!coldBudgetOpen8094(coldAdmits8080, coldPending8092, ts.mint, nowMs)) {
                 try { PipelineHealthCollector.labelInc("LIVE_COLD_START_BUDGET_SPENT_8080") } catch (_: Throwable) {}
                 return false
             }
-            coldPending8092[ts.mint] = nowMs
+            coldPending8092.putIfAbsent(ts.mint, nowMs)
         }
         try {
             PipelineHealthCollector.labelInc("LIVE_COLD_START_SETUP_ADMIT_8080_$lane")

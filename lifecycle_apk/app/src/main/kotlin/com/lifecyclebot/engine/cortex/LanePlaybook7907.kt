@@ -47,6 +47,7 @@ object LanePlaybook7907 {
     private const val NONE_PROOF_N = 40
     private const val NONE_PROOF_PCT = 1.0
     private const val LOSING_N = 30
+    const val NEGATIVE_N_8094 = 12.0
     private const val LOSING_PCT = -2.0
     private const val TAIL_RATE = 0.10
 
@@ -923,6 +924,27 @@ object LanePlaybook7907 {
         return expectedPct < 0.0
     }
 
+    /** Pure (V5.0.8094): a setup record that is losing on its own evidence — 12+ graded labels and mean + SE below zero. */
+    fun setupRecordNegative8094(n: Double, mean: Double, variance: Double): Boolean {
+        if (n < NEGATIVE_N_8094 || !mean.isFinite()) return false
+        val se = if (variance.isFinite() && variance >= 0.0) kotlin.math.sqrt(variance / n) else return false
+        return mean + se < 0.0
+    }
+
+    /**
+     * V5.0.8094 entry repair — the setup this coin is classified as in this lane, when that setup's own record in this lane
+     * is losing (setupRecordNegative8094, no runner-tail exemption). 8094 live: SHITCOIN LAUNCH_CONTINUATION n25 -23.6%
+     * kept trading because the proven-losing rule needs n30 and exempts runner lanes. Null otherwise.
+     */
+    fun pickedSetupNegative8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        if (setup == null) null else synchronized(this) {
+            val st = stat(lane, setup)
+            if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) setup else null
+        }
+    } catch (_: Throwable) { null }
+
     /** Pure: a (lane, setup) record proven to pay: 30+ labels and mean minus one standard error above zero. */
     fun setupProvenPositive7948(st: CortexLedger7885.Stat?): Boolean {
         if (st == null || st.n < LOSING_N) return false
@@ -941,7 +963,11 @@ object LanePlaybook7907 {
         // V5.0.8083 §MULTI_STRATEGY — every setup this coin fired in this lane is evaluated, and the best PROVEN one is
         // selected for this token (lower bound mean - SE), not only the tag classify() chose. Different tokens in one lane
         // can run different setups at once; losing setups keep their own books.
-        val candidates = matchedSetups8083(ts, lane, nowMs)
+        // V5.0.8094 entry repair — a coin whose OWN setup is unclassified (DATA_INCOMPLETE / unrankable) or whose picked
+        // setup is losing (pickedSetupNegative8094) is not admitted on another fired setup's record: the trade is booked and
+        // exited as the picked setup, so that is the record it must carry.
+        val picked8094 = classify(ts, lane, nowMs)
+        val candidates = if (picked8094 == null || pickedSetupNegative8094(ts, lane, nowMs) != null) emptyList() else matchedSetups8083(ts, lane, nowMs)
         if (candidates.isEmpty()) null else synchronized(this) {
             candidates.mapNotNull { setup ->
                 val st = stat(lane, setup)
@@ -981,7 +1007,11 @@ object LanePlaybook7907 {
     fun coldStartSetup8080(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
         val lane = canon(laneRaw)
         // V5.0.8083 — every fired setup is tried on its own record, not only the classified tag.
-        val candidates = matchedSetups8083(ts, lane, nowMs)
+        // V5.0.8094 entry repair — a coin whose OWN setup is unclassified (DATA_INCOMPLETE / unrankable) or whose picked
+        // setup is losing (pickedSetupNegative8094) is not admitted on another fired setup's record: the trade is booked and
+        // exited as the picked setup, so that is the record it must carry.
+        val picked8094 = classify(ts, lane, nowMs)
+        val candidates = if (picked8094 == null || pickedSetupNegative8094(ts, lane, nowMs) != null) emptyList() else matchedSetups8083(ts, lane, nowMs)
         if (candidates.isEmpty()) null else synchronized(this) {
             candidates.firstOrNull { setup -> stat(lane, setup)?.let { coldStartPositive8080(it.n, it.mean(), it.variance()) } == true }
         }

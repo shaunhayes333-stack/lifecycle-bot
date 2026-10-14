@@ -6154,7 +6154,7 @@ object FinalDecisionGate {
             // shrink are already in it. The resolver keeps every cap and the conviction refusal, but does not re-apply
             // the adaptive / streak / bridge multipliers (they pushed approved sizes under the route minimum, where
             // they were "promoted" back to it).
-            alreadyShaped7925 = !config.paperMode || com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
+            alreadyShaped7925 = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
         )
         if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9) return 0.0
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
