@@ -74,7 +74,11 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(pb8094.setupRecordNegative8094(11.0, -23.6, 900.0))      // too few labels
         assertFalse(pb8094.setupRecordNegative8094(25.0, -3.0, 900.0))       // inside one SE of zero
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("pickedSetupNegative8094(ts, l8059, nowMs)"))
-        assertTrue(pb.contains("if (picked8094 == null || pickedSetupNegative8094(ts, lane, nowMs) != null) emptyList()"))
+        // Multi-strategy: every fired setup is evaluated and the best proven one is the strategy; the losing-record
+        // refusal only applies when no fired setup is proven.
+        assertTrue(pb.contains("val candidates = matchedSetups8083(ts, lane, nowMs)"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (proven8059 == null) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs)"))
+        assertTrue(pb.contains("val setup = selectedSetup8094(ts, lane, nowMs)"))
         // In-flight cold starts share the 3-coin budget; a mint holding a place keeps it.
         val g8094 = com.lifecyclebot.engine.truth.LiveEdgeGate7877
         val now8094 = 10_000_000L

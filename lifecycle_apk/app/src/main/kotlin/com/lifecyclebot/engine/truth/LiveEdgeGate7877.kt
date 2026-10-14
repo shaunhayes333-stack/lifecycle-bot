@@ -428,14 +428,6 @@ object LiveEdgeGate7877 {
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8083, 1.0, nowMs)
                 observeTail7996(ts, lane, r8083, nowMs); return r8083
             }
-            // V5.0.8094 entry repair — the picked setup's own label record is losing (12+ labels, mean + SE < 0): refused,
-            // whatever else the coin fired; no runner-tail exemption.
-            (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
-                val r8094 = "PICKED_SETUP_RECORD_NEGATIVE_8094"
-                try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$neg") } catch (_: Throwable) {}
-                recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
-                observeTail7996(ts, lane, r8094, nowMs); return r8094
-            }
             // V5.0.8094 — timing: the picked setup's record AT THIS POINT OF THE MOVE (pullback / mid / extended / peak) is
             // losing — wait for a band where it pays (graded at the executable price).
             (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
@@ -446,6 +438,14 @@ object LiveEdgeGate7877 {
             }
             val prior8083 = try { LiveTruth8064.lanePrior8083(l8059, nowMs) } catch (_: Throwable) { null }
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            // V5.0.8094 — no fired setup is proven and the classified setup's own label record is losing (12+ labels,
+            // mean + SE < 0, no runner-tail exemption): refused. A proven fired setup is the strategy instead (multi-strategy).
+            if (proven8059 == null) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
+                val r8094 = "PICKED_SETUP_RECORD_NEGATIVE_8094"
+                try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$neg") } catch (_: Throwable) {}
+                recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
+                observeTail7996(ts, lane, r8094, nowMs); return r8094
+            }
             // V5.0.8094 — the tactic this coin would trade as has a losing realised record in this lane: only a proven setup
             // (honest labels, mean - SE > 0 on 30+) may still trade it, so the tactic can re-prove itself; nothing else does.
             if (proven8059 == null) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->

@@ -954,7 +954,7 @@ object LanePlaybook7907 {
      */
     fun timingNegative8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)
         val band = timingBandOf8094(ts)
         if (setup == null || band == TIMING_UNKNOWN_8094) null else synchronized(this) {
             val st = timingBooks8094[lane]?.get("$setup|$band")
@@ -962,10 +962,14 @@ object LanePlaybook7907 {
         }
     } catch (_: Throwable) { null }
 
+    /** V5.0.8094 — the strategy this coin trades as in [laneRaw]: the best proven fired setup, else the classified one. */
+    fun selectedSetup8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
+        (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null }) ?: classify(ts, canon(laneRaw), nowMs)
+
     /** V5.0.8094 — [mean, variance, n] of this coin's picked setup at its CURRENT timing band, or null when unrecorded. */
     fun timingStat8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)
         val band = timingBandOf8094(ts)
         if (setup == null || band == TIMING_UNKNOWN_8094) null else synchronized(this) {
             timingBooks8094[lane]?.get("$setup|$band")?.let { doubleArrayOf(it.mean(), it.variance(), it.n) }
@@ -1011,11 +1015,10 @@ object LanePlaybook7907 {
         // V5.0.8083 §MULTI_STRATEGY — every setup this coin fired in this lane is evaluated, and the best PROVEN one is
         // selected for this token (lower bound mean - SE), not only the tag classify() chose. Different tokens in one lane
         // can run different setups at once; losing setups keep their own books.
-        // V5.0.8094 entry repair — a coin whose OWN setup is unclassified (DATA_INCOMPLETE / unrankable) or whose picked
-        // setup is losing (pickedSetupNegative8094) is not admitted on another fired setup's record: the trade is booked and
-        // exited as the picked setup, so that is the record it must carry.
-        val picked8094 = classify(ts, lane, nowMs)
-        val candidates = if (picked8094 == null || pickedSetupNegative8094(ts, lane, nowMs) != null) emptyList() else matchedSetups8083(ts, lane, nowMs)
+        // V5.0.8094 — multi-strategy is kept: the best PROVEN fired setup is selected, and the trade then carries that
+        // setup's tactic, style and exit (TacticSwitcher.tacticForToken8050 / AgenticStyleRouter), so it is traded as the
+        // strategy whose record admitted it.
+        val candidates = matchedSetups8083(ts, lane, nowMs)
         if (candidates.isEmpty()) null else synchronized(this) {
             candidates.mapNotNull { setup ->
                 val st = stat(lane, setup)
