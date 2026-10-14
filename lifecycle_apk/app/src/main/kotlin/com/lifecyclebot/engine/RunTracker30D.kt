@@ -108,14 +108,14 @@ object RunTracker30D {
     }
 
     /** Only canonical settled outcomes update mode-specific 30D counters. */
-    private fun recordProofByEnvironment8093(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
-        if (outcome.isPartial || outcome.tradeId.isBlank()) return
+    private fun recordProofByEnvironment8093(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome): Boolean {
+        if (outcome.isPartial || outcome.tradeId.isBlank()) return false
         val live = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.LIVE
         val paper = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.PAPER
-        if (!live && !paper) return
+        if (!live && !paper) return false
         val seen = if (live) liveProofSeen8093 else paperProofSeen8093
-        if (!seen.add(outcome.tradeId)) return
-        val bucket = (if (live) liveProofBuckets8093 else paperProofBuckets8093)[proofClass8093(outcome.assetClass.name)] ?: return
+        if (!seen.add(outcome.tradeId)) return false
+        val bucket = (if (live) liveProofBuckets8093 else paperProofBuckets8093)[proofClass8093(outcome.assetClass.name)] ?: return false
         bucket.trades++
         when (outcome.result) {
             com.lifecyclebot.engine.TradeResult.WIN -> bucket.wins++
@@ -124,6 +124,7 @@ object RunTracker30D {
         }
         bucket.pnlSol += outcome.realizedPnlSol?.takeIf { it.isFinite() } ?: 0.0
         save()
+        return true
     }
 
     /**
@@ -1066,7 +1067,9 @@ SYSTEM
             val sizeSol = outcome.entrySol ?: 0.0
             val holdSec = outcome.holdSeconds ?: 0L
             val assetClass = outcome.candidate?.assetClass?.ifBlank { null } ?: outcome.assetClass.name
-            recordProofByEnvironment8093(outcome)
+            // Durable mode-scoped tradeId dedup prevents canonical replay from
+            // inflating the 30D proof run on every process restart.
+            if (!recordProofByEnvironment8093(outcome)) return
             recordTrade(
                 symbol = outcome.symbol.ifBlank { outcome.mint.take(6) },
                 mint = outcome.mint,
