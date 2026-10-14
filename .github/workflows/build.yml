@@ -457,11 +457,21 @@ jobs:
       # V5.0.7803 — a release APK is an acceptance artifact, not merely
       # compiler output. Publish it only after the required pipeline regressions
       # (including resident meme + Crypto architecture) are green.
+      # V5.0.8094 — owner: an APK to test as soon as it compiles. The green acceptance APK keeps its name; a build whose
+      # tests failed still publishes its compiled APK under an explicit UNVERIFIED name, never mistaken for green.
       - uses: actions/upload-artifact@v4
         with:
           name: AATE_v${{ steps.aate_build.outputs.version_name }}
           path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
           compression-level: 0
+
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.aate_build.outputs.version_name != ''
+        with:
+          name: AATE_v${{ steps.aate_build.outputs.version_name }}_UNVERIFIED_TESTS_FAILED
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
+          compression-level: 0
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         if: always()
