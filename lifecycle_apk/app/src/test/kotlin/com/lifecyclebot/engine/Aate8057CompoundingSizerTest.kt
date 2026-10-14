@@ -49,10 +49,10 @@ class Aate8057CompoundingSizerTest {
 
     @Test fun oneCandidateSpecificCeilingSharedByFdgAndExecutor() {
         val t = com.lifecyclebot.engine.truth.LiveSizeTarget8094
-        assertEquals(0.18, t.walletShareCeiling8094(t.ProofTier.UNPROVEN, 0.18), 1e-12)
-        assertEquals(t.PROVEN_WALLET_SHARE_8094, t.walletShareCeiling8094(t.ProofTier.PROVEN, 0.18), 1e-12)
+        assertEquals(0.18, t.walletShareCeiling8094(com.lifecyclebot.engine.truth.LiveSizeTarget8094.ProofTier.UNPROVEN, 0.18), 1e-12)
+        assertEquals(t.PROVEN_WALLET_SHARE_8094, t.walletShareCeiling8094(com.lifecyclebot.engine.truth.LiveSizeTarget8094.ProofTier.PROVEN, 0.18), 1e-12)
         assertEquals(0.25, t.PROVEN_WALLET_SHARE_8094, 1e-12)
-        assertEquals(t.ProofTier.UNPROVEN, t.tierOf8094(0.0))
+        assertEquals(com.lifecyclebot.engine.truth.LiveSizeTarget8094.ProofTier.UNPROVEN, t.tierOf8094(0.0))
         t.recordCeiling8094("MINT_8094_A", 0.25, nowMs = 1_000L)
         assertEquals(0.25, t.walletShareFor8094("MINT_8094_A", 0.18, nowMs = 2_000L), 1e-12)
         assertEquals(0.18, t.walletShareFor8094("MINT_8094_A", 0.18, nowMs = 1_000L + 11 * 60_000L), 1e-12)  // stale
