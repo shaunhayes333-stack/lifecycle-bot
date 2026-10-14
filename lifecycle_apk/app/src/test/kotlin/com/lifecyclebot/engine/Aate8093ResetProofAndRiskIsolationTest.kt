@@ -29,6 +29,8 @@ class Aate8093ResetProofAndRiskIsolationTest {
         assertTrue(tracker.contains("outcome.environment == com.lifecyclebot.engine.TradeEnvironment.PAPER"))
         assertTrue(tracker.contains("closedAt < proofEpoch8093"))
         assertTrue(tracker.contains("RUN_TRACKER_MIXED_JOURNAL_SYNC_SUPPRESSED_8093"))
+        assertTrue(tracker.contains("listOf(memeBucket, altsBucket, perpsBucket, stocksBucket, forexBucket"))
+        assertTrue(tracker.contains("proofEpoch8093 = System.currentTimeMillis()"))
         assertTrue(tracker.contains("putLong(\"proofEpoch8093\", proofEpoch8093)"))
         assertTrue(tracker.contains("if (RuntimeModeAuthority.isPaper()) getPaperLaneStats(lane) else getLiveLaneStats(lane)"))
         val fluid = source("v3/scoring/FluidLearningAI.kt")
