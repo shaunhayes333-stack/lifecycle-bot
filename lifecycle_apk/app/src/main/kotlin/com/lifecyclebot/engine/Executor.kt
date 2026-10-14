@@ -31021,7 +31021,9 @@ class Executor(
                 wallet.getTokenAccountsWithDecimalsBounded()
             } catch (_: Throwable) { null }
             val preBalancesEmpty = preBalances?.isEmpty() == true
-            val preWalletSol: Double = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
+            // V5.0.8094 — the SOL figure only labels this forensic line: the cached wallet balance, not an RPC round trip
+            // (up to 3 tries with sleeps) in front of every sell broadcast (8093 SELL_BALANCE_CHECK stages up to 6 s).
+            val preWalletSol: Double = try { WalletManager.cachedSolBalance() } catch (_: Throwable) { -1.0 }
             val preTokenQty: Double = preBalances?.get(ts.mint)?.first ?: -1.0
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
