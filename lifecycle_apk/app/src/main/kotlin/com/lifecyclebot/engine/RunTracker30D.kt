@@ -137,13 +137,6 @@ object RunTracker30D {
     fun getLaneStats(lane: String): Map<String, Any> =
         if (RuntimeModeAuthority.isPaper()) getPaperLaneStats(lane) else getLiveLaneStats(lane)
 
-    /** Legacy combined lifetime proof counters remain accessible for reporting only. */
-    fun getCombinedHistoricalLaneStats8093(lane: String): Map<String, Any> {
-        val b = bucketFor(lane)
-        return mapOf("trades" to b.trades, "wins" to b.wins, "losses" to b.losses,
-            "scratches" to b.scratches, "winRate" to b.winRate(), "pnlSol" to b.pnlSol)
-    }
-    
     @Volatile var peakBalance: Double = 0.0
     @Volatile var maxDrawdown: Double = 0.0  // Stored as negative percentage
     
