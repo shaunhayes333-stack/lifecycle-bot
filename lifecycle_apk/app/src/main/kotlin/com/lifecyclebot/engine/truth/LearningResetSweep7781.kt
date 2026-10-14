@@ -99,6 +99,12 @@ object LearningResetSweep7781 {
         z("TOKEN_WIN_MEMORY") { com.lifecyclebot.engine.TokenWinMemory.reset() }
         z("TRADING_MEMORY") { com.lifecyclebot.engine.TradingMemory.clearLearned7781() }
         z("EDUCATION") { com.lifecyclebot.v3.scoring.EducationSubLayerAI.resetAllLearning() }
+        // 8093: a CLEAN run needs to zero its own 30D proof counters.
+        // Neither the paper nor live history is removed from canonical economic records.
+        z("30D_PROOF_RUN") { com.lifecyclebot.engine.RunTracker30D.reset() }
+        // Re-anchor a NEW explicit run to today's observed marked LIVE equity.
+        // Keep on-chain losses, risk cooldown and explicit operator halt intact.
+        z("RISK_RUN_BASELINE") { com.lifecyclebot.engine.KillSwitch.reanchorExplicitProofRun8093(app) }
         wipe(app)
         requestSweeps++
         ErrorLogger.info("LearningReset7781", "Reset armed: ${LEARNING_PREFS_7781.size} stores cleared; finishes on next app start")
