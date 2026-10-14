@@ -93,6 +93,11 @@ object TradePlan7739 {
     // waits once the ladder has [FreshLaunchSelector7737]'s 20 results and is
     // negative.
     private const val LAUNCH_STOP_PCT_7742 = 15.0
+
+    /** V5.0.8094 — the lane stop the forward labels grade on; the launch stop when the lane has none. */
+    private fun gradedStopMag8094(lane: String): Double =
+        (try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(lane) } catch (_: Throwable) { Double.NaN })
+            .takeIf { it.isFinite() && it > 0.0 } ?: LAUNCH_STOP_PCT_7742
     private const val LAUNCH_FIRST_TARGET_PCT_7742 = 50.0
     private const val LAUNCH_TARGET_PCT_7742 = 100.0
     private const val LAUNCH_COST_PCT_7742 = 4.0
@@ -343,7 +348,9 @@ object TradePlan7739 {
         // V5.0.7975 — admitted on positive evidence (specialist / proven cell / full-authority
         // Cortex): planned as an early launch-style entry now, not made to wait for a chart setup.
         if (LiveEdgeGate7877.positiveAdmit7975(ts.mint, nowMs)) {
-            plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -LAUNCH_STOP_PCT_7742, LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
+            // V5.0.8094 — the stop is the one the admitting evidence was GRADED on (the lane stop the forward labels use,
+            // StopAuthority7887.laneStopMag8029), not a flat -15%: a trade admitted on a graded record exits the way it was graded.
+            plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -gradedStopMag8094(lane), LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
             admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PLAN_ADMITTED_7975_POSITIVE_EVIDENCE") } catch (_: Throwable) {}
             return null

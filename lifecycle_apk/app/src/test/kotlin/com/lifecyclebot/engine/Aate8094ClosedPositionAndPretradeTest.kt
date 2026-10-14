@@ -297,6 +297,10 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(movedSinceDecision8094(0.0, 1.20, MOVED_MAX_PCT_8094))   // unknown decision never refuses
         assertTrue(src("engine/Executor.kt").contains("if (RuntimeModeAuthority.isLive() && movedSinceDecisionRefused8094(ts, lane)) return true"))
         assertTrue(lab.decisionPx8094("NO_SUCH_MINT_8094") == null)
+        // A positive-evidence admit exits on the stop its evidence was graded on, not a flat -15%.
+        val plan = src("engine/truth/TradePlan7739.kt")
+        assertTrue(plan.contains("plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -gradedStopMag8094(lane), LAUNCH_FIRST_TARGET_PCT_7742"))
+        assertTrue(plan.contains("StopAuthority7887.laneStopMag8029(lane)"))
     }
 
     @Test fun aTacticWithALosingRealisedRecordIsNotTradedUnproven() {
