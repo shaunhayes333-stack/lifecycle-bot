@@ -1317,15 +1317,44 @@ object Cortex7885 {
 
     fun persistNow7930() {
         if (!loaded) return
-        lastPendingPersistMs = 0L
-        persistPendingMaybe(System.currentTimeMillis())
-        try { LanePlaybook7907.persistNow7930() } catch (_: Throwable) {}
-        try { CortexExit7897.persistNow7930() } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.ExitProfile7955.persistNow7955() } catch (_: Throwable) {} // V5.0.7955
-        try { CortexTiming7900.persistNow7930() } catch (_: Throwable) {}
+        // V5.0.8094 — BotService.onDestroy calls this on the MAIN thread; the encode of the whole Cortex graph ran there
+        // (8093 watchdog: CortexLedger7885\$Stat.encode / BotService.onDestroy among the ANR call sites; heap 511/512 MB).
+        // The save runs on the persistence thread; a main-thread caller waits at most FLUSH_WAIT_MS_8094 for it.
+        val work = Runnable {
+            lastPendingPersistMs = System.currentTimeMillis()
+            persistBlocking8094()
+            try { LanePlaybook7907.persistNow7930() } catch (_: Throwable) {}
+            try { CortexExit7897.persistNow7930() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ExitProfile7955.persistNow7955() } catch (_: Throwable) {} // V5.0.7955
+            try { CortexTiming7900.persistNow7930() } catch (_: Throwable) {}
+        }
+        if (onMainThread8094()) {
+            try { persistPool8094.submit(work).get(FLUSH_WAIT_MS_8094, java.util.concurrent.TimeUnit.MILLISECONDS) }
+            catch (_: Throwable) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CORTEX_FLUSH_CONTINUES_IN_BACKGROUND_8094") } catch (_: Throwable) {} }
+        } else work.run()
     }
 
-    @Synchronized private fun persist() {
+    private const val FLUSH_WAIT_MS_8094 = 1_500L
+    private fun onMainThread8094(): Boolean = Thread.currentThread().name == "main"
+    private val persistPool8094 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "cortex-persist-8094").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
+    }
+    private val persistQueued8094 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * V5.0.8094 — every periodic / checkpoint save is queued on the one persistence thread, coalesced (at most one
+     * queued): grading, assessing and UI threads never encode the graph themselves. The queued flag clears when the
+     * save STARTS, so a change made during an encode schedules one more save.
+     */
+    private fun persist() {
+        if (!loaded) return
+        if (!persistQueued8094.compareAndSet(false, true)) return
+        try {
+            persistPool8094.execute { persistQueued8094.set(false); persistBlocking8094() }
+        } catch (_: Throwable) { persistQueued8094.set(false) }
+    }
+
+    @Synchronized private fun persistBlocking8094() {
         if (!loaded) return
         try {
             val json = synchronized(this) {

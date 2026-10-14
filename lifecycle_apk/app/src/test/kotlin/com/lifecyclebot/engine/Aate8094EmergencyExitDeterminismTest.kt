@@ -81,4 +81,15 @@ class Aate8094EmergencyExitDeterminismTest {
         val pe = src("engine/sell/PartialNetEconomics8094.kt")
         assertTrue(pe.contains("ProtectiveExitClass7807.isEmergency(reason)"))   // the fee check never holds an emergency
     }
+
+    // Memory / main thread: Cortex saves are queued on one background thread; onDestroy waits a bounded time.
+    @Test fun cortexPersistenceNeverEncodesOnTheCallerThread() {
+        val c = src("engine/cortex/Cortex7885.kt")
+        val persist = c.substringAfter("    private fun persist() {").substringBefore("@Synchronized private fun persistBlocking8094()")
+        assertTrue(persist.contains("persistQueued8094.compareAndSet(false, true)"))          // coalesced
+        assertTrue(persist.contains("persistPool8094.execute { persistQueued8094.set(false); persistBlocking8094() }"))
+        val now = c.substringAfter("fun persistNow7930() {").substringBefore("private const val FLUSH_WAIT_MS_8094")
+        assertTrue(now.contains("persistPool8094.submit(work).get(FLUSH_WAIT_MS_8094"))      // bounded main-thread wait
+        assertFalse(c.contains("@Synchronized private fun persist() {"))
+    }
 }
