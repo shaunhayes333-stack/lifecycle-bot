@@ -253,4 +253,23 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src.contains("tradeAuthDeniedAtMs8094 = System.currentTimeMillis()"))
         assertTrue(src.substringAfter("fun syncTradeSubscriptions7278(").take(200).contains("maybeReprobeAuth8094()"))
     }
+
+    @Test fun candidateSetupInputsComeFromOneDexScreenerBatch() {
+        val f = com.lifecyclebot.engine.truth.CandidateMarkFresh8094
+        val mint = "So1anaMintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        val body = """{"pairs":[
+          {"chainId":"solana","baseToken":{"address":"$mint"},"priceUsd":"0.0012","txns":{"m5":{"buys":30,"sells":10}},
+           "priceChange":{"m5":4.5,"h1":-2.0},"liquidity":{"usd":15000}},
+          {"chainId":"solana","baseToken":{"address":"$mint"},"priceUsd":"0.0011","txns":{"m5":{"buys":1,"sells":1}},
+           "priceChange":{"m5":1.0,"h1":1.0},"liquidity":{"usd":900}},
+          {"chainId":"bsc","baseToken":{"address":"$mint"},"priceUsd":"9.0","liquidity":{"usd":99999}}]}"""
+        val r = f.parseDex8094(body, setOf(mint))[mint]!!
+        assertEquals(0.0012, r.priceUsd, 1e-12)        // the most liquid SOLANA pair, never another chain
+        assertEquals(30, r.buys5m); assertEquals(10, r.sells5m)
+        assertEquals(4.5, r.chg5m, 1e-9); assertEquals(15_000.0, r.liqUsd, 1e-9)
+        assertTrue(f.parseDex8094("{}", setOf(mint)).isEmpty())
+        assertTrue(f.inputsStale8094(0L, 1L, 2L))
+        assertFalse(f.inputsStale8094(1_000L, 1_000L, 1_000L + 60_000L))
+        assertTrue(f.inputsStale8094(1_000L, 1_000L, 1_000L + f.INPUT_STALE_MS + 1))
+    }
 }
