@@ -1145,13 +1145,13 @@ class DataOrchestrator(
         if (keys.any { it in TAPE_INPUTS_8087 }) {
             forcePoll8085.add(mint)
             scope.launch {
-            try { pumpWs?.subscribeToken(mint) } catch (_: Throwable) {}
-            try { heliusWs?.subscribeToken(mint) } catch (_: Throwable) {}
-            try {
-                val ts = status.tokens[mint]
-                if (ts != null && ts.pairAddress.isNotBlank()) dexWs?.subscribeToken(mint, ts.pairAddress)
-            } catch (_: Throwable) {}
-            lbl("tape")
+                try { pumpWs?.subscribeToken(mint) } catch (_: Throwable) {}
+                try { heliusWs?.subscribeToken(mint) } catch (_: Throwable) {}
+                try {
+                    val ts = status.tokens[mint]
+                    if (ts != null && ts.pairAddress.isNotBlank()) dexWs?.subscribeToken(mint, ts.pairAddress)
+                } catch (_: Throwable) {}
+                lbl("tape")
             }
         }
         val unknown = keys - POLL_INPUTS_8087 - TAPE_INPUTS_8087 - "shape"
