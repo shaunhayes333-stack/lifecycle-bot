@@ -1000,7 +1000,9 @@ object LanePlaybook7907 {
      */
     fun provenLosingSetupRefusal8079(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        // 8092: a proven profitable alternative fired by this token outranks a losing default tag.
+        val setup = provenSetup8056(ts, lane, nowMs)?.first ?: coldStartSetup8080(ts, lane, nowMs)
+            ?: classify(ts, lane, nowMs)
         if (setup == null || setup == NO_TRIGGER) null else {
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val losing = synchronized(this) { stat(lane, setup)?.let { provenLosing(it, runner) } ?: false }
