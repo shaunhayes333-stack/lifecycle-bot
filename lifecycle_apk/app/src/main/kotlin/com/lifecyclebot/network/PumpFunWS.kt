@@ -74,6 +74,27 @@ object PumpFunWS {
     private val unsupportedTradeDemand7485 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val unsupportedTradeDemandCoalesced7485 = AtomicLong(0L)
     private val tradeAuthDenied7432 = AtomicBoolean(false)
+    // V5.0.8094 — owner: "it is funded". The denial latched for the whole process: a key funded AFTER PumpPortal's
+    // "only available when ... funded with at least 0.02 SOL" refusal stayed locked out (8093: tradeStream=AUTH_DENIED,
+    // subscribeSkippedNoKey=1014). The same key is re-probed every [AUTH_REPROBE_MS_8094].
+    @Volatile private var tradeAuthDeniedAtMs8094 = 0L
+    @Volatile private var connectedKeyed8094 = false
+    internal const val AUTH_REPROBE_MS_8094 = 10L * 60_000L
+
+    /** Pure (V5.0.8094): has a trade-stream auth denial at [deniedAtMs] aged out for a re-probe at [nowMs]? */
+    internal fun authReprobeDue8094(denied: Boolean, deniedAtMs: Long, nowMs: Long): Boolean =
+        denied && deniedAtMs > 0L && nowMs - deniedAtMs >= AUTH_REPROBE_MS_8094
+
+    private fun maybeReprobeAuth8094(nowMs: Long = System.currentTimeMillis()) {
+        if (apiKey7284.isBlank() || !authReprobeDue8094(tradeAuthDenied7432.get(), tradeAuthDeniedAtMs8094, nowMs)) return
+        tradeAuthDenied7432.set(false)
+        tradeAuthDeniedAtMs8094 = 0L
+        unsupportedTradeDemand7485.clear()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_AUTH_REPROBE_8094") } catch (_: Throwable) {}
+        ErrorLogger.info(TAG, "re-probing the token trade stream with the configured key")
+        // A socket opened without the key must reconnect keyed; a keyed one just re-subscribes below.
+        if (!connectedKeyed8094) try { ws?.close(1000, "reprobe keyed 8094") } catch (_: Throwable) {}
+    }
     private val createStreamObserved7432 = AtomicBoolean(false)
     private val migrationStreamObserved7432 = AtomicBoolean(false)
     private val tokenTradeStreamObserved7432 = AtomicBoolean(false)
@@ -212,6 +233,7 @@ object PumpFunWS {
      */
     fun syncTradeSubscriptions7278(mints: Set<String>) {
         val wanted = mints.filter { it.isNotBlank() }.toSet()
+        maybeReprobeAuth8094()
 
         // V5.0.7485 — when token-trade capability is unavailable there is no
         // executable subscription set to diff against. Maintain the desired
@@ -309,6 +331,7 @@ object PumpFunWS {
         // V5.0.7284 — the key rides the connection URL, never a log line.
         val url7284 = if (tradeStreamKeyed7284()) "$URL?api-key=${java.net.URLEncoder.encode(apiKey7284, "UTF-8")}" else URL
         val req = Request.Builder().url(url7284).build()
+        connectedKeyed8094 = tradeStreamKeyed7284()
         ErrorLogger.info(TAG, "🔌 connecting to $URL${if (tradeStreamKeyed7284()) " (keyed)" else ""} (attempt ${reconnectAttempt.get() + 1})")
         ws = client?.newWebSocket(req, listener)
     }
@@ -338,6 +361,7 @@ object PumpFunWS {
                     j.optString("errors")).joinToString(" ").lowercase()
                 if (!tradeAuthDenied7432.get() && isTradeAuthRefusal7432(error7432)) {
                     tradeAuthDenied7432.set(true)
+                    tradeAuthDeniedAtMs8094 = System.currentTimeMillis()
                     tokenTradeStreamObserved7432.set(false)
                     tradeSubscriptions7278.clear()
                     subFail7420.incrementAndGet()

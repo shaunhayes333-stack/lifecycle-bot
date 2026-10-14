@@ -242,4 +242,15 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(body.contains("walletReconcileInFlight8094.compareAndSet(false, true)"))      // single-flight
         assertTrue(body.contains("finally { walletReconcileInFlight8094.set(false) }"))
     }
+
+    @Test fun aFundedPumpPortalKeyIsReprobedNotLockedOutForTheSession() {
+        val ws = com.lifecyclebot.network.PumpFunWS
+        val reprobe = ws.AUTH_REPROBE_MS_8094
+        assertFalse(ws.authReprobeDue8094(denied = true, deniedAtMs = 1_000L, nowMs = 1_000L + reprobe - 1))
+        assertTrue(ws.authReprobeDue8094(denied = true, deniedAtMs = 1_000L, nowMs = 1_000L + reprobe))
+        assertFalse(ws.authReprobeDue8094(denied = false, deniedAtMs = 1_000L, nowMs = 1_000L + 10 * reprobe))
+        val src = File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        assertTrue(src.contains("tradeAuthDeniedAtMs8094 = System.currentTimeMillis()"))
+        assertTrue(src.substringAfter("fun syncTradeSubscriptions7278(").take(200).contains("maybeReprobeAuth8094()"))
+    }
 }
