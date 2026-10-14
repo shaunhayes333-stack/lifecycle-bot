@@ -178,4 +178,26 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(bridge.indexOf("CandidateMarkFresh8094.ensureFresh8094(ts)") in 0 until bridge.indexOf("val f=fp(ts,paper)"))
         assertTrue(src("engine/CyclicTradeEngine.kt").contains("CandidateMarkFresh8094.ensureFresh8094(ts)"))
     }
+
+    @Test fun microscopicProfitSlicesAreSkippedButEmergencyExitsNeverWait() {
+        val e = com.lifecyclebot.engine.sell.PartialNetEconomics8094
+        // CfU5fA partial_69pct: proceeds 0.00314, profit 0.000422, exit leg ~8% (priority fee on a tiny slice): skipped.
+        assertTrue(e.uneconomic8094(0.003140, 0.003140 - 0.000422, 8.0))
+        // CfU5fA partial_60pct: proceeds 0.018839, profit 0.003283, exit leg ~3%: sent.
+        assertFalse(e.uneconomic8094(0.018839, 0.018839 - 0.003283, 3.0))
+        // A slice at a gross loss is de-risking, never held here.
+        assertFalse(e.uneconomic8094(0.010, 0.012, 8.0))
+        assertTrue(e.discretionary8094("PARTIAL_TAKE_PROFIT", 0.25))
+        assertFalse(e.discretionary8094("STOP_LOSS_HIT", 0.25))
+        assertFalse(e.discretionary8094("CATASTROPHIC_EXIT", 0.5))
+        assertFalse(e.discretionary8094("RUG_DETECTED", 0.5))
+        assertFalse("a full exit is never a slice", e.discretionary8094("PARTIAL_TAKE_PROFIT", 1.0))
+        val x = src("engine/Executor.kt")
+        assertTrue(x.contains("if (partialUneconomic8094(ts, pct, reason)) {"))                       // shared partial door
+        assertTrue(x.contains("if (partialUneconomic8094(ts, sellFraction, \"PARTIAL_TAKE_PROFIT\")) return false")) // ladder
+        assertTrue(x.contains("if (partialUneconomic8094(ts, sellFraction, reason)) return  // V5.0.8094"))       // profit lock
+        // The slice is a share of the REMAINING quantity and its remaining cost basis (costSol shrinks on every partial).
+        assertTrue(x.contains("val proceeds = proceedsSol7029(pos.qtyToken * f, getActualPrice(ts)) ?: return false"))
+        assertTrue(x.contains("val sliceCost = pos.costSol * f"))
+    }
 }

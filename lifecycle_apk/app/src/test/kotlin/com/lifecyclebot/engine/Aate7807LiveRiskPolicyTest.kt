@@ -218,4 +218,47 @@ class Aate7807LiveRiskPolicyTest {
         assertTrue(risk.contains("LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811"))
     }
 
+
+    // ── V5.0.8094 — approved candidate-specific compounding target vs an ordinary request ──
+
+    private fun proven(lane: String, dd: Double = 0.0, ceiling: Double = 0.2281 * 0.25, kelly: Double = 0.20, liq: Double = 200_000.0) =
+        inputs(lane = lane, equity = 0.2281, upstream = 0.02892, execMin = 0.02892, dd = dd, liq = liq)
+            .copy(edgeKellyFrac8057 = kelly, compoundingCeilingSol8094 = ceiling)
+
+    @Test
+    fun a8094_verified_edge_exceeds_the_minimum_when_every_constraint_allows() {
+        for (lane in listOf("SHITCOIN", "QUALITY")) {
+            val d = LiveRiskPolicy7807.decide(proven(lane))
+            assertTrue("$lane ${d.reason} ${d.sizeSol}", d.open && d.sizeSol > 0.03)
+            assertTrue(d.sizeSol <= 0.2281 * LiveRiskPolicy7807.budgetFor(lane).maxPositionEquityFrac + 1e-9)   // lane cap kept
+            assertTrue(d.sizeSol <= 0.2281 * 0.25 + 1e-9)                                                   // wallet ceiling kept
+            assertTrue(d.sizing8094 != null)
+        }
+    }
+
+    @Test
+    fun a8094_an_ordinary_request_is_still_clamped_to_its_proposal() {
+        // Same proven record, no approved ceiling: the policy never exceeds the upstream proposal (old safety property).
+        val d = LiveRiskPolicy7807.decide(proven("SHITCOIN", ceiling = 0.0))
+        assertTrue(d.sizeSol <= 0.02892 + 1e-9)
+        // Unproven: no blanket increase, even with a ceiling offered.
+        val u = LiveRiskPolicy7807.decide(proven("SHITCOIN", kelly = 0.0))
+        assertTrue(u.sizeSol <= 0.02892 + 1e-9)
+        assertTrue(u.sizing8094 == null)
+    }
+
+    @Test
+    fun a8094_drawdown_still_shrinks_a_proven_size_and_names_the_binding_cap() {
+        val d = LiveRiskPolicy7807.decide(proven("SHITCOIN", dd = 0.259))
+        // 0.2281 x 0.20 x drawdownMult(0.259)=0.44 -> ~0.020 < minimum: at most the risk-safe minimum, never the full Kelly.
+        assertTrue(d.sizeSol <= 0.02892 + 1e-9)
+        assertEquals("DRAWDOWN", d.sizing8094?.bindingCap)
+    }
+
+    @Test
+    fun a8094_thin_depth_caps_a_proven_size() {
+        // $400 pool: 3% one-way impact on half of it at $200/SOL = 0.03 SOL, below the 0.0456 Kelly size.
+        val thin = LiveRiskPolicy7807.decide(proven("QUALITY", liq = 400.0))
+        assertTrue("${thin.reason} ${thin.sizeSol}", !thin.open || thin.sizeSol <= 400.0 * 0.5 * 0.03 / 200.0 + 1e-9 || thin.sizeSol <= 0.02892 + 1e-9)
+    }
 }

@@ -7143,6 +7143,31 @@ class Executor(
     }
 
     
+    /**
+     * V5.0.8094 — true = this DISCRETIONARY live profit slice nets less than the costs it pays (PartialNetEconomics8094):
+     * skip it and keep the inventory. Stops, catastrophic / rug / structural exits, full exits and paper never wait here.
+     * [fractionOfRemaining] is a share of the CURRENT (remaining) quantity, which is what every executor sells.
+     */
+    private fun partialUneconomic8094(ts: TokenState, fractionOfRemaining: Double, reason: String): Boolean {
+        val pos = ts.position
+        if (isPaperRT() || pos.isPaperPosition || !pos.isOpen) return false
+        if (!com.lifecyclebot.engine.sell.PartialNetEconomics8094.discretionary8094(reason, fractionOfRemaining)) return false
+        val f = fractionOfRemaining.coerceIn(0.0, 1.0)
+        val proceeds = proceedsSol7029(pos.qtyToken * f, getActualPrice(ts)) ?: return false
+        val sliceCost = pos.costSol * f
+        val exitCostPct = try {
+            com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(pos.tradingMode, proceeds, ts.lastLiquidityUsd) / 2.0
+        } catch (_: Throwable) { com.lifecyclebot.engine.truth.FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 / 2.0 }
+        if (!com.lifecyclebot.engine.sell.PartialNetEconomics8094.uneconomic8094(proceeds, sliceCost, exitCostPct)) return false
+        try {
+            com.lifecyclebot.engine.truth.LiveSizeTarget8094.notePartialUneconomic8094()
+            ForensicLogger.lifecycle("PARTIAL_EXIT_NET_UNECONOMIC", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(48)} " +
+                "fraction=${"%.3f".format(f)} proceeds=${"%.6f".format(proceeds)} sliceCost=${"%.6f".format(sliceCost)} " +
+                "exitCost=${"%.2f".format(exitCostPct)}% net=${"%.6f".format(com.lifecyclebot.engine.sell.PartialNetEconomics8094.sliceNetSol8094(proceeds, sliceCost, exitCostPct))} action=keep_inventory")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     private fun executeProfitLockSell(
         ts: TokenState,
         wallet: SolanaWallet,
@@ -7150,6 +7175,7 @@ class Executor(
         reason: String,
         walletSol: Double,
     ) {
+        if (partialUneconomic8094(ts, sellFraction, reason)) return  // V5.0.8094
         val c = cfg()
         beginMemeExecutionStack(
             side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.SELL,
@@ -10028,6 +10054,7 @@ class Executor(
         } catch (_: Exception) { baseFraction }
         
         val sellFraction = treasuryAdjustedFraction
+        if (partialUneconomic8094(ts, sellFraction, "PARTIAL_TAKE_PROFIT")) return false  // V5.0.8094
         // V5.9.495z47 P0 — operator spec items C/E (forensics 0508_143519):
         // checkPartialSell is the second partial-sell call site.
         // Replace `pos.qtyToken * sellFraction` ad-hoc math with the verified-
@@ -20198,7 +20225,8 @@ class Executor(
             walletSol = walletSol,
             solUsd = WalletManager.lastKnownSolPrice,
             maxLiveBuySol = liveCfg.maxLiveBuySol,
-            walletSharePct = liveCfg.maxWalletRiskPerTradePct,
+            // V5.0.8094 — the same candidate-specific ceiling the FDG sealed this ticket under (LiveSizeTarget8094).
+            walletSharePct = com.lifecyclebot.engine.truth.LiveSizeTarget8094.walletShareFor8094(ts.mint, liveCfg.maxWalletRiskPerTradePct),
         )
         val maxSpendableSol = spendCap7842.maxSpendableSol
         WalletCapacitySeal7868.noteRouteBridge(ts.mint, spendCap7842)
@@ -23291,6 +23319,12 @@ class Executor(
         // V5.0.8030 — a partial take-profit is profit-taking too: none below the round trip + 1%.
         if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = true) } catch (_: Throwable) { false }) {
             try { DecisionReasons8031.hold8031(ts, "NET_PROFIT_PARTIAL_8030", reason) } catch (_: Throwable) {}
+            receipt6566?.invoke(PartialSellReceipt6566(false))
+            return
+        }
+        // V5.0.8094 — a discretionary profit slice whose net its own exit costs consume is not sent.
+        if (partialUneconomic8094(ts, pct, reason)) {
+            try { DecisionReasons8031.hold8031(ts, "PARTIAL_EXIT_NET_UNECONOMIC", reason) } catch (_: Throwable) {}
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }

@@ -404,6 +404,18 @@ object LiveRiskPolicy7807 {
         val laneOpenLive: Int,
         /** V5.0.8057 — quarter-Kelly share of equity the coin's PROVEN setup earns (0 = no proven edge). */
         val edgeKellyFrac8057: Double = 0.0,
+        /**
+         * V5.0.8094 — the external ceiling (pool depth, curve, candidate wallet share) of an APPROVED proven
+         * compounding target. 0 = an ordinary request: the decision never exceeds [upstreamSol].
+         */
+        val compoundingCeilingSol8094: Double = 0.0,
+    )
+
+    /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
+    data class Sizing8094(
+        val rawKellySol: Double, val kellySol: Double, val riskBudgetSol: Double, val laneCapSol: Double,
+        val liquidityCapSol: Double, val hardLossCapSol: Double, val drawdownMult: Double, val dampMult: Double,
+        val bindingCap: String,
     )
 
     data class Decision(
@@ -414,6 +426,7 @@ object LiveRiskPolicy7807 {
         val stopPct: Double,
         val costPct: Double,
         val totalMult: Double,
+        val sizing8094: Sizing8094? = null,
     )
 
     fun isRunnerLane(lane: String?): Boolean = canonicalLane(lane) in setOf("MOONSHOT", "PROJECT_SNIPER")
@@ -475,9 +488,20 @@ object LiveRiskPolicy7807 {
         // V5.0.8057 — compounding on proven edge: the bet is a quarter-Kelly share of CURRENT equity, so it grows as
         // the wallet grows and shrinks as it falls, still bounded by drawdown / daily loss / governor shrink, the lane's
         // position cap, the pool depth and the hard per-trade loss at the stop.
-        val kellySol = edgeKellySizeSol8057(i.equitySol, i.edgeKellyFrac8057 * ddMult * dailyMult * gov, laneCap, liqCap, stop, cost1)
+        val dampMult8094 = (ddMult * dailyMult * gov).coerceIn(0.0, 1.0)
+        val kellySol = edgeKellySizeSol8057(i.equitySol, i.edgeKellyFrac8057 * dampMult8094, laneCap, liqCap, stop, cost1)
+        val riskBudget8094 = size
         if (kellySol > size) { size = kellySol; labels += "PROVEN_EDGE_COMPOUNDING_SIZE_8057" }
-        if (i.upstreamSol > 0.0 && size > i.upstreamSol) size = i.upstreamSol
+        // V5.0.8094 — an ordinary request is still clamped to the upstream proposal; an APPROVED proven target may
+        // exceed the proposal up to its own Kelly size, never above its external ceiling (depth, curve, wallet share).
+        val upstreamCeil8094 = LiveSizeTarget8094.upstreamCeiling8094(i.upstreamSol, kellySol, i.compoundingCeilingSol8094)
+        if (upstreamCeil8094 > 0.0 && size > upstreamCeil8094) size = upstreamCeil8094
+        val sizing8094 = if (i.edgeKellyFrac8057 > 0.0) {
+            val hardLoss8094 = i.equitySol * hardPerTradeRiskCapFrac(i.equitySol) / ((stop + cost1) / 100.0).coerceAtLeast(0.005)
+            val raw8094 = i.equitySol * i.edgeKellyFrac8057
+            Sizing8094(raw8094, kellySol, riskBudget8094, laneCap, liqCap, hardLoss8094, ddMult, dampMult8094,
+                LiveSizeTarget8094.firstBindingCap8094(raw8094, dampMult8094, ddMult, laneCap, liqCap, hardLoss8094, i.compoundingCeilingSol8094))
+        } else null
 
         if (i.execMinSol > 0.0 && size < i.execMinSol) {
             // V5.0.7840 — prove the venue minimum against the REAL hard-risk
@@ -495,11 +519,11 @@ object LiveRiskPolicy7807 {
                 executableMinRiskOk(i.execMinSol, stop, minCost7840, i.equitySol)
             if (minRiskSafe7840) {
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
-                return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total)
+                return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094)
             }
-            return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, minCost7840, total)
+            return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, minCost7840, total, sizing8094)
         }
-        return Decision(true, size, "OPEN_7807", labels, stop, cost1, total)
+        return Decision(true, size, "OPEN_7807", labels, stop, cost1, total, sizing8094)
     }
 
     // ── runtime evidence (live only) ────────────────────────────────────────
@@ -614,6 +638,7 @@ object LiveRiskPolicy7807 {
         governorLossMult: Double,
         partialProviderEvidence: Boolean,
         nowMs: Long = System.currentTimeMillis(),
+        compoundingCeilingSol8094: Double = 0.0,
     ): Inputs {
         ensureSubscribed()
         // The caller carries the canonical decision lane. Never substitute a
@@ -654,6 +679,7 @@ object LiveRiskPolicy7807 {
             oracleUnproven = ll.closes < MIN_LIVE_SAMPLE_DEEP_SHRINK_7807 && plan == null,
             laneOpenLive = laneOpenLive(effectiveLane7811),
             edgeKellyFrac8057 = try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { edgeKellyFracFor8057(it, effectiveLane7811) } ?: 0.0 } catch (_: Throwable) { 0.0 },
+            compoundingCeilingSol8094 = compoundingCeilingSol8094,
         )
     }
 

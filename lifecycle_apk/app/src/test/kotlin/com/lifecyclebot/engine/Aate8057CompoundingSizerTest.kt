@@ -32,4 +32,49 @@ class Aate8057CompoundingSizerTest {
         val g = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(g.contains("LiveRiskPolicy7807.edgeKellyFracFor8057(ts, lane)"))
     }
+
+    // ── V5.0.8094 ──
+
+    @Test fun provenSizeIsNeverRevertedToTheProposal() {
+        val t = com.lifecyclebot.engine.truth.LiveSizeTarget8094
+        assertEquals(0.0456, t.fdgRiskSized8094(0.02892, 0.0456, "OPEN_7807", compoundingApproved = true), 1e-12)
+        assertEquals(0.02892, t.fdgRiskSized8094(0.02892, 0.0456, "OPEN_7807", compoundingApproved = false), 1e-12)
+        assertEquals(0.03, t.fdgRiskSized8094(0.02, 0.03, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", false), 1e-12)
+        // Upstream contract: ordinary request clamps to the proposal; an approved target to min(kelly, ceiling).
+        assertEquals(0.02892, t.upstreamCeiling8094(0.02892, 0.0456, 0.0), 1e-12)
+        assertEquals(0.0456, t.upstreamCeiling8094(0.02892, 0.0456, 0.057), 1e-12)
+        assertEquals(0.040, t.upstreamCeiling8094(0.02892, 0.0456, 0.040), 1e-12)
+        assertEquals(0.02892, t.upstreamCeiling8094(0.02892, 0.0, 0.057), 1e-12)
+    }
+
+    @Test fun oneCandidateSpecificCeilingSharedByFdgAndExecutor() {
+        val t = com.lifecyclebot.engine.truth.LiveSizeTarget8094
+        assertEquals(0.18, t.walletShareCeiling8094(t.ProofTier.UNPROVEN, 0.18), 1e-12)
+        assertEquals(t.PROVEN_WALLET_SHARE_8094, t.walletShareCeiling8094(t.ProofTier.PROVEN, 0.18), 1e-12)
+        assertEquals(0.25, t.PROVEN_WALLET_SHARE_8094, 1e-12)
+        assertEquals(t.ProofTier.UNPROVEN, t.tierOf8094(0.0))
+        t.recordCeiling8094("MINT_8094_A", 0.25, nowMs = 1_000L)
+        assertEquals(0.25, t.walletShareFor8094("MINT_8094_A", 0.18, nowMs = 2_000L), 1e-12)
+        assertEquals(0.18, t.walletShareFor8094("MINT_8094_A", 0.18, nowMs = 1_000L + 11 * 60_000L), 1e-12)  // stale
+        assertEquals(0.18, t.walletShareFor8094("OTHER", 0.18, nowMs = 2_000L), 1e-12)
+        val g = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(g.contains("LiveSizeTarget8094.recordCeiling8094(ts.mint, walletShare8094)"))
+        assertTrue(g.contains("walletSharePct = walletShare8094"))
+        assertTrue(!g.contains("FDG_PROVEN_EDGE_COMPOUNDING_ASK_8057"))                  // superseded ask retired
+        assertTrue(g.contains("val edgeKelly8094 = if (config.paperMode) 0.0 else"))      // paper never sized up
+        assertTrue(g.contains("alreadyShaped7925 = !config.paperMode ||"))               // no double multipliers
+        assertTrue(g.contains("resolution.finalSizeSol > riskSized + 1e-9) return 0.0")) // resolver never enlarges
+        val x = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(x.contains("LiveSizeTarget8094.walletShareFor8094(ts.mint, liveCfg.maxWalletRiskPerTradePct)"))
+    }
+
+    @Test fun firstBindingCapIsTheSmallestConstraint() {
+        val t = com.lifecyclebot.engine.truth.LiveSizeTarget8094
+        assertEquals("KELLY", t.firstBindingCap8094(0.03, 1.0, 1.0, 0.05, 1.0, 0.1, 0.06))
+        assertEquals("DRAWDOWN", t.firstBindingCap8094(0.05, 0.44, 0.44, 0.05, 1.0, 0.1, 0.06))
+        assertEquals("LANE", t.firstBindingCap8094(0.07, 1.0, 1.0, 0.0456, 1.0, 0.1, 0.06))
+        assertEquals("WALLET", t.firstBindingCap8094(0.07, 1.0, 1.0, 0.08, 1.0, 0.1, 0.041))
+        assertEquals("LIQUIDITY", t.firstBindingCap8094(0.07, 1.0, 1.0, 0.08, 0.02, 0.1, 0.06))
+        assertEquals("RISK", t.firstBindingCap8094(0.07, 1.0, 1.0, 0.08, 1.0, 0.03, 0.06))
+    }
 }

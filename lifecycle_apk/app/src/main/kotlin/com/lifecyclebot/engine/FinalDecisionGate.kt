@@ -6047,11 +6047,17 @@ object FinalDecisionGate {
             currentRoutableMinimum7835 >= configuredMinimum7835
         val headroomMin8079 = currentRoutableMinimum7835 * (1.0 + SEAL_FLOOR_HEADROOM_8079)
         val tradeable8079 = cash - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL
+        // V5.0.8094 — ONE candidate-specific wallet-share ceiling (LiveSizeTarget8094): the configured 18% baseline, up to
+        // 25% only for a PROVEN positive-net-edge setup / cell / kind. Recorded at the seal; the executor reads it back.
+        val edgeKelly8094 = if (config.paperMode) 0.0 else
+            try { com.lifecyclebot.engine.truth.LiveRiskPolicy7807.edgeKellyFracFor8057(ts, lane) } catch (_: Throwable) { 0.0 }
+        val tier8094 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.tierOf8094(edgeKelly8094)
+        val walletShare8094 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.walletShareCeiling8094(tier8094, config.maxWalletRiskPerTradePct)
         // Same cap the seal and the executor enforce (route floor bridge includes the headroom, LiveRiskPolicy7807).
         val cap8079 = if (routeFloorBinds8079) try {
             com.lifecyclebot.engine.truth.LiveRiskPolicy7807.routeAwareSpendCap7842(
                 walletSol = cash, solUsd = solUsd,
-                maxLiveBuySol = config.maxLiveBuySol, walletSharePct = config.maxWalletRiskPerTradePct,
+                maxLiveBuySol = config.maxLiveBuySol, walletSharePct = walletShare8094,
             ).maxSpendableSol
         } catch (_: Throwable) { 0.0 } else 0.0
         val minimum = if (routeFloorBinds8079 && tradeable8079 >= headroomMin8079 && cap8079 >= headroomMin8079 - 1e-12) {
@@ -6076,27 +6082,35 @@ object FinalDecisionGate {
         val shaped7871 = com.lifecyclebot.engine.truth.LaunchEntryShaping7871.shapedSize(
             requested, com.lifecyclebot.engine.truth.LaunchEntryShaping7871.sizeMult(ts, config.paperMode), minimum)
         var riskSized = minOf(shaped7871, depthCap, curveCap)
-        // V5.0.8057 — a proven-edge coin may ask for its compounding size (quarter-Kelly of current equity); depth,
-        // curve, the risk policy's caps, the wallet-share cap and the resolver still bound it.
-        if (!config.paperMode) try {
-            val kelly8057 = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.edgeKellyFracFor8057(ts, lane)
-            // Unknown depth (depthCap 0) is never sized up: it has no wallet-share substitute.
-            if (kelly8057 > 0.0 && depthCap > 0.0) {
-                val ask8057 = minOf(cash * kelly8057, depthCap, curveCap)
-                if (ask8057 > riskSized) { riskSized = ask8057; PipelineHealthCollector.labelInc("FDG_PROVEN_EDGE_COMPOUNDING_ASK_8057") }
-            }
-        } catch (_: Throwable) {}
+        val proposal8094 = riskSized
+        // V5.0.8094 — the proven-edge compounding target is decided ONCE, by LiveRiskPolicy7807 (drawdown-damped
+        // quarter-Kelly of marked equity inside the lane cap, depth and hard loss at the stop). FDG hands it the external
+        // ceiling: pool depth, curve, and this candidate's wallet share. Unknown depth (depthCap 0) is never sized up.
+        // (Replaces the 8057 FDG ask: undamped cash x Kelly, then reverted to the proposal by a min() below.)
+        val walletCapSol8094 = if (config.paperMode) 0.0 else try {
+            com.lifecyclebot.engine.truth.LiveRiskPolicy7807.routeAwareSpendCap7842(
+                walletSol = cash, solUsd = solUsd, maxLiveBuySol = config.maxLiveBuySol, walletSharePct = walletShare8094,
+            ).maxSpendableSol
+        } catch (_: Throwable) { 0.0 }
+        val compoundingCeiling8094 = if (tier8094 == com.lifecyclebot.engine.truth.LiveSizeTarget8094.ProofTier.PROVEN && depthCap > 0.0)
+            minOf(depthCap, curveCap, walletCapSol8094).coerceAtLeast(0.0) else 0.0
+        var risk8094: com.lifecyclebot.engine.truth.LiveRiskPolicy7807.Decision? = null
         if (!config.paperMode) {
             val inputs = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.runtimeInputs(
                 mint = ts.mint, lane = lane, walletSol = cash, upstreamSol = riskSized,
                 execMinSol = minimum, liquidityUsd = liq,
                 governorLossMult = LiveEntrySafetyHold.currentSizeMultiplier().coerceIn(0.0, 1.0),
                 partialProviderEvidence = ts.safety.softPenalties.isNotEmpty(),
+                compoundingCeilingSol8094 = compoundingCeiling8094,
             )
             val risk = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record("FDG", ts.mint, ts.symbol,
                 inputs, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs))
             if (!risk.open) return 0.0
-            riskSized = if (risk.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" &&
+            risk8094 = risk
+            val compoundingApproved8094 = compoundingCeiling8094 > 0.0 && "PROVEN_EDGE_COMPOUNDING_SIZE_8057" in risk.labels
+            riskSized = if (compoundingApproved8094) {
+                com.lifecyclebot.engine.truth.LiveSizeTarget8094.fdgRiskSized8094(riskSized, risk.sizeSol, risk.reason, true)
+            } else if (risk.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" &&
                 risk.sizeSol > riskSized) {
                 try {
                     PipelineHealthCollector.labelInc("FDG_RISK_SAFE_ROUTE_MIN_SEALED_7841")
@@ -6115,7 +6129,7 @@ object FinalDecisionGate {
                 walletSol = cash,
                 solUsd = solUsd,
                 maxLiveBuySol = config.maxLiveBuySol,
-                walletSharePct = config.maxWalletRiskPerTradePct,
+                walletSharePct = walletShare8094,
             )
             if (spendCap7842.routeFloorLifted) try {
                 PipelineHealthCollector.labelInc("FDG_ROUTE_MIN_BRIDGED_WALLET_CAP_7842")
@@ -6135,11 +6149,38 @@ object FinalDecisionGate {
             // (SmartSizer on the generic path, the trader's own resolve on specialist
             // paths); a specialist proposal was also already shaped (incl. the bridge).
             streakAlreadyApplied7925 = true,
-            alreadyShaped7925 = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
+            // V5.0.8094 — a live size is the LiveRiskPolicy7807 decision: drawdown, governor, expectancy and daily-loss
+            // shrink are already in it. The resolver keeps every cap and the conviction refusal, but does not re-apply
+            // the adaptive / streak / bridge multipliers (they pushed approved sizes under the route minimum, where
+            // they were "promoted" back to it).
+            alreadyShaped7925 = !config.paperMode || com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
         )
         if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9) return 0.0
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
         if (!config.paperMode) WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd)
+        if (!config.paperMode) try {
+            com.lifecyclebot.engine.truth.LiveSizeTarget8094.recordCeiling8094(ts.mint, walletShare8094)
+            val sz = risk8094?.sizing8094
+            val stopPct8094 = risk8094?.stopPct ?: 0.0
+            val costPct8094 = risk8094?.costPct ?: 0.0
+            com.lifecyclebot.engine.truth.LiveSizeTarget8094.recordSealed8094(com.lifecyclebot.engine.truth.LiveSizeTarget8094.Row(
+                mint = ts.mint, lane = lane, strategy = (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane, System.currentTimeMillis()) } catch (_: Throwable) { null }) ?: "UNCLASSIFIED",
+                walletCash = cash, markedEquity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(cash),
+                requestedSol = proposal8094, approvedKellySol = sz?.kellySol ?: 0.0, riskBudgetSol = sz?.riskBudgetSol ?: 0.0,
+                laneCapSol = sz?.laneCapSol ?: 0.0, walletShareCapSol = configuredCap, liquidityCapSol = minOf(depthCap, sz?.liquidityCapSol ?: Double.POSITIVE_INFINITY),
+                drawdownMultiplier = sz?.drawdownMult ?: 1.0,
+                estimatedRoundTripCostSol = resolution.finalSizeSol * costPct8094 / 100.0,
+                routableMinSol = minimum, finalSealedSol = resolution.finalSizeSol,
+                bindingCap = when {
+                    sz == null -> if (resolution.finalSizeSol <= minimum * 1.05 + 1e-9) "ROUTE_MIN" else "RISK_BUDGET"
+                    resolution.finalSizeSol + 1e-9 < minOf(riskSized, configuredCap) -> "RESOLVER"
+                    configuredCap + 1e-9 < (sz.kellySol.takeIf { it > 0.0 } ?: Double.POSITIVE_INFINITY) && resolution.finalSizeSol >= configuredCap - 1e-9 -> "WALLET"
+                    else -> sz.bindingCap
+                },
+                estimatedLossAtStopSol = resolution.finalSizeSol * (stopPct8094 + costPct8094) / 100.0,
+                proofTier = tier8094.name, atMs = System.currentTimeMillis(),
+            ))
+        } catch (_: Throwable) {}
         return resolution.finalSizeSol
     }
 
