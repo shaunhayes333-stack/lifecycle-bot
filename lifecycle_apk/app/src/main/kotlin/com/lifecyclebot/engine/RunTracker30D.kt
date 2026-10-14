@@ -886,6 +886,13 @@ SYSTEM
         dailySummaries.clear()
         tradeLog.clear()
         metrics.reset()
+        // The pre-8093 30D reset forgot every legacy asset-class bucket.
+        // Clear those too; mode-specific proof books above remain the only
+        // source for a new LIVE/PAPER run.
+        listOf(memeBucket, altsBucket, perpsBucket, stocksBucket, forexBucket,
+            metalsBucket, commodBucket, unclassifiedBucket).forEach {
+            it.trades = 0; it.wins = 0; it.losses = 0; it.scratches = 0; it.pnlSol = 0.0
+        }
         liveProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
         liveProofSeen8093.clear()
         paperProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
