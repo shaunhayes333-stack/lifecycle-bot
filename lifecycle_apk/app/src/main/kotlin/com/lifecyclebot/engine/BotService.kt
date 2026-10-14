@@ -24157,6 +24157,10 @@ if (hotExitHandledSweep) {
             status.openPositions.any { it.mint == mint && isCapCountableLiveToken(it.mint, it) }
     } catch (_: Throwable) { false }
 
+    private fun liveBuyInFlight8094(mint: String): Boolean = try {
+        com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(mint, "BUY") != null || PendingLiveBuy8094.isPending8094(mint)
+    } catch (_: Throwable) { false }
+
     private fun supervisorTimeoutCooldownActive(mint: String, now: Long = System.currentTimeMillis()): Boolean {
         // V5.9.1572 — open mints no longer bypass supervisor timeout cooldown.
         // Exits are handled by ExitCoordinator/open-position tick, so skipping full
@@ -24171,6 +24175,13 @@ if (hotExitHandledSweep) {
     }
 
     private fun supervisorArmTimeoutCooldown(mint: String) {
+        // V5.0.8094 — a worker that timed out while this mint's live buy was in flight timed out on the buy's
+        // confirmation wait, not on a wedged token: no 90 s cooldown (it kept just-bought / retrying mints out of
+        // evaluation; 8093 workerTimeout=275). The signed-tx ledger still single-flights the order itself.
+        if (liveBuyInFlight8094(mint)) {
+            try { PipelineHealthCollector.labelInc("SUPERVISOR_TIMEOUT_COOLDOWN_SKIPPED_LIVE_BUY_8094") } catch (_: Throwable) {}
+            return
+        }
         val open = supervisorMintIsOpen(mint)
         val cooldownMs = if (open) 45_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS
         val until = System.currentTimeMillis() + cooldownMs

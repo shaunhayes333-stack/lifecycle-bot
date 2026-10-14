@@ -159,4 +159,13 @@ class Aate8094EmergencyExitDeterminismTest {
         assertTrue(mig.indexOf("for (c in consumers) writeConsumer8094(c)") < mig.indexOf("p.edit().apply { moved.forEach { remove(it) } }.apply()"))
         assertTrue(mig.contains("if (!com.lifecyclebot.engine.LearningPersistence.ready()) return"))
     }
+
+    // Entry: a worker timeout during a live buy's confirmation does not cool the mint for 90 s.
+    @Test fun aLiveBuyConfirmationTimeoutDoesNotCoolTheMint() {
+        SignedTxLedger8085.record("SIG_BUY", "b64", "bh", SignedTxLedger8085.Intent("MINT_B", "BUY", 100L), nowMs = 1_000L)
+        SignedTxLedger8085.transition("SIG_BUY", State.SUBMIT_ATTEMPTED, nowMs = 1_100L)
+        assertNotNull(SignedTxLedger8085.unresolvedFor("MINT_B", "BUY", nowMs = 2_000L))
+        val b = src("engine/BotService.kt").substringAfter("private fun supervisorArmTimeoutCooldown(").take(400)
+        assertTrue(b.contains("if (liveBuyInFlight8094(mint)) {"))
+    }
 }
