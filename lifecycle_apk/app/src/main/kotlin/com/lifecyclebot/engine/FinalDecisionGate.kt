@@ -6102,6 +6102,7 @@ object FinalDecisionGate {
                 governorLossMult = LiveEntrySafetyHold.currentSizeMultiplier().coerceIn(0.0, 1.0),
                 partialProviderEvidence = ts.safety.softPenalties.isNotEmpty(),
                 compoundingCeilingSol8094 = compoundingCeiling8094,
+                edgeKellyFracFromFdg8094 = edgeKelly8094,
             )
             val risk = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record("FDG", ts.mint, ts.symbol,
                 inputs, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs))
@@ -6159,7 +6160,7 @@ object FinalDecisionGate {
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
         if (!config.paperMode) WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd)
         if (!config.paperMode) try {
-            com.lifecyclebot.engine.truth.LiveSizeTarget8094.recordCeiling8094(ts.mint, walletShare8094)
+            com.lifecyclebot.engine.truth.LiveSizeTarget8094.recordCeiling8094(ts.mint, walletShare8094, resolution.finalSizeSol)
             val sz = risk8094?.sizing8094
             val stopPct8094 = risk8094?.stopPct ?: 0.0
             val costPct8094 = risk8094?.costPct ?: 0.0

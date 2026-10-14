@@ -80,19 +80,27 @@ object LiveSizeTarget8094 {
 
     // ── the one ceiling, shared by FDG and the executor ──
 
-    private val ceilings = ConcurrentHashMap<String, Pair<Double, Long>>()
+    /** The ceiling a sealed ticket was approved under: bound to the exact sealed notional (lamports) of that intent. */
+    private data class Sealed8094(val share: Double, val sealedLamports: Long, val atMs: Long)
+    private val ceilings = ConcurrentHashMap<String, Sealed8094>()
 
-    /** FDG: the ceiling this candidate was sealed against. */
-    fun recordCeiling8094(mint: String, walletSharePct: Double, nowMs: Long = System.currentTimeMillis()) {
+    private fun lamports(sol: Double): Long = if (sol.isFinite() && sol > 0.0) kotlin.math.round(sol * 1_000_000_000.0).toLong() else 0L
+
+    /** FDG: the ceiling this candidate's sealed ticket ([sealedSol]) was approved under. */
+    fun recordCeiling8094(mint: String, walletSharePct: Double, sealedSol: Double, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return
-        ceilings[mint] = walletSharePct to nowMs
-        if (ceilings.size > 2_000) ceilings.entries.removeIf { nowMs - it.value.second > CEILING_TTL_MS }
+        ceilings[mint] = Sealed8094(walletSharePct, lamports(sealedSol), nowMs)
+        if (ceilings.size > 2_000) ceilings.entries.removeIf { nowMs - it.value.atMs > CEILING_TTL_MS }
     }
 
-    /** Executor: the wallet share the sealed ticket was approved under, else the configured baseline. */
-    fun walletShareFor8094(mint: String, configuredPct: Double, nowMs: Long = System.currentTimeMillis()): Double {
-        val c = ceilings[mint]?.takeIf { nowMs - it.second in 0L..CEILING_TTL_MS }?.first
-        return if (c != null && c.isFinite() && c > 0.0) maxOf(c, configuredPct) else configuredPct
+    /**
+     * Executor: the wallet share THIS sealed ticket was approved under — only when [ticketSol] is the exact notional
+     * sealed for this mint (another candidate on the mint, or an unsealed size, gets the configured baseline).
+     */
+    fun walletShareFor8094(mint: String, ticketSol: Double, configuredPct: Double, nowMs: Long = System.currentTimeMillis()): Double {
+        val c = ceilings[mint]?.takeIf { nowMs - it.atMs in 0L..CEILING_TTL_MS } ?: return configuredPct
+        if (c.sealedLamports <= 0L || kotlin.math.abs(c.sealedLamports - lamports(ticketSol)) > 1L) return configuredPct
+        return if (c.share.isFinite() && c.share > 0.0) maxOf(c.share, configuredPct) else configuredPct
     }
 
     // ── diagnostics: every FDG-authorised live candidate ──

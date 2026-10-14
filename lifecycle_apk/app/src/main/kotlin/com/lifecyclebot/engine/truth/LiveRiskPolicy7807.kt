@@ -640,6 +640,8 @@ object LiveRiskPolicy7807 {
         partialProviderEvidence: Boolean,
         nowMs: Long = System.currentTimeMillis(),
         compoundingCeilingSol8094: Double = 0.0,
+        /** V5.0.8094 — the proof the FDG computed from ITS token snapshot; null = read it here (non-FDG callers). */
+        edgeKellyFracFromFdg8094: Double? = null,
     ): Inputs {
         ensureSubscribed()
         // The caller carries the canonical decision lane. Never substitute a
@@ -679,7 +681,9 @@ object LiveRiskPolicy7807 {
             partialProviderEvidence = partialProviderEvidence,
             oracleUnproven = ll.closes < MIN_LIVE_SAMPLE_DEEP_SHRINK_7807 && plan == null,
             laneOpenLive = laneOpenLive(effectiveLane7811),
-            edgeKellyFrac8057 = try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { edgeKellyFracFor8057(it, effectiveLane7811) } ?: 0.0 } catch (_: Throwable) { 0.0 },
+            // V5.0.8094 — one proof per decision: the FDG's own Kelly read is used as-is (no second token snapshot).
+            edgeKellyFrac8057 = edgeKellyFracFromFdg8094?.takeIf { it.isFinite() && it >= 0.0 }
+                ?: try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { edgeKellyFracFor8057(it, effectiveLane7811) } ?: 0.0 } catch (_: Throwable) { 0.0 },
             compoundingCeilingSol8094 = compoundingCeilingSol8094,
         )
     }

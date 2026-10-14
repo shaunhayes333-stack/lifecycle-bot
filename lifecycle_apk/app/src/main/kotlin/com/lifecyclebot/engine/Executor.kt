@@ -20226,7 +20226,7 @@ class Executor(
             solUsd = WalletManager.lastKnownSolPrice,
             maxLiveBuySol = liveCfg.maxLiveBuySol,
             // V5.0.8094 — the same candidate-specific ceiling the FDG sealed this ticket under (LiveSizeTarget8094).
-            walletSharePct = com.lifecyclebot.engine.truth.LiveSizeTarget8094.walletShareFor8094(ts.mint, liveCfg.maxWalletRiskPerTradePct),
+            walletSharePct = com.lifecyclebot.engine.truth.LiveSizeTarget8094.walletShareFor8094(ts.mint, sol, liveCfg.maxWalletRiskPerTradePct),
         )
         val maxSpendableSol = spendCap7842.maxSpendableSol
         WalletCapacitySeal7868.noteRouteBridge(ts.mint, spendCap7842)
