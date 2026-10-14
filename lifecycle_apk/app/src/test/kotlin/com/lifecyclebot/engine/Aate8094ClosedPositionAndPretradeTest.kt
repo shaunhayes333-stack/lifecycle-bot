@@ -378,4 +378,14 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(o.nativeRefusalHandsOff8094(op(true, "OK"), 1_000L, 2_000L))
         assertTrue(src("engine/SpecialistOwnership7951.kt").contains("if (ready && native8094 && !receiverRecordSound8094(mint, l)) {"))
     }
+
+    @Test fun aRefusalRuleTheAuditProvesRefusesWinnersStandsDownOnlyThere() {
+        val q = com.lifecyclebot.engine.truth.SelectionQualityAuthority6829
+        assertEquals(22.0, q.BASE_FLOOR_8094, 1e-9)
+        assertEquals("SELECTION_QUALITY_FLOOR", com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf(q.FLOOR_RULE_8094))
+        // The FDG floor reason grades under the same rule name.
+        assertEquals("SELECTION_QUALITY_FLOOR", com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("SELECTION_QUALITY_FLOOR_6830 lane=SHITCOIN conf=10% floor=37.0"))
+        // No graded evidence: the floor is unchanged.
+        assertFalse(com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(q.FLOOR_RULE_8094, "NO_SUCH_LANE_8094"))
+    }
 }

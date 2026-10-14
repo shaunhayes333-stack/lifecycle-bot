@@ -90,6 +90,14 @@ object SelectionQualityAuthority6829 {
 
     fun scoreFloorDelta(lane: String): Double {
         queries.incrementAndGet()
+        // V5.0.8094 — the Cortex veto audit grades every refusal rule per lane at the executable price. Where THIS floor's
+        // refused cohort in this lane is proven to win (40+ graded, mean - SE > +2% net: Cortex7885.vetoProvenWinners8006),
+        // the floor's 22-point base stands down for that lane; portfolio pressure / heat still apply and every later gate
+        // (live proven-setup, edge, safety, sizing) still decides. 8094 missed PUNK +605% on this floor.
+        if (try { com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(FLOOR_RULE_8094, lane) } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("SELECTION_QUALITY_FLOOR_RETIRED_BY_AUDIT_8094_${lane.uppercase().take(24)}") } catch (_: Throwable) {}
+            return -BASE_FLOOR_8094
+        }
         val wr = rollingWr(lane)
         if (wr < 0.0) return 0.0
         val delta = when {
@@ -108,6 +116,10 @@ object SelectionQualityAuthority6829 {
         }
         return delta
     }
+
+    /** V5.0.8094 — the FDG's base confidence floor and the rule name the Cortex veto audit grades it under. */
+    const val BASE_FLOOR_8094 = 22.0
+    const val FLOOR_RULE_8094 = "SELECTION_QUALITY_FLOOR_6830"
 
     fun laneSelectivityMultiplier(lane: String): Double {
         val wr = rollingWr(lane)
