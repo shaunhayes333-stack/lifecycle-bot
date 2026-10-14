@@ -2711,9 +2711,13 @@ class BotService : Service() {
      */
     private fun zeroConfirmedWithoutTrackerRow7736(mint: String, symbol: String, reason: String): Boolean {
         val entry = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
+        // V5.0.8094 forensic — STALE_RECOVERY_UNPROVEN means the TRACKER's own proof was inconclusive; this path only runs
+        // on the poller's zero streak (two complete wallet snapshots without the mint), which is the conclusive proof.
+        // 8093 EcYVFG sat there re-issuing catastrophic exits at -62% against an empty wallet.
         val trackerHasNothing = entry == null ||
             entry.status == com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED ||
-            entry.status == com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE
+            entry.status == com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE ||
+            entry.status == com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.STALE_RECOVERY_UNPROVEN
         if (!trackerHasNothing) return false
         val canon = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()

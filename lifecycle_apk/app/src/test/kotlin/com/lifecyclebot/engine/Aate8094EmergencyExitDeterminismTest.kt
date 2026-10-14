@@ -105,4 +105,15 @@ class Aate8094EmergencyExitDeterminismTest {
         assertTrue(ov.contains("CORTEX_OVERRIDE_REFUSED_NEGATIVE_SETUP_8094"))
         assertTrue(src.contains("CORTEX_OVERRIDE_EXPLAINED_8083"))                       // every override attributed
     }
+
+    // Reconciliation: a canonical LIVE token the wallet holds is re-tracked, never ignored as an orphan; a conclusive
+    // zero streak closes a stale-unproven tracker row instead of re-firing exits at an empty wallet.
+    @Test fun reconciliationRebuildsFromWalletTruthAndStopsExitsOnProvenZero() {
+        val t = src("engine/HostWalletTokenTracker.kt")
+        assertTrue(t.contains("if (!RECOVER_ORPHAN_WALLET_TOKENS && !canonicalLive8094) {"))
+        assertTrue(t.indexOf("val canonicalLive8094 =") < t.indexOf("val canonicalOwn7137 ="))
+        val b = src("engine/BotService.kt").substringAfter("private fun zeroConfirmedWithoutTrackerRow7736(").take(1600)
+        assertTrue(b.contains("PositionStatus.STALE_RECOVERY_UNPROVEN"))
+        assertTrue(b.contains("CONFIRMED_ZERO_NO_TRACKER_ROW_7736"))       // quarantine, never an invented sale
+    }
 }

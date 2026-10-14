@@ -1360,7 +1360,12 @@ object HostWalletTokenTracker {
             // bot never bought is ignored: it never enters the position book, never
             // consumes a slot, and never spawns a sell. Emit a forensic so it is
             // still visible without being managed.
-            if (!RECOVER_ORPHAN_WALLET_TOKENS) {
+            // V5.0.8094 forensic — a token the CANONICAL book owns as an open LIVE position is not an orphan: the bail
+            // below ran before the lineage check, so a bot buy whose tracker row went missing (jq4yKh: "no tracker
+            // row", host projection 0 vs canonical 2) was ignored and never re-tracked. It is adopted below with its
+            // canonical symbol, basis and lineage; a true stranger token stays ignored.
+            val canonicalLive8094 = try { com.lifecyclebot.engine.truth.AccountingIntegrity7948.canonicalLiveOpen7948(mint) } catch (_: Throwable) { false }
+            if (!RECOVER_ORPHAN_WALLET_TOKENS && !canonicalLive8094) {
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "ORPHAN_WALLET_TOKEN_IGNORED",
