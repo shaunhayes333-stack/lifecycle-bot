@@ -234,7 +234,7 @@ object OnChainDepth8038 {
         // pump-suffixed (LetsBonk, Meteora, un-suffixed pump.fun) skipped the curve check above. Any coin still at a
         // launch curve's opening cap has no buyers behind it, whichever launchpad minted it.
         val capSol8047 = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }
-        if (atLaunchCap8047(capSol8047)) {
+        if (launchCapOnActiveCurve8092(curveReal8046 != null, capSol8047)) {
             launchCapRefused8047.incrementAndGet()
             lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL"
             try {
@@ -378,7 +378,7 @@ object OnChainDepth8038 {
         val real = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
         val why = when {
             curveNobodyBought8046(real) -> "CURVE_NOBODY_BOUGHT_8046"
-            atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> "AT_LAUNCH_CAP_8047"
+            launchCapOnActiveCurve8092(real != null, try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> "AT_LAUNCH_CAP_8047"
             else -> return null
         }
         earlyRefused8048.incrementAndGet()
@@ -388,6 +388,9 @@ object OnChainDepth8038 {
 
     /** Pure: the coin's cap in SOL is known and still at a launch curve's opening level. */
     fun atLaunchCap8047(capSol: Double): Boolean = capSol.isFinite() && capSol > 0.0 && capSol < LAUNCH_CAP_SOL_8047
+    /** Opening-cap threshold applies to observed active Pump bonding curves, not mature external pools. */
+    fun launchCapOnActiveCurve8092(activeCurve: Boolean, capSol: Double): Boolean =
+        activeCurve && atLaunchCap8047(capSol)
 
     fun statusLine(): String =
         "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} earlyRefused8048=${earlyRefused8048.get()} last=[$lastRefusal8047] " +
