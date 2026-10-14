@@ -76,7 +76,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         // Multi-strategy: every fired setup is evaluated and the best proven one is the strategy; the losing-record
         // refusal only applies when no fired setup is proven.
         assertTrue(pb.contains("val candidates = matchedSetups8083(ts, lane, nowMs)"))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (proven8059 == null) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs)"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs)"))
         assertTrue(pb.contains("val setup = selectedSetup8094(ts, lane, nowMs)"))
         // In-flight cold starts share the 3-coin budget; a mint holding a place keeps it.
         val g8094 = com.lifecyclebot.engine.truth.LiveEdgeGate7877
@@ -298,7 +298,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(movedSinceDecision8094(1.0, 1.20, MOVED_MAX_PCT_8094))
         assertFalse(movedSinceDecision8094(1.0, 1.10, MOVED_MAX_PCT_8094))
         assertFalse(movedSinceDecision8094(0.0, 1.20, MOVED_MAX_PCT_8094))   // unknown decision never refuses
-        assertTrue(src("engine/Executor.kt").contains("if (RuntimeModeAuthority.isLive() && movedSinceDecisionRefused8094(ts, lane)) return true"))
+        assertTrue(src("engine/Executor.kt").contains("if (RuntimeModeAuthority.isLive() && movedSinceDecisionRefused8094(ts, lane) &&"))
         assertTrue(lab.decisionPx8094("NO_SUCH_MINT_8094") == null)
         // A positive-evidence admit exits on the stop its evidence was graded on, not a flat -15%.
         val plan = src("engine/truth/TradePlan7739.kt")
