@@ -542,7 +542,12 @@ object ForwardReturnLabeler7731 {
      * EntryChase7961 measures a fill against; any admitted decision on the mint when the
      * lane names differ. Null when none is pending.
      */
+    private val lastAdmit8094 = ConcurrentHashMap<String, Pair<Double, Long>>()
+
     fun decisionPx7961(mint: String, lane: String): Pair<Double, Long>? {
+        // V5.0.8094 — the latest admit of this (mint, lane), else of the mint in any lane.
+        (lastAdmit8094["$mint|${lane.trim().uppercase()}"]
+            ?: lastAdmit8094.entries.filter { it.key.startsWith("$mint|") }.maxByOrNull { it.value.second }?.value)?.let { return it }
         val o = pending["$mint|${lane.trim().uppercase()}"]?.takeIf { it.admitted }
             ?: pending.values.filter { it.mint == mint && it.admitted }.maxByOrNull { it.atMs }
             ?: return null
@@ -551,7 +556,8 @@ object ForwardReturnLabeler7731 {
 
     /** V5.0.8094 — the un-rebased price and time of the latest admitted decision on [mint] (any lane); null when none. */
     fun decisionPx8094(mint: String): Pair<Double, Long>? =
-        pending.values.filter { it.mint == mint && it.admitted }.maxByOrNull { it.atMs }?.let { it.decisionPx8094 to it.atMs }
+        lastAdmit8094.entries.filter { it.key.startsWith("$mint|") }.maxByOrNull { it.value.second }?.value
+            ?: pending.values.filter { it.mint == mint && it.admitted }.maxByOrNull { it.atMs }?.let { it.decisionPx8094 to it.atMs }
 
     /**
      * V5.0.8051 — the (quality, phase) of a forecast signature for [ts] in [lane]: the token's setup shape (PUL / REA /
@@ -613,6 +619,12 @@ object ForwardReturnLabeler7731 {
         // V5.0.7930 — an ADMIT supersedes a pending refusal of the same (mint, lane): a
         // token refused earlier (or by an advisory gate) and then bought was labelled
         // and graded as "refused" for up to four hours.
+        // V5.0.8094 — every admit stamps its own price and time (the label keeps the first; the chase / latency of a fill is
+        // measured from the admit that actually led to it, not one up to 15 minutes older).
+        if (admitted) {
+            if (lastAdmit8094.size > 4_000) lastAdmit8094.entries.removeIf { nowMs - it.value.second > 10L * 60_000L }
+            lastAdmit8094[key] = px to nowMs
+        }
         val prior7930 = pending[key]
         val upgrade7930 = admitted && prior7930 != null && !prior7930.admitted
         if (upgrade7930) {
