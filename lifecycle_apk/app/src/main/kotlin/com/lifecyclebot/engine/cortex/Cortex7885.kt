@@ -684,6 +684,8 @@ object Cortex7885 {
             // V5.0.8056 — or the setup's whole lane record is proven (the lane-wide refuse bucket averages every setup;
             // SHITCOIN refuse n243 -12% while its ACCELERATING_TAPE coins read n61 +23%).
             if ((try { LanePlaybook7907.provenSetup8056(ts, a.lane) } catch (_: Throwable) { null }) != null) { inc("C3_STOOD_DOWN_LANE_SETUP_PROVEN_8056"); return null }
+            // V5.0.8094 — or this token's own cell / kind is proven in the lane (the refuse bucket averages every coin).
+            if (try { com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, a.lane) } catch (_: Throwable) { false }) { inc("C3_STOOD_DOWN_CELL_PROVEN_8094"); return null }
             return "C3_PROVEN_NEGATIVE_EDGE"
         }
         if (a.bucket != CortexScoreboard7885.Bucket.REFUSE) {

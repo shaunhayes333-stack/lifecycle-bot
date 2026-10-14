@@ -1029,7 +1029,8 @@ class BotService : Service() {
                 ExitProfile7955.runnerExits7955(plan7955, RunnerExitProfile7277.isRunnerLane(pos.tradingMode)),
                 com.lifecyclebot.engine.truth.TradePlan7739.underwaterMsFor7877(pos.tradingMode),
                 if (pos.isPaperPosition) 1.0 else com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(),
-            ) ?: ExitProfile7955.maxHoldExit7955(plan7955, now - pos.entryTime, pnlPctNow, planCostPct7766(ts))?.let {
+            ) ?: (if (TradeExitContract8077.longHold(ts) == true) null  // V5.0.8094 — a runner-style trade has no pop-fade clock
+                else ExitProfile7955.maxHoldExit7955(plan7955, now - pos.entryTime, pnlPctNow, planCostPct7766(ts)))?.let {
                 // V5.0.7955 — a pop-and-fade setup past its learned hold takes its profit.
                 com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)
             } ?: ExitProfile7955.noProgressExit7973(
@@ -15669,7 +15670,9 @@ class BotService : Service() {
                 }
                 return allowed
             }
-            return false
+            // V5.0.8094 — a READY specialist outside the meme ring (MANIPULATED since 7389) still evaluates when its own
+            // graded cell for this token is proven (8094: PUMP_PORTAL_WS|MANIPULATED|MC_10K_100K|AGE_LT15M n65 +737%).
+            return designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)
         }
 
         // (4) Mixed mode: all qualified desks remain contributors, but only

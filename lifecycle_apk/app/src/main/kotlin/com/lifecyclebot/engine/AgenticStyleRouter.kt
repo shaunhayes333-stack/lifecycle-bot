@@ -276,6 +276,10 @@ object AgenticStyleRouter {
         val sheet = try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
         val tactic = try { TacticSwitcher.tacticForToken8050(ts, if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
+        val provenRunnerCell8094 = laneHint.isNotBlank() && try {
+            com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(laneHint) &&
+                com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, laneHint)
+        } catch (_: Throwable) { false }
         val provenLead8094 = laneHint.isNotBlank() && try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneHint) != null } catch (_: Throwable) { false }
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
         val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
@@ -304,6 +308,10 @@ object AgenticStyleRouter {
             provenLead8094 && tactic == TacticSwitcher.Tactic.PULLBACK -> Style.PULLBACK_RECLAIM
             provenLead8094 && tactic == TacticSwitcher.Tactic.REACCUMULATION -> Style.REACCUMULATION
             provenLead8094 && tactic == TacticSwitcher.Tactic.BREAKOUT -> Style.BREAKOUT_RUNNER
+            // V5.0.8094 — a runner-lane token whose own cell / kind is proven enters on the RUNNER style, so the runner hold,
+            // the 2x / 5x / 10x ladder, the lifecycle floor and the moonbag tail apply (a quick style switched them all off:
+            // 8094 sold +26% peaks at +2%).
+            provenRunnerCell8094 -> Style.BREAKOUT_RUNNER
             toolkitStyle != null -> toolkitStyle
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
             // candidates into DIP_HUNTER as primary during a catastrophic paper

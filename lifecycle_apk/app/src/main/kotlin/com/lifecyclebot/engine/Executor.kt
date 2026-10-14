@@ -4056,7 +4056,8 @@ class Executor(
         lane: String,
     ): Boolean {
         if (sizeSol <= 0.0) return false
-        if (RuntimeModeAuthority.isLive() && movedSinceDecisionRefused8094(ts, lane)) return true
+        if (RuntimeModeAuthority.isLive() && movedSinceDecisionRefused8094(ts, lane) &&
+            !(try { com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, lane) } catch (_: Throwable) { false })) return true
         return try {
             val laneKey = lane.ifBlank { "STANDARD" }
             val required = com.lifecyclebot.engine.LiveBreakEvenGuard.requiredEdgePct(
@@ -13772,10 +13773,21 @@ class Executor(
     }
 
 
+    /** V5.0.8094 — a launchpad coin under an hour old whose sealed lane's own cell / kind is proven. */
+    private fun freshProvenRunner8094(ts: TokenState): Boolean = try {
+        val lane = liveIntentFor7868(ts.mint)?.canonicalLane.orEmpty()
+        val ageMs = if (ts.addedToWatchlistAt > 0L) System.currentTimeMillis() - ts.addedToWatchlistAt else Long.MAX_VALUE
+        lane.isNotBlank() && ageMs in 0L..60L * 60_000L && ts.lastMcap in 1.0..1_000_000.0 &&
+            com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, lane)
+    } catch (_: Throwable) { false }
+
     /** V5.0.8027 — never buy a dead or flatlined chart (FlatChart8027); a hard current-market check like route and safety. */
     private fun flatChartRefused8027(ts: TokenState, sol: Double): Boolean {
         // V5.0.8038 — then the pool itself, read from the chain: API depth or price it contradicts is refused.
-        val why = try { FlatChart8027.refusal8027(ts) } catch (_: Throwable) { null }
+        // V5.0.8094 — a clean climb on a fresh launchpad coin in a proven runner cell is the runner, not a manufactured chart.
+        val flat8094 = try { FlatChart8027.refusal8027(ts) } catch (_: Throwable) { null }
+            ?.takeUnless { it.startsWith("MANUFACTURED_CLIMB") && freshProvenRunner8094(ts) }
+        val why = flat8094
             ?: try { com.lifecyclebot.engine.truth.OnChainDepth8038.buyRefusal8038(ts) } catch (_: Throwable) { null }
             ?: return false
         emitLiveBuyFail(ts, sol, why)

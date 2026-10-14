@@ -432,7 +432,8 @@ object LiveEdgeGate7877 {
             }
             // V5.0.8094 — timing: the picked setup's record AT THIS POINT OF THE MOVE (pullback / mid / extended / peak) is
             // losing — wait for a band where it pays (graded at the executable price).
-            (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
+            // (a token whose own cell / kind is proven has already paid for its timing: the labels start at the fill latency)
+            if (!cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
                 val r8094 = "TIMING_RECORD_NEGATIVE_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$at") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.DEFER, r8094, 1.0, nowMs)
@@ -442,7 +443,7 @@ object LiveEdgeGate7877 {
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8094 — no fired setup is proven and the classified setup's own label record is losing (12+ labels,
             // mean + SE < 0, no runner-tail exemption): refused. A proven fired setup is the strategy instead (multi-strategy).
-            if (proven8059 == null) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
+            if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
                 val r8094 = "PICKED_SETUP_RECORD_NEGATIVE_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$neg") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
@@ -487,7 +488,10 @@ object LiveEdgeGate7877 {
             // stopped out within a minute (FdZRSo -22% in 11 s). A coin up 80%+ off its recent low and still within
             // 12% of its high, or up 100%+ in 5 minutes, waits for its pullback / base.
             val snap8065 = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
-            if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m)) {
+            // V5.0.8094 — a runner is "up 80% off its low" by definition; where this token's own cell / kind is proven (graded
+            // from the fill latency, so the chase is already in the record) the spike rule stands down.
+            if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
+                !cellOrKindProven8094(ts, l8059, nowMs)) {
                 chaseRefused8065.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
                 observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
@@ -535,9 +539,22 @@ object LiveEdgeGate7877 {
      * V5.0.8094 — this token's own graded cell (source x lane x cap band x age band) or its kind (venue x cap band, narrative)
      * is proven to pay in [lane]: 30+ labels at the executable price, mean - SE above the margin.
      */
+    /**
+     * Pure (V5.0.8094): a cell proven by its WIN RATE — 30+ labels, the Wilson lower bound of the win rate above 55% and a
+     * positive mean. Runner cells' means are carried by a few huge labels whose spread can swamp mean - SE even when three
+     * coins in four pay (8094: n65 wr75% +737%); the win count is the robust witness.
+     */
+    fun cellWinsProven8094(n: Int, winRate: Double, meanPct: Double): Boolean {
+        if (n < 30 || !winRate.isFinite() || !meanPct.isFinite() || meanPct <= 0.0) return false
+        val z = 1.96; val nn = n.toDouble(); val p = winRate.coerceIn(0.0, 1.0)
+        val lb = (p + z * z / (2 * nn) - z * kotlin.math.sqrt(p * (1 - p) / nn + z * z / (4 * nn * nn))) / (1 + z * z / nn)
+        return lb > 0.55
+    }
+
     fun cellOrKindProven8094(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
         val st = ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs)
-        (st != null && cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct)) || kindProven8063(ts, lane)
+        (st != null && (cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct) ||
+            cellWinsProven8094(st.n60, st.winRate60, st.meanNet60Pct))) || kindProven8063(ts, lane)
     } catch (_: Throwable) { false }
 
     private fun kindProven8063(ts: TokenState, lane: String): Boolean {

@@ -400,4 +400,22 @@ class Aate8094ClosedPositionAndPretradeTest {
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
     }
+
+    @Test fun runnersAreEnteredOnTheirCellsProofAndHeldOnTheRunnerRules() {
+        val g = com.lifecyclebot.engine.truth.LiveEdgeGate7877
+        assertTrue(g.cellWinsProven8094(65, 0.75, 737.0))      // n65 wr75% +737%: proven by its win count
+        assertFalse(g.cellWinsProven8094(65, 0.55, 40.0))      // a coin-flip win rate is not proof
+        assertFalse(g.cellWinsProven8094(20, 0.90, 300.0))     // too few labels
+        assertFalse(g.cellWinsProven8094(65, 0.80, -1.0))      // negative mean
+        val gate = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("!cellOrKindProven8094(ts, l8059, nowMs)) {"))   // chase stands down for a proven cell
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("C3_STOOD_DOWN_CELL_PROVEN_8094"))
+        assertTrue(src("engine/Executor.kt").contains("it.startsWith(\"MANUFACTURED_CLIMB\") && freshProvenRunner8094(ts)"))
+        assertTrue(src("engine/BotService.kt").contains("return designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)"))
+        assertTrue(src("engine/AgenticStyleRouter.kt").contains("provenRunnerCell8094 -> Style.BREAKOUT_RUNNER"))
+        assertTrue(src("engine/BotService.kt").contains("if (TradeExitContract8077.longHold(ts) == true) null"))
+        // The moonbag set-aside replaces a full exit: never skipped as an uneconomic slice.
+        assertFalse(com.lifecyclebot.engine.sell.PartialNetEconomics8094.discretionary8094("TAIL_SET_ASIDE_8034_TICK_PROFIT_LOCK", 0.75))
+        assertTrue(com.lifecyclebot.engine.sell.PartialNetEconomics8094.discretionary8094("PARTIAL_TAKE_PROFIT", 0.25))
+    }
 }
