@@ -121,6 +121,8 @@ object ForwardReturnLabeler7731 {
      * [NET_CEILING_PCT_7738] (the runner count still reads the gross move).
      */
     private const val BASIS_MAX_RATIO_7738 = 20.0
+    /** V5.0.8094 — a 20x+ label move is corroborated by the cap only below this entry cap (launch scale). */
+    const val CORROBORATED_RUN_MAX_ENTRY_MCAP_8094 = 1_000_000.0
     // V5.0.7769 — 300 clipped every real 4x-20x launch to +300% before the cell
     // mean saw it; the corroboration check below is what keeps basis errors out.
     // V5.0.8072 — NO win cap. Owner, 2026-10-12: "remove caps on blockchain provable data ... no win caps. the whole data set is blockchain verifiable".
@@ -149,6 +151,11 @@ object ForwardReturnLabeler7731 {
     fun runCorroborated7769(entryPrice: Double, markPrice: Double, entryMcap: Double, nowMcap: Double, solUsd: Double): Boolean {
         if (!entryPrice.isFinite() || !markPrice.isFinite() || !entryMcap.isFinite() || !nowMcap.isFinite()) return false
         if (entryPrice <= 0.0 || markPrice <= 0.0 || entryMcap <= 0.0 || nowMcap <= 0.0) return false
+        // V5.0.8094 — the cap is usually DERIVED from the same price (price x supply, curve fallback), so above launch
+        // scale "the cap moved by the same multiple" corroborated its own basis error: 8093 booked RETARDIO (seen by
+        // CASHGEN, a $1M+ hunter) at +720,038% — a $7B peak in hours — into the Cortex buckets, the runner report and
+        // the tail hunter. A 20x+ move is corroborated only from launch scale, where such runs are real.
+        if (entryMcap >= CORROBORATED_RUN_MAX_ENTRY_MCAP_8094) return false
         val r = markPrice / entryPrice
         val agree = (nowMcap / entryMcap) / r in 0.5..2.0
         val solBasis = solUsd.isFinite() && solUsd > 0.0 &&

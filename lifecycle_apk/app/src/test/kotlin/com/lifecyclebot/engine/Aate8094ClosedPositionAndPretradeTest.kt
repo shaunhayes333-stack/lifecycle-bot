@@ -225,4 +225,13 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("engine/DataOrchestrator.kt").contains("if (PendingLiveBuy8094.isPending8094(mint)) return true"))
         assertTrue(src("engine/BotService.kt").contains("val mustInclude = pendingLiveBuyMints8094(otherMints).toMutableList()"))
     }
+
+    @Test fun aSelfCorroboratingCapCannotBookA7000xOnAMillionDollarCoin() {
+        val lab = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        // A $6.4k launch to $1.2M (187x) with the cap moving alike is a real run: booked.
+        assertTrue(lab.runCorroborated7769(1.0e-6, 1.87e-4, 6_400.0, 1_200_000.0, 150.0))
+        // RETARDIO-shape: a $2M coin "moving" 7,200x with a cap derived from the same price: a basis error.
+        assertFalse(lab.runCorroborated7769(1.0e-6, 7.2e-3, 2_000_000.0, 14_400_000_000.0, 150.0))
+        assertEquals(1_000_000.0, lab.CORROBORATED_RUN_MAX_ENTRY_MCAP_8094, 1e-9)
+    }
 }
