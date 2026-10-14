@@ -125,6 +125,12 @@ object EntryStrategySnapshot6450 {
         } catch (_: Throwable) {}
         // V5.0.7962 — the market price at this live fill (CostLedger7962 measures the round trip from it).
         try { CostLedger7962.onEntry7962(snap.positionId, snap.mint, snap.entryTimestampMs, com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) } catch (_: Throwable) {}
+        // 8092: entry reservations consume economic capacity only when a canonical LIVE position opens.
+        if (snap.mode8090.equals("LIVE", true) ||
+            (snap.mode8090.equals("unknown", true) && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())) {
+            try { LiveEdgeGate7877.onConfirmedColdEntry8092(snap.mint, snap.entryTimestampMs) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.RunnerTicket8073.onConfirmedBuy8092(snap.mint, snap.entryTimestampMs) } catch (_: Throwable) {}
+        }
         return true
     }
 
