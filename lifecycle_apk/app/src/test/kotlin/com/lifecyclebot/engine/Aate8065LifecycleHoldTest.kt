@@ -15,7 +15,7 @@ class Aate8065LifecycleHoldTest {
 
     @Test fun ordinaryExitsAreHeldIntegrityPasses() {
         assertFalse(LifecycleHold8065.passes8065("RAPID_FLUID_STOP"))
-        assertFalse(LifecycleHold8065.passes8065("RAPID_CATASTROPHE_STOP"))
+        assertTrue(LifecycleHold8065.passes8065("RAPID_CATASTROPHE_STOP"))
         assertFalse(LifecycleHold8065.passes8065("FALLBACK_SHITCOIN_TIME_EXIT"))
         assertFalse(LifecycleHold8065.passes8065("SPIKE_CAPTURE_7943_T1_45PCT"))
         assertTrue(LifecycleHold8065.passes8065("RUG_DETECTED"))

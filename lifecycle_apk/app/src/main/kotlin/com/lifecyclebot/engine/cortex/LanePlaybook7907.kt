@@ -729,11 +729,12 @@ object LanePlaybook7907 {
         val key = try { inputKey8084(ts) } catch (_: Throwable) { 0L }
         val cached = classifyCache[ck]
         if (cached != null) {
-            if (cached.pinnedAt == nowMs && cached.revision == revision) return cached.c
+            if (cached.pinnedAt == nowMs && cached.inputKey == key && cached.revision == revision) return cached.c
             val fresh = cached.inputKey == key && nowMs - cached.featuresAt in 0L..EXTERNAL_TTL_MS_8084
             if (fresh) {
                 val c = if (cached.revision == revision) cached.c else rerank8084(cached.c, nowMs)
                 classifyCache[ck] = Cached8084(key, revision, cached.featuresAt, nowMs, c)
+                if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
                 return c
             }
         }

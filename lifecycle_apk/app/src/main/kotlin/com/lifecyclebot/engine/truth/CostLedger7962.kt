@@ -119,59 +119,89 @@ object CostLedger7962 {
     }
 
     private fun ensureSubscribed() {
-        if (!subscribed.compareAndSet(false, true)) return
-        try {
-            CanonicalTradeFinalizedBus6450.subscribe { e -> if (e.mode.equals("live", ignoreCase = true)) onLiveFinalized(e) }
-        } catch (_: Throwable) { subscribed.set(false) }
+        CanonicalFinalizedTradeBus6464.registerConsumer("CostLedger7962")
     }
 
     /** EntryStrategySnapshot6450.setEntry: the market price at this live fill (before our own print). */
-    fun onEntry7962(positionId: String, mint: String, fillAtMs: Long, paperMode: Boolean) {
+    @Synchronized fun onEntry7962(positionId: String, mint: String, fillAtMs: Long, paperMode: Boolean) {
         ensureSubscribed()
         ensureLoaded()
         if (paperMode || positionId.isBlank() || mint.isBlank() || fillAtMs <= 0L) return
         val mark = try { com.lifecyclebot.engine.chart.StructureTracker7962.markAt7962(mint, fillAtMs - ENTRY_MARK_LAG_MS) } catch (_: Throwable) { null }
         if (mark == null) { noEntryMark.incrementAndGet(); return }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        if (entryMarks.size > 500) entryMarks.entries.sortedBy { it.value.atMs }.take(100).forEach { entryMarks.remove(it.key) }
-        entryMarks[positionId] = EntryMark(mint, mark, solUsd, fillAtMs)
+        entryMarks.putIfAbsent(positionId, EntryMark(mint, mark, solUsd, fillAtMs))
         persistMaybe(force = true)
     }
 
-    private fun onLiveFinalized(e: CanonicalTradeFinalizedBus6450.Event) {
+    /** Called by the durable finality bridge. False leaves the same economic event retryable. */
+    @Synchronized fun onLiveFinalized(e: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         ensureLoaded()
-        val em = entryMarks.remove(e.positionId) ?: run { noEntryMark.incrementAndGet(); return }
-        val rows = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { emptyList() }
-        val buys = rows.filterIsInstance<EconomicEventSchema6464.Buy>().filter { it.positionId == e.positionId && it.mode == "live" }
-        val sells = rows.filterIsInstance<EconomicEventSchema6464.Sell>().filter { it.positionId == e.positionId && it.mode == "live" }
-        if (buys.isEmpty() || sells.isEmpty()) { noLegs.incrementAndGet(); return }
-        val spent = buys.sumOf { it.executedCostSol + it.entryFeesSol }
-        val boughtRaw = buys.sumOf { it.filledQty.toDouble() }
-        val legs = ArrayList<Leg7962>()
+        if (!loaded || !e.terminal) return false
+        if (!e.mode.equals("live", true)) {
+            CanonicalFinalizedTradeBus6464.exclude("CostLedger7962", e.tradeId, "PAPER_NOT_LIVE_COST_EVIDENCE")
+            return true
+        }
+        if (!e.learningEligible || !ExactStrategyPerformance7429.terminalEconomicsEligible8081(e.mode, e.proofState)) return false
+        val em = entryMarks[e.positionId] ?: run {
+            noEntryMark.incrementAndGet()
+            CanonicalFinalizedTradeBus6464.exclude("CostLedger7962", e.tradeId, "ENTRY_MARK_UNOBSERVED")
+            return true
+        }
+        val rows = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { return false }
+        val buys = rows.filterIsInstance<EconomicEventSchema6464.Buy>().filter {
+            it.positionId == e.positionId && it.mode.equals("live", true) && it.mint == em.mint
+        }.distinctBy { it.idempotencyKey }
+        val sells = rows.filterIsInstance<EconomicEventSchema6464.Sell>().filter {
+            it.positionId == e.positionId && it.mode.equals("live", true) && it.mint == em.mint
+        }.distinctBy { it.idempotencyKey }
+        if (buys.isEmpty() || sells.isEmpty()) { noLegs.incrementAndGet(); return false }
+        // A single entry mark cannot price additional purchases at different times.
+        if (buys.size != 1) return commitMeasurement8090(e, em, null, 0.0, "MULTIPLE_BUYS_REQUIRE_PER_FILL_MARKS")
+        val buy = buys.single()
+        val soldRaw = sells.fold(java.math.BigInteger.ZERO) { n, leg -> n + leg.soldQty }
+        if (soldRaw != buy.filledQty || sells.none { !it.partial && it.remainingQty.signum() == 0 }) {
+            noLegs.incrementAndGet(); return false
+        }
+        val legs = ArrayList<TradeCostMeasurement8090.Sale>()
         for (s in sells) {
-            val m = try { com.lifecyclebot.engine.chart.StructureTracker7962.markAt7962(e.mint.ifBlank { em.mint }, s.atMs - ENTRY_MARK_LAG_MS) } catch (_: Throwable) { null }
-            if (m == null) { noExitMark.incrementAndGet(); return }
-            legs += Leg7962(s.soldQty.toDouble(), s.netProceedsSol, m)
+            val mark = try { com.lifecyclebot.engine.chart.StructureTracker7962.markAt7962(em.mint, s.atMs - ENTRY_MARK_LAG_MS) } catch (_: Throwable) { null }
+            if (mark == null) { noExitMark.incrementAndGet(); return false }
+            if (!s.solUsdAtExit.isFinite() || s.solUsdAtExit <= 0.0) {
+                return commitMeasurement8090(e, em, null, 0.0, "EXIT_SOL_USD_UNOBSERVED")
+            }
+            legs += TradeCostMeasurement8090.Sale(s.soldQty, s.netProceedsSol, mark, s.solUsdAtExit)
         }
-        val solNow = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        val ratio = if (em.solUsd > 0.0 && solNow > 0.0) em.solUsd / solNow else 1.0
-        val cost = roundTripCostPct7962(spent, boughtRaw, em.markUsd, legs, ratio)
-        if (cost == null) { insane.incrementAndGet(); return }
-        val dec = buys.first().tokenDecimals
-        val buyPct = if (dec >= 0 && em.solUsd > 0.0) {
-            val ui = boughtRaw / Math.pow(10.0, dec.toDouble())
-            if (ui > 0.0) ((spent / ui) / (em.markUsd / em.solUsd) - 1.0) * 100.0 else Double.NaN
-        } else Double.NaN
-        val l = lane(e.entryLane)
-        synchronized(this) {
-            byLane.getOrPut(l) { ArrayDeque() }.apply { addLast(doubleArrayOf(cost, spent, buyPct)); while (size > RING) removeFirst() }
+        val spent = buy.executedCostSol + buy.entryFeesSol
+        val measurement = TradeCostMeasurement8090.measure(spent, buy.filledQty, buy.tokenDecimals, em.markUsd, em.solUsd, legs)
+        return commitMeasurement8090(e, em, measurement, spent, if (measurement == null) "INVALID_OR_NEGATIVE_FRICTION" else "MEASURED")
+    }
+
+    private fun commitMeasurement8090(e: CanonicalFinalizedTradeBus6464.Envelope, em: EntryMark,
+        measurement: TradeCostMeasurement8090.Measurement?, spent: Double, reason: String): Boolean {
+        val l = lane(e.lane)
+        val next = ArrayDeque(byLane[l].orEmpty())
+        if (measurement != null) {
+            next.addLast(doubleArrayOf(measurement.costPct, spent, measurement.buyPct))
+            while (next.size > RING) next.removeFirst()
         }
-        measured.incrementAndGet()
-        try {
-            PipelineHealthCollector.labelInc("COST_LEDGER_MEASURED_7962")
-            ForensicLogger.lifecycle("COST_LEDGER_7962", "pid=${e.positionId.take(16)} lane=$l ticket=${"%.4f".format(spent)} allIn=${"%.2f".format(cost)}% buySide=${"%.2f".format(buyPct)}% legs=${legs.size}")
-        } catch (_: Throwable) {}
-        persistMaybe(force = false)
+        val state = encodeState8090(e.positionId, if (measurement != null) l to next else null)
+        val key = "cost_measurement_8090_${e.positionId}"
+        val evidence = org.json.JSONObject().put("positionId", e.positionId).put("eventId", e.economicEventId)
+            .put("proof", e.proofState).put("reason", reason).put("entryMarkUsd", em.markUsd)
+            .put("entrySolUsd", em.solUsd).put("entryAtMs", em.atMs)
+            .put("costPct", measurement?.costPct ?: org.json.JSONObject.NULL)
+            .put("buyPct", measurement?.buyPct ?: org.json.JSONObject.NULL).toString()
+        when (LearningPersistence.commitOnce8090("${key}_receipt", mapOf(PERSIST_KEY to state, key to evidence))) {
+            LearningPersistence.Commit8090.RETRY -> return false
+            LearningPersistence.Commit8090.ALREADY_COMMITTED -> return true
+            LearningPersistence.Commit8090.COMMITTED -> {
+                if (measurement != null) { byLane[l] = next; measured.incrementAndGet() } else insane.incrementAndGet()
+                entryMarks.remove(e.positionId, em)
+                if (measurement == null) CanonicalFinalizedTradeBus6464.exclude("CostLedger7962", e.tradeId, reason)
+                return true
+            }
+        }
     }
 
     // ── reads ──
@@ -229,6 +259,8 @@ object CostLedger7962 {
 
     // ── persistence ──
 
+    private var excludedLegacy8090 = org.json.JSONObject()
+
     private fun ensureLoaded() {
         if (loaded) return
         if (!LearningPersistence.ready()) return
@@ -237,12 +269,21 @@ object CostLedger7962 {
             loaded = true
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
+                excludedLegacy8090 = o.optJSONObject("excludedLegacy8090") ?: org.json.JSONObject()
                 o.optJSONObject("lanes")?.let { j ->
                     for (k in j.keys()) {
                         val a = j.optJSONArray(k) ?: continue
+                        // Preserve invalid historical samples verbatim outside the cost learner.
+                        val excluded = org.json.JSONArray()
+                        for (i in 0 until a.length()) {
+                            val row = a.optJSONArray(i)
+                            if (row == null || !row.optDouble(0).isFinite() || row.optDouble(0) !in 0.0..MAX_SANE_COST_PCT ||
+                                !row.optDouble(2).isFinite() || row.optDouble(2) !in 0.0..MAX_SANE_COST_PCT) excluded.put(a.opt(i))
+                        }
+                        if (excluded.length() > 0) excludedLegacy8090.put(k, excluded)
                         byLane[k] = ArrayDeque((0 until a.length()).mapNotNull { i ->
                             a.optJSONArray(i)?.let { r -> doubleArrayOf(r.optDouble(0), r.optDouble(1), r.optDouble(2)) }
-                        }.filter { it[0].isFinite() }.takeLast(RING))
+                        }.filter { it[0].isFinite() && it[0] in 0.0..MAX_SANE_COST_PCT && it[2].isFinite() && it[2] in 0.0..MAX_SANE_COST_PCT }.takeLast(RING))
                     }
                 }
                 o.optJSONObject("marks")?.let { j ->
@@ -251,7 +292,8 @@ object CostLedger7962 {
                         if (!entryMarks.containsKey(k)) entryMarks[k] = EntryMark(r.optString(0), r.optDouble(1), r.optDouble(2), r.optLong(3))
                     }
                 }
-            } catch (_: Throwable) {}
+            } catch (t: Throwable) { LearningPersistence.decodeFailed8086(PERSIST_KEY, t); loaded = false }
+            if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
         }
     }
 
@@ -260,17 +302,22 @@ object CostLedger7962 {
         if (!force && sincePersist.incrementAndGet() < 3) return
         sincePersist.set(0)
         try {
-            val json = synchronized(this) {
-                val lanes = org.json.JSONObject().also { j ->
-                    byLane.forEach { (k, v) -> j.put(k, org.json.JSONArray(v.map { r -> org.json.JSONArray(r.map { x -> if (x.isFinite()) kotlin.math.round(x * 1000.0) / 1000.0 else 0.0 }) })) }
-                }
-                val marks = org.json.JSONObject().also { j ->
-                    entryMarks.entries.take(300).forEach { (k, m) -> j.put(k, org.json.JSONArray(listOf(m.mint, m.markUsd, m.solUsd, m.atMs))) }
-                }
-                org.json.JSONObject().put("lanes", lanes).put("marks", marks).toString()
-            }
+            val json = synchronized(this) { encodeState8090() }
             LearningPersistence.save(PERSIST_KEY, json)
         } catch (_: Throwable) {}
+    }
+
+    private fun encodeState8090(removePosition: String = "", replacement: Pair<String, ArrayDeque<DoubleArray>>? = null): String {
+        val lanes = org.json.JSONObject()
+        val all = byLane.toMutableMap()
+        replacement?.let { all[it.first] = it.second }
+        all.forEach { (k, v) -> lanes.put(k, org.json.JSONArray(v.map { r -> org.json.JSONArray(r.map { x ->
+            if (x.isFinite()) x else org.json.JSONObject.NULL
+        }) })) }
+        val marks = org.json.JSONObject()
+        entryMarks.forEach { (k, m) -> if (k != removePosition) marks.put(k, org.json.JSONArray(listOf(m.mint, m.markUsd, m.solUsd, m.atMs))) }
+        return org.json.JSONObject().put("lanes", lanes).put("marks", marks)
+            .put("excludedLegacy8090", excludedLegacy8090).toString()
     }
 
     fun statusLine7962(): String {

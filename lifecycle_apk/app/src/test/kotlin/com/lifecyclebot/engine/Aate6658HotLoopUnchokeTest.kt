@@ -99,7 +99,7 @@ class Aate6658HotLoopUnchokeTest {
         )
         assertTrue(
             "canonicalPrimaryLane6658 must be pulled from LaneExecutionCoordinator.currentElection6600",
-            src.contains("LaneExecutionCoordinator") && src.contains("currentElection6600(ts.mint)?.primaryLane"),
+            src.contains("LaneExecutionCoordinator") && src.contains("currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane"),
         )
         assertTrue(
             "FDG_ALLOW/FDG_BLOCK stamp must use canonicalPrimaryLane6658",

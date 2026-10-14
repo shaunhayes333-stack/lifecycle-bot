@@ -8,11 +8,11 @@ import java.io.File
 class Aate7432ExactStrategyLegacyIsolationTest {
     @Test fun legacyUnstampedRowsDoNotSeedExactStrategyEv() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExactStrategyPerformance7429.kt").readText()
-        assertTrue(src.contains("EXACT_STRATEGY_LEGACY_UNSTAMPED_SKIPPED_7432"))
-        assertTrue(src.contains("env.entryTradeType.isNotBlank()"))
-        assertTrue(src.contains("env.entrySetup.isNotBlank()"))
-        assertTrue(src.contains("env.entryStyle.isNotBlank()"))
-        assertTrue(src.contains("return true"))
+        val record = src.substringAfter("fun record(").substringBefore("ensureRestored7431()")
+        assertTrue(record.contains("listOf(e.entryTradeType, e.entrySetup, e.entryStyle, e.entryTactic).any { it.isBlank() }"))
+        assertTrue(record.contains("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429"))
+        assertTrue(record.contains("return false"))
+        assertFalse(record.contains("commitOnce8090"))
     }
 
     @Test fun restoredUnstampedPlaybooksAreFiltered() {

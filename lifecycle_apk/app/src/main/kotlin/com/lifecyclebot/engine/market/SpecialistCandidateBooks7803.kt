@@ -82,6 +82,12 @@ internal object SpecialistCandidateBooks7803 {
         val now = System.currentTimeMillis()
         val book = books.getValue(lane)
         val next = book.compute(mint) { _, old ->
+            // Discovery repeats carry no evaluation evidence. They must not erase a
+            // fresh READY offer or refresh its executable-evidence timestamp.
+            if (old != null && now - old.updatedAtMs <= ttlFor(old.state)) {
+                if (candidateVersion == 0L && old.state in setOf(State.QUALIFIED, State.READY)) return@compute old
+                if (candidateVersion > 0L && candidateVersion < old.candidateVersion) return@compute old
+            }
             val first = old?.firstSeenMs ?: now
             val cv = candidateVersion.takeIf { it > 0L } ?: old?.candidateVersion ?: 0L
             Entry(

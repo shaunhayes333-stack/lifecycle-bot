@@ -79,7 +79,8 @@ object LifecycleHold8065 {
     /** Pure: is [reason] an exit a lifecycle hold never holds through (integrity, operator, its own)? */
     fun passes8065(reason: String): Boolean {
         val r = reason.uppercase()
-        return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r)
+        return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r) ||
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(r)
     }
 
     /** V5.0.8071 — the lifecycle ladder, for the forward labels that grade lifecycle lanes on it. */
@@ -202,17 +203,25 @@ object LifecycleHold8065 {
     /** V5.0.8066 — the open-positions label: "" when not held, else HOLD / FREE RIDE. */
     fun label8066(ts: TokenState): String {
         if (!holding8065(ts)) return ""
-        return if ((states[key(ts)]?.taken ?: 0) >= 1) "🧬 FREE RIDE" else "🧬 HOLD"
+        return if (TailBag8034.capitalRecovered8090(ts.position.positionId, ts.mint)) "🧬 FREE RIDE" else "🧬 HOLD"
     }
 
     /** LiveRiskPolicy7807: a lifecycle position past its 2x take is a free ride — it takes no lane slot. */
-    fun freeRide8065(mint: String): Boolean { load(); return states.entries.any { it.key.startsWith("$mint|") && it.value.taken >= 1 } }
+    fun freeRide8065(mint: String): Boolean =
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+            it.mint == mint && TailBag8034.capitalRecovered8090(it.positionId, mint)
+        }
 
     // ── the sell doors ──
+
+    private fun freshHoldEvidence8090(ts: TokenState): Boolean =
+        ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L &&
+            System.currentTimeMillis() - ts.lastPriceUpdate in 0L..5_000L
 
     /** Executor.requestSellCore7948: non-null when this exit is held for the position's lifecycle. */
     fun defer8065(ts: TokenState, reason: String): String? {
         if (!holding8065(ts) || passes8065(reason)) return null
+        if (!freshHoldEvidence8090(ts)) return null
         val g = gross(ts, null)
         if (g.isFinite() && g <= -FLOOR_PCT) return null
         // V5.0.8080 — a hold whose own give-back is due never swallows the profit lock / trail that
@@ -229,7 +238,7 @@ object LifecycleHold8065 {
 
     /** Executor.requestPartialSell: an ordinary slice (spike tier, ladder, lock) is not sold from a lifecycle hold. */
     fun partialHeld8065(ts: TokenState, reason: String): Boolean {
-        if (!holding8065(ts) || passes8065(reason)) return false
+        if (!holding8065(ts) || passes8065(reason) || !freshHoldEvidence8090(ts)) return false
         partialsHeld.incrementAndGet()
         return true
     }

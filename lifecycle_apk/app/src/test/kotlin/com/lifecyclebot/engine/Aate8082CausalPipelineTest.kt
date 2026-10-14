@@ -41,11 +41,16 @@ class Aate8082CausalPipelineTest {
         assertTrue(s.contains("economicEventId = idKey,"))
     }
 
-    @Test fun exactStrategyCountsEachPositionOnce() {
-        ExactStrategyPerformance7429.clearSeenForTest8082()
-        assertTrue(ExactStrategyPerformance7429.claimOnce8082("pos-1"))
-        assertFalse(ExactStrategyPerformance7429.claimOnce8082("pos-1"))
-        assertTrue(ExactStrategyPerformance7429.claimOnce8082("pos-2"))
+    @Test fun incompleteExactIdentityDoesNotConsumeTerminalCredit() {
+        val e = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
+            "trade-incomplete", 1000L, 0.01, 10.0, "mint", "SHITCOIN",
+            positionId = "missing-stamp", mode = "live", proofState = "LIVE_FINALIZED")
+        assertFalse(ExactStrategyPerformance7429.record(e))
+        assertFalse(ExactStrategyPerformance7429.record(e))
+        val source = src("engine/truth/ExactStrategyPerformance7429.kt").substringAfter("fun record(")
+        assertTrue(source.indexOf("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429") < source.indexOf("commitOnce8090(receipt, writes)"))
+        assertFalse(source.contains("claimOnce8082"))
+        assertTrue(source.contains("Commit8090.ALREADY_COMMITTED -> return true"))
     }
 
     @Test fun excursionIsObservedOrUnknownNeverFabricated() {
@@ -69,14 +74,17 @@ class Aate8082CausalPipelineTest {
         assertTrue(c.contains("ENTRY_BIND_OWNER_LANE_UNASSESSED_8082"))
     }
 
-    @Test fun exitCortexIsGradedByTheVerifiedCanonicalClose() {
+    @Test fun closeRecordsActualEconomicsAndPreservesFutureHoldSamples() {
         val x = src("engine/cortex/CortexExit7897.kt")
         val f = x.substringAfter("fun onCanonicalClose8082(").substringBefore("private fun grade8082(")
         assertTrue(f.contains("terminalEconomicsEligible8081(env.mode, env.proofState)"))
-        assertTrue(f.contains("RELEASED_UNVERIFIED_CLOSE_8082"))
-        assertTrue(f.contains("(1.0 + env.realizedReturnPct / 100.0) / (1.0 + atSample / 100.0)"))
+        assertTrue(f.contains("ACTUAL_WHOLE_POSITION_REALIZED"))
+        assertTrue(f.contains("commitOnce8090"))
+        assertFalse(f.contains("pending.remove"))
+        assertFalse(f.contains("grade8082(r,"))
+        assertFalse(f.contains("atSample / 100.0"))
         assertTrue(x.substringAfter("fun tick(").substringBefore("fun onCanonicalClose8082(").contains("grade8082(r, fwd)"))
-        assertTrue(src("engine/truth/CanonicalFinalizedTradeBus6464.kt").contains("CortexExit7897.onCanonicalClose8082(env)"))
+        assertTrue(src("engine/truth/FinalizedBusConsumerBridge6465.kt").contains("CortexExit7897.onCanonicalClose8082(env)"))
     }
 
     @Test fun cortexRealisedBooksLearnOnlyFromVerifiedFinality() {

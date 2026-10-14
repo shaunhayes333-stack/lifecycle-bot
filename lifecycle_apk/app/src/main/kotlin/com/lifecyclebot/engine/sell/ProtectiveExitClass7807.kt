@@ -137,29 +137,9 @@ object ProtectiveExitClass7807 {
     /** Ranks 1-2: accept poor price impact up to the cap (B4) and skip impact deferral. */
     fun acceptsPoorImpact(reason: String?): Boolean = of(reason).rank <= Priority.STRUCTURAL_EMERGENCY.rank
 
-    /**
-     * B3 Moonshot rule — runners keep their normal drawdown / trailing
-     * behaviour. Only the structural emergency class and the existing hard
-     * catastrophe stop override a Moonshot hold (Field Manual L267-L268).
-     */
-    private fun overridesMoonshotHold(reason: String?): Boolean {
-        val p = of(reason)
-        if (p == Priority.STRUCTURAL_EMERGENCY) return true
-        return p == Priority.CAPITAL_PRESERVATION && reason.orEmpty().uppercase().contains("CATASTROPH")
-    }
-
-    private fun isMoonshotLane(lane: String?): Boolean = lane.orEmpty().uppercase().contains("MOONSHOT")
-
-    /**
-     * B2 — does this exit bypass the hold gates (style min-hold, lane hold
-     * preference, council disagreement, learning advisory, moonbag hold,
-     * profit-dust suppression)? Class 1-3 always do, except that on a
-     * Moonshot lane only [overridesMoonshotHold] reasons do.
-     */
-    fun bypassesHolds(reason: String?, lane: String?): Boolean {
-        if (!isEmergency(reason)) return false
-        return if (isMoonshotLane(lane)) overridesMoonshotHold(reason) else true
-    }
+    /** A fired protective stop outranks every lane's optional hold preference.
+     * Strategy-specific stop distances are selected before this boundary. */
+    fun bypassesHolds(reason: String?, lane: String?): Boolean = isEmergency(reason)
 
     /**
      * B2 — generic arbiter comparison: an exit at [exit] priority overrides a

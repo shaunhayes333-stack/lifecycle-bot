@@ -1,6 +1,10 @@
 # Production version is the committed root AATE_VERSION, never a staged repair title.
 name: Build AATE APK
 
+permissions:
+  contents: read
+  actions: read
+
 on:
   push:
     branches: [ main, master ]
@@ -222,12 +226,6 @@ jobs:
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
 
-      # Legacy source-layout regression tests currently assert pre-refactor file
-      # placement (for example learned exit authority in Executor.kt even though
-      # it now lives in WrRecoveryPartial.kt / ExecutorPaperUtils.kt). Keep the
-      # suite visible and upload its reports, but do not let those stale tests
-      # prevent production APK assembly. Static authority/patch-rot gates above
-      # remain hard failures.
       - name: Required lane and history regression tests
         run: |
           ./gradlew testReleaseUnitTest \
@@ -376,7 +374,23 @@ jobs:
             --tests '*Aate8077*' \
             --tests '*Aate8077*' \
             --tests '*GoldenTapeRegressionTest.V5_0_7723_the_autonomous_stack_closes_its_loops_and_paper_proof_does_not_sell_live' \
+            --tests '*Aate808*' \
+            --tests '*Aate8090*' \
             --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+
+      # Keep required release checks strict while measuring every historical
+      # test against the actual unmodified 8089 main report (453 existing failures).
+      - name: Complete historical suite and reject new failures
+        run: |
+          set +e
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          TEST_EXIT=$?
+          set -e
+          python3 ../ci/unit_regression_delta.py ../ci/baselines/8089-unit-results.json app/build/test-results/testReleaseUnitTest
+          if [ "$TEST_EXIT" -ne 0 ] && ! find app/build/test-results/testReleaseUnitTest -name 'TEST-*.xml' -print -quit | read -r _; then
+            echo "::error::Gradle failed without a complete test report"
+            exit "$TEST_EXIT"
+          fi
 
       # V5.0.7957 — name every failing test in the run's annotations (job logs and
       # artifacts are not readable from the build agent).
@@ -401,6 +415,39 @@ jobs:
           print(f"annotated {n} failing tests")
           PY
 
+      - name: Download previous published APK for an Android upgrade test
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p previous_apk release_art_evidence
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs?branch=main&status=success&per_page=1" > /tmp/previous-runs.json
+          PREVIOUS_RUN=$(python3 -c 'import json; print(json.load(open("/tmp/previous-runs.json"))["workflow_runs"][0]["id"])')
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREVIOUS_RUN/artifacts" > release_art_evidence/previous_artifacts.json
+          PREVIOUS_ARTIFACT=$(python3 -c 'import json; print(next(a["id"] for a in json.load(open("release_art_evidence/previous_artifacts.json"))["artifacts"] if a["name"].startswith("AATE_v") and not a["expired"]))')
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREVIOUS_ARTIFACT/zip" > /tmp/previous-apk.zip
+          unzip -q /tmp/previous-apk.zip -d previous_apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 ci/release-art-startup.py lifecycle_apk/app/build/outputs/apk/release/AATE_v$(cat AATE_VERSION).apk --previous previous_apk/*.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-art-evidence-${{ github.sha }}
+          path: release_art_evidence/
+          if-no-files-found: warn
+
       # V5.0.7803 — a release APK is an acceptance artifact, not merely
       # compiler output. Publish it only after the required pipeline regressions
       # (including resident meme + Crypto architecture) are green.
@@ -409,11 +456,6 @@ jobs:
           name: AATE_v${{ steps.aate_build.outputs.version_name }}
           path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
           compression-level: 0
-
-      - name: Unit regression suite (diagnostic)
-        continue-on-error: true
-        run: |
-          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 
       - uses: actions/upload-artifact@v4
         if: always()

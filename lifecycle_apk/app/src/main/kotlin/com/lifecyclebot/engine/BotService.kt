@@ -6221,7 +6221,7 @@ class BotService : Service() {
                             mint = mint,
                             symbol = symbol,
                             scanner = source.name,
-                            marketCapUsd = liquidityUsd * 10,
+                            marketCapUsd = mcapUsd, // observed scanner value; never infer cap from liquidity
                             liquidityUsd = liquidityUsd,
                             volumeH1 = volumeH1,
                         )
@@ -8431,7 +8431,7 @@ class BotService : Service() {
                                 mint = identity.mint,
                                 symbol = identity.symbol,
                                 scanner = source.name,
-                                marketCapUsd = liquidityUsd * 10,  // Rough mcap estimate
+                                marketCapUsd = mcapUsd, // observed scanner value; never infer cap from liquidity  // Rough mcap estimate
                                 liquidityUsd = liquidityUsd,
                                 volumeH1 = volumeH1,
                             )
@@ -15140,7 +15140,7 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
-        val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.primaryLane
+        val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane
         if (!claimedOwner6600.isNullOrBlank() && !claimedOwner6600.equals(l, true)) {
             try { ToolkitSignalSheet.recordDeskStage(l, "CONTRIBUTOR_ONLY", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
             return false

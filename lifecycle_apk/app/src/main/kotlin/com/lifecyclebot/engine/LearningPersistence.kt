@@ -368,6 +368,33 @@ object LearningPersistence {
     /** V5.9.1321 — public KV load (delegates to internal blob get). */
     fun load(key: String): String? = getBlob(key)
 
+    enum class Commit8090 { COMMITTED, ALREADY_COMMITTED, RETRY }
+
+    /** A terminal reward and its receipt commit together. Never acknowledge an async or failed write. */
+    fun commitOnce8090(receipt: String, blobs: Map<String, String>): Commit8090 {
+        val d = db ?: return Commit8090.RETRY
+        if (Looper.getMainLooper()?.thread == Thread.currentThread() || d.inTransaction()) return Commit8090.RETRY
+        var result = Commit8090.RETRY
+        try {
+            d.beginTransaction()
+            try {
+                val exists = d.rawQuery("SELECT 1 FROM kv WHERE tracker = 'BLOB' AND bucket = ?", arrayOf(receipt)).use { it.moveToFirst() }
+                if (exists) result = Commit8090.ALREADY_COMMITTED
+                else if (!writeRefused8086(receipt) && blobs.keys.none { writeRefused8086(it) }) {
+                    val now = System.currentTimeMillis()
+                    for ((key, value) in blobs) writeRow8086(d, key, value, now)
+                    writeRow8086(d, receipt, "{\"committed\":true}", now)
+                    result = Commit8090.COMMITTED
+                }
+                if (result != Commit8090.RETRY) d.setTransactionSuccessful()
+            } finally { d.endTransaction() }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "terminal reward commit failed: ${e.javaClass.simpleName}")
+            return Commit8090.RETRY
+        }
+        return result
+    }
+
     /** Paired learning books and revision receipts must survive or roll back together. */
     fun saveTogether8076(blobs: Map<String, String>) {
         val d = db ?: return

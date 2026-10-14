@@ -133,6 +133,8 @@ object FinalizedBusConsumerBridge6465 {
             "EVEstimator"         -> deliverToEvEstimator(env)
             "AatePolicyReward"    -> deliverToAatePolicyReward(env)
             "StrategyHypothesisEngine" -> deliverToStrategyHypothesis(env)
+            "CostLedger7962" -> CostLedger7962.onLiveFinalized(env)
+            "CortexExit7897" -> com.lifecyclebot.engine.cortex.CortexExit7897.onCanonicalClose8082(env)
             "ExactStrategyPerformance7429" -> deliverToExactStrategyPerformance7429(env)
             "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
             "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)

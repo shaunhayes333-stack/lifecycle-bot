@@ -277,10 +277,12 @@ object LaneExecutionCoordinator {
     internal fun preferredReadyOwner7820(
         mint: String,
         candidateVersion: Long = candidateVersionFor(mint),
+        eligible: (String) -> Boolean = { true },
     ): String? {
         val ready = readyProposalScores7803(mint, candidateVersion)
         if (ready.isEmpty()) return null
         val contenders = ready.keys
+            .filter(eligible)
             .filter { laneCanOwnExecution6910(it) }
             .filter { ownExecutorRefusal7807(mint, it) == null }
             .filterNot { nativeRefused7774(mint, it) }
@@ -309,10 +311,10 @@ object LaneExecutionCoordinator {
         // Even an operator override only applies to a NEW, unsealed decision.
         currentElection6600(ts.mint)?.takeIf { it.sealed }?.let { return it.primaryLane }
         if (operatorForced) return proposed
-        val ready = preferredReadyOwner7820(ts.mint) ?: return proposed
-        if (ready !in eligibleLanes ||
-            !LaneEntryContract6342.isLaneIdentityEligible7252(ts, ready)) return proposed
-        if (ready == "CYCLIC" && !CyclicTradeEngine.isEnabled()) return proposed
+        val ready = preferredReadyOwner7820(ts.mint) { lane ->
+            lane in eligibleLanes && LaneEntryContract6342.isLaneIdentityEligible7252(ts, lane) &&
+                (lane != "CYCLIC" || CyclicTradeEngine.isEnabled())
+        } ?: return proposed
         if (ready != proposed) try {
             PipelineHealthCollector.labelInc("CYCLE_READY_OWNER_HANDOFF_8081_$ready")
             ForensicLogger.lifecycle("CYCLE_READY_OWNER_HANDOFF_8081",
@@ -365,7 +367,7 @@ object LaneExecutionCoordinator {
         return System.currentTimeMillis() / TTL_MS
     }
 
-    fun elect(
+    @Synchronized fun elect(
         mint: String,
         lanes: List<String>,
         preferred: String? = null,
@@ -525,7 +527,7 @@ object LaneExecutionCoordinator {
         return try { LaneEntryContract6342.sniperLaunchIdentityRefusal7807(ts) } catch (_: Throwable) { null }
     }
 
-    fun canRequestExecution(
+    @Synchronized fun canRequestExecution(
         mint: String,
         lane: String,
         candidateVersion: Long = candidateVersionFor(mint),

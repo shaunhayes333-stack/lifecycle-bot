@@ -77,10 +77,10 @@ object ExactStrategyPerformance7429 {
     private const val PLAYBOOK_INDEX_KEY_7431 = "exact_strategy_playbook_index_7431"
     private fun playbookStorageKey7431(key: String) = "exact_strategy_playbook_7431_" + key
 
-    private fun ensureRestored7431() {
-        if (!restored7431.compareAndSet(false, true)) return
+    @Synchronized private fun ensureRestored7431() {
+        if (!LearningPersistence.ready() || !restored7431.compareAndSet(false, true)) return
         try {
-            val raw = LearningPersistence.load(PLAYBOOK_INDEX_KEY_7431) ?: return
+            val raw = LearningPersistence.load(PLAYBOOK_INDEX_KEY_7431) ?: "[]"
             val arr = JSONArray(raw)
             for (i in 0 until arr.length()) {
                 val k = arr.optString(i, "")
@@ -119,26 +119,48 @@ object ExactStrategyPerformance7429 {
             if (playbookCells7431.isNotEmpty()) {
                 try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_RESTORED_7431") } catch (_: Throwable) {}
             }
-        } catch (_: Throwable) {}
-    }
-
-    private fun persistPlaybook7431(key: String, cell: Cell, newKey: Boolean) {
-        try {
-            val j = JSONObject()
-                .put("n", cell.n.get()).put("w", cell.wins.get()).put("l", cell.losses.get())
-                .put("p", cell.pnlPctX1000.get()).put("sol", cell.pnlSolLamports.get())
-                .put("mfe", cell.mfePctX1000.get()).put("mae", cell.maePctX1000.get()).put("exN8082", cell.excursionN8082.get())
-                .put("hold", cell.holdMs.get())
-            LearningPersistence.save(playbookStorageKey7431(key), j.toString())
-            if (newKey) {
-                LearningPersistence.save(
-                    PLAYBOOK_INDEX_KEY_7431,
-                    JSONArray(playbookCells7431.keys.sorted()).toString(),
-                )
+            val exactIndex = JSONArray(LearningPersistence.load(EXACT_INDEX_8090) ?: "[]")
+            for (i in 0 until exactIndex.length()) {
+                val k = exactIndex.getString(i)
+                val payload = LearningPersistence.load(exactStorage8090(k)) ?: error("Missing exact cell $k")
+                cells[k] = decodeCell8090(k, JSONObject(payload))
             }
-        } catch (_: Throwable) {}
+            if (LearningPersistence.readFailed8086(PLAYBOOK_INDEX_KEY_7431) || LearningPersistence.readFailed8086(EXACT_INDEX_8090))
+                restored7431.set(false)
+        } catch (_: Throwable) { restored7431.set(false) }
     }
 
+    private const val EXACT_INDEX_8090 = "exact_strategy_index_8090"
+    private fun exactStorage8090(key: String) = "exact_strategy_cell_8090_$key"
+    private fun encodeCell8090(c: Cell): String = JSONObject()
+        .put("n", c.n.get()).put("w", c.wins.get()).put("l", c.losses.get())
+        .put("p", c.pnlPctX1000.get()).put("sol", c.pnlSolLamports.get())
+        .put("mfe", c.mfePctX1000.get()).put("mae", c.maePctX1000.get())
+        .put("exN8082", c.excursionN8082.get()).put("hold", c.holdMs.get()).toString()
+
+    private fun decodeCell8090(key: String, j: JSONObject): Cell {
+        val p = key.split('|')
+        require(p.size == 6 || p.size == 7)
+        return Cell(p[0], p[1], p[2], p[3], p[4], p[5], p.getOrElse(6) { "ALL_VARIANTS" }).also {
+            it.n.set(j.optLong("n")); it.wins.set(j.optLong("w")); it.losses.set(j.optLong("l"))
+            it.pnlPctX1000.set(j.optLong("p")); it.pnlSolLamports.set(j.optLong("sol"))
+            it.mfePctX1000.set(j.optLong("mfe")); it.maePctX1000.set(j.optLong("mae"))
+            it.excursionN8082.set(j.optLong("exN8082")); it.holdMs.set(j.optLong("hold"))
+        }
+    }
+
+    private fun addOutcome8090(c: Cell, e: CanonicalFinalizedTradeBus6464.Envelope) {
+        c.n.incrementAndGet()
+        if (e.realizedPnlSol > 0.0) c.wins.incrementAndGet() else if (e.realizedPnlSol < 0.0) c.losses.incrementAndGet()
+        c.pnlPctX1000.addAndGet((e.realizedReturnPct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
+        c.pnlSolLamports.addAndGet((e.realizedPnlSol * 1_000_000_000.0).toLong())
+        if (e.mfePct.isFinite() && e.maePct.isFinite()) {
+            c.excursionN8082.incrementAndGet()
+            c.mfePctX1000.addAndGet((e.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
+            c.maePctX1000.addAndGet((e.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
+        }
+        c.holdMs.addAndGet(e.holdingTimeMs.coerceAtLeast(0L))
+    }
 
     private fun norm(raw: String, fallback: String): String =
         raw.trim().uppercase().replace('|', '_').take(48).ifBlank { fallback }
@@ -177,129 +199,61 @@ object ExactStrategyPerformance7429 {
         else mode.equals("PAPER", true) && proof.equals("PAPER_SIMULATED", true)
 
     private const val SEEN_KEY_8082 = "exact_strategy_seen_positions_8082"
-    private const val SEEN_CAP_8082 = 5_000
-    private val seen8082 = java.util.LinkedHashSet<String>()
-    @Volatile private var seenLoaded8082 = false
-
-    /** V5.0.8082 — true exactly once per positionId (persisted, bounded FIFO). */
-    internal fun claimOnce8082(positionId: String): Boolean = synchronized(seen8082) {
-        if (!seenLoaded8082) {
-            seenLoaded8082 = true
-            try { LearningPersistence.load(SEEN_KEY_8082)?.takeIf { it.isNotBlank() }?.let { org.json.JSONArray(it) }
-                ?.let { a -> for (i in 0 until a.length()) seen8082.add(a.optString(i)) } } catch (_: Throwable) {}
-        }
-        if (!seen8082.add(positionId)) return@synchronized false
-        while (seen8082.size > SEEN_CAP_8082) seen8082.remove(seen8082.first())
-        try { LearningPersistence.save(SEEN_KEY_8082, org.json.JSONArray(seen8082.toList()).toString()) } catch (_: Throwable) {}
-        true
-    }
-
-    internal fun clearSeenForTest8082() = synchronized(seen8082) { seen8082.clear(); seenLoaded8082 = true }
-
-    fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+    /** Incomplete identity stays retryable; only the terminal transaction consumes economic credit. */
+    @Synchronized fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.terminal || !env.learningEligible || env.positionId.isBlank()) return false
         if (!terminalEconomicsEligible8081(env.mode, env.proofState)) {
-            // V5.0.8082 — typed finality: an UNVERIFIED close stays out; nothing is upgraded here.
-            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_UNVERIFIED_ECONOMICS_EXCLUDED_8081") } catch (_: Throwable) {}
-            // This is an excluded learning source, not a recoverable failure.
+            CanonicalFinalizedTradeBus6464.exclude("ExactStrategyPerformance7429", env.tradeId, "UNVERIFIED_ECONOMICS")
             return true
+        }
+        if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return false
+        // Recovery may only use the immutable snapshot of THIS position, never today's mint evaluation.
+        val entry = EntryStrategySnapshot6450.snapshot(env.positionId)
+        val e = if (entry != null && entry.mint == env.mint && entry.entryLane.equals(env.lane, true)) env.copy(
+            entryTradeType = env.entryTradeType.ifBlank { entry.entryTradeType },
+            entrySetup = env.entrySetup.ifBlank { entry.entrySetup },
+            entryStyle = env.entryStyle.ifBlank { entry.entryStyle },
+            entryTactic = env.entryTactic.ifBlank { entry.entryTactic },
+            entryStrategyVariantId = env.entryStrategyVariantId.ifBlank { entry.entryStrategyVariantId },
+        ) else env
+        if (listOf(e.entryTradeType, e.entrySetup, e.entryStyle, e.entryTactic).any { it.isBlank() }) {
+            PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429")
+            return false
         }
         ensureRestored7431()
-        if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return false
-        // V5.0.8082 §EXACTLY_ONCE — one terminal outcome per position, across redelivery and restart.
-        if (!claimOnce8082(env.positionId)) {
-            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_DUPLICATE_TERMINAL_SKIPPED_8082") } catch (_: Throwable) {}
+        if (!restored7431.get()) return false
+        val k = key(e)
+        val pk = playbookKey7431(e.mode, e.lane, e.entryTradeType, e.entrySetup, e.entryStyle, e.entryTactic)
+        if (!cells.containsKey(k) && cells.size >= MAX_KEYS) return false
+        val cell = decodeCell8090(k, JSONObject(cells[k]?.let(::encodeCell8090) ?: "{}"))
+        val playbook = decodeCell8090(pk, JSONObject(playbookCells7431[pk]?.let(::encodeCell8090) ?: "{}"))
+        val receipt = "exact_strategy_terminal_8090_${e.mode.uppercase()}_${e.positionId}"
+        // The 8082 receipt alone cannot prove that a reward happened: it was consumed before validation.
+        // Preserve old aggregates and explicitly exclude ambiguous legacy credit instead of doubling them.
+        val oldSeen = JSONArray(LearningPersistence.load(SEEN_KEY_8082) ?: "[]")
+        if (LearningPersistence.readFailed8086(SEEN_KEY_8082)) return false
+        if ((0 until oldSeen.length()).any { oldSeen.optString(it) == e.positionId }) {
+            CanonicalFinalizedTradeBus6464.exclude("ExactStrategyPerformance7429", e.tradeId, "LEGACY_8082_CREDIT_UNPROVABLE")
             return true
         }
-
-        // V5.0.7432 — exact-strategy learning starts only once immutable
-        // identity exists. Historical/pre-7427 closes still flow to the lane,
-        // tactic, policy and general performance learners, but cannot be
-        // represented truthfully as one exact playbook.
-        val exactStamped7432 =
-            env.entryTradeType.isNotBlank() &&
-            env.entrySetup.isNotBlank() &&
-            env.entryStyle.isNotBlank() &&
-            env.entryTactic.isNotBlank()
-        if (!exactStamped7432) {
-            legacyUnstampedSkipped7432.incrementAndGet()
-            try {
-                PipelineHealthCollector.labelInc("EXACT_STRATEGY_LEGACY_UNSTAMPED_SKIPPED_7432")
-                PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429")
-            } catch (_: Throwable) {}
-            return true
+        addOutcome8090(cell, e); addOutcome8090(playbook, e)
+        val writes = linkedMapOf(
+            exactStorage8090(k) to encodeCell8090(cell),
+            playbookStorageKey7431(pk) to encodeCell8090(playbook),
+            EXACT_INDEX_8090 to JSONArray((cells.keys + k).sorted()).toString(),
+            PLAYBOOK_INDEX_KEY_7431 to JSONArray((playbookCells7431.keys + pk).sorted()).toString(),
+            "exact_strategy_outcome_8090_${e.mode.uppercase()}_${e.positionId}" to JSONObject()
+                .put("positionId", e.positionId).put("eventId", e.economicEventId).put("tradeId", e.tradeId)
+                .put("key", k).put("proof", e.proofState).put("atMs", e.atMs)
+                .put("netSol", e.realizedPnlSol).put("netReturnPct", e.realizedReturnPct).toString(),
+        )
+        when (LearningPersistence.commitOnce8090(receipt, writes)) {
+            LearningPersistence.Commit8090.RETRY -> return false
+            LearningPersistence.Commit8090.ALREADY_COMMITTED -> return true
+            LearningPersistence.Commit8090.COMMITTED -> { cells[k] = cell; playbookCells7431[pk] = playbook }
         }
-
-        val k = key(env)
-        var cell = cells[k]
-        if (cell == null) {
-            if (cells.size >= MAX_KEYS) {
-                try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_KEY_CAP_7429") } catch (_: Throwable) {}
-                return false
-            }
-            val parts = k.split('|')
-            val fresh = Cell(
-                mode = parts.getOrElse(0) { "UNKNOWN" },
-                lane = parts.getOrElse(1) { "UNKNOWN" },
-                tradeType = parts.getOrElse(2) { "UNSTAMPED_TYPE" },
-                setup = parts.getOrElse(3) { "UNSTAMPED_SETUP" },
-                style = parts.getOrElse(4) { "UNSTAMPED_STYLE" },
-                tactic = parts.getOrElse(5) { "UNSTAMPED_TACTIC" },
-                variantId = parts.getOrElse(6) { "BASE" },
-            )
-            cell = cells.putIfAbsent(k, fresh) ?: fresh
-        }
-
-        cell.n.incrementAndGet()
-        if (env.realizedReturnPct > 0.0) cell.wins.incrementAndGet()
-        else if (env.realizedReturnPct < 0.0) cell.losses.incrementAndGet()
-        cell.pnlPctX1000.addAndGet((env.realizedReturnPct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
-        cell.pnlSolLamports.addAndGet((env.realizedPnlSol * 1_000_000_000.0).toLong())
-        if (env.mfePct.isFinite() && env.maePct.isFinite()) {
-            cell.excursionN8082.incrementAndGet()
-            cell.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
-            cell.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
-        } else try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EXCURSION_UNOBSERVED_8082") } catch (_: Throwable) {}
-        cell.holdMs.addAndGet(env.holdingTimeMs.coerceAtLeast(0L))
-
-        // Maintain the variant-agnostic playbook aggregate for constant-time
-        // predictive reads. It intentionally mirrors only terminal economics.
-        try {
-            val pk7431 = playbookKey7431(
-                env.mode, env.lane, env.entryTradeType, env.entrySetup, env.entryStyle, env.entryTactic,
-            )
-            val parts7431 = pk7431.split('|')
-            val wasNew7431 = !playbookCells7431.containsKey(pk7431)
-            val pc7431 = playbookCells7431.computeIfAbsent(pk7431) {
-                Cell(
-                    mode = parts7431.getOrElse(0) { "UNKNOWN" },
-                    lane = parts7431.getOrElse(1) { "UNKNOWN" },
-                    tradeType = parts7431.getOrElse(2) { "UNSTAMPED_TYPE" },
-                    setup = parts7431.getOrElse(3) { "UNSTAMPED_SETUP" },
-                    style = parts7431.getOrElse(4) { "UNSTAMPED_STYLE" },
-                    tactic = parts7431.getOrElse(5) { "UNSTAMPED_TACTIC" },
-                    variantId = "ALL_VARIANTS",
-                )
-            }
-            pc7431.n.incrementAndGet()
-            if (env.realizedReturnPct > 0.0) pc7431.wins.incrementAndGet()
-            else if (env.realizedReturnPct < 0.0) pc7431.losses.incrementAndGet()
-            pc7431.pnlPctX1000.addAndGet((env.realizedReturnPct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
-            pc7431.pnlSolLamports.addAndGet((env.realizedPnlSol * 1_000_000_000.0).toLong())
-            if (env.mfePct.isFinite() && env.maePct.isFinite()) {
-                pc7431.excursionN8082.incrementAndGet()
-                pc7431.mfePctX1000.addAndGet((env.mfePct.coerceIn(-100.0, 100_000.0) * 1000.0).toLong())
-                pc7431.maePctX1000.addAndGet((env.maePct.coerceIn(-100_000.0, 100_000.0) * 1000.0).toLong())
-            }
-            pc7431.holdMs.addAndGet(env.holdingTimeMs.coerceAtLeast(0L))
-            persistPlaybook7431(pk7431, pc7431, wasNew7431)
-        } catch (_: Throwable) {}
-
-        try {
-            PipelineHealthCollector.labelInc("EXACT_STRATEGY_OUTCOME_7429")
-            PipelineHealthCollector.labelInc("EXACT_STRATEGY_OUTCOME_7429_" + cell.lane.take(24))
-            PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_COMPLETE_7429")
-        } catch (_: Throwable) {}
+        PipelineHealthCollector.labelInc("EXACT_STRATEGY_OUTCOME_7429")
+        PipelineHealthCollector.labelInc("EXACT_STRATEGY_ATTRIBUTION_COMPLETE_7429")
         return true
     }
 
@@ -381,7 +335,9 @@ object ExactStrategyPerformance7429 {
         return null
     }
 
-    fun snapshots(): List<Snapshot> = cells.entries.map { (k, c) ->
+    fun snapshots(): List<Snapshot> {
+        ensureRestored7431()
+        return cells.entries.map { (k, c) ->
         val n = c.n.get().coerceAtLeast(1L)
         Snapshot(
             key = k,
@@ -401,6 +357,8 @@ object ExactStrategyPerformance7429 {
             meanMaePct = c.excursionN8082.get().let { en -> if (en > 0L) c.maePctX1000.get().toDouble() / 1000.0 / en else Double.NaN },
             meanHoldMinutes = c.holdMs.get().toDouble() / 60_000.0 / n,
         )
+    }
+
     }
 
     fun statusLine(limit: Int = 8): String {

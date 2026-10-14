@@ -13658,6 +13658,7 @@ class Executor(
         val policy = ts?.position?.entryPolicySnapshot.orEmpty()
         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
             positionId = "", mint = intent.mint, entryLane = lane, entryStrategyPid = "",
+            candidateVersion8090 = intent.candidateVersion, mode8090 = intent.mode,
             entryTactic = policyField6568(policy, "entryTactic").ifBlank { "UNKNOWN" },
             entryRiskProfile = "", entryExitProfile = "",
             entrySource = ts?.source.orEmpty(),
@@ -16784,7 +16785,7 @@ class Executor(
             entryDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
             com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                 com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
-                    positionId = pid6450,
+                    positionId = pid6450, candidateVersion8090 = tradeId.fdgCandidateVersion, mode8090 = "PAPER",
                     mint = tradeId.mint,
                     entryLane = entryLane6450,
                     entryStrategyPid = "",
@@ -20394,299 +20395,16 @@ class Executor(
             // (TX fees), tokens never arrive. Now we escalate 200→350→500 bps just
             // like liveSell does, so memes actually fill instead of phantoming.
             val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
-            val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
-            var quote: com.lifecyclebot.network.SwapQuote? = null
-            var lastQuoteError: Exception? = null
-            var txResult: com.lifecyclebot.network.SwapTxResult? = null
-            var useJito = false
-            var jitoTip = 0L
-            // V5.0.7325 — Raydium is the third buy builder (see tryRaydiumBuy7325).
-            var raydiumBuy7325: Pair<String, Double>? = null
-            if (pumpFirstResult == null) run jupiterBuy7325@{
-            // V5.0.7327 — the Jupiter quote lives inside this block so it smart-casts; the outer `quote` is published at the end.
-            var jq7325: com.lifecyclebot.network.SwapQuote? = null
-            // V5.0.8089 — Jupiter's swap builder has been answering 5xx: try the Raydium builder first for this
-            // buy (venue pivot, advisory). Jupiter is still attempted below when Raydium has no pool.
-            if (JupiterApi.swapBuildDegraded8089()) {
-                try { PipelineHealthCollector.labelInc("LIVE_BUY_VENUE_FIRST_JUPITER_DEGRADED_8089") } catch (_: Throwable) {}
-                raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
-                if (raydiumBuy7325 != null) return@jupiterBuy7325
-            }
-            // V5.9.495d — explicit Ultra-first signal for forensics.
-            // getQuoteWithSlippageGuard internally tries Jupiter Ultra v2
-            // first then falls back to v6 Metis on RFQ rejection — log
-            // that intent so the operator can see we're escalating from
-            // PUMP-FIRST → JUPITER ULTRA, not silently jumping straight
-            // to Metis. Operator: "should always revert to ultra".
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.INFO,
-                "↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${slippageLadder.joinToString("/")}bps",
-                solAmount = sol, traderTag = "MEME",
-            )
-            // V5.0.3959 — Jupiter quote must never be silent/disabled. Always try it;
-            // transient provider errors fail only this quote attempt/candidate.
-            for (slip in slippageLadder) {
-                buyPhase("QUOTE_REQUESTED")
-                LiveTradeLogStore.log(
-                    tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
-                    "Quote attempt @ ${slip}bps",
-                    slippageBps = slip, solAmount = sol, traderTag = "MEME",
-                )
-                try {
-                    val jupiterBuyPlan = recalcBuyPlanForProcessor(
-                        ts = ts,
-                        wallet = wallet,
-                        processor = "JUPITER_ULTRA_METIS_BUY",
-                        requestedSol = effectiveSol,
-                        priorityFeeSol = 0.0,
-                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
-                        tradeKey = tradeKey,
-                        traderTag = "MEME",
-                    ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
-                    jq7325 = getQuoteWithSlippageGuard(
-                        JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
-                        slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
-                        buyTaker = wallet.publicKeyB58,  // V5.0.7241 — bind at quote time
-                    )
-                    if (jq7325 != null) {
-                        if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
-                        buyPhase("QUOTE_OK")
-                        LiveTradeLogStore.log(
-                            tradeKey, ts.mint, ts.symbol, "BUY",
-                            LiveTradeLogStore.Phase.BUY_QUOTE_OK,
-                            "Quote OK @ ${slip}bps | impact=${jq7325.priceImpactPct.fmt(2)}% | router=${jq7325.router.ifBlank { "?" }}",
-                            slippageBps = slip, traderTag = "MEME",
-                        )
-                        break
-                    }
-                } catch (e: Exception) {
-                    lastQuoteError = e
-                    val msg = e.message ?: "unknown"
-                    onLog("BUY: quote ${slip}bps failed — ${msg.take(50)}", ts.mint)
-                    LiveTradeLogStore.log(
-                        tradeKey, ts.mint, ts.symbol, "BUY",
-                        LiveTradeLogStore.Phase.BUY_QUOTE_FAIL,
-                        "Quote ${slip}bps FAILED: ${msg.take(80)}",
-                        slippageBps = slip, traderTag = "MEME",
-                    )
-                    Thread.sleep(250)
-                }
-            }
-            if (jq7325 == null) {
-                raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
-                if (raydiumBuy7325 != null) return@jupiterBuy7325
-                onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
-                LiveTradeLogStore.log(
-                    tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_FAILED,
-                    "ABORTED — all ${slippageLadder.size} slippage attempts failed",
-                    traderTag = "MEME",
-                )
-                PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "QUOTE_EXHAUSTED")
-                // V5.0.3679 — counter increment so EXEC_LIVE_BUY_FAIL reflects reality.
-                try { com.lifecyclebot.engine.ForensicLogger.exec(
-                    "LIVE_BUY_FAIL", ts.symbol,
-                    "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_EXHAUSTED",
-                ) } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_FAIL") } catch (_: Throwable) {}
-                val terminal = "NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"
-                buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:$terminal")
-                return false
-            }
+            val prepared8090 = if (pumpFirstResult == null) {
+                prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail)
+                    ?: return false
+            } else null
+            val quote = prepared8090?.quote
+            val txResult = prepared8090?.transaction
+            val raydiumBuy7325 = prepared8090?.directFill
+            val useJito = prepared8090?.useJito ?: false
+            val jitoTip = prepared8090?.jitoTip ?: 0L
 
-            val qGuard = security.validateQuote(jq7325, isBuy = true, inputSol = sol)
-            if (qGuard is GuardResult.Block) {
-                onLog("🚫 Quote rejected: ${qGuard.reason}", ts.mint)
-                LiveTradeLogStore.log(
-                    tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_FAILED,
-                    "Quote rejected by SecurityGuard: ${qGuard.reason}",
-                    traderTag = "MEME",
-                )
-                // V5.0.3679 — counter increment.
-                try { com.lifecyclebot.engine.ForensicLogger.exec(
-                    "LIVE_BUY_FAIL", ts.symbol,
-                    "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_REJECTED:${qGuard.reason.take(60)}",
-                ) } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_REJECTED") } catch (_: Throwable) {}
-                buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_${qGuard.reason.take(40)}")
-                return false
-            }
-
-            // V5.0.4187 — REAL PRICE LOCK on BUY (Fix B1). Operator V5.0.4186
-            // dump: bought BCLiquFq, lost -96.1% on the way out. The quote
-            // appeared fine at buy time because PumpPortal/PumpFunDirect
-            // does NOT surface priceImpactPct (Executor.kt:11358 explicitly
-            // sets it to 0.0 for those routers) — so SecurityGuard's
-            // MAX_PRICE_IMPACT_PCT=3% guard is bypassed entirely for the
-            // bonding-curve universe where most rugs happen. Mitigation:
-            // when the primary quote's router is PumpPortal/PumpFunDirect
-            // AND priceImpactPct == 0.0 (unsurfaced), request a Jupiter
-            // sanity quote on the same notional. If Jupiter (which DOES
-            // surface impact) reports impact > 8% on the same buy, abort —
-            // the pool liquidity is thinner than the bonding curve claims.
-            run {
-                val routerStr = try { jq7325?.router?.uppercase() ?: "" } catch (_: Throwable) { "" }
-                val impactUnsurfaced = (jq7325?.priceImpactPct ?: 0.0) == 0.0
-                val isPumpRouter = routerStr.contains("PUMP")
-                if (jq7325 != null && impactUnsurfaced && isPumpRouter) {
-                    val lamports = try { (effectiveSol * 1_000_000_000L).toLong() } catch (_: Throwable) { 0L }
-                    if (lamports > 0L) {
-                        val jupSanityQuote = try {
-                            jupiter.getQuote(
-                                inputMint = JupiterApi.SOL_MINT,
-                                outputMint = ts.mint,
-                                amountRaw = lamports,
-                                slippageBps = 300,
-                            )
-                        } catch (_: Throwable) { null }
-                        if (jupSanityQuote != null) {
-                            val jupImpact = jupSanityQuote.priceImpactPct
-                            val pumpOut = (jq7325?.outAmount ?: 0L).toDouble()
-                            val jupOut = jupSanityQuote.outAmount.toDouble()
-                            val divergencePct = if (pumpOut > 0.0 && jupOut > 0.0) {
-                                kotlin.math.abs(pumpOut - jupOut) / pumpOut * 100.0
-                            } else 0.0
-                            val impactTooHigh = jupImpact > 8.0
-                            val divergedTooFar = divergencePct > 25.0
-                            if (impactTooHigh || divergedTooFar) {
-                                try {
-                                    ForensicLogger.lifecycle(
-                                        "REAL_PRICE_LOCK_BUY_REJECT",
-                                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} router=$routerStr jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}% reason=${if (impactTooHigh) "IMPACT_>8PCT" else "OUT_DIVERGE_>25PCT"} — refusing rug-prone buy",
-                                    )
-                                    PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_REJECT")
-                                } catch (_: Throwable) {}
-                                onLog("🛡 REAL_PRICE_LOCK BUY: ${ts.symbol} jupImpact=${jupImpact.fmt(1)}% div=${divergencePct.fmt(1)}% — rug-prone, aborting", ts.mint)
-                                LiveTradeLogStore.log(
-                                    tradeKey, ts.mint, ts.symbol, "BUY",
-                                    LiveTradeLogStore.Phase.BUY_FAILED,
-                                    "RealPriceLock rejected: jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}%",
-                                    traderTag = "MEME",
-                                )
-                                buyTerminalFail("BUY_TERMINAL_REAL_PRICE_LOCK:${if (impactTooHigh) "IMPACT" else "DIVERGE"}")
-                                return false
-                            } else {
-                                try {
-                                    ForensicLogger.lifecycle(
-                                        "REAL_PRICE_LOCK_BUY_CONFIRMED",
-                                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} router=$routerStr jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}% — gain real, proceeding",
-                                    )
-                                    PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_CONFIRMED")
-                                } catch (_: Throwable) {}
-                            }
-                        } else {
-                            // Jupiter quote unavailable — can't sanity check.
-                            // Failure-soft: allow the buy (consistent with sell-side
-                            // RealPriceLock policy). Counter logs for visibility.
-                            try { PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_JUP_UNAVAILABLE") } catch (_: Throwable) {}
-                        }
-                    }
-                }
-            }
-
-            var executionQuote7688 = requireNotNull(jq7325) { "JUPITER_QUOTE_MISSING_BEFORE_BUILD_7688" }
-            var txResultLocal = buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c) { raydiumBuy7325 = it }
-                ?: return@jupiterBuy7325  // V5.0.8089 — Jupiter /swap 5xx: the Raydium builder filled this buy instead
-            txResult = txResultLocal
-            buyPhase("SWAP_BUILT")
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_TX_BUILT,
-                "Tx built | router=${txResultLocal.router} | rfq=${txResultLocal.isRfqRoute}",
-                traderTag = "MEME",
-            )
-
-            var simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
-            var refresh7688 = 0
-            while (JupiterApi.retryableSlippageSimulation7688(simErr) && refresh7688 < 2) {
-                refresh7688++
-                // No transaction has been signed/submitted. Refresh the whole
-                // quote/build pair at the same tolerance and input amount.
-                val slip7688 = executionQuote7688.raw.optInt("slippageBps", buyBaseSlippage).coerceIn(1, 500)
-                PipelineHealthCollector.labelInc("LIVE_BUY_SLIPPAGE_REQUOTE_7688")
-                LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
-                    "Simulation slippage exceeded; fresh quote ${refresh7688}/2 @ ${slip7688}bps",
-                    slippageBps = slip7688, traderTag = "MEME")
-                val fresh7688 = getQuoteWithSlippageGuard(
-                    JupiterApi.SOL_MINT, ts.mint, executionQuote7688.inAmount,
-                    slip7688, effectiveSol, buyTaker = wallet.publicKeyB58,
-                ) ?: throw Exception("SLIPPAGE_REFRESH_NO_QUOTE_7688")
-                val guard7688 = security.validateQuote(fresh7688, isBuy = true, inputSol = effectiveSol)
-                if (guard7688 is GuardResult.Block) throw Exception("SLIPPAGE_REFRESH_QUOTE_REJECTED_7688:${guard7688.reason}")
-                executionQuote7688 = fresh7688
-                txResultLocal = buildTxWithRetry(fresh7688, wallet.publicKeyB58,
-                    senderTipLamports = effectiveSenderTipLamports(c, urgent = false))
-                txResult = txResultLocal
-                simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
-            }
-            if (simErr != null) {
-                if (simErr.startsWith("RPC error:") || simErr.startsWith("Simulate failed: null")) {
-                    // V5.9.753 — Emergent ticket item #2. PREVIOUSLY this branch
-                    // proceeded with the broadcast on RPC simulation failure (the
-                    // "Sim RPC unavailable — proceeding" path). Operator forensics
-                    // showed real funds being committed on the back of a missing
-                    // preflight. Live mode must NEVER skip simulation — abort.
-                    onLog("🛑 LIVE BUY ABORTED [${ts.symbol}]: simulation RPC unavailable ($simErr)", ts.mint)
-                    ErrorLogger.warn("Executor",
-                        "[EXECUTION/LIVE_BUY_BLOCKED_SIM_UNAVAILABLE] ${ts.symbol}: $simErr — refusing to broadcast without preflight")
-                    LiveTradeLogStore.log(
-                        tradeKey, ts.mint, ts.symbol, "BUY",
-                        LiveTradeLogStore.Phase.BUY_SIM_FAIL,
-                        "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE — ${simErr.take(80)}",
-                        traderTag = "MEME",
-                    )
-                    onNotify("🛑 Live buy aborted",
-                        "${ts.symbol} — simulation RPC unavailable",
-                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                    PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE")
-                    try { PipelineHealthCollector.labelInc("RPC_SIMULATION_UNAVAILABLE") } catch (_: Throwable) {}
-                    throw Exception("LIVE_BUY_BLOCKED_SIM_UNAVAILABLE: $simErr")
-                } else {
-                    // Actual swap simulation failure (bad accounts, insufficient funds, etc.)
-                    onLog("Swap simulation failed: $simErr", ts.mint)
-                    LiveTradeLogStore.log(
-                        tradeKey, ts.mint, ts.symbol, "BUY",
-                        LiveTradeLogStore.Phase.BUY_SIM_FAIL,
-                        "Sim FAILED: ${simErr.take(120)}",
-                        traderTag = "MEME",
-                    )
-                    throw Exception(simErr)
-                }
-            } else {
-                LiveTradeLogStore.log(
-                    tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_SIM_OK,
-                    "Sim OK",
-                    traderTag = "MEME",
-                )
-            }
-
-            security.enforceSignDelay()
-
-            useJito = c.jitoEnabled && !executionQuote7688.isUltra
-            jitoTip = effectiveJitoTipLamports(c, urgent = false)
-            
-            if (executionQuote7688.isUltra) {
-                onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
-            } else if (useJito) {
-                onLog("⚡ Broadcasting buy tx via Jito MEV protection…", ts.mint)
-            } else {
-                onLog("Broadcasting buy tx…", ts.mint)
-            }
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_BROADCAST,
-                "Broadcasting | route=${if (executionQuote7688.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
-                traderTag = "MEME",
-            )
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${if (executionQuote7688.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} sol=$sol") } catch (_: Throwable) {}
-            quote = executionQuote7688
-            }  // end if (pumpFirstResult == null) — Jupiter pipeline only runs when PUMP-FIRST didn't land
-            
             val sig: String
             val qty: Double
             val priceImpactPct: Double
@@ -21582,6 +21300,7 @@ class Executor(
                     com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
+                            candidateVersion8090 = requireNotNull(sealedLiveIntent6613).candidateVersion, mode8090 = "LIVE",
                             entryStrategyPid = "", entryTactic = policyField6568(ts.position.entryPolicySnapshot, "entryTactic").ifBlank {
                                 try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
                             },
@@ -30410,6 +30129,316 @@ class Executor(
             throw Exception(validated.rejectReason)
         }
         return validated.quote
+    }
+
+    /** A separate method keeps the quote/build/simulation control flow out of liveBuy's DEX code. */
+    private data class JupiterBuyPreparation8090(
+        val quote: com.lifecyclebot.network.SwapQuote? = null,
+        val transaction: com.lifecyclebot.network.SwapTxResult? = null,
+        val directFill: Pair<String, Double>? = null,
+        val useJito: Boolean = false,
+        val jitoTip: Long = 0L,
+    )
+
+    private fun prepareJupiterBuy8090(
+        ts: TokenState, wallet: SolanaWallet, sol: Double, effectiveSol: Double,
+        tradeKey: String, c: com.lifecyclebot.data.BotConfig,
+        buyTerminalFail: (String) -> Unit,
+    ): JupiterBuyPreparation8090? {
+        val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
+        val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
+        var quote: com.lifecyclebot.network.SwapQuote? = null
+        var lastQuoteError: Exception? = null
+        var txResult: com.lifecyclebot.network.SwapTxResult? = null
+        var useJito = false
+        var jitoTip = 0L
+        // V5.0.7325 — Raydium is the third buy builder (see tryRaydiumBuy7325).
+        var raydiumBuy7325: Pair<String, Double>? = null
+
+        // V5.0.7327 — the Jupiter quote lives inside this block so it smart-casts; the outer `quote` is published at the end.
+        var jq7325: com.lifecyclebot.network.SwapQuote? = null
+        // V5.0.8089 — Jupiter's swap builder has been answering 5xx: try the Raydium builder first for this
+        // buy (venue pivot, advisory). Jupiter is still attempted below when Raydium has no pool.
+        if (JupiterApi.swapBuildDegraded8089()) {
+            try { PipelineHealthCollector.labelInc("LIVE_BUY_VENUE_FIRST_JUPITER_DEGRADED_8089") } catch (_: Throwable) {}
+            raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+            if (raydiumBuy7325 != null) return JupiterBuyPreparation8090(directFill = raydiumBuy7325)
+        }
+        // V5.9.495d — explicit Ultra-first signal for forensics.
+        // getQuoteWithSlippageGuard internally tries Jupiter Ultra v2
+        // first then falls back to v6 Metis on RFQ rejection — log
+        // that intent so the operator can see we're escalating from
+        // PUMP-FIRST → JUPITER ULTRA, not silently jumping straight
+        // to Metis. Operator: "should always revert to ultra".
+        LiveTradeLogStore.log(
+            tradeKey, ts.mint, ts.symbol, "BUY",
+            LiveTradeLogStore.Phase.INFO,
+            "↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${slippageLadder.joinToString("/")}bps",
+            solAmount = sol, traderTag = "MEME",
+        )
+        // V5.0.3959 — Jupiter quote must never be silent/disabled. Always try it;
+        // transient provider errors fail only this quote attempt/candidate.
+        for (slip in slippageLadder) {
+            buyPhase("QUOTE_REQUESTED")
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+                "Quote attempt @ ${slip}bps",
+                slippageBps = slip, solAmount = sol, traderTag = "MEME",
+            )
+            try {
+                val jupiterBuyPlan = recalcBuyPlanForProcessor(
+                    ts = ts,
+                    wallet = wallet,
+                    processor = "JUPITER_ULTRA_METIS_BUY",
+                    requestedSol = effectiveSol,
+                    priorityFeeSol = 0.0,
+                    jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
+                    tradeKey = tradeKey,
+                    traderTag = "MEME",
+                ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
+                jq7325 = getQuoteWithSlippageGuard(
+                    JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
+                    slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
+                    buyTaker = wallet.publicKeyB58,  // V5.0.7241 — bind at quote time
+                )
+                if (jq7325 != null) {
+                    if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
+                    buyPhase("QUOTE_OK")
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_QUOTE_OK,
+                        "Quote OK @ ${slip}bps | impact=${jq7325.priceImpactPct.fmt(2)}% | router=${jq7325.router.ifBlank { "?" }}",
+                        slippageBps = slip, traderTag = "MEME",
+                    )
+                    break
+                }
+            } catch (e: Exception) {
+                lastQuoteError = e
+                val msg = e.message ?: "unknown"
+                onLog("BUY: quote ${slip}bps failed — ${msg.take(50)}", ts.mint)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_QUOTE_FAIL,
+                    "Quote ${slip}bps FAILED: ${msg.take(80)}",
+                    slippageBps = slip, traderTag = "MEME",
+                )
+                Thread.sleep(250)
+            }
+        }
+        if (jq7325 == null) {
+            raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+            if (raydiumBuy7325 != null) return JupiterBuyPreparation8090(directFill = raydiumBuy7325)
+            onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_FAILED,
+                "ABORTED — all ${slippageLadder.size} slippage attempts failed",
+                traderTag = "MEME",
+            )
+            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "QUOTE_EXHAUSTED")
+            // V5.0.3679 — counter increment so EXEC_LIVE_BUY_FAIL reflects reality.
+            try { com.lifecyclebot.engine.ForensicLogger.exec(
+                "LIVE_BUY_FAIL", ts.symbol,
+                "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_EXHAUSTED",
+            ) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_FAIL") } catch (_: Throwable) {}
+            val terminal = "NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"
+            buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:$terminal")
+            return null
+        }
+
+        val qGuard = security.validateQuote(jq7325, isBuy = true, inputSol = sol)
+        if (qGuard is GuardResult.Block) {
+            onLog("🚫 Quote rejected: ${qGuard.reason}", ts.mint)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_FAILED,
+                "Quote rejected by SecurityGuard: ${qGuard.reason}",
+                traderTag = "MEME",
+            )
+            // V5.0.3679 — counter increment.
+            try { com.lifecyclebot.engine.ForensicLogger.exec(
+                "LIVE_BUY_FAIL", ts.symbol,
+                "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_REJECTED:${qGuard.reason.take(60)}",
+            ) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_REJECTED") } catch (_: Throwable) {}
+            buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_${qGuard.reason.take(40)}")
+            return null
+        }
+
+        // V5.0.4187 — REAL PRICE LOCK on BUY (Fix B1). Operator V5.0.4186
+        // dump: bought BCLiquFq, lost -96.1% on the way out. The quote
+        // appeared fine at buy time because PumpPortal/PumpFunDirect
+        // does NOT surface priceImpactPct (Executor.kt:11358 explicitly
+        // sets it to 0.0 for those routers) — so SecurityGuard's
+        // MAX_PRICE_IMPACT_PCT=3% guard is bypassed entirely for the
+        // bonding-curve universe where most rugs happen. Mitigation:
+        // when the primary quote's router is PumpPortal/PumpFunDirect
+        // AND priceImpactPct == 0.0 (unsurfaced), request a Jupiter
+        // sanity quote on the same notional. If Jupiter (which DOES
+        // surface impact) reports impact > 8% on the same buy, abort —
+        // the pool liquidity is thinner than the bonding curve claims.
+        run {
+            val routerStr = try { jq7325?.router?.uppercase() ?: "" } catch (_: Throwable) { "" }
+            val impactUnsurfaced = (jq7325?.priceImpactPct ?: 0.0) == 0.0
+            val isPumpRouter = routerStr.contains("PUMP")
+            if (jq7325 != null && impactUnsurfaced && isPumpRouter) {
+                val lamports = try { (effectiveSol * 1_000_000_000L).toLong() } catch (_: Throwable) { 0L }
+                if (lamports > 0L) {
+                    val jupSanityQuote = try {
+                        jupiter.getQuote(
+                            inputMint = JupiterApi.SOL_MINT,
+                            outputMint = ts.mint,
+                            amountRaw = lamports,
+                            slippageBps = 300,
+                        )
+                    } catch (_: Throwable) { null }
+                    if (jupSanityQuote != null) {
+                        val jupImpact = jupSanityQuote.priceImpactPct
+                        val pumpOut = (jq7325?.outAmount ?: 0L).toDouble()
+                        val jupOut = jupSanityQuote.outAmount.toDouble()
+                        val divergencePct = if (pumpOut > 0.0 && jupOut > 0.0) {
+                            kotlin.math.abs(pumpOut - jupOut) / pumpOut * 100.0
+                        } else 0.0
+                        val impactTooHigh = jupImpact > 8.0
+                        val divergedTooFar = divergencePct > 25.0
+                        if (impactTooHigh || divergedTooFar) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "REAL_PRICE_LOCK_BUY_REJECT",
+                                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} router=$routerStr jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}% reason=${if (impactTooHigh) "IMPACT_>8PCT" else "OUT_DIVERGE_>25PCT"} — refusing rug-prone buy",
+                                )
+                                PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_REJECT")
+                            } catch (_: Throwable) {}
+                            onLog("🛡 REAL_PRICE_LOCK BUY: ${ts.symbol} jupImpact=${jupImpact.fmt(1)}% div=${divergencePct.fmt(1)}% — rug-prone, aborting", ts.mint)
+                            LiveTradeLogStore.log(
+                                tradeKey, ts.mint, ts.symbol, "BUY",
+                                LiveTradeLogStore.Phase.BUY_FAILED,
+                                "RealPriceLock rejected: jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}%",
+                                traderTag = "MEME",
+                            )
+                            buyTerminalFail("BUY_TERMINAL_REAL_PRICE_LOCK:${if (impactTooHigh) "IMPACT" else "DIVERGE"}")
+                            return null
+                        } else {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "REAL_PRICE_LOCK_BUY_CONFIRMED",
+                                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} router=$routerStr jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}% — gain real, proceeding",
+                                )
+                                PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_CONFIRMED")
+                            } catch (_: Throwable) {}
+                        }
+                    } else {
+                        // Jupiter quote unavailable — can't sanity check.
+                        // Failure-soft: allow the buy (consistent with sell-side
+                        // RealPriceLock policy). Counter logs for visibility.
+                        try { PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_JUP_UNAVAILABLE") } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+
+        var executionQuote7688 = requireNotNull(jq7325) { "JUPITER_QUOTE_MISSING_BEFORE_BUILD_7688" }
+        var txResultLocal = buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c) { raydiumBuy7325 = it }
+            ?: return JupiterBuyPreparation8090(directFill = raydiumBuy7325)  // V5.0.8089 — Jupiter /swap 5xx: the Raydium builder filled this buy instead
+        txResult = txResultLocal
+        buyPhase("SWAP_BUILT")
+        LiveTradeLogStore.log(
+            tradeKey, ts.mint, ts.symbol, "BUY",
+            LiveTradeLogStore.Phase.BUY_TX_BUILT,
+            "Tx built | router=${txResultLocal.router} | rfq=${txResultLocal.isRfqRoute}",
+            traderTag = "MEME",
+        )
+
+        var simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
+        var refresh7688 = 0
+        while (JupiterApi.retryableSlippageSimulation7688(simErr) && refresh7688 < 2) {
+            refresh7688++
+            // No transaction has been signed/submitted. Refresh the whole
+            // quote/build pair at the same tolerance and input amount.
+            val slip7688 = executionQuote7688.raw.optInt("slippageBps", buyBaseSlippage).coerceIn(1, 500)
+            PipelineHealthCollector.labelInc("LIVE_BUY_SLIPPAGE_REQUOTE_7688")
+            LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+                "Simulation slippage exceeded; fresh quote ${refresh7688}/2 @ ${slip7688}bps",
+                slippageBps = slip7688, traderTag = "MEME")
+            val fresh7688 = getQuoteWithSlippageGuard(
+                JupiterApi.SOL_MINT, ts.mint, executionQuote7688.inAmount,
+                slip7688, effectiveSol, buyTaker = wallet.publicKeyB58,
+            ) ?: throw Exception("SLIPPAGE_REFRESH_NO_QUOTE_7688")
+            val guard7688 = security.validateQuote(fresh7688, isBuy = true, inputSol = effectiveSol)
+            if (guard7688 is GuardResult.Block) throw Exception("SLIPPAGE_REFRESH_QUOTE_REJECTED_7688:${guard7688.reason}")
+            executionQuote7688 = fresh7688
+            txResultLocal = buildTxWithRetry(fresh7688, wallet.publicKeyB58,
+                senderTipLamports = effectiveSenderTipLamports(c, urgent = false))
+            txResult = txResultLocal
+            simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
+        }
+        if (simErr != null) {
+            if (simErr.startsWith("RPC error:") || simErr.startsWith("Simulate failed: null")) {
+                // V5.9.753 — Emergent ticket item #2. PREVIOUSLY this branch
+                // proceeded with the broadcast on RPC simulation failure (the
+                // "Sim RPC unavailable — proceeding" path). Operator forensics
+                // showed real funds being committed on the back of a missing
+                // preflight. Live mode must NEVER skip simulation — abort.
+                onLog("🛑 LIVE BUY ABORTED [${ts.symbol}]: simulation RPC unavailable ($simErr)", ts.mint)
+                ErrorLogger.warn("Executor",
+                    "[EXECUTION/LIVE_BUY_BLOCKED_SIM_UNAVAILABLE] ${ts.symbol}: $simErr — refusing to broadcast without preflight")
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_SIM_FAIL,
+                    "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE — ${simErr.take(80)}",
+                    traderTag = "MEME",
+                )
+                onNotify("🛑 Live buy aborted",
+                    "${ts.symbol} — simulation RPC unavailable",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE")
+                try { PipelineHealthCollector.labelInc("RPC_SIMULATION_UNAVAILABLE") } catch (_: Throwable) {}
+                throw Exception("LIVE_BUY_BLOCKED_SIM_UNAVAILABLE: $simErr")
+            } else {
+                // Actual swap simulation failure (bad accounts, insufficient funds, etc.)
+                onLog("Swap simulation failed: $simErr", ts.mint)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_SIM_FAIL,
+                    "Sim FAILED: ${simErr.take(120)}",
+                    traderTag = "MEME",
+                )
+                throw Exception(simErr)
+            }
+        } else {
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_SIM_OK,
+                "Sim OK",
+                traderTag = "MEME",
+            )
+        }
+
+        security.enforceSignDelay()
+
+        useJito = c.jitoEnabled && !executionQuote7688.isUltra
+        jitoTip = effectiveJitoTipLamports(c, urgent = false)
+
+        if (executionQuote7688.isUltra) {
+            onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
+        } else if (useJito) {
+            onLog("⚡ Broadcasting buy tx via Jito MEV protection…", ts.mint)
+        } else {
+            onLog("Broadcasting buy tx…", ts.mint)
+        }
+        LiveTradeLogStore.log(
+            tradeKey, ts.mint, ts.symbol, "BUY",
+            LiveTradeLogStore.Phase.BUY_BROADCAST,
+            "Broadcasting | route=${if (executionQuote7688.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
+            traderTag = "MEME",
+        )
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${if (executionQuote7688.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} sol=$sol") } catch (_: Throwable) {}
+        quote = executionQuote7688
+        return JupiterBuyPreparation8090(quote, txResult, raydiumBuy7325, useJito, jitoTip)
+
     }
 
     /**

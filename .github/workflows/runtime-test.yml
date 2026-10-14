@@ -43,14 +43,16 @@ permissions:
 # superseded duplicates report `cancelled`, never `failure`, so a cancelled
 # duplicate can never be mistaken for a real red.
 concurrency:
-  group: runtime-smoke-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref_name }}
+  # A completed/cancelled older build emits workflow_run even when its smoke
+  # job is skipped. It must never cancel the current PR's runtime verification.
+  group: runtime-smoke-${{ github.event_name }}-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
     # Don't run when the upstream build failed.
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request') }}
     timeout-minutes: 35
 
     defaults:
@@ -128,7 +130,7 @@ jobs:
           script: bash ci/runtime-test.sh
 
       - name: Enforce current 120-second execution-spine witness
-        if: always()
+        if: ${{ !cancelled() }}
         working-directory: .
         run: |
           set -euo pipefail
