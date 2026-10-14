@@ -23154,7 +23154,10 @@ class Executor(
         // reason (highest priority wins) and return WAITING_BALANCE_PROOF — NO lease,
         // NO PendingSellQueue ACTIVE_SELL_READY job, NO duplicate-suppressed metric.
         if (isLivePositionEarly) {
-            val closeGuard = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.preSellGuard(ts.mint, ts.symbol ?: "?", wallet) } catch (_: Throwable) { null }
+            // V5.0.8094 — an emergency does not pay a whole-wallet read (up to ~11 s on a failing RPC) before SELL_START:
+            // the tracker / ledger close checks still run, and liveSell's own balance read catches a real zero.
+            val emergency8094 = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)
+            val closeGuard = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.preSellGuard(ts.mint, ts.symbol ?: "?", if (emergency8094) null else wallet) } catch (_: Throwable) { null }
             if (closeGuard?.blocked == true) {
                 try { ForensicLogger.lifecycle("REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} guard=${closeGuard.reason} state=${closeGuard.state}") } catch (_: Throwable) {}
                 if (closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSED || closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSING_CONFIRMED) {
@@ -23218,7 +23221,7 @@ class Executor(
             // means there is nothing to sell: treat as ALREADY_CLOSED, release the
             // lease, and let the reconciler stamp the ledger. We do NOT act on an
             // UNKNOWN/empty-map RPC blip — only a genuine confirmed zero.
-            run {
+            if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) run {  // V5.0.8094 — see preSellGuard above
                 val res = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet) } catch (_: Throwable) { null }
                 if (res is com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Zero) {
                     try { ForensicLogger.lifecycle("SELL_ABORT_WALLET_CONFIRMED_ZERO",

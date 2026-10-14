@@ -18533,6 +18533,15 @@ class BotService : Service() {
         return out
     }
 
+    /** V5.0.8094 — mints whose live buy was just deferred go to the front of this cycle (PendingLiveBuy8094). */
+    private fun pendingLiveBuyMints8094(otherMints: List<String>): List<String> = try {
+        val pending = PendingLiveBuy8094.pendingMints8094()
+        if (pending.isEmpty()) emptyList() else {
+            val set = otherMints.toHashSet()
+            pending.filter { it in set && status.tokens[it]?.position?.isOpen != true }
+        }
+    } catch (_: Throwable) { emptyList() }
+
     private fun selectOrderedMintsForCycle(
         forcedOpenMints: List<String>,
         otherMints: List<String>,
@@ -18635,7 +18644,7 @@ class BotService : Service() {
         // V5.0.6647 — forced/canonical opens are exit work, never discovery
         // workers.  All 104+ opens remain owned by the dedicated exit paths.
         val forcedOpenForSupervisor: List<String> = emptyList()
-        val mustInclude = mutableListOf<String>()
+        val mustInclude = pendingLiveBuyMints8094(otherMints).toMutableList()
         val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
         if (budget == 0 || otherMints.isEmpty()) {
             try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}

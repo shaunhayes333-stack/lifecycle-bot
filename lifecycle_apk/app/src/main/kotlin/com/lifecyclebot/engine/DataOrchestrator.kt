@@ -1110,6 +1110,7 @@ class DataOrchestrator(
             try { PipelineHealthCollector.labelInc("SETUP_INPUT_FORCED_POLL_8085") } catch (_: Throwable) {}
             return true
         }
+        if (PendingLiveBuy8094.isPending8094(mint)) return true  // V5.0.8094 — a deferred live buy is retried next cycle
         val lastEvent = lastWsEventMs[mint] ?: return true
         val now = System.currentTimeMillis()
         if (now - lastEvent > 15_000L) return true

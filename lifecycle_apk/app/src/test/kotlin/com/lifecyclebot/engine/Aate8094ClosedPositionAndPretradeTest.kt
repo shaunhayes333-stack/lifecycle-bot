@@ -200,4 +200,29 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(x.contains("val proceeds = proceedsSol7029(pos.qtyToken * f, getActualPrice(ts)) ?: return false"))
         assertTrue(x.contains("val sliceCost = pos.costSol * f"))
     }
+
+    @Test fun emergencyExitsRetryThemselvesAndSkipPreSellWalletReads() {
+        val l = com.lifecyclebot.engine.sell.CloseLease
+        assertEquals(250L, l.selfRetryDelayMs8094(eligibleAtMs = 1_000L, nowMs = 2_000L))     // already eligible: soon
+        assertEquals(2_050L, l.selfRetryDelayMs8094(eligibleAtMs = 4_000L, nowMs = 2_000L))
+        assertEquals(15_000L, l.selfRetryDelayMs8094(eligibleAtMs = 90_000L, nowMs = 0L))     // never parked long
+        val lease = src("engine/sell/CloseLease.kt")
+        assertTrue(lease.contains("if (waiting8094 == null && ProtectiveExitClass7807.isEmergency(leaseReason8094)) scheduleEmergencyRetry8094("))
+        val x = src("engine/Executor.kt")
+        assertTrue(x.contains("preSellGuard(ts.mint, ts.symbol ?: \"?\", if (emergency8094) null else wallet)"))
+        assertTrue(x.contains("if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) run {  // V5.0.8094"))
+    }
+
+    @Test fun aDeferredLiveBuyIsRetriedNextCycleNotAfterItsRoundRobinTurn() {
+        val p = PendingLiveBuy8094
+        val stamps = mapOf("A" to 1_000L, "B" to 5_000L, "OLD" to 1L - 70_000L)
+        assertEquals(listOf("A", "B"), p.pendingFrom8094(stamps, nowMs = 10_000L, ttlMs = 60_000L, max = 8))
+        assertEquals(listOf("A"), p.pendingFrom8094(stamps, nowMs = 10_000L, ttlMs = 60_000L, max = 1))
+        p.note8094("MINT_PENDING_8094", nowMs = 1_000L)
+        assertTrue(p.isPending8094("MINT_PENDING_8094", nowMs = 30_000L))
+        assertFalse(p.isPending8094("MINT_PENDING_8094", nowMs = 62_000L))
+        assertTrue(src("engine/ExecutionAttemptLease.kt").contains("PendingLiveBuy8094.note8094(mint)"))
+        assertTrue(src("engine/DataOrchestrator.kt").contains("if (PendingLiveBuy8094.isPending8094(mint)) return true"))
+        assertTrue(src("engine/BotService.kt").contains("val mustInclude = pendingLiveBuyMints8094(otherMints).toMutableList()"))
+    }
 }

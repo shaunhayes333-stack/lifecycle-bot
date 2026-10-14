@@ -186,6 +186,7 @@ object ExecutionAttemptLease {
 
     fun releaseNonTerminal(key: String, side: String, mint: String, symbol: String, reason: String) {
         states.remove(key)
+        if (side.equals("BUY", ignoreCase = true)) try { PendingLiveBuy8094.note8094(mint) } catch (_: Throwable) {}  // V5.0.8094
         emit("${side.uppercase()}_NON_TERMINAL_RELEASE", side, mint, symbol, "reason=$reason")
         emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=NON_TERMINAL reason=$reason")
     }

@@ -244,7 +244,13 @@ object CloseLease {
         // immediate same-tick retry storm while allowing the next cycle through.
         if (l.nextEligibleMs <= now) l.nextEligibleMs = now + 2_000L
         // V5.0.8087 — an emergency queued behind this attempt does not inherit its backoff.
-        l.emergencyWaiting8087?.let { r -> l.nextEligibleMs = now; handoff8087(mint, r, l) }
+        val waiting8094 = l.emergencyWaiting8087
+        waiting8094?.let { r -> l.nextEligibleMs = now; handoff8087(mint, r, l) }
+        // V5.0.8094 — an emergency lease re-dispatches ITSELF when its backoff ends. 8093: nothing re-asked after a
+        // failed emergency attempt until a tick / the risk clock came round (redispatchGap avg 24.6 s, trigger ->
+        // broadcast max 43 s). acquire() still single-flights the sell; an unresolved signed sell still blocks a resend.
+        val leaseReason8094 = l.emergencyReason7807 ?: l.originalExitReason
+        if (waiting8094 == null && ProtectiveExitClass7807.isEmergency(leaseReason8094)) scheduleEmergencyRetry8094(mint, leaseReason8094, l.nextEligibleMs)
         try {
             ForensicLogger.lifecycle("SELL_RETRY_SCHEDULED",
                 "mint=${mint.take(10)} attempt=${l.closeAttemptCount} reason=$failureCode " +
@@ -348,6 +354,32 @@ object CloseLease {
 
     /** Set by BotService: dispatch [reason] for [mint] on the emergency pool. */
     @Volatile var emergencyHandoff8087: ((mint: String, reason: String) -> Unit)? = null
+
+    private val selfRetryAt8094 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val retryTimer8094 by lazy {
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "emergency-retry-8094").apply { isDaemon = true } }
+    }
+
+    /** Pure (V5.0.8094): the self-retry delay for an emergency whose lease is eligible again at [eligibleAtMs]. */
+    internal fun selfRetryDelayMs8094(eligibleAtMs: Long, nowMs: Long): Long = (eligibleAtMs - nowMs + 50L).coerceIn(250L, 15_000L)
+
+    private fun scheduleEmergencyRetry8094(mint: String, reason: String, eligibleAtMs: Long) {
+        if (emergencyHandoff8087 == null) return
+        val now = System.currentTimeMillis()
+        val pending = selfRetryAt8094[mint]
+        if (pending != null && pending >= now) return            // one self-retry per mint at a time
+        val delay = selfRetryDelayMs8094(eligibleAtMs, now)
+        selfRetryAt8094[mint] = now + delay
+        try {
+            retryTimer8094.schedule({
+                selfRetryAt8094.remove(mint)
+                if (current(mint) != null) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_EMERGENCY_SELF_RETRY_8094") } catch (_: Throwable) {}
+                    try { emergencyHandoff8087?.invoke(mint, reason) } catch (_: Throwable) {}
+                }
+            }, delay, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) { selfRetryAt8094.remove(mint) }
+    }
 
     private fun handoff8087(mint: String, reason: String, l: Lease) {
         val waitedMs = if (l.emergencyWaitingSinceMs8087 > 0L) System.currentTimeMillis() - l.emergencyWaitingSinceMs8087 else 0L
