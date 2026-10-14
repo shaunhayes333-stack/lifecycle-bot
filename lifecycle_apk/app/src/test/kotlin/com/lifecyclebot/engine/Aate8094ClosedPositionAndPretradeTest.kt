@@ -348,4 +348,16 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(0.0, p.timingCappedFrac8094(0.10, doubleArrayOf(-20.0, 400.0, 20.0)), 1e-12)   // losing band
         assertTrue(p.timingCappedFrac8094(0.10, doubleArrayOf(30.0, 400.0, 40.0)) <= 0.10)
     }
+
+    @Test fun everyFiredSetupIsGradedAndTheTradedStrategyIsTheSelectedOne() {
+        val pb = src("engine/cortex/LanePlaybook7907.kt")
+        val cold = pb.substringAfter("fun coldStartSetup8080(").substringBefore("fun coldStartPositive8080(")
+        assertTrue(cold.contains("val candidates = matchedSetups8083(ts, lane, nowMs)"))
+        assertTrue(cold.contains("!setupRecordNegative8094(it.n, it.mean(), it.variance())"))
+        val cx = src("engine/cortex/Cortex7885.kt")
+        assertTrue(cx.contains("Pending(a, admitted, nowMs, veto, ts.source, setup7961, fired8094)"))
+        assertTrue(cx.contains("for (f in p.fired8094) {"))
+        assertTrue(cx.contains("LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis())"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) }"))
+    }
 }

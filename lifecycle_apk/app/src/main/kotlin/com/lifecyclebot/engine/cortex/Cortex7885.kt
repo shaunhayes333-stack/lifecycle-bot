@@ -71,7 +71,9 @@ object Cortex7885 {
             DoubleArray(a.ids.size) { Double.NaN }, DoubleArray(a.ids.size) { Double.NaN }, Double.NaN, Double.NaN,
         )
 
-    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null, val source: String = "", val setup7961: String = "")
+    private class Pending(val a: Assessment, val legacyAdmitted: Boolean, val atMs: Long, val vetoRule: String? = null, val source: String = "", val setup7961: String = "",
+                          /** V5.0.8094 — every OTHER setup the coin fired in this lane (session-only): each is graded in its own cell. */
+                          val fired8094: List<String> = emptyList())
 
     private val ledger = CortexLedger7885()
     private val board = CortexScoreboard7885()
@@ -214,7 +216,11 @@ object Cortex7885 {
         // CLASSIFIER_ERROR) carries no setup prior and opens no joint cell; the scoreboard counts how many
         // decisions ran blind so the UI shows evidence quality beside the NO_TRIGGER cohort, not pooled into it.
         if (snap8084?.tag in LanePlaybook7907.UNCLASSIFIED_8087) inc("SETUP_UNCLASSIFIED_NO_PRIOR_8087_${snap8084?.outcome?.name}")
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961)
+        // V5.0.8094 — multi-strategy grading: every setup the coin fired (an unclassified coin's too) is graded in its own
+        // lane x bucket x setup cell, not only the one consumer tag.
+        val fired8094 = (snap8084?.takeIf { it.lane == a.lane }?.matched ?: try { LanePlaybook7907.matchedSetups8083(ts, a.lane, nowMs) } catch (_: Throwable) { emptyList() })
+            .filter { it.isNotBlank() && it != setup7961 && it != LanePlaybook7907.NO_TRIGGER }.distinct().take(8)
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961, fired8094)
         // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).
         if (admitted) noteEntryRead(ts.mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
         // V5.0.7907 — the lane playbook tags the decision with its setup.
@@ -436,6 +442,13 @@ object Cortex7885 {
                 auxScales[0] = jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }.also { it.scale(CortexScoreboard7885.BOOK_DECAY) }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
+            for (f in p.fired8094) {
+                val fk = jointKey7961(p.a.lane, p.a.bucket, f)
+                if (!jointBook7961.containsKey(fk) && jointBook7961.size >= 600) continue
+                jointBook7961.getOrPut(fk) { CortexLedger7885.Stat() }.also { it.scale(CortexScoreboard7885.BOOK_DECAY) }
+                    .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
+            }
+            if (p.fired8094.isNotEmpty()) inc("SETUP_FIRED_GRADED_8094")
             p.vetoRule?.let { r ->
                 auxScales[1] = vetoBook.getOrPut(r) { CortexLedger7885.Stat() }
                     .add(netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), grossPct >= CortexLedger7885.RUNNER_GROSS_PCT)
@@ -794,7 +807,8 @@ object Cortex7885 {
             // in lane x setup) may carry the soft exception even where the lane-wide record is too thin or diluted
             // (8082: SHITCOIN STRONG n72 +12.3% held lane authority 0). Same graduated, SE-aware, cost-margined test as
             // the lane, on the setup's own cell; calibration and inversion still gate it. Never a hard refusal.
-            val setup8083 = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+            // V5.0.8094 — the setup this candidate TRADES as (best proven fired setup, else the classified one).
+            val setup8083 = try { LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
             // V5.0.8094 forensic — a STRONG lane read never overrules for a setup whose OWN record is negative: the
             // playbook's proven-losing setup, or the Cortex's own STRONG reads on this lane x setup losing (8093:
             // SHITCOIN / EXPRESS STRONG on LAUNCH_CONTINUATION negative while the lane bucket read +28% / +125%).

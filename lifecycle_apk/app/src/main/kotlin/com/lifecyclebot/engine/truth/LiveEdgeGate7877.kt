@@ -423,7 +423,9 @@ object LiveEdgeGate7877 {
             // The lane's live book is a bounded NEGATIVE PRIOR: it shapes size and demands this candidate's OWN validated
             // positive evidence below, but never refuses every token, setup and strategy of the lane on its own. Only the
             // candidate's own setup proven losing on live closes refuses (LiveTruth8064.setupRefusal8083).
-            val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            // V5.0.8094 — the setup this candidate trades as (multi-strategy selection), so refusals and assessments are
+            // filed under the strategy actually traded.
+            val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) } catch (_: Throwable) { null }
             (try { LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs) } catch (_: Throwable) { null })?.let { r8083 ->
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8083, 1.0, nowMs)
                 observeTail7996(ts, lane, r8083, nowMs); return r8083
