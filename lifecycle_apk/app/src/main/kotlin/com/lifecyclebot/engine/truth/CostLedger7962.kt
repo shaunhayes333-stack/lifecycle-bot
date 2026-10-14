@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object CostLedger7962 {
     const val MIN_LIVE_N = 8
+    const val EARLY_LIVE_N = 3
     private const val RING = 120
     private const val ENTRY_MARK_LAG_MS = 3_000L
     private const val MAX_SANE_COST_PCT = 60.0
@@ -110,6 +111,14 @@ object CostLedger7962 {
     }
 
     /** Pure: refuse when the measured cost exceeds the expected gross move (never on an unmeasured cost). */
+    /**
+     * Pure (8094 entry repair): before [MIN_LIVE_N], the CHEAPEST of [EARLY_LIVE_N]+ measured round trips. 8094 measured
+     * SHITCOIN at 26% median cost on n=2 and still admitted setups expecting less (COST_EXCEEDS_EDGE refused 0). The
+     * floor only refuses a setup whose gross is below even the cheapest real trip; labels and cards keep the median rule.
+     */
+    fun earlyCostFloor7962(costsPct: List<Double>): Double? =
+        costsPct.filter { it.isFinite() }.takeIf { it.size >= EARLY_LIVE_N }?.minOrNull()?.coerceAtLeast(0.0)
+
     fun refuses7962(expectedGrossPct: Double, measuredCostPct: Double?): Boolean =
         measuredCostPct != null && measuredCostPct.isFinite() && expectedGrossPct.isFinite() && expectedGrossPct < measuredCostPct
 
@@ -255,7 +264,7 @@ object CostLedger7962 {
     fun liveRefusal7962(ts: TokenState, laneRaw: String): String? = try {
         ensureSubscribed()
         val l = lane(laneRaw)
-        val measuredCost = measuredCostPct7962(l, laneTicketSol(l))
+        val measuredCost = measuredCostPct7962(l, laneTicketSol(l)) ?: earlyCostFloor7962(rowsOf(l).map { it[0] })
         if (measuredCost == null) {
             priorOnly.incrementAndGet()
             null

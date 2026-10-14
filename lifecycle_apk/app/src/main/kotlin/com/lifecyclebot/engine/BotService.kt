@@ -5792,11 +5792,22 @@ class BotService : Service() {
             val reqScore = (req.score ?: ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
             val reqConf = (req.confidence ?: ts.lastV3Confidence ?: 0).coerceIn(0, 100)
             v3ZeroSignalProbe = reqScore <= 0 && reqConf <= 10
-            // V5.0.8094 — a zero-signal V3 request (score <= 0, conf <= 10) is the weakest conviction there is: it is
-            // never enlarged. 6018 lifted it to the live compound floor (up to 18% of the wallet); the executor now
-            // consumes the requested / sealed amount, and the FDG + LiveRiskPolicy7807 decide whether it trades at all.
-            execSol = req.sizeSol
-            if (v3ZeroSignalProbe) try { PipelineHealthCollector.labelInc("V3_ZERO_SIGNAL_NOT_ENLARGED_8094") } catch (_: Throwable) {}
+            execSol = if (v3ZeroSignalProbe) {
+                // V5.0.6018 — no more live dollar probes. A V3 zero-signal that is
+                // still allowed to execute must respect the live compounding floor;
+                // otherwise big winners cannot move a sub-1 SOL wallet. True bad
+                // candidates are handled by upstream hard safety/stage gates.
+                val probeSol = com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
+                    req.sizeSol.coerceAtLeast(0.001),
+                    walletSol,
+                    isPaperMode = false,
+                )
+                try {
+                    PipelineHealthCollector.labelInc("V3_ZERO_SIGNAL_COMPOUND_FLOOR_6018")
+                    ForensicLogger.lifecycle("V3_ZERO_SIGNAL_COMPOUND_FLOOR_6018", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$reqScore conf=$reqConf band=${req.band ?: "UNKNOWN"} requested=${"%.4f".format(req.sizeSol)} exec=${"%.4f".format(probeSol)} action=compound_floor_live_learning")
+                } catch (_: Throwable) {}
+                probeSol
+            } else req.sizeSol
             if (walletSol < execSol + 0.01) {
                 return com.lifecyclebot.v3.ExecuteResult(success = false, error = "insufficient wallet SOL: ${"%.4f".format(walletSol)} < ${"%.4f".format(execSol + 0.01)}")
             }
@@ -18671,7 +18682,8 @@ class BotService : Service() {
         // V5.0.6647 — forced/canonical opens are exit work, never discovery
         // workers.  All 104+ opens remain owned by the dedicated exit paths.
         val forcedOpenForSupervisor: List<String> = emptyList()
-        val mustInclude = pendingLiveBuyMints8094(otherMints).toMutableList()
+        val mustInclude = mutableListOf<String>()
+        mustInclude.addAll(pendingLiveBuyMints8094(otherMints))  // V5.0.8094 — deferred live buys (not opens)
         val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
         if (budget == 0 || otherMints.isEmpty()) {
             try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}

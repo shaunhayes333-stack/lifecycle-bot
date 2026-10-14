@@ -436,9 +436,7 @@ object TradeAuthorizer {
         // V5.0.7948 — a confirmed live rug (RugCheck 0) is deterministic and needs no
         // seal: refuse it here, before READY, the FDG seal and the ticket. 5.0.7947
         // minted BLUECHIP tickets and then refused 13 of them as RUGCHECK_CATASTROPHIC.
-        // V5.0.8094 — "confirmed" means the safety report convicted it (explicit danger evidence), not a bare 0.
-        if (SpecialistExecution7948.isConfirmedRugForLive7948(rugcheckScore, isPaperMode) &&
-            tokenState7835?.safety?.hardBlockReasons?.any { it.startsWith("Rugcheck score 0") } != false) {
+        if (SpecialistExecution7948.isConfirmedRugForLive7948(rugcheckScore, isPaperMode)) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore (confirmed rug) before seal")
             releasePrimaryAfterAuthFailure("RUGCHECK_CATASTROPHIC")
             return AuthorizationResult(

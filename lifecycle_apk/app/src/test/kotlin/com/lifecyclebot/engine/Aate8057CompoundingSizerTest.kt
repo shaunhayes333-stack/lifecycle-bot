@@ -83,10 +83,8 @@ class Aate8057CompoundingSizerTest {
     }
 
     @Test fun weakRequestsAreNeverEnlargedByLegacyFloors() {
-        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val v3 = bot.substring(bot.indexOf("fun runV3Execution"), bot.indexOf("fun manualBuy"))
-        assertTrue(v3.contains("execSol = req.sizeSol"))
-        assertTrue(!v3.contains("LiveSizingProfile.lastMileEntryFloor("))               // zero-signal never lifted
+        // V3 zero-signal sizing stays on the owner-pinned 6018 contract (GoldenTape); live zero-signal never reaches
+        // runV3Execution — laneQualifiedBuyDecision makes it DUST_PROBE_SHADOW_ONLY_8080.
         val sizer = File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
         assertTrue(sizer.contains("if (isPaperMode) v = LiveSizingProfile.laneCompoundFloor("))  // paper floor only
         val p = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()

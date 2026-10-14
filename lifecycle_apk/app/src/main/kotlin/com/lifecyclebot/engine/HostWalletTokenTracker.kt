@@ -1365,14 +1365,16 @@ object HostWalletTokenTracker {
             // row", host projection 0 vs canonical 2) was ignored and never re-tracked. It is adopted below with its
             // canonical symbol, basis and lineage; a true stranger token stays ignored.
             val canonicalLive8094 = try { com.lifecyclebot.engine.truth.AccountingIntegrity7948.canonicalLiveOpen7948(mint) } catch (_: Throwable) { false }
-            if (!RECOVER_ORPHAN_WALLET_TOKENS && !canonicalLive8094) {
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "ORPHAN_WALLET_TOKEN_IGNORED",
-                        "mint=${mint.take(10)} qty=$uiAmount decimals=$decimals reason=ORPHAN_RECOVERY_DISABLED"
-                    )
-                } catch (_: Throwable) {}
-                continue
+            if (!RECOVER_ORPHAN_WALLET_TOKENS) {
+                if (!canonicalLive8094) {
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "ORPHAN_WALLET_TOKEN_IGNORED",
+                            "mint=${mint.take(10)} qty=$uiAmount decimals=$decimals reason=ORPHAN_RECOVERY_DISABLED"
+                        )
+                    } catch (_: Throwable) {}
+                    continue
+                }
             }
             // V5.0.7137 — ASK WHETHER WE BOUGHT IT BEFORE CALLING IT A STRANGER.
             //

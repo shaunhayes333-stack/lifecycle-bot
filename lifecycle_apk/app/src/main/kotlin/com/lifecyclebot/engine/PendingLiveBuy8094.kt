@@ -13,7 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
  * gate) for [TTL_MS]. No gate changes: the retry faces every check the first attempt did.
  */
 object PendingLiveBuy8094 {
-    private const val TTL_MS = 60_000L
+    // Entry repair: 60 s let a deferred buy fill long after its signal (SHITCOIN lat=40s, stopped -17..-40% within
+    // minutes). A deferral older than this is a missed entry, not one to chase.
+    internal const val TTL_MS = 8_000L
     private const val MAX_PER_CYCLE = 8
     private val pending = ConcurrentHashMap<String, Long>()
 

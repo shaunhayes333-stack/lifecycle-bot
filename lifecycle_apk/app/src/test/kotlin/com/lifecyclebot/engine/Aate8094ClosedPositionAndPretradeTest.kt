@@ -53,21 +53,29 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(PipelineHealthCollector.isNonTerminalBuyDeferral7868("PRETRADE_HARD_BLOCK_TOP_HOLDER_FATAL"))
     }
 
-    @Test fun freshTokenShapeComesFromItsObservedPrices() {
-        val t0 = 1_000_000L
-        val ticks = listOf(t0 to 1.0, t0 + 20_000L to 1.5, t0 + 40_000L to 2.0, t0 + 70_000L to 1.8)
-        val s = com.lifecyclebot.engine.cortex.TickShape8094.of(ticks, t0 + 75_000L)!!
-        assertEquals(80.0, s.runupPct, 1e-9)        // 1.8 vs low 1.0
-        assertEquals(0.9, s.pxPeak, 1e-9)           // 1.8 vs high 2.0
-        assertEquals(10.0, s.ddPct, 1e-9)
-        assertEquals(80.0, s.chg5mPct, 1e-9)        // span < 5m: change since the first tick
-        // Too few, too tight, or stale ticks vouch for nothing.
-        assertEquals(null, com.lifecyclebot.engine.cortex.TickShape8094.of(ticks.take(2), t0 + 75_000L))
-        assertEquals(null, com.lifecyclebot.engine.cortex.TickShape8094.of(listOf(t0 to 1.0, t0 + 3_000L to 1.1, t0 + 6_000L to 1.2), t0 + 7_000L))
-        assertEquals(null, com.lifecyclebot.engine.cortex.TickShape8094.of(ticks, t0 + 30L * 60_000L))
-        // Under a minute of ticks gives shape but no change.
-        val short = com.lifecyclebot.engine.cortex.TickShape8094.of(listOf(t0 to 1.0, t0 + 15_000L to 1.2, t0 + 30_000L to 1.1), t0 + 31_000L)!!
-        assertTrue(short.chg5mPct.isNaN())
+    @Test fun entryRepairKeepsEntryQualityAt8093Strength() {
+        // Unobserved shape / change stays unobserved: no tick-shape classification of fresh tokens.
+        val pb = src("engine/cortex/LanePlaybook7907.kt")
+        assertFalse(pb.contains("TickShape8094"))
+        assertTrue(pb.contains("val shapeKnown = shapeObs == Obs8084.OBSERVED"))
+        // A primary's native refusal is not a hand-off; only its FDG refusal is.
+        val own = src("engine/SpecialistOwnership7951.kt")
+        assertTrue(own.contains("if (!primaryRefused7960(mint, primaryLane, nowMs)) return false"))
+        assertFalse(own.contains("primaryNativeRefused8094"))
+        // Aggregator prices never enter the mark bars; a fresh native tape is never overwritten.
+        val fresh = src("engine/truth/CandidateMarkFresh8094.kt")
+        assertFalse(fresh.contains("MarkBars7948.note7948"))
+        assertTrue(fresh.contains("if (bpStale && r.buys5m >= 0"))
+        assertTrue(fresh.contains("if (chgStale && r.chg5m.isFinite())"))
+        // A deferred live buy is not chased past a few seconds.
+        assertTrue(PendingLiveBuy8094.TTL_MS <= 10_000L)
+        // Measured cost binds from the third live round trip, at the cheapest trip until the median rule takes over.
+        val c = com.lifecyclebot.engine.truth.CostLedger7962
+        assertEquals(3, c.EARLY_LIVE_N)
+        assertEquals(null, c.earlyCostFloor7962(listOf(26.0, 12.0)))
+        assertEquals(12.0, c.earlyCostFloor7962(listOf(26.0, 12.0, 30.0))!!, 1e-9)
+        assertTrue(c.refuses7962(10.0, c.earlyCostFloor7962(listOf(26.0, 12.0, 30.0))))
+        assertFalse(c.refuses7962(15.0, c.earlyCostFloor7962(listOf(26.0, 12.0, 30.0))))
     }
 
     @Test fun heliusExhaustionIsRecognisedAndMovesHeliusToTheBackOfTheLadder() {
@@ -121,14 +129,12 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(w.substring(fan, sender).contains("echoSend8009(localSig8085, signedB64, viaSender = false)"))
     }
 
-    @Test fun rugcheckZeroConvictsOnlyWithDangerEvidence() {
-        assertTrue(rugcheckConfirmsDanger8094(rugged = true, dangerRiskCount = 0))
-        assertTrue(rugcheckConfirmsDanger8094(rugged = false, dangerRiskCount = 1))
-        assertFalse(rugcheckConfirmsDanger8094(rugged = false, dangerRiskCount = 0))
+    @Test fun rugcheckZeroIsAHardBlockAgain() {
         val auth = src("engine/TradeAuthorizer.kt")
-        assertTrue(auth.contains("hardBlockReasons?.any { it.startsWith(\"Rugcheck score 0\") } != false"))
+        assertTrue(auth.contains("if (SpecialistExecution7948.isConfirmedRugForLive7948(rugcheckScore, isPaperMode)) {"))
         val chk = src("engine/TokenSafetyChecker.kt")
         assertTrue(chk.contains("hard.add(\"Rugcheck score 0/100 (CONFIRMED RUG RISK)\")"))
+        assertFalse(chk.contains("RUGCHECK_ZERO_NO_DANGER_FLAGS_8094"))
     }
 
     @Test fun establishedTokensGetKeylessBarsAndJupiterBirthWhileHeliusIsOut() {
@@ -140,23 +146,6 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(body.contains("mergeIntoHistory7819(ts, bars)"))
         val sweep = src("engine/market/MarketSweep7297.kt")
         assertTrue(sweep.contains("PoolCreationTime7385.record(mint, createdMs, \"JUP_FIRST_POOL_8094\")"))
-    }
-
-    @Test fun aReadySpecialistGetsTheTokenWhenThePrimaryRefusesNatively() {
-        fun op(eligible: Boolean, reason: String, gradeable: Boolean = true) =
-            SpecialistBrainBridge7542.Opinion("CORE", eligible, 40, 40, 0.0, reason, "S", "e", "x", gradeable = gradeable)
-        val h = SpecialistOwnership7951
-        // CORE yielding to the specialist is the deadlock 8093 showed (15,004 refusals, CASHGEN/QUALITY never evaluated).
-        assertTrue(h.nativeRefusalHandsOff8094(op(false, "CORE_YIELD_CLEAR_SPECIALIST_OWNER"), 1_000L, 2_000L))
-        assertTrue(h.nativeRefusalHandsOff8094(op(false, "LIQ_TOO_LOW: below SHITCOIN band"), 1_000L, 2_000L))
-        assertFalse(h.nativeRefusalHandsOff8094(op(false, "HARD BLOCK: rug pattern"), 1_000L, 2_000L))
-        assertFalse(h.nativeRefusalHandsOff8094(op(false, "DEV_SELLING"), 1_000L, 2_000L))
-        assertFalse(h.nativeRefusalHandsOff8094(op(true, "OK"), 1_000L, 2_000L))
-        // A lane that is busy, disabled or short of data passes the trade on (8093: CYCLIC PRICE_NOT_FRESH missed +1,185%).
-        assertTrue(h.nativeRefusalHandsOff8094(op(false, "CYCLIC_RING_POSITION_ACTIVE", gradeable = false), 1_000L, 2_000L))
-        assertTrue(h.nativeRefusalHandsOff8094(op(false, "PRICE_NOT_FRESH"), 1_000L, 2_000L))
-        assertFalse("stale opinion", h.nativeRefusalHandsOff8094(op(false, "MCAP_TOO_LOW"), 1_000L, 1_000L + 91_000L))
-        assertFalse(h.nativeRefusalHandsOff8094(null, 1_000L, 2_000L))
     }
 
     @Test fun liveSalesCarryTheirSolUsdSoCostIsMeasured() {
@@ -227,11 +216,11 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(listOf("A", "B"), p.pendingFrom8094(stamps, nowMs = 10_000L, ttlMs = 60_000L, max = 8))
         assertEquals(listOf("A"), p.pendingFrom8094(stamps, nowMs = 10_000L, ttlMs = 60_000L, max = 1))
         p.note8094("MINT_PENDING_8094", nowMs = 1_000L)
-        assertTrue(p.isPending8094("MINT_PENDING_8094", nowMs = 30_000L))
-        assertFalse(p.isPending8094("MINT_PENDING_8094", nowMs = 62_000L))
+        assertTrue(p.isPending8094("MINT_PENDING_8094", nowMs = 5_000L))
+        assertFalse(p.isPending8094("MINT_PENDING_8094", nowMs = 30_000L))
         assertTrue(src("engine/ExecutionAttemptLease.kt").contains("PendingLiveBuy8094.note8094(mint)"))
         assertTrue(src("engine/DataOrchestrator.kt").contains("if (PendingLiveBuy8094.isPending8094(mint)) return true"))
-        assertTrue(src("engine/BotService.kt").contains("val mustInclude = pendingLiveBuyMints8094(otherMints).toMutableList()"))
+        assertTrue(src("engine/BotService.kt").contains("mustInclude.addAll(pendingLiveBuyMints8094(otherMints))"))
     }
 
     @Test fun aSelfCorroboratingCapCannotBookA7000xOnAMillionDollarCoin() {

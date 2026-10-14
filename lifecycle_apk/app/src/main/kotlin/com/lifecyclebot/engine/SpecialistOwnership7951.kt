@@ -301,29 +301,9 @@ object SpecialistOwnership7951 {
     internal fun handOffAllowed7960(lane: String, mint: String, primaryLane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val l = lane7951(lane)
         if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) return false
-        val native8094 = !primaryRefused7960(mint, primaryLane, nowMs) && primaryNativeRefused8094(mint, primaryLane, nowMs)
-        if (!native8094 && !primaryRefused7960(mint, primaryLane, nowMs)) return false
+        if (!primaryRefused7960(mint, primaryLane, nowMs)) return false
         val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
-        if (ready) notePreIntent7951(l, if (native8094) "READY_HANDED_OFF_NATIVE_${lane7951(primaryLane)}_8094" else "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
+        if (ready) notePreIntent7951(l, "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
         return ready
     }
-
-    // V5.0.8094 — the hand-off opened only on the primary's FDG refusal, but most primaries refuse in their own native
-    // brain before the FDG: 8093 CORE refused 15,004 times as CORE_YIELD_CLEAR_SPECIALIST (yield to the specialist)
-    // while CASHGEN / QUALITY sat READY_NOT_EVALUATED_PRIMARY_CORE — a deadlock. A fresh, graded native refusal on a
-    // lane-fit rule (a lane's own mcap / liquidity / age band, its own score — or the lane being busy, disabled or short
-    // of data: CYCLIC's PRICE_NOT_FRESH / RING_POSITION_ACTIVE) now opens the same hand-off; a safety, rug,
-    // dev, bundle or hard-block refusal never does. The receiving lane's own floors and every gate still decide.
-    private fun primaryNativeRefused8094(mint: String, primaryLane: String, nowMs: Long): Boolean = try {
-        val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint)
-        snap != null && nativeRefusalHandsOff8094(snap.opinions[lane7951(primaryLane)], snap.evaluatedAtMs, nowMs)
-    } catch (_: Throwable) { false }
-
-    /** Pure (V5.0.8094): does the primary's native opinion refuse on a lane-fit rule, fresh within the hand-off window? */
-    internal fun nativeRefusalHandsOff8094(op: SpecialistBrainBridge7542.Opinion?, evaluatedAtMs: Long, nowMs: Long): Boolean =
-        op != null && !op.eligible && op.authoritative && nowMs - evaluatedAtMs in 0..REFUSED_HANDOFF_MS_7960 &&
-            HANDOFF_BLOCKING_8094.none { op.reason.uppercase().contains(it) }
-
-    private val HANDOFF_BLOCKING_8094 = listOf("RUG", "SAFETY", "HONEYPOT", "BLOCK", "DEV", "BUNDLE", "SCAM", "FREEZE",
-        "MINT_AUTH", "BLACKLIST", "ERROR", "ZERO_LIQ", "NO_LIQ", "LIQ_ZERO")
 }

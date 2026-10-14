@@ -100,7 +100,8 @@ object CandidateMarkFresh8094 {
             }
             if (!applied) continue
             refreshed.incrementAndGet()
-            try { MarkBars7948.note7948(mint, px, at) } catch (_: Throwable) {}
+            // Entry repair: an aggregator price is never written into the mark bars — mixed-source ticks there
+            // drew moves that never happened.
         }
         try { PipelineHealthCollector.labelInc("CANDIDATE_MARK_REFRESHED_8094") } catch (_: Throwable) {}
     }
@@ -160,13 +161,16 @@ object CandidateMarkFresh8094 {
             synchronized(ts) {
                 if (!ts.position.isOpen) {
                     val n = r.buys5m + r.sells5m
-                    if (r.buys5m >= 0 && r.sells5m >= 0 && n > 0) {
+                    // Entry repair: fill only an unobserved / stale reading; a fresh native tape is never overwritten.
+                    val bpStale = ts.buyPressureObservedAtMs8084 <= 0L || at - ts.buyPressureObservedAtMs8084 > INPUT_STALE_MS
+                    val chgStale = ts.priceChangeObservedAtMs8084 <= 0L || at - ts.priceChangeObservedAtMs8084 > INPUT_STALE_MS
+                    if (bpStale && r.buys5m >= 0 && r.sells5m >= 0 && n > 0) {
                         ts.lastBuyPressurePct = r.buys5m * 100.0 / n
                         ts.lastSellPressurePct = r.sells5m * 100.0 / n
                         ts.buyPressureObservedAtMs8084 = at
                         filled = true
                     }
-                    if (r.chg5m.isFinite()) {
+                    if (chgStale && r.chg5m.isFinite()) {
                         ts.lastPriceChange5m = r.chg5m
                         if (r.chg1h.isFinite()) ts.lastPriceChange1h = r.chg1h
                         ts.priceChangeObservedAtMs8084 = at

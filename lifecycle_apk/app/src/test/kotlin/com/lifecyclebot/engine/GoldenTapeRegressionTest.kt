@@ -14745,7 +14745,9 @@ class GoldenTapeRegressionTest {
             assertFalse(n, names.contains(n))
         }
         val sweep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearningResetSweep7781.kt").readText()
-        assertTrue(sweep.contains("TradeHistoryStore.clearAllTrades()"))
+        // 8093 (owner): the economic journal is an audit trail; a reset begins a new journal cohort instead of deleting it.
+        assertTrue(sweep.contains("JournalCohort6389.beginNewCohort(generation)"))
+        assertFalse(sweep.contains("z(\"JOURNAL\") { com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades() }"))
         assertTrue(sweep.contains("TradingMemory.clearLearned7781()"))
         val app = java.io.File("src/main/kotlin/com/lifecyclebot/AATEApp.kt").readText()
         assertTrue(app.indexOf("LearningResetSweep7781.applyPendingAtBoot") in 1 until app.indexOf("TradeHistoryStore.init(this)"))
