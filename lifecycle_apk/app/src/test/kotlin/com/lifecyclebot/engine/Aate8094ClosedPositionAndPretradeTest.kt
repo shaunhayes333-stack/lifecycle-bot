@@ -336,4 +336,12 @@ class Aate8094ClosedPositionAndPretradeTest {
         // A post-pump token still never becomes a sniper/runner style: tooLateForSnipe stays first.
         assertTrue(r.indexOf("launch7402?.tooLateForSnipe == true -> sameLaneWeakPivotStyle") < provenBranch)
     }
+
+    @Test fun confidenceAtTheCurrentTimingCanOnlyLowerTheSize() {
+        val p = com.lifecyclebot.engine.truth.LiveRiskPolicy7807
+        assertEquals(0.10, p.timingCappedFrac8094(0.10, null), 1e-12)
+        assertEquals(0.10, p.timingCappedFrac8094(0.10, doubleArrayOf(-20.0, 400.0, 8.0)), 1e-12)   // too few labels
+        assertEquals(0.0, p.timingCappedFrac8094(0.10, doubleArrayOf(-20.0, 400.0, 20.0)), 1e-12)   // losing band
+        assertTrue(p.timingCappedFrac8094(0.10, doubleArrayOf(30.0, 400.0, 40.0)) <= 0.10)
+    }
 }

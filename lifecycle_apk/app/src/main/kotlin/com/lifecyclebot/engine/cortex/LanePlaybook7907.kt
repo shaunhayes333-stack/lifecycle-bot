@@ -962,6 +962,16 @@ object LanePlaybook7907 {
         }
     } catch (_: Throwable) { null }
 
+    /** V5.0.8094 — [mean, variance, n] of this coin's picked setup at its CURRENT timing band, or null when unrecorded. */
+    fun timingStat8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
+        val lane = canon(laneRaw)
+        val setup = classify(ts, lane, nowMs)
+        val band = timingBandOf8094(ts)
+        if (setup == null || band == TIMING_UNKNOWN_8094) null else synchronized(this) {
+            timingBooks8094[lane]?.get("$setup|$band")?.let { doubleArrayOf(it.mean(), it.variance(), it.n) }
+        }
+    } catch (_: Throwable) { null }
+
     /** Pure (V5.0.8094): a setup record that is losing on its own evidence — 12+ graded labels and mean + SE below zero. */
     fun setupRecordNegative8094(n: Double, mean: Double, variance: Double): Boolean {
         if (n < NEGATIVE_N_8094 || !mean.isFinite()) return false

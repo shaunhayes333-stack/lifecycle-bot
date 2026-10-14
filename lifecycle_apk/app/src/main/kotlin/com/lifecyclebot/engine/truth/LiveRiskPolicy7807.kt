@@ -177,11 +177,20 @@ object LiveRiskPolicy7807 {
         return minOf(equitySol * frac, laneCapSol, liqCapSol, hardLossCap).coerceAtLeast(0.0)
     }
 
+    /** Pure (V5.0.8094): [frac] capped by the timing band's own quarter-Kelly share once that band has 12+ labels. */
+    fun timingCappedFrac8094(frac: Double, timing: DoubleArray?): Double =
+        if (timing == null || timing.size < 3 || timing[2] < com.lifecyclebot.engine.cortex.LanePlaybook7907.NEGATIVE_N_8094) frac
+        else minOf(frac, kellyFrac8057(timing[0], timing[1], timing[2]))
+
     /** V5.0.8057 — the proven-edge quarter-Kelly share for [ts] in [lane], or 0. */
     fun edgeKellyFracFor8057(ts: com.lifecyclebot.data.TokenState, lane: String): Double = try {
         val l = canonicalLane(lane)
         val st = com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetupStat8057(ts, l)
-        val setupFrac = if (st == null) 0.0 else kellyFrac8057(st[0], st[1], st[2])
+        val setupFrac0 = if (st == null) 0.0 else kellyFrac8057(st[0], st[1], st[2])
+        // V5.0.8094 — confidence at THIS point of the move: once the setup's record in the coin's current timing band has
+        // 12+ labels, the size is the smaller of the two quarter-Kelly shares (timing can only lower it).
+        val tim8094 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingStat8094(ts, l) } catch (_: Throwable) { null }
+        val setupFrac = timingCappedFrac8094(setupFrac0, tim8094)
         // V5.0.8062 — or the coin's own proven cell (5.0.8059: PUMP_PORTAL_WS|SHITCOIN|MC_10K_100K|AGE_LT15M live book
         // n19 +124.7%, label book n33 +474%): the best measured edge the bot has gets the compounding size too.
         val c = try { ForwardReturnLabeler7731.cellStatFor(ts, l) } catch (_: Throwable) { null }
