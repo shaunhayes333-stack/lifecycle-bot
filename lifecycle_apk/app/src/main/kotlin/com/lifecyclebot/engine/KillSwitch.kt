@@ -588,6 +588,35 @@ object KillSwitch {
     }
     
     /**
+     * 8093: operator's EXPLICIT new proof/learning run may re-anchor the
+     * marked-equity high-water used for sizing. Never erase canonical losses,
+     * loss-streak cooldown, manual halt, or on-chain history here.
+     */
+    @Synchronized fun reanchorExplicitProofRun8093(context: Context): Boolean {
+        if (RuntimeModeAuthority.isPaper()) return false
+        val equity = try {
+            com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(BotService.status.walletSol)
+        } catch (_: Throwable) { Double.NaN }
+        if (!equity.isFinite() || equity <= 0.0) return false
+        if (!initializedLive7835) initLive7835(context.applicationContext, equity)
+        val oldPeak = peakBalance
+        val now = System.currentTimeMillis()
+        if (!com.lifecyclebot.engine.truth.CapitalDrawdown7948.reanchorExplicitRun8093(equity, now)) return false
+        peakBalance = equity
+        peakAt7948 = now
+        dailyStartBalance = equity
+        dailyStartDate = now
+        // Preserve genuine chain-verified loss streak and operator safety latch.
+        save(context.applicationContext)
+        try {
+            PipelineHealthCollector.labelInc("EXPLICIT_LIVE_RISK_BASELINE_REANCHORED_8093")
+            ForensicLogger.lifecycle("EXPLICIT_LIVE_RISK_BASELINE_REANCHORED_8093",
+                "previousPeak=$oldPeak newMarkedEquity=$equity chainLossStreak=$consecutiveLosses manualOrSafetyHalt=$isKilled")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
      * Reset kill switch (manual reset required)
      */
     fun reset(context: Context, newBalance: Double) {
