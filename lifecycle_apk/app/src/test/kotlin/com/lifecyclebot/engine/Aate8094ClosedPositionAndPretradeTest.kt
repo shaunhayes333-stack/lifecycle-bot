@@ -65,7 +65,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         val fresh = src("engine/truth/CandidateMarkFresh8094.kt")
         assertFalse(fresh.contains("MarkBars7948.note7948"))
         // A deferred live buy is not chased past a few seconds.
-        assertTrue(PendingLiveBuy8094.TTL_MS <= 10_000L)
+        assertTrue(PendingLiveBuy8094.TTL_MS in 15_000L..30_000L)   // survives one full cycle
         // A picked setup with a losing record (12+ labels, mean + SE < 0) is refused, runner lane or not.
         val pb8094 = com.lifecyclebot.engine.cortex.LanePlaybook7907
         assertEquals(12.0, pb8094.NEGATIVE_N_8094, 1e-9)
@@ -231,8 +231,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(listOf("A", "B"), p.pendingFrom8094(stamps, nowMs = 10_000L, ttlMs = 60_000L, max = 8))
         assertEquals(listOf("A"), p.pendingFrom8094(stamps, nowMs = 10_000L, ttlMs = 60_000L, max = 1))
         p.note8094("MINT_PENDING_8094", nowMs = 1_000L)
-        assertTrue(p.isPending8094("MINT_PENDING_8094", nowMs = 5_000L))
-        assertFalse(p.isPending8094("MINT_PENDING_8094", nowMs = 30_000L))
+        assertTrue(p.isPending8094("MINT_PENDING_8094", nowMs = 15_000L))
+        assertFalse(p.isPending8094("MINT_PENDING_8094", nowMs = 40_000L))
         assertTrue(src("engine/ExecutionAttemptLease.kt").contains("PendingLiveBuy8094.note8094(mint)"))
         assertTrue(src("engine/DataOrchestrator.kt").contains("if (PendingLiveBuy8094.isPending8094(mint)) return true"))
         assertTrue(src("engine/BotService.kt").contains("mustInclude.addAll(pendingLiveBuyMints8094(otherMints))"))

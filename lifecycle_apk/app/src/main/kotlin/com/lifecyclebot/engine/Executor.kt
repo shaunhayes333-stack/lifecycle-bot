@@ -4037,7 +4037,7 @@ class Executor(
     private fun movedSinceDecisionRefused8094(ts: TokenState, lane: String): Boolean = try {
         val d = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.decisionPx8094(ts.mint)
         val snap = try { TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
-        val moved = d != null && System.currentTimeMillis() - d.second in 0L..10L * 60_000L &&
+        val moved = d != null && System.currentTimeMillis() - d.second in 0L..3L * 60_000L &&
             movedSinceDecision8094(d.first, ts.lastPrice, MOVED_MAX_PCT_8094)
         val chasing = snap != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.chasing8065(
             snap.runupFromLocalLowPct, snap.currentVsPeak, ts.lastPriceChange5m)
@@ -31426,7 +31426,9 @@ class Executor(
             // existing token balance pre-broadcast so the operator can see
             // the before/after at the trade screen. Async post-broadcast
             // watcher logs BUY_VERIFIED_LANDED when the chain catches up.
-            val preWalletSol: Double = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
+            // V5.0.8094 — the cached wallet balance when present (no RPC round trip in front of the buy); RPC otherwise.
+            val preWalletSol: Double = WalletManager.cachedSolBalance().takeIf { it > 0.0 }
+                ?: try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
             val preTokenQty: Double = try {
                 wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
             } catch (_: Throwable) { 0.0 }

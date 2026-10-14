@@ -1312,11 +1312,12 @@ object LanePlaybook7907 {
             val stamps = graded.distinct().associateWith { setup ->
                 // V5.0.8080 — each setup is graded on its own exit family (scalp vs long hold) of the same path.
                 val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)
-                books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
+                val stamp = books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
                 if (timing8094 != null && timing8094 != TIMING_UNKNOWN_8094) timingBooks8094.getOrPut(lane) { HashMap() }
                     .getOrPut("$setup|$timing8094") { CortexLedger7885.Stat() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
+                stamp
             }
             if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
             // Revisions only ever move long-hold setups, so the grade keeps the long-hold family's value.
