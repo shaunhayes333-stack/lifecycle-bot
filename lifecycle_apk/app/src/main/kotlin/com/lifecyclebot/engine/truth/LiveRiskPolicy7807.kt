@@ -447,7 +447,8 @@ object LiveRiskPolicy7807 {
         if (i.laneOpenLive >= b.maxConcurrentLive) {
             return Decision(false, 0.0, "LANE_SLOT_CAP_7807", labels, stop, 0.0, 0.0)
         }
-        val probeSize = if (i.upstreamSol > 0.0) i.upstreamSol else i.execMinSol
+        // V5.0.8094 — the order is never below the executable minimum, so its cost is judged at least at that size.
+        val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, i.execMinSol)
         val cost0 = roundTripCostPct(probeSize, i.solUsd, i.liquidityUsd)
         val costMult = when (costVerdict(firstTarget, cost0)) {
             CostVerdict.PASS -> return Decision(false, 0.0, "COST_CONSUMES_MOVE_7807", labels, stop, cost0, 0.0)

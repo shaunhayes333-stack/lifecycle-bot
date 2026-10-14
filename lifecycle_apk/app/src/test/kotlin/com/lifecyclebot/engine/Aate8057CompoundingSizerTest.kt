@@ -77,4 +77,15 @@ class Aate8057CompoundingSizerTest {
         assertEquals("LIQUIDITY", t.firstBindingCap8094(0.07, 1.0, 1.0, 0.08, 0.02, 0.1, 0.06))
         assertEquals("RISK", t.firstBindingCap8094(0.07, 1.0, 1.0, 0.08, 1.0, 0.03, 0.06))
     }
+
+    @Test fun weakRequestsAreNeverEnlargedByLegacyFloors() {
+        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val v3 = bot.substring(bot.indexOf("fun runV3Execution"), bot.indexOf("fun manualBuy"))
+        assertTrue(v3.contains("execSol = req.sizeSol"))
+        assertTrue(!v3.contains("LiveSizingProfile.lastMileEntryFloor("))               // zero-signal never lifted
+        val sizer = File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        assertTrue(sizer.contains("if (isPaperMode) v = LiveSizingProfile.laneCompoundFloor("))  // paper floor only
+        val p = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
+        assertTrue(p.contains("val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, i.execMinSol)"))
+    }
 }

@@ -926,7 +926,10 @@ object SmartSizer {
                 var v = size
                 val gateMult = LiveSizingProfile.consumeGateSoftShape("")
                 if (gateMult < 0.999) v *= gateMult
-                v = LiveSizingProfile.laneCompoundFloor(
+                // V5.0.8094 — live sizing has ONE authority: LiveRiskPolicy7807 at the FDG, under the candidate's
+                // LiveSizeTarget8094 ceiling. The conviction compound floor (12/18/25% tiers) stays a PAPER floor; on
+                // live it lifted every proposal toward 18% of the wallet only for the policy to clamp it back.
+                if (isPaperMode) v = LiveSizingProfile.laneCompoundFloor(
                     lane = laneMode,
                     baseSol = v,
                     walletSol = effectiveWallet,
