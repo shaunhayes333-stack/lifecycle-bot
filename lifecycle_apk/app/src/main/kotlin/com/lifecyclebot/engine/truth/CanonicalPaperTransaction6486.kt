@@ -516,10 +516,17 @@ object CanonicalPaperTransaction6486 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_OPEN_DEFERRED_PRELOOP_RECONCILE_7388") } catch (_: Throwable) {}
             return@withLock Result(false, positionId, "PAPER_PRELOOP_RECONCILE_PENDING_7388")
         }
+        // V5.0.8093 — resolve one authoritative intent ONCE. A recovered
+        // pending intent must also receive the terminal result after a fill.
+        // Previously validation used the recovered intent but confirmation
+        // only used executionIntent?, leaving PAPER dispatches nonterminal.
+        val authorizedIntent8093 = if (assetClass != AssetClass.SOLANA_TOKEN)
+            (executionIntent ?: CanonicalEntryAuthority6551.findPending(mint, "PAPER"))
+        else null
         // V5.0.6551 — every non-Solana paper open must be authorized before
         // debit. Missing/mismatched intent is rejected without mutation.
         if (assetClass != AssetClass.SOLANA_TOKEN) {
-            val intent = executionIntent ?: CanonicalEntryAuthority6551.findPending(mint, "PAPER")
+            val intent = authorizedIntent8093
                 ?: return@withLock Result(false, positionId, "MISSING_CANONICAL_EXECUTION_INTENT")
             if (intent.assetClassTag != assetClass.tag || intent.mint != mint || intent.candidateVersion <= 0L || !intent.fdgAllowed ||
                 intent.authoritativeSignal.uppercase() != "BUY" ||
@@ -641,7 +648,7 @@ object CanonicalPaperTransaction6486 {
         CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_OPEN_COMMITTED_6486") } catch (_: Throwable) {}
         if (assetClass != AssetClass.SOLANA_TOKEN) {
-            executionIntent?.let { CanonicalEntryAuthority6551.markConfirmed(it, positionId) }
+            authorizedIntent8093?.let { CanonicalEntryAuthority6551.markConfirmed(it, positionId) }
         }
         try {
             if (usesLegacySyntheticQty7258) {
