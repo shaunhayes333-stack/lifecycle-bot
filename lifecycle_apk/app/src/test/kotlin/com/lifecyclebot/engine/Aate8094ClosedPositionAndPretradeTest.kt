@@ -10,14 +10,22 @@ class Aate8094ClosedPositionAndPretradeTest {
     private fun src(rel: String) = File("src/main/kotlin/com/lifecyclebot/$rel").readText()
 
     @Test fun aRuntimePositionIsRetiredOnlyWithEveryCloseProof() {
-        // EMUZCh: entry 23:50, canonical close 23:56:57, wallet absent -> retire.
-        assertTrue(closedRuntimeRetirable8094(entryTimeMs = 1_000L, closedAtMs = 2_000L, walletHolds = false))
-        // A wallet that still holds the mint is never retired.
-        assertFalse(closedRuntimeRetirable8094(1_000L, 2_000L, walletHolds = true))
+        val dust = java.math.BigInteger.ONE
+        // EMUZCh: entry 23:50, canonical close 23:56:57, a COMPLETE wallet snapshot at 23:58 without the mint -> retire.
+        val zeroAt = walletZeroProvenAt8094(snapshotComplete = true, snapshotAtMs = 3_000L, heldRaw = null, dustRaw = dust)
+        assertTrue(closedRuntimeRetirable8094(entryTimeMs = 1_000L, closedAtMs = 2_000L, walletZeroProvenAtMs = zeroAt))
+        // A partial snapshot, no snapshot, or a snapshot that still holds the mint proves nothing.
+        assertEquals(0L, walletZeroProvenAt8094(false, 3_000L, null, dust))
+        assertEquals(0L, walletZeroProvenAt8094(true, 0L, null, dust))
+        assertEquals(0L, walletZeroProvenAt8094(true, 3_000L, java.math.BigInteger.valueOf(5_000L), dust))
+        assertFalse(closedRuntimeRetirable8094(1_000L, 2_000L, walletZeroProvenAtMs = 0L))
+        // A snapshot taken BEFORE the close is not proof of the post-close wallet.
+        assertFalse(closedRuntimeRetirable8094(1_000L, 2_000L, walletZeroProvenAtMs = 1_500L))
         // A close of an EARLIER entry cannot retire a fresh buy.
-        assertFalse(closedRuntimeRetirable8094(entryTimeMs = 3_000L, closedAtMs = 2_000L, walletHolds = false))
+        assertFalse(closedRuntimeRetirable8094(entryTimeMs = 3_000L, closedAtMs = 2_000L, walletZeroProvenAtMs = 4_000L))
         // No canonical close at all.
-        assertFalse(closedRuntimeRetirable8094(1_000L, 0L, walletHolds = false))
+        assertFalse(closedRuntimeRetirable8094(1_000L, 0L, walletZeroProvenAtMs = 4_000L))
+        assertFalse(src("engine/Executor.kt").contains("closedRuntimeRetirable8094(pos.entryTime, closedAt, HostWalletTokenTracker"))
     }
 
     @Test fun requestSellRetiresBeforeAnySellWork() {
@@ -88,13 +96,10 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(gate.contains("!oracleHardSafety7287"))
     }
 
-    @Test fun sellsAreNotBlockedForeverByAnUnreadablePreviousSignature() {
-        val l = com.lifecyclebot.network.SignedTxLedger8085
-        val lapse = l.SELL_GUARD_LAPSE_MS_8094
-        assertTrue(lapse >= 150_000L)                                  // past any blockhash lifetime
-        assertTrue(l.sellGuardLapsed8094("SELL", 1_000L, 1_000L + lapse))
-        assertFalse(l.sellGuardLapsed8094("SELL", 1_000L, 1_000L + lapse - 1))
-        assertFalse("a buy is never doubled", l.sellGuardLapsed8094("BUY", 1_000L, 1_000L + 10 * lapse))
+    @Test fun anUnreadablePreviousSignatureStaysUnknownAndIsResolvedOnTheLadder() {
+        // Elapsed time is not chain evidence: no time-based expiry of an unreadable previous signature.
+        val ledger = File("src/main/kotlin/com/lifecyclebot/network/SignedTxLedger8085.kt").readText()
+        assertFalse(ledger.contains("sellGuardLapsed8094"))
         // An exhausted plan is a dead endpoint (fail over), not the caller's answer.
         assertTrue(com.lifecyclebot.network.rpcExhaustedReply8094(200, "max usage reached"))
         assertTrue(com.lifecyclebot.network.rpcExhaustedReply8094(402, ""))
@@ -102,7 +107,10 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(com.lifecyclebot.network.rpcExhaustedReply8094(200, "Transaction simulation failed"))
         val w = File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
         assertTrue(w.contains("if (rpcExhaustedReply8094(code, errMsg)) {"))
-        assertTrue(w.contains("SignedTxLedger8085.sellGuardLapsed8094(intent.side, prev.createdAtMs"))
+        assertFalse(w.contains("sell_guard_lapsed_8094"))
+        // An unresolved previous signature still blocks the second order and is re-resolved on the RPC ladder.
+        val guard = w.substringAfter("private fun guardDuplicate8085(").substringBefore("private fun resolveOnce8085(")
+        assertTrue(guard.contains("scheduleResolve8085(prev.signature)") && guard.contains("throw DuplicateOrderPrevented8085(prev.signature, intent.side)"))
     }
 
     @Test fun aSignedSellIsBroadcastEverywhereAtOnceAndSkipsAnExhaustedSender() {
@@ -228,8 +236,8 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aSelfCorroboratingCapCannotBookA7000xOnAMillionDollarCoin() {
         val lab = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
-        // A $6.4k launch to $1.2M (187x) with the cap moving alike is a real run: booked.
-        assertTrue(lab.runCorroborated7769(1.0e-6, 1.87e-4, 6_400.0, 1_200_000.0, 150.0))
+        // A $6.4k launch to $1.92M (300x) with the cap moving alike is a real run: booked.
+        assertTrue(lab.runCorroborated7769(1.0e-6, 3.0e-4, 6_400.0, 1_920_000.0, 150.0))
         // RETARDIO-shape: a $2M coin "moving" 7,200x with a cap derived from the same price: a basis error.
         assertFalse(lab.runCorroborated7769(1.0e-6, 7.2e-3, 2_000_000.0, 14_400_000_000.0, 150.0))
         assertEquals(1_000_000.0, lab.CORROBORATED_RUN_MAX_ENTRY_MCAP_8094, 1e-9)

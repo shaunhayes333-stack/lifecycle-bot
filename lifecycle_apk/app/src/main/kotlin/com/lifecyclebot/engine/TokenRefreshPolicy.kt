@@ -216,6 +216,9 @@ object WalletAccountCache {
         }
     }
 
+    /** V5.0.8094 — when the cached snapshot was taken (0 = none). */
+    fun snapshotAtMs8094(): Long = cachedAtMs
+
     /** Store a fresh snapshot. */
     fun put(tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
         cachedTokens = tokens

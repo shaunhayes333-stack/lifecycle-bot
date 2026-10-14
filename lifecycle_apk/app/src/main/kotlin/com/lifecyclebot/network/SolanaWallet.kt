@@ -545,15 +545,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val prev = SignedTxLedger8085.unresolvedFor(intent.mint, intent.side) ?: return
         try { resolveOnce8085(prev) } catch (_: Throwable) {}
         if (!prev.unresolved) return
-        // V5.0.8094 — a SELL whose previous signature is older than any blockhash can live and still unreadable
-        // (status RPC failing, e.g. Helius out of credit) no longer blocks the exit: that transaction can no longer
-        // land, and a new sell sizes from the live wallet balance, so a sell that did land is never repeated.
-        // Buys keep the strict guard (a second buy would double exposure).
-        if (SignedTxLedger8085.sellGuardLapsed8094(intent.side, prev.createdAtMs, System.currentTimeMillis())) {
-            SignedTxLedger8085.transition(prev.signature, SignedTxLedger8085.State.EXPIRED_PROVEN, "sell_guard_lapsed_8094_blockhash_age")
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SELL_GUARD_LAPSED_8094") } catch (_: Throwable) {}
-            return
-        }
+        // V5.0.8094 — elapsed time is not chain evidence: a previous signature stays UNKNOWN (and blocks a second
+        // order) until signature status or blockhash expiry proves it. The status / blockhash reads walk the RPC
+        // ladder (an exhausted Helius fails over to Alchemy / public nodes), and scheduleResolve8085 keeps retrying.
+        try { scheduleResolve8085(prev.signature) } catch (_: Throwable) {}
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_DUPLICATE_ORDER_PREVENTED_8085")
             com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_DUPLICATE_ORDER_PREVENTED_8085",

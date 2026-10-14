@@ -22881,7 +22881,16 @@ class Executor(
                 com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.lastClosedLiveAtMs8094(mint),
                 runCatching { PositionCloseLedger.recordOf(mint, mode = "LIVE")?.closedAtMs ?: 0L }.getOrDefault(0L),
             )
-            if (!closedRuntimeRetirable8094(pos.entryTime, closedAt, HostWalletTokenTracker.hasOpenPosition(mint))) return false
+            // V5.0.8094 — independent wallet proof: a COMPLETE wallet snapshot taken after the close that no longer holds
+            // the mint. A missing tracker row is not proof.
+            val snap8094 = try { WalletAccountCache.snapshot(ttlMs = 10L * 60_000L) } catch (_: Throwable) { null }
+            val zeroAt8094 = walletZeroProvenAt8094(
+                snapshotComplete = snap8094 != null && !(try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { true }),
+                snapshotAtMs = WalletAccountCache.snapshotAtMs8094(),
+                heldRaw = snap8094?.get(mint)?.raw,
+                dustRaw = com.lifecyclebot.engine.sell.SellAmountAuthority.SELL_DUST_RAW,
+            )
+            if (!closedRuntimeRetirable8094(pos.entryTime, closedAt, zeroAt8094)) return false
             synchronized(ts) {
                 ts.position = com.lifecyclebot.data.Position()
                 if (ts.lastExitTs < closedAt) ts.lastExitTs = closedAt

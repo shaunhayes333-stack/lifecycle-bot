@@ -154,11 +154,7 @@ object SignedTxLedger8085 {
     fun expiredProven(statusSeen: Boolean, blockhashValid: Boolean?): Boolean = !statusSeen && blockhashValid == false
 
     /** V5.0.8094 — a blockhash lives ~150 slots (~60-90 s); 3 minutes is past any landing. */
-    const val SELL_GUARD_LAPSE_MS_8094 = 180_000L
 
-    /** Pure: may a SELL proceed past an unreadable previous SELL signed at [prevCreatedAtMs]? */
-    fun sellGuardLapsed8094(side: String, prevCreatedAtMs: Long, nowMs: Long): Boolean =
-        side.equals("SELL", true) && prevCreatedAtMs > 0L && nowMs - prevCreatedAtMs >= SELL_GUARD_LAPSE_MS_8094
 
     /**
      * V5.0.8087 — every proven expiry is attributed: route, signed age at expiry, sign -> submit delay (a stale

@@ -3,10 +3,18 @@ package com.lifecyclebot.engine
 /**
  * V5.0.8094 — pure: may a runtime position be retired after a canonical close?
  * The close must be at or after this entry (a later close of an earlier entry
- * cannot retire a fresh buy) and the wallet must not hold the mint.
+ * cannot retire a fresh buy) and the wallet must be PROVEN empty of the mint by a complete wallet snapshot taken at
+ * or after the close ([walletZeroProvenAt8094]); a missing tracker row is not proof.
  */
-internal fun closedRuntimeRetirable8094(entryTimeMs: Long, closedAtMs: Long, walletHolds: Boolean): Boolean =
-    !walletHolds && closedAtMs > 0L && closedAtMs >= entryTimeMs
+internal fun closedRuntimeRetirable8094(entryTimeMs: Long, closedAtMs: Long, walletZeroProvenAtMs: Long): Boolean =
+    closedAtMs > 0L && closedAtMs >= entryTimeMs && walletZeroProvenAtMs >= closedAtMs
+
+/**
+ * V5.0.8094 — pure: the wallet proves zero for a mint at [snapshotAtMs] only from a COMPLETE snapshot that holds the
+ * mint at dust or not at all. A missing tracker row, a partial snapshot or no snapshot proves nothing (0).
+ */
+internal fun walletZeroProvenAt8094(snapshotComplete: Boolean, snapshotAtMs: Long, heldRaw: java.math.BigInteger?, dustRaw: java.math.BigInteger): Long =
+    if (snapshotComplete && snapshotAtMs > 0L && (heldRaw == null || heldRaw <= dustRaw)) snapshotAtMs else 0L
 
 /** V5.0.8094 — pure: a counter-safe sub-reason token for a pre-trade block. */
 internal fun pretradeSubReason8094(raw: String): String {
