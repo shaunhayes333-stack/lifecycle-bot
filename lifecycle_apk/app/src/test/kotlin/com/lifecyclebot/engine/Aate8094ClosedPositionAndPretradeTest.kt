@@ -144,7 +144,9 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(h.nativeRefusalHandsOff8094(op(false, "HARD BLOCK: rug pattern"), 1_000L, 2_000L))
         assertFalse(h.nativeRefusalHandsOff8094(op(false, "DEV_SELLING"), 1_000L, 2_000L))
         assertFalse(h.nativeRefusalHandsOff8094(op(true, "OK"), 1_000L, 2_000L))
-        assertFalse("hydrating is not a verdict", h.nativeRefusalHandsOff8094(op(false, "PHASE", gradeable = false), 1_000L, 2_000L))
+        // A lane that is busy, disabled or short of data passes the trade on (8093: CYCLIC PRICE_NOT_FRESH missed +1,185%).
+        assertTrue(h.nativeRefusalHandsOff8094(op(false, "CYCLIC_RING_POSITION_ACTIVE", gradeable = false), 1_000L, 2_000L))
+        assertTrue(h.nativeRefusalHandsOff8094(op(false, "PRICE_NOT_FRESH"), 1_000L, 2_000L))
         assertFalse("stale opinion", h.nativeRefusalHandsOff8094(op(false, "MCAP_TOO_LOW"), 1_000L, 1_000L + 91_000L))
         assertFalse(h.nativeRefusalHandsOff8094(null, 1_000L, 2_000L))
     }
@@ -161,5 +163,19 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(retire > 0 && veto > retire)
         val ex = src("engine/Executor.kt")
         assertTrue(ex.contains("MissingMarkExitVeto6835.release8094(mint)"))
+    }
+
+    @Test fun noCandidateIsDecidedOnAPriceOlderThanFifteenSeconds() {
+        val f = com.lifecyclebot.engine.truth.CandidateMarkFresh8094
+        assertEquals(15_000L, f.FRESH_MS_8094)
+        assertFalse(f.stale8094(1.0, 100_000L, 110_000L))
+        assertTrue(f.stale8094(1.0, 100_000L, 116_000L))
+        assertTrue(f.stale8094(0.0, 100_000L, 100_001L))
+        assertTrue(f.stale8094(1.0, 0L, 1L))
+        assertEquals(20_000.0, f.rescaledMcap8094(10_000.0, 1.0, 2.0), 1e-9)   // price x supply stays one identity
+        assertEquals(10_000.0, f.rescaledMcap8094(10_000.0, 0.0, 2.0), 1e-9)
+        val bridge = src("engine/SpecialistBrainBridge7542.kt")
+        assertTrue(bridge.indexOf("CandidateMarkFresh8094.ensureFresh8094(ts)") in 0 until bridge.indexOf("val f=fp(ts,paper)"))
+        assertTrue(src("engine/CyclicTradeEngine.kt").contains("CandidateMarkFresh8094.ensureFresh8094(ts)"))
     }
 }

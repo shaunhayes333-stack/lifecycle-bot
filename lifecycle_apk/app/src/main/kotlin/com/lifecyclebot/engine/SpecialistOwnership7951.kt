@@ -311,7 +311,8 @@ object SpecialistOwnership7951 {
     // V5.0.8094 — the hand-off opened only on the primary's FDG refusal, but most primaries refuse in their own native
     // brain before the FDG: 8093 CORE refused 15,004 times as CORE_YIELD_CLEAR_SPECIALIST (yield to the specialist)
     // while CASHGEN / QUALITY sat READY_NOT_EVALUATED_PRIMARY_CORE — a deadlock. A fresh, graded native refusal on a
-    // lane-fit rule (a lane's own mcap / liquidity / age band, its own score) now opens the same hand-off; a safety, rug,
+    // lane-fit rule (a lane's own mcap / liquidity / age band, its own score — or the lane being busy, disabled or short
+    // of data: CYCLIC's PRICE_NOT_FRESH / RING_POSITION_ACTIVE) now opens the same hand-off; a safety, rug,
     // dev, bundle or hard-block refusal never does. The receiving lane's own floors and every gate still decide.
     private fun primaryNativeRefused8094(mint: String, primaryLane: String, nowMs: Long): Boolean = try {
         val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint)
@@ -320,7 +321,7 @@ object SpecialistOwnership7951 {
 
     /** Pure (V5.0.8094): does the primary's native opinion refuse on a lane-fit rule, fresh within the hand-off window? */
     internal fun nativeRefusalHandsOff8094(op: SpecialistBrainBridge7542.Opinion?, evaluatedAtMs: Long, nowMs: Long): Boolean =
-        op != null && !op.eligible && op.authoritative && op.gradeable && nowMs - evaluatedAtMs in 0..REFUSED_HANDOFF_MS_7960 &&
+        op != null && !op.eligible && op.authoritative && nowMs - evaluatedAtMs in 0..REFUSED_HANDOFF_MS_7960 &&
             HANDOFF_BLOCKING_8094.none { op.reason.uppercase().contains(it) }
 
     private val HANDOFF_BLOCKING_8094 = listOf("RUG", "SAFETY", "HONEYPOT", "BLOCK", "DEV", "BUNDLE", "SCAM", "FREEZE",

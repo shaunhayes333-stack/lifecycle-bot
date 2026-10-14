@@ -3332,6 +3332,7 @@ object PipelineHealthCollector {
                 val byProvider7225 = labelsWithPrefix7156("EXIT_FALLBACK_MARK_STAMPED_7175_")
                     .entries.sortedByDescending { it.value }
                     .joinToString(",") { it.key.removePrefix("EXIT_FALLBACK_MARK_STAMPED_7175_") + "=" + it.value }
+                try { sb.append("  Candidate marks (§8094):      ").append(com.lifecyclebot.engine.truth.CandidateMarkFresh8094.statusLine()).append("\n") } catch (_: Throwable) {}
                 sb.append("  Mark freshness (§7225):       ")
                     .append("riskClockStale=").append(stale7225)
                     .append(" riskClockNoMark=").append(noMark7225)

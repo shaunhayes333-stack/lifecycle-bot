@@ -190,7 +190,7 @@ object CyclicTradeEngine {
         if(isInPosition)return CandidateOpinion7542(false,0,0,"CYCLIC_RING_POSITION_ACTIVE")
         if(ts.position.isOpen||com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint))return CandidateOpinion7542(false,0,0,"POSITION_ALREADY_OPEN")
         val age=ts.lastPriceUpdate.takeIf{it>0L}?.let{(System.currentTimeMillis()-it).coerceAtLeast(0L)}
-        if(ts.lastPrice<=0.0||age==null||age>90_000L)return CandidateOpinion7542(false,0,0,"PRICE_NOT_FRESH")
+        if(ts.lastPrice<=0.0||age==null||age>90_000L){try{com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts)}catch(_:Throwable){};return CandidateOpinion7542(false,0,0,"PRICE_NOT_FRESH")}
         if(!cyclicEntrySellabilityGuard6097(ts,"native_brain_7542",isLive))return CandidateOpinion7542(false,0,0,"SELLABILITY_REJECT")
         if(TokenBlacklist.isBlocked(ts.mint)||MemeLossStreakGuard.isBlocked(ts.mint))return CandidateOpinion7542(false,0,0,"KNOWN_BAD_MINT")
         val score=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100);val conf=(ts.lastV3Confidence?:50).coerceIn(0,100)
