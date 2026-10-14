@@ -79,6 +79,10 @@ object RunTracker30D {
         "MEME", "CRYPTO_ALT", "PERPS", "STOCK", "FOREX", "METAL", "COMMODITY", "UNKNOWN"
     ).associateWith { AssetBucket() }
     private val liveProofSeen8093 = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val paperProofBuckets8093 = listOf(
+        "MEME", "CRYPTO_ALT", "PERPS", "STOCK", "FOREX", "METAL", "COMMODITY", "UNKNOWN"
+    ).associateWith { AssetBucket() }
+    private val paperProofSeen8093 = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private fun proofClass8093(raw: String): String = when(raw.uppercase().trim()) {
         "MEME", "SOLANA_TOKEN" -> "MEME"
         "ALT", "ALTS", "CRYPTOALT", "CRYPTO_ALT" -> "CRYPTO_ALT"
@@ -97,12 +101,21 @@ object RunTracker30D {
             "scratches" to b.scratches, "pnlSol" to b.pnlSol, "winRate" to b.winRate())
     }
 
-    private fun recordLiveProof8093(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
-        if (outcome.environment != com.lifecyclebot.engine.TradeEnvironment.LIVE || outcome.isPartial) return
-        if (outcome.tradeId.isBlank()) return
-        if (!liveProofSeen8093.add(outcome.tradeId)) return
-        val asset = proofClass8093(outcome.assetClass.name)
-        val bucket = liveProofBuckets8093[asset] ?: return
+    fun getPaperLaneStats(lane: String): Map<String, Any> {
+        val b = paperProofBuckets8093[proofClass8093(lane)] ?: return emptyMap()
+        return mapOf("trades" to b.trades, "wins" to b.wins, "losses" to b.losses,
+            "scratches" to b.scratches, "pnlSol" to b.pnlSol, "winRate" to b.winRate())
+    }
+
+    /** Only canonical settled outcomes update mode-specific 30D counters. */
+    private fun recordProofByEnvironment8093(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
+        if (outcome.isPartial || outcome.tradeId.isBlank()) return
+        val live = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.LIVE
+        val paper = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.PAPER
+        if (!live && !paper) return
+        val seen = if (live) liveProofSeen8093 else paperProofSeen8093
+        if (!seen.add(outcome.tradeId)) return
+        val bucket = (if (live) liveProofBuckets8093 else paperProofBuckets8093)[proofClass8093(outcome.assetClass.name)] ?: return
         bucket.trades++
         when (outcome.result) {
             com.lifecyclebot.engine.TradeResult.WIN -> bucket.wins++
@@ -120,18 +133,14 @@ object RunTracker30D {
      *   keys: "MEME" | "ALT"/"ALTS"/"CRYPTO_ALT" | "PERPS" | "STOCKS"
      *         "FOREX" | "METALS" | "COMMODITIES"
      */
-    fun getLaneStats(lane: String): Map<String, Any> {
+    fun getLaneStats(lane: String): Map<String, Any> =
+        if (RuntimeModeAuthority.isPaper()) getPaperLaneStats(lane) else getLiveLaneStats(lane)
+
+    /** Legacy combined lifetime proof counters remain accessible for reporting only. */
+    fun getCombinedHistoricalLaneStats8093(lane: String): Map<String, Any> {
         val b = bucketFor(lane)
-        val decisive = b.wins + b.losses
-        return mapOf(
-            "trades"    to b.trades,
-            "wins"      to b.wins,
-            "losses"    to b.losses,
-            "scratches" to b.scratches,
-            "winRate"   to b.winRate(),
-            "pnlSol"    to b.pnlSol,
-            "decisive"  to decisive,
-        )
+        return mapOf("trades" to b.trades, "wins" to b.wins, "losses" to b.losses,
+            "scratches" to b.scratches, "winRate" to b.winRate(), "pnlSol" to b.pnlSol)
     }
     
     @Volatile var peakBalance: Double = 0.0
@@ -766,7 +775,9 @@ SYSTEM
                 saveBucket6648(this, "commodities", commodBucket)
                 saveBucket6648(this, "unclassified", unclassifiedBucket)
                 liveProofBuckets8093.forEach { (key, bucket) -> saveBucket6648(this, "live8093_$key", bucket) }
+                paperProofBuckets8093.forEach { (key, bucket) -> saveBucket6648(this, "paper8093_$key", bucket) }
                 putStringSet("liveProofSeen8093", synchronized(liveProofSeen8093) { liveProofSeen8093.toSet() })
+                putStringSet("paperProofSeen8093", synchronized(paperProofSeen8093) { paperProofSeen8093.toSet() })
                 putInt("executionFailures", executionFailures)
                 putInt("missedTrades", missedTrades)
                 putString("equityCurve", equityCurveToJson())
@@ -803,7 +814,9 @@ SYSTEM
             loadBucket6648(prefs, "commodities", commodBucket)
             loadBucket6648(prefs, "unclassified", unclassifiedBucket)
             liveProofBuckets8093.forEach { (key, bucket) -> loadBucket6648(prefs, "live8093_$key", bucket) }
+            paperProofBuckets8093.forEach { (key, bucket) -> loadBucket6648(prefs, "paper8093_$key", bucket) }
             synchronized(liveProofSeen8093) { liveProofSeen8093.clear(); liveProofSeen8093.addAll(prefs.getStringSet("liveProofSeen8093", emptySet()).orEmpty()) }
+            synchronized(paperProofSeen8093) { paperProofSeen8093.clear(); paperProofSeen8093.addAll(prefs.getStringSet("paperProofSeen8093", emptySet()).orEmpty()) }
             executionFailures = prefs.getInt("executionFailures", 0)
             missedTrades = prefs.getInt("missedTrades", 0)
             
@@ -874,6 +887,8 @@ SYSTEM
         metrics.reset()
         liveProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
         liveProofSeen8093.clear()
+        paperProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
+        paperProofSeen8093.clear()
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D reset")
     }
@@ -913,6 +928,8 @@ SYSTEM
         unclassifiedBucket.trades = 0; unclassifiedBucket.wins = 0; unclassifiedBucket.losses = 0; unclassifiedBucket.scratches = 0; unclassifiedBucket.pnlSol = 0.0
         liveProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
         liveProofSeen8093.clear()
+        paperProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
+        paperProofSeen8093.clear()
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D trade stats reset (proof-run timeline preserved)")
     }
@@ -1049,7 +1066,7 @@ SYSTEM
             val sizeSol = outcome.entrySol ?: 0.0
             val holdSec = outcome.holdSeconds ?: 0L
             val assetClass = outcome.candidate?.assetClass?.ifBlank { null } ?: outcome.assetClass.name
-            recordLiveProof8093(outcome)
+            recordProofByEnvironment8093(outcome)
             recordTrade(
                 symbol = outcome.symbol.ifBlank { outcome.mint.take(6) },
                 mint = outcome.mint,
