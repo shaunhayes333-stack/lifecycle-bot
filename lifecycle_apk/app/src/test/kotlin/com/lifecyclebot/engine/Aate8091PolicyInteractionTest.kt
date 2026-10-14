@@ -101,6 +101,7 @@ class Aate8091PolicyInteractionTest {
         assertFalse(CostLedger7962.recoveryExpired8091(1000L, 180_999L))
         assertFalse(CostLedger7962.recoveryExpired8091(1000L, 181_000L))
         assertTrue(CostLedger7962.recoveryExpired8091(1000L, 181_001L))
+        assertFalse(CostLedger7962.recoveryExpired8091(1000L, 181_001L, evidenceReady = false))
         assertFalse(CostLedger7962.recoveryExpired8091(0L, 181_001L))
     }
 

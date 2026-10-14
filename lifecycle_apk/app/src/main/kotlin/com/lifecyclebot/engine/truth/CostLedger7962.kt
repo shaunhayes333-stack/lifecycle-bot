@@ -39,8 +39,8 @@ object CostLedger7962 {
     private const val ENTRY_MARK_LAG_MS = 3_000L
     private const val MAX_SANE_COST_PCT = 60.0
     private const val PERSIST_KEY = "COST_LEDGER_7962"
-    internal fun recoveryExpired8091(eventAtMs: Long, nowMs: Long): Boolean =
-        eventAtMs > 0L && nowMs - eventAtMs > 180_000L
+    internal fun recoveryExpired8091(eventAtMs: Long, nowMs: Long, evidenceReady: Boolean = true): Boolean =
+        evidenceReady && eventAtMs > 0L && nowMs - eventAtMs > 180_000L
 
     /** One sell leg: raw tokens sold, SOL received net of exit fees, the market price at the sale (USD). */
     data class Leg7962(val qtyRaw: Double, val netSol: Double, val markUsd: Double)

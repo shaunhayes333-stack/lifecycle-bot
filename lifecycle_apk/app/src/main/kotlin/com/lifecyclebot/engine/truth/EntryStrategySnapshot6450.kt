@@ -128,7 +128,7 @@ object EntryStrategySnapshot6450 {
         return true
     }
 
-    private fun persistenceKey6567(positionId: String) = "entry_strategy_6450_$positionId"
+    internal fun persistenceKey6567(positionId: String) = "entry_strategy_6450_$positionId"
     private fun persist6567(snap: Snapshot) {
         try {
             val j = JSONObject()
