@@ -116,4 +116,19 @@ class Aate8094EmergencyExitDeterminismTest {
         assertTrue(b.contains("PositionStatus.STALE_RECOVERY_UNPROVEN"))
         assertTrue(b.contains("CONFIRMED_ZERO_NO_TRACKER_ROW_7736"))       // quarantine, never an invented sale
     }
+
+    // Economic learning: a fully closed live round trip within dust of its fill is measured; a gap is not invented.
+    @Test fun costLedgerMeasuresRealRoundTripsWithoutInventingQuantity() {
+        val c = com.lifecyclebot.engine.truth.CostLedger7962
+        val bi = { v: Long -> java.math.BigInteger.valueOf(v) }
+        assertTrue(c.quantityMatches8094(bi(1_000_000L), bi(1_000_000L)))
+        assertTrue(c.quantityMatches8094(bi(1_000_000L), bi(999_999L)))        // one unit of dust
+        assertTrue(c.quantityMatches8094(bi(1_000_000L), bi(995_500L)))        // wallet-clamped final sell
+        assertFalse(c.quantityMatches8094(bi(1_000_000L), bi(900_000L)))       // a missing leg is not measured
+        assertFalse(c.quantityMatches8094(bi(0L), bi(0L)))
+        assertEquals(0.9955, c.soldShare8094(bi(1_000_000L), bi(995_500L)), 1e-9)
+        assertEquals(1.0, c.soldShare8094(bi(1_000_000L), bi(1_000_001L)), 1e-9)
+        val src = src("engine/sell/SellFinalizationCoordinator.kt")
+        assertTrue(src.contains("solUsdAtExit = liveSolUsd8094(),"))           // the exit is valued in USD
+    }
 }

@@ -136,6 +136,17 @@ object CostLedger7962 {
         persistMaybe(force = true)
     }
 
+    /** Pure (V5.0.8094): sold within dust of the fill — at most max(1 raw, 0.5%) apart, never more sold than bought+dust. */
+    fun quantityMatches8094(filled: java.math.BigInteger, sold: java.math.BigInteger): Boolean {
+        if (filled.signum() <= 0 || sold.signum() <= 0) return false
+        val tol = filled.divide(java.math.BigInteger.valueOf(200L)).max(java.math.BigInteger.ONE)
+        return (filled - sold).abs() <= tol
+    }
+
+    /** Pure (V5.0.8094): the share of the fill's cost attributable to the quantity actually sold (<= 1). */
+    fun soldShare8094(filled: java.math.BigInteger, sold: java.math.BigInteger): Double =
+        if (filled.signum() <= 0) 1.0 else (java.math.BigDecimal(sold).divide(java.math.BigDecimal(filled), java.math.MathContext.DECIMAL64)).toDouble().coerceIn(0.0, 1.0)
+
     /** Called by the durable finality bridge. False leaves the same economic event retryable. */
     @Synchronized fun onLiveFinalized(e: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         ensureLoaded()
@@ -155,9 +166,10 @@ object CostLedger7962 {
                 commitMeasurement8090(e, em, null, 0.0, reason)
             else false
         val rows = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { return false }
+        // V5.0.8094 — a journal-backfilled copy of the same fill (same quantity, same cost) is one buy, not two.
         val buys = rows.filterIsInstance<EconomicEventSchema6464.Buy>().filter {
             it.positionId == e.positionId && it.mode.equals("live", true) && it.mint == em.mint
-        }.distinctBy { it.idempotencyKey }
+        }.distinctBy { it.idempotencyKey }.distinctBy { it.filledQty to kotlin.math.round(it.executedCostSol * 1e9).toLong() }
         val sells = rows.filterIsInstance<EconomicEventSchema6464.Sell>().filter {
             it.positionId == e.positionId && it.mode.equals("live", true) && it.mint == em.mint
         }.distinctBy { it.idempotencyKey }
@@ -166,7 +178,11 @@ object CostLedger7962 {
         if (buys.size != 1) return commitMeasurement8090(e, em, null, 0.0, "MULTIPLE_BUYS_REQUIRE_PER_FILL_MARKS")
         val buy = buys.single()
         val soldRaw = sells.fold(java.math.BigInteger.ZERO) { n, leg -> n + leg.soldQty }
-        if (soldRaw != buy.filledQty || sells.none { !it.partial && it.remainingQty.signum() == 0 }) {
+        // V5.0.8094 — a fully closed position whose sold quantity is within dust of the fill (rounding, a wallet-clamped
+        // final sell) is measured on the quantity actually sold, its cost scaled to that share. Exact match was required:
+        // 8093 noLegs=6 / insane=5 with zero measured live round trips.
+        val fullyClosed8094 = sells.any { !it.partial && it.remainingQty.signum() == 0 }
+        if (!fullyClosed8094 || !quantityMatches8094(buy.filledQty, soldRaw)) {
             noLegs.incrementAndGet(); return missing8091("HISTORICAL_QUANTITY_INCOMPLETE_8091")
         }
         val legs = ArrayList<TradeCostMeasurement8090.Sale>()
@@ -178,8 +194,8 @@ object CostLedger7962 {
             }
             legs += TradeCostMeasurement8090.Sale(s.soldQty, s.netProceedsSol, mark, s.solUsdAtExit)
         }
-        val spent = buy.executedCostSol + buy.entryFeesSol
-        val measurement = TradeCostMeasurement8090.measure(spent, buy.filledQty, buy.tokenDecimals, em.markUsd, em.solUsd, legs)
+        val spent = (buy.executedCostSol + buy.entryFeesSol) * soldShare8094(buy.filledQty, soldRaw)
+        val measurement = TradeCostMeasurement8090.measure(spent, soldRaw, buy.tokenDecimals, em.markUsd, em.solUsd, legs)
         return commitMeasurement8090(e, em, measurement, spent, if (measurement == null) "INVALID_FRICTION" else "MEASURED")
     }
 
