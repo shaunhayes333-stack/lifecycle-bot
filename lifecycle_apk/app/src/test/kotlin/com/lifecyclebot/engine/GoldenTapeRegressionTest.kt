@@ -10567,8 +10567,8 @@ class GoldenTapeRegressionTest {
         assertFalse(exec.contains("if (actualSol < minConfiguredPaperTradeSol() || buyQtyRaw6485 <= java.math.BigInteger.ZERO) {"))
         assertTrue(exec.contains("PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281"))
 
-        // Crypto: a recent registry observation is a basis; refusal only past three minutes.
-        assertTrue(alt.contains("private val RECENT_BASIS_MS_7281 = 180_000L"))
+        // 8091: an entry observation must remain usable by the exit monitor.
+        assertTrue(alt.contains("private val RECENT_BASIS_MS_7281 = DYNAMIC_MARK_MAX_AGE_MS_6654"))
         assertTrue(alt.contains("return snap.price to \"ALT_REGISTRY_RECENT_7281_\${ageMs7281 / 1000}s\""))
         assertTrue(alt.contains("CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281"))
 

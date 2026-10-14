@@ -159,9 +159,9 @@ class Aate7807EconomicIntegrityTest {
     // ── #8 hero parity probes compare like with like ─────────────────────
     @Test fun `hero parity probes skip live mode and marked equity`() {
         val crypto = src("com/lifecyclebot/ui/CryptoAltActivity.kt")
-        assertTrue(crypto.contains("if (!isLive && displayReady6830) com.lifecyclebot.engine.truth.JournalEconomicAuthority6616"))
+        assertTrue(crypto.contains("if (!isLive && displayReady6830 && unified != null) com.lifecyclebot.engine.truth.JournalEconomicAuthority6616"))
         val main = src("com/lifecyclebot/ui/MainActivity.kt")
-        assertTrue(main.contains(".probeHeroBinding(\"MEME\", displayedCash7045, -1.0)"))
+        assertTrue(main.contains(".probeHeroBinding(\"MEME\", displayedCash7045, -1.0, account7045)"))
         assertTrue(main.contains("if (accountRenderable7045) com.lifecyclebot.engine.truth.JournalEconomicAuthority6616"))
     }
 

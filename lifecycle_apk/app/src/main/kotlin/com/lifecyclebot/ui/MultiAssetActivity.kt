@@ -1396,7 +1396,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
                                 .recordHeroRender("MARKETS", paperBalanceSol, paperEquitySol)
                             com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
-                                .probeHeroBinding("MARKETS", paperBalanceSol, paperEquitySol)
+                                .probeHeroBinding("MARKETS", paperBalanceSol, paperEquitySol, unified6635)
                         } catch (_: Throwable) {}
                     }
                 }

@@ -3517,7 +3517,7 @@ for legal compliance.
                 // equity is asserted by HeroAccountSnapshot7045.recordRender above.
                 // Field Manual L39: a displayed mark is not executable value.
                 if (accountRenderable7045) com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
-                    .probeHeroBinding("MEME", displayedCash7045, -1.0)
+                    .probeHeroBinding("MEME", displayedCash7045, -1.0, account7045)
 
                 // V5.0.7011 — feed the render's hero: curve, ring, rail, lanes.
                 // Bound to the SAME canonical snapshot the figure above uses, so

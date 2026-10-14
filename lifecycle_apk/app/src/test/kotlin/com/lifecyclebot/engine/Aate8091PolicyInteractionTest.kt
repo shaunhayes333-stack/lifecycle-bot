@@ -9,6 +9,10 @@ import com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot
 import com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
 import com.lifecyclebot.engine.truth.MissingMarkExitVeto6835
 import com.lifecyclebot.engine.truth.TradeCostMeasurement8090
+import com.lifecyclebot.engine.truth.HeroAccountSnapshot7045
+import com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635
+import com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+import com.lifecyclebot.perps.CryptoAltTrader
 import java.math.BigInteger
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -120,5 +124,32 @@ class Aate8091PolicyInteractionTest {
         val tail = TailBag8034.Tail(1L, 1L, 0)
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decidePure8034("MOONSHOT", "HARD_STOP", -41.0, tail, 1000L))
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decidePure8034("MOONSHOT", "RAPID_CATASTROPHE_STOP", -25.0, tail, 1000L))
+    }
+
+    @Test fun entryObservationCannotAlreadyBeTooOldForExitMonitoring() {
+        val now = 200_000L
+        assertTrue(CryptoAltTrader.recentBasisUsable8091(now - 59_999L, now))
+        assertTrue(CryptoAltTrader.recentBasisUsable8091(now - 60_000L, now))
+        assertFalse(CryptoAltTrader.recentBasisUsable8091(now - 60_001L, now))
+        assertFalse(CryptoAltTrader.recentBasisUsable8091(now - 78_000L, now))
+        assertFalse(CryptoAltTrader.recentBasisUsable8091(0L, now))
+        assertFalse(CryptoAltTrader.recentBasisUsable8091(now + 1L, now))
+    }
+
+    @Test fun renderProbeUsesCapturedAccountAndStillDetectsWrongDisplayedValues() {
+        JournalEconomicAuthority6616.resetForTest()
+        try {
+            val before = UnifiedAccountSnapshot6635.Snapshot("paper", 12.0, 12.0,
+                0.0, 0.0, 0, UnifiedAccountSnapshot6635.Status.RECONCILED, "", 1L)
+            val after = before.copy(cashSol = 11.0, openPositionsCount = 1, readAtMs = 2L)
+            assertTrue(JournalEconomicAuthority6616.probeHeroBinding("CRYPTO", 12.0, 12.0, before))
+            assertTrue(JournalEconomicAuthority6616.probeHeroBinding("CRYPTO", 11.0, 12.0, after))
+            assertFalse(JournalEconomicAuthority6616.probeHeroBinding("CRYPTO", 12.0, 12.0, after))
+            assertFalse(JournalEconomicAuthority6616.probeHeroBinding("MARKETS", 11.0, 13.0, after))
+            val hero = HeroAccountSnapshot7045.Account(11.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 12.0, 108.07, 1, 0.0, HeroAccountSnapshot7045.Status.FRESH, 2L, 2L)
+            assertTrue(JournalEconomicAuthority6616.probeHeroBinding("MEME", 11.0, -1.0, hero))
+            assertFalse(JournalEconomicAuthority6616.probeHeroBinding("MEME", 12.0, -1.0, hero))
+        } finally { JournalEconomicAuthority6616.resetForTest() }
     }
 }

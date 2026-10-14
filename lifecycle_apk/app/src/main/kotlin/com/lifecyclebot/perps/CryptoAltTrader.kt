@@ -3188,23 +3188,17 @@ object CryptoAltTrader {
         val snap = try {
             withContext(Dispatchers.IO) { DynamicAltTokenRegistry.refreshHeldMark7251(identity) }
         } catch (_: Throwable) { null }
-        if (snap != null && snap.freshObservation && snap.price.isFinite() && snap.price > 0.0) {
+        if (snap != null && snap.freshObservation && snap.price.isFinite() && snap.price > 0.0 &&
+            recentBasisUsable8091(snap.observedAtMs, System.currentTimeMillis())) {
             return snap.price to "ALT_REGISTRY_FRESH_7251"
         }
-        // V5.0.7281 §THE SCAN WAS AN OBSERVATION TOO.
-        //
-        // 7275 refused a paper entry with no observation younger than 60 s.
-        // On 5.0.7280: 130 refused, 49 observed — the lane that ran at 62%
-        // was being told to sit out because DexScreener's limiter or
-        // CoinGecko happened to be closed at the instant of the fill, while
-        // the registry held a price the scanner had observed one or two
-        // minutes earlier. 7275's target was a basis minutes stale that
-        // produced ±85% closes within a second; a price observed inside the
-        // last three minutes is not that. Age is recorded on the row so the
-        // learner can see how old the bases that lost were.
+        // 8091: a scanner observation remains usable only within the same
+        // 60-second freshness window required by monitorPositions. The former
+        // three-minute fallback opened positions already unpriceable for exits.
+        // Preserve the observation age in the entry provenance.
         if (snap != null && snap.price.isFinite() && snap.price > 0.0 && snap.observedAtMs > 0L) {
             val ageMs7281 = (System.currentTimeMillis() - snap.observedAtMs).coerceAtLeast(0L)
-            if (ageMs7281 <= RECENT_BASIS_MS_7281) {
+            if (recentBasisUsable8091(snap.observedAtMs, System.currentTimeMillis())) {
                 try {
                     PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281")
                     ForensicLogger.lifecycle(
@@ -3219,8 +3213,11 @@ object CryptoAltTrader {
         return null
     }
 
-    /** V5.0.7281 — a registry observation this young is an entry basis. */
-    private val RECENT_BASIS_MS_7281 = 180_000L
+    /** 8091: an entry basis must also be usable by the held-position exit monitor. */
+    private val RECENT_BASIS_MS_7281 = DYNAMIC_MARK_MAX_AGE_MS_6654
+
+    internal fun recentBasisUsable8091(observedAtMs: Long, nowMs: Long): Boolean =
+        observedAtMs > 0L && nowMs - observedAtMs in 0L..RECENT_BASIS_MS_7281
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
         com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(

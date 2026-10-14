@@ -234,6 +234,24 @@ object JournalEconomicAuthority6616 {
         val snapCash = unified.cashSol.takeIf { unified.readAtMs > 0L } ?: journalSnap.cashSol
         val snapEquity = unified.equitySol.takeIf { unified.readAtMs > 0L } ?: journalSnap.equitySol
         val snapRevision = journalSnap.revision
+        return probeCaptured8091(surface, displayedCashSol, displayedEquitySol,
+            snapCash, snapEquity, snapRevision, toleranceSol)
+    }
+
+    /** Render probes compare one captured account, never two racing cache revisions.
+     * Ledger/journal reconciliation remains the independent accounting check. */
+    fun probeHeroBinding(surface: String, displayedCashSol: Double, displayedEquitySol: Double,
+        account: HeroAccountSnapshot7045.Account): Boolean =
+        probeCaptured8091(surface, displayedCashSol, displayedEquitySol,
+            account.cashSol, account.totalEquitySol, account.revision, 0.001)
+
+    fun probeHeroBinding(surface: String, displayedCashSol: Double, displayedEquitySol: Double,
+        account: UnifiedAccountSnapshot6635.Snapshot): Boolean =
+        probeCaptured8091(surface, displayedCashSol, displayedEquitySol,
+            account.cashSol, account.equitySol, account.readAtMs, 0.001)
+
+    private fun probeCaptured8091(surface: String, displayedCashSol: Double, displayedEquitySol: Double,
+        snapCash: Double, snapEquity: Double, snapRevision: Long, toleranceSol: Double): Boolean {
         val cashDelta = kotlin.math.abs(displayedCashSol - snapCash)
         val equityDelta = if (displayedEquitySol >= 0.0)
             kotlin.math.abs(displayedEquitySol - snapEquity) else 0.0
