@@ -72,4 +72,18 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(ladder, RuntimeProviderAuthority6685.heliusLastWhenExhausted8094(ladder, exhausted = false))
         assertEquals(listOf(ladder[1], ladder[2], ladder[0]), RuntimeProviderAuthority6685.heliusLastWhenExhausted8094(ladder, exhausted = true))
     }
+
+    @Test fun aLanesEvRefusalStopsBindingOnlyWhenItsRefusedCohortProvablyOutEarns() {
+        // Refused cohort clearly positive and better than admitted -> refusals are inverted.
+        assertTrue(refusalInverted8094(refN = 25, refMeanPct = 40.0, refSePct = 15.0, admN = 12, admMeanPct = -3.5))
+        // CRYPTO_ALT today: n=9 is not evidence yet.
+        assertFalse(refusalInverted8094(refN = 9, refMeanPct = 121.0, refSePct = 90.0, admN = 7, admMeanPct = -3.5))
+        // A noisy refused mean inside one SE of zero is not inversion.
+        assertFalse(refusalInverted8094(25, 10.0, 12.0, 12, -3.5))
+        // Admitted cohort earns more: refusing is right.
+        assertFalse(refusalInverted8094(25, 20.0, 5.0, 12, 30.0))
+        val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        assertTrue(gate.contains("!livePositiveEv7828 && !evRefusalInverted8094"))
+        assertTrue(gate.contains("!oracleHardSafety7287"))
+    }
 }

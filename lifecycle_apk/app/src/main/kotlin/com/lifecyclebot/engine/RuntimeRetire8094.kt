@@ -26,3 +26,16 @@ internal fun pretradeSealRelation8094(sealTier: String, sealHardNo: Boolean, sea
     sealRug in 0..10 -> "PRESENT_AT_SEAL"
     else -> "CHANGED_AFTER_SEAL"
 }
+
+/**
+ * V5.0.8094 — pure: a lane's refusals are inverted when its refused cohort (>= 20
+ * graded 60-minute labels) earns more than zero AND more than its admitted
+ * cohort (when that has >= 10 labels), each by at least one standard error.
+ */
+internal fun refusalInverted8094(refN: Int, refMeanPct: Double, refSePct: Double, admN: Int, admMeanPct: Double): Boolean {
+    if (refN < 20 || !refMeanPct.isFinite()) return false
+    val se = if (refSePct.isFinite() && refSePct >= 0.0) refSePct else return false
+    val lower = refMeanPct - se
+    if (lower <= 0.0) return false
+    return admN < 10 || !admMeanPct.isFinite() || lower > admMeanPct
+}

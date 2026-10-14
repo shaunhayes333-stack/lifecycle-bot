@@ -253,7 +253,20 @@ object CanonicalEntryAuthority6551 {
             else -> CurrentCandidateExpectancy7832.admissionNetPct7838(currentCandidate7832)
         }
         val livePositiveEv7828 = liveExpectedPct7828?.isFinite() == true && liveExpectedPct7828 > 0.0
-        if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828) {
+        // V5.0.8094 — owner: "the crypto trader picks no winners but runs at 150% average on rejected trades".
+        // 8093 Cortex: CRYPTO_ALT refused +121% vs admitted -3.5%. The EV estimate here is not crypto-calibrated
+        // (meme-built oracle, forward model, formula fallback); where this lane's own refused cohort measurably
+        // out-earns its admitted cohort, that refusal is not evidence and does not bind. Hard safety still does.
+        val evRefusalInverted8094 = try {
+            val (adm, ref) = ForwardReturnLabeler7731.laneDecisionStats8094(
+                com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor(candidate.assetClass) ?: "")
+            com.lifecyclebot.engine.refusalInverted8094(ref?.n60 ?: 0, ref?.meanNet60Pct ?: 0.0, ref?.stderr60Pct ?: 0.0,
+                adm?.n60 ?: 0, adm?.meanNet60Pct ?: 0.0)
+        } catch (_: Throwable) { false }
+        if (evRefusalInverted8094 && !livePositiveEv7828) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_EV_REFUSAL_INVERTED_NOT_BINDING_8094_${candidate.assetClass.tag}")
+        } catch (_: Throwable) {}
+        if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
                 if (oracleDegenerate7828) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_DEGENERATE_ORACLE_FWD_FALLBACK_7828")

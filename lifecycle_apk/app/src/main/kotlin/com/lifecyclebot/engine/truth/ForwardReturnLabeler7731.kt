@@ -289,6 +289,11 @@ object ForwardReturnLabeler7731 {
     private const val AGG_ADMITTED = "AGG|ADMITTED"
     private const val AGG_REFUSED = "AGG|REFUSED"
     private fun laneKey(lane: String) = "LANE|$lane"
+    /** V5.0.8094 — the lane's admitted and refused cohorts apart: does refusing in this lane avoid losers? */
+    private fun laneDecisionKey8094(lane: String, admitted: Boolean) = "LANEDEC|${lane.trim().uppercase()}|${if (admitted) "A" else "R"}"
+    /** V5.0.8094 — (admitted, refused) 60-minute records of [lane]. */
+    fun laneDecisionStats8094(lane: String): Pair<CellStat?, CellStat?> =
+        cellStat(laneDecisionKey8094(lane, true)) to cellStat(laneDecisionKey8094(lane, false))
     private fun sourceKey(src: String) = "SRC|$src"
     /** V5.0.7928 — lane x lifecycle stage: does this lane's play pay at this stage? */
     fun stageKey7928(lane: String, stage: String) = "STAGE|${lane.trim().uppercase()}|${stage.trim().uppercase()}"
@@ -298,7 +303,8 @@ object ForwardReturnLabeler7731 {
     fun bandStatFor8019(ts: TokenState, lane: String): CellStat? = cellStat(bandKey8019(lane, TrustedMcap8019.mcap8019(ts)))
     private fun keysOf7928(o: Obs): List<String> {
         val base = listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED,
-            "BAND|${o.lane}|${o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN"}")  // V5.0.8019 — lane x cap band
+            "BAND|${o.lane}|${o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN"}",  // V5.0.8019 — lane x cap band
+            laneDecisionKey8094(o.lane, o.admitted))
         // V5.0.7930 — plan pseudo-lanes (PLANWAIT_/PLANADMIT_) carry no stage book.
         val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_")
         val withStage = if (o.stage.isBlank() || pseudo) base else base + stageKey7928(o.lane, o.stage)
