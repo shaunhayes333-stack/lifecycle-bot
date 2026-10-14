@@ -116,9 +116,7 @@ object RunnerGrab7967 {
         // V5.0.7969 — the early-rug BACKSTOP is a soft -10% tick exit, not rug evidence.
         if (r.contains("EARLY_RUG_BACKSTOP")) return true
         // V5.0.8008 — capital-preservation exits (catastrophe family, wallet drain, kill switch) are never held.
-        // V5.0.8094 — and no emergency at all (capital preservation, structural, hard stop): a discretionary runner hold
-        // never delays an emergency exit (8093 forensic: HARD_STOP latency up to 222 s).
-        if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(r)) return false
+        if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(r) == com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.CAPITAL_PRESERVATION) return false
         val integrity = listOf("RUG", "DEV_", "DEV SOLD", "LIQUIDITY", "HONEYPOT", "FREEZE", "FROZEN", "DEAD", "MANUAL",
             "RUNNER_", "LIFECYCLE_PROFIT_", "STRUCTURE_BREAK", "SPIKE_CAPTURE", "ZERO_BALANCE", "ORPHAN", "INVARIANT", "STARTUP_SWEEP")
         return integrity.none { r.contains(it) }

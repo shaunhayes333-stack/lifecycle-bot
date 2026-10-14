@@ -34,7 +34,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(core.contains("if (retireClosedRuntimePosition8094(ts, reason)) return SellResult.ALREADY_CLOSED"))
         val helper = exec.substringAfter("private fun retireClosedRuntimePosition8094").substringBefore("    /**")
         assertTrue(helper.contains("firstOpenForMint(mint)"))
-        assertTrue(helper.contains("HostWalletTokenTracker.hasOpenPosition(mint)"))
+        assertTrue(helper.contains("walletZeroProvenAt8094("))           // wallet-balance proof, not a tracker row
     }
 
     @Test fun pretradeBlocksNameTheirExactCauseAndSealRelation() {

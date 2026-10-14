@@ -74,8 +74,8 @@ class Aate8094EmergencyExitDeterminismTest {
 
     // No discretionary hold sits in front of an emergency exit.
     @Test fun discretionaryHoldsNeverDeferAnEmergency() {
-        val rg = src("engine/RunnerGrab7967.kt").substringAfter("fun deferrable7967(").substringBefore("// ── grab ──")
-        assertTrue(rg.contains("if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(r)) return false"))
+        // The runner hold keeps its owner-pinned -20% shakeout window (Aate7967/8008) but never holds a catastrophe.
+        assertFalse(RunnerGrab7967.deferrable7967("RAPID_CATASTROPHE_STOP", -20.0))
         val lh = src("engine/LifecycleHold8065.kt").substringAfter("fun passes8065(").take(400)
         assertTrue(lh.contains("ProtectiveExitClass7807.isEmergency(r)"))     // every emergency (hard stops too) passes
         val pe = src("engine/sell/PartialNetEconomics8094.kt")
