@@ -18,7 +18,7 @@ import com.lifecyclebot.engine.ErrorLogger
  *
  * Fix, in two halves so nothing can resurrect old state:
  *  1. requestFullReset() — clears the stores that have in-memory resets now,
- *     wipes the journal through the existing TradeHistoryStore.clearAllTrades()
+ *     wipes the journal through the historical journal-clear routine
  *     (fresh cohort), clears every learning prefs file, and arms a marker.
  *  2. applyPendingAtBoot() — runs first in AATEApp.onCreate, before any learner
  *     loads. If the marker is armed it clears the same files again (a learner
