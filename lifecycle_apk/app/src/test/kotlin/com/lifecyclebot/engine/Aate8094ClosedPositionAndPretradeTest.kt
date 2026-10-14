@@ -152,4 +152,13 @@ class Aate8094ClosedPositionAndPretradeTest {
         val c = src("engine/sell/SellFinalizationCoordinator.kt")
         assertTrue(c.contains("solUsdAtExit = liveSolUsd8094(),"))
     }
+
+    @Test fun theUniversalSweepRetiresAClosedPositionBeforeTheMissingMarkVetoHoldsIt() {
+        val bot = src("engine/BotService.kt")
+        val retire = bot.indexOf("executor.retireIfCanonicallyClosed8094(ts)")
+        val veto = bot.indexOf("MissingMarkExitVeto6835.evaluate(", retire)
+        assertTrue(retire > 0 && veto > retire)
+        val ex = src("engine/Executor.kt")
+        assertTrue(ex.contains("MissingMarkExitVeto6835.release8094(mint)"))
+    }
 }

@@ -339,6 +339,9 @@ object MissingMarkExitVeto6835 {
             "${sym ?: "?"} $mint ${(nowMs - d.firstAtMs).coerceAtLeast(0L) / 1000L}s"
         }.ifEmpty { "-" }
 
+    /** V5.0.8094 — a position retired after its canonical close is no longer held (EMUZCh read heldNow=1 for 1,890 s). */
+    fun release8094(mintKey: String) { deferrals.remove(mintKey) }
+
     internal fun clearForTest() {
         vetoCount.set(0L); allowCount.set(0L); freshBypassCount.set(0L)
         boundReleaseCount.set(0L); deferrals.clear(); freshCatastrophe8008.clear()

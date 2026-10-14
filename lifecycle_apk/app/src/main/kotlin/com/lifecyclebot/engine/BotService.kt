@@ -25054,6 +25054,7 @@ if (hotExitHandledSweep) {
                         try { PipelineHealthCollector.labelInc("UNIVERSAL_SWEEP_SKIP_7027_TOO_YOUNG") } catch (_: Throwable) {}
                         return@forEach
                     }
+                    if (try { executor.retireIfCanonicallyClosed8094(ts) } catch (_: Throwable) { false }) return@forEach  // V5.0.8094
                     val entry = ts.position.entryPrice
                     if (entry <= 0.0) {
                         try { PipelineHealthCollector.labelInc("UNIVERSAL_SWEEP_SKIP_7027_NO_ENTRY_PRICE") } catch (_: Throwable) {}

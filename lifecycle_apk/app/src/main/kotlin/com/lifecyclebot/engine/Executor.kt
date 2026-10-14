@@ -22861,6 +22861,7 @@ class Executor(
             try { PositionPersistence.savePosition(ts) } catch (_: Throwable) {}
             try { BotService.recentlyClosedMs[mint] = System.currentTimeMillis() } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.clearTrigger7807(mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.release8094(mint) } catch (_: Throwable) {}
             PipelineHealthCollector.labelInc("RUNTIME_POSITION_RETIRED_AFTER_CANONICAL_CLOSE_8094")
             ForensicLogger.lifecycle(
                 "RUNTIME_POSITION_RETIRED_AFTER_CANONICAL_CLOSE_8094",
@@ -22869,6 +22870,9 @@ class Executor(
             true
         } catch (_: Throwable) { false }
     }
+
+    /** V5.0.8094 — the exit sweeps retire a canonically closed runtime position before any exit (or veto) reads it. */
+    fun retireIfCanonicallyClosed8094(ts: TokenState): Boolean = retireClosedRuntimePosition8094(ts, "EXIT_SWEEP_8094")
 
     private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         if (retireClosedRuntimePosition8094(ts, reason)) return SellResult.ALREADY_CLOSED
