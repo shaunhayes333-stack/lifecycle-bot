@@ -33,6 +33,11 @@ class Aate8093ResetProofAndRiskIsolationTest {
         assertTrue(tracker.contains("if (RuntimeModeAuthority.isPaper()) getPaperLaneStats(lane) else getLiveLaneStats(lane)"))
         val fluid = source("v3/scoring/FluidLearningAI.kt")
         assertTrue(fluid.contains("RunTracker30D.getLiveLaneStats(\"MEME\")"))
+        // DeskPerformanceAuthority.snapshot(MEME) defaults to PAPER; an explicit
+        // runtime-mode argument is mandatory in every Fluid live reader.
+        assertTrue(fluid.contains("if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) \"paper\" else \"live\""))
+        assertFalse(fluid.contains("Book.MEME,\\n            )"))
+
         assertTrue(fluid.contains("totalTrades >= EARLY_BOOTSTRAP_TRADES) return false"))
     }
 
