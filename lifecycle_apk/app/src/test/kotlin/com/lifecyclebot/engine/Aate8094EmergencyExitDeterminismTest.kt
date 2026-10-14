@@ -131,4 +131,17 @@ class Aate8094EmergencyExitDeterminismTest {
         val src = src("engine/sell/SellFinalizationCoordinator.kt")
         assertTrue(src.contains("solUsdAtExit = liveSolUsd8094(),"))           // the exit is valued in USD
     }
+
+    // An early catastrophe stop is held only by a cached executable quote that contradicts it; no quote, no delay.
+    @Test fun anEarlyPhantomStopIsHeldOnlyByAContradictingExecutableQuote() {
+        // Gjd3JU-shape: mark said <= -25%, the cached executable price says -3%: held.
+        assertTrue(earlyStopContradicted8094(execPrice = 0.97, entryPrice = 1.0, catastropheThreshold = -25.0, hardFloorPct = 15.0))
+        // The executable agrees it is a dump: the stop fires.
+        assertFalse(earlyStopContradicted8094(0.70, 1.0, -25.0, 15.0))
+        assertFalse(earlyStopContradicted8094(0.84, 1.0, -25.0, 15.0))             // below the -15% hard floor
+        // No cached executable quote: never a delay.
+        assertFalse(earlyStopContradicted8094(null, 1.0, -25.0, 15.0))
+        val b = src("engine/BotService.kt")
+        assertTrue(b.contains("return@run !earlyStopContradicted8094(cachedExec8094, entry8094, catastropheThreshold, HARD_FLOOR_STOP_PCT_CONST)"))
+    }
 }

@@ -19408,7 +19408,20 @@ class BotService : Service() {
                 src.contains("UNCORROBORATED") || src.contains("OBSERVATION") || src.contains("TRADE_WS") ||
                 (ts.position.entryPoolAddress.isNotBlank() && ts.lastPricePoolAddr.isNotBlank() &&
                     ts.position.entryPoolAddress != ts.lastPricePoolAddr)
-            if (ts.position.entryTime <= 0L || ageMs >= 45_000L || !offBasis) return@run true
+            if (ts.position.entryTime <= 0L || ageMs >= 45_000L) return@run true
+            if (!offBasis) {
+                // V5.0.8094 — an on-route aggregator print can spike too (8093 Gjd3JU: stopped 26 s after the fill on a
+                // DexScreener pair print; the swap realised -6.7% all-in). Inside the first 45 s a FRESH executable quote
+                // that is already cached and contradicts the catastrophe holds the stop; with no cached quote the stop
+                // fires exactly as before (a real dump is never delayed waiting for a quote).
+                val cachedExec8094 = try {
+                    com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(ts.mint)
+                } catch (_: Throwable) { null }
+                val entry8094 = ts.position.entryPrice
+                return@run !earlyStopContradicted8094(cachedExec8094, entry8094, catastropheThreshold, HARD_FLOOR_STOP_PCT_CONST).also { held ->
+                    if (held) try { PipelineHealthCollector.labelInc("RAPID_STOP_CONTRADICTED_BY_EXECUTABLE_8094") } catch (_: Throwable) {}
+                }
+            }
             if (pnlPct <= -60.0 && ageMs >= 10_000L) return@run true
             val exec = try {
                 com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(ts.mint)

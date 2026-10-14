@@ -50,3 +50,13 @@ internal fun refusalInverted8094(refN: Int, refMeanPct: Double, refSePct: Double
     if (lower <= 0.0) return false
     return admN < 10 || !admMeanPct.isFinite() || lower > admMeanPct
 }
+
+/**
+ * V5.0.8094 — pure: does a fresh executable price contradict an early catastrophe mark? True only when an executable
+ * price exists and its pnl sits above both the catastrophe threshold and the hard floor. No price -> false (stop fires).
+ */
+internal fun earlyStopContradicted8094(execPrice: Double?, entryPrice: Double, catastropheThreshold: Double, hardFloorPct: Double): Boolean {
+    if (execPrice == null || !execPrice.isFinite() || execPrice <= 0.0 || !entryPrice.isFinite() || entryPrice <= 0.0) return false
+    val execPnl = (execPrice / entryPrice - 1.0) * 100.0
+    return execPnl > catastropheThreshold && execPnl > -hardFloorPct
+}
