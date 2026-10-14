@@ -423,7 +423,12 @@ object LiveEdgeGate7877 {
             // The lane's live book is a bounded NEGATIVE PRIOR: it shapes size and demands this candidate's OWN validated
             // positive evidence below, but never refuses every token, setup and strategy of the lane on its own. Only the
             // candidate's own setup proven losing on live closes refuses (LiveTruth8064.setupRefusal8083).
-            val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            // The selected proven alternative must not be vetoed for a losing default setup.
+            val setup8083 = try {
+                com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs)?.first
+                    ?: com.lifecyclebot.engine.cortex.LanePlaybook7907.coldStartSetup8080(ts, l8059, nowMs)
+                    ?: com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l8059, nowMs)
+            } catch (_: Throwable) { null }
             (try { LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs) } catch (_: Throwable) { null })?.let { r8083 ->
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8083, 1.0, nowMs)
                 observeTail7996(ts, lane, r8083, nowMs); return r8083
@@ -515,9 +520,42 @@ object LiveEdgeGate7877 {
      * family, and fewer than [COLD_BUDGET_8080] live entries were admitted this way in the last [COLD_WINDOW_MS_8080].
      * Every later gate (proven-losing setup, Cortex, net edge, lane fit, dead launch, buy door, route, rug) still applies.
      */
-    private val coldAdmits8080 = ConcurrentHashMap<String, Long>()   // mint -> first cold-start admission
+    private val coldAdmits8080 = ConcurrentHashMap<String, Long>() // tentative unfilled entry reservations
+    private val coldConfirmed8092 = ConcurrentHashMap<String, Long>() // immutable canonical LIVE entries
+    private const val COLD_RESERVATION_MS_8092 = 90_000L
+    private const val COLD_COMMITTED_KEY_8092 = "cold_start_committed_fills_8092"
+    @Volatile private var coldLoaded8092 = false
     internal const val COLD_BUDGET_8080 = 3
     internal const val COLD_WINDOW_MS_8080 = 6L * 3_600_000L
+
+    private fun ensureColdLoaded8092() {
+        if (coldLoaded8092) return
+        if (try { !com.lifecyclebot.engine.LearningPersistence.ready() } catch (_: Throwable) { true }) return
+        synchronized(coldAdmits8080) {
+            if (coldLoaded8092) return
+            try {
+                val j = org.json.JSONObject(com.lifecyclebot.engine.LearningPersistence.load(COLD_COMMITTED_KEY_8092) ?: "{}")
+                for (mint in j.keys()) coldConfirmed8092[mint] = j.optLong(mint, 0L)
+            } catch (_: Throwable) {}
+            coldLoaded8092 = true
+        }
+    }
+
+    /** Only a confirmed canonical LIVE entry consumes the six-hour cold-start capacity. */
+    fun onConfirmedColdEntry8092(mint: String, atMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        ensureColdLoaded8092()
+        synchronized(coldAdmits8080) {
+            if (coldAdmits8080.remove(mint) == null) return
+            coldConfirmed8092[mint] = atMs
+            try {
+                val j = org.json.JSONObject()
+                coldConfirmed8092.forEach { (key, time) -> j.put(key, time) }
+                com.lifecyclebot.engine.LearningPersistence.save(COLD_COMMITTED_KEY_8092, j.toString())
+                PipelineHealthCollector.labelInc("COLD_START_LIVE_FILL_COMMITTED_8092")
+            } catch (_: Throwable) {}
+        }
+    }
 
     /**
      * Pure (V5.0.8080): may [mint] be admitted on cold start, given [admits] (mint -> first admission)? A mint already
@@ -531,9 +569,13 @@ object LiveEdgeGate7877 {
 
     private fun coldStartAdmits8080(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.coldStartSetup8080(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return false
+        ensureColdLoaded8092()
         synchronized(coldAdmits8080) {
-            coldAdmits8080.entries.removeIf { nowMs - it.value >= COLD_WINDOW_MS_8080 }
-            if (!coldBudgetOpen8080(coldAdmits8080, ts.mint, nowMs)) {
+            coldConfirmed8092.entries.removeIf { nowMs - it.value >= COLD_WINDOW_MS_8080 }
+            coldAdmits8080.entries.removeIf { nowMs - it.value >= COLD_RESERVATION_MS_8092 }
+            val occupied8092 = HashMap(coldConfirmed8092)
+            occupied8092.putAll(coldAdmits8080)
+            if (!coldBudgetOpen8080(occupied8092, ts.mint, nowMs)) {
                 try { PipelineHealthCollector.labelInc("LIVE_COLD_START_BUDGET_SPENT_8080") } catch (_: Throwable) {}
                 return false
             }
