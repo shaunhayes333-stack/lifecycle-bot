@@ -153,6 +153,13 @@ object SignedTxLedger8085 {
     /** Signature unseen + blockhash no longer valid = the transaction can never land. Unknown validity proves nothing. */
     fun expiredProven(statusSeen: Boolean, blockhashValid: Boolean?): Boolean = !statusSeen && blockhashValid == false
 
+    /** V5.0.8094 — a blockhash lives ~150 slots (~60-90 s); 3 minutes is past any landing. */
+    const val SELL_GUARD_LAPSE_MS_8094 = 180_000L
+
+    /** Pure: may a SELL proceed past an unreadable previous SELL signed at [prevCreatedAtMs]? */
+    fun sellGuardLapsed8094(side: String, prevCreatedAtMs: Long, nowMs: Long): Boolean =
+        side.equals("SELL", true) && prevCreatedAtMs > 0L && nowMs - prevCreatedAtMs >= SELL_GUARD_LAPSE_MS_8094
+
     /**
      * V5.0.8087 — every proven expiry is attributed: route, signed age at expiry, sign -> submit delay (a stale
      * build signed long after its quote), and whether any provider ever accepted the bytes. 8086 live: 24 proven

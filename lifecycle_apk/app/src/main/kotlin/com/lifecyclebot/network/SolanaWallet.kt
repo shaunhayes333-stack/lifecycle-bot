@@ -535,6 +535,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val prev = SignedTxLedger8085.unresolvedFor(intent.mint, intent.side) ?: return
         try { resolveOnce8085(prev) } catch (_: Throwable) {}
         if (!prev.unresolved) return
+        // V5.0.8094 — a SELL whose previous signature is older than any blockhash can live and still unreadable
+        // (status RPC failing, e.g. Helius out of credit) no longer blocks the exit: that transaction can no longer
+        // land, and a new sell sizes from the live wallet balance, so a sell that did land is never repeated.
+        // Buys keep the strict guard (a second buy would double exposure).
+        if (SignedTxLedger8085.sellGuardLapsed8094(intent.side, prev.createdAtMs, System.currentTimeMillis())) {
+            SignedTxLedger8085.transition(prev.signature, SignedTxLedger8085.State.EXPIRED_PROVEN, "sell_guard_lapsed_8094_blockhash_age")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SELL_GUARD_LAPSED_8094") } catch (_: Throwable) {}
+            return
+        }
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_DUPLICATE_ORDER_PREVENTED_8085")
             com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_DUPLICATE_ORDER_PREVENTED_8085",
@@ -1137,6 +1146,18 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     // 'invalid api key provided' but rpc() was returning that
                     // error verbatim instead of trying fallbacks. Result: every
                     // sendTransaction failed and trading fees got dropped.
+                    if (code == 429 && rpcExhaustedReply8094(code, lastBody)) {
+                        if (endpoint.contains("helius", ignoreCase = true)) try {
+                            com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.noteExhausted8094()
+                        } catch (_: Throwable) {}
+                        break
+                    }
+                    if (code == 402) {
+                        if (endpoint.contains("helius", ignoreCase = true)) try {
+                            com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.noteExhausted8094()
+                        } catch (_: Throwable) {}
+                        break
+                    }
                     if (code == 401 || code == 403) {
                         android.util.Log.w("SolanaWallet", "🚨 RPC AUTH REJECTED on $endpoint (HTTP $code) — trying next fallback")
                         break
@@ -1148,6 +1169,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         if (json.has("error")) {
                             val errMsg = json.optJSONObject("error")?.optString("message", "") ?: ""
                             val low = errMsg.lowercase()
+                            // V5.0.8094 — a plan out of credits answers every call with an error; it is a dead
+                            // endpoint for now, not the caller's answer (8093 sells: status reads never failed over,
+                            // the previous signature stayed unresolved, every new sell was refused: no signature).
+                            if (rpcExhaustedReply8094(code, errMsg)) {
+                                if (endpoint.contains("helius", ignoreCase = true)) try {
+                                    com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.noteExhausted8094()
+                                } catch (_: Throwable) {}
+                                break
+                            }
                             if (low.contains("rate") || low.contains("limit")) {
                                 // Rate limited — try next endpoint
                                 break
@@ -2126,3 +2156,11 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
 /** V5.0.7980 — trading-grade finality: "confirmed" or "finalized" (pure; see awaitConfirmation). */
 internal fun confirmedEnough7980(status: String): Boolean = status == "confirmed" || status == "finalized"
+
+/** V5.0.8094 — pure: is this JSON-RPC error a plan/credit exhaustion (fail over), not an answer? */
+internal fun rpcExhaustedReply8094(httpCode: Int, errMsg: String): Boolean {
+    if (httpCode == 402) return true
+    val low = errMsg.lowercase()
+    return low.contains("credit") || low.contains("max usage") || low.contains("quota") ||
+        low.contains("upgrade your plan") || low.contains("exceeded your") || low.contains("insufficient balance")
+}

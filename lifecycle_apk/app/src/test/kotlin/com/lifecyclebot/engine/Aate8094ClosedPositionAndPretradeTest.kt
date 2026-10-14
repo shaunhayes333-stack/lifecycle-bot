@@ -86,4 +86,21 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(gate.contains("!livePositiveEv7828 && !evRefusalInverted8094"))
         assertTrue(gate.contains("!oracleHardSafety7287"))
     }
+
+    @Test fun sellsAreNotBlockedForeverByAnUnreadablePreviousSignature() {
+        val l = com.lifecyclebot.network.SignedTxLedger8085
+        val lapse = l.SELL_GUARD_LAPSE_MS_8094
+        assertTrue(lapse >= 150_000L)                                  // past any blockhash lifetime
+        assertTrue(l.sellGuardLapsed8094("SELL", 1_000L, 1_000L + lapse))
+        assertFalse(l.sellGuardLapsed8094("SELL", 1_000L, 1_000L + lapse - 1))
+        assertFalse("a buy is never doubled", l.sellGuardLapsed8094("BUY", 1_000L, 1_000L + 10 * lapse))
+        // An exhausted plan is a dead endpoint (fail over), not the caller's answer.
+        assertTrue(com.lifecyclebot.network.rpcExhaustedReply8094(200, "max usage reached"))
+        assertTrue(com.lifecyclebot.network.rpcExhaustedReply8094(402, ""))
+        assertTrue(com.lifecyclebot.network.rpcExhaustedReply8094(200, "You have exceeded your credits"))
+        assertFalse(com.lifecyclebot.network.rpcExhaustedReply8094(200, "Transaction simulation failed"))
+        val w = File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(w.contains("if (rpcExhaustedReply8094(code, errMsg)) {"))
+        assertTrue(w.contains("SignedTxLedger8085.sellGuardLapsed8094(intent.side, prev.createdAtMs"))
+    }
 }
