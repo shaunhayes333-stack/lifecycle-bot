@@ -43,6 +43,28 @@ object LearningPersistence {
     @Volatile private var db: SQLiteDatabase? = null
     private var appCtx: Context? = null   // V5.9.1353 — stashed for resetAll() (FluidLearningAI needs a Context)
 
+    // 8093 — canonical executed-entry evidence is NOT learning. It must survive
+    // LearningResetSweep7781 deleting learning_kv.db. Store by immutable positionId
+    // in a separately named private preferences namespace excluded from resets.
+    private const val IMMUTABLE_EXECUTION_PREFS_8093 = "canonical_entry_evidence_8093"
+
+    fun saveImmutableExecutionEvidence8093(positionId: String, payload: String): Boolean {
+        if (positionId.isBlank() || payload.isBlank()) return false
+        val app = appCtx ?: return false
+        return try {
+            app.getSharedPreferences(IMMUTABLE_EXECUTION_PREFS_8093, Context.MODE_PRIVATE)
+                .edit().putString(positionId, payload).commit()
+        } catch (_: Throwable) { false }
+    }
+
+    fun loadImmutableExecutionEvidence8093(positionId: String): String? {
+        if (positionId.isBlank()) return null
+        return try {
+            appCtx?.getSharedPreferences(IMMUTABLE_EXECUTION_PREFS_8093, Context.MODE_PRIVATE)
+                ?.getString(positionId, null)
+        } catch (_: Throwable) { null }
+    }
+
     private class KvHelper(ctx: Context) :
         SQLiteOpenHelper(ctx, "learning_kv.db", null, 1) {
         override fun onCreate(db: SQLiteDatabase) {
