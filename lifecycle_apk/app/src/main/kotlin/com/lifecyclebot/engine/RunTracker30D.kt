@@ -83,6 +83,7 @@ object RunTracker30D {
         "MEME", "CRYPTO_ALT", "PERPS", "STOCK", "FOREX", "METAL", "COMMODITY", "UNKNOWN"
     ).associateWith { AssetBucket() }
     private val paperProofSeen8093 = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    @Volatile private var proofEpoch8093: Long = System.currentTimeMillis()
     private fun proofClass8093(raw: String): String = when(raw.uppercase().trim()) {
         "MEME", "SOLANA_TOKEN" -> "MEME"
         "ALT", "ALTS", "CRYPTOALT", "CRYPTO_ALT" -> "CRYPTO_ALT"
@@ -110,6 +111,10 @@ object RunTracker30D {
     /** Only canonical settled outcomes update mode-specific 30D counters. */
     private fun recordProofByEnvironment8093(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome): Boolean {
         if (outcome.isPartial || outcome.tradeId.isBlank()) return false
+        // Old canonical history replays on restart. A fresh 30D run can only
+        // count positions which actually closed after the explicit reset epoch.
+        val closedAt = outcome.exitTimeMs ?: outcome.timestampMs
+        if (closedAt <= 0L || closedAt < proofEpoch8093) return false
         val live = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.LIVE
         val paper = outcome.environment == com.lifecyclebot.engine.TradeEnvironment.PAPER
         if (!live && !paper) return false
@@ -772,6 +777,7 @@ SYSTEM
                 paperProofBuckets8093.forEach { (key, bucket) -> saveBucket6648(this, "paper8093_$key", bucket) }
                 putStringSet("liveProofSeen8093", synchronized(liveProofSeen8093) { liveProofSeen8093.toSet() })
                 putStringSet("paperProofSeen8093", synchronized(paperProofSeen8093) { paperProofSeen8093.toSet() })
+                putLong("proofEpoch8093", proofEpoch8093)
                 putInt("executionFailures", executionFailures)
                 putInt("missedTrades", missedTrades)
                 putString("equityCurve", equityCurveToJson())
@@ -811,6 +817,7 @@ SYSTEM
             paperProofBuckets8093.forEach { (key, bucket) -> loadBucket6648(prefs, "paper8093_$key", bucket) }
             synchronized(liveProofSeen8093) { liveProofSeen8093.clear(); liveProofSeen8093.addAll(prefs.getStringSet("liveProofSeen8093", emptySet()).orEmpty()) }
             synchronized(paperProofSeen8093) { paperProofSeen8093.clear(); paperProofSeen8093.addAll(prefs.getStringSet("paperProofSeen8093", emptySet()).orEmpty()) }
+            proofEpoch8093 = prefs.getLong("proofEpoch8093", System.currentTimeMillis())
             executionFailures = prefs.getInt("executionFailures", 0)
             missedTrades = prefs.getInt("missedTrades", 0)
             
@@ -883,6 +890,7 @@ SYSTEM
         liveProofSeen8093.clear()
         paperProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
         paperProofSeen8093.clear()
+        proofEpoch8093 = System.currentTimeMillis()
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D reset")
     }
@@ -924,6 +932,7 @@ SYSTEM
         liveProofSeen8093.clear()
         paperProofBuckets8093.values.forEach { it.trades=0; it.wins=0; it.losses=0; it.scratches=0; it.pnlSol=0.0 }
         paperProofSeen8093.clear()
+        proofEpoch8093 = System.currentTimeMillis()
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D trade stats reset (proof-run timeline preserved)")
     }
@@ -931,46 +940,15 @@ SYSTEM
     // ═══════════════════════════════════════════════════════════════════════
     // V5.6.28f: SYNC FUNCTION - Align stats across different tracking systems
     // ═══════════════════════════════════════════════════════════════════════
+    /** 8093: historical journal totals are NOT 30D proof-run authority.
+     * Its SELL rows can include both PAPER/LIVE, old economic replay and
+     * cross-asset instruments. Mode-scoped canonical outcomes above own the
+     * proof-run stats. This legacy hook deliberately never rewrites them.
+     */
     fun syncStatsFromTradeHistory() {
         try {
-            val stats = TradeHistoryStore.getStats()
-            
-            // V5.9.56: Always recompute totalRealizedPnlSol from the canonical
-            // per-trade pnlSol records. This fixes the "+161,980,464 SOL
-            // realized" bug caused by legacy bad-data accumulation. Each
-            // individual pnlSol is sanity-clamped so one glitch can't
-            // explode the total.
-            val recomputedPnl = try {
-                TradeHistoryStore.getAllSells()
-                    .sumOf { it.pnlSol.coerceIn(-1_000.0, 10_000.0) }
-            } catch (_: Exception) {
-                totalRealizedPnlSol
-            }
-            val driftSol = recomputedPnl - totalRealizedPnlSol
-            if (kotlin.math.abs(driftSol) > 0.01) {
-                ErrorLogger.info(TAG,
-                    "📊 PnL RECOMPUTE: ${"%.4f".format(totalRealizedPnlSol)} → " +
-                    "${"%.4f".format(recomputedPnl)} SOL (drift=${"%.4f".format(driftSol)})")
-                totalRealizedPnlSol = recomputedPnl
-                // currentBalance follows: recompute from the run's start.
-                currentBalance = (startBalance + recomputedPnl).coerceAtLeast(0.0)
-            }
-
-            // V5.9.1117 — align 30D with the Journal exactly. totalTrades is
-            // all closed SELL/PARTIAL_SELL rows including scratches; WR still uses W/L.
-            if (stats.totalStoredTrades != totalTrades || stats.totalWins != wins || stats.totalLosses != losses || stats.totalScratches != scratches) {
-                ErrorLogger.info(TAG, "📊 SYNC: Aligning 30D stats from Journal")
-                ErrorLogger.info(TAG, "   Before: total=$totalTrades W=$wins L=$losses S=$scratches")
-                totalTrades = stats.totalStoredTrades
-                wins = stats.totalWins
-                losses = stats.totalLosses
-                scratches = stats.totalScratches
-                ErrorLogger.info(TAG, "   After:  total=$totalTrades W=$wins L=$losses S=$scratches")
-            }
-            save()
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Sync error: ${e.message}")
-        }
+            PipelineHealthCollector.labelInc("RUN_TRACKER_MIXED_JOURNAL_SYNC_SUPPRESSED_8093")
+        } catch (_: Throwable) {}
     }
 
     // V5.9.369 — asset-class bucket helpers.
