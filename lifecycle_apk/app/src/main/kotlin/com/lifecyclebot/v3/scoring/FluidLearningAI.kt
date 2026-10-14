@@ -58,6 +58,7 @@ object FluidLearningAI {
         sessionLifetimeBaseline = try {
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live",
             ).trades
         } catch (_: Exception) { 0 }
         ErrorLogger.info(TAG, "🧠 FluidLearningAI initialized (ONE-TIME) | " +
@@ -246,6 +247,11 @@ object FluidLearningAI {
      * count matches the journal/UI count.
      */
     fun getTotalTradeCount(): Int {
+        // 8093: a post-reset LIVE brain must mature only from post-reset
+        // canonical LIVE closes, never paper history or legacy session totals.
+        if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+            return (com.lifecyclebot.engine.RunTracker30D.getLiveLaneStats("MEME")["trades"] as? Int) ?: 0
+        }
         // V5.9.695 — use (baseline + session delta) not (lifetimeSells + sessionTrades).
         // lifetimeSells grows in-session as trades close (bumpLifetimeFor fires immediately),
         // so the old formula counted every session close twice. Correct total =
@@ -253,6 +259,7 @@ object FluidLearningAI {
         val persistedMeme = try {
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live",
             ).trades
         } catch (_: Throwable) { 0 }
         return maxOf(persistedMeme, sessionLifetimeBaseline + sessionTrades.get())
@@ -636,11 +643,16 @@ object FluidLearningAI {
         val lifetime = try {
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live",
             )
         } catch (_: Exception) { null }
 
-        val historicalTrades = lifetime?.trades ?: 0
-        val historicalWinRate = lifetime?.winRate ?: 0.0
+        val liveProof8093 = if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())
+            com.lifecyclebot.engine.RunTracker30D.getLiveLaneStats("MEME") else emptyMap()
+        val historicalTrades = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) lifetime?.trades ?: 0
+            else (liveProof8093["trades"] as? Int) ?: 0
+        val historicalWinRate = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) lifetime?.winRate ?: 0.0
+            else (liveProof8093["winRate"] as? Double) ?: 0.0
         
         // V5.9.1117 — Journal is source of truth. Do NOT add sessionTrades on
         // top of lifetimeSells; the journal counter already bumps on close.
@@ -652,7 +664,10 @@ object FluidLearningAI {
         } else historicalWinRate
         
         // Blend historical and session win rates
-        val blendedWinRate = if (historicalTrades > 0 && sessionTrades.get() > 0) {
+        val blendedWinRate = if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+            // Never blend PAPER-mode session updates into a LIVE progress estimate.
+            historicalWinRate
+        } else if (historicalTrades > 0 && sessionTrades.get() > 0) {
             (historicalWinRate * historicalTrades + sessionWinRate * sessionTrades.get()) / 
             (historicalTrades + sessionTrades.get())
         } else if (historicalTrades > 0) {
@@ -1985,10 +2000,13 @@ object FluidLearningAI {
         val lifetime = try {
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live",
             )
         } catch (_: Exception) { null }
         val historicalTrades = lifetime?.trades ?: 0
-        val totalTrades = maxOf(historicalTrades, sessionLifetimeBaseline + sessionTrades.get())
+        val totalTrades = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())
+            maxOf(historicalTrades, sessionLifetimeBaseline + sessionTrades.get())
+            else getTotalTradeCount()
         val sessionWinRate = if (sessionTrades.get() > 0) {
             sessionWins.get().toDouble() / sessionTrades.get() * 100
         } else 0.0
