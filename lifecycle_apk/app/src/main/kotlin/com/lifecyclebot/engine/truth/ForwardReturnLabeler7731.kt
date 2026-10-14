@@ -1211,7 +1211,8 @@ object ForwardReturnLabeler7731 {
             // V5.0.8094 — at the lane's MEASURED live fill latency (8094 SHITCOIN ~40 s), not the first mark 5 s out: a coin
             // that pumps between the decision and the fill was graded from a price live never gets, so setups graded
             // positive lost live (-17..-40% stop-outs within minutes).
-            if (!o.rebased8076 && age >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
+            if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {
+              if (age >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
                 o.rebased8076 = true
                 if (age <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
                     if (px > o.entryPrice) rebasedUp8076.incrementAndGet() else rebasedDown8076.incrementAndGet()
@@ -1220,6 +1221,7 @@ object ForwardReturnLabeler7731 {
                     o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN
                     synchronized(o.recent8071) { o.recent8071.clear() }
                 }
+              }
             }
             if (basisSuspect7738(o.entryPrice, px) && !runCorroborated7769(
                     o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
