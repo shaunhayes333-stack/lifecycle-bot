@@ -476,7 +476,30 @@ object CortexExit7897 {
                 "      lanes: ${books.entries.take(8).joinToString(" · ") { (lane, b) ->
                     "$lane sell=${fmt(b.byBucket[0])}/${b.positions[0].size}p neutral=${fmt(b.byBucket[1])} hold=${fmt(b.byBucket[2])}/${b.positions[2].size}p " +
                         "holdAuth=${holdProven(b.byBucket[2], b.positions[2].size)} sellAuth=${sellProven(b.byBucket[0], b.positions[0].size)}"
-                }.ifBlank { "no graded samples yet" }}"
+                }.ifBlank { "no graded samples yet" }}" +
+                "\n      grades8136: ${dueLine8136(System.currentTimeMillis())}"
         }
+    }
+
+    /**
+     * V5.0.8136 — a pending read is not a broken grader: it grades 30 min (runner 120 min) after it was read. Split the
+     * queue into not-yet-due, due-inside-grace and overdue (past grace, mark never arrived), so only the last is a fault.
+     */
+    internal fun dueSplit8136(reads: Collection<Pair<Long, Boolean>>, nowMs: Long): Triple<Int, Int, Int> {
+        var notDue = 0; var inGrace = 0; var overdue = 0
+        for ((atMs, runner) in reads) {
+            val due = atMs + if (runner) RUNNER_HORIZON_MS else HORIZON_MS
+            when {
+                nowMs < due -> notDue++
+                nowMs - due <= GRADE_GRACE_MS -> inGrace++
+                else -> overdue++
+            }
+        }
+        return Triple(notDue, inGrace, overdue)
+    }
+
+    private fun dueLine8136(nowMs: Long): String {
+        val (notDue, inGrace, overdue) = dueSplit8136(pending.values.map { it.atMs to it.runner }, nowMs)
+        return "notYetDue=$notDue dueInGrace=$inGrace overdue=$overdue graded=${graded.get()}"
     }
 }

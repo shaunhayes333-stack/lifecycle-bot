@@ -32411,6 +32411,9 @@ if (hotExitHandledSweep) {
     // CORE/STANDARD/V3_CORE together.
     if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly &&
         cyclePrimaryLane.uppercase() !in setOf("V3_CORE")) {
+        // V5.0.8136 — a credible BUY proposal starts its freeze/mint-authority proof now (single-flight, live only),
+        // so the pre-broadcast gate finds a fresh proof instead of asking the chain at quote time.
+        try { com.lifecyclebot.engine.truth.AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint) } catch (_: Throwable) {}
         // ═══════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Mark as candidate
         // ═══════════════════════════════════════════════════════════════════
