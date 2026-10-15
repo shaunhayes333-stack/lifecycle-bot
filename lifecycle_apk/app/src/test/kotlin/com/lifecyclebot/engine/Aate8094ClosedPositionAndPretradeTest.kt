@@ -733,8 +733,10 @@ class Aate8094ClosedPositionAndPretradeTest {
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         val door = g.substringAfter("proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)").substringBefore("!coldStartAdmits8080(ts, l8059, nowMs)) {")
         assertTrue(door.contains("!runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059)"))
+        // V5.0.8115 — the chase rule still applies to a confirmed run: 8114 bought 34fph3 at +1,238% (banked -5%).
+        // A re-entry waits for its pullback / base instead of buying the high.
         val chase = g.substringAfter("chasing8065(snap8065.runupFromLocalLowPct").substringBefore("!cellOrKindProven8094(ts, l8059, nowMs)) {")
-        assertTrue(chase.contains("!runnerForming8113(ts, nowMs)"))
+        assertFalse(chase.contains("runnerForming8113"))
         val helper = g.substringAfter("private fun runnerForming8113(").substringBefore("private fun shadowAuditAdmits8113(")
         assertTrue(helper.contains("RunnerPlay8018.ticketActive8018(ts.mint, nowMs)") && helper.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)"))
     }

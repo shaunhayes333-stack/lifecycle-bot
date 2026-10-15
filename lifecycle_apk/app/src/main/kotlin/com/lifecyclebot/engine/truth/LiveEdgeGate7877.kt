@@ -494,7 +494,6 @@ object LiveEdgeGate7877 {
             // from the fill latency, so the chase is already in the record) the spike rule stands down.
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
                 // V5.0.8097 — the spike rule's own ladder replays (cell, or lane when the cell is thin) prove it refuses runners.
-                !runnerForming8113(ts, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
                 chaseRefused8065.incrementAndGet()
