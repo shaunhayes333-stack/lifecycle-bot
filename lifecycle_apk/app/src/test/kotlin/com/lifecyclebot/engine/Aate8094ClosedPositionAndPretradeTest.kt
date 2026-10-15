@@ -818,7 +818,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(a.isFrozen("frozen8122mint"))
         assertFalse(a.isFrozen("fine8122mint"))
         val e = src("engine/Executor.kt")
-        assertTrue(e.contains("if ((absent7736 != null && absent7736.count >= 2) || frozenByIssuer8122(ts)) {"))
+        assertTrue(e.contains("if (frozenByIssuer8122(ts)) return frozenHandOff8122(ts, reason)"))
+        assertTrue(e.contains("if (absent7736 != null && absent7736.count >= 2) {"))                     // 7736 pin intact
         assertTrue(e.contains("TokenBlacklist.block(ts.mint, \"FROZEN_BY_ISSUER_8122\")"))
         a.applyParsedSnapshot(setOf("frozen8122mint"), emptySet())
     }
