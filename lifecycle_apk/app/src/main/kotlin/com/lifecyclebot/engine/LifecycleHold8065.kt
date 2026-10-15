@@ -165,6 +165,33 @@ object LifecycleHold8065 {
     internal fun profitablePeakReversal8079(peakPct: Double, currentPct: Double, fresh: Boolean): Boolean =
         fresh && peakPct >= 300.0 && currentPct >= 20.0 && peakGiveback8065(peakPct, currentPct)
 
+    /**
+     * Pure (V5.0.8109) §A_HOLD_THAT_NEVER_RAN_IS_NOT_A_RUNNER. Owner, 5.0.8108: "absolutely drop moonshots like any token
+     * metrics collapse etc. so yes". 5.0.8098: losers held 196.8 min vs winners 16.7 min — the hold deferred every
+     * ordinary stop down to -40% and its own base break needs ~4.5 h of bars. A held position that never reached
+     * +[UNPROVEN_PEAK_PCT_8109] takes its ordinary stops once red for [UNPROVEN_RED_MS_8109] or at [UNPROVEN_DEEP_PCT_8109];
+     * a position that did run keeps the hold and its give-back exits.
+     */
+    fun unprovenLoser8109(peakPct: Double, grossPct: Double, ageMs: Long): Boolean =
+        grossPct.isFinite() && grossPct < 0.0 && !(peakPct.isFinite() && peakPct >= UNPROVEN_PEAK_PCT_8109) &&
+            (ageMs >= UNPROVEN_RED_MS_8109 || grossPct <= UNPROVEN_DEEP_PCT_8109)
+
+    /**
+     * Pure (V5.0.8109): the token's own metrics have collapsed under a red hold — pool liquidity below half its entry
+     * depth, or sellers in control (fresh buy share <= [COLLAPSE_BUY_SHARE_8109]%). Any hold, run or not, releases.
+     */
+    fun metricsCollapsed8109(grossPct: Double, entryLiqUsd: Double, liqNowUsd: Double, buySharePct: Double, buyShareFresh: Boolean): Boolean {
+        if (!(grossPct.isFinite() && grossPct < 0.0)) return false
+        val liqGone = entryLiqUsd > 0.0 && liqNowUsd > 0.0 && liqNowUsd < entryLiqUsd * 0.5
+        val sellersOwnIt = buyShareFresh && buySharePct.isFinite() && buySharePct in 0.0..COLLAPSE_BUY_SHARE_8109
+        return liqGone || sellersOwnIt
+    }
+
+    private const val UNPROVEN_PEAK_PCT_8109 = 25.0
+    private const val UNPROVEN_RED_MS_8109 = 45L * 60_000L
+    private const val UNPROVEN_DEEP_PCT_8109 = -20.0
+    private const val COLLAPSE_BUY_SHARE_8109 = 25.0
+
     /** Pure: the dead-money release. */
     fun deadMoney8065(ageMs: Long, grossPct: Double, sinceHighMs: Long): Boolean =
         ageMs >= DEAD_AFTER_MS && grossPct in -15.0..20.0 && sinceHighMs >= NO_HIGH_MS
@@ -228,6 +255,13 @@ object LifecycleHold8065 {
         // V5.0.8080 — a hold whose own give-back is due never swallows the profit lock / trail that
         // asked first (the rapid mark that would fire the hold's exit may not have a price this tick).
         val st8080 = states[key(ts)]
+        val now8109 = System.currentTimeMillis()
+        val peak8109 = maxOf(st8080?.peak ?: Double.NEGATIVE_INFINITY, ts.position.peakGainPct.takeIf { it.isFinite() } ?: Double.NEGATIVE_INFINITY)
+        if (unprovenLoser8109(peak8109, g, now8109 - ts.position.entryTime) ||
+            metricsCollapsed8109(g, ts.position.entryLiquidityUsd, ts.lastLiquidityUsd, ts.lastBuyPressurePct, now8109 - ts.buyPressureObservedAtMs8084 in 0L..120_000L)) {
+            try { PipelineHealthCollector.labelInc("LIFECYCLE_LOSER_RELEASED_8109") } catch (_: Throwable) {}
+            return null
+        }
         if (st8080 != null && givebackDue8080(maxOf(st8080.peak, ts.position.peakGainPct), g, st8080.taken)) {
             try { PipelineHealthCollector.labelInc("LIFECYCLE_GIVEBACK_RELEASED_8080") } catch (_: Throwable) {}
             return null

@@ -691,4 +691,19 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(x.isCrossAssetLane("MOONSHOT"))                       // the meme lane stays the meme lane
         assertFalse(x.isCrossAssetLane("CRYPTO_LEV"))
     }
+
+    @Test fun aHeldLoserThatNeverRanOrWhoseMetricsCollapsedIsReleased() {
+        val h = LifecycleHold8065
+        val min = 60_000L
+        assertTrue(h.unprovenLoser8109(peakPct = 8.0, grossPct = -6.0, ageMs = 50 * min))
+        assertTrue(h.unprovenLoser8109(peakPct = 3.0, grossPct = -22.0, ageMs = 5 * min))
+        assertFalse(h.unprovenLoser8109(peakPct = 3.0, grossPct = -6.0, ageMs = 10 * min))
+        assertFalse(h.unprovenLoser8109(peakPct = 60.0, grossPct = -6.0, ageMs = 90 * min))
+        // Metrics collapse releases any red hold: liquidity under half its entry depth, or sellers own the tape.
+        assertTrue(h.metricsCollapsed8109(-5.0, entryLiqUsd = 40_000.0, liqNowUsd = 15_000.0, buySharePct = 50.0, buyShareFresh = false))
+        assertTrue(h.metricsCollapsed8109(-5.0, 40_000.0, 38_000.0, buySharePct = 18.0, buyShareFresh = true))
+        assertFalse(h.metricsCollapsed8109(-5.0, 40_000.0, 38_000.0, buySharePct = 18.0, buyShareFresh = false))  // stale read
+        assertFalse(h.metricsCollapsed8109(+5.0, 40_000.0, 10_000.0, 10.0, true))                                 // green: not a loser
+        assertFalse(h.metricsCollapsed8109(-5.0, 0.0, 10_000.0, 50.0, true))                                       // entry depth unknown
+    }
 }

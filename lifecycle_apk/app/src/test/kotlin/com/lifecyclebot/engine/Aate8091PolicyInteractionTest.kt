@@ -70,6 +70,11 @@ class Aate8091PolicyInteractionTest {
     @Test fun staleMarkDoesNotChangeHoldingContractAndStopsUseTheSameFloorAsLabels() {
         val ts = position("DIAMOND_HANDS_RUNNER")
         ts.lastPrice = 0.85; ts.lastPriceUpdate = System.currentTimeMillis() - 10_000L
+        // V5.0.8109 — owner: a hold that never ran is not held through a loss (8108: "absolutely drop moonshots ... so yes").
+        // This runner never went green and is long past 45 minutes red: its ordinary stop fires.
+        assertNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
+        // A runner that DID run (peak +60%) keeps the lifecycle contract: ordinary stops held above the -40% floor.
+        ts.position.peakGainPct = 60.0
         assertNotNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
         assertNotNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
         assertEquals(LifecycleHold8065.FLOOR_PCT, StopAuthority7887.stopMagFor(ts), 0.0)
