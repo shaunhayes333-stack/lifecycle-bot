@@ -285,7 +285,7 @@ object CandidateAdmission8136 {
 
     /** Pure: the bounded ledger key — source, terminal and the reason without its lane / numeric tail. */
     fun ledgerKey8136(source: String, terminal: Terminal8136, reason: String): String {
-        val r = reason.substringBefore(':').substringBefore(' ').replace(Regex("_-?\\d+(\\.\\d+)?PCT.*$"), "")
+        val r = reason.substringBefore(':').substringBefore(' ').replace(Regex("_-?\\d+(\\.\\d+)?PCT.*\$"), "")
         // Cut after the first version tag that ends a named reason (drops the lane / setup tail), e.g.
         // PLAYBOOK_SETUP_PROVEN_LOSING_7907_MOONSHOT_X -> PLAYBOOK_SETUP_PROVEN_LOSING_7907.
         val m = Regex("_\\d{4}").findAll(r).firstOrNull { it.range.last >= 11 }
