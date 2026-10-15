@@ -75,6 +75,26 @@ object CryptoUniverseExecutor {
         ) : Outcome()
     }
 
+    private fun freezableRefusal8123(
+        mint: String?, direction: PerpsDirection, resolution: CryptoUniverseRouteResolver.Resolution,
+    ): CryptoUniverseRouteResolver.Resolution? {
+        if (mint.isNullOrBlank() || mint.startsWith("0x") || direction != PerpsDirection.LONG || mint == USDC_MINT) return null
+        val proof = try { com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true) } catch (_: Throwable) { null }
+        val why = when {
+            proof == null -> "FREEZE_AUTHORITY_UNVERIFIED"
+            !proof.freezeAuthorityDisabled -> "FREEZE_AUTHORITY_ACTIVE"
+            proof.hostileExtension8123 != null -> "TOKEN2022_HOSTILE_${proof.hostileExtension8123}"
+            else -> return null
+        }
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_BUY_REFUSED_FREEZABLE_8123_${why.substringBefore(':')}") } catch (_: Throwable) {}
+        return resolution.copy(
+            route = CryptoExecutionRoute.PAPER_ONLY,
+            diagCode = CryptoUniverseDiagCodes.ROUTE_PAPER_ONLY,
+            humanMessage = "Refused live buy: $why (a freezable coin can trap the position).",
+            executable = false,
+        )
+    }
+
     suspend fun executeLiveTrade(
         positionId: String,
         market: PerpsMarket,
@@ -102,6 +122,9 @@ object CryptoUniverseExecutor {
             market, walletSol, sizeSol, assetSymbol6493 = symbol, targetMint6493 = targetMint6493, targetChainId6544 = targetChainId6544,
         )
         val mint = resolution.mint
+        // V5.0.8123 — the crypto trader's Solana buys never passed the freeze gate. A live LONG into a Solana mint
+        // needs the chain's read: freeze authority revoked and no hostile Token-2022 extension; unanswered refuses.
+        freezableRefusal8123(mint, direction, resolution)?.let { return@runAwaited Outcome.RouteDeferred(it) }
 
         CryptoUniverseForensics.logPhase(
             phase = "CU_ROUTE_ELIGIBILITY_CHECK",

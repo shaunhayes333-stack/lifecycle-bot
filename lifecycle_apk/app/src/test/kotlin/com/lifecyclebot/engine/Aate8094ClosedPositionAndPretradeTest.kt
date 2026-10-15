@@ -822,4 +822,23 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(e.contains("TokenBlacklist.block(ts.mint, \"FROZEN_BY_ISSUER_8122\")"))
         a.applyParsedSnapshot(setOf("frozen8122mint"), emptySet())
     }
+
+    @Test fun aToken2022MintThatCanTrapAHolderIsNeverBought() {
+        val P = com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248
+        fun ext(json: String) = P.hostileExtension8123(org.json.JSONArray(json))
+        assertNull(P.hostileExtension8123(null))                                                         // classic SPL mint
+        assertNull(ext("""[{"extension":"metadataPointer","state":{"authority":null}}]"""))               // harmless
+        assertNotNull(ext("""[{"extension":"permanentDelegate","state":{"delegate":"Dg8122"}}]"""))       // can take/burn tokens
+        assertNotNull(ext("""[{"extension":"pausableConfig","state":{"authority":"Pa8122","paused":false}}]"""))
+        assertNotNull(ext("""[{"extension":"transferHook","state":{"authority":null,"programId":"Hk8122"}}]"""))
+        assertNull(ext("""[{"extension":"transferHook","state":{"authority":null,"programId":null}}]"""))
+        assertNotNull(ext("""[{"extension":"defaultAccountState","state":{"accountState":"frozen"}}]"""))
+        assertNotNull(ext("""[{"extension":"nonTransferable"}]"""))
+        assertNotNull(ext("""[{"extension":"transferFeeConfig","state":{"newerTransferFee":{"transferFeeBasisPoints":2500}}}]"""))
+        assertNull(ext("""[{"extension":"transferFeeConfig","state":{"newerTransferFee":{"transferFeeBasisPoints":100}}}]"""))
+        val gate = src("engine/truth/FreezeAuthorityHardBlock7238.kt")
+        assertTrue(gate.contains("if (freeze == true && proof == null) {"))                                // cached true is re-proved on chain
+        assertTrue(gate.contains("TOKEN2022_HOSTILE_EXTENSION_\$hostile"))
+        assertTrue(src("perps/crypto/CryptoUniverseExecutor.kt").contains("freezableRefusal8123(mint, direction, resolution)?.let"))
+    }
 }

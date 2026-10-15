@@ -21,7 +21,41 @@ object OnChainMintAuthorityProof7248 {
         val mintAuthorityDisabled: Boolean,
         val freezeAuthorityDisabled: Boolean,
         val provider: String,
+        /** V5.0.8123 — a Token-2022 extension that can trap a holder (null = none). */
+        val hostileExtension8123: String? = null,
     )
+
+    /**
+     * V5.0.8123 — Token-2022 extensions that can stop a holder selling even with freeze authority revoked:
+     * pause the mint, move/burn holders' tokens (permanent delegate), run arbitrary code on every transfer
+     * (transfer hook), open accounts frozen, forbid transfers, or tax the sell away (fee > 10%).
+     * Pure: [extensions] is the jsonParsed mint `info.extensions` array.
+     */
+    fun hostileExtension8123(extensions: org.json.JSONArray?): String? {
+        if (extensions == null) return null
+        for (i in 0 until extensions.length()) {
+            val e = extensions.optJSONObject(i) ?: continue
+            val name = e.optString("extension", "")
+            val st = e.optJSONObject("state")
+            when (name) {
+                "permanentDelegate" -> if (st?.opt("delegate").let { it != null && it != JSONObject.NULL }) return name
+                "pausableConfig" -> if (st?.opt("authority").let { it != null && it != JSONObject.NULL } || st?.optBoolean("paused") == true) return name
+                "transferHook" -> if (st?.opt("programId").let { it != null && it != JSONObject.NULL }) return name
+                "defaultAccountState" -> if (st?.optString("accountState", "")?.equals("frozen", true) == true) return name
+                "nonTransferable" -> return name
+                "transferFeeConfig" -> {
+                    val bps = maxOf(
+                        st?.optJSONObject("newerTransferFee")?.optInt("transferFeeBasisPoints", 0) ?: 0,
+                        st?.optJSONObject("olderTransferFee")?.optInt("transferFeeBasisPoints", 0) ?: 0,
+                    )
+                    if (bps > MAX_TRANSFER_FEE_BPS_8123) return "$name:${bps}bps"
+                }
+            }
+        }
+        return null
+    }
+
+    private const val MAX_TRANSFER_FEE_BPS_8123 = 1_000
 
     private val http by lazy {
         SharedHttpClient.builder()
@@ -109,6 +143,7 @@ object OnChainMintAuthorityProof7248 {
                         mintAuthorityDisabled = mintAuth == null || mintAuth == JSONObject.NULL,
                         freezeAuthorityDisabled = freezeAuth == null || freezeAuth == JSONObject.NULL,
                         provider = provider,
+                        hostileExtension8123 = hostileExtension8123(info.optJSONArray("extensions")),
                     )
                     try {
                         PipelineHealthCollector.labelInc("MINT_AUTHORITY_ONCHAIN_PROOF_7248")
@@ -118,7 +153,7 @@ object OnChainMintAuthorityProof7248 {
                         )
                     } catch (_: Throwable) {}
                     unansweredAt7365.remove(mint)
-                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled) {
+                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled && proof.hostileExtension8123 == null) {
                         if (provenDisabled7365.size > 20_000) provenDisabled7365.clear()
                         provenDisabled7365[mint] = proof
                     } else {

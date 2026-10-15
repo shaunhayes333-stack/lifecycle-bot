@@ -70,6 +70,33 @@ object FreezeAuthorityHardBlock7238 {
     fun evaluateLive(ts: TokenState): Decision {
         val mint = ts.mint
         val freeze: Boolean? = ts.safety.freezeAuthorityDisabled
+        // V5.0.8123 — owner: "fix the buy side so it never buys freezable coins". A cached `true` came from scan-time
+        // data and was never checked against the chain, and the chain check read only freezeAuthority, so a Token-2022
+        // mint that can pause, claw back, hook or tax every sell passed. Every live buy now needs the chain's own read
+        // (permanently cached once clean): freeze revoked AND no hostile Token-2022 extension.
+        if (freeze != false) {
+            val proof = try { OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true) } catch (_: Throwable) { null }
+            val hostile = proof?.hostileExtension8123
+            if (proof != null && proof.freezeAuthorityDisabled && hostile != null) {
+                blockedActive.incrementAndGet()
+                try {
+                    QuarantineStore.quarantine(mint = mint, symbol = ts.symbol, reason = "TOKEN2022_HOSTILE_8123_$hostile")
+                    TokenBlacklist.block(mint, "TOKEN2022_HOSTILE_8123_$hostile")
+                    PipelineHealthCollector.labelInc("TOKEN2022_HOSTILE_EXTENSION_BLOCK_8123")
+                    ForensicLogger.lifecycle("TOKEN2022_HOSTILE_EXTENSION_BLOCK_8123", "mint=${mint.take(10)} symbol=${ts.symbol} extension=$hostile")
+                } catch (_: Throwable) {}
+                return Decision(Verdict.BLOCK_FREEZE_ACTIVE, "TOKEN2022_HOSTILE_EXTENSION_$hostile")
+            }
+            if (freeze == true && proof == null) {
+                blockedUnverified.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FREEZE_CACHED_TRUE_CHAIN_UNANSWERED_8123") } catch (_: Throwable) {}
+                return Decision(Verdict.BLOCK_FREEZE_UNVERIFIED, "FREEZE_AUTHORITY_UNVERIFIED")
+            }
+            if (freeze == true && proof != null && !proof.freezeAuthorityDisabled) {
+                ts.safety = ts.safety.copy(freezeAuthorityDisabled = false, checkedAt = System.currentTimeMillis())
+                return evaluateLive(ts)
+            }
+        }
         when (freeze) {
             true -> {
                 allowed.incrementAndGet()
