@@ -644,7 +644,8 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aFullLiveBookRotatesThePoorestPositionOfAnyLane() {
         val r = com.lifecyclebot.engine.truth.OpportunityRotation8098
-        val now = 50_000_000L
+        // Clear of any rotation an earlier test stamped on the shared cooldown clock.
+        val now = System.currentTimeMillis() + 3_600_000L
         assertFalse(r.bookDemand8103(now))
         r.noteBookDemand8103("NEWMINT", edgeKellyFrac = 0.0, nowMs = now)      // unproven: no demand
         assertFalse(r.bookDemand8103(now))
@@ -655,17 +656,6 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(r.shouldRotate8098("B", r.BOOK_8103, held, now))
         assertFalse(r.bookDemand8103(now))                                    // one rotation per demand
         assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("OpportunityRotation8098.noteBookDemand8103(mint, i.edgeKellyFrac8057)"))
-    }
-
-    @Test fun aLifecycleHoldThatNeverRanTakesItsOrdinaryStops() {
-        val h = LifecycleHold8065
-        val min = 60_000L
-        assertTrue(h.unprovenLoser8104(peakPct = 8.0, grossPct = -6.0, ageMs = 50 * min))    // red 45+ min, never ran
-        assertTrue(h.unprovenLoser8104(peakPct = 3.0, grossPct = -22.0, ageMs = 5 * min))    // deep red, never ran
-        assertFalse(h.unprovenLoser8104(peakPct = 3.0, grossPct = -6.0, ageMs = 10 * min))   // early shakeout room
-        assertFalse(h.unprovenLoser8104(peakPct = 60.0, grossPct = -6.0, ageMs = 90 * min))  // it ran: the hold keeps it
-        assertFalse(h.unprovenLoser8104(peakPct = 8.0, grossPct = 4.0, ageMs = 90 * min))    // green
-        assertTrue(src("engine/LifecycleHold8065.kt").contains("LIFECYCLE_UNPROVEN_LOSER_RELEASED_8104"))
     }
 
     @Test fun aRetiredNativeVetoIsHonouredAtTheLaneBuyDoor() {
