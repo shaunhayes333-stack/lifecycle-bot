@@ -531,16 +531,28 @@ object LanePlaybook7907 {
         val shapeKnown = shapeObs == Obs8084.OBSERVED
         val bpKnown = bpObs == Obs8084.OBSERVED
         val chgKnown = chgObs == Obs8084.OBSERVED
+        // V5.0.8100 — an input its usual source (DexScreener row, provider candles) left unobserved is read from the
+        // coin's own EXECUTED pump trades (TradeTape8100, one source, one-minute bars). Never overrides a reading.
+        val tape8100 = if (shapeKnown && bpKnown && chgKnown) null
+            else try { com.lifecyclebot.engine.truth.TradeTape8100.read8100(ts.mint, nowMs) } catch (_: Throwable) { null }
+        val tapeShape8100 = if (!shapeKnown) tape8100?.shape else null
+        val tapeBp8100 = if (!bpKnown) tape8100?.bp else null
+        val tapeChg8100 = if (!chgKnown) tape8100?.chg else null
+        try {
+            if (tapeShape8100 != null) com.lifecyclebot.engine.truth.TradeTape8100.noteFilled8100("shape")
+            if (tapeBp8100 != null) com.lifecyclebot.engine.truth.TradeTape8100.noteFilled8100("bp")
+            if (tapeChg8100 != null) com.lifecyclebot.engine.truth.TradeTape8100.noteFilled8100("chg")
+        } catch (_: Throwable) {}
         val liqObs = if (pos(s?.liquidityUsd).isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN
         return F(
             age = nn(s?.ageMin),
-            runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else Double.NaN,
-            pxPeak = if (shapeKnown) pos(s?.currentVsPeak) else Double.NaN,
-            dd = if (shapeKnown) nn(s?.drawdownFromPeakPct) else Double.NaN,
-            bp = if (bpKnown) nn(bpRaw) else Double.NaN, liq = pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
+            runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else tapeShape8100?.runupPct ?: Double.NaN,
+            pxPeak = if (shapeKnown) pos(s?.currentVsPeak) else tapeShape8100?.vsPeak ?: Double.NaN,
+            dd = if (shapeKnown) nn(s?.drawdownFromPeakPct) else tapeShape8100?.ddPct ?: Double.NaN,
+            bp = if (bpKnown) nn(bpRaw) else tapeBp8100 ?: Double.NaN, liq = pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
             top = nn(s?.topHolderPct),
-            chg5m = if (chgKnown) ts.lastPriceChange5m.takeIf { it.isFinite() } ?: Double.NaN else Double.NaN,
-            chg1h = if (chgKnown) ts.lastPriceChange1h.takeIf { it.isFinite() } ?: Double.NaN else Double.NaN,
+            chg5m = if (chgKnown) ts.lastPriceChange5m.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.first ?: Double.NaN,
+            chg1h = if (chgKnown) ts.lastPriceChange1h.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.second ?: Double.NaN,
             holderGrowth = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() } ?: Double.NaN,
             // V5.0.7925 — 0 is a real reading (flat or falling volume), not "unknown".
             volAccel = volAcc?.takeIf { it.isFinite() } ?: Double.NaN,
@@ -618,7 +630,9 @@ object LanePlaybook7907 {
             beta7978 = try { com.lifecyclebot.engine.market.MemeMeta7973.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false },
             colourBuy7978 = try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)?.colorBuy7968 == true } catch (_: Throwable) { false },
         ).also { f ->
-            f.obs8084 = mapOf("bp" to bpObs, "chg" to chgObs, "shape" to shapeObs, "liq" to liqObs,
+            f.obs8084 = mapOf("bp" to (if (tapeBp8100 != null) Obs8084.OBSERVED else bpObs),
+                "chg" to (if (tapeChg8100 != null) Obs8084.OBSERVED else chgObs),
+                "shape" to (if (tapeShape8100 != null) Obs8084.OBSERVED else shapeObs), "liq" to liqObs,
                 "age" to (if (f.age.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "mcap" to (if (f.mcap.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "tape" to (if (tape != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),

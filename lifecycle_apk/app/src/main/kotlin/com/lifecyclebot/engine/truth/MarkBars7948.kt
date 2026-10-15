@@ -168,7 +168,8 @@ object MarkBars7948 {
             .take(maxMints)
             .map { (mint, t) -> mint to synchronized(t) { t.bars.map { (m, b) -> TradePlan7739.Bar(m * BUCKET_MS, b[0], b[1], b[2], b[3]) } } }
 
-    fun statusLine7948(): String = "markBars7948 mints=${tapes.size} marks=${marksNoted.get()} barsLent=${barsLent.get()} seeded7951=${barsSeeded7951.get()}"
+    fun statusLine7948(): String = "markBars7948 mints=${tapes.size} marks=${marksNoted.get()} barsLent=${barsLent.get()} seeded7951=${barsSeeded7951.get()}" +
+        " tradeTape8100[${try { TradeTape8100.statusLine8100() } catch (_: Throwable) { "-" }}]"
 
     private fun trimMints7948(nowMs: Long) {
         tapes.entries.removeIf { nowMs - it.value.lastMs > KEEP_MS }

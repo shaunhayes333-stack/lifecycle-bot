@@ -1,0 +1,105 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * V5.0.8100 §THE_TAPE_FROM_THE_TRADES_THEMSELVES.
+ *
+ * Owner: "gecko terminal dex paprika never work. can we replace them or use an existing provider to cover that data?"
+ * 5.0.8095: GeckoTerminal sr=0-55% (rate-limited / 5xx), DexPaprika 403 terminal, keyless OHLCV served 0 bars; the setup
+ * classifier read DATA_INCOMPLETE on most fresh pump coins (SHITCOIN missing tape=1355 opp=1097 shape=1012 chg=933
+ * bp=898) because buy pressure, price change and chart shape come from DexScreener rows / provider candles that a
+ * fresh bonding-curve coin does not have yet.
+ *
+ * The PumpPortal trade stream (live since the key was funded: 1,071 trades in 4 minutes) carries every buy and sell on
+ * the curve with the curve's reserves after it. This keeps, per mint, the EXECUTED trades of that one source — never a
+ * mix of providers (the withdrawn 8094 tick-shape fallback mixed sources and misclassified) — and derives:
+ *  - buy pressure: SOL-volume buy share over the last 5 minutes (>= [MIN_TRADES_BP] trades);
+ *  - price change: 5 m from the trade at/before now-5m; 1 h from the trade at/before now-60m, or from the launch price
+ *    when the coin is younger than an hour (it did not exist before its launch);
+ *  - shape: run-up / vs-peak / drawdown over the last 24 one-minute closes (>= 3 minutes with trades).
+ * LanePlaybook7907 reads it ONLY for an input its usual source left unobserved; it never overrides a provider reading.
+ */
+object TradeTape8100 {
+    private const val KEEP_MS = 65L * 60_000L
+    private const val MAX_TRADES = 800
+    private const val MAX_MINTS = 400
+    private const val MIN_TRADES_BP = 6
+    private const val FRESH_MS = 120_000L
+    private const val BP_WINDOW_MS = 5L * 60_000L
+
+    private class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean)
+    private val tapes = ConcurrentHashMap<String, ArrayDeque<Trade>>()
+    private val notes = AtomicLong(0)
+    private val reads = AtomicLong(0)
+    private val filled = AtomicLong(0)
+
+    /** PumpFunWS: one executed curve trade (price = curve reserves after the trade, SOL per token). */
+    fun note8100(mint: String, priceSol: Double, sol: Double, isBuy: Boolean, atMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
+        val q = tapes.computeIfAbsent(mint) { ArrayDeque() }
+        synchronized(q) {
+            q.addLast(Trade(atMs, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy))
+            while (q.size > MAX_TRADES || (q.isNotEmpty() && atMs - q.first().atMs > KEEP_MS)) q.removeFirst()
+        }
+        notes.incrementAndGet()
+        if (tapes.size > MAX_MINTS) {
+            val drop = tapes.entries.sortedBy { e -> synchronized(e.value) { e.value.lastOrNull()?.atMs ?: 0L } }.take(MAX_MINTS / 10)
+            for (e in drop) tapes.remove(e.key)
+        }
+    }
+
+    data class Shape(val runupPct: Double, val vsPeak: Double, val ddPct: Double)
+    data class Read(val bp: Double?, val chg: Pair<Double, Double>?, val shape: Shape?)
+
+    /** Pure: SOL-volume buy share (0..100) of [trades], or null below [MIN_TRADES_BP] trades / no volume. */
+    fun buyPressure8100(buys: List<Pair<Boolean, Double>>): Double? {
+        if (buys.size < MIN_TRADES_BP) return null
+        val tot = buys.sumOf { it.second }
+        if (!(tot > 0.0)) return null
+        return buys.filter { it.first }.sumOf { it.second } / tot * 100.0
+    }
+
+    /** Pure: run-up from the local low, current vs peak, drawdown from peak over [closes] (>= 3), as the stage router does. */
+    fun shape8100(closes: List<Double>): Shape? {
+        if (closes.size < 3 || closes.any { !it.isFinite() || it <= 0.0 }) return null
+        val local = closes.takeLast(24)
+        val cur = local.last(); val peak = local.max(); val low = local.min()
+        return Shape(((cur - low) / low * 100.0).coerceAtLeast(0.0), (cur / peak).coerceIn(0.0, 2.0), ((peak - cur) / peak * 100.0).coerceAtLeast(0.0))
+    }
+
+    /** LanePlaybook7907: the tape's readings for [mint] now, each null when the tape cannot state it. */
+    fun read8100(mint: String, nowMs: Long = System.currentTimeMillis()): Read? {
+        val q = tapes[mint] ?: return null
+        val trades = synchronized(q) { q.toList() }
+        if (trades.isEmpty() || nowMs - trades.last().atMs > FRESH_MS) return null
+        reads.incrementAndGet()
+        val last = trades.last().priceSol
+        val bp = buyPressure8100(trades.filter { nowMs - it.atMs in 0L..BP_WINDOW_MS }.map { it.isBuy to it.sol })
+        val chg = run {
+            val at5 = trades.lastOrNull { it.atMs <= nowMs - 5L * 60_000L } ?: return@run null
+            val launchAt = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint) } catch (_: Throwable) { null }
+            val launchPx = try { com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(mint) } catch (_: Throwable) { null }
+            val base1h = trades.lastOrNull { it.atMs <= nowMs - 60L * 60_000L }?.priceSol
+                ?: launchPx?.takeIf { launchAt != null && nowMs - launchAt in 0L..60L * 60_000L }
+                ?: return@run null
+            (last / at5.priceSol - 1.0) * 100.0 to (last / base1h - 1.0) * 100.0
+        }
+        val closes = trades.filter { nowMs - it.atMs in 0L..24L * 60_000L }
+            .groupBy { it.atMs / 60_000L }.toSortedMap().values.map { it.last().priceSol }
+        val shape = shape8100(closes)
+        if (bp != null || chg != null || shape != null) filled.incrementAndGet()
+        return Read(bp, chg, shape)
+    }
+
+    /** LanePlaybook7907: an input the usual source left unobserved was filled from the trade tape. */
+    fun noteFilled8100(feature: String) {
+        try { PipelineHealthCollector.labelInc("TRADE_TAPE_FILLED_8100_$feature") } catch (_: Throwable) {}
+    }
+
+    fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()}"
+
+    internal fun resetForTest8100() { tapes.clear(); notes.set(0); reads.set(0); filled.set(0) }
+}

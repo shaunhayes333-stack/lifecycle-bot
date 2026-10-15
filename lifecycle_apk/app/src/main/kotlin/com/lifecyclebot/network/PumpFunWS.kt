@@ -427,6 +427,8 @@ object PumpFunWS {
                             val soldFrac7743 = if (txType == "sell" && tok7743.isFinite() && tok7743 > 0.0 && left7743.isFinite() && left7743 >= 0.0)
                                 tok7743 / (tok7743 + left7743) else 0.0
                             onTradeDetailCb7743?.invoke(mint, j.optString("traderPublicKey", ""), sol7743, txType == "buy", soldFrac7743, vSol)
+                            // V5.0.8100 — the executed-trade tape (buy pressure / change / shape for a coin no provider covers yet).
+                            com.lifecyclebot.engine.truth.TradeTape8100.note8100(mint, priceSol, sol7743, txType == "buy")
                         } catch (_: Throwable) {}
                     }
                     txType == "create" || j.has("name") && j.has("symbol") && j.has("mint") -> {

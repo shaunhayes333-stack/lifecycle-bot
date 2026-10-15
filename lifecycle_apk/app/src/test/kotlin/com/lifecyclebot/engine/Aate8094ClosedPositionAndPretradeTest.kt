@@ -564,6 +564,24 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(f.stale8094(0.0001, 1_000_000L, 1_020_000L))    // 20 s old: still blocked while both providers are down
     }
 
+    @Test fun theExecutedTradeTapeFillsOnlyWhatTheProvidersLeftUnobserved() {
+        val t = com.lifecyclebot.engine.truth.TradeTape8100
+        t.resetForTest8100()
+        assertEquals(null, t.buyPressure8100(listOf(true to 1.0, false to 1.0)))          // too few trades
+        assertEquals(75.0, t.buyPressure8100(List(6) { it to 1.0 }.map { (i, v) -> (i < 4) to (if (i < 4) 1.5 else 1.0) }) ?: 0.0, 0.01)
+        val sh = t.shape8100(listOf(1.0, 2.0, 1.5))!!
+        assertEquals(50.0, sh.runupPct, 1e-9); assertEquals(0.75, sh.vsPeak, 1e-9); assertEquals(25.0, sh.ddPct, 1e-9)
+        assertEquals(null, t.shape8100(listOf(1.0, 2.0)))
+        val now = 10_000_000L
+        for (m in 0 until 8) for (k in 0 until 2) t.note8100("TAPE_8100", 1.0 + m * 0.1, 0.5, k == 0, now - (7 - m) * 60_000L + k * 1_000L)
+        val r = t.read8100("TAPE_8100", now + 2_000L)!!
+        assertTrue(r.shape != null && r.bp != null)
+        val pb = src("engine/cortex/LanePlaybook7907.kt")
+        assertTrue(pb.contains("val tapeBp8100 = if (!bpKnown) tape8100?.bp else null"))
+        assertTrue(src("network/PumpFunWS.kt").contains("TradeTape8100.note8100(mint, priceSol, sol7743, txType == \"buy\")"))
+        t.resetForTest8100()
+    }
+
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
         val s = ScannerHardRejectStore
         val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }
