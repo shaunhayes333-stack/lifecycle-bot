@@ -740,4 +740,19 @@ class Aate8094ClosedPositionAndPretradeTest {
         val helper = g.substringAfter("private fun runnerForming8113(").substringBefore("private fun shadowAuditAdmits8113(")
         assertTrue(helper.contains("RunnerPlay8018.ticketActive8018(ts.mint, nowMs)") && helper.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)"))
     }
+
+    @Test fun aRugWithNoRouteIsConfirmedNotHeldAsAPhantom() {
+        val d = com.lifecyclebot.engine.truth.DeepRedConfirm8116
+        // Pool drained to under 30% of entry depth: confirmed at once.
+        assertTrue(d.confirms(false, firstSeenMs = 1_000L, nowMs = 1_500L, markAgeMs = 2_000L, entryLiqUsd = 40_000.0, liqNowUsd = 5_000.0))
+        // Depth unknown but the deep read persisted 45 s on a fresh mark: confirmed.
+        assertTrue(d.confirms(false, 1_000L, 46_500L, 5_000L, 0.0, 0.0))
+        // Fresh read, depth fine: still the phantom guard.
+        assertFalse(d.confirms(false, 1_000L, 10_000L, 5_000L, 40_000.0, 38_000.0))
+        // Persisted but on a stale mark: not confirmed.
+        assertFalse(d.confirms(false, 1_000L, 90_000L, 120_000L, 40_000.0, 38_000.0))
+        // An uncertain basis never confirms here.
+        assertFalse(d.confirms(true, 1_000L, 90_000L, 1_000L, 40_000.0, 1_000.0))
+        assertTrue(src("engine/BotService.kt").contains("if (execPx == null) return deepRedWithoutRoute8116(ts, pnlPct)"))
+    }
 }

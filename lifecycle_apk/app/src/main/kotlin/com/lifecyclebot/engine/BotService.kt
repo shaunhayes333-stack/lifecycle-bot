@@ -25710,6 +25710,10 @@ if (hotExitHandledSweep) {
      * uncertain basis the move is measured against the canonical entry price.
      */
     private fun catastrophicConfirmed7927(ts: TokenState, pnlPct: Double, execPx: Double?, execVsRawDelta4485: Double): Boolean {
+        // V5.0.8116 — a rug drains the route, so a real crash has no executable quote to confirm it and used to read as a
+        // phantom for ever (8098 BanYKy CASHGEN: -97% while every stop stood down on the unconfirmed read).
+        if (execPx == null) return deepRedWithoutRoute8116(ts, pnlPct)
+        deepRedSince8116.remove("${ts.mint}|${ts.position.entryTime}")
         if (!(pnlPct <= -50.0 && execPx != null && execVsRawDelta4485 <= 20.0)) return false
         val canon = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
@@ -25721,6 +25725,32 @@ if (hotExitHandledSweep) {
         val confirmed = execPx / ref - 1.0 <= -0.5
         if (!confirmed) try { PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_REFUSED_UNCERTAIN_BASIS_7927") } catch (_: Throwable) {}
         return confirmed
+    }
+
+    private val deepRedSince8116 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.8116 — a <= -50% read with NO executable quote is confirmed when the pool's own depth collapsed (under 30% of
+     * the entry depth) or the read has persisted [com.lifecyclebot.engine.truth.DeepRedConfirm8116.PERSIST_MS] on a
+     * fresh mark. An uncertain basis never confirms here (the 7927 phantom: a flat price read as -82%).
+     */
+    private fun deepRedWithoutRoute8116(ts: TokenState, pnlPct: Double): Boolean {
+        val key = "${ts.mint}|${ts.position.entryTime}"
+        val now = System.currentTimeMillis()
+        if (!(pnlPct.isFinite() && pnlPct <= -50.0)) { deepRedSince8116.remove(key); return false }
+        val first = deepRedSince8116.getOrPut(key) { now }
+        if (deepRedSince8116.size > 500) deepRedSince8116.entries.removeIf { now - it.value > 3_600_000L }
+        val uncertain = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .firstOrNull { it.mint == ts.mint && it.mode.equals("live", ignoreCase = true) }
+                ?.let { it.quarantineReason.startsWith("BASIS_UNCERTAIN_7807") || it.entryPriceSource.contains("BASIS_UNCERTAIN") } == true
+        } catch (_: Throwable) { true }
+        val ok = com.lifecyclebot.engine.truth.DeepRedConfirm8116.confirms(
+            uncertainBasis = uncertain, firstSeenMs = first, nowMs = now, markAgeMs = now - ts.lastPriceUpdate,
+            entryLiqUsd = ts.position.entryLiquidityUsd, liqNowUsd = ts.lastLiquidityUsd,
+        )
+        if (ok) try { PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_CONFIRMED_NO_ROUTE_8116") } catch (_: Throwable) {}
+        return ok
     }
 
     private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {
