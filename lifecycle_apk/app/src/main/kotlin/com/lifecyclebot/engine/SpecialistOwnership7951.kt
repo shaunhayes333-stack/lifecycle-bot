@@ -364,19 +364,29 @@ object SpecialistOwnership7951 {
      */
     private fun coreYieldedTo8119(mint: String, primaryLane: String, lane: String): Boolean = try {
         val p = lane7951(primaryLane)
-        val ops = if (p != "CORE" && p != "TREASURY") null else SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions
-        val yielded = ops != null && (ops["CORE"]?.reason == "CORE_YIELD_CLEAR_SPECIALIST_OWNER" ||
-            (p == "TREASURY" && primaryYieldsByRole8131(ops["TREASURY"]?.reason)))
-        yielded && ops!!.values.filter { it.authoritative && it.eligible && it.lane != "CORE" && it.lane != "TREASURY" }
+        val ops = SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions
+        // V5.0.8132 — any primary that refused on FIT (wrong lane for this coin), not just CORE (8120) / TREASURY (8131).
+        val yielded = ops != null && laneFitRefusal8132(ops[p]?.reason)
+        yielded && ops!!.values.filter { it.authoritative && it.eligible && it.lane != "CORE" && it.lane != p }
             .maxByOrNull { maxOf(it.score, it.confidence) }?.lane == lane
     } catch (_: Throwable) { false }
 
     /**
-     * Pure (V5.0.8131): TREASURY refused only because the coin is not a treasury coin (role floor: too small / thin),
-     * not on safety. 8127 missed 34fph3 +1165%, PorkBelly +653%, hozeMZ +545% on NATIVE_TREASURY_ROLE_FLOOR while
-     * the meme specialist that wanted them was never asked. Every receiving-lane gate still decides.
+     * Pure (V5.0.8132): a native refusal that only says "this coin is the wrong shape for MY lane" — cap band, age band,
+     * launch phase, role, "not a dip", CORE standing aside. Owner: "go find where else those problems exist". Missed:
+     * 34fph3 +1165% / PorkBelly +653% / hozeMZ +545% (TREASURY role floor), MrBeast +739% / 𝕏Mart +1156% (PROJECT_SNIPER
+     * phase hand-off), 𝕏Mart +892% (BLUECHIP cap too low), SAFETY / YouTube (CORE yield). Liquidity, score, momentum and
+     * safety refusals are judgements, not fit, and stay binding.
      */
-    fun primaryYieldsByRole8131(reason: String?): Boolean = reason != null && reason.startsWith("TREASURY_ROLE_FLOOR")
+    fun laneFitRefusal8132(reason: String?): Boolean {
+        val r = reason?.uppercase()?.replace(' ', '_') ?: return false
+        return FIT_REASONS_8132.any { r.contains(it) } && HANDOFF_BLOCKING_8094.none { r.contains(it) }
+    }
+
+    private val FIT_REASONS_8132 = listOf(
+        "MCAP_TOO_LOW", "MCAP_TOO_HIGH", "TOO_OLD", "TOO_YOUNG", "TOO_NEW", "NOT_A_DIP",
+        "PHASE_HANDOFF", "ROLE_FLOOR", "CORE_YIELD_CLEAR_SPECIALIST_OWNER", "USE_BLUECHIP",
+    )
 
     /** Pure (V5.0.8094): a fresh, graded native refusal on a lane-fit rule (never safety). */
     internal fun nativeRefusalHandsOff8094(op: SpecialistBrainBridge7542.Opinion?, evaluatedAtMs: Long, nowMs: Long): Boolean =

@@ -801,7 +801,7 @@ class Aate8094ClosedPositionAndPretradeTest {
     @Test fun coresNamedOwnerEvaluatesWhenCoreYields() {
         val o = src("engine/SpecialistOwnership7951.kt")
         assertTrue(o.contains("(native8094 && coreYieldedTo8119(mint, primaryLane, l))"))
-        assertTrue(o.contains("ops[\"CORE\"]?.reason == \"CORE_YIELD_CLEAR_SPECIALIST_OWNER\""))
+        assertTrue(o.contains("laneFitRefusal8132(ops[p]?.reason)"))
         assertTrue(o.contains("if (ready && native8094 && !receiverRecordSound8094(mint, l))"))   // the receiver's record still guards it
     }
 
@@ -1031,12 +1031,17 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(2, r.MAX_LOSSES_8022)                                    // the 8022 rule is unchanged
     }
 
-    @Test fun aTreasuryRoleFloorRefusalHandsTheCoinToTheMemeLaneThatWantsIt() {
-        assertTrue(SpecialistOwnership7951.primaryYieldsByRole8131("TREASURY_ROLE_FLOOR_8031"))
-        assertFalse(SpecialistOwnership7951.primaryYieldsByRole8131("WEAK_MOMENTUM"))
-        assertFalse(SpecialistOwnership7951.primaryYieldsByRole8131(null))
-        val o = src("engine/SpecialistOwnership7951.kt")
-        assertTrue(o.contains("(p == \"TREASURY\" && primaryYieldsByRole8131(ops[\"TREASURY\"]?.reason))"))
-        assertTrue(o.contains("if (ready && native8094 && !receiverRecordSound8094(mint, l))"))   // receiver record still guards it
+    @Test fun anyLaneRefusingACoinAsTheWrongShapeHandsItToTheLaneThatWantsIt() {
+        val o = SpecialistOwnership7951
+        for (fit in listOf("TREASURY_ROLE_FLOOR_8031", "PHASE_HANDOFF_EXPANDING", "MCAP_TOO_LOW: \$599K < \$1M",
+                "MCAP too low: \$2953 < \$75000", "MCAP too high for Quality (use BlueChip): \$39040191",
+                "TOO_OLD: 893h > 72h", "TOKEN_TOO_OLD", "NOT_A_DIP: 12.1% < 15%", "TOO_YOUNG: 0.2h", "CORE_YIELD_CLEAR_SPECIALIST_OWNER"))
+            assertTrue(fit, o.laneFitRefusal8132(fit))
+        for (judgement in listOf("LIQ_TOO_LOW: \$52 < \$309", "NATIVE_THRESHOLD_FAIL_SCORE", "WEAK_MOMENTUM", "SELLABILITY_REJECT",
+                "Top holder too dominant: 32% > 30%", "RUG_RISK", "MCAP_TOO_LOW_BUT_HONEYPOT", null))
+            assertFalse(judgement.toString(), o.laneFitRefusal8132(judgement))
+        val src = src("engine/SpecialistOwnership7951.kt")
+        assertTrue(src.contains("val yielded = ops != null && laneFitRefusal8132(ops[p]?.reason)"))
+        assertTrue(src.contains("if (ready && native8094 && !receiverRecordSound8094(mint, l))"))   // receiver record still guards it
     }
 }
