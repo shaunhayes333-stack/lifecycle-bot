@@ -112,6 +112,9 @@ class HeliusWebSocket(
         // V5.0.8094 — 16 -> 8: the 16 mention streams still moved 557 MB in 30 min and the process died out of memory in
         // OkHttp's WebSocketReader (RUNTIME_CRASH OutOfMemoryError). Held mints stay pinned; launch tape comes from PumpPortal.
         const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 8
+        // V5.0.8096 — a stream whose first 40 frames decoded no trade is released for 30 minutes.
+        const val UNDECODED_RELEASE_AFTER_8096 = 40
+        const val UNDECODABLE_HOLD_MS_8096 = 30L * 60_000L
         const val MAX_WALLET_SUBSCRIPTIONS_7794 = 64
         // V5.0.7807 — a subscribe request whose ACK never arrives (dropped frame,
         // JSON-RPC error, socket died mid-flight) must not pin a request-map entry
@@ -261,7 +264,7 @@ class HeliusWebSocket(
         val pinned = pinnedMints7807()
         HeliusSubscriptionTelemetry7807.pinnedHeld = pinned.size
         if (pinned.isEmpty()) { publishGauges7807(); return }
-        val missing = synchronized(subscriptions) { pinned.filter { it.isNotBlank() && !subscriptions.containsKey(it) } }
+        val missing = synchronized(subscriptions) { pinned.filter { it.isNotBlank() && !subscriptions.containsKey(it) && !undecodableNow8096(it) } }
         missing.forEach { mint ->
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_HELD_SUB_REARMED_7807") } catch (_: Throwable) {}
             subscribeToken(mint)
@@ -298,6 +301,7 @@ class HeliusWebSocket(
     fun subscribeToken(mint: String) {
         if (mint.isBlank()) return
         if (!admitMint7819(mint)) return // V5.0.7819 — Field Manual L186: Solana mints only
+        if (undecodableNow8096(mint)) return // V5.0.8096 — its logs never decode into a trade
         expireStaleRequests7807(System.currentTimeMillis())
         val pinned = pinnedMints7807()
         // V5.0.8066 — past the day's Helius budget only held positions get a tape.
@@ -426,6 +430,10 @@ class HeliusWebSocket(
                 lastInboundMs7819 = System.currentTimeMillis()
                 if (everOpened7819) HeliusSubscriptionTelemetry7807.reconnects7819.incrementAndGet()
                 everOpened7819 = true
+                // V5.0.8096 — whether the server accepted per-message compression (wire bytes are then a fraction of
+                // the metered text): the ws-bytes meter counts decompressed characters.
+                HeliusSubscriptionTelemetry7807.deflate8096 =
+                    if (response.header("Sec-WebSocket-Extensions").orEmpty().contains("permessage-deflate", true)) "on" else "off"
                 onLog("Helius WebSocket connected")
                 networkRetry.recordSuccess()
                 reconnectDelay = 2_000L
@@ -466,6 +474,7 @@ class HeliusWebSocket(
                 val current = ws
                 if (current != null && current !== webSocket) return
                 lastInboundMs7819 = System.currentTimeMillis()
+                lastFrameBytes8096 = text.length
                 parseMessage(text)
             }
 
@@ -684,6 +693,7 @@ class HeliusWebSocket(
         val logs = value.optJSONArray("logs") ?: return
         val sig  = value.optString("signature", "")
         if (sig.isBlank() || mint.isBlank()) return
+        if (undecodedStreamSpent8096(mint)) return
         if (value.opt("err") != null && value.opt("err") != JSONObject.NULL) return
         // V5.0.7765 — pump.fun emits its TradeEvent as an Anchor `Program data:` log:
         // 8-byte discriminator, mint(32), solAmount u64, tokenAmount u64, isBuy u8,
@@ -698,7 +708,7 @@ class HeliusWebSocket(
             val tokenAmt = u64le7765(b, 48) / 1_000_000.0
             val isBuy = (b[56].toInt() and 0xFF) == 1
             val wallet = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(57, 89)) } catch (_: Throwable) { "" }
-            if (solAmt > 0.0) { dispatchCallback7863(mint) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }; return }
+            if (solAmt > 0.0) { noteDecoded8096(mint); dispatchCallback7863(mint) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }; return }
         }
 
         // Detect swap direction from log messages
@@ -721,6 +731,7 @@ class HeliusWebSocket(
                 val tokenAmt = buyMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = buyMatch.groupValues[2].toDoubleOrNull() ?: continue
                 // V5.0.7765 — the mint is known from the subscription.
+                noteDecoded8096(mint)
                 dispatchCallback7863(mint) { onSwap(mint, true, solAmt, tokenAmt, "", sig) }
                 return
             }
@@ -728,11 +739,55 @@ class HeliusWebSocket(
             if (sellMatch != null) {
                 val tokenAmt = sellMatch.groupValues[1].toDoubleOrNull() ?: continue
                 val solAmt   = sellMatch.groupValues[2].toDoubleOrNull() ?: continue
+                noteDecoded8096(mint)
                 dispatchCallback7863(mint) { onSwap(mint, false, solAmt, tokenAmt, "", sig) }
                 return
             }
         }
     }
+
+    // ── V5.0.8096 §A_STREAM_THAT_NEVER_DECODES_IS_RELEASED ──
+    //
+    // The decoder reads pump.fun bonding-curve trades (the TradeEvent `Program data:` line, or the curve's Buy/Sell
+    // log). A graduated coin (PumpSwap / Raydium) or an established token's logs never decode, yet every frame that
+    // mentions it was downloaded and parsed: the day's MINT_LOGS read 3.5 GB. A subscription whose first
+    // [UNDECODED_RELEASE_AFTER_8096] frames decoded nothing is released and kept off the stream for
+    // [UNDECODABLE_HOLD_MS_8096] — nothing the bot used came from it. A stream that decodes is never touched.
+
+    @Volatile private var lastFrameBytes8096 = 0
+    private val logStats8096 = java.util.concurrent.ConcurrentHashMap<String, IntArray>()   // mint -> [frames, decoded]
+    private val undecodableUntil8096 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun noteDecoded8096(mint: String) {
+        logStats8096[mint]?.let { it[1]++ }
+        HeliusSubscriptionTelemetry7807.logFramesDecoded8096.incrementAndGet()
+    }
+
+    /** Count one frame for [mint]; true when the stream proved undecodable and was released (frame dropped). */
+    private fun undecodedStreamSpent8096(mint: String): Boolean {
+        HeliusSubscriptionTelemetry7807.logFrames8096.incrementAndGet()
+        val st = logStats8096.getOrPut(mint) { IntArray(2) }
+        st[0]++
+        if (st[1] == 0) HeliusSubscriptionTelemetry7807.undecodedBytes8096.addAndGet(lastFrameBytes8096.toLong())
+        if (!heliusStreamUndecodable8096(st[0], st[1], UNDECODED_RELEASE_AFTER_8096)) return false
+        releaseUndecodable8096(mint)
+        return true
+    }
+
+    private fun releaseUndecodable8096(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        undecodableUntil8096[mint] = nowMs + UNDECODABLE_HOLD_MS_8096
+        if (undecodableUntil8096.size > 2_000) undecodableUntil8096.entries.removeIf { it.value < nowMs }
+        logStats8096.remove(mint)
+        val serverId = synchronized(subscriptions) { if (subscriptions.containsKey(mint)) subscriptions.remove(mint) else return }
+        subscriptionToMint7765.entries.removeIf { it.value == mint }
+        serverId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
+        HeliusSubscriptionTelemetry7807.undecodableReleased8096.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_UNDECODABLE_RELEASED_8096") } catch (_: Throwable) {}
+        publishGauges7807()
+    }
+
+    private fun undecodableNow8096(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        (undecodableUntil8096[mint] ?: 0L) > nowMs
 
     private fun u64le7765(b: ByteArray, off: Int): Double {
         var v = 0L
@@ -862,6 +917,12 @@ object HeliusSubscriptionTelemetry7807 {
     internal val nonSolanaRejected7819 = AtomicInteger(0)
     @Volatile internal var pinnedExcludedNonSolana7819: Int = 0
     internal val reconnects7819 = AtomicInteger(0)
+    /** V5.0.8096 — log frames received / decoded into a trade, frames' bytes, releases of streams that never decode. */
+    internal val logFrames8096 = java.util.concurrent.atomic.AtomicLong(0L)
+    internal val logFramesDecoded8096 = java.util.concurrent.atomic.AtomicLong(0L)
+    internal val undecodedBytes8096 = java.util.concurrent.atomic.AtomicLong(0L)
+    internal val undecodableReleased8096 = AtomicInteger(0)
+    @Volatile internal var deflate8096: String = "unknown"
     private val reconnectReasons7819 = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
     private const val MAX_REASON_KEYS_7819 = 24
 
@@ -884,8 +945,13 @@ object HeliusSubscriptionTelemetry7807 {
             "reconnectResubscribes=${reconnectResubscribes.get()} expiredRequests=${expiredRequests.get()} " +
             "orphanUnsubscribes=${orphanUnsubscribes.get()} " +
             "nonSolanaRejected=${nonSolanaRejected7819.get()} pinnedExcludedNonSolana=$pinnedExcludedNonSolana7819 " +
-            "reconnects=${reconnects7819.get()} reconnectReasons=${reconnectReasonsText7819()}"
+            "reconnects=${reconnects7819.get()} reconnectReasons=${reconnectReasonsText7819()} " +
+            "logFrames8096=${logFrames8096.get()} decoded=${logFramesDecoded8096.get()} undecodedMB=${"%.1f".format(undecodedBytes8096.get() / 1_048_576.0)} " +
+            "undecodableReleased=${undecodableReleased8096.get()} wireDeflate=$deflate8096"
 }
+
+/** Pure (V5.0.8096): a log stream that delivered [frames] frames and decoded none once [after] is reached. */
+internal fun heliusStreamUndecodable8096(frames: Int, decoded: Int, after: Int = 40): Boolean = decoded == 0 && frames >= after
 
 /**
  * V5.0.7819 — Helius (WS logsSubscribe, DAS getAssetBatch, pump-curve RPC) is a

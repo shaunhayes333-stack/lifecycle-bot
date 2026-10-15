@@ -394,7 +394,7 @@ class DexscreenerApi {
         // V5.0.8095 — the held-position batch (the only caller that waits for a slot) is exit traffic: a scanner 429 put
         // the shared "dexscreener" host in OUR lockout and the stop-loss marks came back empty on 1,948 of 2,297 ticks
         // (4abd6b13a, cause=PROVIDER_FAILED). Exit traffic is never refused by our own lockout (ExitHttpScope7314).
-        val body = get(url, exit8095 = slotWaitMs7948 > 0L) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
+        val body = get8095(url, exit8095 = slotWaitMs7948 > 0L) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
 
         val out = HashMap<String, Double>(mints.size)
         // V5.0.7026 — the liquidity behind each mint's currently-chosen pair,
@@ -458,7 +458,10 @@ class DexscreenerApi {
         return BatchResult8087(out, if (out.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED, unlisted)
     }
 
-    private fun get(url: String, host: String = "dexscreener", exit8095: Boolean = false): String? = try {
+    private fun get(url: String, host: String = "dexscreener"): String? = get8095(url, host, exit8095 = false)
+
+    /** V5.0.8095 — [get], optionally as exit traffic (never refused by our own ApiBackoff lockout). */
+    private fun get8095(url: String, host: String = "dexscreener", exit8095: Boolean): String? = try {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .apply { if (exit8095) header(ExitHttpScope7314.HEADER, "held-marks") }

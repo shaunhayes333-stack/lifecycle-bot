@@ -493,7 +493,7 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun heldMarksCurveTicksAndRentReclaimNameOrRecoverTheirFailures() {
         // Held-position marks are exit traffic: a scanner lockout on the shared host can no longer starve them.
-        assertTrue(src("network/DexscreenerApi.kt").contains("val body = get(url, exit8095 = slotWaitMs7948 > 0L)"))
+        assertTrue(src("network/DexscreenerApi.kt").contains("val body = get8095(url, exit8095 = slotWaitMs7948 > 0L)"))
         assertTrue(src("network/DexscreenerApi.kt").contains("header(ExitHttpScope7314.HEADER, \"held-marks\")"))
         // Curve ticks: refused subscribes are counted and named; unanswered ones are re-sent.
         val ct = src("network/CurveTicks7968.kt")
@@ -501,6 +501,17 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(com.lifecyclebot.network.CurveTicks7968.statusLine7968().contains("subErrors8095="))
         // Rent reclaim keeps the end of the error, where the instruction error code is.
         assertTrue(src("engine/RentReclaimer7927.kt").contains("t.message?.takeLast(90)"))
+    }
+
+    @Test fun aLogStreamThatNeverDecodesATradeIsReleased() {
+        // Only streams that decoded NOTHING are released; one decoded trade keeps a stream for good.
+        assertFalse(com.lifecyclebot.network.heliusStreamUndecodable8096(39, 0))
+        assertTrue(com.lifecyclebot.network.heliusStreamUndecodable8096(40, 0))
+        assertFalse(com.lifecyclebot.network.heliusStreamUndecodable8096(5_000, 1))
+        val ws = src("network/HeliusWebSocket.kt")
+        assertTrue(ws.contains("if (undecodedStreamSpent8096(mint)) return"))
+        assertTrue(ws.contains("if (undecodableNow8096(mint)) return"))
+        assertTrue(ws.contains("permessage-deflate"))
     }
 
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
