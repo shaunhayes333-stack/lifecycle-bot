@@ -57,6 +57,14 @@ object SpecialistBrainBridge7542 {
         return try { audit("NATIVE_${DecisionReasons8031.rule8031(reason)}", lane.uppercase()) } catch (_: Throwable) { false }
     }
 
+    /**
+     * V5.0.8112 — this lane's native refusal of [mint] was retired by the veto audit (8048) in the fresh desk snapshot:
+     * the coin belongs to a refused population proven to win in this lane (40+ graded, mean - SE > +2% net).
+     */
+    fun nativeRetiredFor8112(mint: String, lane: String): Boolean = try {
+        cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())?.reason?.startsWith("NATIVE_VETO_RETIRED_8048") == true
+    } catch (_: Throwable) { false }
+
     fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR").none{r.contains(it)}}
     /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
     internal fun reviewCoreYield8077(o: Opinion, ownLaneProof: (String, String) -> Boolean): Opinion {

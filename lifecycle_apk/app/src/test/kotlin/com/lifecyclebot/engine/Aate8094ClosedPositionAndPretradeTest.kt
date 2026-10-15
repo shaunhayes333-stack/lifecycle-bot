@@ -719,4 +719,13 @@ class Aate8094ClosedPositionAndPretradeTest {
         // Leverage keeps its own target (floored), never the runner rung.
         assertEquals(floor, c.laneTpPct8110("MOONSHOT", 3.0, 3.6, isSpot = false), 1e-9)
     }
+
+    @Test fun aRetiredVetoPopulationIsNotHeldBackByTheGenericScoreFloor() {
+        assertFalse(SpecialistBrainBridge7542.nativeRetiredFor8112("noSnapshot8112", "MANIPULATED"))   // no snapshot: floor stands
+        val f = src("engine/FinalDecisionGate.kt")
+        val helper = f.substringAfter("private fun playbookClearsFloor7937(").substringBefore("private fun cortexPaperChoice7915(")
+        assertTrue(helper.contains("SpecialistBrainBridge7542.nativeRetiredFor8112(ts.mint, lane)"))
+        // FinalDecisionGate.evaluate() itself is untouched: the floor call site still reads the helper.
+        assertTrue(f.contains("!playbookClearsFloor7937(ts, floorLane7266, waitFloor7266)"))
+    }
 }

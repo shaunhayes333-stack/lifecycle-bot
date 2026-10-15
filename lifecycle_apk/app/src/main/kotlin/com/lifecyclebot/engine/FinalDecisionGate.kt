@@ -1010,6 +1010,14 @@ object FinalDecisionGate {
             try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_LANE_PROVEN_7941_$lane") } catch (_: Throwable) {}
             return true
         }
+        // V5.0.8112 — 5.0.8111: MANIPULATED buy doors passed coins whose MCAP_TOO_LOW veto the audit retired (2,056),
+        // then this generic floor refused them 1,002 times on a V3 score of ~2 (the same tiny caps the audit graded as
+        // winners). A coin in a refused population proven to win in this lane is not held back by the generic floor;
+        // the edge gate, Cortex, playbook, stage, shape, cohort and buy-door refusals still filter it.
+        if (SpecialistBrainBridge7542.nativeRetiredFor8112(ts.mint, lane)) {
+            try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_RETIRED_VETO_POPULATION_8112_$lane") } catch (_: Throwable) {}
+            return true
+        }
         val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookScore7937(ts, lane) ?: return false
         // A positive expected record (score above the 50 break-even) and at least the WAIT bar.
         val clears = pb > 50.0 && pb >= waitFloor
