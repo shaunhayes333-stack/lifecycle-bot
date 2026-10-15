@@ -103,6 +103,12 @@ object PumpFunWS {
     fun observeRpcFallback7432() { if (tradeAuthDenied7432.get()) rpcFallbackObserved7432.set(true) }
     fun tokenTradeStreamActive7432(): Boolean = running.get() && ws != null &&
         !tradeAuthDenied7432.get() && tokenTradeStreamObserved7432.get()
+    /**
+     * V5.0.8136 — true only while the keyed trade stream is demonstrably live AND [mint] is on it: only then is an
+     * empty swap window an observed zero. AUTH_DENIED, no key, a dropped socket or an unsubscribed mint = unknown.
+     */
+    fun tradeStreamCoversMint8136(mint: String): Boolean =
+        mint.isNotBlank() && tokenTradeStreamActive7432() && tradeSubscriptions7278.contains(mint)
     internal fun isTradeAuthRefusal7432(message: String): Boolean {
         val e = message.lowercase()
         return (e.contains("subscribetokentrade") || e.contains("subscribeaccounttrade")) &&
@@ -351,6 +357,9 @@ object PumpFunWS {
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            // V5.0.8136 — every frame is also the band watch's clock (throttled inside): a launch that crosses into the
+            // $10k-$100k band on an executed-trade mark or the curve's reserves is admitted even with no trade stream.
+            try { com.lifecyclebot.engine.truth.PumpBandEntry8118.maybeSweep8136() } catch (_: Throwable) {}
             try {
                 val j = JSONObject(text)
                 val txType = j.optString("txType", "")
@@ -407,6 +416,16 @@ object PumpFunWS {
                         val priceSol = vSol / vTok
                         if (!priceSol.isFinite() || priceSol <= 0.0) return
                         if (!tradeAuthDenied7432.get()) tokenTradeStreamObserved7432.set(true)
+                        // V5.0.8136 — one swap is one swap: a repeated or re-sent frame (same signature, or the same
+                        // signer, side, size and post-trade reserves) stops here, before any buyer tape or counter.
+                        val swapKey8136 = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(
+                            mint, j.optString("signature", ""), j.optString("traderPublicKey", ""), txType == "buy",
+                            j.optDouble("solAmount", 0.0), vSol, vTok,
+                        )
+                        if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, swapKey8136)) {
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_DUPLICATE_FRAME_8136") } catch (_: Throwable) {}
+                            return
+                        }
                         try {
                             if (tokenTradeStreamActive7432())
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_STREAM_ACTIVE_7432")
@@ -472,6 +491,8 @@ object PumpFunWS {
                             try { PumpCurveKeys7269.rememberCreate7280(mint, priceSol0, System.currentTimeMillis()) } catch (_: Throwable) {}
                             // V5.0.7951 — the create frame's reserves are the curve's first liquidity reading.
                             try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, vSol0, vTok0) } catch (_: Throwable) {}
+                            // V5.0.8136 — the create frame is a PRICE observation (the dev's seed buy is no crowd buyer).
+                            try { com.lifecyclebot.engine.truth.LaunchEvidence8136.notePrice8136(mint) } catch (_: Throwable) {}
                         }
                         // V5.0.8118 — remembered for a later admission when the launch enters the proven $10k-$100k band.
                         try { com.lifecyclebot.engine.truth.PumpBandEntry8118.noteCreate8118(mint, symbol, name) } catch (_: Throwable) {}
@@ -482,6 +503,8 @@ object PumpFunWS {
                         onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
                         if (priceSol0.isFinite() && priceSol0 > 0.0) {
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
+                            // V5.0.8136 — a mark only: the trade callback's side flag is ignored by its reader and this
+                            // emission never reaches the buyer tape (onTradeDetailCb7743 / TradeTape8100 get swaps only).
                             onTradeCb?.invoke(mint, priceSol0, marketCapSol, true)
                         }
                     }

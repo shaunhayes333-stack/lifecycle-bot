@@ -220,6 +220,30 @@ object ProjectSniperAI {
         return ok
     }
 
+    /**
+     * V5.0.8136 — the sniper's phase window from the ORDERED launch lifecycle (LaunchLifecycle8136), shared by
+     * assessTarget and LaneEntryContract6342.isSniperLaunch7393 so election and the trader read one route.
+     * PRE_IGNITION (real early buying before the price moves) is assessed; IGNITION only when it is swap-proven and
+     * its setup is proven in the lane (8118); every other stage is a named handoff (MOONSHOT / SHITCOIN / EXPRESS)
+     * or a terminal refusal. Null when the snapshot carries no lifecycle state (the legacy phase test then applies).
+     */
+    fun phaseRoute8136(
+        ts: TokenState,
+        launch: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Snapshot,
+        record: Boolean = false,
+    ): com.lifecyclebot.engine.truth.LaunchLifecycle8136.SniperRoute8136? {
+        val state = launch.lifecycle8136 ?: return null
+        val proven = state.stage == com.lifecyclebot.engine.truth.LaunchLifecycle8136.Stage8136.IGNITION &&
+            provenIgnition8118(ts, com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION)
+        val floor = try { MoonshotTraderAI.minMarketCapUsdFluid7719() } catch (_: Throwable) { MoonshotTraderAI.MIN_MARKET_CAP_USD }
+        val route = com.lifecyclebot.engine.truth.LaunchLifecycle8136.sniperRoute8136(state, ts.lastMcap, proven, floor)
+        if (record) {
+            try { com.lifecyclebot.engine.truth.LaunchLifecycle8136.noteRoute8136(ts.mint, route) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SNIPER_ROUTE_8136_${route.code}") } catch (_: Throwable) {}
+        }
+        return route
+    }
+
     fun assessTarget(
         ts: TokenState,
         currentPrice: Double,
@@ -241,7 +265,11 @@ object ProjectSniperAI {
         // PROJECT_SNIPER 0/8 (EV -23%) while the forward book showed MOONSHOT
         // positive on the same sub-$10k launch pond. Once ignition is visible,
         // continuation ownership belongs to MOONSHOT/EXPRESS.
-        if (launch7449.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION && !provenIgnition8118(ts, launch7449.phase)) {
+        // V5.0.8136 — the ordered lifecycle owns the phase window (phaseRoute8136): a launch with real early buying is
+        // PRE_IGNITION there, not IGNITION, and a refused stage leaves with a named handoff/terminal reason.
+        val route8136 = phaseRoute8136(ts, launch7449, record = true)
+        if (route8136 != null && !route8136.eligible) return noEngage(route8136.reason, tokenAgeSecs, ThreatLevel.YELLOW)
+        if (route8136 == null && launch7449.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION && !provenIgnition8118(ts, launch7449.phase)) {
             try { PipelineHealthCollector.labelInc("SNIPER_PHASE_HANDOFF_7794_${launch7449.phase.name}") } catch (_: Throwable) {}
             return noEngage("PHASE_HANDOFF_${launch7449.phase.name}", tokenAgeSecs, ThreatLevel.YELLOW)
         }

@@ -11121,6 +11121,11 @@ class BotService : Service() {
                 // V5.0.7819 — the curve's post-trade price is also a candle print.
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
+            // V5.0.8136 — the same band entry for a crossing seen on an executed-trade mark or the curve's reserves
+            // (PumpBandEntry8118's sweep), so a refused PumpPortal trade stream no longer hides a launch entering the band.
+            com.lifecyclebot.engine.truth.PumpBandEntry8118.setOnBandPrice8136 { mint, priceSol, mcapSol ->
+                try { bandEntry8118(mint, priceSol, mcapSol, cfg, streamGeneration) } catch (_: Throwable) {}
+            }
             // V5.0.7968 — free per-trade marks for held curves: the bonding-curve account itself on the
             // Helius standard WS (the PumpPortal trade stream needs a paid key). Same path as a PumpPortal trade.
             com.lifecyclebot.network.CurveTicks7968.start7968({ try { ConfigStore.load(applicationContext).heliusApiKey } catch (_: Throwable) { cfg.heliusApiKey } }) { mint, priceSol, mcapSol ->
@@ -25770,6 +25775,9 @@ if (hotExitHandledSweep) {
             allSources = linkedSetOf("PUMP_PORTAL_WS", "PUMP_PORTAL"), expectedRuntimeGeneration = generation,
         )
         if (admitted) try { fastLaneEvaluate7277(mint, cfg, "PUMP_BAND_ENTRY_8118") } catch (_: Throwable) {}
+        // V5.0.8136 — the claim is settled by what intake did: a token row = acknowledged; refused or parked in probation
+        // without a row = retryable (bounded); a hard reject = terminal. A failed intake no longer spends the only attempt.
+        try { com.lifecyclebot.engine.truth.PumpBandEntry8118.settleIntake8136(mint, admitted, status.tokens.containsKey(mint), ScannerHardRejectStore.isRejected(mint)) } catch (_: Throwable) {}
     }
 
     private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {
