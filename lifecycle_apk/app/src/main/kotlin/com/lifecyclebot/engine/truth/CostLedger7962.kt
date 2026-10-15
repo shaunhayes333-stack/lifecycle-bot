@@ -271,8 +271,11 @@ object CostLedger7962 {
         } else {
             val exp = com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedExpected7962(ts, l)
             if (exp == null) null else {
+                // V5.0.8094 — labels rebased at the measured lane latency carry no chase charge; adding it back would
+                // overstate the gross edge (never looser: older labels still net of the chase read more negative).
                 val labelCost = costOr7962(l, Double.NaN, FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715) +
-                    (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
+                    (if (ForwardReturnLabeler7731.rebaseClearsChase8094(EntryChase7961.laneLatencyMs8094(l))) 0.0
+                    else try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
                 val gross = exp + labelCost
                 if (!refuses7962(gross, measuredCost)) null else {
                     refusals.computeIfAbsent(l) { AtomicLong(0) }.incrementAndGet()

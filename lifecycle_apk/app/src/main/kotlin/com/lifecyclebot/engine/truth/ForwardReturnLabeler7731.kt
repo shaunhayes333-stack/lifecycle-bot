@@ -180,7 +180,7 @@ object ForwardReturnLabeler7731 {
         val regime: String,
         val phase: String,
         var entryPrice: Double,   // V5.0.8076 — re-based once to the first reachable mark
-        val costPct: Double,
+        @Volatile var costPct: Double,
         val atMs: Long,
     ) {
         /** V5.0.8094 — the price at the decision itself, never re-based (the fill-time move check reads it). */
@@ -213,6 +213,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var heldPeak8071 = 0.0
         /** V5.0.8076 — the entry has been re-based to the first mark a buy could reach (or the window passed). */
         @Volatile var rebased8076 = false
+        /** V5.0.8094 — the chase share of [costPct]; credited back when the entry rebases at the lane's fill latency. */
+        @Volatile var chase8094 = 0.0
         val recent8071 = ArrayDeque<DoubleArray>()   // [atMs, gross], the last ~30 s of marks
         /** V5.0.8006 — the exit-profile sample waits for the end of a followed run. */
         @Volatile var exitDeferred8006: Boolean = false
@@ -642,9 +644,10 @@ object ForwardReturnLabeler7731 {
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
         val liq = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0
         // V5.0.7962 — the lane's measured live round trip once it has 8+ trades (CostLedger7962; excludes the chase).
+        // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
+        val chase8094 = (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
         val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
-            // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
-            (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
+            chase8094
         val cell = cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)  // V5.0.8019 — the cap the price agrees with
         // V5.0.7734 — the regime is read now, at decision time, as the forecast
         // model keys it; the token state carries no setup quality or edge phase,
@@ -657,6 +660,7 @@ object ForwardReturnLabeler7731 {
         val score8051 = if (score >= 0) score else ts.entryScore.toInt()
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
+                it.chase8094 = chase8094.coerceAtLeast(0.0)
                 it.entryStyle8077 = try {
                     com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
                 } catch (_: Throwable) { "" }
@@ -788,6 +792,9 @@ object ForwardReturnLabeler7731 {
     private const val REBASE_MAX_MS_8076 = 60_000L
 
     /** Pure (V5.0.8094): when a label re-bases — the lane's measured live fill latency, within the 5-55 s window. */
+    /** V5.0.8094 — a rebase prices the chase in only when it ran at a MEASURED lane latency (not the 5 s default). */
+    fun rebaseClearsChase8094(laneLatencyMs: Long): Boolean = laneLatencyMs > 0L
+
     fun rebaseDelayMs8094(laneLatencyMs: Long): Long = laneLatencyMs.coerceIn(REBASE_MIN_MS_8076, REBASE_MAX_MS_8076 - 5_000L)
     private val rebasedUp8076 = AtomicLong(0)
     private val rebasedDown8076 = AtomicLong(0)
@@ -1218,6 +1225,8 @@ object ForwardReturnLabeler7731 {
                     if (px > o.entryPrice) rebasedUp8076.incrementAndGet() else rebasedDown8076.incrementAndGet()
                     rebaseGapSum8076 += (px / o.entryPrice - 1.0) * 100.0
                     o.entryPrice = px
+                    // V5.0.8094 — the rebased entry already holds the decision-to-fill move: the chase is not charged twice.
+                    if (rebaseClearsChase8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) { o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0); o.chase8094 = 0.0 }
                     o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN
                     synchronized(o.recent8071) { o.recent8071.clear() }
                 }

@@ -446,4 +446,12 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(h.contains("HIVE_FULL_PAGE_IN_AT_BOOT_8094"))
         assertTrue(h.contains("pageIn8094(client, 0L)"))
     }
+
+    @Test fun aLabelRebasedAtTheMeasuredFillLatencyIsNotChargedTheChaseTwice() {
+        val f = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        assertFalse(f.rebaseClearsChase8094(0L))
+        assertTrue(f.rebaseClearsChase8094(40_000L))
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0)"))
+        assertTrue(src("engine/truth/CostLedger7962.kt").contains("ForwardReturnLabeler7731.rebaseClearsChase8094(EntryChase7961.laneLatencyMs8094(l))"))
+    }
 }
