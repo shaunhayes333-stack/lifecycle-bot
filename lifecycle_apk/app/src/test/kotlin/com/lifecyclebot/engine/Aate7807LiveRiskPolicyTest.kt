@@ -248,11 +248,19 @@ class Aate7807LiveRiskPolicyTest {
     }
 
     @Test
-    fun a8094_drawdown_still_shrinks_a_proven_size_and_names_the_binding_cap() {
+    fun a8094_drawdown_does_not_shrink_a_proven_size_again_but_every_hard_cap_still_binds() {
+        // 5.0.8095 (owner: drawdown stopped the balance growing): a proven size is a quarter-Kelly share of CURRENT
+        // equity, which already fell with the drawdown, so it is not cut again. Lane cap and wallet ceiling still bind.
         val d = LiveRiskPolicy7807.decide(proven("SHITCOIN", dd = 0.259))
-        // 0.2281 x 0.20 x drawdownMult(0.259)=0.44 -> ~0.020 < minimum: at most the risk-safe minimum, never the full Kelly.
-        assertTrue(d.sizeSol <= 0.02892 + 1e-9)
-        assertEquals("DRAWDOWN", d.sizing8094?.bindingCap)
+        val flat = LiveRiskPolicy7807.decide(proven("SHITCOIN"))
+        assertTrue("${d.reason} ${d.sizeSol}", d.open && d.sizeSol > 0.03)
+        assertEquals(flat.sizeSol, d.sizeSol, 1e-9)
+        assertTrue(d.labels.contains("DRAWDOWN_SHRINK_WAIVED_PROVEN_EDGE_8094"))
+        assertTrue(d.sizing8094?.bindingCap != "DRAWDOWN")
+        assertTrue(d.sizeSol <= 0.2281 * LiveRiskPolicy7807.budgetFor("SHITCOIN").maxPositionEquityFrac + 1e-9)
+        assertTrue(d.sizeSol <= 0.2281 * 0.25 + 1e-9)
+        // An unproven request under the same drawdown is still shrunk (doctrine curve unchanged).
+        assertTrue(LiveRiskPolicy7807.decide(proven("SHITCOIN", dd = 0.259, kelly = 0.0, ceiling = 0.0)).labels.contains("WALLET_DRAWDOWN_SHRINK_7807"))
     }
 
     @Test
