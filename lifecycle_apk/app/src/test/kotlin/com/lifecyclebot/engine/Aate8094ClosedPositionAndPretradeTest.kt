@@ -545,12 +545,12 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(r.victimEligible8098(-6.0, 0.0, 60_000L, isTail = false, markFresh = true))         // too young
         assertFalse(r.victimEligible8098(-6.0, 0.0, 10 * 60_000L, isTail = true, markFresh = true))     // moonbag
         assertFalse(r.victimEligible8098(-6.0, 0.0, 10 * 60_000L, isTail = false, markFresh = false))   // no verified mark
-        assertEquals("B", r.poorest8098(listOf(r.Held("A", -2.0), r.Held("B", -9.0), r.Held("C", 3.0))))
+        assertEquals("B", r.poorest8098(listOf(com.lifecyclebot.engine.truth.OpportunityRotation8098.Held("A", -2.0), com.lifecyclebot.engine.truth.OpportunityRotation8098.Held("B", -9.0), com.lifecyclebot.engine.truth.OpportunityRotation8098.Held("C", 3.0))))
         // No demand, no rotation; an unproven candidate never creates demand.
         r.noteDemand8098("SHITCOIN", "CANDIDATE_8098", 0.0)
         assertFalse(r.hasDemand8098("SHITCOIN"))
         r.noteDemand8098("SHITCOIN", "CANDIDATE_8098", 0.05)
-        assertTrue(r.shouldRotate8098("B", "SHITCOIN", listOf(r.Held("A", -2.0), r.Held("B", -9.0))))
+        assertTrue(r.shouldRotate8098("B", "SHITCOIN", listOf(com.lifecyclebot.engine.truth.OpportunityRotation8098.Held("A", -2.0), com.lifecyclebot.engine.truth.OpportunityRotation8098.Held("B", -9.0))))
         assertTrue(com.lifecyclebot.engine.LifecycleHold8065.passes8065(r.REASON))
         assertTrue(src("engine/Executor.kt").contains("if (opportunityRotation8098(ts, wallet, walletSol)) return true"))
     }

@@ -66,7 +66,7 @@ object TradeTape8100 {
     fun shape8100(closes: List<Double>): Shape? {
         if (closes.size < 3 || closes.any { !it.isFinite() || it <= 0.0 }) return null
         val local = closes.takeLast(24)
-        val cur = local.last(); val peak = local.max(); val low = local.min()
+        val cur = local.last(); val peak = local.maxOrNull() ?: return null; val low = local.minOrNull() ?: return null
         return Shape(((cur - low) / low * 100.0).coerceAtLeast(0.0), (cur / peak).coerceIn(0.0, 2.0), ((peak - cur) / peak * 100.0).coerceAtLeast(0.0))
     }
 

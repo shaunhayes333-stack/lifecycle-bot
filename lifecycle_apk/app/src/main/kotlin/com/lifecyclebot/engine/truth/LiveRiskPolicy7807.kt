@@ -63,7 +63,6 @@ object LiveRiskPolicy7807 {
     // CashGenerationAI 45, DipHunterAI 6h, CyclicTradeEngine 90,
     // FluidLearningAI (MOONSHOT 240 / V3 60 / TREASURY 12), TradePlan7739
     // setup horizons (EXPRESS/SNIPER 30, MANIPULATED kept short).
-    val LaneRiskBudget7807: Map<String, LaneRiskBudget> = listOf(
     // V5.0.8098 — owner: back to 10 live positions per lane (was 1-3). The total live book (LIVE_SLOT_LIMIT_7728 = 20),
     // per-position caps, daily-loss caps and the hard loss at the stop are unchanged.
     val LaneRiskBudget7807: Map<String, LaneRiskBudget> = listOf(
