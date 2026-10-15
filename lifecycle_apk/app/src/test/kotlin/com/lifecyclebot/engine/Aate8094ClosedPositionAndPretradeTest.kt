@@ -522,6 +522,18 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(h.contains("if (!uploadDue8096 && fullPulledThisProcess8094) return"))
     }
 
+    @Test fun runnerRefusalsStandDownOnTheirLaneRecordWhenTheCellIsThin() {
+        val t = com.lifecyclebot.engine.truth.TailHunter7996
+        assertTrue(t.laneTailBar8097(93, 93 * 69.3, 10))   // AT_LAUNCH_CAP over the lane, 8095
+        assertFalse(t.laneTailBar8097(93, -100.0, 10))     // a losing total never stands down
+        assertFalse(t.laneTailBar8097(20, 2000.0, 5))      // too few replays
+        assertFalse(t.laneTailBar8097(93, 500.0, 1))       // one runner is luck
+        val th = src("engine/truth/TailHunter7996.kt")
+        assertTrue(th.contains("cellThin && laneRuleTailProven8097(rule, l)"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("!spikeRuleRefusesRunners8097(ts, l8059, nowMs)"))
+        assertTrue(src("engine/SpecialistOwnership7951.kt").contains("Cortex7885.vetoRefusesWinners8006(LaneParticipation8029.SHADOW_REASON, lane7951(lane))"))
+    }
+
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
         val s = ScannerHardRejectStore
         val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }

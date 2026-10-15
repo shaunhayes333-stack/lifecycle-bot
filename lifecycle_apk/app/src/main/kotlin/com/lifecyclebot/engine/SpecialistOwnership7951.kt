@@ -342,7 +342,9 @@ object SpecialistOwnership7951 {
 
     /** V5.0.8094 — the lane's own veto-audit book of SHADOW_NOT_PRIMARY refusals is proven to win (40+, mean-SE > +2%). */
     internal fun shadowRefusesWinners8094(lane: String): Boolean = try {
-        com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(LaneParticipation8029.SHADOW_REASON, lane7951(lane))
+        // V5.0.8097 — the lane's own book decides once it has 40 graded refusals; before that the all-lane book does
+        // (8095: PLOO +1,216% in SHITCOIN, whose own book was thin, while SHADOW_NOT_PRIMARY all-lane read n500 +14.1%).
+        com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(LaneParticipation8029.SHADOW_REASON, lane7951(lane))
     } catch (_: Throwable) { false }
 
     // V5.0.8094 — the 7960 hand-off opened only on the primary's FDG refusal; most primaries refuse in their own native

@@ -492,6 +492,8 @@ object LiveEdgeGate7877 {
             // V5.0.8094 — a runner is "up 80% off its low" by definition; where this token's own cell / kind is proven (graded
             // from the fill latency, so the chase is already in the record) the spike rule stands down.
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
+                // V5.0.8097 — the spike rule's own ladder replays (cell, or lane when the cell is thin) prove it refuses runners.
+                !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
                 chaseRefused8065.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
@@ -551,6 +553,13 @@ object LiveEdgeGate7877 {
         val z = 1.96; val nn = n.toDouble(); val p = winRate.coerceIn(0.0, 1.0)
         val lb = (p + z * z / (2 * nn) - z * kotlin.math.sqrt(p * (1 - p) / nn + z * z / (4 * nn * nn))) / (1 + z * z / nn)
         return lb > 0.55
+    }
+
+    /** V5.0.8097 — CHASING_SPIKE_8065 stands down where its own ladder replays prove it refuses runners. */
+    internal fun spikeRuleRefusesRunners8097(ts: TokenState, lane: String, nowMs: Long): Boolean {
+        val proven = try { TailHunter7996.refusalTailProven8094(ts, lane, "CHASING_SPIKE_8065", nowMs) } catch (_: Throwable) { false }
+        if (proven) try { PipelineHealthCollector.labelInc("CHASING_SPIKE_STOOD_DOWN_TAIL_PROVEN_8097_$lane") } catch (_: Throwable) {}
+        return proven
     }
 
     fun cellOrKindProven8094(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {

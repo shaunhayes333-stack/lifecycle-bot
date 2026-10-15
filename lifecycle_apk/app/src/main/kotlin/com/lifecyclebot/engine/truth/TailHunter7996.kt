@@ -266,8 +266,34 @@ object TailHunter7996 {
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
         val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)
         val rule = com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf(reason)
-        l.isNotBlank() && proven("R|$rule|$cell") != null
+        if (l.isBlank()) false
+        else if (proven("R|$rule|$cell") != null) true
+        else {
+            // V5.0.8097 — the coin's own cell is too thin to say (under the bar): the same rule's replays across every
+            // cell of this lane decide. A cell with its own full record that is NOT proven keeps the refusal.
+            // 8095: WAIT +1,308% (AT_LAUNCH_CAP n93 +69.3% run10 over the lane) and SCREAM +1,054% were refused in thin cells.
+            val own = localStat8097("R|$rule|$cell")
+            val cellThin = own == null || own.n < TAIL_MIN_N
+            cellThin && laneRuleTailProven8097(rule, l)
+        }
     } catch (_: Throwable) { false }
+
+    private fun localStat8097(key: String): Stat7996? = stats[key]
+
+    /** V5.0.8097 — [rule]'s ladder replays summed over every cell of [lane] clear the tail bar. */
+    private fun laneRuleTailProven8097(rule: String, lane: String): Boolean {
+        var n = 0; var sum = 0.0; var runners = 0
+        val prefix = "R|$rule|"
+        for ((k, st) in stats) {
+            if (!k.startsWith(prefix)) continue
+            if (k.removePrefix(prefix).split('|').getOrNull(1) != lane) continue
+            n += st.n; sum += st.sum; runners += st.runners
+        }
+        return laneTailBar8097(n, sum, runners)
+    }
+
+    /** Pure (V5.0.8097): the tail bar applied to a lane-wide refusal record. */
+    internal fun laneTailBar8097(n: Int, sumPct: Double, runners: Int): Boolean = tailProven7996(n, sumPct, runners)
 
     /**
      * LiveEdgeGate7877.watchFirst7994: is [ts] a lottery ticket now? Its cell, its refusal-free cell
