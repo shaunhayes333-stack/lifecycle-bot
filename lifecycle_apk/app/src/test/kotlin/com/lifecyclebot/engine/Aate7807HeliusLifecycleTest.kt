@@ -43,7 +43,7 @@ class Aate7807HeliusLifecycleTest {
         ws.subscribeToken("HELD_MINT")
         for (i in 0 until 400) ws.subscribeToken("DISCOVERY_$i")
         val d = desired(ws)
-        assertEquals(16, d.size)
+        assertEquals(8, d.size)
         assertTrue("held position must keep its subscription", d.containsKey("HELD_MINT"))
         assertTrue(d.containsKey("DISCOVERY_399"))
         assertFalse(d.containsKey("DISCOVERY_0"))
@@ -60,7 +60,7 @@ class Aate7807HeliusLifecycleTest {
         held.add("LATE_BUY") // bought after its discovery slot rolled off
         ws.ensurePinnedSubscriptions7807()
         assertTrue(desired(ws).containsKey("LATE_BUY"))
-        assertEquals(16, desired(ws).size)
+        assertEquals(8, desired(ws).size)
     }
 
     @Test fun lateAckForEvictedMintIsUnsubscribedNotResurrected() {
