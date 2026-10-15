@@ -264,6 +264,8 @@ object CanonicalEntryFloor7266 {
             .joinToString(" · ") { "${it.lane}=${"%.0f".format(it.floor)}/${"%.0f".format(it.waitFloor)}(n=${it.closes}${it.learnedFloor?.let { l -> " L${"%.0f".format(l)}" } ?: ""})" }
         "resolves=${resolves.get()} belowMature=${belowMature.get()} aboveMature=${aboveMature.get()} " +
             "mature=${"%.0f".format(MATURE_DEFAULT_FLOOR_7243)}/${"%.0f".format(MATURE_DEFAULT_FLOOR_7243 + WAIT_PROMOTION_MARGIN_7243)} " +
-            (if (lanes.isBlank()) "lanes=none_yet" else lanes)
+            (if (lanes.isBlank()) "lanes=none_yet" else lanes) +
+            // V5.0.8136 — the one admission record's terminals (FLOOR / LIVE / PLAN), counted per reason.
+            " " + CandidateAdmission8136.statusLine8136()
     } catch (_: Throwable) { "CanonicalEntryFloor7266: unavailable" }
 }

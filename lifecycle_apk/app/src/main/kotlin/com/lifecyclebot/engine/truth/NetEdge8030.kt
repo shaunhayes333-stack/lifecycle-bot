@@ -103,6 +103,19 @@ object NetEdge8030 {
         return if (slow) "NET_EDGE_COIN_TOO_SLOW_8035" else "NET_EDGE_BELOW_2X_COST_8030"
     }
 
+    /**
+     * V5.0.8136 — CandidateAdmission8136: the same expected executable move [entryRefusal8030] judges (the lane mandate
+     * capped by what the coin is actually moving), or NaN when the lane has no mandate. No counters.
+     */
+    fun expectedGrossPct8136(ts: TokenState, lane: String): Double {
+        val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return Double.NaN }
+        val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
+        return expectedMove8035(mandate, realized)
+    }
+
+    /** V5.0.8136 — the round trip [entryRefusal8030] charges this entry: the default ticket against the observed depth. */
+    fun entryCostPct8136(ts: TokenState, lane: String): Double = costPct8030(lane, DEFAULT_TICKET_SOL, liquidity8037(ts))
+
     private val slowRefused8035 = AtomicLong(0)
 
     // ── V5.0.8054 — lane fit: scalp lanes need a coin that moves; swing lanes don't buy the top of a moonshot ──

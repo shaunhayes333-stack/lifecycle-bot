@@ -164,8 +164,20 @@ object TradePlan7739 {
         if (hist.size > MIN_BARS_7739) return hist
         val merged = MarkBars7948.merge7948(hist, MarkBars7948.bars7948(ts.mint, nowMs, WINDOW_MS_7739), MIN_BARS_7739 + 1)
         if (merged.size > hist.size) MarkBars7948.noteLent7948(merged.size - hist.size)
+        // V5.0.8136 — still short: the coin's own executed prints (LocalTapeBars8128, one source, 10+ traded minutes,
+        // no gap fill, no synthetic candle) when they read more minutes than history + marks.
+        if (merged.size <= MIN_BARS_7739) localTapeBars8136(ts.mint, nowMs)?.takeIf { it.size > merged.size }?.let { return it }
         return merged
     }
+
+    /** V5.0.8136 — one-minute plan bars from the executed-trade tape (TradeTape8100) via LocalTapeBars8128, or null. */
+    private fun localTapeBars8136(mint: String, nowMs: Long): List<Bar>? = try {
+        val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val bars = com.lifecyclebot.engine.chart.LocalTapeBars8128.fromPrints8128(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), solUsd)
+            ?.map { Bar(it.t, it.o, it.h, it.l, it.c) }
+        if (!bars.isNullOrEmpty()) try { PipelineHealthCollector.labelInc("PLAN_BARS_FROM_LOCAL_TAPE_8136") } catch (_: Throwable) {}
+        bars
+    } catch (_: Throwable) { null }
 
     /** One-minute bars rebuilt from a history that may mix ticks, synthetic and fetched candles. */
     private fun historyBars7739(ts: TokenState, nowMs: Long): List<Bar> {
@@ -335,7 +347,11 @@ object TradePlan7739 {
         requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
         // V5.0.7950 — the chart reader's BUY is the plan (hard safety still runs in the edge gate's chart path).
-        if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return null
+        // V5.0.8136 — the plan, not a pass around the edge gate: FinalDecisionGate runs LiveEdgeGate7877.liveRefusal before
+        // this plan (liveEdgeBlock7877), but the executor chokepoint (sniper / native paths) asks only this function, so a
+        // chart BUY there skipped the rebuy lockout, the 2x-cost net edge, the proven-losing setup and the proven-only door
+        // the FDG path enforces. The same edge verdict now answers here; a chart BUY it admits is planned as before.
+        if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs)
         // V5.0.7878 — a runner lane is judged per cohort by the edge gate below,
         // not by its lane-wide record: MOONSHOT's 10-close live record held every
         // MOONSHOT token to paper (5.0.7876 PIVOT_7876_NEGATIVE_MOONSHOT=1924),
@@ -398,7 +414,7 @@ object TradePlan7739 {
             waited.incrementAndGet()
             waitReasons.computeIfAbsent(read.why) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PLAN_WAIT_7739_${read.why}") } catch (_: Throwable) {}
-            return waitOrOverrule7757(ts, read.why, "NO_PLAN_WAIT_7739:${read.why}", nowMs, runner7878)
+            return waitOrOverrule7757(ts, read.why, "NO_PLAN_WAIT_7739:${read.why}", nowMs, runner7878).also { notePlanWait8136(read.why, it) }
         }
         plans[ts.mint] = Plan(setup, -read.stopPct, read.firstTargetPct, read.targetPct, nowMs)
         if (plans.size > 2_000) plans.entries.removeIf { nowMs - it.value.atMs > PLAN_TTL_MS_7739 }
@@ -412,6 +428,22 @@ object TradePlan7739 {
             )
         } catch (_: Throwable) {}
         return null
+    }
+
+    /** V5.0.8136 — a chart-reader BUY answers to the same live edge verdict the FDG path applies (null admits). */
+    private fun chartPlanRefusal8136(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
+        val r = LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs)
+        try { PipelineHealthCollector.labelInc(if (r == null) "PLAN_CHART_BUY_EDGE_ADMITTED_8136" else "PLAN_CHART_BUY_EDGE_REFUSED_8136") } catch (_: Throwable) {}
+        return r
+    }
+
+    /**
+     * V5.0.8136 — TOO_FEW_BARS is a data gap, not a verdict: the wait is filed as DEFER_DATA in the admission ledger
+     * (CandidateAdmission8136) while the bars are fetched (requestBarsIfShort7819) and read from the local tape.
+     */
+    private fun notePlanWait8136(why: String, refusal: String?): String? {
+        if (refusal != null) CandidateAdmission8136.noteVerdict8136("PLAN", "WAIT", "PLAN_$why")
+        return refusal
     }
 
     /**

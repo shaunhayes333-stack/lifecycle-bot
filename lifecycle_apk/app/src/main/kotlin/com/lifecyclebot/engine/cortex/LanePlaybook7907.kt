@@ -1116,6 +1116,34 @@ object LanePlaybook7907 {
         }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.8136 — CandidateAdmission8136: every setup [ts] fired in [laneRaw] with its OWN record in this lane, as
+     * [n, mean %, SE %, runner rate] (SE infinite under two labels). Empty when nothing fired or the lane has no playbook.
+     */
+    fun firedSetupRecords8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): List<Pair<String, DoubleArray>> = try {
+        val lane = canon(laneRaw)
+        val fired = matchedSetups8083(ts, lane, nowMs)
+        if (fired.isEmpty()) emptyList() else synchronized(this) {
+            fired.mapNotNull { id ->
+                stat(lane, id)?.takeIf { it.n >= 1.0 }?.let { st ->
+                    val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
+                    id to doubleArrayOf(st.n, st.mean(), se, st.runnerRate())
+                }
+            }
+        }
+    } catch (_: Throwable) { emptyList() }
+
+    /**
+     * V5.0.8136 — the unobserved CORE inputs when this candidate's classification is DATA_INCOMPLETE, else null. A data
+     * gap is recoverable (classify8084 has already asked the data layer to re-fetch them, requestInputs8085): it is not
+     * the NO_TRIGGER cohort and not a verdict on the token.
+     */
+    fun dataIncomplete8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): List<String>? = try {
+        val c = classify8084(ts, canon(laneRaw), nowMs)
+        if (c == null || c.outcome != Outcome8084.DATA_INCOMPLETE) null
+        else c.missing.filter { it.substringBefore(':') in CORE_8084 }.ifEmpty { listOf("core:UNKNOWN") }
+    } catch (_: Throwable) { null }
+
     /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */
     fun classifiedSampleN7948(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Int = try {
         val lane = canon(laneRaw)
