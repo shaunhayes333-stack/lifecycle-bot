@@ -136,8 +136,8 @@ object DecimalIntegrityAuthority6405 {
             }
         }
 
-        // 4c) V5.0.8094 — a pump.fun mint is created by the pump program with 6 decimals; that is the program's own
-        //     invariant, not a guess. Exits must always work: an unreadable RPC must not strand a pump.fun position.
+        // 4c) V5.0.8094 — a mint with pump-program provenance (create event / curve read) has the program's fixed 6
+        //     decimals; that is the program's own invariant, not a guess. Exits must always work: an unreadable RPC must not strand a pump.fun position.
         if (pumpProgramMint8094(mint)) {
             resolved[mint] = DecimalsRecord(PUMP_FUN_DECIMALS_8094, "PUMP_FUN_PROGRAM_STANDARD_8094")
             try { PipelineHealthCollector.labelInc("MINT_DECIMALS_PUMP_PROGRAM_STANDARD_8094") } catch (_: Throwable) {}
@@ -176,8 +176,14 @@ object DecimalIntegrityAuthority6405 {
     /** V5.0.8094 — every pump.fun bonding-curve mint has 6 decimals (pump program invariant). */
     const val PUMP_FUN_DECIMALS_8094 = 6
 
-    /** Pure (V5.0.8094): a pump.fun program mint (vanity "pump" suffix on a 43-44 char base58 address). */
-    fun pumpProgramMint8094(mint: String): Boolean = mint.length in 43..44 && mint.endsWith("pump")
+    /**
+     * V5.0.8094 — a mint with PUMP PROGRAM PROVENANCE: announced by the pump program's create stream (PumpPortal create
+     * event carrying its bonding-curve key) or seen graduating by a bonding-curve account read. The address suffix alone
+     * is not provenance and never qualifies.
+     */
+    fun pumpProgramMint8094(mint: String): Boolean = mint.length in 43..44 && mint.endsWith("pump") && try {
+        com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) != null || com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint)
+    } catch (_: Throwable) { false }
 
     private fun fetchDecimalsFromChain(mint: String, wallet: SolanaWallet): Int? {
         return try {

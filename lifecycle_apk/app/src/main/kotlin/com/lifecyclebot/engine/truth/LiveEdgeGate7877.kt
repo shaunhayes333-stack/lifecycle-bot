@@ -508,7 +508,8 @@ object LiveEdgeGate7877 {
         // this live buy's close is filed under (LiveTruth8064), so refusals stay attributable to token + strategy.
         if (!paper) try {
             val l8083 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
-            val setupAt = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l8083, nowMs) } catch (_: Throwable) { null }
+            // V5.0.8094 — the strategy the trade is admitted and executed as (selected), so the close files under it.
+            val setupAt = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8083, nowMs) } catch (_: Throwable) { null }
             val factor = if (why == null) (try { LiveTruth8064.lanePrior8083(l8083, nowMs).sizeFactor } catch (_: Throwable) { 1.0 }) else 1.0
             recordAssessment8083(ts, l8083, setupAt, if (why == null) Verdict8083.ADMIT else Verdict8083.REFUSE, why ?: "ADMIT", factor, nowMs)
             if (why == null) LiveTruth8064.noteLiveAdmit8083(ts.mint, l8083, setupAt, nowMs)

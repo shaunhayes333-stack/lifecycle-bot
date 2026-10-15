@@ -250,8 +250,19 @@ object LaneExecutionCoordinator {
         val lead = (recentWins(laneUpper) - floor - FAIRNESS_LEAD_GRACE).coerceAtLeast(0)
         val fairnessPenalty = (lead * 2.0).coerceAtMost(6.0)
         val staticTieBreak = priority(laneUpper) / 1000.0
-        return base + expectancy + affinity - fairnessPenalty + staticTieBreak
+        return base + expectancy + affinity - fairnessPenalty + staticTieBreak + provenCellBonus8094(mint, laneUpper)
     }
+
+    /**
+     * V5.0.8094 — the election weighs each READY lane's OWN graded evidence for this token: a lane whose cell / kind for it
+     * is proven (LiveEdgeGate7877.cellOrKindProven8094) gets a bounded +[PROVEN_CELL_BONUS_8094]. 8094: 10 of 12
+     * specialists qualified thousands of tokens and were never owner-selected; conviction alone decided the vote.
+     */
+    internal const val PROVEN_CELL_BONUS_8094 = 10.0
+    private fun provenCellBonus8094(mint: String, lane: String): Double = try {
+        val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+        if (ts != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, lane)) PROVEN_CELL_BONUS_8094 else 0.0
+    } catch (_: Throwable) { 0.0 }
 
     private fun pickFreshPrimary(mint: String, candidateVersion: Long, qualified: List<String>): String? {
         if (qualified.isEmpty()) return null

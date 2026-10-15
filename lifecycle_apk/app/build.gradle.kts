@@ -58,6 +58,9 @@ android {
         buildConfigField("String", "TWELVE_DATA_API_KEY", "\"\"")
         buildConfigField("String", "GROQ_KEY_P1", "\"\"")
         buildConfigField("String", "GROQ_KEY_P2", "\"\"")
+        // V5.0.8094 — the exact source commit this APK was built from (CI sets GITHUB_SHA), shown in every report so a
+        // log can always be matched to its code: one version string covered many different 8094 builds.
+        buildConfigField("String", "GIT_SHA", "\"${(System.getenv("GITHUB_SHA") ?: "local").take(9)}\"")
     }
     
     // CONSISTENT signing key - stored in repo for seamless updates

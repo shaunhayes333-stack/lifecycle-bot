@@ -372,7 +372,8 @@ object PipelineHealthCollector {
     // real CI build name) so the snapshot tag matches reality.
     // No const anymore — single source of truth via getBuildTag().
     private fun getBuildTag(): String = try {
-        com.lifecyclebot.BuildConfig.VERSION_NAME
+        // V5.0.8094 — version plus the exact source commit (BuildConfig.GIT_SHA).
+        com.lifecyclebot.BuildConfig.VERSION_NAME + "@" + com.lifecyclebot.BuildConfig.GIT_SHA
     } catch (_: Throwable) { "unknown" }
 
     data class Event(

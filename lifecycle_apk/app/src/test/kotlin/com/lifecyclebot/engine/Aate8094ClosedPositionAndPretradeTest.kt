@@ -421,12 +421,21 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aPumpFunPositionIsNeverStrandedOnAnUnreadableDecimalsRpc() {
         val d = com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
-        val pumpMint = "7nKT6ihQBzABCDEFGHJKLMNPQRSTUVWXYZabcdpump"   // 42 chars + suffix shape
-        assertTrue(d.pumpProgramMint8094("CHxwVbJ9B3eMRdEWzYpcKy7ops5H8PxXU79NqzQGpump"))
+        val mint = "CHxwVbJ9B3eMRdEWzYpcKy7ops5H8PxXU79NqzQGpump"
+        // The address suffix alone is not provenance.
+        assertFalse(d.pumpProgramMint8094("Zz8094NoCreateEventSeenXXXXXXXXXXXXXXXXpump"))
         assertFalse(d.pumpProgramMint8094("MINT_D"))
-        assertFalse(d.pumpProgramMint8094("So11111111111111111111111111111111111111112"))
-        assertEquals(d.PUMP_FUN_DECIMALS_8094, d.resolveDecimalsStrict("CHxwVbJ9B3eMRdEWzYpcKy7ops5H8PxXU79NqzQGpump", null, null, null))
-        assertTrue(pumpMint.isNotEmpty())
+        // Announced by the pump program's create stream (bonding-curve key recorded): provenance.
+        com.lifecyclebot.network.PumpCurveKeys7269.remember(mint, "BondingCurveKey8094XXXXXXXXXXXXXXXXXXXXXXX")
+        assertTrue(d.pumpProgramMint8094(mint))
+        assertEquals(d.PUMP_FUN_DECIMALS_8094, d.resolveDecimalsStrict(mint, null, null, null))
         assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))
+        // One strategy identity: refusals, sizing, cost and the admission record read the selected setup.
+        val pb = src("engine/cortex/LanePlaybook7907.kt")
+        assertEquals(3, Regex("val setup = selectedSetup8094\\(ts, lane, nowMs\\)  // V5.0.8094 — one strategy identity").findAll(pb).count())
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setupAt = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8083, nowMs) }"))
+        assertTrue(src("engine/PipelineHealthCollector.kt").contains("BuildConfig.VERSION_NAME + \"@\" + com.lifecyclebot.BuildConfig.GIT_SHA"))
+        assertEquals(10.0, LaneExecutionCoordinator.PROVEN_CELL_BONUS_8094, 1e-9)
+        assertTrue(src("engine/LaneExecutionCoordinator.kt").contains("+ provenCellBonus8094(mint, laneUpper)"))
     }
 }

@@ -678,7 +678,7 @@ object Cortex7885 {
         if (a.bucket == CortexScoreboard7885.Bucket.REFUSE && refusalProven) {
             // V5.0.7961 — the lane's refuse bucket is an average over every setup it holds; a
             // setup whose own record INSIDE that bucket is proven positive is not refused.
-            val setup = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+            val setup = try { LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }  // V5.0.8094
             val st = setup?.let { synchronized(this) { jointBook7961[jointKey7961(a.lane, a.bucket, it)] } }
             if (jointProvenPositive7961(st)) { inc("C3_STOOD_DOWN_SETUP_PROVEN_7961"); return null }
             // V5.0.8056 — or the setup's whole lane record is proven (the lane-wide refuse bucket averages every setup;
@@ -689,7 +689,7 @@ object Cortex7885 {
             return "C3_PROVEN_NEGATIVE_EDGE"
         }
         if (a.bucket != CortexScoreboard7885.Bucket.REFUSE) {
-            val setup8082 = try { LanePlaybook7907.classify(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+            val setup8082 = try { LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }  // V5.0.8094
             val st8082 = setup8082?.let { synchronized(this) { jointBook7961[jointKey7961(a.lane, a.bucket, it)] } }
             if (jointProvenDead8082(st8082)) return "C6_SETUP_DEAD_8082"
         }

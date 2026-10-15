@@ -1084,7 +1084,7 @@ object LanePlaybook7907 {
      */
     fun provenLosingSetupRefusal8079(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8094 — one strategy identity
         if (setup == null || setup == NO_TRIGGER) null else {
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val losing = synchronized(this) { stat(lane, setup)?.let { provenLosing(it, runner) } ?: false }
@@ -1095,7 +1095,7 @@ object LanePlaybook7907 {
     /** V5.0.8057 — [mean %, variance %², n] of the coin's classified setup when that setup is proven (provenSetup8056). */
     fun provenSetupStat8057(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8094 — one strategy identity
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
             val st = stat(lane, setup)
             if (st == null || !setupProvenPositive7948(st)) null else doubleArrayOf(st.mean(), st.variance(), st.n)
@@ -1153,7 +1153,7 @@ object LanePlaybook7907 {
     /** V5.0.7962 — CostLedger7962: the classified setup's shrunk expected net % (null: none / NO_TRIGGER). */
     fun classifiedExpected7962(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Double? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8094 — one strategy identity
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) { expected(lane, setup) }
     } catch (_: Throwable) { null }
 
