@@ -138,6 +138,8 @@ data class BotConfig(
     val maxDailyLossPct: Double = 10.0,
     val circuitBreakerLosses: Int = 5,
     val circuitBreakerPauseMin: Int = 15,
+    // V5.0.8117 — owner: the loss-streak cooldown is an option, not always on. Off by default.
+    val lossStreakCooldownEnabled: Boolean = false,
     val maxPriceImpactPct: Double = 3.0,
     val closePositionsOnStop: Boolean = true, // SAFETY: close all positions when bot stops
     // External API keys. Production credentials never ship in source or APK;
@@ -490,6 +492,7 @@ object ConfigStore {
             putFloat("max_daily_loss_pct",            cfg.maxDailyLossPct.toFloat())
             putInt("circuit_breaker_losses",          cfg.circuitBreakerLosses)
             putInt("circuit_breaker_pause_min",       cfg.circuitBreakerPauseMin)
+            putBoolean("loss_streak_cooldown_enabled_8117", cfg.lossStreakCooldownEnabled)
             putFloat("max_price_impact_pct",          cfg.maxPriceImpactPct.toFloat())
             putBoolean("close_positions_on_stop",     cfg.closePositionsOnStop)
             putBoolean("auto_add_new_tokens",         cfg.autoAddNewTokens)
@@ -662,6 +665,7 @@ object ConfigStore {
             maxDailyLossPct             = p.getFloat("max_daily_loss_pct", 10.0f).toDouble(),
             circuitBreakerLosses        = p.getInt("circuit_breaker_losses", 5),
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
+            lossStreakCooldownEnabled   = p.getBoolean("loss_streak_cooldown_enabled_8117", false),
             maxPriceImpactPct           = p.getFloat("max_price_impact_pct", 3.0f).toDouble(),
             closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),
             // Missing credentials remain blank. Provider health must expose

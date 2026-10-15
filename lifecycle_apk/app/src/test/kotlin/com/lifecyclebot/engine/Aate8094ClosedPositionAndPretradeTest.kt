@@ -755,4 +755,22 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(d.confirms(true, 1_000L, 90_000L, 1_000L, 40_000.0, 1_000.0))
         assertTrue(src("engine/BotService.kt").contains("if (execPx == null) return deepRedWithoutRoute8116(ts, pnlPct)"))
     }
+
+    @Test fun theLossStreakCooldownIsASettingOffByDefault() {
+        assertFalse(com.lifecyclebot.data.BotConfig().lossStreakCooldownEnabled)
+        assertTrue(src("engine/KillSwitch.kt").contains("config7835.lossStreakCooldownEnabled && verifiedLossCooldown8081("))
+        assertTrue(src("ui/SettingsBottomSheet.kt").contains("lossStreakCooldownEnabled = switchLossStreakCooldown.isChecked"))
+    }
+
+    @Test fun aRunIsBoughtWhileItDevelopsNotAtItsPeak() {
+        val g = com.lifecyclebot.engine.truth.LiveEdgeGate7877
+        assertTrue(g.earlyRun8117(runupFromLowPct = 85.0, chg5mPct = 40.0))      // developing: buy the grab
+        assertFalse(g.earlyRun8117(runupFromLowPct = 1_238.0, chg5mPct = 30.0))  // 34fph3: the peak, not the run
+        assertFalse(g.earlyRun8117(runupFromLowPct = 90.0, chg5mPct = 140.0))    // a vertical 5-minute spike
+        assertFalse(g.earlyRun8117(Double.NaN, 10.0))                            // unknown run-up: the chase rule decides
+        val src = src("engine/truth/LiveEdgeGate7877.kt")
+        val chase = src.substringAfter("chasing8065(snap8065.runupFromLocalLowPct").substringBefore("!cellOrKindProven8094(ts, l8059, nowMs)) {")
+        assertTrue(chase.contains("!developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs)"))
+        assertFalse(chase.contains("runnerForming8113"))                         // re-entry tickets wait for their pullback
+    }
 }

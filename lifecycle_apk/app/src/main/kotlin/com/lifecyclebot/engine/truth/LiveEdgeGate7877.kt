@@ -494,6 +494,7 @@ object LiveEdgeGate7877 {
             // from the fill latency, so the chase is already in the record) the spike rule stands down.
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
                 // V5.0.8097 — the spike rule's own ladder replays (cell, or lane when the cell is thin) prove it refuses runners.
+                !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
                 chaseRefused8065.incrementAndGet()
@@ -665,6 +666,29 @@ object LiveEdgeGate7877 {
      * (veto audit SHADOW_NOT_PRIMARY@<lane>: 8111 SHITCOIN n500 +23.0%, all-lane +12.3%, REFUSING_WINNERS). That is the
      * measured forward return of exactly this population (coins this lane qualified), so it is the candidate's evidence.
      */
+    /**
+     * V5.0.8117 §BUY_THE_RUN_AS_IT_DEVELOPS. Owner: "we buy runners as they develop, not at their peak". The chase rule
+     * refuses a coin up 80%+ off its low and near its high, which is also what a run looks like while it develops; 8115
+     * restored it for every confirmed run after 8113 bought 34fph3 at +1,238%. A RunnerGrab7967 grab (forming in a cell
+     * proven to run) that is still EARLY — under [EARLY_RUNUP_MAX_PCT_8117]% off its local low and under
+     * [EARLY_CHG5M_MAX_PCT_8117]% in 5 minutes — is bought on the way up. Re-entry tickets (+100% already) keep the chase
+     * rule and wait for their pullback.
+     */
+    private fun developingRunGrab8117(ts: TokenState, runupFromLowPct: Double, nowMs: Long): Boolean {
+        if (!earlyRun8117(runupFromLowPct, ts.lastPriceChange5m)) return false
+        val ok = try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false }
+        if (ok) try { PipelineHealthCollector.labelInc("CHASE_STOOD_DOWN_DEVELOPING_RUN_8117") } catch (_: Throwable) {}
+        return ok
+    }
+
+    private const val EARLY_RUNUP_MAX_PCT_8117 = 150.0
+    private const val EARLY_CHG5M_MAX_PCT_8117 = 100.0
+
+    /** Pure (V5.0.8117): is a forming run still early enough to buy (not at its peak)? */
+    fun earlyRun8117(runupFromLowPct: Double, chg5mPct: Double): Boolean =
+        runupFromLowPct.isFinite() && runupFromLowPct < EARLY_RUNUP_MAX_PCT_8117 &&
+            (!chg5mPct.isFinite() || chg5mPct < EARLY_CHG5M_MAX_PCT_8117)
+
     private fun shadowAuditAdmits8113(ts: TokenState, lane: String): Boolean {
         val ok = try {
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry(lane, ts.mint)?.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY &&

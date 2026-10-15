@@ -515,7 +515,8 @@ object KillSwitch {
         
         // Check hourly rate limit
         val now = System.currentTimeMillis()
-        if (verifiedLossCooldown8081(consecutiveLosses, maxConsecutiveLosses,
+        // V5.0.8117 — owner: an option in Settings (off by default), not on all the time.
+        if (config7835.lossStreakCooldownEnabled && verifiedLossCooldown8081(consecutiveLosses, maxConsecutiveLosses,
                 lastProvenLossAt8081, now, config7835.circuitBreakerPauseMin)) {
             return Pair(false, "CHAIN_FINALIZED_LOSS_STREAK_COOLDOWN_8081: $consecutiveLosses/$maxConsecutiveLosses")
         }

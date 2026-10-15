@@ -89,6 +89,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var switchMemeTrader: SwitchCompat
     private lateinit var switchMarketsTrader: SwitchCompat
     private lateinit var switchCryptoAltsTrader: SwitchCompat
+    private lateinit var switchLossStreakCooldown: SwitchCompat
     // V5.7.7: Individual Markets sub-trader switches
     private lateinit var switchPerpsEnabled: SwitchCompat
     private lateinit var switchStocksEnabled: SwitchCompat
@@ -191,6 +192,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchMemeTrader = view.findViewById(R.id.switchMemeTrader)
         switchMarketsTrader = view.findViewById(R.id.switchMarketsTrader)
         switchCryptoAltsTrader = view.findViewById(R.id.switchCryptoAltsTrader)
+        switchLossStreakCooldown = view.findViewById(R.id.switchLossStreakCooldown)
         // V5.7.7: Individual Markets sub-trader switches
         switchPerpsEnabled = view.findViewById(R.id.switchPerpsEnabled)
         switchStocksEnabled = view.findViewById(R.id.switchStocksEnabled)
@@ -368,6 +370,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchMemeTrader.isChecked = cfg.memeTraderEnabled
         switchMarketsTrader.isChecked = cfg.marketsTraderEnabled
         switchCryptoAltsTrader.isChecked = cfg.cryptoAltsEnabled
+        switchLossStreakCooldown.isChecked = cfg.lossStreakCooldownEnabled
         // V5.7.7: Sub-trader switches
         switchPerpsEnabled.isChecked = cfg.perpsEnabled
         switchStocksEnabled.isChecked = cfg.stocksEnabled
@@ -445,6 +448,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             memeTraderEnabled = switchMemeTrader.isChecked,
             marketsTraderEnabled = switchMarketsTrader.isChecked,
             cryptoAltsEnabled = switchCryptoAltsTrader.isChecked,
+            lossStreakCooldownEnabled = switchLossStreakCooldown.isChecked,
             // V5.7.7: Individual Markets sub-trader toggles
             perpsEnabled = switchPerpsEnabled.isChecked,
             stocksEnabled = switchStocksEnabled.isChecked,
