@@ -9836,6 +9836,16 @@ This cannot be undone!
             .show()
     }
 
+    /** V5.0.8119 — newest [n] tokens in one pass; sorting all ~5k watch rows on the UI thread was an ANR (1.3s). */
+    private fun newestTokens8119(tokens: Sequence<TokenState>, n: Int): List<TokenState> {
+        val heap = java.util.PriorityQueue<Pair<Long, TokenState>>(n + 1, compareBy { it.first })
+        for (t in tokens) {
+            heap.add(maxOf(t.lastPriceUpdate, t.addedToWatchlistAt) to t)
+            if (heap.size > n) heap.poll()
+        }
+        return heap.sortedByDescending { it.first }.map { it.second }
+    }
+
     private fun updateGlobalDecisionLog(state: UiState) {
         // V5.9.1172 — if no token is selected yet, show bot-wide activity
         // instead of the misleading static "Waiting for first evaluation…".
@@ -9843,9 +9853,7 @@ This cannot be undone!
             runtimeUiTokensForDecisionLog(state)
                 .asSequence()
                 .filter { it.lastPrice > 0.0 || it.entryScore > 0.0 || it.exitScore > 0.0 || it.signal != "WAIT" }
-                .sortedByDescending { maxOf(it.lastPriceUpdate, it.addedToWatchlistAt) }
-                .take(8)
-                .toList()
+                .let { newestTokens8119(it, 8) }
         } catch (_: Throwable) { emptyList() }
         val runtimeActiveForLog = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
         val tokenCountForLog = if (runtimeActiveForLog || state.running) maxOf(state.tokens.size, liveRuntimeTokenCountForUi()) else state.tokens.size

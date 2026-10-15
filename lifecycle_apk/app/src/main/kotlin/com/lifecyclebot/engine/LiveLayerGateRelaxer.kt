@@ -298,6 +298,16 @@ object LiveLayerGateRelaxer {
         val now = System.currentTimeMillis()
         if (now - liveWrCacheStampMs <= LIVE_WR_CACHE_TTL_MS) return cachedLiveWrPct
         liveWrCacheStampMs = now
+        // V5.0.8119 — the leaderboard scan took 1.8s on the UI thread (ANR via updateUi → getStats).
+        // The main thread reads the cached value and the scan runs on a worker.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            Thread({ try { computeLiveWr8119() } catch (_: Throwable) {} }, "live-wr-8119").start()
+            return cachedLiveWrPct
+        }
+        return computeLiveWr8119()
+    }
+
+    private fun computeLiveWr8119(): Double {
         val wr = try {
             val leaderboard = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 2_500)
             val allLive = leaderboard.filter { it.isStatisticallyMeaningful }

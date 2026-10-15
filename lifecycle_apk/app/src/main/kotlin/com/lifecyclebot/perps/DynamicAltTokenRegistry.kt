@@ -602,12 +602,13 @@ object DynamicAltTokenRegistry {
     private fun restoreFromDisk() {
         val ctx = appCtx ?: return
         val file = java.io.File(ctx.filesDir, PERSIST_FILE)
+        try { java.io.File(ctx.filesDir, "$PERSIST_FILE.oversize_8033").delete(); java.io.File(ctx.filesDir, "$PERSIST_FILE.oversize").delete() } catch (_: Throwable) {}
         if (!file.exists()) {
             ErrorLogger.info(TAG, "📂 No persisted token file yet — fresh start")
             return
         }
         if (file.length() > MAX_RESTORE_BYTES_8033) {
-            try { file.renameTo(java.io.File(ctx.filesDir, "$PERSIST_FILE.oversize_8033")) || file.delete() } catch (_: Throwable) {}
+            try { file.delete() } catch (_: Throwable) {} // V5.0.8119 — set-aside copies were never read again (23MB + 11.5MB on disk)
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ALT_REGISTRY_OVERSIZE_SET_ASIDE_8033") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "📂 ${file.length() / 1024}KB registry file is over the restore cap — set aside, fresh start")
             return

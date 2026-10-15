@@ -225,11 +225,12 @@ object MemeMintRegistry {
     private fun restoreFromDisk() {
         val ctx = appCtx ?: return
         val file = File(ctx.filesDir, PERSIST_FILE)
+        try { java.io.File(ctx.filesDir, "$PERSIST_FILE.oversize_8033").delete(); java.io.File(ctx.filesDir, "$PERSIST_FILE.oversize").delete() } catch (_: Throwable) {}
         if (!file.exists()) return
         // V5.0.8033 — a file this size is the pre-8033 unbounded registry: parsing it alone fills the heap. It is a
         // cache of metadata (the scanner re-discovers live mints), so it is set aside, not loaded.
         if (file.length() > MAX_RESTORE_BYTES_8033) {
-            try { file.renameTo(File(ctx.filesDir, "$PERSIST_FILE.oversize_8033")) || file.delete() } catch (_: Throwable) {}
+            try { file.delete() } catch (_: Throwable) {} // V5.0.8119 — set-aside copies were never read again (23MB + 11.5MB on disk)
             try { PipelineHealthCollector.labelInc("MEME_MINT_REGISTRY_OVERSIZE_SET_ASIDE_8033") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "restoreFromDisk: ${file.length() / 1024}KB > cap — set aside, starting fresh")
             return

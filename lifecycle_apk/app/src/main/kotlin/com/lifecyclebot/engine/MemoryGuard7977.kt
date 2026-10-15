@@ -138,7 +138,9 @@ object MemoryGuard7977 {
         try { PumpCallouts7968.trim7977() } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.chart.ChartReader7950.trim7977() } catch (_: Throwable) {}
         // V5.0.7979 — the token archive's resident rows (the rest is on the device).
-        try { TokenMetaCache.instanceOrNull7979()?.evictToMemoryCap7979(if (hard) 600 else 1_000) } catch (_: Throwable) {}
+        // V5.0.8119 — eviction skips unflushed rows; 8117 held 5192 rows with 4732 dirty, so the cap never bit.
+        // Flush the backlog here (guard thread, not UI) so the rows become evictable.
+        try { TokenMetaCache.instanceOrNull7979()?.let { c -> c.flushNow(); c.evictToMemoryCap7979(if (hard) 600 else 1_000) } } catch (_: Throwable) {}
     }
 
     // ── V5.0.8031 — what is actually big ──
