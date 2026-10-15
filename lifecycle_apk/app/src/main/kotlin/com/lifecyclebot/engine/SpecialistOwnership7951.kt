@@ -186,6 +186,8 @@ object SpecialistOwnership7951 {
      * OWNER_SELECTED + BUY_INTENT + FDG_BLOCK with a named capital refusal.
      */
     internal fun onFdgVerdict7951(mint: String, lane: String, candidateVersion: Long, shouldTrade: Boolean, blockReason: String?, nowMs: Long = System.currentTimeMillis()) {
+        // V5.0.8136 — every FDG verdict (allow or refuse) terminates its lane's proposal in the candidate's election.
+        noteFdgVerdict8136(mint, lane, candidateVersion, shouldTrade, blockReason, nowMs)
         if (shouldTrade || mint.isBlank()) return
         val l = lane7951(lane)
         if (l !in SpecialistCandidateBooks7803.LANES) return
@@ -238,6 +240,9 @@ object SpecialistOwnership7951 {
         val l = lane7951(lane)
         if (l !in SpecialistCandidateBooks7803.LANES) return
         val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
+        // V5.0.8136 — the proposal ends by name in the candidate's election: a gated primary opens the rescue, a gated
+        // rescue releases the slot, every other READY lane is a CONTRIBUTOR_SHADOW (it no longer vanishes as a label).
+        noteNotEvaluated8136(l, mint, primaryLane, ready)
         if (!ready) return
         val p = lane7951(primaryLane)
         notePreIntent7951(l, if (p == l) "READY_PRIMARY_GATED" else "READY_NOT_EVALUATED_PRIMARY_$p")
@@ -303,7 +308,11 @@ object SpecialistOwnership7951 {
         if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) return false
         val fdgRefused = primaryRefused7960(mint, primaryLane, nowMs)
         val native8094 = !fdgRefused && primaryNativeRefused8094(mint, primaryLane, nowMs)
-        if (!fdgRefused && !native8094) return false
+        // V5.0.8136 — a primary its own cycle gated before the FDG (proof / learned floor / pWin), or one that sat silent with
+        // no FDG verdict for PRIMARY_SILENT_MS_8136 (its branch never produced a BUY), refused too: the rescue opens.
+        val preFdg8136 = !fdgRefused && !native8094 && (SpecialistElection8136.primaryGatedPreFdg8136(mint, lane7951(primaryLane)) ||
+            SpecialistElection8136.primarySilent8136(mint, lane7951(primaryLane), nowMs))
+        if (!fdgRefused && !native8094 && !preFdg8136) return false
         val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false } ||
             (native8094 && coreYieldedTo8119(mint, primaryLane, l))
         // V5.0.8094 — a native hand-off goes only to a lane whose OWN strategy for this coin is not losing on its graded
@@ -311,8 +320,19 @@ object SpecialistOwnership7951 {
         // no such guard; this one does, and every receiving-lane gate (quarantine, rug, FDG, sizing) still runs.
         if (ready && native8094 && !receiverRecordSound8094(mint, l)) {
             try { PipelineHealthCollector.labelInc("READY_HANDOFF_REFUSED_RECEIVER_RECORD_8094_$l") } catch (_: Throwable) {}
+            // V5.0.8136 — a named receiver that is refused ends with that precise reason (yield refused, not silent).
+            SpecialistElection8136.markIneligible8136(mint, l, "RECEIVER_RECORD_UNSOUND_8094", nowMs)
             return false
         }
+        // V5.0.8136 — ONE rescue per candidate. Every READY lane used to be handed the coin at once; now only the best
+        // eligible lane on its own scale (independent native evidence, token safety, sound receiver record) takes the
+        // slot, and a judgement refusal (safety / rug / token-wide FDG wall) hands it to nobody.
+        val trigger8136 = when {
+            fdgRefused -> SpecialistElection8136.TRIGGER_FDG
+            native8094 -> SpecialistElection8136.TRIGGER_NATIVE
+            else -> SpecialistElection8136.TRIGGER_PRE_FDG
+        }
+        if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs)) return false
         if (ready) notePreIntent7951(l, if (native8094) "READY_HANDED_OFF_NATIVE_${lane7951(primaryLane)}_8094" else "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
         return ready
     }
@@ -327,6 +347,9 @@ object SpecialistOwnership7951 {
     internal fun readyCellProvenEvaluates8094(lane: String, mint: String, primaryLane: String): Boolean = try {
         val l = lane7951(lane)
         if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) false
+        // V5.0.8136 — the candidate's one rescue (claimed in handOffAllowed7960, e.g. CORE / TREASURY's named receiver)
+        // evaluates on every desk path, also outside the meme ring (MANIPULATED / CASHGEN in meme-only live).
+        else if (SpecialistElection8136.holdsRescue8136(mint, l)) true
         else if (SpecialistCandidateBooks7803.entry(l, mint)?.state != SpecialistCandidateBooks7803.State.READY) false
         else {
             val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
@@ -337,7 +360,9 @@ object SpecialistOwnership7951 {
             // the lane's strategy for this coin is not a losing one. All gates of the evaluating lane still decide.
             val audit = !ok && ts != null && shadowRefusesWinners8094(l) && receiverRecordSound8094(mint, l)
             if (audit) notePreIntent7951(l, "READY_SHADOW_AUDIT_EVALUATES_8094")
-            ok || audit
+            // V5.0.8136 — a proven cell no longer adds an unbounded extra evaluator: it competes for the candidate's ONE
+            // rescue slot (own-scale conviction + the proven-cell bonus), so a strong secondary specialist still gets in.
+            (ok || audit) && rescueClaim8136(l, mint, primaryLane, SpecialistElection8136.TRIGGER_CELL_PROVEN, System.currentTimeMillis())
         }
     } catch (_: Throwable) { false }
 
@@ -367,8 +392,10 @@ object SpecialistOwnership7951 {
         val ops = SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions
         // V5.0.8132 — any primary that refused on FIT (wrong lane for this coin), not just CORE (8120) / TREASURY (8131).
         val yielded = ops != null && laneFitRefusal8132(ops[p]?.reason)
-        yielded && ops!!.values.filter { it.authoritative && it.eligible && it.lane != "CORE" && it.lane != p }
-            .maxByOrNull { maxOf(it.score, it.confidence) }?.lane == lane
+        // V5.0.8136 — the named owner is the top eligible specialist on its OWN lane scale (ownership conviction on its
+        // admission bar), not the raw native score: CASHGEN's raw 76 on a 72 bar out-ranked MOONSHOT's 55 on a 30 bar,
+        // so a TREASURY / CORE yield handed the runner coin to the scalper. The name is recorded in the election.
+        yielded && yieldReceiver8136(mint, p, ops!!) == lane7951(lane)
     } catch (_: Throwable) { false }
 
     /**
@@ -402,4 +429,112 @@ object SpecialistOwnership7951 {
         ts != null && (com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane) != null ||
             com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, lane) == null)
     } catch (_: Throwable) { false }
+
+    // ── V5.0.8136 — one causal election contract per candidate (SpecialistElection8136) ──
+
+    /**
+     * Pure (V5.0.8136): a refusal no rescue may answer. Natively: the 8094 hand-off blockers (safety / rug / dev /
+     * bundle / freeze / toxic ...). At the FDG also a token-wide wall (liquidity, sellability, capital, identity,
+     * circuit breaker): every other lane meets the same wall, so handing the coin on only spends a cycle.
+     */
+    internal fun refusalIsJudgement8136(reason: String?, fdg: Boolean): Boolean {
+        val r = reason?.uppercase()?.replace(' ', '_') ?: return false
+        return HANDOFF_BLOCKING_8094.any { r.contains(it) } || (fdg && SpecialistElection8136.fdgWall8136(r))
+    }
+
+    private fun contenderOf8136(o: SpecialistBrainBridge7542.Opinion): SpecialistElection8136.Contender8136 =
+        SpecialistElection8136.Contender8136(lane7951(o.lane),
+            SpecialistElection8136.normalised8136(maxOf(o.score, o.confidence).toDouble(), Double.NaN, o.ownershipConviction7948))
+
+    /** V5.0.8136 — every lane with independent native evidence for [mint] (fresh eligible opinion, else READY book), own scale. */
+    private fun contenders8136(mint: String): List<SpecialistElection8136.Contender8136> {
+        val out = linkedMapOf<String, SpecialistElection8136.Contender8136>()
+        try {
+            SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.values?.forEach { o ->
+                if (o.eligible && o.authoritative) contenderOf8136(o).let { out[it.lane] = it }
+            }
+        } catch (_: Throwable) {}
+        for (l in SpecialistCandidateBooks7803.LANES) {
+            if (l in out) continue
+            val e = try { SpecialistCandidateBooks7803.entry(l, mint) } catch (_: Throwable) { null } ?: continue
+            if (e.state == SpecialistCandidateBooks7803.State.READY) out[l] = SpecialistElection8136.Contender8136(l, e.conviction.coerceIn(0.0, 100.0))
+        }
+        return out.values.toList()
+    }
+
+    /**
+     * V5.0.8136 — why [lane] may not be this candidate's rescue (null = it may): the token's hard safety must pass and
+     * the lane's own strategy for the coin must not be a losing one (8094 receiver record). DEFERRED_ = data missing.
+     */
+    internal fun rescueIneligible8136(mint: String, lane: String): String? = try {
+        val l = lane7951(lane)
+        val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+        when {
+            ts == null -> "DEFERRED_NO_TOKEN_STATE"
+            ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() -> "TOKEN_SAFETY_BLOCKED"
+            !receiverRecordSound8094(mint, l) -> "RECEIVER_RECORD_UNSOUND_8094"
+            else -> null
+        }
+    } catch (_: Throwable) { "DEFERRED_RESCUE_CHECK_ERROR" }
+
+    /** V5.0.8136 — [lane] asks for the candidate's one rescue slot ([trigger] = why the primary is out, or a proven cell). */
+    private fun rescueClaim8136(lane: String, mint: String, primaryLane: String, trigger: String, nowMs: Long): Boolean = try {
+        val l = lane7951(lane)
+        val p = lane7951(primaryLane)
+        val refusal = when (trigger) {
+            SpecialistElection8136.TRIGGER_NATIVE -> SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.get(p)?.reason.orEmpty()
+            SpecialistElection8136.TRIGGER_FDG -> SpecialistElection8136.lastFdgRefusal8136(mint, p, nowMs).orEmpty()
+            SpecialistElection8136.TRIGGER_PRE_FDG ->
+                if (SpecialistElection8136.primaryGatedPreFdg8136(mint, p)) "PRIMARY_GATED_PRE_FDG" else "PRIMARY_SILENT_NO_FDG"
+            else -> ""
+        }
+        val granted = SpecialistElection8136.claimRescue8136(mint, l, p, trigger, refusal,
+            refusalIsJudgement8136(refusal, fdg = trigger == SpecialistElection8136.TRIGGER_FDG),
+            contenders8136(mint), rescueIneligible8136(mint, l), nowMs)
+        if (granted) notePreIntent7951(l, "RESCUE_ELECTED_8136_$trigger")
+        granted
+    } catch (_: Throwable) { true }
+
+    /** V5.0.8136 — the specialist a fit refusal by [primary] names (top eligible lane on its own scale), recorded once. */
+    private fun yieldReceiver8136(mint: String, primary: String, ops: Map<String, SpecialistBrainBridge7542.Opinion>): String? {
+        val receiver = SpecialistElection8136.electRescue8136(
+            ops.values.filter { it.authoritative && it.eligible }.map { contenderOf8136(it) }, lane7951(primary))
+        SpecialistElection8136.noteYield8136(mint, lane7951(primary), receiver)
+        return receiver
+    }
+
+    /**
+     * V5.0.8136 — LaneExecutionCoordinator: the cycle primary's own native verdict joins the election. A refusal opens the
+     * rescue (a judgement one — or a non-graded one like ALREADY_ / COOLDOWN — never does); a fit refusal names the
+     * receiver, which must then reach the decision funnel or end with a precise refusal.
+     */
+    internal fun noteCycleNative8136(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        try {
+            val p = SpecialistElection8136.primaryOf8136(mint)
+            if (p.isBlank()) return
+            val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint) ?: return
+            val op = snap.opinions[p] ?: return
+            if (op.eligible || !op.authoritative) return
+            SpecialistElection8136.notePrimaryRefusal8136(mint, p, "${SpecialistElection8136.TRIGGER_NATIVE}:${op.reason}",
+                !op.gradeable || refusalIsJudgement8136(op.reason, fdg = false), nowMs)
+            if (laneFitRefusal8132(op.reason)) yieldReceiver8136(mint, p, snap.opinions)
+        } catch (_: Throwable) {}
+    }
+
+    private fun noteNotEvaluated8136(lane: String, mint: String, primaryLane: String, ready: Boolean) {
+        try {
+            val score = if (!ready) Double.NaN else contenders8136(mint).firstOrNull { it.lane == lane }?.normalised ?: Double.NaN
+            SpecialistElection8136.noteNotEvaluated8136(mint, lane, lane7951(primaryLane), ready, score)
+        } catch (_: Throwable) {}
+    }
+
+    private fun noteFdgVerdict8136(mint: String, lane: String, candidateVersion: Long, shouldTrade: Boolean, blockReason: String?, nowMs: Long) {
+        try {
+            val l = lane7951(lane)
+            if (mint.isBlank() || l !in SpecialistCandidateBooks7803.LANES) return
+            val own = contenders8136(mint).firstOrNull { it.lane == l }
+            SpecialistElection8136.onFdgVerdict8136(mint, l, candidateVersion, shouldTrade, blockReason,
+                refusalIsJudgement8136(blockReason, fdg = true), own != null, own?.normalised ?: Double.NaN, nowMs)
+        } catch (_: Throwable) {}
+    }
 }

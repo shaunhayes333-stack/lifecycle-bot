@@ -72,5 +72,8 @@ object LaneParticipation8029 {
 
     fun statusLine(): String =
         "shadowLabels=${shadows.get()} graded=${graded.get()} stoppedBeforePeak=${stoppedFirst.get()} stoppedAfterPeak=${stoppedAfterPeak.get()} " +
-            "pumpEvictedOverShare=${pumpEvictions.get()} pumpMaxShare=${(PUMP_MAX_SHARE * 100).toInt()}%"
+            "pumpEvictedOverShare=${pumpEvictions.get()} pumpMaxShare=${(PUMP_MAX_SHARE * 100).toInt()}%" +
+            // V5.0.8136 — per lane Discovered > NativeQualified > Elected / FdgRefused / Rescue / Shadow / Superseded /
+            // Deferred / Ineligible: every shadow label above is now one named terminal of one candidate's election.
+            " || " + (try { SpecialistElection8136.statusLine8136() } catch (_: Throwable) { "election8136 unavailable" })
 }
