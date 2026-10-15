@@ -146,6 +146,25 @@ object ParallelMarkFanout7088 {
         if (url.isNotBlank()) rpcUrl = url
     }
 
+    // ── V5.0.8128 — the last price two or more independent feeds agreed on, per mint ──
+    // Owner, SAC: the panel read +1987% / $80.6K mcap on a coin worth ~$5K; a single-source "verified" mark ~23x off
+    // ratcheted the peak, armed a +1788% profit lock and taught runner capture / tail hunter a run that never happened.
+    private val corroborated8128 = ConcurrentHashMap<String, Pair<Double, Long>>()
+    private const val CORROBORATED_MAX_AGE_MS_8128 = 3L * 60_000L
+
+    private fun noteCorroborated8128(mint: String, priceUsd: Double) {
+        if (!priceUsd.isFinite() || priceUsd <= 0.0) return
+        corroborated8128[mint] = priceUsd to System.currentTimeMillis()
+        if (corroborated8128.size > 3_000) {
+            val cut = System.currentTimeMillis() - CORROBORATED_MAX_AGE_MS_8128
+            corroborated8128.entries.removeIf { it.value.second < cut }
+        }
+    }
+
+    /** The mint's recent corroborated price (null when none in the last few minutes). */
+    fun corroboratedPrice8128(mint: String, nowMs: Long = System.currentTimeMillis()): Double? =
+        corroborated8128[mint]?.takeIf { nowMs - it.second in 0..CORROBORATED_MAX_AGE_MS_8128 }?.first
+
     data class Mark7088(
         val priceUsd: Double,
         val sourceCount: Int,
@@ -242,7 +261,7 @@ object ParallelMarkFanout7088 {
                 if (p.isFinite() && p > 0.0) quotes += name to p
             }
             if (quotes.isEmpty()) continue
-            out[mint] = merge7088(mint, quotes)
+            out[mint] = merge7088(mint, quotes).also { m -> if (m.corroborated) noteCorroborated8128(mint, m.priceUsd) }
         }
 
         if (out.isNotEmpty()) {

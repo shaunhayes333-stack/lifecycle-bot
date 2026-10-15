@@ -68,9 +68,44 @@ object PositionDisplayTruth8078 {
         if (candidatePnlPct > v.pnlPct + 5.0 && candidatePnlPct > pos.peakGainPct) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PEAK_TICK_AHEAD_OF_VERIFIED_MARK_8080_$writer")
         } catch (_: Throwable) {}
+        if (v.pnlPct > pos.peakGainPct && !peakStepCorroborated8128(ts.mint, pos.peakGainPct, v.pnlPct, v.markUsd)) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PEAK_UNCORROBORATED_JUMP_REFUSED_8128_$writer") } catch (_: Throwable) {}
+            requestCorroboration8128(ts.mint)
+            return null
+        }
         try { PositionExcursion8082.observe(pos.positionId, v.pnlPct, "VERIFIED_${v.markSource}") } catch (_: Throwable) {}
         if (v.pnlPct > pos.peakGainPct) pos.peakGainPct = v.pnlPct
         return v.pnlPct
+    }
+
+    /**
+     * V5.0.8128 — a peak may not more than double in one ratchet past +100% on one mark alone (SAC: one tick from
+     * ~0% to +1988%, ~23x the coin's real price). Such a step needs the mark within 25% of a price two independent
+     * feeds agreed on in the last few minutes. A real run climbs through many ratchets, each under the bar.
+     */
+    fun peakStepCorroborated8128(mint: String, oldPeakPct: Double, newPeakPct: Double, markUsd: Double): Boolean {
+        if (!jumpNeedsCorroboration8128(oldPeakPct, newPeakPct)) return true
+        val agreed = try { com.lifecyclebot.network.ParallelMarkFanout7088.corroboratedPrice8128(mint) } catch (_: Throwable) { null }
+        return markAgrees8128(markUsd, agreed)
+    }
+
+    /** Pure: the step from [oldPeakPct] to [newPeakPct] more than doubles the position's value multiple, past +100%. */
+    fun jumpNeedsCorroboration8128(oldPeakPct: Double, newPeakPct: Double): Boolean =
+        newPeakPct > 100.0 && (1.0 + newPeakPct / 100.0) > 2.0 * (1.0 + oldPeakPct.coerceAtLeast(0.0) / 100.0)
+
+    /** Pure: [markUsd] sits within 25% of the corroborated price. */
+    fun markAgrees8128(markUsd: Double, agreedUsd: Double?): Boolean =
+        agreedUsd != null && agreedUsd > 0.0 && markUsd > 0.0 && kotlin.math.abs(markUsd / agreedUsd - 1.0) <= 0.25
+
+    private val corroborationAskedAt8128 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** Ask every feed for this mint once (at most every 20 s), off the caller's thread. */
+    private fun requestCorroboration8128(mint: String) {
+        val now = System.currentTimeMillis()
+        if (now - (corroborationAskedAt8128[mint] ?: 0L) < 20_000L) return
+        corroborationAskedAt8128[mint] = now
+        if (corroborationAskedAt8128.size > 500) corroborationAskedAt8128.entries.removeIf { now - it.value > 600_000L }
+        Thread({ try { com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(mint)) } catch (_: Throwable) {} }, "peak-corroborate-8128").start()
     }
 
     fun view(ts: TokenState, nowMs: Long = System.currentTimeMillis()): View {

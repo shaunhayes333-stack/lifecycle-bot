@@ -871,4 +871,17 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("engine/chart/ChartSources7955.kt").contains("HostCircuitInterceptor.LANE_HEADER_8125, \"chart\""))
         assertTrue(src("engine/sell/SellReconciler.kt").contains("ExitHttpScope7314.run { com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(openMints) }"))
     }
+
+    @Test fun aPeakThatJumpsOnOneUncorroboratedMarkIsNotRatcheted() {
+        val d = com.lifecyclebot.engine.truth.PositionDisplayTruth8078
+        assertTrue(d.jumpNeedsCorroboration8128(0.0, 1987.0))          // SAC: ~0% to +1987% in one tick
+        assertFalse(d.jumpNeedsCorroboration8128(60.0, 150.0))         // a run climbing: 1.6x -> 2.5x, under the bar
+        assertFalse(d.jumpNeedsCorroboration8128(0.0, 90.0))           // under +100% never needs it
+        assertTrue(d.jumpNeedsCorroboration8128(150.0, 500.0))         // 2.5x -> 6x in one step
+        assertFalse(d.markAgrees8128(8.06e-5, null))                   // no corroborated price: refuse the jump
+        assertFalse(d.markAgrees8128(8.06e-5, 3.44e-6))                // 23x off the agreed price
+        assertTrue(d.markAgrees8128(4.0e-5, 3.5e-5))                   // within 25%
+        assertTrue(d.peakStepCorroborated8128("noJump8128Mint", 60.0, 150.0, 1.0))
+        assertFalse(d.peakStepCorroborated8128("phantom8128Mint", 0.0, 1987.0, 8.06e-5))
+    }
 }
