@@ -1071,4 +1071,13 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(ex.contains("pos.highestPrice = maxOf(pos.highestPrice, price)"))
         assertFalse(ex.contains("ts.position.highestPrice = maxOf(ts.position.highestPrice, _unconditionalPrice)"))
     }
+
+    // V5.0.8134 — the rebuy / loser / falling-knife lockout sits at the meme buy door, so a chart BUY or any other
+    // upstream admit cannot re-buy a coin that just lost or is dumping.
+    @Test fun rebuyLockoutGuardsTheBuyDoorNotOnlyTheEdgeGate() {
+        val door = src("engine/PreTradeHardGate.kt")
+        assertTrue(door.contains("(try { RebuyLockout8019.refusal8019(mint, now) } catch (_: Throwable) { null })?.let { return block(ts, it, \"site=\$callSite\") }"))
+        assertTrue(door.indexOf("RebuyLockout8019.refusal8019") < door.indexOf("FreezeAuthorityHardBlock7238.evaluateLive"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }"))
+    }
 }

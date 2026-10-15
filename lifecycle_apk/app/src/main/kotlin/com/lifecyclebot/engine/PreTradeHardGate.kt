@@ -109,6 +109,9 @@ object PreTradeHardGate {
         if (MintIntegrityGate.isSystemOrStablecoinMint(mint) || TokenMapAuthority.isSourceLabel(mint)) return block(ts, "SOURCE_IDENTITY_BAD", "canonical target invalid mint=$mint route=${ts.tokenMap.routeStatus}")
         if (TokenBlacklist.isBlocked(mint)) return block(ts, "EXACT_MINT_BLACKLISTED", TokenBlacklist.getBlockReason(mint))
         if (QuarantineStore.isQuarantined(mint)) return block(ts, "EXACT_MINT_QUARANTINED", mint.take(12))
+        // V5.0.8134 — rebuy / repeat-loser / falling-knife / big-loser lockout at the buy door, so no upstream admit
+        // (chart BUY, specialist hand-off, runner ticket, top-up) re-buys a coin that just lost or is dumping.
+        (try { RebuyLockout8019.refusal8019(mint, now) } catch (_: Throwable) { null })?.let { return block(ts, it, "site=$callSite") }
 
         val safetyAt = maxOf(ts.lastSafetyCheck, safety.checkedAt)
         val safetyAge = now - safetyAt
