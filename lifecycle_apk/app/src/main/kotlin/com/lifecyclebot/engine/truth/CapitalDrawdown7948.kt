@@ -167,13 +167,20 @@ object CapitalDrawdown7948 {
         }
         // V5.0.7990 — a new high must hold for two observations: one inflated mark set a 24 h peak of
         // 0.6266 against 0.28 equity (5.0.7989, "54.5%" drawdown shrinking every size).
-        val confirmed7990 = peakCandidate7990(equitySol, prevPeakObs7990)
+        // V5.0.8130 — the 24 h peak is set from equity without unrealized GAINS: 8127's peak24h=1.0777 against
+        // ~0.40 real equity came from SAC's phantom +1988% mark (DD 64%, every size cut). A sold gain is liquid SOL.
+        val upnl8130 = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
+        val confirmed7990 = peakCandidate7990(gainFreeEquity8130(equitySol, upnl8130), prevPeakObs7990)
         if (equitySol.isFinite() && equitySol > 0.0) prevPeakObs7990 = equitySol
         peak7948 = rollPeak7948(peak7948, confirmed7990, nowMs)
         drawdownPct7948(peak7948, equitySol, nowMs)
     }
 
     @Volatile private var prevPeakObs7990 = Double.NaN
+
+    /** Pure (V5.0.8130): marked equity less any unrealized gain (losses stay in). */
+    fun gainFreeEquity8130(equitySol: Double, unrealizedSol: Double): Double =
+        if (unrealizedSol.isFinite() && unrealizedSol > 0.0) equitySol - unrealizedSol else equitySol
 
     /** Pure. V5.0.7990 — the equity a new peak may take: the lower of this and the previous observation. */
     fun peakCandidate7990(equitySol: Double, prevEquitySol: Double): Double =

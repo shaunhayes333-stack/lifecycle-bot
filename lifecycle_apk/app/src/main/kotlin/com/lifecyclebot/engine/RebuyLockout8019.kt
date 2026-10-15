@@ -66,6 +66,7 @@ object RebuyLockout8019 {
     fun onClose8019(mint: String, atMs: Long, realizedReturnPct: Double = Double.NaN) {
         if (mint.isBlank()) return
         loadLosses8022()
+        if (bigLoss8130(realizedReturnPct)) noteBigLoss8130(mint, atMs)
         if (realizedReturnPct.isFinite() && realizedReturnPct < 0.0) {
             if (losses.size > 4_000) losses.entries.removeIf { e -> synchronized(e.value) { e.value.none { atMs - it < LOSS_MEMORY_MS_8022 } } }
             val l = losses.getOrPut(mint) { java.util.Collections.synchronizedList(ArrayList()) }
@@ -87,6 +88,15 @@ object RebuyLockout8019 {
                 return "REPEAT_LOSER_8022"
             }
         }
+        val change1h8130 = try { synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }?.lastPriceChange1h } catch (_: Throwable) { null }
+        if (fallingKnife8130(change1h8130, ticket)) {
+            try { PipelineHealthCollector.labelInc("FALLING_KNIFE_REFUSED_8130") } catch (_: Throwable) {}
+            return "FALLING_KNIFE_8130"
+        }
+        if (bigLossLocked8130(mint, nowMs, ticket)) {
+            try { PipelineHealthCollector.labelInc("BIG_LOSER_REFUSED_8130") } catch (_: Throwable) {}
+            return "BIG_LOSER_8130"
+        }
         val at = closedAt[mint] ?: return null
         if (!locked8019(nowMs - at, ticket)) return null
         refused.incrementAndGet()
@@ -94,5 +104,59 @@ object RebuyLockout8019 {
         return "REBUY_LOCKOUT_8019"
     }
 
-    fun statusLine(): String = "locked=${closedAt.values.count { System.currentTimeMillis() - it < LOCK_MS_8019 }} refused=${refused.get()} window=${LOCK_MS_8019 / 60_000}m repeatLosers=${losses.count { (_, l) -> synchronized(l) { l.count { System.currentTimeMillis() - it < LOSS_MEMORY_MS_8022 } } >= MAX_LOSSES_8022 }} repeatRefused=${lossRefused.get()}"
+    // ── V5.0.8130 — one real loss is enough ──
+    // Owner, DA (ALrNcQ): closed at -22%, then EXPRESS bought it again 50 min later into a -62% downtrend on a +9%
+    // 5-minute bounce. The two-loss rule (8022) let the second buy through. A whole-position close at -10% or worse
+    // locks the mint for 24 h (persisted); only the confirmed-run re-entry ticket (+100% after the sale) reopens it.
+    private const val BIG_LOSS_PCT_8130 = -10.0
+    private val bigLossAt8130 = ConcurrentHashMap<String, Long>()
+    @Volatile private var bigLossLoaded8130 = false
+    private fun bigLossFile8130(): java.io.File? =
+        com.lifecyclebot.AATEApp.appContextOrNull()?.let { java.io.File(it.filesDir, "big_losers_8130.txt") }
+
+    /**
+     * Pure (V5.0.8130): a coin down 35%+ over the last hour is a falling knife, not continuation (DA: bought on a
+     * +9% 5-minute bounce ~45% down the hour). Only a confirmed-run re-entry ticket buys it.
+     */
+    fun fallingKnife8130(change1hPct: Double?, ticket: Boolean): Boolean =
+        !ticket && change1hPct != null && change1hPct.isFinite() && change1hPct <= FALLING_KNIFE_1H_PCT_8130
+
+    private const val FALLING_KNIFE_1H_PCT_8130 = -35.0
+
+    /** Pure: a realised return that counts as a real loss. */
+    fun bigLoss8130(realizedReturnPct: Double): Boolean = realizedReturnPct.isFinite() && realizedReturnPct <= BIG_LOSS_PCT_8130
+
+    /** Pure: a real loss inside the memory window locks the mint (no re-entry ticket). */
+    fun bigLossWindow8130(lossAtMs: Long?, nowMs: Long, ticket: Boolean): Boolean =
+        !ticket && lossAtMs != null && nowMs - lossAtMs in 0L until LOSS_MEMORY_MS_8022
+
+    private fun bigLossLocked8130(mint: String, nowMs: Long, ticket: Boolean): Boolean {
+        loadBigLosses8130()
+        return bigLossWindow8130(bigLossAt8130[mint], nowMs, ticket)
+    }
+
+    private fun noteBigLoss8130(mint: String, atMs: Long) {
+        loadBigLosses8130()
+        bigLossAt8130[mint] = atMs
+        if (bigLossAt8130.size > 4_000) bigLossAt8130.entries.removeIf { atMs - it.value >= LOSS_MEMORY_MS_8022 }
+        try {
+            bigLossFile8130()?.writeText(bigLossAt8130.entries.filter { atMs - it.value < LOSS_MEMORY_MS_8022 }
+                .joinToString("\n") { "${it.key},${it.value}" })
+        } catch (_: Throwable) {}
+    }
+
+    private fun loadBigLosses8130() {
+        if (bigLossLoaded8130) return
+        bigLossLoaded8130 = true
+        val now = System.currentTimeMillis()
+        try {
+            bigLossFile8130()?.takeIf { it.exists() }?.readLines()?.forEach { line ->
+                val f = line.split(',')
+                val t = f.getOrNull(1)?.toLongOrNull() ?: return@forEach
+                if (f[0].isNotBlank() && now - t < LOSS_MEMORY_MS_8022) bigLossAt8130[f[0]] = t
+            }
+        } catch (_: Throwable) {}
+    }
+
+    fun statusLine(): String = "locked=${closedAt.values.count { System.currentTimeMillis() - it < LOCK_MS_8019 }} refused=${refused.get()} window=${LOCK_MS_8019 / 60_000}m repeatLosers=${losses.count { (_, l) -> synchronized(l) { l.count { System.currentTimeMillis() - it < LOSS_MEMORY_MS_8022 } } >= MAX_LOSSES_8022 }} repeatRefused=${lossRefused.get()} bigLosers8130=${bigLossAt8130.size}"
 }

@@ -122,7 +122,10 @@ object OnChainMintAuthorityProof7248 {
                 .put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed")))
             .toString()
 
-        for (rpc in endpoints) {
+        // V5.0.8130 — a live buy asks Helius first, then every public node (8127: 4 of 5 live buys refused
+        // FREEZE_AUTHORITY_UNVERIFIED while publicnode answered 0-33% and Helius answered). Scans keep public-first.
+        val ordered8130 = if (liveGate8094) (heliusEps7365.take(1) + publicAll7369).distinct() else endpoints
+        for (rpc in ordered8130) {
             val provider = if (rpc.contains("helius", ignoreCase = true)) "helius" else "solana_rpc"
             val hostKey7369 = if (provider == "helius") provider else backoffKey7369(rpc)
             try {

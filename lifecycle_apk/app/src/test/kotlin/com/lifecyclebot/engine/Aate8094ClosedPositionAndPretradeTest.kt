@@ -1006,4 +1006,28 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("network/DexscreenerApi.kt").contains("if (chainId == \"solana\") result = result?.let { withHolders8128(it, tokenAddress) }"))
         assertTrue(src("engine/BotService.kt").contains("holderCount = com.lifecyclebot.network.JupiterHolders8128.holders8128(ts.mint) ?: 0,"))
     }
+
+    @Test fun anUnsoldMarkNeverRaisesTheDrawdownPeakAndLiveBuysAskHeliusFirst() {
+        val c = com.lifecyclebot.engine.truth.CapitalDrawdown7948
+        assertEquals(0.40, c.gainFreeEquity8130(1.0777, 0.6777), 1e-9)   // 8127: SAC's phantom gain stays out of the peak
+        assertEquals(0.30, c.gainFreeEquity8130(0.30, -0.05), 1e-9)      // unrealized losses stay in
+        assertEquals(0.35, c.gainFreeEquity8130(0.35, Double.NaN), 1e-9)
+        assertTrue(src("engine/KillSwitch.kt").contains("prefs.getBoolean(\"peak_gain_free_8130\", false)"))
+        assertTrue(src("engine/truth/OnChainMintAuthorityProof7248.kt").contains("val ordered8130 = if (liveGate8094) (heliusEps7365.take(1) + publicAll7369).distinct() else endpoints"))
+    }
+
+    @Test fun aCoinThatLostOnceOrIsFallingIsNotBoughtAgain() {
+        val r = RebuyLockout8019
+        val now = 10_000_000_000L
+        assertTrue(r.bigLoss8130(-22.43))                                     // DA's first close
+        assertFalse(r.bigLoss8130(-4.0))                                      // a scratch is not a real loss
+        assertTrue(r.bigLossWindow8130(now - 50 * 60_000L, now, ticket = false))
+        assertFalse(r.bigLossWindow8130(now - 25L * 3_600_000L, now, ticket = false))
+        assertFalse(r.bigLossWindow8130(now - 50 * 60_000L, now, ticket = true))   // a confirmed run reopens it
+        assertTrue(r.fallingKnife8130(-45.0, ticket = false))                 // DA at 2:30
+        assertFalse(r.fallingKnife8130(-20.0, ticket = false))
+        assertFalse(r.fallingKnife8130(null, ticket = false))
+        assertFalse(r.fallingKnife8130(-60.0, ticket = true))
+        assertEquals(2, r.MAX_LOSSES_8022)                                    // the 8022 rule is unchanged
+    }
 }

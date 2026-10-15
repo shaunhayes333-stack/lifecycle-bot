@@ -369,6 +369,13 @@ object KillSwitch {
             dailyStartDate = peakAt7948
             try { PipelineHealthCollector.labelInc("KILL_SWITCH_MARKED_EQUITY_BASELINE_7948") } catch (_: Throwable) {}
         }
+        // V5.0.8130 — peaks saved before 8130 could carry an unsold (SAC: phantom) mark's gain; re-anchor once.
+        if (!prefs.getBoolean("peak_gain_free_8130", false)) {
+            peakBalance = currentBalance
+            peakAt7948 = System.currentTimeMillis()
+            prefs.edit().putBoolean("peak_gain_free_8130", true).apply()
+            try { PipelineHealthCollector.labelInc("KILL_SWITCH_PEAK_REANCHORED_8130") } catch (_: Throwable) {}
+        }
         com.lifecyclebot.engine.truth.CapitalDrawdown7948.seed7948(peakBalance, peakAt7948)
         observePeak7948(currentBalance)
         
