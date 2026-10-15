@@ -990,6 +990,33 @@ class BotService : Service() {
     private fun rapidStopKind7928(stopPct: Double): String = if (stopPct > 0.0) "TRAILING" else "FLUID"
 
     /** V5.0.7792 — 7791's Moonshot mcap zone (fluid floor .. MAX_MARKET_CAP_USD). */
+    // V5.0.8105 — the lane's buy door applies the desk's native-veto retirement (SpecialistBrainBridge7542.doorRetires8105)
+    // and names every in-lane refusal on the specialist liveness row, so a lane that evaluates but never intends shows why.
+    private fun laneDoor8105(lane: String, eligible: Boolean, reason: String): Boolean {
+        if (eligible) return false
+        val retired = SpecialistBrainBridge7542.doorRetires8105(lane, false, reason) { rule, l ->
+            com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, l)
+        }
+        try {
+            SpecialistOwnership7951.notePreIntent7951(lane, (if (retired) "LANE_VETO_RETIRED_8105_" else "LANE_") + DecisionReasons8031.rule8031(reason))
+            if (retired) PipelineHealthCollector.labelInc("LANE_DOOR_VETO_RETIRED_8105_$lane")
+        } catch (_: Throwable) {}
+        return retired
+    }
+
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore): com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore =
+        if (laneDoor8105("MOONSHOT", s.eligible, s.rejectReason)) s.copy(eligible = true, rejectReason = "", suggestedSizeSol = s.suggestedSizeSol.coerceAtLeast(0.01)) else s
+
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal): com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal =
+        if (laneDoor8105("MANIPULATED", s.shouldEnter, s.reason)) s.copy(shouldEnter = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01)) else s
+
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal): com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal =
+        if (laneDoor8105("EXPRESS", s.shouldRide, s.reason)) s.copy(shouldRide = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01),
+            rideType = if (s.rideType == com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.NO_RIDE) com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.QUICK_FLIP else s.rideType) else s
+
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal): com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal =
+        if (laneDoor8105("SHITCOIN", s.shouldEnter, s.reason)) s.copy(shouldEnter = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01)) else s
+
     private fun moonshotMcapInZone7792(ts: com.lifecyclebot.data.TokenState): Boolean = try {
         ts.lastMcap in com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
     } catch (_: Throwable) { false }
@@ -29402,7 +29429,7 @@ if (hotExitHandledSweep) {
                             // Check for collective intelligence boost
                             val isCollectiveWinner = com.lifecyclebot.v3.scoring.MoonshotTraderAI.isCollectiveWinner(ts.mint)
                             
-                            var moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
+                            var moonshotScore = laneDoor8105(com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 marketCapUsd = ts.lastMcap,
@@ -29415,7 +29442,7 @@ if (hotExitHandledSweep) {
                                 phase = ts.phase,
                                 isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 runnerShaped7266 = runnerShaped7266,
-                            )
+                            ))
 
                             // V5.9.618 — BRIDGE ADVISORY BOOST for Moonshot (additive).
                             // When the proven 79% WR architecture (MemeUnifiedScorerBridge)
@@ -29926,7 +29953,7 @@ if (hotExitHandledSweep) {
                             )
                         } else {
 
-                        var shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
+                        var shitCoinSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
                             currentPrice = ts.ref,
@@ -29959,7 +29986,7 @@ if (hotExitHandledSweep) {
                             isCopyCat = isCopyCat,
                             graduationProgress = graduationProgress,
                             tokenState8077 = ts,
-                        )
+                        ))
 
                         // V5.9.618 — BRIDGE ADVISORY BOOST (additive, never blocks).
                         // When the proven 79% WR architecture (MemeUnifiedScorerBridge)
@@ -30470,7 +30497,7 @@ if (hotExitHandledSweep) {
                                         else if (ts.safety.bundleRisk == "MEDIUM") 50.0
                                         else 10.0
 
-                    val manipSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evaluate(
+                    val manipSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evaluate(
                         mint = ts.mint,
                         symbol = ts.symbol,
                         currentPrice = ts.ref,
@@ -30483,7 +30510,7 @@ if (hotExitHandledSweep) {
                         ageMinutes = manipTokenAgeMinutes,
                         rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                         isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
-                    )
+                    ))
 
                     // V5.0.7389 — labeled lane scope: MANIPULATED disabled exits only this lane.
                     if (manipSignal.shouldEnter && manipulatedBuyerEnabled7609()) run manipEntry7389@{
@@ -30746,7 +30773,7 @@ if (hotExitHandledSweep) {
                             ((ts.ref - lastHistoryEntry.priceUsd) / lastHistoryEntry.priceUsd * 100).coerceIn(-50.0, 100.0)
                         } else 0.0
                         
-                        val expressSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate(
+                        val expressSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
                             currentPrice = ts.ref,
@@ -30781,7 +30808,7 @@ if (hotExitHandledSweep) {
                             isTrending = isTrending,
                             isBoosted = isBoosted,
                             tokenAgeMinutes = tokenAgeMinutes,
-                        )
+                        ))
                         
                         if (!expressSignal.shouldRide) {
                             // V5.9.116: throttled diagnostic for score-stage rejections.

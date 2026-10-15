@@ -667,4 +667,24 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(h.unprovenLoser8104(peakPct = 8.0, grossPct = 4.0, ageMs = 90 * min))    // green
         assertTrue(src("engine/LifecycleHold8065.kt").contains("LIFECYCLE_UNPROVEN_LOSER_RELEASED_8104"))
     }
+
+    @Test fun aRetiredNativeVetoIsHonouredAtTheLaneBuyDoor() {
+        val b = SpecialistBrainBridge7542
+        val proven = { rule: String, lane: String -> rule == "NATIVE_MCAP_TOO_LOW" && lane == "MANIPULATED" }
+        // 5.0.8098: NATIVE_MCAP_TOO_LOW@MANIPULATED retired 1,685 times in the desk while the buy branch refused every one.
+        assertTrue(b.doorRetires8105("MANIPULATED", eligible = false, reason = "MCAP_TOO_LOW", audit = proven))
+        assertFalse(b.doorRetires8105("EXPRESS", eligible = false, reason = "MCAP_TOO_LOW", audit = proven))       // not proven in this lane
+        assertFalse(b.doorRetires8105("MANIPULATED", eligible = true, reason = "MCAP_TOO_LOW", audit = proven))   // nothing to retire
+        // Safety / rug / liquidity refusals are never retired, whatever the audit says.
+        val always = { _: String, _: String -> true }
+        assertFalse(b.doorRetires8105("MOONSHOT", false, "liq_too_low_0K", always))
+        assertFalse(b.doorRetires8105("SHITCOIN", false, "RUG_RISK dev sold", always))
+        assertFalse(b.doorRetires8105("EXPRESS", false, "", always))
+        assertTrue(b.doorRetires8105("EXPRESS", false, "CHASE_EXTENDED: mom=1.0% chg5m=34.5%", always))
+        val bs = src("engine/BotService.kt")
+        assertTrue(bs.contains("var moonshotScore = laneDoor8105(com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken("))
+        assertTrue(bs.contains("val manipSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evaluate("))
+        assertTrue(bs.contains("val expressSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate("))
+        assertTrue(bs.contains("var shitCoinSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate("))
+    }
 }

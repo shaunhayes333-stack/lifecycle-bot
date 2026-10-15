@@ -43,6 +43,20 @@ object SpecialistBrainBridge7542 {
     private fun treasuryFloorOk8031(ts:com.lifecyclebot.data.TokenState):Boolean=
         ts.lastMcap>=TreasuryScannerFeed.MIN_TREASURY_MCAP&&ts.lastLiquidityUsd>=TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
     /** Pure (V5.0.8048): may the veto audit retire this native refusal? Never safety, rug, dev, bundle or liquidity rules. */
+    /**
+     * V5.0.8105 §THE_DOOR_HONOURS_THE_RETIREMENT. 8048 retires a native veto the audit proves is refusing winners, but
+     * only in this desk snapshot: the coin turns READY, then the lane's own buy branch in BotService re-runs the same
+     * trader AI and stops on the very rule that was retired. 5.0.8098: MANIPULATED NATIVE_READY=1745 nativeAllow=0
+     * buyIntent=0 (NATIVE_MCAP_TOO_LOW@MANIPULATED retired 1,685 times); EXPRESS 849 ready / 132 allowed / 0 intent
+     * (NO_CONTINUATION retired 612, CHASE_EXTENDED 106). The buy door now applies the same rule: a lane-fit refusal
+     * (never safety / rug / liquidity, [nativeRuleRetirable8048]) whose own lane audit is proven winning stands down;
+     * FDG, edge, sizing and the buy door still decide.
+     */
+    fun doorRetires8105(lane: String, eligible: Boolean, reason: String, audit: (String, String) -> Boolean): Boolean {
+        if (eligible || reason.isBlank() || !nativeRuleRetirable8048(reason)) return false
+        return try { audit("NATIVE_${DecisionReasons8031.rule8031(reason)}", lane.uppercase()) } catch (_: Throwable) { false }
+    }
+
     fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR").none{r.contains(it)}}
     /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
     internal fun reviewCoreYield8077(o: Opinion, ownLaneProof: (String, String) -> Boolean): Opinion {
