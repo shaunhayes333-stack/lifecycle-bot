@@ -474,6 +474,23 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("engine/truth/OnChainMintAuthorityProof7248.kt").contains("MINT_AUTHORITY_PROOF_MISS_8094_"))
     }
 
+    @Test fun drawdownNoLongerStopsAProvenEdgeFromCompounding() {
+        val P = com.lifecyclebot.engine.truth.LiveRiskPolicy7807
+        // A proven positive-edge candidate is sized on current equity; drawdown does not shrink it again.
+        assertTrue(P.drawdownWaivedForProvenEdge8094(0.06, 0.59))
+        assertFalse(P.drawdownWaivedForProvenEdge8094(0.0, 0.59))
+        assertFalse(P.drawdownWaivedForProvenEdge8094(0.06, 0.0))
+        // The doctrine curve itself is unchanged for unproven candidates.
+        assertEquals(0.35, P.drawdownMultiplier(0.59), 1e-9)
+        assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("val ddMult = if (ddWaived8094) 1.0 else drawdownMultiplier(i.drawdownFrac)"))
+        // SmartSizer no longer applies a second live drawdown cut on free wallet SOL.
+        assertFalse(src("engine/SmartSizer.kt").contains("recovery < 0.40 -> 0.30"))
+        // The launch-cap rule stands down only where its own ladder replays are tail-proven.
+        assertFalse(com.lifecyclebot.engine.truth.OnChainDepth8038.launchCapStoodDown8094("NO_SUCH_MINT_8094"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("OnChainDepth8038.standDownIfTailProven8094(ts, lane, nowMs)"))
+        assertTrue(src("engine/truth/TailHunter7996.kt").contains("proven(\"R|\$rule|\$cell\") != null"))
+    }
+
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
         val s = ScannerHardRejectStore
         val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }

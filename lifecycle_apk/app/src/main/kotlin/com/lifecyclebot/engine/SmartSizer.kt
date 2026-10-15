@@ -527,14 +527,11 @@ object SmartSizer {
                 else -> 1.0
             }
         } else if (perf.sessionPeakSol > 0) {
-            val recovery = walletSol / perf.sessionPeakSol
-            ErrorLogger.debug("SmartSizer", "📊 LIVE Drawdown check: wallet=$walletSol peak=${perf.sessionPeakSol} recovery=${(recovery*100).toInt()}%")
-            when {
-                recovery < 0.40 -> 0.30  // V5.0.3959: live drawdown size-shapes; never pauses entries
-                recovery < 0.60 -> 0.50
-                recovery < 0.80 -> 0.75
-                else            -> 1.0
-            }
+            // V5.0.3959: live drawdown size-shapes; never pauses entries.
+            // V5.0.8094 — LiveRiskPolicy7807 is the ONE live drawdown authority (marked equity vs its rolling 24 h peak,
+            // external flows removed). This second cut read FREE wallet SOL against a session peak, so SOL sitting in
+            // open positions counted as a loss, and it shrank the proposal before LiveRiskPolicy7807 shrank it again.
+            1.0
         } else 1.0
 
         if (drawdownMult <= 0.0) {

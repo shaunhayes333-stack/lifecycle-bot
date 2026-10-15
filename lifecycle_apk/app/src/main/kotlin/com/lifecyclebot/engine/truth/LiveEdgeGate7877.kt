@@ -407,6 +407,7 @@ object LiveEdgeGate7877 {
         // V5.0.8038 — a live candidate's pool is read from the chain in the background, ready for the buy door.
         if (!paper) try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}
         // V5.0.8048 — a dead launch (empty curve, launch cap) is refused here, before the FDG / sizing / ticket.
+        if (!paper) try { OnChainDepth8038.standDownIfTailProven8094(ts, lane, nowMs) } catch (_: Throwable) {}  // V5.0.8094
         if (!paper) (try { OnChainDepth8038.earlyLaunchRefusal8048(ts) } catch (_: Throwable) { null })?.let { observeTail7996(ts, lane, it, nowMs); return it }
         // V5.0.8059 — PROVEN-ONLY LIVE. Owner: "its still losing money!!!" — 5.0.8055: 29 live closes, 2 wins, PF 0.11.
         // The forward labeler grades every coin the bot sees (thousands a day) whether it buys or not, so a live buy

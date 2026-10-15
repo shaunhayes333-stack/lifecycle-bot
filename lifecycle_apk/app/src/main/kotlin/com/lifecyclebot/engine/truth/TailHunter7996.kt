@@ -257,6 +257,19 @@ object TailHunter7996 {
     }
 
     /**
+     * V5.0.8094 — is refusing [ts] under [reason] in [lane] proven to refuse runners? The rule's own ladder replays in this
+     * coin's cell (R|rule|cell, local + hive) clear the tail bar: 30+ replays, a positive ladder total, 2+ runners.
+     */
+    fun refusalTailProven8094(ts: TokenState, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        ensureLoaded()
+        val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)
+        val rule = com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf(reason)
+        l.isNotBlank() && proven("R|$rule|$cell") != null
+    } catch (_: Throwable) { false }
+
+    /**
      * LiveEdgeGate7877.watchFirst7994: is [ts] a lottery ticket now? Its cell, its refusal-free cell
      * or one of its fact pairs is tail-proven, and fewer than [MAX_OPEN_TICKETS] tickets are open.
      */

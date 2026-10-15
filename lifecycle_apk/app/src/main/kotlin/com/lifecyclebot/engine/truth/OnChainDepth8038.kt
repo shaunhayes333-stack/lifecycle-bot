@@ -234,7 +234,7 @@ object OnChainDepth8038 {
         // pump-suffixed (LetsBonk, Meteora, un-suffixed pump.fun) skipped the curve check above. Any coin still at a
         // launch curve's opening cap has no buyers behind it, whichever launchpad minted it.
         val capSol8047 = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }
-        if (atLaunchCap8047(capSol8047)) {
+        if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs)) {
             launchCapRefused8047.incrementAndGet()
             lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL"
             try {
@@ -374,17 +374,39 @@ object OnChainDepth8038 {
      * door, on what is already known (no RPC). 5.0.8046: 28 buys reached the door only to die CURVE_NOBODY_BOUGHT /
      * launch cap after being sealed and sized, crowding the lane's tickets (SHITCOIN 35 tickets -> 2 executions).
      */
-    fun earlyLaunchRefusal8048(ts: TokenState): String? {
+    fun earlyLaunchRefusal8048(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
         val real = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
         val why = when {
             curveNobodyBought8046(real) -> "CURVE_NOBODY_BOUGHT_8046"
-            atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> "AT_LAUNCH_CAP_8047"
+            atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> {
+                // V5.0.8094 — the launch-cap rule stands down where its own ladder replays prove it refuses runners
+                // (4abd6b13a: AT_LAUNCH_CAP n92 +67.5% run9; VEILDOGE +23,804%, PentAGI +1,605%, WAIT +1,263% missed). Real
+                // buyers must be in the curve (CURVE_NOBODY_BOUGHT above stays binding) and every later gate still runs.
+                if (launchCapStoodDown8094(ts.mint, nowMs)) return null
+                "AT_LAUNCH_CAP_8047"
+            }
             else -> return null
         }
         earlyRefused8048.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIVE_EDGE_EARLY_${why}") } catch (_: Throwable) {}
         return why
     }
+
+    private val launchCapStoodDownAt8094 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val STAND_DOWN_TTL_MS_8094 = 10L * 60_000L
+
+    /** V5.0.8094 — LiveEdgeGate7877, before the early refusal: record a stand-down when the rule is tail-proven here. */
+    fun standDownIfTailProven8094(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()) {
+        if (lane.isBlank() || !atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN })) return
+        if (!(try { TailHunter7996.refusalTailProven8094(ts, lane, "AT_LAUNCH_CAP_8047", nowMs) } catch (_: Throwable) { false })) return
+        launchCapStoodDownAt8094[ts.mint] = nowMs
+        if (launchCapStoodDownAt8094.size > 2_000) launchCapStoodDownAt8094.entries.removeIf { nowMs - it.value > STAND_DOWN_TTL_MS_8094 }
+        try { PipelineHealthCollector.labelInc("AT_LAUNCH_CAP_STOOD_DOWN_TAIL_PROVEN_8094") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8094 — the edge gate stood the launch-cap rule down for this mint (tail-proven) within the last 10 minutes. */
+    fun launchCapStoodDown8094(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        launchCapStoodDownAt8094[mint]?.let { nowMs - it in 0L..STAND_DOWN_TTL_MS_8094 } == true
 
     /** Pure: the coin's cap in SOL is known and still at a launch curve's opening level. */
     fun atLaunchCap8047(capSol: Double): Boolean = capSol.isFinite() && capSol > 0.0 && capSol < LAUNCH_CAP_SOL_8047

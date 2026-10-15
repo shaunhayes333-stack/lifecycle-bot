@@ -121,6 +121,10 @@ object LiveRiskPolicy7807 {
 
     // ── pure maths ──────────────────────────────────────────────────────────
 
+    /** Pure (V5.0.8094): a proven positive-edge candidate (Kelly share > 0) is not shrunk again for drawdown. */
+    fun drawdownWaivedForProvenEdge8094(edgeKellyFrac: Double, drawdownFrac: Double): Boolean =
+        edgeKellyFrac.isFinite() && edgeKellyFrac > 0.0 && drawdownFrac.isFinite() && drawdownFrac > 0.0
+
     /** B5/B9: 1.0 at no drawdown, linear to 0.35 at 30%, flat 0.35 beyond. Never zero. */
     fun drawdownMultiplier(drawdownFrac: Double): Double {
         if (!drawdownFrac.isFinite() || drawdownFrac <= 0.0) return 1.0
@@ -481,8 +485,14 @@ object LiveRiskPolicy7807 {
             Admission(i.liveCloses, i.liveWrPct, i.partialProviderEvidence, i.oracleUnproven, highEvRunner),
         )
         labels += admReasons
-        val ddMult = drawdownMultiplier(i.drawdownFrac)
+        // V5.0.8094 — a PROVEN positive-edge candidate is sized as a quarter-Kelly share of CURRENT equity, which already
+        // falls with the wallet and grows back with it; cutting it again for drawdown (to 0.35x) clipped 58 proven orders
+        // to the route minimum at a 59% drawdown (4abd6b13a) and the balance could never compound back. Unproven candidates
+        // keep the drawdown shrink; daily-loss, governor, lane, depth and the hard loss at the stop bind everyone.
+        val ddWaived8094 = drawdownWaivedForProvenEdge8094(i.edgeKellyFrac8057, i.drawdownFrac)
+        val ddMult = if (ddWaived8094) 1.0 else drawdownMultiplier(i.drawdownFrac)
         if (ddMult < 1.0) labels += "WALLET_DRAWDOWN_SHRINK_7807"
+        if (ddWaived8094) labels += "DRAWDOWN_SHRINK_WAIVED_PROVEN_EDGE_8094"
         val moonMult = if (planless && canonicalLane(i.lane) == "MOONSHOT") MOONSHOT_NO_PLAN_MULT_7807 else 1.0
         if (moonMult < 1.0) labels += "MOONSHOT_NO_PLAN_SIZE_7807"
         val total = (shrink * growth * admMult * ddMult * moonMult * costMult).coerceIn(TOTAL_FLOOR_7807, MAX_GROWTH_MULT_7807)
