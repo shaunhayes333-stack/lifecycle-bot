@@ -704,7 +704,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             if (ledgerWired8085) return
             val prefs = ledgerPrefs8085() ?: error("SIGNED_ORDER_STORAGE_UNAVAILABLE")
             SignedTxLedger8085.persister = { rows ->
-                check(prefs.edit().putString("rows", rows.joinToString("\n") { SignedTxLedger8085.encode(it) }).commit()) {
+                val blob = rows.joinToString("\n") { SignedTxLedger8085.encode(it) }
+                // V5.0.8094 — one retry: a single failed fsync refused a live buy.
+                check(prefs.edit().putString("rows", blob).commit() || prefs.edit().putString("rows", blob).commit()) {
                     "SIGNED_ORDER_STORAGE_COMMIT_FAILED"
                 }
             }

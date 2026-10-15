@@ -57,7 +57,7 @@ object SignedTxLedger8085 {
         trim(nowMs)
         if (requireDurable) {
             val writer = persister ?: throw IllegalStateException("SIGNED_ORDER_STORAGE_UNAVAILABLE")
-            writer(rows.values.toList()) // throws before broadcast; retain the signed identity for retry/proof
+            writer(durableRows8094(rows.values.toList())) // throws before broadcast; retain the signed identity for retry/proof
         } else persist()
         count("TX_SIGNED_SIGNATURE_PERSISTED_8085")
         return e
@@ -103,10 +103,22 @@ object SignedTxLedger8085 {
             .forEach { rows.remove(it.signature) }
     }
 
-    private fun persist() { try { persister?.invoke(rows.values.toList()) } catch (_: Throwable) {} }
+    private fun persist() { try { persister?.invoke(durableRows8094(rows.values.toList())) } catch (_: Throwable) {} }
+
+    /**
+     * V5.0.8094 — what is written to disk: every unresolved row and the newest [KEEP_RESOLVED_ON_DISK_8094] resolved ones.
+     * Every write used to re-encrypt up to 400 rows, each with the full signed bytes, in one string on each sign and
+     * state change (8094: SIGNED_ORDER_STORAGE_COMMIT_FAILED refused a live buy, plus heap churn). The in-memory ledger
+     * is unchanged.
+     */
+    fun durableRows8094(all: List<Entry>): List<Entry> =
+        all.filter { it.unresolved } + all.filter { !it.unresolved }.sortedByDescending { it.updatedAtMs }.take(KEEP_RESOLVED_ON_DISK_8094)
+
+    const val KEEP_RESOLVED_ON_DISK_8094 = 60
 
     // ── durable row codec (no org.json: pure JVM, field order fixed; base64 bytes contain no '|') ──
-    fun encode(e: Entry): String = listOf(e.signature, e.signedB64, e.blockhash, e.mint, e.side, e.rawQty.toString(), e.positionId,
+    // V5.0.8094 — a resolved row's bytes are never re-broadcast, so they are not written.
+    fun encode(e: Entry): String = listOf(e.signature, if (e.unresolved) e.signedB64 else "", e.blockhash, e.mint, e.side, e.rawQty.toString(), e.positionId,
         e.intentId, e.route, e.createdAtMs.toString(), e.state.name, e.updatedAtMs.toString(), e.acceptedBy, e.detail, e.submittedAtMs8087.toString())
         .joinToString("|") { it.replace("|", "/") }
 

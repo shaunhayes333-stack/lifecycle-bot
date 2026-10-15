@@ -447,6 +447,23 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(h.contains("pageIn8094(client, 0L)"))
     }
 
+    @Test fun theSignedOrderLedgerWritesOnlyWhatARestartNeeds() {
+        val L = com.lifecyclebot.network.SignedTxLedger8085
+        L.resetForTest()
+        val open = L.record("sigOpen8094", "b3Blbg==", "BH", L.Intent("MINT_O", "BUY"), nowMs = 1L)
+        val done = L.record("sigDone8094", "ZG9uZQ==", "BH", L.Intent("MINT_D", "BUY"), nowMs = 2L)
+        L.transition("sigDone8094", L.State.CONFIRMED, nowMs = 3L)
+        // A resolved row keeps its bytes in memory but does not write them; an unresolved one does.
+        assertTrue(L.encode(open).contains("b3Blbg=="))
+        assertFalse(L.encode(done).contains("ZG9uZQ=="))
+        assertEquals("ZG9uZQ==", L.get("sigDone8094")!!.signedB64)
+        val many = (1..200).map { L.Entry("s$it", "x", "h", "m$it", "BUY", 0L, "", "", "", it.toLong(), L.State.CONFIRMED, it.toLong()) } + open
+        val disk = L.durableRows8094(many)
+        assertEquals(L.KEEP_RESOLVED_ON_DISK_8094 + 1, disk.size)
+        assertTrue(disk.contains(open))
+        L.resetForTest()
+    }
+
     @Test fun aLabelRebasedAtTheMeasuredFillLatencyIsNotChargedTheChaseTwice() {
         val f = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
         assertFalse(f.rebaseClearsChase8094(0L))
