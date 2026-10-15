@@ -60,6 +60,15 @@ object LaunchPhaseAuthority7401 {
         val reason: String,
         val birthResolved: Boolean = true,
         val birthSource: String = "",
+        // V5.0.8136 — the flow's provenance (LaunchEvidence8136) and its counts stated only from swap records: null =
+        // unknown (no swap feed covers the mint), never a zero read from a missing feed. The Int fields above keep
+        // their legacy 0 for existing readers. [lifecycle8136] is the ordered launch state (LaunchLifecycle8136).
+        val flowProvenance8136: String = "NONE",
+        val buyersKnown8136: Int? = null,
+        val buyTxKnown8136: Int? = null,
+        val accelerationKnown8136: Boolean? = null,
+        val buyerVelocityPerMin8136: Double? = null,
+        val lifecycle8136: LaunchLifecycle8136.State8136? = null,
     ) {
         val early: Boolean get() = phase == Phase.PRE_IGNITION || phase == Phase.IGNITION
         val tooLateForSnipe: Boolean get() = phase == Phase.POST_PUMP_FADE
@@ -86,6 +95,57 @@ object LaunchPhaseAuthority7401 {
                 !px.isFinite() || px <= 0.0) null
             else EconomicUnitInvariant7061.usdToSol(px, solUsd) / createSol
         } catch (_: Throwable) { null }
+    }
+
+    private data class Extras8136(val flow: LaunchEvidence8136.FlowRead8136, val state: LaunchLifecycle8136.State8136?)
+
+    /**
+     * V5.0.8136 — this read's launch flow restated with its provenance (swap records vs price-only vs nothing), and the
+     * ordered lifecycle (LaunchLifecycle8136) advanced with that evidence at decision time [nowMs]. A swap feed
+     * "covers" the mint when the keyed PumpPortal stream is live for it or a swap record arrived recently; then an
+     * empty tape is a real zero, otherwise the counts are unknown.
+     */
+    private fun extras8136(
+        ts: TokenState,
+        mint: String,
+        nowMs: Long,
+        ageMs: Long?,
+        flow: WhaleDetector.LaunchFlow,
+        multiple: Double?,
+        phase: Phase,
+    ): Extras8136 {
+        val streamCovers = try { com.lifecyclebot.network.PumpFunWS.tradeStreamCoversMint8136(mint) } catch (_: Throwable) { false }
+        val covers = streamCovers || LaunchEvidence8136.swapSeenRecently8136(mint, nowMs)
+        val priced = (ts.lastPrice.isFinite() && ts.lastPrice > 0.0) || LaunchEvidence8136.priceSeenRecently8136(mint, nowMs)
+        val read = LaunchEvidence8136.restate8136(
+            tradeCount60s = flow.buyTx60s + flow.sellTx60s,
+            swapFeedCovers = covers,
+            priceObserved = priced,
+            buyers60s = flow.distinctBuyers60s,
+            buyTx60s = flow.buyTx60s,
+            sellTx60s = flow.sellTx60s,
+            buySharePct = flow.buySharePct,
+            accelerationRising = flow.accelerationRising,
+        )
+        val state = try {
+            val migrated = (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) ||
+                (try { PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false })
+            val ev = LaunchLifecycle8136.Evidence8136(
+                atMs = nowMs,
+                ageMs = ageMs,
+                migrated = migrated,
+                provenance = read.provenance,
+                buyTx60s = read.buyTx60s,
+                buyers60s = read.buyers60s,
+                buySharePct = read.buySharePct,
+                accelerationRising = read.accelerationRising,
+                devSold = flow.devSellTx60s > 0,
+                createMultiple = multiple,
+                fade = phase == Phase.POST_PUMP_FADE,
+            )
+            LaunchLifecycle8136.observe8136(mint, ev, nowMs)
+        } catch (_: Throwable) { null }
+        return Extras8136(read, state)
     }
 
     fun snapshot(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Snapshot {
@@ -171,6 +231,8 @@ object LaunchPhaseAuthority7401 {
             age <= 180_000L && !sellDominant && (multiple == null || multiple < 2.5) -> Phase.EXPANDING
             else -> Phase.MATURE_OR_UNKNOWN
         }
+        // V5.0.8136 — provenance + the ordered lifecycle, beside (not inside) the legacy routing above.
+        val ext8136 = extras8136(ts, mintKey7408, nowMs, if (birth7440 != null) age else null, flow, multiple, phase)
 
         val reason = buildString {
             append("ageMs=").append(if (birth7440 != null) age else -1L)
@@ -189,6 +251,8 @@ object LaunchPhaseAuthority7401 {
             append(" chg5m=").append("%.1f".format(acute5m7425))
             append(" chg1h=").append("%.1f".format(ts.lastPriceChange1h))
             append(" acuteFade=").append(acuteCascade7425 || pumpedThenReversed7425 || observedPeakBreak7425)
+            append(" prov8136=").append(ext8136.flow.provenance.name)
+            append(" stage8136=").append(ext8136.state?.stage?.name ?: "-")
         }
         val out7408 = Snapshot(
             phase, age, multiple, flow.buySharePct, flow.buyTx60s, flow.sellTx60s,
@@ -199,6 +263,12 @@ object LaunchPhaseAuthority7401 {
             peakPos, reason,
             birthResolved = birth7440 != null,
             birthSource = birth7440?.source?.name ?: "",
+            flowProvenance8136 = ext8136.flow.provenance.name,
+            buyersKnown8136 = ext8136.flow.buyers60s,
+            buyTxKnown8136 = ext8136.flow.buyTx60s,
+            accelerationKnown8136 = ext8136.flow.accelerationRising,
+            buyerVelocityPerMin8136 = ext8136.flow.buyersPerMin,
+            lifecycle8136 = ext8136.state,
         )
         if (mintKey7408.isNotBlank()) {
             cache7408[mintKey7408] = Cached7408(nowMs, out7408)

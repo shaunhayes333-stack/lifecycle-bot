@@ -149,8 +149,12 @@ object LaneEntryContract6342 {
 
         val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
             ?: return false
+        // V5.0.8136 — the same ordered-lifecycle route ProjectSniperAI.assessTarget reads (PRE_IGNITION, or swap-proven
+        // IGNITION with a proven setup); the legacy phase test below applies only when no lifecycle state exists.
+        val route8136 = try { com.lifecyclebot.v3.scoring.ProjectSniperAI.phaseRoute8136(ts, launch) } catch (_: Throwable) { null }
+        if (route8136 != null && !route8136.eligible) return false
         if (!launch.birthResolved ||
-            (launch.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION &&
+            (route8136 == null && launch.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION &&
                 !com.lifecyclebot.v3.scoring.ProjectSniperAI.provenIgnition8118(ts, launch.phase))  // V5.0.8118
         ) return false
         if (launch.distinctBuyers60s < 3 || !launch.accelerationRising || launch.buySharePct < 60.0) return false
