@@ -153,7 +153,9 @@ object OnChainMintAuthorityProof7248 {
                         )
                     } catch (_: Throwable) {}
                     unansweredAt7365.remove(mint)
-                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled && proof.hostileExtension8123 == null) {
+                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled) {
+                        // V5.0.8123 — a hostile Token-2022 mint is not "proven clean": never cached permanently.
+                        if (proof.hostileExtension8123 != null) { activeProof7365[mint] = proof to System.currentTimeMillis(); return proof }
                         if (provenDisabled7365.size > 20_000) provenDisabled7365.clear()
                         provenDisabled7365[mint] = proof
                     } else {
