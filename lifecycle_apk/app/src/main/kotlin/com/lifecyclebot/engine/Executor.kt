@@ -14806,6 +14806,7 @@ class Executor(
     private fun capitalRotation7948(ts: TokenState, currentPrice: Double, posAgeMs: Long, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val p = ts.position
         if (p.isPaperPosition || !p.isOpen || p.qtyToken <= 0.0 || currentPrice <= 0.0) return false
+        if (opportunityRotation8098(ts, wallet, walletSol)) return true  // V5.0.8098 — a full lane, a better trade waiting
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0) return false
         val liquid = if (walletSol.isFinite() && walletSol > 0.0) walletSol else try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
@@ -14869,6 +14870,39 @@ class Executor(
         } catch (_: Throwable) {}
         lastNewHighMs7388.remove("${ts.mint}|${p.entryTime}")
         requestSell(ts = ts, reason = "CAPITAL_ROTATION_7948", wallet = wallet, walletSol = walletSol)
+        return true
+    }
+
+    /**
+     * V5.0.8098 — owner: "if the bot identifies a better trading opportunity force sell the poorest performing currently
+     * held trade to free new lanes". When a PROVEN candidate was refused only because [ts]'s lane is full, the lane's
+     * poorest eligible live position (OpportunityRotation8098: verified PnL; never a tail, a runner, or a position under
+     * 3 minutes) is sold through the normal exit path.
+     */
+    private fun opportunityRotation8098(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        val lane = ts.position.tradingMode
+        if (!com.lifecyclebot.engine.truth.OpportunityRotation8098.hasDemand8098(lane)) return false
+        val now = System.currentTimeMillis()
+        val canon = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(lane)
+        val all8098: List<TokenState> = try {
+            synchronized(BotService.status.tokens) { BotService.status.tokens.values.toList() }
+        } catch (_: Throwable) { return false }
+        val held = all8098.mapNotNull { t ->
+            val tp = t.position
+            if (!tp.isOpen || tp.isPaperPosition || tp.qtyToken <= 0.0) return@mapNotNull null
+            if (com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(tp.tradingMode) != canon) return@mapNotNull null
+            val v = try { com.lifecyclebot.engine.truth.PositionDisplayTruth8078.view(t, now) } catch (_: Throwable) { null } ?: return@mapNotNull null
+            val tail = try { TailBag8034.isTailMint8034(t.mint) } catch (_: Throwable) { true }
+            val eligible = com.lifecyclebot.engine.truth.OpportunityRotation8098.victimEligible8098(
+                v.pnlPct, tp.peakGainPct, now - tp.entryTime, tail, v.markVerified && v.basisOk)
+            if (eligible) com.lifecyclebot.engine.truth.OpportunityRotation8098.Held(t.mint, v.pnlPct) else null
+        }
+        if (!com.lifecyclebot.engine.truth.OpportunityRotation8098.shouldRotate8098(ts.mint, lane, held, now)) return false
+        try {
+            ForensicLogger.lifecycle("OPPORTUNITY_ROTATION_8098",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$canon eligible=${held.size} pnl=${"%.2f".format(held.firstOrNull { it.mint == ts.mint }?.pnlPct ?: 0.0)} action=free_lane_slot_for_proven_candidate")
+        } catch (_: Throwable) {}
+        requestSell(ts = ts, reason = com.lifecyclebot.engine.truth.OpportunityRotation8098.REASON, wallet = wallet, walletSol = walletSol)
         return true
     }
 

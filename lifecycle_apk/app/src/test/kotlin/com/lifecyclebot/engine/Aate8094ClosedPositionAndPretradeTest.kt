@@ -534,6 +534,27 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("engine/SpecialistOwnership7951.kt").contains("Cortex7885.vetoRefusesWinners8006(LaneParticipation8029.SHADOW_REASON, lane7951(lane))"))
     }
 
+    @Test fun aProvenTradeFreesTheLanesPoorestSlot() {
+        val r = com.lifecyclebot.engine.truth.OpportunityRotation8098
+        assertEquals(10, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.budgetFor("MOONSHOT").maxConcurrentLive)
+        // Eligible: red / flat, not a runner, past 3 minutes, verified mark, not the moonbag.
+        assertTrue(r.victimEligible8098(-6.0, 4.0, 10 * 60_000L, isTail = false, markFresh = true))
+        assertFalse(r.victimEligible8098(-6.0, r.RUNNER_PEAK_PCT, 10 * 60_000L, isTail = false, markFresh = true))   // a runner
+        assertFalse(r.victimEligible8098(r.MAX_VICTIM_PNL_PCT, 0.0, 10 * 60_000L, isTail = false, markFresh = true))
+        assertFalse(r.victimEligible8098(12.0, 12.0, 10 * 60_000L, isTail = false, markFresh = true))   // winning
+        assertFalse(r.victimEligible8098(-6.0, 0.0, 60_000L, isTail = false, markFresh = true))         // too young
+        assertFalse(r.victimEligible8098(-6.0, 0.0, 10 * 60_000L, isTail = true, markFresh = true))     // moonbag
+        assertFalse(r.victimEligible8098(-6.0, 0.0, 10 * 60_000L, isTail = false, markFresh = false))   // no verified mark
+        assertEquals("B", r.poorest8098(listOf(r.Held("A", -2.0), r.Held("B", -9.0), r.Held("C", 3.0))))
+        // No demand, no rotation; an unproven candidate never creates demand.
+        r.noteDemand8098("SHITCOIN", "CANDIDATE_8098", 0.0)
+        assertFalse(r.hasDemand8098("SHITCOIN"))
+        r.noteDemand8098("SHITCOIN", "CANDIDATE_8098", 0.05)
+        assertTrue(r.shouldRotate8098("B", "SHITCOIN", listOf(r.Held("A", -2.0), r.Held("B", -9.0))))
+        assertTrue(com.lifecyclebot.engine.LifecycleHold8065.passes8065(r.REASON))
+        assertTrue(src("engine/Executor.kt").contains("if (opportunityRotation8098(ts, wallet, walletSol)) return true"))
+    }
+
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
         val s = ScannerHardRejectStore
         val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }

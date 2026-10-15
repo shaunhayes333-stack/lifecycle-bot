@@ -73,7 +73,7 @@ class Aate7807LiveRiskPolicyTest {
         for (l in lanes) {
             val b = LiveRiskPolicy7807.LaneRiskBudget7807[l]
             assertTrue("missing $l", b != null)
-            assertTrue(b!!.maxConcurrentLive in 1..6)
+            assertTrue(b!!.maxConcurrentLive in 1..10)   // V5.0.8098 — owner: 10 live positions per lane
         }
         assertTrue(LiveRiskPolicy7807.LaneRiskBudget7807.values.sumOf { it.maxConcurrentLive } > 20)
         assertEquals(20, LiveRiskPolicy7807.TOTAL_LIVE_SLOTS_7807)
@@ -111,7 +111,7 @@ class Aate7807LiveRiskPolicyTest {
 
     @Test
     fun decide_passes_per_candidate_and_never_grows_past_upstream() {
-        assertEquals("LANE_SLOT_CAP_7807", LiveRiskPolicy7807.decide(inputs(open = 3)).reason)
+        assertEquals("LANE_SLOT_CAP_7807", LiveRiskPolicy7807.decide(inputs(open = LiveRiskPolicy7807.LANE_SLOTS_8098)).reason)
         assertEquals("COST_CONSUMES_MOVE_7807", LiveRiskPolicy7807.decide(inputs(first = 3.0)).reason)
         val tooWide = LiveRiskPolicy7807.decide(inputs(lane = "MOONSHOT", equity = 0.15, upstream = 0.027, execMin = 0.04, stop = 30.0, first = 60.0, target = 120.0))
         assertFalse(tooWide.open)

@@ -40,6 +40,8 @@ import java.util.concurrent.atomic.AtomicLong
  * minimum would lose more than the hard per-trade cap at its stop.
  */
 object LiveRiskPolicy7807 {
+    /** V5.0.8098 — live positions each lane may hold at once (owner: back to 10). */
+    const val LANE_SLOTS_8098 = 10
 
     // ── B8: one lane risk table ─────────────────────────────────────────────
     data class LaneRiskBudget(
@@ -62,25 +64,28 @@ object LiveRiskPolicy7807 {
     // FluidLearningAI (MOONSHOT 240 / V3 60 / TREASURY 12), TradePlan7739
     // setup horizons (EXPRESS/SNIPER 30, MANIPULATED kept short).
     val LaneRiskBudget7807: Map<String, LaneRiskBudget> = listOf(
-        LaneRiskBudget("QUALITY", 3, 0.020, 0.25, 60, 0.04),
-        LaneRiskBudget("BLUECHIP", 3, 0.020, 0.30, 480, 0.04),
-        LaneRiskBudget("SHITCOIN", 3, 0.015, 0.20, 60, 0.03),
-        LaneRiskBudget("EXPRESS", 2, 0.015, 0.20, 30, 0.03),
-        LaneRiskBudget("CORE", 3, 0.020, 0.25, 60, 0.04),
-        LaneRiskBudget("MOONSHOT", 3, 0.015, 0.20, 240, 0.03),
-        LaneRiskBudget("PROJECT_SNIPER", 2, 0.015, 0.15, 30, 0.03),
-        LaneRiskBudget("DIP_HUNTER", 2, 0.020, 0.25, 360, 0.04),
-        LaneRiskBudget("MANIPULATED", 1, 0.010, 0.10, 15, 0.02),
-        LaneRiskBudget("TREASURY", 2, 0.020, 0.25, 12, 0.04),
-        LaneRiskBudget("CASHGEN", 2, 0.020, 0.25, 45, 0.04),
-        LaneRiskBudget("CYCLIC", 2, 0.020, 0.25, 90, 0.04),
+    // V5.0.8098 — owner: back to 10 live positions per lane (was 1-3). The total live book (LIVE_SLOT_LIMIT_7728 = 20),
+    // per-position caps, daily-loss caps and the hard loss at the stop are unchanged.
+    val LaneRiskBudget7807: Map<String, LaneRiskBudget> = listOf(
+        LaneRiskBudget("QUALITY", LANE_SLOTS_8098, 0.020, 0.25, 60, 0.04),
+        LaneRiskBudget("BLUECHIP", LANE_SLOTS_8098, 0.020, 0.30, 480, 0.04),
+        LaneRiskBudget("SHITCOIN", LANE_SLOTS_8098, 0.015, 0.20, 60, 0.03),
+        LaneRiskBudget("EXPRESS", LANE_SLOTS_8098, 0.015, 0.20, 30, 0.03),
+        LaneRiskBudget("CORE", LANE_SLOTS_8098, 0.020, 0.25, 60, 0.04),
+        LaneRiskBudget("MOONSHOT", LANE_SLOTS_8098, 0.015, 0.20, 240, 0.03),
+        LaneRiskBudget("PROJECT_SNIPER", LANE_SLOTS_8098, 0.015, 0.15, 30, 0.03),
+        LaneRiskBudget("DIP_HUNTER", LANE_SLOTS_8098, 0.020, 0.25, 360, 0.04),
+        LaneRiskBudget("MANIPULATED", LANE_SLOTS_8098, 0.010, 0.10, 15, 0.02),
+        LaneRiskBudget("TREASURY", LANE_SLOTS_8098, 0.020, 0.25, 12, 0.04),
+        LaneRiskBudget("CASHGEN", LANE_SLOTS_8098, 0.020, 0.25, 45, 0.04),
+        LaneRiskBudget("CYCLIC", LANE_SLOTS_8098, 0.020, 0.25, 90, 0.04),
     ).associateBy { it.lane }
 
-    private val DEFAULT_BUDGET_7807 = LaneRiskBudget("DEFAULT", 2, 0.015, 0.15, 60, 0.03)
+    private val DEFAULT_BUDGET_7807 = LaneRiskBudget("DEFAULT", LANE_SLOTS_8098, 0.015, 0.15, 60, 0.03)
 
-    /** Total live book; LiveConcentrationDoctrine7697 enforces it. Lane caps never exceed 6. */
+    /** Total live book; LiveConcentrationDoctrine7697 enforces it. Lane caps never exceed [MAX_LANE_SLOTS_7807]. */
     const val TOTAL_LIVE_SLOTS_7807 = LiveConcentrationDoctrine7697.LIVE_SLOT_LIMIT_7728
-    private const val MAX_LANE_SLOTS_7807 = 6
+    private const val MAX_LANE_SLOTS_7807 = 10
 
     fun canonicalLane(raw: String?): String {
         val c = try { CanonicalLaneIdentity6506.canonical(raw) } catch (_: Throwable) { raw?.trim()?.uppercase().orEmpty() }
@@ -715,6 +720,8 @@ object LiveRiskPolicy7807 {
                 PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_${stage}_OPEN_7807")
             } else {
                 passes.computeIfAbsent(d.reason) { AtomicLong(0) }.incrementAndGet()
+                // V5.0.8098 — a proven candidate refused only for its lane's slots asks for the lane's worst slot.
+                if (d.reason == "LANE_SLOT_CAP_7807") OpportunityRotation8098.noteDemand8098(i.lane, mint, i.edgeKellyFrac8057)
                 PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_${stage}_PASS_7807")
                 PipelineHealthCollector.labelInc(d.reason)
             }
@@ -733,5 +740,6 @@ object LiveRiskPolicy7807 {
 
     fun statusLine(): String =
         "LiveRiskPolicy7807: opens=${opens.get()} passes=${passes.entries.joinToString(",") { "${it.key}=${it.value.get()}" }} " +
-            "equityPeak=${"%.4f".format(CapitalDrawdown7948.currentPeak7948().peakSol)}"
+            "equityPeak=${"%.4f".format(CapitalDrawdown7948.currentPeak7948().peakSol)} " +
+            "rotation8098[${OpportunityRotation8098.statusLine8098()}]"
 }

@@ -80,6 +80,8 @@ object LifecycleHold8065 {
     fun passes8065(reason: String): Boolean {
         val r = reason.uppercase()
         return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r) ||
+            // V5.0.8098 — owner: a better opportunity force-sells the poorest held trade to free the lane.
+            r.startsWith(com.lifecyclebot.engine.truth.OpportunityRotation8098.REASON) ||
             com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(r).rank <=
                 com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.STRUCTURAL_EMERGENCY.rank
     }
