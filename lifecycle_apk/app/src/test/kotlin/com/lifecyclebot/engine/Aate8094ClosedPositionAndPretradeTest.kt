@@ -797,4 +797,18 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(s.ignitionAdmissible8118(com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION, provenSetup = false))   // 7794's -23% case stays closed
         assertFalse(s.ignitionAdmissible8118(com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING, provenSetup = true))
     }
+
+    @Test fun coresNamedOwnerEvaluatesWhenCoreYields() {
+        val o = src("engine/SpecialistOwnership7951.kt")
+        assertTrue(o.contains("(native8094 && coreYieldedTo8119(mint, primaryLane, l))"))
+        assertTrue(o.contains("ops[\"CORE\"]?.reason == \"CORE_YIELD_CLEAR_SPECIALIST_OWNER\""))
+        assertTrue(o.contains("if (ready && native8094 && !receiverRecordSound8094(mint, l))"))   // the receiver's record still guards it
+    }
+
+    @Test fun theUiThreadNeverScansTheLeaderboardOrSortsEveryRow() {
+        assertTrue(src("engine/LiveLayerGateRelaxer.kt").contains("android.os.Looper.myLooper() == android.os.Looper.getMainLooper()"))
+        val m = src("ui/MainActivity.kt")
+        assertTrue(m.contains(".let { newestTokens8119(it, 8) }"))
+        assertTrue(src("engine/MemoryGuard7977.kt").contains("c.flushNow(); c.evictToMemoryCap7979("))
+    }
 }

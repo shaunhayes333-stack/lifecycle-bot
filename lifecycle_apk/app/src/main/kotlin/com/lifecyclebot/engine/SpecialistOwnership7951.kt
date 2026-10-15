@@ -304,7 +304,8 @@ object SpecialistOwnership7951 {
         val fdgRefused = primaryRefused7960(mint, primaryLane, nowMs)
         val native8094 = !fdgRefused && primaryNativeRefused8094(mint, primaryLane, nowMs)
         if (!fdgRefused && !native8094) return false
-        val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
+        val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false } ||
+            (native8094 && coreYieldedTo8119(mint, primaryLane, l))
         // V5.0.8094 — a native hand-off goes only to a lane whose OWN strategy for this coin is not losing on its graded
         // record (no fired setup proven and the classified one negative = no hand-off). The withdrawn 8094 hand-off had
         // no such guard; this one does, and every receiving-lane gate (quarantine, rug, FDG, sizing) still runs.
@@ -354,6 +355,18 @@ object SpecialistOwnership7951 {
     private fun primaryNativeRefused8094(mint: String, primaryLane: String, nowMs: Long): Boolean = try {
         val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint)
         snap != null && nativeRefusalHandsOff8094(snap.opinions[lane7951(primaryLane)], snap.evaluatedAtMs, nowMs)
+    } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.8119 — CORE refused only because [lane] is the clear specialist owner (CORE_YIELD_CLEAR_SPECIALIST_OWNER) and
+     * that owner's own native opinion is eligible: the owner evaluates, READY or not. 8117: SAFETY and YouTube ran while
+     * CORE yielded and the named owner was never asked. Every gate of the owner lane still decides.
+     */
+    private fun coreYieldedTo8119(mint: String, primaryLane: String, lane: String): Boolean = try {
+        val ops = if (lane7951(primaryLane) != "CORE") null else SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions
+        ops != null && ops["CORE"]?.reason == "CORE_YIELD_CLEAR_SPECIALIST_OWNER" &&
+            ops.values.filter { it.authoritative && it.eligible && it.lane != "CORE" }
+                .maxByOrNull { maxOf(it.score, it.confidence) }?.lane == lane
     } catch (_: Throwable) { false }
 
     /** Pure (V5.0.8094): a fresh, graded native refusal on a lane-fit rule (never safety). */
