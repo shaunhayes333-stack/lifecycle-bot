@@ -286,6 +286,8 @@ object MarketSweep7297 {
         val results = coroutineScope {
             tasks.map { (name, fn) ->
                 async(Dispatchers.IO) {
+                    // V5.0.8124 — a list still inside its own refresh window is served from its last good rows.
+                    goodRows8124[name]?.let { (rows, at) -> if (now - at < refreshMs8124(name)) return@async name to rows }
                     val rows = try {
                         withTimeoutOrNull(PROVIDER_TIMEOUT_MS) { fn() } ?: emptyList()
                     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -294,7 +296,7 @@ object MarketSweep7297 {
                         ErrorLogger.debug("MarketSweep7297", "$name failed: ${t.message}")
                         emptyList()
                     }
-                    name to rows
+                    name to carryOrStore8124(name, rows, System.currentTimeMillis())
                 }
             }.awaitAll()
         }
@@ -314,6 +316,34 @@ object MarketSweep7297 {
         rebuildOpportunitySignals7777(previous7777, snap)
         last = snap
         return snap
+    }
+
+    // ── V5.0.8124 — every feed fails soft ──
+    // Owner: "we are meant to have multiple multiple sources of data". 8120: seven Jupiter lists were fetched in one
+    // parallel burst every 45 s; the keyed host's rate limit tripped and every list reported LOCAL_CIRCUIT at once, so
+    // the sweep lost 7 of its 10 feeds together. Each list now refreshes on its own clock (a 24 h ranking does not move
+    // in 45 s), which cuts the burst from 7 calls to 2-3, and a feed that fails serves its last good rows for up to
+    // [CARRY_MS_8124] instead of nothing.
+    private val goodRows8124 = ConcurrentHashMap<String, Pair<List<Row>, Long>>()
+    private val carried8124 = ConcurrentHashMap<String, Long>()
+    private const val CARRY_MS_8124 = 20L * 60_000L
+
+    /** Pure: how long a feed's rows stay current before it is asked again. */
+    fun refreshMs8124(name: String): Long = when {
+        name.endsWith("_24H") -> 10L * 60_000L
+        name == "JUP_TRENDING_5M" || name == "JUP_RECENT" -> 60_000L
+        name.startsWith("JUP_") -> 3L * 60_000L
+        else -> 0L
+    }
+
+    /** Fresh rows are stored and returned; an empty answer returns the last good rows while they are young enough. */
+    internal fun carryOrStore8124(name: String, rows: List<Row>, nowMs: Long): List<Row> {
+        if (rows.isNotEmpty()) { goodRows8124[name] = rows to nowMs; return rows }
+        val (prev, at) = goodRows8124[name] ?: return rows
+        if (nowMs - at > CARRY_MS_8124) return rows
+        carried8124.merge(name, 1L, Long::plus)
+        try { PipelineHealthCollector.labelInc("MARKET_SWEEP_FEED_CARRIED_8124_$name") } catch (_: Throwable) {}
+        return prev
     }
 
     /** Pure: combine rows for one mint, keeping every provider-supplied value. */
@@ -780,7 +810,7 @@ object MarketSweep7297 {
         }
         val served = providerServed.entries.joinToString(",") { "${it.key}:${it.value}/${it.value + (providerEmpty[it.key] ?: 0L)}" }
         val fails = lastFail7301.entries.joinToString(",") { "${it.key}:${it.value}" }.ifBlank { "none" }
-        return "rows=${s.rows.size} age=${age}s $providers | $bands | served=$served | fail=$fails keyedJupiter=${jupiterKey7301.isNotBlank()}"
+        return "rows=${s.rows.size} age=${age}s $providers | $bands | served=$served | fail=$fails carried8124=${carried8124.entries.joinToString(",") { "${it.key}:${it.value}" }.ifBlank { "none" }} keyedJupiter=${jupiterKey7301.isNotBlank()}"
     }
 }
 

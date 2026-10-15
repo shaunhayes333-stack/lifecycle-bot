@@ -841,4 +841,18 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(gate.contains("TOKEN2022_HOSTILE_EXTENSION_\$hostile"))
         assertTrue(src("perps/crypto/CryptoUniverseExecutor.kt").contains("freezableRefusal8123(mint, direction, resolution)?.let"))
     }
+
+    @Test fun aFailedFeedServesItsLastGoodRowsAndListsRefreshOnTheirOwnClock() {
+        val m = com.lifecyclebot.engine.market.MarketSweep7297
+        assertEquals(10L * 60_000L, m.refreshMs8124("JUP_TRADED_24H"))
+        assertEquals(60_000L, m.refreshMs8124("JUP_TRENDING_5M"))
+        assertEquals(3L * 60_000L, m.refreshMs8124("JUP_TRENDING"))
+        assertEquals(0L, m.refreshMs8124("RAYDIUM_VOLUME"))                         // non-Jupiter feeds keep the sweep cadence
+        val row = com.lifecyclebot.engine.market.MarketSweep7297.Row("Feed8124Mint1111111111111111111111111", "F", "F",
+            1.0, 50_000.0, 10_000.0, 1_000.0, 10_000.0, 5.0, 10, 100, 50.0, false, 1.0, setOf("FEED_8124"))
+        val t0 = 1_000_000L
+        assertEquals(1, m.carryOrStore8124("FEED_8124", listOf(row), t0).size)
+        assertEquals(1, m.carryOrStore8124("FEED_8124", emptyList(), t0 + 5 * 60_000L).size)    // failed: last good rows
+        assertTrue(m.carryOrStore8124("FEED_8124", emptyList(), t0 + 25 * 60_000L).isEmpty())   // too old to stand in
+    }
 }
