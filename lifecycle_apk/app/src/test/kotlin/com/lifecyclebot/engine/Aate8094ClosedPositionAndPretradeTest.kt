@@ -1030,4 +1030,13 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(r.fallingKnife8130(-60.0, ticket = true))
         assertEquals(2, r.MAX_LOSSES_8022)                                    // the 8022 rule is unchanged
     }
+
+    @Test fun aTreasuryRoleFloorRefusalHandsTheCoinToTheMemeLaneThatWantsIt() {
+        assertTrue(SpecialistOwnership7951.primaryYieldsByRole8131("TREASURY_ROLE_FLOOR_8031"))
+        assertFalse(SpecialistOwnership7951.primaryYieldsByRole8131("WEAK_MOMENTUM"))
+        assertFalse(SpecialistOwnership7951.primaryYieldsByRole8131(null))
+        val o = src("engine/SpecialistOwnership7951.kt")
+        assertTrue(o.contains("(p == \"TREASURY\" && primaryYieldsByRole8131(ops[\"TREASURY\"]?.reason))"))
+        assertTrue(o.contains("if (ready && native8094 && !receiverRecordSound8094(mint, l))"))   // receiver record still guards it
+    }
 }

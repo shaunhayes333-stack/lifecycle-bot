@@ -363,11 +363,20 @@ object SpecialistOwnership7951 {
      * CORE yielded and the named owner was never asked. Every gate of the owner lane still decides.
      */
     private fun coreYieldedTo8119(mint: String, primaryLane: String, lane: String): Boolean = try {
-        val ops = if (lane7951(primaryLane) != "CORE") null else SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions
-        ops != null && ops["CORE"]?.reason == "CORE_YIELD_CLEAR_SPECIALIST_OWNER" &&
-            ops.values.filter { it.authoritative && it.eligible && it.lane != "CORE" }
-                .maxByOrNull { maxOf(it.score, it.confidence) }?.lane == lane
+        val p = lane7951(primaryLane)
+        val ops = if (p != "CORE" && p != "TREASURY") null else SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions
+        val yielded = ops != null && (ops["CORE"]?.reason == "CORE_YIELD_CLEAR_SPECIALIST_OWNER" ||
+            (p == "TREASURY" && primaryYieldsByRole8131(ops["TREASURY"]?.reason)))
+        yielded && ops!!.values.filter { it.authoritative && it.eligible && it.lane != "CORE" && it.lane != "TREASURY" }
+            .maxByOrNull { maxOf(it.score, it.confidence) }?.lane == lane
     } catch (_: Throwable) { false }
+
+    /**
+     * Pure (V5.0.8131): TREASURY refused only because the coin is not a treasury coin (role floor: too small / thin),
+     * not on safety. 8127 missed 34fph3 +1165%, PorkBelly +653%, hozeMZ +545% on NATIVE_TREASURY_ROLE_FLOOR while
+     * the meme specialist that wanted them was never asked. Every receiving-lane gate still decides.
+     */
+    fun primaryYieldsByRole8131(reason: String?): Boolean = reason != null && reason.startsWith("TREASURY_ROLE_FLOOR")
 
     /** Pure (V5.0.8094): a fresh, graded native refusal on a lane-fit rule (never safety). */
     internal fun nativeRefusalHandsOff8094(op: SpecialistBrainBridge7542.Opinion?, evaluatedAtMs: Long, nowMs: Long): Boolean =
