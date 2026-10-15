@@ -92,6 +92,24 @@ object SpecialistElection8136 {
             .firstOrNull()?.lane
     }
 
+    /** V5.0.8141 — BotService's bounded-rescue verdict for one lane: who the rescue is ([rescue], null = none) and whether to claim now. */
+    data class RescueSlot8141(val rescue: String?, val claim: Boolean)
+
+    /**
+     * Pure (canonical lane names): the candidate's ONE rescue as seen by [lane]'s evaluation. The election's [holder]
+     * wins. ExecutionAuthorityPolicy6533.selectOneRescue's pick ([lottery]) only fills an EMPTY slot, and only through
+     * the same claim: never the primary, CORE / CYCLIC, a lane this version already ruled ineligible, or after a
+     * judgement refusal. A second rescue is refused (it used to evaluate and count as overflow).
+     */
+    fun rescueSlot8141(holder: String, lottery: String, lane: String, primary: String,
+                       primaryJudgement: Boolean, laneIneligible: Boolean): RescueSlot8141 = when {
+        holder.isNotBlank() -> RescueSlot8141(holder, false)
+        lottery.isBlank() || lottery == primary || lottery in RESCUE_EXCLUDED_8136 -> RescueSlot8141(null, false)
+        lane != lottery -> RescueSlot8141(lottery, false)
+        primaryJudgement || laneIneligible -> RescueSlot8141(null, false)
+        else -> RescueSlot8141(lottery, true)
+    }
+
     /** Pure: an (upper-cased) FDG refusal that is a token-wide wall, not this lane's judgement of fit. */
     fun fdgWall8136(reasonUpper: String): Boolean = FDG_WALLS_8136.any { reasonUpper.contains(it) }
 
@@ -147,6 +165,8 @@ object SpecialistElection8136 {
     private var yieldReached8136 = 0L
     private var authoritativeOverrides8136 = 0L
     private var closedRecords8136 = 0L
+    private var lotteryFilled8141 = 0L
+    private var lotteryRefused8141 = 0L
 
     private val records8136 = object : LinkedHashMap<String, Record8136>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Record8136>?): Boolean {
@@ -433,6 +453,41 @@ object SpecialistElection8136 {
         }
     }
 
+    /**
+     * V5.0.8141 — BotService.laneEvaluationAllowed7951's bounded rescue through the election ([rescueSlot8141]): returns
+     * the lane that holds this candidate's one rescue slot ([lane] in its own spelling when it is that lane), the
+     * [lottery] pick when nothing is held and it is not this lane, or null. When [lane] is the lottery pick and the slot
+     * is empty it claims the slot here, so no second lane evaluates as a rescue for this candidate version.
+     */
+    fun boundedRescue8141(mint: String, lane: String, primary: String, lottery: String?, nowMs: Long = System.currentTimeMillis()): String? {
+        val l = canon8136(lane)
+        val p = canon8136(primary)
+        val pick = canon8136(lottery)
+        if (mint.isBlank() || l.isBlank()) return lottery
+        return synchronized(lock8136) {
+            val r = recordFor8136(mint, -1L, nowMs, create = pick.isNotBlank() && pick == l) ?: return lottery
+            if (r.primary.isEmpty()) setPrimary8136(r, p, nowMs)
+            val slot = rescueSlot8141(r.rescue, pick, l, r.primary.ifEmpty { p }, r.primaryJudgement,
+                r.slots[l]?.terminal == Terminal8136.INELIGIBLE)
+            if (slot.claim) {
+                claim8136(r, l, nowMs)
+                lotteryFilled8141++
+            } else if (pick.isNotBlank() && pick == l && slot.rescue != l) {
+                lotteryRefused8141++
+            }
+            val rescue = slot.rescue
+            when {
+                rescue == null -> null
+                rescue == l -> lane
+                rescue == pick -> lottery
+                else -> rescue
+            }
+        }
+    }
+
+    /** V5.0.8141 — (lottery picks that filled the empty slot, lottery picks refused because the slot was held / barred). */
+    fun lotteryCounts8141(): Pair<Long, Long> = synchronized(lock8136) { lotteryFilled8141 to lotteryRefused8141 }
+
     /** A lane may not take the rescue: [reason] (prefix DEFERRED_ = data missing, not a verdict on the lane). */
     fun markIneligible8136(mint: String, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         val l = canon8136(lane)
@@ -613,6 +668,7 @@ object SpecialistElection8136 {
             lastSweepMs8136 = 0L; rescueClaims8136 = 0L; rescueAdopted8136 = 0L; rescueOverflow8136 = 0L; rescueHeldDenied8136 = 0L
             judgementNoRescue8136 = 0L; outranked8136 = 0L; staleEvents8136 = 0L; unqualifiedFdg8136 = 0L; yieldNamed8136 = 0L
             yieldReached8136 = 0L; authoritativeOverrides8136 = 0L; closedRecords8136 = 0L
+            lotteryFilled8141 = 0L; lotteryRefused8141 = 0L
         }
     }
 }

@@ -3409,6 +3409,8 @@ class Executor(
             }
             try { PipelineHealthCollector.labelInc("PROFIT_LOCK_CANONICAL_SLICE_UNAVAILABLE_7884") } catch (_: Throwable) {}
         }
+        // V5.0.8141 — the canonical ledger never sees this legacy-booked slice: its CONFIRMED proceeds feed the next recovery tranche.
+        if (sellFraction < 0.999) RecoveryFallbackLedger8141.noteLegacyFallback8141(pos.positionId, proof?.sig.orEmpty(), solBack, proof?.outcome == TradeVerifier.Outcome.LANDED)
         val a = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, "profitLock")
         return ProfitLockSlice7884(a.pnlSol, a.pnlPct, a.netPnlSol, a.feeSol,
             pos.qtyToken - sellQty, pos.costSol * (1.0 - sellFraction))
@@ -22797,7 +22799,9 @@ class Executor(
         if (ts.position.isPaperPosition) return false
         try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteTrigger7807(ts.mint, reason) } catch (_: Throwable) {}
         val bypass = try {
-            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.bypassesHolds(reason, ts.position.tradingMode)
+            // V5.0.8141 — tier 1 (RunnerExitContract8136.emergency8136: freeze, liquidity pull, unsellable, ...) bypasses
+            // every hold gate below on every lane; ProtectiveExitClass7807 alone let a Moonshot hold sit on TOKEN_FROZEN.
+            Tier1Deference8141.bypassesHolds8141(reason, ts.position.tradingMode)
         } catch (_: Throwable) { false }
         if (bypass) {
             try { PipelineHealthCollector.labelInc("EMERGENCY_EXIT_HOLD_BYPASS_7807_${com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(reason).name}") } catch (_: Throwable) {}
@@ -23014,6 +23018,8 @@ class Executor(
 
     private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         if (retireClosedRuntimePosition8094(ts, reason)) return SellResult.ALREADY_CLOSED
+        // V5.0.8141 — an issuer-frozen live holding is FROZEN_HELD_UNSELLABLE: settled once, no sell routed, the poller owns the thaw.
+        if (try { FrozenHeldUnsellableLive8141.refusesSell8141(ts, reason) } catch (_: Throwable) { false }) return SellResult.WAITING_BALANCE_PROOF
         // V5.0.8065 — a lifecycle hold holds through every ordinary exit above its floor (LifecycleHold8065).
         if (try { LifecycleHold8065.defer8065(ts, reason) } catch (_: Throwable) { null } != null) {
             try { DecisionReasons8031.hold8031(ts, "LIFECYCLE_HOLD_8065", reason) } catch (_: Throwable) {}
@@ -24261,6 +24267,9 @@ class Executor(
     }
 
     private fun moonbagGate7322(ts: TokenState, requestReason: String, wallet: SolanaWallet?, walletSol: Double): SellResult? {
+        // V5.0.8141 — tier 1 is never held by the moonbag / tail bag, on any lane, paper or live (TOKEN_FROZEN,
+        // LIQUIDITY_PULLED were only ranks 1-2 of ProtectiveExitClass7807 when spelled its way).
+        if (Tier1Deference8141.tier1(requestReason)) return tier1PassesMoonbag8141(ts, requestReason)
         if (!ts.position.isPaperPosition) tailBagGate8034(ts, requestReason, wallet, walletSol)?.let { return it }
         // V5.0.7349 — paper is no longer excluded; see moonbagWouldAct7349.
         // V5.0.7807 — B2: a class 1-3 exit (lane-aware: only structural / catastrophe on
@@ -24304,6 +24313,18 @@ class Executor(
             }
             MoonbagRunner7322.Action.PASS -> Unit
         }
+        return null
+    }
+
+    /** V5.0.8141 — a tier-1 exit passes the moonbag gate untouched (null = the full exit proceeds). */
+    private fun tier1PassesMoonbag8141(ts: TokenState, reason: String): SellResult? {
+        try {
+            PipelineHealthCollector.labelInc("MOONBAG_GATE_DEFERRED_TO_TIER1_8141")
+            if (ForensicEmitRateLimiter6356.shouldEmit("MOONBAG_GATE_DEFERRED_TO_TIER1_8141", ts.mint)) {
+                ForensicLogger.lifecycle("MOONBAG_GATE_DEFERRED_TO_TIER1_8141",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=${ts.position.tradingMode} reason=${reason.take(60)} action=full_exit_no_hold")
+            }
+        } catch (_: Throwable) {}
         return null
     }
 
@@ -26853,6 +26874,8 @@ class Executor(
     private fun frozenHandOff8122(ts: TokenState, reason: String): SellResult {
         try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "FROZEN_BY_ISSUER_8122") } catch (_: Throwable) {}
+        // V5.0.8141 — settled FROZEN_HELD_UNSELLABLE (terminal, slot released, tracked for a thaw): no merge every exit tick.
+        if (try { FrozenHeldUnsellableLive8141.settle8141(ts, reason) } catch (_: Throwable) { false }) return SellResult.WAITING_BALANCE_PROOF
         try {
             com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
                 ts.mint, ts.symbol, reason,

@@ -84,6 +84,8 @@ object BalanceProofPoller {
         totalTicks += 1
         lastTickAtMs = System.currentTimeMillis()
         val w = wallet ?: return
+        // V5.0.8141 — a settled frozen holding whose wait is gone still thaws when a wallet read sees it unfrozen.
+        try { com.lifecyclebot.engine.FrozenHeldUnsellableLive8141.sweepThaw8141() } catch (_: Throwable) {}
         val due = BalanceProofWaitState.all().filter { BalanceProofWaitState.dueForPoll(it.mint) }
         if (due.isEmpty()) return
         for (entry in due) {
@@ -172,6 +174,8 @@ object BalanceProofPoller {
     private fun frozenHold8136(entry: BalanceProofWaitState.Wait): Boolean {
         val frozen = FrozenHoldingGuard8136.isFrozen8136(entry.mint)
         if (FrozenHoldingGuard8136.zeroFinalityAllowed8136(frozen)) {
+            // V5.0.8141 — the thaw path: a FROZEN_HELD_UNSELLABLE holding is a normal position again (normal sell re-opens).
+            try { com.lifecyclebot.engine.FrozenHeldUnsellableLive8141.onThaw8141(entry.mint) } catch (_: Throwable) {}
             FrozenHoldingGuard8136.clear8136(entry.mint)
             return false
         }
