@@ -386,6 +386,8 @@ object LiveEdgeGate7877 {
         if (assessments8083.size > 3_000) assessments8083.entries.removeIf { nowMs - it.value.atMs > ASSESSMENT_TTL_MS_8083 }
         verdictCounts8083.computeIfAbsent(verdict.name) { AtomicLong(0) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIVE_ENTRY_ASSESSMENT_8083_${verdict.name}_$lane") } catch (_: Throwable) {}
+        // V5.0.8136 — the same terminal, filed in the one admission ledger (ADMIT / REFUSE(reason) / DEFER_DATA).
+        CandidateAdmission8136.noteVerdict8136("LIVE", verdict.name, reason)
     }
 
     /** V5.0.8083 — the fresh live assessment of [mint] in [lane], or null. */
@@ -475,6 +477,9 @@ object LiveEdgeGate7877 {
                         com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l8059, "LIVE_PROVEN_SETUP_ONLY_8059")
                 } catch (_: Throwable) { false }
                 if (!auditedAdmission8076) {
+                    // V5.0.8136 — a coin the playbook could not classify (DATA_INCOMPLETE) has not been judged yet: it
+                    // DEFERS on its data (bounded window), it is not filed in the proven-only refusal population.
+                    dataDefer8136(ts, l8059, setup8083, nowMs)?.let { r8136 -> observeTail7996(ts, lane, r8136, nowMs); return r8136 }
                     provenOnlyRefused8059.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
                     // V5.0.8083 — DEFER, not a verdict on the token: no validated positive evidence YET for this exact
@@ -525,6 +530,32 @@ object LiveEdgeGate7877 {
         } catch (_: Throwable) {}
         return why
     }
+
+    /**
+     * V5.0.8136 §DATA_INCOMPLETE_IS_A_DEFER. At the proven-only door a coin whose setup classification is DATA_INCOMPLETE
+     * (core inputs unobserved: no candles / tape / change yet) was refused as LIVE_PROVEN_SETUP_ONLY_8059 beside coins
+     * measured short of proof, and graded in that refusal's population. It now defers under its own reason while its
+     * inputs are re-fetched (LanePlaybook7907.requestInputs8085, TradePlan7739 bars incl. the local executed tape), for a
+     * bounded window (CandidateAdmission8136.deferBudget8136); once that window is spent the ordinary refusal stands.
+     * Still a refusal: no live money moves on missing data.
+     */
+    private fun dataDefer8136(ts: TokenState, lane: String, setup: String?, nowMs: Long): String? {
+        val missing = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return null
+        if (!CandidateAdmission8136.deferBudget8136(ts.mint, nowMs)) return null
+        val r = DATA_DEFER_REASON_8136
+        dataDeferred8136.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("${r}_$lane") } catch (_: Throwable) {}
+        recordAssessment8083(ts, lane, setup, Verdict8083.DEFER, r, 1.0, nowMs)
+        try {
+            if (com.lifecyclebot.engine.ForensicEmitRateLimiter6356.shouldEmit("LIVE_DATA_DEFER_8136", "$lane|${ts.mint}")) {
+                ForensicLogger.lifecycle(r, "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane missing=${missing.joinToString(",").take(120)}")
+            }
+        } catch (_: Throwable) {}
+        return r
+    }
+
+    private const val DATA_DEFER_REASON_8136 = "DATA_INCOMPLETE_DEFER_8136"
+    private val dataDeferred8136 = AtomicLong(0)
 
     private val measuredEdgeAdmitted8060 = AtomicLong(0)
 
@@ -951,5 +982,6 @@ object LiveEdgeGate7877 {
     fun statusLine(): String =
         "bar=cellN>=$CELL_MIN_N&&mean-se>+$LIVE_MARGIN_PCT%|laneProven runner=bestCohort(mean-se>$RUNNER_MARGIN_PCT%) " +
             "admit=[${allowed.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}] " +
-            "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]"
+            "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]" +
+            " dataDefer8136=${dataDeferred8136.get()}"
 }

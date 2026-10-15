@@ -987,6 +987,30 @@ object FinalDecisionGate {
     }
 
     /**
+     * V5.0.8136 — CandidateAdmission8136 at the generic V3 floor. 5.0.8127: 729 CANONICAL_V3_SCORE_FLOOR_7243 refusals,
+     * some on candidates whose own setup / cell record proved a net-of-cost edge (the V3 meme score is a prior), and a
+     * candidate FDG cleared on such evidence was refused again by the executor's pre-lease floor on the same generic
+     * number. True: supported specific edge — the floor is cleared and the admission score (the WAIT bar it is admitted
+     * at) is carried to LaneScoreAdmission7308 so one admission decides. False: a candidate-specific refusal — no
+     * lane-wide bypass (ladder, lane labels, retired population, playbook score) clears it. Null: the bypasses decide.
+     */
+    private fun floorFromAdmission8136(ts: TokenState, lane: String, waitFloor: Double): Boolean? {
+        val a = try { com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, lane) } catch (_: Throwable) { null } ?: return null
+        val verdict = com.lifecyclebot.engine.truth.CandidateAdmission8136.floorVerdict8136(a)
+        try {
+            com.lifecyclebot.engine.truth.CandidateAdmission8136.note8136("FLOOR", a.terminal, a.reason)
+            PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_ADMISSION_8136_${a.reason}")
+            if (verdict != null && ForensicEmitRateLimiter6356.shouldEmit("FDG_SCORE_FLOOR_ADMISSION_8136", "$lane|${ts.mint}")) {
+                ForensicLogger.lifecycle("FDG_SCORE_FLOOR_ADMISSION_8136", "mint=${ts.mint.take(10)} sym=${ts.symbol} ${a.compact.take(400)}")
+            }
+        } catch (_: Throwable) {}
+        if (verdict == true && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && waitFloor.isFinite()) {
+            recordLaneAdmission7932(ts, lane, waitFloor.coerceIn(0.0, 100.0), false)
+        }
+        return verdict
+    }
+
+    /**
      * V5.0.7932 — the generic V3 score floor is a prior; a launch in a cell the
      * fresh-launch ladder has PROVEN (measured, net of cost) is not refused by it.
      */
@@ -997,6 +1021,10 @@ object FinalDecisionGate {
      * ladder-proven launch (7932). NO_TRIGGER and losing setups leave the floor in force.
      */
     private fun playbookClearsFloor7937(ts: TokenState, lane: String, waitFloor: Double): Boolean {
+        // V5.0.8136 — the candidate's own admission record answers first: supported specific edge clears the generic
+        // floor (and is carried past the executor's pre-lease floor); a specific refusal (hostile mint, structure, a
+        // losing setup / cell / stage / tactic, adverse timing, bad economics) holds it with no lane-wide bypass below.
+        floorFromAdmission8136(ts, lane, waitFloor)?.let { return it }
         if (com.lifecyclebot.engine.truth.FreshLaunchSelector7737.ladderProven7932(ts)) {
             try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_OVERRULED_BY_LADDER_7932") } catch (_: Throwable) {}
             return true
