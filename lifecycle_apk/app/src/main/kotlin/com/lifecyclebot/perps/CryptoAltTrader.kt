@@ -3595,6 +3595,8 @@ object CryptoAltTrader {
         }
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
+        // V5.0.8110 — crypto lane parity phase 2: the take-profit follows the desk lane's exit family and never sits under cost.
+        val tp8110 = laneTp8110(signal, isSpot, finalTp, finalSize, candidate.liquidityUsd) ?: tp
         try {
             PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_PREFDG_HANDOFF_7810")
             if (candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY) {
@@ -3720,7 +3722,7 @@ object CryptoAltTrader {
             currentPrice   = signal.price,
             sizeSol        = canonicalFinalSize6570,
             leverage       = lev,
-            takeProfitPrice= tp,
+            takeProfitPrice= tp8110,
             stopLossPrice  = sl,
             aiScore        = signal.score,
             aiConfidence   = signal.confidence,
@@ -5759,6 +5761,34 @@ object CryptoAltTrader {
      * directly or carry one/more DESK_* overlays. Resolve those first; retain
      * LANE7391 only for positions opened before the resident-strategy migration.
      */
+    /**
+     * V5.0.8110 §CRYPTO_LANE_PARITY (phase 2). 8098: every crypto position took a fixed +3..+5.5% take-profit against a
+     * ~3.6% round trip and a -3.5..-4% stop: wins netted ~0, losses ~-7% (CRYPTO_ALT EV -6.66%, n121). The target now
+     * follows the desk lane the position opens under, like the meme stack: a runner lane (MOONSHOT / SHITCOIN / EXPRESS /
+     * PROJECT_SNIPER, TradeExitContract8077) takes nothing before the runner ladder's first rung (+100%), its give-back
+     * locks and desk exits own the run until then; every other lane keeps its learned target, floored at cost + buffer
+     * (NetEdge8030.exitFloorPct8030). Stops are unchanged. Null = keep the computed target.
+     */
+    private fun laneTp8110(signal: AltSignal, isSpot: Boolean, baseTpPct: Double, sizeSol: Double, liquidityUsd: Double): Double? {
+        val lane = specialistLaneFromReasons7803(listOf("STRATEGY7803=" + signal.strategy7803) +
+            signal.deskOverlays7803.map { "OVERLAY7803=$it" } + signal.reasons)
+        val cost = try { com.lifecyclebot.engine.truth.NetEdge8030.costPct8030("CRYPTO_ALT", sizeSol, liquidityUsd) } catch (_: Throwable) { return null }
+        val pct = laneTpPct8110(lane, baseTpPct, cost, isSpot)
+        if (!pct.isFinite() || pct <= 0.0 || !(signal.price > 0.0)) return null
+        try { PipelineHealthCollector.labelInc("CRYPTO_LANE_TP_8110_${lane.ifBlank { "NONE" }}") } catch (_: Throwable) {}
+        return when (signal.direction) {
+            PerpsDirection.LONG -> signal.price * (1 + pct / 100)
+            PerpsDirection.SHORT -> signal.price * (1 - pct / 100)
+        }
+    }
+
+    /** Pure (V5.0.8110): the take-profit % for a crypto position opened under desk [lane]. */
+    internal fun laneTpPct8110(lane: String, baseTpPct: Double, costPct: Double, isSpot: Boolean): Double {
+        val floor = com.lifecyclebot.engine.truth.NetEdge8030.exitFloorPct8030(costPct)
+        val runner = isSpot && com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false)
+        return if (runner) maxOf(com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967.first().first, floor) else maxOf(baseTpPct, floor)
+    }
+
     private fun specialistLaneFromReasons7803(reasons: List<String>): String {
         val strategy = strategyFromReasons7803(reasons)
         if (strategy.startsWith("DESK_")) return strategy.removePrefix("DESK_")

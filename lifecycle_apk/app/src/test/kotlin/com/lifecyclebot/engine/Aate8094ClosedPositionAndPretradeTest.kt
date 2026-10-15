@@ -706,4 +706,17 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(h.metricsCollapsed8109(+5.0, 40_000.0, 10_000.0, 10.0, true))                                 // green: not a loser
         assertFalse(h.metricsCollapsed8109(-5.0, 0.0, 10_000.0, 50.0, true))                                       // entry depth unknown
     }
+
+    @Test fun aCryptoTakeProfitFollowsItsDeskLaneAndNeverSitsUnderCost() {
+        val c = com.lifecyclebot.perps.CryptoAltTrader
+        // 8098: a +3% target against a 3.6% round trip netted nothing. Every lane is floored at cost + buffer.
+        val floor = com.lifecyclebot.engine.truth.NetEdge8030.exitFloorPct8030(3.6)
+        assertEquals(floor, c.laneTpPct8110("QUALITY", baseTpPct = 3.0, costPct = 3.6, isSpot = true), 1e-9)
+        assertEquals(12.0, c.laneTpPct8110("QUALITY", baseTpPct = 12.0, costPct = 3.6, isSpot = true), 1e-9)
+        // A runner desk lane takes nothing before the runner ladder's first rung.
+        assertEquals(100.0, c.laneTpPct8110("MOONSHOT", 3.0, 3.6, isSpot = true), 1e-9)
+        assertEquals(100.0, c.laneTpPct8110("SHITCOIN", 3.0, 3.6, isSpot = true), 1e-9)
+        // Leverage keeps its own target (floored), never the runner rung.
+        assertEquals(floor, c.laneTpPct8110("MOONSHOT", 3.0, 3.6, isSpot = false), 1e-9)
+    }
 }
