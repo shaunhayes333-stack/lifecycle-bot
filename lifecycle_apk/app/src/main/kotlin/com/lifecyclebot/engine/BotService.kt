@@ -11116,6 +11116,7 @@ class BotService : Service() {
             // V5.0.7278 — every trade on a held curve is a mark; see
             // applyPumpTradeMark7278 and the subscription sync in the hot loop.
             com.lifecyclebot.network.PumpFunWS.setOnTrade7278 { mint, priceSol, mcapSol, _ ->
+                try { bandEntry8118(mint, priceSol, mcapSol, cfg, streamGeneration) } catch (_: Throwable) {}  // V5.0.8118
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
                 // V5.0.7819 — the curve's post-trade price is also a candle print.
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
@@ -25751,6 +25752,24 @@ if (hotExitHandledSweep) {
         )
         if (ok) try { PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_CONFIRMED_NO_ROUTE_8116") } catch (_: Throwable) {}
         return ok
+    }
+
+    /** V5.0.8118 — a PumpPortal launch with no token row entering the proven $10k-$100k band is admitted (PumpBandEntry8118). */
+    private fun bandEntry8118(mint: String, priceSol: Double, mcapSol: Double, cfg: BotConfig, generation: Long) {
+        if (mint.isBlank() || status.tokens.containsKey(mint)) return
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!(solUsd.isFinite() && solUsd > 0.0)) return
+        val capSol = if (mcapSol.isFinite() && mcapSol > 0.0) mcapSol else priceSol * 1e9
+        val bornAt = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint) } catch (_: Throwable) { null } ?: return
+        val meta = com.lifecyclebot.engine.truth.PumpBandEntry8118.claim8118(mint, capSol * solUsd, System.currentTimeMillis() - bornAt) ?: return
+        val liqUsd = com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(capSol) * solUsd
+        try { PipelineHealthCollector.labelInc("PUMP_BAND_ENTRY_8118") } catch (_: Throwable) {}
+        val admitted = admitProtectedMemeIntake(
+            mint = mint, symbol = meta.symbol, name = meta.name, source = "PUMP_PORTAL_WS",
+            marketCapUsd = capSol * solUsd, liquidityUsd = liqUsd, confidence = 38,
+            allSources = linkedSetOf("PUMP_PORTAL_WS", "PUMP_PORTAL"), expectedRuntimeGeneration = generation,
+        )
+        if (admitted) try { fastLaneEvaluate7277(mint, cfg, "PUMP_BAND_ENTRY_8118") } catch (_: Throwable) {}
     }
 
     private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {

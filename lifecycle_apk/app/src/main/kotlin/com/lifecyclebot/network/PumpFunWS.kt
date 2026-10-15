@@ -473,6 +473,8 @@ object PumpFunWS {
                             // V5.0.7951 — the create frame's reserves are the curve's first liquidity reading.
                             try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, vSol0, vTok0) } catch (_: Throwable) {}
                         }
+                        // V5.0.8118 — remembered for a later admission when the launch enters the proven $10k-$100k band.
+                        try { com.lifecyclebot.engine.truth.PumpBandEntry8118.noteCreate8118(mint, symbol, name) } catch (_: Throwable) {}
                         if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
                         createStreamObserved7432.set(true)
                         registerFreshLifecycle7420(mint)

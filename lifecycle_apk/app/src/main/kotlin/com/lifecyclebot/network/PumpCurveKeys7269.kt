@@ -140,7 +140,8 @@ object PumpCurveKeys7269 {
         val m = mint.trim()
         if (m.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
         if (createPriceSol7280.size >= MAX_KEYS && !createPriceSol7280.containsKey(m)) {
-            val victim = createPriceSol7280.keys.firstOrNull()
+            // V5.0.8118 — evict the OLDEST launch, not an arbitrary one (a seconds-old mint lost its create time).
+            val victim = createdAtMs7280.entries.minByOrNull { it.value }?.key ?: createPriceSol7280.keys.firstOrNull()
             if (victim != null) { createPriceSol7280.remove(victim); createdAtMs7280.remove(victim) }
         }
         createPriceSol7280.putIfAbsent(m, priceSol)

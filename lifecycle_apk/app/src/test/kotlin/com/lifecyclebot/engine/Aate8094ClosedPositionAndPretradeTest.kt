@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -772,5 +774,27 @@ class Aate8094ClosedPositionAndPretradeTest {
         val chase = src.substringAfter("chasing8065(snap8065.runupFromLocalLowPct").substringBefore("!cellOrKindProven8094(ts, l8059, nowMs)) {")
         assertTrue(chase.contains("!developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs)"))
         assertFalse(chase.contains("runnerForming8113"))                         // re-entry tickets wait for their pullback
+    }
+
+    @Test fun aPumpLaunchIsAdmittedWhenItEntersTheProvenBand() {
+        val b = com.lifecyclebot.engine.truth.PumpBandEntry8118
+        val min = 60_000L
+        assertTrue(b.inBand8118(capUsd = 12_000.0, ageMs = 4 * min))
+        assertFalse(b.inBand8118(capUsd = 6_000.0, ageMs = 4 * min))        // still under $10k: the losing band
+        assertFalse(b.inBand8118(capUsd = 140_000.0, ageMs = 4 * min))      // past the band
+        assertFalse(b.inBand8118(capUsd = 30_000.0, ageMs = 20 * min))      // too old for the proven cell
+        b.noteCreate8118("band8118mint", "BAND", "Band Coin")
+        assertNull(b.claim8118("band8118mint", 6_000.0, 2 * min))            // not in band yet: nothing claimed
+        assertNotNull(b.claim8118("band8118mint", 15_000.0, 3 * min))        // enters the band: admitted once
+        assertNull(b.claim8118("band8118mint", 20_000.0, 4 * min))           // never twice
+        assertNull(b.claim8118("unknownMint8118", 15_000.0, 3 * min))        // not a PumpPortal launch
+        assertTrue(src("engine/BotService.kt").contains("try { bandEntry8118(mint, priceSol, mcapSol, cfg, streamGeneration) } catch (_: Throwable) {}"))
+    }
+
+    @Test fun theSniperAcceptsIgnitionOnlyWhenItsSetupIsProven() {
+        val s = com.lifecyclebot.v3.scoring.ProjectSniperAI
+        assertTrue(s.ignitionAdmissible8118(com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION, provenSetup = true))
+        assertFalse(s.ignitionAdmissible8118(com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION, provenSetup = false))   // 7794's -23% case stays closed
+        assertFalse(s.ignitionAdmissible8118(com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING, provenSetup = true))
     }
 }

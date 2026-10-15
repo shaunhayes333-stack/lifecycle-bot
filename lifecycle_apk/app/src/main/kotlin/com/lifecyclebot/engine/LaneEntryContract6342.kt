@@ -150,7 +150,8 @@ object LaneEntryContract6342 {
         val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
             ?: return false
         if (!launch.birthResolved ||
-            launch.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION
+            (launch.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION &&
+                !com.lifecyclebot.v3.scoring.ProjectSniperAI.provenIgnition8118(ts, launch.phase))  // V5.0.8118
         ) return false
         if (launch.distinctBuyers60s < 3 || !launch.accelerationRising || launch.buySharePct < 60.0) return false
         return true

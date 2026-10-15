@@ -202,6 +202,24 @@ object ProjectSniperAI {
     // TARGET ACQUISITION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    /**
+     * V5.0.8118 §THE_SNIPER_HAD_NO_WINDOW. LaunchPhaseAuthority7401 tests IGNITION before PRE_IGNITION, and any coin that
+     * passes the sniper's own flow test (3+ buyers, 60%+ buy share, rising acceleration) satisfies IGNITION, so the only
+     * window left was ~90-120 s with flow data rarely present: 1,870 BIRTH_METADATA_HYDRATING + 384 PHASE_HANDOFF refusals,
+     * 0 qualified. 7794 closed IGNITION after 0/8 at -23% EV; since then the lane's LAUNCH_LADDER_PROVEN setup proved out
+     * (n102+ graded, auth 1.00). IGNITION is accepted again ONLY when this coin fires a setup proven in PROJECT_SNIPER.
+     */
+    fun ignitionAdmissible8118(phase: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase, provenSetup: Boolean): Boolean =
+        phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION && provenSetup
+
+    fun provenIgnition8118(ts: TokenState, phase: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase): Boolean {
+        if (phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION) return false
+        val proven = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, "PROJECT_SNIPER") != null } catch (_: Throwable) { false }
+        val ok = ignitionAdmissible8118(phase, proven)
+        if (ok) try { PipelineHealthCollector.labelInc("SNIPER_PROVEN_IGNITION_8118") } catch (_: Throwable) {}
+        return ok
+    }
+
     fun assessTarget(
         ts: TokenState,
         currentPrice: Double,
@@ -223,7 +241,7 @@ object ProjectSniperAI {
         // PROJECT_SNIPER 0/8 (EV -23%) while the forward book showed MOONSHOT
         // positive on the same sub-$10k launch pond. Once ignition is visible,
         // continuation ownership belongs to MOONSHOT/EXPRESS.
-        if (launch7449.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION) {
+        if (launch7449.phase != com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION && !provenIgnition8118(ts, launch7449.phase)) {
             try { PipelineHealthCollector.labelInc("SNIPER_PHASE_HANDOFF_7794_${launch7449.phase.name}") } catch (_: Throwable) {}
             return noEngage("PHASE_HANDOFF_${launch7449.phase.name}", tokenAgeSecs, ThreatLevel.YELLOW)
         }
