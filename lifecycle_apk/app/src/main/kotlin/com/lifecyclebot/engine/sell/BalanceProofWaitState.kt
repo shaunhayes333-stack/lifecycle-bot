@@ -157,6 +157,18 @@ object BalanceProofWaitState {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8136 — a frozen holding waits on a slow clock: no attempt climb, no STILL_UNKNOWN storm, and the zero streak
+     * starts over (a freeze-caused absence is not a zero read).
+     */
+    fun scheduleFrozenRecheck8136(mint: String, delayMs: Long) {
+        val w = waits[mint] ?: return
+        val now = System.currentTimeMillis()
+        w.consecutiveZeroReads = 0
+        w.lastTouchedMs = now
+        w.nextPollAtMs = now + delayMs.coerceAtLeast(backoffFor(0))
+    }
+
     /** Eligible to poll right now? */
     fun dueForPoll(mint: String, now: Long = System.currentTimeMillis()): Boolean {
         val w = waits[mint] ?: return false
@@ -177,6 +189,7 @@ object BalanceProofWaitState {
 
     fun clear(mint: String, terminal: String) {
         val removed = waits.remove(mint) ?: return
+        FrozenHoldingGuard8136.clear8136(mint)
         try {
             ForensicLogger.lifecycle("BALANCE_WAIT_CLEARED",
                 "mint=${mint.take(10)} symbol=${removed.symbol} terminal=$terminal " +

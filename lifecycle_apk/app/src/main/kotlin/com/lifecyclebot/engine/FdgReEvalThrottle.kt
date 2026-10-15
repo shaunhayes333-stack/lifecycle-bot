@@ -58,6 +58,9 @@ object FdgReEvalThrottle {
         scoreNow: Int,
     ): FinalDecisionGate.FinalDecision? {
         val key = Key(mint, candidateVersion, lane.uppercase(), evidenceVersion)
+        // V5.0.8136 — a candidate at the FDG door is a credible admission prospect: ask for its authority proof now
+        // (async, single-flight, LIVE only) so the pre-broadcast gate finds it cached instead of asking synchronously.
+        try { com.lifecyclebot.engine.truth.AuthorityProofPrefetch8136.prefetchIfLive8136(mint) } catch (_: Throwable) {}
         val e = cache[key] ?: return null
         val now = System.currentTimeMillis()
         if (now - e.atMs > TTL_MS) { cache.remove(key); return null }
@@ -76,6 +79,10 @@ object FdgReEvalThrottle {
     ) {
         cache[Key(mint, candidateVersion, lane.uppercase(), evidenceVersion)] =
             Entry(verdict, score, System.currentTimeMillis())
+        sealed8136.incrementAndGet()
+        // V5.0.8136 — the cache was only pruned by a get() of the same key, so every superseded candidate version or
+        // evidence string stayed resident for the session (a FinalDecision per row). Expired rows go when it grows.
+        if (cache.size > CACHE_CAP_8136) trim8136()
         noteDecision8087(mint, candidateVersion, lane, evidenceVersion)
     }
 
@@ -99,8 +106,10 @@ object FdgReEvalThrottle {
         val id = "$mode|$mint|$candidateVersion|${lane.uppercase()}|$evidenceVersion"
         val fresh = seen8087.put(id, true) == null
         if (fresh) unique8087.incrementAndGet() else repeatSameEvidence8087.incrementAndGet()
+        if (fresh) noteSupersede8136("$mode|$mint|$candidateVersion|${lane.uppercase()}", evidenceVersion)
         if (fresh) {
             val cand = "$mode|$mint|$candidateVersion"
+            if (!lanesPerCandidate8087.containsKey(cand)) distinct8136.incrementAndGet()
             lanesPerCandidate8087.computeIfAbsent(cand) { ConcurrentHashMap.newKeySet() }.add(lane.uppercase())
             if (lanesPerCandidate8087.size > SEEN_CAP_8087) lanesPerCandidate8087.keys.take(SEEN_CAP_8087 / 4).forEach { lanesPerCandidate8087.remove(it) }
         }
@@ -115,13 +124,61 @@ object FdgReEvalThrottle {
         val lanes = lanesPerCandidate8087.values.sumOf { it.size }
         val perCand = if (cands > 0) lanes.toDouble() / cands else 0.0
         return "unique=${unique8087.get()} repeatSameEvidence=${repeatSameEvidence8087.get()} cacheReuse=${cacheReuse8087.get()} " +
-            "scoreBusts=${scoreBusts8087.get()} candidates=$cands lanesPerCandidate=${"%.2f".format(perCand)}"
+            "scoreBusts=${scoreBusts8087.get()} candidates=$cands lanesPerCandidate=${"%.2f".format(perCand)} " +
+            FdgFanoutContract8136.line8136(contract8136())
+    }
+
+    // ── V5.0.8136 — the fanout measurement contract ──
+    // distinct candidates, lane decisions per candidate, unique decisions, unchanged-evidence repeats, cache hits,
+    // superseded (same candidate+lane, new evidence) and final sealed verdicts are separate counters; the doctor faults
+    // only from unique decisions (FdgFanoutContract8136), never from a fallback gate count.
+    private const val CACHE_CAP_8136 = 4_000
+    private val distinct8136 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val superseded8136 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val sealed8136 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val lastEvidence8136 = ConcurrentHashMap<String, String>()
+
+    private fun noteSupersede8136(slot: String, evidenceVersion: String) {
+        val prev = lastEvidence8136.put(slot, evidenceVersion)
+        if (prev != null && prev != evidenceVersion) superseded8136.incrementAndGet()
+        if (lastEvidence8136.size > SEEN_CAP_8087) lastEvidence8136.clear()
+    }
+
+    fun distinctCandidates8136(): Long = distinct8136.get()
+
+    fun contract8136(): FdgFanoutContract8136.Counts {
+        val lanes = lanesPerCandidate8087.values.sumOf { it.size }.toLong()
+        return FdgFanoutContract8136.Counts(
+            distinctCandidates = distinct8136.get(),
+            laneDecisions = lanes,
+            trackedCandidates = lanesPerCandidate8087.size.toLong(),
+            uniqueDecisions = unique8087.get(),
+            unchangedRepeats = repeatSameEvidence8087.get(),
+            cacheHits = cacheReuse8087.get(),
+            superseded = superseded8136.get(),
+            finalSealed = sealed8136.get(),
+        )
+    }
+
+    /** Mints with a sealed verdict still inside its TTL (active admission state for the memory guard). */
+    fun sealedMints8136(nowMs: Long = System.currentTimeMillis()): Set<String> =
+        cache.entries.asSequence().filter { nowMs - it.value.atMs <= TTL_MS }.map { it.key.mint }.toHashSet()
+
+    /** Drop expired seals; past the cap, the oldest go. Returns rows removed. */
+    fun trim8136(nowMs: Long = System.currentTimeMillis()): Int {
+        val before = cache.size
+        cache.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
+        if (cache.size > CACHE_CAP_8136) {
+            cache.entries.sortedBy { it.value.atMs }.take(cache.size - CACHE_CAP_8136).forEach { cache.remove(it.key, it.value) }
+        }
+        return (before - cache.size).coerceAtLeast(0)
     }
 
     fun invalidate(mint: String) { cache.keys.removeIf { it.mint == mint } }
     fun clear() {
         cache.clear(); seen8087.clear(); lanesPerCandidate8087.clear()
         unique8087.set(0L); repeatSameEvidence8087.set(0L); cacheReuse8087.set(0L); scoreBusts8087.set(0L)
+        lastEvidence8136.clear(); distinct8136.set(0L); superseded8136.set(0L); sealed8136.set(0L)
     }
     fun size(): Int = cache.size
 }

@@ -95,6 +95,7 @@ object BalanceProofPoller {
     }
 
     private fun pollOne(entry: BalanceProofWaitState.Wait, w: SolanaWallet) {
+        if (frozenHold8136(entry)) return
         val resolution = try {
             SellAmountAuthority.resolve(entry.mint, w)
         } catch (e: Throwable) {
@@ -164,7 +165,31 @@ object BalanceProofPoller {
         return true
     }
 
+    /**
+     * V5.0.8136 — the mint's token account is frozen: the wallet read omits it, so "absent" here is the freeze, not an
+     * empty wallet. Hold the wait (no zero read, no close, no route) and re-check slowly until a wallet read sees a thaw.
+     */
+    private fun frozenHold8136(entry: BalanceProofWaitState.Wait): Boolean {
+        val frozen = FrozenHoldingGuard8136.isFrozen8136(entry.mint)
+        if (FrozenHoldingGuard8136.zeroFinalityAllowed8136(frozen)) {
+            FrozenHoldingGuard8136.clear8136(entry.mint)
+            return false
+        }
+        BalanceProofWaitState.scheduleFrozenRecheck8136(entry.mint, FrozenHoldingGuard8136.FROZEN_RECHECK_MS_8136)
+        if (FrozenHoldingGuard8136.noteHeld8136(entry.mint)) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_FROZEN_HELD_NOT_ZERO_8136")
+                ForensicLogger.lifecycle("BALANCE_PROOF_FROZEN_HELD_NOT_ZERO_8136",
+                    "mint=${entry.mint.take(10)} symbol=${entry.symbol} reason=${entry.desiredExitReason} " +
+                    "action=hold_no_zero_close_no_ghost_exit recheckMs=${FrozenHoldingGuard8136.FROZEN_RECHECK_MS_8136}")
+            } catch (_: Throwable) {}
+        }
+        return true
+    }
+
     private fun onZeroRead7733(entry: BalanceProofWaitState.Wait, source: String) {
+        // V5.0.8136 — last line: a zero/absent read never finalises a frozen holding.
+        if (frozenHold8136(entry)) return
         val streak = BalanceProofWaitState.recordZeroRead(entry.mint)
         BalanceProofWaitState.scheduleNextPoll(entry.mint)
         if (streak >= 2) {

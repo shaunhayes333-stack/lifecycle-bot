@@ -42,7 +42,8 @@ object MemoryGuard7977 {
         Thread({
             while (true) {
                 try {
-                    Thread.sleep(PERIOD_MS)
+                    // V5.0.8136 — a hard trim that recovered nothing is re-checked sooner.
+                    Thread.sleep(if (escalation8136 > 0) ESCALATED_PERIOD_MS_8136 else PERIOD_MS)
                     tick()
                 } catch (_: InterruptedException) { return@Thread } catch (_: Throwable) {}
             }
@@ -58,9 +59,11 @@ object MemoryGuard7977 {
         lastFrac = frac; lastUsedMb = used / (1 shl 20); maxMb = max / (1 shl 20)
         if (frac > peakFrac) peakFrac = frac
         val lvl = level7977(frac)
-        if (lvl == 0) return
+        pressure8136 = RetentionPolicy8136.pressure8136(frac, escalation8136)
+        if (lvl == 0) { escalation8136 = 0; return }
         trimAll(lvl >= 2)
         if (lvl >= 2) { hardTrims.incrementAndGet(); System.gc() } else softTrims.incrementAndGet()
+        if (lvl >= 2) noteHardTrimOutcome8136(frac, rt, max)
         try {
             PipelineHealthCollector.labelInc(if (lvl >= 2) "MEMORY_GUARD_HARD_TRIM_7977" else "MEMORY_GUARD_SOFT_TRIM_7977")
             ForensicLogger.lifecycle("MEMORY_GUARD_TRIM_7977", "level=$lvl used=${used / (1 shl 20)}MB max=${max / (1 shl 20)}MB ${sizes()}")
@@ -127,6 +130,8 @@ object MemoryGuard7977 {
 
     private fun trimAll(hard: Boolean) {
         try { pruneTokens8025() } catch (_: Throwable) {}
+        try { prunePressure8136() } catch (_: Throwable) {}
+        try { trimBoundedCaches8136(hard) } catch (_: Throwable) {}
         try { SmartChartCache.pruneStale8087() } catch (_: Throwable) {}
         try { MemeMintRegistry.evictStale(); MemeMintRegistry.capToMax8033() } catch (_: Throwable) {}
         if (hard) try { trimColdHistories8087() } catch (_: Throwable) {}
@@ -141,6 +146,98 @@ object MemoryGuard7977 {
         // V5.0.8119 — eviction skips unflushed rows; 8117 held 5192 rows with 4732 dirty, so the cap never bit.
         // Flush the backlog here (guard thread, not UI) so the rows become evictable.
         try { TokenMetaCache.instanceOrNull7979()?.let { c -> c.flushNow(); c.evictToMemoryCap7979(if (hard) 600 else 1_000) } } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.8136 — pressure-aware retention (RetentionPolicy8136) ──
+    private const val ESCALATED_PERIOD_MS_8136 = 5_000L
+    @Volatile private var pressure8136 = RetentionPolicy8136.Pressure.NORMAL
+    @Volatile private var escalation8136 = 0
+    @Volatile private var lastRecoveredMb8136 = 0L
+    private val pressurePruned8136 = AtomicLong(0)
+    private val ineffectiveHardTrims8136 = AtomicLong(0)
+    private val tapesFreed8136 = AtomicLong(0)
+
+    /** Critical evidence a prune must never drop: runner ticket, a balance-proof wait, a wallet-tracked row. */
+    private fun critical8136(mint: String, nowMs: Long): Boolean =
+        (try { RunnerPlay8018.ticketActive8018(mint, nowMs) } catch (_: Throwable) { true }) ||
+            (try { com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(mint) } catch (_: Throwable) { true }) ||
+            (try { HostWalletTokenTracker.hasTrackedPosition(mint) } catch (_: Throwable) { true })
+
+    /** Under HARD/CRITICAL pressure, free token rows by relevance regardless of age. */
+    private fun prunePressure8136(): Int {
+        val p = pressure8136
+        if (p != RetentionPolicy8136.Pressure.HARD && p != RetentionPolicy8136.Pressure.CRITICAL) return 0
+        val tokens = BotService.status.tokens
+        val now = System.currentTimeMillis()
+        val watch = try { GlobalTradeRegistry.getWatchlist().toHashSet() } catch (_: Throwable) { return 0 }
+        val liveOpen = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("live").map { it.mint }.toHashSet() } catch (_: Throwable) { return 0 }
+        val sealed = try { FdgReEvalThrottle.sealedMints8136(now) } catch (_: Throwable) { emptySet() }
+        val snapshot = try { synchronized(tokens) { tokens.entries.toList() } } catch (_: Throwable) { return 0 }
+        val rows = snapshot.map { (m, ts) ->
+            RetentionPolicy8136.Row(
+                mint = m,
+                watched = m in watch,
+                open = ts.position.isOpen || m in liveOpen,
+                admission = m in sealed || com.lifecyclebot.engine.truth.AdmissionProspect8136.isActive8136(m, now),
+                critical = critical8136(m, now),
+                addedAtMs = ts.addedToWatchlistAt,
+                lastTouchMs = maxOf(ts.lastPriceUpdate, ts.addedToWatchlistAt),
+            )
+        }
+        var removed = 0
+        for (v in RetentionPolicy8136.victims8136(rows, p, now)) {
+            // A watched row leaves the watchlist first; the registry refuses any mint still held anywhere.
+            if (v.watched && !(try { GlobalTradeRegistry.removeFromWatchlist(v.mint, "MEMORY_PRESSURE_8136") } catch (_: Throwable) { false })) continue
+            if (synchronized(tokens) { tokens.remove(v.mint) } != null) removed++
+        }
+        if (removed > 0) {
+            pressurePruned8136.addAndGet(removed.toLong())
+            try { PipelineHealthCollector.labelInc("MEMORY_GUARD_PRESSURE_PRUNED_8136") } catch (_: Throwable) {}
+        }
+        return removed
+    }
+
+    /** Chart tapes, decision seals, authority-proof caches, token archive: bounded harder as pressure rises. */
+    private fun trimBoundedCaches8136(hard: Boolean) {
+        val p = pressure8136
+        try { FdgReEvalThrottle.trim8136() } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.trim8136() } catch (_: Throwable) {}
+        if (!hard) return
+        val now = System.currentTimeMillis()
+        val tapeCap = RetentionPolicy8136.chartTapeCap8136(p)
+        if (tapeCap != null) {
+            val freed = try {
+                com.lifecyclebot.engine.chart.ChartReader7950.trimUnderPressure8136(tapeCap) { m ->
+                    (BotService.status.tokens[m]?.position?.isOpen == true) ||
+                        com.lifecyclebot.engine.truth.AdmissionProspect8136.isActive8136(m, now) ||
+                        HostWalletTokenTracker.hasTrackedPosition(m)
+                }
+            } catch (_: Throwable) { 0 }
+            if (freed > 0) tapesFreed8136.addAndGet(freed.toLong())
+        }
+        try { com.lifecyclebot.engine.truth.AuthorityProofPrefetch8136.trim8136() } catch (_: Throwable) {}
+        if (p == RetentionPolicy8136.Pressure.CRITICAL) {
+            try { TokenMetaCache.instanceOrNull7979()?.evictToMemoryCap7979(RetentionPolicy8136.archiveCap8136(p)) } catch (_: Throwable) {}
+        }
+    }
+
+    /** After a hard trim + GC: did it recover headroom? If not, escalate (CRITICAL retention, faster re-check). */
+    private fun noteHardTrimOutcome8136(fracBefore: Double, rt: Runtime, max: Long) {
+        val usedAfter = rt.totalMemory() - rt.freeMemory()
+        val fracAfter = usedAfter.toDouble() / max
+        lastRecoveredMb8136 = ((fracBefore - fracAfter) * max).toLong() / (1 shl 20)
+        val ok = RetentionPolicy8136.recovered8136(fracBefore, fracAfter)
+        escalation8136 = RetentionPolicy8136.nextEscalation8136(escalation8136, ok)
+        if (ok) return
+        ineffectiveHardTrims8136.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc("MEMORY_GUARD_HARD_TRIM_INEFFECTIVE_8136")
+            ForensicLogger.lifecycle(
+                "MEMORY_GUARD_HARD_TRIM_INEFFECTIVE_8136",
+                "before=${"%.0f".format(fracBefore * 100)}% after=${"%.0f".format(fracAfter * 100)}% recoveredMb=$lastRecoveredMb8136 " +
+                    "escalation=$escalation8136 action=critical_retention_next_tick ${sizes()}",
+            )
+        } catch (_: Throwable) {}
     }
 
     // ── V5.0.8031 — what is actually big ──
@@ -182,5 +279,7 @@ object MemoryGuard7977 {
 
     fun statusLine7977(): String =
         "heap=${lastUsedMb}/${maxMb}MB (${"%.0f".format(lastFrac * 100)}%) peak=${"%.0f".format(peakFrac * 100)}% " +
-            "softTrims=${softTrims.get()} hardTrims=${hardTrims.get()} ${sizes()}"
+            "softTrims=${softTrims.get()} hardTrims=${hardTrims.get()} " +
+            "pressure8136=$pressure8136 escalation8136=$escalation8136 pressurePruned8136=${pressurePruned8136.get()} " +
+            "ineffectiveHardTrims8136=${ineffectiveHardTrims8136.get()} lastRecoveredMb8136=$lastRecoveredMb8136 tapesFreed8136=${tapesFreed8136.get()} ${sizes()}"
 }

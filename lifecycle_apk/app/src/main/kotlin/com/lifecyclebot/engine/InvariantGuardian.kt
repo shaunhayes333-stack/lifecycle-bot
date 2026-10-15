@@ -167,7 +167,14 @@ object InvariantGuardian {
         // evaluation of an unchanged candidate, cache reuse and legacy mirror rows are overhead, reported separately.
         val unique8087 = try { FdgReEvalThrottle.uniqueDecisions8087() } catch (_: Throwable) { 0L }
         val fdgDecisions = if (unique8087 > 0L) unique8087 else fdgGateEffective8087
-        val fdgRatio = if (s.intake > 0) fdgDecisions.toDouble() / s.intake else 0.0
+        // V5.0.8136 — measurement contract: only the unique-decision counter may fault. When it has no sample the
+        // gate allow+block fallback above is telemetry (fdgUnique in the detail), never reported as unique and never
+        // a fault source; the denominator counts candidates, not intake pulses alone (FdgFanoutContract8136).
+        val fanoutSource8136 = FdgFanoutContract8136.source8136(unique8087)
+        val fdgRatio = FdgFanoutContract8136.faultRatio8136(unique8087, s.intake, try { FdgReEvalThrottle.distinctCandidates8136() } catch (_: Throwable) { 0L })
+        if (fanoutSource8136 != FdgFanoutContract8136.SOURCE_UNIQUE_8136 && fdgDecisions > 0L) {
+            try { PipelineHealthCollector.labelInc("FDG_FANOUT_FALLBACK_TELEMETRY_ONLY_8136") } catch (_: Throwable) {}
+        }
         // V5.0.6591 — accept multi-lane FDG breadth up to 4x/intake when the
         // pipeline is producing journal rows. 3.0 was set before FdgReEvalThrottle
         // landed; today the throttle already dedups repeat verdicts per mint,

@@ -315,6 +315,25 @@ object ChartReader7950 {
     }
     fun size7977(): Int = reads.size + tapes.size
 
+    /**
+     * V5.0.8136 — retention under HARD/CRITICAL heap pressure: the 15-minute quiet rule never freed a fresh tape, so
+     * the tapes of candidates seen in the last quarter hour stayed at up to [MAX_MINTS] under pressure. Beyond
+     * [maxTapes], the least recently priced unprotected tapes go (the archive keeps the token; a tape refills from
+     * the feed). [isProtected] keeps open positions and active admissions. Returns tapes freed.
+     */
+    fun trimUnderPressure8136(maxTapes: Int, isProtected: (String) -> Boolean): Int {
+        val excess = tapes.size - maxTapes.coerceAtLeast(0)
+        if (excess <= 0) return 0
+        var freed = 0
+        tapes.entries.sortedBy { it.value.lastMs }.asSequence()
+            .filter { e -> !(try { isProtected(e.key) } catch (_: Throwable) { true }) }
+            .take(excess)
+            .forEach { e -> if (tapes.remove(e.key, e.value)) { reads.remove(e.key); freed++ } }
+        val now = System.currentTimeMillis()
+        short7955.entries.removeIf { now - it.value > 30L * 60_000L }
+        return freed
+    }
+
     /** V5.0.7955 — the last read for [mint] if one exists (no library search, no backfill request). */
     fun cachedRead7955(mint: String): Read? = reads[mint]
 

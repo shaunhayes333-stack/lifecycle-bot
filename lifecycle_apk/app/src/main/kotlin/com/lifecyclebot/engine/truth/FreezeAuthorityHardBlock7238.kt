@@ -74,8 +74,14 @@ object FreezeAuthorityHardBlock7238 {
         // data and was never checked against the chain, and the chain check read only freezeAuthority, so a Token-2022
         // mint that can pause, claw back, hook or tax every sell passed. Every live buy now needs the chain's own read
         // (permanently cached once clean): freeze revoked AND no hostile Token-2022 extension.
+        // V5.0.8136 — the chain is asked once per gate call: the UNKNOWN branch below reuses this answer instead of
+        // running a second full Helius-first ladder for the same mint in the same evaluation.
+        var asked8136 = false
+        var firstProof8136: OnChainMintAuthorityProof7248.Proof? = null
         if (freeze != false) {
             val proof = try { OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true) } catch (_: Throwable) { null }
+            asked8136 = true
+            firstProof8136 = proof
             val hostile = proof?.hostileExtension8123
             if (proof != null && proof.freezeAuthorityDisabled && hostile != null) {
                 blockedActive.incrementAndGet()
@@ -88,6 +94,7 @@ object FreezeAuthorityHardBlock7238 {
                 return Decision(Verdict.BLOCK_FREEZE_ACTIVE, "TOKEN2022_HOSTILE_EXTENSION_$hostile")
             }
             if (freeze == true && proof == null) {
+                try { AuthorityProofPrefetch8136.noteGateUnanswered8136(mint) } catch (_: Throwable) {}
                 blockedUnverified.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FREEZE_CACHED_TRUE_CHAIN_UNANSWERED_8123") } catch (_: Throwable) {}
                 return Decision(Verdict.BLOCK_FREEZE_UNVERIFIED, "FREEZE_AUTHORITY_UNVERIFIED")
@@ -125,7 +132,7 @@ object FreezeAuthorityHardBlock7238 {
                 // V5.0.7248 — UNKNOWN at the cached safety layer is not the final
                 // answer. Re-prove synchronously through the configured Helius-first
                 // RPC ladder before refusing an otherwise executable live buy.
-                val proof = try { OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true) } catch (_: Throwable) { null }
+                val proof = if (asked8136) firstProof8136 else try { OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true) } catch (_: Throwable) { null }
                 if (proof != null) {
                     ts.safety = ts.safety.copy(
                         mintAuthorityDisabled = proof.mintAuthorityDisabled,
@@ -151,6 +158,8 @@ object FreezeAuthorityHardBlock7238 {
                     } catch (_: Throwable) {}
                     return Decision(Verdict.BLOCK_FREEZE_ACTIVE, "FREEZE_AUTHORITY_ACTIVE")
                 }
+                // V5.0.8136 — UNANSWERED stays non-executable; the retry is async and bounded (prefetch ladder).
+                try { AuthorityProofPrefetch8136.noteGateUnanswered8136(mint) } catch (_: Throwable) {}
                 blockedUnverified.incrementAndGet()
                 // Unknown freeze — do NOT spend real SOL until an RPC/security
                 // provider affirmatively proves the authority is null. This is
@@ -189,7 +198,8 @@ object FreezeAuthorityHardBlock7238 {
     fun statusLine(): String {
         val s = summary()
         return "FreezeAuthorityHardBlock7238 allowed=${s.allowed} " +
-            "blockedActive=${s.blockedActive} blockedUnverified=${s.blockedUnverified}"
+            "blockedActive=${s.blockedActive} blockedUnverified=${s.blockedUnverified} " +
+            (try { AuthorityProofPrefetch8136.statusLine8136() } catch (_: Throwable) { "" })
     }
 
     internal fun clearForTest() {

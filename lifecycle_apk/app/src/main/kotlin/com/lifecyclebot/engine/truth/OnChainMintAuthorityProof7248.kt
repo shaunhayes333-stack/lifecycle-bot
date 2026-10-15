@@ -23,7 +23,45 @@ object OnChainMintAuthorityProof7248 {
         val provider: String,
         /** V5.0.8123 — a Token-2022 extension that can trap a holder (null = none). */
         val hostileExtension8123: String? = null,
+        /** V5.0.8136 — a Token-2022 extension that is benign now but has a live authority that can change it. */
+        val mutableExtension8136: String? = null,
     )
+
+    /**
+     * V5.0.8136 — extensions whose config a live authority can still change after the proof: a transfer-fee authority
+     * can raise the fee, a transfer-hook authority can install a hook. Extensions themselves are fixed at mint init,
+     * and a defaultAccountState change needs the (revoked) freeze authority, so everything else is immutable.
+     * Pure: [extensions] is the jsonParsed mint `info.extensions` array.
+     */
+    fun mutableExtension8136(extensions: org.json.JSONArray?): String? {
+        if (extensions == null) return null
+        for (i in 0 until extensions.length()) {
+            val e = extensions.optJSONObject(i) ?: continue
+            val st = e.optJSONObject("state")
+            when (val name = e.optString("extension", "")) {
+                "transferFeeConfig" -> if (liveKey8136(st, "transferFeeConfigAuthority")) return name
+                "transferHook" -> if (liveKey8136(st, "authority")) return name
+            }
+        }
+        return null
+    }
+
+    private fun liveKey8136(st: JSONObject?, key: String): Boolean {
+        val v = st?.opt(key) ?: return false
+        return v != JSONObject.NULL && v.toString().isNotBlank()
+    }
+
+    /** V5.0.8136 — one chain ask per mint at a time; the live gate, scans and the prefetch join one another. */
+    private val flight8136 = SingleFlight8136<Proof>()
+    private const val LIVE_JOIN_MS_8136 = 7_000L
+    private const val SCAN_JOIN_MS_8136 = 7_000L
+
+    fun inFlight8136(mint: String): Boolean = flight8136.inFlight(mint)
+
+    /** V5.0.8136 — reuse window of a cached non-permanent proof (clean-but-mutable is short, hostile 5 min). */
+    private fun cacheTtlMs8136(p: Proof): Long =
+        if (p.freezeAuthorityDisabled && p.hostileExtension8123 == null && p.mutableExtension8136 != null) AuthorityProofState8136.CLEAN_MUTABLE_TTL_MS_8136
+        else ACTIVE_PROOF_TTL_MS_7365
 
     /**
      * V5.0.8123 — Token-2022 extensions that can stop a holder selling even with freeze authority revoked:
@@ -86,10 +124,19 @@ object OnChainMintAuthorityProof7248 {
             return it
         }
         val now7365 = System.currentTimeMillis()
-        activeProof7365[mint]?.let { (p, at) -> if (now7365 - at < ACTIVE_PROOF_TTL_MS_7365) return p }
+        activeProof7365[mint]?.let { (p, at) -> if (now7365 - at < cacheTtlMs8136(p)) return p }
         // V5.0.8094 — the live pre-broadcast gate always asks the chain: a scan-time miss cached for 20 s refused live
         // buys outright (4abd6b13a: 13 of 17 live buy attempts refused FREEZE_AUTHORITY_UNVERIFIED).
         if (!liveGate8094) unansweredAt7365[mint]?.let { at -> if (now7365 - at < UNANSWERED_RETRY_MS_7365) return null }
+        // V5.0.8136 — single flight: a second caller for the same mint waits for the ask already on the wire. A live
+        // gate that joined an ask which came back unanswered asks once more itself (Helius first); a scan does not.
+        val flight = flight8136.run(mint, if (liveGate8094) LIVE_JOIN_MS_8136 else SCAN_JOIN_MS_8136) { askChain8136(mint, maxProviders, liveGate8094) }
+        if (flight.value != null || !flight.joined || !liveGate8094) return flight.value
+        try { PipelineHealthCollector.labelInc("MINT_AUTHORITY_PROOF_JOINED_UNANSWERED_REASK_8136") } catch (_: Throwable) {}
+        return flight8136.run(mint, LIVE_JOIN_MS_8136) { askChain8136(mint, maxProviders, true) }.value
+    }
+
+    private fun askChain8136(mint: String, maxProviders: Int, liveGate8094: Boolean): Proof? {
         val helius = RuntimeProviderAuthority6685.configuredHeliusRpc()
         // V5.0.7365 — public RPCs first, Helius last. With Helius at 429 (credits
         // exhausted) the old order sent every probe to Helius first, and when the
@@ -147,7 +194,20 @@ object OnChainMintAuthorityProof7248 {
                         freezeAuthorityDisabled = freezeAuth == null || freezeAuth == JSONObject.NULL,
                         provider = provider,
                         hostileExtension8123 = hostileExtension8123(info.optJSONArray("extensions")),
+                        mutableExtension8136 = mutableExtension8136(info.optJSONArray("extensions")),
                     )
+                    // V5.0.8136 — an answer impossible after an immutable-clean proof is not trusted either way.
+                    val state8136 = AuthorityProofState8136.observe8136(
+                        mint, proof.freezeAuthorityDisabled, proof.mintAuthorityDisabled,
+                        proof.hostileExtension8123, proof.mutableExtension8136, provider,
+                    ).state
+                    if (state8136 == AuthorityProofState8136.State.CONTRADICTED) {
+                        miss8094("CONTRADICTED_8136")
+                        try { ForensicLogger.lifecycle("MINT_AUTHORITY_PROOF_CONTRADICTED_8136", "mint=${mint.take(10)} provider=$provider freezeDisabled=${proof.freezeAuthorityDisabled} mintDisabled=${proof.mintAuthorityDisabled} action=non_executable_reask") } catch (_: Throwable) {}
+                        provenDisabled7365.remove(mint)
+                        activeProof7365.remove(mint)
+                        return@use
+                    }
                     try {
                         PipelineHealthCollector.labelInc("MINT_AUTHORITY_ONCHAIN_PROOF_7248")
                         ForensicLogger.lifecycle(
@@ -159,6 +219,8 @@ object OnChainMintAuthorityProof7248 {
                     if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled) {
                         // V5.0.8123 — a hostile Token-2022 mint is not "proven clean": never cached permanently.
                         if (proof.hostileExtension8123 != null) { activeProof7365[mint] = proof to System.currentTimeMillis(); return proof }
+                        // V5.0.8136 — clean now but a live Token-2022 authority can change that: short reuse, never permanent.
+                        if (proof.mutableExtension8136 != null) { activeProof7365[mint] = proof to System.currentTimeMillis(); return proof }
                         if (provenDisabled7365.size > 20_000) provenDisabled7365.clear()
                         provenDisabled7365[mint] = proof
                     } else {
@@ -175,7 +237,18 @@ object OnChainMintAuthorityProof7248 {
         try { PipelineHealthCollector.labelInc("MINT_AUTHORITY_ONCHAIN_PROOF_UNAVAILABLE_7248") } catch (_: Throwable) {}
         if (unansweredAt7365.size > 5_000) unansweredAt7365.clear()
         unansweredAt7365[mint] = System.currentTimeMillis()
+        AuthorityProofState8136.observeUnanswered8136(mint)
         return null
+    }
+
+    /** V5.0.8136 — memory pressure: drop expired proofs; immutable-clean proofs stay (they never change). */
+    fun trim8136(): Int {
+        val now = System.currentTimeMillis()
+        val before = activeProof7365.size + unansweredAt7365.size
+        activeProof7365.entries.removeIf { now - it.value.second >= cacheTtlMs8136(it.value.first) }
+        unansweredAt7365.entries.removeIf { now - it.value >= UNANSWERED_RETRY_MS_7365 }
+        AuthorityProofState8136.trim8136(5_000, now)
+        return (before - activeProof7365.size - unansweredAt7365.size).coerceAtLeast(0)
     }
 
     /** V5.0.8094 — why one endpoint gave no proof, so an UNVERIFIED refusal names its cause. */

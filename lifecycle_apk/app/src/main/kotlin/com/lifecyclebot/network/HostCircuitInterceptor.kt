@@ -51,6 +51,23 @@ object HostCircuitInterceptor : Interceptor {
         val i = (streak - 1).coerceIn(0, RATE_LIMIT_LADDER_MS_7297.lastIndex)
         return RATE_LIMIT_LADDER_MS_7297[i]
     }
+    /**
+     * V5.0.8136 — one DNS miss on a mobile network switch put the host (an RPC the live authority proof needs) behind a
+     * flat five-minute wall. NXDOMAIN now climbs 15 s, 60 s, 5 min on consecutive misses and a success resets it.
+     */
+    private val NX_LADDER_MS_8136 = longArrayOf(15_000L, 60_000L, NXDOMAIN_COOLDOWN_MS)
+
+    /** Pure: cooldown for the [streak]th consecutive NXDOMAIN (1-based). */
+    fun nxCooldownMs8136(streak: Int): Long = NX_LADDER_MS_8136[(streak - 1).coerceIn(0, NX_LADDER_MS_8136.lastIndex)]
+
+    /**
+     * V5.0.8136 — pure: the 429 streak after one more 429. When the cool-down is still running, a parallel caller's
+     * 429 from the same burst does not climb the ladder again: N callers released together at the end of a window
+     * used to jump the provider straight to the five-minute rung in one burst.
+     */
+    fun nextRateLimitStreak8136(prevStreak: Int, nowMs: Long, cooldownUntilMs: Long): Int =
+        if (cooldownUntilMs > nowMs && prevStreak > 0) prevStreak else prevStreak + 1
+
     private const val SERVER_FAIL_TRIP_COUNT = 3
     private const val SERVER_FAIL_TRIP_WINDOW_MS = 60_000L
 
@@ -60,6 +77,7 @@ object HostCircuitInterceptor : Interceptor {
         val firstServerFailAtMs: AtomicLong = AtomicLong(0L),
         val totalBypassed: AtomicLong = AtomicLong(0L),
         val rateLimitStreak7297: AtomicInteger = AtomicInteger(0),
+        val nxStreak8136: AtomicInteger = AtomicInteger(0),
     )
 
     private val states = ConcurrentHashMap<String, HostState>()
@@ -238,9 +256,10 @@ object HostCircuitInterceptor : Interceptor {
         val response: Response = try {
             chain.proceed(wireReq)
         } catch (uhe: UnknownHostException) {
-            state.cooldownUntilMs.set(now + NXDOMAIN_COOLDOWN_MS)
+            state.cooldownUntilMs.set(now + nxCooldownMs8136(state.nxStreak8136.incrementAndGet()))
             throw uhe
         }
+        state.nxStreak8136.set(0)
 
         if (provider.isNotBlank()) {
             try {
@@ -253,9 +272,10 @@ object HostCircuitInterceptor : Interceptor {
         // connection-level rest window so dozens of parallel callers do not all
         // wake up after 90 seconds and recreate the same storm.
         if (response.code == 429) {
-            val streak7297 = state.rateLimitStreak7297.incrementAndGet()
+            val streak7297 = state.rateLimitStreak7297.updateAndGet { nextRateLimitStreak8136(it, now, state.cooldownUntilMs.get()) }
             val retryAfter7297 = response.header("Retry-After")?.trim()?.toLongOrNull()
-            state.cooldownUntilMs.set(now + rateLimitCooldownMs7297(streak7297, retryAfter7297))
+            val until8136 = now + rateLimitCooldownMs7297(streak7297, retryAfter7297)
+            state.cooldownUntilMs.accumulateAndGet(until8136) { old, fresh -> maxOf(old, fresh) }
             state.recentServerFailCount.set(0)
             state.firstServerFailAtMs.set(0L)
         } else if (response.code in 500..599 || response.code == 403) {
