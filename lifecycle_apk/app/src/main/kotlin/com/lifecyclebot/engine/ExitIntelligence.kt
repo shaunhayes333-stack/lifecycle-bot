@@ -140,7 +140,7 @@ object ExitIntelligence {
         }
 
         if (state.currentPrice > tracker.highestPrice) {
-            tracker.highestPrice = state.currentPrice
+            tracker.highestPrice = com.lifecyclebot.engine.truth.PositionDisplayTruth8078.acceptedHigh8133(state.mint, tracker.entryPrice, tracker.highestPrice, state.currentPrice, "EXIT_INTEL")  // V5.0.8133
         }
         if (state.currentPrice < tracker.lowestPrice) {
             tracker.lowestPrice = state.currentPrice

@@ -481,7 +481,7 @@ object ShadowLearningEngine {
         shadow.lastUpdateMs = System.currentTimeMillis()
         
         // Track high/low
-        if (currentPrice > shadow.highestPrice) {
+        if (currentPrice > shadow.highestPrice && com.lifecyclebot.engine.truth.PositionDisplayTruth8078.highStepOk8133(mint, shadow.entryPrice, shadow.highestPrice, currentPrice, "SHADOW_BLOCKED")) {  // V5.0.8133
             shadow.highestPrice = currentPrice
             val peakPnl = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "ShadowLearningEngine.peak_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
             shadow.peakPnlPct = peakPnl

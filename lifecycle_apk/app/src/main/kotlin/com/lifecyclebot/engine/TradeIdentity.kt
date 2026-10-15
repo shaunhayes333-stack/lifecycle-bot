@@ -353,12 +353,13 @@ data class TradeIdentity(
         currentPrice = price
         lastUpdateAt = System.currentTimeMillis()
         
-        if (price > highestPrice) highestPrice = price
+        val high8133 = price > highestPrice && com.lifecyclebot.engine.truth.PositionDisplayTruth8078.highStepOk8133(mint, entryPrice, highestPrice, price, "TRADE_IDENTITY")  // V5.0.8133
+        if (high8133) highestPrice = price
         if (price < lowestPrice || lowestPrice == 0.0) lowestPrice = price
         
         if (entryPrice > 0) {
             currentPnlPct = OpenPnlSanity.inspect(entryPrice, price, context = "TradeIdentity_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
-            if (currentPnlPct > peakPnlPct) peakPnlPct = currentPnlPct
+            if (currentPnlPct > peakPnlPct && (high8133 || price <= highestPrice)) peakPnlPct = currentPnlPct
         }
     }
     

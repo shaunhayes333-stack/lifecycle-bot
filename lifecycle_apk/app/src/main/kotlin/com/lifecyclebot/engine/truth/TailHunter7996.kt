@@ -67,6 +67,7 @@ object TailHunter7996 {
         private val t3X = if (crypto) 2.00 else 11.0
         private val trailFromX = if (crypto) 1.30 else 3.0
         private val trailKeep = if (crypto) 0.80 else 0.65
+        val entryUsd8133: Double get() = entry
         var remaining = 1.0
             private set
         var banked = 0.0
@@ -204,7 +205,9 @@ object TailHunter7996 {
     fun onPrice7996(mint: String, priceUsd: Double, atMs: Long) {
         val o = obs[mint]
         if (o != null && atMs >= o.atMs) {
-            o.ladder.onPrice(priceUsd)
+            // V5.0.8133 — a one-feed jump past 2x the ladder's peak waits for a second feed (phantom "2373%pk").
+            if (PositionDisplayTruth8078.highStepOk8133(mint, o.ladder.entryUsd8133, o.ladder.entryUsd8133 * o.ladder.peakX, priceUsd, "TAIL_HUNTER"))
+                o.ladder.onPrice(priceUsd)
             o.lastPrintMs = atMs
             if (o.ladder.done) finalize(o)
         }

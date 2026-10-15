@@ -8445,7 +8445,7 @@ class Executor(
                 if (lastNewHighMs7388.size > 5_000) lastNewHighMs7388.clear()
                 lastNewHighMs7388[hk7388] = System.currentTimeMillis()
             }
-            ts.position.highestPrice = maxOf(ts.position.highestPrice, currentPrice)
+            ts.position.highestPrice = com.lifecyclebot.engine.truth.PositionDisplayTruth8078.acceptedHigh8133(ts.mint, ts.position.entryPrice, ts.position.highestPrice, currentPrice, "EXEC_MANAGE")  // V5.0.8133
             if (ts.position.lowestPrice == 0.0 || currentPrice < ts.position.lowestPrice)
                 ts.position.lowestPrice = currentPrice
         }
@@ -11209,7 +11209,7 @@ class Executor(
             }
         } catch (_: Exception) {}
 
-        pos.highestPrice = maxOf(pos.highestPrice, price)
+        pos.highestPrice = com.lifecyclebot.engine.truth.PositionDisplayTruth8078.acceptedHigh8133(ts.mint, pos.entryPrice, pos.highestPrice, price, "EXEC_RISK")  // V5.0.8133
         if (pos.lowestPrice == 0.0 || price < pos.lowestPrice) {
             pos.lowestPrice = price
         }
@@ -12007,7 +12007,7 @@ class Executor(
         if (ts.position.isOpen) {
             val _unconditionalPrice = getActualPrice(ts)
             if (_unconditionalPrice > 0.0) {
-                ts.position.highestPrice = maxOf(ts.position.highestPrice, _unconditionalPrice)
+                ts.position.highestPrice = com.lifecyclebot.engine.truth.PositionDisplayTruth8078.acceptedHigh8133(ts.mint, ts.position.entryPrice, ts.position.highestPrice, _unconditionalPrice, "EXEC_TICK")  // V5.0.8133
                 if (ts.position.lowestPrice == 0.0 || _unconditionalPrice < ts.position.lowestPrice)
                     ts.position.lowestPrice = _unconditionalPrice
             }

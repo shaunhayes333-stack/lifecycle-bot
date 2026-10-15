@@ -97,7 +97,27 @@ object PositionDisplayTruth8078 {
     fun markAgrees8128(markUsd: Double, agreedUsd: Double?): Boolean =
         agreedUsd != null && agreedUsd > 0.0 && markUsd > 0.0 && kotlin.math.abs(markUsd / agreedUsd - 1.0) <= 0.25
 
-    private val corroborationAskedAt8128 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /**
+     * V5.0.8133 — the 8128 rule for every other high/peak writer (position highestPrice, exit trackers, shadow and
+     * forward-return labels, call sweeps): a step from [oldHighUsd] to [candidateUsd] that more than doubles the
+     * multiple over [basisUsd] past +100% is accepted only when [candidateUsd] agrees with a two-feed price.
+     * A refused step asks every feed once and the writer keeps its old high; a real run passes on the next agreeing mark.
+     */
+    fun highStepOk8133(mint: String, basisUsd: Double, oldHighUsd: Double, candidateUsd: Double, writer: String): Boolean {
+        if (!(basisUsd > 0.0) || !candidateUsd.isFinite() || candidateUsd <= oldHighUsd) return true
+        val oldPct = (maxOf(oldHighUsd, basisUsd) / basisUsd - 1.0) * 100.0
+        val newPct = (candidateUsd / basisUsd - 1.0) * 100.0
+        if (peakStepCorroborated8128(mint, oldPct, newPct, candidateUsd)) return true
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PEAK_UNCORROBORATED_JUMP_REFUSED_8133_$writer") } catch (_: Throwable) {}
+        requestCorroboration8128(mint)
+        return false
+    }
+
+    /** V5.0.8133 — the high a writer may keep: [candidateUsd] when it is a corroborated (or ordinary) step, else [oldHighUsd]. */
+    fun acceptedHigh8133(mint: String, basisUsd: Double, oldHighUsd: Double, candidateUsd: Double, writer: String): Double =
+        if (highStepOk8133(mint, basisUsd, oldHighUsd, candidateUsd, writer)) maxOf(oldHighUsd, candidateUsd) else oldHighUsd
+
+    private val corroborationAskedAt8128 =java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** Ask every feed for this mint once (at most every 20 s), off the caller's thread. */
     private fun requestCorroboration8128(mint: String) {

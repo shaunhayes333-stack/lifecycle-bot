@@ -661,7 +661,7 @@ object ProjectSniperAI {
         val mission = activeMissions[mint] ?: return ExitSignal(false, 0, "NO_MISSION", SniperRank.PENDING)
         
         // Update highest price
-        if (currentPrice > mission.highestPrice) {
+        if (currentPrice > mission.highestPrice && com.lifecyclebot.engine.truth.PositionDisplayTruth8078.highStepOk8133(mint, mission.entryPrice, mission.highestPrice, currentPrice, "PROJECT_SNIPER")) {  // V5.0.8133
             mission.highestPrice = currentPrice
         }
         

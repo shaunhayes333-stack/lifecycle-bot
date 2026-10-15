@@ -1254,6 +1254,8 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
+            // V5.0.8133 — a one-feed jump past the runner bars (re-entry, hive broadcast, runner grab) waits for a second feed.
+            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) continue
             if (gross < o.minPct7962) o.minPct7962 = gross
             // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.
             if (gross >= 100.0 && age <= 30L * 60_000L) try { HiveEdge8000.noteRunner8000(o.mint, o.symbol, gross, o.atMs) } catch (_: Throwable) {}

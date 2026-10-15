@@ -776,7 +776,7 @@ object TelegramCallSweeper7830 {
             val px = try { priceFor(mint) } catch (_: Throwable) { null } ?: continue
             if (!(px.isFinite() && px > 0.0)) continue
             val ret = ((px / c.entryPx - 1.0) * 100.0).coerceIn(-100.0, 1000.0)
-            if (ret > c.peakPct) { c.peakPct = ret; c.peakAtMs = nowMs }
+            if (ret > c.peakPct && com.lifecyclebot.engine.truth.PositionDisplayTruth8078.highStepOk8133(mint, c.entryPx, c.entryPx * (1.0 + c.peakPct / 100.0), px, "CALL_SWEEP")) { c.peakPct = ret; c.peakAtMs = nowMs }  // V5.0.8133
             if (c.ret15 == null && age >= H15_MS_7830 && age <= H15_MS_7830 + HORIZON_GRACE_MS_7830) {
                 c.ret15 = ret
                 booked15.incrementAndGet()

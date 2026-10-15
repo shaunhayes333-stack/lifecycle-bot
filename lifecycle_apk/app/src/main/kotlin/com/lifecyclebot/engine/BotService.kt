@@ -25149,7 +25149,7 @@ if (hotExitHandledSweep) {
                     val exitPx4481 = walletCorrespondentOpenPrice4481(ts, execPx ?: last, "UNIVERSAL_EXIT_SWEEP")
                     val entryForExec = ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: entry
                     val pnlPct = if (exitPx4481 > 0.0 && entryForExec > 0.0) ((exitPx4481 - entryForExec) / entryForExec) * 100.0 else rawPnlPct
-                    val peakPct = kotlin.math.max(ts.position.peakGainPct, pnlPct)
+                    val peakPct = if (com.lifecyclebot.engine.truth.PositionDisplayTruth8078.highStepOk8133(ts.mint, entryForExec, entryForExec * (1.0 + ts.position.peakGainPct / 100.0), exitPx4481, "UNIVERSAL_SWEEP")) kotlin.math.max(ts.position.peakGainPct, pnlPct) else ts.position.peakGainPct  // V5.0.8133
                     val hardFloor = pnlPct <= -20.0
                     val fluidLockFloor = try {
                         com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(

@@ -141,7 +141,7 @@ object LaneShadowProof7307 {
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
-            if (gross > o.peakPct) o.peakPct = gross
+            if (gross > o.peakPct && PositionDisplayTruth8078.highStepOk8133(mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "LANE_SHADOW")) o.peakPct = gross  // V5.0.8133
             val reason = exitReason(gross, o.peakPct, age) ?: continue
             open.remove(key)
             val net = gross - o.costPct

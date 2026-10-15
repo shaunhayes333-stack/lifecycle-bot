@@ -1044,4 +1044,31 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src.contains("val yielded = ops != null && laneFitRefusal8132(ops[p]?.reason)"))
         assertTrue(src.contains("if (ready && native8094 && !receiverRecordSound8094(mint, l))"))   // receiver record still guards it
     }
+
+    // V5.0.8133 — the 8128 two-feed rule on every other high/peak writer, not just the canonical peak.
+    @Test fun everyPeakWriterRefusesAOneFeedJump() {
+        val t = com.lifecyclebot.engine.truth.PositionDisplayTruth8078
+        assertTrue(t.highStepOk8133("m", 1.0, 1.5, 1.8, "T"))     // +50% -> +80%: ordinary step
+        assertTrue(t.highStepOk8133("m", 1.0, 3.0, 5.0, "T"))     // 3x -> 5x: under double
+        assertTrue(t.highStepOk8133("m", 1.0, 3.0, 2.0, "T"))     // not a new high
+        assertEquals(1.8, t.acceptedHigh8133("m", 1.0, 1.5, 1.8, "T"), 1e-12)
+        assertTrue(t.jumpNeedsCorroboration8128(0.0, 1888.0))       // SAC 1x -> 19.9x needs a second feed
+        val writers = mapOf(
+            "engine/Executor.kt" to listOf("\"EXEC_MANAGE\")", "\"EXEC_RISK\")", "\"EXEC_TICK\")"),
+            "engine/ExitIntelligence.kt" to listOf("\"EXIT_INTEL\")"),
+            "engine/TradeIdentity.kt" to listOf("\"TRADE_IDENTITY\")"),
+            "engine/ShadowLearningEngine.kt" to listOf("\"SHADOW_BLOCKED\")"),
+            "v3/scoring/ProjectSniperAI.kt" to listOf("\"PROJECT_SNIPER\")"),
+            "engine/truth/LaneShadowProof7307.kt" to listOf("\"LANE_SHADOW\")"),
+            "engine/truth/ForwardReturnLabeler7731.kt" to listOf("\"FORWARD_LABEL\")) continue"),
+            "engine/truth/TailHunter7996.kt" to listOf("\"TAIL_HUNTER\")"),
+            "engine/market/TelegramCallSweeper7830.kt" to listOf("\"CALL_SWEEP\")"),
+            "engine/BotService.kt" to listOf("\"UNIVERSAL_SWEEP\")"),
+        )
+        for ((f, tags) in writers) for (tag in tags) assertTrue("$f $tag", src(f).contains(tag))
+        val ex = src("engine/Executor.kt")
+        assertFalse(ex.contains("ts.position.highestPrice = maxOf(ts.position.highestPrice, currentPrice)"))
+        assertFalse(ex.contains("pos.highestPrice = maxOf(pos.highestPrice, price)"))
+        assertFalse(ex.contains("ts.position.highestPrice = maxOf(ts.position.highestPrice, _unconditionalPrice)"))
+    }
 }
