@@ -1030,6 +1030,7 @@ class BotService : Service() {
                 com.lifecyclebot.engine.truth.TradePlan7739.underwaterMsFor7877(pos.tradingMode),
                 if (pos.isPaperPosition) 1.0 else com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(),
             ) ?: (if (TradeExitContract8077.longHold(ts) == true) null  // V5.0.8094 — a runner-style trade has no pop-fade clock
+                else if (TradeExitContract8077.runnerFromEntry8104(ts)) null  // V5.0.8104 — nor does a live meme buy (runner from entry)
                 else ExitProfile7955.maxHoldExit7955(plan7955, now - pos.entryTime, pnlPctNow, planCostPct7766(ts)))?.let {
                 // V5.0.7955 — a pop-and-fade setup past its learned hold takes its profit.
                 com.lifecyclebot.engine.truth.TradePlan7739.Exit(com.lifecyclebot.engine.truth.TradePlan7739.ExitKind.FULL, it)

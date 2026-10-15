@@ -314,6 +314,8 @@ object RunnerGrab7967 {
 
     /** A held position this module grabbed (within the hold window). */
     private fun holding7967(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+        // V5.0.8104 — a live meme buy is held on the runner ladder from its own entry, whatever its entry style.
+        if (TradeExitContract8077.runnerFromEntry8104(ts)) return nowMs - ts.position.entryTime <= HOLD_WINDOW_MS
         if (TradeExitContract8077.longHold(ts) == false) return false
         val at = grabbed[ts.mint] ?: return false
         return ts.position.isOpen && ts.position.entryTime >= at - 5L * 60_000L && nowMs - at <= HOLD_WINDOW_MS
@@ -357,7 +359,7 @@ object RunnerGrab7967 {
 
     /** Executor.requestSellCore7948: the deferral label when a held runner should not take this exit. */
     fun deferSell7967(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): String? {
-        if (TradeExitContract8077.longHold(ts) == false) return null
+        if (!TradeExitContract8077.runnerFromEntry8104(ts) && TradeExitContract8077.longHold(ts) == false) return null
         if (ts.position.isPaperPosition || !holding7967(ts, nowMs)) return null
         val g = gross(ts, null)
         if (!deferrable7967(reason, g)) return null
@@ -402,6 +404,13 @@ object RunnerGrab7967 {
      * Pure. V5.0.7980 — peak capture: after a gross peak of at least +200%, price 35% below the
      * peak price (gross % values: (1 + g) <= 0.65 x (1 + peak)).
      */
+    /**
+     * Pure (V5.0.8104): a from-entry runner that never reached the first rung keeps half its peak gain. Without it a
+     * +40..+199% peak could round-trip to a loss (hozeMZ 5.0.8098: +176% peak, closed -6.3%) since 7980 starts at +200%.
+     */
+    fun fromEntryGiveback8104(peakPct: Double, grossPct: Double): Boolean =
+        peakPct.isFinite() && grossPct.isFinite() && peakPct >= 40.0 && peakPct < 200.0 && grossPct <= peakPct * 0.5
+
     fun peakGiveback7980(peakPct: Double, grossPct: Double): Boolean =
         peakPct.isFinite() && grossPct.isFinite() && peakPct >= 200.0 &&
             (1.0 + grossPct / 100.0) <= 0.65 * (1.0 + peakPct / 100.0)
@@ -423,6 +432,7 @@ object RunnerGrab7967 {
             // V5.0.7980 — a huge quick breakout gives back fast: once it has run +200%, the rest
             // goes when price is 35% below its peak, without waiting for a bar to close.
             peakGiveback7980(peak, g) -> "RUNNER_PEAK_CAPTURE_7980_${peak.toInt()}PK_${g.toInt()}PCT"
+            TradeExitContract8077.runnerFromEntry8104(ts) && fromEntryGiveback8104(peak, g) -> "RUNNER_FROM_ENTRY_GIVEBACK_8104_${peak.toInt()}PK_${g.toInt()}PCT"
             r60 != null && r60.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_1M_${g.toInt()}PCT"
             g >= 50.0 && r15 != null && r15.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_15S_${g.toInt()}PCT"
             else -> return

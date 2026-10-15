@@ -164,6 +164,21 @@ object LifecycleHold8065 {
     internal fun profitablePeakReversal8079(peakPct: Double, currentPct: Double, fresh: Boolean): Boolean =
         fresh && peakPct >= 300.0 && currentPct >= 20.0 && peakGiveback8065(peakPct, currentPct)
 
+    /**
+     * Pure (V5.0.8104) §A_HOLD_THAT_NEVER_RAN_IS_NOT_A_RUNNER. 5.0.8098: losers held 196.8 min vs winners 16.7 min. The
+     * hold deferred every ordinary stop (STRICT_SL, UNDERWATER_TIME_STOP) down to -40%, and its own base break needs
+     * ~4.5 h of 15-minute bars, so a lifecycle-lane or runner-ticket buy that never moved sat red for hours. A position
+     * that never reached +[UNPROVEN_PEAK_PCT_8104] takes its ordinary stops once red for [UNPROVEN_RED_MS_8104] or
+     * at [UNPROVEN_DEEP_PCT_8104]; a position that did run keeps the hold (and its give-back exits).
+     */
+    fun unprovenLoser8104(peakPct: Double, grossPct: Double, ageMs: Long): Boolean =
+        grossPct.isFinite() && grossPct < 0.0 && !(peakPct.isFinite() && peakPct >= UNPROVEN_PEAK_PCT_8104) &&
+            (ageMs >= UNPROVEN_RED_MS_8104 || grossPct <= UNPROVEN_DEEP_PCT_8104)
+
+    private const val UNPROVEN_PEAK_PCT_8104 = 25.0
+    private const val UNPROVEN_RED_MS_8104 = 45L * 60_000L
+    private const val UNPROVEN_DEEP_PCT_8104 = -20.0
+
     /** Pure: the dead-money release. */
     fun deadMoney8065(ageMs: Long, grossPct: Double, sinceHighMs: Long): Boolean =
         ageMs >= DEAD_AFTER_MS && grossPct in -15.0..20.0 && sinceHighMs >= NO_HIGH_MS
@@ -227,6 +242,11 @@ object LifecycleHold8065 {
         // V5.0.8080 — a hold whose own give-back is due never swallows the profit lock / trail that
         // asked first (the rapid mark that would fire the hold's exit may not have a price this tick).
         val st8080 = states[key(ts)]
+        val peak8104 = maxOf(st8080?.peak ?: Double.NEGATIVE_INFINITY, ts.position.peakGainPct.takeIf { it.isFinite() } ?: Double.NEGATIVE_INFINITY)
+        if (unprovenLoser8104(peak8104, g, System.currentTimeMillis() - ts.position.entryTime)) {
+            try { PipelineHealthCollector.labelInc("LIFECYCLE_UNPROVEN_LOSER_RELEASED_8104") } catch (_: Throwable) {}
+            return null
+        }
         if (st8080 != null && givebackDue8080(maxOf(st8080.peak, ts.position.peakGainPct), g, st8080.taken)) {
             try { PipelineHealthCollector.labelInc("LIFECYCLE_GIVEBACK_RELEASED_8080") } catch (_: Throwable) {}
             return null

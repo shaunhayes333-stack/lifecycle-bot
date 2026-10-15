@@ -14880,17 +14880,20 @@ class Executor(
      * 3 minutes) is sold through the normal exit path.
      */
     private fun opportunityRotation8098(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
-        val lane = ts.position.tradingMode
-        if (!com.lifecyclebot.engine.truth.OpportunityRotation8098.hasDemand8098(lane)) return false
+        val laneDemand = com.lifecyclebot.engine.truth.OpportunityRotation8098.hasDemand8098(ts.position.tradingMode)
+        // V5.0.8103 — total book full: the poorest position of every lane competes for the slot.
+        val book8103 = !laneDemand && com.lifecyclebot.engine.truth.OpportunityRotation8098.bookDemand8103()
+        if (!laneDemand && !book8103) return false
+        val lane = if (book8103) com.lifecyclebot.engine.truth.OpportunityRotation8098.BOOK_8103 else ts.position.tradingMode
         val now = System.currentTimeMillis()
-        val canon = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(lane)
+        val canon = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(ts.position.tradingMode)
         val all8098: List<TokenState> = try {
             synchronized(BotService.status.tokens) { BotService.status.tokens.values.toList() }
         } catch (_: Throwable) { return false }
         val held = all8098.mapNotNull { t ->
             val tp = t.position
             if (!tp.isOpen || tp.isPaperPosition || tp.qtyToken <= 0.0) return@mapNotNull null
-            if (com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(tp.tradingMode) != canon) return@mapNotNull null
+            if (!book8103 && com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(tp.tradingMode) != canon) return@mapNotNull null
             val v = try { com.lifecyclebot.engine.truth.PositionDisplayTruth8078.view(t, now) } catch (_: Throwable) { null } ?: return@mapNotNull null
             val tail = try { TailBag8034.isTailMint8034(t.mint) } catch (_: Throwable) { true }
             val eligible = com.lifecyclebot.engine.truth.OpportunityRotation8098.victimEligible8098(

@@ -716,6 +716,9 @@ object LiveRiskPolicy7807 {
         try {
             if (d.open) {
                 opens.incrementAndGet()
+                // V5.0.8103 — its lane has room but the whole live book is full: ask for the poorest slot of any lane.
+                if (i.edgeKellyFrac8057 > 0.0 && LiveConcentrationDoctrine7697.liveOpenCount() >= TOTAL_LIVE_SLOTS_7807)
+                    OpportunityRotation8098.noteBookDemand8103(mint, i.edgeKellyFrac8057)
                 PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_${stage}_OPEN_7807")
             } else {
                 passes.computeIfAbsent(d.reason) { AtomicLong(0) }.incrementAndGet()

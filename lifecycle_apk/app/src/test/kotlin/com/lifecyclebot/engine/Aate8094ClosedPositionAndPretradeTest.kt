@@ -623,4 +623,48 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(t.provenLosing8064(listOf(-12.0, -5.0, -20.0, -3.0)))            // four closes: still too few
         assertFalse(t.provenLosing8064(listOf(-12.0, 140.0, -20.0, -3.0, -7.0)))      // a runner pays for the losers
     }
+
+    @Test fun everyLiveMemeBuyRidesTheRunnerLadderFromEntry() {
+        assertTrue(TradeExitContract8077.runnerFromEntryLane8104("MOONSHOT", paper = false))
+        assertTrue(TradeExitContract8077.runnerFromEntryLane8104("SHITCOIN", paper = false))
+        assertTrue(TradeExitContract8077.runnerFromEntryLane8104("EXPRESS", paper = false))
+        assertTrue(TradeExitContract8077.runnerFromEntryLane8104("PROJECT_SNIPER", paper = false))
+        assertFalse(TradeExitContract8077.runnerFromEntryLane8104("CASHGEN", paper = false))   // the scalp lane keeps its ladder
+        assertFalse(TradeExitContract8077.runnerFromEntryLane8104("MOONSHOT", paper = true))
+        // A +40..+199% peak keeps half its gain; the 7980 capture owns +200% and above.
+        assertTrue(RunnerGrab7967.fromEntryGiveback8104(176.0, 80.0))
+        assertFalse(RunnerGrab7967.fromEntryGiveback8104(176.0, 100.0))
+        assertFalse(RunnerGrab7967.fromEntryGiveback8104(30.0, 0.0))
+        assertFalse(RunnerGrab7967.fromEntryGiveback8104(400.0, 150.0))
+        val rg = src("engine/RunnerGrab7967.kt")
+        assertTrue(rg.contains("if (TradeExitContract8077.runnerFromEntry8104(ts)) return nowMs - ts.position.entryTime <= HOLD_WINDOW_MS"))
+        assertTrue(src("engine/BotService.kt").contains("else if (TradeExitContract8077.runnerFromEntry8104(ts)) null"))
+        assertTrue(src("engine/TailBag8034.kt").contains("if (!TradeExitContract8077.runnerFromEntry8104(ts) && TradeExitContract8077.longHold(ts) == false) return Decision.Pass"))
+    }
+
+    @Test fun aFullLiveBookRotatesThePoorestPositionOfAnyLane() {
+        val r = com.lifecyclebot.engine.truth.OpportunityRotation8098
+        val now = 50_000_000L
+        assertFalse(r.bookDemand8103(now))
+        r.noteBookDemand8103("NEWMINT", edgeKellyFrac = 0.0, nowMs = now)      // unproven: no demand
+        assertFalse(r.bookDemand8103(now))
+        r.noteBookDemand8103("NEWMINT", edgeKellyFrac = 0.05, nowMs = now)
+        assertTrue(r.bookDemand8103(now))
+        val held = listOf(com.lifecyclebot.engine.truth.OpportunityRotation8098.Held("A", -4.0), com.lifecyclebot.engine.truth.OpportunityRotation8098.Held("B", -9.0))
+        assertFalse(r.shouldRotate8098("A", r.BOOK_8103, held, now))
+        assertTrue(r.shouldRotate8098("B", r.BOOK_8103, held, now))
+        assertFalse(r.bookDemand8103(now))                                    // one rotation per demand
+        assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("OpportunityRotation8098.noteBookDemand8103(mint, i.edgeKellyFrac8057)"))
+    }
+
+    @Test fun aLifecycleHoldThatNeverRanTakesItsOrdinaryStops() {
+        val h = LifecycleHold8065
+        val min = 60_000L
+        assertTrue(h.unprovenLoser8104(peakPct = 8.0, grossPct = -6.0, ageMs = 50 * min))    // red 45+ min, never ran
+        assertTrue(h.unprovenLoser8104(peakPct = 3.0, grossPct = -22.0, ageMs = 5 * min))    // deep red, never ran
+        assertFalse(h.unprovenLoser8104(peakPct = 3.0, grossPct = -6.0, ageMs = 10 * min))   // early shakeout room
+        assertFalse(h.unprovenLoser8104(peakPct = 60.0, grossPct = -6.0, ageMs = 90 * min))  // it ran: the hold keeps it
+        assertFalse(h.unprovenLoser8104(peakPct = 8.0, grossPct = 4.0, ageMs = 90 * min))    // green
+        assertTrue(src("engine/LifecycleHold8065.kt").contains("LIFECYCLE_UNPROVEN_LOSER_RELEASED_8104"))
+    }
 }

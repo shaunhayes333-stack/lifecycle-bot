@@ -36,6 +36,22 @@ object OpportunityRotation8098 {
 
     private fun lane(raw: String?): String = LiveRiskPolicy7807.canonicalLane(raw)
 
+    // V5.0.8103 — owner: rotation also at the total live cap (TOTAL_LIVE_SLOTS_7807 = 20). A proven candidate whose own
+    // lane has room but the whole book is full asks for the poorest position of ANY lane.
+    const val BOOK_8103 = "BOOK_8103"
+
+    /** LiveRiskPolicy7807.record: a proven candidate passed its lane but the total live book is full. */
+    fun noteBookDemand8103(mint: String, edgeKellyFrac: Double, nowMs: Long = System.currentTimeMillis()) {
+        if (!(edgeKellyFrac.isFinite() && edgeKellyFrac > 0.0) || mint.isBlank()) return
+        demandByLane[BOOK_8103] = Demand(mint, nowMs)
+        demands.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("OPPORTUNITY_ROTATION_DEMAND_8103_BOOK") } catch (_: Throwable) {}
+    }
+
+    /** Is a proven candidate waiting on the total book (any lane's position may be rotated)? */
+    fun bookDemand8103(nowMs: Long = System.currentTimeMillis()): Boolean =
+        demandByLane[BOOK_8103]?.let { nowMs - it.atMs in 0L..DEMAND_TTL_MS } == true
+
     /** LiveRiskPolicy7807.record: a proven candidate was refused only for its lane's slots. */
     fun noteDemand8098(laneRaw: String, mint: String, edgeKellyFrac: Double, nowMs: Long = System.currentTimeMillis()) {
         if (!(edgeKellyFrac.isFinite() && edgeKellyFrac > 0.0) || mint.isBlank()) return
@@ -63,7 +79,7 @@ object OpportunityRotation8098 {
      * candidate? [laneHeld] lists the lane's live positions with their verified PnL and eligibility.
      */
     fun shouldRotate8098(mint: String, laneRaw: String, candidates: List<Held>, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val l = lane(laneRaw)
+        val l = if (laneRaw == BOOK_8103) BOOK_8103 else lane(laneRaw)
         val d = demandByLane[l] ?: return false
         if (nowMs - d.atMs !in 0L..DEMAND_TTL_MS) { demandByLane.remove(l, d); return false }
         if (d.mint == mint || nowMs - lastRotationMs < COOLDOWN_MS) return false

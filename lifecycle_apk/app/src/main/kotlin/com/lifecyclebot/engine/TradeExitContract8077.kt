@@ -19,6 +19,19 @@ object TradeExitContract8077 {
             AgenticStyleRouter.Style.WHALE_ACCUMULATION_HOLD, AgenticStyleRouter.Style.MAINSTREAM_CRYPTO_SWING,
             AgenticStyleRouter.Style.WHALE_FOLLOW, AgenticStyleRouter.Style.REACCUMULATION)
 
+    // V5.0.8104 — owner: every live meme buy rides the runner ladder from entry. 5.0.8098: a MOONSHOT trade entered as
+    // CHART_BREAKOUT / PUMP_GRADUATION_SNIPE / ... was not a long-hold style, so the runner ladder, its soft-exit hold
+    // and the moonbag were all off and the learned pop-fade plan sold +24/+46/+70 with a 10-minute clock (runner
+    // promoted=0, moonbag held=0; Nihilism +1547%, RAM +1110%, SCREAM +1133% missed). CASHGEN stays a scalp lane.
+    private val runnerFromEntryLanes8104 = setOf("MOONSHOT", "SHITCOIN", "EXPRESS", "PROJECT_SNIPER")
+
+    /** Pure: does a live position in [lane] ride the runner ladder from its entry? */
+    fun runnerFromEntryLane8104(lane: String?, paper: Boolean): Boolean =
+        !paper && com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(lane) in runnerFromEntryLanes8104
+
+    fun runnerFromEntry8104(ts: TokenState): Boolean =
+        ts.position.isOpen && ts.position.entryTime > 0L && runnerFromEntryLane8104(ts.position.tradingMode, ts.position.isPaperPosition)
+
     fun longHold(ts: TokenState): Boolean? {
         val snap = ts.position.positionId.takeIf { it.isNotBlank() }?.let {
             EntryStrategySnapshot6450.snapshot(it)
